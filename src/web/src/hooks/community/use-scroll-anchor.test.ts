@@ -115,6 +115,31 @@ describe("decideScrollAction — mount (rewritten — neither case is free with 
     expect(phase2.nextState.didDividerConverge).toBe(true)
   })
 
+  it("does not run a delayed phase-1 mount after an upward user intent", () => {
+    const result = decideScrollAction(baseInput({
+      initialScrollReady: true,
+      newDividerBefore: "m2",
+      isAtEnd: true,
+      userScrolledAway: true,
+    }))
+    expect(result.action).toEqual({ type: "none" })
+    expect(result.nextState.didInitialScroll).toBe(true)
+    expect(result.nextState.didDividerConverge).toBe(true)
+  })
+
+  it("does not run phase-2 convergence from a stale at-end sample after an upward user intent", () => {
+    const phase1 = decideScrollAction(baseInput({ initialScrollReady: false }))
+    const phase2 = decideScrollAction(baseInput({
+      state: phase1.nextState,
+      initialScrollReady: true,
+      newDividerBefore: "m2",
+      isAtEnd: true,
+      userScrolledAway: true,
+    }))
+    expect(phase2.action).toEqual({ type: "none" })
+    expect(phase2.nextState.didDividerConverge).toBe(true)
+  })
+
   it("fires exactly once — a second commit with didInitialScroll already true does not re-mount-scroll", () => {
     const first = decideScrollAction(baseInput())
     expect(first.action.type).toBe("mount")
@@ -181,6 +206,19 @@ describe("decideScrollAction — self-send / peer-follow (both hand-rolled — f
     const state = mountedState()
     const messages = [{ id: "m1" }, { id: "m2" }, { id: "m3" }, { id: "m4", authorId: "peer" }]
     const { action } = decideScrollAction(baseInput({ state, messages, viewerUserId: "viewer", isAtEnd: false }))
+    expect(action).toEqual({ type: "none" })
+  })
+
+  it("peer send does not follow a stale at-end sample after an upward user intent", () => {
+    const state = mountedState()
+    const messages = [{ id: "m1" }, { id: "m2" }, { id: "m3" }, { id: "m4", authorId: "peer" }]
+    const { action } = decideScrollAction(baseInput({
+      state,
+      messages,
+      viewerUserId: "viewer",
+      isAtEnd: true,
+      userScrolledAway: true,
+    }))
     expect(action).toEqual({ type: "none" })
   })
 

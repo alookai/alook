@@ -11,7 +11,12 @@ vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
 }))
 
-type Snapshot = { ids: string[]; isFetching: boolean }
+type Snapshot = {
+  anchorReconciled?: boolean
+  hasMoreNewer?: boolean
+  ids: string[]
+  isFetching: boolean
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -34,7 +39,12 @@ function DmCapture({ lastReadMessageId, onRender }: {
   onRender: (snapshot: Snapshot) => void
 }) {
   const result = useDmMessages("dm_activation", { lastReadMessageId })
-  onRender({ ids: result.messages.map((message) => message.id), isFetching: result.isFetching })
+  onRender({
+    anchorReconciled: result.anchorReconciled,
+    hasMoreNewer: result.hasMoreNewer,
+    ids: result.messages.map((message) => message.id),
+    isFetching: result.isFetching,
+  })
   return null
 }
 
@@ -43,7 +53,12 @@ function ChannelCapture({ lastReadMessageId, onRender }: {
   onRender: (snapshot: Snapshot) => void
 }) {
   const result = useMessages("ch_activation", { serverId: "server_1", lastReadMessageId })
-  onRender({ ids: result.messages.map((message) => message.id), isFetching: result.isFetching })
+  onRender({
+    anchorReconciled: result.anchorReconciled,
+    hasMoreNewer: result.hasMoreNewer,
+    ids: result.messages.map((message) => message.id),
+    isFetching: result.isFetching,
+  })
   return null
 }
 
@@ -56,7 +71,12 @@ function IndependentChannelCapture({ lastReadMessageId, onRender }: {
     lastReadMessageId,
     waitForAnchor: false,
   })
-  onRender({ ids: result.messages.map((message) => message.id), isFetching: result.isFetching })
+  onRender({
+    anchorReconciled: result.anchorReconciled,
+    hasMoreNewer: result.hasMoreNewer,
+    ids: result.messages.map((message) => message.id),
+    isFetching: result.isFetching,
+  })
   return null
 }
 
@@ -142,6 +162,60 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
       ([url]) => url === "/api/community/channels/ch_activation/messages?anchor=m_read",
     ))
     await waitFor(() => snapshots.at(-1)?.ids.includes("m_read") === true)
+    renderer.unmount()
+  })
+
+  it("reconciles a late anchor already present in the newest page without replacing painted rows", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    apiFetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("?anchor=m_read")) {
+        return Promise.resolve({
+          messages: [{ id: "m_read", seq: 1, createdAt: "2026-08-09T00:00:01.000Z" }],
+          hasMoreOlder: false,
+          hasMoreNewer: true,
+          newerCursor: "m_read",
+          latestSeq: 2,
+        } satisfies MessagesPage)
+      }
+      return Promise.resolve({
+        messages: [
+          { id: "m_read", seq: 1, createdAt: "2026-08-09T00:00:01.000Z" },
+          { id: "m_new", seq: 2, createdAt: "2026-08-09T00:00:02.000Z" },
+        ],
+        hasMore: false,
+        latestSeq: 2,
+      } satisfies MessagesPage)
+    })
+    const snapshots: Snapshot[] = []
+    const onRender = (snapshot: Snapshot) => { snapshots.push(snapshot) }
+    const renderer = renderCapture(
+      queryClient,
+      React.createElement(IndependentChannelCapture, {
+        lastReadMessageId: undefined,
+        onRender,
+      }),
+    )
+
+    await waitFor(() => snapshots.at(-1)?.ids.includes("m_new") === true)
+    expect(snapshots.at(-1)?.anchorReconciled).toBe(true)
+    expect(snapshots.at(-1)?.hasMoreNewer).toBe(false)
+
+    updateCapture(
+      renderer,
+      queryClient,
+      React.createElement(IndependentChannelCapture, {
+        lastReadMessageId: "m_read",
+        onRender,
+      }),
+    )
+    await waitFor(() => snapshots.at(-1)?.anchorReconciled === true)
+
+    expect(apiFetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/community/channels/ch_activation/messages",
+      "/api/community/channels/ch_activation/messages?anchor=m_read",
+    ])
+    expect(snapshots.at(-1)?.ids).toEqual(["m_read", "m_new"])
+    expect(snapshots.at(-1)?.hasMoreNewer).toBe(true)
     renderer.unmount()
   })
 

@@ -32,6 +32,9 @@ export function useChannelMessageFeed({
   })
   const { newDividerBefore, anchorFound } = useMemo(() => {
     if (!readSnapshot) return { newDividerBefore: undefined, anchorFound: false }
+    if (!messagesQuery.anchorReconciled) {
+      return { newDividerBefore: undefined, anchorFound: false }
+    }
     const lastId = readSnapshot.lastReadMessageId
     if (!lastId) {
       for (const message of messagesQuery.messages) {
@@ -49,7 +52,7 @@ export function useChannelMessageFeed({
       }
     }
     return { newDividerBefore: undefined, anchorFound: true }
-  }, [messagesQuery.messages, readSnapshot, viewerUserId])
+  }, [messagesQuery.anchorReconciled, messagesQuery.messages, readSnapshot, viewerUserId])
   const [scrollRootEl, setScrollRootEl] = useState<HTMLDivElement | null>(null)
   useChannelWatermark({ channelId, messages: messagesQuery.messages, scrollRootEl })
   useEagerChannelRead({

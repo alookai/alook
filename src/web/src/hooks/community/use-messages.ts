@@ -147,6 +147,16 @@ const ANCHOR_CACHE_FRESHNESS_MS = 30_000
 
 type PageCache = InfiniteData<MessagesPage, MessagesPageParam>
 
+function cacheHasAnchorPage(
+  cache: PageCache | undefined,
+  anchorId: string | null,
+): boolean {
+  if (!anchorId || !cache) return false
+  return cache.pageParams.some((pageParam) => (
+    pageParam.mode === "anchor" && pageParam.anchor === anchorId
+  ))
+}
+
 function cachedWindowNeedsAnchor(
   pages: MessagesPage[] | undefined,
   anchorId: string | null,
@@ -162,6 +172,18 @@ function cachedWindowNeedsAnchor(
   return hasMessages
 }
 
+function cachedWindowNeedsAnchorReconcile(
+  cache: PageCache | undefined,
+  anchorId: string | null,
+  reconcileLateAnchor: boolean,
+): boolean {
+  if (!anchorId || !cache || cache.pages.length === 0) return false
+  if (cachedWindowNeedsAnchor(cache.pages, anchorId)) return true
+  if (!reconcileLateAnchor) return false
+  const hasMessages = cache.pages.some((page) => page.messages.length > 0)
+  return hasMessages && !cacheHasAnchorPage(cache, anchorId)
+}
+
 type MessagesReturn = Omit<UseInfiniteQueryResult<PageCache, Error>, "isLoading"> & {
   messages: Msg[]
   latestSeq: number
@@ -173,6 +195,7 @@ type MessagesReturn = Omit<UseInfiniteQueryResult<PageCache, Error>, "isLoading"
   fetchNewer: () => void
   jumpToPresent: () => void
   presentVersion: number
+  anchorReconciled: boolean
   // Legacy alias — mirrors `hasMoreOlder`. Kept so consumers not yet migrated
   // off the older-only API still compile until every call site is updated.
   hasMore: boolean
@@ -304,9 +327,10 @@ function useMessagesInner(
     // A nonempty window missing the resolved anchor is the one exception: Fix
     // 3 below owns that repair and must fetch the NEW anchor page before any
     // persisted pageParam can replace or discard the existing history.
-    staleTime: (cachedQuery) => cachedWindowNeedsAnchor(
-      (cachedQuery.state.data as PageCache | undefined)?.pages,
+    staleTime: (cachedQuery) => cachedWindowNeedsAnchorReconcile(
+      cachedQuery.state.data as PageCache | undefined,
       forceNewest ? null : anchorId,
+      opts?.waitForAnchor === false,
     ) ? Infinity : 0,
   })
 
@@ -394,7 +418,11 @@ function useMessagesInner(
     if (!anchorId) return
     if (query.isFetching) return
     if (query.isPending) return
-    if (!cachedWindowNeedsAnchor(query.data?.pages, anchorId)) return
+    if (!cachedWindowNeedsAnchorReconcile(
+      query.data,
+      anchorId,
+      opts?.waitForAnchor === false,
+    )) return
     const resetKey = `${scopeId ?? ""}::${anchorId}`
     if (anchorResetKeyRef.current === resetKey) return
     anchorResetKeyRef.current = resetKey
@@ -445,7 +473,12 @@ function useMessagesInner(
           // into a single page — `hasMoreOlder`/`hasMoreNewer` come from the
           // new anchor page since it alone knows the true state of both
           // edges relative to the (possibly wider) merged window.
-          const merged = mergeMessagesPages([...current.pages, page])
+          const currentMessages = mergeMessagesPages(current.pages)
+          const anchorAlreadyPainted = opts?.waitForAnchor === false
+            && currentMessages.some((message) => message.id === anchorId)
+          const merged = anchorAlreadyPainted
+            ? currentMessages
+            : mergeMessagesPages([...current.pages, page])
           const mergedPage: MessagesPage = {
             ...page,
             messages: merged,
@@ -473,6 +506,7 @@ function useMessagesInner(
     queryClient,
     queryKey,
     queryFn,
+    opts?.waitForAnchor,
   ])
 
   const messages = useMemo<Msg[]>(() => {
@@ -554,6 +588,7 @@ function useMessagesInner(
     presentVersion: forceNewest && presentOverride?.phase === "present"
       ? presentOverride.attemptId
       : 0,
+    anchorReconciled: !anchorId || cacheHasAnchorPage(query.data, anchorId),
     hasMore: hasMoreOlder,
   }
 }

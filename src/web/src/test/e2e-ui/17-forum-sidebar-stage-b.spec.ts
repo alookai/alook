@@ -53,8 +53,16 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     const initialCombined = page.waitForResponse((response) =>
       response.ok() && isSidebarRequest(response.url(), serverId),
     )
+    const initialNewest = page.waitForResponse((response) => {
+      if (!response.ok() || !isChannelMessagesRequest(response.url(), threadId)) return false
+      return !new URL(response.url()).searchParams.has("anchor")
+    })
+    const initialAnchored = page.waitForResponse((response) => {
+      if (!response.ok() || !isChannelMessagesRequest(response.url(), threadId)) return false
+      return new URL(response.url()).searchParams.has("anchor")
+    })
     await page.goto(`/c/channels/${serverId}/${threadId}`)
-    await initialCombined
+    await Promise.all([initialCombined, initialNewest, initialAnchored])
     await page.waitForURL(new RegExp(threadId), { timeout: 20_000, waitUntil: "commit" })
     await expect(page.getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
     await expect(page.getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
@@ -69,10 +77,13 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     const coldSuccessfulMessageResponses = successfulResponses.filter((url) =>
       isChannelMessagesRequest(url, threadId),
     )
-    expect(coldSuccessfulMessageResponses.length).toBeGreaterThanOrEqual(1)
-    for (const url of coldMessageRequests) {
-      expect(new URL(url).searchParams.get("anchor")).toBeTruthy()
-    }
+    expect(coldSuccessfulMessageResponses).toHaveLength(2)
+    expect(coldSuccessfulMessageResponses.filter((url) => !new URL(url).searchParams.has("anchor")))
+      .toHaveLength(1)
+    expect(coldSuccessfulMessageResponses.filter((url) => new URL(url).searchParams.has("anchor")))
+      .toHaveLength(1)
+    expect(new Set(coldSuccessfulMessageResponses).size).toBe(coldSuccessfulMessageResponses.length)
+    expect(coldMessageRequests.length).toBeGreaterThanOrEqual(coldSuccessfulMessageResponses.length)
 
     requests.length = 0
     successfulResponses.length = 0
@@ -92,9 +103,13 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     expect(requests.filter((url) => isExactChannelRequest(url, threadId))).toHaveLength(0)
     expect(requests.filter(isExactMessageRequest)).toHaveLength(0)
     const refreshMessageRequests = requests.filter((url) => isChannelMessagesRequest(url, threadId))
-    for (const url of refreshMessageRequests) {
-      expect(new URL(url).searchParams.get("anchor")).toBeTruthy()
-    }
+    expect(refreshMessageRequests.length).toBeGreaterThanOrEqual(1)
+    const refreshSuccessfulMessageResponses = successfulResponses.filter((url) =>
+      isChannelMessagesRequest(url, threadId),
+    )
+    expect(refreshSuccessfulMessageResponses.length).toBeGreaterThanOrEqual(1)
+    expect(new Set(refreshSuccessfulMessageResponses).size)
+      .toBe(refreshSuccessfulMessageResponses.length)
   })
 
   test("switching between top-level channels reuses the warm canonical base", async ({ asUser }) => {
