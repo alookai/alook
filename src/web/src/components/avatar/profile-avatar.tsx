@@ -1,10 +1,9 @@
 "use client"
 
-import type { ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 import {
   Avatar as UiAvatar,
   AvatarFallback,
-  AvatarImage,
 } from "@/components/ui/avatar"
 import { resolveAvatar } from "@/lib/avatar/resolve"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -21,6 +20,33 @@ export type ProfileAvatarProps = {
   className?: string
   children?: ReactNode
   "data-testid"?: string
+}
+
+function ProfilePhoto({ src, alt, fallback, fontSize }: {
+  src: string
+  alt: string
+  fallback: string
+  fontSize: number
+}) {
+  const [failed, setFailed] = useState(false)
+
+  if (failed) {
+    return (
+      <AvatarFallback className="font-medium" style={{ fontSize }}>
+        {fallback}
+      </AvatarFallback>
+    )
+  }
+
+  return (
+    <img
+      data-slot="avatar-image"
+      src={src}
+      alt={alt}
+      className="aspect-square size-full rounded-full object-cover"
+      onError={() => setFailed(true)}
+    />
+  )
 }
 
 export function ProfileAvatar({
@@ -50,12 +76,13 @@ export function ProfileAvatar({
       aria-hidden={decorative ? true : undefined}
     >
       {resolved.kind === "photo" ? (
-        <>
-          <AvatarImage src={resolved.url} alt={accessibleLabel} />
-          <AvatarFallback className="font-medium" style={{ fontSize: size * 0.4 }}>
-            {avatarInitial(safeLabel)}
-          </AvatarFallback>
-        </>
+        <ProfilePhoto
+          key={resolved.url}
+          src={resolved.url}
+          alt={accessibleLabel}
+          fallback={avatarInitial(safeLabel)}
+          fontSize={size * 0.4}
+        />
       ) : resolved.kind === "beam" ? (
         <span className="size-full overflow-hidden rounded-full">
           <GeneratedAvatar seed={resolved.seed} size={size} className="size-full rounded-full" />

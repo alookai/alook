@@ -189,8 +189,7 @@ export type MentionKind = typeof MENTION_KIND[keyof typeof MENTION_KIND]
 // Cache headers
 export const CACHE_IMMUTABLE = "public, max-age=31536000, immutable"
 export const CACHE_SHORT = "public, max-age=3600"
-// For content served from a URL that stays fixed across re-uploads (user/bot
-// avatars overwrite the same R2 key in place) — always revalidate so a
-// replace is visible immediately, but pair with an ETag so revalidation is a
-// cheap 304 rather than a full re-fetch.
-export const CACHE_REVALIDATE = "no-cache, must-revalidate"
+// For user/bot avatars whose URL stays fixed across re-uploads. The browser
+// may paint cached bytes immediately, then revalidate the R2 ETag in the
+// background and replace its cache only when the object changed.
+export const CACHE_REVALIDATE = "private, max-age=0, stale-while-revalidate=31536000"

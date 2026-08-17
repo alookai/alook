@@ -8,10 +8,9 @@ import { buildUserAvatarKey } from "@/lib/community/storage"
 // "readable by any authenticated user" gate. Message authors, member lists,
 // DM peers, etc. all need to render this avatar without an ownership check.
 //
-// The URL never changes across re-uploads (deterministic key), so caching by
-// max-age alone would keep every other viewer's browser stuck on the old
-// bytes for up to an hour after a replace. Revalidate on every request but
-// key it off the R2 ETag so a cache hit is a cheap 304, not a full re-fetch.
+// The URL never changes across re-uploads (deterministic key). Let the browser
+// paint stale bytes while it revalidates the R2 ETag in the background, so a
+// warm avatar never waits behind a network round trip.
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const userId = ctx.params?.userId
   if (!userId) return writeError("missing user id", 400)
