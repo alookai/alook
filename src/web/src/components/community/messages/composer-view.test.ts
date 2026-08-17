@@ -105,6 +105,7 @@ describe("ComposerView", () => {
           name: "general",
           serverId: "server-1",
           serverName: "One",
+          serverDiscriminator: "0001",
         },
       ],
     }

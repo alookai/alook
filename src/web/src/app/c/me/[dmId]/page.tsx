@@ -29,6 +29,7 @@ import { useDmReadStateSnapshot } from "@/hooks/community/use-dm-read-state"
 import { useDmWatermark } from "@/hooks/community/use-dm-watermark"
 import { useEagerDmRead } from "@/hooks/community/use-eager-dm-read"
 import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-directory"
+import { toChannelRefCandidate } from "@/lib/community/channel-ref-extension"
 import {
   useToggleReactionApi,
   useToggleMark,
@@ -130,7 +131,7 @@ function DmView() {
   const channelRefCandidates = useMemo(
     () =>
       channelRefDirectory.flatMap((s) =>
-        s.channels.map((ch) => ({ id: ch.id, name: ch.name, serverId: s.id, serverName: s.name })),
+        s.channels.map((ch) => toChannelRefCandidate(s, ch)),
       ),
     [channelRefDirectory],
   )

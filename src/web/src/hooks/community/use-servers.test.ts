@@ -77,7 +77,7 @@ describe("useServer / serverQueryFn", () => {
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/categories")
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/channels")
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/unreads")
-    expect(data).toEqual({ ...detail, categories: [
+    expect(data).toEqual({ ...detail, discriminator: "0001", categories: [
       { id: "cat_1", name: "Main", private: 0, channels: [{ id: "ch_1", name: "general", categoryId: "cat_1", active: false, unread: true }] },
       { id: "__uncategorized__", name: "", private: 0, channels: [{ id: "ch_2", name: "loose", categoryId: null, active: false, unread: false }] },
     ], forumUnreadState: {} })

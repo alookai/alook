@@ -81,6 +81,7 @@ export function useServers(): UseQueryResult<ServersResponse> & {
 export type ServerDetail = {
   id: string
   name: string
+  discriminator: string
   description: string
   icon: string | null
   ownerId: string
@@ -149,6 +150,7 @@ export const serverQueryFn = (serverId: string) => async (): Promise<ServerDetai
   return {
     id: server.id,
     name: server.name,
+    discriminator: server.discriminator,
     description: server.description ?? "",
     icon: server.icon,
     ownerId: server.ownerId,

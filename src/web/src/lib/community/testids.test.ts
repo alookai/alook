@@ -5,6 +5,7 @@ describe("community QA selectors", () => {
   it("keys forum-title read models by their stable child identity", () => {
     expect(tid.inboxUnreadChild("post_1")).toBe("community-inbox-unread-child-post_1")
     expect(tid.channelRefPill("post_1")).toBe("community-channel-ref-pill-post_1")
+    expect(tid.channelRefOption("channel_1")).toBe("community-channel-ref-option-channel_1")
   })
 
   it("keys invite-card surfaces by their token", () => {

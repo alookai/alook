@@ -1,11 +1,13 @@
 import Mention from "@tiptap/extension-mention"
 import { PluginKey } from "@tiptap/pm/state"
+import { formatHandle } from "@alook/shared"
 
 export type ChannelRefCandidate = {
   id: string // channelId (nanoid)
   name: string // channel display name, for the popup row + in-editor chip
   serverId: string // nanoid
   serverName: string // for the popup row when listing across servers
+  serverDiscriminator: string // required public server identity suffix
 }
 
 // The shape actually passed to tiptap's `command(props)` — NOT
@@ -13,7 +15,26 @@ export type ChannelRefCandidate = {
 // comment on the `name` → `label` mapping). Mirrors
 // `MentionPopupState.command`'s own mapped-shape typing in
 // `mention-extension.ts`.
-export type ChannelRefCommandProps = { id: string; label: string; serverId: string; serverName: string }
+export type ChannelRefCommandProps = {
+  id: string
+  label: string
+  serverId: string
+  serverName: string
+  serverDiscriminator: string
+}
+
+export function toChannelRefCandidate(
+  server: { id: string; name: string; discriminator: string },
+  channel: { id: string; name: string },
+): ChannelRefCandidate {
+  return {
+    id: channel.id,
+    name: channel.name,
+    serverId: server.id,
+    serverName: server.name,
+    serverDiscriminator: server.discriminator,
+  }
+}
 
 /**
  * Maps a `ChannelRefCandidate` (the shape the popup lists) to the props
@@ -25,7 +46,13 @@ export type ChannelRefCommandProps = { id: string; label: string; serverId: stri
  * already exists for.
  */
 export function toChannelRefCommandProps(item: ChannelRefCandidate): ChannelRefCommandProps {
-  return { id: item.id, label: item.name, serverId: item.serverId, serverName: item.serverName }
+  return {
+    id: item.id,
+    label: item.name,
+    serverId: item.serverId,
+    serverName: item.serverName,
+    serverDiscriminator: item.serverDiscriminator,
+  }
 }
 
 export interface ChannelRefPopupState {
@@ -88,6 +115,7 @@ const ChannelRefNode = Mention.extend({
       ...this.parent?.(),
       serverId: { default: null },
       serverName: { default: null },
+      serverDiscriminator: { default: null },
     }
   },
 })
@@ -108,7 +136,8 @@ const ChannelRefNode = Mention.extend({
  * `renderText` inserts by display name, not id — server/channel names are
  * now guaranteed ref-safe at creation/rename time (`slugify()`, applied by
  * every write route), so `serverName`/`label` round-trip through
- * `chat-syntax-plugin.ts`'s `CHANNEL_REF_RE` and `resolveChannelRefBase`
+ * the required discriminator round-trip through `chat-syntax-plugin.ts`'s
+ * `CHANNEL_REF_RE` and `resolveChannelRefBase`
  * (exact-string match) and render as something a human can actually read.
  * Falls back to `serverId`/`id` if either name is ever missing
  * (paste-from-HTML, drag-drop, etc.) — defensive, not the primary
@@ -138,18 +167,20 @@ export function buildCommunityChannelRefExtension(opts: {
     // to the visible label so the recipient reads a real word instead of
     // a broken pill — degraded, but not misleading. The command flow that
     // DOES set both fields (Enter/Tab on a suggestion) is unaffected.
-    // The server segment (`serverName ?? serverId`) and channel segment
-    // (`label ?? id`) fall back independently — one can be missing while
-    // the other isn't — and neither ever falls through to a literal
-    // "null"/"undefined" string in the emitted text.
+    // A public server name is usable only with its discriminator. Malformed
+    // pasted nodes fall back to the internal server id rather than emitting an
+    // ambiguous bare display name; neither segment emits "null"/"undefined".
     renderText: ({ node }) => {
-      const { serverId, serverName, id, label } = node.attrs as {
+      const { serverId, serverName, serverDiscriminator, id, label } = node.attrs as {
         serverId?: string | null
         serverName?: string | null
+        serverDiscriminator?: string | null
         id?: string | null
         label?: string | null
       }
-      const server = serverName || serverId
+      const server = serverName && serverDiscriminator
+        ? formatHandle(serverName, serverDiscriminator)
+        : serverId
       const channel = label || id
       if (!server) return channel ? `/${channel}` : ""
       return channel ? `/${server}/${channel}` : `/${server}`

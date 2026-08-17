@@ -176,7 +176,7 @@ function surfaceProps(overrides: Record<string, unknown> = {}) {
     onBack: vi.fn(),
     composerMembers: [{ id: "member_1", userId: "member_1", name: "Alice" }],
     onSearchComposerMembers: vi.fn(),
-    channelRefCandidates: [{ id: "parent_1", name: "general", serverId: "server_1", serverName: "Server" }],
+    channelRefCandidates: [{ id: "parent_1", name: "general", serverId: "server_1", serverName: "Server", serverDiscriminator: "0001" }],
     memberPanelProps: {
       members: [],
       membersLoading: false,

@@ -69,6 +69,7 @@ const channel = (
   name: "general",
   serverId: "server-1",
   serverName: "One",
+  serverDiscriminator: "0001",
   ...overrides,
 })
 
@@ -335,8 +336,27 @@ describe("useComposerSuggestions", () => {
         }),
       )
     })
-    expect(resultRef.current!.channelRefPopup).toBe(previousState)
-    expect(resultRef.current!.channelRefPopup.items[0].serverName).toBe("One")
+    expect(resultRef.current!.channelRefPopup).not.toBe(previousState)
+    expect(resultRef.current!.channelRefPopup.items[0].serverName).toBe("Two")
+
+    mocks.rankChannel.mockReturnValue([channel({
+      serverName: "Two",
+      serverDiscriminator: "0002",
+    })])
+    await act(async () => {
+      renderer.update(
+        createElement(Harness, {
+          members: [],
+          context: "dm",
+          channelRefCandidates: [channel({
+            serverName: "Two",
+            serverDiscriminator: "0002",
+          })],
+          resultRef,
+        }),
+      )
+    })
+    expect(resultRef.current!.channelRefPopup.items[0].serverDiscriminator).toBe("0002")
 
     const second = channel({ id: "channel-2", name: "random" })
     await act(async () => {

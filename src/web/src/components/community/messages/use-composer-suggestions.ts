@@ -55,7 +55,9 @@ function channelRefItemsEqual(
     if (
       a[index].id !== b[index].id ||
       a[index].name !== b[index].name ||
-      a[index].serverId !== b[index].serverId
+      a[index].serverId !== b[index].serverId ||
+      a[index].serverName !== b[index].serverName ||
+      a[index].serverDiscriminator !== b[index].serverDiscriminator
     ) return false
   }
   return true

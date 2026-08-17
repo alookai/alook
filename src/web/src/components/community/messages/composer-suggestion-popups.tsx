@@ -145,6 +145,7 @@ function ChannelRefRow({
     <button
       type="button"
       role="option"
+      data-testid={tid.channelRefOption(item.id)}
       aria-selected={selected}
       className={[
         "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",

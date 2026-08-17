@@ -181,12 +181,14 @@ describe("Composer suggestion popups", () => {
           name: "general",
           serverId: "server-1",
           serverName: "One",
+          serverDiscriminator: "0001",
         },
         {
           id: "channel-2",
           name: "random",
           serverId: "server-2",
           serverName: "Two",
+          serverDiscriminator: "0002",
         },
       ],
       selectedIndex: 0,
@@ -213,6 +215,7 @@ describe("Composer suggestion popups", () => {
     ])
 
     const first = renderer.root.findAllByType("button")[0]
+    expect(first.props["data-testid"]).toBe("community-channel-ref-option-channel-1")
     const preventDefault = vi.fn()
     await act(async () => first.props.onMouseDown({ preventDefault }))
     expect(preventDefault).toHaveBeenCalledOnce()
@@ -221,6 +224,7 @@ describe("Composer suggestion popups", () => {
       label: "general",
       serverId: "server-1",
       serverName: "One",
+      serverDiscriminator: "0001",
     })
 
     await act(async () => {
@@ -234,6 +238,7 @@ describe("Composer suggestion popups", () => {
                 ...state.items[1],
                 serverId: "server-1",
                 serverName: "One",
+                serverDiscriminator: "0001",
               },
             ],
           },
