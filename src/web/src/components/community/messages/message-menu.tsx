@@ -48,7 +48,6 @@ export function messageMenuItems(handlers: {
     ? { label: "Unmark", onClick: handlers.onMark }
     : { label: "Mark", onClick: handlers.onMark })
   if (handlers.onCopy) items.push({ label: "Copy Text", onClick: handlers.onCopy })
-  if (handlers.onEdit) items.push({ label: "Edit Message", onClick: handlers.onEdit })
   if (handlers.onShare) items.push({ label: "Share as Image", icon: Share, onClick: handlers.onShare })
   return items
 }

@@ -22,11 +22,12 @@ describe("messageMenuItems", () => {
     expect(onShare).toHaveBeenCalledOnce()
   })
 
-  it("includes Edit Message only when the author-scoped handler is provided", () => {
+  it("keeps Edit Message hidden even when the author-scoped handler is provided", () => {
     expect(messageMenuItems({}).some((it) => it.label === "Edit Message")).toBe(false)
     const onEdit = vi.fn()
-    messageMenuItems({ onEdit }).find((it) => it.label === "Edit Message")?.onClick?.()
-    expect(onEdit).toHaveBeenCalledOnce()
+    expect(messageMenuItems({ onEdit })).toEqual([])
+    expect(hasMessageMenu({ onEdit })).toBe(false)
+    expect(onEdit).not.toHaveBeenCalled()
   })
 
   it("gives only the high-frequency actions (Reply, Share) an icon; the rest text-only", () => {
@@ -38,9 +39,10 @@ describe("messageMenuItems", () => {
     })
     const iconLabels = items.filter((it) => it.icon).map((it) => it.label)
     expect(iconLabels).toEqual(["Reply", "Share as Image"])
-    for (const label of ["Add Reaction", "Create Thread", "Pin Message", "Copy Text", "Edit Message"]) {
+    for (const label of ["Add Reaction", "Create Thread", "Pin Message", "Copy Text"]) {
       expect(items.find((it) => it.label === label)?.icon).toBeUndefined()
     }
+    expect(items.some((it) => it.label === "Edit Message")).toBe(false)
   })
 
   it("keeps the original row order — icons don't reorder the list (uiux #19)", () => {
@@ -48,7 +50,7 @@ describe("messageMenuItems", () => {
       onReply: () => {}, onShare: () => {}, onAddReaction: () => {},
       onCreateThread: () => {}, onPin: () => {}, onCopy: () => {}, onEdit: () => {},
     }).map((it) => it.label)
-    expect(labels).toEqual(["Add Reaction", "Reply", "Create Thread", "Pin Message", "Copy Text", "Edit Message", "Share as Image"])
+    expect(labels).toEqual(["Add Reaction", "Reply", "Create Thread", "Pin Message", "Copy Text", "Share as Image"])
     expect(labels).not.toContain("sep")
   })
 
