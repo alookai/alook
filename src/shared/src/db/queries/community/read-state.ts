@@ -273,9 +273,11 @@ export async function markAllDmsRead(
 }
 
 /**
- * The agent `ack` route's cursor-advance — the ONLY writer of `lastReadSeq`
- * outside `createMessage`'s author-watermark upsert (design §4). `Cursor =
- * { channel, seq }` carries no message id, so this first resolves
+ * The agent `ack` route's cursor-advance — one of two intentional writers of
+ * `lastReadSeq` outside `createMessage`'s author-watermark upsert (design §4),
+ * alongside notification-policy clears. Both paths advance the complete
+ * read-state triple together. `Cursor = { channel, seq }` carries no message
+ * id, so this first resolves
  * `(target, seq) → { id, createdAt }` via `getMessageByChannelAndSeq`, then
  * upserts all three of `lastReadSeq`/`lastReadMessageId`/`lastReadAt`
  * together — NEVER bump `lastReadSeq` alone, or the table's documented

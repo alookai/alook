@@ -1,7 +1,27 @@
-import { eq, and, or, isNull, isNotNull, inArray } from "drizzle-orm";
-import { communityNotificationSetting, communityChannel } from "../../community-schema";
+import {
+  eq,
+  and,
+  or,
+  isNull,
+  isNotNull,
+  inArray,
+  gt,
+  notExists,
+  sql,
+} from "drizzle-orm";
+import type { SQLWrapper } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
+import { nanoid } from "nanoid";
+import {
+  communityNotificationSetting,
+  communityChannel,
+  communityMessage,
+  communityReadState,
+} from "../../community-schema";
 import type { Database } from "../../index";
 import type { NotificationLevelValue } from "../../../constants/community";
+import { currentEffectiveLevelSql } from "./notification-eligibility";
+import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 
 type EffectiveLevelChannel = {
   id: string;
@@ -14,6 +34,14 @@ type EffectiveLevelSetting = {
   serverId: string | null;
   level: string;
 };
+
+export function policyAllows(
+  level: NotificationLevelValue,
+  hasAttention: boolean,
+): boolean {
+  if (level === "nothing") return false;
+  return level === "all" || hasAttention;
+}
 
 // Resolve a user's effective notification level for a channel: own-channel
 // override beats parent-channel (forum/thread → its parent) beats server
@@ -65,26 +93,34 @@ async function loadScopedSettings(
     ? [channel.id, channel.parentChannelId]
     : [channel.id];
 
-  return db
-    .select({
-      userId: communityNotificationSetting.userId,
-      channelId: communityNotificationSetting.channelId,
-      serverId: communityNotificationSetting.serverId,
-      level: communityNotificationSetting.level,
-    })
-    .from(communityNotificationSetting)
-    .where(
-      and(
-        inArray(communityNotificationSetting.userId, userIds),
-        or(
-          inArray(communityNotificationSetting.channelId, channelIds),
+  // Reserve one bind for serverId plus one per own/parent channel id. The
+  // remainder is the safe recipient batch under D1's 100-bind ceiling.
+  const usersPerQuery = D1_MAX_IN_PARAMS - channelIds.length - 1;
+  const rows = await Promise.all(
+    chunk(userIds, usersPerQuery).map((ids) =>
+      db
+        .select({
+          userId: communityNotificationSetting.userId,
+          channelId: communityNotificationSetting.channelId,
+          serverId: communityNotificationSetting.serverId,
+          level: communityNotificationSetting.level,
+        })
+        .from(communityNotificationSetting)
+        .where(
           and(
-            eq(communityNotificationSetting.serverId, channel.serverId),
-            isNull(communityNotificationSetting.channelId)
+            inArray(communityNotificationSetting.userId, ids),
+            or(
+              inArray(communityNotificationSetting.channelId, channelIds),
+              and(
+                eq(communityNotificationSetting.serverId, channel.serverId),
+                isNull(communityNotificationSetting.channelId)
+              )
+            )
           )
         )
-      )
-    );
+    )
+  );
+  return rows.flat();
 }
 
 export async function resolveEffectiveLevel(
@@ -98,8 +134,8 @@ export async function resolveEffectiveLevel(
   return computeEffectiveLevel(settings, channel);
 }
 
-// Batch resolver: 2 queries total (one channel load + one scoped settings
-// fetch) regardless of recipient count.
+// Batch resolver: one channel load plus one bounded settings query per D1-safe
+// recipient chunk. This is O(chunks), never N+1.
 export async function resolveEffectiveLevelForUsers(
   db: Database,
   userIds: string[],
@@ -129,83 +165,279 @@ export async function getSettings(db: Database, userId: string) {
     .where(eq(communityNotificationSetting.userId, userId));
 }
 
+type MutationScope =
+  | { kind: "server"; id: string }
+  | { kind: "channel"; id: string };
+
+type SettingChange =
+  | { kind: "set-server"; id: string; level: string }
+  | { kind: "set-channel"; id: string; level: string }
+  | { kind: "remove-channel"; id: string };
+
+function affectedChannelWhere(scope: MutationScope) {
+  return scope.kind === "server"
+    ? eq(communityChannel.serverId, scope.id)
+    : or(
+        eq(communityChannel.id, scope.id),
+        eq(communityChannel.parentChannelId, scope.id),
+      )!;
+}
+
+function settingLevelForChannelSql(
+  userId: string,
+  channelId: SQLWrapper,
+  extraWhere?: ReturnType<typeof sql>,
+) {
+  return sql`(
+    select ${communityNotificationSetting.level}
+    from ${communityNotificationSetting}
+    where ${communityNotificationSetting.userId} = ${userId}
+      and ${communityNotificationSetting.channelId} = ${channelId}
+      ${extraWhere ? sql`and ${extraWhere}` : sql``}
+    limit 1
+  )`;
+}
+
+function serverLevelSql(userId: string) {
+  return sql`(
+    select ${communityNotificationSetting.level}
+    from ${communityNotificationSetting}
+    where ${communityNotificationSetting.userId} = ${userId}
+      and ${communityNotificationSetting.serverId} = ${communityChannel.serverId}
+      and ${communityNotificationSetting.channelId} is null
+    limit 1
+  )`;
+}
+
+/** Effective level each affected channel will have after the requested write. */
+function nextEffectiveLevelSql(userId: string, change: SettingChange) {
+  if (change.kind === "set-server") {
+    return sql<NotificationLevelValue>`coalesce(
+      ${settingLevelForChannelSql(userId, communityChannel.id)},
+      ${settingLevelForChannelSql(userId, communityChannel.parentChannelId)},
+      ${change.level}
+    )`;
+  }
+
+  if (change.kind === "set-channel") {
+    return sql<NotificationLevelValue>`case
+      when ${communityChannel.id} = ${change.id} then ${change.level}
+      else coalesce(
+        ${settingLevelForChannelSql(userId, communityChannel.id)},
+        ${change.level}
+      )
+    end`;
+  }
+
+  // Remove the target override from the resolver without actually deleting it
+  // yet. For the target, its direct parent remains eligible inheritance; for
+  // a child, parentChannelId === target and must be excluded as the row being
+  // removed. A child's own override still wins and therefore yields no change.
+  return sql<NotificationLevelValue>`coalesce(
+    ${settingLevelForChannelSql(
+      userId,
+      communityChannel.id,
+      sql`${communityChannel.id} <> ${change.id}`,
+    )},
+    ${settingLevelForChannelSql(
+      userId,
+      communityChannel.parentChannelId,
+      sql`${communityChannel.parentChannelId} <> ${change.id}`,
+    )},
+    ${serverLevelSql(userId)},
+    'all'
+  )`;
+}
+
+/**
+ * Build the cursor half of a notification-setting mutation.
+ *
+ * The product contract treats a setting change as handling every old unread
+ * in the affected scope. The statement selects each channel's latest real
+ * message and advances all three aligned read-state fields together. Empty
+ * channels produce no row, while the conflict guard prevents a concurrent or
+ * already-newer cursor from regressing.
+ */
+function buildClearAffectedUnreadStatement(
+  db: Database,
+  userId: string,
+  change: SettingChange,
+) {
+  const scope: MutationScope = change.kind === "set-server"
+    ? { kind: "server", id: change.id }
+    : { kind: "channel", id: change.id };
+  const latestMessage = alias(communityMessage, "notification_latest_message");
+  const newerMessage = alias(communityMessage, "notification_newer_message");
+  const channelSql = {
+    id: communityChannel.id,
+    serverId: communityChannel.serverId,
+    parentChannelId: communityChannel.parentChannelId,
+  };
+  const currentLevel = currentEffectiveLevelSql(userId, channelSql);
+  const nextLevel = nextEffectiveLevelSql(userId, change);
+  const selected = db
+    .select({
+      id: sql<string>`lower(hex(randomblob(16)))`.as("id"),
+      userId: sql<string>`${userId}`.as("user_id"),
+      channelId: communityChannel.id,
+      lastReadAt: latestMessage.createdAt,
+      lastReadMessageId: latestMessage.id,
+      lastReadSeq: latestMessage.seq,
+    })
+    .from(communityChannel)
+    .innerJoin(
+      latestMessage,
+      eq(latestMessage.channelId, communityChannel.id),
+    )
+    .where(
+      and(
+        affectedChannelWhere(scope),
+        sql`${currentLevel} <> ${nextLevel}`,
+        notExists(
+          db
+            .select({ one: sql<number>`1` })
+            .from(newerMessage)
+            .where(
+              and(
+                eq(newerMessage.channelId, latestMessage.channelId),
+                gt(newerMessage.seq, latestMessage.seq),
+              ),
+            ),
+        ),
+      ),
+    );
+
+  return db
+    .insert(communityReadState)
+    .select(selected)
+    .onConflictDoUpdate({
+      target: [communityReadState.userId, communityReadState.channelId],
+      set: {
+        lastReadAt: sql`excluded.last_read_at`,
+        lastReadMessageId: sql`excluded.last_read_message_id`,
+        lastReadSeq: sql`excluded.last_read_seq`,
+      },
+      setWhere: sql`${communityReadState.lastReadSeq} < excluded.last_read_seq`,
+    });
+}
+
+async function applySettingMutation(
+  db: Database,
+  userId: string,
+  change: SettingChange,
+  mutation: unknown,
+) {
+  // Clear first while the current projection still represents the "before"
+  // level used by the changed-effective predicate. D1 batch is atomic, so no
+  // observer can see the cursor advance without the setting write (or vice
+  // versa), and any failure rolls both statements back.
+  const clearUnread = buildClearAffectedUnreadStatement(db, userId, change);
+  await db.batch([clearUnread, mutation] as any);
+}
+
 export async function setServerLevel(
   db: Database,
   data: { userId: string; serverId: string; level: string }
 ) {
-  const existing = await db
+  const mutation = db
+    .insert(communityNotificationSetting)
+    .values({
+      id: nanoid(),
+      userId: data.userId,
+      serverId: data.serverId,
+      channelId: null,
+      level: data.level,
+    })
+    .onConflictDoUpdate({
+      target: [
+        communityNotificationSetting.userId,
+        communityNotificationSetting.serverId,
+      ],
+      targetWhere: isNotNull(communityNotificationSetting.serverId),
+      set: { level: data.level },
+    });
+
+  await applySettingMutation(
+    db,
+    data.userId,
+    { kind: "set-server", id: data.serverId, level: data.level },
+    mutation,
+  );
+
+  const rows = await db
     .select()
     .from(communityNotificationSetting)
     .where(
       and(
         eq(communityNotificationSetting.userId, data.userId),
         eq(communityNotificationSetting.serverId, data.serverId),
-        isNotNull(communityNotificationSetting.serverId)
-      )
-    );
-
-  if (existing.length > 0) {
-    const [updated] = await db
-      .update(communityNotificationSetting)
-      .set({ level: data.level })
-      .where(eq(communityNotificationSetting.id, existing[0]!.id))
-      .returning();
-    return updated!;
-  }
-
-  const [inserted] = await db
-    .insert(communityNotificationSetting)
-    .values({
-      userId: data.userId,
-      serverId: data.serverId,
-      channelId: null,
-      level: data.level,
-    })
-    .returning();
-  return inserted!;
+        isNull(communityNotificationSetting.channelId),
+      ),
+    )
+    .limit(1);
+  return rows[0]!;
 }
 
 export async function setChannelLevel(
   db: Database,
   data: { userId: string; channelId: string; level: string }
 ) {
-  const existing = await db
+  const mutation = db
+    .insert(communityNotificationSetting)
+    .values({
+      id: nanoid(),
+      userId: data.userId,
+      serverId: null,
+      channelId: data.channelId,
+      level: data.level,
+    })
+    .onConflictDoUpdate({
+      target: [
+        communityNotificationSetting.userId,
+        communityNotificationSetting.channelId,
+      ],
+      targetWhere: isNotNull(communityNotificationSetting.channelId),
+      set: { level: data.level },
+    });
+
+  await applySettingMutation(
+    db,
+    data.userId,
+    { kind: "set-channel", id: data.channelId, level: data.level },
+    mutation,
+  );
+
+  const rows = await db
     .select()
     .from(communityNotificationSetting)
     .where(
       and(
         eq(communityNotificationSetting.userId, data.userId),
         eq(communityNotificationSetting.channelId, data.channelId),
-        isNotNull(communityNotificationSetting.channelId)
-      )
-    );
-
-  if (existing.length > 0) {
-    const [updated] = await db
-      .update(communityNotificationSetting)
-      .set({ level: data.level })
-      .where(eq(communityNotificationSetting.id, existing[0]!.id))
-      .returning();
-    return updated!;
-  }
-
-  const [inserted] = await db
-    .insert(communityNotificationSetting)
-    .values({
-      userId: data.userId,
-      serverId: null,
-      channelId: data.channelId,
-      level: data.level,
-    })
-    .returning();
-  return inserted!;
+        isNull(communityNotificationSetting.serverId),
+      ),
+    )
+    .limit(1);
+  return rows[0]!;
 }
 
 export async function removeChannelOverride(
   db: Database,
   data: { userId: string; channelId: string }
 ) {
-  const [deleted] = await db
+  const existingRows = await db
+    .select()
+    .from(communityNotificationSetting)
+    .where(
+      and(
+        eq(communityNotificationSetting.userId, data.userId),
+        eq(communityNotificationSetting.channelId, data.channelId),
+        isNotNull(communityNotificationSetting.channelId),
+      ),
+    )
+    .limit(1);
+
+  const mutation = db
     .delete(communityNotificationSetting)
     .where(
       and(
@@ -213,7 +445,13 @@ export async function removeChannelOverride(
         eq(communityNotificationSetting.channelId, data.channelId),
         isNotNull(communityNotificationSetting.channelId)
       )
-    )
-    .returning();
-  return deleted ?? null;
+    );
+
+  await applySettingMutation(
+    db,
+    data.userId,
+    { kind: "remove-channel", id: data.channelId },
+    mutation,
+  );
+  return existingRows[0] ?? null;
 }
