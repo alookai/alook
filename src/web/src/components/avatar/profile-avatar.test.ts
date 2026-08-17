@@ -1,4 +1,4 @@
-import { Children, createElement, type ReactElement, type ReactNode } from "react"
+import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { serializeBeamSeed } from "@/lib/avatar/seed-url"
@@ -12,18 +12,8 @@ function render(props: ProfileAvatarProps): string {
   return renderToStaticMarkup(createElement(ProfileAvatar, props))
 }
 
-function resolvedImageProps(props: ProfileAvatarProps): { src: string; alt: string } {
-  const root = ProfileAvatar(props) as ReactElement<{ children: ReactNode }>
-  const branch = Children.toArray(root.props.children)[0] as ReactElement<{ children: ReactNode }>
-  const image = Children.toArray(branch.props.children)[0] as ReactElement<{
-    src: string
-    alt: string
-  }>
-  return image.props
-}
-
 describe("ProfileAvatar", () => {
-  it("renders a photo with the requested label, size, and caller class", () => {
+  it("mounts a photo immediately without showing the loading fallback", () => {
     const html = render({
       label: "Ada",
       src: "https://cdn.example.com/ada.png",
@@ -35,10 +25,8 @@ describe("ProfileAvatar", () => {
 
     expect(html).toContain('data-testid="profile-avatar"')
     expect(html).toContain('data-avatar-kind="photo"')
-    expect(resolvedImageProps({
-      label: "Ada",
-      src: "https://cdn.example.com/ada.png",
-    })).toMatchObject({ src: "https://cdn.example.com/ada.png", alt: "Ada" })
+    expect(html).toContain('<img data-slot="avatar-image" src="https://cdn.example.com/ada.png" alt="Ada"')
+    expect(html).not.toContain('data-slot="avatar-fallback"')
     expect(html).toContain("width:40px;height:40px")
     expect(html).toContain("ring-2")
   })
@@ -83,7 +71,7 @@ describe("ProfileAvatar", () => {
     })
 
     expect(html).toContain('data-avatar-kind="photo"')
-    expect(resolvedImageProps({ label: "Ada", src: "/api/avatar", alt: "" }).alt).toBe("")
+    expect(html).toContain('<img data-slot="avatar-image" src="/api/avatar" alt=""')
     expect(html).toContain('aria-hidden="true"')
     expect(html).not.toContain('role="img"')
     expect(html).not.toContain("aria-label")
