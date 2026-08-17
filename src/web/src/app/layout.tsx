@@ -5,6 +5,7 @@ import { ToasterProvider } from "@/components/toaster-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { MockNetworkBanner } from "@/components/mock-network-banner";
 import { TauriThemeSync } from "@/components/tauri-theme-sync";
+import { ThemeColorSync } from "@/components/theme-color-sync";
 import { BRAND_DESCRIPTION, BRAND_SLOGAN, BRAND_TITLE } from "@/lib/brand-copy";
 import { caveat, dmMono, dmSans, instrumentSerif, literata, vt323 } from "./fonts";
 import "./globals.css";
@@ -125,6 +126,7 @@ export default function RootLayout({
           }}
         />
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <ThemeColorSync />
           <TauriThemeSync />
           <TooltipProvider>
             {children}
