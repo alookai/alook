@@ -3,7 +3,7 @@
  * commit 2b61535d, to main's post-#412 DM-as-channel model).
  *
  * ONE trunk for the HUMAN notify legs of a new message: resolve each
- * recipient's effective notification level, apply the 3-tier matrix, then
+ * recipient's current delivery state, apply the 3-tier matrix, then
  * dispatch the mute-gated per-user signals — a `MENTION_CREATE` live push (when
  * that recipient was mentioned) and a per-user `UNREAD_BUMP` badge. Writes NO
  * persistent state — offline replay rides the existing `community_read_state`
@@ -12,7 +12,7 @@
  * Scope boundaries (Melly #23 ruling):
  * - This pipeline does NOT own bot WAKE. Wake gating lives in
  *   `wake-producer` (the produce/enqueue seam), gated by the SAME
- *   effective-level resolver. Keeping wake out of here keeps notify.ts to the
+ *   shared delivery-state resolver. Keeping wake out of here keeps notify.ts to the
  *   human legs and avoids a double gate.
  * - This pipeline NEVER emits `MESSAGE_CREATE`. That broadcast is the ONLY
  *   content-sync path, stays in `fanOutToChannel`, and is unfiltered by level —
@@ -34,7 +34,7 @@
  */
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries, WS_EVENTS, createLogger } from "@alook/shared"
-import type { Database, NotificationLevelValue, WsMessage } from "@alook/shared"
+import type { Database, WsMessage } from "@alook/shared"
 import { broadcastToUser } from "../broadcast"
 
 const log = createLogger({ service: "community-notify" })
@@ -105,12 +105,6 @@ export interface MessageNotifyContext {
  * (personal @ ∪ @everyone ∪ reply). Governs both badge and the mention push
  * uniformly.
  */
-export function shouldDeliver(level: NotificationLevelValue, wasMentioned: boolean): boolean {
-  if (level === "all") return true
-  if (level === "mentions") return wasMentioned
-  return false // "nothing" — never
-}
-
 /**
  * Dispatch level-filtered HUMAN notify signals for one just-created message.
  * Fire-and-forget: absorbs all failures (the message already synced via
@@ -149,19 +143,22 @@ async function runMessageNotify(
     const { channelId } = message
     const recipientIds = [...new Set(recipients)]
     const mentionedIds = [...new Set(opts.mentionedUserIds)]
-    const mentioned = new Set(mentionedIds)
-
     const everyone = [...new Set([...recipientIds, ...mentionedIds])]
-    const levels = await queries.communityNotificationSetting.resolveEffectiveLevelForUsers(
+    const delivery = await queries.communityNotificationEligibility.resolveNotificationEligibilityForUsers(
       db,
       everyone,
-      channelId,
+      message.id,
     )
-    const levelOf = (userId: string): NotificationLevelValue => levels.get(userId) ?? "all"
     const tasks: NotifyLeafTask[] = []
 
     for (const userId of mentionedIds) {
-      if (!shouldDeliver(levelOf(userId), true)) continue
+      const state = delivery.get(userId)
+      if (
+        !state?.isReadable ||
+        !state.hasAttention ||
+        !state.isUnread ||
+        !queries.communityNotificationSetting.policyAllows(state.currentLevel, state.hasAttention)
+      ) continue
       tasks.push({
         kind: "mention",
         userId,
@@ -176,8 +173,12 @@ async function runMessageNotify(
     }
 
     for (const userId of recipientIds) {
-      const isMention = mentioned.has(userId)
-      if (!shouldDeliver(levelOf(userId), isMention)) continue
+      const state = delivery.get(userId)
+      if (
+        !state?.isReadable ||
+        !state.isUnread ||
+        !queries.communityNotificationSetting.policyAllows(state.currentLevel, state.hasAttention)
+      ) continue
       tasks.push({
         kind: "unread",
         userId,
@@ -187,7 +188,7 @@ async function runMessageNotify(
           channelId,
           ...(opts.serverId !== undefined ? { serverId: opts.serverId } : {}),
           ...(opts.railChannelId !== undefined ? { railChannelId: opts.railChannelId } : {}),
-          isMention,
+          isMention: state.hasAttention,
         },
       })
     }

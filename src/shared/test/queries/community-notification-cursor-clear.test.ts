@@ -13,6 +13,7 @@ import {
   notificationEligibleSql,
 } from "../../src/db/queries/community/notification-eligibility";
 import { communityChannel } from "../../src/db/community-schema";
+import { getLatestUnreadMessageForAgent } from "../../src/db/queries/community/agent-inbox";
 
 describe("policyAllows", () => {
   it.each([
@@ -37,7 +38,8 @@ describe("notification setting cursor-clear contract", () => {
       CREATE TABLE community_channel (
         id TEXT PRIMARY KEY,
         server_id TEXT,
-        parent_channel_id TEXT
+        parent_channel_id TEXT,
+        type TEXT NOT NULL DEFAULT 'text'
       );
       CREATE TABLE community_message (
         id TEXT PRIMARY KEY,
@@ -55,6 +57,17 @@ describe("notification setting cursor-clear contract", () => {
         last_read_message_id TEXT,
         last_read_seq INTEGER NOT NULL DEFAULT 0,
         UNIQUE(user_id, channel_id)
+      );
+      CREATE TABLE community_channel_member (
+        channel_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        relation TEXT NOT NULL,
+        added_at TEXT NOT NULL
+      );
+      CREATE TABLE community_server_member (
+        server_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        joined_at TEXT NOT NULL
       );
       CREATE TABLE community_notification_setting (
         id TEXT PRIMARY KEY,
@@ -87,6 +100,8 @@ describe("notification setting cursor-clear contract", () => {
         ('child-3', 'child', '2026-01-01T00:00:03Z', 3),
         ('sibling-4', 'sibling', '2026-01-01T00:00:04Z', 4),
         ('dm-5', 'dm', '2026-01-01T00:00:05Z', 5);
+      INSERT INTO community_server_member (server_id, user_id, joined_at)
+      VALUES ('server', 'u', '2025-01-01T00:00:00Z');
     `);
     const betterDb = drizzle(sqlite);
     (betterDb as any).batch = async (statements: any[]) =>
@@ -229,5 +244,20 @@ describe("notification setting cursor-clear contract", () => {
       .get();
 
     expect(row).toEqual({ mentioned: 1, plain: 0 });
+  });
+
+  it("resync skips the newest muted unread and finds an older eligible unread", async () => {
+    sqlite.exec(`
+      INSERT INTO community_message (id, channel_id, created_at, seq)
+      VALUES ('parent-newest', 'parent', '2026-01-01T00:00:10Z', 10);
+      INSERT INTO community_notification_setting (id, user_id, channel_id, level) VALUES
+        ('mute-parent', 'u', 'parent', 'nothing'),
+        ('allow-child', 'u', 'child', 'all');
+    `);
+
+    const latest = await getLatestUnreadMessageForAgent(db, "u", {
+      accessVisibleChannelIds: ["parent", "child"],
+    });
+    expect(latest).toEqual({ messageId: "child-3" });
   });
 });

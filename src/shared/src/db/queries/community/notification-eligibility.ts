@@ -1,15 +1,17 @@
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { SQLWrapper } from "drizzle-orm";
 import {
   communityMention,
   communityMessage,
   communityChannel,
   communityNotificationSetting,
+  communityReadState,
 } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import type { NotificationLevelValue } from "../../../constants/community";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
+import { channelReadableSql } from "./channel";
 
 type SqlValue = string | number | SQLWrapper;
 
@@ -77,10 +79,11 @@ export function hasUnreadAttentionSql(userId: SqlValue, messageId: SqlValue) {
 }
 
 export function policyAllowsSql(level: SQLWrapper, hasAttention: SQLWrapper) {
-  return sql<boolean>`(
-    ${level} = 'all'
-    or (${level} = 'mentions' and ${hasAttention})
-  )`;
+  return sql<boolean>`case
+    when ${level} = 'all' then 1
+    when ${level} = 'mentions' then ${hasAttention}
+    else 0
+  end`;
 }
 
 /** Current-policy attention gate shared by every unread and wake surface. */
@@ -96,9 +99,11 @@ export function notificationEligibleSql(
 export type NotificationEligibilityState = {
   currentLevel: NotificationLevelValue;
   hasAttention: boolean;
+  isUnread: boolean;
+  isReadable: boolean;
 };
 
-/** Resolve current policy and attention for many recipients in batched SQL. */
+/** Resolve current policy, attention, and cursor state in one batched snapshot. */
 export async function resolveNotificationEligibilityForUsers(
   db: Database,
   userIds: string[],
@@ -119,20 +124,36 @@ export async function resolveNotificationEligibilityForUsers(
         userId: user.id,
         currentLevel: currentEffectiveLevelSql(user.id, channelSql),
         hasAttention: attention,
+        isUnread: sql<boolean>`${communityMessage.seq} > coalesce(${communityReadState.lastReadSeq}, 0)`,
+        isReadable: channelReadableSql(user.id, {
+          id: communityChannel.id,
+          type: communityChannel.type,
+          serverId: communityChannel.serverId,
+          parentChannelId: communityChannel.parentChannelId,
+        }),
       })
       .from(user)
       .innerJoin(communityMessage, eq(communityMessage.id, messageId))
       .innerJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
+      .leftJoin(
+        communityReadState,
+        and(
+          eq(communityReadState.userId, user.id),
+          eq(communityReadState.channelId, communityMessage.channelId),
+        ),
+      )
       .where(inArray(user.id, ids));
   };
 
   const rows = (
-    await Promise.all(chunk(userIds, D1_MAX_IN_PARAMS).map(runChunk))
+    await Promise.all(chunk(userIds, D1_MAX_IN_PARAMS - 1).map(runChunk))
   ).flat();
   for (const row of rows) {
     result.set(row.userId, {
       currentLevel: row.currentLevel,
       hasAttention: Boolean(row.hasAttention),
+      isUnread: Boolean(row.isUnread),
+      isReadable: Boolean(row.isReadable),
     });
   }
   return result;

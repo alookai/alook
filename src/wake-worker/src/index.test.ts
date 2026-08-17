@@ -66,7 +66,7 @@ describe("wake-worker queue consumer", () => {
     "bot_missing",
     "bot_deleted",
     "bot_unbound",
-    "bot_not_in_scope",
+    "forbidden",
     "notice_channel_unresolvable",
     "already_read",
   ] as const)("acks for skip reason %s", async (reason) => {
@@ -255,7 +255,9 @@ const RESOLUTION_SCENARIOS = [
   { name: "sent", outcome: { outcome: "sent" as const } },
   { name: "delivered_nowhere", outcome: { outcome: "delivered_nowhere" as const, machineId: "m1" } },
   { name: "skip: already_read", outcome: { outcome: "skip" as const, reason: "already_read" as const } },
-  { name: "skip: bot_not_in_scope", outcome: { outcome: "skip" as const, reason: "bot_not_in_scope" as const } },
+  { name: "skip: forbidden", outcome: { outcome: "skip" as const, reason: "forbidden" as const } },
+  { name: "skip: muted", outcome: { outcome: "skip" as const, reason: "muted" as const } },
+  { name: "skip: mention_only", outcome: { outcome: "skip" as const, reason: "mention_only" as const } },
 ]
 
 describe("wake-worker queue() vs fetch() — same resolution for the same candidate", () => {

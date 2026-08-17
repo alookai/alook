@@ -30,9 +30,10 @@ vi.mock("../../src/db/queries/community/member", () => ({
   canBotReadWakeScope: (...a: unknown[]) => mockCanBotReadWakeScope(...a),
 }));
 
-const mockGetWakeReadSeq = vi.fn();
-vi.mock("../../src/db/queries/community/read-state", () => ({
-  getWakeReadSeq: (...a: unknown[]) => mockGetWakeReadSeq(...a),
+const mockResolveNotificationEligibilityForUsers = vi.fn();
+vi.mock("../../src/db/queries/community/notification-eligibility", () => ({
+  resolveNotificationEligibilityForUsers: (...a: unknown[]) =>
+    mockResolveNotificationEligibilityForUsers(...a),
 }));
 
 const mockResolveUnreadNoticeChannel = vi.fn();
@@ -67,7 +68,9 @@ function seedReady() {
   mockGetWakeMessageScopeById.mockResolvedValue(MESSAGE_CHANNEL);
   mockGetBotWakeContext.mockResolvedValue(BOT_READY);
   mockCanBotReadWakeScope.mockResolvedValue(true);
-  mockGetWakeReadSeq.mockResolvedValue(0);
+  mockResolveNotificationEligibilityForUsers.mockResolvedValue(new Map([
+    ["bot_1", { currentLevel: "all", hasAttention: false, isUnread: true, isReadable: true }],
+  ]));
   mockResolveUnreadNoticeChannel.mockResolvedValue("/srv_1/general");
   mockGetUsersByIds.mockResolvedValue([{ id: "u_human", name: "gustavo", discriminator: "0042" }]);
   mockHasMentionForMessage.mockResolvedValue(false);

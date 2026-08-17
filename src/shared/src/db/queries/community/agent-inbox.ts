@@ -39,6 +39,7 @@ import { getMessagesByIdsInScope, type MessageScope } from "./message";
 import { reachIsParticipantSet, type StoredChannelType } from "../../../utils/community-roles";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 import { withD1Retry } from "../../resilience";
+import { notificationEligibleSql } from "./notification-eligibility";
 
 type RawAgentMessage = {
   id: string;
@@ -612,7 +613,7 @@ export async function listUnreadMessagesForAgent(
           ne(communityMessage.authorId, botUserId),
           sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
           inArray(communityMessage.channelId, ids),
-          channelJoinBaselineGuard
+          channelJoinBaselineGuard,
         )
       )
       .orderBy(asc(communityMessage.channelId), asc(communityMessage.seq))
@@ -800,7 +801,7 @@ export async function getInboxSnapshotForAgent(db: Database, botUserId: string):
           ne(communityMessage.authorId, botUserId),
           sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
           inArray(communityMessage.channelId, ids),
-          channelJoinBaselineGuard
+          channelJoinBaselineGuard,
         )
       )
       .groupBy(communityMessage.channelId);
@@ -897,13 +898,20 @@ export async function toInboxRows(
  * dimensions are folded into the SQL WHERE via `listAgentAllowedChannelIds`
  * so `LIMIT 1` returns the newest allowed row directly — an earlier shape
  * used a bounded post-filter window that could return `null` when older
- * allowed unread existed outside the top-N-by-createdAt slice.
+ * allowed unread existed outside the top-N-by-createdAt slice. Notification
+ * eligibility is applied before `LIMIT 1` too, so a newer muted row cannot
+ * obscure an older eligible unread during daemon reconnect resync.
  */
 export async function getLatestUnreadMessageForAgent(
   db: Database,
-  botUserId: string
+  botUserId: string,
+  opts?: { accessVisibleChannelIds?: string[] },
 ): Promise<{ messageId: string } | null> {
-  const allowedChannelIds = await listAgentAllowedChannelIds(db, botUserId);
+  const allowedChannelIds = await listAgentAllowedChannelIds(
+    db,
+    botUserId,
+    opts?.accessVisibleChannelIds,
+  );
   if (allowedChannelIds.length === 0) return null;
 
   // Chunk the `inArray` for D1's 100-param limit; each chunk returns its own
@@ -945,7 +953,18 @@ export async function getLatestUnreadMessageForAgent(
           ne(communityMessage.authorId, botUserId),
           sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
           inArray(communityMessage.channelId, ids),
-          channelJoinBaselineGuard
+          channelJoinBaselineGuard,
+          notificationEligibleSql(
+            botUserId,
+            {
+              id: communityChannel.id,
+              serverId: communityChannel.serverId,
+              parentChannelId: communityChannel.parentChannelId,
+            },
+            {
+              id: communityMessage.id,
+            },
+          ),
         )
       )
       .orderBy(desc(communityMessage.createdAt))
