@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { Search } from "lucide-react"
+import type React from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { Loader2, Search } from "lucide-react"
 import { toast } from "sonner"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -23,6 +24,84 @@ const INVITE_ORIGIN =
 
 function inviteUrl(token: string) {
   return `${INVITE_ORIGIN}/c/invite/${token}`
+}
+
+export function InviteFriendRow({
+  friend,
+  tokenReady,
+  inviting,
+  invited,
+  onInvite,
+}: {
+  friend: Friend
+  tokenReady: boolean
+  inviting: boolean
+  invited: boolean
+  onInvite: (friend: Friend) => void
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent/40">
+      <Avatar
+        label={friend.avatar || friend.name}
+        seed={friend.userId}
+        size={32}
+        presence={friend.status}
+        ringColor="var(--popover)"
+      />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium">{friend.name}</div>
+        {hasStatus(friend.statusEmoji, friend.statusText) && (
+          <div className="truncate text-xs text-muted-foreground">
+            {friend.statusEmoji} {friend.statusText}
+          </div>
+        )}
+      </div>
+      <Button
+        size="sm"
+        variant={invited ? "secondary" : "default"}
+        disabled={!tokenReady || inviting || invited || !friend.userId}
+        onClick={() => onInvite(friend)}
+      >
+        {inviting ? (
+          <Loader2 aria-label="Sending invite" className="size-4 animate-spin" />
+        ) : invited ? (
+          "Invited"
+        ) : (
+          "Invite"
+        )}
+      </Button>
+    </div>
+  )
+}
+
+/**
+ * Own one friend's complete invite lifecycle. The mutable set is updated
+ * synchronously before React rerenders, so two rapid activations cannot start
+ * duplicate DM/message chains. Other user ids remain independent.
+ */
+export async function runInviteFriend(
+  userId: string,
+  inFlightUserIds: Set<string>,
+  sendInvite: () => Promise<void>,
+  onInvited: (userId: string) => void,
+  setInvitingUserIds: React.Dispatch<React.SetStateAction<Set<string>>>,
+): Promise<boolean> {
+  if (inFlightUserIds.has(userId)) return false
+
+  inFlightUserIds.add(userId)
+  setInvitingUserIds(new Set(inFlightUserIds))
+  try {
+    await sendInvite()
+    onInvited(userId)
+    return true
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Couldn't send invite"
+    toast(msg)
+    return false
+  } finally {
+    inFlightUserIds.delete(userId)
+    setInvitingUserIds(new Set(inFlightUserIds))
+  }
 }
 
 /**
@@ -57,6 +136,8 @@ export function InviteDialog({
   const [token, setToken] = useState<string | null>(null)
   const [resolveError, setResolveError] = useState<string | null>(null)
   const [invitedUserIds, setInvitedUserIds] = useState<Set<string>>(new Set())
+  const [invitingUserIds, setInvitingUserIds] = useState<Set<string>>(new Set())
+  const inFlightUserIdsRef = useRef<Set<string>>(new Set())
   const [query, setQuery] = useState("")
 
   // Resolve on open. Only depends on `open` + `token` — resolveOrCreate is a
@@ -106,29 +187,34 @@ export function InviteDialog({
 
   const inviteFriend = async (friend: Friend) => {
     if (!token || !friend.userId) return
-    try {
-      const { conversation } = await createOrGetDm.mutateAsync({ userId: friend.userId })
-      const receipt = acceptDmMessage({
-        dmId: conversation.id,
-        content: inviteUrl(token),
-        author: {
-          id: currentUser.id,
-          name: currentUser.name,
-          avatar: currentUser.avatar,
-        },
-      })
-      if (!receipt.accepted) throw new Error("Couldn't send invite")
-      const committed = await receipt.committed
-      if (!committed.ok) throw committed.error
-      setInvitedUserIds((prev) => {
-        const next = new Set(prev)
-        next.add(friend.userId!)
-        return next
-      })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Couldn't send invite"
-      toast(msg)
-    }
+    const userId = friend.userId
+    await runInviteFriend(
+      userId,
+      inFlightUserIdsRef.current,
+      async () => {
+        const { conversation } = await createOrGetDm.mutateAsync({ userId })
+        const receipt = acceptDmMessage({
+          dmId: conversation.id,
+          content: inviteUrl(token),
+          author: {
+            id: currentUser.id,
+            name: currentUser.name,
+            avatar: currentUser.avatar,
+          },
+        })
+        if (!receipt.accepted) throw new Error("Couldn't send invite")
+        const committed = await receipt.committed
+        if (!committed.ok) throw committed.error
+      },
+      (invitedUserId) => {
+        setInvitedUserIds((prev) => {
+          const next = new Set(prev)
+          next.add(invitedUserId)
+          return next
+        })
+      },
+      setInvitingUserIds,
+    )
   }
 
   const copyLink = async () => {
@@ -182,27 +268,16 @@ export function InviteDialog({
           ) : (
             eligibleFriends.map((f) => {
               const invited = f.userId ? invitedUserIds.has(f.userId) : false
+              const inviting = f.userId ? invitingUserIds.has(f.userId) : false
               return (
-                <div
+                <InviteFriendRow
                   key={f.id}
-                  className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent/40"
-                >
-                  <Avatar label={f.avatar || f.name} seed={f.userId} size={32} presence={f.status} ringColor="var(--popover)" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">{f.name}</div>
-                    {hasStatus(f.statusEmoji, f.statusText) && (
-                      <div className="truncate text-xs text-muted-foreground">{f.statusEmoji} {f.statusText}</div>
-                    )}
-                  </div>
-                  <Button
-                    size="sm"
-                    variant={invited ? "secondary" : "default"}
-                    disabled={!token || invited || !f.userId}
-                    onClick={() => inviteFriend(f)}
-                  >
-                    {invited ? "Invited" : "Invite"}
-                  </Button>
-                </div>
+                  friend={f}
+                  tokenReady={Boolean(token)}
+                  inviting={inviting}
+                  invited={invited}
+                  onInvite={(candidate) => void inviteFriend(candidate)}
+                />
               )
             })
           )}
