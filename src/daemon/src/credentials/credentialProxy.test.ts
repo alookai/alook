@@ -658,6 +658,54 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     // an inboxPull payload, but the response itself must still be forwarded.
     expect(seen).toEqual([]);
   });
+
+  it("captures each inbox observation token at pull start even when responses finish out of order", async () => {
+    const pending: http.ServerResponse[] = [];
+    const upstreamServer = http.createServer((_req, res) => pending.push(res));
+    await new Promise<void>((resolve) => upstreamServer.listen(0, "127.0.0.1", resolve));
+    const address = upstreamServer.address();
+    const upstreamUrl = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
+    upstreamClose = () => new Promise<void>((resolve) => upstreamServer.close(() => resolve()));
+    const seen: number[] = [];
+    let generation = 0;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstreamUrl });
+    proxy = await startCredentialProxy(broker, {
+      onInboxPullStart: () => ++generation,
+      onInboxPullResponse: (_agentId, _messages, token) => seen.push(token as number),
+    });
+    const reg = broker.mint("agent-1", "l", ["read"], REAL_KEY);
+
+    const first = post(proxy.url, reg.voucher, "/api/community/users/me/inbox/pull");
+    const second = post(proxy.url, reg.voucher, "/api/community/users/me/inbox/pull");
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+    pending[1]!.writeHead(200, { "content-type": "application/json" });
+    pending[1]!.end(JSON.stringify({ messages: [{ seq: "#2", channel: "/s#0001/c" }] }));
+    await vi.waitFor(() => expect(seen).toEqual([2]));
+    pending[0]!.writeHead(200, { "content-type": "application/json" });
+    pending[0]!.end(JSON.stringify({ messages: [{ seq: "#1", channel: "/s#0001/c" }] }));
+    await Promise.all([first, second]);
+
+    expect(seen).toEqual([2, 1]);
+  });
+
+  it("keeps a real inbox pull fail-open when onInboxPullStart throws synchronously", async () => {
+    const upstream = await startUpstream();
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    proxy = await startCredentialProxy(broker, {
+      onInboxPullStart: () => {
+        throw new Error("observation unavailable");
+      },
+      onInboxPullResponse: vi.fn(),
+    });
+    const reg = broker.mint("agent-1", "l", ["read"], REAL_KEY);
+
+    const response = await post(proxy.url, reg.voucher, "/api/community/users/me/inbox/pull");
+
+    expect(response.status).toBe(200);
+    expect(upstream.seen).toHaveLength(1);
+    expect(upstream.seen[0]?.path).toBe("/api/community/users/me/inbox/pull");
+  });
 });
 
 /** A throwaway upstream that never responds — for timeout/leak tests below. */

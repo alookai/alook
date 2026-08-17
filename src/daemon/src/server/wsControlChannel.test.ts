@@ -465,6 +465,21 @@ describe("WsControlChannel — downlink HostCommand validation (convergence #6)"
     return { sockets, received };
   }
 
+  it("fences an old inbox pull before awaiting lifecycle listeners", async () => {
+    const { ch } = makeChannel();
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    ch.onCommand((command) => command.type === "agent:stop" ? blocked : undefined);
+    const staleGeneration = ch.modelSeenGeneration("bot_1");
+
+    const stopping = ch.ingestCommand({ type: "agent:stop", agentId: "bot_1" });
+    expect(ch.modelSeenGeneration("bot_1")).toBe(staleGeneration + 1);
+    expect(ch.recordModelSeen("bot_1", [{ channel: "/demo#1234/general", seq: "#9" }], staleGeneration))
+      .toBe(false);
+    release();
+    await stopping;
+  });
+
   it("dispatches each valid arm unchanged (happy path — the transparent gate)", () => {
     for (const frame of [realWake, realReset, realNap, realModelSwitch, realStop]) {
       const { sockets, received } = driven();
