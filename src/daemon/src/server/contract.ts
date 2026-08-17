@@ -47,8 +47,6 @@ export type {
   AckFailure,
   SendRequest,
   SendResponse,
-  CreatePostRequest,
-  CreatePostResponse,
   CommunityAgentReactAddResponse,
   MessageMarkRequest,
   MessageMarkListResponse,

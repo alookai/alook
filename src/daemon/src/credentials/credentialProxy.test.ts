@@ -147,8 +147,6 @@ describe("DEFAULT_CAPABILITY_RESOLVER", () => {
   });
 
   it("does not map deleted flat write verbs; inboxPull still matches the generic /inbox read family", () => {
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/createPost")).toBeUndefined();
-    expect(DEFAULT_CAPABILITY_RESOLVER("POST", "/api/community/createPost")).toBeUndefined();
     // /api/inboxPull's flat ROUTE is deleted, but the resolver's generic
     // `/inbox` substring rule (unrelated to the specific flat-verb rules)
     // still fires on this path shape — the daemon proxy only rejects the

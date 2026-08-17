@@ -1266,27 +1266,6 @@ export type CommunityAgentListChannelsRequest = z.infer<
   typeof CommunityAgentListChannelsRequestSchema
 >;
 
-// CLI adapter input for `alook message post`. The daemon maps this shape onto
-// the canonical forum send body: title → opener message, content → the ordinary
-// thread's first reply. An attachment-only reply is legitimate; pending ids are
-// uploaded against the forum before the thread exists.
-export const CommunityAgentCreatePostRequestSchema = z
-  .object({
-    forum: z.string().min(1),
-    title: z.string().min(1),
-    content: CommunityAgentMessageContentSchema,
-    attachments: z
-      .array(z.string().min(1))
-      .max(MAX_ATTACHMENTS_PER_MESSAGE)
-      .default([]),
-    nonce: z.string().min(1).max(128).optional(),
-  })
-  .refine(
-    (d) => d.content.text.trim().length > 0 || d.attachments.length > 0,
-    { message: "post must have text or attachments" }
-  );
-export type CommunityAgentCreatePostRequest = z.infer<typeof CommunityAgentCreatePostRequestSchema>;
-
 export const CommunityAgentListMembersRequestSchema = z.object({
   server: z.string().min(1),
   limit: z.number().int().positive().optional(),

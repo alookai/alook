@@ -283,7 +283,6 @@ export {
   CommunityAgentReadRequestSchema,
   CommunityAgentResolveRequestSchema,
   CommunityAgentListChannelsRequestSchema,
-  CommunityAgentCreatePostRequestSchema,
   CommunityAgentListMembersRequestSchema,
   CommunityAgentChannelMemberRequestSchema,
   CommunityAgentJoinServerRequestSchema,

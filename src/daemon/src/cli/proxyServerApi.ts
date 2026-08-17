@@ -32,8 +32,6 @@ import type {
   AckResponse,
   SendRequest,
   SendResponse,
-  CreatePostRequest,
-  CreatePostResponse,
   ReadRequest,
   ResolveRequest,
   ListChannelsRequest,
@@ -216,54 +214,6 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
       body: JSON.stringify(wire),
     });
     return parseJsonResponse<SendResponse>(res, "send");
-  }
-
-  async function callCreatePost(req: CreatePostRequest): Promise<CreatePostResponse> {
-    const endpoint = `${base}/api/community/channels/${REF_PLACEHOLDER_ID}/messages`;
-    const openerNonce = req.nonce !== undefined ? `${req.nonce}:opener` : undefined;
-    const replyNonce = req.nonce !== undefined ? `${req.nonce}:reply` : undefined;
-    const openerRes = await fetchImpl(endpoint, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${config.voucher}`,
-      },
-      body: JSON.stringify({
-        channel: req.forum,
-        content: { text: req.title },
-        attachments: req.attachments ?? [],
-        ...(openerNonce !== undefined ? { nonce: openerNonce } : {}),
-      }),
-    });
-    const opener = await parseJsonResponse<{
-      state: "sent";
-      message: Message;
-      threadId: string;
-    }>(openerRes, "createPost opener");
-    if (opener.state !== "sent" || !opener.message || !opener.threadId) {
-      throw new Error("createPost: upstream response missing opener thread");
-    }
-    const threadRef = `${req.forum}/#${opener.message.seq.replace(/^#/, "")}`;
-    const replyRes = await fetchImpl(endpoint, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${config.voucher}`,
-      },
-      body: JSON.stringify({
-        channel: threadRef,
-        content: req.content,
-        attachments: req.attachments ?? [],
-        ...(replyNonce !== undefined ? { nonce: replyNonce } : {}),
-      }),
-    });
-    const reply = await parseJsonResponse<{ state: "sent"; message: Message }>(replyRes, "createPost reply");
-    if (reply.state !== "sent" || !reply.message) throw new Error("createPost: upstream response missing reply");
-    return {
-      ref: reply.message.channel,
-      name: req.title,
-      seq: Number(reply.message.seq.replace(/^#/, "")),
-    };
   }
 
   async function callRead(req: ReadRequest): Promise<Page<Message>> {
@@ -703,7 +653,6 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     inboxSnapshot: (_r: { agentId: AgentId }) => callInboxSnapshot(),
     ack: callAck,
     send: callSend,
-    createPost: callCreatePost,
     read: callRead,
     resolve: callResolve,
     listMembers: callListMembers,
