@@ -45,6 +45,22 @@ describe("planAgentInboxSideEffect — freshness guard", () => {
     expect(r.target).toBe("#general");
   });
 
+  it("derives the model-seen boundary only from the messages actually returned", () => {
+    const r = planAgentInboxSideEffect(
+      base({
+        pendingMessages: [
+          { seq: 4, sender_name: "x", message_id: "m4" },
+          { seq: 6, sender_name: "y", message_id: "m6" },
+        ],
+        modelSeenSeq: 0,
+      }),
+    );
+    expect(r.outcome).toBe("held");
+    expect((r.localResponse as any)?.seenUpToSeq).toBe(6);
+    const decision = r.effects.find((effect) => effect.type === "record_freshness_decision");
+    expect(decision && (decision as any).decision.pendingMaxSeq).toBe(6);
+  });
+
   it("forwards when the model has already seen the pending messages", () => {
     const r = planAgentInboxSideEffect(
       base({

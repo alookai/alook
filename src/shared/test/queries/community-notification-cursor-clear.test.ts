@@ -11,9 +11,17 @@ import {
 } from "../../src/db/queries/community/notification-setting";
 import {
   notificationEligibleSql,
+  resolveNotificationEligibilityForUsers,
 } from "../../src/db/queries/community/notification-eligibility";
 import { communityChannel } from "../../src/db/community-schema";
-import { getLatestUnreadMessageForAgent } from "../../src/db/queries/community/agent-inbox";
+import { listUserServers } from "../../src/db/queries/community/server";
+import {
+  getInboxSnapshotForAgent,
+  getLatestUnreadMessageForAgent,
+  hasDeliverableUnreadForAgentScope,
+  listUnreadMessagesForAgent,
+} from "../../src/db/queries/community/agent-inbox";
+import { listEligibleUnreadChannels } from "../../src/db/queries/community/inbox";
 
 describe("policyAllows", () => {
   it.each([
@@ -35,11 +43,34 @@ describe("notification setting cursor-clear contract", () => {
   beforeEach(() => {
     sqlite = new Sqlite(":memory:");
     sqlite.exec(`
+      CREATE TABLE user (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL DEFAULT '',
+        discriminator TEXT NOT NULL DEFAULT '0000',
+        image TEXT,
+        deleted_at TEXT
+      );
+      INSERT INTO user (id, name, discriminator) VALUES
+        ('u', 'Bot', '0001'),
+        ('author', 'Human', '0002');
+      CREATE TABLE community_server (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        discriminator TEXT NOT NULL DEFAULT '0000',
+        description TEXT NOT NULL DEFAULT '',
+        icon TEXT,
+        owner_id TEXT NOT NULL DEFAULT 'author',
+        created_at TEXT NOT NULL DEFAULT '2025-01-01T00:00:00Z'
+      );
+      INSERT INTO community_server (id, name) VALUES ('server', 'Server');
       CREATE TABLE community_channel (
         id TEXT PRIMARY KEY,
         server_id TEXT,
         parent_channel_id TEXT,
-        type TEXT NOT NULL DEFAULT 'text'
+        type TEXT NOT NULL DEFAULT 'text',
+        name TEXT NOT NULL DEFAULT '',
+        archived INTEGER NOT NULL DEFAULT 0,
+        last_message_at TEXT
       );
       CREATE TABLE community_message (
         id TEXT PRIMARY KEY,
@@ -47,7 +78,8 @@ describe("notification setting cursor-clear contract", () => {
         author_id TEXT NOT NULL DEFAULT 'author',
         content TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
-        seq INTEGER NOT NULL
+        seq INTEGER NOT NULL,
+        reply_to_id TEXT
       );
       CREATE TABLE community_read_state (
         id TEXT PRIMARY KEY,
@@ -67,7 +99,9 @@ describe("notification setting cursor-clear contract", () => {
       CREATE TABLE community_server_member (
         server_id TEXT NOT NULL,
         user_id TEXT NOT NULL,
-        joined_at TEXT NOT NULL
+        joined_at TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'member',
+        rail_order INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE community_notification_setting (
         id TEXT PRIMARY KEY,
@@ -246,6 +280,117 @@ describe("notification setting cursor-clear contract", () => {
     expect(row).toEqual({ mentioned: 1, plain: 0 });
   });
 
+  it("rail mention badge follows policy changes and the aligned read cursor", async () => {
+    sqlite.exec(`
+      INSERT INTO community_mention (id, message_id, user_id, kind, read)
+      VALUES ('rail-old', 'child-3', 'u', 'mention', 0);
+    `);
+    const railCount = async () => (await listUserServers(db, "u"))[0]?.mentions;
+
+    await expect(railCount()).resolves.toBe(1);
+    await setChannelLevel(db, { userId: "u", channelId: "child", level: "nothing" });
+    await expect(railCount()).resolves.toBe(0);
+
+    sqlite.exec(`
+      INSERT INTO community_message (id, channel_id, created_at, seq)
+      VALUES ('child-6', 'child', '2026-01-01T00:00:06Z', 6);
+      INSERT INTO community_mention (id, message_id, user_id, kind, read)
+      VALUES ('rail-muted', 'child-6', 'u', 'mention', 0);
+    `);
+    await expect(railCount()).resolves.toBe(0);
+
+    await setChannelLevel(db, { userId: "u", channelId: "child", level: "mentions" });
+    await expect(railCount()).resolves.toBe(0);
+    sqlite.exec(`
+      INSERT INTO community_message (id, channel_id, created_at, seq)
+      VALUES ('child-7', 'child', '2026-01-01T00:00:07Z', 7);
+      INSERT INTO community_mention (id, message_id, user_id, kind, read)
+      VALUES ('rail-new', 'child-7', 'u', 'mention', 0);
+    `);
+    await expect(railCount()).resolves.toBe(1);
+  });
+
+  it("rail mention badge disappears immediately when private-channel access is revoked", async () => {
+    sqlite.exec(`
+      INSERT INTO community_category (id, server_id, private) VALUES ('private-rail', 'server', 1);
+      INSERT INTO community_channel
+        (id, server_id, category_id, creator_id, type, name)
+      VALUES ('private-room', 'server', 'private-rail', 'author', 'text', 'private-room');
+      INSERT INTO community_channel_member (channel_id, user_id, relation, added_at)
+      VALUES ('private-room', 'u', 'access', '2025-01-01T00:00:00Z');
+      INSERT INTO community_message (id, channel_id, created_at, seq)
+      VALUES ('private-mention', 'private-room', '2026-01-01T00:00:08Z', 8);
+      INSERT INTO community_mention (id, message_id, user_id, kind, read)
+      VALUES ('private-mention-row', 'private-mention', 'u', 'mention', 0);
+    `);
+    const railCount = async () => (await listUserServers(db, "u"))[0]?.mentions;
+
+    await expect(railCount()).resolves.toBe(1);
+    sqlite.prepare(`
+      DELETE FROM community_channel_member
+      WHERE channel_id = 'private-room' AND user_id = 'u' AND relation = 'access'
+    `).run();
+    await expect(railCount()).resolves.toBe(0);
+  });
+
+  it("delivery state fails closed after private access is revoked", async () => {
+    sqlite.exec(`
+      INSERT INTO community_category (id, server_id, private) VALUES ('private-delivery', 'server', 1);
+      INSERT INTO community_channel
+        (id, server_id, category_id, creator_id, type, name)
+      VALUES ('private-delivery-room', 'server', 'private-delivery', 'author', 'text', 'private-delivery-room');
+      INSERT INTO community_channel_member (channel_id, user_id, relation, added_at)
+      VALUES ('private-delivery-room', 'u', 'access', '2025-01-01T00:00:00Z');
+      INSERT INTO community_message (id, channel_id, created_at, seq)
+      VALUES ('private-delivery-message', 'private-delivery-room', '2026-01-01T00:00:08Z', 8);
+    `);
+
+    await expect(resolveNotificationEligibilityForUsers(db, ["u"], "private-delivery-message"))
+      .resolves.toEqual(new Map([["u", {
+        currentLevel: "all",
+        hasAttention: false,
+        isUnread: true,
+        isReadable: true,
+      }]]));
+
+    sqlite.prepare(`
+      DELETE FROM community_channel_member
+      WHERE channel_id = 'private-delivery-room' AND user_id = 'u' AND relation = 'access'
+    `).run();
+    await expect(resolveNotificationEligibilityForUsers(db, ["u"], "private-delivery-message"))
+      .resolves.toEqual(new Map([["u", {
+        currentLevel: "all",
+        hasAttention: false,
+        isUnread: true,
+        isReadable: false,
+      }]]));
+  });
+
+  it("forum child badges stay policy-eligible across a cold projection", async () => {
+    sqlite.exec(`
+      INSERT INTO community_channel (id, server_id, parent_channel_id, type, name) VALUES
+        ('forum-parent', 'server', NULL, 'forum', 'forum'),
+        ('forum-child', 'server', 'forum-parent', 'thread', 'post');
+      INSERT INTO community_channel_member (channel_id, user_id, relation, added_at)
+      VALUES ('forum-child', 'u', 'notify', '2025-01-01T00:00:00Z');
+    `);
+    await setChannelLevel(db, { userId: "u", channelId: "forum-child", level: "mentions" });
+    sqlite.exec(`
+      INSERT INTO community_message (id, channel_id, created_at, seq, content)
+      VALUES ('forum-normal', 'forum-child', '2026-01-01T00:00:01Z', 1, 'normal');
+    `);
+    await expect(listEligibleUnreadChannels(db, "u", ["forum-child"])).resolves.toEqual([]);
+
+    sqlite.exec(`
+      INSERT INTO community_message (id, channel_id, created_at, seq, content)
+      VALUES ('forum-mention', 'forum-child', '2026-01-01T00:00:02Z', 2, '@u');
+      INSERT INTO community_mention (id, message_id, user_id, kind, read)
+      VALUES ('forum-mention-row', 'forum-mention', 'u', 'mention', 0);
+    `);
+    await expect(listEligibleUnreadChannels(db, "u", ["forum-child"]))
+      .resolves.toEqual([expect.objectContaining({ channelId: "forum-child", mentionCount: 1 })]);
+  });
+
   it("resync skips the newest muted unread and finds an older eligible unread", async () => {
     sqlite.exec(`
       INSERT INTO community_message (id, channel_id, created_at, seq)
@@ -259,5 +404,71 @@ describe("notification setting cursor-clear contract", () => {
       accessVisibleChannelIds: ["parent", "child"],
     });
     expect(latest).toEqual({ messageId: "child-3" });
+  });
+
+  it("filters before page limits and keeps pull, snapshot, alignment, and web summaries identical", async () => {
+    sqlite.exec(`
+      INSERT INTO community_channel
+        (id, server_id, parent_channel_id, type, name, last_message_at)
+      VALUES
+        ('a_muted', 'server', NULL, 'text', 'muted', '2026-01-01T00:03:00Z'),
+        ('z_eligible', 'server', NULL, 'text', 'eligible', '2026-01-01T00:02:00Z');
+      INSERT INTO community_notification_setting (id, user_id, channel_id, level)
+      VALUES ('mute', 'u', 'a_muted', 'nothing');
+      INSERT INTO community_message
+        (id, author_id, channel_id, seq, created_at, content)
+      VALUES
+        ('muted_newer', 'author', 'a_muted', 1, '2026-01-01T00:03:00Z', 'muted'),
+        ('eligible_older', 'author', 'z_eligible', 1, '2026-01-01T00:02:00Z', 'eligible'),
+        ('eligible_second', 'author', 'z_eligible', 2, '2026-01-01T00:02:30Z', 'eligible 2');
+      INSERT INTO community_mention (id, message_id, user_id, kind, read)
+      VALUES
+        ('dismissed_reply', 'eligible_older', 'u', 'reply', 1),
+        ('active_mention', 'eligible_second', 'u', 'mention', 0);
+    `);
+    const insertMuted = sqlite.prepare(`
+      INSERT INTO community_message (id, author_id, channel_id, seq, created_at, content)
+      VALUES (?, 'author', 'a_muted', ?, '2026-01-01T00:03:00Z', 'muted')
+    `);
+    sqlite.transaction(() => {
+      for (let seq = 2; seq <= 200; seq += 1) insertMuted.run(`muted_${seq}`, seq);
+    })();
+
+    const visible = ["a_muted", "z_eligible"];
+    await expect(listUnreadMessagesForAgent(db, "u", {
+      max: 1,
+      visibleChannelIds: visible,
+    })).resolves.toMatchObject([{ id: "eligible_older", channelId: "z_eligible" }]);
+    await expect(listUnreadMessagesForAgent(db, "u", {
+      max: 2,
+      visibleChannelIds: visible,
+    })).resolves.toMatchObject([
+      { id: "eligible_older", channelId: "z_eligible" },
+      { id: "eligible_second", channelId: "z_eligible" },
+    ]);
+
+    await expect(getInboxSnapshotForAgent(db, "u", {
+      accessVisibleChannelIds: visible,
+    })).resolves.toEqual([{
+      channelId: "z_eligible",
+      pendingCount: 2,
+      firstPendingSeq: 1,
+      latestSeq: 2,
+      latestSender: "@Human#0002",
+      hasMention: true,
+    }]);
+
+    await expect(hasDeliverableUnreadForAgentScope(db, "u", "a_muted", 0))
+      .resolves.toBe(false);
+    await expect(hasDeliverableUnreadForAgentScope(db, "u", "z_eligible", 0))
+      .resolves.toBe(true);
+
+    await expect(listEligibleUnreadChannels(db, "u", visible)).resolves.toEqual([
+      expect.objectContaining({
+        channelId: "z_eligible",
+        lastMessageAt: "2026-01-01T00:02:30Z",
+        mentionCount: 1,
+      }),
+    ]);
   });
 });

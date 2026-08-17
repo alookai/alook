@@ -1,12 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
-const mockListUnreadChannels = vi.fn()
+const mockListEligibleUnreadChannels = vi.fn()
 const mockListUnreadForumOpeners = vi.fn()
 const mockListForumOpenersByChildIds = vi.fn()
-const mockGetSettings = vi.fn()
-const mockListUnreadMentions = vi.fn()
-const mockListUnreadDms = vi.fn()
+const mockListEligibleUnreadDms = vi.fn()
 const mockListVisibleChannelIds = vi.fn()
 const mockGetChannelsByIds = vi.fn()
 
@@ -22,16 +20,10 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     queries: {
       communityInbox: {
-        listUnreadChannels: (...args: unknown[]) => mockListUnreadChannels(...args),
+        listEligibleUnreadChannels: (...args: unknown[]) => mockListEligibleUnreadChannels(...args),
         listUnreadForumOpeners: (...args: unknown[]) => mockListUnreadForumOpeners(...args),
         listForumOpenersByChildIds: (...args: unknown[]) => mockListForumOpenersByChildIds(...args),
-        listUnreadDms: (...args: unknown[]) => mockListUnreadDms(...args),
-      },
-      communityNotificationSetting: {
-        getSettings: (...args: unknown[]) => mockGetSettings(...args),
-      },
-      communityMention: {
-        listUnreadMentions: (...args: unknown[]) => mockListUnreadMentions(...args),
+        listEligibleUnreadDms: (...args: unknown[]) => mockListEligibleUnreadDms(...args),
       },
       communityChannel: {
         listVisibleChannelIdsForUser: (...args: unknown[]) => mockListVisibleChannelIds(...args),
@@ -58,7 +50,7 @@ vi.mock("@/lib/middleware/helpers", () => {
 
 import { GET } from "./route"
 
-function row(overrides: Partial<{ channelId: string; channelName: string; serverId: string; serverName: string; type: string | null; parentChannelId: string | null; lastMessageAt: string; lastReadAt: string | null }>) {
+function row(overrides: Partial<{ channelId: string; channelName: string; serverId: string; serverName: string; type: string | null; parentChannelId: string | null; lastMessageAt: string; lastReadAt: string | null; mentionCount: number }>) {
   return {
     channelId: "c1",
     channelName: "general",
@@ -68,6 +60,7 @@ function row(overrides: Partial<{ channelId: string; channelName: string; server
     parentChannelId: null,
     lastMessageAt: "2026-06-25T10:00:00Z",
     lastReadAt: null,
+    mentionCount: 0,
     ...overrides,
   }
 }
@@ -94,9 +87,7 @@ function opener(overrides: Partial<{
 describe("GET /api/community/users/me/inbox/unreads", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockGetSettings.mockResolvedValue([])
-    mockListUnreadMentions.mockResolvedValue([])
-    mockListUnreadDms.mockResolvedValue([])
+    mockListEligibleUnreadDms.mockResolvedValue([])
     mockListUnreadForumOpeners.mockResolvedValue([])
     mockListForumOpenersByChildIds.mockResolvedValue([])
     mockListVisibleChannelIds.mockResolvedValue([])
@@ -104,7 +95,7 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
   })
 
   it("groups channels by server", async () => {
-    mockListUnreadChannels.mockResolvedValue([
+    mockListEligibleUnreadChannels.mockResolvedValue([
       row({ serverId: "s1", channelId: "c1", channelName: "general", lastMessageAt: "2026-06-25T10:00:00Z" }),
       row({ serverId: "s1", channelId: "c2", channelName: "releases", lastMessageAt: "2026-06-25T09:00:00Z" }),
       row({ serverId: "s2", serverName: "Other", channelId: "c3", channelName: "lounge", lastMessageAt: "2026-06-25T11:00:00Z" }),
@@ -122,39 +113,8 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
     expect(body.servers[1].channels.map((c: { channelId: string }) => c.channelId)).toEqual(["c1", "c2"])
   })
 
-  it("filters muted servers", async () => {
-    mockListUnreadChannels.mockResolvedValue([
-      row({ serverId: "s1" }),
-      row({ serverId: "s2", serverName: "Other", channelId: "c2", channelName: "lounge" }),
-    ])
-    mockGetSettings.mockResolvedValue([{ serverId: "s1", channelId: null, level: "nothing" }])
-
-    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
-    const body = await res.json()
-
-    expect(body.servers.map((s: { serverId: string }) => s.serverId)).toEqual(["s2"])
-  })
-
-  it("filters muted channels", async () => {
-    mockListUnreadChannels.mockResolvedValue([
-      row({ serverId: "s1", channelId: "c1" }),
-      row({ serverId: "s1", channelId: "c2", channelName: "spam" }),
-    ])
-    mockGetSettings.mockResolvedValue([{ serverId: null, channelId: "c2", level: "nothing" }])
-
-    const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
-    const body = await res.json()
-
-    expect(body.servers[0].channels.map((c: { channelId: string }) => c.channelId)).toEqual(["c1"])
-  })
-
-  it("attaches mentionCount from unread mentions per channel", async () => {
-    mockListUnreadChannels.mockResolvedValue([row({ channelId: "c1" })])
-    mockListUnreadMentions.mockResolvedValue([
-      { message: { channelId: "c1" } },
-      { message: { channelId: "c1" } },
-      { message: { channelId: "c-other" } },
-    ])
+  it("uses the mentionCount already aggregated over eligible unread", async () => {
+    mockListEligibleUnreadChannels.mockResolvedValue([row({ channelId: "c1", mentionCount: 2 })])
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
     expect(body.servers[0].channels[0].mentionCount).toBe(2)
@@ -162,7 +122,7 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
 
   it("truncates by total channel count when over the limit", async () => {
     // 3 channels under one server, limit=2 → only first 2 returned, truncated=true.
-    mockListUnreadChannels.mockResolvedValue([
+    mockListEligibleUnreadChannels.mockResolvedValue([
       row({ serverId: "s1", channelId: "c1", lastMessageAt: "2026-06-25T12:00:00Z" }),
       row({ serverId: "s1", channelId: "c2", lastMessageAt: "2026-06-25T11:00:00Z" }),
       row({ serverId: "s1", channelId: "c3", lastMessageAt: "2026-06-25T10:00:00Z" }),
@@ -177,15 +137,15 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
   })
 
   it("reports truncated=false when total channel count fits the limit", async () => {
-    mockListUnreadChannels.mockResolvedValue([row({ channelId: "c1" })])
+    mockListEligibleUnreadChannels.mockResolvedValue([row({ channelId: "c1" })])
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads?limit=10"))
     const body = await res.json()
     expect(body.truncated).toBe(false)
   })
 
   it("returns unread DMs sorted most-recent first", async () => {
-    mockListUnreadChannels.mockResolvedValue([])
-    mockListUnreadDms.mockResolvedValue([
+    mockListEligibleUnreadChannels.mockResolvedValue([])
+    mockListEligibleUnreadDms.mockResolvedValue([
       { channelId: "dm_1", otherUserId: "u2", otherUserName: "Alice", otherUserImage: null, lastMessageAt: "2026-06-25T09:00:00Z" },
       { channelId: "dm_2", otherUserId: "u3", otherUserName: "Bob", otherUserImage: "https://cdn/b.png", lastMessageAt: "2026-06-25T11:00:00Z" },
     ])
@@ -203,8 +163,8 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
   })
 
   it("returns empty dms array when only channels are unread", async () => {
-    mockListUnreadChannels.mockResolvedValue([row({ channelId: "c1" })])
-    mockListUnreadDms.mockResolvedValue([])
+    mockListEligibleUnreadChannels.mockResolvedValue([row({ channelId: "c1" })])
+    mockListEligibleUnreadDms.mockResolvedValue([])
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
     expect(body.dms).toEqual([])
@@ -212,8 +172,8 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
   })
 
   it("returns dms alongside servers when both have unreads", async () => {
-    mockListUnreadChannels.mockResolvedValue([row({ channelId: "c1" })])
-    mockListUnreadDms.mockResolvedValue([
+    mockListEligibleUnreadChannels.mockResolvedValue([row({ channelId: "c1" })])
+    mockListEligibleUnreadDms.mockResolvedValue([
       { channelId: "dm_1", otherUserId: "u2", otherUserName: "Alice", otherUserImage: null, lastMessageAt: "2026-06-25T12:00:00Z" },
     ])
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
@@ -227,7 +187,7 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
   it("nests an unread thread under its parent channel; parent surfaces w/o direct unread", async () => {
     // Parent c1 has NO direct unread (not in the unread list); its child thread
     // t1 does. The route must batch-resolve the parent's name via getChannelsByIds.
-    mockListUnreadChannels.mockResolvedValue([
+    mockListEligibleUnreadChannels.mockResolvedValue([
       row({ channelId: "t1", channelName: "budget-2026", parentChannelId: "c1", lastMessageAt: "2026-06-25T10:00:00Z" }),
     ])
     mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "general", serverId: "s1" }])
@@ -246,7 +206,7 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
   })
 
   it("nests a child under a parent that ALSO has a direct unread (no re-resolve)", async () => {
-    mockListUnreadChannels.mockResolvedValue([
+    mockListEligibleUnreadChannels.mockResolvedValue([
       row({ channelId: "c1", channelName: "general", lastMessageAt: "2026-06-25T10:00:00Z" }),
       row({ channelId: "t1", channelName: "budget-2026", parentChannelId: "c1", lastMessageAt: "2026-06-25T11:00:00Z" }),
     ])
@@ -260,35 +220,27 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
   })
 
   it("attributes per-channel mentionCount to the correct child row", async () => {
-    mockListUnreadChannels.mockResolvedValue([
-      row({ channelId: "t1", channelName: "thread", parentChannelId: "c1" }),
+    mockListEligibleUnreadChannels.mockResolvedValue([
+      row({ channelId: "t1", channelName: "thread", parentChannelId: "c1", mentionCount: 2 }),
     ])
     mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "general", serverId: "s1" }])
-    mockListUnreadMentions.mockResolvedValue([
-      { message: { channelId: "t1" } },
-      { message: { channelId: "t1" } },
-    ])
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
     expect(body.servers[0].channels[0].children[0].mentionCount).toBe(2)
   })
 
-  it("cascades a muted parent's mute to its unread child rows", async () => {
-    mockListUnreadChannels.mockResolvedValue([
-      row({ channelId: "t1", channelName: "thread", parentChannelId: "c1" }),
-    ])
-    mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "general", serverId: "s1" }])
-    // Parent c1 muted → the whole subtree is suppressed.
-    mockGetSettings.mockResolvedValue([{ serverId: null, channelId: "c1", level: "nothing" }])
+  it("does not reconstruct channels absent from the eligible unread set", async () => {
+    mockListEligibleUnreadChannels.mockResolvedValue([])
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
     expect(body.servers).toHaveLength(0)
+    expect(mockGetChannelsByIds).not.toHaveBeenCalled()
   })
 
   it("counts child rows toward the truncation limit", async () => {
     // Parent c1 (weight 1) + 2 children (weight 2) = 3 rows; limit=2 → parent +
     // 1 child kept, truncated=true.
-    mockListUnreadChannels.mockResolvedValue([
+    mockListEligibleUnreadChannels.mockResolvedValue([
       row({ channelId: "c1", channelName: "general", lastMessageAt: "2026-06-25T09:00:00Z" }),
       row({ channelId: "t1", channelName: "thread-1", parentChannelId: "c1", lastMessageAt: "2026-06-25T11:00:00Z" }),
       row({ channelId: "t2", channelName: "thread-2", parentChannelId: "c1", lastMessageAt: "2026-06-25T10:00:00Z" }),
@@ -303,7 +255,7 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
   })
 
   it("top-level channels carry an empty children array", async () => {
-    mockListUnreadChannels.mockResolvedValue([row({ channelId: "c1" })])
+    mockListEligibleUnreadChannels.mockResolvedValue([row({ channelId: "c1" })])
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
     expect(body.servers[0].channels[0].children).toEqual([])
@@ -312,7 +264,7 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
   // ── Entity type plumbing (drives the inbox icon) ───────────────────────────
 
   it("surfaces channel `type` so the inbox can pick the right entity icon", async () => {
-    mockListUnreadChannels.mockResolvedValue([
+    mockListEligibleUnreadChannels.mockResolvedValue([
       row({ channelId: "c1", channelName: "general", type: "text" }),
       row({ channelId: "c2", channelName: "help-forum", type: "forum", lastMessageAt: "2026-06-25T09:00:00Z" }),
     ])
@@ -325,7 +277,7 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
   })
 
   it("surfaces child `type` (thread / forum_post) on nested rows", async () => {
-    mockListUnreadChannels.mockResolvedValue([
+    mockListEligibleUnreadChannels.mockResolvedValue([
       row({ channelId: "c1", channelName: "general", type: "text" }),
       row({ channelId: "t1", channelName: "budget", type: "thread", parentChannelId: "c1", lastMessageAt: "2026-06-25T11:00:00Z" }),
     ])
@@ -337,7 +289,7 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
   })
 
   it("carries `type` from getChannelsByIds when the parent is backfilled", async () => {
-    mockListUnreadChannels.mockResolvedValue([
+    mockListEligibleUnreadChannels.mockResolvedValue([
       row({ channelId: "t1", channelName: "budget", type: "thread", parentChannelId: "c1" }),
     ])
     mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "help-forum", serverId: "s1", type: "forum" }])
@@ -348,24 +300,22 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
 
   // ── Per-post forum opener projection ──────────────────────────────────────
 
-  it("queries only visible, direct-unread, unmuted top-level forum parents", async () => {
+  it("queries only visible top-level forum parents with eligible direct unread", async () => {
     mockListVisibleChannelIds.mockResolvedValue(["f1", "f2", "text1", "post1"])
-    mockListUnreadChannels.mockResolvedValue([
+    mockListEligibleUnreadChannels.mockResolvedValue([
       row({ channelId: "f1", channelName: "Forum 1", type: "forum" }),
-      row({ channelId: "f2", channelName: "Muted forum", type: "forum" }),
       row({ channelId: "text1", channelName: "Text", type: "text" }),
       row({ channelId: "post1", channelName: "Post", type: "thread", parentChannelId: "f1" }),
     ])
-    mockGetSettings.mockResolvedValue([{ serverId: null, channelId: "f2", level: "nothing" }])
 
     await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
 
-    expect(mockListUnreadChannels).toHaveBeenCalledWith(expect.anything(), "u1", ["f1", "f2", "text1", "post1"])
+    expect(mockListEligibleUnreadChannels).toHaveBeenCalledWith(expect.anything(), "u1", ["f1", "f2", "text1", "post1"])
     expect(mockListUnreadForumOpeners).toHaveBeenCalledWith(expect.anything(), "u1", ["f1"])
   })
 
   it("renders every unread opener as a separately titled child row, newest first", async () => {
-    mockListUnreadChannels.mockResolvedValue([
+    mockListEligibleUnreadChannels.mockResolvedValue([
       row({ channelId: "f1", channelName: "Forum", type: "forum", lastMessageAt: "2026-06-25T11:00:00Z" }),
     ])
     mockListUnreadForumOpeners.mockResolvedValue([
@@ -386,16 +336,12 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
   })
 
   it("dedupes an unread opener and child replies by childChannelId while retaining the parent target", async () => {
-    mockListUnreadChannels.mockResolvedValue([
-      row({ channelId: "f1", channelName: "Forum", type: "forum", lastMessageAt: "2026-06-25T10:00:00Z" }),
-      row({ channelId: "p1", channelName: "Derived title", type: "thread", parentChannelId: "f1", lastMessageAt: "2026-06-25T12:00:00Z" }),
-    ])
     mockListUnreadForumOpeners.mockResolvedValue([
       opener({ title: "Canonical opener title", createdAt: "2026-06-25T10:00:00Z", openerSeq: 7 }),
     ])
-    mockListUnreadMentions.mockResolvedValue([
-      { message: { channelId: "p1" } },
-      { message: { channelId: "p1" } },
+    mockListEligibleUnreadChannels.mockResolvedValue([
+      row({ channelId: "f1", channelName: "Forum", type: "forum", lastMessageAt: "2026-06-25T10:00:00Z" }),
+      row({ channelId: "p1", channelName: "Derived title", type: "thread", parentChannelId: "f1", lastMessageAt: "2026-06-25T12:00:00Z", mentionCount: 2 }),
     ])
 
     const body = await (await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))).json()
@@ -411,7 +357,7 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
   })
 
   it("uses canonical opener metadata when only a child reply is unread", async () => {
-    mockListUnreadChannels.mockResolvedValue([
+    mockListEligibleUnreadChannels.mockResolvedValue([
       row({
         channelId: "post_1",
         channelName: "stale derived title",
@@ -440,35 +386,26 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
     ])
   })
 
-  it("prefilters muted server, parent, and child ids before canonical child lookup", async () => {
-    mockListUnreadChannels.mockResolvedValue([
-      row({ channelId: "post_server", serverId: "muted_server", parentChannelId: "forum_a", type: "thread" }),
-      row({ channelId: "post_parent", parentChannelId: "forum_muted", type: "thread" }),
-      row({ channelId: "post_child", parentChannelId: "forum_ok", type: "thread" }),
+  it("looks up canonical opener metadata only for eligible child ids", async () => {
+    mockListEligibleUnreadChannels.mockResolvedValue([
       row({ channelId: "post_ok", parentChannelId: "forum_ok", type: "thread" }),
-    ])
-    mockGetSettings.mockResolvedValue([
-      { serverId: "muted_server", channelId: null, level: "nothing" },
-      { serverId: "s1", channelId: "forum_muted", level: "nothing" },
-      { serverId: "s1", channelId: "post_child", level: "nothing" },
     ])
     await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     expect(mockListForumOpenersByChildIds).toHaveBeenCalledWith(expect.anything(), ["post_ok"])
   })
 
-  it("drops opener rows whose child channel is individually muted", async () => {
-    mockListUnreadChannels.mockResolvedValue([
+  it("renders no opener children when the eligible opener query returns none", async () => {
+    mockListEligibleUnreadChannels.mockResolvedValue([
       row({ channelId: "f1", channelName: "Forum", type: "forum" }),
     ])
-    mockListUnreadForumOpeners.mockResolvedValue([opener()])
-    mockGetSettings.mockResolvedValue([{ serverId: null, channelId: "p1", level: "nothing" }])
+    mockListUnreadForumOpeners.mockResolvedValue([])
 
     const body = await (await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))).json()
     expect(body.servers[0].channels[0].children).toEqual([])
   })
 
   it("uses opener seq/id as deterministic tie-breaks before child cap truncation", async () => {
-    mockListUnreadChannels.mockResolvedValue([
+    mockListEligibleUnreadChannels.mockResolvedValue([
       row({ channelId: "f1", channelName: "Forum", type: "forum" }),
     ])
     mockListUnreadForumOpeners.mockResolvedValue([

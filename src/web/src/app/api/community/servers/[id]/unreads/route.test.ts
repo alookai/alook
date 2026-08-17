@@ -3,7 +3,7 @@ import { NextRequest } from "next/server"
 
 const mockGetMember = vi.fn()
 const mockListVisibleChannelIds = vi.fn()
-const mockListUnreadChannels = vi.fn()
+const mockListEligibleUnreadChannels = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 vi.mock("@alook/shared", async () => {
@@ -19,7 +19,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityInbox: {
         ...actual.queries.communityInbox,
-        listUnreadChannels: (...args: unknown[]) => mockListUnreadChannels(...args),
+        listEligibleUnreadChannels: (...args: unknown[]) => mockListEligibleUnreadChannels(...args),
       },
     },
   }
@@ -39,7 +39,7 @@ describe("GET /api/community/servers/[id]/unreads", () => {
     vi.clearAllMocks()
     mockGetMember.mockResolvedValue({ id: "member_1", role: "member" })
     mockListVisibleChannelIds.mockResolvedValue(["channel_1", "channel_2", "other_1"])
-    mockListUnreadChannels.mockResolvedValue([
+    mockListEligibleUnreadChannels.mockResolvedValue([
       { serverId: "server_1", channelId: "channel_1" },
       { serverId: "server_1", channelId: "channel_2", parentChannelId: "channel_1" },
       { serverId: "server_2", channelId: "other_1" },
@@ -58,17 +58,17 @@ describe("GET /api/community/servers/[id]/unreads", () => {
       childChannels: [{ id: "channel_2", parentChannelId: "channel_1" }],
       stale: false,
     })
-    expect(mockListUnreadChannels).toHaveBeenCalledWith(expect.anything(), "user_1", ["channel_1", "channel_2", "other_1"])
+    expect(mockListEligibleUnreadChannels).toHaveBeenCalledWith(expect.anything(), "user_1", ["channel_1", "channel_2", "other_1"])
   })
 
-  it("does not consult notification settings, so server/channel mute cannot hide read-state", async () => {
+  it("uses the shared readable, cursor, policy, and attention projection on refetch", async () => {
     const response = await GET(
       new NextRequest("http://localhost/api/community/servers/server_1/unreads"),
       { params: { id: "server_1" } } as never,
     )
 
     expect(await response.json()).toMatchObject({ channelIds: ["channel_1", "channel_2"] })
-    expect(mockListUnreadChannels).toHaveBeenCalledOnce()
+    expect(mockListEligibleUnreadChannels).toHaveBeenCalledOnce()
   })
 
   it("fails closed when the viewer is not a server member", async () => {
@@ -80,7 +80,7 @@ describe("GET /api/community/servers/[id]/unreads", () => {
 
     expect(response.status).toBe(403)
     expect(mockListVisibleChannelIds).not.toHaveBeenCalled()
-    expect(mockListUnreadChannels).not.toHaveBeenCalled()
+    expect(mockListEligibleUnreadChannels).not.toHaveBeenCalled()
   })
 
   it("marks retry-exhausted reads stale instead of caching an empty read set", async () => {

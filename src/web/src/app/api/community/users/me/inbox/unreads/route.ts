@@ -11,19 +11,6 @@ import { writeJSON } from "@/lib/middleware/helpers"
 import { parseBoundedInt } from "@/lib/community/messages"
 import { avatarInitial } from "@/lib/community/avatar"
 
-function notificationMuteSets(
-  settings: Array<{ level: string; serverId: string | null; channelId: string | null }>,
-) {
-  const mutedServers = new Set<string>()
-  const mutedChannels = new Set<string>()
-  for (const setting of settings) {
-    if (setting.level !== "nothing") continue
-    if (setting.channelId) mutedChannels.add(setting.channelId)
-    else if (setting.serverId) mutedServers.add(setting.serverId)
-  }
-  return { mutedServers, mutedChannels }
-}
-
 export const GET = withAuth(async (req, ctx) => {
   const db = getDb(ctx.env.DB)
   const url = new URL(req.url)
@@ -36,38 +23,29 @@ export const GET = withAuth(async (req, ctx) => {
   // Resolve the viewer's visible channels once (top-level + child threads,
   // parent-climbed) and thread the id set into BOTH consumers so neither
   // recomputes it. Private threads under an invisible parent are excluded.
-  type UnreadRow = Awaited<ReturnType<typeof queries.communityInbox.listUnreadChannels>>[number]
-  type SettingRow = Awaited<ReturnType<typeof queries.communityNotificationSetting.getSettings>>[number]
-  type MentionRow = Awaited<ReturnType<typeof queries.communityMention.listUnreadMentions>>[number]
-  type UnreadDmRow = Awaited<ReturnType<typeof queries.communityInbox.listUnreadDms>>[number]
+  type UnreadRow = Awaited<ReturnType<typeof queries.communityInbox.listEligibleUnreadChannels>>[number]
+  type UnreadDmRow = Awaited<ReturnType<typeof queries.communityInbox.listEligibleUnreadDms>>[number]
   type ForumOpenerRow = Awaited<ReturnType<typeof queries.communityInbox.listUnreadForumOpeners>>[number]
   const { value: fetched, stale } = await readOrStale<{
     unread: UnreadRow[]
-    settings: SettingRow[]
-    mentions: MentionRow[]
     unreadDms: UnreadDmRow[]
     forumOpeners: ForumOpenerRow[]
   }>(
     async () => {
       const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)
-      const [unread, settings, mentions, unreadDms] = await Promise.all([
-        queries.communityInbox.listUnreadChannels(db, ctx.userId, visibleChannelIds),
-        queries.communityNotificationSetting.getSettings(db, ctx.userId),
-        queries.communityMention.listUnreadMentions(db, ctx.userId, { visibleChannelIds }),
-        queries.communityInbox.listUnreadDms(db, ctx.userId),
+      const [unread, unreadDms] = await Promise.all([
+        queries.communityInbox.listEligibleUnreadChannels(db, ctx.userId, visibleChannelIds),
+        queries.communityInbox.listEligibleUnreadDms(db, ctx.userId),
       ])
-      // Expand only top-level forum parents that have already passed the
-      // visibility and notification-mute gates. The shared query receives no
-      // global discovery surface — just this bounded parent id set.
-      const { mutedServers, mutedChannels } = notificationMuteSets(settings)
+      // Expand only top-level forum parents that already have eligible unread.
+      // The opener query applies the same current readability, cursor, policy,
+      // and persisted-attention gate before returning individual post rows.
       const forumParentIds = [...new Set(
         unread
           .filter(
             (row) =>
               !row.parentChannelId &&
-              row.type === "forum" &&
-              !mutedServers.has(row.serverId) &&
-              !mutedChannels.has(row.channelId),
+              row.type === "forum",
           )
           .map((row) => row.channelId),
       )]
@@ -75,10 +53,7 @@ export const GET = withAuth(async (req, ctx) => {
         unread
           .filter(
             (row) =>
-              !!row.parentChannelId &&
-              !mutedServers.has(row.serverId) &&
-              !mutedChannels.has(row.parentChannelId) &&
-              !mutedChannels.has(row.channelId),
+              !!row.parentChannelId,
           )
           .map((row) => row.channelId),
       )]
@@ -89,24 +64,15 @@ export const GET = withAuth(async (req, ctx) => {
       const forumOpeners = [...new Map(
         [...directForumOpeners, ...childForumOpeners].map((row) => [row.childChannelId, row]),
       ).values()]
-      return { unread, settings, mentions, unreadDms, forumOpeners }
+      return { unread, unreadDms, forumOpeners }
     },
-    { unread: [], settings: [], mentions: [], unreadDms: [], forumOpeners: [] },
+    { unread: [], unreadDms: [], forumOpeners: [] },
     { route: "community/inbox/unreads" },
   )
   if (stale) {
     return writeJSON({ servers: [], dms: [], limit, truncated: false, stale: true })
   }
-  const { unread, settings, mentions, unreadDms, forumOpeners } = fetched
-
-  const { mutedServers, mutedChannels } = notificationMuteSets(settings)
-
-  const mentionCountByChannel = new Map<string, number>()
-  for (const m of mentions) {
-    const cid = m.message.channelId
-    if (!cid) continue
-    mentionCountByChannel.set(cid, (mentionCountByChannel.get(cid) ?? 0) + 1)
-  }
+  const { unread, unreadDms, forumOpeners } = fetched
 
   // Split unread rows into top-level channels and child threads.
   // A child nests under its `parentChannelId`; a parent surfaces in the tree
@@ -140,26 +106,19 @@ export const GET = withAuth(async (req, ctx) => {
 
   for (const row of unread) {
     if (!row.serverId || !row.channelId || !row.serverName || !row.channelName) continue
-    if (mutedServers.has(row.serverId)) continue
     if (row.parentChannelId) {
-      // Child thread. Skip if the child itself is muted; the
-      // parent-mute cascade is applied later (once we know which parents are
-      // muted) so a child under a muted parent is dropped even if it isn't
-      // individually muted.
-      if (mutedChannels.has(row.channelId)) continue
       const children = childrenByParent.get(row.parentChannelId) ?? new Map<string, UnreadChild>()
       children.set(row.channelId, {
         channelId: row.channelId,
         channelName: row.channelName,
         type: row.type,
         lastMessageAt: row.lastMessageAt,
-        mentionCount: mentionCountByChannel.get(row.channelId) ?? 0,
+        mentionCount: row.mentionCount,
         sortSeq: 0,
         sortId: row.channelId,
       })
       childrenByParent.set(row.parentChannelId, children)
     } else {
-      if (mutedChannels.has(row.channelId)) continue
       parents.set(row.channelId, {
         channelId: row.channelId,
         channelName: row.channelName,
@@ -167,7 +126,7 @@ export const GET = withAuth(async (req, ctx) => {
         serverId: row.serverId,
         serverName: row.serverName,
         lastMessageAt: row.lastMessageAt,
-        mentionCount: mentionCountByChannel.get(row.channelId) ?? 0,
+        mentionCount: row.mentionCount,
         hasDirectUnread: true,
         children: [],
       })
@@ -179,12 +138,11 @@ export const GET = withAuth(async (req, ctx) => {
   // while retaining the opener id as the parent forum's progressive-read
   // target. The authoritative title is supplied by the opener query.
   for (const opener of forumOpeners) {
-    if (mutedChannels.has(opener.childChannelId)) continue
     const parent = parents.get(opener.forumChannelId)
     const unreadChild = unreadByChannelId.get(opener.childChannelId)
     if (!parent && unreadChild?.parentChannelId !== opener.forumChannelId) continue
     const serverId = parent?.serverId ?? unreadChild?.serverId
-    if (!serverId || mutedServers.has(serverId) || mutedChannels.has(opener.forumChannelId)) continue
+    if (!serverId) continue
 
     const children = childrenByParent.get(opener.forumChannelId) ?? new Map<string, UnreadChild>()
     const existing = children.get(opener.childChannelId)
@@ -203,7 +161,7 @@ export const GET = withAuth(async (req, ctx) => {
         channelName: opener.title,
         type: "thread",
         lastMessageAt: opener.createdAt,
-        mentionCount: mentionCountByChannel.get(opener.childChannelId) ?? 0,
+        mentionCount: unreadChild?.mentionCount ?? 0,
         openerMessageId: opener.openerMessageId,
         sortSeq: opener.openerSeq,
         sortId: opener.openerMessageId,
@@ -217,7 +175,7 @@ export const GET = withAuth(async (req, ctx) => {
   // no visibility filter, but that's fine: the child already passed visibility,
   // which implies the parent is visible. serverId/serverName come from the
   // child rows (they joined `communityServer`).
-  const missingParentIds = [...childrenByParent.keys()].filter((pid) => !parents.has(pid) && !mutedChannels.has(pid))
+  const missingParentIds = [...childrenByParent.keys()].filter((pid) => !parents.has(pid))
   if (missingParentIds.length > 0) {
     const resolved = await withD1Retry(
       () => queries.communityChannel.getChannelsByIds(db, missingParentIds),
@@ -227,7 +185,6 @@ export const GET = withAuth(async (req, ctx) => {
     for (const pid of missingParentIds) {
       const ch = resolvedById.get(pid)
       if (!ch) continue
-      if (mutedServers.has(ch.serverId)) continue
       parents.set(pid, {
         channelId: pid,
         channelName: ch.name,
@@ -237,15 +194,15 @@ export const GET = withAuth(async (req, ctx) => {
         // below (those rows carry serverName via the communityServer join).
         serverName: "",
         lastMessageAt: "",
-        mentionCount: mentionCountByChannel.get(pid) ?? 0,
+        mentionCount: 0,
         hasDirectUnread: false,
         children: [],
       })
     }
   }
 
-  // Attach children to their parents (dropping children whose parent is muted
-  // — the mute cascade — or whose parent couldn't be resolved).
+  // Attach children to their parents. Parent/server policy inheritance was
+  // already resolved in SQL for each child's eligible message set.
   for (const [pid, kids] of childrenByParent) {
     const parent = parents.get(pid)
     if (!parent) continue // parent muted or unresolved → drop the subtree
@@ -345,10 +302,10 @@ export const GET = withAuth(async (req, ctx) => {
   }
   const truncated = total < grandTotal
 
-  // DMs are a flat list sorted most-recent first. DM notification settings
-  // don't exist today (`communityNotificationSetting` scopes are server/channel
-  // only), so no muting pass — every unread DM the viewer participates in
-  // surfaces. Blocked-user filtering intentionally stays off: DM messages
+  // DMs are a flat list sorted most-recent first. A DM is a channel-scoped
+  // notification unit, so `listEligibleUnreadDms` has already applied current
+  // participation, cursor, policy, and attention. Blocked-user filtering stays
+  // off intentionally: DM messages
   // route gates on `requireDMAccess`; an unread from a blocked user is still
   // the viewer's DM and should appear here.
   const dms = unreadDms

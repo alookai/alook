@@ -5,7 +5,7 @@ const mockGetMember = vi.fn()
 const mockListServerChannelsForViewer = vi.fn()
 const mockListParticipatingForumThreads = vi.fn()
 const mockGetMessagesByIds = vi.fn()
-const mockListUnreadChannels = vi.fn()
+const mockListEligibleUnreadChannels = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 vi.mock("@alook/shared", async () => {
@@ -29,7 +29,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityInbox: {
         ...actual.queries.communityInbox,
-        listUnreadChannels: (...args: unknown[]) => mockListUnreadChannels(...args),
+        listEligibleUnreadChannels: (...args: unknown[]) => mockListEligibleUnreadChannels(...args),
       },
     },
   }
@@ -47,7 +47,7 @@ import { GET } from "./route"
 describe("GET /api/community/servers/[id]/channels — human resource", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockListUnreadChannels.mockResolvedValue([])
+    mockListEligibleUnreadChannels.mockResolvedValue([])
   })
 
   it("returns only viewer-visible channel rows after one server membership gate", async () => {
@@ -80,7 +80,7 @@ describe("GET /api/community/servers/[id]/channels — human resource", () => {
     }
     mockListParticipatingForumThreads.mockResolvedValue({ canonical: [thread], retained: thread })
     mockGetMessagesByIds.mockResolvedValue([{ id: "message_1", content: "Current title" }])
-    mockListUnreadChannels.mockResolvedValue([{ channelId: "thread_1" }])
+    mockListEligibleUnreadChannels.mockResolvedValue([{ channelId: "thread_1" }])
 
     try {
       const response = await GET(
@@ -114,7 +114,7 @@ describe("GET /api/community/servers/[id]/channels — human resource", () => {
         included: { parentMessages: [{ id: "message_1", content: "Current title" }] },
         serverNow: "2026-08-08T12:00:00.000Z",
       })
-      expect(mockListUnreadChannels).toHaveBeenCalledWith(expect.anything(), "user_1", ["thread_1"])
+      expect(mockListEligibleUnreadChannels).toHaveBeenCalledWith(expect.anything(), "user_1", ["thread_1"])
       expect(mockGetMessagesByIds).toHaveBeenCalledWith(expect.anything(), ["message_1"])
     } finally {
       vi.useRealTimers()
