@@ -408,7 +408,13 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
 
   const broker = new CredentialBroker({ upstreamBaseUrl: opts.serverUrl });
   const proxy = await startCredentialProxy(broker, {
-    onInboxPullResponse: (agentId, messages) => timeline.appendEntryForAgent(agentId, messages),
+    onInboxPullStart: (agentId) => channelRef?.modelSeenGeneration(agentId),
+    onInboxPullResponse: (agentId, messages, observationToken) => {
+      timeline.appendEntryForAgent(agentId, messages);
+      if (typeof observationToken === "number") {
+        channelRef?.recordModelSeen(agentId, messages, observationToken);
+      }
+    },
     onMessageReminderArm: (input) =>
       reminderSchedulerRef?.arm(input) ?? { armed: false, reason: "reminder_scheduler_unavailable" },
     // Bot audit log — Producer B (authoritative for `alook <sub>`). Fires
@@ -908,14 +914,14 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     handleDiagnosticCommand: opts.handleDiagnosticCommand,
     reportDiagnosticFailure: opts.reportDiagnosticFailure,
   }));
-  // Local reminder bookkeeping observes the original FIFO control stream
-  // before AgentRouter registers its listener in router.start(). It never
-  // consumes commands; AgentRouter remains the sole server-wake dispatcher.
+  // Local reminder bookkeeping observes real desired-watermark advances even
+  // when an active agent coalesces the wake before AgentRouter. Replayed/old
+  // wakes do not create a second observation or enter agent routing.
+  channel.onWakeDesiredAdvance((cmd) => {
+    reminderSchedulerRef?.observe(cmd.agentId, cmd.unreadNotice.channel, cmd.unreadNotice.latestSeq);
+  });
   channel.onCommand((cmd) => {
     switch (cmd.type) {
-      case "agent:wake":
-        reminderSchedulerRef?.observe(cmd.agentId, cmd.unreadNotice.channel, cmd.unreadNotice.latestSeq);
-        break;
       case "agent:stop":
         reminderSchedulerRef?.clearAgent(cmd.agentId);
         break;

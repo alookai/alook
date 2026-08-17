@@ -315,7 +315,8 @@ export interface CredentialProxyOptions {
    * surface the pulled messages — used by the daemon to write timeline entries
    * regardless of whether the agent is an in-process stub or a real subprocess.
    */
-  onInboxPullResponse?: (agentId: string, messages: Message[]) => void;
+  onInboxPullStart?: (agentId: string) => unknown;
+  onInboxPullResponse?: (agentId: string, messages: Message[], observationToken?: unknown) => void;
   /**
    * Called once per successfully-authorized upstream proxy request, BEFORE the
    * upstream is dispatched. Fires only on `verdict.ok === true` — never on
@@ -530,6 +531,15 @@ export async function startCredentialProxy(
     // `/api/inboxPull` verb is deleted (flat-delete step). inboxSnapshot is
     // deliberately EXCLUDED (peek, no `{ messages }` to record).
     const isInboxPull = onPull && pathname === "/api/community/users/me/inbox/pull";
+    let inboxPullObservationToken: unknown;
+    if (isInboxPull) {
+      try {
+        inboxPullObservationToken = options.onInboxPullStart?.(reg.agentId);
+      } catch {
+        // Observational callback — a generation snapshot failure must never
+        // interrupt the agent's real inbox pull.
+      }
+    }
 
     if (onProxyRequest) {
       try {
@@ -595,7 +605,7 @@ export async function startCredentialProxy(
             res.end(body);
             try {
               const parsed = JSON.parse(body.toString()) as { messages?: Message[] };
-              if (parsed.messages) onPull(reg.agentId, parsed.messages);
+              if (parsed.messages) onPull(reg.agentId, parsed.messages, inboxPullObservationToken);
             } catch { /* best-effort */ }
           });
         } else {

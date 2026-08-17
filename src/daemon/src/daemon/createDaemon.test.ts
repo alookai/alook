@@ -227,23 +227,38 @@ describe("createDaemon", () => {
         launchId: "launch_2",
         unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 9 },
       }));
-      await vi.waitFor(() => expect(deliver).toHaveBeenCalledTimes(3));
+      await new Promise((resolve) => setTimeout(resolve, 0));
       runTimer(1);
-      expect(deliver).toHaveBeenCalledTimes(3);
+      expect(deliver).toHaveBeenCalledTimes(2);
 
       await arm(10);
-      sockets[0]!.emit("message", JSON.stringify({ type: "agent:stop", agentId: "bot_1" }));
+      sockets[0]!.emit("message", JSON.stringify({
+        type: "agent:wake",
+        agentId: "bot_1",
+        config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
+        launchId: "launch_duplicate",
+        unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 9 },
+      }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
       runTimer(2);
       expect(deliver).toHaveBeenCalledTimes(3);
+      expect(deliver).toHaveBeenLastCalledWith("bot_1", expect.objectContaining({
+        text: expect.stringContaining("/demo#1234/general#10"),
+      }));
 
       await arm(11);
-      sockets[0]!.emit("message", JSON.stringify({ type: "bot:removed", botId: "bot_1" }));
+      sockets[0]!.emit("message", JSON.stringify({ type: "agent:stop", agentId: "bot_1" }));
       runTimer(3);
       expect(deliver).toHaveBeenCalledTimes(3);
 
       await arm(12);
-      await daemon.stop();
+      sockets[0]!.emit("message", JSON.stringify({ type: "bot:removed", botId: "bot_1" }));
       runTimer(4);
+      expect(deliver).toHaveBeenCalledTimes(3);
+
+      await arm(13);
+      await daemon.stop();
+      runTimer(5);
       expect(deliver).toHaveBeenCalledTimes(3);
     } finally {
       // stop is idempotent enough for the failure path and keeps the loopback
