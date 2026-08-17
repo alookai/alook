@@ -122,6 +122,14 @@ export function handleMemberJoin(
     (cache) => patchCacheJoin(cache, event),
   )
   dispatchMemberOverlayEvent({ type: "refresh", serverId: event.serverId })
+  // MEMBER_JOIN intentionally carries identity, not presence. Refresh the
+  // affected server's authoritative presence seed so a newly rendered member
+  // does not inherit the offline fallback until the next presence frame.
+  void queryClient.invalidateQueries({
+    queryKey: communityKeys.presence(event.serverId),
+    exact: true,
+    refetchType: "active",
+  })
   if (event.member.userId === viewerUserIdRef.current) {
     void queryClient.invalidateQueries({
       queryKey: communityKeys.channelRefDirectory(),

@@ -95,8 +95,28 @@ describe("resolveAttachmentPresentation", () => {
       .toEqual(presentation("text", "text"))
   })
 
+  it.each([
+    ["README.md", "text/plain", presentation("text", "markdown")],
+    ["notes.txt", "text/plain; charset=utf-8", presentation("text", "text")],
+    ["source.ts", "text/plain", presentation("code", "code", "typescript")],
+    ["Dockerfile", "text/plain", presentation("code", "code", "dockerfile")],
+  ])("uses a known text/code filename to refine weak MIME: %s", (filename, contentType, expected) => {
+    expect(resolveAttachmentPresentation(filename, contentType)).toEqual(expected)
+  })
+
+  it.each([
+    ["archive.zip", "text/plain"],
+    ["photo.png", "text/plain"],
+    ["report.pdf", "text/plain"],
+  ])("does not let weak MIME promote a non-text extension: %s", (filename, contentType) => {
+    expect(resolveAttachmentPresentation(filename, contentType))
+      .toEqual(presentation("text", "text"))
+  })
+
   it("does not let a misleading filename override a specific MIME", () => {
     expect(resolveAttachmentPresentation("payload.html", "application/pdf"))
+      .toEqual(presentation("pdf", null))
+    expect(resolveAttachmentPresentation("payload.md", "application/pdf"))
       .toEqual(presentation("pdf", null))
     expect(resolveAttachmentPresentation("payload.ts", "application/x-custom"))
       .toEqual(presentation("unknown", null))

@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { QueryObserver } from "@tanstack/react-query"
 import type { CommunityMemberJoin, CommunityMemberLeave, CommunityMemberUpdate } from "@alook/shared"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
+import { useCommunityWsStore } from "@/stores/community/ws"
+import { resolveRowPresence } from "@/lib/community/presence"
+import type { PresenceResponse } from "@/hooks/community/use-server-panels"
 import { communityKeys } from "@/lib/query-keys"
 import {
   subscribeMemberOverlayEvents,
@@ -71,6 +75,84 @@ describe("useCommunityWs — member events", () => {
     }>(communityKeys.members("srv_1"))
     expect(cache?.pages[0].members.map((m) => m.userId)).toEqual(["u_1"])
     expect(cache?.pages[0].total).toBe(1)
+  })
+
+  it("exact-refetches only the joined server's active presence seed", async () => {
+    await mountHook()
+    const affectedKey = communityKeys.presence("srv_1")
+    const otherKey = communityKeys.presence("srv_2")
+    let online: string[] = []
+    const affectedQuery = vi.fn(async (): Promise<PresenceResponse> => ({ online }))
+    const otherQuery = vi.fn(async (): Promise<PresenceResponse> => ({
+      online: ["u_other"],
+    }))
+
+    await capturedQueryClient.fetchQuery({ queryKey: affectedKey, queryFn: affectedQuery })
+    await capturedQueryClient.fetchQuery({ queryKey: otherKey, queryFn: otherQuery })
+    const observer = new QueryObserver(capturedQueryClient, {
+      queryKey: affectedKey,
+      queryFn: affectedQuery,
+      staleTime: Infinity,
+    })
+    const unsubscribe = observer.subscribe(() => undefined)
+    const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    online = ["u_online"]
+
+    capturedOnMessage!({
+      type: "community:member.join",
+      serverId: "srv_1",
+      member: {
+        id: "mem_online",
+        userId: "u_online",
+        name: "Online member",
+        discriminator: "0001",
+        role: "member",
+        joinedAt: "2026-08-17T00:00:00.000Z",
+      },
+    } satisfies CommunityMemberJoin)
+
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: affectedKey,
+      exact: true,
+      refetchType: "active",
+    })
+    expect(invalidateSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: otherKey }),
+    )
+    await vi.waitFor(() => {
+      expect(capturedQueryClient.getQueryData(affectedKey)).toEqual({
+        online: ["u_online"],
+      })
+    })
+
+    capturedOnMessage!({
+      type: "community:member.join",
+      serverId: "srv_1",
+      member: {
+        id: "mem_offline",
+        userId: "u_offline",
+        name: "Offline member",
+        discriminator: "0002",
+        role: "member",
+        joinedAt: "2026-08-17T00:01:00.000Z",
+      },
+    } satisfies CommunityMemberJoin)
+
+    await vi.waitFor(() => {
+      expect(affectedQuery).toHaveBeenCalledTimes(3)
+    })
+    const refreshedSeed = capturedQueryClient.getQueryData<PresenceResponse>(affectedKey)
+    expect(refreshedSeed).toEqual({ online: ["u_online"] })
+    if (!refreshedSeed) throw new Error("missing refreshed presence seed")
+    useCommunityWsStore.getState().hydratePresence(refreshedSeed.online)
+    const onlineUserIds = useCommunityWsStore.getState().onlineUserIds
+    expect(resolveRowPresence({ userId: "u_online" }, onlineUserIds)).toBe("online")
+    expect(resolveRowPresence({ userId: "u_offline" }, onlineUserIds)).toBe("offline")
+    expect(otherQuery).toHaveBeenCalledTimes(1)
+    expect(capturedQueryClient.getQueryData(otherKey)).toEqual({
+      online: ["u_other"],
+    })
+    unsubscribe()
   })
 
   it("refreshes rail and server detail only when the joining member is the viewer", async () => {
