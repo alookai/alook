@@ -18,7 +18,7 @@ import { Command, CommanderError } from "commander";
 import { realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import type { ServerApi, Cursor, Message } from "../server/contract.js";
+import type { ServerApi, Cursor, Message, AckFailure } from "../server/contract.js";
 import { parseRef } from "../server/contract.js";
 import { proxyServerApiFromEnv } from "./proxyServerApi.js";
 import { daemonResume, daemonRunFromIpc, daemonStart, daemonStartById, daemonStop, daemonList, daemonStatus, type DaemonInfo } from "./daemonStart.js";
@@ -655,6 +655,7 @@ async function cmdInboxPull(opts: Record<string, unknown>): Promise<unknown> {
 
   let acked = 0;
   let ackError: string | undefined;
+  let failed: AckFailure[] | undefined;
   if (opts.ack !== false && messages.length > 0) {
     const latest = new Map<string, Cursor>();
     for (const m of messages) {
@@ -663,8 +664,9 @@ async function cmdInboxPull(opts: Record<string, unknown>): Promise<unknown> {
       if (!cur || seqN > cur.seq) latest.set(m.channel, { channel: m.channel, seq: seqN });
     }
     try {
-      await api.ack({ agentId: agent, cursors: [...latest.values()] });
-      acked = latest.size;
+      const result = await api.ack({ agentId: agent, cursors: [...latest.values()] });
+      acked = result.applied.length;
+      failed = result.failed;
     } catch (err) {
       // Do NOT rethrow: the pull already succeeded, and if ack fails on a
       // single scope (e.g. a stale visibility mismatch) the whole envelope
@@ -681,6 +683,7 @@ async function cmdInboxPull(opts: Record<string, unknown>): Promise<unknown> {
     hasMore,
     acked,
     pulledAt,
+    ...(failed ? { failed } : {}),
     ...(ackError ? { ackError } : {}),
     ...(markedCount > 0
       ? {

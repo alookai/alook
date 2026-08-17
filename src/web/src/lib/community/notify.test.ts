@@ -4,7 +4,7 @@ const mockInfo = vi.fn()
 const mockWarn = vi.fn()
 const mockWaitUntil = vi.fn()
 const mockGetCloudflareContext = vi.fn()
-const mockResolveEffectiveLevelForUsers = vi.fn()
+const mockResolveNotificationEligibilityForUsers = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: () => mockGetCloudflareContext(),
@@ -22,8 +22,11 @@ vi.mock("@alook/shared", async () => {
     }),
     queries: {
       communityNotificationSetting: {
-        resolveEffectiveLevelForUsers: (...args: unknown[]) =>
-          mockResolveEffectiveLevelForUsers(...args),
+        policyAllows: actual.queries.communityNotificationSetting.policyAllows,
+      },
+      communityNotificationEligibility: {
+        resolveNotificationEligibilityForUsers: (...args: unknown[]) =>
+          mockResolveNotificationEligibilityForUsers(...args),
       },
     },
   }
@@ -37,7 +40,6 @@ vi.mock("../broadcast", () => ({
 import {
   dispatchMessageNotify,
   settleNotifyTasks,
-  shouldDeliver,
 } from "./notify"
 
 const db = {} as never
@@ -60,22 +62,23 @@ function eventsOfType(type: string): Record<string, unknown>[] {
     .filter((event) => event.type === type)
 }
 
-describe("shouldDeliver", () => {
-  it("delivers every all-level notification", () => {
-    expect(shouldDeliver("all", false)).toBe(true)
-    expect(shouldDeliver("all", true)).toBe(true)
-  })
-
-  it("delivers mentions-level notifications only when mentioned", () => {
-    expect(shouldDeliver("mentions", false)).toBe(false)
-    expect(shouldDeliver("mentions", true)).toBe(true)
-  })
-
-  it("never delivers nothing-level notifications", () => {
-    expect(shouldDeliver("nothing", false)).toBe(false)
-    expect(shouldDeliver("nothing", true)).toBe(false)
-  })
-})
+function deliveryStates(
+  ids: string[],
+  overrides: Partial<{
+    currentLevel: "all" | "mentions" | "nothing"
+    hasAttention: boolean
+    isUnread: boolean
+    isReadable: boolean
+  }> = {},
+) {
+  return new Map(ids.map((id) => [id, {
+    currentLevel: "all" as const,
+    hasAttention: false,
+    isUnread: true,
+    isReadable: true,
+    ...overrides,
+  }]))
+}
 
 describe("settleNotifyTasks", () => {
   it.each([0, 1, 3, 4, 1001])(
@@ -157,8 +160,8 @@ describe("dispatchMessageNotify", () => {
   })
 
   it("registers the returned work before the level resolver settles", async () => {
-    const levels = deferred<Map<string, "all">>()
-    mockResolveEffectiveLevelForUsers.mockReturnValue(levels.promise)
+    const states = deferred<ReturnType<typeof deliveryStates>>()
+    mockResolveNotificationEligibilityForUsers.mockReturnValue(states.promise)
 
     const work = dispatchMessageNotify(db, notifyContext, message, ["u1"], {
       mentionedUserIds: [],
@@ -166,13 +169,15 @@ describe("dispatchMessageNotify", () => {
 
     expect(mockWaitUntil).toHaveBeenCalledWith(work)
     expect(mockBroadcastToUser).not.toHaveBeenCalled()
-    levels.resolve(new Map([["u1", "all"]]))
+    states.resolve(deliveryStates(["u1"]))
     await work
     expect(mockBroadcastToUser).toHaveBeenCalledTimes(1)
   })
 
   it("keeps aggregate work pending until every lazily started leaf settles", async () => {
-    mockResolveEffectiveLevelForUsers.mockResolvedValue(new Map())
+    mockResolveNotificationEligibilityForUsers.mockResolvedValue(
+      deliveryStates(["u0", "u1", "u2", "u3"]),
+    )
     const gates = Array.from({ length: 4 }, () => deferred<void>())
     mockBroadcastToUser.mockImplementation(() => {
       const index = mockBroadcastToUser.mock.calls.length - 1
@@ -211,7 +216,10 @@ describe("dispatchMessageNotify", () => {
   })
 
   it("builds mention tasks before deduplicated unread tasks", async () => {
-    mockResolveEffectiveLevelForUsers.mockResolvedValue(new Map())
+    const states = deliveryStates(["u_plain", "u_mentioned", "u_extra"])
+    states.set("u_mentioned", { ...states.get("u_mentioned")!, hasAttention: true })
+    states.set("u_extra", { ...states.get("u_extra")!, hasAttention: true })
+    mockResolveNotificationEligibilityForUsers.mockResolvedValue(states)
 
     await dispatchMessageNotify(
       db,
@@ -247,7 +255,9 @@ describe("dispatchMessageNotify", () => {
   })
 
   it("isolates one rejected leaf and continues remaining deliveries", async () => {
-    mockResolveEffectiveLevelForUsers.mockResolvedValue(new Map())
+    mockResolveNotificationEligibilityForUsers.mockResolvedValue(
+      deliveryStates(["u0", "u1", "u2", "u3"]),
+    )
     mockBroadcastToUser.mockImplementation((userId: string) => (
       userId === "u1" ? Promise.reject(new Error("binding failed")) : Promise.resolve()
     ))
@@ -271,10 +281,10 @@ describe("dispatchMessageNotify", () => {
   })
 
   it("preserves all and mentions notification-level behavior", async () => {
-    mockResolveEffectiveLevelForUsers.mockResolvedValue(new Map([
-      ["u_all", "all"],
-      ["u_mentions_plain", "mentions"],
-      ["u_mentions_hit", "mentions"],
+    mockResolveNotificationEligibilityForUsers.mockResolvedValue(new Map([
+      ["u_all", { currentLevel: "all", hasAttention: false, isUnread: true, isReadable: true }],
+      ["u_mentions_plain", { currentLevel: "mentions", hasAttention: false, isUnread: true, isReadable: true }],
+      ["u_mentions_hit", { currentLevel: "mentions", hasAttention: true, isUnread: true, isReadable: true }],
     ]))
 
     await dispatchMessageNotify(
@@ -295,7 +305,9 @@ describe("dispatchMessageNotify", () => {
   })
 
   it("suppresses nothing-level deliveries without emitting message-create", async () => {
-    mockResolveEffectiveLevelForUsers.mockResolvedValue(new Map([["u_muted", "nothing"]]))
+    mockResolveNotificationEligibilityForUsers.mockResolvedValue(new Map([
+      ["u_muted", { currentLevel: "nothing", hasAttention: true, isUnread: true, isReadable: true }],
+    ]))
 
     await dispatchMessageNotify(db, notifyContext, message, ["u_muted"], {
       mentionedUserIds: ["u_muted"],
@@ -308,18 +320,67 @@ describe("dispatchMessageNotify", () => {
     )
   })
 
-  it("defaults a missing level to all", async () => {
-    mockResolveEffectiveLevelForUsers.mockResolvedValue(new Map())
+  it("fails closed when a recipient is missing from the delivery snapshot", async () => {
+    mockResolveNotificationEligibilityForUsers.mockResolvedValue(new Map())
 
     await dispatchMessageNotify(db, notifyContext, message, ["u_dm"], {
       mentionedUserIds: [],
     })
 
-    expect(eventsOfType("community:unread.bump").map((event) => event.userId)).toEqual(["u_dm"])
+    expect(mockBroadcastToUser).not.toHaveBeenCalled()
+  })
+
+  it("does not relight a message cleared before deferred notify, but delivers a newer unread", async () => {
+    mockResolveNotificationEligibilityForUsers.mockResolvedValueOnce(new Map([
+      ["u_mentioned", { currentLevel: "mentions", hasAttention: true, isUnread: false, isReadable: true }],
+    ]))
+
+    await dispatchMessageNotify(db, notifyContext, message, ["u_mentioned"], {
+      mentionedUserIds: ["u_mentioned"],
+    })
+    expect(mockBroadcastToUser).not.toHaveBeenCalled()
+
+    mockResolveNotificationEligibilityForUsers.mockResolvedValueOnce(new Map([
+      ["u_mentioned", { currentLevel: "mentions", hasAttention: true, isUnread: true, isReadable: true }],
+    ]))
+    await dispatchMessageNotify(
+      db,
+      notifyContext,
+      { id: "m2", channelId: "c1" },
+      ["u_mentioned"],
+      { mentionedUserIds: ["u_mentioned"] },
+    )
+    expect(mockBroadcastToUser.mock.calls.map((call) => (call[1] as { type: string }).type)).toEqual([
+      "community:mention.create",
+      "community:unread.bump",
+    ])
+  })
+
+  it("does not notify a captured recipient after current access is revoked", async () => {
+    mockResolveNotificationEligibilityForUsers.mockResolvedValue(new Map([
+      ["u_removed", { currentLevel: "all", hasAttention: true, isUnread: true, isReadable: false }],
+    ]))
+
+    await dispatchMessageNotify(db, notifyContext, message, ["u_removed"], {
+      mentionedUserIds: ["u_removed"],
+    })
+
+    expect(mockBroadcastToUser).not.toHaveBeenCalled()
+
+    await dispatchMessageNotify(
+      db,
+      notifyContext,
+      { id: "m_after_revoke", channelId: "c1" },
+      ["u_removed"],
+      { mentionedUserIds: ["u_removed"] },
+    )
+    expect(mockBroadcastToUser).not.toHaveBeenCalled()
   })
 
   it("preserves optional unread routing fields", async () => {
-    mockResolveEffectiveLevelForUsers.mockResolvedValue(new Map())
+    const states = deliveryStates(["u_plain", "u_mentioned"])
+    states.set("u_mentioned", { ...states.get("u_mentioned")!, hasAttention: true })
+    mockResolveNotificationEligibilityForUsers.mockResolvedValue(states)
 
     await dispatchMessageNotify(db, notifyContext, message, ["u_plain", "u_mentioned"], {
       mentionedUserIds: ["u_mentioned"],
@@ -338,7 +399,7 @@ describe("dispatchMessageNotify", () => {
   })
 
   it("omits optional unread routing fields for a direct message", async () => {
-    mockResolveEffectiveLevelForUsers.mockResolvedValue(new Map())
+    mockResolveNotificationEligibilityForUsers.mockResolvedValue(deliveryStates(["u_dm"]))
 
     await dispatchMessageNotify(db, notifyContext, message, ["u_dm"], {
       mentionedUserIds: [],
@@ -351,7 +412,7 @@ describe("dispatchMessageNotify", () => {
   })
 
   it("absorbs a resolver failure and records its duration", async () => {
-    mockResolveEffectiveLevelForUsers.mockRejectedValue(new Error("d1 blip"))
+    mockResolveNotificationEligibilityForUsers.mockRejectedValue(new Error("d1 blip"))
 
     const work = dispatchMessageNotify(db, notifyContext, message, ["u1"], {
       mentionedUserIds: [],
@@ -374,7 +435,7 @@ describe("dispatchMessageNotify", () => {
     mockGetCloudflareContext.mockImplementation(() => {
       throw new Error("not in a request context")
     })
-    mockResolveEffectiveLevelForUsers.mockResolvedValue(new Map())
+    mockResolveNotificationEligibilityForUsers.mockResolvedValue(deliveryStates(["u1"]))
 
     await expect(dispatchMessageNotify(
       db,

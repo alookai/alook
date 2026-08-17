@@ -12,6 +12,12 @@ beforeEach(() => {
 })
 
 describe("useNotificationSettings / notificationSettingsQueryFn", () => {
+  it("uses the backend-compatible all default when a server has no setting row", async () => {
+    const { resolveServerNotificationDisplayLevel } = await import("./use-notification-settings")
+    expect(resolveServerNotificationDisplayLevel(undefined)).toBe("All Messages")
+    expect(resolveServerNotificationDisplayLevel("Only @mentions")).toBe("Only @mentions")
+  })
+
   it("groups rows into server/channel maps with display strings", async () => {
     apiFetchMock.mockResolvedValueOnce([
       { serverId: "srv_1", channelId: null, level: "all" },

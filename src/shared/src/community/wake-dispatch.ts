@@ -7,10 +7,11 @@ import { utcDayKey } from "../utils/day-key";
 import * as message from "../db/queries/community/message";
 import * as bot from "../db/queries/community/bot";
 import * as member from "../db/queries/community/member";
-import * as readState from "../db/queries/community/read-state";
 import * as agentInbox from "../db/queries/community/agent-inbox";
 import * as mention from "../db/queries/community/mention";
 import * as botAuditLog from "../db/queries/community/bot-audit-log";
+import * as notificationEligibility from "../db/queries/community/notification-eligibility";
+import { policyAllows } from "../db/queries/community/notification-setting";
 import { getUsersByIds } from "../db/queries/user";
 import type { Database } from "../db/index";
 
@@ -100,9 +101,11 @@ export type SkipReason =
   | "bot_missing"
   | "bot_deleted"
   | "bot_unbound"
-  | "bot_not_in_scope"
+  | "forbidden"
   | "notice_channel_unresolvable"
-  | "already_read";
+  | "already_read"
+  | "muted"
+  | "mention_only";
 
 export type BuildUnreadWakeResult =
   | {
@@ -149,10 +152,27 @@ export async function buildUnreadWakeCommand(
   if (botCtx.state !== "ready") return { state: "skip", reason: botCtx.state };
 
   const canRead = await member.canBotReadWakeScope(db, input.botUserId, scope);
-  if (!canRead) return { state: "skip", reason: "bot_not_in_scope" };
+  if (!canRead) return { state: "skip", reason: "forbidden" };
 
-  const lastReadSeq = await readState.getWakeReadSeq(db, input.botUserId, scope);
-  if (lastReadSeq >= msg.seq) return { state: "skip", reason: "already_read" };
+  // Queue items are hints, not authority. Re-check current policy, persisted
+  // attention, and the read cursor in one snapshot so a concurrent setting
+  // mutation cannot clear this message between separate gates.
+  const policyByUser = await notificationEligibility.resolveNotificationEligibilityForUsers(
+    db,
+    [input.botUserId],
+    input.messageId,
+  );
+  const policy = policyByUser.get(input.botUserId);
+  if (!policy) return { state: "skip", reason: "message_missing" };
+  if (!policy.isReadable) return { state: "skip", reason: "forbidden" };
+  if (!policy.isUnread) return { state: "skip", reason: "already_read" };
+  const currentAllowed = policyAllows(policy.currentLevel, policy.hasAttention);
+  if (!currentAllowed) {
+    return {
+      state: "skip",
+      reason: policy.currentLevel === "nothing" ? "muted" : "mention_only",
+    };
+  }
 
   const channel = await agentInbox.resolveUnreadNoticeChannel(db, scope, input.botUserId);
   if (!channel) return { state: "skip", reason: "notice_channel_unresolvable" };

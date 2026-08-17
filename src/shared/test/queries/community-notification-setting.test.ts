@@ -181,4 +181,22 @@ describe("resolveEffectiveLevelForUsers — batch", () => {
     // 1 channel lookup + 1 settings fetch = 2 selects total, regardless of user count.
     expect(db.select).toHaveBeenCalledTimes(2);
   });
+
+  it("chunks more than 90 recipients without dropping all/mentions/nothing groups", async () => {
+    const userIds = Array.from({ length: 150 }, (_, index) => `u${index}`);
+    const db = createSelectMock([
+      [POST],
+      [{ userId: "u0", channelId: "p1", serverId: null, level: "nothing" }],
+      [{ userId: "u120", channelId: null, serverId: "s1", level: "mentions" }],
+    ]);
+
+    const map = await notif.resolveEffectiveLevelForUsers(db, userIds, "p1");
+
+    expect(map.size).toBe(150);
+    expect(map.get("u0")).toBe("nothing");
+    expect(map.get("u120")).toBe("mentions");
+    expect(map.get("u149")).toBe("all");
+    // 1 channel lookup + 2 bounded recipient chunks, never one query/user.
+    expect(db.select).toHaveBeenCalledTimes(3);
+  });
 });

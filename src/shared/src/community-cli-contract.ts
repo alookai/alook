@@ -310,6 +310,17 @@ export interface AckRequest {
   cursors: Cursor[];
 }
 
+export interface AckFailure extends Cursor {
+  code: "unresolvable" | "forbidden" | "no_such_seq";
+  error: string;
+}
+
+export interface AckResponse {
+  ok: boolean;
+  applied: Cursor[];
+  failed: AckFailure[];
+}
+
 export interface SendRequest {
   agentId: AgentId;
   /** Path ref of the destination channel/DM/thread. */
@@ -630,7 +641,7 @@ export interface ServerApi {
   inboxSnapshot(req: { agentId: AgentId }): Promise<InboxSnapshot>;
 
   /** Advance per-channel read waterlines (so drained messages stop reappearing). */
-  ack(req: AckRequest): Promise<void>;
+  ack(req: AckRequest): Promise<AckResponse>;
 
   /** Send a message to a channel ref. May be held by the freshness guard. */
   send(req: SendRequest): Promise<SendResponse>;

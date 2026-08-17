@@ -450,7 +450,8 @@ describe("createProxyServerApi — inbox trinity pull/snapshot/ack (retargeted t
       return jsonBody(JSON.stringify({ ok: true, applied: [], failed: [] }), { status: 200 });
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    await api.ack({ agentId: "a1", cursors: [{ channel: "/s/c", seq: 5 }] } as never);
+    const result = await api.ack({ agentId: "a1", cursors: [{ channel: "/s/c", seq: 5 }] } as never);
+    expect(result).toEqual({ ok: true, applied: [], failed: [] });
     expect(seen[0].url).toBe("http://proxy.test/api/community/users/me/inbox/ack");
     expect(seen[0].init?.method).toBe("POST");
     const body = JSON.parse(String(seen[0].init?.body ?? "{}"));

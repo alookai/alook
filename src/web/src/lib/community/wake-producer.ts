@@ -20,7 +20,6 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries, createLogger, withD1Retry } from "@alook/shared"
 import type { WakePayload } from "@alook/shared"
 import { getDb } from "../db"
-import { shouldDeliver } from "./notify"
 import { createQueueWakeTransport, createDevHttpWakeTransport } from "./wake-transport"
 import type { WakeTransport } from "./wake-transport"
 
@@ -48,10 +47,9 @@ export interface EnqueueBotWakesOpts {
   channelId: string
   messageRow: WakeMessageRow
   /**
-   * The message's full mention set (personal @ ∪ @everyone ∪ reply), already
-   * author-excluded. Used by the mute gate: a bot at `mentions` level only
-   * wakes when it's in this set. Omitted → treated as "nobody mentioned" (so a
-   * `mentions`-level bot won't wake on a plain message).
+   * Compatibility hint carried by the fan-out call. The authoritative gate
+   * deliberately rehydrates persisted mention/reply facts with current policy,
+   * so a stale or incomplete in-memory set cannot change delivery.
    */
   mentionedUserIds?: string[]
 }
@@ -130,28 +128,25 @@ async function doEnqueueBotWakes(env: Env, opts: EnqueueBotWakesOpts): Promise<v
   })
   if (gated.length === 0) return
 
-  // Mute gate (net-new — server-side notification level applied to bot wake).
-  // A bot's effective level for this channel decides whether a new message
-  // wakes it: `all` → any unread wakes; `mentions` → only if this bot is in the
-  // message's mention set (personal @ ∪ @everyone ∪ reply — Gener #28: bots and
-  // users share one predicate, @everyone counts); `nothing` → never. This gates
-  // ONLY wake — it never affects what the bot can read via inbox pull / channel
-  // history (mute ≠ blindness). A DM's level is self-contained (resolver finds
-  // no server/parent row → defaults to `all`), so a `nothing` set elsewhere
-  // never suppresses a DM wake.
-  const mentioned = new Set(opts.mentionedUserIds ?? [])
-  const levels = await withD1Retry(
+  // Resolve current readability, read cursor, persisted attention, and policy
+  // together so a deferred enqueue cannot relight cleared or revoked work.
+  const eligibility = await withD1Retry(
     () =>
-      queries.communityNotificationSetting.resolveEffectiveLevelForUsers(
+      queries.communityNotificationEligibility.resolveNotificationEligibilityForUsers(
         db,
         gated.map((c) => c.botUserId),
-        channelId,
+        messageRow.id,
       ),
-    { route: "wake-producer:effective-levels" },
+    { route: "wake-producer:notification-eligibility" },
   )
-  const woken = gated.filter((c) =>
-    shouldDeliver(levels.get(c.botUserId) ?? "all", mentioned.has(c.botUserId)),
-  )
+  const woken = gated.filter((c) => {
+    const state = eligibility.get(c.botUserId)
+    if (!state?.isReadable || !state.isUnread) return false
+    return queries.communityNotificationSetting.policyAllows(
+      state.currentLevel,
+      state.hasAttention,
+    )
+  })
   if (woken.length === 0) return
 
   const payloads: WakePayload[] = woken.map((c) => ({

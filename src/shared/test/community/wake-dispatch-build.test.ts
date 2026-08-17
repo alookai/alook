@@ -32,14 +32,15 @@ vi.mock("../../src/db/queries/community/member", () => ({
   canBotReadWakeScope: (...a: unknown[]) => mockCanBotReadWakeScope(...a),
 }));
 
-const mockGetWakeReadSeq = vi.fn();
-vi.mock("../../src/db/queries/community/read-state", () => ({
-  getWakeReadSeq: (...a: unknown[]) => mockGetWakeReadSeq(...a),
-}));
-
 const mockResolveUnreadNoticeChannel = vi.fn();
 vi.mock("../../src/db/queries/community/agent-inbox", () => ({
   resolveUnreadNoticeChannel: (...a: unknown[]) => mockResolveUnreadNoticeChannel(...a),
+}));
+
+const mockResolveNotificationEligibilityForUsers = vi.fn();
+vi.mock("../../src/db/queries/community/notification-eligibility", () => ({
+  resolveNotificationEligibilityForUsers: (...a: unknown[]) =>
+    mockResolveNotificationEligibilityForUsers(...a),
 }));
 
 import { buildUnreadWakeCommand } from "../../src/community/wake-dispatch";
@@ -78,16 +79,21 @@ function seedHappyPath(overrides?: {
   message?: Partial<typeof MESSAGE_CHANNEL>;
   bot?: Partial<typeof BOT_READY>;
   canRead?: boolean;
-  readSeq?: number;
+  isUnread?: boolean;
   channel?: string | null;
 }) {
   mockGetWakeMessageScopeById.mockResolvedValue({ ...MESSAGE_CHANNEL, ...overrides?.message });
   mockGetBotWakeContext.mockResolvedValue({ ...BOT_READY, ...overrides?.bot });
   mockCanBotReadWakeScope.mockResolvedValue(overrides?.canRead ?? true);
-  mockGetWakeReadSeq.mockResolvedValue(overrides?.readSeq ?? 0);
   mockResolveUnreadNoticeChannel.mockResolvedValue(
     overrides?.channel === undefined ? "/srv_1/general" : overrides.channel,
   );
+  mockResolveNotificationEligibilityForUsers.mockResolvedValue(new Map([["bot_1", {
+    currentLevel: "all",
+    hasAttention: false,
+    isUnread: overrides?.isUnread ?? true,
+    isReadable: true,
+  }]]));
   // Audit path best-effort defaults — happy replies so the wake still fires.
   mockGetUsersByIds.mockResolvedValue([{ id: "u_human", name: "gustavo", discriminator: "0042" }]);
   mockHasMentionForMessage.mockResolvedValue(false);
@@ -121,7 +127,11 @@ describe("buildUnreadWakeCommand", () => {
     expect(mockGetWakeMessageScopeById).toHaveBeenCalledWith(fakeDb, "msg_1");
     expect(mockGetBotWakeContext).toHaveBeenCalledWith(fakeDb, "bot_1");
     expect(mockCanBotReadWakeScope).toHaveBeenCalledWith(fakeDb, "bot_1", { channelId: "ch_1" });
-    expect(mockGetWakeReadSeq).toHaveBeenCalledWith(fakeDb, "bot_1", { channelId: "ch_1" });
+    expect(mockResolveNotificationEligibilityForUsers).toHaveBeenCalledWith(
+      fakeDb,
+      ["bot_1"],
+      "msg_1",
+    );
     expect(mockResolveUnreadNoticeChannel).toHaveBeenCalledWith(fakeDb, { channelId: "ch_1" }, "bot_1");
   });
 
@@ -227,17 +237,17 @@ describe("buildUnreadWakeCommand", () => {
     expect(result).toEqual({ state: "skip", reason: "bot_unbound" });
   });
 
-  it("skip: bot_not_in_scope when the bot lost membership/participant access before the queue drained", async () => {
+  it("skip: forbidden when the bot lost membership/participant access before the queue drained", async () => {
     seedHappyPath({ canRead: false });
 
     const result = await buildUnreadWakeCommand(fakeDb, { messageId: "msg_1", botUserId: "bot_1" });
 
-    expect(result).toEqual({ state: "skip", reason: "bot_not_in_scope" });
-    expect(mockGetWakeReadSeq).not.toHaveBeenCalled();
+    expect(result).toEqual({ state: "skip", reason: "forbidden" });
+    expect(mockResolveNotificationEligibilityForUsers).not.toHaveBeenCalled();
   });
 
   it("skip: already_read when lastReadSeq >= message.seq (an earlier inboxPull already caught the bot up)", async () => {
-    seedHappyPath({ readSeq: 7 });
+    seedHappyPath({ isUnread: false });
 
     const result = await buildUnreadWakeCommand(fakeDb, { messageId: "msg_1", botUserId: "bot_1" });
 
@@ -245,12 +255,41 @@ describe("buildUnreadWakeCommand", () => {
     expect(mockResolveUnreadNoticeChannel).not.toHaveBeenCalled();
   });
 
-  it("skip: already_read also fires when lastReadSeq is strictly greater (batched catch-up past this seq)", async () => {
-    seedHappyPath({ readSeq: 9 });
+  it("skip: already_read also covers a cursor advanced past this message", async () => {
+    seedHappyPath({ isUnread: false });
 
     const result = await buildUnreadWakeCommand(fakeDb, { messageId: "msg_1", botUserId: "bot_1" });
 
     expect(result).toEqual({ state: "skip", reason: "already_read" });
+  });
+
+  it("skip: muted when current policy changes to nothing while a queue item waits", async () => {
+    seedHappyPath();
+    mockResolveNotificationEligibilityForUsers.mockResolvedValue(new Map([["bot_1", {
+      currentLevel: "nothing",
+      hasAttention: true,
+      isUnread: true,
+      isReadable: true,
+    }]]));
+
+    const result = await buildUnreadWakeCommand(fakeDb, { messageId: "msg_1", botUserId: "bot_1" });
+
+    expect(result).toEqual({ state: "skip", reason: "muted" });
+    expect(mockResolveUnreadNoticeChannel).not.toHaveBeenCalled();
+  });
+
+  it("skip: mention_only for a plain message under the current mentions policy", async () => {
+    seedHappyPath();
+    mockResolveNotificationEligibilityForUsers.mockResolvedValue(new Map([["bot_1", {
+      currentLevel: "mentions",
+      hasAttention: false,
+      isUnread: true,
+      isReadable: true,
+    }]]));
+
+    const result = await buildUnreadWakeCommand(fakeDb, { messageId: "msg_1", botUserId: "bot_1" });
+
+    expect(result).toEqual({ state: "skip", reason: "mention_only" });
   });
 
   it("skip: notice_channel_unresolvable when the scope can't be strictly resolved to a ChannelRef (never falls back to /unknown/...)", async () => {
@@ -320,7 +359,7 @@ describe("buildUnreadWakeCommand", () => {
     expect(args.payload.reason).toBe("mention");
   });
 
-  it("NEVER writes an audit row when the wake was skipped (bot_not_in_scope)", async () => {
+  it("NEVER writes an audit row when the wake was skipped (forbidden)", async () => {
     seedHappyPath({ canRead: false });
 
     await buildUnreadWakeCommand(fakeDb, { messageId: "msg_1", botUserId: "bot_1" });

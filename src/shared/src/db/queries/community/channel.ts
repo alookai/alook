@@ -1,4 +1,5 @@
 import { eq, and, asc, desc, isNotNull, isNull, max, inArray, count, or, sql } from "drizzle-orm";
+import type { SQLWrapper } from "drizzle-orm";
 import {
   communityChannel,
   communityCategory,
@@ -29,6 +30,56 @@ const CHANNEL_COLUMNS = {
   lastMessageAt: communityChannel.lastMessageAt,
   createdAt: communityChannel.createdAt,
 } as const;
+
+/**
+ * SQL form of the canonical channel visibility rule used by
+ * `getChannelForMember`/`resolveChannelAccessContext`: DMs require an access
+ * row; server channels require current server membership; private children
+ * inherit the anchor's creator/access roster. Admins receive no private-content
+ * bypass. Keep this expression beside those authoritative read gates so query
+ * projections can filter before aggregation without re-deriving visibility.
+ */
+export function channelReadableSql(
+  userId: string | SQLWrapper,
+  channel: {
+    id: SQLWrapper;
+    type: SQLWrapper;
+    serverId: SQLWrapper;
+    parentChannelId: SQLWrapper;
+  },
+) {
+  return sql<boolean>`(
+    case
+      when ${channel.type} = 'dm' then exists(
+        select 1 from ${communityChannelMember}
+        where ${communityChannelMember.channelId} = ${channel.id}
+          and ${communityChannelMember.userId} = ${userId}
+          and ${communityChannelMember.relation} = 'access'
+      )
+      else exists(
+        select 1 from ${communityServerMember}
+        where ${communityServerMember.serverId} = ${channel.serverId}
+          and ${communityServerMember.userId} = ${userId}
+      ) and exists(
+        select 1
+        from community_channel as readable_anchor
+        left join community_category as readable_category
+          on readable_category.id = readable_anchor.category_id
+        where readable_anchor.id = coalesce(${channel.parentChannelId}, ${channel.id})
+          and (
+            coalesce(readable_category.private, 0) = 0
+            or readable_anchor.creator_id = ${userId}
+            or exists(
+              select 1 from ${communityChannelMember}
+              where ${communityChannelMember.channelId} = readable_anchor.id
+                and ${communityChannelMember.userId} = ${userId}
+                and ${communityChannelMember.relation} = 'access'
+            )
+          )
+      )
+    end
+  )`;
+}
 
 
 export async function createChannel(

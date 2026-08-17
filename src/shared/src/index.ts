@@ -421,6 +421,8 @@ export type {
   InboxPullRequest as CommunityCliInboxPullRequest,
   InboxPullResponse as CommunityCliInboxPullResponse,
   AckRequest as CommunityCliAckRequest,
+  AckResponse as CommunityCliAckResponse,
+  AckFailure as CommunityCliAckFailure,
   SendRequest as CommunityCliSendRequest,
   SendResponse as CommunityCliSendResponse,
   CommunityAgentReactAddResponse,

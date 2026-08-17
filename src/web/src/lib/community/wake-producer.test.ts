@@ -11,10 +11,15 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockFindWakeCandidates = vi.fn()
 const mockCanBotReadWakeScope = vi.fn()
-// Default: every bot resolves to "all" (no mute) — existing tests wake as
-// before. The mute-gate tests below override this.
-const mockResolveEffectiveLevelForUsers = vi.fn(
-  async (_db: unknown, userIds: string[]) => new Map(userIds.map((id) => [id, "all"])),
+// Default: every bot passes the current-policy gate. Policy tests below
+// override individual states.
+const mockResolveNotificationEligibilityForUsers = vi.fn(
+  async (_db: unknown, userIds: string[]) => new Map(userIds.map((id) => [id, {
+    currentLevel: "all",
+    hasAttention: false,
+    isUnread: true,
+    isReadable: true,
+  }])),
 )
 const mockWarn = vi.fn()
 const mockInfo = vi.fn()
@@ -37,7 +42,11 @@ vi.mock("@alook/shared", async () => {
         canBotReadWakeScope: (...a: unknown[]) => mockCanBotReadWakeScope(...a),
       },
       communityNotificationSetting: {
-        resolveEffectiveLevelForUsers: (...a: unknown[]) => mockResolveEffectiveLevelForUsers(...(a as [unknown, string[]])),
+        policyAllows: actual.queries.communityNotificationSetting.policyAllows,
+      },
+      communityNotificationEligibility: {
+        resolveNotificationEligibilityForUsers: (...a: unknown[]) =>
+          mockResolveNotificationEligibilityForUsers(...(a as [unknown, string[]])),
       },
     },
   }
@@ -66,9 +75,19 @@ const messageRow = {
   dmConversationId: null,
 }
 
+function defaultEligibility(_db: unknown, userIds: string[]) {
+  return Promise.resolve(new Map(userIds.map((id) => [id, {
+    currentLevel: "all",
+    hasAttention: false,
+    isUnread: true,
+    isReadable: true,
+  }])))
+}
+
 describe("enqueueBotWakes", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockResolveNotificationEligibilityForUsers.mockImplementation(defaultEligibility)
     mockQueueSend.mockResolvedValue(undefined)
     mockDevHttpSend.mockResolvedValue(undefined)
     // Default: every candidate passes the wake gate. Tests that need to
@@ -135,7 +154,12 @@ describe("enqueueBotWakes", () => {
     mockFindWakeCandidates.mockResolvedValue([
       { botUserId: "bot_muted", name: "z", machineId: "m1", runtime: "claude" },
     ])
-    mockResolveEffectiveLevelForUsers.mockResolvedValue(new Map([["bot_muted", "nothing"]]))
+    mockResolveNotificationEligibilityForUsers.mockResolvedValue(new Map([["bot_muted", {
+      currentLevel: "nothing",
+      hasAttention: true,
+      isUnread: true,
+      isReadable: true,
+    }]]))
 
     await enqueueBotWakes({
       recipients: ["bot_muted"],
@@ -152,10 +176,10 @@ describe("enqueueBotWakes", () => {
       { botUserId: "bot_mentioned", name: "a", machineId: "m1", runtime: "claude" },
       { botUserId: "bot_plain", name: "b", machineId: "m2", runtime: "codex" },
     ])
-    mockResolveEffectiveLevelForUsers.mockResolvedValue(
+    mockResolveNotificationEligibilityForUsers.mockResolvedValue(
       new Map([
-        ["bot_mentioned", "mentions"],
-        ["bot_plain", "mentions"],
+        ["bot_mentioned", { currentLevel: "mentions", hasAttention: true, isUnread: true, isReadable: true }],
+        ["bot_plain", { currentLevel: "mentions", hasAttention: false, isUnread: true, isReadable: true }],
       ]),
     )
 
@@ -175,7 +199,12 @@ describe("enqueueBotWakes", () => {
     mockFindWakeCandidates.mockResolvedValue([
       { botUserId: "bot_all", name: "a", machineId: "m1", runtime: "claude" },
     ])
-    mockResolveEffectiveLevelForUsers.mockResolvedValue(new Map([["bot_all", "all"]]))
+    mockResolveNotificationEligibilityForUsers.mockResolvedValue(new Map([["bot_all", {
+      currentLevel: "all",
+      hasAttention: false,
+      isUnread: true,
+      isReadable: true,
+    }]]))
 
     await enqueueBotWakes({
       recipients: ["bot_all"],
@@ -193,8 +222,12 @@ describe("enqueueBotWakes", () => {
     mockFindWakeCandidates.mockResolvedValue([
       { botUserId: "bot_dm", name: "a", machineId: "m1", runtime: "claude" },
     ])
-    // resolver returns an empty map → levelOf falls back to "all"
-    mockResolveEffectiveLevelForUsers.mockResolvedValue(new Map())
+    mockResolveNotificationEligibilityForUsers.mockResolvedValue(new Map([["bot_dm", {
+      currentLevel: "all",
+      hasAttention: false,
+      isUnread: true,
+      isReadable: true,
+    }]]))
 
     await enqueueBotWakes({
       recipients: ["bot_dm"],
@@ -204,6 +237,50 @@ describe("enqueueBotWakes", () => {
     })
 
     expect(mockQueueSend).toHaveBeenCalledTimes(1)
+  })
+
+  it("CURSOR GATE — a message cleared before deferred enqueue never wakes, while a newer unread does", async () => {
+    mockFindWakeCandidates.mockResolvedValue([
+      { botUserId: "bot_1", name: "a", machineId: "m1", runtime: "claude" },
+    ])
+    mockResolveNotificationEligibilityForUsers.mockResolvedValueOnce(new Map([["bot_1", {
+      currentLevel: "all",
+      hasAttention: false,
+      isUnread: false,
+      isReadable: true,
+    }]]))
+
+    await enqueueBotWakes({ recipients: ["bot_1"], channelId: "c1", messageRow })
+    expect(mockQueueSend).not.toHaveBeenCalled()
+
+    mockResolveNotificationEligibilityForUsers.mockResolvedValueOnce(new Map([["bot_1", {
+      currentLevel: "all",
+      hasAttention: false,
+      isUnread: true,
+      isReadable: true,
+    }]]))
+    await enqueueBotWakes({
+      recipients: ["bot_1"],
+      channelId: "c1",
+      messageRow: { ...messageRow, id: "msg_2", seq: 8 },
+    })
+    expect(mockQueueSend).toHaveBeenCalledWith([{ messageId: "msg_2", botUserId: "bot_1" }])
+  })
+
+  it("READABILITY GATE — a captured bot removed from the scope is dropped before enqueue", async () => {
+    mockFindWakeCandidates.mockResolvedValue([
+      { botUserId: "bot_removed", name: "a", machineId: "m1", runtime: "claude" },
+    ])
+    mockResolveNotificationEligibilityForUsers.mockResolvedValue(new Map([["bot_removed", {
+      currentLevel: "all",
+      hasAttention: true,
+      isUnread: true,
+      isReadable: false,
+    }]]))
+
+    await enqueueBotWakes({ recipients: ["bot_removed"], channelId: "c1", messageRow })
+
+    expect(mockQueueSend).not.toHaveBeenCalled()
   })
 
   it("retains a candidate when its producer prefilter rejects without collapsing the batch", async () => {
@@ -322,6 +399,7 @@ describe("enqueueBotWakes — dev HTTP transport selection (NODE_ENV=development
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockResolveNotificationEligibilityForUsers.mockImplementation(defaultEligibility)
     mockQueueSend.mockResolvedValue(undefined)
     mockDevHttpSend.mockResolvedValue(undefined)
     process.env.NODE_ENV = "development"

@@ -49,6 +49,7 @@ export * as communityReadState from "./queries/community/read-state";
 export * as communityUserProfile from "./queries/community/user-profile";
 export * as communitySearch from "./queries/community/search";
 export * as communityNotificationSetting from "./queries/community/notification-setting";
+export * as communityNotificationEligibility from "./queries/community/notification-eligibility";
 export * as communityServerFolder from "./queries/community/server-folder";
 export * as communityInbox from "./queries/community/inbox";
 export * as communityMachine from "./queries/community/machine";
