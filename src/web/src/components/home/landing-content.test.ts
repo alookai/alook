@@ -47,6 +47,7 @@ describe("landing content contract", () => {
       "continuity",
       "reach",
       "ownership",
+      "faq",
       "closing",
     ])
     expect(LANDING_GALLERY.map((story) => story.scene)).toEqual([
@@ -248,6 +249,7 @@ describe("landing content contract", () => {
     expect(landingPageSource).toContain("https://discord.alook.ai")
     expect(landingPageSource).toContain("https://x.com/alook_ai")
     expect(landingPageSource).toContain("HeroSection")
+    expect(landingPageSource).toContain("<HomepageFaq />")
     expect(landingPageSource).toContain("MarketingNav")
     expect(landingPageSource).toContain("showTemplates={false}")
     expect(landingPageSource).toContain("revealAfterHero")

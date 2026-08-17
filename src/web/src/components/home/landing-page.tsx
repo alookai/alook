@@ -8,6 +8,7 @@ import { ProfileCard } from "@/components/community/social/profile-card"
 import { ProviderLogo } from "@/components/provider-logo"
 import { HeroSection } from "./hero-section"
 import { HeroAvatarSwarm } from "./hero-avatar-swarm"
+import { HomepageFaq } from "./homepage-faq"
 import { LandingReachMotion } from "./landing-reach-motion"
 import { LandingShellMotion } from "./landing-shell-motion"
 import { MarketingNav } from "./marketing-nav"
@@ -354,6 +355,8 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
           </div>
         </div>
       </section>
+
+      <HomepageFaq />
 
       <section className={styles.closingSection} data-testid="landing-closing">
         <div className={styles.closingCta}>
