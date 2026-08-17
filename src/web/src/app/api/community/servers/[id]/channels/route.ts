@@ -1,13 +1,9 @@
 import { NextResponse, NextRequest } from "next/server"
 import { getDb } from "@/lib/db"
-import { isForum, parseNameAndTag, queries } from "@alook/shared"
+import { compareAsciiSqliteBinary, isForum, parseNameAndTag, queries } from "@alook/shared"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { buildServerChannelGroups } from "@/lib/community/list-channels"
 import { requireServerMember } from "@/lib/community/permissions"
-
-function compareBinary(left: string, right: string): number {
-  return left === right ? 0 : left < right ? -1 : 1
-}
 
 /**
  * GET /api/community/servers/[id]/channels — single-server channel list. Human
@@ -102,9 +98,9 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
           .slice(0, limitPerParent - 1),
         retainedChannel,
       ].sort((a, b) =>
-        compareBinary(a.parentChannelId ?? "", b.parentChannelId ?? "") ||
-        compareBinary(b.activityAt, a.activityAt) ||
-        compareBinary(b.id, a.id)
+        compareAsciiSqliteBinary(a.parentChannelId ?? "", b.parentChannelId ?? "") ||
+        compareAsciiSqliteBinary(b.activityAt, a.activityAt) ||
+        compareAsciiSqliteBinary(b.id, a.id)
       )
     }
     return NextResponse.json({

@@ -193,10 +193,10 @@ describe("useEditMessage", () => {
 
   it("invalidates only the exact Inbox and base threads reads after an opener edit", async () => {
     const threads = communityKeys.threads("forum_1")
-    const activity = communityKeys.forumActivityFeed("forum_1", "bug")
+    const feed = communityKeys.forumFeed("forum_1", "bug")
     const inbox = communityKeys.inboxUnreads()
     capturedQc.setQueryData(threads, { serverId: "s1", parentType: "forum", parentChannelId: "forum_1", threads: [] })
-    capturedQc.setQueryData(activity, { pages: [], pageParams: [] })
+    capturedQc.setQueryData(feed, { pages: [], pageParams: [] })
     capturedQc.setQueryData(inbox, { servers: [], dms: [] })
     apiFetchMock.mockResolvedValueOnce(undefined)
     const mod = await loadMod()
@@ -209,7 +209,7 @@ describe("useEditMessage", () => {
 
     expect(capturedQc.getQueryState(threads)?.isInvalidated).toBe(true)
     expect(capturedQc.getQueryState(inbox)?.isInvalidated).toBe(true)
-    expect(capturedQc.getQueryState(activity)?.isInvalidated).toBe(false)
+    expect(capturedQc.getQueryState(feed)?.isInvalidated).toBe(false)
   })
 
   it("patches a loaded forum-sidebar title after the opener edit succeeds", async () => {

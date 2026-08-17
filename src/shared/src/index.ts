@@ -70,6 +70,7 @@ export type {
 // Diagnostic report contract (neutral schemas/constants shared by HTTP, WS,
 // daemon, and the D1 query layer).
 export * from "./diagnostics-contract";
+export { compareAsciiSqliteBinary } from "./lib/sqlite-binary";
 
 // Constants
 export {

@@ -4,13 +4,7 @@ import { user } from "../../schema";
 import type { Database } from "../../index";
 import { chunk, maxRowsPerInsert, D1_MAX_IN_PARAMS } from "../_chunk";
 import { type ParticipantSource } from "../../../constants/community";
-
-// SQLite's default TEXT ordering is BINARY. These values are ASCII ids / ISO
-// timestamps, so JS code-unit comparison matches the database byte order while
-// localeCompare does not (notably for case-sensitive nanoids such as A vs a).
-function compareSqliteBinary(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
+import { compareAsciiSqliteBinary } from "../../../lib/sqlite-binary";
 
 // The NOTIFICATION set for a child thread — relation='notify' rows
 // on `community_channel_member` (formerly the standalone
@@ -176,9 +170,9 @@ export async function listParticipantsForChannels(
         .orderBy(asc(ranked.channelId), asc(ranked.addedAt), asc(ranked.userId));
     }));
     return batches.flat().sort((a, b) =>
-      compareSqliteBinary(a.channelId, b.channelId) ||
-      compareSqliteBinary(a.addedAt, b.addedAt) ||
-      compareSqliteBinary(a.userId, b.userId)
+      compareAsciiSqliteBinary(a.channelId, b.channelId) ||
+      compareAsciiSqliteBinary(a.addedAt, b.addedAt) ||
+      compareAsciiSqliteBinary(a.userId, b.userId)
     );
   }
   const batches = await Promise.all(channelIdChunks.map((ids) => db
@@ -296,14 +290,14 @@ export async function listParticipatingThreadIds(
   return rows.map((r) => r.channelId);
 }
 
-export type ForumActivityCursor = { activityAt: string; id: string };
+export type ForumCreatedAtCursor = { createdAt: string; id: string };
 
-export async function listForumThreadsByActivity(
+export async function listForumThreadsByCreatedAt(
   db: Database,
   params: {
     parentChannelId: string;
     tag?: string;
-    cursor?: ForumActivityCursor;
+    cursor?: ForumCreatedAtCursor;
     limit: number;
   }
 ) {
@@ -316,9 +310,9 @@ export async function listForumThreadsByActivity(
   ];
   if (params.cursor) {
     conditions.push(or(
-      lt(activityAt, params.cursor.activityAt),
+      lt(communityChannel.createdAt, params.cursor.createdAt),
       and(
-        eq(activityAt, params.cursor.activityAt),
+        eq(communityChannel.createdAt, params.cursor.createdAt),
         lt(communityChannel.id, params.cursor.id)
       )
     )!);
@@ -354,7 +348,7 @@ export async function listForumThreadsByActivity(
         )
       )
       .where(and(...conditions))
-      .orderBy(desc(activityAt), desc(communityChannel.id))
+      .orderBy(desc(communityChannel.createdAt), desc(communityChannel.id))
       .limit(params.limit);
   }
 
@@ -362,7 +356,7 @@ export async function listForumThreadsByActivity(
     .select(select)
     .from(communityChannel)
     .where(and(...conditions))
-    .orderBy(desc(activityAt), desc(communityChannel.id))
+    .orderBy(desc(communityChannel.createdAt), desc(communityChannel.id))
     .limit(params.limit);
 }
 
@@ -490,9 +484,9 @@ export async function listParticipatingForumThreads(
 
   return {
     canonical: rows.sort((a, b) =>
-      compareSqliteBinary(a.parentChannelId ?? "", b.parentChannelId ?? "") ||
-      compareSqliteBinary(b.activityAt, a.activityAt) ||
-      compareSqliteBinary(b.id, a.id)
+      compareAsciiSqliteBinary(a.parentChannelId ?? "", b.parentChannelId ?? "") ||
+      compareAsciiSqliteBinary(b.activityAt, a.activityAt) ||
+      compareAsciiSqliteBinary(b.id, a.id)
     ),
     retained,
   };

@@ -5,7 +5,7 @@ import { communityKeys } from "@/lib/query-keys"
 import type { MessagesPage, Msg } from "@/lib/community/models/message"
 import type { UnreadServer } from "@/lib/community/models/inbox"
 import type { ThreadsResponse } from "@/hooks/community/use-channel-panels"
-import type { ForumActivityPage } from "@/hooks/community/use-forum-feed"
+import type { ForumFeedPage } from "@/hooks/community/use-forum-feed"
 import {
   getForumSidebarBase,
   patchForumSidebarTitleExact,
@@ -55,8 +55,8 @@ function patchInbox(
   return touched ? { ...data, servers } : data
 }
 
-function patchActivity(
-  data: InfiniteData<ForumActivityPage> | undefined,
+function patchFeed(
+  data: InfiniteData<ForumFeedPage> | undefined,
   identity: ForumOpenerTitleIdentity,
 ) {
   if (!data) return data
@@ -156,9 +156,9 @@ export async function reconcileForumOpenerTitle(
       (cache) => patchMessageContentInCache(cache, identity.openerMessageId, identity.content),
     )
   }
-  queryClient.setQueriesData<InfiniteData<ForumActivityPage>>(
-    { queryKey: [...communityKeys.threads(identity.forumChannelId), "activity"] },
-    (data) => patchActivity(data, identity),
+  queryClient.setQueriesData<InfiniteData<ForumFeedPage>>(
+    { queryKey: [...communityKeys.threads(identity.forumChannelId), "feed"] },
+    (data) => patchFeed(data, identity),
   )
   queryClient.setQueryData<{ servers: UnreadServer[]; dms: unknown[] }>(
     inboxKey,

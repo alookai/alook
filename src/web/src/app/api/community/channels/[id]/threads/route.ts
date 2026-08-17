@@ -5,7 +5,7 @@ import { getDb } from "@/lib/db"
 import { isForum, queries, MAX_FORUM_TAG_LENGTH } from "@alook/shared"
 import { requireChannelAccess } from "@/lib/community/permissions"
 import { parseBoundedInt } from "@/lib/community/messages"
-import { encodeForumActivityCursor, parseForumActivityCursor } from "@/lib/community/forum-activity"
+import { encodeForumCreatedAtCursor, parseForumCreatedAtCursor } from "@/lib/community/forum-feed-cursor"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -27,9 +27,12 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   if (rawTag !== null && !tag) return writeError("tag is required", 400)
   if (tag && tag.length > MAX_FORUM_TAG_LENGTH) return writeError(`tag must be ≤ ${MAX_FORUM_TAG_LENGTH} characters`, 400)
 
-  if (req.nextUrl.searchParams.get("order") === "activity") {
+  const order = req.nextUrl.searchParams.get("order")
+  if (order !== null && order !== "createdAt") return writeError("invalid order", 400)
+
+  if (order === "createdAt") {
     if (!isForum(access.value.channel.type)) return writeError("not a forum", 400)
-    if (archived === true) return writeError("activity order only supports active threads", 400)
+    if (archived === true) return writeError("createdAt order only supports active threads", 400)
     const includes = new Set(
       (req.nextUrl.searchParams.get("include") ?? "")
         .split(",")
@@ -41,13 +44,13 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       return writeError("invalid include", 400)
     }
     const pageSize = parseBoundedInt(req.nextUrl.searchParams.get("limit"), 50, 100)
-    const cursor = parseForumActivityCursor(req.nextUrl.searchParams.get("cursor"), {
+    const cursor = parseForumCreatedAtCursor(req.nextUrl.searchParams.get("cursor"), {
       parentChannelId: channelId,
       tag: tag ?? null,
     })
     if (cursor === null) return writeError("invalid cursor", 400)
 
-    const rows = await queries.communityThread.listForumThreadsByActivity(db, {
+    const rows = await queries.communityThread.listForumThreadsByCreatedAt(db, {
       parentChannelId: channelId,
       ...(tag ? { tag } : {}),
       ...(cursor ? { cursor } : {}),
@@ -57,9 +60,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     const threads = hasMore ? rows.slice(0, pageSize) : rows
     const last = threads.at(-1)
     const nextCursor = hasMore && last
-      ? encodeForumActivityCursor({
+      ? encodeForumCreatedAtCursor({
         parentChannelId: channelId,
-        activityAt: last.activityAt,
+        createdAt: last.createdAt,
         id: last.id,
         tag: tag ?? null,
       })

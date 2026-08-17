@@ -60,7 +60,7 @@ function seedCanonicalCaches() {
       parent: { authorName: "A", text: "Old title" },
     }],
   })
-  queryClient.setQueryData(communityKeys.forumActivityFeed("forum_1", null), {
+  queryClient.setQueryData(communityKeys.forumFeed("forum_1", null), {
     pages: [{
       parentType: "forum",
       serverId: "server_1",
@@ -95,7 +95,7 @@ function seedCanonicalCaches() {
 describe("reconcileForumOpenerTitle", () => {
   it("patches every exact forum title read model and repairs only exact network reads", async () => {
     seedCanonicalCaches()
-    const activityKey = communityKeys.forumActivityFeed("forum_1", null)
+    const feedKey = communityKeys.forumFeed("forum_1", null)
     const cancel = vi.spyOn(queryClient, "cancelQueries")
     const invalidate = vi.spyOn(queryClient, "invalidateQueries")
 
@@ -105,14 +105,14 @@ describe("reconcileForumOpenerTitle", () => {
     expect(cancel).toHaveBeenCalledWith({ queryKey: communityKeys.threads("forum_1"), exact: true })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.inboxUnreads(), exact: true })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.threads("forum_1"), exact: true })
-    expect(queryClient.getQueryState(activityKey)?.isInvalidated).toBe(false)
+    expect(queryClient.getQueryState(feedKey)?.isInvalidated).toBe(false)
 
     expect(queryClient.getQueryData<any>(communityKeys.message("opener_1")).content).toBe("Full new title")
     expect(queryClient.getQueryData<any>(communityKeys.channelMessages("forum_1")).pages[0].messages[0].content).toBe("Full new title")
     expect(queryClient.getQueryData<any>(communityKeys.channelMessages("post_1")).pages[0].messages[0].content).toBe("Full new title")
     expect(queryClient.getQueryData<any>(communityKeys.inboxUnreads()).servers[0].channels[0].children[0].channelName).toBe("Full new title")
     expect(queryClient.getQueryData<any>(communityKeys.threads("forum_1")).threads[0].name).toBe("Full new title")
-    expect(queryClient.getQueryData<any>(activityKey).pages[0].included.parentMessages[0].content).toBe("Full new title")
+    expect(queryClient.getQueryData<any>(feedKey).pages[0].included.parentMessages[0].content).toBe("Full new title")
     expect(queryClient.getQueryData<any>(communityKeys.forumSidebarThreads("server_1")).threads[0].title).toBe("Full new title")
     expect(queryClient.getQueryData<any>(communityKeys.forumOpenerHint("server_1", "opener_1")).content).toBe("Full new title")
   })

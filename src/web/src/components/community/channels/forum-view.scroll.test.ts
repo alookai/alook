@@ -75,7 +75,7 @@ describe("ForumView scroll anchoring", () => {
     expect(scrollToIndex).toHaveBeenCalledWith(0, { align: "start" })
   })
 
-  it("loads older activity pages from the bottom sentinel without scroll-height compensation", async () => {
+  it("loads older feed pages from the bottom sentinel without scroll-height compensation", async () => {
     const onLoadMore = vi.fn()
     let view: ReactTestRenderer
     await act(async () => {
