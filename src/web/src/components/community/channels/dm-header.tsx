@@ -1,13 +1,17 @@
-import { ChevronLeft } from "lucide-react"
+import { Bell, BellOff, Check, ChevronLeft } from "lucide-react"
+import { NOTIF_LEVELS, type NotifLevel } from "@alook/shared"
 import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "../avatar"
 import type { DM } from "@/lib/community/models/people"
 
-export function DmHeader({ dm, onBack, titleAs: Title = "h1" }: {
+export function DmHeader({ dm, onBack, titleAs: Title = "h1", notifLevel, onSetNotifLevel }: {
   dm: DM
   onBack?: () => void
   titleAs?: "h1" | "div"
+  notifLevel?: NotifLevel
+  onSetNotifLevel?: (level: NotifLevel) => void
 }) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-3">
@@ -23,7 +27,30 @@ export function DmHeader({ dm, onBack, titleAs: Title = "h1" }: {
           </span>
         )}
       </Title>
+      {notifLevel && <DmNotifDropdown level={notifLevel} onSetLevel={onSetNotifLevel} />}
     </header>
+  )
+}
+
+function DmNotifDropdown({ level, onSetLevel }: { level: NotifLevel; onSetLevel?: (level: NotifLevel) => void }) {
+  const muted = level === "Nothing"
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger render={
+        <Button variant="ghost" size="icon-sm" className={`ml-auto ${muted ? "text-destructive" : "text-muted-foreground"}`} aria-label="Direct message notifications" />
+      }>
+        {muted ? <BellOff className="size-4" /> : <Bell className="size-4" />}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-60">
+        {NOTIF_LEVELS.map((option) => (
+          <DropdownMenuItem key={option.value} onClick={() => onSetLevel?.(option.display)}>
+            <span className="min-w-0 flex-1">{option.label}</span>
+            {level === option.display && <Check className="size-4 text-primary" />}
+          </DropdownMenuItem>
+        ))}
+        <div className="px-2 py-1.5 text-xs text-muted-foreground">Changes clear existing unread in this conversation.</div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

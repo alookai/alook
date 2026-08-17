@@ -44,6 +44,14 @@ export function useSetServerNotifLevel() {
     onError: (_err, _args, ctx) => {
       if (ctx?.snapshot) queryClient.setQueryData(communityKeys.notificationSettings(), ctx.snapshot)
     },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: communityKeys.notificationSettings() })
+      queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
+      queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+      queryClient.invalidateQueries({
+        predicate: ({ queryKey }) => queryKey.includes("read-state-snapshot"),
+      })
+    },
   })
 }
 
@@ -89,6 +97,14 @@ export function useSetChannelNotif() {
     },
     onError: (_err, _args, ctx) => {
       if (ctx?.snapshot) queryClient.setQueryData(communityKeys.notificationSettings(), ctx.snapshot)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: communityKeys.notificationSettings() })
+      queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
+      queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+      queryClient.invalidateQueries({
+        predicate: ({ queryKey }) => queryKey.includes("read-state-snapshot"),
+      })
     },
   })
 }

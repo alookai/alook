@@ -15,8 +15,11 @@ import { nanoid } from "nanoid";
 import {
   communityNotificationSetting,
   communityChannel,
+  communityCategory,
+  communityChannelMember,
   communityMessage,
   communityReadState,
+  communityServerMember,
 } from "../../community-schema";
 import type { Database } from "../../index";
 import type { NotificationLevelValue } from "../../../constants/community";
@@ -165,6 +168,44 @@ export async function getSettings(db: Database, userId: string) {
     .where(eq(communityNotificationSetting.userId, userId));
 }
 
+export async function getServerSetting(
+  db: Database,
+  userId: string,
+  serverId: string,
+) {
+  const rows = await db
+    .select()
+    .from(communityNotificationSetting)
+    .where(
+      and(
+        eq(communityNotificationSetting.userId, userId),
+        eq(communityNotificationSetting.serverId, serverId),
+        isNull(communityNotificationSetting.channelId),
+      ),
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getChannelSetting(
+  db: Database,
+  userId: string,
+  channelId: string,
+) {
+  const rows = await db
+    .select()
+    .from(communityNotificationSetting)
+    .where(
+      and(
+        eq(communityNotificationSetting.userId, userId),
+        eq(communityNotificationSetting.channelId, channelId),
+        isNull(communityNotificationSetting.serverId),
+      ),
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 type MutationScope =
   | { kind: "server"; id: string }
   | { kind: "channel"; id: string };
@@ -181,6 +222,45 @@ function affectedChannelWhere(scope: MutationScope) {
         eq(communityChannel.id, scope.id),
         eq(communityChannel.parentChannelId, scope.id),
       )!;
+}
+
+/** The target identity must be able to read every channel whose cursor moves. */
+function userCanAccessChannelSql(userId: string) {
+  const anchorId = sql`coalesce(${communityChannel.parentChannelId}, ${communityChannel.id})`;
+  const anchorPrivate = sql<number>`coalesce((
+    select ${communityCategory.private}
+    from ${communityChannel} notification_anchor
+    left join ${communityCategory}
+      on ${communityCategory.id} = notification_anchor.category_id
+    where notification_anchor.id = ${anchorId}
+    limit 1
+  ), 0)`;
+  const anchorCreator = sql`(
+    select notification_anchor.creator_id
+    from ${communityChannel} notification_anchor
+    where notification_anchor.id = ${anchorId}
+    limit 1
+  )`;
+  const hasChannelAccess = sql<boolean>`exists(
+    select 1 from ${communityChannelMember}
+    where ${communityChannelMember.channelId} = ${anchorId}
+      and ${communityChannelMember.userId} = ${userId}
+      and ${communityChannelMember.relation} = 'access'
+  )`;
+  const hasServerMembership = sql<boolean>`exists(
+    select 1 from ${communityServerMember}
+    where ${communityServerMember.serverId} = ${communityChannel.serverId}
+      and ${communityServerMember.userId} = ${userId}
+  )`;
+
+  return sql<boolean>`case
+    when ${communityChannel.serverId} is null then ${hasChannelAccess}
+    else ${hasServerMembership} and (
+      ${anchorPrivate} = 0
+      or ${anchorCreator} = ${userId}
+      or ${hasChannelAccess}
+    )
+  end`;
 }
 
 function settingLevelForChannelSql(
@@ -292,6 +372,7 @@ function buildClearAffectedUnreadStatement(
     .where(
       and(
         affectedChannelWhere(scope),
+        userCanAccessChannelSql(userId),
         sql`${currentLevel} <> ${nextLevel}`,
         notExists(
           db

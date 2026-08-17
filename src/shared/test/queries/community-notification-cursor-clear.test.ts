@@ -66,11 +66,18 @@ describe("notification setting cursor-clear contract", () => {
       CREATE TABLE community_channel (
         id TEXT PRIMARY KEY,
         server_id TEXT,
+        category_id TEXT,
         parent_channel_id TEXT,
+        creator_id TEXT,
         type TEXT NOT NULL DEFAULT 'text',
         name TEXT NOT NULL DEFAULT '',
         archived INTEGER NOT NULL DEFAULT 0,
         last_message_at TEXT
+      );
+      CREATE TABLE community_category (
+        id TEXT PRIMARY KEY,
+        server_id TEXT NOT NULL,
+        private INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE community_message (
         id TEXT PRIMARY KEY,
@@ -136,6 +143,8 @@ describe("notification setting cursor-clear contract", () => {
         ('dm-5', 'dm', '2026-01-01T00:00:05Z', 5);
       INSERT INTO community_server_member (server_id, user_id, joined_at)
       VALUES ('server', 'u', '2025-01-01T00:00:00Z');
+      INSERT INTO community_channel_member (channel_id, user_id, relation, added_at)
+      VALUES ('dm', 'u', 'access', '2025-01-01T00:00:00Z');
     `);
     const betterDb = drizzle(sqlite);
     (betterDb as any).batch = async (statements: any[]) =>
@@ -162,6 +171,16 @@ describe("notification setting cursor-clear contract", () => {
     ]);
     expect(sqlite.prepare("SELECT level FROM community_notification_setting WHERE user_id='u' AND server_id='server'").get())
       .toEqual({ level: "nothing" });
+  });
+
+  it("does not clear a private channel the target identity cannot access", async () => {
+    sqlite.exec(`
+      INSERT INTO community_category (id, server_id, private) VALUES ('private', 'server', 1);
+      UPDATE community_channel SET category_id = 'private', creator_id = 'author' WHERE id = 'sibling';
+    `);
+
+    await setServerLevel(db, { userId: "u", serverId: "server", level: "nothing" });
+    expect(cursors().map((row: any) => row.channel_id)).toEqual(["child", "parent"]);
   });
 
   it("a parent override clears the parent and its children, but not a sibling", async () => {

@@ -47,6 +47,10 @@ import {
   advanceCommunityOnboarding,
   readCommunityOnboardingState,
 } from "@/lib/community-onboarding"
+import { notifLevelDisplay, type NotifLevel } from "@alook/shared"
+import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
+import { useSetChannelNotif } from "@/hooks/community/mutations"
+import { toastApiError } from "@/lib/api/client"
 
 // Thin re-mount wrapper — same reason as the server-side channel view: the
 // dynamic segment reuses the same component instance across DM switches, so
@@ -63,6 +67,8 @@ function DmView() {
   const currentUser = useCurrentUser()
   const currentChannelId = useCurrentChannelId()
   const uiHandlers = useUiHandlers()
+  const notifications = useNotificationSettings()
+  const setNotification = useSetChannelNotif()
 
   const { dms, isLoading: dmsLoading } = useDms()
   const { friends: rawFriends, blocked } = useFriends()
@@ -370,7 +376,14 @@ function DmView() {
 
   return (
     <>
-      <DmHeader dm={dm} onBack={bp === "mobile" ? goBack : undefined} />
+      <DmHeader
+        dm={dm}
+        onBack={bp === "mobile" ? goBack : undefined}
+        notifLevel={(notifications.channel[dmId] ?? notifLevelDisplay("all")) as NotifLevel}
+        onSetNotifLevel={(level) => setNotification.mutate({ channelId: dmId, level }, {
+          onError: (error) => toastApiError(error, "Failed to update notification level"),
+        })}
+      />
       <main className="flex min-h-0 flex-1 flex-col">
         <MessageList
           key={dmId}
