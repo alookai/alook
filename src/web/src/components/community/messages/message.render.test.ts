@@ -128,7 +128,7 @@ describe("Message memo comparator", () => {
 })
 
 describe("Message touch action menu", () => {
-  it("uses a tap dropdown and does not mount a long-press context-menu trigger", async () => {
+  it("uses row taps with an invisible dropdown anchor and no persistent ellipsis", async () => {
     let renderer: TestRenderer.ReactTestRenderer | undefined
     await act(async () => {
       renderer = TestRenderer.create(
@@ -148,8 +148,10 @@ describe("Message touch action menu", () => {
     )
     const trigger = triggers.find((node) => node.type === "button")
     expect(trigger).toBeDefined()
-    expect(trigger?.props["aria-label"]).toBe("Message actions")
-    expect(trigger?.props.className).toContain("focus-visible:ring-2")
+    expect(trigger?.props["aria-hidden"]).toBe(true)
+    expect(trigger?.props.tabIndex).toBe(-1)
+    expect(trigger?.props.className).toContain("size-0")
+    expect(trigger?.findAll((node) => node.type === "svg")).toHaveLength(0)
     expect(renderer!.root.findAll(
       (node) => node.props["data-slot"] === "context-menu-trigger",
     )).toHaveLength(0)
@@ -158,6 +160,7 @@ describe("Message touch action menu", () => {
       (node) => typeof node.props.className === "string"
         && node.props.className.includes("group relative -mx-2"),
     )
+    expect(row.props.className).not.toContain("pr-11")
     expect(row.props.className).not.toContain("select-none")
     expect(row.props.role).toBeUndefined()
     expect(row.props.tabIndex).toBeUndefined()

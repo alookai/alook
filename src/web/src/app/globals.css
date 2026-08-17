@@ -329,9 +329,9 @@ body.community-onboarding-active.driver-active :is(
 }
 
 :root {
-  --app-bg: oklch(0.955 0.008 80);
   --community-onboarding-overlay: oklch(0.18 0.03 230);
   --background: oklch(1 0 0);
+  --app-bg: var(--background);
   --foreground: oklch(0.18 0.03 230);
   --card: oklch(1 0.003 80);
   --card-foreground: oklch(0.18 0.03 230);
@@ -382,9 +382,9 @@ body.community-onboarding-active.driver-active :is(
 }
 
 .dark {
-  --app-bg: transparent;
   --community-onboarding-overlay: oklch(0.08 0.02 230);
   --background: oklch(0.16 0.008 60);
+  --app-bg: var(--background);
   --foreground: oklch(0.93 0.006 80);
   --card: oklch(0.21 0.008 60);
   --card-foreground: oklch(0.93 0.006 80);
@@ -2729,11 +2729,6 @@ body {
 
 html,
 body {
-  background-color: oklch(0.955 0.008 80);
+  background-color: var(--background);
   min-height: 100dvh;
-}
-
-html.dark,
-.dark body {
-  background-color: oklch(0.16 0.008 60);
 }

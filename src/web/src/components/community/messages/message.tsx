@@ -178,7 +178,6 @@ function MessageImpl({
         "group relative -mx-2 flex gap-2 rounded px-2 transition-colors",
         m.grouped ? "py-0" : "mt-3 pt-1.5 pb-0",
         selectable ? "cursor-pointer pl-9" : "",
-        interactive && !hoverCapable && !selectMode ? "pr-11" : "",
         selected ? "bg-primary/10" : highlighted ? "bg-primary/10" : selectable ? "hover:bg-accent/40" : "hover:bg-accent/40",
       ].join(" ")}
       onPointerEnter={activate}
@@ -531,13 +530,12 @@ function MessageImpl({
             render={(
               <button
                 type="button"
-                aria-label={m.seq != null && m.seq > 0 ? `Actions for message ${m.seq}` : "Message actions"}
-                className={`absolute right-0 z-20 grid size-11 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none ${m.grouped ? "top-0" : "top-3"}`}
+                aria-hidden
+                tabIndex={-1}
+                className={`pointer-events-none absolute right-0 size-0 overflow-hidden ${m.grouped ? "top-0" : "top-3"}`}
               />
             )}
-          >
-            <MoreHorizontal className="size-5" />
-          </DropdownMenuTrigger>
+          />
         </div>
         <DropdownMenuContent align="end" className="w-48 select-none">
           <MessageDropdownItems {...menuHandlers} touch />
