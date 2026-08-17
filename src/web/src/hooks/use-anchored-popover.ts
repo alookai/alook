@@ -144,14 +144,23 @@ export function anchoredPopoverStyle(
   popupWidth: number,
   popupMaxHeight: number,
 ): AnchoredPopoverStyle {
-  const viewportRight = viewport.left + viewport.width
-  const viewportBottom = viewport.top + viewport.height
-  const minLeft = viewport.left + VIEWPORT_MARGIN
-  const maxLeft = Math.max(minLeft, viewportRight - popupWidth - VIEWPORT_MARGIN)
-  const left = Math.min(Math.max(rect.left, minLeft), maxLeft)
+  // `getBoundingClientRect()` / TipTap's `clientRect()` report coordinates in
+  // the visual viewport, while iOS lays out `position: fixed` descendants
+  // against the layout viewport. Convert only the final CSS coordinates back
+  // to layout space; all fit calculations stay in visual-viewport space.
+  const minVisibleLeft = VIEWPORT_MARGIN
+  const maxVisibleLeft = Math.max(
+    minVisibleLeft,
+    viewport.width - popupWidth - VIEWPORT_MARGIN,
+  )
+  const visibleLeft = Math.min(
+    Math.max(rect.left, minVisibleLeft),
+    maxVisibleLeft,
+  )
+  const left = viewport.left + visibleLeft
 
-  const spaceAbove = rect.top - viewport.top
-  const spaceBelow = viewportBottom - rect.bottom
+  const spaceAbove = rect.top
+  const spaceBelow = viewport.height - rect.bottom
   const fullHeight = popupMaxHeight + POPOVER_CHROME_HEIGHT + POPOVER_GAP + VIEWPORT_MARGIN
   const placeBelow = spaceAbove < fullHeight
     && (spaceBelow >= fullHeight || spaceBelow > spaceAbove)
@@ -167,10 +176,10 @@ export function anchoredPopoverStyle(
   }
 
   return placeBelow
-    ? { ...common, top: rect.bottom + POPOVER_GAP }
+    ? { ...common, top: viewport.top + rect.bottom + POPOVER_GAP }
     : {
         ...common,
-        top: rect.top - POPOVER_GAP,
+        top: viewport.top + rect.top - POPOVER_GAP,
         transform: "translateY(-100%)",
       }
 }
