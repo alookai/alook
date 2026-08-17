@@ -1,14 +1,13 @@
 import { readFileSync } from "node:fs"
-import path from "node:path"
 import { describe, expect, it } from "vitest"
 import { FAQ_PAGE_SCHEMA, HOME_FAQS } from "./landing-content"
 
 function componentSource() {
-  return readFileSync(path.join(process.cwd(), "src/components/home/homepage-faq.tsx"), "utf8")
+  return readFileSync(new URL("./homepage-faq.tsx", import.meta.url), "utf8")
 }
 
 function stylesSource() {
-  return readFileSync(path.join(process.cwd(), "src/components/home/landing-page.module.css"), "utf8")
+  return readFileSync(new URL("./landing-page.module.css", import.meta.url), "utf8")
 }
 
 describe("HomepageFaq", () => {
