@@ -225,21 +225,34 @@ function filenameParts(filename: string): { basename: string; extension: string 
   return { basename, extension: dot > -1 ? basename.slice(dot + 1) : "" }
 }
 
+function filenamePresentation(filename: string): AttachmentPresentation | undefined {
+  const { basename, extension } = filenameParts(filename)
+  return BASENAME_PRESENTATIONS[basename] ?? EXTENSION_PRESENTATIONS[extension]
+}
+
 export function resolveAttachmentPresentation(
   filename: string,
   contentType?: string | null,
 ): AttachmentPresentation {
   const normalizedType = contentType?.split(";", 1)[0]?.trim().toLowerCase() ?? ""
+  const fromFilename = filenamePresentation(filename)
+  // Browsers and operating systems commonly report Markdown and source files
+  // as text/plain. Let a known filename refine that weak signal only within
+  // the text/code preview family; it must never promote a misleading archive,
+  // media, or document extension over the supplied MIME.
+  if (
+    normalizedType === "text/plain"
+    && (fromFilename?.category === "text" || fromFilename?.category === "code")
+  ) {
+    return fromFilename
+  }
   if (!GENERIC_CONTENT_TYPES.has(normalizedType)) {
     for (const { matches, presentation } of MIME_PRESENTATIONS) {
       if (matches(normalizedType)) return presentation
     }
     return { category: "unknown", previewKind: null, shikiLanguage: null }
   }
-  const { basename, extension } = filenameParts(filename)
-  return BASENAME_PRESENTATIONS[basename]
-    ?? EXTENSION_PRESENTATIONS[extension]
-    ?? { category: "unknown", previewKind: null, shikiLanguage: null }
+  return fromFilename ?? { category: "unknown", previewKind: null, shikiLanguage: null }
 }
 
 export function resolveMediaContentType(
