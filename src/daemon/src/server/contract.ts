@@ -43,6 +43,8 @@ export type {
   InboxPullRequest,
   InboxPullResponse,
   AckRequest,
+  AckResponse,
+  AckFailure,
   SendRequest,
   SendResponse,
   CreatePostRequest,

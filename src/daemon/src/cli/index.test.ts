@@ -54,7 +54,7 @@ function stubApi(over: Partial<ServerApi> = {}): ServerApi {
     channelMember: async () => ({ visibility: "public", hint: "" }),
     inboxPull: async () => ({ messages: [], hasMore: false, markedCount: 0 }),
     inboxSnapshot: async () => ({ rows: [], pendingChannels: 0, pendingMessages: 0 }),
-    ack: async () => undefined,
+    ack: async (req) => ({ ok: true, applied: req.cursors, failed: [] }),
     send: async () => ({ state: "sent", message: { seq: "#1", channel: "/s/c", sender: "@a", content: { text: "" }, time: "" } }),
     createPost: async () => ({ ref: "/s/c/post", name: "post", seq: 1 }),
     read: async () => ({ items: [], hasMore: false }),
@@ -400,7 +400,9 @@ describe("message send --reply", () => {
 
 describe("inbox pull", () => {
   it("never acks a rejected pull and only advances the returned cursor after repair", async () => {
-    const ackSpy = vi.fn(async () => undefined);
+    const ackSpy = vi.fn(async (req: { cursors: Array<{ channel: string; seq: number }> }) => ({
+      ok: true, applied: req.cursors, failed: [],
+    }));
     const pullSpy = vi.fn()
       .mockRejectedValueOnce(new Error("DM peer identity unavailable"))
       .mockResolvedValueOnce({
@@ -424,7 +426,9 @@ describe("inbox pull", () => {
   });
 
   it("acks by default and returns messages in success", async () => {
-    const ackSpy = vi.fn(async () => undefined);
+    const ackSpy = vi.fn(async (req: { cursors: Array<{ channel: string; seq: number }> }) => ({
+      ok: true, applied: req.cursors, failed: [],
+    }));
     setApiForTesting(
       stubApi({
         inboxPull: async () => ({
@@ -446,7 +450,9 @@ describe("inbox pull", () => {
   });
 
   it("--no-ack skips advancing the waterline", async () => {
-    const ackSpy = vi.fn(async () => undefined);
+    const ackSpy = vi.fn(async (req: { cursors: Array<{ channel: string; seq: number }> }) => ({
+      ok: true, applied: req.cursors, failed: [],
+    }));
     setApiForTesting(
       stubApi({
         inboxPull: async () => ({
@@ -510,7 +516,7 @@ describe("inbox pull", () => {
           hasMore: false,
           markedCount: 0,
         }),
-        ack: async () => undefined,
+        ack: async (req) => ({ ok: true, applied: req.cursors, failed: [] }),
       }),
     );
     await main(["inbox", "pull"]);
@@ -519,6 +525,43 @@ describe("inbox pull", () => {
     };
     expect(env.success.acked).toBe(1);
     expect(env.success.ackError).toBeUndefined();
+  });
+
+  it("reports only applied cursors as acked and preserves partial failures", async () => {
+    setApiForTesting(
+      stubApi({
+        inboxPull: async () => ({
+          messages: [
+            { seq: "#2", channel: "/s#0042/general", sender: "@x", content: { text: "ok" }, time: "" },
+            { seq: "#4", channel: "/s#0042/private", sender: "@x", content: { text: "blocked" }, time: "" },
+          ],
+          hasMore: false,
+          markedCount: 0,
+        }),
+        ack: async () => ({
+          ok: false,
+          applied: [{ channel: "/s#0042/general", seq: 2 }],
+          failed: [{
+            channel: "/s#0042/private",
+            seq: 4,
+            code: "forbidden",
+            error: "forbidden",
+          }],
+        }),
+      }),
+    );
+
+    await main(["inbox", "pull"]);
+    const env = parseEnvelope(cap.lines()) as {
+      success: { acked: number; failed: Array<{ channel: string; seq: number; code: string; error: string }> };
+    };
+    expect(env.success.acked).toBe(1);
+    expect(env.success.failed).toEqual([{
+      channel: "/s#0042/private",
+      seq: 4,
+      code: "forbidden",
+      error: "forbidden",
+    }]);
   });
 
   it.each([

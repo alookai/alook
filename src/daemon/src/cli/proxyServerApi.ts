@@ -29,6 +29,7 @@ import type {
   InboxPullResponse,
   InboxSnapshot,
   AckRequest,
+  AckResponse,
   SendRequest,
   SendResponse,
   CreatePostRequest,
@@ -469,15 +470,15 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return parseJsonResponse<MessageMarkListResponse>(res, "markList");
   }
 
-  async function callAck(req: AckRequest): Promise<void> {
+  async function callAck(req: AckRequest): Promise<AckResponse> {
     // RETARGETED off the flat `ack` verb onto POST users/me/inbox/ack (route/disc
     // 接口树统一, Gener #215 乙) — ack is the ADVANCE operation of the inbox
     // fetch↔advance trinity (snapshot=peek / pull=fetch / ack=advance, Aigneis
     // #41). Self-scoped to the voucher's bot — the wire carries only the cursors,
     // no target-user param (users/me/* family). Body byte-identical to the flat
     // verb (the endpoint is a MOVE-FLAT, same seq-native/failed[]-batch/no-create
-    // shape — only the URL moved). The legacy flat route is deleted. Returns void (the daemon
-    // fire-and-forgets the {ok,applied,failed} body, same as the flat verb).
+    // shape — only the URL moved). The legacy flat route is deleted. The body
+    // is returned intact so partial success cannot be reported as a full ack.
     const { agentId: _omit, ...wire } = (req ?? {}) as unknown as Record<string, unknown>;
     const res = await fetchImpl(`${base}/api/community/users/me/inbox/ack`, {
       method: "POST",
@@ -487,7 +488,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
       },
       body: JSON.stringify(wire),
     });
-    return parseJsonResponse<void>(res, "ack");
+    return parseJsonResponse<AckResponse>(res, "ack");
   }
 
   async function callFriendRequest(req: { agentId: AgentId; username: string }): Promise<FriendRequestResult> {
