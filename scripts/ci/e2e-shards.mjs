@@ -27,6 +27,7 @@ export const SPEC_SECONDS = {
   "18-new-divider-scroll.spec.ts": 46,
   "19-marketing-seo.spec.ts": 5,
   "20-community-attachment-thumbnails.spec.ts": 60,
+  "21-mobile-message-layout.spec.ts": 20,
 }
 
 function walk(directory) {

@@ -6,6 +6,7 @@ import {
   findMessageIndex,
   findMountScrollTargetIndex,
   extractScrollAnchorMessages,
+  measureMessageRow,
   NEAR_BOTTOM_PX,
   shouldAdjustMessageScrollPosition,
   type ScrollAnchorState,
@@ -255,6 +256,31 @@ describe("decideScrollAction — self-send / peer-follow (both hand-rolled — f
 describe("NEAR_BOTTOM_PX", () => {
   it("is the single shared threshold, reused for both isAtEnd checks and the virtualizer's own scrollEndThreshold config", () => {
     expect(NEAR_BOTTOM_PX).toBe(100)
+  })
+})
+
+describe("measureMessageRow", () => {
+  it("re-reads a mounted row after Markdown grows beyond the capped initial estimate", () => {
+    let height = 380
+    const element = {
+      getBoundingClientRect: () => ({ height }),
+      get scrollHeight() {
+        return Math.ceil(height)
+      },
+    } as unknown as Element
+
+    expect(measureMessageRow(element)).toBe(380)
+    height = 812.4
+    expect(measureMessageRow(element)).toBe(813)
+  })
+
+  it("uses overflowing content as the row footprint so the following row cannot intersect it", () => {
+    const element = {
+      getBoundingClientRect: () => ({ height: 400 }),
+      scrollHeight: 967,
+    } as unknown as Element
+
+    expect(measureMessageRow(element)).toBe(967)
   })
 })
 
