@@ -845,8 +845,10 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   let statusTimer: ReturnType<typeof setInterval> | null = null;
   if (opts.statusFilePath) {
     const statusPath = opts.statusFilePath;
-    const writeStatus = () =>
-      writeStatusFile(statusPath, { writtenAt: Date.now(), agents: manager.statusProjection(Date.now()) });
+    const writeStatus = () => {
+      const nowMs = Date.now();
+      writeStatusFile(statusPath, { writtenAt: nowMs, agents: manager.statusProjection(nowMs) });
+    };
     writeStatus(); // one immediately so `daemon status` works right after boot
     statusTimer = setInterval(writeStatus, STATUS_WRITE_INTERVAL_MS);
     statusTimer.unref?.();

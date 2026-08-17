@@ -120,7 +120,14 @@ describe("daemonList — C0 per-daemon subdir layout + multi-daemon isolation", 
   afterEach(() => { fs.rmSync(baseDir, { recursive: true, force: true }); });
 
   // `running` defaults to all agents; pass fewer to mix in idle agents.
-  const writeDaemon = (id: string, pid: number, agents: number, writtenAt: number, running = agents) => {
+  const writeDaemon = (
+    id: string,
+    pid: number,
+    agents: number,
+    writtenAt: number,
+    running = agents,
+    sinceProgressMs = 1,
+  ) => {
     const dir = path.join(baseDir, "daemons", id);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, "daemon.pid"), JSON.stringify({ pid, key: `cmk_${id}` }));
@@ -132,7 +139,7 @@ describe("daemonList — C0 per-daemon subdir layout + multi-daemon isolation", 
           agentId: `${id}-a${i}`,
           status: "running",
           derivedActivity: i < running ? "running" : "idle",
-          turnActive: i < running, inbox: 0, sinceProgressMs: 1, stoppingSince: null,
+          turnActive: i < running, inbox: 0, sinceProgressMs, stoppingSince: null,
         })),
       }),
     );
@@ -165,6 +172,89 @@ describe("daemonList — C0 per-daemon subdir layout + multi-daemon isolation", 
     const b = list.find((d) => d.id === "bbbbbbbbbbbb");
     expect(a!.agents).toBe(3);
     expect(b!.agents).toBe(7); // distinct — NOT both showing one value
+  });
+
+  it("derives distinct LAST ACTIVE values from each daemon's latest agent progress", () => {
+    const writtenAtA = 1_000_000;
+    const writtenAtB = writtenAtA + 24;
+    writeDaemon("cm_active_a", process.pid, 1, writtenAtA, 0, 700);
+    writeDaemon("cm_active_b", process.pid, 1, writtenAtB, 0, 12_000);
+
+    const list = daemonList({ baseDir });
+    expect(list.find((row) => row.id === "cm_active_a")?.lastActiveMs).toBe(999_300);
+    expect(list.find((row) => row.id === "cm_active_b")?.lastActiveMs).toBe(988_024);
+
+    const output = renderDaemonList(list, writtenAtB);
+    expect(output.split("\n").find((line) => line.includes("cm_active_a"))).toContain("just now (1s)");
+    expect(output.split("\n").find((line) => line.includes("cm_active_b"))).toContain("just now (12s)");
+  });
+
+  it("shows no last activity when a daemon has no agents", () => {
+    writeDaemon("cm_zeroagents", process.pid, 0, 1_000_000);
+    const row = daemonList({ baseDir }).find((item) => item.id === "cm_zeroagents");
+
+    expect(row?.lastActiveMs).toBeNull();
+    expect(renderDaemonList([row!], 1_000_000).split(/\s{2,}/)).toContain("—");
+  });
+
+  it("treats invalid progress ages and the never-active epoch sentinel as no activity", () => {
+    const id = "cm_badprogress";
+    const dir = path.join(baseDir, "daemons", id);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "daemon.pid"), JSON.stringify({ pid: process.pid, key: `cmk_${id}` }));
+    fs.writeFileSync(
+      path.join(dir, "status.json"),
+      `{"writtenAt":1000,"agents":[{"sinceProgressMs":1e400},{"sinceProgressMs":-1},{"sinceProgressMs":1200}]}`,
+    );
+
+    expect(daemonList({ baseDir }).find((row) => row.id === id)?.lastActiveMs).toBeNull();
+  });
+
+  it("uses the latest valid progress age when invalid and sentinel agents are mixed in", () => {
+    const id = "cm_mixedprogress";
+    const dir = path.join(baseDir, "daemons", id);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "daemon.pid"), JSON.stringify({ pid: process.pid, key: `cmk_${id}` }));
+    fs.writeFileSync(
+      path.join(dir, "status.json"),
+      `{"writtenAt":1000,"agents":[{"sinceProgressMs":1e400},{"sinceProgressMs":1000},{"sinceProgressMs":300},{"sinceProgressMs":100}]}`,
+    );
+
+    expect(daemonList({ baseDir }).find((row) => row.id === id)?.lastActiveMs).toBe(900);
+  });
+
+  it("ignores future activity candidates instead of rendering them as just now", () => {
+    const id = "cm_futureonly";
+    const dir = path.join(baseDir, "daemons", id);
+    const writtenAt = Date.now() + 100_000;
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "daemon.pid"), JSON.stringify({ pid: process.pid, key: `cmk_${id}` }));
+    fs.writeFileSync(path.join(dir, "status.json"), JSON.stringify({
+      writtenAt,
+      agents: [{ sinceProgressMs: 1 }],
+    }));
+
+    const row = daemonList({ baseDir }).find((item) => item.id === id);
+    expect(row?.lastActiveMs).toBeNull();
+    expect(renderDaemonList([row!])).toContain("—");
+  });
+
+  it("ignores a future candidate while retaining the latest valid activity", () => {
+    const id = "cm_futuremixed";
+    const dir = path.join(baseDir, "daemons", id);
+    const validProgressAt = Date.now() - 500;
+    const writtenAt = validProgressAt + 100_000;
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "daemon.pid"), JSON.stringify({ pid: process.pid, key: `cmk_${id}` }));
+    fs.writeFileSync(path.join(dir, "status.json"), JSON.stringify({
+      writtenAt,
+      agents: [
+        { sinceProgressMs: 1 },
+        { sinceProgressMs: writtenAt - validProgressAt },
+      ],
+    }));
+
+    expect(daemonList({ baseDir }).find((row) => row.id === id)?.lastActiveMs).toBe(validProgressAt);
   });
 
   it("only subdir daemons are listed — a stray flat file is NOT discovered (legacy compat dropped, Gus #466)", () => {

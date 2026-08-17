@@ -286,6 +286,40 @@ describe("createDaemon", () => {
     }
   });
 
+  it("uses one clock sample for status writtenAt and agent progress ages", async () => {
+    const sockets: FakeSocket[] = [];
+    const root = mkdtempSync(join(tmpdir(), "daemon-status-clock-"));
+    startupSweepDirs.push(root);
+    const statusFilePath = join(root, "status.json");
+    const projectionTimes: number[] = [];
+    let nowMs = 10_000;
+    vi.spyOn(Date, "now").mockImplementation(() => ++nowMs);
+    vi.spyOn(AgentProcessManager.prototype, "statusProjection").mockImplementation((sampledNowMs) => {
+      projectionTimes.push(sampledNowMs);
+      return [];
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ bots: [] })));
+
+    const daemon = await createDaemon({
+      machineKey: "cmk_status_clock",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as never,
+      runtimeReport: [],
+      driverFor: () => fakeDriver,
+      capabilities: [],
+      statusFilePath,
+    });
+
+    try {
+      const snapshot = JSON.parse(readFileSync(statusFilePath, "utf8")) as { writtenAt: number };
+      expect(projectionTimes).toHaveLength(1);
+      expect(snapshot.writtenAt).toBe(projectionTimes[0]);
+    } finally {
+      await daemon.stop();
+    }
+  });
+
   it("consumes diagnostics before Router and invokes the injected handler once", async () => {
     const sockets: FakeSocket[] = [];
     const routerEntry = spyOnRouterCommandEntry();

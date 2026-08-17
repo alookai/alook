@@ -511,6 +511,21 @@ export interface DaemonInfo {
   lastActiveMs: number | null;
 }
 
+function daemonLastActiveMs(snapshot: DaemonStatusResult, nowMs: number): number | null {
+  const writtenAt = snapshot.writtenAt;
+  if (writtenAt == null || !Number.isFinite(writtenAt) || writtenAt < 0) return null;
+
+  let latest: number | null = null;
+  for (const agent of snapshot.agents) {
+    const sinceProgressMs = agent.sinceProgressMs;
+    if (!Number.isFinite(sinceProgressMs) || sinceProgressMs < 0) continue;
+    const progressAt = writtenAt - sinceProgressMs;
+    if (progressAt <= 0 || progressAt > nowMs) continue;
+    latest = latest == null ? progressAt : Math.max(latest, progressAt);
+  }
+  return latest;
+}
+
 export function daemonList(opts: DaemonListOpts): DaemonInfo[] {
   const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
   const dir = daemonsDir(baseDir);
@@ -536,7 +551,7 @@ export function daemonList(opts: DaemonListOpts): DaemonInfo[] {
       if (s.found) {
         agents = s.agents.length;
         running = s.agents.filter((a) => a.derivedActivity === "running").length;
-        lastActiveMs = s.writtenAt;
+        lastActiveMs = daemonLastActiveMs(s, now);
       }
     }
     results.push({ id, pid: data.pid, alive, agents, running, lastActiveMs });
