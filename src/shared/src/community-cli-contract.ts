@@ -426,34 +426,6 @@ export interface MessageMarkListResponse {
   marked: Message[];
 }
 
-/**
- * Create a new forum post (`alook message post`). `forum` is a forum REF
- * (`/server/forum`), resolved server-side (bots hold refs, not ids — same reason
- * `send` takes a ref). The canonical messages door stores `title` as an opener
- * message in the forum and `content` as the first reply in its ordinary thread.
- * The reply may contain text OR at least one attachment. `attachments` are
- * pending ids the bot uploaded against the forum before the thread exists.
- */
-export interface CreatePostRequest {
-  agentId: AgentId;
-  forum: ChannelRef;
-  title: string;
-  content: MessageContent;
-  attachments?: string[];
-  /** Idempotency key — reused across retries, server dedupes (same as `send`). */
-  nonce?: string;
-}
-
-/**
- * The created thread's canonical address. `ref` is `/server/forum/#N`, where
- * `N` is the opener message seq; `seq` is the first reply's seq in that thread.
- */
-export interface CreatePostResponse {
-  ref: ChannelRef;
-  name: string;
-  seq: Seq;
-}
-
 export interface ReadRequest {
   agentId: AgentId;
   channel: ChannelRef;
@@ -645,9 +617,6 @@ export interface ServerApi {
 
   /** Send a message to a channel ref. May be held by the freshness guard. */
   send(req: SendRequest): Promise<SendResponse>;
-
-  /** Create a new forum post in a forum ref, with its body as the first message. */
-  createPost(req: CreatePostRequest): Promise<CreatePostResponse>;
 
   /** Read history for a channel with seq-anchored pagination. */
   read(req: ReadRequest): Promise<Page<Message>>;
