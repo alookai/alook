@@ -58,6 +58,31 @@ export function shouldSuppressTouchMenuOpen({
   return nestedControl || selectionInsideRow || longPress
 }
 
+export function createMessageMenuPointAnchor(clientX: number, clientY: number) {
+  const rect = {
+    x: clientX,
+    y: clientY,
+    top: clientY,
+    right: clientX,
+    bottom: clientY,
+    left: clientX,
+    width: 0,
+    height: 0,
+    toJSON: () => ({
+      x: clientX,
+      y: clientY,
+      top: clientY,
+      right: clientX,
+      bottom: clientY,
+      left: clientX,
+      width: 0,
+      height: 0,
+    }),
+  } satisfies DOMRect
+
+  return { getBoundingClientRect: () => rect }
+}
+
 function MessageImpl({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onPin, onMark, onCreateThread, onCopy, onEdit, onRetry, onDismiss,
@@ -119,6 +144,7 @@ function MessageImpl({
   // Touch devices use a normal tap-triggered dropdown. Long-press is left to
   // the browser so message text keeps native selection/copy behavior.
   const [touchMenuOpen, setTouchMenuOpen] = useState(false)
+  const [touchMenuAnchor, setTouchMenuAnchor] = useState<ReturnType<typeof createMessageMenuPointAnchor> | null>(null)
   const touchStartedAt = useRef<number | null>(null)
   const suppressLongPressClick = useRef(false)
   // The Mark/Unmark label needs to know if THIS message is already in the
@@ -226,6 +252,7 @@ function MessageImpl({
             // short tap on its non-control body opens the controlled menu;
             // nested buttons/links and native long-press selection stay intact.
             if (!suppress) {
+              setTouchMenuAnchor(createMessageMenuPointAnchor(event.clientX, event.clientY))
               setTouchMenuOpen(true)
             }
           }
@@ -537,7 +564,15 @@ function MessageImpl({
             )}
           />
         </div>
-        <DropdownMenuContent align="end" className="w-48 select-none">
+        <DropdownMenuContent
+          anchor={touchMenuAnchor ?? undefined}
+          positionMethod="fixed"
+          side="bottom"
+          align="start"
+          collisionPadding={8}
+          collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }}
+          className="w-48 select-none"
+        >
           <MessageDropdownItems {...menuHandlers} touch />
         </DropdownMenuContent>
       </DropdownMenu>
