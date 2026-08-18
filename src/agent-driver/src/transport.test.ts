@@ -24,11 +24,41 @@ function spawnIdleChild(opts: { detached?: boolean } = {}): ChildProcess {
 function spawnSigtermImmuneChild(opts: { detached?: boolean } = {}): ChildProcess {
   const proc = spawn(
     process.execPath,
-    ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"],
-    { stdio: "ignore", detached: opts.detached },
+    ["-e", "process.on('SIGTERM', () => {}); process.stdout.write('ready\\n'); setInterval(() => {}, 1000)"],
+    { stdio: ["ignore", "pipe", "ignore"], detached: opts.detached },
   );
   spawned.push(proc);
   return proc;
+}
+
+function waitForSigtermHandlerReady(proc: ChildProcess): Promise<void> {
+  const stdout = proc.stdout;
+  if (!stdout) return Promise.reject(new Error("TERM-immune fixture stdout is not piped"));
+  return new Promise((resolve, reject) => {
+    let buffered = "";
+    const cleanup = () => {
+      stdout.off("data", onData);
+      proc.off("error", onError);
+      proc.off("exit", onExit);
+    };
+    const onData = (chunk: Buffer) => {
+      buffered += chunk.toString();
+      if (!buffered.split("\n").includes("ready")) return;
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      cleanup();
+      reject(new Error(`TERM-immune fixture exited before ready (code=${String(code)}, signal=${String(signal)})`));
+    };
+    stdout.on("data", onData);
+    proc.once("error", onError);
+    proc.once("exit", onExit);
+  });
 }
 
 afterEach(() => {
@@ -113,19 +143,17 @@ describe("terminateAgentDriverProcessTree", () => {
 
   it("escalates to SIGKILL when the child ignores SIGTERM", async () => {
     const proc = spawnSigtermImmuneChild({ detached: false });
-    await new Promise((resolve) => proc.once("spawn", resolve));
+    await waitForSigtermHandlerReady(proc);
 
     await terminateAgentDriverProcessTree(proc.pid!, { graceMs: 300 });
+    await waitForProcessToExit(proc.pid!);
     expect(isAgentDriverProcessAlive(proc.pid!)).toBe(false);
   });
 
   it("normalizes infinite, NaN, and negative grace durations to the bounded default", async () => {
     const invalidGraceValues = [Number.POSITIVE_INFINITY, Number.NaN, -1];
     const processes = invalidGraceValues.map(() => spawnSigtermImmuneChild({ detached: false }));
-    await Promise.all(processes.map((proc) => new Promise((resolve) => proc.once("spawn", resolve))));
-    // Give each real child time to install its SIGTERM handler before testing
-    // that invalid durations do not accidentally collapse to immediate KILL.
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await Promise.all(processes.map(waitForSigtermHandlerReady));
 
     const terminations = processes.map((proc, index) =>
       terminateAgentDriverProcessTree(proc.pid!, { graceMs: invalidGraceValues[index] }),

@@ -22,7 +22,29 @@ interface PackageManifest {
   exports?: unknown;
 }
 
+function pnpmCliPath(npmExecPath: string | undefined): string {
+  const candidate = npmExecPath?.trim();
+  const filename = candidate?.replaceAll("\\", "/").split("/").at(-1)?.toLowerCase();
+  if (!candidate || !filename || !["pnpm", "pnpm.cjs", "pnpm.js", "pnpm.mjs"].includes(filename)) {
+    throw new Error(
+      `npm_execpath must point to the pnpm CLI for package tests; received ${candidate ? JSON.stringify(candidate) : "no value"}`,
+    );
+  }
+  return candidate;
+}
+
 describe("packed @alook/agent-driver", () => {
+  it("accepts pnpm JavaScript entrypoints across path separators", () => {
+    expect(pnpmCliPath("/tools/pnpm")).toBe("/tools/pnpm");
+    expect(pnpmCliPath("/tools/pnpm.cjs")).toBe("/tools/pnpm.cjs");
+    expect(pnpmCliPath("C:\\tools\\pnpm.js")).toBe("C:\\tools\\pnpm.js");
+  });
+
+  it("fails loudly when npm_execpath is missing or points to npm", () => {
+    expect(() => pnpmCliPath(undefined)).toThrowError(/received no value/);
+    expect(() => pnpmCliPath("/tools/npm/bin/npm-cli.js")).toThrowError(/received "\/tools\/npm\/bin\/npm-cli\.js"/);
+  });
+
   it("resolves fresh workspace consumers from source without a prebuilt dist", () => {
     const packageRoot = fileURLToPath(new URL("../", import.meta.url));
     const daemonRoot = fileURLToPath(new URL("../../daemon/", import.meta.url));
@@ -50,10 +72,14 @@ describe("packed @alook/agent-driver", () => {
     const packageVersion = (JSON.parse(readFileSync(`${packageRoot}package.json`, "utf8")) as { version: string }).version;
     const packDirectory = mkdtempSync(join(tmpdir(), "alook-agent-driver-pack-"));
     try {
-      const output = execFileSync("pnpm", ["pack", "--json", "--pack-destination", packDirectory], {
-        cwd: packageRoot,
-        encoding: "utf8",
-      });
+      const output = execFileSync(
+        process.execPath,
+        [pnpmCliPath(process.env.npm_execpath), "pack", "--json", "--pack-destination", packDirectory],
+        {
+          cwd: packageRoot,
+          encoding: "utf8",
+        },
+      );
       const result = JSON.parse(output.slice(output.indexOf("{"))) as PackResult;
       const files = result.files.map((file) => file.path).sort();
 
