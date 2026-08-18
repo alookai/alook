@@ -41,6 +41,7 @@
     "bump": "node scripts/bump-version.mjs",
     "typegrep:ws": "node scripts/lint-ws-events.mjs",
     "logo:generate": "node scripts/generate-logo-assets.mjs",
+    "readme:capture": "node src/web/readme-capture/capture.mjs",
     "prepare": "simple-git-hooks"
   },
   "simple-git-hooks": {
