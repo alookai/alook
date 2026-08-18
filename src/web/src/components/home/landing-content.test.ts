@@ -403,7 +403,9 @@ describe("landing content contract", () => {
     expect(shellSource).toContain("router at home still dropping out")
     expect(shellSource).toContain("<InboxPopover")
     expect(shellSource).toContain('data-motion-target", "continuity-inbox"')
-    expect(shellSource).toContain('inbox={scene === "continuity" ? <span /> : undefined}')
+    expect(shellSource).toContain(
+      'inbox={scene === "continuity" || scene === "server" || scene === "machine" ? <span /> : undefined}',
+    )
     expect(landingPageSource).not.toContain("ProductGallery")
     expect(landingPageSource).not.toContain("storyTabs")
     expect(landingPageSource).toContain("The same room")

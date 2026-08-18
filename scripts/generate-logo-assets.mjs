@@ -18,7 +18,7 @@ const sharp = requireFromCli("sharp")
 
 export const preservedAssets = [
   "src/web/src/app/favicon.ico",
-  "assets/readme-banner.png",
+  "assets/readme/banner.png",
 ]
 
 export const trayRasterAssets = [

@@ -53,7 +53,7 @@ describe("logo asset generator", () => {
     expect(iosRasterAssets).toHaveLength(18)
     expect(preservedAssets).toEqual([
       "src/web/src/app/favicon.ico",
-      "assets/readme-banner.png",
+      "assets/readme/banner.png",
     ])
     expect(trayRasterAssets).toEqual([
       ["assets/alook-tray.svg", "src/desktop/src-tauri/icons/tray-default.png"],
