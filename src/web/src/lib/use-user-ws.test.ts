@@ -247,6 +247,17 @@ describe("useUserWs", () => {
     expect(onMsg).not.toHaveBeenCalled()
   })
 
+  it("uses the web websocket route with the token response's local port", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ userId: "user-1", token: "tok-123", wsPort: 3000 }),
+    } as Response)
+
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+
+    expect(MockWebSocket.instances[0]?.url).toBe("ws://localhost:3000/api/ws/user?userId=user-1")
+  })
+
   it("opens the access gate only after auth.ok", async () => {
     setupTokenFetch()
 

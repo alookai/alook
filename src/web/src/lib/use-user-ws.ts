@@ -11,6 +11,7 @@ import {
   type CommunityWsFrameDropReason,
 } from "@/lib/analytics"
 import { isLocalMode, WS_DO_PORT_DEFAULT } from "@/lib/utils"
+import { websocketUrl } from "@/lib/websocket-url"
 
 const isLocal = isLocalMode()
 const WS_RECONNECT_INIT = Number(process.env.NEXT_PUBLIC_WS_RECONNECT_DELAY_MS) || 1000
@@ -199,9 +200,10 @@ export function useUserWs(
       }
     }
 
-    const url = isLocal
-      ? `ws://localhost:${wsPort}/?userId=${userId}`
-      : `${location.origin.replace("http", "ws")}/api/ws/user?userId=${userId}`
+    const wsBaseUrl = isLocal
+      ? websocketUrl("user", { local: true, port: wsPort })
+      : websocketUrl("user", { local: false, origin: location.origin })
+    const url = `${wsBaseUrl}?userId=${userId}`
 
     let ws: WebSocket
     try {

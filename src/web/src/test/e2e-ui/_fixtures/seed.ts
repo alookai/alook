@@ -1,6 +1,7 @@
 import { WEB_URL } from "../_setup/paths"
 import { sessionCookie } from "./community-fixture"
 import type { UserKey } from "../_setup/users"
+import { isRetryableSeedStatus, retrySeedRequest, seedRetryDelayMs } from "./seed-retry"
 
 // API-driven precondition seeding for the Playwright specs. Deliberately does
 // NOT import @alook/test-utils (that barrel pulls in better-sqlite3 +
@@ -8,11 +9,9 @@ import type { UserKey } from "../_setup/users"
 // the same community routes over HTTP with a user's session cookie — the
 // operations under test are still exercised through the UI in the specs.
 // Statuses worth retrying: a transient auth race (401/403 before the session
-// cookie is fully established on a cold worker) and D1/WAL contention (5xx).
-// A 4xx that isn't auth is a real precondition failure — don't mask it.
-function isRetryableStatus(status: number): boolean {
-  return status === 401 || status === 403 || status >= 500
-}
+// cookie is fully established on a cold worker), fixture-burst rate limiting
+// (429), and transient service failures (5xx). Other 4xx responses are real
+// precondition failures and must not be masked.
 
 async function postRaw(key: UserKey, path: string, body?: unknown): Promise<Response> {
   return fetch(`${WEB_URL}${path}`, {
@@ -27,15 +26,9 @@ async function postRaw(key: UserKey, path: string, body?: unknown): Promise<Resp
 }
 
 async function post(key: UserKey, path: string, body?: unknown): Promise<Response> {
-  let lastStatus = 0
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await postRaw(key, path, body)
-    if (res.ok) return res
-    lastStatus = res.status
-    if (!isRetryableStatus(res.status)) break
-    await new Promise((r) => setTimeout(r, 400))
-  }
-  throw new Error(`POST ${path} failed (${lastStatus})`)
+  const response = await retrySeedRequest(() => postRaw(key, path, body))
+  if (response.ok) return response
+  throw new Error(`POST ${path} failed (${response.status})`)
 }
 
 export async function seedServer(owner: UserKey, name: string): Promise<string> {
@@ -89,8 +82,8 @@ export async function seedJoinServer(owner: UserKey, joiner: UserKey, serverId: 
     })
     if (res.ok || res.status === 400) return
     lastStatus = res.status
-    if (!isRetryableStatus(res.status)) break
-    await new Promise((r) => setTimeout(r, 500))
+    if (!isRetryableSeedStatus(res.status)) break
+    await new Promise((r) => setTimeout(r, seedRetryDelayMs(res)))
   }
   throw new Error(`seedJoinServer join failed (${lastStatus})`)
 }
@@ -138,10 +131,11 @@ async function findFriendshipId(requester: UserKey, targetUserId: string): Promi
 export async function seedFriendship(requester: UserKey, addressee: UserKey, targetUserId: string): Promise<string> {
   let reqRes: Response | undefined
   for (let attempt = 0; attempt < 3; attempt++) {
-    reqRes = await postRaw(requester, "/api/community/friends/request", { userId: targetUserId })
+    const response = await postRaw(requester, "/api/community/friends/request", { userId: targetUserId })
+    reqRes = response
     // 409 = already friends / request already sent — a valid idempotent state.
-    if (reqRes.ok || reqRes.status === 409 || !isRetryableStatus(reqRes.status)) break
-    await new Promise((r) => setTimeout(r, 400))
+    if (response.ok || response.status === 409 || !isRetryableSeedStatus(response.status)) break
+    await new Promise((r) => setTimeout(r, seedRetryDelayMs(response)))
   }
   if (reqRes!.status === 409) {
     const existing = await findFriendshipId(requester, targetUserId)
@@ -215,8 +209,8 @@ export async function renameUser(key: UserKey, name: string): Promise<void> {
     })
     if (res.ok) return
     lastStatus = res.status
-    if (!isRetryableStatus(res.status)) break
-    await new Promise((r) => setTimeout(r, 400))
+    if (!isRetryableSeedStatus(res.status)) break
+    await new Promise((r) => setTimeout(r, seedRetryDelayMs(res)))
   }
   throw new Error(`renameUser failed (${lastStatus})`)
 }
