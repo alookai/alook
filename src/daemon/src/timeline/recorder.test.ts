@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -27,6 +27,16 @@ const msg = (seq: string, text: string): Message => ({
 });
 
 describe("createTimelineRecorder (append-only, 4-field schema)", () => {
+  it("treats an empty pull as a no-op before resolving or preparing the timeline directory", () => {
+    const timelineDirFor = vi.fn(() => {
+      throw new Error("must not resolve a directory for an empty pull");
+    });
+    const rec = createTimelineRecorder({ timelineDirFor, now: NOW });
+
+    expect(() => rec.appendEntryForAgent("agent_1", [])).not.toThrow();
+    expect(timelineDirFor).not.toHaveBeenCalled();
+  });
+
   it("bakes the session id (set before the pull) into the opened entry, then accumulates responses", () => {
     const dir = mkDir();
     const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
@@ -74,6 +84,28 @@ describe("createTimelineRecorder (append-only, 4-field schema)", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].messages.map((m) => m.content.text)).toEqual(["first", "second"]);
     expect(rows[0].agent_responses).toEqual(["reply to both"]);
+  });
+
+  it("writes a non-empty pull after local midnight only to the new day's file", () => {
+    const dir = mkDir();
+    let current = new Date("2026-06-25T12:00:00");
+    const rec = createTimelineRecorder({
+      timelineDirFor: () => dir,
+      providerFor: () => "claude",
+      now: () => current,
+    });
+    rec.setSession("agent_1", "sess-1");
+    rec.appendEntryForAgent("agent_1", [msg("#1", "before midnight")]);
+
+    current = new Date("2026-06-26T12:00:00");
+    rec.appendEntryForAgent("agent_1", [msg("#2", "after midnight")]);
+
+    const firstDay = fs.readFileSync(path.join(dir, filenameForDate(new Date("2026-06-25T12:00:00"))), "utf8");
+    const secondDay = fs.readFileSync(path.join(dir, filenameForDate(current)), "utf8");
+    expect(firstDay).toContain("before midnight");
+    expect(firstDay).not.toContain("after midnight");
+    expect(secondDay).toContain("after midnight");
+    expect(secondDay).not.toContain("before midnight");
   });
 
   it("does NOT merge when session_id differs (new session = new entry)", () => {

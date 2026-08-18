@@ -415,6 +415,9 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         channelRef?.recordModelSeen(agentId, messages, observationToken);
       }
     },
+    onInboxPullObservationError: ({ agentId, reason, contentEncoding }) => {
+      log.warn("inbox pull timeline observation failed", { agentId, reason, contentEncoding });
+    },
     onMessageReminderArm: (input) =>
       reminderSchedulerRef?.arm(input) ?? { armed: false, reason: "reminder_scheduler_unavailable" },
     // Bot audit log — Producer B (authoritative for `alook <sub>`). Fires
