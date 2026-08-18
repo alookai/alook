@@ -12,11 +12,7 @@ import { useChannelTree } from "@/components/community/channels/use-channel-tree
 import { patchChannelUnread } from "@/hooks/community/server-detail-cache"
 import type { ServerDetail } from "@/hooks/community/use-servers"
 import { ShellFrame } from "@/components/community/shell/shell-frame"
-import {
-  removeCommunityParam,
-  resolveMobileZone,
-  withMobileZone,
-} from "@/components/community/shell/mobile-zone"
+import { childChannelHref, removeCommunityParam } from "@/lib/community/community-route"
 import { ChannelSidebar } from "@/components/community/channels/channel-sidebar"
 import { ServerSettings } from "@/components/community/settings/server-settings"
 import { ImageCropDialog } from "@/components/community/image-crop-dialog"
@@ -70,12 +66,16 @@ import {
 } from "@/hooks/community/mutations"
 
 export default function ServerLayout({ children }: { children: ReactNode }) {
-  const params = useParams<{ serverId: string; channelId?: string }>()
+  const params = useParams<{ serverId: string; channelId?: string; childChannelId?: string }>()
   const searchParams = useSearchParams()
   const pathname = usePathname()
   const serverId = decodeURIComponent(params.serverId)
-  const routeChannelId = params.channelId ? decodeURIComponent(params.channelId) : null
-  const hasChannel = !!params.channelId
+  const routeChannelId = params.childChannelId
+    ? decodeURIComponent(params.childChannelId)
+    : params.channelId
+      ? decodeURIComponent(params.channelId)
+      : null
+  const hasChannel = !!routeChannelId
 
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -187,7 +187,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       toast,
       replace: (destination) => {
         cancelPendingNavigation()
-        router.replace(withMobileZone(destination, resolveMobileZone(searchParams)))
+        router.replace(destination)
       },
     })
   }, [cancelPendingNavigation, serverId, serversList.isSuccess, serversList.isFetching, serversList.servers, router, searchParams])
@@ -243,14 +243,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     const wantsSettings = searchParams.get("settings") === "1"
     const wantsInvite = searchParams.get("invite") === "1"
-    // The message controller is intentionally unmounted while mobile nav is
-    // visible, so it cannot consume its own `seq` command in that pane. Clean
-    // the one-shot command at the persistent layout boundary instead. Content
-    // routes leave it alone so the mounted controller can still open the
-    // requested message context before removing the parameter itself.
-    const wantsNavSeq =
-      resolveMobileZone(searchParams) === "nav" && searchParams.has("seq")
-    if (!wantsSettings && !wantsInvite && !wantsNavSeq) return
+    if (!wantsSettings && !wantsInvite) return
 
     // These flags land on the bare `/c/channels/:serverId` URL
     // (e.g. right-click a rail server → "Server settings"/"Invite to
@@ -273,9 +266,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     const currentHref = `${pathname}${search ? `?${search}` : ""}`
     const withoutSettings = removeCommunityParam(currentHref, "settings")
     const withoutInvite = removeCommunityParam(withoutSettings, "invite")
-    router.replace(
-      wantsNavSeq ? removeCommunityParam(withoutInvite, "seq") : withoutInvite,
-    )
+    router.replace(withoutInvite)
   }, [cancelPendingNavigation, searchParams, pathname, router, hasChannel, currentServer])
 
   const categories = useMemo(() => (currentServer?.categories ?? []).map((category) => ({
@@ -319,7 +310,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     // trusts the cache unconditionally, so both directions must write to it.
     markSwitch("channel", id)
     cancelPendingNavigation()
-    router.push(`/c/channels/${serverId}/${id}`)
+    useCommunityStore.getState().uiHandlers.navigatePath?.(`/c/channels/${serverId}/${id}`)
     channelTree.markRead(id)
     const hasChildFallback = setForumSidebarParentUnreadBase(
       queryClient,
@@ -333,15 +324,17 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         (cache) => patchChannelUnread(cache, id, false),
       )
     }
-  }, [cancelPendingNavigation, channelTree, queryClient, router, serverId])
+  }, [cancelPendingNavigation, channelTree, queryClient, serverId])
 
-  const setActiveForumThread = useCallback((id: string) => {
+  const setActiveForumThread = useCallback((parentId: string, id: string) => {
     markSwitch("channel", id)
     cancelPendingNavigation()
-    router.push(`/c/channels/${serverId}/${id}`)
+    useCommunityStore.getState().uiHandlers.navigatePath?.(
+      childChannelHref(serverId, parentId, id),
+    )
     removeForumSidebarUnreadChild(queryClient, serverId, id)
     patchForumSidebarUnreadExact(queryClient, serverId, id, false)
-  }, [cancelPendingNavigation, queryClient, router, serverId])
+  }, [cancelPendingNavigation, queryClient, serverId])
 
   const prefetchChannel = useCallback(
     (id: string) => router.prefetch(`/c/channels/${serverId}/${id}`),
@@ -513,7 +506,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
                 toast("Server deleted")
                 useCommunityStore.getState().setCurrentServerId(null)
                 cancelPendingNavigation()
-                router.push("/c/me")
+                useCommunityStore.getState().uiHandlers.navigatePath?.("/c/me")
               },
               onError: (e) => toastApiError(e, "Failed to delete server"),
             })

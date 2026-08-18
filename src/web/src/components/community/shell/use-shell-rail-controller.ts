@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useMemo } from "react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
@@ -20,15 +20,10 @@ import {
 } from "@/hooks/community/mutations"
 import { getLastChannel, pickServerLandingHref } from "@/lib/community/last-channel"
 import { getLastMeLeaf, pickMeLandingLocation } from "@/lib/community/last-me-location"
-import {
-  createNavigationIntentGate,
-  supersedeNavigationIntent,
-} from "@/lib/community/navigation-intent"
 import { useCommunityStore } from "@/stores/community"
-import type { Breakpoint } from "@/hooks/use-mobile"
-import { withMobileZone, type MobileZone } from "./mobile-zone"
 import { resolveServerRailOverlayAction } from "./server-rail-actions"
-import type { ShellFrameProps, ShellRouter } from "./shell-frame-types"
+import type { ShellFrameProps } from "./shell-frame-types"
+import type { CommunityNavigationController } from "./use-community-navigation-controller"
 import type { QueryClient } from "@tanstack/react-query"
 
 type Options = Pick<
@@ -38,16 +33,12 @@ type Options = Pick<
   | "onOpenActiveServerSettings"
   | "onOpenActiveServerInvite"
 > & {
-  router: ShellRouter
-  currentHref: string
-  breakpoint: Breakpoint
+  navigation: CommunityNavigationController
   queryClient: QueryClient
 }
 
 export function useShellRailController({
-  router,
-  currentHref,
-  breakpoint,
+  navigation,
   queryClient,
   view,
   activeServerId,
@@ -79,16 +70,6 @@ export function useShellRailController({
     [activeServerId, folderServerIds, servers],
   )
 
-  const navigationGateRef = useRef(createNavigationIntentGate())
-  const [navigationPending, setNavigationPending] = useState(false)
-  const cancelPendingNavigation = useCallback(() => {
-    supersedeNavigationIntent(navigationGateRef.current)
-  }, [])
-  useEffect(() => {
-    cancelPendingNavigation()
-    setNavigationPending(false)
-  }, [cancelPendingNavigation, currentHref])
-
   const serverDestination = useCallback((id: string) => {
     const detail = queryClient.getQueryData<ServerDetail>(communityKeys.server(id))
     const channelIds = detail?.categories.flatMap((category) =>
@@ -112,30 +93,19 @@ export function useShellRailController({
     return serverDestination(id)
   }, [queryClient, serverDestination])
 
-  const paneHref = useCallback((destination: string, mobileZone: MobileZone) =>
-    withMobileZone(destination, breakpoint === "mobile" ? mobileZone : "messages"),
-  [breakpoint])
-  const pushIfChanged = useCallback((destination: string) => {
-    if (destination === currentHref) return
-    setNavigationPending(true)
-    router.push(destination)
-  }, [currentHref, router])
-
   const onServerNavigate = useCallback((id: string) => {
     markSwitch("server", id)
-    cancelPendingNavigation()
-    pushIfChanged(paneHref(serverDestination(id), "nav"))
-  }, [cancelPendingNavigation, paneHref, pushIfChanged, serverDestination])
+    navigation.push(`/c/channels/${id}`)
+  }, [navigation])
   const onHome = useCallback(() => {
-    cancelPendingNavigation()
-    pushIfChanged(paneHref(pickMeLandingLocation(getLastMeLeaf()), "nav"))
-  }, [cancelPendingNavigation, paneHref, pushIfChanged])
+    navigation.push("/c/me")
+  }, [navigation])
   const onServerPrefetch = useCallback((id: string) => {
-    void resolveServerDestination(id).then((destination) => router.prefetch(destination))
-  }, [resolveServerDestination, router])
+    void resolveServerDestination(id).then((destination) => navigation.prefetch(destination))
+  }, [navigation, resolveServerDestination])
   const onHomePrefetch = useCallback(
-    () => router.prefetch(pickMeLandingLocation(getLastMeLeaf())),
-    [router],
+    () => navigation.prefetch(pickMeLandingLocation(getLastMeLeaf())),
+    [navigation],
   )
   const onCreateServer = useCallback(async (name: string, icon?: File) => {
     try {
@@ -148,12 +118,11 @@ export function useShellRailController({
           { onError: (error) => toastApiError(error, "Server created, but the icon failed to upload") },
         )
       }
-      cancelPendingNavigation()
-      pushIfChanged(paneHref(`/c/channels/${newId}`, "nav"))
+      navigation.push(`/c/channels/${newId}`)
     } catch (error) {
       toastApiError(error, "Failed to create server")
     }
-  }, [cancelPendingNavigation, createServerAsync, paneHref, pushIfChanged, uploadServerIconMutate])
+  }, [createServerAsync, navigation, uploadServerIconMutate])
   const onLeaveServer = useCallback((id: string) => {
     markVoluntaryLeave(id)
     leaveServerMutate(
@@ -162,17 +131,15 @@ export function useShellRailController({
         onSuccess: () => {
           toast("Left server")
           if (currentServerId === id) {
-            cancelPendingNavigation()
-            router.replace(paneHref(pickPostEjectDestination(servers, id), "nav"))
+            navigation.replace(pickPostEjectDestination(servers, id))
           }
         },
         onError: (error) => toastApiError(error, "Failed to leave server"),
       },
     )
-  }, [cancelPendingNavigation, currentServerId, leaveServerMutate, paneHref, router, servers])
+  }, [currentServerId, leaveServerMutate, navigation, servers])
   const onOpenSettings = useCallback((id?: string) => {
     if (!id) return
-    cancelPendingNavigation()
     const action = resolveServerRailOverlayAction({
       targetServerId: id,
       activeServerId,
@@ -180,11 +147,10 @@ export function useShellRailController({
       hasActiveOpener: !!onOpenActiveServerSettings,
     })
     if (action.kind === "open-active") onOpenActiveServerSettings?.()
-    else pushIfChanged(paneHref(action.href, "nav"))
-  }, [activeServerId, cancelPendingNavigation, onOpenActiveServerSettings, paneHref, pushIfChanged])
+    else navigation.push(action.href)
+  }, [activeServerId, navigation, onOpenActiveServerSettings])
   const onOpenInvitePopover = useCallback((id?: string) => {
     if (!id) return
-    cancelPendingNavigation()
     const action = resolveServerRailOverlayAction({
       targetServerId: id,
       activeServerId,
@@ -192,8 +158,8 @@ export function useShellRailController({
       hasActiveOpener: !!onOpenActiveServerInvite,
     })
     if (action.kind === "open-active") onOpenActiveServerInvite?.()
-    else pushIfChanged(paneHref(action.href, "nav"))
-  }, [activeServerId, cancelPendingNavigation, onOpenActiveServerInvite, paneHref, pushIfChanged])
+    else navigation.push(action.href)
+  }, [activeServerId, navigation, onOpenActiveServerInvite])
   const onUngroupFolder = useCallback((folderId: string) => {
     deleteFolderMutate(
       { folderId },
@@ -228,13 +194,11 @@ export function useShellRailController({
   const navigate = useCallback((serverId: string, channelId?: string) => {
     markSwitch(channelId ? "channel" : "server", channelId ?? serverId)
     if (channelId) {
-      cancelPendingNavigation()
-      pushIfChanged(paneHref(`/c/channels/${serverId}/${channelId}`, "messages"))
+      navigation.push(`/c/channels/${serverId}/${channelId}`)
       return
     }
-    cancelPendingNavigation()
-    pushIfChanged(paneHref(serverDestination(serverId), "messages"))
-  }, [cancelPendingNavigation, paneHref, pushIfChanged, serverDestination])
+    navigation.push(serverDestination(serverId))
+  }, [navigation, serverDestination])
 
   return {
     railProps: {
@@ -258,7 +222,5 @@ export function useShellRailController({
       onDragCreateFolder,
     },
     navigate,
-    cancelPendingNavigation,
-    navigationPending,
   }
 }

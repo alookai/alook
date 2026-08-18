@@ -31,7 +31,7 @@ import {
   acceptChannelMessage,
   runAcceptedMessageIntent,
 } from "./message-channel-controller-send"
-import { removeCommunityParam } from "@/components/community/shell/mobile-zone"
+import { removeCommunityParam } from "@/lib/community/community-route"
 import type {
   MessageChannelControllerProps,
   MessageChannelControllerValue,

@@ -5,6 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { MessageList } from "@/components/community/messages/message-list"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useServer } from "@/hooks/community/use-servers"
+import { useBreakpoint } from "@/hooks/use-mobile"
 import { getLastChannel, pickServerLandingChannel } from "@/lib/community/last-channel"
 
 /**
@@ -21,12 +22,13 @@ export default function ServerDefaultPage() {
   const searchParams = useSearchParams()
   const serverId = decodeURIComponent(params.serverId)
   const { server: currentServer } = useServer(serverId)
+  const breakpoint = useBreakpoint()
 
   useEffect(() => {
-    if (!currentServer) return
+    if (breakpoint !== "desktop" || !currentServer) return
     const allChannels = currentServer.categories.flatMap((cat) => cat.channels)
-    // Restore the remembered last channel when it still exists + is visible
-    // here; otherwise the first channel. See `pickServerLandingChannel`.
+    // Restore the remembered route leaf, including canonical parent/child
+    // leaves, or use the first top-level channel when there is no memory.
     const target = pickServerLandingChannel(
       allChannels.map((c) => c.id),
       getLastChannel(serverId),
@@ -35,7 +37,9 @@ export default function ServerDefaultPage() {
       const search = searchParams.toString()
       router.replace(`/c/channels/${serverId}/${target}${search ? `?${search}` : ""}`)
     }
-  }, [currentServer, serverId, router, searchParams])
+  }, [breakpoint, currentServer, serverId, router, searchParams])
+
+  if (breakpoint !== "desktop") return null
 
   const allChannels = currentServer?.categories.flatMap((cat) => cat.channels) ?? []
   if (currentServer && allChannels.length === 0) {

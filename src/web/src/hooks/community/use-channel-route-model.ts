@@ -86,7 +86,13 @@ export function useChannelRouteModel(serverId: string, serverParam: string, chan
       useCommunityStore.getState().setCurrentChannelMeta(null)
       removeForumSidebarUnreadChild(queryClient, serverId, channelId)
       removeForumSidebarThreadExact(queryClient, serverId, channelId)
-      if (getLastChannel(serverId) === channelId) clearLastChannel(serverId)
+      const lastChannel = getLastChannel(serverId)
+      if (
+        lastChannel === channelId ||
+        lastChannel?.endsWith(`/${channelId}`)
+      ) {
+        clearLastChannel(serverId)
+      }
       router.replace(`/c/channels/${serverParam}`)
     } else if (metaQuery.data && metaQuery.isVerified) {
       useCommunityStore.getState().setCurrentChannelMeta(metaQuery.data)

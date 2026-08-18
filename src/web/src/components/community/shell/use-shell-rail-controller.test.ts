@@ -78,15 +78,22 @@ async function renderController(overrides: Record<string, unknown> = {}) {
     replace: (href: string) => { replaced.push(href) },
     prefetch: (href: string) => { prefetched.push(href) },
   }
+  const navigation = {
+    currentHref: "/c/channels/s1",
+    navigationPending: false,
+    push: router.push,
+    replace: router.replace,
+    prefetch: router.prefetch,
+    resolveAndPush: vi.fn(),
+    cancelPendingNavigation: vi.fn(),
+  }
   const cache = new Map<string, unknown>()
   const queryClient = {
     getQueryData: vi.fn((key: unknown[]) => cache.get(String(key.at(-1)))),
     fetchQuery: vi.fn(),
   }
   const options = {
-    router,
-    currentHref: "/c/channels/s1",
-    breakpoint: "desktop",
+    navigation,
     queryClient,
     view: "server",
     activeServerId: "s1",
@@ -106,6 +113,7 @@ async function renderController(overrides: Record<string, unknown> = {}) {
     renderer,
     options,
     router,
+    navigation,
     queryClient,
     cache,
     pushed,
@@ -128,22 +136,16 @@ describe("useShellRailController", () => {
 
   it("commits cold server navigation synchronously without waiting for detail", async () => {
     const hook = await renderController()
-    expect(hook.current.navigationPending).toBe(false)
-
     await act(async () => {
       hook.current.railProps.onServerNavigate("s1")
       hook.current.railProps.onServerNavigate("s2")
     })
 
-    expect(hook.pushed).toEqual(["/c/channels/s2"])
-    expect(hook.current.navigationPending).toBe(true)
+    expect(hook.pushed).toEqual(["/c/channels/s1", "/c/channels/s2"])
     expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
     expect(mocks.markSwitch).toHaveBeenNthCalledWith(1, "server", "s1")
     expect(mocks.markSwitch).toHaveBeenNthCalledWith(2, "server", "s2")
 
-    hook.options.currentHref = "/c/channels/s2"
-    await hook.rerender()
-    expect(hook.current.navigationPending).toBe(false)
   })
 
   it("does not leave deferred server work that can overwrite a direct channel navigation", async () => {
@@ -200,22 +202,14 @@ describe("useShellRailController", () => {
     expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
   })
 
-  it("adds the nav pane on mobile and skips an exact current rail target", async () => {
-    const hook = await renderController({
-      breakpoint: "mobile",
-      currentHref: "/c/channels/s1/cached?pane=nav",
-    })
+  it("always sends rail selection to the semantic server root", async () => {
+    const hook = await renderController()
     hook.cache.set("s1", {
       categories: [{ channels: [{ id: "cached", pending: false }] }],
     })
 
     await act(async () => hook.current.railProps.onServerNavigate("s1"))
-    expect(hook.pushed).toEqual([])
-
-    hook.options.currentHref = "/c/channels/s2/other"
-    await hook.rerender()
-    await act(async () => hook.current.railProps.onServerNavigate("s1"))
-    expect(hook.pushed).toEqual(["/c/channels/s1/cached?pane=nav"])
+    expect(hook.pushed).toEqual(["/c/channels/s1"])
   })
 
   it("uses cached and fetched destinations for navigation and prefetch fallbacks", async () => {
@@ -227,7 +221,7 @@ describe("useShellRailController", () => {
     await act(async () => hook.current.railProps.onServerNavigate("s1"))
     await act(async () => hook.current.railProps.onServerPrefetch("s1"))
     await act(async () => hook.current.railProps.onHomePrefetch())
-    expect(hook.pushed).toEqual(["/c/channels/s1/cached"])
+    expect(hook.pushed).toEqual(["/c/channels/s1"])
     expect(hook.prefetched).toEqual(["/c/channels/s1/cached", "/c/me"])
     expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
 
@@ -276,7 +270,7 @@ describe("useShellRailController", () => {
     })
     mocks.toast.mockImplementation(() => { order.push("toast") })
     const hook = await renderController()
-    hook.router.push = (href: string) => { order.push(`push:${href}`) }
+    hook.navigation.push = (href: string) => { order.push(`push:${href}`) }
     await act(async () => hook.current.railProps.onCreateServer("New"))
     expect(order).toEqual(["create", "toast", "push:/c/channels/new"])
 
@@ -286,7 +280,7 @@ describe("useShellRailController", () => {
       order.push("mutate")
       options.onSuccess()
     })
-    hook.router.replace = (href: string) => { order.push(`replace:${href}`) }
+    hook.navigation.replace = (href: string) => { order.push(`replace:${href}`) }
     await act(async () => hook.current.railProps.onLeaveServer("s1"))
     expect(order).toEqual(["mark", "mutate", "toast", "replace:/c/me"])
   })
@@ -301,7 +295,7 @@ describe("useShellRailController", () => {
     mocks.toast.mockImplementation(() => { order.push("toast") })
     mocks.uploadIcon.mockImplementation(() => { order.push("upload") })
     const hook = await renderController()
-    hook.router.push = (href: string) => { order.push(`push:${href}`) }
+    hook.navigation.push = (href: string) => { order.push(`push:${href}`) }
 
     await act(async () => hook.current.railProps.onCreateServer("New", file))
     expect(order).toEqual(["create", "toast", "upload", "push:/c/channels/new"])

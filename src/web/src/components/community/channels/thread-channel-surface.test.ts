@@ -319,7 +319,7 @@ describe("ThreadChannelSurface ownership", () => {
     headerProps = mockedChannelHeader.mock.calls.at(-1)![0]
     expect(headerProps.breadcrumb?.label).toBe("Renamed thread")
     act(() => headerProps.breadcrumb?.onNavigateBack())
-    expect(mocks.router.push).toHaveBeenCalledWith("/c/channels/server_1/parent_1")
+    expect(mocks.router.replace).toHaveBeenCalledWith("/c/channels/server_1/parent_1")
 
     act(() => headerProps.onToggle("pinned"))
     const panelProps = mockedCommunityPanelSheet.mock.calls.at(-1)![0]

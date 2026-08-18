@@ -2,9 +2,8 @@
 
 import { useCallback, useEffect, useMemo, type ReactNode } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { usePathname, useRouter, useParams, useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useParams } from "next/navigation"
 import { ShellFrame } from "@/components/community/shell/shell-frame"
-import { resolveMobileZone, withMobileZone } from "@/components/community/shell/mobile-zone"
 import { DmSidebar } from "@/components/community/channels/dm-sidebar"
 import { useCommunityStore, useCurrentChannelId } from "@/stores/community"
 import { useDms } from "@/hooks/community/use-dms"
@@ -26,7 +25,6 @@ import {
 export default function MeLayout({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
-  const searchParams = useSearchParams()
   const params = useParams<{ dmId?: string }>()
   const { dms: rawDms, isLoading: dmsLoading, isSuccess: dmsReady } = useDms()
   const onlineUserIds = useOnlineUserIds()
@@ -64,10 +62,9 @@ export default function MeLayout({ children }: { children: ReactNode }) {
     useCommunityWsStore.getState().mergePresence(onlineFriendIds)
   }, [onlineFriendIds])
 
-  const hasDm = !!params.dmId
   const machinesActive = pathname === "/c/me/machines"
   const botsActive = pathname === "/c/me/bots"
-  const friendsActive = !hasDm && !machinesActive && !botsActive
+  const friendsActive = pathname === "/c/me/friends"
 
   const meLocationStatus = resolveMeLocationStatus({
     pathname,
@@ -84,8 +81,8 @@ export default function MeLayout({ children }: { children: ReactNode }) {
     if (meLocationStatus !== "stale") return
     if (getLastMeLeaf() === meLeafFromPathname(pathname)) clearLastMeLocation()
     cancelPendingNavigation()
-    router.replace(withMobileZone(ME_ROOT, resolveMobileZone(searchParams)))
-  }, [cancelPendingNavigation, meLocationStatus, pathname, router, searchParams])
+    router.replace(ME_ROOT)
+  }, [cancelPendingNavigation, meLocationStatus, pathname, router])
 
   // Mirror channel sidebar-click behavior (channels/layout.tsx:226-236): do
   // NOT eagerly mark the DM read on click. That fires a bodyless
@@ -108,30 +105,26 @@ export default function MeLayout({ children }: { children: ReactNode }) {
           ? { ...prev, conversations: prev.conversations.map((d) => (d.id === id ? { ...d, unread: false } : d)) }
           : prev,
     )
-    cancelPendingNavigation()
-    router.push(`/c/me/${id}`)
-  }, [cancelPendingNavigation, queryClient, router])
+    useCommunityStore.getState().uiHandlers.navigatePath?.(`/c/me/${id}`)
+  }, [queryClient])
 
   const onShowFriends = useCallback(() => {
     useCommunityStore.getState().setCurrentChannelId(null)
-    cancelPendingNavigation()
-    router.push("/c/me")
-  }, [cancelPendingNavigation, router])
+    useCommunityStore.getState().uiHandlers.navigatePath?.("/c/me/friends")
+  }, [])
 
   const onShowMachines = useCallback(() => {
     useCommunityStore.getState().setCurrentChannelId(null)
-    cancelPendingNavigation()
-    router.push("/c/me/machines")
-  }, [cancelPendingNavigation, router])
+    useCommunityStore.getState().uiHandlers.navigatePath?.("/c/me/machines")
+  }, [])
 
   const onShowBots = useCallback(() => {
     useCommunityStore.getState().setCurrentChannelId(null)
-    cancelPendingNavigation()
-    router.push("/c/me/bots")
-  }, [cancelPendingNavigation, router])
+    useCommunityStore.getState().uiHandlers.navigatePath?.("/c/me/bots")
+  }, [])
 
   const prefetchDm = useCallback((id: string) => router.prefetch(`/c/me/${id}`), [router])
-  const prefetchFriends = useCallback(() => router.prefetch("/c/me"), [router])
+  const prefetchFriends = useCallback(() => router.prefetch("/c/me/friends"), [router])
   const prefetchMachines = useCallback(() => router.prefetch("/c/me/machines"), [router])
   const prefetchBots = useCallback(() => router.prefetch("/c/me/bots"), [router])
 

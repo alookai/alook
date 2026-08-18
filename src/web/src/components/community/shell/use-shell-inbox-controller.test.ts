@@ -115,7 +115,7 @@ describe("useShellInboxController", () => {
     expect(hook.order).toEqual(["watch", "read", "cancel", "push"])
     expect(mocks.watch).toHaveBeenCalledWith("channel:child")
     expect(mocks.readForum).toHaveBeenCalledWith({ parentChannelId: "forum", openerMessageId: "opener" })
-    expect(hook.pushed.at(-1)).toBe("/c/channels/s1/child")
+    expect(hook.pushed.at(-1)).toBe("/c/channels/s1/forum/child")
 
     hook.order.length = 0
     await act(async () => hook.current.popoverProps.onOpenMention?.({ id: "m1" } as never))

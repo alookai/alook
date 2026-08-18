@@ -18,6 +18,7 @@ import { setLastChannel } from "@/lib/community/last-channel"
 import { resolveChannelDisplayName } from "@/lib/community/channel-display-name"
 import { toChannelRefCandidate } from "@/lib/community/channel-ref-extension"
 import {
+  useCommunityStore,
   useCurrentChannelId,
   useUiHandlers,
 } from "@/stores/community"
@@ -26,7 +27,7 @@ import { useChannelRouteModel } from "@/hooks/community/use-channel-route-model"
 import { useForumOpenerHint } from "@/hooks/community/use-forum-opener-hint"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useSetChannelNotif } from "@/hooks/community/mutations"
-import { removeCommunityParam } from "@/components/community/shell/mobile-zone"
+import { childChannelHref, removeCommunityParam } from "@/lib/community/community-route"
 
 /**
  * /c/channels/:serverId/:channelId
@@ -35,7 +36,15 @@ import { removeCommunityParam } from "@/components/community/shell/mobile-zone"
  * - Text channel: MessageList + Composer + right panels
  * - Child thread opened via URL: child-channel view (breadcrumb + list)
  */
-export function ChannelRoute({ serverParam, channelId }: { serverParam: string; channelId: string }) {
+export function ChannelRoute({
+  serverParam,
+  channelId,
+  parentChannelId: routeParentChannelId,
+}: {
+  serverParam: string
+  channelId: string
+  parentChannelId?: string
+}) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const serverId = decodeURIComponent(serverParam)
@@ -43,8 +52,11 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
   // memory) so re-entering the server restores here instead of the default.
   // Pure localStorage write; failures are swallowed in the helper.
   useEffect(() => {
-    setLastChannel(serverId, channelId)
-  }, [serverId, channelId])
+    setLastChannel(
+      serverId,
+      routeParentChannelId ? `${routeParentChannelId}/${channelId}` : channelId,
+    )
+  }, [serverId, channelId, routeParentChannelId])
   // Cross-channel "jump to message" target, captured ONCE at mount from `?msg=`.
   // `ChannelView` is keyed by `serverId/channelId`, so a fresh jump remounts and
   // re-reads this. The param is stripped from the URL right after (below) so a
@@ -125,17 +137,28 @@ export function ChannelRoute({ serverParam, channelId }: { serverParam: string; 
   useEffect(() => {
     if (!jumpTargetId) return
     const search = searchParams.toString()
-    const href = `/c/channels/${serverParam}/${channelId}${search ? `?${search}` : ""}`
+    const routePath = routeParentChannelId
+      ? childChannelHref(serverParam, routeParentChannelId, channelId)
+      : `/c/channels/${serverParam}/${channelId}`
+    const href = `${routePath}${search ? `?${search}` : ""}`
     router.replace(removeCommunityParam(href, "msg"), { scroll: false })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once for this mount's jump
   }, [])
+
+  useEffect(() => {
+    const parentChannelId = currentChannelMeta?.parentChannelId
+    if (!isChildChannel || routeParentChannelId || !parentChannelId) return
+    router.replace(childChannelHref(serverParam, parentChannelId, channelId))
+  }, [channelId, currentChannelMeta?.parentChannelId, isChildChannel, routeParentChannelId, router, serverParam])
 
   const enterThread = useCallback((id: string) => {
     // No eager read PUT here — the thread page's `useEagerChannelRead` fires it
     // on mount AFTER its read-state snapshot latches, so the "New" divider
     // still anchors to the pre-open pointer. A PUT here would race the snapshot.
-    router.push(`/c/channels/${serverParam}/${id}`)
-  }, [router, serverParam])
+    useCommunityStore.getState().uiHandlers.navigatePath?.(
+      childChannelHref(serverParam, channelId, id),
+    )
+  }, [channelId, serverParam])
 
   const openProfile = useCallback<OpenProfile>((name, e, discriminator, userId) => {
     uiHandlers.openProfile?.(name, e, discriminator, userId)

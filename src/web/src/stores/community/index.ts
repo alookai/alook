@@ -78,6 +78,8 @@ type CommunityUiHandlers = {
   previewAttachment?: (attachment: FileAttachment) => void
   openProfile?: (name: string, e: React.MouseEvent, discriminator?: string, userId?: string) => void
   goBackMobile?: () => void
+  navigatePath?: (href: string) => void
+  replacePath?: (href: string) => void
   // Jump to message `seq` within the CURRENT channel/DM — the page registers
   // this (message already loaded → scroll to it; otherwise open the context
   // sheet, which resolves seq→id server-side). A same-channel message ref pill
@@ -277,6 +279,8 @@ const stableUiHandlers: CommunityUiHandlers = {
   openProfile: (name, e, discriminator, userId) =>
     useCommunityStore.getState().uiHandlers.openProfile?.(name, e, discriminator, userId),
   goBackMobile: () => useCommunityStore.getState().uiHandlers.goBackMobile?.(),
+  navigatePath: (href) => useCommunityStore.getState().uiHandlers.navigatePath?.(href),
+  replacePath: (href) => useCommunityStore.getState().uiHandlers.replacePath?.(href),
   jumpToSeq: (seq) => useCommunityStore.getState().uiHandlers.jumpToSeq?.(seq),
   cancelPendingNavigation: () => useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.(),
   navigate: (serverId, channelId) => useCommunityStore.getState().uiHandlers.navigate?.(serverId, channelId),

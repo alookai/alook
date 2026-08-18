@@ -127,6 +127,12 @@ describe("pickServerLandingChannel", () => {
 })
 
 describe("pickServerLandingHref", () => {
+  it("restores a canonical parent/child leaf", () => {
+    expect(pickServerLandingHref("srv_1", ["ch_1"], "forum_1/post_1")).toBe(
+      "/c/channels/srv_1/forum_1/post_1",
+    )
+  })
+
   it("lands directly on a remembered child thread without top-level validation", () => {
     expect(pickServerLandingHref("srv_1", ["ch_1"], "post_1")).toBe(
       "/c/channels/srv_1/post_1",

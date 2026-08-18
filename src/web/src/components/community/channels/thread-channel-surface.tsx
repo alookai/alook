@@ -103,7 +103,7 @@ export function ThreadChannelSurface({
   const openPinned = useCallback(() => setRightPanel("pinned"), [])
   const navigateBack = useCallback(() => {
     if (parentChannelId) {
-      router.push(`/c/channels/${serverParam}/${parentChannelId}`)
+      router.replace(`/c/channels/${serverParam}/${parentChannelId}`)
       return
     }
     onBack?.()

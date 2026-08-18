@@ -51,7 +51,7 @@ const mocks = vi.hoisted(() => {
 vi.mock("next/navigation", () => ({
   useRouter: () => mocks.router,
   useSearchParams: () => new URLSearchParams(
-    mocks.seq ? `seq=${mocks.seq}&pane=nav&keep=1` : "",
+    mocks.seq ? `seq=${mocks.seq}&keep=1` : "",
   ),
 }))
 vi.mock("@/lib/api/client", () => ({
@@ -316,7 +316,7 @@ describe("useMessageChannelController", () => {
       serverId: "server_1", channelId: "channel_1", label: "general", seq: 7,
     })
     expect(mocks.router.replace).toHaveBeenCalledWith(
-      "/c/channels/server_1/channel_1?pane=nav&keep=1", { scroll: false },
+      "/c/channels/server_1/channel_1?keep=1", { scroll: false },
     )
     expect(mocks.storeState.registerUiHandlers).toHaveBeenCalledWith({
       jumpToSeq: expect.any(Function), openMessageContext: expect.any(Function),
