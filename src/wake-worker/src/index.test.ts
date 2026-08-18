@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 const mockDispatchOneUnreadWake = vi.fn()
 const mockCreateDb = vi.fn((..._a: unknown[]) => ({ __db: true }))
+const { mockLogInfo } = vi.hoisted(() => ({ mockLogInfo: vi.fn() }))
 vi.mock("@alook/shared", () => {
-  const noopLogger = { debug: () => { }, info: () => { }, warn: () => { }, error: () => { }, child() { return this } }
+  const noopLogger = { debug: () => { }, info: mockLogInfo, warn: () => { }, error: () => { }, child() { return this } }
   return {
     createLogger: () => noopLogger,
     createDb: (...a: unknown[]) => mockCreateDb(...a),
@@ -24,8 +25,8 @@ describe("wake-worker queue consumer", () => {
     vi.clearAllMocks()
   })
 
-  it("resolves via dispatchOneUnreadWake and acks on successful delivery", async () => {
-    mockDispatchOneUnreadWake.mockResolvedValue({ outcome: "sent" })
+  it("resolves via dispatchOneUnreadWake and acks after an attempted write", async () => {
+    mockDispatchOneUnreadWake.mockResolvedValue({ outcome: "attempted" })
     const msg = makeMsg({ messageId: "msg1", botUserId: "bot1" })
     const batch = { messages: [msg] } as unknown as MessageBatch<unknown>
 
@@ -37,8 +38,8 @@ describe("wake-worker queue consumer", () => {
     expect(msg.retry).not.toHaveBeenCalled()
   })
 
-  it("acks (does not retry) when daemon is offline (delivered_nowhere) — known-permanent state", async () => {
-    mockDispatchOneUnreadWake.mockResolvedValue({ outcome: "delivered_nowhere", machineId: "m1" })
+  it("acks and logs when no socket write was attempted — reconnect resync owns recovery", async () => {
+    mockDispatchOneUnreadWake.mockResolvedValue({ outcome: "attempted_nowhere", machineId: "m1" })
     const msg = makeMsg({ messageId: "msg1", botUserId: "bot1" })
     const batch = { messages: [msg] } as unknown as MessageBatch<unknown>
 
@@ -46,6 +47,10 @@ describe("wake-worker queue consumer", () => {
 
     expect(msg.ack).toHaveBeenCalledTimes(1)
     expect(msg.retry).not.toHaveBeenCalled()
+    expect(mockLogInfo).toHaveBeenCalledWith("wake_attempted_nowhere", {
+      botUserId: "bot1",
+      machineId: "m1",
+    })
   })
 
   it("acks when the resolution is a skip", async () => {
@@ -93,7 +98,7 @@ describe("wake-worker queue consumer", () => {
 
   it("processes every message in the batch independently — one failure doesn't block others", async () => {
     mockDispatchOneUnreadWake
-      .mockResolvedValueOnce({ outcome: "sent" })
+      .mockResolvedValueOnce({ outcome: "attempted" })
       .mockRejectedValueOnce(new Error("boom"))
       .mockResolvedValueOnce({ outcome: "skip", reason: "already_read" })
 
@@ -127,7 +132,7 @@ describe("wake-worker dev-only HTTP entrypoint (fetch)", () => {
   }
 
   it("resolves every candidate in the body via dispatchOneUnreadWake — the SAME function queue() calls", async () => {
-    mockDispatchOneUnreadWake.mockResolvedValue({ outcome: "sent" })
+    mockDispatchOneUnreadWake.mockResolvedValue({ outcome: "attempted" })
     const payloads = [
       { messageId: "msg1", botUserId: "bot1" },
       { messageId: "msg1", botUserId: "bot2" },
@@ -142,7 +147,7 @@ describe("wake-worker dev-only HTTP entrypoint (fetch)", () => {
     expect(mockDispatchOneUnreadWake).toHaveBeenCalledWith({ __db: true }, env, payloads[1])
   })
 
-  it("returns 202 even when a skip/delivered_nowhere outcome resolves (no queue infra to ack/retry against)", async () => {
+  it("returns 202 even when a skip/attempted_nowhere outcome resolves (no queue infra to ack/retry against)", async () => {
     mockDispatchOneUnreadWake.mockResolvedValue({ outcome: "skip", reason: "already_read" })
 
     const res = await handler.fetch!(makeRequest("POST", [{ messageId: "msg1", botUserId: "bot1" }]), env)
@@ -151,7 +156,7 @@ describe("wake-worker dev-only HTTP entrypoint (fetch)", () => {
   })
 
   it("deduplicates candidates by stable messageId + botUserId within one request", async () => {
-    mockDispatchOneUnreadWake.mockResolvedValue({ outcome: "sent" })
+    mockDispatchOneUnreadWake.mockResolvedValue({ outcome: "attempted" })
     const first = { messageId: "msg:one", botUserId: "bot" }
     const delimiterCollision = { messageId: "msg", botUserId: "one:bot" }
 
@@ -169,7 +174,7 @@ describe("wake-worker dev-only HTTP entrypoint (fetch)", () => {
       const attempt = (attempts.get(item.botUserId) ?? 0) + 1
       attempts.set(item.botUserId, attempt)
       if (item.botUserId === "bot_flaky" && attempt === 1) throw new Error("D1 exploded")
-      return { outcome: "sent" }
+      return { outcome: "attempted" }
     })
 
     const res = await handler.fetch!(
@@ -193,7 +198,7 @@ describe("wake-worker dev-only HTTP entrypoint (fetch)", () => {
       const attempt = (attempts.get(item.botUserId) ?? 0) + 1
       attempts.set(item.botUserId, attempt)
       if (item.botUserId === "bot_flaky") throw new Error("D1 stayed down")
-      return { outcome: "sent" }
+      return { outcome: "attempted" }
     })
 
     const res = await handler.fetch!(
@@ -252,8 +257,8 @@ describe("wake-worker dev-only HTTP entrypoint (fetch)", () => {
  * details are covered by the `describe` blocks above.
  */
 const RESOLUTION_SCENARIOS = [
-  { name: "sent", outcome: { outcome: "sent" as const } },
-  { name: "delivered_nowhere", outcome: { outcome: "delivered_nowhere" as const, machineId: "m1" } },
+  { name: "attempted", outcome: { outcome: "attempted" as const } },
+  { name: "attempted_nowhere", outcome: { outcome: "attempted_nowhere" as const, machineId: "m1" } },
   { name: "skip: already_read", outcome: { outcome: "skip" as const, reason: "already_read" as const } },
   { name: "skip: forbidden", outcome: { outcome: "skip" as const, reason: "forbidden" as const } },
   { name: "skip: muted", outcome: { outcome: "skip" as const, reason: "muted" as const } },
@@ -288,7 +293,7 @@ describe("wake-worker queue() vs fetch() — same resolution for the same candid
       { messageId: "msg2", botUserId: "bot2" },
     ]
 
-    mockDispatchOneUnreadWake.mockRejectedValueOnce(new Error("boom")).mockResolvedValueOnce({ outcome: "sent" })
+    mockDispatchOneUnreadWake.mockRejectedValueOnce(new Error("boom")).mockResolvedValueOnce({ outcome: "attempted" })
     const msgs = items.map((body) => ({ body, ack: vi.fn(), retry: vi.fn() }))
     await handler.queue({ messages: msgs } as never, env)
     expect(msgs[0]!.retry).toHaveBeenCalledTimes(1)
@@ -300,7 +305,7 @@ describe("wake-worker queue() vs fetch() — same resolution for the same candid
       const attempt = (attempts.get(item.botUserId) ?? 0) + 1
       attempts.set(item.botUserId, attempt)
       if (item.botUserId === "bot1" && attempt === 1) throw new Error("boom")
-      return { outcome: "sent" }
+      return { outcome: "attempted" }
     })
     const res = await handler.fetch!(new Request("http://internal/", { method: "POST", body: JSON.stringify(items) }), env)
     expect(res.status).toBe(202)

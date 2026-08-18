@@ -1,4 +1,5 @@
 import {
+  CONTROL_HEARTBEAT_CAPABILITY,
   createDb,
   HostReadyMessageSchema,
   queries,
@@ -59,10 +60,26 @@ export async function handleReadyFrame(
   context: WsDurableContext,
   parsed: unknown,
   identity: CommunityMachineIdentity,
+  ws: WebSocket,
 ): Promise<boolean> {
   const readyParse = HostReadyMessageSchema.safeParse(parsed)
   if (!readyParse.success) return false
   const ready = readyParse.data
+  const state = ws.deserializeAttachment() as import("./internal").ConnectionState
+  if (
+    state?.type === "community-machine" &&
+    state.authenticated &&
+    state.userId === identity.userId &&
+    state.machineId === identity.machineId
+  ) {
+    const controlHeartbeat = (ready.capabilities ?? []).includes(CONTROL_HEARTBEAT_CAPABILITY)
+    ws.serializeAttachment({
+      ...state,
+      controlHeartbeat,
+      ...(controlHeartbeat ? { lastHeartbeatAckAt: Date.now() } : {}),
+      pendingHeartbeatNonce: undefined,
+    })
+  }
   try {
     const hostname = ready.hostname ?? ""
     const platform = ready.platform ?? ""

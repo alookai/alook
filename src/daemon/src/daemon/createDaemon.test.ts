@@ -164,7 +164,7 @@ describe("createDaemon", () => {
       if (url.includes("/daemon/bots")) {
         return Response.json({ bots: [{ id: "bot_1", name: "Bot", discriminator: "0001" }] });
       }
-      return Response.json({ woken: 0 });
+      return Response.json({ attempted: 0 });
     }));
 
     const daemon = await createDaemon({
@@ -347,7 +347,7 @@ describe("createDaemon", () => {
           bots: [{ id: "bot_1", name: "Bot", discriminator: "0001" }],
         });
       }
-      return Response.json({ woken: 0 });
+      return Response.json({ attempted: 0 });
     }));
     const daemon = await createDaemon({
       machineKey: "cmk_diagnostics",
@@ -418,7 +418,7 @@ describe("createDaemon", () => {
       const url = String(input);
       return url.includes("/api/community/daemon/bots")
         ? Response.json({ bots: [{ id: "bot_1", name: "Bot", discriminator: "0001" }] })
-        : Response.json({ woken: 0 });
+        : Response.json({ attempted: 0 });
     }));
     const daemon = await createDaemon({
       machineKey: "cmk_diagnostics_failure",
@@ -1074,12 +1074,12 @@ describe("createDaemon — logging", () => {
     await daemon.stop();
   });
 
-  it("calls resync-wakes with the machine key bearer on open and logs the woken count", async () => {
+  it("calls resync-wakes with the machine key bearer on open and logs the attempted count", async () => {
     global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
       const href = String(url);
       if (href.includes("/resync-wakes")) {
         expect((init?.headers as Record<string, string>).authorization).toBe("Bearer cmk_resync");
-        return new Response(JSON.stringify({ woken: 2 }), { status: 200 });
+        return new Response(JSON.stringify({ attempted: 2 }), { status: 200 });
       }
       return new Response(JSON.stringify({ bots: [] }), { status: 200 });
     }) as unknown as typeof fetch;
@@ -1100,7 +1100,7 @@ describe("createDaemon — logging", () => {
     await new Promise((r) => setTimeout(r, 20));
 
     expect(
-      logger.calls.info.some(([, m, d]) => m === "wake resync completed" && (d[0] as any).woken === 2),
+      logger.calls.info.some(([, m, d]) => m === "wake resync completed" && (d[0] as any).attempted === 2),
     ).toBe(true);
     await daemon.stop();
   });

@@ -10,6 +10,7 @@ import type { Logger } from "../logger";
  */
 class FakeSocket implements WebSocketLike {
   sent: string[] = [];
+  terminated = false;
   private handlers: Record<string, ((...a: any[]) => void)[]> = {};
   on(event: string, cb: (...a: any[]) => void): void {
     (this.handlers[event] ??= []).push(cb);
@@ -18,6 +19,10 @@ class FakeSocket implements WebSocketLike {
     this.sent.push(data);
   }
   close(): void {
+    this.emit("close");
+  }
+  terminate(): void {
+    this.terminated = true;
     this.emit("close");
   }
   ping(): void {}
@@ -616,6 +621,39 @@ describe("WsControlChannel — downlink HostCommand validation (convergence #6)"
     expect(received).toEqual([command]);
   });
 
+  it("acks an app heartbeat at ingress without dispatching it to lifecycle listeners", () => {
+    const { sockets, received } = driven();
+
+    sockets[0].emit("message", JSON.stringify({ type: "machine:heartbeat", nonce: "nonce_1" }));
+
+    expect(received).toEqual([]);
+    expect(sockets[0].frames()).toContainEqual({
+      type: "machine_heartbeat_ack",
+      nonce: "nonce_1",
+    });
+  });
+
+  it("acks every diagnostics frame at ingress, including duplicates, before dispatch", () => {
+    const command = {
+      type: "diagnostics:collect",
+      reportId: "dbr_0123456789abcdef",
+      agentId: "bot_1",
+      fromMs: 1_700_000_000_000,
+      deadlineAt: 1_700_087_000_000,
+    } as const;
+    const { sockets, received } = driven();
+
+    sockets[0].emit("message", JSON.stringify(command));
+    sockets[0].emit("message", JSON.stringify(command));
+
+    expect(received).toEqual([command, command]);
+    expect(sockets[0].frames().filter((frame) => frame.type === "diagnostics_ack"))
+      .toEqual([
+        { type: "diagnostics_ack", reportId: command.reportId },
+        { type: "diagnostics_ack", reportId: command.reportId },
+      ]);
+  });
+
   it("drops diagnostics commands with missing or unknown top-level fields", () => {
     for (const command of [
       {
@@ -727,5 +765,6 @@ describe("WsControlChannel — logging", () => {
     await new Promise((r) => setTimeout(r, 30));
 
     expect(logger.calls.warn.some(([m]) => m === "heartbeat pong timeout — forcing reconnect")).toBe(true);
+    expect(sockets[0].terminated).toBe(true);
   });
 });

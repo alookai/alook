@@ -709,6 +709,8 @@ export interface UnreadNotice {
 /* Control plane — server → host commands                              */
 /* ------------------------------------------------------------------ */
 
+export const CONTROL_HEARTBEAT_CAPABILITY = "control-heartbeat-v1";
+
 /**
  * Commands the SERVER pushes DOWN to a host (daemon). This is the control plane —
  * distinct from the agent-initiated data plane (`ServerApi`). The server owns
@@ -722,6 +724,7 @@ export interface UnreadNotice {
  * coalesce the notice for the next turn (see `AgentProcessManager`).
  */
 export type HostCommand =
+  | { type: "machine:heartbeat"; nonce: string }
   | {
     type: "agent:wake";
     agentId: AgentId;
@@ -842,6 +845,8 @@ export interface HostReady {
    * reader-side concern (server-side bot-create validator, client picker).
    */
   runtimeReport: HostReadyRuntime[];
+  /** Capability gates for wire behavior that is unsafe to assume on legacy daemons. */
+  capabilities?: string[];
   /** Agents currently running on this host. */
   runningAgents: AgentId[];
   hostname?: string;
@@ -1027,6 +1032,8 @@ export interface WebSocketLike {
   send(data: string): void;
   close(): void;
   ping?(): void;
+  /** Hard-close a half-open client socket when the implementation supports it (`ws`). */
+  terminate?(): void;
 }
 
 /** Builds a client `WebSocketLike` for a url + headers (injected; no hard `ws` dep). */
@@ -1379,6 +1386,10 @@ export function formatSeq(seq: Seq): string {
 // downstream with its own defaulting, so deep-validating it here would only turn
 // a forward-compatible server field into a hard drop on an older daemon.
 export const HostCommandSchema = z.discriminatedUnion("type", [
+  z.strictObject({
+    type: z.literal("machine:heartbeat"),
+    nonce: z.string().min(1).max(128),
+  }),
   z.object({
     type: z.literal("agent:wake"),
     agentId: z.string().min(1),

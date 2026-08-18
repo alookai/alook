@@ -103,6 +103,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       message,
       (parsed) => handleCommunityMachineMessage(
         this.domainContext(),
+        ws,
         parsed,
         {
           fanOutMachineUpdated: (userId, machineId) =>

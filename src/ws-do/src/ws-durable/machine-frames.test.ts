@@ -183,6 +183,37 @@ describe("WebSocketDurableObject", () => {
         })
       })
 
+      it.each([
+        ["legacy ready", undefined, false],
+        ["heartbeat-capable ready", ["control-heartbeat-v1"], true],
+      ] as const)("capability-gates the app heartbeat lease for %s", async (_name, capabilities, expected) => {
+        vi.spyOn(Date, "now").mockReturnValue(9_000_000)
+        const { durable, store } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "hash",
+        })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+        })
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "ready",
+          runtimeReport: [],
+          runningAgents: [],
+          ...(capabilities ? { capabilities } : {}),
+        }))
+
+        expect(ws._attachment).toMatchObject({ controlHeartbeat: expected })
+        if (expected) expect((ws._attachment as any).lastHeartbeatAckAt).toBe(9_000_000)
+        else expect((ws._attachment as any).lastHeartbeatAckAt).toBeUndefined()
+      })
+
       it("silently drops a wrapped `{ready:{...}}` frame (legacy shape — regression guard)", async () => {
         const { durable, store } = createDO()
         store.set("community-machine-identity", {
@@ -211,6 +242,35 @@ describe("WebSocketDurableObject", () => {
         await durable.webSocketMessage(ws as any, frame)
 
         expect(mockUpsertMachineByMachineId).not.toHaveBeenCalled()
+      })
+    })
+
+  describe("community-machine — control-plane receipt scope", () => {
+      it("consumes but does not accept a diagnostics receipt from a mismatched machine socket", async () => {
+        const { durable, store } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "hash",
+        })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_other",
+          userId: "u_1",
+          authenticated: true,
+        })
+        mockLogDebug.mockClear()
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "diagnostics_ack",
+          reportId: "dbr_0123456789abcdef",
+        }))
+
+        expect(mockLogDebug).not.toHaveBeenCalledWith(
+          "diagnostics command receipted",
+          expect.anything(),
+        )
       })
     })
 

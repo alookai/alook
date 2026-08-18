@@ -3,6 +3,8 @@ import {
   CommunityMachineRuntimeSchema,
   CommunityMachineRuntimeListSchema,
   HostReadyMessageSchema,
+  MachineHeartbeatAckMessageSchema,
+  DiagnosticCommandAckMessageSchema,
   SessionErrorFrameSchema,
   COMMUNITY_RUNTIME_ID_MAX,
   COMMUNITY_RUNTIME_LIST_MAX,
@@ -125,6 +127,7 @@ describe("HostReadyMessageSchema", () => {
       { id: "claude", version: "1.0.0", status: "healthy" },
     ]);
     expect(parsed.runningAgents).toEqual(["agent_a"]);
+    expect(parsed.capabilities).toEqual([]);
   });
 
   it("defaults runningAgents to an empty array", () => {
@@ -133,6 +136,20 @@ describe("HostReadyMessageSchema", () => {
       runtimeReport: [],
     });
     expect(parsed.runningAgents).toEqual([]);
+    expect(parsed.capabilities).toEqual([]);
+  });
+
+  it("accepts bounded capability names and rejects an empty capability", () => {
+    expect(HostReadyMessageSchema.parse({
+      type: "ready",
+      runtimeReport: [],
+      capabilities: ["control-heartbeat-v1"],
+    }).capabilities).toEqual(["control-heartbeat-v1"]);
+    expect(HostReadyMessageSchema.safeParse({
+      type: "ready",
+      runtimeReport: [],
+      capabilities: [""],
+    }).success).toBe(false);
   });
 
   it("rejects the legacy string-only `runtimes` field (no runtimeReport)", () => {
@@ -161,6 +178,24 @@ describe("HostReadyMessageSchema", () => {
       runningAgents: [],
     });
     expect(parsed.runtimeReport).toEqual([{ id: "claude", status: "healthy" }]);
+  });
+});
+
+describe("control-plane receipt schemas", () => {
+  it("strictly parses heartbeat and diagnostic ingress receipts", () => {
+    expect(MachineHeartbeatAckMessageSchema.parse({
+      type: "machine_heartbeat_ack",
+      nonce: "nonce_1",
+    })).toEqual({ type: "machine_heartbeat_ack", nonce: "nonce_1" });
+    expect(DiagnosticCommandAckMessageSchema.parse({
+      type: "diagnostics_ack",
+      reportId: "dbr_0123456789abcdef",
+    })).toEqual({ type: "diagnostics_ack", reportId: "dbr_0123456789abcdef" });
+    expect(MachineHeartbeatAckMessageSchema.safeParse({
+      type: "machine_heartbeat_ack",
+      nonce: "nonce_1",
+      extra: true,
+    }).success).toBe(false);
   });
 });
 

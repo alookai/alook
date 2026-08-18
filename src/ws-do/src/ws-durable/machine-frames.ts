@@ -2,6 +2,10 @@ import { IDENTITY_KEY } from "./internal"
 import type { CommunityMachineIdentity, WsDurableContext } from "./internal"
 import { handleReadyFrame } from "./machine-ready"
 import {
+  handleDiagnosticCommandAck,
+  handleMachineHeartbeatAck,
+} from "./machine-lifecycle"
+import {
   handleAgentCommandAck,
   handleAgentSessionFrame,
   handleSessionErrorFrame,
@@ -16,6 +20,7 @@ import {
 
 export async function handleCommunityMachineMessage(
   context: WsDurableContext,
+  ws: WebSocket,
   parsed: unknown,
   hooks: MachineRestartHooks,
 ): Promise<void> {
@@ -24,6 +29,9 @@ export async function handleCommunityMachineMessage(
     context.log.warn("community machine message with no cached identity")
     return
   }
+
+  if (await handleMachineHeartbeatAck(context, ws, parsed, identity)) return
+  if (handleDiagnosticCommandAck(context, ws, parsed, identity)) return
 
   // The router is intentionally first-match. Keep identity before every
   // frame and preserve ack → session error → activity → typing → typing stop
@@ -70,5 +78,6 @@ export async function handleCommunityMachineMessage(
     context,
     parsed,
     identity,
+    ws,
   )
 }

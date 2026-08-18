@@ -94,7 +94,7 @@ async function createControlServer(): Promise<ControlServer> {
       return;
     }
     if (request.url?.includes("/api/community/daemon/wakes/resync")) {
-      response.end(JSON.stringify({ woken: 0 }));
+      response.end(JSON.stringify({ attempted: 0 }));
       return;
     }
     response.end(JSON.stringify({}));

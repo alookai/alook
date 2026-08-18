@@ -45,6 +45,8 @@ import {
   mockToSummary,
   mockTouchBotRefreshContext,
   mockTouchMachineHeartbeat,
+  mockTimeoutPendingDiagnosticReportsForMachine,
+  mockGetNextPendingDiagnosticDeadlineForMachine,
   mockUpdateProfile,
   mockUpsertMachineByMachineId,
   resetHarness
@@ -98,8 +100,9 @@ describe("WebSocketDurableObject", () => {
         expect(store.has("community-machine-handle")).toBe(false)
       })
 
-      it("null return (credential revoked or already offline) does NOT broadcast and leaves the alarm armed", async () => {
+      it("revoked credential on normal close is terminal local cleanup without a broadcast", async () => {
         const { durable, store, ctx } = createDO()
+        store.set("community-machine-handle", { userId: "u_1", machineId: "cm_1" })
         store.set("community-machine-identity", {
           userId: "u_1",
           machineId: "cm_1",
@@ -116,16 +119,17 @@ describe("WebSocketDurableObject", () => {
         })
 
         mockStubFetch.mockClear()
+        ;(ctx.storage.setAlarm as any).mockClear?.()
+        ;(ctx.storage.deleteAlarm as any).mockClear?.()
         await durable.webSocketClose(ws as any)
 
         expect(mockMarkMachineOffline).toHaveBeenCalledTimes(1)
         // No broadcast fired — the guarded UPDATE returned zero rows.
         expect(mockStubFetch).not.toHaveBeenCalled()
-        // Alarm armed as the safety-net fallback (setAlarm was called; not deleted).
-        expect(ctx.storage.setAlarm).toHaveBeenCalled()
+        expect(ctx.storage.setAlarm).not.toHaveBeenCalled()
         expect(ctx.storage.deleteAlarm).not.toHaveBeenCalled()
-        // Storage keys retained — a different DO instance may own the row now.
-        expect(store.has("community-machine-identity")).toBe(true)
+        expect(store.has("community-machine-handle")).toBe(false)
+        expect(store.has("community-machine-identity")).toBe(false)
       })
 
       it("missing IDENTITY_KEY (never fully accepted) is a clean no-op — no markMachineOffline, no alarm", async () => {
@@ -289,6 +293,143 @@ describe("WebSocketDurableObject", () => {
     })
 
   describe("community-machine — alarm presence + backfill", () => {
+      it("capability-gated heartbeat requires the matching nonce and ignores duplicate/stale acks", async () => {
+        vi.spyOn(Date, "now").mockReturnValue(10_000_000)
+        const { durable, store, getWebSockets } = createDO()
+        store.set("community-machine-handle", { userId: "u_1", machineId: "cm_1" })
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "hash",
+        })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+          controlHeartbeat: true,
+          lastHeartbeatAckAt: 9_940_000,
+        })
+        getWebSockets.mockReturnValue([ws])
+
+        await durable.alarm()
+
+        expect(ws.send).toHaveBeenCalledOnce()
+        const heartbeat = JSON.parse(ws.send.mock.calls[0]![0] as string) as {
+          type: string
+          nonce: string
+        }
+        expect(heartbeat.type).toBe("machine:heartbeat")
+        expect((ws._attachment as any).pendingHeartbeatNonce).toBe(heartbeat.nonce)
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "machine_heartbeat_ack",
+          nonce: "stale-nonce",
+        }))
+        expect((ws._attachment as any).pendingHeartbeatNonce).toBe(heartbeat.nonce)
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "machine_heartbeat_ack",
+          nonce: heartbeat.nonce,
+        }))
+        expect(ws._attachment).toMatchObject({
+          lastHeartbeatAckAt: 10_000_000,
+          pendingHeartbeatNonce: undefined,
+        })
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "machine_heartbeat_ack",
+          nonce: heartbeat.nonce,
+        }))
+        expect((ws._attachment as any).lastHeartbeatAckAt).toBe(10_000_000)
+      })
+
+      it("expires a retained capability socket after the app-level lease and flips D1 once", async () => {
+        vi.spyOn(Date, "now").mockReturnValue(20_000_000)
+        const { durable, store, getWebSockets } = createDO()
+        store.set("community-machine-handle", { userId: "u_1", machineId: "cm_1" })
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "hash",
+        })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+          controlHeartbeat: true,
+          lastHeartbeatAckAt: 19_800_000,
+        })
+        getWebSockets.mockReturnValue([ws])
+        mockMarkMachineOffline.mockResolvedValueOnce({
+          id: "cm_1",
+          userId: "u_1",
+          status: "offline",
+          lastSeenAt: "now",
+        })
+
+        await durable.alarm()
+
+        expect(ws.close).toHaveBeenCalledWith(1011, "Heartbeat lease expired")
+        expect(mockTouchMachineHeartbeat).not.toHaveBeenCalled()
+        expect(mockMarkMachineOffline).toHaveBeenCalledOnce()
+        expect(store.has("community-machine-handle")).toBe(false)
+        expect(store.has("community-machine-identity")).toBe(false)
+      })
+
+      it("forgets an expired retained socket whose credential no longer owns the D1 row", async () => {
+        vi.spyOn(Date, "now").mockReturnValue(20_000_000)
+        const { durable, store, getWebSockets } = createDO()
+        store.set("community-machine-handle", { userId: "u_1", machineId: "cm_1" })
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "revoked-credential",
+        })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+          controlHeartbeat: true,
+          lastHeartbeatAckAt: 19_800_000,
+        })
+        getWebSockets.mockReturnValue([ws])
+        mockMarkMachineOffline.mockResolvedValueOnce(null)
+        mockStubFetch.mockClear()
+
+        await durable.alarm()
+
+        expect(ws.close).toHaveBeenCalledWith(1011, "Heartbeat lease expired")
+        expect(mockMarkMachineOffline).toHaveBeenCalledOnce()
+        expect(mockStubFetch).not.toHaveBeenCalled()
+        expect(store.has("community-machine-handle")).toBe(false)
+        expect(store.has("community-machine-identity")).toBe(false)
+      })
+
+      it("machine-keyed deadline owner expires D1 without a socket, poll, or daemon reconnect", async () => {
+        vi.spyOn(Date, "now").mockReturnValue(30_000_000)
+        const { durable, store, getWebSockets } = createDO()
+        getWebSockets.mockReturnValue([])
+        store.set("community-machine-diagnostic-alarm-hint", {
+          machineId: "cm_1",
+          deadlineAt: 29_999_999,
+        })
+        mockGetNextPendingDiagnosticDeadlineForMachine.mockResolvedValueOnce(null)
+
+        await durable.alarm()
+
+        expect(mockTimeoutPendingDiagnosticReportsForMachine).toHaveBeenCalledWith({}, {
+          machineId: "cm_1",
+          nowMs: 30_000_000,
+        })
+        expect(store.has("community-machine-diagnostic-alarm-hint")).toBe(false)
+      })
+
       it("live-WS + status=offline row: markMachineOnlineIfOffline flips it back online and broadcasts (post-deploy backfill)", async () => {
         const { durable, store, getWebSockets, ctx } = createDO()
         store.set("community-machine-identity", {
@@ -395,11 +536,9 @@ describe("WebSocketDurableObject", () => {
         expect(mockStubFetch).toHaveBeenCalled()
         expect(store.has("community-machine-handle")).toBe(false)
         expect(store.has("community-machine-identity")).toBe(false)
-        // No further alarm reschedule after the terminal offline flip.
-        // (setAlarm may have been called on the earlier setup path; we assert
-        // deleteAlarm was NOT called since alarm() doesn't need to explicitly
-        // delete — it just doesn't reschedule.)
-        expect(ctx.storage.deleteAlarm).not.toHaveBeenCalled()
+        // Combined machine/diagnostics scheduling explicitly clears the alarm
+        // after the terminal offline flip leaves no remaining work.
+        expect(ctx.storage.deleteAlarm).toHaveBeenCalled()
       })
 
       it("no-live-WS + stale row + no identity (mid-lifecycle wipe): still broadcasts offline using stored handle so UI sees the transition", async () => {
@@ -430,7 +569,7 @@ describe("WebSocketDurableObject", () => {
         expect(mockStubFetch).toHaveBeenCalled()
         // Storage keys dropped — this DO's presence lifecycle is done.
         expect(store.has("community-machine-handle")).toBe(false)
-        expect(ctx.storage.deleteAlarm).not.toHaveBeenCalled()
+        expect(ctx.storage.deleteAlarm).toHaveBeenCalled()
       })
 
       it("no-live-WS + fresh row: reschedules alarm to exact stale moment, no broadcast, no DB flip", async () => {
@@ -557,7 +696,7 @@ describe("WebSocketDurableObject", () => {
         expect(storage.setAlarm).toHaveBeenCalledWith(5_060_000)
       })
 
-      it("cleans lifecycle storage when a stale offline flip rejects", async () => {
+      it("retains lifecycle storage and retries when a stale offline flip rejects", async () => {
         vi.spyOn(Date, "now").mockReturnValue(6_000_000)
         const { durable, getWebSockets, store, storage } = createDO()
         getWebSockets.mockReturnValue([])
@@ -577,11 +716,10 @@ describe("WebSocketDurableObject", () => {
         mockMarkMachineOffline.mockRejectedValueOnce(new Error("d1 unavailable"))
 
         await expect(durable.alarm()).resolves.toBeUndefined()
-        expect(storage.delete.mock.calls).toEqual([
-          ["community-machine-handle"],
-          ["community-machine-identity"],
-        ])
-        expect(storage.setAlarm).not.toHaveBeenCalled()
+        expect(storage.delete).not.toHaveBeenCalled()
+        expect(store.has("community-machine-handle")).toBe(true)
+        expect(store.has("community-machine-identity")).toBe(true)
+        expect(storage.setAlarm).toHaveBeenCalledWith(6_060_000)
       })
 
       it("does not broadcast a stale null flip and still cleans lifecycle storage", async () => {

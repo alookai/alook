@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, lte, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { nanoid } from "nanoid";
 import {
@@ -280,6 +280,42 @@ export async function getPendingDiagnosticReportForMachine(
   );
 }
 
+export async function listPendingDiagnosticReportsForMachine(
+  db: Database,
+  input: { machineId: string; nowMs: number }
+): Promise<DiagnosticReportRow[]> {
+  assertSafeEpoch(input.nowMs);
+  return db
+    .select()
+    .from(communityDiagnosticReport)
+    .where(
+      and(
+        eq(communityDiagnosticReport.machineId, input.machineId),
+        eq(communityDiagnosticReport.status, "pending"),
+        gt(communityDiagnosticReport.deadlineAt, input.nowMs)
+      )
+    )
+    .orderBy(asc(communityDiagnosticReport.deadlineAt));
+}
+
+export async function getNextPendingDiagnosticDeadlineForMachine(
+  db: Database,
+  input: { machineId: string }
+): Promise<number | null> {
+  const rows = await db
+    .select({ deadlineAt: communityDiagnosticReport.deadlineAt })
+    .from(communityDiagnosticReport)
+    .where(
+      and(
+        eq(communityDiagnosticReport.machineId, input.machineId),
+        eq(communityDiagnosticReport.status, "pending")
+      )
+    )
+    .orderBy(asc(communityDiagnosticReport.deadlineAt))
+    .limit(1);
+  return rows[0]?.deadlineAt ?? null;
+}
+
 export async function getDiagnosticReportForMachine(
   db: Database,
   input: { reportId: string; machineId: string }
@@ -316,6 +352,24 @@ export async function timeoutPendingDiagnosticReport(
     )
     .returning();
   return rows[0] ?? null;
+}
+
+export async function timeoutPendingDiagnosticReportsForMachine(
+  db: Database,
+  input: { machineId: string; nowMs: number }
+): Promise<DiagnosticReportRow[]> {
+  assertSafeEpoch(input.nowMs);
+  return db
+    .update(communityDiagnosticReport)
+    .set({ status: "failed", failureCode: "timeout", completedAt: input.nowMs })
+    .where(
+      and(
+        eq(communityDiagnosticReport.machineId, input.machineId),
+        eq(communityDiagnosticReport.status, "pending"),
+        lte(communityDiagnosticReport.deadlineAt, input.nowMs)
+      )
+    )
+    .returning();
 }
 
 export async function failPendingDiagnosticReport(

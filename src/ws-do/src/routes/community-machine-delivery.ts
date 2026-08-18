@@ -1,4 +1,4 @@
-import { queries, withD1Retry } from "@alook/shared"
+import { parseAttemptedCountReceipt, queries, withD1Retry } from "@alook/shared"
 import type { RouterContext } from "../router-context"
 
 export async function handleMachinePush({ request, env, url, traceId, log }: RouterContext): Promise<Response | null> {
@@ -56,10 +56,9 @@ export async function handleMachineWake({ request, env, url, traceId, log }: Rou
   // of the `/push` route above, for the minimal-wake-queue-unread-notice
   // wake path. Forwards an already-built `HostCommand` (`agent:wake`)
   // verbatim to every live DO for this machine's active credential(s),
-  // then aggregates by parsing each DO's own `{ sent: N }` response —
-  // unlike `/push`, we must NOT just count `res.ok`: a 200 with
-  // `{ sent: 0 }` means that DO has no authenticated daemon socket at all,
-  // which must not be reported as delivered.
+  // then aggregates each DO's rolling `{ attempted: N, sent: N }` receipt.
+  // A successful socket write is only an attempt; daemon `agent_wake_ack`
+  // is the receipt and unread D1 state remains the reconnect truth.
   const forwardAgentWake = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/forward-agent-wake$/)
   if (!forwardAgentWake || request.method !== "POST") return null
 
@@ -80,10 +79,10 @@ export async function handleMachineWake({ request, env, url, traceId, log }: Rou
     return Response.json({ error: "failed to resolve machine" }, { status: 503 })
   }
   if (doNames.length === 0) {
-    return Response.json({ sent: 0 })
+    return Response.json({ attempted: 0, sent: 0 })
   }
   const bodyText = await request.text()
-  let delivered = 0
+  let attempted = 0
   let transientFailure = false
   for (const dn of doNames) {
     const doId = env.WS_DO.idFromName("community-machine:" + dn)
@@ -100,18 +99,13 @@ export async function handleMachineWake({ request, env, url, traceId, log }: Rou
         transientFailure = true
         continue
       }
-      const data = (await res.json()) as { sent?: unknown }
-      if (typeof data.sent !== "number" || !Number.isFinite(data.sent) || data.sent < 0) {
-        transientFailure = true
-        continue
-      }
-      delivered += data.sent
+      attempted += parseAttemptedCountReceipt(await res.json())
     } catch {
       transientFailure = true
     }
   }
-  if (delivered === 0 && transientFailure) {
+  if (transientFailure) {
     return Response.json({ error: "failed to forward agent wake" }, { status: 503 })
   }
-  return Response.json({ sent: delivered })
+  return Response.json({ attempted, sent: attempted })
 }

@@ -87,6 +87,8 @@ export const mockUpsertMachineByMachineId = vi.fn()
 export const mockTouchMachineHeartbeat = vi.fn()
 export const mockMarkMachineOffline = vi.fn()
 export const mockMarkMachineOnlineIfOffline = vi.fn()
+export const mockTimeoutPendingDiagnosticReportsForMachine = vi.fn().mockResolvedValue([])
+export const mockGetNextPendingDiagnosticDeadlineForMachine = vi.fn().mockResolvedValue(null)
 export const mockGetCoMemberUserIds = vi.fn<(db: unknown, userId: string) => Promise<string[]>>().mockResolvedValue([])
 export const mockGetFriendUserIds = vi.fn<(db: unknown, userId: string) => Promise<string[]>>().mockResolvedValue([])
 export const mockGetChannelForMember = vi.fn()
@@ -184,12 +186,13 @@ vi.mock("@alook/shared", async () => {
   // flat top-level fields.
   const HostReadyMessageSchema = {
     safeParse(v: unknown) {
-      const m = v as { type?: unknown; runtimeReport?: unknown; runningAgents?: unknown }
+      const m = v as { type?: unknown; runtimeReport?: unknown; capabilities?: unknown; runningAgents?: unknown }
       if (m?.type !== "ready") return { success: false } as const
       if (!Array.isArray(m?.runtimeReport)) return { success: false } as const
       const data: Record<string, unknown> = {
         type: "ready",
         runtimeReport: m.runtimeReport,
+        capabilities: Array.isArray(m.capabilities) ? m.capabilities : [],
         runningAgents: Array.isArray(m.runningAgents) ? m.runningAgents : [],
       }
       for (const k of ["hostname", "platform", "arch", "osRelease", "daemonVersion"]) {
@@ -197,6 +200,22 @@ vi.mock("@alook/shared", async () => {
         if (typeof val === "string") data[k] = val
       }
       return { success: true as const, data }
+    },
+  }
+  const MachineHeartbeatAckMessageSchema = {
+    safeParse(v: unknown) {
+      const m = v as { type?: unknown; nonce?: unknown }
+      return m?.type === "machine_heartbeat_ack" && typeof m.nonce === "string" && m.nonce.length > 0
+        ? { success: true as const, data: { type: "machine_heartbeat_ack" as const, nonce: m.nonce } }
+        : { success: false as const }
+    },
+  }
+  const DiagnosticCommandAckMessageSchema = {
+    safeParse(v: unknown) {
+      const m = v as { type?: unknown; reportId?: unknown }
+      return m?.type === "diagnostics_ack" && typeof m.reportId === "string" && /^dbr_[A-Za-z0-9_-]+$/.test(m.reportId)
+        ? { success: true as const, data: { type: "diagnostics_ack" as const, reportId: m.reportId } }
+        : { success: false as const }
     },
   }
   const AgentActivityMessageSchema = {
@@ -374,6 +393,10 @@ vi.mock("@alook/shared", async () => {
         reconcileBotActivityFromRunningAgents: (...a: any[]) =>
           mockReconcileBotActivityFromRunningAgents(...(a as [unknown, string, string[]])),
       },
+      communityDiagnosticReport: {
+        timeoutPendingDiagnosticReportsForMachine: (...a: any[]) => mockTimeoutPendingDiagnosticReportsForMachine(...a),
+        getNextPendingDiagnosticDeadlineForMachine: (...a: any[]) => mockGetNextPendingDiagnosticDeadlineForMachine(...a),
+      },
       communityUserProfile: {
         updateProfile: (...a: any[]) =>
           mockUpdateProfile(...(a as [unknown, string, { statusEmoji?: string | null; statusText?: string | null }])),
@@ -421,6 +444,9 @@ vi.mock("@alook/shared", async () => {
         getUserInternal: (...a: [unknown, string]) => mockGetUserInternal(...a),
       },
     },
+    CONTROL_HEARTBEAT_CAPABILITY: "control-heartbeat-v1",
+    MachineHeartbeatAckMessageSchema,
+    DiagnosticCommandAckMessageSchema,
   }
 })
 
@@ -473,6 +499,8 @@ export function resetHarness() {
     mockUpdateProfile.mockResolvedValue({})
     mockGetProfile.mockResolvedValue(null)
     mockReconcileBotActivityFromRunningAgents.mockResolvedValue([])
+    mockTimeoutPendingDiagnosticReportsForMachine.mockResolvedValue([])
+    mockGetNextPendingDiagnosticDeadlineForMachine.mockResolvedValue(null)
     // Daemon-auth binds the token to a machine row for daemonId+workspace;
     // default to a present row so auth-flow success tests pass. Tests that
     // exercise a missing machine override this.

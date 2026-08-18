@@ -51,11 +51,11 @@ describe("POST /api/community/daemon/resync-wakes", () => {
     });
   });
 
-  it("returns { woken: 0 } and does nothing when the machine has no bots", async () => {
+  it("returns { attempted: 0 } and does nothing when the machine has no bots", async () => {
     mockListBotsForMachine.mockResolvedValue([]);
     const res = await POST(req({ Authorization: "Bearer cmk_ok" }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ woken: 0 });
+    expect(await res.json()).toEqual({ attempted: 0 });
     expect(mockGetLatestUnreadMessageForAgent).not.toHaveBeenCalled();
     expect(mockDispatchOneUnreadWake).not.toHaveBeenCalled();
   });
@@ -67,7 +67,7 @@ describe("POST /api/community/daemon/resync-wakes", () => {
     mockGetLatestUnreadMessageForAgent.mockResolvedValue({
       messageId: "msg_1",
     });
-    mockDispatchOneUnreadWake.mockResolvedValue({ outcome: "sent" });
+    mockDispatchOneUnreadWake.mockResolvedValue({ outcome: "attempted" });
 
     const res = await POST(req({ Authorization: "Bearer cmk_ok" }));
 
@@ -76,7 +76,7 @@ describe("POST /api/community/daemon/resync-wakes", () => {
       expect.anything(),
       { messageId: "msg_1", botUserId: "bot_1" },
     );
-    expect(await res.json()).toEqual({ woken: 1 });
+    expect(await res.json()).toEqual({ attempted: 1 });
   });
 
   it("skips bots with no pending unread — not counted, dispatch never called for them", async () => {
@@ -88,10 +88,10 @@ describe("POST /api/community/daemon/resync-wakes", () => {
     const res = await POST(req({ Authorization: "Bearer cmk_ok" }));
 
     expect(mockDispatchOneUnreadWake).not.toHaveBeenCalled();
-    expect(await res.json()).toEqual({ woken: 0 });
+    expect(await res.json()).toEqual({ attempted: 0 });
   });
 
-  it("does not count a skip/delivered_nowhere outcome as woken", async () => {
+  it("does not count a skip/attempted_nowhere outcome as attempted", async () => {
     mockListBotsForMachine.mockResolvedValue([
       { id: "bot_1", name: "a", description: "" },
       { id: "bot_2", name: "b", description: "" },
@@ -102,13 +102,13 @@ describe("POST /api/community/daemon/resync-wakes", () => {
     mockDispatchOneUnreadWake
       .mockResolvedValueOnce({ outcome: "skip", reason: "already_read" })
       .mockResolvedValueOnce({
-        outcome: "delivered_nowhere",
+        outcome: "attempted_nowhere",
         machineId: "cm_1",
       });
 
     const res = await POST(req({ Authorization: "Bearer cmk_ok" }));
 
-    expect(await res.json()).toEqual({ woken: 0 });
+    expect(await res.json()).toEqual({ attempted: 0 });
   });
 
   it("401 without Authorization", async () => {
@@ -123,11 +123,11 @@ describe("POST /api/community/daemon/resync-wakes", () => {
     expect(res.status).toBe(401);
   });
 
-  it("Mellicent regression: bot on a server whose only unread lives in a non-participated forum_post — feeder returns null → woken: 0", async () => {
+  it("Mellicent regression: bot on a server whose only unread lives in a non-participated forum_post — feeder returns null → attempted: 0", async () => {
     // Post-fix behaviour: `getLatestUnreadMessageForAgent` applies the
     // thread-participation post-filter (`plans/agent-unread-visibility-unify.md`),
     // so a message in a forum_post the bot isn't a participant of no longer
-    // surfaces. The feeder returns null → resync-wakes reports woken: 0 and
+    // surfaces. The feeder returns null → resync-wakes reports attempted: 0 and
     // never touches the wake dispatcher.
     mockListBotsForMachine.mockResolvedValue([
       { id: "bot_Y", name: "Mellicent", description: "" },
@@ -136,7 +136,7 @@ describe("POST /api/community/daemon/resync-wakes", () => {
 
     const res = await POST(req({ Authorization: "Bearer cmk_ok" }));
 
-    expect(await res.json()).toEqual({ woken: 0 });
+    expect(await res.json()).toEqual({ attempted: 0 });
     expect(mockDispatchOneUnreadWake).not.toHaveBeenCalled();
   });
 });

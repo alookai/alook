@@ -12,7 +12,7 @@ import type {
   RestartAttribution,
   WsDurableContext,
 } from "./internal"
-import { scheduleHeartbeatAlarm } from "./machine-lifecycle"
+import { registerDiagnosticDeadline, scheduleHeartbeatAlarm } from "./machine-lifecycle"
 
 export type MachineControlHooks = Readonly<{
   recordPendingRestarts: (body: string) => Promise<void>
@@ -92,9 +92,33 @@ export async function handleMachineControlFetch(
 
   if (url.pathname === "/forward-agent-wake" && request.method === "POST") {
     const body = await request.text()
-    const sent = forwardToCommunityMachine(context, body)
+    const attempted = forwardToCommunityMachine(context, body)
     await hooks.clearRuntimeErrorOverlay().catch(() => { })
-    return new Response(JSON.stringify({ sent }), {
+    return new Response(JSON.stringify({ attempted, sent: attempted }), {
+      headers: { "Content-Type": "application/json" },
+    })
+  }
+
+  if (url.pathname === "/register-diagnostic-deadline" && request.method === "POST") {
+    let raw: unknown
+    try {
+      raw = await request.json()
+    } catch {
+      return new Response(JSON.stringify({ registered: false }), { status: 400 })
+    }
+    const machineId = url.searchParams.get("machineId")
+    const record = raw && typeof raw === "object" ? raw as Record<string, unknown> : null
+    if (
+      !machineId ||
+      !record ||
+      Object.keys(record).length !== 1 ||
+      !Number.isSafeInteger(record.deadlineAt) ||
+      (record.deadlineAt as number) < 0
+    ) {
+      return new Response(JSON.stringify({ registered: false }), { status: 400 })
+    }
+    await registerDiagnosticDeadline(context, machineId, record.deadlineAt as number)
+    return new Response(JSON.stringify({ registered: true }), {
       headers: { "Content-Type": "application/json" },
     })
   }
@@ -104,14 +128,14 @@ export async function handleMachineControlFetch(
     try {
       raw = await request.json()
     } catch {
-      return new Response(JSON.stringify({ sent: 0 }), { status: 400 })
+      return new Response(JSON.stringify({ attempted: 0 }), { status: 400 })
     }
     const command = DiagnosticCollectCommandSchema.safeParse(raw)
     if (!command.success) {
-      return new Response(JSON.stringify({ sent: 0 }), { status: 400 })
+      return new Response(JSON.stringify({ attempted: 0 }), { status: 400 })
     }
-    const sent = forwardToCommunityMachine(context, JSON.stringify(command.data))
-    return new Response(JSON.stringify({ sent }), {
+    const attempted = forwardToCommunityMachine(context, JSON.stringify(command.data))
+    return new Response(JSON.stringify({ attempted, sent: attempted }), {
       headers: { "Content-Type": "application/json" },
     })
   }

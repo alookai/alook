@@ -135,6 +135,59 @@ describe("buildUnreadWakeCommand", () => {
     expect(mockResolveUnreadNoticeChannel).toHaveBeenCalledWith(fakeDb, { channelId: "ch_1" }, "bot_1");
   });
 
+  it("reuses one launchId across queue retry, reconnect resync, and duplicate concurrent rebuilds", async () => {
+    seedHappyPath();
+
+    const initial = await buildUnreadWakeCommand(fakeDb, {
+      messageId: "msg_1",
+      botUserId: "bot_1",
+    });
+    const queueRetry = await buildUnreadWakeCommand(fakeDb, {
+      messageId: "msg_1",
+      botUserId: "bot_1",
+    });
+    const [reconnectResync, duplicate] = await Promise.all([
+      buildUnreadWakeCommand(fakeDb, {
+        messageId: "msg_1",
+        botUserId: "bot_1",
+      }),
+      buildUnreadWakeCommand(fakeDb, {
+        messageId: "msg_1",
+        botUserId: "bot_1",
+      }),
+    ]);
+
+    if (
+      initial.state !== "ready" ||
+      queueRetry.state !== "ready" ||
+      reconnectResync.state !== "ready" ||
+      duplicate.state !== "ready"
+    ) {
+      throw new Error("expected ready wakes");
+    }
+    expect(initial.command.launchId).toBe(
+      "wake_59f46f28b814c6f6b597cc0db2a5c9166d2fee5d3148a3e536a629cc227a8531",
+    );
+    expect(initial.command.launchId).not.toContain("bot_1");
+    expect(initial.command.launchId).not.toContain("msg_1");
+    expect(queueRetry.command.launchId).toBe(initial.command.launchId);
+    expect(reconnectResync.command.launchId).toBe(initial.command.launchId);
+    expect(duplicate.command.launchId).toBe(initial.command.launchId);
+    expect(
+      mockInsertBotAuditWakeTrigger.mock.calls
+        .slice(0, 4)
+        .map(([, audit]) => audit.launchId),
+    ).toEqual(Array(4).fill(initial.command.launchId));
+
+    seedHappyPath({ message: { id: "msg_2" } });
+    const nextMessage = await buildUnreadWakeCommand(fakeDb, {
+      messageId: "msg_2",
+      botUserId: "bot_1",
+    });
+    if (nextMessage.state !== "ready") throw new Error("expected ready wake");
+    expect(nextMessage.command.launchId).not.toBe(initial.command.launchId);
+  });
+
   it("ready: resolves a DM scope — a DM is a type=dm channel, so it carries a channelId like any other", async () => {
     seedHappyPath({
       message: { channelId: "dm_ch_1" },
