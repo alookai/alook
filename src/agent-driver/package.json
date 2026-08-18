@@ -1,0 +1,57 @@
+{
+  "name": "@alook/agent-driver",
+  "version": "0.1.14",
+  "description": "Public contracts and runtime adapters for Alook-compatible coding agents.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/alookai/alook#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alookai/alook.git",
+    "directory": "src/agent-driver"
+  },
+  "bugs": {
+    "url": "https://github.com/alookai/alook/issues"
+  },
+  "keywords": [
+    "alook",
+    "agent",
+    "driver",
+    "sdk"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20.9"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/prepare-dist.mjs",
+    "prepack": "pnpm run build",
+    "knip": "knip",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "eslint": "^9.39.5",
+    "knip": "^6.32.2",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^4.1.10"
+  }
+}

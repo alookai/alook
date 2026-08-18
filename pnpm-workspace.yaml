@@ -1,4 +1,5 @@
 packages:
+  - "src/agent-driver"
   - "src/shared"
   - "src/cli"
   - "src/daemon"

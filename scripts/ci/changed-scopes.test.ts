@@ -39,6 +39,16 @@ describe("classifyPaths", () => {
     expect(classifyPaths(["src/web/src/app/page.tsx"]).run_windows).toBe(false)
   })
 
+  it("routes agent-driver changes through code, Windows, E2E, and knip without forcing full CI", () => {
+    const result = classifyPaths(["src/agent-driver/src/contracts.ts"])
+
+    expect(result.full).toBe(false)
+    expect(result.run_code_checks).toBe(true)
+    expect(result.run_windows).toBe(true)
+    expect(result.run_e2e).toBe(true)
+    expect(result.run_knip).toBe(true)
+  })
+
   it("routes web runtime changes through browser and Lighthouse checks", () => {
     const result = classifyPaths(["src/web/src/app/page.tsx"])
 

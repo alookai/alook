@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { execSync } from "node:child_process";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
-const WORKSPACE_DIRS = ["src/shared", "src/cli", "src/app", "src/daemon", "src/web", "src/email-worker", "src/ws-do", "src/wake-worker", "src/desktop"];
+const WORKSPACE_DIRS = ["src/shared", "src/cli", "src/app", "src/agent-driver", "src/daemon", "src/web", "src/email-worker", "src/ws-do", "src/wake-worker", "src/desktop"];
 const DEPLOY_TRIGGER_DIRS = ["src/web", "src/email-worker", "src/ws-do", "src/wake-worker"];
 
 function readPkg(dir) {
@@ -68,6 +68,9 @@ for (const dir of WORKSPACE_DIRS) {
   const { path, pkg } = readPkg(dir);
   const old = pkg.version;
   pkg.version = version;
+  if (dir === "src/daemon" && pkg.devDependencies?.["@alook/agent-driver"]) {
+    pkg.devDependencies["@alook/agent-driver"] = version;
+  }
   writePkg(path, pkg);
   files.push(path);
   console.log(`  ${pkg.name}: ${old} → ${version}`);

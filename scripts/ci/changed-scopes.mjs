@@ -19,6 +19,7 @@ const KNOWN_ROOTS = [
   ".claude/",
   ".openai/",
   "docs/",
+  "src/agent-driver/",
   "src/app/",
   "src/cli/",
   "src/daemon/",
@@ -76,6 +77,7 @@ export function classifyPaths(inputPaths, options = {}) {
   const web = full || paths.some((path) => path.startsWith("src/web/"))
   const shared = full || paths.some((path) => path.startsWith("src/shared/"))
   const cli = full || paths.some((path) => path.startsWith("src/cli/"))
+  const agentDriver = full || paths.some((path) => path.startsWith("src/agent-driver/"))
   const daemon = full || paths.some((path) => path.startsWith("src/daemon/"))
   const desktop = full || paths.some((path) => path.startsWith("src/desktop/"))
   const wsDo = full || paths.some((path) => path.startsWith("src/ws-do/"))
@@ -100,12 +102,12 @@ export function classifyPaths(inputPaths, options = {}) {
     blog_only: effectiveBlogOnly,
     workflow_changed: workflowChanged,
     run_code_checks: runCodeChecks,
-    run_windows: runCodeChecks && (full || cli || daemon || shared),
-    run_e2e: runCodeChecks && (full || web || shared || cli || daemon || worker || integration),
+    run_windows: runCodeChecks && (full || cli || agentDriver || daemon || shared),
+    run_e2e: runCodeChecks && (full || web || shared || cli || agentDriver || daemon || worker || integration),
     run_ui_e2e: !effectiveBlogOnly && runCodeChecks && (full || web || shared || wsDo),
     run_rust: runCodeChecks && (full || desktop),
     run_lighthouse: runCodeChecks && (full || web),
-    run_knip: runCodeChecks && (full || app || cli || shared || web || worker),
+    run_knip: runCodeChecks && (full || app || cli || agentDriver || shared || web || worker),
   }
 }
 

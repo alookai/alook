@@ -27,4 +27,5 @@ perf-artifacts/
 .lighthouseci/
 src/cli/LICENSE
 src/daemon/LICENSE
+src/agent-driver/LICENSE
 .superpowers/
