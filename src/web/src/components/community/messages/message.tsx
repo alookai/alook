@@ -58,6 +58,17 @@ export function shouldSuppressTouchMenuOpen({
   return nestedControl || selectionInsideRow || longPress
 }
 
+type RowSelection = Pick<Selection, "isCollapsed" | "anchorNode" | "focusNode">
+
+export function selectionBelongsToRow(
+  selection: RowSelection | null,
+  row: Pick<HTMLElement, "contains">,
+): boolean {
+  if (!selection || selection.isCollapsed) return false
+  return (!!selection.anchorNode && row.contains(selection.anchorNode))
+    || (!!selection.focusNode && row.contains(selection.focusNode))
+}
+
 export function createMessageMenuPointAnchor(clientX: number, clientY: number) {
   const rect = {
     x: clientX,
@@ -209,6 +220,22 @@ function MessageImpl({
       onPointerEnter={activate}
       onFocusCapture={activate}
       onKeyDownCapture={activate}
+      onContextMenu={interactive && hoverCapable
+        ? (event) => {
+            if (!selectionBelongsToRow(window.getSelection(), event.currentTarget)) return
+
+            // Base UI merges the rendered row's handler before its own context-
+            // menu handler. Cancel only that library handler, then keep the
+            // event away from Base UI's document listener (which otherwise
+            // prevents the native menu). Deliberately do not preventDefault:
+            // the browser must remain in charge of copying the selection.
+            const baseUIEvent = event as typeof event & {
+              preventBaseUIHandler?: () => void
+            }
+            baseUIEvent.preventBaseUIHandler?.()
+            event.stopPropagation()
+          }
+        : undefined}
       onTouchStart={interactive && !hoverCapable
           ? () => {
             touchStartedAt.current = performance.now()
@@ -234,10 +261,7 @@ function MessageImpl({
         : interactive && !hoverCapable
           ? (event) => {
             const selection = window.getSelection()
-            const selectionInsideRow = !!selection
-              && !selection.isCollapsed
-              && !!selection.anchorNode
-              && event.currentTarget.contains(selection.anchorNode)
+            const selectionInsideRow = selectionBelongsToRow(selection, event.currentTarget)
             const nearestControl = (event.target as Element).closest(
               "button, a, input, textarea, select, [role=button]",
             )
