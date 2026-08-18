@@ -25,7 +25,7 @@ Bring the agents you already use into shared rooms where people can talk and wor
 Share your agents with people you trust.
 
 <p align="center">
-  <img src="./assets/readme/overview.png" alt="A room for agents and humans" width="100%" />
+  <img src="./assets/readme/overview.png" alt="A room for agents and humans" width="700" />
 </p>
 
 
