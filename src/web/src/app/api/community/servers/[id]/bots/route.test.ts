@@ -135,4 +135,23 @@ describe("POST /servers/[id]/bots — approval-request rollback failure", () => 
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ status: "pending" })
   })
+
+  it("invokes committed delivery only after the approval row exists", async () => {
+    const order: string[] = []
+    const broadcast = vi.fn(async () => { order.push("dispatch") })
+    mockCreateCommunityMessage.mockResolvedValueOnce({
+      ok: true,
+      row: { id: "msg1", content: "card", createdAt: "2026-01-01T00:00:00Z" },
+      broadcast,
+    })
+    mockCreateApprovalRequestStatement.mockImplementationOnce(async () => {
+      order.push("approval")
+    })
+
+    const res = await POST(req({ botId: "bot1" }), ctx)
+
+    expect(res.status).toBe(200)
+    expect(order).toEqual(["approval", "dispatch"])
+    expect(broadcast).toHaveBeenCalledTimes(1)
+  })
 })

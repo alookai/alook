@@ -500,6 +500,21 @@ export {
   dispatchOneUnreadWake,
 } from "./community/wake-dispatch";
 export { parseAttemptedCountReceipt } from "./transport-receipt";
+export { parseStrictFailedSubset } from "./strict-failed-subset";
+export type { StrictFailedSubsetOptions } from "./strict-failed-subset";
+export {
+  MESSAGE_DELIVERY_BODY_MAX_BYTES,
+  MESSAGE_DELIVERY_MAX_EVENTS_PER_USER,
+  MESSAGE_DELIVERY_MAX_USERS,
+  parseMessageDeliveryBatch,
+  serializeMessageDeliveryBatch,
+} from "./community-message-delivery";
+export type {
+  MessageDeliveryBatch,
+  MessageDeliveryBatchParseResult,
+  MessageDeliveryMemberAdded,
+  MessageDeliveryPartial,
+} from "./community-message-delivery";
 export type { DispatchOneWakeResult } from "./community/wake-dispatch";
 export type { WakePayload, BuildUnreadWakeResult } from "./community/wake-dispatch";
 

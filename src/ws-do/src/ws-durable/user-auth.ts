@@ -23,6 +23,7 @@ import {
 import {
   invalidCommunityBrowserEventResponse,
   logCommunityBrowserEventRejected,
+  readCommunityBrowserEventBundleRequest,
   readCommunityBrowserEventRequest,
 } from "../community-browser-event-ingress"
 
@@ -31,6 +32,24 @@ export async function handleUserFetch(
   request: Request,
   url: URL,
 ): Promise<Response | null> {
+  if (url.pathname === "/community-broadcast-bundle" && request.method === "POST") {
+    const targetUserId = getInternalCommunityUserTarget(request)
+    if (!isValidCommunityUserTarget(targetUserId)) {
+      const failure = { ok: false, reason: "invalid-target", type: "unknown" } as const
+      logCommunityBrowserEventRejected(context.log, "target-do-bundle", failure)
+      return invalidCommunityBrowserEventResponse(failure)
+    }
+    const bundle = await readCommunityBrowserEventBundleRequest(request)
+    if (!bundle.ok) {
+      logCommunityBrowserEventRejected(context.log, "target-do-bundle", bundle)
+      return invalidCommunityBrowserEventResponse(bundle)
+    }
+    broadcastBundle(context, bundle.bodies, targetUserId)
+    return new Response(JSON.stringify({ accepted: bundle.eventCount }), {
+      headers: { "Content-Type": "application/json" },
+    })
+  }
+
   if (url.pathname === "/community-broadcast" && request.method === "POST") {
     const targetUserId = getInternalCommunityUserTarget(request)
     if (!isValidCommunityUserTarget(targetUserId)) {
@@ -307,6 +326,26 @@ function broadcast(
     } catch { }
   }
   return sent
+}
+
+function broadcastBundle(
+  context: WsDurableContext,
+  messages: readonly string[],
+  targetUserId: string,
+): void {
+  for (const ws of context.ctx.getWebSockets()) {
+    const state = ws.deserializeAttachment() as ConnectionState
+    if (!state?.authenticated) continue
+    if (state.type !== "user" || state.userId !== targetUserId) {
+      if (state.type === "user") {
+        invalidateMismatchedUserSocket(context, ws, state, targetUserId, "broadcast")
+      }
+      continue
+    }
+    for (const message of messages) {
+      try { ws.send(message) } catch { }
+    }
+  }
 }
 
 function invalidateMismatchedUserSocket(

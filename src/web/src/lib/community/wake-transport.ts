@@ -1,4 +1,4 @@
-import { createLogger, DEV_WAKE_WORKER_URL } from "@alook/shared"
+import { createLogger, DEV_WAKE_WORKER_URL, parseStrictFailedSubset } from "@alook/shared"
 import type { WakePayload } from "@alook/shared"
 import { fetchViaBindingOrDevFallback } from "../dev-binding-fetch"
 
@@ -20,36 +20,18 @@ function parsePartialFailure(value: unknown, payloads: WakePayload[]): WakePaylo
   const keys = Object.keys(value)
   if (keys.length !== 1 || keys[0] !== "failed") return null
 
-  const failed = (value as Record<string, unknown>).failed
-  if (!Array.isArray(failed) || failed.length === 0 || !failed.every(isExactFailedCandidate)) return null
-
-  const allowed = new Map<string, Set<string>>()
-  for (const item of payloads) {
-    let botIds = allowed.get(item.messageId)
-    if (!botIds) {
-      botIds = new Set<string>()
-      allowed.set(item.messageId, botIds)
-    }
-    botIds.add(item.botUserId)
-  }
-
-  const seen = new Map<string, Set<string>>()
-  for (const item of failed) {
-    if (!allowed.get(item.messageId)?.has(item.botUserId)) return null
-    let botIds = seen.get(item.messageId)
-    if (!botIds) {
-      botIds = new Set<string>()
-      seen.set(item.messageId, botIds)
-    }
-    if (botIds.has(item.botUserId)) return null
-    botIds.add(item.botUserId)
-  }
-
-  return failed
+  return parseStrictFailedSubset(
+    (value as Record<string, unknown>).failed,
+    payloads,
+    {
+      isTarget: isExactFailedCandidate,
+      key: (item) => `${item.messageId}\u0000${item.botUserId}`,
+    },
+  )
 }
 
 /**
- * How `enqueueBotWakes` hands a batch of wake candidates off to whatever
+ * How the committed-message dispatcher hands a batch of wake candidates to
  * will actually resolve them. Exactly two implementations below — neither
  * caller (`wake-producer.ts`) ever talks to `WAKE_QUEUE`/`WAKE_WORKER`
  * directly, and neither ever re-implements "rebuild from D1, skip or

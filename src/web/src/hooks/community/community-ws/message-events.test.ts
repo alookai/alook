@@ -19,7 +19,15 @@ import {
   resetHookMemoization,
 } from "./test-harness"
 
-beforeEach(resetCommunityWsHarness)
+const scheduleGapRepairMock = vi.hoisted(() => vi.fn(() => null))
+vi.mock("@/hooks/community/community-ws/reconnect-messages", () => ({
+  scheduleFocusedMessageGapRepair: (...args: unknown[]) => scheduleGapRepairMock(...args),
+}))
+
+beforeEach(() => {
+  resetCommunityWsHarness()
+  scheduleGapRepairMock.mockClear()
+})
 afterEach(cleanupCommunityWsHarness)
 
 function seedParent(serverId: string, parentId: string, type: "forum" | "text") {
@@ -30,6 +38,46 @@ function seedParent(serverId: string, parentId: string, type: "forum" | "text") 
 }
 
 describe("useCommunityWs — message.create", () => {
+  it("checks a focused channel gap before projecting the incoming overlay row", async () => {
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_gap" })
+    resetHookMemoization()
+    await mountHook()
+    scheduleGapRepairMock.mockImplementationOnce(() => {
+      expect(getMessageOverlay({ kind: "channel", id: "ch_gap", serverId: "s1" }).liveById.size).toBe(0)
+      return null
+    })
+    const event = messageCreate("ch_gap")
+    event.message.seq = 5
+
+    capturedOnMessage!(event)
+
+    expect(scheduleGapRepairMock).toHaveBeenCalledWith(
+      capturedQueryClient,
+      { kind: "channel", scopeId: "ch_gap", serverId: "s1" },
+      5,
+    )
+  })
+
+  it("checks a focused DM gap and ignores an unrelated scope", async () => {
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ dmConversationId: "dm_gap" })
+    resetHookMemoization()
+    await mountHook()
+    const event = messageCreate("dm_gap")
+    event.message.seq = 8
+
+    capturedOnMessage!(event)
+    capturedOnMessage!(messageCreate("other"))
+
+    expect(scheduleGapRepairMock).toHaveBeenCalledTimes(1)
+    expect(scheduleGapRepairMock).toHaveBeenCalledWith(
+      capturedQueryClient,
+      { kind: "dm", scopeId: "dm_gap" },
+      8,
+    )
+  })
+
   it("patches a loaded forum-sidebar child activity without a refetch", async () => {
     await mountHook()
     seedParent("srv_1", "forum_1", "forum")
