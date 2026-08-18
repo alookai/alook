@@ -264,8 +264,43 @@ describe("diagnostic report query contract", () => {
     expect(typeof q.getPendingDiagnosticReportForMachine).toBe("function");
     expect(typeof q.getDiagnosticReportForMachine).toBe("function");
     expect(typeof q.timeoutPendingDiagnosticReport).toBe("function");
+    expect(typeof q.listPendingDiagnosticReportsForMachine).toBe("function");
+    expect(typeof q.getNextPendingDiagnosticDeadlineForMachine).toBe("function");
+    expect(typeof q.timeoutPendingDiagnosticReportsForMachine).toBe("function");
     expect(typeof q.failPendingDiagnosticReport).toBe("function");
     expect(typeof q.finalizeDiagnosticReportUpload).toBe("function");
+  });
+
+  it("bulk timeout and reconnect reads stay scoped to one machine and preserve future rows", async () => {
+    const { db, sqlite } = realSnapshotDb();
+    const insert = sqlite.prepare(`
+      INSERT INTO community_diagnostic_report (
+        id, owner_user_id, agent_id, machine_id, client_nonce, rate_bucket,
+        status, failure_code, from_ms, created_at, deadline_at, completed_at,
+        r2_key, sha256, size_bytes, uploaded_at, object_expires_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL)
+    `);
+    insert.run("dbr_expired", "owner_a", "bot_a", MACHINE_ID, "nonce_a_123456789", 1, FROM_MS, NOW_MS - 20_000, NOW_MS - 1);
+    insert.run("dbr_future", "owner_b", "bot_b", MACHINE_ID, "nonce_b_123456789", 2, FROM_MS, NOW_MS, NOW_MS + 20_000);
+    insert.run("dbr_other", "owner_c", "bot_c", "cm_other", "nonce_c_123456789", 3, FROM_MS, NOW_MS, NOW_MS + 10_000);
+
+    try {
+      await expect(q.timeoutPendingDiagnosticReportsForMachine(db, {
+        machineId: MACHINE_ID,
+        nowMs: NOW_MS,
+      })).resolves.toMatchObject([{ id: "dbr_expired", status: "failed", failureCode: "timeout" }]);
+      await expect(q.listPendingDiagnosticReportsForMachine(db, {
+        machineId: MACHINE_ID,
+        nowMs: NOW_MS,
+      })).resolves.toMatchObject([{ id: "dbr_future" }]);
+      await expect(q.getNextPendingDiagnosticDeadlineForMachine(db, {
+        machineId: MACHINE_ID,
+      })).resolves.toBe(NOW_MS + 20_000);
+      expect(sqlite.prepare(`SELECT status FROM community_diagnostic_report WHERE id='dbr_other'`).get())
+        .toEqual({ status: "pending" });
+    } finally {
+      sqlite.close();
+    }
   });
 
   it("first create is one atomic INSERT…SELECT from the live owner/bot/binding snapshot", async () => {

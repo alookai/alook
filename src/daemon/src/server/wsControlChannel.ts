@@ -134,6 +134,8 @@ type OutboundFrame =
       status: AgentCommandAckStatus;
       error?: AgentCommandAckError;
     }
+  | { type: "machine_heartbeat_ack"; nonce: string }
+  | { type: "diagnostics_ack"; reportId: string }
   | HostBotAuditEventFrame
   | SessionErrorFrame;
 
@@ -462,6 +464,18 @@ export class WsControlChannel implements HostControlChannel {
   }
 
   private async dispatchIngressCommand(cmd: HostCommand): Promise<void> {
+    if (cmd.type === "machine:heartbeat") {
+      this.sendFrame({ type: "machine_heartbeat_ack", nonce: cmd.nonce });
+      return;
+    }
+    if (cmd.type === "diagnostics:collect") {
+      // Receipt means only that the daemon websocket ingress parsed this frame.
+      // Collection acceptance/completion remains authoritative in the durable
+      // diagnostic-report row and must never be inferred from this ack.
+      this.sendFrame({ type: "diagnostics_ack", reportId: cmd.reportId });
+      await this.dispatchListeners(cmd);
+      return;
+    }
     if (cmd.type === "agent:wake") {
       const result = await this.wakeCoordinator.run(cmd, (accepted) =>
         this.dispatchListeners(accepted), (advanced) => {
@@ -546,7 +560,8 @@ export class WsControlChannel implements HostControlChannel {
       if (this.now() > this.pongDeadline) {
         // Watchdog: no pong in time → treat as dead, force reconnect.
         this.log.warn("heartbeat pong timeout — forcing reconnect");
-        this.ws?.close();
+        if (this.ws?.terminate) this.ws.terminate();
+        else this.ws?.close();
         return;
       }
       this.log.debug("heartbeat ping");

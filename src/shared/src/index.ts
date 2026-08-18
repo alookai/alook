@@ -270,6 +270,8 @@ export {
   AgentTypingStopMessageSchema,
   AgentSessionMessageSchema,
   AgentWakeAckMessageSchema,
+  MachineHeartbeatAckMessageSchema,
+  DiagnosticCommandAckMessageSchema,
   COMMUNITY_RUNTIME_ID_MAX,
   COMMUNITY_RUNTIME_VERSION_MAX,
   COMMUNITY_RUNTIME_LIST_MAX,
@@ -369,6 +371,8 @@ export type {
   AgentTypingStopMessage,
   AgentSessionMessage,
   AgentWakeAckMessage,
+  MachineHeartbeatAckMessage,
+  DiagnosticCommandAckMessage,
   CommunityBotCreateRequest,
   CommunityBotPatchRequest,
   CommunityBotAddToServerRequest,
@@ -454,7 +458,15 @@ export type {
   HostBotAuditEventFrame,
   BotAuditEventPayload,
 } from "./community-cli-contract";
-export { DM_SERVER, parseRef, formatRef, formatCanonicalRef, parseSeq, formatSeq } from "./community-cli-contract";
+export {
+  CONTROL_HEARTBEAT_CAPABILITY,
+  DM_SERVER,
+  parseRef,
+  formatRef,
+  formatCanonicalRef,
+  parseSeq,
+  formatSeq,
+} from "./community-cli-contract";
 export type { CanonicalRefScope } from "./community-cli-contract";
 
 export type {
@@ -482,7 +494,12 @@ export {
   modelNameFromSelect,
 } from "./community/bot-model";
 
-export { sendWakeToMachine, buildUnreadWakeCommand, dispatchOneUnreadWake } from "./community/wake-dispatch";
+export {
+  sendWakeToMachine,
+  buildUnreadWakeCommand,
+  dispatchOneUnreadWake,
+} from "./community/wake-dispatch";
+export { parseAttemptedCountReceipt } from "./transport-receipt";
 export type { DispatchOneWakeResult } from "./community/wake-dispatch";
 export type { WakePayload, BuildUnreadWakeResult } from "./community/wake-dispatch";
 

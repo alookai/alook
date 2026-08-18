@@ -20,30 +20,51 @@ describe("sendWakeToMachine", () => {
       expect(url).toBe("http://internal/community-machine/by-id/machine-1/forward-agent-wake");
       expect(init?.method).toBe("POST");
       expect(JSON.parse(init!.body as string)).toEqual(dummyCommand);
-      return new Response(JSON.stringify({ sent: 1 }), { status: 200 });
+      return new Response(JSON.stringify({ attempted: 1, sent: 1 }), { status: 200 });
     });
     const env = makeEnv(fetchMock);
 
     const result = await sendWakeToMachine(env, "machine-1", dummyCommand);
 
-    expect(result).toEqual({ sent: true });
+    expect(result).toEqual({ attempted: true });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("normalizes { sent: 0 } (daemon offline) to { sent: false }", async () => {
-    const env = makeEnv(async () => new Response(JSON.stringify({ sent: 0 }), { status: 200 }));
+  it("normalizes { attempted: 0 } to { attempted: false }", async () => {
+    const env = makeEnv(async () => new Response(JSON.stringify({ attempted: 0 }), { status: 200 }));
 
     const result = await sendWakeToMachine(env, "machine-1", dummyCommand);
 
-    expect(result).toEqual({ sent: false });
+    expect(result).toEqual({ attempted: false });
   });
 
-  it("normalizes any positive sent count to { sent: true }", async () => {
-    const env = makeEnv(async () => new Response(JSON.stringify({ sent: 3 }), { status: 200 }));
+  it("normalizes any positive attempted count to { attempted: true }", async () => {
+    const env = makeEnv(async () => new Response(JSON.stringify({ attempted: 3 }), { status: 200 }));
 
     const result = await sendWakeToMachine(env, "machine-1", dummyCommand);
 
-    expect(result).toEqual({ sent: true });
+    expect(result).toEqual({ attempted: true });
+  });
+
+  it("accepts a valid legacy sent-only receipt during rolling deployment", async () => {
+    const env = makeEnv(async () => new Response(JSON.stringify({ sent: 1 }), { status: 200 }));
+
+    await expect(sendWakeToMachine(env, "machine-1", dummyCommand)).resolves.toEqual({ attempted: true });
+  });
+
+  it.each([
+    ["missing fields", {}],
+    ["wrong attempted type", { attempted: "1" }],
+    ["negative attempted", { attempted: -1 }],
+    ["fractional attempted", { attempted: 0.5 }],
+    ["unsafe attempted", { attempted: Number.MAX_SAFE_INTEGER + 1 }],
+    ["invalid legacy sent", { sent: -1 }],
+    ["mismatched dual receipt", { attempted: 1, sent: 0 }],
+    ["invalid sent alias", { attempted: 1, sent: "1" }],
+  ])("throws on %s so the queue retries", async (_name, receipt) => {
+    const env = makeEnv(async () => new Response(JSON.stringify(receipt), { status: 200 }));
+
+    await expect(sendWakeToMachine(env, "machine-1", dummyCommand)).rejects.toThrow();
   });
 
   it("throws on non-2xx response (transient — consumer must retry)", async () => {
@@ -63,7 +84,7 @@ describe("sendWakeToMachine", () => {
   it("encodes the machineId in the URL path", async () => {
     const fetchMock = vi.fn(async (url: string) => {
       expect(url).toBe("http://internal/community-machine/by-id/machine%2Fwith%2Fslash/forward-agent-wake");
-      return new Response(JSON.stringify({ sent: 0 }), { status: 200 });
+      return new Response(JSON.stringify({ attempted: 0 }), { status: 200 });
     });
     const env = makeEnv(fetchMock);
 

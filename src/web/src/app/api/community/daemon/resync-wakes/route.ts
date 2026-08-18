@@ -9,7 +9,7 @@ import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
  * Daemon-initiated recovery for the "message sent while the daemon was
  * offline" gap: `WAKE_QUEUE`'s consumer acks (never retries) a wake whose
  * daemon was unreachable at delivery time (`dispatchOneUnreadWake`'s
- * `delivered_nowhere` outcome) — that queue item is gone for good. Rather
+ * `attempted_nowhere` outcome) — that queue item is gone for good. Rather
  * than the server pushing a catch-up wake on its own when the daemon's WS
  * reconnects, the DAEMON proactively calls this route right after it opens
  * its control-plane connection (`channel.onOpen()`), asking "do any of my
@@ -29,7 +29,7 @@ export const POST = withCommunityDaemonAuth(async (_req, ctx) => {
     { route: "community/daemon/resync-wakes:list-bots" },
   )
 
-  let woken = 0
+  let attempted = 0
   for (const bot of bots) {
     const latest = await withD1Retry(
       () => queries.communityAgentInbox.getLatestUnreadMessageForAgent(db, bot.id),
@@ -37,8 +37,8 @@ export const POST = withCommunityDaemonAuth(async (_req, ctx) => {
     )
     if (!latest) continue
     const result = await dispatchOneUnreadWake(db, ctx.env, { messageId: latest.messageId, botUserId: bot.id })
-    if (result.outcome === "sent") woken++
+    if (result.outcome === "attempted") attempted++
   }
 
-  return NextResponse.json({ woken })
+  return NextResponse.json({ attempted })
 })

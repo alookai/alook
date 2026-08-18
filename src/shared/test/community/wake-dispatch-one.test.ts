@@ -94,22 +94,22 @@ describe("dispatchOneUnreadWake", () => {
     vi.clearAllMocks();
   });
 
-  it("resolves to { outcome: 'sent' } when the rebuild is ready and the daemon is online", async () => {
+  it("resolves to { outcome: 'attempted' } when a socket write is attempted", async () => {
     seedReady();
-    const env = makeEnv(async () => new Response(JSON.stringify({ sent: 1 }), { status: 200 }));
+    const env = makeEnv(async () => new Response(JSON.stringify({ attempted: 1 }), { status: 200 }));
 
     const result = await dispatchOneUnreadWake(fakeDb, env, { messageId: "msg_1", botUserId: "bot_1" });
 
-    expect(result).toEqual({ outcome: "sent" });
+    expect(result).toEqual({ outcome: "attempted" });
   });
 
-  it("resolves to { outcome: 'delivered_nowhere', machineId } when the daemon is offline", async () => {
+  it("resolves to { outcome: 'attempted_nowhere', machineId } when no socket write is attempted", async () => {
     seedReady();
-    const env = makeEnv(async () => new Response(JSON.stringify({ sent: 0 }), { status: 200 }));
+    const env = makeEnv(async () => new Response(JSON.stringify({ attempted: 0 }), { status: 200 }));
 
     const result = await dispatchOneUnreadWake(fakeDb, env, { messageId: "msg_1", botUserId: "bot_1" });
 
-    expect(result).toEqual({ outcome: "delivered_nowhere", machineId: "machine_1" });
+    expect(result).toEqual({ outcome: "attempted_nowhere", machineId: "machine_1" });
   });
 
   it("resolves to { outcome: 'skip', reason } without ever calling fetch when the rebuild is a skip", async () => {

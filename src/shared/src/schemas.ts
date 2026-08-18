@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { IssueStatus, TASK_TYPES } from "./constants";
 import { sanitizeSlug } from "./utils/slug";
+import { DiagnosticReportIdSchema } from "./diagnostics-contract";
 import {
   ALLOWED_ICON_MIME_TYPES,
   MAX_ATTACHMENTS_PER_MESSAGE,
@@ -899,6 +900,7 @@ export const CommunityMachineSummarySchema = z.object({
 export const HostReadyMessageSchema = z.object({
   type: z.literal("ready"),
   runtimeReport: CommunityMachineRuntimeListSchema,
+  capabilities: z.array(z.string().min(1).max(64)).max(16).optional().default([]),
   runningAgents: z.array(z.string()).default([]),
   hostname: z.string().optional(),
   platform: z.string().optional(),
@@ -1001,6 +1003,18 @@ export const AgentWakeAckMessageSchema = z.object({
   error: z.object({ code: z.string().optional(), message: z.string().optional() }).optional(),
 });
 export type AgentWakeAckMessage = z.infer<typeof AgentWakeAckMessageSchema>;
+
+export const MachineHeartbeatAckMessageSchema = z.strictObject({
+  type: z.literal("machine_heartbeat_ack"),
+  nonce: z.string().min(1).max(128),
+});
+export type MachineHeartbeatAckMessage = z.infer<typeof MachineHeartbeatAckMessageSchema>;
+
+export const DiagnosticCommandAckMessageSchema = z.strictObject({
+  type: z.literal("diagnostics_ack"),
+  reportId: DiagnosticReportIdSchema,
+});
+export type DiagnosticCommandAckMessage = z.infer<typeof DiagnosticCommandAckMessageSchema>;
 
 
 export const CommunityPairTokenResponseSchema = z.object({

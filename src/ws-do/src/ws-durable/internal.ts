@@ -15,6 +15,9 @@ export type ConnectionState =
     machineId: string
     userId: string
     authenticated: boolean
+    controlHeartbeat?: boolean
+    lastHeartbeatAckAt?: number
+    pendingHeartbeatNonce?: string
   }
 
 export type UserConnectionState = Extract<ConnectionState, { type: "user" }>
@@ -34,6 +37,7 @@ export interface CommunityMachineHandle {
 export const IDENTITY_KEY = "community-machine-identity"
 export const HANDLE_KEY = "community-machine-handle"
 export const RUNTIME_ERROR_KEY = "community-machine-runtime-error"
+export const DIAGNOSTIC_ALARM_HINT_KEY = "community-machine-diagnostic-alarm-hint"
 const RESTART_PENDING_PREFIX = "reset-pending:"
 export const restartPendingKey = (launchId: string) => RESTART_PENDING_PREFIX + launchId
 
