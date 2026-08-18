@@ -30,10 +30,15 @@ const isLocal = isLocalMode()
 
 // Only ever called once `pendingTokenId` is set, which happens from a
 // client-only effect — safe to touch `location` here (never runs during SSR).
-function buildPairCommand(machineKey: string): string {
+function buildPairCommand(machineKey: string, machineId?: string): string {
   const { serverUrl, wsUrl } = pairEndpoints()
-  const bin = isLocal ? "pnpm daemon" : "npx @alook/daemon daemon"
-  return `${bin} start --machine-key ${machineKey} --server-url ${serverUrl} --ws-url ${wsUrl}`
+  const bin = isLocal
+    ? "pnpm daemon"
+    : "npm exec --yes --package=@alook/daemon@latest -- alook-daemon daemon"
+  const action = machineId
+    ? `reconnect --id ${machineId} --machine-key ${machineKey}`
+    : `start --machine-key ${machineKey}`
+  return `${bin} ${action} --server-url ${serverUrl} --ws-url ${wsUrl}`
 }
 
 function pairEndpoints(): { serverUrl: string; wsUrl: string } {
@@ -144,7 +149,7 @@ export function PairMachineSheet({
           available: false,
           reason: nativeErrorMessage(
             error,
-            "Alook couldn't check Node.js, npm, and npx on this computer.",
+            "Alook couldn't check Node.js and npm on this computer.",
           ),
           nodeVersion: null,
         })
@@ -157,7 +162,12 @@ export function PairMachineSheet({
     }
   }, [open, desktopNative])
 
-  const command = pendingTokenId ? buildPairCommand(pendingTokenId) : ""
+  const command = pendingTokenId
+    ? buildPairCommand(
+        pendingTokenId,
+        mode.kind === "reconnect" ? mode.machineId : undefined,
+      )
+    : ""
 
   const copyCommand = useCallback(async () => {
     if (!command) return
@@ -177,6 +187,7 @@ export function PairMachineSheet({
     try {
       const result = await tauriInvoke<{ success: boolean; message: string }>("daemon_pair", {
         machineKey: pendingTokenId,
+        machineId: mode.kind === "reconnect" ? mode.machineId : null,
       })
       if (!result.success) throw new Error(result.message || "The daemon did not start")
       setStarted(true)
@@ -192,7 +203,7 @@ export function PairMachineSheet({
       connectingRef.current = false
       setConnecting(false)
     }
-  }, [pendingTokenId, runtimeCapability?.available, isReconnect])
+  }, [pendingTokenId, runtimeCapability?.available, isReconnect, mode])
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -206,7 +217,7 @@ export function PairMachineSheet({
           </SheetTitle>
           <SheetDescription>
             {isReconnect
-              ? "We rotated the key. Run the new command before it expires — the old one is no longer accepted."
+              ? "Run this command before it expires. It safely replaces the running daemon, then rotates its key."
               : "Run this on the computer you want to connect. The key is good for 15 minutes."}
           </SheetDescription>
         </SheetHeader>
@@ -331,7 +342,7 @@ function Step1({
       </header>
       <p className="text-sm text-muted-foreground">
         Open a terminal on the computer you want to connect, paste the command,
-        and hit enter. Node.js with npm and npx is required.
+        and hit enter. Node.js with npm is required.
       </p>
       {generating ? (
         <div className="flex items-center gap-2 rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
@@ -362,8 +373,8 @@ function Step1({
                   {launchError
                     ? `${launchError} The terminal command remains available below.`
                     : checkingRuntime
-                      ? "Checking this computer for Node.js, npm, and npx…"
-                      : runtimeCapability?.reason ?? "Node.js, npm, and npx are required for one-click connection."}
+                      ? "Checking this computer for Node.js and npm…"
+                      : runtimeCapability?.reason ?? "Node.js and npm are required for one-click connection."}
                 </p>
               )}
             </div>

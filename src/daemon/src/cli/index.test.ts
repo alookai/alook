@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 
 const mockDaemonStart = vi.hoisted(() => vi.fn(async () => {}));
 const mockDaemonStartById = vi.hoisted(() => vi.fn(async () => {}));
+const mockDaemonReconnect = vi.hoisted(() => vi.fn(async () => {}));
 const mockDaemonList = vi.hoisted(() => vi.fn(() => [{ id: "cm_saved_machine", pid: 42, alive: true, agents: 1, running: 0, lastActiveMs: 1 }]));
 const mockDaemonRunFromIpc = vi.hoisted(() => vi.fn(async () => new Promise<never>(() => {})));
 const mockArmMessageReminder = vi.hoisted(() => vi.fn(async () => ({ armed: true as const, dueAt: 123456 })));
@@ -10,6 +11,7 @@ vi.mock("./daemonStart", async (importOriginal) => ({
   ...await importOriginal<typeof import("./daemonStart")>(),
   daemonStart: mockDaemonStart,
   daemonStartById: mockDaemonStartById,
+  daemonReconnect: mockDaemonReconnect,
   daemonList: mockDaemonList,
   daemonRunFromIpc: mockDaemonRunFromIpc,
 }));
@@ -93,6 +95,7 @@ beforeEach(() => {
   cap = captureStdout();
   mockDaemonStart.mockClear();
   mockDaemonStartById.mockClear();
+  mockDaemonReconnect.mockClear();
   mockDaemonRunFromIpc.mockClear();
   mockDaemonList.mockClear();
   process.env.ALOOK_AGENT_ID = "agent_test";
@@ -136,6 +139,26 @@ describe("daemon command contract", () => {
       foreground: false,
     });
     expect(mockDaemonStart).not.toHaveBeenCalled();
+  });
+
+  it("reconnects only with an explicit machine id and cmt token", async () => {
+    await main([
+      "daemon",
+      "reconnect",
+      "--id",
+      "cm_saved_machine",
+      "--machine-key",
+      "cmt_reconnect",
+      "--base-dir",
+      "/tmp/alook-daemon",
+    ]);
+    expect(mockDaemonReconnect).toHaveBeenCalledWith({
+      id: "cm_saved_machine",
+      machineKey: "cmt_reconnect",
+      baseDir: "/tmp/alook-daemon",
+      serverUrl: undefined,
+      wsUrl: undefined,
+    });
   });
 
   it("keeps missing and unknown arguments in the canonical Commander parser", async () => {

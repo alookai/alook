@@ -16,7 +16,14 @@ vi.mock("../discovery", async (importOriginal) => ({
   resolveAlookCliPathWithFallback: vi.fn(() => undefined),
 }));
 
-import { daemonRunFromIpc, daemonStart, daemonStartById } from "./daemonStart";
+import {
+  acquireDaemonReplacementLock,
+  daemonReconnect,
+  daemonRunFromIpc,
+  daemonStart,
+  daemonStartById,
+  removeReplacementLockIfMatches,
+} from "./daemonStart";
 import { readDaemonVersion } from "../version";
 
 describe("daemon lifecycle ownership cleanup", () => {
@@ -33,8 +40,214 @@ describe("daemon lifecycle ownership cleanup", () => {
   });
 
   afterEach(() => {
+    delete process.env.ALOOK_DAEMON_TEST_FAIL_AFTER_ACTIVATE;
+    vi.useRealTimers();
     vi.restoreAllMocks();
     fs.rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  function writeReconnectState(machineId = "cm_machine_reconnect") {
+    const daemonDir = path.join(baseDir, "daemons", machineId);
+    fs.mkdirSync(daemonDir, { recursive: true });
+    fs.writeFileSync(path.join(baseDir, "daemons", `${machineId}.credential.json`), JSON.stringify({
+      schemaVersion: 1,
+      credential: "cmk_old",
+      machineId,
+      serverUrl: "http://server",
+      wsUrl: "ws://server",
+      daemonVersion: readDaemonVersion(),
+    }), { mode: 0o600 });
+    fs.writeFileSync(path.join(daemonDir, "daemon.pid"), JSON.stringify({
+      pid: 424_242,
+      machineId,
+      startedAt: "2026-08-18T00:00:00.000Z",
+      ownerToken: "old-owner",
+    }), { mode: 0o600 });
+    return { machineId, daemonDir };
+  }
+
+  it("fails exact-machine ownership before activation when replacement is already owned", async () => {
+    const { machineId, daemonDir } = writeReconnectState();
+    fs.writeFileSync(path.join(daemonDir, "daemon.replace.lock"), JSON.stringify({
+      pid: process.pid,
+      machineId,
+      startedAt: new Date().toISOString(),
+      ownerToken: "other-owner",
+      requestId: "other_request_123456",
+    }), { mode: 0o600 });
+    const stop = vi.fn(async () => {});
+
+    await expect(daemonReconnect({ id: machineId, machineKey: "cmt_reconnect", baseDir }, {
+      isProcessAlive: () => true,
+      stopExactDaemonPid: stop,
+    })).rejects.toThrow("replacement already in progress");
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(stop).not.toHaveBeenCalled();
+  });
+
+  it("ignores an unrelated first-pair coarse owner during exact-machine reconnect", async () => {
+    const { machineId } = writeReconnectState();
+    const coarsePath = path.join(baseDir, "daemons", ".start.lock");
+    fs.writeFileSync(coarsePath, JSON.stringify({
+      pid: process.pid,
+      machineId: "coarse",
+      startedAt: new Date().toISOString(),
+      ownerToken: "unrelated-first-pair-owner",
+    }), { mode: 0o600 });
+    vi.mocked(globalThis.fetch).mockResolvedValue(new Response(JSON.stringify({
+      credential: "cmk_rotated",
+      machineId,
+      expiresAt: null,
+      sessionOutcome: "committed",
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    mockRunPreparedDaemon.mockResolvedValue(undefined);
+
+    await expect(daemonReconnect({ id: machineId, machineKey: "cmt_reconnect", baseDir }, {
+      isProcessAlive: () => true,
+      stopExactDaemonPid: vi.fn(async () => {}),
+      start: (opts) => daemonStart({ ...opts, foreground: true }),
+    })).resolves.toBeUndefined();
+
+    expect(globalThis.fetch).toHaveBeenCalledOnce();
+    expect(mockRunPreparedDaemon).toHaveBeenCalledOnce();
+    expect(JSON.parse(fs.readFileSync(coarsePath, "utf8"))).toMatchObject({
+      ownerToken: "unrelated-first-pair-owner",
+    });
+  });
+
+  it("restores the old epoch only for an explicit pre-commit 4xx", async () => {
+    const { machineId } = writeReconnectState();
+    vi.mocked(globalThis.fetch).mockResolvedValue(new Response(
+      JSON.stringify({ error: "token mismatch", sessionOutcome: "not_committed" }),
+      { status: 409, headers: { "content-type": "application/json" } },
+    ));
+    const stop = vi.fn(async () => {});
+    const resume = vi.fn(async () => {});
+
+    await expect(daemonReconnect({ id: machineId, machineKey: "cmt_reconnect", baseDir }, {
+      isProcessAlive: () => true,
+      stopExactDaemonPid: stop,
+      resume,
+    })).rejects.toThrow("token mismatch");
+
+    expect(stop).toHaveBeenCalledWith(424_242);
+    expect(resume).toHaveBeenCalledOnce();
+    expect(stop.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(globalThis.fetch).mock.invocationCallOrder[0]!);
+  });
+
+  it.each([
+    ["HTTP 500 after a possible commit", () => Promise.resolve(new Response(
+      JSON.stringify({ error: "ambiguous", sessionOutcome: "not_committed" }),
+      { status: 500, headers: { "content-type": "application/json" } },
+    ))],
+    ["response loss", () => Promise.reject(new Error("socket reset"))],
+    ["retry after a lost committed response", () => Promise.resolve(new Response(
+      JSON.stringify({ error: "token already revoked", sessionOutcome: "unknown" }),
+      { status: 409, headers: { "content-type": "application/json" } },
+    ))],
+  ])("never restores a revoked old epoch after %s", async (_name, response) => {
+    const { machineId } = writeReconnectState();
+    vi.mocked(globalThis.fetch).mockImplementation(response as typeof fetch);
+    const resume = vi.fn(async () => {});
+
+    await expect(daemonReconnect({ id: machineId, machineKey: "cmt_reconnect", baseDir }, {
+      isProcessAlive: () => true,
+      stopExactDaemonPid: vi.fn(async () => {}),
+      resume,
+    })).rejects.toThrow();
+
+    expect(resume).not.toHaveBeenCalled();
+    expect(JSON.parse(fs.readFileSync(
+      path.join(baseDir, "daemons", `${machineId}.credential.json`),
+      "utf8",
+    ))).toMatchObject({ credential: "cmk_old", machineId });
+  });
+
+  it("bounds an unresponsive activation, never resumes the old epoch, and releases replacement ownership", async () => {
+    vi.useFakeTimers();
+    const { machineId } = writeReconnectState();
+    vi.mocked(globalThis.fetch).mockImplementation((_input, init) => new Promise((_resolve, reject) => {
+      const signal = init?.signal;
+      expect(signal).toBeInstanceOf(AbortSignal);
+      signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+    }));
+    const resume = vi.fn(async () => {});
+
+    const reconnect = daemonReconnect({ id: machineId, machineKey: "cmt_reconnect", baseDir }, {
+      isProcessAlive: () => true,
+      stopExactDaemonPid: vi.fn(async () => {}),
+      resume,
+    });
+    const rejected = expect(reconnect).rejects.toThrow("activation timed out");
+    await vi.advanceTimersByTimeAsync(30_000);
+    await rejected;
+
+    expect(resume).not.toHaveBeenCalled();
+    const replacement = acquireDaemonReplacementLock({
+      baseDir,
+      machineId,
+      requestId: "timeout_recovery_probe",
+    });
+    removeReplacementLockIfMatches(replacement.path, replacement.lock);
+  });
+
+  it("persists the rotated epoch offline after local start failure and recovers that exact epoch by id", async () => {
+    const { machineId, daemonDir } = writeReconnectState();
+    const credentialPath = path.join(baseDir, "daemons", `${machineId}.credential.json`);
+    const resume = vi.fn(async () => {});
+    const stop = vi.fn(async () => {});
+    const server = {
+      status: "online" as "online" | "offline",
+      credential: "cmk_old",
+      rotations: 0,
+    };
+
+    vi.mocked(globalThis.fetch).mockImplementation(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { expectedMachineId?: string };
+      expect(body.expectedMachineId).toBe(machineId);
+      server.rotations += 1;
+      server.status = "offline";
+      server.credential = "cmk_rotated";
+      return new Response(JSON.stringify({
+        credential: server.credential,
+        machineId,
+        expiresAt: null,
+        sessionOutcome: "committed",
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+
+    process.env.ALOOK_DAEMON_TEST_FAIL_AFTER_ACTIVATE = "1";
+    await expect(daemonReconnect({ id: machineId, machineKey: "cmt_first_rotation", baseDir }, {
+      isProcessAlive: () => true,
+      stopExactDaemonPid: stop,
+      resume,
+    })).rejects.toThrow("start failure after activation");
+
+    expect(server).toMatchObject({ status: "offline", credential: "cmk_rotated", rotations: 1 });
+    expect(JSON.parse(fs.readFileSync(credentialPath, "utf8"))).toMatchObject({
+      credential: "cmk_rotated",
+      machineId,
+    });
+    expect(fs.existsSync(path.join(daemonDir, "daemon.pid"))).toBe(false);
+    expect(resume).not.toHaveBeenCalled();
+    expect(stop).toHaveBeenCalledOnce();
+
+    delete process.env.ALOOK_DAEMON_TEST_FAIL_AFTER_ACTIVATE;
+    mockRunPreparedDaemon.mockImplementationOnce(async (prepared) => {
+      expect(prepared.machineKey).toBe("cmk_rotated");
+      expect(prepared.machineId).toBe(machineId);
+      server.status = "online";
+    });
+    await expect(daemonStartById({ id: machineId, baseDir, foreground: true })).resolves.toBeUndefined();
+
+    expect(server).toEqual({ status: "online", credential: "cmk_rotated", rotations: 1 });
+    expect(JSON.parse(fs.readFileSync(credentialPath, "utf8"))).toMatchObject({
+      credential: "cmk_rotated",
+      machineId,
+    });
+    expect(resume).not.toHaveBeenCalled();
+    expect(stop).toHaveBeenCalledOnce();
   });
 
   it("compare-deletes foreground final ownership and launch lock when runner init fails", async () => {

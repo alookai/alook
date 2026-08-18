@@ -384,14 +384,44 @@ vi.mock("@alook/shared", async () => {
         hashCredential: (bearer: string) => mockHashCredential(bearer),
         findCredentialByHash: (...a: any[]) => mockFindCredentialByHash(...a),
         getMachineByIdForUser: (...a: any[]) => mockGetMachineByIdForUser(...a),
-        upsertMachineByMachineId: (...a: any[]) => mockUpsertMachineByMachineId(...a),
-        touchMachineHeartbeat: (...a: any[]) => mockTouchMachineHeartbeat(...a),
-        markMachineOffline: (...a: any[]) => mockMarkMachineOffline(...a),
-        markMachineOnlineIfOffline: (...a: any[]) => mockMarkMachineOnlineIfOffline(...a),
         toSummary: (row: any) => mockToSummary(row),
         isBotOnline: (...a: [unknown, string]) => mockIsBotOnline(...a),
         reconcileBotActivityFromRunningAgents: (...a: any[]) =>
           mockReconcileBotActivityFromRunningAgents(...(a as [unknown, string, string[]])),
+      },
+      communityMachineSession: {
+        transitionMachineSessionEpoch: async (db: unknown, command: any) => {
+          if (command.type === "ready") {
+            const result = await mockUpsertMachineByMachineId(
+              db,
+              command.epoch.userId,
+              command.epoch.machineId,
+              command.metadata,
+              command.epoch.credentialHash,
+            )
+            return result ? { type: "transitioned", ...result } : { type: "stale_epoch" }
+          }
+          if (command.type === "renew") {
+            const result = await mockTouchMachineHeartbeat(
+              db,
+              command.epoch.userId,
+              command.epoch.machineId,
+              command.epoch.credentialHash,
+            )
+            return result ? { type: "transitioned", ...result } : { type: "stale_epoch" }
+          }
+          const machine = await mockMarkMachineOffline(db, command.epoch)
+          return machine
+            ? {
+                type: "transitioned",
+                machine,
+                priorLastSeenAt: machine.lastSeenAt ?? null,
+                priorAvailableRuntimes: machine.availableRuntimes ?? [],
+                priorDaemonVersion: machine.daemonVersion ?? "",
+                priorStatus: "online",
+              }
+            : { type: "stale_epoch" }
+        },
       },
       communityDiagnosticReport: {
         timeoutPendingDiagnosticReportsForMachine: (...a: any[]) => mockTimeoutPendingDiagnosticReportsForMachine(...a),

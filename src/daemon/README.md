@@ -25,6 +25,42 @@ is what's reusable — plug in whatever host you like.
 
 ---
 
+## Daemon lifecycle commands
+
+The web Machines sheet generates the full command, including the correct HTTP
+and WebSocket endpoints. Published-package commands use the package's explicit
+binary so npm never guesses the wrong executable:
+
+```sh
+npm exec --yes --package=@alook/daemon@latest -- alook-daemon daemon start \
+  --machine-key '<cmt_pair_token>' --server-url '<https_url>' --ws-url '<wss_url>'
+```
+
+Restart a previously paired machine without rotating its credential:
+
+```sh
+npm exec --yes --package=@alook/daemon@latest -- alook-daemon daemon start --id '<machine_id>'
+```
+
+Reconnect/rotate only with the command generated for that exact machine:
+
+```sh
+npm exec --yes --package=@alook/daemon@latest -- alook-daemon daemon reconnect \
+  --id '<machine_id>' --machine-key '<cmt_reconnect_token>'
+```
+
+Reconnect first takes replacement ownership and stops only the matching saved
+PID, then activates the token. A proven pre-commit rejection resumes the prior
+launch record. If a committed response is received and local launch then fails,
+the newly persisted record remains offline and is recovered with
+`daemon start --id '<machine_id>'`. A network error, timeout, 5xx, or otherwise
+ambiguous activation response never restarts the possibly revoked old credential;
+because the new credential was not received, mint a fresh reconnect token in the
+UI and run `daemon reconnect` again. Never paste pairing or machine credentials
+into logs, bug reports, or chat.
+
+---
+
 ## The big idea
 
 The daemon never speaks a runtime's native protocol directly. Each runtime is

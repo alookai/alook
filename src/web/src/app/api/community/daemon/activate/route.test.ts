@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
+const mockBroadcast = vi.hoisted(() => vi.fn(async () => { }))
+const mockForceClose = vi.hoisted(() => vi.fn(async () => { }))
+
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(async () => ({ env: { DB: {} } })),
 }))
@@ -9,7 +12,11 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
 // The activate route also broadcasts machine.created — stub that.
 vi.mock("@/lib/broadcast", () => ({
-  broadcastToUser: vi.fn(async () => { }),
+  broadcastToUser: mockBroadcast,
+}))
+
+vi.mock("@/lib/community/machine-disconnect", () => ({
+  forceCloseCommunityMachinesByDoNames: mockForceClose,
 }))
 
 const mockActivate = vi.fn()
@@ -17,19 +24,21 @@ const mockGetMachine = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<any>("@alook/shared")
-  class MockActivateError extends Error {
-    constructor(public readonly kind: string, message: string) {
+  class MockRotationError extends Error {
+    constructor(
+      public readonly kind: string,
+      message: string,
+      public readonly sessionOutcome: "not_committed" | "unknown",
+    ) {
       super(message)
-      this.name = "ActivateCredentialError"
+      this.name = "MachineSessionRotationError"
     }
   }
   return {
     ...actual,
     queries: {
       communityMachine: {
-        activateMachineCredential: (...a: unknown[]) => mockActivate(...a),
         getMachineByIdForUser: (...a: unknown[]) => mockGetMachine(...a),
-        ActivateCredentialError: MockActivateError,
         toSummary: (row: any) => ({
           id: row.id,
           hostname: row.hostname ?? "",
@@ -45,14 +54,18 @@ vi.mock("@alook/shared", async () => {
           updatedAt: "t",
         }),
       },
+      communityMachineSession: {
+        transitionMachineSessionEpoch: (...a: unknown[]) => mockActivate(...a),
+        MachineSessionRotationError: MockRotationError,
+      },
     },
   }
 })
 
-// Retrieve the MockActivateError constructor after mocks have been hoisted.
+// Retrieve the mocked domain error constructor after mocks have been hoisted.
 async function getMockError(): Promise<any> {
   const { queries } = await import("@alook/shared")
-  return (queries as any).communityMachine.ActivateCredentialError
+  return (queries as any).communityMachineSession.MachineSessionRotationError
 }
 
 import { POST } from "./route"
@@ -66,7 +79,11 @@ function jsonReq(body: object, headers: Record<string, string> = {}): NextReques
 }
 
 describe("POST /api/community/daemon/activate", () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockBroadcast.mockResolvedValue(undefined)
+    mockForceClose.mockResolvedValue(undefined)
+  })
 
   const goodBody = {
     hostname: "myhost",
@@ -95,6 +112,7 @@ describe("POST /api/community/daemon/activate", () => {
     })
     const res = await POST(req)
     expect(res.status).toBe(400)
+    expect(await res.json()).toMatchObject({ sessionOutcome: "not_committed" })
   })
 
   it("returns 200 + credential/machineId on happy path", async () => {
@@ -102,6 +120,7 @@ describe("POST /api/community/daemon/activate", () => {
       credential: "cmk_alpha",
       machineId: "cm_alpha",
       userId: "u_1",
+      revokedDoNames: [],
     })
     mockGetMachine.mockResolvedValue({ id: "cm_alpha", hostname: "myhost", displayName: "myhost" })
     const res = await POST(jsonReq(goodBody, { Authorization: "Bearer cmt_pending" }))
@@ -110,33 +129,90 @@ describe("POST /api/community/daemon/activate", () => {
       credential: "cmk_alpha",
       machineId: "cm_alpha",
       expiresAt: null,
+      sessionOutcome: "committed",
     })
-    expect(mockActivate).toHaveBeenCalledWith({}, "cmt_pending", expect.objectContaining({ hostname: "myhost" }))
+    expect(mockActivate).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        type: "rotate",
+        tokenId: "cmt_pending",
+        metadata: expect.objectContaining({ hostname: "myhost" }),
+        expectedMachineId: undefined,
+      }),
+    )
   })
 
   it("404 when the token is unknown", async () => {
     const Err = await getMockError()
-    mockActivate.mockRejectedValue(new Err("unknown", "unknown token"))
+    mockActivate.mockRejectedValue(new Err("unknown", "unknown token", "not_committed"))
     const res = await POST(jsonReq(goodBody, { Authorization: "Bearer cmt_unknown" }))
     expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: "unknown token", sessionOutcome: "not_committed" })
   })
 
   it("409 when the token is already revoked / active", async () => {
     const Err = await getMockError()
-    mockActivate.mockRejectedValue(new Err("revoked", "revoked"))
+    mockActivate.mockRejectedValue(new Err("revoked", "revoked", "unknown"))
     const res = await POST(jsonReq(goodBody, { Authorization: "Bearer cmt_r" }))
     expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: "revoked", sessionOutcome: "unknown" })
 
-    mockActivate.mockRejectedValue(new Err("already_active", "already active"))
+    mockActivate.mockRejectedValue(new Err("already_active", "already active", "unknown"))
     const res2 = await POST(jsonReq(goodBody, { Authorization: "Bearer cmt_a" }))
     expect(res2.status).toBe(409)
+    expect(await res2.json()).toEqual({ error: "already active", sessionOutcome: "unknown" })
   })
 
   it("410 when the token is expired", async () => {
     const Err = await getMockError()
-    mockActivate.mockRejectedValue(new Err("expired", "expired"))
+    mockActivate.mockRejectedValue(new Err("expired", "expired", "not_committed"))
     const res = await POST(jsonReq(goodBody, { Authorization: "Bearer cmt_old" }))
     expect(res.status).toBe(410)
+    expect(await res.json()).toEqual({ error: "expired", sessionOutcome: "not_committed" })
+  })
+
+  it("returns a committed response without waiting for historical DO close", async () => {
+    mockForceClose.mockImplementation(() => new Promise(() => { }))
+    mockActivate.mockResolvedValue({
+      credential: "cmk_rotated",
+      machineId: "cm_alpha",
+      userId: "u_1",
+      revokedDoNames: ["old-do"],
+    })
+    mockGetMachine.mockResolvedValue({ id: "cm_alpha", hostname: "myhost", displayName: "myhost" })
+
+    const response = await Promise.race([
+      POST(jsonReq(goodBody, { Authorization: "Bearer cmt_pending" })),
+      new Promise<"timed-out">((resolve) => setTimeout(() => resolve("timed-out"), 50)),
+    ])
+
+    expect(response).not.toBe("timed-out")
+    expect((response as Response).status).toBe(200)
+    expect(await (response as Response).json()).toMatchObject({ sessionOutcome: "committed" })
+    await vi.waitFor(() => expect(mockBroadcast).toHaveBeenCalledOnce())
+  })
+
+  it("passes expectedMachineId to reconnect activation", async () => {
+    mockActivate.mockResolvedValue({
+      credential: "cmk_alpha",
+      machineId: "cm_alpha",
+      userId: "u_1",
+      revokedDoNames: ["old-do"],
+    })
+    mockGetMachine.mockResolvedValue(null)
+    const res = await POST(jsonReq(
+      { ...goodBody, expectedMachineId: "cm_alpha" },
+      { Authorization: "Bearer cmt_pending" },
+    ))
+    expect(res.status).toBe(200)
+    expect(mockActivate).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        type: "rotate",
+        tokenId: "cmt_pending",
+        expectedMachineId: "cm_alpha",
+      }),
+    )
   })
 
   it("500 body includes the underlying exception's message for an unhandled failure", async () => {

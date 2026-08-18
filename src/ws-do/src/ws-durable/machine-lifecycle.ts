@@ -113,19 +113,19 @@ export function handleDiagnosticCommandAck(
 async function markIdentityOffline(
   context: WsDurableContext,
   identity: CommunityMachineIdentity,
+  cause: "close" | "expire",
 ): Promise<boolean> {
   const db = createDb(context.env.DB)
-  const flipped = await queries.communityMachine.markMachineOffline(db, {
-    userId: identity.userId,
-    machineId: identity.machineId,
-    credentialHash: identity.credentialHash,
+  const result = await queries.communityMachineSession.transitionMachineSessionEpoch(db, {
+    type: cause,
+    epoch: identity,
   })
-  if (!flipped) return false
+  if (result.type === "stale_epoch") return false
   await notifyUserDO(context, identity.userId, {
     type: WS_EVENTS.MACHINE_STATUS,
     machineId: identity.machineId,
     status: "offline",
-    lastSeenAt: flipped.lastSeenAt ?? new Date().toISOString(),
+    lastSeenAt: result.machine.lastSeenAt ?? new Date().toISOString(),
   }).catch(() => { })
   await context.ctx.storage.delete(HANDLE_KEY)
   await context.ctx.storage.delete(IDENTITY_KEY)
@@ -179,7 +179,7 @@ export async function handleCommunityMachineClose(
   })
   if (replacementIsLive) return
   try {
-    const flipped = await markIdentityOffline(context, identity)
+    const flipped = await markIdentityOffline(context, identity, "close")
     if (!flipped) {
       // The guarded row belongs to a newer credential (or is already
       // offline), so this close is terminal for the old DO identity.
@@ -188,7 +188,7 @@ export async function handleCommunityMachineClose(
       return
     }
   } catch (err) {
-    context.log.warn("markMachineOffline failed on webSocketClose", { err: String(err) })
+    context.log.warn("session close transition failed", { err: String(err) })
     await context.ctx.storage.setAlarm(Date.now() + COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS)
   }
   await scheduleHeartbeatAlarm(context)
@@ -199,59 +199,74 @@ export async function handleMachineAlarm(context: WsDurableContext): Promise<voi
   await sweepDiagnosticDeadlines(context, now)
 
   const liveMachines: Array<{ userId: string; machineId: string }> = []
-  let expiredCapableSocket = false
+  let expiredMachineSocket = false
   for (const ws of authenticatedMachineSockets(context)) {
     const state = ws.deserializeAttachment() as CommunityMachineConnectionState
-    if (state.controlHeartbeat === true) {
-      const lastAckAt = state.lastHeartbeatAckAt ?? 0
-      if (now - lastAckAt >= COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS) {
-        expiredCapableSocket = true
-        try { ws.close(1011, "Heartbeat lease expired") } catch { }
-        continue
-      }
-      const nonce = state.pendingHeartbeatNonce ?? crypto.randomUUID()
-      ws.serializeAttachment({ ...state, pendingHeartbeatNonce: nonce })
-      try { ws.send(JSON.stringify({ type: "machine:heartbeat", nonce })) } catch { }
+    if (state.controlHeartbeat !== true) {
+      expiredMachineSocket = true
+      try { ws.close(1008, "Daemon upgrade required") } catch { }
+      continue
     }
+    const lastAckAt = state.lastHeartbeatAckAt ?? 0
+    if (now - lastAckAt >= COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS) {
+      expiredMachineSocket = true
+      try { ws.close(1011, "Heartbeat lease expired") } catch { }
+      continue
+    }
+    const nonce = state.pendingHeartbeatNonce ?? crypto.randomUUID()
+    ws.serializeAttachment({ ...state, pendingHeartbeatNonce: nonce })
+    try { ws.send(JSON.stringify({ type: "machine:heartbeat", nonce })) } catch { }
     liveMachines.push({ userId: state.userId, machineId: state.machineId })
   }
 
   if (liveMachines.length > 0) {
     const db = createDb(context.env.DB)
     const identity = await context.ctx.storage.get<CommunityMachineIdentity>(IDENTITY_KEY)
+    let currentLeaseCount = 0
+    let heartbeatUnavailable = false
     for (const machine of liveMachines) {
-      try {
-        await queries.communityMachine.touchMachineHeartbeat(db, machine.userId, machine.machineId)
-      } catch { }
       if (identity && identity.userId === machine.userId && identity.machineId === machine.machineId) {
         try {
-          const backfilled = await queries.communityMachine.markMachineOnlineIfOffline(db, {
-            userId: identity.userId,
-            machineId: identity.machineId,
-            credentialHash: identity.credentialHash,
+          const heartbeat = await queries.communityMachineSession.transitionMachineSessionEpoch(db, {
+            type: "renew",
+            epoch: identity,
           })
-          if (backfilled) {
+          if (heartbeat.type === "stale_epoch") {
+            expiredMachineSocket = true
+            for (const ws of authenticatedMachineSockets(context)) {
+              const state = ws.deserializeAttachment() as CommunityMachineConnectionState
+              if (state.userId === machine.userId && state.machineId === machine.machineId) {
+                try { ws.close(1008, "Credential no longer current") } catch { }
+              }
+            }
+            continue
+          }
+          currentLeaseCount++
+          if (heartbeat.priorStatus === "offline") {
             await notifyUserDO(context, identity.userId, {
               type: WS_EVENTS.MACHINE_STATUS,
               machineId: identity.machineId,
               status: "online",
-              lastSeenAt: backfilled.lastSeenAt ?? new Date().toISOString(),
+              lastSeenAt: heartbeat.machine.lastSeenAt ?? new Date().toISOString(),
             }).catch(() => { })
           }
         } catch (err) {
-          context.log.warn("markMachineOnlineIfOffline (alarm fresh-WS) failed", { err: String(err) })
+          heartbeatUnavailable = true
+          context.log.warn("current-epoch heartbeat failed", { err: String(err) })
         }
       }
     }
-    await scheduleHeartbeatAlarm(context)
-    return
+    if (currentLeaseCount > 0 || heartbeatUnavailable) {
+      await scheduleHeartbeatAlarm(context)
+      return
+    }
   }
 
   const stored = await context.ctx.storage.get<CommunityMachineHandle>(HANDLE_KEY)
   const identity = await context.ctx.storage.get<CommunityMachineIdentity>(IDENTITY_KEY)
-  if (expiredCapableSocket && identity) {
+  if (expiredMachineSocket && identity) {
     try {
-      const flipped = await markIdentityOffline(context, identity)
+      const flipped = await markIdentityOffline(context, identity, "expire")
       if (!flipped) {
         // A guarded no-op means this credential no longer owns the D1 row
         // (or another actor already won the offline transition). Forget only
@@ -261,7 +276,7 @@ export async function handleMachineAlarm(context: WsDurableContext): Promise<voi
         await context.ctx.storage.delete(IDENTITY_KEY)
       }
     } catch (err) {
-      context.log.warn("markMachineOffline (heartbeat lease) failed", { err: String(err) })
+      context.log.warn("session expiry transition failed", { err: String(err) })
       await context.ctx.storage.setAlarm(now + COMMUNITY_MACHINE_HEARTBEAT_MS)
       return
     }
@@ -287,9 +302,9 @@ export async function handleMachineAlarm(context: WsDurableContext): Promise<voi
     if (identity) {
       let flipped: boolean
       try {
-        flipped = await markIdentityOffline(context, identity)
+        flipped = await markIdentityOffline(context, identity, "expire")
       } catch (err) {
-        context.log.warn("markMachineOffline (alarm stale-flip) failed", { err: String(err) })
+        context.log.warn("stale session expiry transition failed", { err: String(err) })
         await context.ctx.storage.setAlarm(now + COMMUNITY_MACHINE_HEARTBEAT_MS)
         return
       }

@@ -128,7 +128,12 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
       receivedCommands.push(cmd)
     })
     channel.onResync(() => ({
-      ready: { runtimeReport: [{ id: "claude" }], runningAgents: [], daemonVersion: "0.1.7" },
+      ready: {
+        runtimeReport: [{ id: "claude" }],
+        runningAgents: [],
+        daemonVersion: "0.1.7",
+        capabilities: ["control-heartbeat-v1"],
+      },
       sessions: [],
       activities: [],
     }))

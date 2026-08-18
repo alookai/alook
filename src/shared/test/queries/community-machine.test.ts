@@ -1,5 +1,39 @@
 import { describe, it, expect, vi } from "vitest";
 import * as q from "../../src/db/queries/community/machine";
+import * as sessionEpoch from "../../src/db/queries/community/machine-session-epoch";
+
+async function readyEpoch(db: any, userId: string, machineId: string, metadata: q.MachineMetadataInput, credentialHash: string) {
+  const result = await sessionEpoch.transitionMachineSessionEpoch(db, {
+    type: "ready",
+    epoch: { userId, machineId, credentialHash },
+    metadata,
+  });
+  return result.type === "stale_epoch" ? null : result;
+}
+
+async function renewEpoch(db: any, epoch: sessionEpoch.MachineSessionEpoch) {
+  const result = await sessionEpoch.transitionMachineSessionEpoch(db, { type: "renew", epoch });
+  return result.type === "stale_epoch" ? null : result.machine;
+}
+
+async function closeEpoch(db: any, epoch: sessionEpoch.MachineSessionEpoch) {
+  const result = await sessionEpoch.transitionMachineSessionEpoch(db, { type: "close", epoch });
+  return result.type === "stale_epoch" ? null : result.machine;
+}
+
+function rotateEpoch(
+  db: any,
+  tokenId: string,
+  metadata: q.MachineMetadataInput,
+  options: { expectedMachineId?: string } = {},
+) {
+  return sessionEpoch.transitionMachineSessionEpoch(db, {
+    type: "rotate",
+    tokenId,
+    metadata,
+    expectedMachineId: options.expectedMachineId,
+  });
+}
 
 describe("community/machine exports", () => {
   it("exports the documented helpers", () => {
@@ -10,15 +44,11 @@ describe("community/machine exports", () => {
     expect(typeof q.findTokenById).toBe("function");
     expect(typeof q.touchTokenLastUsed).toBe("function");
     expect(typeof q.revokeToken).toBe("function");
-    expect(typeof q.upsertMachineByMachineId).toBe("function");
-    expect(typeof q.touchMachineHeartbeat).toBe("function");
     expect(typeof q.getMachineByIdForUser).toBe("function");
     expect(typeof q.listMachinesForUser).toBe("function");
     expect(typeof q.deleteMachineForUser).toBe("function");
     expect(typeof q.toSummary).toBe("function");
-    expect(typeof q.markMachineOffline).toBe("function");
-    expect(typeof q.markMachineOnlineIfOffline).toBe("function");
-    expect(typeof q.activateMachineCredential).toBe("function");
+    expect(typeof sessionEpoch.transitionMachineSessionEpoch).toBe("function");
     expect(typeof q.hashCredential).toBe("function");
     expect(typeof q.doNameFromHash).toBe("function");
     expect(typeof q.findCredentialByHash).toBe("function");
@@ -36,6 +66,11 @@ describe("community/machine exports", () => {
     expect((q as any).rotatePairingTokenForMachine).toBeUndefined();
     expect((q as any).findActiveCredential).toBeUndefined();
     expect((q as any).findActiveAgentRunnerKey).toBeUndefined();
+    expect((q as any).upsertMachineByMachineId).toBeUndefined();
+    expect((q as any).touchMachineHeartbeat).toBeUndefined();
+    expect((q as any).markMachineOffline).toBeUndefined();
+    expect((q as any).markMachineOnlineIfOffline).toBeUndefined();
+    expect((q as any).activateMachineCredential).toBeUndefined();
   });
 });
 
@@ -132,11 +167,30 @@ describe("toSummary", () => {
 });
 
 // ---------------------------------------------------------------------------
-// markMachineOffline / markMachineOnlineIfOffline
+// session close and renew
 // ---------------------------------------------------------------------------
 
-function makeUpdateChain(returningRows: unknown[]) {
+function makeUpdateChain(returningRows: unknown[], priorStatus: "online" | "offline") {
   const chain: any = {};
+  const prior = {
+    id: "cm_1",
+    userId: "u_1",
+    displayName: "host",
+    hostname: "host",
+    platform: "darwin",
+    arch: "arm64",
+    osRelease: "23",
+    daemonVersion: "0.1.0",
+    metadata: null,
+    availableRuntimes: [],
+    status: priorStatus,
+    lastSeenAt: "earlier",
+    createdAt: "earlier",
+    updatedAt: "earlier",
+  };
+  chain.select = vi.fn(() => chain);
+  chain.from = vi.fn(() => chain);
+  chain.limit = vi.fn(() => Promise.resolve([prior]));
   chain.update = vi.fn(() => chain);
   chain.set = vi.fn(() => chain);
   chain.where = vi.fn(() => chain);
@@ -144,11 +198,11 @@ function makeUpdateChain(returningRows: unknown[]) {
   return chain;
 }
 
-describe("markMachineOffline", () => {
+describe("session close", () => {
   it("flips status='online' → 'offline' when the row matches + credential is active (returns updated row)", async () => {
     const flipped = { id: "cm_1", userId: "u_1", status: "offline", lastSeenAt: "now" };
-    const chain = makeUpdateChain([flipped]);
-    const out = await q.markMachineOffline(chain, {
+    const chain = makeUpdateChain([flipped], "online");
+    const out = await closeEpoch(chain, {
       userId: "u_1",
       machineId: "cm_1",
       credentialHash: "abc",
@@ -159,8 +213,8 @@ describe("markMachineOffline", () => {
     );
   });
   it("returns null when the row is already offline / credential revoked / wrong user (guarded UPDATE returned zero rows)", async () => {
-    const chain = makeUpdateChain([]);
-    const out = await q.markMachineOffline(chain, {
+    const chain = makeUpdateChain([], "online");
+    const out = await closeEpoch(chain, {
       userId: "u_1",
       machineId: "cm_1",
       credentialHash: "revoked",
@@ -169,11 +223,11 @@ describe("markMachineOffline", () => {
   });
 });
 
-describe("markMachineOnlineIfOffline", () => {
+describe("session renew", () => {
   it("flips offline → online when guarded row + credential are active", async () => {
     const flipped = { id: "cm_1", userId: "u_1", status: "online", lastSeenAt: "now" };
-    const chain = makeUpdateChain([flipped]);
-    const out = await q.markMachineOnlineIfOffline(chain, {
+    const chain = makeUpdateChain([flipped], "offline");
+    const out = await renewEpoch(chain, {
       userId: "u_1",
       machineId: "cm_1",
       credentialHash: "abc",
@@ -184,8 +238,8 @@ describe("markMachineOnlineIfOffline", () => {
     );
   });
   it("returns null when the row is already online or credential revoked", async () => {
-    const chain = makeUpdateChain([]);
-    const out = await q.markMachineOnlineIfOffline(chain, {
+    const chain = makeUpdateChain([], "offline");
+    const out = await renewEpoch(chain, {
       userId: "u_1",
       machineId: "cm_1",
       credentialHash: "abc",
@@ -444,10 +498,10 @@ describe("createReconnectPairingToken", () => {
 });
 
 // ---------------------------------------------------------------------------
-// upsertMachineByMachineId
+// session ready transition
 // ---------------------------------------------------------------------------
 
-describe("upsertMachineByMachineId", () => {
+describe("session ready transition", () => {
   const priorRow = {
     id: "cm_1",
     userId: "u_1",
@@ -472,7 +526,7 @@ describe("upsertMachineByMachineId", () => {
     chain.where = vi.fn(() => chain);
     chain.limit = vi.fn(() => Promise.resolve([]));
     expect(
-      await q.upsertMachineByMachineId(chain, "u_1", "cm_missing", {})
+      await readyEpoch(chain, "u_1", "cm_missing", {}, "hash")
     ).toBeNull();
   });
 
@@ -486,9 +540,9 @@ describe("upsertMachineByMachineId", () => {
     chain.update = vi.fn(() => chain);
     chain.set = vi.fn(() => chain);
     chain.returning = vi.fn(() => Promise.resolve([updated]));
-    const res = await q.upsertMachineByMachineId(chain, "u_1", "cm_1", {
+    const res = await readyEpoch(chain, "u_1", "cm_1", {
       availableRuntimes: [{ id: "claude" }, { id: "codex" }],
-    });
+    }, "hash");
     expect(res?.priorAvailableRuntimes).toEqual([{ id: "claude" }]);
     expect(res?.priorDaemonVersion).toBe("0.1.0");
     expect(res?.machine.availableRuntimes).toEqual([{ id: "claude" }, { id: "codex" }]);
@@ -508,7 +562,7 @@ describe("upsertMachineByMachineId", () => {
     chain.update = vi.fn(() => chain);
     chain.set = vi.fn(() => chain);
     chain.returning = vi.fn(() => Promise.resolve([priorRow]));
-    await q.upsertMachineByMachineId(chain, "u_1", "cm_1", { hostname: "host2" });
+    await readyEpoch(chain, "u_1", "cm_1", { hostname: "host2" }, "hash");
     expect(chain.set).toHaveBeenCalledWith(
       expect.objectContaining({ availableRuntimes: [{ id: "claude" }] })
     );
@@ -525,7 +579,7 @@ describe("upsertMachineByMachineId", () => {
     chain.returning = vi.fn(() =>
       Promise.resolve([{ ...priorRow, status: "online", lastSeenAt: "now" }])
     );
-    await q.upsertMachineByMachineId(chain, "u_1", "cm_1", { hostname: "host2" });
+    await readyEpoch(chain, "u_1", "cm_1", { hostname: "host2" }, "hash");
     expect(chain.set).toHaveBeenCalledWith(expect.objectContaining({ status: "online" }));
   });
 
@@ -540,7 +594,7 @@ describe("upsertMachineByMachineId", () => {
     chain.returning = vi.fn(() =>
       Promise.resolve([{ ...priorRow, status: "online", lastSeenAt: "now" }])
     );
-    const res = await q.upsertMachineByMachineId(chain, "u_1", "cm_1", {});
+    const res = await readyEpoch(chain, "u_1", "cm_1", {}, "hash");
     expect(res?.priorStatus).toBe("offline");
   });
 
@@ -554,16 +608,11 @@ describe("upsertMachineByMachineId", () => {
     chain.update = vi.fn(() => chain);
     chain.set = vi.fn(() => chain);
     chain.returning = vi.fn(() => Promise.resolve([onlinePrior]));
-    const res = await q.upsertMachineByMachineId(chain, "u_1", "cm_1", {});
+    const res = await readyEpoch(chain, "u_1", "cm_1", {}, "hash");
     expect(res?.priorStatus).toBe("online");
   });
 
-  it("leaves status/lastSeenAt untouched when markOnline=false (HTTP /activate reconnect)", async () => {
-    // /activate runs before the daemon's WS connects — it must not flip
-    // status itself, or the later `ready`-frame's `priorStatus !== 'online'`
-    // guard would wrongly see 'online' and skip the broadcast (incl. bot
-    // presence fan-out). Only the real ready-frame call (default
-    // markOnline=true) may set status.
+  it("returns null when the ready frame credential is no longer current", async () => {
     const chain: any = {};
     chain.select = vi.fn(() => chain);
     chain.from = vi.fn(() => chain);
@@ -571,31 +620,23 @@ describe("upsertMachineByMachineId", () => {
     chain.limit = vi.fn(() => Promise.resolve([priorRow]));
     chain.update = vi.fn(() => chain);
     chain.set = vi.fn(() => chain);
-    chain.returning = vi.fn(() => Promise.resolve([priorRow]));
-    const res = await q.upsertMachineByMachineId(
+    chain.returning = vi.fn(() => Promise.resolve([]));
+    const res = await readyEpoch(
       chain,
       "u_1",
       "cm_1",
       { hostname: "host2" },
-      { markOnline: false }
+      "revoked-hash"
     );
-    expect(chain.set).toHaveBeenCalledWith(
-      expect.not.objectContaining({ status: expect.anything() })
-    );
-    const setArg = chain.set.mock.calls[0][0];
-    expect(setArg).not.toHaveProperty("status");
-    expect(setArg).not.toHaveProperty("lastSeenAt");
-    // priorStatus still reflects the pre-upsert row (offline), unaffected
-    // by markOnline — it's purely about what gets WRITTEN.
-    expect(res?.priorStatus).toBe("offline");
+    expect(res).toBeNull();
   });
 });
 
 // ---------------------------------------------------------------------------
-// activateMachineCredential
+// session epoch rotation
 // ---------------------------------------------------------------------------
 
-describe("activateMachineCredential — validation", () => {
+describe("session epoch rotation — validation", () => {
   it("throws 'unknown' when the token is not in the DB", async () => {
     const chain: any = {};
     chain.select = vi.fn(() => chain);
@@ -603,12 +644,13 @@ describe("activateMachineCredential — validation", () => {
     chain.where = vi.fn(() => chain);
     chain.limit = vi.fn(() => Promise.resolve([]));
     await expect(
-      q.activateMachineCredential(chain, "cmt_unknown", { hostname: "" })
-    ).rejects.toBeInstanceOf(q.ActivateCredentialError);
+      rotateEpoch(chain, "cmt_unknown", { hostname: "" })
+    ).rejects.toBeInstanceOf(sessionEpoch.MachineSessionRotationError);
     try {
-      await q.activateMachineCredential(chain, "cmt_unknown", { hostname: "" });
+      await rotateEpoch(chain, "cmt_unknown", { hostname: "" });
     } catch (err) {
-      expect((err as q.ActivateCredentialError).kind).toBe("unknown");
+      expect((err as sessionEpoch.MachineSessionRotationError).kind).toBe("unknown");
+      expect((err as sessionEpoch.MachineSessionRotationError).sessionOutcome).toBe("not_committed");
     }
   });
 
@@ -629,10 +671,11 @@ describe("activateMachineCredential — validation", () => {
       ])
     );
     try {
-      await q.activateMachineCredential(chain, "cmt_x", { hostname: "" });
+      await rotateEpoch(chain, "cmt_x", { hostname: "" });
       throw new Error("should have thrown");
     } catch (err) {
-      expect((err as q.ActivateCredentialError).kind).toBe("revoked");
+      expect((err as sessionEpoch.MachineSessionRotationError).kind).toBe("revoked");
+      expect((err as sessionEpoch.MachineSessionRotationError).sessionOutcome).toBe("unknown");
     }
   });
 
@@ -653,10 +696,11 @@ describe("activateMachineCredential — validation", () => {
       ])
     );
     try {
-      await q.activateMachineCredential(chain, "cmt_x", { hostname: "" });
+      await rotateEpoch(chain, "cmt_x", { hostname: "" });
       throw new Error("should have thrown");
     } catch (err) {
-      expect((err as q.ActivateCredentialError).kind).toBe("already_active");
+      expect((err as sessionEpoch.MachineSessionRotationError).kind).toBe("already_active");
+      expect((err as sessionEpoch.MachineSessionRotationError).sessionOutcome).toBe("unknown");
     }
   });
 
@@ -677,22 +721,99 @@ describe("activateMachineCredential — validation", () => {
       ])
     );
     try {
-      await q.activateMachineCredential(chain, "cmt_x", { hostname: "" });
+      await rotateEpoch(chain, "cmt_x", { hostname: "" });
       throw new Error("should have thrown");
     } catch (err) {
-      expect((err as q.ActivateCredentialError).kind).toBe("expired");
+      expect((err as sessionEpoch.MachineSessionRotationError).kind).toBe("expired");
+      expect((err as sessionEpoch.MachineSessionRotationError).sessionOutcome).toBe("not_committed");
     }
+  });
+
+  it("classifies a concurrent claim loser as ambiguous", async () => {
+    const chain: any = {};
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => chain);
+    chain.limit = vi.fn(() => Promise.resolve([{
+      id: "cmt_x",
+      userId: "u_1",
+      machineId: "cm_existing",
+      status: "pending",
+      expiresAt: "9999",
+    }]));
+    chain.update = vi.fn(() => chain);
+    chain.set = vi.fn(() => chain);
+    chain.returning = vi.fn(() => Promise.resolve([]));
+
+    await expect(rotateEpoch(
+      chain,
+      "cmt_x",
+      { hostname: "" },
+      { expectedMachineId: "cm_existing" },
+    )).rejects.toMatchObject({
+      kind: "already_active",
+      sessionOutcome: "unknown",
+    });
+  });
+
+  it("fails reconnect without expectedMachineId before claiming the token", async () => {
+    const chain: any = {};
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => chain);
+    chain.limit = vi.fn(() => Promise.resolve([{
+      id: "cmt_x",
+      userId: "u_1",
+      machineId: "cm_existing",
+      status: "pending",
+      expiresAt: "9999",
+    }]));
+    chain.update = vi.fn(() => chain);
+    await expect(
+      rotateEpoch(chain, "cmt_x", { hostname: "" })
+    ).rejects.toMatchObject({
+      kind: "expected_machine_required",
+      sessionOutcome: "not_committed",
+    });
+    expect(chain.update).not.toHaveBeenCalled();
+  });
+
+  it("fails expectedMachineId mismatch before claiming the token", async () => {
+    const chain: any = {};
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => chain);
+    chain.limit = vi.fn(() => Promise.resolve([{
+      id: "cmt_x",
+      userId: "u_1",
+      machineId: "cm_existing",
+      status: "pending",
+      expiresAt: "9999",
+    }]));
+    chain.update = vi.fn(() => chain);
+    await expect(
+      rotateEpoch(
+        chain,
+        "cmt_x",
+        { hostname: "" },
+        { expectedMachineId: "cm_other" },
+      )
+    ).rejects.toMatchObject({
+      kind: "machine_mismatch",
+      sessionOutcome: "not_committed",
+    });
+    expect(chain.update).not.toHaveBeenCalled();
   });
 });
 
 /**
- * activateMachineCredential success paths use a scripted mock that returns
+ * session epoch rotation success paths use a scripted mock that returns
  * different results per call. Kept minimal — the interesting behavior is:
  * (1) new-pair path creates a machine row via insert;
  * (2) reconnect path (token.machineId set) reuses via update;
  * (3) either path stores credential_hash + do_name and returns the plaintext.
  */
-describe("activateMachineCredential — success paths", () => {
+describe("session epoch rotation — success paths", () => {
   function scriptChain(script: Array<() => Promise<any>>) {
     let step = 0;
     const chain: any = {};
@@ -754,7 +875,7 @@ describe("activateMachineCredential — success paths", () => {
       () => Promise.resolve([insertedMachine]),
     ]);
 
-    const r = await q.activateMachineCredential(chain, "cmt_x", {
+    const r = await rotateEpoch(chain, "cmt_x", {
       hostname: "host",
     });
     expect(r.userId).toBe("u_1");
@@ -773,7 +894,7 @@ describe("activateMachineCredential — success paths", () => {
     expect(credInsert.credentialHash).toBe(expectedHash);
   });
 
-  it("reconnect path — reuses existing machine row and revokes prior credentials", async () => {
+  it("reconnect path atomically rotates credential + runner keys and projects offline", async () => {
     const existingMachine = {
       id: "cm_existing",
       userId: "u_1",
@@ -790,48 +911,143 @@ describe("activateMachineCredential — success paths", () => {
       updatedAt: "earlier",
     };
 
-    // Scripted (limit / returning) in call order:
-    // 1. select token row → pending, machineId set
-    // 2. flip token returning
-    // 3. select machine row inside upsertMachineByMachineId → prior
-    // 4. update machine returning → updated
-    // 5. update prior credentials revokedAt — no returning
-    const chain = scriptChain([
-      // (1) find token
-      () =>
-        Promise.resolve([
-          {
+    let selectCount = 0;
+    let updateCount = 0;
+    let mode = "";
+    const chain: any = {};
+    chain.select = vi.fn(() => {
+      mode = "select";
+      selectCount++;
+      return chain;
+    });
+    chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => {
+      if (mode === "select" && selectCount === 3) {
+        return Promise.resolve([{ doName: "old-do" }]);
+      }
+      return chain;
+    });
+    chain.limit = vi.fn(() => Promise.resolve(
+      selectCount === 1
+        ? [{
             id: "cmt_x",
             userId: "u_1",
             machineId: "cm_existing",
             status: "pending",
             expiresAt: "9999",
-          },
-        ]),
-      // (2) flip returning
-      () => Promise.resolve([{ id: "cmt_x" }]),
-      // (3) upsertMachineByMachineId select prior
-      () => Promise.resolve([existingMachine]),
-      // (4) upsertMachineByMachineId update returning
-      () => Promise.resolve([existingMachine]),
-    ]);
-
-    const r = await q.activateMachineCredential(chain, "cmt_x", {
-      hostname: "host",
+          }]
+        : [existingMachine],
+    ));
+    chain.update = vi.fn(() => {
+      mode = "update";
+      updateCount++;
+      return chain;
     });
+    chain.set = vi.fn(() => chain);
+    chain.returning = vi.fn(() => updateCount === 1
+      ? Promise.resolve([{ id: "cmt_x" }])
+      : { statement: "update-machine" });
+    chain.insert = vi.fn(() => {
+      mode = "insert";
+      return chain;
+    });
+    chain._insertValues = [] as any[];
+    chain.values = vi.fn((value: any) => {
+      chain._insertValues.push(value);
+      return chain;
+    });
+    chain.batch = vi.fn(async () => [[{
+      ...existingMachine,
+      status: "offline",
+      lastSeenAt: null,
+    }], [], [], []]);
+
+    const r = await rotateEpoch(
+      chain,
+      "cmt_x",
+      { hostname: "host" },
+      { expectedMachineId: "cm_existing" },
+    );
     expect(r.machineId).toBe("cm_existing");
-    // Update was called at least twice — once for machine, once for revoking
-    // prior credentials.
-    expect(chain.update).toHaveBeenCalled();
-    // Reconnect activation must not flip status/lastSeenAt itself — that's
-    // reserved for the real WS `ready` frame (see upsertMachineByMachineId's
-    // markOnline doc comment). Find the machine-row `.set()` call (the one
-    // touching `hostname`) and assert it carries no status.
+    expect(r.revokedDoNames).toEqual(["old-do"]);
+    expect(chain.batch).toHaveBeenCalledTimes(1);
+    expect(chain.batch.mock.calls[0]![0]).toHaveLength(4);
     const machineSetCall = chain.set.mock.calls.find(
       (args: any[]) => args[0] && "hostname" in args[0]
     );
-    expect(machineSetCall?.[0]).not.toHaveProperty("status");
-    expect(machineSetCall?.[0]).not.toHaveProperty("lastSeenAt");
+    expect(machineSetCall?.[0]).toEqual(expect.objectContaining({
+      status: "offline",
+      lastSeenAt: null,
+    }));
+  });
+
+  it("keeps the token consumed when the reconnect batch rejects ambiguously", async () => {
+    const machine = {
+      id: "cm_existing",
+      userId: "u_1",
+      displayName: "host",
+      hostname: "host",
+      platform: "darwin",
+      arch: "arm64",
+      osRelease: "23",
+      daemonVersion: "0.1.0",
+      metadata: null,
+      availableRuntimes: [],
+      status: "online",
+      lastSeenAt: "earlier",
+      createdAt: "earlier",
+      updatedAt: "earlier",
+    };
+    let selectCount = 0;
+    let updateCount = 0;
+    let mode = "";
+    const chain: any = {};
+    chain.select = vi.fn(() => {
+      mode = "select";
+      selectCount++;
+      return chain;
+    });
+    chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => {
+      if (mode === "select" && selectCount === 3) return Promise.resolve([]);
+      return chain;
+    });
+    chain.limit = vi.fn(() => Promise.resolve(
+      selectCount === 1
+        ? [{
+            id: "cmt_x",
+            userId: "u_1",
+            machineId: machine.id,
+            status: "pending",
+            expiresAt: "9999",
+          }]
+        : [machine],
+    ));
+    chain.update = vi.fn(() => {
+      mode = "update";
+      updateCount++;
+      return chain;
+    });
+    chain.set = vi.fn(() => chain);
+    chain.returning = vi.fn(() => updateCount === 1
+      ? Promise.resolve([{ id: "cmt_x" }])
+      : { statement: "update-machine" });
+    chain.insert = vi.fn(() => {
+      mode = "insert";
+      return chain;
+    });
+    chain.values = vi.fn(() => chain);
+    chain.batch = vi.fn(async () => { throw new Error("D1 batch failed"); });
+
+    await expect(rotateEpoch(
+      chain,
+      "cmt_x",
+      { hostname: "host" },
+      { expectedMachineId: machine.id },
+    )).rejects.toThrow("D1 batch failed");
+
+    expect(chain.batch).toHaveBeenCalledOnce();
+    expect(chain.set.mock.calls.some(([value]: any[]) => value?.status === "pending")).toBe(false);
   });
 
   it("leaves the token revoked (not rolled back) when the reconnect target machine is missing", async () => {
@@ -858,7 +1074,7 @@ describe("activateMachineCredential — success paths", () => {
           },
         ]);
       }
-      if (idx === 2) return Promise.resolve([]); // upsert → missing machine
+      if (idx === 1) return Promise.resolve([]); // reconnect target missing
       return Promise.resolve([]);
     });
     chain.update = vi.fn(() => chain);
@@ -868,8 +1084,17 @@ describe("activateMachineCredential — success paths", () => {
     chain.values = vi.fn(() => chain);
 
     await expect(
-      q.activateMachineCredential(chain, "cmt_x", { hostname: "" })
-    ).rejects.toMatchObject({ name: "ActivateCredentialError", kind: "unknown" });
+      rotateEpoch(
+        chain,
+        "cmt_x",
+        { hostname: "" },
+        { expectedMachineId: "cm_bad" },
+      )
+    ).rejects.toMatchObject({
+      name: "MachineSessionRotationError",
+      kind: "unknown",
+      sessionOutcome: "unknown",
+    });
 
     const setPayloads = chain.set.mock.calls.map((c: any[]) => c[0]);
     const rolledBack = setPayloads.some((p: any) => p.status === "pending");

@@ -160,6 +160,7 @@ describe("WebSocketDurableObject", () => {
         const frame = JSON.stringify({
           type: "ready",
           runtimeReport: [{ id: "claude", version: "1.0.0" }],
+          capabilities: ["control-heartbeat-v1"],
           runningAgents: [],
           hostname: "my-mac",
           platform: "darwin",
@@ -170,7 +171,7 @@ describe("WebSocketDurableObject", () => {
         await durable.webSocketMessage(ws as any, frame)
 
         expect(mockUpsertMachineByMachineId).toHaveBeenCalledTimes(1)
-        const [, userId, machineId, meta] = mockUpsertMachineByMachineId.mock.calls[0]
+        const [, userId, machineId, meta, credentialHash] = mockUpsertMachineByMachineId.mock.calls[0]
         expect(userId).toBe("u_1")
         expect(machineId).toBe("cm_1")
         expect(meta).toMatchObject({
@@ -181,6 +182,7 @@ describe("WebSocketDurableObject", () => {
           daemonVersion: "0.1.0",
           availableRuntimes: [{ id: "claude", version: "1.0.0" }],
         })
+        expect(credentialHash).toBe("0".repeat(64))
       })
 
       it.each([
@@ -201,6 +203,21 @@ describe("WebSocketDurableObject", () => {
           userId: "u_1",
           authenticated: true,
         })
+        if (expected) {
+          mockUpsertMachineByMachineId.mockResolvedValueOnce({
+            machine: {
+              id: "cm_1",
+              hostname: "host",
+              availableRuntimes: [],
+              status: "online",
+              lastSeenAt: "now",
+            },
+            priorLastSeenAt: "before",
+            priorAvailableRuntimes: [],
+            priorDaemonVersion: "0.1.0",
+            priorStatus: "online",
+          })
+        }
 
         await durable.webSocketMessage(ws as any, JSON.stringify({
           type: "ready",
@@ -210,8 +227,14 @@ describe("WebSocketDurableObject", () => {
         }))
 
         expect(ws._attachment).toMatchObject({ controlHeartbeat: expected })
-        if (expected) expect((ws._attachment as any).lastHeartbeatAckAt).toBe(9_000_000)
-        else expect((ws._attachment as any).lastHeartbeatAckAt).toBeUndefined()
+        if (expected) {
+          expect((ws._attachment as any).lastHeartbeatAckAt).toBe(9_000_000)
+          expect(ws.close).not.toHaveBeenCalled()
+        } else {
+          expect((ws._attachment as any).lastHeartbeatAckAt).toBeUndefined()
+          expect(ws.close).toHaveBeenCalledWith(1008, "Daemon upgrade required")
+          expect(mockUpsertMachineByMachineId).not.toHaveBeenCalled()
+        }
       })
 
       it("silently drops a wrapped `{ready:{...}}` frame (legacy shape — regression guard)", async () => {
@@ -317,6 +340,7 @@ describe("WebSocketDurableObject", () => {
         const frame = JSON.stringify({
           type: "ready",
           runtimeReport: [],
+          capabilities: ["control-heartbeat-v1"],
           runningAgents: [],
         })
         await durable.webSocketMessage(ws as any, frame)
@@ -362,7 +386,12 @@ describe("WebSocketDurableObject", () => {
           authenticated: true,
         })
 
-        const frame = JSON.stringify({ type: "ready", runtimeReport: [], runningAgents: [] })
+        const frame = JSON.stringify({
+          type: "ready",
+          runtimeReport: [],
+          capabilities: ["control-heartbeat-v1"],
+          runningAgents: [],
+        })
         await durable.webSocketMessage(ws as any, frame)
 
         const activityCalls = mockStubFetch.mock.calls.filter((c: any[]) => (c[0] as Request).url.endsWith("/community-broadcast"))
@@ -483,7 +512,12 @@ describe("WebSocketDurableObject", () => {
 
         await durable.webSocketMessage(
           machineWs() as any,
-          JSON.stringify({ type: "ready", runtimeReport: [], runningAgents: [] }),
+          JSON.stringify({
+            type: "ready",
+            runtimeReport: [],
+            capabilities: ["control-heartbeat-v1"],
+            runningAgents: [],
+          }),
         )
 
         expect(mockReconcileBotActivityFromRunningAgents).not.toHaveBeenCalled()
@@ -499,7 +533,12 @@ describe("WebSocketDurableObject", () => {
 
         await durable.webSocketMessage(
           ws as any,
-          JSON.stringify({ type: "ready", runtimeReport: [], runningAgents: [] }),
+          JSON.stringify({
+            type: "ready",
+            runtimeReport: [],
+            capabilities: ["control-heartbeat-v1"],
+            runningAgents: [],
+          }),
         )
 
         expect(ws.close).not.toHaveBeenCalled()
@@ -535,6 +574,7 @@ describe("WebSocketDurableObject", () => {
         const driftFrame = JSON.stringify({
           type: "ready",
           runtimeReport: [{ id: "codex", version: "1", status: "unhealthy", lastError: "ENOENT" }],
+          capabilities: ["control-heartbeat-v1"],
           runningAgents: [],
         })
         await durable.webSocketMessage(machineWs() as any, driftFrame)
@@ -582,6 +622,7 @@ describe("WebSocketDurableObject", () => {
           JSON.stringify({
             type: "ready",
             runtimeReport: [],
+            capabilities: ["control-heartbeat-v1"],
             runningAgents: [],
             daemonVersion: "0.1.7",
           }),
