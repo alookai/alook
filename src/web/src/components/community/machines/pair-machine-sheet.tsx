@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { tid } from "@/lib/community/testids"
 import { isLocalMode, WS_DO_PORT_DEFAULT } from "@/lib/utils"
+import { websocketUrl } from "@/lib/websocket-url"
 
 // Community daemon HTTP/WS endpoints live on the same worker + ws-do as the
 // rest of the app — see use-user-ws.ts, which connects to the identical
@@ -37,8 +38,8 @@ function buildPairCommand(machineKey: string): string {
 
 function pairEndpoints(): { serverUrl: string; wsUrl: string } {
   const wsUrl = isLocal
-    ? `ws://localhost:${WS_DO_PORT_DEFAULT}`
-    : `${location.origin.replace("http", "ws")}/api/ws/community-daemon`
+    ? websocketUrl("community-daemon", { local: true, port: WS_DO_PORT_DEFAULT })
+    : websocketUrl("community-daemon", { local: false, origin: location.origin })
   return { serverUrl: location.origin, wsUrl }
 }
 

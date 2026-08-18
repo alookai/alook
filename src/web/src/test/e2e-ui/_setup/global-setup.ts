@@ -3,12 +3,14 @@ import { resolve } from "path"
 import { chromium } from "@playwright/test"
 import { AUTH_DIR, MANIFEST_PATH } from "./paths"
 import { loginAndSaveState } from "./auth"
-import { resetDb, startServices, backupState, REUSE_EXISTING } from "./services"
+import { prepareServices, resetDb, startServices, backupState, REUSE_EXISTING } from "./services"
 import { USER_KEYS, type RunManifest, type SeededUser, type UserKey } from "./users"
 
 export default async function globalSetup(): Promise<void> {
   rmSync(AUTH_DIR, { recursive: true, force: true })
   mkdirSync(AUTH_DIR, { recursive: true })
+
+  prepareServices()
 
   // Local runs: back up the developer's D1/DO state, wipe to a clean DB, and
   // restore it on teardown (see global-teardown). CI has no prior state.

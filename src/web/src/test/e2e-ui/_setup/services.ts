@@ -9,9 +9,16 @@ export interface ManagedService {
   healthUrl: string
 }
 
+export interface ServiceDefinition {
+  name: string
+  args: string[]
+  healthUrl: string
+}
+
 // Reuse a server the developer already has running (local iteration). CI
 // always starts fresh, so REUSE is off there.
 export const REUSE_EXISTING = !process.env.CI
+export const SINGLE_RUNTIME = !!process.env.CI
 
 // Local D1/DO state that `db:reset` wipes. Backing it up to a sibling path
 // (outside `.wrangler/state`, so `rm -rf .wrangler/state` can't touch it)
@@ -53,6 +60,25 @@ async function waitForHealth(url: string, name: string, timeoutMs = 90_000): Pro
     await new Promise((r) => setTimeout(r, 2000))
   }
   throw new Error(`${name} not ready after ${timeoutMs}ms (${url})`)
+}
+
+export function prepareServices(): void {
+  if (!SINGLE_RUNTIME) return
+  const res = spawnSync(
+    "pnpm",
+    ["--filter", "@alook/web", "exec", "opennextjs-cloudflare", "build"],
+    {
+      cwd: REPO_ROOT,
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        NEXT_PUBLIC_WS_DO_PORT: String(portOf(WEB_URL) ?? 3000),
+      },
+    },
+  )
+  if (res.status !== 0) {
+    throw new Error(`web worker build failed (exit ${res.status}, signal ${res.signal})`)
+  }
 }
 
 export function resetDb(): void {
@@ -103,15 +129,46 @@ function killPortOrphans(ports: number[]): void {
   }
 }
 
-function startService(name: string, filter: string, healthUrl: string): ManagedService {
-  const logFd = openSync(resolve(SERVICE_LOG_DIR, `${name}.log`), "a")
+export function serviceDefinitions(singleRuntime: boolean): ServiceDefinition[] {
+  const webHealth = `${WEB_URL}/api/health`
+  const wsHealth = `${WS_URL}/health`
+  if (!singleRuntime) {
+    return [
+      { name: "web", args: ["--filter", "@alook/web", "dev"], healthUrl: webHealth },
+      { name: "ws-do", args: ["--filter", "@alook/ws-do", "dev"], healthUrl: wsHealth },
+    ]
+  }
+
+  return [{
+    name: "web-ws-do",
+    args: [
+      "exec",
+      "wrangler",
+      "dev",
+      "-c",
+      "src/web/wrangler.toml",
+      "-c",
+      "src/ws-do/wrangler.toml",
+      "--persist-to",
+      "src/web/.wrangler/state",
+      "--port",
+      String(portOf(WEB_URL) ?? 3000),
+      "--local",
+      "--show-interactive-dev-session=false",
+    ],
+    healthUrl: webHealth,
+  }]
+}
+
+function startService(definition: ServiceDefinition): ManagedService {
+  const logFd = openSync(resolve(SERVICE_LOG_DIR, `${definition.name}.log`), "a")
   try {
-    const proc = spawn("pnpm", ["--filter", filter, "dev"], {
+    const proc = spawn("pnpm", definition.args, {
       cwd: REPO_ROOT,
       stdio: ["ignore", logFd, logFd],
       detached: true,
     })
-    return { name, proc, healthUrl }
+    return { name: definition.name, proc, healthUrl: definition.healthUrl }
   } finally {
     closeSync(logFd)
   }
@@ -152,17 +209,15 @@ export async function startServices(): Promise<ManagedService[]> {
 
   // Starting fresh — clear any orphaned dev servers on our ports first so a
   // prior crashed run doesn't leave 3000/8789 occupied (or get reused).
-  const ports = [portOf(WEB_URL), portOf(WS_URL)].filter((p): p is number => p != null)
+  const ports = (SINGLE_RUNTIME ? [portOf(WEB_URL)] : [portOf(WEB_URL), portOf(WS_URL)])
+    .filter((p): p is number => p != null)
   killPortOrphans(ports)
   // Give the OS a moment to release the sockets before we bind them.
   await new Promise((r) => setTimeout(r, 1000))
   rmSync(SERVICE_LOG_DIR, { recursive: true, force: true })
   mkdirSync(SERVICE_LOG_DIR, { recursive: true })
 
-  const services = [
-    startService("web", "@alook/web", webHealth),
-    startService("ws-do", "@alook/ws-do", wsHealth),
-  ]
+  const services = serviceDefinitions(SINGLE_RUNTIME).map(startService)
 
   await Promise.all(services.map((s) => waitForHealth(s.healthUrl, s.name)))
   await warmUpRoutes()
