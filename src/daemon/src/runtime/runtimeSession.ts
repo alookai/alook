@@ -11,9 +11,13 @@
  */
 import { EventEmitter } from "events";
 import type { ChildProcess } from "child_process";
+import {
+  AGENT_DRIVER_STOP_GRACE_MS,
+  AgentDriverLineFramer,
+  terminateAgentDriverProcessTree,
+} from "@alook/agent-driver";
 import type { Driver, LaunchContext, StdinMode } from "../types.js";
 import { busyDeliveryModeOf, supportsStdinNotificationOf } from "../types.js";
-import { killProcessTree, SESSION_STOP_GRACE_MS } from "./killTree.js";
 
 /**
  * A flattened, daemon-facing description of how a runtime behaves, derived
@@ -79,9 +83,9 @@ export interface ChildProcessRuntimeSessionOptions {
 export class ChildProcessRuntimeSession {
   readonly descriptor: RuntimeSessionDescriptor;
   private readonly events = new EventEmitter();
+  private readonly stdoutLines = new AgentDriverLineFramer();
   private process: ChildProcess | null = null;
   private started = false;
-  private stdoutBuffer = "";
   private requestedStopReason?: string;
 
   constructor(
@@ -145,7 +149,7 @@ export class ChildProcessRuntimeSession {
     this.requestedStopReason = opts?.reason;
     const pid = proc.pid;
     if (pid) {
-      await killProcessTree(pid, { graceMs: opts?.forceAfterMs ?? SESSION_STOP_GRACE_MS });
+      await terminateAgentDriverProcessTree(pid, { graceMs: opts?.forceAfterMs ?? AGENT_DRIVER_STOP_GRACE_MS });
     } else {
       proc.kill(opts?.signal ?? "SIGTERM");
     }
@@ -156,11 +160,7 @@ export class ChildProcessRuntimeSession {
     proc.stdout?.on("data", (chunk: Buffer) => {
       const chunkText = chunk.toString();
       this.events.emit("stdout", chunkText);
-      this.stdoutBuffer += chunkText;
-      const lines = this.stdoutBuffer.split("\n");
-      this.stdoutBuffer = lines.pop() || "";
-      for (const line of lines) {
-        if (!line.trim()) continue;
+      for (const line of this.stdoutLines.push(chunk)) {
         try {
           this.opts.onRawStdoutLine?.(line);
         } catch {

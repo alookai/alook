@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
-import { SESSION_STOP_GRACE_MS } from "./runtime/killTree";
+import { AGENT_DRIVER_STOP_GRACE_MS } from "@alook/agent-driver";
 
 /**
  * Structural pins for extracted constants. We assert *magnitudes*, not
@@ -21,18 +21,18 @@ function readSrc(rel: string): string {
 }
 
 describe("magic-number extractions", () => {
-  it("SESSION_STOP_GRACE_MS === 2000 (unified across manager + session stop)", () => {
-    expect(SESSION_STOP_GRACE_MS).toBe(2000);
+  it("AGENT_DRIVER_STOP_GRACE_MS === 2000 (unified across manager + session stop)", () => {
+    expect(AGENT_DRIVER_STOP_GRACE_MS).toBe(2000);
   });
 
-  it("SESSION_STOP_GRACE_MS stays strictly below the daemon's own STOP_GRACE_MS", () => {
+  it("AGENT_DRIVER_STOP_GRACE_MS stays strictly below the daemon's own STOP_GRACE_MS", () => {
     // `daemonStop` SIGKILLs the daemon after STOP_GRACE_MS; the daemon's
     // SIGTERM handler awaits per-session kills that each wait
-    // SESSION_STOP_GRACE_MS. Equal windows orphan detached agent processes.
+    // AGENT_DRIVER_STOP_GRACE_MS. Equal windows orphan detached agent processes.
     const daemonStartSrc = readSrc("cli/daemonStart.ts");
     const match = daemonStartSrc.match(/const STOP_GRACE_MS\s*=\s*(\d+)/);
     expect(match).not.toBeNull();
-    expect(SESSION_STOP_GRACE_MS).toBeLessThan(Number(match![1]));
+    expect(AGENT_DRIVER_STOP_GRACE_MS).toBeLessThan(Number(match![1]));
   });
 
   it("PROBE_TIMEOUT_MS is set to 5000 in drivers/probe.ts", () => {

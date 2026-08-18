@@ -8,12 +8,11 @@
  * writes into the workdir (OpenCode auto-reads it from cwd); the user message
  * is the trailing `-- <prompt>` positional.
  */
+import { spawnAgentDriverProcess, tryParseAgentDriverJsonLine } from "@alook/agent-driver";
 import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
 import { probeCliRuntime, resolveSpawnSpec } from "./probe.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
-import { spawnAgentProcess } from "../runtime/killTree.js";
-import { tryParseJsonLine } from "./utils.js";
 
 export class OpenCodeDriver implements Driver {
   readonly id = "opencode";
@@ -67,7 +66,7 @@ export class OpenCodeDriver implements Driver {
     // Cross-platform spawn: on Windows the opencode entry is often a `.cmd`
     // shim, which `child_process.spawn` can't exec without a shell.
     const spec = resolveSpawnSpec("opencode", args, f.command);
-    const proc = spawnAgentProcess(spec.command, spec.args, {
+    const proc = spawnAgentDriverProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
       env: spawnEnv,
       shell: spec.shell,
@@ -77,7 +76,7 @@ export class OpenCodeDriver implements Driver {
   }
 
   parseLine(line: string): ParsedEvent[] {
-    const event = tryParseJsonLine(line) as any;
+    const event = tryParseAgentDriverJsonLine(line) as any;
     if (!event) return [];
     const out: ParsedEvent[] = [];
     if (event?.sessionID && this.sessionId !== event.sessionID) {

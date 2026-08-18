@@ -49,3 +49,22 @@ Thinking, text, tool, compaction, and review events carry the prompt's stable `d
 `close()` is bounded and idempotent: concurrent or repeated callers share one cleanup operation and receive the same typed result, and any in-flight delivery settles as rejected/closed when cleanup begins. `forceAfterMs` is a duration, and every controller must provide a force-cleanup operation so a forced result always reflects an invoked hook (resource-free drivers provide an explicit no-op). The host clock exposes cancellable scheduling so graceful cleanup cannot leave a deadline timer alive. Runtime-specific process, environment, and dispose effects are supplied through a typed `AgentDriverHost`; the SDK contract does not import daemon internals.
 
 The supported runtime ids are exactly `claude`, `codex`, `cursor`, `opencode`, and `pi`. Built-in adapters will move into this package incrementally; the contract and registry do not import daemon internals.
+
+## Child-process transport
+
+The package also owns the shared transport boundary used by child-process drivers:
+
+```ts
+import {
+  AGENT_DRIVER_STOP_GRACE_MS,
+  AgentDriverLineFramer,
+  serializeAgentDriverJsonRpcRequest,
+  spawnAgentDriverProcess,
+  terminateAgentDriverProcessTree,
+  tryParseAgentDriverJsonLine,
+} from "@alook/agent-driver";
+```
+
+`spawnAgentDriverProcess` creates a detached process group on POSIX and pipes stdout/stderr. `terminateAgentDriverProcessTree` signals the process group and the direct PID with SIGTERM, then escalates to SIGKILL after `AGENT_DRIVER_STOP_GRACE_MS`.
+
+`AgentDriverLineFramer` turns arbitrary stdout byte chunks into ordered, complete, non-empty lines without corrupting split UTF-8 input. The JSON helpers parse NDJSON and serialize JSON-RPC 2.0 request envelopes.

@@ -12,8 +12,9 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    // Drivers must spawn agent CLIs through `spawnAgentProcess` (src/runtime/killTree.ts)
-    // so the detached-process-group contract killProcessTree relies on can't be
+    // Drivers must spawn agent CLIs through the public SDK's
+    // `spawnAgentDriverProcess` so the detached-process-group contract
+    // `terminateAgentDriverProcessTree` relies on can't be
     // silently skipped by a new/edited driver — see plans/fix-daemon-agent-process-kill.md.
     files: ["src/drivers/**/*.ts"],
     ignores: ["src/drivers/**/*.test.ts"],
@@ -26,7 +27,13 @@ const eslintConfig = defineConfig([
               name: "child_process",
               importNames: ["spawn"],
               message:
-                "Use spawnAgentProcess from '../runtime/killTree.js' instead — it guarantees the detached process-group contract killProcessTree relies on to actually terminate the process.",
+                "Use spawnAgentDriverProcess from '@alook/agent-driver' instead; it guarantees the detached process-group contract used for process-tree termination.",
+            },
+            {
+              name: "node:child_process",
+              importNames: ["spawn"],
+              message:
+                "Use spawnAgentDriverProcess from '@alook/agent-driver' instead; it guarantees the detached process-group contract used for process-tree termination.",
             },
           ],
         },

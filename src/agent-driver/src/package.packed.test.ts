@@ -54,6 +54,10 @@ describe("packed @alook/agent-driver", () => {
       "dist/testing.d.ts.map",
       "dist/testing.js",
       "dist/testing.js.map",
+      "dist/transport.d.ts",
+      "dist/transport.d.ts.map",
+      "dist/transport.js",
+      "dist/transport.js.map",
       "package.json",
     ]);
   }, 30_000);

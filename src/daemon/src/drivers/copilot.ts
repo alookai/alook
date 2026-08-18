@@ -5,12 +5,11 @@
  * is launched per wake; the prompt is passed as the `-p` argument (nothing is
  * written to stdin). Emits a JSON event stream and exits.
  */
+import { spawnAgentDriverProcess, tryParseAgentDriverJsonLine } from "@alook/agent-driver";
 import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
 import { probeCliRuntime, resolveSpawnSpec } from "./probe.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
-import { spawnAgentProcess } from "../runtime/killTree.js";
-import { tryParseJsonLine } from "./utils.js";
 
 export class CopilotDriver implements Driver {
   readonly id = "copilot";
@@ -61,7 +60,7 @@ export class CopilotDriver implements Driver {
     // Cross-platform spawn: on Windows the copilot entry is often a `.cmd`
     // shim, which `child_process.spawn` can't exec without a shell.
     const spec = resolveSpawnSpec("copilot", args, f.command);
-    const proc = spawnAgentProcess(spec.command, spec.args, {
+    const proc = spawnAgentDriverProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
       env: spawnEnv,
       shell: spec.shell,
@@ -70,7 +69,7 @@ export class CopilotDriver implements Driver {
   }
 
   parseLine(line: string): ParsedEvent[] {
-    const event = tryParseJsonLine(line) as any;
+    const event = tryParseAgentDriverJsonLine(line) as any;
     if (!event) return [];
     switch (event?.type) {
       case "assistant.turn_start":

@@ -7,6 +7,7 @@
  * Because mid-stream injection can collide with signed thinking blocks, busy
  * delivery is `gated` — held until a safe boundary (see runtime/apmStateMachine).
  */
+import { spawnAgentDriverProcess } from "@alook/agent-driver";
 import type { Driver, EncodeOpts, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt, DEFAULT_CLI_CONFIG } from "./cliTransport.js";
 import { buildClaudeProviderIsolationEnv } from "./claudeProviderIsolation.js";
@@ -14,7 +15,6 @@ import { buildClaudeArgs } from "./claudeLaunch.js";
 import { ClaudeEventNormalizer } from "./claudeEventNormalizer.js";
 import { probeClaude, resolveSpawnSpec, resolveClaudeCommand } from "./probe.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
-import { spawnAgentProcess } from "../runtime/killTree.js";
 
 export class ClaudeDriver implements Driver {
   readonly id = "claude";
@@ -70,7 +70,7 @@ export class ClaudeDriver implements Driver {
     const override = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command?.trim();
     const claudeCommand = override || resolveClaudeCommand() || "claude";
     const spec = resolveSpawnSpec("claude", args, claudeCommand);
-    const proc = spawnAgentProcess(spec.command, spec.args, {
+    const proc = spawnAgentDriverProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
       env: spawnEnv,
       shell: spec.shell,

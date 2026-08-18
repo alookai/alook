@@ -49,3 +49,13 @@ export type { AgentDriverSessionControllerOptions } from "./session.js";
 
 export { verifyAgentDriverSessionContract } from "./testing.js";
 export type { AgentDriverSessionContractFixture } from "./testing.js";
+
+export {
+  AGENT_DRIVER_STOP_GRACE_MS,
+  AgentDriverLineFramer,
+  serializeAgentDriverJsonRpcRequest,
+  spawnAgentDriverProcess,
+  terminateAgentDriverProcessTree,
+  tryParseAgentDriverJsonLine,
+} from "./transport.js";
+export type { AgentDriverProcessSpawnOptions } from "./transport.js";

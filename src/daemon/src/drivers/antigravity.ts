@@ -7,14 +7,21 @@
  * (not passed at launch). The prompt is written to stdin then closed.
  */
 import { randomUUID } from "crypto";
+import { spawnAgentDriverProcess } from "@alook/agent-driver";
+import type { ChildProcess } from "child_process";
 import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
 import { probeCliRuntime, resolveSpawnSpec } from "./probe.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
-import { spawnAgentProcess } from "../runtime/killTree.js";
-import { writeToStdinAndDetach } from "./utils.js";
 
 const ERROR_LINE_PATTERNS: RegExp[] = [/^error[:\s]/i, /\bfatal\b/i, /\bpanic\b/i, /unable to/i];
+
+function scheduleStdinWriteAndEnd(proc: ChildProcess, payload: string): void {
+  queueMicrotask(() => {
+    proc.stdin?.write(payload);
+    proc.stdin?.end();
+  });
+}
 
 /**
  * Wall-clock cap for a single Antigravity print run — chosen high because the
@@ -78,12 +85,12 @@ export class AntigravityDriver implements Driver {
     // shim, which `child_process.spawn` can't exec without a shell.
     const override = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command;
     const spec = resolveSpawnSpec("agy", buildAntigravityArgs(ctx), override);
-    const proc = spawnAgentProcess(spec.command, spec.args, {
+    const proc = spawnAgentDriverProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
       env: spawnEnv,
       shell: spec.shell,
     });
-    writeToStdinAndDetach(proc, ctx.prompt);
+    scheduleStdinWriteAndEnd(proc, ctx.prompt);
     return { process: proc };
   }
 

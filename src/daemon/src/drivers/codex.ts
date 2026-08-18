@@ -13,14 +13,13 @@
  * Handshake (queued on spawn): `initialize` → then `thread/start` (or
  * `thread/resume` with the prior threadId). The thread id is the session id.
  */
+import { serializeAgentDriverJsonRpcRequest, spawnAgentDriverProcess } from "@alook/agent-driver";
 import type { Driver, EncodeOpts, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
 import { CodexEventNormalizer } from "./codexEventNormalizer.js";
 import { probeCliRuntime, resolveSpawnSpec } from "./probe.js";
 import { resolveCodexHomeRootFromEnv } from "./codexHome.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
-import { spawnAgentProcess } from "../runtime/killTree.js";
-import { jsonRpcRequest } from "./utils.js";
 import { getDaemonClientInfo } from "../version.js";
 
 /** True if a resume error means the prior thread rollout is gone. */
@@ -117,7 +116,7 @@ export class CodexDriver implements Driver {
     // Cross-platform spawn: on Windows the codex entry is often a `.cmd` shim.
     const override = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command;
     const spec = resolveSpawnSpec("codex", ["app-server", "--listen", "stdio://"], override);
-    const proc = spawnAgentProcess(spec.command, spec.args, {
+    const proc = spawnAgentDriverProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
       env: spawnEnv,
       shell: spec.shell,
@@ -136,7 +135,7 @@ export class CodexDriver implements Driver {
     // that prepareCliTransport writes into the workdir, auto-read from cwd.)
     queueMicrotask(() => {
       proc.stdin?.write(
-        jsonRpcRequest(
+        serializeAgentDriverJsonRpcRequest(
           "initialize",
           { clientInfo: getDaemonClientInfo(), capabilities: { experimentalApi: true } },
           this.nextRequestId(),
@@ -162,10 +161,10 @@ export class CodexDriver implements Driver {
       if (resuming) {
         this.pendingResumeFallbackParams = freshParams;
         proc.stdin?.write(
-          jsonRpcRequest("thread/resume", { ...freshParams, threadId: ctx.config.sessionId }, this.nextRequestId()) + "\n",
+          serializeAgentDriverJsonRpcRequest("thread/resume", { ...freshParams, threadId: ctx.config.sessionId }, this.nextRequestId()) + "\n",
         );
       } else {
-        proc.stdin?.write(jsonRpcRequest("thread/start", freshParams, this.nextRequestId()) + "\n");
+        proc.stdin?.write(serializeAgentDriverJsonRpcRequest("thread/start", freshParams, this.nextRequestId()) + "\n");
       }
     });
 
@@ -206,7 +205,7 @@ export class CodexDriver implements Driver {
         // Fresh thread/start (no threadId). Keep pendingInitialPrompt so the new
         // thread's session_init delivers it. Swallow the resume error so it's
         // not surfaced as a runtime_error fault.
-        this.proc.stdin.write(jsonRpcRequest("thread/start", fallback, this.nextRequestId()) + "\n");
+        this.proc.stdin.write(serializeAgentDriverJsonRpcRequest("thread/start", fallback, this.nextRequestId()) + "\n");
         return events.filter((e) => e !== rolloutErr);
       }
     }
@@ -235,7 +234,7 @@ export class CodexDriver implements Driver {
 
   /** A `turn/start` RPC — the sole encoder for starting a fresh Codex turn. */
   private buildTurnStart(threadId: string, text: string): string {
-    return jsonRpcRequest("turn/start", { threadId, input: [{ type: "text", text }] }, this.nextRequestId());
+    return serializeAgentDriverJsonRpcRequest("turn/start", { threadId, input: [{ type: "text", text }] }, this.nextRequestId());
   }
 
   /** busy → `turn/steer` against the active turn; idle → fresh `turn/start`. */
@@ -250,7 +249,7 @@ export class CodexDriver implements Driver {
     // send an invalid steer.
     const turnId = this.eventNormalizer.currentTurnId;
     if (!turnId) return this.buildTurnStart(threadId, text);
-    return jsonRpcRequest(
+    return serializeAgentDriverJsonRpcRequest(
       "turn/steer",
       { threadId, expectedTurnId: turnId, input: [{ type: "text", text }] },
       this.nextRequestId(),

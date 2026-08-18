@@ -7,12 +7,22 @@
  * boundary. No mid-session input is possible (`encodeStdinMessage` → null), so
  * new messages mean a brand-new process and the agent polls the inbox.
  */
+import {
+  spawnAgentDriverProcess,
+  tryParseAgentDriverJsonLine,
+} from "@alook/agent-driver";
+import type { ChildProcess } from "child_process";
 import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
 import { probeCliRuntime, resolveSpawnSpec } from "./probe.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
-import { spawnAgentProcess } from "../runtime/killTree.js";
-import { tryParseJsonLine, writeToStdinAndDetach } from "./utils.js";
+
+function scheduleStdinWriteAndEnd(proc: ChildProcess, payload: string): void {
+  queueMicrotask(() => {
+    proc.stdin?.write(payload);
+    proc.stdin?.end();
+  });
+}
 
 export function buildGeminiArgs(config: LaunchConfig): string[] {
   const f = resolveLaunchFieldsOrDefault(config.runtimeConfig);
@@ -70,18 +80,18 @@ export class GeminiDriver implements Driver {
     // Cross-platform spawn: on Windows the gemini entry is often a `.cmd` shim.
     const override = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig).command;
     const spec = resolveSpawnSpec("gemini", buildGeminiArgs(ctx.config), override);
-    const proc = spawnAgentProcess(spec.command, spec.args, {
+    const proc = spawnAgentDriverProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
       env: spawnEnv,
       shell: spec.shell,
     });
     // Prompt in, then close stdin — one-shot.
-    writeToStdinAndDetach(proc, ctx.prompt);
+    scheduleStdinWriteAndEnd(proc, ctx.prompt);
     return { process: proc };
   }
 
   parseLine(line: string): ParsedEvent[] {
-    const event = tryParseJsonLine(line) as any;
+    const event = tryParseAgentDriverJsonLine(line) as any;
     if (!event) return [];
     switch (event?.type) {
       case "init":

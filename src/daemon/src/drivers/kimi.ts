@@ -8,12 +8,15 @@
  * `prompt`; thereafter idle messages are `prompt` and busy messages are `steer`.
  */
 import { randomUUID } from "crypto";
+import {
+  serializeAgentDriverJsonRpcRequest,
+  spawnAgentDriverProcess,
+  tryParseAgentDriverJsonLine,
+} from "@alook/agent-driver";
 import type { Driver, EncodeOpts, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
 import { probeCliRuntime, resolveSpawnSpec } from "./probe.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
-import { spawnAgentProcess } from "../runtime/killTree.js";
-import { jsonRpcRequest, tryParseJsonLine } from "./utils.js";
 import { getDaemonClientInfo } from "../version.js";
 
 /** Kimi `--wire` handshake protocol version. Bump when the vendor CLI does. */
@@ -72,21 +75,21 @@ export class KimiDriver implements Driver {
     // Cross-platform spawn: on Windows the kimi entry is often a `.cmd`
     // shim, which `child_process.spawn` can't exec without a shell.
     const spec = resolveSpawnSpec("kimi", args, f.command);
-    const proc = spawnAgentProcess(spec.command, spec.args, {
+    const proc = spawnAgentDriverProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
       env: spawnEnv,
       shell: spec.shell,
     });
 
     proc.stdin?.write(
-      jsonRpcRequest("initialize", {
+      serializeAgentDriverJsonRpcRequest("initialize", {
         protocol_version: KIMI_WIRE_PROTOCOL_VERSION,
         client: getDaemonClientInfo(),
         capabilities: { supports_question: false, supports_plan_mode: false },
       }) + "\n",
     );
     proc.stdin?.write(
-      jsonRpcRequest(
+      serializeAgentDriverJsonRpcRequest(
         "prompt",
         {
           user_input: isResume
@@ -101,7 +104,7 @@ export class KimiDriver implements Driver {
   }
 
   parseLine(line: string): ParsedEvent[] {
-    const msg = tryParseJsonLine(line) as any;
+    const msg = tryParseAgentDriverJsonLine(line) as any;
     if (!msg) return [];
     const out: ParsedEvent[] = [];
     if (!this.sentInit) {
@@ -156,7 +159,7 @@ export class KimiDriver implements Driver {
   /** idle → `prompt`; busy → `steer`. */
   encodeStdinMessage(text: string, _sessionId: string | null, opts?: EncodeOpts): string | null {
     const method = opts?.mode === "idle" ? "prompt" : "steer";
-    return jsonRpcRequest(method, { user_input: text });
+    return serializeAgentDriverJsonRpcRequest(method, { user_input: text });
   }
 
   buildSystemPrompt(config: LaunchConfig): string {

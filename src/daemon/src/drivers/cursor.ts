@@ -13,12 +13,11 @@
  * access, write+bash). MCP approval moved out of the CLI into config
  * (`.cursor/mcp.json` + `cursor-agent mcp login`), so it has no launch flag.
  */
+import { spawnAgentDriverProcess, tryParseAgentDriverJsonLine } from "@alook/agent-driver";
 import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
 import { probeCliRuntime, resolveSpawnSpec } from "./probe.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
-import { spawnAgentProcess } from "../runtime/killTree.js";
-import { tryParseJsonLine } from "./utils.js";
 
 export class CursorDriver implements Driver {
   readonly id = "cursor";
@@ -61,7 +60,7 @@ export class CursorDriver implements Driver {
     // Cross-platform spawn: on Windows the cursor-agent entry is often a
     // `.cmd` shim, which `child_process.spawn` can't exec without a shell.
     const spec = resolveSpawnSpec("cursor-agent", args, f.command);
-    const proc = spawnAgentProcess(spec.command, spec.args, {
+    const proc = spawnAgentDriverProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
       env: spawnEnv,
       shell: spec.shell,
@@ -74,7 +73,7 @@ export class CursorDriver implements Driver {
   }
 
   parseLine(line: string): ParsedEvent[] {
-    const event = tryParseJsonLine(line) as any;
+    const event = tryParseAgentDriverJsonLine(line) as any;
     if (!event) return [];
     if (event?.type === "system") {
       if (event.subtype === "init") {

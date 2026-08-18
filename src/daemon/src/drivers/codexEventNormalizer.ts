@@ -11,9 +11,9 @@
  *   - `thread/tokenUsage/updated`     → cumulative-session token telemetry
  *   - `account/rateLimits/updated`    → rate-limit telemetry
  */
+import { tryParseAgentDriverJsonLine } from "@alook/agent-driver";
 import type { ParsedEvent } from "../types.js";
 import { mapCodexTelemetry } from "./codexTelemetrySidecar.js";
-import { tryParseJsonLine } from "./utils.js";
 
 function normalizeFileChangeInput(item: any): { path?: string } {
   const paths: string[] = [];
@@ -84,7 +84,7 @@ export class CodexEventNormalizer {
   }
 
   normalizeLine(line: string): ParsedEvent[] {
-    const msg = tryParseJsonLine(line) as any;
+    const msg = tryParseAgentDriverJsonLine(line) as any;
     if (!msg) return [];
 
     // JSON-RPC error response.

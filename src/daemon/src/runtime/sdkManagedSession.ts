@@ -31,9 +31,9 @@
  * event instead (same path `doSpawn`'s pre-handshake `error` listener uses).
  */
 import { EventEmitter } from "events";
+import { AGENT_DRIVER_STOP_GRACE_MS } from "@alook/agent-driver";
 import type { Driver, LaunchContext, SdkDriverDeps } from "../types.js";
 import type { SdkRuntimeSession } from "./sdkRuntimeSession.js";
-import { SESSION_STOP_GRACE_MS } from "./killTree.js";
 
 type SdkCapableDriver = Driver & { createSession: NonNullable<Driver["createSession"]> };
 
@@ -120,13 +120,13 @@ export class SdkManagedSession {
    * from `AgentProcessManager`'s map and the FSM never leaves "stopping".
    *
    * BOUNDED FORCE (plans/daemon-fsm-desync.md batch S): a child process has a
-   * physical backstop — `killProcessTree` escalates to SIGKILL, which an
+   * physical backstop — `terminateAgentDriverProcessTree` escalates to SIGKILL, which an
    * unresponsive process cannot survive, so its `exit` is guaranteed. An
    * in-process SDK has no such backstop: if `inner.stop()` never settles (a
    * vendor SDK wedged mid-dispose), the `finally` below never runs and the FSM
    * is stuck `stopping` forever — the same "recovery never completes" failure
    * this whole plan attacks, one layer down. So we bound the wait: `inner.stop()`
-   * races a `forceAfterMs` deadline (default `SESSION_STOP_GRACE_MS`, matching
+   * races a `forceAfterMs` deadline (default `AGENT_DRIVER_STOP_GRACE_MS`, matching
    * the child grace the manager already passes), and whichever settles first,
    * `emitExit()` fires. This is SDK's SIGKILL-equivalent: a GUARANTEED exit.
    * On the timeout path the inner session is abandoned (best-effort `abort`) —
@@ -138,7 +138,7 @@ export class SdkManagedSession {
    */
   async stop(opts?: { reason?: string; forceAfterMs?: number }): Promise<void> {
     this.stopRequested = true;
-    const forceAfterMs = opts?.forceAfterMs ?? SESSION_STOP_GRACE_MS;
+    const forceAfterMs = opts?.forceAfterMs ?? AGENT_DRIVER_STOP_GRACE_MS;
     this.stopping = (async () => {
       try {
         if (this.starting) await this.starting.catch(() => { });

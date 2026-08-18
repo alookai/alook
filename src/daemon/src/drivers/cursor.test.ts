@@ -12,11 +12,11 @@ import { CredentialBroker } from "../credentials/credentialProxy";
 // trio was removed — passing them fails arg-parse → pre_handshake_exit).
 let lastSpawn: { command: string; args: string[]; opts: any } | null = null;
 
-vi.mock("../runtime/killTree", async () => {
-  const actual = await vi.importActual<typeof import("../runtime/killTree")>("../runtime/killTree");
+vi.mock("@alook/agent-driver", async () => {
+  const actual = await vi.importActual<typeof import("@alook/agent-driver")>("@alook/agent-driver");
   return {
     ...actual,
-    spawnAgentProcess: (command: string, args: string[], opts: any) => {
+    spawnAgentDriverProcess: (command: string, args: string[], opts: any) => {
       lastSpawn = { command, args, opts };
       const proc = new EventEmitter() as EventEmitter & { stdin: { write: ReturnType<typeof vi.fn> } };
       proc.stdin = { write: vi.fn() };

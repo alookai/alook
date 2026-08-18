@@ -8,11 +8,11 @@ import type { LaunchContext } from "../types";
 import { CredentialBroker } from "../credentials/credentialProxy";
 import { readDaemonVersion } from "../version";
 
-vi.mock("../runtime/killTree", async () => {
-  const actual = await vi.importActual<typeof import("../runtime/killTree")>("../runtime/killTree");
+vi.mock("@alook/agent-driver", async () => {
+  const actual = await vi.importActual<typeof import("@alook/agent-driver")>("@alook/agent-driver");
   return {
     ...actual,
-    spawnAgentProcess: () => {
+    spawnAgentDriverProcess: () => {
       const proc = new EventEmitter() as EventEmitter & { stdin: { write: ReturnType<typeof vi.fn> } };
       proc.stdin = { write: vi.fn() };
       return proc as never;

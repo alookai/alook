@@ -301,7 +301,7 @@ export const DEFAULT_RESET_STUCK_THRESHOLD_MS = 120_000;
  * `stopping` — waiting for a `stop`/`terminate_stalled`'s expected `exit` — before
  * the tick concludes the exit will never come and forces the agent out (force-kill
  * the orphaned process if any + a synthetic `exit` to drive onExit→respawn). MUST
- * be comfortably larger than `SESSION_STOP_GRACE_MS` (the legitimate SIGTERM→SIGKILL
+ * be comfortably larger than `AGENT_DRIVER_STOP_GRACE_MS` (the legitimate SIGTERM→SIGKILL
  * grace, 2s) so it never races an in-flight stop that's about to succeed — this is
  * a black-hole safety net, not a fast path. See plans/daemon-fsm-desync.md batch L3.
  */
@@ -742,7 +742,7 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
     // still alive). This is the ONE escape. Force the agent out via `force_exit`
     // (runtime handler best-effort-kills any tracked process, then dispatches a
     // SYNTHETIC `exit` so the FSM runs the normal onExit recovery). Threshold ≫
-    // SESSION_STOP_GRACE_MS so it never races a legitimate in-flight stop.
+    // AGENT_DRIVER_STOP_GRACE_MS so it never races a legitimate in-flight stop.
     // Storm-free: `force_exit` → onExit → enterStable clears `stoppingSince`, so
     // it can't re-fire for the same stopping episode; if the respawn wedges in
     // `stopping` again, a fresh `stoppingSince` restarts the clock and it re-

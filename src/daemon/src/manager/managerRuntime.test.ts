@@ -655,7 +655,7 @@ describe("AgentProcessManager — session race conditions", () => {
         lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
       } as Driver;
       const session = fakeSession();
-      // A dead/never-existed pid: killProcessTree self-guards (isAlive → false),
+      // A dead/never-existed pid: terminateAgentDriverProcessTree self-guards (isAlive → false),
       // so this exercises the pid-kill BRANCH without signalling a real process.
       (session as unknown as { pid: number }).pid = 2147483646;
       const mgr = new AgentProcessManager({

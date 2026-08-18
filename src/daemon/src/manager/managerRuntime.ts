@@ -11,6 +11,10 @@
  * an agent) and feeds it inbound messages via `deliver()`.
  */
 import {
+  AGENT_DRIVER_STOP_GRACE_MS,
+  terminateAgentDriverProcessTree,
+} from "@alook/agent-driver";
+import {
   reduceManager,
   createInitialManagerState,
   DEFAULT_STOPPING_STUCK_THRESHOLD_MS,
@@ -27,7 +31,6 @@ import type { Driver, LaunchContext, SdkDriverDeps } from "../types.js";
 import { busyDeliveryModeOf, supportsStdinNotificationOf } from "../types.js";
 import { resolveLaunchFieldsOrDefault, type RuntimeConfig } from "../runtimeConfig.js";
 import { createChildProcessRuntimeSession, type ChildProcessRuntimeSession } from "../runtime/runtimeSession.js";
-import { SESSION_STOP_GRACE_MS, killProcessTree } from "../runtime/killTree.js";
 import { scrubRuntimeErrorDiagnosticText } from "../runtime/errorDiagnostics.js";
 import { SdkManagedSession } from "../runtime/sdkManagedSession.js";
 import { DEFAULT_CLI_CONFIG } from "../drivers/cliTransport.js";
@@ -1029,7 +1032,7 @@ export class AgentProcessManager {
     const session = this.sessions.get(agentId);
     if (!session) return;
     this.abortCurrentTurn(agentId, "requested_stop");
-    await Promise.resolve(session.stop({ reason: "requested", forceAfterMs: SESSION_STOP_GRACE_MS }));
+    await Promise.resolve(session.stop({ reason: "requested", forceAfterMs: AGENT_DRIVER_STOP_GRACE_MS }));
     this.sessions.delete(agentId);
   }
 
@@ -1041,7 +1044,7 @@ export class AgentProcessManager {
     const entries = [...this.sessions.entries()];
     for (const [agentId] of entries) this.abortCurrentTurn(agentId, "shutdown");
     await Promise.all(entries.map(([, session]) =>
-      Promise.resolve(session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS })),
+      Promise.resolve(session.stop({ reason: "shutdown", forceAfterMs: AGENT_DRIVER_STOP_GRACE_MS })),
     ));
     this.sessions.clear();
   }
@@ -1439,7 +1442,7 @@ export class AgentProcessManager {
             abortCause: "terminate_stalled",
           });
         }
-        void Promise.resolve(session?.stop({ reason: effect.type, forceAfterMs: SESSION_STOP_GRACE_MS }));
+        void Promise.resolve(session?.stop({ reason: effect.type, forceAfterMs: AGENT_DRIVER_STOP_GRACE_MS }));
         // The stop we just issued will make the underlying process emit its
         // own `exit` shortly after — suppress that follow-up log so a single
         // termination doesn't produce two contradictory "session ended" lines.
@@ -1479,11 +1482,11 @@ export class AgentProcessManager {
         // (1) Best-effort kill the process so we don't leak an orphan, via a
         //     three-way fallback (batch F):
         //     - session handle present → stop() it (the normal path);
-        //     - handle gone but we recorded its pid at spawn → killProcessTree
+        //     - handle gone but we recorded its pid at spawn → terminateAgentDriverProcessTree
         //       the pid directly. This is the case that caused this wedge
         //       (batch G / Hypothesis A: the map entry was cleared while the OS
         //       process lived on) — now we can actually reap the orphan instead
-        //       of only warning. killProcessTree self-guards a dead/invalid pid.
+        //       of only warning. terminateAgentDriverProcessTree self-guards a dead/invalid pid.
         //     - neither (SDK in-process session: no OS pid) → genuinely
         //       unkillable, so warn (honest, not a fake kill).
         //     DIAGNOSTIC (batch G): log which branch we took + that the session
@@ -1498,7 +1501,7 @@ export class AgentProcessManager {
           });
         }
         if (session) {
-          void Promise.resolve(session.stop({ reason: effect.reason, forceAfterMs: SESSION_STOP_GRACE_MS })).catch(() => {});
+          void Promise.resolve(session.stop({ reason: effect.reason, forceAfterMs: AGENT_DRIVER_STOP_GRACE_MS })).catch(() => {});
         } else if (state?.pid != null) {
           // Orphan reap: handle gone (sessions.has === false) but pid recorded.
           this.log.warn("force_exit: session handle gone at force_exit — reaping orphan via recorded pid (batch G Hypothesis A confirmed at runtime)", {
@@ -1506,7 +1509,7 @@ export class AgentProcessManager {
             reason: effect.reason,
             pid: state.pid,
           });
-          void Promise.resolve(killProcessTree(state.pid, { graceMs: SESSION_STOP_GRACE_MS })).catch(() => {});
+          void Promise.resolve(terminateAgentDriverProcessTree(state.pid, { graceMs: AGENT_DRIVER_STOP_GRACE_MS })).catch(() => {});
         } else {
           this.log.warn("force_exit: no session handle AND no recorded pid — cannot kill (SDK in-process session or pre-spawn); possible orphan", {
             agentId: effect.agentId,
@@ -1873,7 +1876,7 @@ export class AgentProcessManager {
             scope: "handshake_timeout",
             message: `No response ${Math.round(this.opts.handshakeTimeoutMs / 1000)}s after launch — the runtime may be misconfigured (e.g. an invalid model).`,
           });
-          void Promise.resolve(session.stop({ reason: "handshake_timeout", forceAfterMs: SESSION_STOP_GRACE_MS })).catch(() => {});
+          void Promise.resolve(session.stop({ reason: "handshake_timeout", forceAfterMs: AGENT_DRIVER_STOP_GRACE_MS })).catch(() => {});
           // Drop tracking + return the FSM to idle so the next wake can retry;
           // don't wait on the `exit` event, which a wedged process may never
           // emit. Mark `torndown` so the killed process's eventual late `exit`

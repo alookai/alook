@@ -22,7 +22,7 @@ afterEach(async () => {
 });
 
 describe("packed daemon version", () => {
-  it("reports the root package version from the real dist/cli bin", { timeout: 120_000 }, async () => {
+  it("reports its version and inlines agent-driver without a runtime install", { timeout: 120_000 }, async () => {
     const root = mkdtempSync(join(tmpdir(), "alook-daemon-version-pack-"));
     tempRoots.push(root);
     execPackageManagerSync(
@@ -32,6 +32,13 @@ describe("packed daemon version", () => {
     const tarball = readdirSync(root).find((name) => name.endsWith(".tgz"));
     if (!tarball) throw new Error("daemon pack did not produce a tarball");
     await execFileAsync("tar", ["-xzf", join(root, tarball), "-C", root]);
+    const packedRoot = join(root, "package");
+    const packedManifest = JSON.parse(readFileSync(join(packedRoot, "package.json"), "utf8")) as {
+      dependencies?: Record<string, string>;
+    };
+    expect(packedManifest.dependencies).not.toHaveProperty("@alook/agent-driver");
+    expect(readFileSync(join(packedRoot, "dist", "index.js"), "utf8")).not.toContain("@alook/agent-driver");
+    expect(readFileSync(join(packedRoot, "dist", "cli", "index.js"), "utf8")).not.toContain("@alook/agent-driver");
     symlinkSync(join(packageRoot, "node_modules"), join(root, "package", "node_modules"), "junction");
 
     let activationBody: unknown;

@@ -13,8 +13,8 @@
  *
  * The `session_id` on any line keeps `currentSessionId` fresh for resume.
  */
+import { tryParseAgentDriverJsonLine } from "@alook/agent-driver";
 import type { ParsedEvent } from "../types.js";
-import { tryParseJsonLine } from "./utils.js";
 
 const API_ERROR_RE = /API Error:.*(?:Connection error|\b[45]\d{2}\b)/i;
 
@@ -26,7 +26,7 @@ export class ClaudeEventNormalizer {
   }
 
   normalizeLine(line: string): ParsedEvent[] {
-    const event = tryParseJsonLine(line) as any;
+    const event = tryParseAgentDriverJsonLine(line) as any;
     if (!event) return [];
     if (event?.session_id) this.currentSession = event.session_id;
 

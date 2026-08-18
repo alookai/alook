@@ -23,7 +23,7 @@ import {
 
 /**
  * Grace window for a daemon to exit on SIGTERM before we escalate to SIGKILL.
- * Must stay strictly above `SESSION_STOP_GRACE_MS` — the daemon's own SIGTERM
+ * Must stay strictly above `AGENT_DRIVER_STOP_GRACE_MS` — the daemon's own SIGTERM
  * handler awaits every agent session's kill (each with its own grace), so this
  * window has to contain those.
  */
