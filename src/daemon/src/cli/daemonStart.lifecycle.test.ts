@@ -41,6 +41,8 @@ describe("daemon lifecycle ownership cleanup", () => {
 
   afterEach(() => {
     delete process.env.ALOOK_DAEMON_TEST_FAIL_AFTER_ACTIVATE;
+    delete process.env.ALOOK_SERVER_URL;
+    delete process.env.ALOOK_SERVER_WS_URL;
     vi.useRealTimers();
     vi.restoreAllMocks();
     fs.rmSync(baseDir, { recursive: true, force: true });
@@ -65,6 +67,74 @@ describe("daemon lifecycle ownership cleanup", () => {
     }), { mode: 0o600 });
     return { machineId, daemonDir };
   }
+
+  it("uses production endpoints when first-pair URL overrides are absent", async () => {
+    await expect(daemonStart({
+      machineKey: "cmk_test",
+      baseDir,
+      foreground: true,
+    })).rejects.toThrow("runner init failed");
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "https://alook.ai/api/community/daemon/identity",
+      expect.any(Object),
+    );
+    expect(mockRunPreparedDaemon).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverUrl: "https://alook.ai",
+        wsUrl: "wss://alook.ai/api/ws/community-daemon",
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("prefers endpoint environment variables over production defaults", async () => {
+    process.env.ALOOK_SERVER_URL = "https://env.example";
+    process.env.ALOOK_SERVER_WS_URL = "wss://env.example/control";
+
+    await expect(daemonStart({
+      machineKey: "cmk_test",
+      baseDir,
+      foreground: true,
+    })).rejects.toThrow("runner init failed");
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "https://env.example/api/community/daemon/identity",
+      expect.any(Object),
+    );
+    expect(mockRunPreparedDaemon).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverUrl: "https://env.example",
+        wsUrl: "wss://env.example/control",
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("prefers explicit endpoint flags over environment variables", async () => {
+    process.env.ALOOK_SERVER_URL = "https://env.example";
+    process.env.ALOOK_SERVER_WS_URL = "wss://env.example/control";
+
+    await expect(daemonStart({
+      machineKey: "cmk_test",
+      serverUrl: "https://flag.example",
+      wsUrl: "wss://flag.example/control",
+      baseDir,
+      foreground: true,
+    })).rejects.toThrow("runner init failed");
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "https://flag.example/api/community/daemon/identity",
+      expect.any(Object),
+    );
+    expect(mockRunPreparedDaemon).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverUrl: "https://flag.example",
+        wsUrl: "wss://flag.example/control",
+      }),
+      expect.any(Object),
+    );
+  });
 
   it("fails exact-machine ownership before activation when replacement is already owned", async () => {
     const { machineId, daemonDir } = writeReconnectState();

@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   invoke: vi.fn(),
   isTauri: vi.fn(() => true),
+  isLocalMode: vi.fn(() => false),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
 }))
@@ -26,7 +27,7 @@ vi.mock("@/lib/api/client", () => ({
 }))
 
 vi.mock("@/lib/utils", () => ({
-  isLocalMode: () => false,
+  isLocalMode: mocks.isLocalMode,
   WS_DO_PORT_DEFAULT: 8788,
 }))
 
@@ -54,6 +55,7 @@ describe("PairMachineSheet desktop daemon integration", () => {
     vi.clearAllMocks()
     vi.stubGlobal("location", { origin: "https://alook.ai" })
     mocks.isTauri.mockReturnValue(true)
+    mocks.isLocalMode.mockReturnValue(false)
     mocks.apiFetch.mockResolvedValue({ tokenId: "cmt_generated", expiresAt: "soon" })
     mocks.invoke.mockImplementation((command: string) => {
       if (command === "daemon_runtime_capability") {
@@ -88,11 +90,15 @@ describe("PairMachineSheet desktop daemon integration", () => {
     expect(mocks.invoke.mock.calls.filter(([command]) => command === "daemon_pair")).toHaveLength(1)
     expect(mocks.toastSuccess).toHaveBeenCalledWith("This computer is connecting")
     expect(renderer.root.findByProps({ "data-testid": tid.machinePairDesktopConnect }).props.disabled).toBe(true)
-    expect(renderer.root.findByProps({ "data-testid": tid.machinePairCommand }).children.join(""))
-      .toContain("@alook/daemon")
+    const command = renderer.root.findByProps({ "data-testid": tid.machinePairCommand }).children.join("")
+    expect(command).toContain("npx --yes @alook/daemon@latest daemon start")
+    expect(command).toContain("--machine-key cmt_desktop_token")
+    expect(command).not.toContain("npm exec --yes --package=@alook/daemon@latest -- alook-daemon")
+    expect(command).not.toContain("--server-url")
+    expect(command).not.toContain("--ws-url")
   })
 
-  it("uses the explicit exact-machine reconnect command in terminal and native paths", async () => {
+  it("uses the short exact-machine reconnect command in terminal and native paths", async () => {
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
       renderer = TestRenderer.create(React.createElement(PairMachineSheet, {
@@ -108,8 +114,10 @@ describe("PairMachineSheet desktop daemon integration", () => {
     const command = renderer.root
       .findByProps({ "data-testid": tid.machinePairCommand })
       .children.join("")
-    expect(command).toContain("npm exec --yes --package=@alook/daemon@latest -- alook-daemon daemon reconnect")
+    expect(command).toContain("npx --yes @alook/daemon@latest daemon reconnect")
     expect(command).toContain("--id cm_abcdefgh --machine-key cmt_reconnect_token")
+    expect(command).not.toContain("--server-url")
+    expect(command).not.toContain("--ws-url")
 
     await act(async () => {
       await renderer.root.findByProps({ "data-testid": tid.machinePairDesktopConnect }).props.onClick()
@@ -223,7 +231,7 @@ describe("PairMachineSheet desktop daemon integration", () => {
     let renderer!: TestRenderer.ReactTestRenderer
     act(() => {
       renderer = TestRenderer.create(React.createElement(PairMachineSteps, {
-        command: "npm exec --yes --package=@alook/daemon@latest -- alook-daemon daemon start",
+        command: "npx --yes @alook/daemon@latest daemon start",
         generating: false,
         onCopy: vi.fn(),
         connectedHostname: null,
@@ -233,5 +241,26 @@ describe("PairMachineSheet desktop daemon integration", () => {
     expect(renderer.root.findByProps({ "data-testid": tid.machinePairCommand }).children.join(""))
       .toContain("@alook/daemon")
     expect(renderer.root.findAllByProps({ "data-testid": tid.machinePairDesktopConnect })).toHaveLength(0)
+  })
+
+  it("keeps explicit endpoints only for local development", async () => {
+    mocks.isLocalMode.mockReturnValue(true)
+    vi.stubGlobal("location", { origin: "http://localhost:3000" })
+
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(PairMachineSheet, {
+        open: true,
+        onOpenChange: vi.fn(),
+        pendingTokenId: "cmt_local_token",
+        setPendingTokenId: vi.fn(),
+        connectedHostname: null,
+      }))
+    })
+
+    const command = renderer.root.findByProps({ "data-testid": tid.machinePairCommand }).children.join("")
+    expect(command).toContain("pnpm daemon start --machine-key cmt_local_token")
+    expect(command).toContain("--server-url http://localhost:3000")
+    expect(command).toContain("--ws-url ws://localhost:8788/api/ws/community-daemon")
   })
 })

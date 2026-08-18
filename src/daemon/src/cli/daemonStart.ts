@@ -37,6 +37,8 @@ const RUNNER_TERM_GRACE_MS = 2_000;
 const RUNNER_KILL_GRACE_MS = 2_000;
 const MACHINE_ID_PATTERN = /^cm_[A-Za-z0-9_-]{8,64}$/;
 const LEGACY_DAEMON_ID_PATTERN = /^[a-f0-9]{12}$/;
+const DEFAULT_SERVER_URL = "https://alook.ai";
+const DEFAULT_WS_URL = "wss://alook.ai/api/ws/community-daemon";
 
 function resolveDefaultBaseDir(): string {
   const root = process.env.ALOOK_PROJECT_ROOT || path.join(homedir(), ".alook");
@@ -967,10 +969,8 @@ interface PreparedStart {
 }
 
 async function prepareDaemonStart(opts: DaemonStartOpts): Promise<PreparedStart> {
-  const serverUrl = opts.serverUrl || process.env.ALOOK_SERVER_URL;
-  const wsUrl = opts.wsUrl || process.env.ALOOK_SERVER_WS_URL;
-  if (!serverUrl) throw new Error("Server URL required — pass --server-url or set ALOOK_SERVER_URL");
-  if (!wsUrl) throw new Error("WebSocket URL required — pass --ws-url or set ALOOK_SERVER_WS_URL");
+  const serverUrl = opts.serverUrl || process.env.ALOOK_SERVER_URL || DEFAULT_SERVER_URL;
+  const wsUrl = opts.wsUrl || process.env.ALOOK_SERVER_WS_URL || DEFAULT_WS_URL;
   if (!opts.machineKey.startsWith("cmt_") && !opts.machineKey.startsWith("cmk_")) {
     throw new Error("invalid machine key format — expected `cmt_` or `cmk_`");
   }

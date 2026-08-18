@@ -20,31 +20,26 @@ import { tid } from "@/lib/community/testids"
 import { isLocalMode, WS_DO_PORT_DEFAULT } from "@/lib/utils"
 import { websocketUrl } from "@/lib/websocket-url"
 
-// Community daemon HTTP/WS endpoints live on the same worker + ws-do as the
-// rest of the app — see use-user-ws.ts, which connects to the identical
-// ws-do for the user's live WS channel. ws-do routes community-daemon
-// connections by their `Authorization: Bearer cmk_...` header, not by host
-// or path, so we reuse that exact local/origin split instead of introducing
-// a separate URL concept (or env vars) just for this sheet.
-const isLocal = isLocalMode()
-
+// Production daemons use their built-in endpoints. Local development appends
+// the browser origin and local ws-do address so the command stays on the dev stack.
 // Only ever called once `pendingTokenId` is set, which happens from a
-// client-only effect — safe to touch `location` here (never runs during SSR).
+// client-only effect — safe to touch `location` in the local branch.
 function buildPairCommand(machineKey: string, machineId?: string): string {
-  const { serverUrl, wsUrl } = pairEndpoints()
+  const isLocal = isLocalMode()
   const bin = isLocal
     ? "pnpm daemon"
-    : "npm exec --yes --package=@alook/daemon@latest -- alook-daemon daemon"
+    : "npx --yes @alook/daemon@latest daemon"
   const action = machineId
     ? `reconnect --id ${machineId} --machine-key ${machineKey}`
     : `start --machine-key ${machineKey}`
-  return `${bin} ${action} --server-url ${serverUrl} --ws-url ${wsUrl}`
+  const command = `${bin} ${action}`
+  if (!isLocal) return command
+  const { serverUrl, wsUrl } = pairEndpoints()
+  return `${command} --server-url ${serverUrl} --ws-url ${wsUrl}`
 }
 
 function pairEndpoints(): { serverUrl: string; wsUrl: string } {
-  const wsUrl = isLocal
-    ? websocketUrl("community-daemon", { local: true, port: WS_DO_PORT_DEFAULT })
-    : websocketUrl("community-daemon", { local: false, origin: location.origin })
+  const wsUrl = websocketUrl("community-daemon", { local: true, port: WS_DO_PORT_DEFAULT })
   return { serverUrl: location.origin, wsUrl }
 }
 
