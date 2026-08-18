@@ -78,6 +78,7 @@ describe("ws-do router", () => {
         "handleDaemonBroadcast",
         "handleCommunityUserBroadcast",
         "handleCommunityUsersBroadcast",
+        "handleMessageDelivery",
         "handleUserBroadcast",
         "handleUsersBroadcast",
         "handleAuditBroadcast",

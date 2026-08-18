@@ -1,5 +1,7 @@
 import {
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
+  MESSAGE_DELIVERY_BODY_MAX_BYTES,
+  MESSAGE_DELIVERY_MAX_EVENTS_PER_USER,
   COMMUNITY_USER_TARGET_PATH_PREFIX,
   decodeCommunityBrowserEvent,
   encodeCommunityBrowserEvent,
@@ -119,6 +121,41 @@ export async function readCommunityBrowserEventRequest(
   return normalizeCommunityBrowserEvent(parsed.value, parsed.byteCount)
 }
 
+export async function readCommunityBrowserEventBundleRequest(
+  request: Request,
+): Promise<
+  | { ok: true; bodies: string[]; eventCount: number }
+  | CommunityBrowserEventIngressFailure
+> {
+  const parsed = await readBoundedJsonRequest(request, MESSAGE_DELIVERY_BODY_MAX_BYTES)
+  if (!parsed.ok) return parsed
+  if (
+    typeof parsed.value !== "object"
+    || parsed.value === null
+    || Array.isArray(parsed.value)
+    || Object.keys(parsed.value).length !== 1
+    || !Object.prototype.hasOwnProperty.call(parsed.value, "events")
+  ) {
+    return { ok: false, reason: "invalid-payload", type: "unknown", byteCount: parsed.byteCount }
+  }
+  const events = (parsed.value as { events?: unknown }).events
+  if (
+    !Array.isArray(events)
+    || events.length === 0
+    || events.length > MESSAGE_DELIVERY_MAX_EVENTS_PER_USER
+  ) {
+    return { ok: false, reason: "invalid-payload", type: "unknown", byteCount: parsed.byteCount }
+  }
+  const normalized = events.map((event) => normalizeCommunityBrowserEvent(event))
+  const failure = normalized.find((event) => !event.ok)
+  if (failure && !failure.ok) return failure
+  return {
+    ok: true,
+    bodies: normalized.map((event) => (event as CommunityBrowserEventIngressSuccess).body),
+    eventCount: normalized.length,
+  }
+}
+
 export function decodeCommunityTargetPathSegment(encodedTarget: string):
   | { ok: true; target: string }
   | CommunityBrowserEventIngressFailure {
@@ -151,7 +188,7 @@ export function invalidCommunityBrowserEventResponse(
 
 export function logCommunityBrowserEventRejected(
   log: { warn: (message: string, metadata: Record<string, unknown>) => void },
-  route: "strict-single" | "strict-bulk" | "target-do" | "ws-do-producer",
+  route: "strict-single" | "strict-bulk" | "target-do" | "target-do-bundle" | "ws-do-producer",
   failure: CommunityBrowserEventIngressFailure,
   targetCount?: number,
 ) {
