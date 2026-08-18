@@ -4,6 +4,7 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
+  createMessageMenuPointAnchor,
   Message,
   shouldActivateMessageOverlays,
   shouldSuppressTouchMenuOpen,
@@ -60,6 +61,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe("Message memo comparator", () => {
@@ -128,6 +130,21 @@ describe("Message memo comparator", () => {
 })
 
 describe("Message touch action menu", () => {
+  it("creates a zero-size virtual anchor at the viewport click coordinates", () => {
+    const rect = createMessageMenuPointAnchor(123, 456).getBoundingClientRect()
+
+    expect(rect).toMatchObject({
+      x: 123,
+      y: 456,
+      top: 456,
+      right: 123,
+      bottom: 456,
+      left: 123,
+      width: 0,
+      height: 0,
+    })
+  })
+
   it("uses row taps with an invisible dropdown anchor and no persistent ellipsis", async () => {
     let renderer: TestRenderer.ReactTestRenderer | undefined
     await act(async () => {
@@ -164,6 +181,53 @@ describe("Message touch action menu", () => {
     expect(row.props.className).not.toContain("select-none")
     expect(row.props.role).toBeUndefined()
     expect(row.props.tabIndex).toBeUndefined()
+    act(() => renderer!.unmount())
+  })
+
+  it("anchors an accepted row tap to its viewport coordinates", async () => {
+    vi.stubGlobal("window", { getSelection: () => null })
+    let renderer: TestRenderer.ReactTestRenderer | undefined
+    await act(async () => {
+      renderer = TestRenderer.create(
+        makeTree({
+          m: baseMsg({ content: "long message\n".repeat(200) }),
+          hoverCapable: false,
+          onOpenThread: vi.fn(),
+          onReply: vi.fn(),
+          onCopy: vi.fn(),
+        }),
+        { createNodeMock: () => genericMock },
+      )
+    })
+
+    const row = renderer!.root.find(
+      (node) => typeof node.props.className === "string"
+        && node.props.className.includes("group relative -mx-2"),
+    )
+    await act(async () => {
+      row.props.onClick({
+        clientX: 271,
+        clientY: 603,
+        currentTarget: { contains: () => false },
+        target: { closest: () => null },
+      })
+    })
+
+    const positioner = renderer!.root.find(
+      (node) => node.props.positionMethod === "fixed" && node.props.anchor,
+    )
+    expect(positioner.props.anchor.getBoundingClientRect()).toMatchObject({
+      x: 271,
+      y: 603,
+      width: 0,
+      height: 0,
+    })
+    expect(positioner.props.collisionPadding).toBe(8)
+    expect(positioner.props.collisionAvoidance).toEqual({
+      side: "flip",
+      align: "shift",
+      fallbackAxisSide: "none",
+    })
     act(() => renderer!.unmount())
   })
 
