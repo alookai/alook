@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import * as http from "http";
 import * as fs from "fs";
+import { gzipSync } from "node:zlib";
 import {
   CredentialBroker,
   DEFAULT_CAPABILITY_RESOLVER,
@@ -20,11 +21,16 @@ interface SeenRequest {
   path?: string;
   contentLength?: string;
   transferEncoding?: string;
+  acceptEncoding?: string;
   body?: string;
 }
 
 /** A throwaway upstream that records what headers + path the proxy forwards. */
-async function startUpstream(): Promise<{ url: string; seen: SeenRequest[]; close: () => Promise<void> }> {
+async function startUpstream(response: {
+  status?: number;
+  headers?: http.OutgoingHttpHeaders;
+  body?: string | Buffer;
+} = {}): Promise<{ url: string; seen: SeenRequest[]; close: () => Promise<void> }> {
   const seen: SeenRequest[] = [];
   const server = http.createServer((req, res) => {
     const chunks: Buffer[] = [];
@@ -39,10 +45,14 @@ async function startUpstream(): Promise<{ url: string; seen: SeenRequest[]; clos
         path: req.url,
         contentLength: req.headers["content-length"],
         transferEncoding: req.headers["transfer-encoding"],
+        acceptEncoding: req.headers["accept-encoding"],
         body: Buffer.concat(chunks).toString(),
       });
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true }));
+      res.writeHead(response.status ?? 200, {
+        "content-type": "application/json",
+        ...response.headers,
+      });
+      res.end(response.body ?? JSON.stringify({ ok: true }));
     });
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
@@ -55,10 +65,10 @@ async function startUpstream(): Promise<{ url: string; seen: SeenRequest[]; clos
   };
 }
 
-async function post(url: string, voucher: string, path: string) {
+async function post(url: string, voucher: string, path: string, headers: Record<string, string> = {}) {
   const res = await fetch(`${url}${path}`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${voucher}`, "content-type": "application/json" },
+    headers: { Authorization: `Bearer ${voucher}`, "content-type": "application/json", ...headers },
     body: JSON.stringify({ hi: 1 }),
   });
   return { status: res.status, body: await res.text() };
@@ -611,10 +621,7 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     const p = await post(proxy.url, reg.voucher, "/api/community/users/me/inbox/pull");
     expect(p.status).toBe(200);
     // startUpstream() returns { ok: true } (no `messages`), so the callback
-    // still receives a call attempt — it just doesn't call the handler with
-    // a non-empty message list. What we care about is that it saw the pull
-    // path and attempted parsing (proving the guard was true here vs. false
-    // above).
+    // does not fire with a message list.
   });
 
   it("onInboxPullResponse fires for the canonical fold path users/me/inbox/pull, but NOT snapshot", async () => {
@@ -657,6 +664,210 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     // so the callback should NOT fire for a response that isn't shaped like
     // an inboxPull payload, but the response itself must still be forwarded.
     expect(seen).toEqual([]);
+  });
+
+  it("forces identity upstream for canonical inbox pull and observes a non-empty response exactly once", async () => {
+    const messages = [{ seq: "#1", channel: "/s#0001/c", sender: "@a#0001", content: { text: "hello" } }];
+    const body = JSON.stringify({ messages });
+    const upstream = await startUpstream({ body });
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const onInboxPullResponse = vi.fn();
+    const onInboxPullObservationError = vi.fn();
+    proxy = await startCredentialProxy(broker, { onInboxPullResponse, onInboxPullObservationError });
+    const reg = broker.mint("agent-1", "l", ["read"], REAL_KEY);
+
+    const response = await post(
+      proxy.url,
+      reg.voucher,
+      "/api/community/users/me/inbox/pull",
+      { "accept-encoding": "gzip, deflate" },
+    );
+
+    expect(response).toEqual({ status: 200, body });
+    expect(upstream.seen[0]?.acceptEncoding).toBe("identity");
+    expect(onInboxPullResponse).toHaveBeenCalledTimes(1);
+    expect(onInboxPullResponse).toHaveBeenCalledWith("agent-1", messages, undefined);
+    expect(onInboxPullObservationError).not.toHaveBeenCalled();
+  });
+
+  it("preserves compression negotiation for non-pull and wrong-method lookalike routes", async () => {
+    const upstream = await startUpstream({ body: JSON.stringify({ messages: [{ seq: "#1" }] }) });
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const onInboxPullResponse = vi.fn();
+    proxy = await startCredentialProxy(broker, { onInboxPullResponse });
+    const reg = broker.mint("agent-1", "l", ["read"], REAL_KEY);
+
+    await post(
+      proxy.url,
+      reg.voucher,
+      "/api/community/users/me/inbox/snapshot",
+      { "accept-encoding": "gzip, deflate" },
+    );
+    const getResponse = await fetch(`${proxy.url}/api/community/users/me/inbox/pull`, {
+      headers: {
+        authorization: `Bearer ${reg.voucher}`,
+        "accept-encoding": "deflate",
+      },
+    });
+    await getResponse.arrayBuffer();
+
+    expect(upstream.seen.map((request) => request.acceptEncoding)).toEqual(["gzip, deflate", "deflate"]);
+    expect(onInboxPullResponse).not.toHaveBeenCalled();
+  });
+
+  it("forwards an empty successful pull without observing or warning", async () => {
+    const body = JSON.stringify({ messages: [] });
+    const upstream = await startUpstream({ body });
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const onInboxPullResponse = vi.fn();
+    const onInboxPullObservationError = vi.fn();
+    proxy = await startCredentialProxy(broker, { onInboxPullResponse, onInboxPullObservationError });
+    const reg = broker.mint("agent-1", "l", ["read"], REAL_KEY);
+
+    const response = await post(proxy.url, reg.voucher, "/api/community/users/me/inbox/pull");
+
+    expect(response).toEqual({ status: 200, body });
+    expect(onInboxPullResponse).not.toHaveBeenCalled();
+    expect(onInboxPullObservationError).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: "unexpected gzip",
+      body: gzipSync(JSON.stringify({ messages: [{ seq: "#1", content: { text: "private gzip body" } }] })),
+      headers: { "content-encoding": "gzip" },
+      expectedBody: JSON.stringify({ messages: [{ seq: "#1", content: { text: "private gzip body" } }] }),
+      reason: "unexpected_content_encoding",
+      contentEncoding: "gzip",
+    },
+    {
+      name: "invalid JSON",
+      body: "private invalid json body",
+      headers: {},
+      expectedBody: "private invalid json body",
+      reason: "invalid_json",
+      contentEncoding: "identity",
+    },
+    {
+      name: "missing messages",
+      body: JSON.stringify({ secret: "private missing-shape body" }),
+      headers: {},
+      expectedBody: JSON.stringify({ secret: "private missing-shape body" }),
+      reason: "invalid_inbox_shape",
+      contentEncoding: "identity",
+    },
+    {
+      name: "non-array messages",
+      body: JSON.stringify({ messages: { secret: "private wrong-shape body" } }),
+      headers: {},
+      expectedBody: JSON.stringify({ messages: { secret: "private wrong-shape body" } }),
+      reason: "invalid_inbox_shape",
+      contentEncoding: "identity",
+    },
+  ])("forwards $name unchanged and emits one bounded observation failure", async ({
+    body,
+    headers,
+    expectedBody,
+    reason,
+    contentEncoding,
+  }) => {
+    const upstream = await startUpstream({ body, headers });
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const onInboxPullResponse = vi.fn();
+    const onInboxPullObservationError = vi.fn();
+    const runningProxy = await startCredentialProxy(broker, { onInboxPullResponse, onInboxPullObservationError });
+    const reg = broker.mint("agent-1", "l", ["read"], REAL_KEY);
+    try {
+      const response = await post(runningProxy.url, reg.voucher, "/api/community/users/me/inbox/pull");
+      expect(response).toEqual({ status: 200, body: expectedBody });
+      expect(onInboxPullResponse).not.toHaveBeenCalled();
+      expect(onInboxPullObservationError).toHaveBeenCalledTimes(1);
+      expect(onInboxPullObservationError).toHaveBeenCalledWith({
+        agentId: "agent-1",
+        reason,
+        contentEncoding,
+      });
+      const warning = JSON.stringify(onInboxPullObservationError.mock.calls);
+      expect(warning).not.toContain("private");
+      expect(warning).not.toContain(REAL_KEY);
+      expect(warning).not.toContain(reg.voucher);
+    } finally {
+      await runningProxy.close();
+      await upstream.close();
+    }
+  });
+
+  it("keeps non-2xx inbox responses transparent and outside observation", async () => {
+    const body = JSON.stringify({ error: "private upstream failure" });
+    const upstream = await startUpstream({ status: 503, body });
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const onInboxPullResponse = vi.fn();
+    const onInboxPullObservationError = vi.fn();
+    proxy = await startCredentialProxy(broker, { onInboxPullResponse, onInboxPullObservationError });
+    const reg = broker.mint("agent-1", "l", ["read"], REAL_KEY);
+
+    const response = await post(proxy.url, reg.voucher, "/api/community/users/me/inbox/pull");
+
+    expect(response).toEqual({ status: 503, body });
+    expect(onInboxPullResponse).not.toHaveBeenCalled();
+    expect(onInboxPullObservationError).not.toHaveBeenCalled();
+  });
+
+  it("keeps a successful pull transparent when the observer throws and reports only the failure class", async () => {
+    const body = JSON.stringify({ messages: [{ seq: "#1", content: { text: "private observer body" } }] });
+    const upstream = await startUpstream({ body });
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const onInboxPullObservationError = vi.fn();
+    proxy = await startCredentialProxy(broker, {
+      onInboxPullResponse: () => {
+        throw new Error("private observer exception");
+      },
+      onInboxPullObservationError,
+    });
+    const reg = broker.mint("agent-1", "l", ["read"], REAL_KEY);
+
+    const response = await post(proxy.url, reg.voucher, "/api/community/users/me/inbox/pull");
+
+    expect(response).toEqual({ status: 200, body });
+    expect(onInboxPullObservationError).toHaveBeenCalledWith({
+      agentId: "agent-1",
+      reason: "observer_failed",
+      contentEncoding: "identity",
+    });
+    expect(JSON.stringify(onInboxPullObservationError.mock.calls)).not.toContain("private");
+  });
+
+  it("keeps a successful pull transparent when observation setup throws", async () => {
+    const body = JSON.stringify({ messages: [{ seq: "#1" }] });
+    const upstream = await startUpstream({ body });
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const onInboxPullResponse = vi.fn();
+    const onInboxPullObservationError = vi.fn();
+    proxy = await startCredentialProxy(broker, {
+      onInboxPullStart: () => {
+        throw new Error("private setup exception");
+      },
+      onInboxPullResponse,
+      onInboxPullObservationError,
+    });
+    const reg = broker.mint("agent-1", "l", ["read"], REAL_KEY);
+
+    const response = await post(proxy.url, reg.voucher, "/api/community/users/me/inbox/pull");
+
+    expect(response).toEqual({ status: 200, body });
+    expect(onInboxPullResponse).toHaveBeenCalledWith("agent-1", [{ seq: "#1" }], undefined);
+    expect(onInboxPullObservationError).toHaveBeenCalledWith({
+      agentId: "agent-1",
+      reason: "observer_failed",
+      contentEncoding: "identity",
+    });
+    expect(JSON.stringify(onInboxPullObservationError.mock.calls)).not.toContain("private");
   });
 
   it("captures each inbox observation token at pull start even when responses finish out of order", async () => {

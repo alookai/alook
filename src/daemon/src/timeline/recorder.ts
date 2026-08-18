@@ -85,6 +85,7 @@ export function createTimelineRecorder(opts: TimelineRecorderOptions): TimelineR
       sessionByAgent.set(agentId, sessionId);
     },
     appendEntryForAgent(agentId, messages) {
+      if (messages.length === 0) return;
       const dir = dirFor(agentId);
       if (!prepareTimelineDirectory(dir)) return;
       appendOrMergeEntry(

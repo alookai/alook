@@ -36,6 +36,10 @@ const timelineSweepHarness = vi.hoisted(() => {
   };
 });
 
+const credentialProxyHarness = vi.hoisted(() => ({
+  onInboxPullObservationError: undefined as ((failure: Record<string, unknown>) => void) | undefined,
+}));
+
 vi.mock("../timeline/index.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../timeline/index.js")>();
   return {
@@ -44,11 +48,27 @@ vi.mock("../timeline/index.js", async (importOriginal) => {
   };
 });
 
+vi.mock("../credentials/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../credentials/index.js")>();
+  return {
+    ...actual,
+    startCredentialProxy: (
+      ...args: Parameters<typeof actual.startCredentialProxy>
+    ): ReturnType<typeof actual.startCredentialProxy> => {
+      credentialProxyHarness.onInboxPullObservationError = args[1]?.onInboxPullObservationError as
+        | ((failure: Record<string, unknown>) => void)
+        | undefined;
+      return actual.startCredentialProxy(...args);
+    },
+  };
+});
+
 const startupSweepDirs: string[] = [];
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   timelineSweepHarness.reset();
+  credentialProxyHarness.onInboxPullObservationError = undefined;
   for (const dir of startupSweepDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -517,6 +537,40 @@ describe("createDaemon", () => {
       capabilities: [],
     });
     expect(daemon.proxyUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+/);
+    await daemon.stop();
+  });
+
+  it("wires inbox observation failures to one bounded redacted daemon warning", async () => {
+    const sockets: FakeSocket[] = [];
+    const logger = stubLogger();
+    const daemon = await createDaemon({
+      machineKey: "cmk_observation_warning",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [],
+      driverFor: () => fakeDriver,
+      capabilities: [],
+      logger,
+    });
+
+    expect(credentialProxyHarness.onInboxPullObservationError).toBeTypeOf("function");
+    credentialProxyHarness.onInboxPullObservationError?.({
+      agentId: "agent-1",
+      reason: "invalid_json",
+      contentEncoding: "gzip",
+      body: "private message body",
+      authorization: "Bearer private-runner-key",
+    });
+
+    const warnings = logger.calls.warn.filter(([, message]) => message === "inbox pull timeline observation failed");
+    expect(warnings).toEqual([[
+      "root",
+      "inbox pull timeline observation failed",
+      [{ agentId: "agent-1", reason: "invalid_json", contentEncoding: "gzip" }],
+    ]]);
+    expect(JSON.stringify(warnings)).not.toContain("private");
+    expect(JSON.stringify(warnings)).not.toContain("Bearer");
     await daemon.stop();
   });
 
