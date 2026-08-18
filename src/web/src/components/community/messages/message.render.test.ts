@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   createMessageMenuPointAnchor,
   Message,
+  selectionBelongsToRow,
   shouldActivateMessageOverlays,
   shouldSuppressTouchMenuOpen,
 } from "./message"
@@ -266,6 +267,112 @@ describe("Message touch action menu", () => {
     expect(globalCss).toMatch(
       /\[data-community-message-body\]\s*\{[^}]*-webkit-touch-callout:\s*default;[^}]*user-select:\s*text;/s,
     )
+    act(() => renderer!.unmount())
+  })
+})
+
+describe("Message desktop text selection", () => {
+  const insideAnchor = {} as Node
+  const insideFocus = {} as Node
+  const outside = {} as Node
+  const rowElement = {
+    contains: (node: Node | null) => node === insideAnchor || node === insideFocus,
+  }
+
+  it("recognizes a non-collapsed selection with either endpoint inside the row", () => {
+    expect(selectionBelongsToRow({
+      isCollapsed: false,
+      anchorNode: insideAnchor,
+      focusNode: outside,
+    }, rowElement)).toBe(true)
+    expect(selectionBelongsToRow({
+      isCollapsed: false,
+      anchorNode: outside,
+      focusNode: insideFocus,
+    }, rowElement)).toBe(true)
+  })
+
+  it("rejects collapsed and outside-row selections", () => {
+    expect(selectionBelongsToRow({
+      isCollapsed: true,
+      anchorNode: insideAnchor,
+      focusNode: insideFocus,
+    }, rowElement)).toBe(false)
+    expect(selectionBelongsToRow({
+      isCollapsed: false,
+      anchorNode: outside,
+      focusNode: outside,
+    }, rowElement)).toBe(false)
+    expect(selectionBelongsToRow(null, rowElement)).toBe(false)
+  })
+
+  it("preserves the native context menu for a selection inside the row", () => {
+    vi.stubGlobal("window", {
+      getSelection: () => ({
+        isCollapsed: false,
+        anchorNode: insideAnchor,
+        focusNode: insideFocus,
+      }),
+    })
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg(),
+        onOpenThread: vi.fn(),
+        onCopy: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+
+    const row = renderer!.root.find(
+      (node) => typeof node.props.className === "string"
+        && node.props.className.includes("group relative -mx-2"),
+    )
+
+    const stopPropagation = vi.fn()
+    const preventDefault = vi.fn()
+    const preventBaseUIHandler = vi.fn()
+    act(() => row.props.onContextMenu({
+      currentTarget: rowElement,
+      stopPropagation,
+      preventDefault,
+      preventBaseUIHandler,
+    }))
+
+    expect(stopPropagation).toHaveBeenCalledOnce()
+    expect(preventDefault).not.toHaveBeenCalled()
+    expect(preventBaseUIHandler).toHaveBeenCalledOnce()
+    act(() => renderer!.unmount())
+  })
+
+  it("keeps Alook's context menu for a row with no active selection", () => {
+    vi.stubGlobal("window", { getSelection: () => null })
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg(),
+        onOpenThread: vi.fn(),
+        onCopy: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+
+    const row = renderer!.root.find(
+      (node) => typeof node.props.className === "string"
+        && node.props.className.includes("group relative -mx-2"),
+    )
+
+    const stopPropagation = vi.fn()
+    const preventDefault = vi.fn()
+    const preventBaseUIHandler = vi.fn()
+    act(() => row.props.onContextMenu({
+      currentTarget: rowElement,
+      stopPropagation,
+      preventDefault,
+      preventBaseUIHandler,
+    }))
+
+    expect(stopPropagation).not.toHaveBeenCalled()
+    expect(preventDefault).not.toHaveBeenCalled()
+    expect(preventBaseUIHandler).not.toHaveBeenCalled()
     act(() => renderer!.unmount())
   })
 })
