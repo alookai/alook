@@ -4,7 +4,6 @@ import {
   isMentionType,
   MAX_MESSAGE_CONTENT_LENGTH,
   MAX_ATTACHMENTS_PER_MESSAGE,
-  WS_EVENTS,
   PARTICIPANT_SOURCE,
   MENTION_KIND,
   createLogger,
@@ -14,9 +13,7 @@ import {
 } from "@alook/shared"
 import type { MentionType } from "@alook/shared"
 import type { Database } from "@alook/shared"
-import { broadcastToUserSafe, fanOutToChannel, resolveChannelRecipients } from "./fanout"
-import { dispatchMessageNotify } from "./notify"
-import { mapMessageForWs } from "./message-payload"
+import { dispatchCommittedMessage } from "./message-dispatcher"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
 
 const log = createLogger({ service: "community-message-handler" })
@@ -57,15 +54,6 @@ export function isChannelTarget<T extends { kind: string }>(target: T): target i
 export function isChannelTarget(kind: string): boolean
 export function isChannelTarget(target: { kind: string } | string): boolean {
   return (typeof target === "string" ? target : target.kind) === "channel"
-}
-
-// A thread enrolls participants (spoke/mention) and fires the parent
-// CHILD_CHANNEL_UPDATE via its `parentChannelId`. This narrows to the one
-// variant that carries one.
-function hasParentChannel(
-  target: MessageTarget,
-): target is Extract<MessageTarget, { kind: "thread" }> {
-  return target.kind === "thread"
 }
 
 export type IncomingMessageBody = {
@@ -135,11 +123,9 @@ type CreateMessageOk = {
   attachments: CreatedAttachment[]
   /**
    * Present ONLY when the caller passed `deferBroadcast: true`. Invoking it
-   * fires the WS side effects (MENTION_CREATE, MESSAGE_CREATE fan-out, DM peer
-   * ping / CHILD_CHANNEL_UPDATE, bot-wake enqueue) that `createCommunityMessage`
-   * would otherwise have run inline. The DM-card producers deliberately never
-   * invoke this — they persist their approval-request row first and fire their
-   * own minimal `MESSAGE_CREATE` after it commits (see plan §producer).
+   * dispatches the committed message through the same D1-rehydrated delivery
+   * plan that `createCommunityMessage` would otherwise schedule immediately.
+   * Deferred producers invoke it only after their dependent row has committed.
    */
   broadcast?: () => Promise<void>
   /**
@@ -157,8 +143,8 @@ export type CreateMessageResult = CreateMessageOk | CreateMessageError
  *
  * Handles request-body validation, message + attachment inserts, reply
  * resolution, mention extraction (channel/thread only — DMs only flag the
- * reply target), mention/reply broadcast, channel-or-DM fan-out, and the
- * parent-channel CHILD_CHANNEL_UPDATE that follows a thread reply.
+ * reply target), participant writes, and one committed dispatcher call that
+ * derives message, notification, wake, and parent projections from D1.
  *
  * Each route resolves permission/target first, then delegates here.
  */
@@ -188,11 +174,6 @@ export async function createCommunityMessage(params: {
    * cards) opt in — they never mention anyone.
    */
   skipMentions?: boolean
-  /**
-   * Skip the bot-wake enqueue that rides the `MESSAGE_CREATE` fan-out. System
-   * / card messages set this — they must not wake bots.
-   */
-  skipWake?: boolean
   /**
    * Reserve-by-id attachment path (the ONLY attachment path — human web and bot
    * both use it, route/disc step 2b). Pending attachment ids the caller has
@@ -267,7 +248,6 @@ export async function createCommunityMessage(params: {
     expectedSeq,
     messageType,
     skipMentions,
-    skipWake,
     deferBroadcast,
     suppressBroadcast,
     attachmentIds,
@@ -527,9 +507,7 @@ export async function createCommunityMessage(params: {
   // Reply target for mention broadcasts. Scoped at the query level (not a
   // post-hoc `.filter()`) so a caller can't attach a preview of a message
   // from a different DM/channel by passing its id. The payload-side reply
-  // preview is built from the same scope-checked map by `mapMessageForWs`
-  // below.
-  const replyMap = new Map<string, { id: string; authorName: string; content: string | null }>()
+  // preview is rebuilt from this same persisted relation by the dispatcher.
   const replyTargets = new Set<string>()
   // Reuse the in-scope reply target resolved at the write-validation step above
   // (`resolvedReplyMsg`) — it was fetched with the identical `getMessageInScope`
@@ -538,11 +516,6 @@ export async function createCommunityMessage(params: {
   // for a genuinely in-scope reply.
   if (!skipMentions && row.replyToId && resolvedReplyMsg) {
     // single-id path — see `dm/[id]/messages/route.ts` / `channels/[id]/messages/route.ts` for the batched N-id path
-    replyMap.set(resolvedReplyMsg.id, {
-      id: resolvedReplyMsg.id,
-      authorName: resolvedReplyMsg.authorName,
-      content: resolvedReplyMsg.content,
-    })
     if (resolvedReplyMsg.authorId && resolvedReplyMsg.authorId !== authorId) {
       replyTargets.add(resolvedReplyMsg.authorId)
     }
@@ -652,7 +625,7 @@ export async function createCommunityMessage(params: {
   // agent-inbox deliverable narrowing (the READ side, who's-participant) key on,
   // so who-enrolls and who's-read can never drift (the class of bug the agent
   // thread-inbox deadlock was). `target.kind` is the channel's stored type here
-  // (channel/thread/forum/dm). NOT folded with `hasParentChannel` below: that
+  // (channel/thread/forum/dm). NOT folded with parent-channel delivery: that
   // is a distinct STRUCTURAL fact ("has a parent channel" → railChannelId /
   // parent CHILD_CHANNEL_UPDATE tick), which merely coincides with participant-set
   // for today's types — a future type could have a parent but server reach, or
@@ -695,136 +668,14 @@ export async function createCommunityMessage(params: {
     })
   }
 
-  const messagePayload = mapMessageForWs(row, {
-    replyMap,
-    // Raw client nonce (NOT `effectiveNonce`): echoed so the sender's optimistic
-    // row reconciles in place. `undefined` when the client sent none — in which
-    // case `effectiveNonce` is the `srv:` fallback, which must not reach the wire
-    // (content fingerprint; no client optimistic row to match). `mapMessageForWs`
-    // also prefix-guards `srv:` defensively.
-    clientNonce,
-    attachments: attachments.map((a) => ({
-      id: a.id,
-      filename: a.filename,
-      url: a.url,
-      thumbnailUrl: a.thumbnailUrl,
-      contentType: a.contentType ?? undefined,
-      size: a.size ?? undefined,
-      width: a.width ?? undefined,
-      height: a.height ?? undefined,
-    })),
+  // Delivery is planned from committed D1 facts. The handler contributes only
+  // structural outcomes that cannot be safely reconstructed later.
+  const doBroadcast = (): Promise<void> => dispatchCommittedMessage(db, row.id, {
+    ...(joinedParticipantUserIds.includes(authorId)
+      ? { memberAddedUserId: authorId }
+      : {}),
+    ...(skipChildChannelUpdate ? { suppressParentProjection: true } : {}),
   })
-
-  // Wake-dispatch row (minimal-wake-queue-unread-notice plan §1/§5) — the
-  // same `row` already fetched above via `getMessage` (which now selects
-  // `seq`). Passed alongside the MESSAGE_CREATE event so
-  // `fanOutToChannel`/`fanOutToDM` can enqueue bot wakes using the SAME
-  // recipient list already resolved for the human-WS broadcast, no second
-  // membership query. Deliberately no `content`/`createdAt` — the queue
-  // payload only ever carries `{ messageId, botUserId }`. Suppressed when
-  // `skipWake` (system/card messages never wake bots).
-  const wakeMessageRow = skipWake
-    ? undefined
-    : {
-      id: row.id,
-      seq: row.seq,
-      authorId: row.authorId,
-      channelId: row.channelId,
-    }
-
-  // All WS side effects live here so `deferBroadcast` can hand them back as a
-  // thunk instead of firing them inline.
-  const doBroadcast = async (): Promise<void> => {
-    // Resolve the recipient set ONCE and share it between the unfiltered
-    // MESSAGE_CREATE fan-out (mute ≠ blindness: content always syncs) and the
-    // level-filtered notify pipeline (per-recipient MENTION_CREATE push +
-    // UNREAD_BUMP badge) — no second membership query. DMs are channels now, so
-    // both DM and channel targets flow through the same path; the notify
-    // pipeline resolves each recipient's effective level (a DM's level is
-    // self-contained, defaulting to `all`).
-    const recipients = await resolveChannelRecipients(db, target.channelId)
-
-    // If this send newly enrolled the author in a thread's notify set, send a
-    // membership event directly so their open Members drawer and sidebar
-    // participation state also refresh.
-    if (joinedParticipantUserIds.includes(authorId) && !isDmTarget(target)) {
-      void broadcastToUserSafe(authorId, {
-        type: WS_EVENTS.CHANNEL_MEMBER_ADD,
-        serverId: target.serverId,
-        channelId: target.channelId,
-        userId: authorId,
-      })
-    }
-
-    fanOutToChannel(
-      target.channelId,
-      {
-        type: WS_EVENTS.MESSAGE_CREATE,
-        channelId: target.channelId,
-        ...(isDmTarget(target)
-          ? {}
-          : {
-              serverId: target.serverId,
-              ...(hasParentChannel(target) ? { parentChannelId: target.parentChannelId } : {}),
-            }),
-        message: messagePayload,
-      },
-      {
-        excludeWakeUserId: authorId,
-        recipients,
-        wakeMessageRow,
-        mentionedUserIds: [...liveMentions, ...liveReplies],
-      },
-    ).catch(() => { })
-
-    // Level-filtered human notify legs. Author is excluded (never notifies
-    // self); mention sets are already author-excluded upstream. `nothing`
-    // recipients are dropped from push + badge — but their mention ROWS were
-    // already written above (createMentions is never level-gated).
-    dispatchMessageNotify(
-      db,
-      { authorName: row.authorName },
-      { id: row.id, channelId: row.channelId },
-      recipients.filter((id) => id !== authorId),
-      {
-        mentionedUserIds: [...liveMentions, ...liveReplies],
-        // serverId + railChannelId ride the UNREAD_BUMP so the client patches
-        // the right server tree + a parent fallback for unlisted child threads
-        // without a query — straight off the resolved `target` (DM has neither). See
-        // inbox-dot-ws-driven plan.
-        ...(isDmTarget(target)
-          ? {}
-          : {
-              serverId: target.serverId,
-              railChannelId: hasParentChannel(target)
-                ? target.parentChannelId
-                : target.channelId,
-            }),
-      },
-    ).catch(() => { })
-
-    if (!isDmTarget(target)) {
-      if (hasParentChannel(target) && !skipChildChannelUpdate) {
-        const updated = await withD1Retry(
-          () => queries.communityChannel.getChannel(db, target.channelId),
-          { route: "message-handler:child-channel-read" },
-        )
-        fanOutToChannel(
-          target.parentChannelId,
-          {
-            type: WS_EVENTS.CHILD_CHANNEL_UPDATE,
-            parentChannelId: target.parentChannelId,
-            channelId: target.channelId,
-            changes: {
-              messageCount: updated?.messageCount ?? 1,
-              lastMessageAt:
-                updated?.lastMessageAt ?? new Date().toISOString(),
-            },
-          },
-        ).catch(() => { })
-      }
-    }
-  }
 
   // Migration-backfill mode drops the real-time delivery shell entirely — the
   // structural core (row + thread + enroll + mention rows) already committed
@@ -835,6 +686,6 @@ export async function createCommunityMessage(params: {
   if (deferBroadcast) {
     return { ok: true, row, attachments, broadcast: doBroadcast }
   }
-  await doBroadcast()
+  void doBroadcast()
   return { ok: true, row, attachments }
 }

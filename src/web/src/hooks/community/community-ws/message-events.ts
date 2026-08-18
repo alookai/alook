@@ -31,6 +31,7 @@ import {
 } from "@/hooks/community/community-ws/cache"
 import { clearTypingIndicator, typingScopeKey } from "@/hooks/community/community-ws/typing"
 import type { MessageEventContext } from "@/hooks/community/community-ws/handler-context"
+import { scheduleFocusedMessageGapRepair } from "@/hooks/community/community-ws/reconnect-messages"
 
 type CommunityMessageEdited = Extract<
   CommunityWsEvent,
@@ -52,6 +53,11 @@ export function handleMessageCreate(
   if (event.channelId === sub.channelId) {
     const serverId = useCommunityStore.getState().currentServerId
     if (serverId) {
+      void scheduleFocusedMessageGapRepair(
+        queryClient,
+        { kind: "channel", scopeId: event.channelId, serverId },
+        event.message.seq,
+      )
       useMessageStreamStore.getState().dispatch(
         { kind: "channel", id: event.channelId, serverId },
         { type: "wsMessage", message: projected },
@@ -59,6 +65,11 @@ export function handleMessageCreate(
     }
   }
   if (event.channelId === sub.dmConversationId) {
+    void scheduleFocusedMessageGapRepair(
+      queryClient,
+      { kind: "dm", scopeId: event.channelId },
+      event.message.seq,
+    )
     useMessageStreamStore.getState().dispatch(
       { kind: "dm", id: event.channelId },
       { type: "wsMessage", message: projected },

@@ -142,6 +142,25 @@ describe("safeParseEmbeds via getMessage", () => {
   });
 });
 
+describe("getMessageClientNonceForDelivery", () => {
+  it("keeps optimistic correlation behind a delivery-only projection", async () => {
+    const db = createSelectMock([{ clientNonce: "client-1" }]);
+    await expect(
+      messageQueries.getMessageClientNonceForDelivery(db, "m_1"),
+    ).resolves.toBe("client-1");
+    expect(db.select).toHaveBeenCalledWith({
+      clientNonce: communityMessage.clientNonce,
+    });
+  });
+
+  it("returns null for a missing message", async () => {
+    const db = createSelectMock([]);
+    await expect(
+      messageQueries.getMessageClientNonceForDelivery(db, "missing"),
+    ).resolves.toBeNull();
+  });
+});
+
 describe("safeParseEmbeds via getMessagesByIds", () => {
   beforeEach(() => warn.mockReset());
 

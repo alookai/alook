@@ -37,6 +37,25 @@ export async function createMentions(
   return rows;
 }
 
+/**
+ * Return the persisted attention audience for one committed message.
+ *
+ * Both direct mentions and reply attention are included. Delivery planning
+ * deliberately reads this fact back from D1 instead of accepting an
+ * in-memory recipient hint from the route, so deferred dispatch and retries
+ * use the same committed source of truth.
+ */
+export async function listMessageMentionUserIds(
+  db: Database,
+  messageId: string,
+): Promise<string[]> {
+  const rows = await db
+    .select({ userId: communityMention.userId })
+    .from(communityMention)
+    .where(eq(communityMention.messageId, messageId));
+  return [...new Set(rows.map((row) => row.userId))];
+}
+
 export async function listUnreadMentions(
   db: Database,
   userId: string,

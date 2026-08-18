@@ -6,7 +6,10 @@ import {
 } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import { ApiError } from "@/lib/errors"
-import { reconcileFocusedMessageQueries } from "./reconnect-messages"
+import {
+  reconcileFocusedMessageQueries,
+  scheduleFocusedMessageGapRepair,
+} from "./reconnect-messages"
 
 const apiFetchMock = vi.hoisted(() => vi.fn())
 
@@ -82,6 +85,98 @@ beforeEach(() => {
 })
 
 describe("focused message reconnect catch-up", () => {
+  it("does not repair exact-next, duplicate, or out-of-order frames", () => {
+    const queryClient = new QueryClient()
+    const queryKey = communityKeys.channelMessages("ch_contiguous")
+    const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
+
+    expect(scheduleFocusedMessageGapRepair(
+      queryClient,
+      { kind: "channel", scopeId: "ch_contiguous", serverId: "s1" },
+      3,
+    )).toBeNull()
+    expect(scheduleFocusedMessageGapRepair(
+      queryClient,
+      { kind: "channel", scopeId: "ch_contiguous", serverId: "s1" },
+      2,
+    )).toBeNull()
+    expect(scheduleFocusedMessageGapRepair(
+      queryClient,
+      { kind: "channel", scopeId: "ch_contiguous", serverId: "s1" },
+      1,
+    )).toBeNull()
+    expect(apiFetchMock).not.toHaveBeenCalled()
+    unsubscribe()
+  })
+
+  it("coalesces simultaneous gap frames onto one focused catch-up", async () => {
+    const queryClient = new QueryClient()
+    const queryKey = communityKeys.channelMessages("ch_gap")
+    const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
+    apiFetchMock
+      .mockResolvedValueOnce({
+        messages: [{
+          id: "m_2",
+          type: "chat",
+          seq: 2,
+          createdAt: "2026-08-15T00:00:02.000Z",
+        }],
+        latestSeq: 6,
+        hasMore: false,
+      })
+      .mockResolvedValueOnce({
+        messages: [3, 4, 5, 6].map((seq) => ({
+          id: `m_${seq}`,
+          type: "chat",
+          seq,
+          createdAt: `2026-08-15T00:00:0${seq}.000Z`,
+        })),
+        latestSeq: 6,
+        hasMoreNewer: false,
+      })
+
+    const first = scheduleFocusedMessageGapRepair(
+      queryClient,
+      { kind: "channel", scopeId: "ch_gap", serverId: "s1" },
+      5,
+    )
+    const second = scheduleFocusedMessageGapRepair(
+      queryClient,
+      { kind: "channel", scopeId: "ch_gap", serverId: "s1" },
+      6,
+    )
+    expect(first).not.toBeNull()
+    expect(second).toBe(first)
+    await first
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
+    unsubscribe()
+  })
+
+  it("does not mistake a page latestSeq watermark for a locally cached row", async () => {
+    const queryClient = new QueryClient()
+    const queryKey = communityKeys.dmMessages("dm_gap")
+    const { unsubscribe } = seedActiveQuery(queryClient, queryKey)
+    queryClient.setQueryData<any>(queryKey, (current: any) => ({
+      ...current,
+      pages: current.pages.map((page: any) => ({ ...page, latestSeq: 99 })),
+    }))
+    apiFetchMock.mockResolvedValue({
+      messages: [],
+      latestSeq: 2,
+      hasMore: false,
+    })
+
+    const repair = scheduleFocusedMessageGapRepair(
+      queryClient,
+      { kind: "dm", scopeId: "dm_gap" },
+      5,
+    )
+    expect(repair).not.toBeNull()
+    await repair
+    expect(apiFetchMock).toHaveBeenCalled()
+    unsubscribe()
+  })
+
   it("keeps the painted message cache visible while reconnect reconciliation is in flight", async () => {
     const queryClient = new QueryClient()
     const queryKey = communityKeys.channelMessages("ch_visible")

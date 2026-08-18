@@ -220,8 +220,8 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
   // folded into `markReadToMessageBuilder`, which is deliberately "humans
   // only" — see its comment) because this path must write `lastReadSeq` per
   // design §4 — every author (bot or human) must have its own `lastReadSeq`
-  // stay in lockstep with its sends, or `enqueueBotWakes` sees a stale
-  // watermark. Runs as a separate await because it needs `msg.id`.
+  // stay in lockstep with its sends, or the committed-message planner sees a
+  // stale wake cursor. Runs as a separate await because it needs `msg.id`.
   await db
     .insert(communityReadState)
     .values({
@@ -832,9 +832,7 @@ export async function getMessage(db: Database, messageId: string) {
       embeds: communityMessage.embeds,
       createdAt: communityMessage.createdAt,
       channelId: communityMessage.channelId,
-      // Needed by the wake producer's `toAgentMessage(messageRow)` (plan §8) —
-      // `enqueueBotWakes` is called from `message-handler.ts` with this exact
-      // row, no separate re-fetch.
+      // Needed by committed-message delivery and agent projections.
       seq: communityMessage.seq,
       authorName: user.name,
       authorEmail: user.email,
@@ -846,6 +844,23 @@ export async function getMessage(db: Database, messageId: string) {
   const row = rows[0];
   if (!row) return null;
   return { ...row, embeds: safeParseEmbeds(row.embeds, row.id) };
+}
+
+/**
+ * Delivery-only optimistic correlation field. Kept out of the general
+ * `getMessage` projection so unrelated readers cannot accidentally expose a
+ * sender nonce; the committed-message dispatcher is the sole consumer.
+ */
+export async function getMessageClientNonceForDelivery(
+  db: Database,
+  messageId: string,
+): Promise<string | null> {
+  const rows = await db
+    .select({ clientNonce: communityMessage.clientNonce })
+    .from(communityMessage)
+    .where(eq(communityMessage.id, messageId))
+    .limit(1);
+  return rows[0]?.clientNonce ?? null;
 }
 
 /**

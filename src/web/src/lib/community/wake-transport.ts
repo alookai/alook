@@ -31,7 +31,7 @@ function parsePartialFailure(value: unknown, payloads: WakePayload[]): WakePaylo
 }
 
 /**
- * How `enqueueBotWakes` hands a batch of wake candidates off to whatever
+ * How the committed-message dispatcher hands a batch of wake candidates to
  * will actually resolve them. Exactly two implementations below — neither
  * caller (`wake-producer.ts`) ever talks to `WAKE_QUEUE`/`WAKE_WORKER`
  * directly, and neither ever re-implements "rebuild from D1, skip or

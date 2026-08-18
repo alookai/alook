@@ -112,6 +112,53 @@ describe("message delivery route", () => {
   })
 
   it.each([
+    ["throws", () => Promise.reject(new Error("DO unavailable"))],
+    ["returns invalid JSON", () => Promise.resolve(new Response("not-json"))],
+    ["returns an invalid receipt", () => Promise.resolve(Response.json({ accepted: -1 }))],
+  ])("returns only the failed target when one user DO %s", async (_label, failedResponse) => {
+    doMock.stubFetch.mockImplementation(async (request: Request) => {
+      const userId = decodeURIComponent(request.headers.get(INTERNAL_USER_TARGET_HEADER)!)
+      if (userId === "overlap") return failedResponse()
+      const body = await request.clone().json() as { events: unknown[] }
+      return Response.json({ accepted: body.events.length })
+    })
+
+    const response = await handler.fetch(new Request(
+      "http://localhost/broadcast/community/message-delivery",
+      { method: "POST", body: JSON.stringify(batch) },
+    ), env as never)
+
+    expect(response.status).toBe(207)
+    await expect(response.json()).resolves.toEqual({ failedUserIds: ["overlap"] })
+    expect(doMock.stubFetch).toHaveBeenCalledTimes(4)
+  })
+
+  it("delivers the maximum 1,000 distinct targets exactly once", async () => {
+    const userIds = Array.from({ length: 1_000 }, (_, index) => `user-${index}`)
+    doMock.stubFetch.mockImplementation(async () => Response.json({ accepted: 1 }))
+    const response = await handler.fetch(new Request(
+      "http://localhost/broadcast/community/message-delivery",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...batch,
+          contentUserIds: userIds,
+          unreadPlainUserIds: [],
+          unreadMentionUserIds: [],
+          mentionUserIds: [],
+          memberAdded: undefined,
+          parentProjection: undefined,
+          parentProjectionUserIds: undefined,
+        }),
+      },
+    ), env as never)
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ failedUserIds: [] })
+    expect(doMock.stubFetch).toHaveBeenCalledTimes(1_000)
+  })
+
+  it.each([
     ["invalid JSON", "{"],
     ["extra key", JSON.stringify({ ...batch, extra: true })],
     ["cross-scope member", JSON.stringify({ ...batch, memberAdded: { ...batch.memberAdded, channelId: "other" } })],
