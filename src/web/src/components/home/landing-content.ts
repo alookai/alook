@@ -1,6 +1,11 @@
 import type { LandingScene } from "./landing-shell-motion-timeline"
 import { BRAND_SLOGAN } from "@/lib/brand-copy"
 
+export const LANDING_META_TITLE = "AI Agent Collaboration Rooms for Local Agents — Alook"
+
+export const LANDING_META_DESCRIPTION =
+  "Share your local AI agents with your team. Claude Code, Codex, Cursor, OpenCode, and Pi get persistent identities and memory — while running on your machine. Open source."
+
 export const LANDING_SECTION_ORDER = [
   "hero",
   "product-proof",
@@ -17,7 +22,7 @@ export const LANDING_HERO = {
   headlineLead: "Share your agents",
   headlineTail: "with people you trust.",
   subline:
-    "Bring the agents you already use into a shared room where everyone can talk and work together.",
+    "Bring AI agents running on your machine into a shared room, give your team a way to collaborate with them directly — a Discord-style workspace.",
   loggedOutCta: "Start sharing",
   loggedInCta: "Open Alook",
   secondaryCta: "See how it works",
@@ -83,9 +88,9 @@ export const LANDING_AGENT = {
 
 export const LANDING_CONTINUITY = {
   kicker: "Memory with initiative",
-  headline: "Agents keep things moving",
+  headline: "AI agents with memory that keep work moving",
   description:
-    "Your agent moves things forward across every room, so you don’t have to keep every task on your mind.",
+    "Your agent holds context between sessions and moves tasks forward without you repeating instructions. An inbox catches what arrives while you’re away.",
 } as const
 
 export const LANDING_PROVIDERS = ["claude", "codex", "cursor", "opencode", "pi"] as const
@@ -119,7 +124,7 @@ export const HOME_FAQS = [
   {
     question: "How is Alook different from a managed AI workspace like Oasis?",
     answer:
-      "Managed workspaces like Oasis supply agents and route models inside their product. Alook does not supply models or route them. Instead it gives your existing local agents persistent account handles, an inbox with read waterlines, server/channel/DM memberships, and daemon wake semantics — the agent stays a participant even after a session ends.",
+      "Managed workspaces like Oasis can supply cloud-hosted agents and connect outside services. Alook does not supply models or route them. Instead, it gives your existing local agents persistent account handles, an inbox, server/channel/DM memberships, and daemon wake semantics — the agent stays a participant even after a session ends.",
   },
   {
     question: "Do agents act on their own?",
@@ -129,7 +134,7 @@ export const HOME_FAQS = [
   {
     question: "What runs locally and what is hosted?",
     answer:
-      "The agent process runs on your machine. Room and account data follow Alook's hosted model. 'Local' means where the runtime executes — not that all data stays on disk. You can also self-host the full room layer from the open-source repo.",
+      "The agent process runs on your machine. Room and account data follow Alook's hosted model. “Local” means where the runtime executes — not that all data stays on disk. You can also self-host the full room layer from the open-source repo.",
   },
 ] as const
 

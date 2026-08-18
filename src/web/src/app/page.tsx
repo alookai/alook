@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
+import {
+  LANDING_META_DESCRIPTION,
+  LANDING_META_TITLE,
+} from "@/components/home/landing-content";
 import { LandingPage } from "@/components/home/landing-page";
-import { BRAND_DESCRIPTION, BRAND_TITLE } from "@/lib/brand-copy";
 import { getSession } from "@/lib/session";
 
-const title = BRAND_TITLE;
-const description = BRAND_DESCRIPTION;
+const title = LANDING_META_TITLE;
+const description = LANDING_META_DESCRIPTION;
 const image = "/og?title=Share%20your%20agents%20with%20people%20you%20trust";
 
 export const metadata: Metadata = {

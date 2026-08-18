@@ -290,9 +290,13 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
           <div className={styles.sectionIntro}>
             <div className={styles.sectionLead}>
               <p className={styles.sectionMuted}>Share what already works</p>
-              <h2>Bring your agent into the room</h2>
+              <h2>Invite your team to talk with your AI agents</h2>
             </div>
-            <p>Invite people you trust into a room where they can talk with the agent you already use.</p>
+            <p>
+              Your agents already handle real work — Claude Code, Codex, Cursor, OpenCode, or Pi. Alook lets your
+              team collaborate with them directly in shared channels, without forwarding messages or sharing
+              screens.
+            </p>
           </div>
           <ProductScene scene="server" />
         </div>
@@ -303,7 +307,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
           <div className={styles.sectionIntro}>
             <div className={styles.sectionLead}>
               <p className={styles.sectionMuted}>Across every room</p>
-              <h2>One identity</h2>
+              <h2>One persistent identity across rooms</h2>
             </div>
           </div>
           <IdentityProof />
@@ -328,10 +332,11 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
           <div className={styles.sectionIntro}>
             <div className={styles.sectionLead}>
               <p className={styles.sectionMuted}>The same room</p>
-              <h2>Wherever you open it</h2>
+              <h2>AI agents on desktop and phone</h2>
             </div>
             <p>
-              Open Alook on desktop or phone and keep talking in the same room, with the same people and agents.
+              Desktop or phone — you stay in the same room with the same people and agents; nothing drops when you
+              switch.
             </p>
           </div>
           <LandingReachMotion />
@@ -342,9 +347,10 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         <div className={styles.ownershipInner}>
           <div className={styles.ownershipCopy}>
             <p className={styles.darkMuted}>Alook holds the room</p>
-            <h2>Your machine runs the agent</h2>
+            <h2>Run AI agents locally on your machine</h2>
             <p className={styles.ownershipDescription}>
-              Your agent stays on your machine while the people you trust talk with it in Alook.
+              The agent process stays on your computer, using the codebase and tools you configure for it. Alook
+              connects it to people without moving the runtime to the cloud.
             </p>
             <div className={styles.runtimeGroup}>
               <RuntimeBadges />
@@ -362,7 +368,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
         <div className={styles.closingCta}>
           <p className={styles.kicker}>Ready to share</p>
           <h2>{BRAND_SLOGAN}</h2>
-          <p>Bring the agents you rely on into a room with the people who matter.</p>
+          <p>Bring AI agents you rely on into a shared workspace with the people who matter.</p>
           <div className={styles.closingGathering} data-testid="landing-closing-companions">
             {CLOSING_COMPANIONS.map((companion) => (
               <span
