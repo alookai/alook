@@ -1,7 +1,7 @@
 import { WEB_URL } from "../_setup/paths"
 import { sessionCookie } from "./community-fixture"
 import type { UserKey } from "../_setup/users"
-import { isRetryableSeedStatus, seedRetryDelayMs } from "./seed-retry"
+import { isRetryableSeedStatus, retrySeedRequest, seedRetryDelayMs } from "./seed-retry"
 
 // API-driven precondition seeding for the Playwright specs. Deliberately does
 // NOT import @alook/test-utils (that barrel pulls in better-sqlite3 +
@@ -26,15 +26,9 @@ async function postRaw(key: UserKey, path: string, body?: unknown): Promise<Resp
 }
 
 async function post(key: UserKey, path: string, body?: unknown): Promise<Response> {
-  let lastStatus = 0
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await postRaw(key, path, body)
-    if (res.ok) return res
-    lastStatus = res.status
-    if (!isRetryableSeedStatus(res.status)) break
-    await new Promise((r) => setTimeout(r, seedRetryDelayMs(res)))
-  }
-  throw new Error(`POST ${path} failed (${lastStatus})`)
+  const response = await retrySeedRequest(() => postRaw(key, path, body))
+  if (response.ok) return response
+  throw new Error(`POST ${path} failed (${response.status})`)
 }
 
 export async function seedServer(owner: UserKey, name: string): Promise<string> {

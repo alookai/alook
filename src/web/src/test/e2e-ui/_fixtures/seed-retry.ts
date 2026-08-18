@@ -13,3 +13,18 @@ export function seedRetryDelayMs(response: Pick<Response, "status" | "headers">)
     ? DEFAULT_RETRY_DELAY_MS
     : retryAfterSeconds * 1000
 }
+
+export async function retrySeedRequest(
+  request: () => Promise<Response>,
+  wait: (delayMs: number) => Promise<void> = (delayMs) => (
+    new Promise((resolve) => setTimeout(resolve, delayMs))
+  ),
+): Promise<Response> {
+  let response: Response | undefined
+  for (let attempt = 0; attempt < 3; attempt++) {
+    response = await request()
+    if (response.ok || !isRetryableSeedStatus(response.status)) return response
+    if (attempt < 2) await wait(seedRetryDelayMs(response))
+  }
+  return response!
+}
