@@ -22,27 +22,44 @@ interface PackageManifest {
   exports?: unknown;
 }
 
-function pnpmCliPath(npmExecPath: string | undefined): string {
-  const candidate = npmExecPath?.trim();
-  const filename = candidate?.replaceAll("\\", "/").split("/").at(-1)?.toLowerCase();
-  if (!candidate || !filename || !["pnpm", "pnpm.cjs", "pnpm.js", "pnpm.mjs"].includes(filename)) {
-    throw new Error(
-      `npm_execpath must point to the pnpm CLI for package tests; received ${candidate ? JSON.stringify(candidate) : "no value"}`,
-    );
-  }
-  return candidate;
+interface PnpmCommand {
+  file: string;
+  args: string[];
+  shell?: true;
+}
+
+function isPnpmJsCliPath(candidate: string): boolean {
+  const filename = candidate.replaceAll("\\", "/").split("/").at(-1)?.toLowerCase();
+  return Boolean(filename && ["pnpm.cjs", "pnpm.js", "pnpm.mjs"].includes(filename));
+}
+
+function resolvePnpmCommand(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+  nodeExecutable = process.execPath,
+): PnpmCommand {
+  const npmExecPath = env.npm_execpath?.trim();
+  if (npmExecPath && isPnpmJsCliPath(npmExecPath)) return { file: nodeExecutable, args: [npmExecPath] };
+  return platform === "win32" ? { file: "pnpm", args: [], shell: true } : { file: "pnpm", args: [] };
 }
 
 describe("packed @alook/agent-driver", () => {
-  it("accepts pnpm JavaScript entrypoints across path separators", () => {
-    expect(pnpmCliPath("/tools/pnpm")).toBe("/tools/pnpm");
-    expect(pnpmCliPath("/tools/pnpm.cjs")).toBe("/tools/pnpm.cjs");
-    expect(pnpmCliPath("C:\\tools\\pnpm.js")).toBe("C:\\tools\\pnpm.js");
+  it("runs a validated pnpm JavaScript entrypoint through Node", () => {
+    expect(resolvePnpmCommand({ npm_execpath: "C:\\tools\\pnpm.cjs" }, "win32", "C:\\node.exe"))
+      .toEqual({ file: "C:\\node.exe", args: ["C:\\tools\\pnpm.cjs"] });
   });
 
-  it("fails loudly when npm_execpath is missing or points to npm", () => {
-    expect(() => pnpmCliPath(undefined)).toThrowError(/received no value/);
-    expect(() => pnpmCliPath("/tools/npm/bin/npm-cli.js")).toThrowError(/received "\/tools\/npm\/bin\/npm-cli\.js"/);
+  it("falls back to pnpm when npm_execpath is missing or points to npm", () => {
+    expect(resolvePnpmCommand({}, "linux", "/node")).toEqual({ file: "pnpm", args: [] });
+    expect(resolvePnpmCommand({ npm_execpath: "/tools/npm/bin/npm-cli.js" }, "linux", "/node"))
+      .toEqual({ file: "pnpm", args: [] });
+    expect(resolvePnpmCommand({ npm_execpath: "/tools/pnpm" }, "linux", "/node"))
+      .toEqual({ file: "pnpm", args: [] });
+  });
+
+  it("uses shell lookup for the Windows pnpm launcher fallback", () => {
+    expect(resolvePnpmCommand({}, "win32", "C:\\node.exe"))
+      .toEqual({ file: "pnpm", args: [], shell: true });
   });
 
   it("resolves fresh workspace consumers from source without a prebuilt dist", () => {
@@ -72,12 +89,14 @@ describe("packed @alook/agent-driver", () => {
     const packageVersion = (JSON.parse(readFileSync(`${packageRoot}package.json`, "utf8")) as { version: string }).version;
     const packDirectory = mkdtempSync(join(tmpdir(), "alook-agent-driver-pack-"));
     try {
+      const pnpm = resolvePnpmCommand(process.env);
       const output = execFileSync(
-        process.execPath,
-        [pnpmCliPath(process.env.npm_execpath), "pack", "--json", "--pack-destination", packDirectory],
+        pnpm.file,
+        [...pnpm.args, "pack", "--json", "--pack-destination", packDirectory],
         {
           cwd: packageRoot,
           encoding: "utf8",
+          shell: pnpm.shell,
         },
       );
       const result = JSON.parse(output.slice(output.indexOf("{"))) as PackResult;

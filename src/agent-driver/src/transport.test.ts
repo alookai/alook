@@ -158,8 +158,11 @@ describe("terminateAgentDriverProcessTree", () => {
     const terminations = processes.map((proc, index) =>
       terminateAgentDriverProcessTree(proc.pid!, { graceMs: invalidGraceValues[index] }),
     );
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    for (const proc of processes) expect(isAgentDriverProcessAlive(proc.pid!)).toBe(true);
+    // Windows signals force termination, so only POSIX can expose the grace window.
+    if (process.platform !== "win32") {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      for (const proc of processes) expect(isAgentDriverProcessAlive(proc.pid!)).toBe(true);
+    }
 
     await Promise.all(terminations);
     await Promise.all(processes.map((proc) => waitForProcessToExit(proc.pid!)));
