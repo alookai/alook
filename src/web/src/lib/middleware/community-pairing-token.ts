@@ -4,6 +4,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 interface CommunityPairingTokenContext {
   env: Env
   rawTokenId: string
+  waitUntil?: (promise: Promise<unknown>) => void
 }
 
 export type CommunityPairingTokenAuthenticatedHandler = (
@@ -41,12 +42,13 @@ export function withCommunityPairingToken(handler: CommunityPairingTokenAuthenti
       return NextResponse.json({ error: "invalid pairing token" }, { status: 401 })
     }
 
-    const { env } = await getCloudflareContext({ async: true })
+    const { env, ctx } = await getCloudflareContext({ async: true })
     const cloudflareEnv = env as Env
 
     return handler(req, {
       env: cloudflareEnv,
       rawTokenId,
+      waitUntil: ctx ? ctx.waitUntil.bind(ctx) : undefined,
       params: resolvedParams,
     })
   }

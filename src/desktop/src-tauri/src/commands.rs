@@ -82,8 +82,14 @@ fn daemon_config_for(is_debug: bool) -> DaemonConfig {
         }
     } else {
         DaemonConfig {
-            command: "npx",
-            base_args: &["--yes", "@alook/daemon"],
+            command: "npm",
+            base_args: &[
+                "exec",
+                "--yes",
+                "--package=@alook/daemon@latest",
+                "--",
+                "alook-daemon",
+            ],
             cwd: None,
         }
     }
@@ -91,7 +97,7 @@ fn daemon_config_for(is_debug: bool) -> DaemonConfig {
 
 #[cfg(desktop)]
 fn executable_for_platform(command: &str, is_windows: bool) -> String {
-    if is_windows && matches!(command, "npm" | "npx" | "pnpm") {
+    if is_windows && matches!(command, "npm" | "pnpm") {
         format!("{command}.cmd")
     } else {
         command.to_string()
@@ -225,8 +231,7 @@ async fn resolve_path() -> String {
 #[cfg(desktop)]
 async fn run_daemon(extra_args: &[String]) -> Result<DaemonOutput, String> {
     let cfg = daemon_config();
-    let mut args: Vec<String> = cfg.base_args.iter().map(|arg| (*arg).to_string()).collect();
-    args.extend_from_slice(extra_args);
+    let args = daemon_argv(&cfg, extra_args);
 
     let mut command = Command::new(executable(cfg.command));
     command.env("PATH", resolve_path().await);
@@ -240,6 +245,15 @@ async fn run_daemon(extra_args: &[String]) -> Result<DaemonOutput, String> {
         "The daemon didn't start within 60 seconds. Check your network and try again.".to_string(),
     )
     .await
+}
+
+#[cfg(desktop)]
+fn daemon_argv(cfg: &DaemonConfig, extra_args: &[String]) -> Vec<String> {
+    cfg.base_args
+        .iter()
+        .map(|arg| (*arg).to_string())
+        .chain(extra_args.iter().cloned())
+        .collect()
 }
 
 #[cfg(desktop)]
@@ -257,28 +271,57 @@ fn valid_machine_key(machine_key: &str) -> bool {
 }
 
 #[cfg(desktop)]
-fn daemon_pair_args(machine_key: &str, is_debug: bool) -> Result<Vec<String>, String> {
+fn valid_machine_id(machine_id: &str) -> bool {
+    let Some(value) = machine_id.strip_prefix("cm_") else {
+        return false;
+    };
+    (8..=64).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+}
+
+#[cfg(desktop)]
+fn daemon_pair_args(
+    machine_key: &str,
+    machine_id: Option<&str>,
+    is_debug: bool,
+) -> Result<Vec<String>, String> {
     if !valid_machine_key(machine_key) {
         return Err("invalid Community machine key".to_string());
     }
+    if let Some(machine_id) = machine_id {
+        if !machine_key.starts_with("cmt_") || !valid_machine_id(machine_id) {
+            return Err("invalid Community reconnect identity".to_string());
+        }
+    }
     let (server_url, ws_url) = daemon_endpoints_for(is_debug);
-    Ok(vec![
+    let mut args = vec![
         "daemon".to_string(),
-        "start".to_string(),
+        if machine_id.is_some() {
+            "reconnect".to_string()
+        } else {
+            "start".to_string()
+        },
+    ];
+    if let Some(machine_id) = machine_id {
+        args.extend(["--id".to_string(), machine_id.to_string()]);
+    }
+    args.extend([
         "--machine-key".to_string(),
         machine_key.to_string(),
         "--server-url".to_string(),
         server_url.to_string(),
         "--ws-url".to_string(),
         ws_url.to_string(),
-    ])
+    ]);
+    Ok(args)
 }
 
 #[cfg(desktop)]
 fn evaluate_runtime_capability(
     node: Result<String, String>,
     npm: Result<String, String>,
-    npx: Result<String, String>,
 ) -> DaemonRuntimeCapability {
     let node_output = match node {
         Ok(output) => output,
@@ -290,16 +333,14 @@ fn evaluate_runtime_capability(
             };
         }
     };
-    for result in [npm, npx] {
-        if let Err(reason) = result {
-            return DaemonRuntimeCapability {
-                available: false,
-                reason: Some(format!(
-                    "Node.js is available, but {reason}. Install npm with Node.js and try again."
-                )),
-                node_version: (!node_output.is_empty()).then_some(node_output),
-            };
-        }
+    if let Err(reason) = npm {
+        return DaemonRuntimeCapability {
+            available: false,
+            reason: Some(format!(
+                "Node.js is available, but {reason}. Install npm with Node.js and try again."
+            )),
+            node_version: (!node_output.is_empty()).then_some(node_output),
+        };
     }
     DaemonRuntimeCapability {
         available: true,
@@ -466,18 +507,20 @@ pub fn close_splashscreen(app: AppHandle) {
 #[tauri::command]
 pub async fn daemon_runtime_capability() -> DaemonRuntimeCapability {
     let path = resolve_path().await;
-    let (node, npm, npx) = tokio::join!(
+    let (node, npm) = tokio::join!(
         probe_runtime_command("node", path.clone()),
-        probe_runtime_command("npm", path.clone()),
-        probe_runtime_command("npx", path),
+        probe_runtime_command("npm", path),
     );
-    evaluate_runtime_capability(node, npm, npx)
+    evaluate_runtime_capability(node, npm)
 }
 
 #[cfg(desktop)]
 #[tauri::command]
-pub async fn daemon_pair(machine_key: String) -> Result<CommandResult, String> {
-    let args = daemon_pair_args(&machine_key, cfg!(debug_assertions))?;
+pub async fn daemon_pair(
+    machine_key: String,
+    machine_id: Option<String>,
+) -> Result<CommandResult, String> {
+    let args = daemon_pair_args(&machine_key, machine_id.as_deref(), cfg!(debug_assertions))?;
     let output = run_daemon(&args).await?;
     if output.success {
         Ok(CommandResult {
@@ -832,30 +875,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn runtime_capability_requires_node_npm_and_npx() {
+    fn runtime_capability_requires_node_and_npm() {
         let ok = || Ok("10.9.3".to_string());
-        let old = evaluate_runtime_capability(Ok("v16.0.0".to_string()), ok(), ok());
+        let old = evaluate_runtime_capability(Ok("v16.0.0".to_string()), ok());
         assert!(old.available);
         assert_eq!(old.node_version.as_deref(), Some("v16.0.0"));
 
-        let unrecognized = evaluate_runtime_capability(Ok("not-a-version".to_string()), ok(), ok());
+        let unrecognized = evaluate_runtime_capability(Ok("not-a-version".to_string()), ok());
         assert!(unrecognized.available);
 
         let missing_npm = evaluate_runtime_capability(
             Ok("v22.0.0".to_string()),
             Err("npm was not found".to_string()),
-            ok(),
         );
         assert!(!missing_npm.available);
         assert!(missing_npm.reason.unwrap().contains("npm was not found"));
-
-        let missing_npx = evaluate_runtime_capability(
-            Ok("v22.0.0".to_string()),
-            ok(),
-            Err("npx was not found".to_string()),
-        );
-        assert!(!missing_npx.available);
-        assert!(missing_npx.reason.unwrap().contains("npx was not found"));
     }
 
     #[test]
@@ -882,18 +916,53 @@ mod tests {
         assert!(debug.cwd.is_some());
 
         let release = daemon_config_for(false);
-        assert_eq!(release.command, "npx");
-        assert_eq!(release.base_args, &["--yes", "@alook/daemon"]);
+        assert_eq!(release.command, "npm");
+        assert_eq!(
+            release.base_args,
+            &[
+                "exec",
+                "--yes",
+                "--package=@alook/daemon@latest",
+                "--",
+                "alook-daemon",
+            ]
+        );
         assert!(release.cwd.is_none());
+    }
+
+    #[test]
+    fn release_pairing_uses_the_exact_published_bin_argv() {
+        let key = "cmt_abcdefghijklmnopqrstuvwxyz012345";
+        let extra = daemon_pair_args(key, Some("cm_abcdefgh"), false).unwrap();
+        let cfg = daemon_config_for(false);
+        assert_eq!(
+            daemon_argv(&cfg, &extra),
+            vec![
+                "exec",
+                "--yes",
+                "--package=@alook/daemon@latest",
+                "--",
+                "alook-daemon",
+                "daemon",
+                "reconnect",
+                "--id",
+                "cm_abcdefgh",
+                "--machine-key",
+                key,
+                "--server-url",
+                "https://alook.ai",
+                "--ws-url",
+                "wss://alook.ai/api/ws/community-daemon",
+            ]
+        );
     }
 
     #[test]
     fn windows_uses_command_shims_for_node_package_tools() {
         assert_eq!(executable_for_platform("node", true), "node");
         assert_eq!(executable_for_platform("npm", true), "npm.cmd");
-        assert_eq!(executable_for_platform("npx", true), "npx.cmd");
         assert_eq!(executable_for_platform("pnpm", true), "pnpm.cmd");
-        assert_eq!(executable_for_platform("npx", false), "npx");
+        assert_eq!(executable_for_platform("npm", false), "npm");
     }
 
     #[test]
@@ -914,7 +983,7 @@ mod tests {
             "cmt_abcdefghijklmnopqrstuvwxyz012345",
             "cmk_abcDEF0123456789_-abcdefghijklmn",
         ] {
-            let args = daemon_pair_args(key, false).unwrap();
+            let args = daemon_pair_args(key, None, false).unwrap();
             assert_eq!(
                 args,
                 vec![
@@ -937,13 +1006,37 @@ mod tests {
             "cm_machine_1234",
             "--server-url=https://example.com",
         ] {
-            assert!(daemon_pair_args(invalid, false).is_err());
+            assert!(daemon_pair_args(invalid, None, false).is_err());
         }
     }
 
     #[test]
+    fn reconnect_builds_exact_machine_arguments_and_rejects_invalid_ids() {
+        let key = "cmt_abcdefghijklmnopqrstuvwxyz012345";
+        let args = daemon_pair_args(key, Some("cm_abcdefgh"), false).unwrap();
+        assert_eq!(
+            &args[..6],
+            [
+                "daemon",
+                "reconnect",
+                "--id",
+                "cm_abcdefgh",
+                "--machine-key",
+                key,
+            ]
+        );
+        assert!(daemon_pair_args(key, Some("bad"), false).is_err());
+        assert!(daemon_pair_args(
+            "cmk_abcDEF0123456789_-abcdefghijklmn",
+            Some("cm_abcdefgh"),
+            false,
+        )
+        .is_err());
+    }
+
+    #[test]
     fn development_pairing_uses_only_fixed_local_endpoints() {
-        let args = daemon_pair_args("cmt_abcdefghijklmnopqrstuvwxyz012345", true).unwrap();
+        let args = daemon_pair_args("cmt_abcdefghijklmnopqrstuvwxyz012345", None, true).unwrap();
         assert_eq!(args[5], "http://localhost:3000");
         assert_eq!(args[7], "ws://localhost:8789");
         assert_eq!(args.len(), 8);

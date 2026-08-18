@@ -21,7 +21,7 @@ import { pathToFileURL } from "node:url";
 import type { ServerApi, Cursor, Message, AckFailure } from "../server/contract.js";
 import { parseRef } from "../server/contract.js";
 import { proxyServerApiFromEnv } from "./proxyServerApi.js";
-import { daemonResume, daemonRunFromIpc, daemonStart, daemonStartById, daemonStop, daemonList, daemonStatus, type DaemonInfo } from "./daemonStart.js";
+import { daemonReconnect, daemonResume, daemonRunFromIpc, daemonStart, daemonStartById, daemonStop, daemonList, daemonStatus, type DaemonInfo } from "./daemonStart.js";
 import { daemonReplace } from "./daemonUpdate.js";
 import { armMessageReminderFromEnv, parseRemindAfter } from "./messageReminderClient.js";
 import { parseInviteToken } from "@alook/shared/lib/invite-link";
@@ -1068,6 +1068,27 @@ function buildProgram(stdin: CliInputStream): Command {
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async () => {
       await daemonRunFromIpc();
+    });
+
+  daemon
+    .command("reconnect")
+    .description("rotate and reconnect one previously paired machine")
+    .requiredOption("--id <machineId>", "machine id shown by daemon list")
+    .requiredOption("--machine-key <key>", "cmt_ reconnect token")
+    .option("--server-url <url>", "server HTTP URL (defaults to the saved launch record)")
+    .option("--ws-url <url>", "server WebSocket URL (defaults to the saved launch record)")
+    .option("--base-dir <path>", "data directory for agent workspaces and pidfile")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const localOpts = this.opts();
+      await daemonReconnect({
+        id: localOpts.id as string,
+        machineKey: localOpts.machineKey as string,
+        serverUrl: localOpts.serverUrl as string | undefined,
+        wsUrl: localOpts.wsUrl as string | undefined,
+        baseDir: localOpts.baseDir as string | undefined,
+      });
     });
 
   daemon

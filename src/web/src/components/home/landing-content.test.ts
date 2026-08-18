@@ -133,6 +133,10 @@ describe("landing content contract", () => {
     )
 
     expect(shellSource).not.toMatch(/<h[1-6]\b/)
+    expect(shellSource).toContain(
+      "npm exec --yes --package=@alook/daemon@latest -- alook-daemon daemon start",
+    )
+    expect(shellSource).not.toMatch(/npx(?: --yes)? @alook\/daemon/)
     expect(shellSource.match(/<DmHeader dm=\{DMS\[0\]\} titleAs="div" \/>/g)).toHaveLength(2)
     expect(shellSource).toContain('headingAs="div"')
     expect(dmHeaderSource).toContain('titleAs: Title = "h1"')

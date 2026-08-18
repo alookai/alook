@@ -202,6 +202,7 @@ describe("WebSocketDurableObject", () => {
           JSON.stringify({
             type: "ready",
             runtimeReport: [],
+            capabilities: ["control-heartbeat-v1"],
             runningAgents: [],
             daemonVersion: "0.1.7",
           }),
@@ -312,6 +313,13 @@ describe("WebSocketDurableObject", () => {
           lastHeartbeatAckAt: 9_940_000,
         })
         getWebSockets.mockReturnValue([ws])
+        mockTouchMachineHeartbeat.mockResolvedValueOnce({
+          machine: { id: "cm_1", status: "online", lastSeenAt: "now" },
+          priorLastSeenAt: "before",
+          priorAvailableRuntimes: [],
+          priorDaemonVersion: "0.1.0",
+          priorStatus: "online",
+        })
 
         await durable.alarm()
 
@@ -411,6 +419,37 @@ describe("WebSocketDurableObject", () => {
         expect(store.has("community-machine-identity")).toBe(false)
       })
 
+      it("fails closed when an authenticated socket lacks the heartbeat capability", async () => {
+        const { durable, store, getWebSockets } = createDO()
+        store.set("community-machine-handle", { userId: "u_1", machineId: "cm_1" })
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "hash",
+        })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+        })
+        getWebSockets.mockReturnValue([ws])
+        mockMarkMachineOffline.mockResolvedValueOnce({
+          id: "cm_1",
+          status: "offline",
+          lastSeenAt: "now",
+        })
+
+        await durable.alarm()
+
+        expect(ws.close).toHaveBeenCalledWith(1008, "Daemon upgrade required")
+        expect(mockTouchMachineHeartbeat).not.toHaveBeenCalled()
+        expect(mockMarkMachineOffline).toHaveBeenCalledOnce()
+        expect(store.has("community-machine-handle")).toBe(false)
+        expect(store.has("community-machine-identity")).toBe(false)
+      })
+
       it("machine-keyed deadline owner expires D1 without a socket, poll, or daemon reconnect", async () => {
         vi.spyOn(Date, "now").mockReturnValue(30_000_000)
         const { durable, store, getWebSockets } = createDO()
@@ -430,7 +469,7 @@ describe("WebSocketDurableObject", () => {
         expect(store.has("community-machine-diagnostic-alarm-hint")).toBe(false)
       })
 
-      it("live-WS + status=offline row: markMachineOnlineIfOffline flips it back online and broadcasts (post-deploy backfill)", async () => {
+      it("current-epoch heartbeat projects an offline row online and broadcasts", async () => {
         const { durable, store, getWebSockets, ctx } = createDO()
         store.set("community-machine-identity", {
           userId: "u_1",
@@ -445,25 +484,25 @@ describe("WebSocketDurableObject", () => {
           machineId: "cm_1",
           userId: "u_1",
           authenticated: true,
+          controlHeartbeat: true,
+          lastHeartbeatAckAt: Date.now(),
         })
         getWebSockets.mockReturnValue([ws])
 
         mockTouchMachineHeartbeat.mockResolvedValueOnce({
-          lastSeenAt: "now",
+          machine: { id: "cm_1", status: "online", lastSeenAt: "now" },
           priorLastSeenAt: "earlier",
-        })
-        mockMarkMachineOnlineIfOffline.mockResolvedValueOnce({
-          id: "cm_1",
-          userId: "u_1",
-          status: "online",
-          lastSeenAt: "now",
+          priorAvailableRuntimes: [],
+          priorDaemonVersion: "0.1.0",
+          priorStatus: "offline",
         })
 
         mockStubFetch.mockClear()
         await durable.alarm()
 
         expect(mockTouchMachineHeartbeat).toHaveBeenCalledTimes(1)
-        expect(mockMarkMachineOnlineIfOffline).toHaveBeenCalledTimes(1)
+        expect(mockTouchMachineHeartbeat).toHaveBeenCalledWith({}, "u_1", "cm_1", "abc")
+        expect(mockMarkMachineOnlineIfOffline).not.toHaveBeenCalled()
         // Broadcast fired for the offline→online transition.
         expect(mockStubFetch).toHaveBeenCalled()
         // Alarm rescheduled for the next heartbeat tick.
@@ -484,21 +523,24 @@ describe("WebSocketDurableObject", () => {
           machineId: "cm_1",
           userId: "u_1",
           authenticated: true,
+          controlHeartbeat: true,
+          lastHeartbeatAckAt: Date.now(),
         })
         getWebSockets.mockReturnValue([ws])
 
         mockTouchMachineHeartbeat.mockResolvedValueOnce({
-          lastSeenAt: "now",
+          machine: { id: "cm_1", status: "online", lastSeenAt: "now" },
           priorLastSeenAt: "earlier",
+          priorAvailableRuntimes: [],
+          priorDaemonVersion: "0.1.0",
+          priorStatus: "online",
         })
-        // Guarded UPDATE returns zero rows — row is already online.
-        mockMarkMachineOnlineIfOffline.mockResolvedValueOnce(null)
 
         mockStubFetch.mockClear()
         await durable.alarm()
 
         expect(mockTouchMachineHeartbeat).toHaveBeenCalledTimes(1)
-        // No broadcast — the guarded UPDATE returned zero rows.
+        expect(mockMarkMachineOnlineIfOffline).not.toHaveBeenCalled()
         expect(mockStubFetch).not.toHaveBeenCalled()
         // Alarm rescheduled.
         expect(ctx.storage.setAlarm).toHaveBeenCalled()
@@ -658,13 +700,20 @@ describe("WebSocketDurableObject", () => {
 
       it("reschedules the exact heartbeat when live heartbeat touch rejects", async () => {
         vi.spyOn(Date, "now").mockReturnValue(4_000_000)
-        const { durable, getWebSockets, storage } = createDO()
+        const { durable, getWebSockets, store, storage } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "hash",
+        })
         const ws = createMockWebSocket()
         ws.serializeAttachment({
           type: "community-machine",
           machineId: "cm_1",
           userId: "u_1",
           authenticated: true,
+          controlHeartbeat: true,
+          lastHeartbeatAckAt: 4_000_000,
         })
         getWebSockets.mockReturnValue([ws])
         mockTouchMachineHeartbeat.mockRejectedValueOnce(new Error("d1 unavailable"))
@@ -673,7 +722,7 @@ describe("WebSocketDurableObject", () => {
         expect(storage.setAlarm).toHaveBeenCalledWith(4_060_000)
       })
 
-      it("reschedules the exact heartbeat when live online backfill rejects", async () => {
+      it("reschedules without broadcasting when current-epoch heartbeat is a guarded no-op", async () => {
         vi.spyOn(Date, "now").mockReturnValue(5_000_000)
         const { durable, getWebSockets, store, storage } = createDO()
         store.set("community-machine-identity", {
@@ -687,13 +736,15 @@ describe("WebSocketDurableObject", () => {
           machineId: "cm_1",
           userId: "u_1",
           authenticated: true,
+          controlHeartbeat: true,
+          lastHeartbeatAckAt: 5_000_000,
         })
         getWebSockets.mockReturnValue([ws])
-        mockTouchMachineHeartbeat.mockResolvedValueOnce({ lastSeenAt: "now", priorLastSeenAt: "before" })
-        mockMarkMachineOnlineIfOffline.mockRejectedValueOnce(new Error("d1 unavailable"))
+        mockTouchMachineHeartbeat.mockResolvedValueOnce(null)
 
         await expect(durable.alarm()).resolves.toBeUndefined()
         expect(storage.setAlarm).toHaveBeenCalledWith(5_060_000)
+        expect(mockStubFetch).not.toHaveBeenCalled()
       })
 
       it("retains lifecycle storage and retries when a stale offline flip rejects", async () => {

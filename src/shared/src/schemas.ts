@@ -1033,6 +1033,7 @@ export const CommunityDaemonActivateRequestSchema = z.object({
   hostname: z.string(),
   platform: z.string(),
   arch: z.string(),
+  expectedMachineId: z.string().min(1).optional(),
   osRelease: z.string().optional(),
   daemonVersion: z.string().optional(),
   runtimeReport: CommunityMachineRuntimeListSchema.optional(),
@@ -1043,8 +1044,15 @@ export const CommunityDaemonActivateResponseSchema = z.object({
   credential: z.string(),
   machineId: z.string(),
   expiresAt: z.string().nullable(),
+  sessionOutcome: z.literal("committed"),
 });
 export type CommunityDaemonActivateResponse = z.infer<typeof CommunityDaemonActivateResponseSchema>;
+
+export const CommunityDaemonActivateErrorResponseSchema = z.object({
+  error: z.string(),
+  sessionOutcome: z.enum(["not_committed", "unknown"]),
+});
+export type CommunityDaemonActivateErrorResponse = z.infer<typeof CommunityDaemonActivateErrorResponseSchema>;
 
 export const CommunityDaemonEnrollAgentRequestSchema = z.object({
   agentId: z.string().min(1).max(128),

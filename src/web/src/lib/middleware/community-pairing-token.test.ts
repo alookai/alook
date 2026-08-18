@@ -18,13 +18,14 @@ const pairingQuerySpies = {
   createReconnectPairingToken: vi.fn(),
   touchTokenLastUsed: vi.fn(),
   revokeToken: vi.fn(),
-  activateMachineCredential: vi.fn(),
   findActiveCredentialByBearer: vi.fn(),
   findCredentialByHash: vi.fn(),
 }
+const sessionTransitionSpy = vi.fn()
 vi.mock("@alook/shared", () => ({
   queries: {
     communityMachine: pairingQuerySpies,
+    communityMachineSession: { transitionMachineSessionEpoch: sessionTransitionSpy },
   },
 }))
 
@@ -120,5 +121,6 @@ describe("withCommunityPairingToken", () => {
     for (const [name, spy] of Object.entries(pairingQuerySpies)) {
       expect(spy, `middleware should not have called communityMachine.${name}`).not.toHaveBeenCalled()
     }
+    expect(sessionTransitionSpy).not.toHaveBeenCalled()
   })
 })

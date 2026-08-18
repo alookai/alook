@@ -83,12 +83,41 @@ describe("PairMachineSheet desktop daemon integration", () => {
     expect(mocks.invoke).toHaveBeenCalledWith("daemon_runtime_capability")
     expect(mocks.invoke).toHaveBeenCalledWith("daemon_pair", {
       machineKey: "cmt_desktop_token",
+      machineId: null,
     })
     expect(mocks.invoke.mock.calls.filter(([command]) => command === "daemon_pair")).toHaveLength(1)
     expect(mocks.toastSuccess).toHaveBeenCalledWith("This computer is connecting")
     expect(renderer.root.findByProps({ "data-testid": tid.machinePairDesktopConnect }).props.disabled).toBe(true)
     expect(renderer.root.findByProps({ "data-testid": tid.machinePairCommand }).children.join(""))
       .toContain("@alook/daemon")
+  })
+
+  it("uses the explicit exact-machine reconnect command in terminal and native paths", async () => {
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(PairMachineSheet, {
+        open: true,
+        onOpenChange: vi.fn(),
+        pendingTokenId: "cmt_reconnect_token",
+        setPendingTokenId: vi.fn(),
+        connectedHostname: null,
+        mode: { kind: "reconnect", machineId: "cm_abcdefgh", hostname: "host" },
+      }))
+    })
+
+    const command = renderer.root
+      .findByProps({ "data-testid": tid.machinePairCommand })
+      .children.join("")
+    expect(command).toContain("npm exec --yes --package=@alook/daemon@latest -- alook-daemon daemon reconnect")
+    expect(command).toContain("--id cm_abcdefgh --machine-key cmt_reconnect_token")
+
+    await act(async () => {
+      await renderer.root.findByProps({ "data-testid": tid.machinePairDesktopConnect }).props.onClick()
+    })
+    expect(mocks.invoke).toHaveBeenCalledWith("daemon_pair", {
+      machineKey: "cmt_reconnect_token",
+      machineId: "cm_abcdefgh",
+    })
   })
 
   it("surfaces a daemon launch error without removing command and copy fallback", async () => {
@@ -150,7 +179,7 @@ describe("PairMachineSheet desktop daemon integration", () => {
   it("keeps the command fallback and explains an unavailable Desktop runtime", async () => {
     mocks.invoke.mockResolvedValue({
       available: false,
-      reason: "npx was not found. Install npm with Node.js and try again.",
+      reason: "npm was not found. Install npm with Node.js and try again.",
       nodeVersion: "v16.0.0",
     })
     let renderer!: TestRenderer.ReactTestRenderer
@@ -166,7 +195,7 @@ describe("PairMachineSheet desktop daemon integration", () => {
 
     expect(renderer.root.findAllByProps({ "data-testid": tid.machinePairDesktopConnect })).toHaveLength(0)
     expect(renderer.root.findByProps({ "data-testid": tid.machinePairRuntimeHint }).children.join(""))
-      .toContain("npx was not found")
+      .toContain("npm was not found")
     expect(renderer.root.findByProps({ "data-testid": tid.machinePairCommand })).toBeTruthy()
     expect(renderer.root.findByProps({ "data-testid": tid.machinePairCopy })).toBeTruthy()
   })
@@ -194,7 +223,7 @@ describe("PairMachineSheet desktop daemon integration", () => {
     let renderer!: TestRenderer.ReactTestRenderer
     act(() => {
       renderer = TestRenderer.create(React.createElement(PairMachineSteps, {
-        command: "npx @alook/daemon daemon start",
+        command: "npm exec --yes --package=@alook/daemon@latest -- alook-daemon daemon start",
         generating: false,
         onCopy: vi.fn(),
         connectedHostname: null,

@@ -9,6 +9,7 @@ import {
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { broadcastToUser } from "@/lib/broadcast"
+import { forceCloseCommunityMachinesByDoNames } from "@/lib/community/machine-disconnect"
 import { withCommunityPairingToken } from "@/lib/middleware/community-pairing-token"
 
 const log = createLogger({ service: "community/daemon/activate" })
@@ -28,12 +29,12 @@ export const POST = withCommunityPairingToken(async (req, ctx) => {
   try {
     raw = await req.json()
   } catch {
-    return NextResponse.json({ error: "invalid JSON body" }, { status: 400 })
+    return NextResponse.json({ error: "invalid JSON body", sessionOutcome: "not_committed" }, { status: 400 })
   }
   const parsed = CommunityDaemonActivateRequestSchema.safeParse(raw)
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "invalid payload", details: parsed.error.flatten() },
+      { error: "invalid payload", details: parsed.error.flatten(), sessionOutcome: "not_committed" },
       { status: 400 }
     )
   }
@@ -46,52 +47,77 @@ export const POST = withCommunityPairingToken(async (req, ctx) => {
     // runtimes. Without this the row is inserted with `[]` and no chips
     // appear until the WS `ready` frame lands (which never arrives if the
     // daemon dies between HTTP activate and WS connect).
-    const { runtimeReport, ...rest } = parsed.data
-    const result = await queries.communityMachine.activateMachineCredential(db, tokenId, {
-      ...rest,
-      availableRuntimes: runtimeReport,
+    const { runtimeReport, expectedMachineId, ...rest } = parsed.data
+    const result = await queries.communityMachineSession.transitionMachineSessionEpoch(db, {
+      type: "rotate",
+      tokenId,
+      metadata: {
+        ...rest,
+        availableRuntimes: runtimeReport,
+      },
+      expectedMachineId,
     })
 
-    // Broadcast machine.created carrying the pairing token so the client
-    // side (which is waiting on that specific `cmt_` to resolve) can
-    // reconcile its pending state. The WS DO's later `ready`-frame handler
-    // does NOT re-emit machine.created — activation is the single source
-    // of the create event.
-    const machine = await queries.communityMachine.getMachineByIdForUser(
-      db,
-      result.userId,
-      result.machineId
-    )
-    if (machine) {
-      const summary = queries.communityMachine.toSummary(machine)
-      const event: CommunityMachineCreated = {
-        type: WS_EVENTS.MACHINE_CREATED,
-        machine: summary,
-        tokenId,
-      }
-      broadcastToUser(result.userId, event).catch((err) => {
-        log.warn("broadcast after activate failed", {
+    // Rotation already committed. Cleanup and the user-visible event are
+    // independent post-commit branches: neither delays the response, and a
+    // stuck historical DO close cannot suppress machine.created.
+    const cleanup = Promise.resolve()
+      .then(() => forceCloseCommunityMachinesByDoNames(ctx.env, result.revokedDoNames))
+      .catch((err) => {
+        log.warn("post-commit machine cleanup failed", {
           err: err instanceof Error ? err.message : String(err),
         })
       })
+    const publish = (async () => {
+      const machine = await queries.communityMachine.getMachineByIdForUser(
+        db,
+        result.userId,
+        result.machineId
+      )
+      if (machine) {
+        const summary = queries.communityMachine.toSummary(machine)
+        const event: CommunityMachineCreated = {
+          type: WS_EVENTS.MACHINE_CREATED,
+          machine: summary,
+          tokenId,
+        }
+        await broadcastToUser(result.userId, event)
+      }
+    })().catch((err) => {
+      log.warn("post-commit machine event failed", {
+        err: err instanceof Error ? err.message : String(err),
+      })
+    })
+    for (const work of [cleanup, publish]) {
+      try {
+        ctx.waitUntil?.(work)
+      } catch (err) {
+        log.warn("failed to register post-commit activation work", {
+          err: err instanceof Error ? err.message : String(err),
+        })
+      }
     }
 
     const body: CommunityDaemonActivateResponse = {
       credential: result.credential,
       machineId: result.machineId,
       expiresAt: null,
+      sessionOutcome: "committed",
     }
     return NextResponse.json(body)
   } catch (err) {
-    if (err instanceof queries.communityMachine.ActivateCredentialError) {
+    if (err instanceof queries.communityMachineSession.MachineSessionRotationError) {
+      const errorBody = { error: err.message, sessionOutcome: err.sessionOutcome }
       switch (err.kind) {
         case "unknown":
-          return NextResponse.json({ error: err.message }, { status: 404 })
+          return NextResponse.json(errorBody, { status: 404 })
         case "expired":
-          return NextResponse.json({ error: err.message }, { status: 410 })
+          return NextResponse.json(errorBody, { status: 410 })
         case "revoked":
         case "already_active":
-          return NextResponse.json({ error: err.message }, { status: 409 })
+        case "expected_machine_required":
+        case "machine_mismatch":
+          return NextResponse.json(errorBody, { status: 409 })
       }
     }
     log.error("activate failed", { err: err instanceof Error ? err.message : String(err) })
