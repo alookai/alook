@@ -1,6 +1,6 @@
 [package]
 name = "alook-desktop"
-version = "0.1.13"
+version = "0.1.14"
 edition = "2021"
 description = "Alook — Share your agents with people you trust"
 
