@@ -4,9 +4,6 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
 #[cfg(desktop)]
-use tauri_plugin_notification::NotificationExt;
-
-#[cfg(desktop)]
 use std::path::PathBuf;
 
 #[cfg(desktop)]
@@ -30,12 +27,6 @@ const RUNTIME_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[cfg(desktop)]
 const DAEMON_PAIR_TIMEOUT: Duration = Duration::from_secs(60);
-
-#[cfg(desktop)]
-const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(15);
-
-#[cfg(desktop)]
-const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Serialize)]
 #[cfg(desktop)]
@@ -535,16 +526,6 @@ pub async fn daemon_pair(
     }
 }
 
-// --- App updater ---
-
-#[derive(Serialize, Clone)]
-#[cfg(desktop)]
-struct UpdateProgress {
-    percent: f64,
-    downloaded: u64,
-    total: Option<u64>,
-}
-
 #[cfg(desktop)]
 #[tauri::command]
 pub fn set_window_theme(window: tauri::WebviewWindow, dark: bool) {
@@ -575,33 +556,6 @@ pub fn set_window_theme(window: tauri::WebviewWindow, dark: bool) {
 }
 
 #[cfg(desktop)]
-static UPDATE_AVAILABLE_VERSION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
-#[cfg(desktop)]
-static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
-
-#[cfg(desktop)]
-struct UpdateInProgressGuard<'a> {
-    flag: &'a AtomicBool,
-}
-
-#[cfg(desktop)]
-impl<'a> UpdateInProgressGuard<'a> {
-    fn acquire(flag: &'a AtomicBool) -> Option<Self> {
-        flag.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-            .ok()
-            .map(|_| Self { flag })
-    }
-}
-
-#[cfg(desktop)]
-impl Drop for UpdateInProgressGuard<'_> {
-    fn drop(&mut self) {
-        self.flag.store(false, Ordering::SeqCst);
-    }
-}
-
-#[cfg(desktop)]
 pub fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -624,7 +578,12 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         MenuItemBuilder::with_id("version", format!("Version {}", app.package_info().version))
             .enabled(false)
             .build(app)?;
-    let update_item = MenuItemBuilder::with_id("update", "Check for Alook Updates…").build(app)?;
+    let update_item = MenuItemBuilder::with_id(
+        crate::updater::CHECK_FOR_UPDATES_MENU_ID,
+        "Check for Updates…",
+    )
+    .build(app)?;
+    crate::updater::register_tray_update_item(update_item.clone());
     let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
     let menu = MenuBuilder::new(app)
@@ -644,16 +603,12 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .tooltip("Alook")
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "show" => show_main_window(app),
-            "update" => {
-                let handle = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    do_install_update(&handle).await;
-                });
-            }
             "quit" => {
                 app.exit(0);
             }
-            _ => {}
+            id => {
+                crate::updater::handle_menu_event(app, id);
+            }
         })
         .on_tray_icon_event(|tray, event| {
             if let tauri::tray::TrayIconEvent::Click {
@@ -668,206 +623,6 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .build(app)?;
 
     Ok(())
-}
-
-// --- Update flow ---
-
-#[cfg(desktop)]
-async fn do_install_update(handle: &AppHandle) {
-    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
-    use tauri_plugin_updater::UpdaterExt;
-
-    let Some(update_guard) = UpdateInProgressGuard::acquire(&UPDATE_IN_PROGRESS) else {
-        handle
-            .dialog()
-            .message("An update is already in progress.")
-            .title("Alook")
-            .buttons(MessageDialogButtons::OkCustom("OK".into()))
-            .show(|_| {});
-        return;
-    };
-
-    let updater = match handle
-        .updater_builder()
-        .timeout(UPDATE_CHECK_TIMEOUT)
-        .build()
-    {
-        Ok(u) => u,
-        Err(e) => {
-            handle
-                .dialog()
-                .message(format!("Could not check for updates: {}", e))
-                .title("Update Check Failed")
-                .buttons(MessageDialogButtons::OkCustom("OK".into()))
-                .show(|_| {});
-            return;
-        }
-    };
-
-    match updater.check().await {
-        Ok(Some(mut update)) => {
-            update.timeout = Some(UPDATE_DOWNLOAD_TIMEOUT);
-            let version = update.version.clone();
-            let notes = update.body.clone().unwrap_or_default();
-            let msg = if notes.is_empty() {
-                format!("Version {} is available. Download and install?", version)
-            } else {
-                format!(
-                    "Version {} is available.\n\n{}\n\nDownload and install?",
-                    version, notes
-                )
-            };
-
-            let h = handle.clone();
-            handle
-                .dialog()
-                .message(&msg)
-                .title("Update Available")
-                .buttons(MessageDialogButtons::OkCancelCustom(
-                    "Update".into(),
-                    "Later".into(),
-                ))
-                .show(move |confirmed| {
-                    if !confirmed {
-                        return;
-                    }
-                    tauri::async_runtime::spawn(async move {
-                        install_checked_update(h, update, update_guard).await;
-                    });
-                });
-        }
-        Ok(None) => {
-            handle
-                .dialog()
-                .message("You're on the latest version.")
-                .title("No Updates Available")
-                .buttons(MessageDialogButtons::OkCustom("OK".into()))
-                .show(|_| {});
-        }
-        Err(e) => {
-            handle
-                .dialog()
-                .message(format!("Could not check for updates: {}", e))
-                .title("Update Check Failed")
-                .buttons(MessageDialogButtons::OkCustom("OK".into()))
-                .show(|_| {});
-        }
-    }
-}
-
-#[cfg(desktop)]
-async fn install_checked_update(
-    handle: AppHandle,
-    update: tauri_plugin_updater::Update,
-    update_guard: UpdateInProgressGuard<'static>,
-) {
-    use tauri::Emitter;
-    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
-
-    let version = update.version.clone();
-    let _ = handle
-        .notification()
-        .builder()
-        .title("Alook")
-        .body(format!("Downloading v{version}…"))
-        .show();
-
-    let h = handle.clone();
-    let mut cumulative: u64 = 0;
-    let result = update
-        .download_and_install(
-            move |chunk_size, total| {
-                cumulative += chunk_size as u64;
-                let percent = total
-                    .map(|value| (cumulative as f64 / value as f64) * 100.0)
-                    .unwrap_or(0.0);
-                let _ = h.emit(
-                    "update://progress",
-                    UpdateProgress {
-                        percent,
-                        downloaded: cumulative,
-                        total,
-                    },
-                );
-            },
-            || {},
-        )
-        .await;
-
-    match result {
-        Ok(()) => {
-            let h = handle.clone();
-            handle
-                .dialog()
-                .message(format!(
-                    "Version {version} has been installed. Restart now?"
-                ))
-                .title("Update Complete")
-                .buttons(MessageDialogButtons::OkCancelCustom(
-                    "Restart".into(),
-                    "Later".into(),
-                ))
-                .show(move |restart| {
-                    if restart {
-                        h.restart();
-                    }
-                    drop(update_guard);
-                });
-        }
-        Err(error) => {
-            handle
-                .dialog()
-                .message(format!("Download failed: {error}"))
-                .title("Update Failed")
-                .buttons(MessageDialogButtons::OkCustom("Close".into()))
-                .show(|_| {});
-        }
-    }
-}
-
-#[cfg(desktop)]
-pub fn auto_check_updates(handle: AppHandle) {
-    use tauri_plugin_updater::UpdaterExt;
-
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(30));
-
-        let interval = std::time::Duration::from_secs(30 * 60);
-        loop {
-            let h = handle.clone();
-            let found = tauri::async_runtime::block_on(async {
-                let updater = h
-                    .updater_builder()
-                    .timeout(UPDATE_CHECK_TIMEOUT)
-                    .build()
-                    .ok()?;
-                let update = updater.check().await.ok()??;
-                Some(update.version.clone())
-            });
-
-            if let Some(version) = found {
-                let mut guard = UPDATE_AVAILABLE_VERSION
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                let already_notified = guard.as_deref() == Some(&*version);
-                if !already_notified {
-                    *guard = Some(version.clone());
-                    drop(guard);
-                    let _ = handle
-                        .notification()
-                        .builder()
-                        .title("Alook Update Available")
-                        .body(format!(
-                            "Version {} is ready to install. Use the tray menu to update.",
-                            version
-                        ))
-                        .show();
-                }
-            }
-
-            std::thread::sleep(interval);
-        }
-    });
 }
 
 #[cfg(test)]
@@ -1080,26 +835,6 @@ mod tests {
         let updater = app_source.find("tauri_plugin_updater::Builder").unwrap();
         assert!(single_instance < updater);
         assert!(app_source[single_instance..updater].contains("show_main_window(app)"));
-    }
-
-    #[test]
-    fn update_lock_releases_on_every_scope_exit() {
-        let flag = AtomicBool::new(false);
-        let guard = UpdateInProgressGuard::acquire(&flag).unwrap();
-        assert!(flag.load(Ordering::SeqCst));
-        assert!(UpdateInProgressGuard::acquire(&flag).is_none());
-        drop(guard);
-        assert!(!flag.load(Ordering::SeqCst));
-        assert!(UpdateInProgressGuard::acquire(&flag).is_some());
-    }
-
-    #[test]
-    fn updater_network_operations_have_explicit_deadlines() {
-        let source = include_str!("commands.rs");
-        assert_eq!(UPDATE_CHECK_TIMEOUT, Duration::from_secs(15));
-        assert_eq!(UPDATE_DOWNLOAD_TIMEOUT, Duration::from_secs(10 * 60));
-        assert!(source.matches(".timeout(UPDATE_CHECK_TIMEOUT)").count() >= 2);
-        assert!(source.contains("update.timeout = Some(UPDATE_DOWNLOAD_TIMEOUT)"));
     }
 
     #[test]
