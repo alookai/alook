@@ -400,7 +400,7 @@
     },
     "finalWorktree": {
       "schemaVersion": 1,
-      "ref": "WORKTREE",
+      "ref": "44047b789adfe8fabf686838fb8a117c42cb1bdc",
       "scopeRoots": [
         "src/daemon/src/drivers",
         "src/daemon/src/runtime",
@@ -6982,22 +6982,22 @@
     "productionResidueSearch": "zero forbidden production symbols/imports",
     "productionLoc": "10798 fixed-denominator lines vs 10849 baseline (-51)",
     "liveLifecycleQa": {
-      "codex": "installed codex 0.146.0; admitted start; exact-turn interrupt resolved interrupted; physical SIGINT exit reported crashed; exact returned-session-id resume succeeded; resumed turn succeeded; text SHA-256 prefix 43f4341cdb03; session SHA-256 prefix 76a64f39e760",
-      "pi": "installed pi 0.80.3; admitted start; tool start/finish observed; exact-turn interrupt resolved interrupted; stop/close resolved stopped; exact returned-session-id resume and resumed turn succeeded; session SHA-256 prefix a218367ddea4",
+      "codex": "exact head 44047b78; installed codex 0.146.0; start accepted; exact-turn interrupt accepted; logical outcome interrupted; physical outcome crashed; exact returned-session-id resume succeeded; resumed turn success; requested stop closed stopped; session SHA-256 prefix 611bb32ebd34; resumed text SHA-256 prefix df630930b7f9",
+      "pi": "exact head 44047b78; installed pi 0.80.3; start accepted; tool start/finish observed; exact-turn interrupt accepted; logical outcome interrupted; requested stop closed stopped; exact returned-session-id resume succeeded; resumed turn success; requested stop closed stopped; session SHA-256 prefix d986eef12296",
       "secrets": "sanitized; no credentials, prompts, or raw model output retained"
     },
     "alookCQA": {
       "status": "PASS/PASS/PASS",
-      "sourceHead": "f7d36456b7d9f4de67bdd32f2bc20a37099d649b (production tree; follow-up changes evidence only)",
-      "runRef": "alook-c-qa-b69f1263.RYgtk6",
-      "creation": "exactly claude/codex/cursor/opencode/pi offered; POST 201; D1 runtime codex; matching bot:added",
-      "cancellation": "removed gemini remained unavailable; before/after D1 SHA-256 7549a106661546993f8d36e82fc57ba5ee74e3dcf3259d962a6015aadd2a71e2; zero control updates",
-      "recovery": "D1 unchanged before save; PATCH 200; saved runtime codex; after SHA-256 63d6b962bc2f71446c6084043fcb33da84411660c783e3fca93a564067913d91; one agent:reset",
-      "cleanup": "fresh browser/session and isolated services stopped; ports 3000 and 8789 clear"
+      "sourceHead": "44047b789adfe8fabf686838fb8a117c42cb1bdc; tree f69005737a943fd291a6cb229bcfeaddb9a205be (production tree; follow-up changes evidence only)",
+      "runRef": "alook-c-qa-44047b78.c1WCPf",
+      "creation": "exactly claude/codex/cursor/opencode/pi offered; POST 201; stored runtime codex; matching bot:added",
+      "cancellation": "removed gemini remained unavailable; before/after normalized-row SHA-256 1d6603eb25fed143f7eba711c11bb24923ef656652549a1d7b243fa7d4410f1b; zero control updates",
+      "recovery": "row unchanged before save; saved runtime codex; after SHA-256 213ca7234878e9766c2246195e844478743941faf90e87425c2e8dea67773136; exactly one agent:reset carried codex",
+      "cleanup": "isolated browser tab and local services stopped after evidence capture"
     },
     "windowsCiHarness": "bare npm pack install uses the Windows command shell; real-process timing bound widened without assertion changes",
     "testLedger": "8282 collected cases; 568 mappings; zero missing non-deleted exact targets",
-    "productionCodeCommit": "f7d36456b7d9f4de67bdd32f2bc20a37099d649b",
-    "evidenceArtifact": "plans/agent-driver-final-evidence.md"
+    "productionCodeCommit": "44047b789adfe8fabf686838fb8a117c42cb1bdc",
+    "evidenceArtifact": "plans/agent-driver-final-evidence.md; plans/agent-driver-final-qa-44047b78.json"
   }
 }
