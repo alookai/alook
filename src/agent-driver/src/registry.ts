@@ -24,6 +24,7 @@ function snapshotDriver<THost extends AgentDriverHost>(driver: AgentDriver<THost
     ...driver.descriptor,
     lifecycle: Object.freeze({ ...driver.descriptor.lifecycle }),
     transport: Object.freeze({ ...driver.descriptor.transport }),
+    terminal: Object.freeze({ ...driver.descriptor.terminal }),
     resume: Object.freeze({ ...driver.descriptor.resume }),
     model: Object.freeze({ ...driver.descriptor.model }),
     capabilities: Object.freeze({ ...driver.descriptor.capabilities }),

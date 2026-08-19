@@ -16,6 +16,7 @@ export type {
   AgentDriverCleanupResult,
   AgentDriverContractErrorCode,
   AgentDriverDescriptor,
+  AgentDriverDeliveryResult,
   AgentDriverEvent,
   AgentDriverEventListener,
   AgentDriverIdentity,
@@ -25,12 +26,16 @@ export type {
   AgentDriverProbeResult,
   AgentDriverPrompt,
   AgentDriverReceipt,
-  AgentDriverResult,
+  AgentDriverRuntimeEvent,
+  AgentDriverRuntimeSessionEvent,
+  AgentDriverRuntimeTerminalEvent,
+  AgentDriverRuntimeTurnEvent,
   AgentDriverResume,
   AgentDriverRuntimeConfig,
   AgentDriverSession,
   AgentDriverSessionEventScope,
   AgentDriverTransport,
+  AgentDriverTurnResult,
   AgentRuntimeId,
 } from "./contracts.js";
 
@@ -39,6 +44,9 @@ export type {
   AgentDriverHost,
   AgentDriverLogger,
   AgentDriverLogLevel,
+  AgentDriverArtifact,
+  AgentDriverResolvedCommand,
+  AgentDriverSystemEffects,
 } from "./host.js";
 
 export { createAgentDriverRegistry } from "./registry.js";
@@ -47,8 +55,29 @@ export type { AgentDriverRegistry } from "./registry.js";
 export { AgentDriverSessionController } from "./session.js";
 export type { AgentDriverSessionControllerOptions } from "./session.js";
 
-export { verifyAgentDriverSessionContract } from "./testing.js";
-export type { AgentDriverSessionContractFixture } from "./testing.js";
+export { AgentDriverToolCallLedger, AgentDriverTurnCoordinator } from "./turnCoordinator.js";
+export type {
+  AgentDriverToolCallFinish,
+  AgentDriverToolCallStart,
+  AgentDriverTurnCoordinatorOptions,
+  AgentDriverTurnOperation,
+  AgentDriverTurnSettlement,
+} from "./turnCoordinator.js";
+
+export { AgentDriverLogicalChildProcessSession } from "./logicalChildProcessSession.js";
+export type {
+  AgentDriverLogicalChildProcessSessionOptions,
+  AgentDriverPhysicalTurnSettlement,
+} from "./logicalChildProcessSession.js";
+export { AgentDriverLogicalInProcessSession } from "./logicalInProcessSession.js";
+export type { AgentDriverLogicalInProcessSessionOptions } from "./logicalInProcessSession.js";
+
+export { verifyAgentDriverConformance, verifyAgentDriverSessionContract } from "./testing.js";
+export type {
+  AgentDriverConformanceFixture,
+  AgentDriverConformanceResult,
+  AgentDriverSessionContractFixture,
+} from "./testing.js";
 
 export {
   AGENT_DRIVER_STOP_GRACE_MS,

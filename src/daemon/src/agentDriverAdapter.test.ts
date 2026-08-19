@@ -24,9 +24,10 @@ function descriptor() {
     id: "pi",
     contractVersion: AGENT_DRIVER_CONTRACT_VERSION,
     displayName: "Pi",
-    lifecycle: { kind: "persistent", input: "direct", inFlightDelivery: "steer" },
+    lifecycle: { kind: "persistent", busyDelivery: "direct_steer" },
     transport: { kind: "sdk" },
-    resume: { kind: "by_id", missingSession: "fresh" },
+    terminal: { source: "protocol_event", processExit: "abort_active_turn" },
+    resume: { kind: "by_id", missingSession: "create_with_requested_id" },
     model: { detectedModels: "launchable", selection: "supported" },
     capabilities: {
       reasoningEffort: true,
@@ -61,7 +62,12 @@ class FakeSession implements AgentDriverSession {
   async deliver(prompt: AgentDriverPrompt): Promise<AgentDriverReceipt> {
     this.delivered.push(prompt);
     return await this.receiptForPrompt?.(prompt)
-      ?? { accepted: true, deliveryId: prompt.deliveryId, delivery: prompt.mode === "busy" ? "steer" : "prompt" };
+      ?? {
+        accepted: true,
+        deliveryId: prompt.deliveryId,
+        delivery: prompt.mode === "busy" ? "steer" : "prompt",
+        turnId: "turn-1",
+      };
   }
 
   close(options?: AgentDriverCloseOptions): Promise<{ status: "closed"; forced: false }> {
@@ -104,12 +110,21 @@ describe("AgentDriverManagedSession", () => {
     managed.on("runtime_event", (event) => events.push(event));
 
     await expect(managed.start({ text: "hello", sessionId: "resume-1" })).resolves.toEqual({ ok: true });
-    expect(session.delivered).toEqual([{ deliveryId: "initial", text: "hello", mode: "initial" }]);
+    expect(session.delivered).toEqual([{
+      deliveryId: "initial",
+      text: "hello",
+      mode: "initial",
+      intent: "user",
+      execution: "concrete",
+    }]);
     expect(events).toEqual([]);
 
     session.emit({ kind: "session", phase: "resumed", sessionId: "resume-1" });
-    session.emit({ kind: "text", deliveryId: "initial", text: "answer" });
-    session.emit({ kind: "turn_result", result: { status: "clean", deliveryId: "initial", sessionId: "resume-1" } });
+    session.emit({ kind: "text", turnId: "turn-1", text: "answer" });
+    session.emit({
+      kind: "turn_result",
+      result: { status: "clean", turnId: "turn-1", deliveryIds: ["initial"], sessionId: "resume-1" },
+    });
     expect(events).toEqual([
       { kind: "session_init", sessionId: "resume-1" },
       { kind: "text", text: "answer" },
@@ -127,7 +142,32 @@ describe("AgentDriverManagedSession", () => {
     expect(session.delivered).toEqual([
       { deliveryId: "initial", text: "first", mode: "initial" },
       { deliveryId: "next", text: "steer", mode: "busy" },
-    ]);
+    ].map((item) => ({ ...item, intent: "user" as const, execution: "concrete" as const })));
+  });
+
+  it("emits one daemon turn_end for one physical turn despite multiple delivery results and a late duplicate", async () => {
+    const session = new FakeSession();
+    const managed = adapter(session);
+    const events: unknown[] = [];
+    managed.on("runtime_event", (event) => events.push(event));
+    await managed.start({ text: "first" });
+
+    session.emit({
+      kind: "delivery_result",
+      result: { status: "clean", deliveryId: "initial", turnId: "turn-1", sessionId: "s" },
+    });
+    session.emit({
+      kind: "delivery_result",
+      result: { status: "clean", deliveryId: "next", turnId: "turn-1", sessionId: "s" },
+    });
+    const terminal: AgentDriverEvent = {
+      kind: "turn_result",
+      result: { status: "clean", turnId: "turn-1", deliveryIds: ["initial", "next"], sessionId: "s" },
+    };
+    session.emit(terminal);
+    session.emit(terminal);
+
+    expect(events).toEqual([{ kind: "turn_end", sessionId: "s" }]);
   });
 
   it("surfaces an asynchronous delivery rejection as a normalized runtime error", async () => {
@@ -174,7 +214,7 @@ describe("AgentDriverManagedSession", () => {
     managed.on("exit", () => exits++);
 
     await expect(managed.start({ text: "first" })).rejects.toThrow(message);
-    session.emit({ kind: "text", deliveryId: "initial", text: "must not escape" });
+    session.emit({ kind: "text", turnId: "turn-1", text: "must not escape" });
     await managed.stop();
 
     expect(events).toEqual([]);
@@ -241,7 +281,7 @@ describe("AgentDriverManagedSession", () => {
     resolveOpen?.(session);
     await closeStarted;
     expect(startSettled).toBe(false);
-    session.emit({ kind: "text", deliveryId: "late", text: "must not escape" });
+    session.emit({ kind: "text", turnId: "turn-late", text: "must not escape" });
     expect(events).toEqual([]);
     resolveClose?.();
     await Promise.all([starting, stopping]);
@@ -311,7 +351,7 @@ describe("AgentDriverManagedSession", () => {
     const stopping = managed.stop({ forceAfterMs: 25 });
     await expect(stopping).resolves.toBeUndefined();
     await expect(starting).rejects.toThrow("Agent driver rejected delivery: closed");
-    session.emit({ kind: "text", deliveryId: "initial", text: "must not escape" });
+    session.emit({ kind: "text", turnId: "turn-1", text: "must not escape" });
 
     expect(events).toEqual([]);
     expect(session.closeOptions).toEqual([{ reason: undefined, forceAfterMs: 25, force: false }]);
@@ -321,16 +361,17 @@ describe("AgentDriverManagedSession", () => {
 
 describe("parsedEventsFromAgentDriverEvent", () => {
   it.each<[AgentDriverEvent, unknown]>([
-    [{ kind: "thinking", deliveryId: "d", text: "thought" }, [{ kind: "thinking", text: "thought" }]],
-    [{ kind: "tool_call", deliveryId: "d", toolCallId: "t", name: "read", input: { path: "a" } }, [{ kind: "tool_call", name: "read", input: { path: "a" } }]],
-    [{ kind: "tool_result", deliveryId: "d", toolCallId: "t", name: "read", output: "ok" }, [{ kind: "tool_output", name: "read" }]],
-    [{ kind: "compaction", deliveryId: "d", phase: "started" }, [{ kind: "compaction_started" }]],
-    [{ kind: "review", deliveryId: "d", phase: "finished" }, [{ kind: "review_finished" }]],
-    [{ kind: "progress", deliveryId: "d", source: "codex", itemType: "reasoning", payloadBytes: 4 }, [{ kind: "internal_progress", source: "codex", itemType: "reasoning", payloadBytes: 4 }]],
-    [{ kind: "diagnostic", deliveryId: "d", severity: "warn", source: "runtime", message: "slow" }, [{ kind: "runtime_diagnostic", severity: "warn", source: "runtime", message: "slow" }]],
-    [{ kind: "telemetry", deliveryId: "d", name: "token_usage", source: "codex", attributes: { total: 3 } }, [{ kind: "telemetry", name: "token_usage", source: "codex", attrs: { total: 3 } }]],
-    [{ kind: "turn_result", result: { status: "error", deliveryId: "d", sessionId: "s", message: "failed" } }, [{ kind: "error", message: "failed" }, { kind: "turn_end", sessionId: "s" }]],
-    [{ kind: "turn_result", result: { status: "aborted", deliveryId: "d", sessionId: "s", reason: "stop" } }, [{ kind: "runtime_diagnostic", severity: "info", source: "agent-driver", message: "Turn aborted: stop" }, { kind: "turn_end", sessionId: "s" }]],
+    [{ kind: "thinking", turnId: "turn", text: "thought" }, [{ kind: "thinking", text: "thought" }]],
+    [{ kind: "tool_call", turnId: "turn", toolCallId: "t", name: "read", input: { path: "a" } }, [{ kind: "tool_call", name: "read", input: { path: "a" } }]],
+    [{ kind: "tool_result", turnId: "turn", toolCallId: "t", name: "read", output: "ok" }, [{ kind: "tool_output", name: "read" }]],
+    [{ kind: "compaction", turnId: "turn", phase: "started" }, [{ kind: "compaction_started" }]],
+    [{ kind: "review", turnId: "turn", phase: "finished" }, [{ kind: "review_finished" }]],
+    [{ kind: "progress", turnId: "turn", source: "codex", itemType: "reasoning", payloadBytes: 4 }, [{ kind: "internal_progress", source: "codex", itemType: "reasoning", payloadBytes: 4 }]],
+    [{ kind: "diagnostic", turnId: "turn", severity: "warn", source: "runtime", message: "slow" }, [{ kind: "runtime_diagnostic", severity: "warn", source: "runtime", message: "slow" }]],
+    [{ kind: "telemetry", turnId: "turn", name: "token_usage", source: "codex", attributes: { total: 3 } }, [{ kind: "telemetry", name: "token_usage", source: "codex", attrs: { total: 3 } }]],
+    [{ kind: "delivery_result", result: { status: "error", deliveryId: "d", message: "failed" } }, [{ kind: "runtime_diagnostic", severity: "warn", source: "agent-driver-delivery", message: "Delivery d failed: failed" }]],
+    [{ kind: "turn_result", result: { status: "error", turnId: "turn", deliveryIds: ["d"], sessionId: "s", message: "failed" } }, [{ kind: "error", message: "failed" }, { kind: "turn_end", sessionId: "s" }]],
+    [{ kind: "turn_result", result: { status: "aborted", turnId: "turn", deliveryIds: ["d"], sessionId: "s", reason: "stop" } }, [{ kind: "runtime_diagnostic", severity: "info", source: "agent-driver", message: "Turn aborted: stop" }, { kind: "turn_end", sessionId: "s" }]],
   ])("maps %s", (event, expected) => {
     expect(parsedEventsFromAgentDriverEvent(event)).toEqual(expected);
   });

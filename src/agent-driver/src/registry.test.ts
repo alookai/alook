@@ -21,8 +21,9 @@ function conformingDriver(): AgentDriver {
       id: "codex",
       contractVersion: AGENT_DRIVER_CONTRACT_VERSION,
       displayName: "Codex",
-      lifecycle: { kind: "persistent", input: "gated", inFlightDelivery: "queue" },
+      lifecycle: { kind: "persistent", busyDelivery: "gated_steer_coalesce" },
       transport: { kind: "child_process", protocol: "json_rpc" },
+      terminal: { source: "protocol_event", processExit: "abort_active_turn" },
       resume: { kind: "by_id", missingSession: "fresh" },
       model: { detectedModels: "launchable", selection: "supported" },
       capabilities: {
@@ -38,7 +39,7 @@ function conformingDriver(): AgentDriver {
       sessionId: null,
       closed: false,
       subscribe: () => () => undefined,
-      deliver: async (prompt) => ({ accepted: true, deliveryId: prompt.deliveryId, delivery: "prompt" }),
+      deliver: async (prompt) => ({ accepted: true, deliveryId: prompt.deliveryId, delivery: "prompt", turnId: "turn-1" }),
       close: async () => ({ status: "closed", forced: false }),
     }),
   };
@@ -59,8 +60,9 @@ describe("agent driver registry", () => {
       id: "codex",
       contractVersion: AGENT_DRIVER_CONTRACT_VERSION,
       displayName: "Codex",
-      lifecycle: { kind: "persistent", input: "gated", inFlightDelivery: "queue" },
+      lifecycle: { kind: "persistent", busyDelivery: "gated_steer_coalesce" },
       transport: { kind: "child_process", protocol: "json_rpc" },
+      terminal: { source: "protocol_event", processExit: "abort_active_turn" },
       resume: { kind: "by_id", missingSession: "fresh" },
       model: { detectedModels: "launchable", selection: "supported" },
       capabilities: {

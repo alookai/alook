@@ -8,14 +8,13 @@ export type AgentRuntimeId = (typeof AGENT_RUNTIME_IDS)[number];
 export type AgentDriverLifecycle =
   | {
       readonly kind: "persistent";
-      readonly input: "direct" | "gated";
-      readonly inFlightDelivery: "steer" | "queue";
+      readonly busyDelivery: "direct_steer" | "gated_steer_coalesce";
     }
   | {
       readonly kind: "per_turn";
-      readonly start: "immediate" | "defer_until_prompt";
+      readonly start: "immediate" | "defer_until_concrete";
       readonly exit: "natural" | "terminate_on_turn_result";
-      readonly inFlightDelivery: "spawn_new" | "coalesce_into_pending";
+      readonly busyDelivery: "coalesce_next_turn";
     };
 
 export type AgentDriverTransport =
@@ -30,7 +29,7 @@ export type AgentDriverTransport =
 export type AgentDriverResume =
   | {
       readonly kind: "by_id";
-      readonly missingSession: "fresh" | "error";
+      readonly missingSession: "fresh" | "error" | "create_with_requested_id";
     }
   | {
       readonly kind: "none";
@@ -55,6 +54,10 @@ export interface AgentDriverDescriptor {
   readonly displayName: string;
   readonly lifecycle: AgentDriverLifecycle;
   readonly transport: AgentDriverTransport;
+  readonly terminal: {
+    readonly source: "protocol_event";
+    readonly processExit: "abort_active_turn";
+  };
   readonly resume: AgentDriverResume;
   readonly model: AgentDriverModelContract;
   readonly capabilities: AgentDriverCapabilities;
@@ -93,30 +96,40 @@ export interface AgentDriverPrompt {
   readonly deliveryId: string;
   readonly text: string;
   readonly mode: "initial" | "idle" | "busy";
+  readonly intent: "user" | "control";
+  readonly execution: "concrete" | "bookkeeping";
 }
 
 export type AgentDriverReceipt =
   | {
       readonly accepted: true;
       readonly deliveryId: string;
-      readonly delivery: "prompt" | "steer" | "queued";
+      readonly delivery: "prompt" | "steer";
+      readonly turnId: string;
+    }
+  | {
+      readonly accepted: true;
+      readonly deliveryId: string;
+      readonly delivery: "pending_gated" | "queued_next_turn" | "deferred_bookkeeping";
     }
   | {
       readonly accepted: false;
       readonly deliveryId: string;
-      readonly reason: "closed" | "unsupported" | "runtime_error";
+      readonly reason: "closed" | "unsupported" | "runtime_error" | "duplicate_delivery_conflict";
       readonly message?: string;
     };
 
-export type AgentDriverResult =
+export type AgentDriverDeliveryResult =
   | {
       readonly status: "clean";
       readonly deliveryId: string;
+      readonly turnId: string;
       readonly sessionId?: string;
     }
   | {
       readonly status: "error";
       readonly deliveryId: string;
+      readonly turnId?: string;
       readonly sessionId?: string;
       readonly message: string;
       readonly code?: string;
@@ -125,20 +138,47 @@ export type AgentDriverResult =
   | {
       readonly status: "aborted";
       readonly deliveryId: string;
+      readonly turnId?: string;
       readonly sessionId?: string;
       readonly reason: string;
     };
 
 export interface AgentDriverCorrelatedTurnEventScope {
-  readonly deliveryId: string;
+  readonly turnId: string;
 }
 
 export interface AgentDriverSessionEventScope {
-  readonly deliveryId?: string;
+  readonly turnId?: string;
 }
+
+export type AgentDriverTurnResult =
+  | {
+      readonly status: "clean";
+      readonly turnId: string;
+      readonly deliveryIds: readonly string[];
+      readonly sessionId?: string;
+    }
+  | {
+      readonly status: "error";
+      readonly turnId: string;
+      readonly deliveryIds: readonly string[];
+      readonly sessionId?: string;
+      readonly message: string;
+      readonly code?: string;
+      readonly retryable?: boolean;
+    }
+  | {
+      readonly status: "aborted";
+      readonly turnId: string;
+      readonly deliveryIds: readonly string[];
+      readonly sessionId?: string;
+      readonly reason: string;
+    };
 
 export type AgentDriverEvent =
   | { readonly kind: "session"; readonly phase: "opened" | "resumed"; readonly sessionId: string }
+  | { readonly kind: "turn_started"; readonly turnId: string; readonly deliveryIds: readonly string[]; readonly sessionId?: string }
+  | { readonly kind: "delivery_bound"; readonly deliveryId: string; readonly turnId: string }
   | (AgentDriverCorrelatedTurnEventScope & { readonly kind: "thinking"; readonly text: string })
   | (AgentDriverCorrelatedTurnEventScope & { readonly kind: "text"; readonly text: string })
   | (AgentDriverCorrelatedTurnEventScope & { readonly kind: "tool_call"; readonly toolCallId: string; readonly name: string; readonly input: unknown })
@@ -148,7 +188,30 @@ export type AgentDriverEvent =
   | (AgentDriverSessionEventScope & { readonly kind: "progress"; readonly source?: string; readonly itemType?: string; readonly payloadBytes?: number })
   | (AgentDriverSessionEventScope & { readonly kind: "diagnostic"; readonly severity?: string; readonly source?: string; readonly message: string })
   | (AgentDriverSessionEventScope & { readonly kind: "telemetry"; readonly name: "token_usage" | "rate_limits"; readonly source: string; readonly attributes: Readonly<Record<string, unknown>> })
-  | { readonly kind: "turn_result"; readonly result: AgentDriverResult };
+  | { readonly kind: "delivery_result"; readonly result: AgentDriverDeliveryResult }
+  | { readonly kind: "turn_result"; readonly result: AgentDriverTurnResult };
+
+export type AgentDriverRuntimeEvent =
+  | { readonly kind: "session"; readonly phase: "opened" | "resumed"; readonly sessionId: string }
+  | { readonly kind: "thinking"; readonly text: string }
+  | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "tool_call"; readonly toolCallId: string; readonly name: string; readonly input: unknown }
+  | { readonly kind: "tool_result"; readonly toolCallId: string; readonly name: string; readonly output?: unknown; readonly isError?: boolean }
+  | { readonly kind: "compaction"; readonly phase: "started" | "finished" }
+  | { readonly kind: "review"; readonly phase: "started" | "finished" }
+  | { readonly kind: "progress"; readonly source?: string; readonly itemType?: string; readonly payloadBytes?: number }
+  | { readonly kind: "diagnostic"; readonly severity?: string; readonly source?: string; readonly message: string }
+  | { readonly kind: "telemetry"; readonly name: "token_usage" | "rate_limits"; readonly source: string; readonly attributes: Readonly<Record<string, unknown>> }
+  | { readonly kind: "turn_terminal"; readonly status: "clean"; readonly sessionId?: string }
+  | { readonly kind: "turn_terminal"; readonly status: "error"; readonly sessionId?: string; readonly message: string; readonly code?: string; readonly retryable?: boolean }
+  | { readonly kind: "turn_terminal"; readonly status: "aborted"; readonly sessionId?: string; readonly reason: string };
+
+export type AgentDriverRuntimeTerminalEvent = Extract<AgentDriverRuntimeEvent, { kind: "turn_terminal" }>;
+export type AgentDriverRuntimeSessionEvent = Extract<
+  AgentDriverRuntimeEvent,
+  { kind: "session" | "progress" | "diagnostic" | "telemetry" }
+>;
+export type AgentDriverRuntimeTurnEvent = Exclude<AgentDriverRuntimeEvent, { kind: "session" }>;
 
 export type AgentDriverEventListener = (event: AgentDriverEvent) => void;
 
@@ -255,12 +318,11 @@ export function validateAgentDriverDescriptor(value: unknown): asserts value is 
   const lifecycle = descriptor.lifecycle as Record<string, unknown> | undefined;
   oneOf(lifecycle?.kind, ["persistent", "per_turn"], "descriptor.lifecycle.kind");
   if (lifecycle?.kind === "persistent") {
-    oneOf(lifecycle.input, ["direct", "gated"], "descriptor.lifecycle.input");
-    oneOf(lifecycle.inFlightDelivery, ["steer", "queue"], "descriptor.lifecycle.inFlightDelivery");
+    oneOf(lifecycle.busyDelivery, ["direct_steer", "gated_steer_coalesce"], "descriptor.lifecycle.busyDelivery");
   } else {
-    oneOf(lifecycle?.start, ["immediate", "defer_until_prompt"], "descriptor.lifecycle.start");
+    oneOf(lifecycle?.start, ["immediate", "defer_until_concrete"], "descriptor.lifecycle.start");
     oneOf(lifecycle?.exit, ["natural", "terminate_on_turn_result"], "descriptor.lifecycle.exit");
-    oneOf(lifecycle?.inFlightDelivery, ["spawn_new", "coalesce_into_pending"], "descriptor.lifecycle.inFlightDelivery");
+    oneOf(lifecycle?.busyDelivery, ["coalesce_next_turn"], "descriptor.lifecycle.busyDelivery");
   }
 
   const transport = descriptor.transport as Record<string, unknown> | undefined;
@@ -269,10 +331,14 @@ export function validateAgentDriverDescriptor(value: unknown): asserts value is 
     oneOf(transport.protocol, ["jsonl", "json_rpc"], "descriptor.transport.protocol");
   }
 
+  const terminal = descriptor.terminal as Record<string, unknown> | undefined;
+  oneOf(terminal?.source, ["protocol_event"], "descriptor.terminal.source");
+  oneOf(terminal?.processExit, ["abort_active_turn"], "descriptor.terminal.processExit");
+
   const resume = descriptor.resume as Record<string, unknown> | undefined;
   oneOf(resume?.kind, ["by_id", "none"], "descriptor.resume.kind");
   if (resume?.kind === "by_id") {
-    oneOf(resume.missingSession, ["fresh", "error"], "descriptor.resume.missingSession");
+    oneOf(resume.missingSession, ["fresh", "error", "create_with_requested_id"], "descriptor.resume.missingSession");
   }
 
   const model = descriptor.model as Record<string, unknown> | undefined;
@@ -285,6 +351,7 @@ export function defineAgentDriverDescriptor<const T extends AgentDriverDescripto
   validateAgentDriverDescriptor(descriptor);
   Object.freeze(descriptor.lifecycle);
   Object.freeze(descriptor.transport);
+  Object.freeze(descriptor.terminal);
   Object.freeze(descriptor.resume);
   Object.freeze(descriptor.model);
   Object.freeze(descriptor.capabilities);

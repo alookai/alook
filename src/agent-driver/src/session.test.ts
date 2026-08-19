@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { AgentDriverSessionController, verifyAgentDriverSessionContract, type AgentDriverClock } from "./index.js";
+import {
+  AgentDriverSessionController,
+  verifyAgentDriverSessionContract,
+  type AgentDriverClock,
+  type AgentDriverPrompt,
+} from "./index.js";
+
+function prompt(deliveryId: string, mode: AgentDriverPrompt["mode"]): AgentDriverPrompt {
+  return { deliveryId, text: deliveryId, mode, intent: "user", execution: "concrete" };
+}
 
 class ManualClock implements AgentDriverClock {
   private readonly scheduled = new Set<() => void>();
@@ -36,7 +45,7 @@ describe("AgentDriverSessionController", () => {
       clock,
       defaultForceAfterMs: 1_000,
       sessionId: () => "session-1",
-      deliver: async (prompt) => ({ accepted: true, deliveryId: prompt.deliveryId, delivery: "prompt" }),
+      deliver: async (prompt) => ({ accepted: true, deliveryId: prompt.deliveryId, delivery: "prompt", turnId: "turn-1" }),
       cleanup: async () => {
         signalCleanupStarted?.();
         await cleanup;
@@ -51,7 +60,7 @@ describe("AgentDriverSessionController", () => {
       releaseCleanup: () => releaseCleanup?.(),
     });
     expect(clock.pendingCount).toBe(0);
-    await expect(session.deliver({ deliveryId: "late", text: "late", mode: "idle" })).resolves.toEqual({
+    await expect(session.deliver(prompt("late", "idle"))).resolves.toEqual({
       accepted: false,
       deliveryId: "late",
       reason: "closed",
@@ -65,7 +74,7 @@ describe("AgentDriverSessionController", () => {
       clock,
       defaultForceAfterMs: 25,
       sessionId: () => null,
-      deliver: async (prompt) => ({ accepted: true, deliveryId: prompt.deliveryId, delivery: "prompt" }),
+      deliver: async (prompt) => ({ accepted: true, deliveryId: prompt.deliveryId, delivery: "prompt", turnId: "turn-1" }),
       cleanup: () => new Promise(() => undefined),
       forceCleanup: async (reason) => {
         forced.push(reason);
@@ -99,7 +108,7 @@ describe("AgentDriverSessionController", () => {
       forceCleanup: async () => undefined,
     });
 
-    const delivering = session.deliver({ deliveryId: "hanging", text: "hello", mode: "initial" });
+    const delivering = session.deliver(prompt("hanging", "initial"));
     await deliveryStarted;
     const closing = session.close();
     await expect(delivering).resolves.toEqual({
@@ -119,7 +128,7 @@ describe("AgentDriverSessionController", () => {
       clock,
       defaultForceAfterMs: 25,
       sessionId: () => null,
-      deliver: async (prompt) => ({ accepted: true, deliveryId: prompt.deliveryId, delivery: "prompt" }),
+      deliver: async (prompt) => ({ accepted: true, deliveryId: prompt.deliveryId, delivery: "prompt", turnId: "turn-1" }),
       cleanup: () => {
         cleanupCalls++;
         return new Promise(() => undefined);
@@ -149,7 +158,7 @@ describe("AgentDriverSessionController", () => {
       clock: new ManualClock(),
       defaultForceAfterMs: 25,
       sessionId: () => null,
-      deliver: async (prompt) => ({ accepted: true, deliveryId: prompt.deliveryId, delivery: "prompt" }),
+      deliver: async (prompt) => ({ accepted: true, deliveryId: prompt.deliveryId, delivery: "prompt", turnId: "turn-1" }),
       cleanup: async () => undefined,
       forceCleanup: async (reason) => {
         forced.push(reason);
@@ -166,7 +175,7 @@ describe("AgentDriverSessionController", () => {
       clock: new ManualClock(),
       defaultForceAfterMs: 25,
       sessionId: () => null,
-      deliver: async (prompt) => ({ accepted: true, deliveryId: prompt.deliveryId, delivery: "prompt" }),
+      deliver: async (prompt) => ({ accepted: true, deliveryId: prompt.deliveryId, delivery: "prompt", turnId: "turn-1" }),
       cleanup: async () => {
         throw new Error("dispose failed");
       },
@@ -185,7 +194,7 @@ describe("AgentDriverSessionController", () => {
       clock,
       defaultForceAfterMs: 25,
       sessionId: () => null,
-      deliver: async (prompt) => ({ accepted: true, deliveryId: prompt.deliveryId, delivery: "prompt" }),
+      deliver: async (prompt) => ({ accepted: true, deliveryId: prompt.deliveryId, delivery: "prompt", turnId: "turn-1" }),
       cleanup: () => {
         throw new Error("synchronous dispose failure");
       },
@@ -211,7 +220,7 @@ describe("AgentDriverSessionController", () => {
       clock: new ManualClock(),
       defaultForceAfterMs: 25,
       sessionId: () => null,
-      deliver: async (prompt) => ({ accepted: true, deliveryId: prompt.deliveryId, delivery: "prompt" }),
+      deliver: async (prompt) => ({ accepted: true, deliveryId: prompt.deliveryId, delivery: "prompt", turnId: "turn-1" }),
       cleanup: async () => undefined,
       forceCleanup: async () => {
         forceCalls++;

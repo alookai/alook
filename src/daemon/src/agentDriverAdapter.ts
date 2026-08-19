@@ -20,6 +20,9 @@ function parsedEventsFromAgentDriverEvent(event: AgentDriverEvent): ParsedEvent[
   switch (event.kind) {
     case "session":
       return [{ kind: "session_init", sessionId: event.sessionId }];
+    case "turn_started":
+    case "delivery_bound":
+      return [];
     case "thinking":
       return [{ kind: "thinking", text: event.text }];
     case "text":
@@ -52,6 +55,16 @@ function parsedEventsFromAgentDriverEvent(event: AgentDriverEvent): ParsedEvent[
         name: event.name,
         source: event.source,
         attrs: { ...event.attributes },
+      }];
+    case "delivery_result":
+      if (event.result.status === "clean") return [];
+      return [{
+        kind: "runtime_diagnostic",
+        severity: event.result.status === "error" ? "warn" : "info",
+        source: "agent-driver-delivery",
+        message: event.result.status === "error"
+          ? `Delivery ${event.result.deliveryId} failed: ${event.result.message}`
+          : `Delivery ${event.result.deliveryId} aborted: ${event.result.reason}`,
       }];
     case "turn_result":
       if (event.result.status === "error") {
@@ -93,6 +106,7 @@ export class AgentDriverManagedSession<THost extends AgentDriverHost> {
   private unsubscribe: (() => void) | null = null;
   private observedSessionId: string | null = null;
   private deliveryOrdinal = 0;
+  private readonly terminalTurnIds = new Set<string>();
   private stopRequested = false;
   private exited = false;
 
@@ -143,6 +157,8 @@ export class AgentDriverManagedSession<THost extends AgentDriverHost> {
         deliveryId: this.createDeliveryId(),
         text,
         mode: "initial",
+        intent: "user",
+        execution: "concrete",
       });
       if (!receipt.accepted) throw receiptError(receipt);
     } catch (error) {
@@ -164,6 +180,8 @@ export class AgentDriverManagedSession<THost extends AgentDriverHost> {
       deliveryId: this.createDeliveryId(),
       text: input.text,
       mode: input.mode,
+      intent: "user",
+      execution: "concrete",
     }).then((receipt) => {
       if (!receipt.accepted) this.emitRuntimeError(receiptError(receipt));
     }).catch((error: unknown) => this.emitRuntimeError(error));
@@ -207,6 +225,10 @@ export class AgentDriverManagedSession<THost extends AgentDriverHost> {
 
   private forwardEvent(event: AgentDriverEvent): void {
     if (event.kind === "session") this.observedSessionId = event.sessionId;
+    if (event.kind === "turn_result") {
+      if (this.terminalTurnIds.has(event.result.turnId)) return;
+      this.terminalTurnIds.add(event.result.turnId);
+    }
     for (const parsed of parsedEventsFromAgentDriverEvent(event)) {
       this.events.emit("runtime_event", parsed);
     }
