@@ -3095,6 +3095,168 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     expect(aborts[0]!.abortCause).toBe("start_rejected");
   });
 
+  it("a rejected start receipt reports the public reason and stops the session", async () => {
+    const session = b1Session([]);
+    session.start = vi.fn(async () => ({
+      status: "rejected" as const,
+      reason: "runtime_unavailable" as const,
+      error: { category: "process" as const, code: "start_denied", message: "denied", retryable: true },
+    }));
+    const onRuntimeSpawnFailed = vi.fn();
+    const { mgr } = b1Manager({ sessions: [session], onRuntimeSpawnFailed });
+    mgr.deliver("a1", { seq: 1, text: "active" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onRuntimeSpawnFailed).toHaveBeenCalledWith("codex", "start_denied");
+    expect(session.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("drains messages queued during start and audits a rejected queued receipt", async () => {
+    const session = fakeSession();
+    session.send = vi.fn(async () => ({
+      status: "rejected" as const,
+      reason: "closed" as const,
+      error: { category: "process" as const, code: "queued_denied", message: "closed", retryable: true },
+    }));
+    const { mgr } = b1Manager({ sessions: [session] });
+    const internal = mgr as unknown as {
+      doSpawn(agentId: string, messages: Array<{ id: string; seq: number; text: string }>, resumeSessionId: null): void;
+    };
+    internal.doSpawn("a1", [
+      { id: "first", seq: 1, text: "first" },
+      { id: "queued", seq: 2, text: "queued" },
+    ], null);
+    session.startResolver?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(session.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("audits a queued send promise rejection without leaking it", async () => {
+    const session = fakeSession();
+    session.send = vi.fn(() => Promise.reject(new Error("queued send rejected")));
+    const { mgr } = b1Manager({ sessions: [session] });
+    const internal = mgr as unknown as {
+      doSpawn(agentId: string, messages: Array<{ id: string; seq: number; text: string }>, resumeSessionId: null): void;
+    };
+    internal.doSpawn("a1", [
+      { id: "first", seq: 1, text: "first" },
+      { id: "queued", seq: 2, text: "queued" },
+    ], null);
+    session.startResolver?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(session.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops a session whose asynchronous factory resolves after its spawn state was superseded", async () => {
+    let resolveFactory!: (session: FakeSession) => void;
+    const created = new Promise<FakeSession>((resolve) => { resolveFactory = resolve; });
+    const session = b1Session([]);
+    const mgr = new AgentProcessManager({
+      driverFor: () => b1PersistentDriver(),
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "a1",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      sessionFactory: (() => created) as SessionFactory,
+    });
+    mgr.register("a1", { launchId: "launch-a" });
+    mgr.deliver("a1", { seq: 1, text: "first" });
+    const internal = mgr as unknown as { activeSpawnState: Map<string, object> };
+    internal.activeSpawnState.delete("a1");
+    resolveFactory(session);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(session.stop).toHaveBeenCalledWith({ reason: "shutdown", forceAfterMs: 2_000 });
+    expect(session.start).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["rejected receipt", () => Promise.resolve({
+      status: "rejected" as const,
+      reason: "closed" as const,
+      error: { category: "process" as const, code: "send_denied", message: "closed", retryable: true },
+    })],
+    ["rejected promise", () => Promise.reject(new Error("send rejected"))],
+  ] as const)("%s from an established send closes the active turn once", async (_name, send) => {
+    const rows: B1TraceRow[] = [];
+    const session = b1Session([]);
+    const { mgr } = b1Manager({ sessions: [session], trace: (row) => rows.push(row) });
+    mgr.deliver("a1", { seq: 1, text: "first" });
+    await Promise.resolve();
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    session.send = vi.fn(send);
+    mgr.deliver("a1", { seq: 2, text: "second" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(session.send).toHaveBeenCalledTimes(1);
+    expect(b1SpanRows(rows, "turn_abort").filter((row) => row.abortCause === "send_threw")).toHaveLength(1);
+  });
+
+  it("reports an event-stream rejection and a closed-promise rejection", async () => {
+    const eventFailure = b1Session([]);
+    Object.defineProperty(eventFailure, "events", {
+      value: {
+        maxBufferedBytes: 4_194_304,
+        [Symbol.asyncIterator]() {
+          return { next: () => Promise.reject(new Error("event stream rejected")) };
+        },
+      },
+    });
+    const eventFailureReported = vi.fn();
+    const { mgr: eventMgr } = b1Manager({ sessions: [eventFailure], onRuntimeSpawnFailed: eventFailureReported });
+    eventMgr.deliver("a1", { seq: 1, text: "event failure" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(eventFailureReported).toHaveBeenCalledWith("codex", "event_stream_failed");
+
+    const closeFailure = b1Session([]);
+    Object.defineProperty(closeFailure, "closed", { value: Promise.reject(new Error("closed rejected")) });
+    const closeFailureReported = vi.fn();
+    const { mgr: closeMgr } = b1Manager({ sessions: [closeFailure], onRuntimeSpawnFailed: closeFailureReported });
+    closeMgr.deliver("a1", { seq: 1, text: "close failure" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(closeFailureReported).toHaveBeenCalledWith("codex", "session_closed_rejected");
+  });
+
+  it("maps all public session event families into backend-neutral runtime signals", async () => {
+    const rows: B1TraceRow[] = [];
+    const session = b1Session([]);
+    const { mgr } = b1Manager({ sessions: [session], trace: (row) => rows.push(row) });
+    mgr.deliver("a1", { seq: 1, text: "active" });
+    await Promise.resolve();
+    const internal = mgr as unknown as {
+      activeSpawnState: Map<string, object>;
+      onAgentEvent(agentId: string, event: AgentEvent<BuiltinBackendSpecs, "codex">, runtimeId: "codex", owner: object): void;
+    };
+    const owner = internal.activeSpawnState.get("a1")!;
+    let sequence = 100;
+    const publish = (event: object) => internal.onAgentEvent("a1", {
+      ...event,
+      sequence: ++sequence,
+      sessionInstanceId: "test-instance",
+      at: Date.now(),
+    } as never, "codex", owner);
+    publish({ type: "tool_started", turnId: "test-turn", name: "Read", input: {} });
+    publish({ type: "tool_finished", turnId: "test-turn", name: "Read" });
+    publish({ type: "diagnostic", severity: "warning", source: "codex", message: "warning" });
+    publish({ type: "token_usage", turnId: "test-turn", source: "codex", usage: {}, details: {} });
+    publish({ type: "rate_limits", turnId: "test-turn", source: "codex", details: {} });
+    publish({ type: "command_queued", commandId: "queued", reason: "runtime_busy" });
+    publish({ type: "command_accepted", commandId: "accepted", turnId: "test-turn", delivery: "steer" });
+    publish({
+      type: "command_failed",
+      commandId: "failed",
+      error: { category: "process", code: "failed", message: "failed", retryable: true },
+    });
+    publish({ type: "turn_started", turnId: "test-turn", commandIds: ["accepted"] });
+
+    expect(rows.filter((row) => row.event === "runtime_signal")).toHaveLength(9);
+  });
+
   for (const mode of ["idle", "busy"] as const) {
     it(`${mode} send synchronous throw aborts once and rethrows without another send`, async () => {
       const rows: B1TraceRow[] = [];

@@ -41,6 +41,7 @@ class FakeDriver implements BackendAdapter {
   };
   failSpawn?: Error;
   failPrompt?: Error;
+  failAbort?: Error;
   failDispose?: Error;
   rejectWrites = false;
   hangDispose = false;
@@ -69,7 +70,9 @@ class FakeDriver implements BackendAdapter {
         if (this.failPrompt) throw this.failPrompt;
       }),
       steer: vi.fn(async () => {}),
-      abort: vi.fn(async () => {}),
+      abort: vi.fn(async () => {
+        if (this.failAbort) throw this.failAbort;
+      }),
       dispose: vi.fn(() => {
         if (this.failDispose) return Promise.reject(this.failDispose);
         return this.hangDispose ? new Promise<void>(() => {}) : Promise.resolve();
@@ -138,9 +141,13 @@ function makeSession<Id extends BuiltinBackendId>(
 }
 
 async function emit(driver: FakeDriver, event: AdapterEvent): Promise<void> {
+  emitNow(driver, event);
+  await Promise.resolve();
+}
+
+function emitNow(driver: FakeDriver, event: AdapterEvent): void {
   if (driver.id === "pi") driver.lane!.emitEvents([event]);
   else driver.processes.at(-1)!.stdout.write(`${JSON.stringify(event)}\n`);
-  await Promise.resolve();
 }
 
 async function take(
@@ -216,6 +223,7 @@ describe("backend-owned delivery behavior", () => {
     const { session, driver } = makeSession(backend);
     await session.start({ id: "one", kind: "user", text: "start" });
     expect(await session.send({ id: "two", kind: "user", text: "follow" })).toEqual({ status: "queued", reason: "unsafe_boundary", commandId: "two" });
+    expect(session.snapshot().queuedCommands).toEqual([{ commandId: "two", kind: "user" }]);
     expect(driver.writes).toEqual([]);
     await emit(driver, { kind: "compaction_finished" });
     expect(driver.writes).toEqual(["follow"]);
@@ -272,6 +280,79 @@ describe("backend-owned delivery behavior", () => {
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
+  it("reuses an open SDK lane for the next physical turn", async () => {
+    const { session, driver } = makeSession("pi");
+    await session.start({ id: "one", kind: "user", text: "start" });
+    await emit(driver, { kind: "turn_end", sessionId: "sdk-session" });
+    expect(await session.send({ id: "two", kind: "user", text: "next" })).toMatchObject({
+      status: "accepted",
+      commandId: "two",
+    });
+    expect(driver.sdkHandle!.prompt).toHaveBeenCalledTimes(2);
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("reports an adapter interrupt rejection without changing the active turn", async () => {
+    const { session, driver } = makeSession("pi");
+    await session.start({ id: "one", kind: "user", text: "start" });
+    driver.failAbort = new Error("abort rejected");
+    driver.sdkHandle!.isStreaming = true;
+    expect(await session.interrupt({ requestId: "interrupt", reason: "user" })).toMatchObject({
+      status: "failed",
+      error: { code: "interrupt_failed" },
+    });
+    expect(session.snapshot().activeTurn?.commandIds).toEqual(["one"]);
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("normalizes progress, diagnostics, telemetry, and circular telemetry details", async () => {
+    const { session, driver } = makeSession("pi");
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    await emit(driver, { kind: "internal_progress", source: "pi", itemType: "working", payloadBytes: 12 });
+    await emit(driver, { kind: "runtime_diagnostic", severity: "notice", source: "pi", message: "heads up" });
+    await emit(driver, { kind: "telemetry", name: "token_usage", source: "pi", attrs: circular } as never);
+    await emit(driver, { kind: "telemetry", name: "rate_limits", source: "pi", attrs: { remaining: 1 } });
+    const events = await take(iterator as never, 7);
+    expect(events.map((event) => event.type)).toEqual([
+      "command_accepted",
+      "turn_started",
+      "session_started",
+      "internal_progress",
+      "diagnostic",
+      "token_usage",
+      "rate_limits",
+    ]);
+    expect(events[4]).toMatchObject({ severity: "info", message: "heads up" });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("forwards process stderr as raw output and a warning diagnostic", async () => {
+    const { session, driver, host } = makeSession("claude");
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    driver.processes[0]!.stderr.write("warning text\n");
+    await Promise.resolve();
+    const events = await take(iterator as never, 3);
+    expect(events.at(-1)).toMatchObject({ type: "diagnostic", severity: "warning", message: "warning text" });
+    expect(host.rawOutput.at(-1)).toMatchObject({ stream: "stderr", text: "warning text" });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("fails every still-queued command when the session stops", async () => {
+    const { session } = makeSession("claude");
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    await session.send({ id: "two", kind: "user", text: "follow" });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    const events = await take(iterator as never, 6);
+    expect(events.filter((event) => event.type === "command_failed")).toMatchObject([
+      { commandId: "two", error: { code: "session_stopping" } },
+    ]);
+  });
+
   it("emits command_failed for every safe-boundary delivery rejection", async () => {
     const { session, driver } = makeSession("claude");
     const iterator = session.events[Symbol.asyncIterator]();
@@ -284,6 +365,45 @@ describe("backend-owned delivery behavior", () => {
     expect(events.filter((event) => event.type === "command_failed").map((event) => event.commandId))
       .toEqual(["two", "three"]);
     expect(session.snapshot().queuedCommands).toEqual([]);
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("single-flights same-tick safe boundaries and delivers queued commands exactly once in FIFO order", async () => {
+    const { session, driver } = makeSession("claude");
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    await session.send({ id: "two", kind: "user", text: "follow two" });
+    await session.send({ id: "three", kind: "user", text: "follow three" });
+    emitNow(driver, { kind: "compaction_finished" });
+    emitNow(driver, { kind: "review_finished" });
+    const events = await take(iterator as never, 8);
+    expect(driver.writes).toEqual(["follow two", "follow three"]);
+    expect(events.filter((event) => event.type === "command_accepted").map((event) => event.commandId))
+      .toEqual(["one", "two", "three"]);
+    expect(session.snapshot()).toMatchObject({
+      activeTurn: { commandIds: ["one", "two", "three"] },
+      queuedCommands: [],
+    });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("single-flights same-tick rejected safe boundaries and fails each queued command exactly once", async () => {
+    const { session, driver } = makeSession("claude");
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    await session.send({ id: "two", kind: "user", text: "follow two" });
+    await session.send({ id: "three", kind: "user", text: "follow three" });
+    driver.rejectWrites = true;
+    emitNow(driver, { kind: "compaction_finished" });
+    emitNow(driver, { kind: "review_finished" });
+    const events = await take(iterator as never, 8);
+    expect(driver.writes).toEqual(["follow two", "follow three"]);
+    expect(events.filter((event) => event.type === "command_failed").map((event) => event.commandId))
+      .toEqual(["two", "three"]);
+    expect(session.snapshot()).toMatchObject({
+      activeTurn: { commandIds: ["one"] },
+      queuedCommands: [],
+    });
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 

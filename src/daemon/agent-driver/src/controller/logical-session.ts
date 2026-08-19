@@ -86,6 +86,7 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
   private compacting = false;
   private reviewing = false;
   private toolBoundaryFlushDisabled = false;
+  private safeBoundaryFlush?: Promise<void>;
   private instructionsMaterialized = false;
 
   private readonly eventQueue: BufferedEventQueue<AgentEvent<BuiltinBackendSpecs, Id>>;
@@ -528,12 +529,30 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     }
   }
 
-  private async flushSafeBoundaryQueue(): Promise<void> {
-    if (this.behavior.midTurnDelivery !== "safe_boundary_queue") return;
-    if (this.outstandingToolUses > 0 || this.compacting || this.reviewing) return;
-    if (!this.activeTurn || !this.lane) return;
-    while (this.queued.length > 0) {
+  private flushSafeBoundaryQueue(): Promise<void> {
+    if (this.safeBoundaryFlush) return this.safeBoundaryFlush;
+    if (!this.canFlushSafeBoundaryQueue()) return Promise.resolve();
+    this.safeBoundaryFlush = this.drainSafeBoundaryQueue().finally(() => {
+      this.safeBoundaryFlush = undefined;
+      if (this.canFlushSafeBoundaryQueue()) void this.flushSafeBoundaryQueue();
+    });
+    return this.safeBoundaryFlush;
+  }
+
+  private canFlushSafeBoundaryQueue(): boolean {
+    return this.behavior.midTurnDelivery === "safe_boundary_queue"
+      && this.outstandingToolUses === 0
+      && !this.compacting
+      && !this.reviewing
+      && this.activeTurn !== undefined
+      && this.lane !== null
+      && this.queued.length > 0;
+  }
+
+  private async drainSafeBoundaryQueue(): Promise<void> {
+    while (this.canFlushSafeBoundaryQueue()) {
       const item = this.queued[0]!;
+      const activeTurn = this.activeTurn!;
       try {
         await this.sendLane(item.message.text, "busy");
       } catch (error) {
@@ -541,17 +560,17 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
         this.emit({
           type: "command_failed",
           commandId: item.message.id,
-          turnId: this.activeTurn.turnId,
+          turnId: activeTurn.turnId,
           error: driverError("process", "delivery_failed", String(error), true),
         });
         continue;
       }
       this.queued.shift();
-      this.activeTurn.commandIds.push(item.message.id);
+      activeTurn.commandIds.push(item.message.id);
       this.emit({
         type: "command_accepted",
         commandId: item.message.id,
-        turnId: this.activeTurn.turnId,
+        turnId: activeTurn.turnId,
         delivery: "steer",
       });
     }
