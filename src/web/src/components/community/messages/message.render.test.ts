@@ -330,17 +330,14 @@ describe("Message desktop text selection", () => {
 
     const stopPropagation = vi.fn()
     const preventDefault = vi.fn()
-    const preventBaseUIHandler = vi.fn()
-    act(() => row.props.onContextMenu({
+    act(() => row.props.onContextMenuCapture({
       currentTarget: rowElement,
       stopPropagation,
       preventDefault,
-      preventBaseUIHandler,
     }))
 
     expect(stopPropagation).toHaveBeenCalledOnce()
     expect(preventDefault).not.toHaveBeenCalled()
-    expect(preventBaseUIHandler).toHaveBeenCalledOnce()
     act(() => renderer!.unmount())
   })
 
@@ -362,17 +359,14 @@ describe("Message desktop text selection", () => {
 
     const stopPropagation = vi.fn()
     const preventDefault = vi.fn()
-    const preventBaseUIHandler = vi.fn()
-    act(() => row.props.onContextMenu({
+    act(() => row.props.onContextMenuCapture({
       currentTarget: rowElement,
       stopPropagation,
       preventDefault,
-      preventBaseUIHandler,
     }))
 
     expect(stopPropagation).not.toHaveBeenCalled()
     expect(preventDefault).not.toHaveBeenCalled()
-    expect(preventBaseUIHandler).not.toHaveBeenCalled()
     act(() => renderer!.unmount())
   })
 })

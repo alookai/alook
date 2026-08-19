@@ -220,19 +220,13 @@ function MessageImpl({
       onPointerEnter={activate}
       onFocusCapture={activate}
       onKeyDownCapture={activate}
-      onContextMenu={interactive && hoverCapable
+      onContextMenuCapture={interactive && hoverCapable
         ? (event) => {
             if (!selectionBelongsToRow(window.getSelection(), event.currentTarget)) return
 
-            // Base UI merges the rendered row's handler before its own context-
-            // menu handler. Cancel only that library handler, then keep the
-            // event away from Base UI's document listener (which otherwise
-            // prevents the native menu). Deliberately do not preventDefault:
-            // the browser must remain in charge of copying the selection.
-            const baseUIEvent = event as typeof event & {
-              preventBaseUIHandler?: () => void
-            }
-            baseUIEvent.preventBaseUIHandler?.()
+            // Stop before Base UI's trigger and document listeners see the
+            // event. Deliberately do not preventDefault: the browser must stay
+            // in charge of the native menu for copying the selected fragment.
             event.stopPropagation()
           }
         : undefined}
