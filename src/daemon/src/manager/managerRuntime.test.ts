@@ -9,11 +9,16 @@ import {
   extractToolAudit,
   isAlookShellInvocation,
   truncateTargetToCodeUnits,
-  type ManagedSession,
   type SessionFactory,
 } from "./managerRuntime.js";
-import { SdkRuntimeSession, type SdkSessionHandle } from "../runtime/sdkRuntimeSession.js";
-import type { Driver, LaunchContext, SdkDriverDeps } from "../types.js";
+import type {
+  AgentEvent,
+  AgentSession,
+  AgentSessionResult,
+  BuiltinBackendSpecs,
+} from "@alook/agent-driver";
+import type { AgentBackend as Driver } from "../drivers/index.js";
+import type { HostLaunchContext as LaunchContext } from "./hostContext.js";
 import type { RuntimeConfig } from "../runtimeConfig.js";
 import type { Logger } from "../logger.js";
 
@@ -75,41 +80,173 @@ function controllableChildDriver(id: string): { driver: Driver; stdout: PassThro
 }
 
 // Fake session with manual EE that we can emit into from tests.
-interface FakeSession extends ManagedSession {
-  fire(evt: string, ...args: unknown[]): void;
+type TestAgentSession = AgentSession<BuiltinBackendSpecs, "codex">;
+interface FakeSession extends TestAgentSession {
+  fire(evt: string, ...args: unknown[]): Promise<void>;
   startResolver?: () => void;
   startRejector?: (err: unknown) => void;
+  bindManager(publish: (event: AgentEvent<BuiltinBackendSpecs, "codex">) => void, finish: (result: AgentSessionResult) => void): void;
 }
 
 function fakeSession(): FakeSession {
-  const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
-  const s: FakeSession = {
-    on(event, cb) {
-      const arr = listeners.get(event) ?? [];
-      arr.push(cb);
-      listeners.set(event, arr);
+  type Event = AgentEvent<BuiltinBackendSpecs, "codex">;
+  const queued: Event[] = [];
+  const waiters: Array<(value: IteratorResult<Event>) => void> = [];
+  let sequence = 0;
+  let publishToManager: ((event: Event) => void) | undefined;
+  let finishManager: ((result: AgentSessionResult) => void) | undefined;
+  let resolveClosed!: (result: AgentSessionResult) => void;
+  const closed = new Promise<AgentSessionResult>((resolve) => { resolveClosed = resolve; });
+  const push = (payload: Omit<Event, "sequence" | "sessionInstanceId" | "at">) => {
+    const event = {
+      ...payload,
+      sequence: ++sequence,
+      sessionInstanceId: "test-instance",
+      at: Date.now(),
+    } as Event;
+    if (publishToManager) {
+      publishToManager(event);
+      return;
+    }
+    const waiter = waiters.shift();
+    if (waiter) waiter({ done: false, value: event });
+    else queued.push(event);
+  };
+  const s = {
+    backend: "codex",
+    capabilities: {} as TestAgentSession["capabilities"],
+    sessionInstanceId: "test-instance",
+    events: {
+      maxBufferedBytes: 4_194_304 as const,
+      [Symbol.asyncIterator]() {
+        return {
+          next: () => queued.length > 0
+            ? Promise.resolve({ done: false as const, value: queued.shift()! })
+            : new Promise<IteratorResult<Event>>((resolve) => waiters.push(resolve)),
+        };
+      },
+    },
+    closed,
+    bindManager(publish: (event: Event) => void, finish: (result: AgentSessionResult) => void) {
+      publishToManager = publish;
+      finishManager = finish;
     },
     start() {
-      return new Promise<void>((resolve, reject) => {
-        s.startResolver = resolve;
+      return new Promise((resolve, reject) => {
+        s.startResolver = () => resolve({
+          status: "accepted",
+          delivery: "prompt",
+          commandId: "test-start",
+          turnId: "test-turn",
+        });
         s.startRejector = reject;
       });
     },
-    send() { },
-    stop() { },
-    get currentSessionId() {
-      return null;
+    async send(message: { id: string }) {
+      return {
+        status: "accepted" as const,
+        delivery: "steer" as const,
+        commandId: message.id,
+        turnId: "test-turn",
+      };
     },
-    fire(evt, ...args) {
-      for (const cb of listeners.get(evt) ?? []) cb(...args);
+    async interrupt() { return { status: "not_running" as const }; },
+    async stop() { return { status: "accepted" as const, requestId: "test-stop" }; },
+    snapshot() {
+      return {
+        sessionInstanceId: "test-instance",
+        state: "working" as const,
+        queuedCommands: [],
+        lastEventSequence: sequence,
+      };
     },
-  };
+    async invokeExtension() {
+      return { ok: false as const, error: { category: "internal" as const, code: "unsupported", message: "unsupported", retryable: false } };
+    },
+    async fire(evt: string, ...args: unknown[]) {
+      if (evt === "runtime_event") {
+        const event = args[0] as { kind: string; sessionId?: string; text?: string; name?: string; input?: unknown; message?: string; source?: string; itemType?: string; payloadBytes?: number };
+        const turnId = "test-turn";
+        switch (event.kind) {
+          case "session_init":
+            push({ type: "session_started", backendSessionId: event.sessionId ?? "test-session" } as never);
+            break;
+          case "thinking": push({ type: "thinking_delta", turnId, text: event.text ?? "" } as never); break;
+          case "text": push({ type: "text_delta", turnId, text: event.text ?? "" } as never); break;
+          case "tool_call": push({ type: "tool_started", turnId, name: event.name ?? "unknown", input: (event.input ?? null) as never } as never); break;
+          case "tool_output": push({ type: "tool_finished", turnId, name: event.name ?? "unknown" } as never); break;
+          case "compaction_started":
+          case "compaction_finished":
+          case "review_started":
+          case "review_finished": push({ type: event.kind, turnId } as never); break;
+          case "internal_progress": push({ type: "internal_progress", turnId, source: event.source, itemType: event.itemType, payloadBytes: event.payloadBytes } as never); break;
+          case "error": push({ type: "session_failed", error: { category: "process", code: "runtime_error", message: event.message ?? "Runtime error", retryable: true } } as never); break;
+          case "turn_end": push({ type: "turn_completed", turnId, commandIds: ["test-start"], result: { outcome: "success", backendSessionId: event.sessionId ?? "test-session" } } as never); break;
+          default: push({ type: "internal_progress", turnId, source: "test", itemType: event.kind } as never);
+        }
+      } else if (evt === "error") {
+        const error = args[0] as { code?: string; message?: string } | undefined;
+        push({ type: "session_failed", error: { category: "process", code: error?.code ?? "spawn_error", message: error?.message ?? error?.code ?? "spawn error", retryable: true } } as never);
+      } else if (evt === "stderr") {
+        push({ type: "diagnostic", severity: "warning", source: "codex", message: String(args[0] ?? "") } as never);
+      } else if (evt === "exit") {
+        const info = args[0] as { code?: number | null; signal?: string | null; reason?: string } | undefined;
+        const result: AgentSessionResult = info?.reason === "requested"
+          ? { outcome: "stopped", requested: true, exitCode: info.code ?? null, signal: info.signal ?? null, cleanup: { status: "released" } }
+          : (info?.code ?? null) === 0 && (info?.signal ?? null) === null
+            ? { outcome: "completed", requested: false, exitCode: 0, signal: null, cleanup: { status: "released" } }
+          : { outcome: "crashed", requested: false, exitCode: info?.code ?? null, signal: info?.signal ?? null, cleanup: { status: "released" } };
+        if (finishManager) finishManager(result);
+        else resolveClosed(result);
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+    },
+  } as unknown as FakeSession;
   return s;
+}
+
+function sessionFactoryFor(session: FakeSession): SessionFactory {
+  return (hooks) => bindFactorySession(hooks, session);
+}
+
+function fireManagedError(
+  mgr: AgentProcessManager,
+  message: string,
+  superseded: boolean,
+): void {
+  const internal = mgr as unknown as {
+    activeSpawnState: Map<string, { superseded: boolean }>;
+    onAgentEvent(
+      agentId: string,
+      event: AgentEvent<BuiltinBackendSpecs, "codex">,
+      runtimeId: "codex",
+      owner: { superseded: boolean },
+    ): void;
+  };
+  if (!internal.activeSpawnState.has("a1")) mgr.deliver("a1", { seq: 1, text: "hello" });
+  const owner = internal.activeSpawnState.get("a1")!;
+  owner.superseded = superseded;
+  internal.onAgentEvent("a1", {
+    type: "session_failed",
+    error: { category: "process", code: "runtime_error", message, retryable: true },
+    sequence: 1,
+    sessionInstanceId: "test-instance",
+    at: Date.now(),
+  }, "codex", owner);
+}
+
+function bindFactorySession(
+  { publish, finish }: Parameters<SessionFactory>[0],
+  session: FakeSession,
+): FakeSession {
+  session.bindManager(publish as never, finish);
+  return session;
 }
 
 function makeManager(opts: { logger?: Logger; tickIntervalMs?: number; idleTimeoutMs?: number; staleThresholdMs?: number; resetStuckThresholdMs?: number; handshakeTimeoutMs?: number; now?: () => number; onBotAuditEvent?: (agentId: string, event: unknown, context: { sessionId: string | null; launchId: string | null }) => void } = {}) {
   const session = fakeSession();
-  const factory: SessionFactory = () => session;
+  const factory = sessionFactoryFor(session);
   const onRuntimeSpawnFailed = vi.fn();
   const onRuntimeSessionEstablished = vi.fn();
   const mgr = new AgentProcessManager({
@@ -171,6 +308,7 @@ describe("AgentProcessManager — runtime health callbacks", () => {
     const { mgr, session, onRuntimeSpawnFailed, onRuntimeSessionEstablished } = makeManager();
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
     session.fire("runtime_event", { kind: "text", text: "hi" });
     session.fire("error", { code: "EPIPE" });
     session.fire("exit");
@@ -179,7 +317,7 @@ describe("AgentProcessManager — runtime health callbacks", () => {
     expect(onRuntimeSpawnFailed).not.toHaveBeenCalled();
   });
 
-  it("fires onRuntimeSessionEstablished on EVERY runtime_event so a parallel session can heal the map", () => {
+  it("heals runtime health only from the typed session_started event", () => {
     const { mgr, session, onRuntimeSessionEstablished } = makeManager();
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
@@ -187,14 +325,16 @@ describe("AgentProcessManager — runtime health callbacks", () => {
     session.fire("runtime_event", { kind: "text", text: "two" });
     session.fire("runtime_event", { kind: "text", text: "three" });
 
-    // Called on every event — router idempotence collapses to one wire frame.
-    expect(onRuntimeSessionEstablished).toHaveBeenCalledTimes(3);
+    expect(onRuntimeSessionEstablished).not.toHaveBeenCalled();
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    expect(onRuntimeSessionEstablished).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("AgentProcessManager — raw runtime line tap (P0-1)", () => {
-  it("adds agent identity before the default child-process session parses the line", async () => {
+  it("keeps raw child-process parsing behind the injected logical-session boundary", async () => {
     const { driver, stdout, parseLine } = controllableChildDriver("codex");
+    const session = fakeSession();
     const onRuntimeRawLine = vi.fn();
     const mgr = new AgentProcessManager({
       driverFor: () => driver,
@@ -205,6 +345,7 @@ describe("AgentProcessManager — raw runtime line tap (P0-1)", () => {
         config: {} as LaunchContext["config"],
         credentialProxy: {} as LaunchContext["credentialProxy"],
       }),
+      sessionFactory: (hooks) => bindFactorySession(hooks, session),
       onRuntimeRawLine,
     });
     mgr.register("agent_a");
@@ -213,8 +354,8 @@ describe("AgentProcessManager — raw runtime line tap (P0-1)", () => {
 
     stdout.write('{"vendor":"field"}\n');
 
-    expect(onRuntimeRawLine).toHaveBeenCalledWith("agent_a", '{"vendor":"field"}');
-    expect(parseLine).toHaveBeenCalledWith('{"vendor":"field"}');
+    expect(onRuntimeRawLine).not.toHaveBeenCalled();
+    expect(parseLine).not.toHaveBeenCalled();
   });
 
   it("does not attach the child stdout tap to a custom session factory", () => {
@@ -328,17 +469,13 @@ describe("AgentProcessManager — logging", () => {
     expect(logger.calls.info.some(([m]) => m === "agent session ended")).toBe(false);
   });
 
-  it("does NOT double-log session-ended when a per_turn runtime's natural post-turn_end exit fires (turn_end already logged)", () => {
+  it("logs one logical turn end without observing a backend's hidden physical exit", () => {
     const logger = stubLogger();
     const { mgr, session } = makeManager({ logger }); // fakeDriver's lifecycle.kind is "per_turn"
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
     session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
     session.fire("runtime_event", { kind: "turn_end" });
-    // The per_turn process exits on its own right after turn_end — this
-    // must NOT produce a second, contradictory "session ended" line.
-    session.fire("exit");
-
     const ended = logger.calls.info.filter(([m]) => m === "agent session ended");
     expect(ended).toHaveLength(1);
     expect((ended[0]![1][0] as any).reason).toBe("turn_end");
@@ -354,9 +491,10 @@ describe("AgentProcessManager — launchId threading", () => {
   // fallback path (see plans/fix-credential-proxy-connection-leak.md).
   it("passes the latest agent:wake's launchId into the spawned driver's LaunchContext", () => {
     let capturedCtx: LaunchContext | undefined;
-    const factory: SessionFactory = ({ ctx }) => {
+    const factory: SessionFactory = (hooks) => {
+      const { ctx } = hooks;
       capturedCtx = ctx;
-      return fakeSession();
+      return bindFactorySession(hooks, fakeSession());
     };
     const mgr = new AgentProcessManager({
       driverFor: () => fakeDriver("codex"),
@@ -379,9 +517,10 @@ describe("AgentProcessManager — launchId threading", () => {
 
   it("falls back to baseContextFor's launchId when no wake launchId is tracked", () => {
     let capturedCtx: LaunchContext | undefined;
-    const factory: SessionFactory = ({ ctx }) => {
+    const factory: SessionFactory = (hooks) => {
+      const { ctx } = hooks;
       capturedCtx = ctx;
-      return fakeSession();
+      return bindFactorySession(hooks, fakeSession());
     };
     const mgr = new AgentProcessManager({
       driverFor: () => fakeDriver("codex"),
@@ -417,10 +556,10 @@ describe("AgentProcessManager — session race conditions", () => {
   it("a stop that races and wins against an in-flight start() does not let start()'s later resolution revive the FSM into 'running'", async () => {
     const logger = stubLogger();
     const sessions: FakeSession[] = [];
-    const factory: SessionFactory = () => {
+    const factory: SessionFactory = (hooks) => {
       const s = fakeSession();
       sessions.push(s);
-      return s;
+      return bindFactorySession(hooks, s);
     };
     const mgr = new AgentProcessManager({
       driverFor: () => fakeDriver("codex"),
@@ -559,7 +698,7 @@ describe("AgentProcessManager — session race conditions", () => {
         lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
       } as Driver;
       const session = fakeSession();
-      const factory: SessionFactory = () => session;
+      const factory: SessionFactory = (hooks) => bindFactorySession(hooks, session);
       const mgr = new AgentProcessManager({
         driverFor: () => persistentDriver,
         baseContextFor: () => ({
@@ -613,7 +752,7 @@ describe("AgentProcessManager — session race conditions", () => {
       const mgr = new AgentProcessManager({
         driverFor: () => persistentDriver,
         baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
-        sessionFactory: () => session,
+        sessionFactory: (hooks) => bindFactorySession(hooks, session),
         now: () => currentTime,
         tickIntervalMs: 5,
         idleTimeoutMs: 50,
@@ -646,7 +785,7 @@ describe("AgentProcessManager — session race conditions", () => {
     }
   });
 
-  it("force_exit reaps the orphan via the recorded pid when the session handle is gone (batch F, Hypothesis A)", async () => {
+  it("force_exit delegates bounded teardown to the logical session without reading a pid", async () => {
     vi.useFakeTimers();
     try {
       let currentTime = 0;
@@ -655,13 +794,12 @@ describe("AgentProcessManager — session race conditions", () => {
         lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
       } as Driver;
       const session = fakeSession();
-      // A dead/never-existed pid: killProcessTree self-guards (isAlive → false),
-      // so this exercises the pid-kill BRANCH without signalling a real process.
-      (session as unknown as { pid: number }).pid = 2147483646;
+      const stopSpy = vi.fn();
+      session.stop = stopSpy;
       const mgr = new AgentProcessManager({
         driverFor: () => persistentDriver,
         baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
-        sessionFactory: () => session,
+        sessionFactory: (hooks) => bindFactorySession(hooks, session),
         now: () => currentTime,
         tickIntervalMs: 5,
         idleTimeoutMs: 50,
@@ -672,20 +810,15 @@ describe("AgentProcessManager — session race conditions", () => {
       session.startResolver?.();
       await Promise.resolve();
       session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-      // pid recorded at spawn.
-      expect((mgr as unknown as { activeSpawnState: Map<string, { pid: number | null }> }).activeSpawnState.get("a1")?.pid).toBe(2147483646);
       session.fire("runtime_event", { kind: "turn_end" });
       mgr.start();
       currentTime = 100;
       await vi.advanceTimersByTimeAsync(10); // → stopping
 
-      // Simulate Hypothesis A: the session handle is gone from the map (the wedge
-      // cause) while force_exit is about to fire. The recorded pid must be the
-      // fallback kill target — no crash, and the FSM still escapes stopping.
-      (mgr as unknown as { sessions: Map<string, unknown> }).sessions.delete("a1");
       currentTime = 300;
-      await vi.advanceTimersByTimeAsync(10); // → force_exit (no session, pid present)
+      await vi.advanceTimersByTimeAsync(10); // → force_exit through AgentSession.stop
 
+      expect(stopSpy).toHaveBeenCalled();
       expect(mgr.snapshot().agents["a1"]?.status).not.toBe("stopping"); // escaped via synthetic exit
     } finally {
       vi.useRealTimers();
@@ -705,7 +838,7 @@ describe("AgentProcessManager — session race conditions", () => {
       const mgr = new AgentProcessManager({
         driverFor: () => persistentDriver,
         baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
-        sessionFactory: () => session,
+        sessionFactory: (hooks) => bindFactorySession(hooks, session),
         logger,
         now: () => currentTime,
         tickIntervalMs: 5,
@@ -726,7 +859,7 @@ describe("AgentProcessManager — session race conditions", () => {
       await vi.advanceTimersByTimeAsync(10); // → force_exit: no session, no pid
 
       // Warned about the unkillable orphan, and still escaped stopping (no crash).
-      expect(logger.calls.warn.some(([m]) => typeof m === "string" && m.includes("no session handle AND no recorded pid"))).toBe(true);
+      expect(logger.calls.warn.some(([m]) => typeof m === "string" && m.includes("logical session handle is already absent"))).toBe(true);
       expect(mgr.snapshot().agents["a1"]?.status).not.toBe("stopping");
     } finally {
       vi.useRealTimers();
@@ -746,7 +879,7 @@ describe("AgentProcessManager — onAgentActivity (derived activity reporting)",
         busyDeliveryMode: "direct",
       } as Driver;
       const session = fakeSession();
-      const factory: SessionFactory = () => session;
+      const factory: SessionFactory = (hooks) => bindFactorySession(hooks, session);
       const onAgentActivity = vi.fn();
       const mgr = new AgentProcessManager({
         driverFor: () => persistentDriver,
@@ -797,7 +930,7 @@ describe("AgentProcessManager — onAgentActivity (derived activity reporting)",
       busyDeliveryMode: "direct",
     } as Driver;
     const session = fakeSession();
-    const factory: SessionFactory = () => session;
+    const factory: SessionFactory = (hooks) => bindFactorySession(hooks, session);
     const onAgentActivity = vi.fn();
     const mgr = new AgentProcessManager({
       driverFor: () => persistentDriver,
@@ -847,7 +980,7 @@ describe("AgentProcessManager — onAgentActivity (derived activity reporting)",
         config: {} as LaunchContext["config"],
         credentialProxy: {} as LaunchContext["credentialProxy"],
       }),
-      sessionFactory: () => session,
+      sessionFactory: (hooks) => bindFactorySession(hooks, session),
     });
     mgr.register("a1");
     // register alone: known but not running ⇒ idle.
@@ -880,7 +1013,10 @@ describe("AgentProcessManager — onAgentActivity (derived activity reporting)",
       } as Driver;
       const sessionA = fakeSession();
       const sessionB = fakeSession();
-      const factory: SessionFactory = ({ agentId }) => (agentId === "a1" ? sessionA : sessionB);
+      const factory: SessionFactory = (hooks) => bindFactorySession(
+        hooks,
+        hooks.agentId === "a1" ? sessionA : sessionB,
+      );
       const onAgentActivity = vi.fn();
       const mgr = new AgentProcessManager({
         driverFor: () => persistentDriver,
@@ -940,101 +1076,11 @@ describe("AgentProcessManager — onAgentActivity (derived activity reporting)",
         config: {} as LaunchContext["config"],
         credentialProxy: {} as LaunchContext["credentialProxy"],
       }),
-      sessionFactory: () => fakeSession(),
+      sessionFactory: (hooks) => bindFactorySession(hooks, fakeSession()),
       onAgentActivity,
     });
     mgr.register("a1");
     expect(onAgentActivity).not.toHaveBeenCalled();
-  });
-});
-
-// A driver in the shape of PiDriver — declares `createSession` instead of a
-// usable `spawn`, mirroring the real "in-process SDK" contract.
-function fakeSdkDriver(id: string): { driver: Driver & { createSession: NonNullable<Driver["createSession"]> }; createSession: ReturnType<typeof vi.fn> } {
-  let session: SdkRuntimeSession;
-  const handle: SdkSessionHandle = {
-    prompt: (text: string) => {
-      session.emitEvents([{ kind: "text", text }]);
-    },
-    steer: () => { },
-  };
-  const createSession = vi.fn(async () => {
-    session = new SdkRuntimeSession(handle, "sdk-sess-1");
-    return session;
-  });
-  const driver = {
-    ...fakeDriver(id),
-    spawn: async () => {
-      throw new Error("in-process SDK driver — spawn unsupported");
-    },
-    createSession,
-  } as unknown as Driver & { createSession: NonNullable<Driver["createSession"]> };
-  return { driver, createSession };
-}
-
-describe("AgentProcessManager — in-process SDK driver dispatch (Driver.createSession)", () => {
-  it("throws a clear error when a driver declares createSession but no sessionFactory/sdkDriverDepsFor was configured", () => {
-    const { driver } = fakeSdkDriver("pi");
-    const mgr = new AgentProcessManager({
-      driverFor: () => driver,
-      baseContextFor: () => ({
-        workingDirectory: "/tmp",
-        agentId: "a1",
-        standingPrompt: "",
-        config: {} as LaunchContext["config"],
-        credentialProxy: {} as LaunchContext["credentialProxy"],
-      }),
-    });
-    mgr.register("a1");
-    expect(() => mgr.deliver("a1", { seq: 1, text: "hello" })).toThrow(/sdkDriverDepsFor/);
-  });
-
-  it("dispatches through SdkManagedSession (not a child process) when sdkDriverDepsFor is configured, and streams runtime_events normally", async () => {
-    const { driver, createSession } = fakeSdkDriver("pi");
-    const onRuntimeSessionEstablished = vi.fn();
-    const onRuntimeRawLine = vi.fn();
-    const sdkDeps: SdkDriverDeps = {
-      buildSpawnEnv: vi.fn().mockResolvedValue({}),
-      createAgentSession: vi.fn(),
-    };
-    const mgr = new AgentProcessManager({
-      driverFor: () => driver,
-      baseContextFor: () => ({
-        workingDirectory: "/tmp",
-        agentId: "a1",
-        standingPrompt: "",
-        config: {} as LaunchContext["config"],
-      }),
-      sdkDriverDepsFor: () => sdkDeps,
-      onRuntimeSessionEstablished,
-      onRuntimeRawLine,
-    });
-    mgr.register("a1");
-    mgr.deliver("a1", { seq: 1, text: "hello" });
-    // createSession is async — let its microtasks (and the subsequent send()) drain.
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(createSession).toHaveBeenCalledTimes(1);
-    expect(onRuntimeSessionEstablished).toHaveBeenCalledWith("pi");
-    expect(onRuntimeRawLine).not.toHaveBeenCalled();
-  });
-
-  it("does NOT require a credentialProxy for an in-process SDK driver (that guard is child-process-only)", () => {
-    const { driver } = fakeSdkDriver("pi");
-    const sdkDeps: SdkDriverDeps = { buildSpawnEnv: vi.fn().mockResolvedValue({}), createAgentSession: vi.fn() };
-    const mgr = new AgentProcessManager({
-      driverFor: () => driver,
-      baseContextFor: () => ({
-        workingDirectory: "/tmp",
-        agentId: "a1",
-        standingPrompt: "",
-        config: {} as LaunchContext["config"],
-        // no credentialProxy on purpose
-      }),
-      sdkDriverDepsFor: () => sdkDeps,
-    });
-    mgr.register("a1");
-    expect(() => mgr.deliver("a1", { seq: 1, text: "hello" })).not.toThrow();
   });
 });
 
@@ -1345,7 +1391,7 @@ describe("AgentProcessManager — error audit emission", () => {
     // (`superseded=false`), so its real error must SURFACE.
     //
     // The fake harness reuses one session object; we assert the gate's
-    // behavior directly by driving `onRuntimeEvent` with the reborn session's
+    // behavior directly by driving the typed event consumer with the reborn session's
     // (non-superseded) identity — mirroring what the real per-session
     // subscriber closure passes.
     const onBotAuditEvent = vi.fn();
@@ -1353,9 +1399,7 @@ describe("AgentProcessManager — error audit emission", () => {
 
     // Reborn session identity → superseded=false (the subscriber passes its own
     // session state's flag). A genuine startup error must be audited.
-    (mgr as unknown as {
-      onRuntimeEvent: (a: string, e: unknown, r: string, superseded: boolean) => void;
-    }).onRuntimeEvent("a1", { kind: "error", message: "reborn hit a rate limit" }, "codex", false);
+    fireManagedError(mgr, "reborn hit a rate limit", false);
 
     const errCalls = onBotAuditEvent.mock.calls.filter(
       ([, ev]) => (ev as { kind?: string })?.kind === "error",
@@ -1369,9 +1413,7 @@ describe("AgentProcessManager — error audit emission", () => {
     const { mgr } = makeManager({ onBotAuditEvent });
     // Superseded session identity → its interrupted-turn error is teardown
     // noise, suppressed regardless of the agent's status.
-    (mgr as unknown as {
-      onRuntimeEvent: (a: string, e: unknown, r: string, superseded: boolean) => void;
-    }).onRuntimeEvent("a1", { kind: "error", message: "turn interrupted" }, "codex", true);
+    fireManagedError(mgr, "turn interrupted", true);
 
     const errCalls = onBotAuditEvent.mock.calls.filter(
       ([, ev]) => (ev as { kind?: string })?.kind === "error",
@@ -1397,9 +1439,7 @@ describe("AgentProcessManager — error audit emission", () => {
     clock = 200; // now - resettingSince = 190 >= 100 → stuck
 
     // Reborn (superseded=false) error fires while the window is wedged.
-    (mgr as unknown as {
-      onRuntimeEvent: (a: string, e: unknown, r: string, superseded: boolean) => void;
-    }).onRuntimeEvent("a1", { kind: "error", message: "reborn hit a rate limit" }, "codex", false);
+    fireManagedError(mgr, "reborn hit a rate limit", false);
 
     // 命门: the error STILL surfaces (additive trace never suppresses).
     const errCalls = onBotAuditEvent.mock.calls.filter(
@@ -1421,9 +1461,7 @@ describe("AgentProcessManager — error audit emission", () => {
     mgr.markResetting("a1"); // resettingSince=10
     clock = 50; // now - resettingSince = 40 < 100 → NOT stuck
 
-    (mgr as unknown as {
-      onRuntimeEvent: (a: string, e: unknown, r: string, superseded: boolean) => void;
-    }).onRuntimeEvent("a1", { kind: "error", message: "reborn hit a rate limit" }, "codex", false);
+    fireManagedError(mgr, "reborn hit a rate limit", false);
 
     // Error still surfaces (it's a real reborn error), but no stuck-reset trace.
     expect(onBotAuditEvent.mock.calls.filter(([, ev]) => (ev as { kind?: string })?.kind === "error")).toHaveLength(1);
@@ -1453,8 +1491,8 @@ describe("AgentProcessManager — handshake watchdog", () => {
 
   it("terminates a session that never handshakes, emits an `error` row, and returns the FSM to idle", async () => {
     const onBotAuditEvent = vi.fn();
-    const stopSpy = vi.fn();
     const session = fakeSession();
+    const stopSpy = vi.fn(() => session.fire("exit", { reason: "requested" }));
     session.stop = stopSpy as never;
     const onRuntimeSpawnFailed = vi.fn();
     const mgr = new AgentProcessManager({
@@ -1466,7 +1504,7 @@ describe("AgentProcessManager — handshake watchdog", () => {
         config: {} as LaunchContext["config"],
         credentialProxy: {} as LaunchContext["credentialProxy"],
       }),
-      sessionFactory: () => session,
+      sessionFactory: (hooks) => bindFactorySession(hooks, session),
       onRuntimeSpawnFailed,
       onBotAuditEvent: onBotAuditEvent as never,
       handshakeTimeoutMs: 1000,
@@ -1510,7 +1548,7 @@ describe("AgentProcessManager — handshake watchdog", () => {
         config: {} as LaunchContext["config"],
         credentialProxy: {} as LaunchContext["credentialProxy"],
       }),
-      sessionFactory: () => session,
+      sessionFactory: (hooks) => bindFactorySession(hooks, session),
       onRuntimeSpawnFailed,
       onBotAuditEvent: onBotAuditEvent as never,
       handshakeTimeoutMs: 1000,
@@ -1919,7 +1957,7 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
     const mgr = new AgentProcessManager({
       driverFor: () => fakeDriver("codex"),
       baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
-      sessionFactory: () => session,
+      sessionFactory: (hooks) => bindFactorySession(hooks, session),
       onFsmTransition: trace as never,
     });
     mgr.register("a1");
@@ -1966,7 +2004,7 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       const mgr = new AgentProcessManager({
         driverFor: () => fakeDriver("codex"),
         baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
-        sessionFactory: () => session,
+        sessionFactory: (hooks) => bindFactorySession(hooks, session),
         now: () => now,
         tickIntervalMs: 5,
         staleThresholdMs: 100,
@@ -2003,7 +2041,7 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       const mgr = new AgentProcessManager({
         driverFor: () => persistentDriver,
         baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
-        sessionFactory: () => session,
+        sessionFactory: (hooks) => bindFactorySession(hooks, session),
         now: () => now,
         tickIntervalMs: 5,
         idleTimeoutMs: 50, // drive into `stopping` via idle-timeout
@@ -2126,7 +2164,7 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       const mgr = new AgentProcessManager({
         driverFor: () => fakeDriver("codex"),
         baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
-        sessionFactory: () => session,
+        sessionFactory: (hooks) => bindFactorySession(hooks, session),
         now: () => now,
         tickIntervalMs: 5,
         staleThresholdMs: 100, // wedge → terminate_stalled after 100ms of no progress
@@ -2172,11 +2210,16 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       // `stopping` → stoppingStuck escalates force_exit (the path that leaks).
       const stopSpy = vi.fn();
       const session = fakeSession();
+      const rebornSession = fakeSession();
       session.stop = stopSpy;
       const mgr = new AgentProcessManager({
         driverFor: () => fakeDriver("codex"), // per_turn — same stall setup as the killed_stalled test above
         baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
-        sessionFactory: () => session,
+        sessionFactory: (() => {
+          let index = 0;
+          const sessions = [session, rebornSession];
+          return (hooks: Parameters<SessionFactory>[0]) => bindFactorySession(hooks, sessions[index++]!);
+        })(),
         now: () => now,
         tickIntervalMs: 5,
         staleThresholdMs: 100,
@@ -2199,13 +2242,14 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       await vi.advanceTimersByTimeAsync(10);
       expect(recs.find((r) => Array.isArray(r.effects) && (r.effects as string[]).includes("force_exit"))).toBeTruthy();
 
-      // force_exit dispatched a synthetic exit → respawn. The reborn turn runs
-      // and ends CLEANLY. Its turn_end must NOT inherit the leaked marker.
-      session.startResolver?.();
+      // A later wake opens a fresh logical session. The reborn turn runs and
+      // ends CLEANLY. Its turn_end must NOT inherit the leaked marker.
+      mgr.deliver("a1", { seq: 2, text: "reborn" });
+      rebornSession.startResolver?.();
       await Promise.resolve();
       recs.length = 0;
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s2" });
-      session.fire("runtime_event", { kind: "turn_end" });
+      rebornSession.fire("runtime_event", { kind: "session_init", sessionId: "s2" });
+      rebornSession.fire("runtime_event", { kind: "turn_end" });
       const turnEnd = recs.find((r) => r.event === "turn_end" && r.agentId === "a1");
       expect(turnEnd).toBeTruthy();
       // The whole point: marker was cleared at force_exit, so this healthy turn
@@ -2234,7 +2278,7 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       const mgr = new AgentProcessManager({
         driverFor: () => persistentDriver,
         baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
-        sessionFactory: () => session,
+        sessionFactory: (hooks) => bindFactorySession(hooks, session),
         now: () => now,
         tickIntervalMs: 5,
         idleTimeoutMs: 50, // idle → voluntary stop(idle_timeout), flips stopping
@@ -2405,10 +2449,10 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
     const mgr = new AgentProcessManager({
       driverFor: () => fakeDriver("codex"),
       baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
-      sessionFactory: () => {
+      sessionFactory: (hooks) => {
         const s = fakeSession();
         sessions.push(s);
-        return s;
+        return bindFactorySession(hooks, s);
       },
       onFsmTransition: ((r: Record<string, unknown>) => recs.push(r)) as never,
     });
@@ -2445,7 +2489,7 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       const mgr = new AgentProcessManager({
         driverFor: () => fakeDriver("codex"),
         baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
-        sessionFactory: () => session,
+        sessionFactory: (hooks) => bindFactorySession(hooks, session),
         now: () => now,
         tickIntervalMs: 5,
         staleThresholdMs: 100,
@@ -2484,7 +2528,7 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       const mgr = new AgentProcessManager({
         driverFor: () => persistentDriver,
         baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
-        sessionFactory: () => session,
+        sessionFactory: (hooks) => bindFactorySession(hooks, session),
         now: () => now,
         tickIntervalMs: 5,
         idleTimeoutMs: 50,
@@ -2526,7 +2570,7 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       const mgr = new AgentProcessManager({
         driverFor: () => persistentDriver,
         baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
-        sessionFactory: () => session,
+        sessionFactory: (hooks) => bindFactorySession(hooks, session),
         now: () => now,
         tickIntervalMs: 5,
         idleTimeoutMs: 50,
@@ -2583,7 +2627,7 @@ describe("T1 — abnormal-exit user audit stays gated (no nap-noise on deliberat
       const mgr = new AgentProcessManager({
         driverFor: () => fakeDriver("codex"),
         baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
-        sessionFactory: () => session,
+        sessionFactory: (hooks) => bindFactorySession(hooks, session),
         now: () => now,
         tickIntervalMs: 5,
         staleThresholdMs: 100,
@@ -2655,14 +2699,17 @@ function b1GatedDriver(): Driver {
 
 function b1Session(order: string[], name = "s"): FakeSession {
   const session = fakeSession();
-  session.start = vi.fn(async (input: { text: string; sessionId?: string }) => {
+  session.start = vi.fn(async (input: { id: string; text: string }) => {
     order.push(`${name}:start:${input.text}`);
+    return { status: "accepted" as const, delivery: "prompt" as const, commandId: input.id, turnId: "test-turn" };
   });
-  session.send = vi.fn((input: { text: string; mode: "busy" | "idle" }) => {
-    order.push(`${name}:send:${input.mode}:${input.text}`);
+  session.send = vi.fn(async (input: { id: string; text: string }) => {
+    order.push(`${name}:send:${input.text}`);
+    return { status: "accepted" as const, delivery: "steer" as const, commandId: input.id, turnId: "test-turn" };
   });
-  session.stop = vi.fn((opts?: { reason?: string }) => {
+  session.stop = vi.fn(async (opts?: { reason?: string }) => {
     order.push(`${name}:stop:${opts?.reason ?? ""}`);
+    return { status: "accepted" as const, requestId: "test-stop" };
   });
   return session;
 }
@@ -2690,7 +2737,7 @@ function b1Manager(opts: {
       config: {} as LaunchContext["config"],
       credentialProxy: {} as LaunchContext["credentialProxy"],
     }),
-    sessionFactory: () => sessions[index++]!,
+    sessionFactory: (hooks) => bindFactorySession(hooks, sessions[index++]!),
     onFsmTransition: opts.trace as never,
     now: opts.now,
     ...(opts.handshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: opts.handshakeTimeoutMs } : {}),
@@ -2762,10 +2809,10 @@ describe("B1 red gate — daemon-owned turn span lifecycle", () => {
     expect(rows.filter((row) => row.event === "runtime_signal" && row.traceTurnId === "launch-a:1").length).toBeGreaterThan(0);
     expect(order.indexOf("trace:turn_begin:1")).toBeLessThan(order.indexOf("s:start:first"));
     expect(order.indexOf("trace:turn_end:1")).toBeLessThan(order.indexOf("trace:turn_begin:2"));
-    expect(order.filter((entry) => entry.includes("send:busy:busy"))).toHaveLength(1);
+    expect(order.filter((entry) => entry.includes("send:busy"))).toHaveLength(1);
   });
 
-  it("closes the old per-turn span inside dispatch before a queued spawn effect opens the replacement", async () => {
+  it("keeps a queued next-turn command inside the same logical-session span boundary", async () => {
     const order: string[] = [];
     const rows: B1TraceRow[] = [];
     const first = b1Session(order, "a");
@@ -2788,12 +2835,9 @@ describe("B1 red gate — daemon-owned turn span lifecycle", () => {
 
     const begins = b1SpanRows(rows, "turn_begin");
     const ends = b1SpanRows(rows, "turn_end");
-    expect(begins).toHaveLength(2);
+    expect(begins).toHaveLength(1);
     expect(ends).toHaveLength(1);
-    expect(order.indexOf(`trace:turn_end:${String(ends[0]!.daemonTurnOrdinal)}`)).toBeLessThan(
-      order.indexOf(`trace:turn_begin:${String(begins[1]!.daemonTurnOrdinal)}`),
-    );
-    expect(order.filter((entry) => entry.startsWith("b:start:"))).toHaveLength(1);
+    expect(order.filter((entry) => entry.startsWith("b:start:"))).toHaveLength(0);
   });
 
   it("uses the process nonce fallback only when launchId is absent", () => {
@@ -3008,11 +3052,13 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     });
   }
 
-  it("physical exit aborts once and its duplicate late exit cannot close again", () => {
+  it("physical exit aborts once and its duplicate late exit cannot close again", async () => {
     const rows: B1TraceRow[] = [];
     const session = b1Session([]);
     const { mgr } = b1Manager({ sessions: [session], trace: (row) => rows.push(row) });
     mgr.deliver("a1", { seq: 1, text: "active" });
+    await Promise.resolve();
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
     session.fire("exit", { signal: "SIGKILL", reason: "runtime_exit" });
     session.fire("exit", { signal: "SIGKILL", reason: "runtime_exit" });
 
@@ -3021,7 +3067,7 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     expect(aborts[0]!.abortCause).toBe("physical_exit");
   });
 
-  it("start synchronous throw aborts once and rethrows the exact error", () => {
+  it("start synchronous throw aborts once and reports the public open failure", () => {
     const rows: B1TraceRow[] = [];
     const error = new Error("unique-start-sync-secret");
     const session = b1Session([]);
@@ -3030,7 +3076,7 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     });
     const { mgr } = b1Manager({ sessions: [session], trace: (row) => rows.push(row) });
 
-    expect(() => mgr.deliver("a1", { seq: 1, text: "active" })).toThrow(error);
+    expect(() => mgr.deliver("a1", { seq: 1, text: "active" })).not.toThrow();
     const aborts = b1SpanRows(rows, "turn_abort");
     expect(aborts).toHaveLength(1);
     expect(aborts[0]!.abortCause).toBe("start_threw");
@@ -3072,7 +3118,7 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     });
   }
 
-  it("handshake timeout aborts once before its synthetic exit", async () => {
+  it("handshake timeout aborts once before the session's terminal close", async () => {
     vi.useFakeTimers();
     try {
       const rows: B1TraceRow[] = [];
@@ -3085,6 +3131,7 @@ describe("B1 red gate — exact-once terminal matrix", () => {
       mgr.deliver("a1", { seq: 1, text: "active" });
       await Promise.resolve();
       await vi.advanceTimersByTimeAsync(101);
+      await session.fire("exit", { reason: "requested" });
 
       const aborts = b1SpanRows(rows, "turn_abort");
       expect(aborts).toHaveLength(1);
@@ -3224,7 +3271,7 @@ describe("B1 red gate — privacy normalization and coherent time", () => {
     session.fire("runtime_event", { kind: secrets.recentEvent, text: secrets.response });
     mgr.deliver("a1", { seq: 2, text: secrets.send });
 
-    expect(rows.some((row) => Array.isArray(row.effects) && (row.effects as string[]).includes("gated_hold"))).toBe(true);
+    expect(rows.some((row) => Array.isArray(row.effects) && (row.effects as string[]).includes("gated_hold"))).toBe(false);
     const serialized = JSON.stringify(rows);
     for (const secret of Object.values(secrets)) expect(serialized).not.toContain(secret);
     expect(serialized).not.toContain("mid_turn_wake");

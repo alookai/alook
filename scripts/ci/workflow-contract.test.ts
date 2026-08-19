@@ -36,8 +36,11 @@ const desktopUpdateRoute = readFileSync(
   resolve(import.meta.dirname, "../../src/web/src/app/api/desktop/update/[target]/[arch]/[current_version]/route.ts"),
   "utf8",
 )
-const publishWorkflows = ["publish-app.yml", "publish-cli.yml", "publish-daemon.yml"]
+const publishWorkflows = ["publish-app.yml", "publish-cli.yml", "publish-daemon.yml", "publish-agent-driver.yml"]
   .map((name) => normalizeWorkflow(readFileSync(resolve(workflowRoot, name), "utf8")))
+const publishAgentDriverWorkflow = normalizeWorkflow(
+  readFileSync(resolve(workflowRoot, "publish-agent-driver.yml"), "utf8"),
+)
 
 function ciJob(name: string): string {
   const start = ciWorkflow.indexOf(`\n  ${name}:\n`)
@@ -88,6 +91,16 @@ describe("Bun workflow setup", () => {
       expect(publishWorkflow).toContain("oven-sh/setup-bun")
       expect(publishWorkflow).toContain("bun-version: 1.3.11")
     }
+  })
+})
+
+describe("Agent driver publishing", () => {
+  it("publishes independently when its unified version changes", () => {
+    expect(publishAgentDriverWorkflow).toContain("paths: [src/daemon/agent-driver/package.json]")
+    expect(publishAgentDriverWorkflow).toContain("Publish @alook/agent-driver to npm")
+    expect(publishAgentDriverWorkflow).toContain("pnpm -C src/daemon/agent-driver run build")
+    expect(publishAgentDriverWorkflow).toContain("npm publish --access public")
+    expect(publishAgentDriverWorkflow).toContain("id-token: write")
   })
 })
 

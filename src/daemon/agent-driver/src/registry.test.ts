@@ -1,0 +1,23 @@
+import { describe, it, expect } from "vitest";
+import { BUILTIN_BACKEND_IDS, capabilitiesFor } from "./registry.js";
+import type { BackendCapabilities, BuiltinBackendId } from "./contract.js";
+
+/**
+ * Every driver declares which `RuntimeConfig` fields it actually consumes,
+ * per the plan's capability matrix. This test pins that declaration so a
+ * silent drift (e.g. someone adds `reasoningEffort` to a driver's `buildArgs`
+ * without updating `capabilities`) trips CI.
+ */
+const EXPECTED: Record<BuiltinBackendId, BackendCapabilities> = {
+  claude: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: true, disallowedTools: true, commandOverride: true, resume: "by_id", midTurnDelivery: "safe_boundary_queue", interrupt: true },
+  codex: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: true, disallowedTools: false, commandOverride: true, resume: "by_id", midTurnDelivery: "safe_boundary_queue", interrupt: true },
+  cursor: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", midTurnDelivery: "next_turn_queue", interrupt: true },
+  opencode: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", midTurnDelivery: "next_turn_queue", interrupt: true },
+  pi: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", midTurnDelivery: "steer", interrupt: true },
+};
+
+describe("driver.capabilities", () => {
+  it.each(BUILTIN_BACKEND_IDS)("%s declares the expected capability record", (id) => {
+    expect(capabilitiesFor(id)).toEqual(EXPECTED[id]);
+  });
+});

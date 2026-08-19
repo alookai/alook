@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildCliSystemPrompt } from "./systemPrompt";
-import type { LaunchConfig } from "../types";
+import type { HostLaunchConfig as LaunchConfig } from "../manager/hostContext.js";
 
 const baseConfig: LaunchConfig = {
   runtimeContext: {

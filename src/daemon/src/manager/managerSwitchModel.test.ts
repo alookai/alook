@@ -1,8 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { AgentProcessManager, type ManagedSession, type SessionFactory, type TimelineRecorder } from "./managerRuntime.js";
-import type { Driver, LaunchContext } from "../types.js";
+import { AgentProcessManager, type DaemonAgentSession, type SessionFactory, type TimelineRecorder } from "./managerRuntime.js";
+import type { AgentBackend as Driver } from "../drivers/index.js";
+import type { HostLaunchContext as LaunchContext } from "./hostContext.js";
 import type { RuntimeConfig } from "../runtimeConfig.js";
 import type { Logger } from "../logger.js";
+import type { AgentEvent, AgentSessionResult, BuiltinBackendSpecs } from "@alook/agent-driver";
 
 function stubLogger(): Logger & { calls: Record<"debug" | "info" | "warn" | "error", Array<[string, unknown[]]>> } {
   const calls: Record<"debug" | "info" | "warn" | "error", Array<[string, unknown[]]>> = { debug: [], info: [], warn: [], error: [] };
@@ -31,22 +33,71 @@ function fakeDriver(id: string): Driver {
   } as unknown as Driver;
 }
 
-interface FakeSession extends ManagedSession {
+interface FakeSession extends DaemonAgentSession {
   fire(evt: string, ...args: unknown[]): void;
+  bindManager(
+    publish: (event: AgentEvent<BuiltinBackendSpecs, "codex">) => void,
+    finish: (result: AgentSessionResult) => void,
+  ): void;
 }
 function fakeSession(): FakeSession {
-  const listeners = new Map<string, Array<(...a: unknown[]) => void>>();
+  let publish: ((event: AgentEvent<BuiltinBackendSpecs, "codex">) => void) | undefined;
+  let finish: ((result: AgentSessionResult) => void) | undefined;
+  let sequence = 0;
+  let resolveClosed!: (result: AgentSessionResult) => void;
+  const closed = new Promise<AgentSessionResult>((resolve) => { resolveClosed = resolve; });
   const s: FakeSession = {
-    on(event, cb) {
-      const arr = listeners.get(event) ?? [];
-      arr.push(cb);
-      listeners.set(event, arr);
+    backend: "codex",
+    capabilities: {} as FakeSession["capabilities"],
+    sessionInstanceId: "switch-model-test",
+    events: {
+      maxBufferedBytes: 4_194_304,
+      async *[Symbol.asyncIterator]() { await closed; },
     },
-    start() { return Promise.resolve(); },
-    send() {},
-    stop() {},
-    get currentSessionId() { return null; },
-    fire(evt, ...args) { for (const cb of listeners.get(evt) ?? []) cb(...args); },
+    closed,
+    bindManager(nextPublish, nextFinish) {
+      publish = nextPublish;
+      finish = nextFinish;
+    },
+    async start(message) {
+      return { status: "accepted", delivery: "prompt", commandId: message.id, turnId: "test-turn" };
+    },
+    async send(message) {
+      return { status: "accepted", delivery: "steer", commandId: message.id, turnId: "test-turn" };
+    },
+    async interrupt() { return { status: "not_running" }; },
+    async stop() { return { status: "accepted", requestId: "test-stop" }; },
+    snapshot() {
+      return { sessionInstanceId: "switch-model-test", state: "working", queuedCommands: [], lastEventSequence: sequence };
+    },
+    async invokeExtension() {
+      return { ok: false, error: { category: "internal", code: "unsupported", message: "unsupported", retryable: false } };
+    },
+    fire(evt, ...args) {
+      if (evt === "runtime_event") {
+        const event = args[0] as { kind: string; sessionId?: string };
+        if (event.kind === "session_init") {
+          publish?.({
+            type: "session_started",
+            backendSessionId: event.sessionId ?? "test-session",
+            sequence: ++sequence,
+            sessionInstanceId: "switch-model-test",
+            at: Date.now(),
+          });
+        }
+        return;
+      }
+      if (evt === "exit") {
+        const result: AgentSessionResult = {
+          outcome: "completed",
+          exitCode: 0,
+          signal: null,
+          cleanup: { status: "released" },
+        };
+        finish?.(result);
+        resolveClosed(result);
+      }
+    },
   };
   return s;
 }
@@ -67,9 +118,10 @@ function makeManager(
   const spawns: Array<{ ctx: LaunchContext; prompt: string }> = [];
   let session = fakeSession();
   const sessions: FakeSession[] = [];
-  const factory: SessionFactory = ({ ctx }: { ctx: LaunchContext }) => {
+  const factory: SessionFactory = ({ ctx, publish, finish }) => {
     spawns.push({ ctx, prompt: ctx.prompt });
     session = fakeSession();
+    session.bindManager(publish as never, finish);
     sessions.push(session);
     return session;
   };
@@ -137,6 +189,7 @@ describe("AgentProcessManager.switchModel", () => {
     const { mgr, spawns, getSession } = makeManager();
     mgr.register("a1");
     mgr.deliver("a1", { seq: 1, text: "hi" });
+    await Promise.resolve();
     getSession().fire("runtime_event", { kind: "session_init", sessionId: "sess-1" });
     expect(spawns).toHaveLength(1);
 
@@ -149,7 +202,7 @@ describe("AgentProcessManager.switchModel", () => {
     expect(spawns).toHaveLength(2);
   });
 
-  it("idle-branch synchronous spawn throw dispatches exit and clears the resetting gate", () => {
+  it("idle-branch synchronous spawn throw dispatches exit and clears the resetting gate", async () => {
     const logger = stubLogger();
     let firstSpawn = true;
     const factory: SessionFactory = () => {
@@ -174,7 +227,7 @@ describe("AgentProcessManager.switchModel", () => {
       logger,
     });
     mgr.register("a1");
-    expect(() =>
+    await expect(
       mgr.switchModel("a1", { runtimeConfig: NAMED_CFG, launchId: "l1", rewakePrompt: REWAKE }),
     ).rejects.toThrow(/spawn boom/);
     // The gate must have cleared (exit dispatched) — a subsequent wake spawns.
@@ -209,7 +262,11 @@ describe("AgentProcessManager.switchModel", () => {
       forgetSession: (a) => timelineCalls.push(`forget:${a}`),
     };
     let session = fakeSession();
-    const factory: SessionFactory = () => (session = fakeSession());
+    const factory: SessionFactory = ({ publish, finish }) => {
+      session = fakeSession();
+      session.bindManager(publish as never, finish);
+      return session;
+    };
     const mgr = new AgentProcessManager({
       driverFor: () => fakeDriver("codex"),
       baseContextFor: () => ({

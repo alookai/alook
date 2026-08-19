@@ -10,10 +10,19 @@ import {
   emitImplicitTypingStopOnSend,
   parseRuntimeRawTraceAgentIds,
 } from "./createDaemon";
-import { AgentProcessManager } from "../manager/managerRuntime";
+import {
+  AgentProcessManager,
+  type SessionFactory,
+} from "../manager/managerRuntime";
+import type {
+  AgentEvent,
+  AgentSession,
+  AgentSessionResult,
+  BuiltinBackendSpecs,
+} from "@alook/agent-driver";
 import { AgentRouter } from "../manager/agentRouter";
 import { CredentialBroker } from "../credentials/credentialProxy";
-import type { Driver } from "../types";
+import type { AgentBackend as Driver } from "../drivers/index.js";
 import type { Logger } from "../logger";
 
 const timelineSweepHarness = vi.hoisted(() => {
@@ -152,6 +161,102 @@ function fullFakeDriver(id: string): Driver {
   } as unknown as Driver;
 }
 
+type DaemonTestSession = AgentSession<BuiltinBackendSpecs, "codex">;
+
+interface DaemonFakeSession extends DaemonTestSession {
+  fire(event: string, ...args: unknown[]): void;
+  bindManager(
+    publish: (event: AgentEvent<BuiltinBackendSpecs, "codex">) => void,
+    finish: (result: AgentSessionResult) => void,
+  ): void;
+}
+
+function daemonFakeSession(options: {
+  onStart?: (input: { id: string; text: string }) => void;
+  establish?: boolean;
+} = {}): DaemonFakeSession {
+  type Event = AgentEvent<BuiltinBackendSpecs, "codex">;
+  let sequence = 0;
+  let publish: ((event: Event) => void) | undefined;
+  let finish: ((result: AgentSessionResult) => void) | undefined;
+  let ended = false;
+  let resolveClosed!: (result: AgentSessionResult) => void;
+  const closed = new Promise<AgentSessionResult>((resolve) => { resolveClosed = resolve; });
+  const emit = (payload: Omit<Event, "sequence" | "sessionInstanceId" | "at">) => {
+    publish?.({ ...payload, sequence: ++sequence, sessionInstanceId: "daemon-test", at: Date.now() } as Event);
+  };
+  const session: DaemonFakeSession = {
+    backend: "codex",
+    capabilities: {} as DaemonTestSession["capabilities"],
+    sessionInstanceId: "daemon-test",
+    events: {
+      maxBufferedBytes: 4_194_304,
+      async *[Symbol.asyncIterator]() {
+        await closed;
+      },
+    },
+    closed,
+    bindManager(nextPublish, nextFinish) {
+      publish = nextPublish;
+      finish = nextFinish;
+    },
+    async start(input) {
+      options.onStart?.(input);
+      if (options.establish !== false) {
+        session.fire("runtime_event", { kind: "session_init", sessionId: "test-session" });
+      }
+      return { status: "accepted", delivery: "prompt", commandId: input.id, turnId: "daemon-test-turn" };
+    },
+    async send(input) {
+      return { status: "accepted", delivery: "steer", commandId: input.id, turnId: "daemon-test-turn" };
+    },
+    async interrupt() { return { status: "not_running" }; },
+    async stop() {
+      if (!ended) {
+        ended = true;
+        const result: AgentSessionResult = { outcome: "stopped", requested: true, exitCode: null, signal: null, cleanup: { status: "released" } };
+        finish?.(result);
+        resolveClosed(result);
+      }
+      return { status: "accepted", requestId: "daemon-test-stop" };
+    },
+    snapshot() {
+      return { sessionInstanceId: "daemon-test", state: "working", queuedCommands: [], lastEventSequence: sequence };
+    },
+    async invokeExtension() {
+      return { ok: false, error: { category: "internal", code: "unsupported", message: "unsupported", retryable: false } };
+    },
+    fire(event, ...args) {
+      if (event === "runtime_event") {
+        const runtime = args[0] as { kind: string; sessionId?: string; text?: string };
+        if (runtime.kind === "session_init") {
+          emit({ type: "session_started", backendSessionId: runtime.sessionId ?? "test-session" } as never);
+        } else if (runtime.kind === "turn_end") {
+          emit({ type: "turn_completed", turnId: "daemon-test-turn", commandIds: [], result: { outcome: "success", backendSessionId: runtime.sessionId } } as never);
+        } else if (runtime.kind === "text") {
+          emit({ type: "text_delta", turnId: "daemon-test-turn", text: runtime.text ?? "" } as never);
+        }
+      } else if (event === "exit") {
+        const result: AgentSessionResult = { outcome: "stopped", requested: true, exitCode: null, signal: null, cleanup: { status: "released" } };
+        ended = true;
+        finish?.(result);
+        resolveClosed(result);
+      }
+    },
+  } as DaemonFakeSession;
+  return session;
+}
+
+function daemonSessionFactory(
+  options: Parameters<typeof daemonFakeSession>[0] = {},
+): SessionFactory {
+  return (hooks) => {
+    const session = daemonFakeSession(options);
+    session.bindManager(hooks.publish as never, hooks.finish);
+    return session;
+  };
+}
+
 function factory(sockets: FakeSocket[]) {
   return (url: string, headers: Record<string, string>) => {
     const s = new FakeSocket(url, headers);
@@ -194,6 +299,7 @@ describe("createDaemon", () => {
       webSocketFactory: factory(sockets) as never,
       runtimeReport: [{ id: "mock" }],
       driverFor: () => fullFakeDriver("mock"),
+      sessionFactory: daemonSessionFactory(),
       capabilities: ["send"],
       messageReminderClock: {
         now: () => now,
@@ -758,15 +864,7 @@ describe("createDaemon — logging", () => {
     }) as unknown as typeof fetch;
 
     let spawnedPrompt = "";
-    const driver: Driver = {
-      ...fullFakeDriver("codex"),
-      spawn: async (ctx) => {
-        spawnedPrompt = ctx.prompt;
-        const proc = new EventEmitter() as unknown as { kill: () => void };
-        proc.kill = () => { };
-        return { process: proc as never };
-      },
-    } as unknown as Driver;
+    const driver = fullFakeDriver("codex");
 
     const sockets: FakeSocket[] = [];
     const daemon = await createDaemon({
@@ -776,6 +874,9 @@ describe("createDaemon — logging", () => {
       webSocketFactory: factory(sockets) as any,
       runtimeReport: [{ id: "codex" }],
       driverFor: () => driver,
+      sessionFactory: daemonSessionFactory({
+        onStart: ({ text }) => { spawnedPrompt = text; },
+      }),
       capabilities: [],
     });
     sockets[0].emit("open");
@@ -812,15 +913,14 @@ describe("createDaemon — logging", () => {
       return new Response(JSON.stringify({ bots: [] }), { status: 200 });
     }) as unknown as typeof fetch;
 
-    const spawn = vi.fn(async () => {
-      const proc = new EventEmitter() as unknown as { kill: () => void };
-      proc.kill = () => {};
-      return { process: proc as never };
-    });
-    const driver = {
-      ...fullFakeDriver("cursor"),
-      spawn,
-    } as unknown as Driver;
+    const spawn = vi.fn();
+    const driver = fullFakeDriver("cursor");
+    const sessionFactory: SessionFactory = (hooks) => {
+      spawn();
+      const session = daemonFakeSession({ establish: false });
+      session.bindManager(hooks.publish as never, hooks.finish);
+      return session;
+    };
     const sockets: FakeSocket[] = [];
     const logger = stubLogger();
     const daemon = await createDaemon({
@@ -830,6 +930,7 @@ describe("createDaemon — logging", () => {
       webSocketFactory: factory(sockets) as any,
       runtimeReport: [{ id: "cursor" }],
       driverFor: () => driver,
+      sessionFactory,
       capabilities: [],
       handshakeTimeoutMs: 10,
       logger,
@@ -946,13 +1047,7 @@ describe("createDaemon — logging", () => {
     }) as unknown as typeof fetch;
 
     const seenConfigs: Array<{ agentName?: string; agentHandle?: string }> = [];
-    const driver: Driver = {
-      ...fullFakeDriver("codex"),
-      buildSystemPrompt: (config: { agentName?: string; agentHandle?: string }) => {
-        seenConfigs.push(config);
-        return "";
-      },
-    } as unknown as Driver;
+    const driver = fullFakeDriver("codex");
 
     const sockets: FakeSocket[] = [];
     const daemon = await createDaemon({
@@ -962,6 +1057,13 @@ describe("createDaemon — logging", () => {
       webSocketFactory: factory(sockets) as any,
       runtimeReport: [{ id: "codex" }],
       driverFor: () => driver,
+      sessionFactory: (hooks) => {
+        const { ctx } = hooks;
+        seenConfigs.push(ctx.config);
+        const session = daemonFakeSession();
+        session.bindManager(hooks.publish as never, hooks.finish);
+        return session;
+      },
       capabilities: [],
     });
     sockets[0].emit("open");
@@ -1206,7 +1308,7 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
     // A persistent, stdin-capable driver stays `running` after session_init
     // without emitting turn_end — so the agent sits in a STEADY working state,
     // which is exactly the window 2b exercises.
-    const emitters: Array<EventEmitter> = [];
+    const emitters: DaemonFakeSession[] = [];
     const persistentDriver = {
       id: "codex",
       lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
@@ -1234,6 +1336,12 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
       webSocketFactory: factory(sockets) as any,
       runtimeReport: [{ id: "codex" }],
       driverFor: () => persistentDriver,
+      sessionFactory: (hooks) => {
+        const session = daemonFakeSession({ establish: false });
+        session.bindManager(hooks.publish as never, hooks.finish);
+        emitters.push(session);
+        return session;
+      },
       capabilities: [],
       tickIntervalMs: 1_000_000, // park the stall/hibernation loop out of the way
     });
@@ -1253,7 +1361,7 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
     // reaches `running` (turnActive) — a steady working state.
     await vi.advanceTimersByTimeAsync(50);
     expect(emitters.length).toBeGreaterThan(0);
-    emitters[0].emit("runtime_event", { kind: "session_init", sessionId: "s1" });
+    emitters[0].fire("runtime_event", { kind: "session_init", sessionId: "s1" });
     await vi.advanceTimersByTimeAsync(1);
 
     const activityFrames = () =>
@@ -1420,18 +1528,7 @@ describe("AgentProcessManager.auditContext", () => {
 
   it("reports launchId once register() has stashed one, and sessionId once a runtime session_init has landed", async () => {
     const { AgentProcessManager } = await import("../manager/managerRuntime");
-    const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
-    const session = {
-      on: (event: string, cb: (...args: unknown[]) => void) => {
-        const arr = listeners.get(event) ?? [];
-        arr.push(cb);
-        listeners.set(event, arr);
-      },
-      start: () => new Promise<void>(() => { }),
-      send: () => { },
-      stop: () => { },
-      get currentSessionId() { return null; },
-    };
+    const session = daemonFakeSession({ establish: false });
     const mgr = new AgentProcessManager({
       driverFor: () => ({
         id: "codex",
@@ -1440,13 +1537,16 @@ describe("AgentProcessManager.auditContext", () => {
         busyDeliveryMode: "none",
       } as never),
       baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", config: {} }) as never,
-      sessionFactory: () => session as never,
+      sessionFactory: (hooks) => {
+        session.bindManager(hooks.publish as never, hooks.finish);
+        return session;
+      },
     });
     mgr.register("a1", { launchId: "l_XYZ" });
     expect(mgr.auditContext("a1")).toEqual({ sessionId: null, launchId: "l_XYZ" });
 
     mgr.deliver("a1", { seq: 1, text: "hi" } as never);
-    for (const cb of listeners.get("runtime_event") ?? []) cb({ kind: "session_init", sessionId: "s_ABC" });
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s_ABC" });
     expect(mgr.auditContext("a1")).toEqual({ sessionId: "s_ABC", launchId: "l_XYZ" });
   });
 });

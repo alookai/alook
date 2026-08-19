@@ -17,23 +17,28 @@ import {
   type ManagerState,
   type ManagerEvent,
   type ManagerEffect,
-  type AgentRuntimeCaps,
   type AgentMsg,
   type AgentState,
   type AgentStatus,
   isActivelyWorking,
 } from "./managerPolicy.js";
-import type { Driver, LaunchContext, SdkDriverDeps } from "../types.js";
-import { busyDeliveryModeOf, supportsStdinNotificationOf } from "../types.js";
+import type {
+  AgentEvent,
+  AgentSession,
+  AgentSessionResult,
+  BuiltinBackendId,
+  BuiltinBackendSpecs,
+  DeliveryReceipt,
+} from "@alook/agent-driver";
+import type { HostLaunchContext } from "./hostContext.js";
 import { resolveLaunchFieldsOrDefault, type RuntimeConfig } from "../runtimeConfig.js";
-import { createChildProcessRuntimeSession, type ChildProcessRuntimeSession } from "../runtime/runtimeSession.js";
-import { SESSION_STOP_GRACE_MS, killProcessTree } from "../runtime/killTree.js";
 import { scrubRuntimeErrorDiagnosticText } from "../runtime/errorDiagnostics.js";
-import { SdkManagedSession } from "../runtime/sdkManagedSession.js";
-import { DEFAULT_CLI_CONFIG } from "../drivers/cliTransport.js";
+import { buildCliSystemPrompt } from "../drivers/systemPrompt.js";
 import { createLogger, type Logger } from "../logger.js";
 import { nowLocalISO } from "../util/localTime.js";
 import { randomUUID } from "node:crypto";
+
+const SESSION_STOP_GRACE_MS = 2_000;
 
 /**
  * Derived activity state reported up the control plane — NOT a raw passthrough
@@ -43,14 +48,8 @@ import { randomUUID } from "node:crypto";
  */
 export type AgentActivityState = "idle" | "starting" | "running" | "stopping";
 
-/** Minimal shape the executor needs from a runtime session. */
-export interface ManagedSession {
-  on(event: string, cb: (...args: unknown[]) => void): void;
-  start(input: { text: string; sessionId?: string }): Promise<unknown>;
-  send(input: { text: string; mode: "busy" | "idle" }): unknown;
-  stop(opts?: { reason?: string; forceAfterMs?: number }): Promise<void> | void;
-  readonly currentSessionId: string | null;
-}
+export type DaemonAgentSession = AgentSession<BuiltinBackendSpecs, BuiltinBackendId>;
+type ManagedEvent = AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>;
 
 type TraceTerminationCause = "runtime_error" | "killed_stalled" | "other";
 type TraceSpawnFailureReason = "ENOENT" | "handshake_timeout" | "pre_handshake_exit" | "spawn_threw" | "other";
@@ -81,14 +80,13 @@ interface ActiveTurnSpan {
 
 interface ActiveSpawnState {
   agentId: string;
-  session: ManagedSession;
+  session: DaemonAgentSession | null;
   hasEstablished: boolean;
   hasReportedSpawnFailure: boolean;
   suppressExitLog: boolean;
   handshakeTimer: ReturnType<typeof setTimeout> | null;
   torndown: boolean;
   superseded: boolean;
-  pid: number | null;
   spawnFailureReason: string | null;
   terminationSemantics: string | null;
   spawnOrdinal: number;
@@ -124,7 +122,7 @@ interface FsmTraceRecord extends TraceRecordBase, Partial<TraceSpanMetadata> {
   resetting: boolean;
   resettingSince: number | null;
   stoppingSince: number | null;
-  apmPhase: AgentState["apm"]["phase"];
+  apmPhase: "idle";
   sinceProgressMs: number;
   sinceDeliverMs: number | null;
   sinceStoppingMs: number | null;
@@ -202,15 +200,17 @@ function normalizeTerminationSemantics(value: unknown): TraceTerminationSemantic
 }
 
 /**
- * How the host builds a session for an agent launch. Given the agent id, the
- * driver, and the launch context (prompt + resume id filled in), return a
- * session the executor will drive.
+ * How the host builds a public logical session for an agent launch.
  */
 export type SessionFactory = (args: {
   agentId: string;
-  driver: Driver;
-  ctx: LaunchContext;
-}) => ManagedSession;
+  ctx: HostLaunchContext;
+  runtimeConfig: RuntimeConfig;
+  /** Deterministic test harnesses may inject typed events synchronously. */
+  publish(event: ManagedEvent): void;
+  /** Deterministic test harnesses may settle the public terminal result synchronously. */
+  finish(result: AgentSessionResult): void;
+}) => DaemonAgentSession | Promise<DaemonAgentSession>;
 
 export interface ManagerRuntimeOpts {
   /**
@@ -218,10 +218,10 @@ export interface ManagerRuntimeOpts {
    * whenever the manager knows it (i.e. after `register` with the server-pushed
    * config) so callers can pick the right runtime; tests may omit it.
    */
-  driverFor: (agentId: string, runtimeConfig?: RuntimeConfig) => Driver;
-  baseContextFor: (agentId: string) => Omit<LaunchContext, "prompt" | "config" | "standingPrompt"> & {
+  driverFor: (agentId: string, runtimeConfig?: RuntimeConfig) => { readonly id: BuiltinBackendId };
+  baseContextFor: (agentId: string) => Omit<HostLaunchContext, "prompt" | "config" | "standingPrompt"> & {
     standingPrompt?: string;
-    config?: LaunchContext["config"];
+    config?: HostLaunchContext["config"];
   };
   sessionFactory?: SessionFactory;
   /**
@@ -229,15 +229,7 @@ export interface ManagerRuntimeOpts {
    * NOT using a `sessionFactory` — `prepareCliTransport` refuses to launch a CLI
    * runtime without it (no plaintext fallback). Threaded into each LaunchContext.
    */
-  credentialProxy?: LaunchContext["credentialProxy"];
-  /**
-   * Builds the `SdkDriverDeps` for an in-process SDK driver's `createSession`
-   * (see `types.ts`). Required when NOT using a `sessionFactory` AND a
-   * resolved driver declares `createSession` (Pi today) — mirrors the
-   * `credentialProxy` requirement for child-process drivers. Called once per
-   * spawn with the same base `ctx` a `ChildProcessRuntimeSession` would get.
-   */
-  sdkDriverDepsFor?: (ctx: LaunchContext) => SdkDriverDeps;
+  credentialProxy?: HostLaunchContext["credentialProxy"];
   staleThresholdMs?: number;
   /** Idle hibernation timeout (ms): stop a persistent process idle this long. */
   idleTimeoutMs?: number;
@@ -404,7 +396,6 @@ export interface TimelineRecorder {
 const THINKING_MAX_BYTES = 4096;
 
 /** Max length of a runtime-stderr line the daemon logs verbatim (with an ellipsis when cut). */
-const STDERR_LOG_MAX_LEN = 2000;
 
 /** Max length of an `error` audit row's message (schema caps at 2048; leave headroom). */
 const AUDIT_ERROR_MESSAGE_MAX_LEN = 2000;
@@ -577,9 +568,9 @@ function pickFallthroughTarget(input: unknown): string | undefined {
 //     spawnEnv `<PREFIX>_CLI` / systemPrompt), and
 //   - the bare name `alook …` (legacy / any agent that still types it).
 // `<PREFIX>_CLI` is `${DEFAULT_CLI_CONFIG.envPrefix}_CLI` = `ALOOK_CLI`.
-const ALOOK_CLI_ENV_VAR = `${DEFAULT_CLI_CONFIG.envPrefix}_CLI`;
+const ALOOK_CLI_ENV_VAR = "ALOOK_CLI";
 const ALOOK_SHELL_INVOCATION_RE = new RegExp(
-  `^(?:${DEFAULT_CLI_CONFIG.cliName}|\\$\\{?${ALOOK_CLI_ENV_VAR}\\}?)(\\s|$)`,
+  `^(?:alook|\\$\\{?${ALOOK_CLI_ENV_VAR}\\}?)(\\s|$)`,
 );
 
 export function isAlookShellInvocation(command: string | undefined): boolean {
@@ -601,7 +592,7 @@ export function truncateTargetToCodeUnits(s: string): string {
 }
 
 /**
- * Driver-agnostic tool_call extractor. Given a runtime-raw `(name, input)`
+ * backend-agnostic tool_call extractor. Given a runtime-raw `(name, input)`
  * pair, returns the canonical lowercase `name`, an optional short `target`
  * summary (file path / shell command / pattern / url / mcp name), and a
  * `suppressed` flag that's true for bash-family calls whose command is
@@ -667,7 +658,7 @@ export function truncateThinking(
 
 export class AgentProcessManager {
   private state: ManagerState;
-  private readonly sessions = new Map<string, ManagedSession>();
+  private readonly sessions = new Map<string, DaemonAgentSession>();
   /** agentId → server-pushed RuntimeConfig (from agent:wake). */
   private readonly runtimeConfigs = new Map<string, RuntimeConfig>();
   /** agentId → resume sessionId pushed by the server (from agent:wake). */
@@ -694,6 +685,7 @@ export class AgentProcessManager {
   private readonly traceProcessNonce = randomUUID();
   private nextSpawnOrdinal = 1;
   private nextDaemonTurnOrdinal = 1;
+  private nextDeliveryOrdinal = 1;
   /**
    * agentId → why the current turn ended NON-cleanly, buffered until the
    * trailing `turn_end` reads+clears it. Two symmetric marker points feed it
@@ -726,7 +718,6 @@ export class AgentProcessManager {
       | "sessionFactory"
       | "now"
       | "credentialProxy"
-      | "sdkDriverDepsFor"
       | "onAgentSession"
       | "onAgentActivity"
       | "onBotAuditEvent"
@@ -745,7 +736,6 @@ export class AgentProcessManager {
       | "sessionFactory"
       | "now"
       | "credentialProxy"
-      | "sdkDriverDepsFor"
       | "onAgentSession"
       | "onAgentActivity"
       | "onBotAuditEvent"
@@ -792,19 +782,13 @@ export class AgentProcessManager {
     if (launch?.runtimeConfig) this.runtimeConfigs.set(agentId, launch.runtimeConfig);
     if (launch?.sessionId) this.resumeSessions.set(agentId, launch.sessionId);
     if (launch?.launchId) this.launchIds.set(agentId, launch.launchId);
-    const driver = this.opts.driverFor(agentId, this.runtimeConfigs.get(agentId));
-    const caps: AgentRuntimeCaps = {
-      lifecycleKind: driver.lifecycle.kind,
-      supportsStdinNotification: supportsStdinNotificationOf(driver.lifecycle),
-      busyDeliveryMode: busyDeliveryModeOf(driver.lifecycle),
-    };
-    this.dispatch({ type: "register", agentId, caps });
+    this.dispatch({ type: "register", agentId });
   }
 
   /**
    * Inbound message for an agent → drives spawn/steer/queue per policy.
-   * Returns whether the wake produced any executable effect (spawn/send/
-   * gated_hold). `false` means the message was only coalesced into the inbox
+   * Returns whether the wake produced any executable effect (spawn/send).
+   * `false` means the message was only coalesced into the inbox
    * with nothing dispatched toward a process — benign for the queue-and-drain
    * cases (starting/stopping/reset-window/per-turn), pathological for a
    * deaf-but-`running` agent that will never drain. The router uses this for a
@@ -812,7 +796,15 @@ export class AgentProcessManager {
    * See plans/daemon-fsm-desync.md batch B.
    */
   deliver(agentId: string, message: AgentMsg): boolean {
-    const effects = this.dispatch({ type: "wake", agentId, message, nowMs: this.now() });
+    const normalized = message.id
+      ? message
+      : {
+          ...message,
+          id: message.seq !== undefined
+            ? `${agentId}:source:${message.seq}`
+            : `${agentId}:synthetic:${this.nextDeliveryOrdinal++}`,
+        };
+    const effects = this.dispatch({ type: "wake", agentId, message: normalized, nowMs: this.now() });
     return effects.length > 0;
   }
 
@@ -834,7 +826,7 @@ export class AgentProcessManager {
   /**
    * Append a synthetic rewake message to the agent's FSM inbox WITHOUT
    * emitting any effect. Called by `resetSession`'s live-branch: `stop()` is
-   * about to kill the ManagedSession, so a `send` toward it (via `deliver`
+   * about to kill the logical session, so a `send` toward it (via `deliver`
    * → `onWake` → `send` effect on a persistent+direct agent) would be
    * silently dropped. The queued message rides the `onExit` drain-then-
    * spawn path instead.
@@ -953,7 +945,10 @@ export class AgentProcessManager {
     const status = this.state.agents[agentId]?.status;
     if (status === "idle") {
       try {
-        this.deliver(agentId, { text: opts.rewakePrompt });
+        this.deliver(agentId, {
+          id: `${opts.launchId}:${opts.abortCause}:rewake`,
+          text: opts.rewakePrompt,
+        });
       } catch (err) {
         this.log.error(`agent ${opts.opName} idle-branch spawn threw synchronously`, {
           agentId,
@@ -967,7 +962,10 @@ export class AgentProcessManager {
     // Live / starting / stopping: enqueue the rewake so `onExit`'s drain picks
     // it up. `stop()` yields the event loop; any inbound wake in the interim
     // hits the gate and queues to inbox — landing in the SAME drain-and-spawn.
-    this.enqueueRewake(agentId, { text: opts.rewakePrompt });
+    this.enqueueRewake(agentId, {
+      id: `${opts.launchId}:${opts.abortCause}:rewake`,
+      text: opts.rewakePrompt,
+    });
     await this.stop(agentId);
   }
 
@@ -1028,7 +1026,7 @@ export class AgentProcessManager {
     const session = this.sessions.get(agentId);
     if (!session) return;
     this.abortCurrentTurn(agentId, "requested_stop");
-    await Promise.resolve(session.stop({ reason: "requested", forceAfterMs: SESSION_STOP_GRACE_MS }));
+    await session.stop({ reason: "owner_request", forceAfterMs: SESSION_STOP_GRACE_MS });
     this.sessions.delete(agentId);
   }
 
@@ -1222,8 +1220,7 @@ export class AgentProcessManager {
     const closingSpan = closingOwner?.activeSpan ?? null;
     // FSM transition trace (plans/daemon-fsm-desync.md): pure observability, no
     // behavior change. Emits one record per reduce so a wedge that leaves no
-    // other log (the gated_hold/send branches are the only ones that log today,
-    // and the wedge slips both) is reconstructable from the agent's FSM history
+    // other log is reconstructable from the agent's FSM history
     // — the missing capability behind every "no log when it breaks" incident.
     // Guarded so it's a no-op unless a sink is wired (createDaemon opts).
     if (this.opts.onFsmTransition) {
@@ -1248,7 +1245,7 @@ export class AgentProcessManager {
           resetting: a.resetting,
           resettingSince: a.resettingSince,
           stoppingSince: a.stoppingSince,
-          apmPhase: a.apm.phase,
+          apmPhase: "idle",
           effects: myEffects,
           nowMs,
           timeIso: new Date(nowMs).toISOString(),
@@ -1395,14 +1392,19 @@ export class AgentProcessManager {
         // wiring latency between here and there, which can be tens to hundreds
         // of ms on cold start. Stamping now would lock in a moment that lags
         // reality by the whole spawn setup window.
-        this.doSpawn(effect.agentId, this.withFooter(effect.prompt), effect.resumeSessionId);
+        this.doSpawn(effect.agentId, effect.messages, effect.resumeSessionId);
         break;
       case "send": {
         const session = this.sessions.get(effect.agentId);
         // Stamp at the moment the text hits `session.send`, not earlier —
         // between effect creation and this call the event loop can drain other
         // dispatches, and we want the timestamp to match the agent's arrival.
-        const input = { text: this.stampNow(this.withFooter(effect.text)), mode: effect.mode };
+        const input = {
+          id: effect.message.id!,
+          kind: "user" as const,
+          text: this.stampNow(this.withFooter(effect.message.text)),
+          sequence: effect.message.seq,
+        };
         if (session) {
           const owner = this.activeSpawnState.get(effect.agentId);
           const exactOwner = owner?.session === session ? owner : undefined;
@@ -1411,10 +1413,9 @@ export class AgentProcessManager {
               ? this.openTurn(exactOwner)
               : exactOwner.activeSpan
             : null;
+          let sent: ReturnType<DaemonAgentSession["send"]>;
           try {
-            // Deliberately do not inspect/await the return value: ManagedSession
-            // send is observationally synchronous under the existing contract.
-            session.send(input);
+            sent = session.send(input);
           } catch (error) {
             if (exactOwner) {
               this.closeTurn(exactOwner, associatedSpan, {
@@ -1424,6 +1425,28 @@ export class AgentProcessManager {
             }
             throw error;
           }
+          void Promise.resolve(sent).then((receipt) => {
+            if (receipt.status === "rejected" && exactOwner) {
+              this.closeTurn(exactOwner, associatedSpan, {
+                event: "turn_abort",
+                abortCause: "send_threw",
+              });
+              this.emitErrorAudit(
+                effect.agentId,
+                "runtime",
+                receipt.error?.code ?? receipt.reason,
+                receipt.error?.message ?? `Delivery rejected (${receipt.reason})`,
+              );
+            }
+          }).catch((error) => {
+            if (exactOwner) {
+              this.closeTurn(exactOwner, associatedSpan, {
+                event: "turn_abort",
+                abortCause: "send_threw",
+              });
+            }
+            this.emitErrorAudit(effect.agentId, "runtime", "send_failed", String(error));
+          });
         }
         this.log.info("steering message sent to running agent", { agentId: effect.agentId, mode: effect.mode });
         break;
@@ -1438,7 +1461,10 @@ export class AgentProcessManager {
             abortCause: "terminate_stalled",
           });
         }
-        void Promise.resolve(session?.stop({ reason: effect.type, forceAfterMs: SESSION_STOP_GRACE_MS }));
+        void session?.stop({
+          reason: effect.type === "stop" ? "idle_timeout" : "stalled",
+          forceAfterMs: SESSION_STOP_GRACE_MS,
+        });
         // The stop we just issued will make the underlying process emit its
         // own `exit` shortly after — suppress that follow-up log so a single
         // termination doesn't produce two contradictory "session ended" lines.
@@ -1497,17 +1523,11 @@ export class AgentProcessManager {
           });
         }
         if (session) {
-          void Promise.resolve(session.stop({ reason: effect.reason, forceAfterMs: SESSION_STOP_GRACE_MS })).catch(() => {});
-        } else if (state?.pid != null) {
-          // Orphan reap: handle gone (sessions.has === false) but pid recorded.
-          this.log.warn("force_exit: session handle gone at force_exit — reaping orphan via recorded pid (batch G Hypothesis A confirmed at runtime)", {
-            agentId: effect.agentId,
-            reason: effect.reason,
-            pid: state.pid,
-          });
-          void Promise.resolve(killProcessTree(state.pid, { graceMs: SESSION_STOP_GRACE_MS })).catch(() => {});
+          void Promise.resolve(
+            session.stop({ reason: "stalled", forceAfterMs: SESSION_STOP_GRACE_MS }),
+          ).catch(() => {});
         } else {
-          this.log.warn("force_exit: no session handle AND no recorded pid — cannot kill (SDK in-process session or pre-spawn); possible orphan", {
+          this.log.warn("force_exit: logical session handle is already absent", {
             agentId: effect.agentId,
             reason: effect.reason,
           });
@@ -1542,16 +1562,6 @@ export class AgentProcessManager {
         this.dispatch({ type: "exit", agentId: effect.agentId, terminationSemantics: "force_exit" });
         break;
       }
-      case "gated_hold":
-        // Pure observability — no behavioral effect. Emitted whenever a
-        // gated agent has a non-empty inbox but nothing was actually sent.
-        this.log.info("gated busy message held", {
-          agentId: effect.agentId,
-          reason: effect.reason,
-          blockedReason: effect.blockedReason,
-          recentEvents: effect.recentEvents,
-        });
-        break;
     }
   }
 
@@ -1559,107 +1569,64 @@ export class AgentProcessManager {
     this.log.info("agent session ended", { agentId, sessionId: this.liveSessions.get(agentId) ?? "", reason });
   }
 
-  private doSpawn(agentId: string, prompt: string, resumeSessionId: string | null): void {
+  private doSpawn(agentId: string, messages: AgentMsg[], resumeSessionId: string | null): void {
+    const [first, ...pending] = messages;
+    if (!first) throw new Error(`AgentProcessManager: spawn for ${agentId} has no command`);
+    const prompt = this.withFooter(first.text);
     const driver = this.opts.driverFor(agentId, this.runtimeConfigs.get(agentId));
     const base = this.opts.baseContextFor(agentId);
-    // The server-pushed RuntimeConfig (from agent:wake) takes precedence over
-    // any baseContextFor default; the resume sessionId likewise prefers the
-    // manager's runtime-tracked id, then the server-pushed one, then the base.
-    const runtimeConfig = this.runtimeConfigs.get(agentId) ?? base.config?.runtimeConfig;
-    // Logged AFTER `runtimeConfig` is declared — reading it above would be a
-    // `const` TDZ ReferenceError on every spawn. The resolved model is the QA
-    // signal that a wake/reset/switch launched on the configured model.
+    const configuredRuntime = this.runtimeConfigs.get(agentId) ?? base.config?.runtimeConfig;
     this.log.info("spawning agent", {
       agentId,
       runtime: driver.id,
-      model: resolveLaunchFieldsOrDefault(runtimeConfig).model ?? "default",
+      model: resolveLaunchFieldsOrDefault(configuredRuntime).model ?? "default",
     });
-    const provider = runtimeConfig?.runtime ?? null;
-    // Resume precedence: an explicit effect-supplied id → the manager's in-memory
-    // tracked id → the server-pushed id → the durable timeline (latest finished
-    // session for this agent, survives daemon restarts) → the base context.
+    if (!this.opts.sessionFactory) {
+      throw new Error("AgentProcessManager: a public AgentSession factory is required");
+    }
+
+    const runtimeConfig = configuredRuntime ?? ({
+      version: 1,
+      runtime: driver.id,
+      model: { kind: "default" },
+      mode: { kind: "default" },
+    } as RuntimeConfig);
+    const provider = runtimeConfig.runtime;
     const sessionId =
       resumeSessionId ??
       this.resumeSessions.get(agentId) ??
       this.opts.timeline?.resumeSessionId(agentId, provider) ??
       base.config?.sessionId;
-    const description = runtimeConfig?.instruction ?? base.config?.description ?? runtimeConfig?.agentName;
-    const agentName = runtimeConfig?.agentName ?? base.config?.agentName;
-    const agentHandle = runtimeConfig?.agentHandle ?? base.config?.agentHandle;
-    const config: LaunchContext["config"] = { ...(base.config ?? {}), runtimeConfig, sessionId, description, agentName, agentHandle };
-    // The driver owns system-prompt assembly — it knows its runtime's format,
-    // notification style, and CLI contract. The daemon just calls it.
-    const standingPrompt = base.standingPrompt || driver.buildSystemPrompt?.(config, agentId) || "";
-    const ctx: LaunchContext = {
+    const description = runtimeConfig.instruction ?? base.config?.description ?? runtimeConfig.agentName;
+    const agentName = runtimeConfig.agentName ?? base.config?.agentName;
+    const agentHandle = runtimeConfig.agentHandle ?? base.config?.agentHandle;
+    const config: HostLaunchContext["config"] = {
+      ...(base.config ?? {}),
+      runtimeConfig,
+      sessionId,
+      description,
+      agentName,
+      agentHandle,
+    };
+    const standingPrompt = base.standingPrompt || buildCliSystemPrompt(config);
+    const ctx: HostLaunchContext = {
       ...base,
       prompt,
       standingPrompt,
       credentialProxy: base.credentialProxy ?? this.opts.credentialProxy,
-      // The latest agent:wake's launchId (tracked in `this.launchIds`) — falls
-      // back to whatever `baseContextFor` set, then undefined (cliTransport's
-      // own "default" fallback). Without this, every real spawn left it
-      // undefined, so every launch's voucher silently collided on the same
-      // "default" voucher path (see plans/fix-credential-proxy-connection-leak.md).
       launchId: this.launchIds.get(agentId) ?? base.launchId,
       config,
     };
 
-    if (!this.opts.sessionFactory && driver.createSession && !this.opts.sdkDriverDepsFor) {
-      throw new Error(
-        `AgentProcessManager: real spawn of "${agentId}" on in-process SDK runtime "${driver.id}" needs ` +
-        "sdkDriverDepsFor — set ManagerRuntimeOpts.sdkDriverDepsFor, or pass a sessionFactory for tests.",
-      );
-    }
-    if (!this.opts.sessionFactory && !driver.createSession && !ctx.credentialProxy) {
-      throw new Error(
-        `AgentProcessManager: real spawn of "${agentId}" needs a credentialProxy — ` +
-        "set ManagerRuntimeOpts.credentialProxy (or baseContextFor's), or pass a sessionFactory for tests.",
-      );
-    }
-
-    const rawLineSink = this.opts.onRuntimeRawLine;
-    const session: ManagedSession = this.opts.sessionFactory
-      ? this.opts.sessionFactory({ agentId, driver, ctx })
-      : driver.createSession
-        ? new SdkManagedSession(
-          driver as Driver & { createSession: NonNullable<Driver["createSession"]> },
-          ctx,
-          this.opts.sdkDriverDepsFor!(ctx),
-        )
-        : (createChildProcessRuntimeSession(
-          driver,
-          ctx,
-          rawLineSink ? { onRawStdoutLine: (line) => rawLineSink(agentId, line) } : undefined,
-        ) as ChildProcessRuntimeSession);
-
-    this.sessions.set(agentId, session);
-
-    // Per-session flags.
-    //   - hasEstablished: has this session ever emitted its handshake
-    //     `runtime_event`? Once true, `error`/`exit` are session-level and
-    //     don't invalidate the runtime.
-    //   - hasReportedSpawnFailure: guards against multiple pre-establishment
-    //     paths reporting the SAME failure (child_process emits both `error`
-    //     and `exit` on ENOENT, plus `session.start().catch`). Only the FIRST
-    //     path to see the failure gets to name the reason — subsequent paths
-    //     no-op instead of clobbering a specific `ENOENT` with generic
-    //     `pre_handshake_exit`.
-    //   - suppressExitLog: set once this session's end has already been
-    //     logged via a more specific reason (`turn_end` for a `per_turn`
-    //     runtime that's about to exit on its own, or `stopped`/
-    //     `terminate_stalled` from `applyEffect`) so the process's eventual
-    //     `exit` event doesn't ALSO log a redundant/contradictory
-    //     "session ended" line for the same termination.
     const state: ActiveSpawnState = {
       agentId,
-      session,
+      session: null,
       hasEstablished: false,
       hasReportedSpawnFailure: false,
       suppressExitLog: false,
       handshakeTimer: null,
       torndown: false,
       superseded: false,
-      pid: null,
       spawnFailureReason: null,
       terminationSemantics: null,
       spawnOrdinal: this.nextSpawnOrdinal++,
@@ -1668,250 +1635,199 @@ export class AgentProcessManager {
       activeSpan: null,
     };
     this.activeSpawnState.set(agentId, state);
+
     const clearHandshakeTimer = () => {
-      if (state.handshakeTimer) {
-        clearTimeout(state.handshakeTimer);
-        state.handshakeTimer = null;
-      }
+      if (state.handshakeTimer) clearTimeout(state.handshakeTimer);
+      state.handshakeTimer = null;
     };
     const reportSpawnFailure = (
       reason: string,
-      opts?: { message?: string; scope?: "spawn" | "handshake_timeout" },
+      options?: { message?: string; scope?: "spawn" | "handshake_timeout" },
     ) => {
       if (state.hasEstablished || state.hasReportedSpawnFailure) return;
       state.hasReportedSpawnFailure = true;
+      state.spawnFailureReason = reason;
       this.closeTurn(state, state.activeSpan, {
         event: "turn_abort",
-        abortCause: opts?.scope === "handshake_timeout" ? "handshake_timeout" : "spawn_failure",
+        abortCause: options?.scope === "handshake_timeout" ? "handshake_timeout" : "spawn_failure",
       });
-      // Record the launch-failure reason on THIS spawn's state so the exit
-      // dispatch that follows can carry it into the fsm-trace (T2 — same reason
-      // string the web audit below gets, so trace and audit "say the same word":
-      // ENOENT / handshake_timeout / pre_handshake_exit / spawn_threw / a Node
-      // error code). Lives on per-spawn `state` (fresh each doSpawn), so it can't
-      // leak into a later spawn's exit — no per-agent-map read-clear needed. See
-      // plans/daemon-trace-completeness-charter.md T2.
-      state.spawnFailureReason = reason;
       this.log.warn("spawn failed", { agentId, runtime: driver.id, reason });
       this.opts.onRuntimeSpawnFailed?.(driver.id, reason);
-      // Surface to the owner: a spawn that never handshakes is otherwise
-      // web-silent (the runtime-health chip is per-runtime, not per-bot).
-      this.emitErrorAudit(agentId, opts?.scope ?? "spawn", reason, opts?.message ?? `Launch failed (${reason})`);
+      this.emitErrorAudit(
+        agentId,
+        options?.scope ?? "spawn",
+        reason,
+        options?.message ?? `Launch failed (${reason})`,
+      );
     };
-
-    // Timeline entries are opened on the DATA plane (the agent's inbox pull),
-    // not here — the manager only annotates the agent's latest row.
-    session.on("runtime_event", (e: unknown) => {
-      if (!state.hasEstablished) {
-        state.hasEstablished = true;
-        // The handshake arrived — disarm the watchdog.
-        clearHandshakeTimer();
-      }
-      // Fire on every runtime_event — the router's idempotence check on
-      // `markRuntimeHealthy` (status already healthy + no lastError) collapses
-      // this to nothing on the wire. Firing unconditionally avoids the trap
-      // where session A established, session B failed and flipped the runtime
-      // unhealthy, and A's ongoing runtime_events never heal it back.
-      this.opts.onRuntimeSessionEstablished?.(driver.id);
-      // A `per_turn` runtime handles exactly one turn per spawn and exits on
-      // its own right after (see managerPolicy's onTurnEnd) — that upcoming
-      // `exit` is expected, not a new termination, so don't double-log it.
-      if ((e as { kind?: string })?.kind === "turn_end" && driver.lifecycle.kind === "per_turn") {
-        state.suppressExitLog = true;
-      }
-      // Pass THIS session's own state so the error-audit gate can tell a
-      // superseded (being-killed) session's death rattle from a live session's
-      // genuine error — per-session identity, not agent-level status. A reborn
-      // session gets a fresh `state` with `superseded=false`, so its startup
-      // error surfaces even while the agent's reset window is still open.
-      this.onRuntimeEvent(agentId, e, driver.id, state);
-    });
-    // Only ChildProcessRuntimeSession emits `stderr`; SdkManagedSession
-    // doesn't, so this is harmless when the session is an SDK adapter.
-    // Runtime CLIs (Claude Code, Codex, etc.) write auth prompts, rate-limit
-    // errors, panics, and network hangs here — everything the daemon's
-    // stream-json parser will NEVER see. Without this line, a gated agent
-    // that goes silent is a black hole; with it, the underlying error lands
-    // in the main daemon log next to the `gated busy message held` line and
-    // the next incident is diagnosable.
-    session.on("stderr", (...args: unknown[]) => {
-      const raw = typeof args[0] === "string" ? args[0] : String(args[0] ?? "");
-      const text = raw.length > STDERR_LOG_MAX_LEN ? raw.slice(0, STDERR_LOG_MAX_LEN) + "…" : raw;
-      this.log.warn("runtime stderr", { agentId, runtime: driver.id, text });
-    });
-    // Child-process `error` (ENOENT etc.) — Node EE emits this before or in
-    // parallel with `exit`. Without this subscriber the raw `error` would
-    // become an unhandled EE emit.
-    session.on("error", (...args: unknown[]) => {
-      const err = args[0] as (NodeJS.ErrnoException & { code?: string }) | undefined;
-      const code = err?.code ?? "spawn_error";
-      reportSpawnFailure(String(code));
-    });
-    session.on("exit", (...args: unknown[]) => {
+    const teardown = (result: AgentSessionResult) => {
       clearHandshakeTimer();
-      // Teardown-once guard: the handshake watchdog may have already torn this
-      // spawn down (reported the failure, killed the process, dispatched
-      // `exit`) and a fresh wake may have spawned a NEW session since. The
-      // killed process's own late `exit` event must not run teardown again —
-      // that would dispatch a spurious FSM `exit` that could clobber the new
-      // session. NB: `stop()` (reset/model_switch/idle) deletes from
-      // `this.sessions` BEFORE this exit fires, so a `this.sessions` identity
-      // check would wrongly bail on that legitimate exit — guard on our own
-      // per-spawn flag instead.
       if (state.torndown) return;
       state.torndown = true;
+      const failedStart = result.outcome === "failed_to_start";
+      if (failedStart) reportSpawnFailure(result.error.code || "failed_to_start");
+      if (!state.hasEstablished && !failedStart) reportSpawnFailure("pre_handshake_exit");
       this.closeTurn(state, state.activeSpan, {
         event: "turn_abort",
-        abortCause: "physical_exit",
+        abortCause: failedStart ? "spawn_failure" : "physical_exit",
       });
-      const info = args[0] as { code?: number | null; signal?: string | null; reason?: string } | undefined;
-      // A session that exits without ever emitting `runtime_event` is
-      // treated as a pre-handshake failure too — covers runtimes whose
-      // wrapper binary exits non-zero without a Node-level `error` event.
-      // Guarded by `hasReportedSpawnFailure` so an ENOENT (already reported
-      // via `error`) doesn't get overwritten with generic `pre_handshake_exit`.
-      reportSpawnFailure("pre_handshake_exit");
-      // `abnormal` = the RAW PHYSICAL FACT of how the process died: it wasn't a
-      // deliberate stop (`reason !== "requested"`) and it left a non-zero code or
-      // died on a signal. Computed UNCONDITIONALLY (not gated by
-      // `hasEstablished`/`suppressExitLog`) because it feeds the fsm-trace exit
-      // row (T1, plans/daemon-trace-completeness-charter.md): the trace is a
-      // forensic layer that must record how a process physically terminated for
-      // EVERY exit path — a hard exit (segfault/OOM/external SIGKILL) bypasses the
-      // normalizer, emits no turn_end, and would otherwise be indistinguishable
-      // from a clean exit in the trace. What this exit MEANS in FSM terms
-      // (deliberate kill vs crash) is a SEPARATE semantic layer left to T3; T1
-      // only records the physical fact and never reinterprets it.
-      const exitCode = typeof info?.code === "number" ? info.code : null;
-      const exitSignal = info?.signal ?? null;
-      const abnormal =
-        info?.reason !== "requested" && ((exitCode !== null && exitCode !== 0) || !!exitSignal);
-      // Only an ESTABLISHED session "ended" — a pre-handshake exit is
-      // already covered by the spawn-failed warning above. And only if this
-      // termination wasn't already logged under a more specific reason (see
-      // `suppressExitLog` above).
+      const exitCode = "exitCode" in result ? result.exitCode ?? null : null;
+      const exitSignal = "signal" in result ? result.signal ?? null : null;
+      const abnormal = result.outcome === "crashed";
       if (state.hasEstablished && !state.suppressExitLog) {
         this.logSessionEnded(agentId, "exit");
-        // USER-FACING abnormal-exit audit. Stays STRICTLY inside the
-        // `!suppressExitLog` gate — a deliberate stop (reset/nap/terminate_stalled
-        // sets suppressExitLog) must NOT surface an `abnormal_exit` row in the
-        // user's activity, or it re-creates the nap-noise bug (a self-initiated
-        // kill showing as a fault). The `abnormal` physical fact above is shared,
-        // but its user-audit sink is gated while its trace sink (below) is not.
         if (abnormal) {
           const detail = exitSignal ? `signal ${exitSignal}` : `code ${exitCode}`;
           this.emitErrorAudit(agentId, "exit", "abnormal_exit", `Session ended unexpectedly (${detail})`);
         }
       }
-      // Flush any reasoning block that never saw a following event before exit.
       this.flushThinkingAudit(agentId);
-      this.sessions.delete(agentId);
+      if (state.session && this.sessions.get(agentId) === state.session) this.sessions.delete(agentId);
       this.liveSessions.delete(agentId);
       if (this.activeSpawnState.get(agentId) === state) {
         this.activeSpawnState.delete(agentId);
-        // Clear a non-clean-end marker (either cause) that never saw its trailing
-        // `turn_end` (a hard exit bypasses the normalizer, B1 3a) so it can't
-        // leak onto the next turn. Same `=== state` guard as above: a late exit
-        // from a stale/superseded spawn must NOT drop a fresh session's marker.
         this.nonCleanEndMarker.delete(agentId);
       }
-      this.dispatch(
-        { type: "exit", agentId, exitCode, exitSignal, abnormal, spawnFailureReason: state.spawnFailureReason, terminationSemantics: state.terminationSemantics },
-        state,
-      );
-    });
+      this.dispatch({
+        type: "exit",
+        agentId,
+        exitCode,
+        exitSignal,
+        abnormal,
+        spawnFailureReason: state.spawnFailureReason,
+        terminationSemantics: state.terminationSemantics,
+      }, state);
+    };
+    const onEvent = (event: ManagedEvent) => {
+      if (state.torndown) return;
+      if (event.type === "session_failed" && !state.hasEstablished) {
+        reportSpawnFailure(event.error.code || "failed_to_start", { message: event.error.message });
+      }
+      if (event.type === "session_started") {
+        state.hasEstablished = true;
+        clearHandshakeTimer();
+        this.opts.onRuntimeSessionEstablished?.(driver.id);
+      }
+      this.onAgentEvent(agentId, event, driver.id, state);
+    };
+    const attach = (session: DaemonAgentSession) => {
+      if (state.torndown || this.activeSpawnState.get(agentId) !== state) {
+        void session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS });
+        return;
+      }
+      state.session = session;
+      this.sessions.set(agentId, session);
+      void (async () => {
+        try {
+          for await (const event of session.events) onEvent(event as ManagedEvent);
+        } catch (error) {
+          reportSpawnFailure("event_stream_failed", { message: String(error) });
+        }
+      })();
+      void session.closed.then(teardown, (error) => {
+        reportSpawnFailure("session_closed_rejected", { message: String(error) });
+        this.dispatch({ type: "exit", agentId, spawnFailureReason: state.spawnFailureReason }, state);
+      });
 
-    // Stamp the wake-prompt timestamp AT the last mile — right before the
-    // driver's session sees the text — so the local-tz wall-clock the agent
-    // reads reflects the moment its process is being handed the prompt, not
-    // the moment the spawn effect was scheduled by the policy reducer. The
-    // difference matters on cold starts where system-prompt assembly + child
-    // wiring above adds tens/hundreds of ms.
-    const stampedPrompt = this.stampNow(prompt);
-    const startedSpan = this.openTurn(state);
-    let startResult: Promise<unknown>;
-    try {
-      startResult = Promise.resolve(session.start({ text: stampedPrompt, sessionId: ctx.config.sessionId }));
-    } catch (error) {
-      this.closeTurn(state, startedSpan, { event: "turn_abort", abortCause: "start_threw" });
-      throw error;
-    }
-    void startResult
-      .then(() => {
-        // A concurrent stop()/terminate_stalled can race this in-flight
-        // start() and finish first — its `exit` handler above already
-        // deleted this session from `this.sessions` and dispatched
-        // `{type: "exit"}`. If that happened, don't ALSO dispatch `spawned`:
-        // that would revive the FSM into "running" for a session nobody
-        // tracks anymore, wedging the agent (its inbox already drained into
-        // this now-dead spawn) until the daemon restarts.
-        if (this.sessions.get(agentId) !== session) return;
-        // Record the child pid now that `start()` resolved (the process exists).
-        // This is the orphan-kill target of last resort for `force_exit` when
-        // the session handle is later gone (batch F). A child-process session
-        // exposes `.pid`; an SDK in-process session has none → stays null.
-        state.pid = (session as { pid?: number }).pid ?? null;
+      const startedSpan = this.openTurn(state);
+      const commandId = first.id!;
+      let startResult: Promise<DeliveryReceipt>;
+      try {
+        startResult = session.start({
+          id: commandId,
+          kind: "user",
+          text: this.stampNow(prompt),
+          sequence: first.seq,
+        });
+      } catch (error) {
+        this.closeTurn(state, startedSpan, { event: "turn_abort", abortCause: "start_threw" });
+        throw error;
+      }
+      void startResult.then((receipt) => {
+        if (this.sessions.get(agentId) !== session || state.torndown) return;
+        if (receipt?.status === "rejected") {
+          const reason = receipt.error?.code ?? receipt.reason;
+          reportSpawnFailure(reason, { message: receipt.error?.message });
+          void session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS });
+          return;
+        }
         this.dispatch({ type: "spawned", agentId, nowMs: this.now() }, state);
-        // Arm the handshake watchdog. The FSM just went `running`+`turnActive`
-        // optimistically (managerPolicy's `spawned`), but the process hasn't
-        // proven itself — a bad model can make the CLI HANG with no exit, no
-        // stderr, no stdout, so none of the subscribers above ever fire and
-        // the `onTick` stall watchdog excludes an empty-inbox gated agent. If
-        // no `runtime_event` arrives within the deadline, treat it as a
-        // pre-handshake failure: stop the process and return the FSM to idle.
+        void (async () => {
+          for (const message of pending) {
+            const queuedReceipt = await session.send({
+              id: message.id!,
+              kind: "user",
+              text: this.stampNow(this.withFooter(message.text)),
+              sequence: message.seq,
+            });
+            if (queuedReceipt.status === "rejected") {
+              this.emitErrorAudit(
+                agentId,
+                "runtime",
+                queuedReceipt.error?.code ?? queuedReceipt.reason,
+                queuedReceipt.error?.message ?? `Delivery rejected (${queuedReceipt.reason})`,
+              );
+            }
+          }
+        })().catch((error) => this.emitErrorAudit(agentId, "runtime", "send_failed", String(error)));
         if (state.hasEstablished || state.hasReportedSpawnFailure) return;
         state.handshakeTimer = setTimeout(() => {
           state.handshakeTimer = null;
-          if (state.hasEstablished || state.hasReportedSpawnFailure) return;
+          if (state.hasEstablished || state.hasReportedSpawnFailure || state.torndown) return;
           if (this.sessions.get(agentId) !== session) return;
-          this.closeTurn(state, state.activeSpan, {
-            event: "turn_abort",
-            abortCause: "handshake_timeout",
-          });
           reportSpawnFailure("handshake_timeout", {
             scope: "handshake_timeout",
             message: `No response ${Math.round(this.opts.handshakeTimeoutMs / 1000)}s after launch — the runtime may be misconfigured (e.g. an invalid model).`,
           });
-          void Promise.resolve(session.stop({ reason: "handshake_timeout", forceAfterMs: SESSION_STOP_GRACE_MS })).catch(() => {});
-          // Drop tracking + return the FSM to idle so the next wake can retry;
-          // don't wait on the `exit` event, which a wedged process may never
-          // emit. Mark `torndown` so the killed process's eventual late `exit`
-          // is a no-op instead of a second, session-clobbering teardown.
-          state.torndown = true;
-          if (this.sessions.get(agentId) === session) this.sessions.delete(agentId);
-          this.liveSessions.delete(agentId);
-          if (this.activeSpawnState.get(agentId) === state) this.activeSpawnState.delete(agentId);
-          // T2: carry the launch-failure reason (just set by reportSpawnFailure)
-          // into the FSM/trace — a handshake_timeout exit is otherwise a bare
-          // exit in the trace, indistinguishable from a clean one.
-          this.dispatch({ type: "exit", agentId, spawnFailureReason: state.spawnFailureReason }, state);
+          state.suppressExitLog = true;
+          void session.stop({ reason: "stalled", forceAfterMs: SESSION_STOP_GRACE_MS });
         }, this.opts.handshakeTimeoutMs);
-      })
-      .catch((err: unknown) => {
-        // Synchronous throws inside driver.spawn() (e.g. child_process.spawn
-        // throwing ENOENT before returning a subprocess) reach us here.
-        // Same guard: whichever path saw the failure first names the reason.
-        this.closeTurn(state, startedSpan, {
-          event: "turn_abort",
-          abortCause: "start_rejected",
-        });
-        const code =
-          (err as { code?: string } | undefined)?.code ??
-          "spawn_threw";
-        reportSpawnFailure(String(code));
-        if (this.sessions.get(agentId) === session) this.sessions.delete(agentId);
-        // T2: carry the launch-failure reason into the FSM/trace (same as above).
-        this.dispatch({ type: "exit", agentId, spawnFailureReason: state.spawnFailureReason }, state);
+      }).catch((error: unknown) => {
+        this.closeTurn(state, startedSpan, { event: "turn_abort", abortCause: "start_rejected" });
+        const code = (error as { code?: string } | undefined)?.code ?? "spawn_threw";
+        reportSpawnFailure(String(code), { message: String(error) });
       });
+    };
+    const failedOpen = (error: unknown) => {
+      reportSpawnFailure(
+        (error as { code?: string } | undefined)?.code ?? "open_failed",
+        { message: String(error) },
+      );
+      if (this.activeSpawnState.get(agentId) === state) this.activeSpawnState.delete(agentId);
+      this.dispatch({ type: "exit", agentId, spawnFailureReason: state.spawnFailureReason }, state);
+    };
+
+    let created: ReturnType<SessionFactory>;
+    try {
+      created = this.opts.sessionFactory({
+        agentId,
+        ctx,
+        runtimeConfig,
+        publish: onEvent,
+        finish: teardown,
+      });
+    } catch (error) {
+      // Preserve the synchronous factory-failure contract: restartAgent owns
+      // the gate-clearing exit dispatch and propagates the failure to its
+      // caller. Promise rejections still use failedOpen above because they can
+      // only arrive after doSpawn has returned.
+      if (this.activeSpawnState.get(agentId) === state) this.activeSpawnState.delete(agentId);
+      throw error;
+    }
+    if (created && typeof (created as Promise<DaemonAgentSession>).then === "function") {
+      void Promise.resolve(created).then(attach, failedOpen);
+    } else {
+      try {
+        attach(created as DaemonAgentSession);
+      } catch (error) {
+        // A synchronously throwing session.start is a public open failure, not
+        // a factory-construction failure. Report and settle it without leaking
+        // the implementation exception through deliver().
+        failedOpen(error);
+      }
+    }
   }
 
-  /**
-   * The model in effect for an agent's current launch (`null` = runtime
-   * default), for the `model` field of an `error` audit row — so the common
-   * "switched to a bad model" failure names the culprit inline. Reads the same
-   * resolved launch fields `doSpawn` logs, so it reflects what was actually
-   * handed to the driver.
-   */
   private currentModelFor(agentId: string): string | null {
     return resolveLaunchFieldsOrDefault(this.runtimeConfigs.get(agentId)).model ?? null;
   }
@@ -1970,64 +1886,25 @@ export class AgentProcessManager {
     }
   }
 
-  private onRuntimeEvent(
+  private onAgentEvent(
     agentId: string,
-    e: unknown,
-    runtimeId: string,
-    ownerOrSuperseded: ActiveSpawnState | boolean,
+    event: ManagedEvent,
+    runtimeId: BuiltinBackendId,
+    owner: ActiveSpawnState,
   ): void {
-    const ev = e as { kind?: string; sessionId?: string; text?: string; name?: string; input?: unknown; message?: string };
-    if (!ev?.kind) return;
-    // Boolean is retained for the legacy direct unit seam; real subscribers
-    // always pass their captured per-spawn owner.
-    const owner = typeof ownerOrSuperseded === "boolean" ? undefined : ownerOrSuperseded;
-    const sessionSuperseded = typeof ownerOrSuperseded === "boolean"
-      ? ownerOrSuperseded
-      : ownerOrSuperseded.superseded;
-    // A runtime-parsed `error` event (rate limit, auth failure, bad-model API
-    // error, provider outage) is otherwise web-silent — the parser sees it,
-    // the FSM shrugs, and the owner learns nothing. Emit an `error` audit row
-    // so it lands in the bot's activity log. `hasEstablished` is already true
-    // here (this fires from the `runtime_event` subscriber), so the scope is
-    // `runtime`, not `spawn`.
-    //
-    // EXCEPT for the death rattle of a SUPERSEDED session: an intentional kill
-    // (reset / nap / model_switch) interrupts the dying process mid-turn and it
-    // emits a final error `result` that is teardown noise, not a fault.
-    //
-    // This gates on PER-SESSION identity (`sessionSuperseded`), not the
-    // agent-level `resetting` flag. Batch C keeps `resetting` true across the
-    // respawn until the reborn process reaches `running`, so the reborn session
-    // is LIVE while `resetting` is still set — gating the audit on `resetting`
-    // would swallow the reborn session's own genuine startup error (the exact
-    // "healthy signal silenced" bug this plan attacks). And status can't
-    // separate them either: an old process killed while still `starting` and a
-    // reborn erroring while `starting` share the same status. Only session
-    // IDENTITY distinguishes them: `restartAgent` marks the OUTGOING session's
-    // state `superseded` before killing it, so its rattle is suppressed; the
-    // reborn session has a fresh state (`superseded=false`), so its real error
-    // surfaces. See plans/daemon-fsm-desync.md batch C (reader-C fix).
-    if (ev.kind === "error" && !sessionSuperseded) {
-      this.emitErrorAudit(agentId, "runtime", "runtime_error", ev.message ?? "Runtime error");
-      // Mark this turn non-clean (cause=runtime_error) so the trailing
-      // `turn_end` (a separate normalizer event, B1) carries `endReason:"errored"`
-      // + `terminationCause` + detail into the FSM/trace. Gated by the SAME
-      // `!sessionSuperseded` as the audit above, so an intentional reset/nap
-      // death-rattle never marks. A stall-kill's rattle also reaches here — but
-      // if `killed_stalled` was already marked (the kill IS the cause), DON'T
-      // downgrade it: the rattle is the kill's side effect, not the reason.
+    if (event.type === "session_closed") return;
+
+    const sessionSuperseded = owner.superseded;
+    const errorMessage = event.type === "session_failed"
+      ? event.error.message
+      : event.type === "turn_completed" && event.result.outcome === "failed"
+        ? event.result.error.message
+        : undefined;
+    if (errorMessage !== undefined && !sessionSuperseded) {
+      this.emitErrorAudit(agentId, "runtime", "runtime_error", errorMessage);
       if (this.nonCleanEndMarker.get(agentId)?.cause !== "killed_stalled") {
-        this.nonCleanEndMarker.set(agentId, { cause: "runtime_error", detail: ev.message ?? "Runtime error" });
+        this.nonCleanEndMarker.set(agentId, { cause: "runtime_error", detail: errorMessage });
       }
-      // Stuck-reset correlation trace (plans/daemon-fsm-desync.md batch D):
-      // PURELY ADDITIVE — this runs AFTER the error has already been decided to
-      // surface (gate above unchanged), and only annotates. If this error fired
-      // while the agent's reset window is wedged (`resetting` still true past
-      // the reconcile threshold), leave a diagnostic line correlating the two:
-      // an error emerging from a bot whose restart never converged is a
-      // higher-signal event than a lone error, and the reconcile watchdog is
-      // about to (or already did) escalate it. Never suppresses — a reborn's
-      // genuine error keeps surfacing exactly as batch C made it.
       const agent = this.state.agents[agentId];
       if (
         agent?.resetting &&
@@ -2037,39 +1914,26 @@ export class AgentProcessManager {
         this.log.warn("runtime error during a stuck reset window", {
           agentId,
           resettingForMs: this.now() - agent.resettingSince,
-          message: ev.message ?? "Runtime error",
+          message: errorMessage,
         });
       }
     }
-    // Bot audit hook — thinking + non-Bash tool_call, no correlation.
-    // Context carries the sessionId/launchId learned so far this launch so
-    // ws-do can persist them alongside each row (the plan's Data model calls
-    // for both). `liveSessions` is populated on `session_init`; if this
-    // event fires BEFORE the runtime has emitted its handshake, sessionId is
-    // null and the row records the launch without a session id.
+
     if (this.opts.onBotAuditEvent) {
-      if (ev.kind === "thinking" && typeof ev.text === "string") {
-        // Accumulate; a delta-streaming driver emits many of these per block.
-        // The flush happens at the next non-thinking event / turn / exit so one
-        // reasoning block becomes one audit row, not one row per token.
-        if (ev.text.length > 0) {
-          this.thinkingBuffers.set(agentId, (this.thinkingBuffers.get(agentId) ?? "") + ev.text);
+      if (event.type === "thinking_delta") {
+        if (event.text.length > 0) {
+          this.thinkingBuffers.set(agentId, (this.thinkingBuffers.get(agentId) ?? "") + event.text);
         }
       } else {
-        // Any non-thinking event ends the current reasoning block — flush it
-        // first so the audit log preserves thinking→action ordering.
         this.flushThinkingAudit(agentId);
-        if (ev.kind === "tool_call" && typeof ev.name === "string") {
-          const audit = extractToolAudit(ev.name, ev.input);
+        if (event.type === "tool_started") {
+          const audit = extractToolAudit(event.name, event.input);
           if (!audit.suppressed) {
             const payload = audit.target !== undefined
               ? { name: audit.name, target: audit.target }
               : { name: audit.name };
             try {
-              this.opts.onBotAuditEvent(agentId, {
-                kind: "tool_call",
-                payload,
-              }, {
+              this.opts.onBotAuditEvent(agentId, { kind: "tool_call", payload }, {
                 sessionId: this.liveSessions.get(agentId) ?? null,
                 launchId: this.launchIds.get(agentId) ?? null,
               });
@@ -2080,44 +1944,57 @@ export class AgentProcessManager {
         }
       }
     }
-    if (ev.kind === "session_init" && ev.sessionId) {
-      this.dispatch({ type: "session", agentId, sessionId: ev.sessionId }, owner);
-      this.liveSessions.set(agentId, ev.sessionId);
-      this.opts.timeline?.setSession(agentId, ev.sessionId);
+
+    if (event.type === "session_started") {
+      this.dispatch({ type: "session", agentId, sessionId: event.backendSessionId }, owner);
+      this.liveSessions.set(agentId, event.backendSessionId);
+      this.opts.timeline?.setSession(agentId, event.backendSessionId);
       this.opts.onAgentSession?.({
         agentId,
-        sessionId: ev.sessionId,
+        sessionId: event.backendSessionId,
         launchId: this.launchIds.get(agentId) ?? "",
       });
-      this.log.info("agent session established", { agentId, sessionId: ev.sessionId, runtime: runtimeId });
+      this.log.info("agent session established", {
+        agentId,
+        sessionId: event.backendSessionId,
+        runtime: runtimeId,
+      });
     }
-    // Accumulate the agent's text output onto its latest timeline entry, so the
-    // log records "what the agent said" — the basis for using it as memory.
-    if (ev.kind === "text" && typeof ev.text === "string" && ev.text.length > 0) {
-      this.opts.timeline?.appendResponseToLatest(agentId, ev.text);
+    if (event.type === "text_delta" && event.text.length > 0) {
+      this.opts.timeline?.appendResponseToLatest(agentId, event.text);
     }
-    // Progress for stall detection — but content-free heartbeats
-    // (Claude `stream_event` / `status`, Codex raw response items) don't
-    // count. They keep firing during a wedged compaction and would mask
-    // a real stall from `onTick`'s watchdog. An `error` event likewise isn't
-    // progress: a runtime that errors then goes quiet must still trip the
-    // stall watchdog rather than reset its progress clock on the way down.
-    if (ev.kind !== "internal_progress" && ev.kind !== "error") {
-      this.dispatch({ type: "progress", agentId, nowMs: this.now() }, owner);
-    }
-    // Forward every parsed event's kind for gated-steering phase tracking
-    // (tool/compaction/review boundaries). No-ops in the reducer for kinds
-    // it doesn't care about, aside from the diagnostics ring buffer.
-    this.dispatch({ type: "runtime_signal", agentId, kind: ev.kind, nowMs: this.now() }, owner);
-    if (ev.kind === "turn_end") {
+
+    const contentFree = event.type === "internal_progress"
+      || event.type === "session_failed"
+      || event.type === "command_queued"
+      || event.type === "command_accepted"
+      || event.type === "command_failed"
+      || event.type === "turn_started";
+    if (!contentFree) this.dispatch({ type: "progress", agentId, nowMs: this.now() }, owner);
+
+    const signalKind = (() => {
+      switch (event.type) {
+        case "session_started": return "session_init";
+        case "thinking_delta": return "thinking";
+        case "text_delta": return "text";
+        case "tool_started": return "tool_call";
+        case "tool_finished": return "tool_output";
+        case "diagnostic": return "runtime_diagnostic";
+        case "token_usage":
+        case "rate_limits": return "telemetry";
+        case "turn_completed": return "turn_end";
+        case "session_failed": return "error";
+        case "command_queued":
+        case "command_accepted":
+        case "command_failed":
+        case "turn_started": return "internal_progress";
+        default: return event.type;
+      }
+    })();
+    this.dispatch({ type: "runtime_signal", agentId, kind: signalKind, nowMs: this.now() }, owner);
+
+    if (event.type === "turn_completed") {
       this.logSessionEnded(agentId, "turn_end");
-      // Read+clear the non-clean-end marker set this turn by a preceding runtime
-      // `error` OR a `terminate_stalled` kill (B1). Present ⇒ the turn is ending
-      // NON-cleanly; carry the binary judgement (`endReason:"errored"`) + the
-      // cause (`terminationCause`, for B2 policy branching) + free-text detail
-      // into the existing policy/audit path so onTurnEnd can tell it from a
-      // clean end. The local trace projection serializes only the fixed cause;
-      // it never serializes the free-text detail.
       const marker = this.nonCleanEndMarker.get(agentId);
       this.nonCleanEndMarker.delete(agentId);
       this.dispatch(

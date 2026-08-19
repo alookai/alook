@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
-import { SESSION_STOP_GRACE_MS } from "./runtime/killTree";
+import { SESSION_STOP_GRACE_MS } from "../agent-driver/src/internal/killTree.js";
 
 /**
  * Structural pins for extracted constants. We assert *magnitudes*, not
@@ -35,12 +35,12 @@ describe("magic-number extractions", () => {
     expect(SESSION_STOP_GRACE_MS).toBeLessThan(Number(match![1]));
   });
 
-  it("PROBE_TIMEOUT_MS is set to 5000 in drivers/probe.ts", () => {
-    expect(readSrc("drivers/probe.ts")).toMatch(/PROBE_TIMEOUT_MS\s*=\s*5000\b/);
+  it("PROBE_TIMEOUT_MS is set to 5000 in the driver package", () => {
+    expect(readSrc("../agent-driver/src/internal/probe.ts")).toMatch(/PROBE_TIMEOUT_MS\s*=\s*5000\b/);
   });
 
-  it("STDERR_LOG_MAX_LEN is set to 2000 in manager/managerRuntime.ts", () => {
-    expect(readSrc("manager/managerRuntime.ts")).toMatch(/STDERR_LOG_MAX_LEN\s*=\s*2000\b/);
+  it("the removed raw-stderr manager buffer limit stays deleted", () => {
+    expect(readSrc("manager/managerRuntime.ts")).not.toMatch(/\bSTDERR_LOG_MAX_LEN\b/);
   });
 
   it("ERROR_EXCERPT_MAX_BYTES is set to 4000 in runtime/errorDiagnostics.ts", () => {
@@ -74,8 +74,8 @@ describe("deleted symbols stay deleted", () => {
     expect(readSrc("cli/daemonStart.ts")).not.toMatch(/MACHINE_KEY_HASH_PREFIX_LEN|fallbackIdForStableKey|function keyHash/);
   });
 
-  it("readCommandVersion is no longer exported by drivers/probe.ts", () => {
-    expect(readSrc("drivers/probe.ts")).not.toMatch(/\breadCommandVersion\b/);
+  it("readCommandVersion is no longer exported by the driver probe", () => {
+    expect(readSrc("../agent-driver/src/internal/probe.ts")).not.toMatch(/\breadCommandVersion\b/);
   });
 
   it("credentialFilesDir is no longer defined in cli/daemonStart.ts", () => {
@@ -86,8 +86,8 @@ describe("deleted symbols stay deleted", () => {
     expect(readSrc("drivers/systemPrompt.ts")).not.toMatch(/\bSystemPromptOpts\b/);
   });
 
-  it("DEFAULT_CLAUDE_MODEL is no longer defined in drivers/claudeLaunch.ts", () => {
-    expect(readSrc("drivers/claudeLaunch.ts")).not.toMatch(/\bDEFAULT_CLAUDE_MODEL\b/);
+  it("DEFAULT_CLAUDE_MODEL is no longer defined in the Claude adapter", () => {
+    expect(readSrc("../agent-driver/src/adapters/claude/launch.ts")).not.toMatch(/\bDEFAULT_CLAUDE_MODEL\b/);
   });
 
   it("agent-backend / 1.0.0 identity string no longer appears in daemon source", () => {

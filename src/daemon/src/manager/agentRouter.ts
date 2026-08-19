@@ -427,6 +427,7 @@ export class AgentRouter {
           // The manager (not this router) decides spawn vs. in-process notify
           // vs. coalesce — see managerPolicy's `onWake`.
           const producedEffect = this.opts.manager.deliver(cmd.agentId, {
+            id: `${cmd.agentId}:wake:${cmd.unreadNotice.channel}:${cmd.unreadNotice.latestSeq}`,
             seq: cmd.unreadNotice.latestSeq,
             text,
           });

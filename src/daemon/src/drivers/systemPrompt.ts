@@ -2,7 +2,7 @@
  * Shared system-prompt builder.
  * Every CLI driver's `buildSystemPrompt` funnels through here.
  */
-import type { LaunchConfig } from "../types.js";
+import type { HostLaunchConfig } from "../manager/hostContext.js";
 
 // The agent invokes the CLI via the `$ALOOK_CLI` env var, NOT a bare `alook`.
 // `$ALOOK_CLI` is an ABSOLUTE path the daemon injects (see spawnEnv
@@ -23,7 +23,7 @@ const CLI = "$ALOOK_CLI";
  * privacy defaults, and channel etiquette elsewhere in the prompt all
  * derive from it. Placed first so identity and role read together.
  */
-function identitySection(config: LaunchConfig): string {
+function identitySection(config: HostLaunchConfig): string {
   const parts: string[] = ["## Identity", ""];
 
   const name = config.agentName ?? "a member of the household";
@@ -498,7 +498,7 @@ function workspaceMemorySection(): string {
  * depend on which runtime is about to be spawned (see
  * `systemPrompt.test.ts`).
  */
-export function buildCliSystemPrompt(config: LaunchConfig): string {
+export function buildCliSystemPrompt(config: HostLaunchConfig): string {
   const sections: string[] = [
     identitySection(config),
     cliCommandsSection(),

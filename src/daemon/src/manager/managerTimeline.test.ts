@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { AgentProcessManager, type TimelineRecorder } from "./managerRuntime";
-import type { LaunchContext } from "../types";
+import type { HostLaunchContext as LaunchContext } from "./hostContext.js";
+import type { AgentEvent, AgentSessionResult, BuiltinBackendSpecs } from "@alook/agent-driver";
 
 /** A recorder that records calls + can supply a resume session id. */
 function fakeRecorder(resume: Record<string, string> = {}) {
@@ -15,29 +16,58 @@ function fakeRecorder(resume: Record<string, string> = {}) {
 }
 
 function manager(rec: TimelineRecorder, capture: { ctx?: LaunchContext }) {
-  const handlers: Record<string, ((arg?: unknown) => void)[]> = {};
+  let publish: ((event: AgentEvent<BuiltinBackendSpecs, "codex">) => void) | undefined;
+  let finish: ((result: AgentSessionResult) => void) | undefined;
+  let sequence = 0;
   const mgr = new AgentProcessManager({
     driverFor: () =>
       ({ lifecycle: { kind: "persistent", stdin: "gated", inFlightWake: "queue" } }) as never,
     baseContextFor: (agentId) => ({ agentId, workingDirectory: "/tmp/x", standingPrompt: "", config: {} }),
-    sessionFactory: ({ ctx }) => {
+    sessionFactory: ({ ctx, publish: nextPublish, finish: nextFinish }) => {
       capture.ctx = ctx;
+      publish = nextPublish as never;
+      finish = nextFinish;
       return {
-        on: (ev: string, cb: (arg?: unknown) => void) => ((handlers[ev] ??= []).push(cb)),
-        get currentSessionId() {
-          return null;
+        backend: "codex" as const,
+        capabilities: {} as never,
+        sessionInstanceId: "timeline-test",
+        events: {
+          maxBufferedBytes: 4_194_304 as const,
+          async *[Symbol.asyncIterator]() { await new Promise(() => {}); },
         },
-        async start() {},
-        send() {
-          return { ok: true };
+        closed: new Promise<AgentSessionResult>(() => {}),
+        async start(message: { id: string }) {
+          return { status: "accepted" as const, delivery: "prompt" as const, commandId: message.id, turnId: "test-turn" };
         },
-        async stop() {},
+        async send(message: { id: string }) {
+          return { status: "accepted" as const, delivery: "steer" as const, commandId: message.id, turnId: "test-turn" };
+        },
+        async interrupt() { return { status: "not_running" as const }; },
+        async stop() { return { status: "accepted" as const, requestId: "test-stop" }; },
+        snapshot() {
+          return { sessionInstanceId: "timeline-test", state: "working" as const, queuedCommands: [], lastEventSequence: sequence };
+        },
+        async invokeExtension() {
+          return { ok: false as const, error: { category: "internal" as const, code: "unsupported", message: "unsupported", retryable: false } };
+        },
       };
     },
     timeline: rec,
     tickIntervalMs: 10_000,
   });
-  const emit = (ev: string, arg?: unknown) => (handlers[ev] ?? []).forEach((h) => h(arg));
+  const emit = (ev: string, arg?: unknown) => {
+    if (ev === "runtime_event") {
+      const event = arg as { kind: string; sessionId?: string; text?: string };
+      const base = { sequence: ++sequence, sessionInstanceId: "timeline-test", at: Date.now() };
+      if (event.kind === "session_init") {
+        publish?.({ ...base, type: "session_started", backendSessionId: event.sessionId ?? "test-session" });
+      } else if (event.kind === "text") {
+        publish?.({ ...base, type: "text_delta", turnId: "test-turn", text: event.text ?? "" });
+      }
+    } else if (ev === "exit") {
+      finish?.({ outcome: "completed", exitCode: 0, signal: null, cleanup: { status: "released" } });
+    }
+  };
   return { mgr, emit };
 }
 
@@ -134,7 +164,7 @@ describe("manager.resetSession", () => {
     // Track handlers/sends per session; a new session is created on each spawn.
     const sessionsCreated: Array<{
       ctx: LaunchContext;
-      handlers: Record<string, ((arg?: unknown) => void)[]>;
+      finish: (result: AgentSessionResult) => void;
       stopCalled: boolean;
       sends: Array<{ text: string; mode: string }>;
     }> = [];
@@ -142,21 +172,35 @@ describe("manager.resetSession", () => {
       driverFor: () =>
         ({ lifecycle: { kind: "persistent", stdin: "direct", inFlightWake: "steer" } }) as never,
       baseContextFor: (agentId) => ({ agentId, workingDirectory: "/tmp/x", standingPrompt: "", config: {} }),
-      sessionFactory: ({ ctx }) => {
-        const entry: (typeof sessionsCreated)[number] = { ctx, handlers: {}, stopCalled: false, sends: [] };
+      sessionFactory: ({ ctx, finish }) => {
+        const entry: (typeof sessionsCreated)[number] = { ctx, finish, stopCalled: false, sends: [] };
         sessionsCreated.push(entry);
         return {
-          on: (ev: string, cb: (arg?: unknown) => void) => ((entry.handlers[ev] ??= []).push(cb)),
-          get currentSessionId() {
-            return null;
+          backend: "codex" as const,
+          capabilities: {} as never,
+          sessionInstanceId: `reset-test-${sessionsCreated.length}`,
+          events: {
+            maxBufferedBytes: 4_194_304 as const,
+            async *[Symbol.asyncIterator]() { await new Promise(() => {}); },
           },
-          async start() {},
-          send(m: { text: string; mode: "busy" | "idle" }) {
+          closed: new Promise<AgentSessionResult>(() => {}),
+          async start(m: { id: string }) {
+            return { status: "accepted" as const, delivery: "prompt" as const, commandId: m.id, turnId: "test-turn" };
+          },
+          async send(m: { id: string; text: string }) {
             entry.sends.push({ text: m.text, mode: m.mode });
-            return { ok: true };
+            return { status: "accepted" as const, delivery: "steer" as const, commandId: m.id, turnId: "test-turn" };
           },
+          async interrupt() { return { status: "not_running" as const }; },
           async stop() {
             entry.stopCalled = true;
+            return { status: "accepted" as const, requestId: "test-stop" };
+          },
+          snapshot() {
+            return { sessionInstanceId: "reset-test", state: "working" as const, queuedCommands: [], lastEventSequence: 0 };
+          },
+          async invokeExtension() {
+            return { ok: false as const, error: { category: "internal" as const, code: "unsupported", message: "unsupported", retryable: false } };
           },
         };
       },
@@ -192,7 +236,7 @@ describe("manager.resetSession", () => {
     expect(mgr.snapshot().agents.agent_run.inbox.map((m) => m.text)).toEqual(["REWAKE"]);
 
     // Fire the session exit → onExit drains rewake into a fresh spawn.
-    first.handlers["exit"]!.forEach((h) => h());
+    first.finish({ outcome: "completed", exitCode: 0, signal: null, cleanup: { status: "released" } });
     await Promise.resolve();
 
     expect(sessionsCreated).toHaveLength(2);

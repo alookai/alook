@@ -19,7 +19,7 @@ interface ReminderRecord extends MessageReminderArmInput {
 }
 
 export interface MessageReminderSchedulerOptions {
-  deliver(agentId: string, message: { text: string }): unknown;
+  deliver(agentId: string, message: { id: string; text: string }): unknown;
   now?: () => number;
   setTimer?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
   clearTimer?: (timer: ReturnType<typeof setTimeout>) => void;
@@ -72,6 +72,7 @@ export class MessageReminderScheduler {
       this.reminders.delete(key);
       try {
         const delivery = this.options.deliver(input.agentId, {
+          id: `${input.agentId}:reminder:${input.channel}:${input.sentSeq}:${startedAt}`,
           text: reminderPrompt(input.channel, sentRef, startedAt),
         });
         // Delivery is best-effort. The manager is currently synchronous, but

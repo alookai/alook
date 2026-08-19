@@ -13,47 +13,27 @@
  *     queue, never spawn a second process.
  *   - **wake/sleep**: spawn when work arrives and idle; go idle (sleepable) when
  *     a turn ends with an empty inbox.
- *   - **queue + coalesce**: messages arriving mid-turn are buffered and either
- *     steered into a persistent process or delivered to the next per-turn spawn.
+ *   - **queue + coalesce**: messages arriving while a session is starting or
+ *     stopping are buffered; a running logical session owns delivery policy.
  *   - **stalled recovery**: if a running process makes no progress past a
  *     threshold, terminate it for restart.
  *
- * Per-runtime delivery nuance (gated steering, etc.) is delegated to the
- * existing `apmStateMachine` reducers (read-only; see `onRuntimeSignal` below)
- * — this layer is the higher-level lifecycle/queue orchestrator above them.
- * See plans/wire-gated-busy-steering-daemon.md for how gating is wired up.
+ * Runtime-specific delivery nuance is owned by `@alook/agent-driver`.
  */
-import type { BusyDeliveryMode, DriverLifecycle } from "../types.js";
-import {
-  type ApmGatedSteeringState,
-  createInitialApmGatedSteeringState,
-  reduceApmGatedToolUse,
-  reduceApmGatedCompaction,
-  reduceApmGatedReview,
-  reduceApmGatedError,
-  reduceApmGatedFlushReadiness,
-  reduceApmGatedRecentEvent,
-} from "../runtime/apmStateMachine.js";
 
 export type AgentStatus = "idle" | "starting" | "running" | "stopping";
 
 export interface AgentMsg {
+  /** Stable caller identity; the package uses this unchanged as commandId. */
+  id?: string;
   /** Monotonic sequence (for ordering / dedup); optional. */
   seq?: number;
   text: string;
 }
 
-/** Static per-agent capabilities the policy needs (from the driver). */
-export interface AgentRuntimeCaps {
-  lifecycleKind: DriverLifecycle["kind"];
-  supportsStdinNotification: boolean;
-  busyDeliveryMode: BusyDeliveryMode;
-}
-
 export interface AgentState {
   agentId: string;
   status: AgentStatus;
-  caps: AgentRuntimeCaps;
   inbox: AgentMsg[];
   sessionId: string | null;
   /** Whether a turn is currently in flight (between spawn/turn_start and turn_end). */
@@ -110,13 +90,6 @@ export interface AgentState {
    * batch C/D.
    */
   resettingSince: number | null;
-  /**
-   * Coarse gated-steering phase (tool/compaction/review boundaries). Only
-   * meaningfully consulted when `caps.busyDeliveryMode === "gated"`; kept on
-   * every agent (harmless/unused otherwise) so the reducer set never needs a
-   * null-check.
-   */
-  apm: ApmGatedSteeringState;
 }
 
 /**
@@ -160,7 +133,7 @@ export interface ManagerState {
 /* ------------------------------------------------------------------ */
 
 export type ManagerEvent =
-  | { type: "register"; agentId: string; caps: AgentRuntimeCaps }
+  | { type: "register"; agentId: string }
   | { type: "wake"; agentId: string; message: AgentMsg; nowMs: number }
   | { type: "spawned"; agentId: string; nowMs: number }
   | { type: "session"; agentId: string; sessionId: string }
@@ -246,7 +219,7 @@ export type ManagerEvent =
   /**
    * Enqueue a synthetic rewake message into the agent's inbox WITHOUT
    * emitting any effect. Used by the reset orchestrator's live/starting/
-   * stopping branch — a `send` toward the ManagedSession that `stop()` is
+   * stopping branch — a `send` toward the logical session that `stop()` is
    * about to delete would be silently dropped; the queued message rides the
    * `onExit` drain-then-spawn path instead.
    */
@@ -260,8 +233,8 @@ export type ManagerEvent =
   | { type: "runtime_signal"; agentId: string; kind: string; nowMs: number };
 
 export type ManagerEffect =
-  | { type: "spawn"; agentId: string; prompt: string; resumeSessionId: string | null }
-  | { type: "send"; agentId: string; text: string; mode: "busy" | "idle" }
+  | { type: "spawn"; agentId: string; messages: AgentMsg[]; resumeSessionId: string | null }
+  | { type: "send"; agentId: string; message: AgentMsg; mode: "busy" | "idle" }
   | { type: "stop"; agentId: string; reason: string }
   | { type: "terminate_stalled"; agentId: string }
   /**
@@ -274,13 +247,7 @@ export type ManagerEffect =
    * backstop: covers both a no-op stop (session handle already gone) and a stop
    * that ran but produced no exit. See plans/daemon-fsm-desync.md batch L3.
    */
-  | { type: "force_exit"; agentId: string; reason: string }
-  /**
-   * Pure observability: a gated agent has a non-empty inbox but nothing was
-   * actually sent — either a mid-turn wake was held, or a boundary flush
-   * attempt was still blocked. Never emitted for `direct`/`none` drivers.
-   */
-  | { type: "gated_hold"; agentId: string; reason: string; blockedReason: string | null; recentEvents: string[] };
+  | { type: "force_exit"; agentId: string; reason: string };
 
 /** Default thresholds (ms). */
 export const DEFAULT_STALE_THRESHOLD_MS = 120_000;
@@ -328,7 +295,7 @@ export function createInitialManagerState(
 export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceResult {
   switch (event.type) {
     case "register":
-      return withAgent(state, event.agentId, (a) => a ?? freshAgent(event.agentId, event.caps), []);
+      return withAgent(state, event.agentId, (a) => a ?? freshAgent(event.agentId), []);
 
     case "wake":
       return onWake(state, event.agentId, event.message, event.nowMs);
@@ -398,7 +365,7 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
       return onTick(state, event.nowMs);
 
     case "runtime_signal":
-      return onRuntimeSignal(state, event.agentId, event.kind, event.nowMs);
+      return { state, effects: [] };
   }
 }
 
@@ -434,40 +401,19 @@ function onWake(state: ManagerState, agentId: string, message: AgentMsg, nowMs: 
   // Idle ⇒ spawn (single-flight: only from idle). Starting/stopping ⇒ just queue.
   if (agent.status === "idle") {
     agent.status = "starting";
-    const prompt = drainInboxToPrompt(agent);
+    const messages = drainInbox(agent);
     return commit(state, agent, [
-      { type: "spawn", agentId, prompt, resumeSessionId: agent.sessionId },
+      { type: "spawn", agentId, messages, resumeSessionId: agent.sessionId },
     ]);
   }
 
   // Running:
   if (agent.status === "running") {
-    // Persistent + can take stdin ⇒ steer/deliver into the live process.
-    if (agent.caps.lifecycleKind === "persistent" && agent.caps.supportsStdinNotification) {
-      // Gated + mid-turn: a raw stdin write right now could collide with an
-      // in-flight tool call / signed thinking block / compaction / review.
-      // The message is already enqueued above — hold instead of draining it;
-      // `onRuntimeSignal` flushes it at the next safe boundary.
-      const isGatedMidTurn = agent.caps.busyDeliveryMode === "gated" && agent.turnActive;
-      if (isGatedMidTurn) {
-        return commit(state, agent, [
-          {
-            type: "gated_hold",
-            agentId,
-            reason: "mid_turn_wake",
-            blockedReason: agent.apm.phase,
-            recentEvents: agent.apm.recentEvents,
-          },
-        ]);
-      }
-      const text = drainInboxToPrompt(agent);
-      const mode = agent.turnActive ? "busy" : "idle";
-      if (mode === "idle") agent.turnActive = true;
-      agent.lastDeliverAt = nowMs;
-      return commit(state, agent, [{ type: "send", agentId, text, mode }]);
-    }
-    // Per-turn or no stdin ⇒ keep queued; delivered after exit / next spawn.
-    return commit(state, agent, []);
+    const messages = drainInbox(agent);
+    const mode = agent.turnActive ? "busy" : "idle";
+    if (mode === "idle") agent.turnActive = true;
+    agent.lastDeliverAt = nowMs;
+    return commit(state, agent, messages.map((queued) => ({ type: "send", agentId, message: queued, mode })));
   }
 
   // starting / stopping ⇒ queue only (coalesce); handled on spawned/exit.
@@ -480,125 +426,19 @@ function onTurnEnd(state: ManagerState, agentId: string, nowMs: number): ReduceR
   const agent = clone(existing);
   agent.turnActive = false;
   agent.lastProgressAt = nowMs;
-  // Fresh turn ⇒ fresh gated phase; prevents a stale compacting/reviewing/
-  // outstandingToolUses flag from one turn silently blocking a flush in the
-  // next turn.
-  agent.apm = createInitialApmGatedSteeringState();
-
-  // Per-turn runtimes exit on their own; the process will emit "exit".
-  if (agent.caps.lifecycleKind === "per_turn") {
-    return commit(state, agent, []);
-  }
-
-  // Persistent: if queued messages exist, deliver them as a fresh (idle) turn.
-  if (agent.inbox.length > 0 && agent.caps.supportsStdinNotification) {
-    const text = drainInboxToPrompt(agent);
+  // The package session stays logically live across both physical per-turn and
+  // persistent adapters. Any manager-level messages queued during a race are
+  // handed back to it as the next logical turn.
+  if (agent.inbox.length > 0) {
+    const messages = drainInbox(agent);
     agent.turnActive = true;
     agent.lastDeliverAt = nowMs;
-    return commit(state, agent, [{ type: "send", agentId, text, mode: "idle" }]);
+    return commit(state, agent, messages.map((queued) => ({ type: "send", agentId, message: queued, mode: "idle" })));
   }
 
   // Nothing pending ⇒ idle; start the idle-hibernation clock.
   agent.idleSince = nowMs;
   return commit(state, agent, []);
-}
-
-/**
- * Handles one forwarded `ParsedEvent.kind` for gated-steering phase tracking
- * and boundary flush attempts. Only meaningfully acts when the agent is
- * `running`, `turnActive`, and declares `busyDeliveryMode: "gated"` —
- * otherwise it's a no-op (still records `recentEvents` for diagnostics via
- * `reduceApmGatedRecentEvent`, cheap and harmless).
- *
- * Pinned execution order per branch (deliberately different from
- * `session-runner.ts`, which calls `reduceApmGatedRecentEvent` first — here
- * it runs last so the ring buffer reflects the phase actually reached, not
- * the incoming phase):
- *   1. Run the kind-specific reducer and assign its `nextState`.
- *   2. Run `reduceApmGatedRecentEvent` and assign its `nextState` again.
- *   3. If the branch calls for it, attempt a flush via
- *      `reduceApmGatedFlushReadiness`, reading the now-fully-updated `apm`.
- */
-function onRuntimeSignal(state: ManagerState, agentId: string, kind: string, nowMs: number): ReduceResult {
-  const existing = state.agents[agentId];
-  if (!existing) return { state, effects: [] };
-  const agent = clone(existing);
-
-  // Reset window: never emit a `send` toward the dying session, even for gated
-  // drivers whose boundary flush would otherwise fire on a mid-shutdown
-  // tool_output. Doing so would drain REWAKE from the inbox into a doomed
-  // session and lose it before `onExit`'s drain-and-spawn runs. Still update
-  // the diagnostics ring buffer so recentEvents reflects the reset window.
-  const isGatedActive =
-    !agent.resetting &&
-    agent.status === "running" &&
-    agent.turnActive &&
-    agent.caps.busyDeliveryMode === "gated";
-  if (!isGatedActive) {
-    // Still record the event for diagnostics — cheap and harmless even when
-    // not gated (the ring buffer is unused unless busyDeliveryMode is gated).
-    agent.apm = reduceApmGatedRecentEvent(agent.apm, { event: kind }).nextState;
-    return commit(state, agent, []);
-  }
-
-  let attemptFlushReason: string | null = null;
-  switch (kind) {
-    case "tool_call":
-      agent.apm = reduceApmGatedToolUse(agent.apm, { kind }).nextState;
-      break;
-    case "tool_output":
-      agent.apm = reduceApmGatedToolUse(agent.apm, { kind }).nextState;
-      attemptFlushReason = "tool_batch_complete";
-      break;
-    case "compaction_started":
-    case "compaction_finished":
-      agent.apm = reduceApmGatedCompaction(agent.apm, { kind }).nextState;
-      if (kind === "compaction_finished") attemptFlushReason = "compaction_finished";
-      break;
-    case "review_started":
-    case "review_finished":
-      agent.apm = reduceApmGatedReview(agent.apm, { kind }).nextState;
-      if (kind === "review_finished") attemptFlushReason = "review_finished";
-      break;
-    case "error":
-      agent.apm = reduceApmGatedError(agent.apm, { disableToolBoundaryFlush: true }).nextState;
-      break;
-    default:
-      // "text" / "thinking" / "internal_progress" / "runtime_diagnostic" /
-      // "telemetry" / "session_init" / "turn_end" — no phase change here;
-      // "turn_end" is already handled by onTurnEnd via its own event.
-      break;
-  }
-
-  agent.apm = reduceApmGatedRecentEvent(agent.apm, { event: kind }).nextState;
-
-  if (attemptFlushReason === null) return commit(state, agent, []);
-  // Attempting a flush on every tool_output is intentional (not just when
-  // the last outstanding tool just closed): it lets `reduceApmGatedFlushReadiness`
-  // be the single source of truth for "is it safe", and surfaces a
-  // `gated_hold` for "one of several nested tool calls just closed" too.
-  if (agent.inbox.length === 0) return commit(state, agent, []);
-
-  const readiness = reduceApmGatedFlushReadiness(agent.apm, {
-    isGated: true,
-    hasSession: agent.sessionId != null,
-    inboxLength: agent.inbox.length,
-    reason: attemptFlushReason,
-  });
-  if (readiness.shouldNotify) {
-    const text = drainInboxToPrompt(agent);
-    agent.lastDeliverAt = nowMs;
-    return commit(state, agent, [{ type: "send", agentId, text, mode: "busy" }]);
-  }
-  return commit(state, agent, [
-    {
-      type: "gated_hold",
-      agentId,
-      reason: attemptFlushReason,
-      blockedReason: readiness.blockedReason,
-      recentEvents: agent.apm.recentEvents,
-    },
-  ]);
 }
 
 function onExit(state: ManagerState, agentId: string): ReduceResult {
@@ -612,10 +452,6 @@ function onExit(state: ManagerState, agentId: string): ReduceResult {
   // cleared otherwise; the settle-idle path goes through enterStable which also
   // clears it, harmless to do twice).
   agent.stoppingSince = null;
-  // Fresh process ⇒ fresh gated-steering horizon. Symmetric with `onTurnEnd`;
-  // prevents a dead process's `compacting` / outstanding-tool-use flags from
-  // silently carrying into the next spawn and re-blocking `onWake`.
-  agent.apm = createInitialApmGatedSteeringState();
   // The dead process can't answer any prior delivery — drop the outstanding
   // deliver marker so the suspected-deaf detector starts clean for the respawn.
   agent.lastDeliverAt = null;
@@ -631,9 +467,9 @@ function onExit(state: ManagerState, agentId: string): ReduceResult {
   // "clear at onExit" behavior left invisible to every running-gated detector.
   if (agent.inbox.length > 0) {
     agent.status = "starting";
-    const prompt = drainInboxToPrompt(agent);
+    const messages = drainInbox(agent);
     return commit(state, agent, [
-      { type: "spawn", agentId, prompt, resumeSessionId: agent.sessionId },
+      { type: "spawn", agentId, messages, resumeSessionId: agent.sessionId },
     ]);
   }
   // No respawn (incl. the spawn-failure path: `doSpawn` dispatched an immediate
@@ -651,20 +487,12 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
     const a = agents[id];
 
     // Stalled recovery: running, turn in flight, no progress past threshold.
-    // Gated runtimes are normally excluded from restart (their tool-batch/
-    // compaction/review boundaries do the flushing), BUT a silent gated turn
-    // with queued inbox has no other exit — every wake hits `gated_hold` and
-    // nothing frees it. Include gated when work is backing up so `onExit`'s
-    // drain-and-respawn can rescue it.
+    // Adapter-specific liveness is owned by the package; this is the daemon's
+    // generic logical-session backstop.
     const stalled =
       a.status === "running" &&
       a.turnActive &&
-      nowMs - a.lastProgressAt >= state.staleThresholdMs &&
-      (a.caps.lifecycleKind === "per_turn" ||
-        (a.caps.supportsStdinNotification && a.caps.busyDeliveryMode === "direct") ||
-        (a.caps.supportsStdinNotification &&
-          a.caps.busyDeliveryMode === "gated" &&
-          a.inbox.length > 0));
+      nowMs - a.lastProgressAt >= state.staleThresholdMs;
     // Suspected-deaf (plans/daemon-fsm-desync.md batch A): a `send` was
     // dispatched (`lastDeliverAt` set, and NEWER than the last process-reported
     // progress) yet the stale window elapsed with no event following it — the
@@ -681,8 +509,6 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
     // a stdin-capable persistent agent whose recovery is physically reliable.
     const suspectedDeaf =
       a.status === "running" &&
-      a.caps.lifecycleKind === "persistent" &&
-      a.caps.supportsStdinNotification &&
       a.lastDeliverAt !== null &&
       a.lastDeliverAt > a.lastProgressAt &&
       nowMs - a.lastDeliverAt >= state.staleThresholdMs;
@@ -759,14 +585,12 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
       continue;
     }
 
-    // Idle hibernation: a persistent keep-alive process that has sat idle (turn
-    // ended, inbox empty) past the timeout is stopped to free resources. Its
-    // sessionId is preserved, so the next wake resumes it.
+    // Idle hibernation: a logical session that has sat idle past the timeout is
+    // stopped to free resources. Its sessionId is preserved for the next wake.
     const idleEligible =
       a.status === "running" &&
       !a.turnActive &&
       a.inbox.length === 0 &&
-      a.caps.lifecycleKind === "persistent" &&
       state.idleTimeoutMs > 0 &&
       Number.isFinite(state.idleTimeoutMs);
     if (idleEligible && a.idleSince !== null && nowMs - a.idleSince >= state.idleTimeoutMs) {
@@ -781,11 +605,10 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
-function freshAgent(agentId: string, caps: AgentRuntimeCaps): AgentState {
+function freshAgent(agentId: string): AgentState {
   return {
     agentId,
     status: "idle",
-    caps,
     inbox: [],
     sessionId: null,
     turnActive: false,
@@ -795,7 +618,6 @@ function freshAgent(agentId: string, caps: AgentRuntimeCaps): AgentState {
     stoppingSince: null,
     resetting: false,
     resettingSince: null,
-    apm: createInitialApmGatedSteeringState(),
   };
 }
 
@@ -827,26 +649,23 @@ function enterStable(agent: AgentState, status: "running" | "idle"): void {
   agent.stoppingSince = null;
 }
 
-/** Coalesce all queued messages into one prompt, deduplicating identical lines. */
-function drainInboxToPrompt(agent: AgentState): string {
-  const seen = new Set<string>();
-  const unique: string[] = [];
+/** Transfer the daemon's reset/start buffer without merging distinct commands. */
+function drainInbox(agent: AgentState): AgentMsg[] {
+  const seenIds = new Set<string>();
+  const unique: AgentMsg[] = [];
   for (const m of agent.inbox) {
-    if (!seen.has(m.text)) {
-      seen.add(m.text);
-      unique.push(m.text);
-    }
+    if (m.id && seenIds.has(m.id)) continue;
+    if (m.id) seenIds.add(m.id);
+    unique.push(m);
   }
   agent.inbox = [];
-  return unique.join("\n");
+  return unique;
 }
 
 function clone(a: AgentState): AgentState {
   return {
     ...a,
     inbox: [...a.inbox],
-    caps: { ...a.caps },
-    apm: { ...a.apm, recentEvents: [...a.apm.recentEvents] },
   };
 }
 

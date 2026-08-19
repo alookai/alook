@@ -8,7 +8,6 @@ import * as path from "path";
 import * as fs from "fs";
 import { fileURLToPath } from "url";
 import { getDriver, listRuntimeIds, type RuntimeId } from "./drivers/index.js";
-import type { ProbeResult } from "./types.js";
 
 /* ------------------------------------------------------------------ */
 /* Agent CLI path resolution                                           */
@@ -117,15 +116,17 @@ export async function detectRuntimes(): Promise<RuntimeInfo[]> {
   for (const id of ids) {
     try {
       const driver = getDriver(id);
-      const probe: ProbeResult = await driver.probe();
-      const healthy = probe.status === "healthy";
-      results.push({
-        id,
-        status: healthy ? "healthy" : "unhealthy",
-        version: probe.version,
-        lastError: healthy ? undefined : probe.lastError ?? "probe_failed",
-        lastErrorAt: healthy ? undefined : nowIso,
-      });
+      const probe = await driver.probe();
+      if (probe.status === "healthy") {
+        results.push({ id, status: "healthy", version: probe.version });
+      } else {
+        results.push({
+          id,
+          status: "unhealthy",
+          lastError: probe.error.code ?? "probe_failed",
+          lastErrorAt: nowIso,
+        });
+      }
     } catch (err) {
       results.push({
         id,

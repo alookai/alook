@@ -1,49 +1,31 @@
-/**
- * Driver registry — the single place that maps a runtime id to its driver.
- *
- * `getDriver(runtimeId)` is how the daemon obtains a backend. The runtime is
- * an explicit choice made at agent-create time — there is no auto-migration
- * or alias between runtimes.
- */
-import type { Driver } from "../types.js";
-import { ClaudeDriver } from "./claude.js";
-import { CodexDriver } from "./codex.js";
-import { CursorDriver } from "./cursor.js";
-import { OpenCodeDriver } from "./opencode.js";
-import { PiDriver } from "./pi.js";
+import {
+  BUILTIN_BACKEND_IDS,
+  createAgentDriverSdk,
+  getBuiltinBackendCapabilities,
+  type BackendCapabilities,
+  type BuiltinBackendId,
+} from "@alook/agent-driver";
 
-export type RuntimeId =
-  | "claude"
-  | "codex"
-  | "cursor"
-  | "opencode"
-  | "pi";
+export type RuntimeId = BuiltinBackendId;
 
-const driverFactories: Record<RuntimeId, () => Driver> = {
-  claude: () => new ClaudeDriver(),
-  codex: () => new CodexDriver(),
-  cursor: () => new CursorDriver(),
-  opencode: () => new OpenCodeDriver(),
-  pi: () => new PiDriver(),
-};
+export interface AgentBackend {
+  readonly id: RuntimeId;
+  readonly capabilities: BackendCapabilities;
+  probe(): ReturnType<ReturnType<typeof createAgentDriverSdk>["probe"]>;
+}
 
-export function getDriver(runtimeId: string): Driver {
-  const createDriver = (driverFactories as Record<string, (() => Driver) | undefined>)[runtimeId];
-  const driver = createDriver?.();
-  if (!driver) {
-    throw new Error(`Unknown runtime: ${runtimeId}. Available: ${Object.keys(driverFactories).join(", ")}`);
+export function getDriver(runtimeId: string): AgentBackend {
+  if (!(BUILTIN_BACKEND_IDS as readonly string[]).includes(runtimeId)) {
+    throw new Error(`Unknown runtime: ${runtimeId}. Available: ${BUILTIN_BACKEND_IDS.join(", ")}`);
   }
-  return driver;
+  const id = runtimeId as RuntimeId;
+  return {
+    id,
+    capabilities: getBuiltinBackendCapabilities(id),
+    probe: () => createAgentDriverSdk().probe({ backend: id }),
+  };
 }
 
 export function listRuntimeIds(): RuntimeId[] {
-  return Object.keys(driverFactories) as RuntimeId[];
+  return [...BUILTIN_BACKEND_IDS];
 }
-
-export {
-  ClaudeDriver,
-  CodexDriver,
-  CursorDriver,
-  OpenCodeDriver,
-  PiDriver,
-};
