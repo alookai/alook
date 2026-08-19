@@ -369,11 +369,11 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: src/desktop/src-tauri
+      - uses: taiki-e/install-action@d9585d8b553a3309cc2e7a695952297e311e4c10 # cargo-machete
       - run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev
       - run: cargo test
-      - run: cargo install cargo-machete --locked
       - run: cargo machete
 
   lighthouse:

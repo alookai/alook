@@ -60,6 +60,15 @@ describe("E2E UI workflow", () => {
   it("does not install Bun for Node-only browser tests", () => {
     expect(workflow).not.toContain("oven-sh/setup-bun")
   })
+
+  it("runs shards in the lockfile-selected Playwright image without host installs", () => {
+    expect(workflow).toContain("image: ${{ matrix.image }}")
+    expect(workflow).toContain("options: --init --ipc=host --user 1001")
+    expect(workflow).not.toContain("playwright-browser-cache")
+    expect(workflow).not.toContain("~/.cache/ms-playwright")
+    expect(workflow).not.toContain("playwright install-deps")
+    expect(workflow).not.toContain("playwright install chromium")
+  })
 })
 
 describe("Bun workflow setup", () => {
@@ -84,6 +93,30 @@ describe("Bun workflow setup", () => {
 describe("CI test budgets", () => {
   it("gives the slower Windows workspace suite enough job time", () => {
     expect(ciJob("test-windows")).toContain("timeout-minutes: 15")
+  })
+})
+
+describe("CI dependency setup", () => {
+  it("installs cargo-machete from the pinned release action", () => {
+    const desktopRust = ciJob("desktop-rust")
+    expect(desktopRust).toContain(
+      "taiki-e/install-action@d9585d8b553a3309cc2e7a695952297e311e4c10 # cargo-machete",
+    )
+    expect(desktopRust).not.toContain("cargo install cargo-machete")
+    expect(desktopRust).toContain("run: cargo machete")
+  })
+
+  it("caches pnpm and target-specific Rust artifacts for desktop releases", () => {
+    const pnpmSetup = desktopReleaseWorkflow.indexOf("pnpm/action-setup@")
+    const nodeSetup = desktopReleaseWorkflow.indexOf("actions/setup-node@")
+    expect(pnpmSetup).toBeGreaterThan(-1)
+    expect(nodeSetup).toBeGreaterThan(pnpmSetup)
+    expect(desktopReleaseWorkflow).toContain("cache: pnpm")
+    expect(desktopReleaseWorkflow).toContain("cache-dependency-path: pnpm-lock.yaml")
+    expect(desktopReleaseWorkflow).toContain(
+      "Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2",
+    )
+    expect(desktopReleaseWorkflow).toContain("key: ${{ matrix.target }}")
   })
 })
 
