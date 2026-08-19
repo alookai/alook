@@ -50,7 +50,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   serverIcon?: string | null
   activeChannel: string
   setActiveChannel: (id: string) => void
-  prefetchChannel?: (id: string) => void
+  prefetchChannel?: (id: string, parentId?: string) => void
   noHeader?: boolean
   onOpenSettings?: (section?: SettingsSection) => void
   isAdmin?: boolean
@@ -182,7 +182,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
             active={thread.id === activeThreadId}
             muted={!!mutedChannels?.[parentId]}
             onClick={() => onSelectForumThread?.(parentId, thread.id)}
-            onPrefetch={() => prefetchChannel?.(thread.id)}
+            onPrefetch={() => prefetchChannel?.(thread.id, parentId)}
           />
         ))}
       </div>

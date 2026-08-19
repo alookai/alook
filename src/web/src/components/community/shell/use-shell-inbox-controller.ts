@@ -72,7 +72,10 @@ export function useShellInboxController({
     cancelPendingNavigation()
     const seqQuery = marked.m.seq != null ? `?seq=${marked.m.seq}` : ""
     if (marked.serverId) {
-      router.push(`/c/channels/${marked.serverId}/${marked.channelId}${seqQuery}`)
+      const channelPath = marked.parentChannelId
+        ? childChannelHref(marked.serverId, marked.parentChannelId, marked.channelId)
+        : `/c/channels/${marked.serverId}/${marked.channelId}`
+      router.push(`${channelPath}${seqQuery}`)
     } else {
       router.push(`/c/me/${marked.channelId}${seqQuery}`)
     }

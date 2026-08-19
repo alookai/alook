@@ -137,6 +137,16 @@ describe("useShellInboxController", () => {
     expect(hook.pushed.at(-1)).toBe("/c/channels/s1/c1?seq=7")
 
     await act(async () => hook.current.popoverProps.onOpenMarked?.({
+      id: "mk-child",
+      serverId: "s1",
+      channelId: "child1",
+      parentChannelId: "parent1",
+      m: { seq: 8 },
+    } as never))
+    expect(mocks.watch).toHaveBeenLastCalledWith("marked:mk-child")
+    expect(hook.pushed.at(-1)).toBe("/c/channels/s1/parent1/child1?seq=8")
+
+    await act(async () => hook.current.popoverProps.onOpenMarked?.({
       id: "mk2",
       serverId: null,
       channelId: "dm1",

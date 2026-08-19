@@ -147,7 +147,7 @@ export function TextChannelSurface({
                   onTyping={controller.handleTyping}
                   replyingTo={controller.replyTo?.authorName}
                   onCancelReply={() => controller.setReplyTo(null)}
-                  autoFocus={breakpoint !== "mobile"}
+                  autoFocus={breakpoint === "desktop"}
                   draftKey={`${serverId}/${channelId}`}
                 />
               </div>

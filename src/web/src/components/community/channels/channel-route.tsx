@@ -148,8 +148,18 @@ export function ChannelRoute({
   useEffect(() => {
     const parentChannelId = currentChannelMeta?.parentChannelId
     if (!isChildChannel || routeParentChannelId || !parentChannelId) return
-    router.replace(childChannelHref(serverParam, parentChannelId, channelId))
-  }, [channelId, currentChannelMeta?.parentChannelId, isChildChannel, routeParentChannelId, router, serverParam])
+    const search = searchParams.toString()
+    const routePath = childChannelHref(serverParam, parentChannelId, channelId)
+    router.replace(`${routePath}${search ? `?${search}` : ""}`)
+  }, [
+    channelId,
+    currentChannelMeta?.parentChannelId,
+    isChildChannel,
+    routeParentChannelId,
+    router,
+    searchParams,
+    serverParam,
+  ])
 
   const enterThread = useCallback((id: string) => {
     // No eager read PUT here — the thread page's `useEagerChannelRead` fires it

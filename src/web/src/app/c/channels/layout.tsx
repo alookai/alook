@@ -346,7 +346,11 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   }, [cancelPendingNavigation, queryClient, serverId])
 
   const prefetchChannel = useCallback(
-    (id: string) => router.prefetch(`/c/channels/${serverId}/${id}`),
+    (id: string, parentId?: string) => router.prefetch(
+      parentId
+        ? childChannelHref(serverId, parentId, id)
+        : `/c/channels/${serverId}/${id}`,
+    ),
     [router, serverId],
   )
 

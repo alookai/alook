@@ -20,6 +20,7 @@ const mutationMocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  usePathname: () => "/c/channels/server_1/channel_1",
   useSearchParams: () => ({ get: () => null }),
 }))
 vi.mock("sonner", () => ({ toast: vi.fn() }))

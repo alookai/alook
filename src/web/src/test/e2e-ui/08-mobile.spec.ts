@@ -1,6 +1,13 @@
 import { test, expect, userId } from "./_fixtures/community-fixture"
 import { tid } from "./_fixtures/testids"
-import { seedServer, seedChannel, seedDm, seedMessage } from "./_fixtures/seed"
+import {
+  seedServer,
+  seedChannel,
+  seedDm,
+  seedMark,
+  seedMessage,
+  seedThread,
+} from "./_fixtures/seed"
 
 // Journey 8 — adaptive list/detail routing. At <640px semantic roots render
 // lists and leaf paths render detail. Header Back replaces with the parent.
@@ -9,12 +16,16 @@ test.use({ viewport: { width: 390, height: 844 } })
 test.describe.serial("mobile layout", () => {
   let serverId: string
   let channelId: string
+  let childChannelId: string
   let dmId: string
 
   test.beforeAll(async () => {
     serverId = await seedServer("alice", `Mobile ${Date.now()}`)
     channelId = await seedChannel("alice", serverId, "mobile-chan")
-    await seedMessage("alice", channelId, "mobile seq command target")
+    const parentMessageId = await seedMessage("alice", channelId, "mobile seq command target")
+    childChannelId = await seedThread("alice", parentMessageId, "mobile-child")
+    const childMessageId = await seedMessage("alice", childChannelId, "mobile child seq target")
+    await seedMark("alice", childChannelId, childMessageId)
     dmId = await seedDm("alice", userId("bob"))
   })
 
@@ -86,10 +97,50 @@ test.describe.serial("mobile layout", () => {
     await expect(page.getByTestId(tid.composerInput)).toBeVisible()
   })
 
+  test("canonical child detail consumes seq without dropping route or other URL state", async ({ asUser }) => {
+    const { page } = await asUser("alice")
+    await page.goto(
+      `/c/channels/${serverId}/${channelId}/${childChannelId}?seq=1&keep=child-seq`,
+    )
+
+    await expect.poll(() => new URL(page.url()).pathname).toBe(
+      `/c/channels/${serverId}/${channelId}/${childChannelId}`,
+    )
+    await expect.poll(() => new URL(page.url()).searchParams.has("seq")).toBe(false)
+    expect(new URL(page.url()).searchParams.get("keep")).toBe("child-seq")
+    await expect(page.getByRole("dialog").getByText("mobile child seq target")).toBeVisible()
+  })
+
+  test("Marked opens a child message on its canonical route without losing context", async ({ asUser }) => {
+    const { page } = await asUser("alice")
+    await page.goto("/c/me")
+    await page.getByRole("button", { name: "Inbox" }).click()
+    await page.getByRole("tab", { name: "Marked" }).click()
+    await page.getByText("mobile child seq target", { exact: true }).click()
+
+    await expect.poll(() => new URL(page.url()).pathname).toBe(
+      `/c/channels/${serverId}/${channelId}/${childChannelId}`,
+    )
+    await expect.poll(() => new URL(page.url()).searchParams.has("seq")).toBe(false)
+    await expect(page.getByRole("dialog").getByText("mobile child seq target")).toBeVisible()
+  })
+
   test("server-root modal markers are one-shot on mobile", async ({ asUser }) => {
     for (const marker of ["settings", "invite"]) {
       const { page } = await asUser("alice")
       await page.goto(`/c/channels/${serverId}?${marker}=1&keep=${marker}`)
+
+      if (marker === "settings") {
+        await expect(page.getByTestId(tid.settingsShell)).toBeVisible()
+        await page.getByTestId(tid.settingsClose).click()
+        await expect(page.getByTestId(tid.settingsShell)).toBeHidden()
+      } else {
+        const inviteDialog = page.getByRole("dialog")
+        await expect(inviteDialog).toBeVisible()
+        await expect(inviteDialog.getByText(/^Invite friends to Mobile-/)).toBeVisible()
+        await inviteDialog.getByRole("button", { name: "Close" }).click()
+        await expect(inviteDialog).toBeHidden()
+      }
 
       await expect.poll(() => new URL(page.url()).pathname).toBe(
         `/c/channels/${serverId}`,
@@ -100,6 +151,11 @@ test.describe.serial("mobile layout", () => {
       await page.reload()
       expect(new URL(page.url()).searchParams.has(marker)).toBe(false)
       await expect(page.getByTestId(tid.serverIcon(serverId))).toBeVisible()
+      if (marker === "settings") {
+        await expect(page.getByTestId(tid.settingsShell)).toBeHidden()
+      } else {
+        await expect(page.getByRole("dialog")).toBeHidden()
+      }
       await page.close()
     }
   })

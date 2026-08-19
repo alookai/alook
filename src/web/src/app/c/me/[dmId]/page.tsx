@@ -449,7 +449,7 @@ function DmView() {
             onTyping={handleTyping}
             replyingTo={replyTo?.authorName}
             onCancelReply={() => setReplyTo(null)}
-            autoFocus={bp !== "mobile"}
+            autoFocus={bp === "desktop"}
               draftKey={`dm/${dmId}`}
             />
           </div>
