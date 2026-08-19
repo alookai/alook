@@ -1,21 +1,17 @@
 # @alook/daemon
 
-A **pure, host-neutral agent-runtime "driver" abstraction** in TypeScript.
+Alook's host daemon: control-plane connectivity, agent scheduling, credentials,
+diagnostics, and lifecycle orchestration.
 
-It documents — as compilable code — how a host adapts five AI coding runtimes
-(Claude Code, Codex, Cursor, OpenCode, and Pi) behind one uniform interface, and how it delivers messages into a
-running agent (the "steering" mechanism).
+Runtime execution lives in the independently buildable `@alook/agent-driver`
+package under `agent-driver/`. That package adapts Claude Code, Codex, Cursor,
+OpenCode, and Pi behind one public `AgentSession` contract. The daemon consumes
+that contract and does not speak vendor process or SDK protocols.
 
-The backend hardcodes **no specific host platform**. The agent always invokes a
-stable CLI name (`alook`); `cliTransport.ts` writes a small wrapper by that
-name into a per-launch state dir, prepends it to `PATH`, and forwards to the
-host's real `targetCommand` — **decoupling the agent-facing name from the host's
-real binary** (the host can rename/relocate its CLI without touching the agent
-surface). It also injects an `ALOOK_*` env contract. The default
-`MOCK_CLI_CONFIG` wires no `targetCommand` (the wrapper errors if invoked); a
-real deployment passes its own `CliTransportConfig` (CLI name, env prefix,
-`targetCommand`) and its own system-prompt communication guide. The abstraction
-is what's reusable — plug in whatever host you like.
+The driver package remains host-neutral. Its CLI transport creates a per-launch
+state directory, exposes a stable `alook` command through `PATH`, and composes
+explicit environment layers supplied by the host. Vendor adapters never import
+daemon credentials or control-plane code.
 
 > **Provenance.** The shapes, protocols, flag strings, and control flow here were
 > derived by studying how production agent-runtime daemons drive these CLIs, then
@@ -60,25 +56,21 @@ into logs, bug reports, or chat.
 
 ## The big idea
 
-The daemon never speaks a runtime's native protocol directly. Each runtime is
-wrapped by a **`Driver`** (`src/types.ts`) that knows how to:
+The daemon creates an `AgentDriverSdk`, probes or opens a selected backend, and
+then works only with an `AgentSession`:
 
-1. **`spawn`** (or `createSession`) — launch the runtime,
-2. **`encodeStdinMessage`** — encode an outgoing user message for the runtime's
-   input channel,
-3. **`parseLine`** — normalize the runtime's output into a tiny shared event
-   vocabulary (`ParsedEvent`: `session_init`, `thinking`, `text`, `tool_call`,
-   `tool_output`, `compaction_*`, `turn_end`, `error`, `telemetry`).
+- `start(message)` admits the first command.
+- `send(message)` accepts, queues, or rejects a later command with a typed receipt.
+- `interrupt(...)` and `stop(...)` provide bounded lifecycle control.
+- `snapshot()` exposes logical state without leaking process/SDK objects.
+- `events` is an async stream of normalized `AgentEvent` values.
+- `closed` settles exactly once with terminal and host-cleanup facts.
 
-A generic **session host** then runs the process and fans `ParsedEvent`s out to
-the daemon:
-
-- `ChildProcessRuntimeSession` (`src/runtime/runtimeSession.ts`) for CLI runtimes.
-- `SdkRuntimeSession` (`src/runtime/sdkRuntimeSession.ts`) for in-process SDK
-  runtimes (pi).
-
-Because everything downstream consumes the same `ParsedEvent` stream and the
-same `Driver` capability flags, the rest of the daemon is transport-agnostic.
+Inside `@alook/agent-driver`, a backend adapter declares its execution model and
+normalizes vendor output. `LogicalAgentSession` owns admission, FIFO queueing,
+safe-boundary delivery, terminal ordering, and cleanup. Internal `ProcessLane`
+and `SdkLane` hosts make child-process and in-process SDK transports look alike;
+they are deliberately not public daemon primitives.
 
 ---
 
@@ -86,41 +78,32 @@ same `Driver` capability flags, the rest of the daemon is transport-agnostic.
 
 When a message arrives, what happens depends on the runtime's lifecycle:
 
-### Persistent runtimes (claude, codex, pi)
-One long-lived process spans many turns. A new message is **written onto the
-still-open input channel** — no restart. This is "steering."
+### Persistent runtimes (Claude and Codex)
 
-The busy-delivery mode is **derived from `lifecycle`** (`busyDeliveryModeOf` /
-`supportsStdinNotificationOf` in `types.ts`) — `lifecycle.stdin` is the single
-source of truth, so a driver's mode can't drift from it (it used to: a driver
-could declare `lifecycle.stdin: "gated"` yet `busyDeliveryMode: "direct"`).
-`persistent+direct → direct`, `persistent+gated → gated`, `per_turn → none`.
-
-- **`direct`** (pi): write immediately; the runtime tolerates injection
-  any time.
-- **`gated`** (claude, codex): a raw write mid-stream could collide with an active
-  signed thinking block, so writes are **held until a safe boundary**,
-  implemented by:
-  - `apmStateMachine` (`src/runtime/apmStateMachine.ts`) — the policy reducers
-    that decide *when* to flush queued inbox notices and emit the concrete
-    `notify_stdin` / `deliver_stdin` effects (clause `SMR-002`). Flushing is
-    blocked while `outstanding_tool_uses > 0`, while `compacting`, while
-    `reviewing` (Codex review mode), or when `tool_boundary_flush_disabled`.
-    Compaction *and* review exit are treated as safe flush boundaries.
+One child process spans many turns. Both adapters declare
+`execution.kind: "persistent_process"`; their public capability is
+`midTurnDelivery: "safe_boundary_queue"`. A message arriving during tool use,
+compaction, or review is queued by `LogicalAgentSession` and receives a later
+`command_accepted` or `command_failed` event. The daemon does not implement that
+protocol or queue.
 
 For Claude specifically, the input channel is **stream-json**: the process is
 launched with `--input-format stream-json --output-format stream-json
 --include-partial-messages`, and each message is one NDJSON line
 `{"type":"user","message":{"role":"user","content":[{"type":"text","text":…}]}}`.
 
-### Per-turn runtimes (cursor, opencode)
-The process handles exactly one turn and exits. `supportsStdinNotification` is
-`false` and `encodeStdinMessage` returns `null`. A new message means a **brand-new
-process**; the agent re-checks the inbox each wake. This lifecycle
-(`lifecycle.kind: "per_turn"`) drives the `## Message Notifications` section
-generated by `buildCliSystemPrompt` — no driver hand-writes this reminder.
-`opencode` is a special per-turn case: it defers spawning until a concrete
-message and terminates the process on turn end.
+### In-process SDK runtime (Pi)
+
+Pi declares `execution.kind: "in_process_sdk"` and
+`midTurnDelivery: "steer"`. Its lane delegates prompt, steer, abort, and dispose
+to the SDK while preserving the same receipts, events, and terminal contract.
+
+### Per-turn runtimes (Cursor and OpenCode)
+
+Each command gets a new child process and later commands queue for the next turn.
+The adapter declaration is the source of truth: Cursor starts immediately and
+exits naturally; OpenCode declares `start: "deferred"` and
+`afterTurn: "terminate"`, so a bookkeeping-only system wake does not spawn it.
 
 ---
 
@@ -128,62 +111,48 @@ message and terminates the process on turn end.
 
 | Runtime | Lifecycle | Transport / protocol | Steering | Initial input | Output format |
 |---|---|---|---|---|---|
-| **claude** | persistent | child process, stream-json NDJSON | `gated` | `{type:"user",…}` line on stdin | stream-json |
-| **codex** | persistent | child process, JSON-RPC 2.0 (`app-server --listen stdio://`) | `gated` | `initialize` → `thread/start`/`resume` | JSON-RPC notifications |
-| **pi** | persistent | in-process SDK (`@earendil-works/pi-coding-agent`), multi-provider | `direct` | `session.prompt()` | SDK event callback |
-| **cursor** | per-turn | child process, stream-json | none | prompt as trailing arg | stream-json |
-| **opencode** | per-turn (defer-spawn, terminate-on-end) | child process, JSON | none | prompt as `-- <arg>` | JSON events |
+| **claude** | persistent process | stream-json NDJSON | `safe_boundary_queue` | stdin user-message line | stream-json |
+| **codex** | persistent process | JSON-RPC 2.0 (`app-server --listen stdio://`) | `safe_boundary_queue` | `initialize` → `thread/start`/`resume` | JSON-RPC notifications |
+| **pi** | in-process SDK | `@earendil-works/pi-coding-agent` | `steer` | `session.prompt()` | SDK callback |
+| **cursor** | per-turn process | stream-json | next-turn queue | trailing prompt argument | stream-json |
+| **opencode** | deferred per-turn process | JSON | next-turn queue | `-- <prompt>` | JSON events |
 
-(Each driver's exact launch flags live in its file under `src/drivers/`.)
+(Exact launch flags live in `agent-driver/src/adapters/<backend>/`.)
 
 ---
 
 ## Layout
 
 ```
+agent-driver/
+  src/
+    contract.ts                  # public SDK, session, receipt, event, and result types
+    sdk.ts                       # createAgentDriverSdk
+    registry.ts                  # built-in ids and capabilities
+    controller/
+      logical-session.ts         # admission, queueing, turns, stop, cleanup
+      process-host.ts            # internal child-process lane
+      sdk-host.ts                # internal in-process SDK lane
+    adapters/<backend>/          # vendor launch + normalization
+    host/default-host.ts         # standalone host implementation
+    internal/                    # adapter-only transport/config/process helpers
+    testing/                     # public conformance fixtures
 src/
-  types.ts                       # Driver interface + ParsedEvent + lifecycle/capability types
-  index.ts                       # public entry point
-  logger.ts                      # tiny structured logger (ALOOK_LOG_LEVEL); wired through
-                                  #   wsControlChannel.ts/agentRouter.ts/managerRuntime.ts too, not just cli/daemonStart.ts
-  drivers/
-    index.ts                     # getDriver(runtimeId) registry  ← start here
-    cliTransport.ts              # shared: state dir, token, decoupling cliName wrapper -> targetCommand, env
-    systemPrompt.ts              # shared: standing-prompt assembly
-    probe.ts                     # CLI/binary detection + version
-    claude.ts                    # Claude Code driver
-    claudeLaunch.ts              #   args / command / spawn-spec / prompt-file
-    claudeProviderIsolation.ts   #   custom-provider HOME/config isolation
-    claudeEventNormalizer.ts     #   stream-json → ParsedEvent
-    codex.ts / codexEventNormalizer.ts / codexTelemetrySidecar.ts
-    cursor.ts / opencode.ts      # per-turn CLI drivers
-    pi.ts                        # in-process Pi SDK (multi-provider)
-  runtime/
-    runtimeSession.ts            # ChildProcessRuntimeSession + descriptor
-    sdkRuntimeSession.ts         # SdkRuntimeSession (in-process)
-    apmStateMachine.ts           # gated-delivery policy reducers (SMR-002)
-    progressState.ts             # liveness / stall detection
-    notificationState.ts         # inbox-notice de-dup + batching
-    errorDiagnostics.ts          # runtime-error classification + scrubbing
-  inbox/
-    projection.ts                # bucket pending messages by target → notice snapshots
-    stateMachine.ts              # pre-action freshness guard (forward / hold / bypass)
+  index.ts                       # daemon exports; re-exports the driver public API
+  drivers/index.ts               # daemon runtime lookup/probe facade only
+  logger.ts                      # structured daemon logging
+  runtime/                       # manager liveness, notification, error helpers
+  inbox/                         # unread projection and freshness policy
   manager/
-    managerPolicy.ts             # pure reducer: single-flight, wake/sleep, queue+coalesce, stalled
-    managerRuntime.ts            # AgentProcessManager: applies effects to real sessions
-  server/
-    contract.ts                  # ServerApi (data) + EnrollmentApi (machine→runner key) + HostControlChannel (control) + AdminApi
-    wsControlServer.ts           # server end of the control plane over ws (machine-key authed)
-    wsControlChannel.ts          # host end: WebSocket HostControlChannel (injectable socket, reconnect + heartbeat + resync)
-  daemon/
-    createDaemon.ts              # runtime-agnostic daemon factory (driver/sessionFactory/runtimes INJECTED; no test code)
-  cli/
-    index.ts                     # the `alook` agent CLI skeleton (message send / inbox pull)
-    proxyServerApi.ts            # agent data-plane client: voucher → proxy → server (identity from the voucher)
-  credentials/
-    credentialProxy.ts           # CredentialBroker (mint/revoke/check per-voucher vouchers) + local key-swapping proxy
+    agentDriverHost.ts           # host resource/env/CLI preparation
+    managerPolicy.ts             # pure scheduling reducer
+    managerRuntime.ts            # applies effects through AgentSession
+  server/                        # data/control-plane contracts and WebSockets
+  daemon/createDaemon.ts         # runtime-agnostic daemon composition
+  cli/                           # lifecycle CLI and proxy data-plane client
+  credentials/                   # voucher broker and key-swapping proxy
 scripts/
-  daemon.ts                      # local entry: delegates to the canonical `alook daemon` parser
+  daemon.ts                      # local daemon entry
 ```
 
 ## Host orchestration (manager + server)
@@ -355,22 +324,42 @@ posting a message in a channel it's a member of — the real wake-producer path
 (`src/web` → `src/wake-worker` → `src/ws-do`) delivers `agent:wake` over the
 daemon's real `WsControlChannel`.
 
-> **Run the source, not `dist/` (yet).** `pnpm run build` emits JS, but the
-> current Bundler-resolution emit produces extensionless relative imports that
-> Node's native ESM rejects (`Cannot find module './types'`). Until that's
-> switched to NodeNext or bundled, consume the library through a TS toolchain
-> (tsx / ts-node / vite / esbuild / webpack).
+`pnpm --filter @alook/daemon build` emits a self-contained daemon bundle. The
+published tarball includes the runtime-driver implementation, while
+`@alook/agent-driver` is also independently buildable and publishable for hosts
+that want only the logical-session SDK.
 
 ## Usage sketch
 
 ```ts
-import { getDriver, createChildProcessRuntimeSession } from "@alook/daemon";
+import { createAgentDriverSdk } from "@alook/agent-driver";
 
-const driver = getDriver("claude");
-const session = createChildProcessRuntimeSession(driver, ctx);
-session.on("runtime_event", (e) => handleParsedEvent(e));
-await session.start({ text: initialPrompt });
+const sdk = createAgentDriverSdk();
+const opened = await sdk.open({
+  backend: "codex",
+  launch: {
+    workingDirectory: ".",
+    instructions: { format: "markdown", content: "Be concise." },
+    launchId: "launch-example",
+  },
+  config: {
+    model: { kind: "default" },
+    mode: "default",
+  },
+});
+if (!opened.ok) throw new Error(opened.error.message);
 
-// Later, a message arrives while the agent is working:
-session.send({ text: "new message from #general", mode: "busy" }); // steer
+const { session } = opened;
+const eventsDone = (async () => {
+  for await (const event of session.events) {
+    if (event.type === "text_delta") process.stdout.write(event.text);
+  }
+})();
+
+await session.start({ id: "command-1", kind: "user", text: "Inspect this repository." });
+await session.send({ id: "command-2", kind: "user", text: "Now summarize the risks." });
+await session.stop({ reason: "owner_request", forceAfterMs: 5_000 });
+const result = await session.closed;
+await eventsDone;
+void result;
 ```

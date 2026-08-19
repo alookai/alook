@@ -1,29 +1,60 @@
 import { describe, it, expect } from "vitest";
-import { resolveLaunchFields } from "./runtimeConfig";
+import { runtimeModelName, toAgentBackendSelection } from "./runtimeConfig";
 import { makeRuntimeConfig } from "./runtimeConfig";
 
-describe("resolveLaunchFields — model id resolution across runtimes", () => {
+describe("runtimeModelName", () => {
   for (const runtime of ["claude", "codex", "cursor", "opencode", "pi"]) {
-    it(`${runtime}: {kind:"named",name:"opus"} → f.model === "opus"`, () => {
-      const f = resolveLaunchFields(makeRuntimeConfig({ runtime, model: { kind: "named", name: "opus" } }));
-      expect(f.model).toBe("opus");
+    it(`${runtime}: projects a named model without interpreting the backend`, () => {
+      expect(runtimeModelName(makeRuntimeConfig({ runtime, model: { kind: "named", name: "opus" } })))
+        .toBe("opus");
     });
   }
 
-  it("claude: a custom model additionally sets ANTHROPIC_CUSTOM_MODEL_OPTION", () => {
-    const f = resolveLaunchFields(makeRuntimeConfig({ runtime: "claude", model: { kind: "custom", name: "my-ft" } }));
-    expect(f.model).toBe("my-ft");
-    expect(f.providerEnv.ANTHROPIC_CUSTOM_MODEL_OPTION).toBe("my-ft");
+  it("projects custom models without provider or environment interpretation", () => {
+    expect(runtimeModelName(makeRuntimeConfig({ runtime: "claude", model: { kind: "custom", name: "my-ft" } })))
+      .toBe("my-ft");
   });
 
-  it("codex: a custom model does NOT set the claude-specific env", () => {
-    const f = resolveLaunchFields(makeRuntimeConfig({ runtime: "codex", model: { kind: "custom", name: "my-ft" } }));
-    expect(f.model).toBe("my-ft");
-    expect(f.providerEnv.ANTHROPIC_CUSTOM_MODEL_OPTION).toBeUndefined();
+  it("returns undefined for absent and default selections", () => {
+    expect(runtimeModelName(undefined)).toBeUndefined();
+    expect(runtimeModelName(makeRuntimeConfig({ runtime: "cursor" }))).toBeUndefined();
+  });
+});
+
+describe("toAgentBackendSelection", () => {
+  it("maps every runtime into the agent-driver contract", () => {
+    expect(toAgentBackendSelection(makeRuntimeConfig({ runtime: "codex" }))).toMatchObject({ backend: "codex" });
+    expect(toAgentBackendSelection(makeRuntimeConfig({ runtime: "cursor" }))).toMatchObject({ backend: "cursor" });
+    expect(toAgentBackendSelection(makeRuntimeConfig({ runtime: "opencode" }))).toMatchObject({ backend: "opencode" });
+    expect(toAgentBackendSelection(makeRuntimeConfig({ runtime: "pi" }))).toMatchObject({
+      backend: "pi",
+      config: { provider: { kind: "default" } },
+    });
   });
 
-  it("default model → f.model is undefined", () => {
-    const f = resolveLaunchFields(makeRuntimeConfig({ runtime: "cursor" }));
-    expect(f.model).toBeUndefined();
+  it("maps Claude custom endpoints and Pi built-in providers", () => {
+    expect(toAgentBackendSelection(makeRuntimeConfig({
+      runtime: "claude",
+      provider: { kind: "custom", apiUrl: "https://example.invalid", apiKey: "claude-key" },
+    }))).toMatchObject({
+      backend: "claude",
+      config: {
+        provider: { kind: "custom_endpoint", apiUrl: "https://example.invalid", apiKey: "claude-key" },
+      },
+    });
+    expect(toAgentBackendSelection(makeRuntimeConfig({
+      runtime: "pi",
+      provider: { kind: "pi-builtin", providerId: "openai", apiKey: "pi-key" },
+    }))).toMatchObject({
+      backend: "pi",
+      config: { provider: { kind: "builtin", providerId: "openai", apiKey: "pi-key" } },
+    });
+  });
+
+  it("rejects unknown runtimes", () => {
+    expect(() => toAgentBackendSelection({
+      ...makeRuntimeConfig({ runtime: "claude" }),
+      runtime: "unknown",
+    } as never)).toThrow("Unknown runtime: unknown");
   });
 });

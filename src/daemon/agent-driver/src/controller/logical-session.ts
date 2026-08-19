@@ -161,6 +161,7 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     this.stopRequestId = this.host.createId();
     this.failQueued("cancelled", "session_stopping", "Session is stopping");
     let forced = false;
+    let stopFailure: AgentDriverError | undefined;
     if (this.lane) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
@@ -173,15 +174,25 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
         stopped.catch(() => {});
         forced = (await Promise.race([stopped, timeout])) === "forced";
       } catch (error) {
-        return {
-          status: "failed",
-          error: driverError("process", "stop_failed", String(error), true),
-        };
+        stopFailure = driverError("process", "stop_failed", String(error), true);
       } finally {
         if (timer) clearTimeout(timer);
       }
     }
-    if (forced) {
+    if (stopFailure) {
+      const error = stopFailure;
+      await this.finish(
+        (cleanup) => ({
+          outcome: "forced",
+          requested: true,
+          backendSessionId: this.backendSessionId,
+          error,
+          cleanup,
+        }),
+        releaseReason,
+      );
+      return { status: "failed", error };
+    } else if (forced) {
       await this.finish(
         (cleanup) => ({
           outcome: "forced",
@@ -248,7 +259,11 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     if (method === "start") {
       if (this.startedAdmitted) return { status: "rejected", reason: "already_started" };
       this.startedAdmitted = true;
-      if (this.backend === "opencode" && message.kind === "system") {
+      if (
+        this.adapter.execution.kind === "per_turn_process"
+        && this.adapter.execution.start === "deferred"
+        && message.kind === "system"
+      ) {
         return this.queue(message, "waiting_for_message", "awaiting_first_message");
       }
       return this.startTurn([message], "prompt");
@@ -518,8 +533,20 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     if (this.outstandingToolUses > 0 || this.compacting || this.reviewing) return;
     if (!this.activeTurn || !this.lane) return;
     while (this.queued.length > 0) {
-      const item = this.queued.shift()!;
-      await this.sendLane(item.message.text, "busy");
+      const item = this.queued[0]!;
+      try {
+        await this.sendLane(item.message.text, "busy");
+      } catch (error) {
+        this.queued.shift();
+        this.emit({
+          type: "command_failed",
+          commandId: item.message.id,
+          turnId: this.activeTurn.turnId,
+          error: driverError("process", "delivery_failed", String(error), true),
+        });
+        continue;
+      }
+      this.queued.shift();
       this.activeTurn.commandIds.push(item.message.id);
       this.emit({
         type: "command_accepted",

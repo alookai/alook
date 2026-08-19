@@ -75,3 +75,36 @@ describe("CursorDriver spawn args", () => {
     expect(args).not.toContain("--trust");
   });
 });
+
+describe("CursorDriver normalizeLine", () => {
+  it("normalizes assistant blocks with defensive defaults", () => {
+    const driver = new CursorDriver();
+    expect(driver.normalizeLine(JSON.stringify({
+      type: "assistant",
+      message: { content: [
+        { type: "thinking" },
+        { type: "text", text: "answer" },
+        { type: "tool_use", input: { value: 1 } },
+      ] },
+    }))).toEqual([
+      { kind: "thinking", text: "" },
+      { kind: "text", text: "answer" },
+      { kind: "tool_call", name: "unknown_tool", input: { value: 1 } },
+    ]);
+  });
+
+  it("normalizes successful and failed results", () => {
+    const driver = new CursorDriver();
+    expect(driver.normalizeLine(JSON.stringify({ type: "result", subtype: "success", session_id: "s1" })))
+      .toEqual([{ kind: "turn_end", sessionId: "s1" }]);
+    expect(driver.normalizeLine(JSON.stringify({
+      type: "result",
+      subtype: "error",
+      is_error: true,
+      errors: [{ message: "first" }, { message: "second" }],
+    }))).toEqual([
+      { kind: "error", message: "first; second" },
+      { kind: "turn_end", sessionId: undefined },
+    ]);
+  });
+});

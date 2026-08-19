@@ -48,10 +48,13 @@ function minimalCtx(): AdapterLaunchContext {
 function controllableDriver(normalizeLine: BackendAdapter["normalizeLine"]): {
   driver: BackendAdapter;
   stdout: PassThrough;
+  process: ChildProcess;
+  kill: ReturnType<typeof vi.fn>;
 } {
   const stdout = new PassThrough();
   const stderr = new PassThrough();
   const stdin = new PassThrough();
+  const kill = vi.fn(() => true);
   const proc = Object.assign(new EventEmitter(), {
     stdout,
     stderr,
@@ -59,14 +62,14 @@ function controllableDriver(normalizeLine: BackendAdapter["normalizeLine"]): {
     pid: undefined,
     exitCode: null,
     signalCode: null,
-    kill: () => true,
+    kill,
   }) as unknown as ChildProcess;
   const driver = {
     ...realSpawnDriver(),
     spawn: async () => ({ process: proc }),
     normalizeLine,
   } as BackendAdapter;
-  return { driver, stdout };
+  return { driver, stdout, process: proc, kill };
 }
 
 afterEach(() => {
@@ -161,5 +164,18 @@ describe("ChildProcessRuntimeSession — raw stdout tap (P0-1)", () => {
     expect(() => stdout.write('{"type":"message"}\n')).not.toThrow();
     expect(normalizeLine).toHaveBeenCalledWith('{"type":"message"}');
     expect(events).toEqual([parsedEvent]);
+  });
+});
+
+describe("ProcessLane interrupt", () => {
+  it("sends SIGINT only while the process is open", async () => {
+    const { driver, process: proc, kill } = controllableDriver(() => []);
+    const session = new ProcessLane(driver, minimalCtx());
+    expect(session.interrupt()).toBe(false);
+    await session.start({ text: "go" });
+    expect(session.interrupt()).toBe(true);
+    expect(kill).toHaveBeenCalledWith("SIGINT");
+    Object.assign(proc, { exitCode: 0 });
+    expect(session.interrupt()).toBe(false);
   });
 });

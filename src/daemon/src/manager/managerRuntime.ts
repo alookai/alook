@@ -31,7 +31,7 @@ import type {
   DeliveryReceipt,
 } from "@alook/agent-driver";
 import type { HostLaunchContext } from "./hostContext.js";
-import { resolveLaunchFieldsOrDefault, type RuntimeConfig } from "../runtimeConfig.js";
+import { runtimeModelName, type RuntimeConfig } from "../runtimeConfig.js";
 import { scrubRuntimeErrorDiagnosticText } from "../runtime/errorDiagnostics.js";
 import { buildCliSystemPrompt } from "../drivers/systemPrompt.js";
 import { createLogger, type Logger } from "../logger.js";
@@ -1579,7 +1579,7 @@ export class AgentProcessManager {
     this.log.info("spawning agent", {
       agentId,
       runtime: driver.id,
-      model: resolveLaunchFieldsOrDefault(configuredRuntime).model ?? "default",
+      model: runtimeModelName(configuredRuntime) ?? "default",
     });
     if (!this.opts.sessionFactory) {
       throw new Error("AgentProcessManager: a public AgentSession factory is required");
@@ -1829,7 +1829,7 @@ export class AgentProcessManager {
   }
 
   private currentModelFor(agentId: string): string | null {
-    return resolveLaunchFieldsOrDefault(this.runtimeConfigs.get(agentId)).model ?? null;
+    return runtimeModelName(this.runtimeConfigs.get(agentId)) ?? null;
   }
 
   /**

@@ -41,6 +41,8 @@ class FakeDriver implements BackendAdapter {
   };
   failSpawn?: Error;
   failPrompt?: Error;
+  failDispose?: Error;
+  rejectWrites = false;
   hangDispose = false;
 
   constructor(readonly id: BuiltinBackendId, readonly execution: BackendExecution) {}
@@ -68,7 +70,10 @@ class FakeDriver implements BackendAdapter {
       }),
       steer: vi.fn(async () => {}),
       abort: vi.fn(async () => {}),
-      dispose: vi.fn(() => this.hangDispose ? new Promise<void>(() => {}) : Promise.resolve()),
+      dispose: vi.fn(() => {
+        if (this.failDispose) return Promise.reject(this.failDispose);
+        return this.hangDispose ? new Promise<void>(() => {}) : Promise.resolve();
+      }),
     };
     this.sdkHandle = handle;
     this.lane = new SdkLane(handle, "sdk-session");
@@ -77,7 +82,7 @@ class FakeDriver implements BackendAdapter {
   normalizeLine(line: string): AdapterEvent[] { return [JSON.parse(line) as AdapterEvent]; }
   encodeMessage(text: string): string {
     this.writes.push(text);
-    return text;
+    return this.rejectWrites ? "" : text;
   }
 }
 
@@ -96,9 +101,16 @@ function executionFor(backend: BuiltinBackendId): BackendExecution {
 
 function makeSession<Id extends BuiltinBackendId>(
   backend: Id,
-  options: { prepared?: PreparedExecutionResource; timeout?: number; resumeSessionId?: string; workingDirectory?: string } = {},
+  options: {
+    prepared?: PreparedExecutionResource;
+    timeout?: number;
+    resumeSessionId?: string;
+    workingDirectory?: string;
+    instructions?: string;
+    execution?: BackendExecution;
+  } = {},
 ) {
-  const driver = new FakeDriver(backend, executionFor(backend));
+  const driver = new FakeDriver(backend, options.execution ?? executionFor(backend));
   const host = createFakeAgentDriverHost(options.prepared);
   const prepared: PreparedExecutionResource = {
     environmentLayers: {
@@ -113,7 +125,7 @@ function makeSession<Id extends BuiltinBackendId>(
     configs[backend] as never,
     {
       workingDirectory: options.workingDirectory ?? process.cwd(),
-      instructions: "Be useful.",
+      instructions: options.instructions ?? "",
       launchId: `launch-${backend}`,
       resumeSessionId: options.resumeSessionId,
     },
@@ -190,7 +202,7 @@ describe("backend-owned delivery behavior", () => {
   it("writes AGENTS.md and the CLAUDE.md alias for non-empty instructions", async () => {
     const workingDirectory = mkdtempSync(join(tmpdir(), "agent-driver-instructions-"));
     try {
-      const { session } = makeSession("claude", { workingDirectory });
+      const { session } = makeSession("claude", { workingDirectory, instructions: "Be useful." });
       await session.start({ id: "one", kind: "user", text: "start" });
       expect(readFileSync(join(workingDirectory, "AGENTS.md"), "utf8")).toBe("Be useful.");
       expect(lstatSync(join(workingDirectory, "CLAUDE.md")).isSymbolicLink()).toBe(true);
@@ -242,6 +254,36 @@ describe("backend-owned delivery behavior", () => {
     expect(events.find((event) => event.type === "turn_started")).toMatchObject({
       commandIds: ["system-a", "system-b", "user"],
     });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("derives deferred first-message behavior from the adapter execution declaration", async () => {
+    const { session, driver } = makeSession("cursor", {
+      execution: { kind: "per_turn_process", start: "deferred", afterTurn: "natural_exit" },
+    });
+    expect(await session.start({ id: "system", kind: "system", text: "standing" })).toEqual({
+      status: "queued",
+      reason: "waiting_for_message",
+      commandId: "system",
+    });
+    expect(driver.processes).toHaveLength(0);
+    expect(await session.send({ id: "user", kind: "user", text: "go" })).toMatchObject({ status: "accepted" });
+    expect(driver.processes).toHaveLength(1);
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("emits command_failed for every safe-boundary delivery rejection", async () => {
+    const { session, driver } = makeSession("claude");
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    await session.send({ id: "two", kind: "user", text: "follow two" });
+    await session.send({ id: "three", kind: "user", text: "follow three" });
+    driver.rejectWrites = true;
+    await emit(driver, { kind: "compaction_finished" });
+    const events = await take(iterator as never, 7);
+    expect(events.filter((event) => event.type === "command_failed").map((event) => event.commandId))
+      .toEqual(["two", "three"]);
+    expect(session.snapshot().queuedCommands).toEqual([]);
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
@@ -308,6 +350,53 @@ describe("backend-owned delivery behavior", () => {
 });
 
 describe("logical-session terminal facts", () => {
+  it("reports unsupported extensions without backend-specific core logic", async () => {
+    const { session } = makeSession("claude");
+    await expect((session as any).invokeExtension("unknown", {})).resolves.toMatchObject({
+      ok: false,
+      error: { code: "unsupported_extension" },
+    });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("starts an idle persistent-process turn on the existing lane", async () => {
+    const { session, driver } = makeSession("claude");
+    await session.start({ id: "one", kind: "user", text: "start" });
+    await emit(driver, { kind: "turn_end", sessionId: "session-1" });
+    await expect(session.send({ id: "two", kind: "user", text: "next" })).resolves.toMatchObject({
+      status: "accepted",
+      delivery: "prompt",
+    });
+    expect(driver.writes).toEqual(["next"]);
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("normalizes lane errors into runtime diagnostics", async () => {
+    const { session, driver } = makeSession("claude");
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    driver.processes[0].emit("error", new Error("lane exploded"));
+    const events = await take(iterator as never, 3);
+    expect(events.at(-1)).toMatchObject({
+      type: "diagnostic",
+      severity: "error",
+      message: "lane exploded",
+    });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("fails and releases a session when its unread event buffer overflows", async () => {
+    const { session, driver, host } = makeSession("pi");
+    await session.start({ id: "one", kind: "user", text: "start" });
+    driver.lane!.emitEvents([{ kind: "text", text: "x".repeat(session.events.maxBufferedBytes) }]);
+    await expect(session.closed).resolves.toMatchObject({
+      outcome: "crashed",
+      error: { code: "event_buffer_overflow" },
+      cleanup: { status: "released" },
+    });
+    expect(host.releases).toHaveLength(1);
+  });
+
   it("returns the interrupted turn id when an SDK abort emits turn_end before resolving", async () => {
     const { session, driver } = makeSession("pi");
     const started = await session.start({ id: "one", kind: "user", text: "start" });
@@ -351,6 +440,24 @@ describe("logical-session terminal facts", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("settles closed and releases resources when lane stop rejects", async () => {
+    const { session, driver, host } = makeSession("pi");
+    await session.start({ id: "one", kind: "user", text: "start" });
+    driver.failDispose = new Error("dispose failed");
+    await expect(session.stop({ reason: "owner_request", forceAfterMs: 25 })).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "stop_failed" },
+    });
+    await expect(session.closed).resolves.toMatchObject({
+      outcome: "forced",
+      error: { code: "stop_failed" },
+      cleanup: { status: "released" },
+    });
+    expect(session.snapshot().state).toBe("closed");
+    expect(host.releases).toHaveLength(1);
+    await expect(session.stop({ reason: "shutdown", forceAfterMs: 25 })).resolves.toMatchObject({ status: "closed" });
   });
 
   it("releases host resources as consumer_closed when the event consumer cancels", async () => {
