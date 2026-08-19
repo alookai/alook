@@ -5,7 +5,7 @@ use std::sync::{
 };
 use std::time::Duration;
 use tauri::{
-    menu::{Menu, MenuItem, MenuItemBuilder, PredefinedMenuItem},
+    menu::{Menu, MenuItem, MenuItemBuilder, PredefinedMenuItem, HELP_SUBMENU_ID},
     AppHandle, Emitter,
 };
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
@@ -65,6 +65,20 @@ enum UpdateMenuAction {
     SimulateComplete,
     #[cfg(debug_assertions)]
     SimulateFailure,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UpdateMenuLocation {
+    Application,
+    Help,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct UpdateMenuLayout {
+    location: UpdateMenuLocation,
+    check_position: usize,
+    separator_position: usize,
+    simulator_position: usize,
 }
 
 #[derive(Serialize, Clone)]
@@ -135,6 +149,24 @@ fn update_label(version: &str) -> String {
     format!("Update to v{version}…")
 }
 
+fn update_menu_layout(target_os: &str) -> UpdateMenuLayout {
+    if target_os == "macos" {
+        UpdateMenuLayout {
+            location: UpdateMenuLocation::Application,
+            check_position: 2,
+            separator_position: 3,
+            simulator_position: 4,
+        }
+    } else {
+        UpdateMenuLayout {
+            location: UpdateMenuLocation::Help,
+            check_position: 0,
+            separator_position: 1,
+            simulator_position: 1,
+        }
+    }
+}
+
 fn register_update_menu_item(item: MenuItem<tauri::Wry>) {
     UPDATE_MENU_ITEMS
         .lock()
@@ -169,19 +201,24 @@ fn mark_notified(version: &str) -> bool {
 
 pub fn build_app_menu(handle: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let menu = Menu::default(handle)?;
+    let layout = update_menu_layout(std::env::consts::OS);
+    let target_menu = match layout.location {
+        UpdateMenuLocation::Application => menu
+            .items()?
+            .first()
+            .and_then(|item| item.as_submenu())
+            .cloned(),
+        UpdateMenuLocation::Help => menu
+            .get(HELP_SUBMENU_ID)
+            .and_then(|item| item.as_submenu().cloned()),
+    };
 
-    #[cfg(target_os = "macos")]
-    if let Some(app_menu) = menu
-        .items()?
-        .first()
-        .and_then(|item| item.as_submenu())
-        .cloned()
-    {
+    if let Some(target_menu) = target_menu {
         let check_item = MenuItemBuilder::with_id(CHECK_FOR_UPDATES_MENU_ID, DEFAULT_UPDATE_LABEL)
             .build(handle)?;
         let separator = PredefinedMenuItem::separator(handle)?;
-        app_menu.insert(&check_item, 2)?;
-        app_menu.insert(&separator, 3)?;
+        target_menu.insert(&check_item, layout.check_position)?;
+        target_menu.insert(&separator, layout.separator_position)?;
         register_update_menu_item(check_item);
 
         #[cfg(debug_assertions)]
@@ -193,7 +230,7 @@ pub fn build_app_menu(handle: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
                 .text(SIMULATE_COMPLETE_MENU_ID, "Ready to Restart")
                 .text(SIMULATE_FAILURE_MENU_ID, "Update Failed")
                 .build()?;
-            app_menu.insert(&simulator, 4)?;
+            target_menu.insert(&simulator, layout.simulator_position)?;
         }
     }
 
@@ -581,9 +618,34 @@ mod tests {
     }
 
     #[test]
-    fn app_menu_and_debug_simulator_are_declared_separately() {
+    fn native_update_menu_uses_each_platform_convention() {
+        assert_eq!(
+            update_menu_layout("macos"),
+            UpdateMenuLayout {
+                location: UpdateMenuLocation::Application,
+                check_position: 2,
+                separator_position: 3,
+                simulator_position: 4,
+            }
+        );
+        for target_os in ["windows", "linux"] {
+            assert_eq!(
+                update_menu_layout(target_os),
+                UpdateMenuLayout {
+                    location: UpdateMenuLocation::Help,
+                    check_position: 0,
+                    separator_position: 1,
+                    simulator_position: 1,
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn native_menu_and_debug_simulator_are_declared_separately() {
         let source = include_str!("updater.rs");
-        assert!(source.contains("app_menu.insert(&check_item, 2)"));
+        assert!(source.contains("target_menu.insert(&check_item, layout.check_position)"));
+        assert!(source.contains("HELP_SUBMENU_ID"));
         assert!(source.contains("#[cfg(debug_assertions)]\n        {"));
         assert!(source.contains("Update Simulator"));
     }
