@@ -39,6 +39,7 @@ describe("packed @alook/agent-driver", () => {
     await execFileAsync("pnpm", ["pack", "--pack-destination", root], {
       cwd: packageRoot,
       maxBuffer: 10 * 1024 * 1024,
+      shell: process.platform === "win32",
     });
     const tarballName = readdirSync(root).find((name) => name.endsWith(".tgz"));
     if (!tarballName) throw new Error("agent-driver pack did not produce a tarball");
