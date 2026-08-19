@@ -64,6 +64,7 @@ describe("E2E UI workflow", () => {
   it("runs shards in the lockfile-selected Playwright image without host installs", () => {
     expect(workflow).toContain("image: ${{ matrix.image }}")
     expect(workflow).toContain("options: --init --ipc=host --user 1001")
+    expect(workflow).toMatch(/defaults:\n      run:\n        shell: bash/)
     expect(workflow).not.toContain("playwright-browser-cache")
     expect(workflow).not.toContain("~/.cache/ms-playwright")
     expect(workflow).not.toContain("playwright install-deps")

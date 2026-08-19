@@ -47,6 +47,9 @@ jobs:
     container:
       image: ${{ matrix.image }}
       options: --init --ipc=host --user 1001
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 20
     strategy:
       fail-fast: false
