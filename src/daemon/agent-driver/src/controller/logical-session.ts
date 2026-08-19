@@ -48,6 +48,14 @@ interface SafeBoundaryDelivery {
   finalized: boolean;
 }
 
+interface TurnAdmission {
+  messages: AgentMessage[];
+  turnId: string;
+  delivery: "prompt" | "steer";
+  finalized: boolean;
+  accepted: boolean;
+}
+
 function driverError(
   category: AgentDriverError["category"],
   code: string,
@@ -94,7 +102,9 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
   private toolBoundaryFlushDisabled = false;
   private safeBoundaryFlush?: Promise<void>;
   private safeBoundaryDelivery?: SafeBoundaryDelivery;
+  private turnAdmission?: TurnAdmission;
   private instructionsMaterialized = false;
+  private lifecycleGeneration = 0;
 
   private readonly eventQueue: BufferedEventQueue<AgentEvent<BuiltinBackendSpecs, Id>>;
   private readonly behavior;
@@ -133,7 +143,7 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
   }
 
   async interrupt(input: { readonly requestId: string; readonly reason: string }): Promise<InterruptResult> {
-    if (this.state === "closed" || this.state === "stopping") return { status: "closed" };
+    if (this.state === "closed" || this.state === "stopping" || this.finishing) return { status: "closed" };
     if (!this.activeTurn || !this.lane) return { status: "not_running" };
     const turnId = this.activeTurn.turnId;
     try {
@@ -162,16 +172,14 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     releaseReason: "requested_stop" | "consumer_closed",
   ): Promise<StopReceipt> {
     if (this.terminalResult) return { status: "closed", result: this.terminalResult };
-    if (this.state === "stopping") {
-      return { status: "already_stopping", requestId: this.stopRequestId! };
+    if (this.state === "stopping" || this.finishing) {
+      return { status: "already_stopping", requestId: this.enterStopping() };
     }
-    this.state = "stopping";
-    this.stopRequestId = this.host.createId();
-    // A boundary delivery owns its command until the physical send settles.
-    // Let that already-started admission publish its outcome before failing
-    // commands that are still only queued, so stop cannot race it into both a
-    // failed and an accepted terminal admission event.
-    if (this.safeBoundaryFlush) await this.safeBoundaryFlush;
+    const stopRequestId = this.enterStopping();
+    // Cancellation settles the claimed admission synchronously and seals its
+    // continuation. Stop remains bounded even if the physical send never does.
+    this.failTurnAdmission("cancelled", "session_stopping", "Session is stopping");
+    this.failSafeBoundaryDelivery("cancelled", "session_stopping", "Session is stopping");
     this.failQueued("cancelled", "session_stopping", "Session is stopping");
     let forced = false;
     let stopFailure: AgentDriverError | undefined;
@@ -227,7 +235,7 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
         releaseReason,
       );
     }
-    return { status: "accepted", requestId: this.stopRequestId };
+    return { status: "accepted", requestId: stopRequestId };
   }
 
   snapshot(): AgentSessionSnapshot {
@@ -268,7 +276,9 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     message: AgentMessage,
   ): Promise<DeliveryReceipt> {
     if (!message.id || !message.text) return { status: "rejected", reason: "invalid_input" };
-    if (this.state === "closed" || this.state === "stopping") return { status: "rejected", reason: "closed" };
+    if (this.state === "closed" || this.state === "stopping" || this.finishing) {
+      return { status: "rejected", reason: "closed" };
+    }
     if (method === "start") {
       if (this.startedAdmitted) return { status: "rejected", reason: "already_started" };
       this.startedAdmitted = true;
@@ -333,12 +343,16 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     this.turnError = undefined;
     this.processTurnEnded = false;
     this.state = "starting";
+    const generation = this.lifecycleGeneration;
     const text = messages.map((message) => message.text).join("\n\n");
+    const admission: TurnAdmission = { messages, turnId, delivery, finalized: false, accepted: false };
+    this.turnAdmission = admission;
     try {
-      let admitted = false;
       const emitAdmission = () => {
-        if (admitted) return;
-        admitted = true;
+        if (admission.finalized) return;
+        admission.finalized = true;
+        admission.accepted = true;
+        if (this.turnAdmission === admission) this.turnAdmission = undefined;
         for (const message of messages) {
           this.emit({ type: "command_accepted", commandId: message.id, turnId, delivery });
         }
@@ -351,24 +365,31 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
       } else if (this.adapter.execution.kind === "persistent_process" && this.lane) {
         await this.sendLane(text, "idle");
       } else {
-        await this.openLane(text);
+        const opened = await this.openLane(text, generation);
+        if (!opened) return { status: "rejected", reason: "closed" };
         openedSdk = this.adapter.execution.kind === "in_process_sdk";
+      }
+      if (!this.isStartCurrent(generation, turnId)) {
+        return { status: "rejected", reason: "closed" };
       }
       emitAdmission();
       if (openedSdk) {
         await this.sendLane(text, "idle");
       }
       const current = messages.at(-1)!;
-      if (this.activeTurn?.turnId !== turnId || this.state !== "starting") {
-        return { status: "accepted", delivery, commandId: current.id, turnId };
+      if (!this.isStartCurrent(generation, turnId)) {
+        return admission.accepted
+          ? { status: "accepted", delivery, commandId: current.id, turnId }
+          : { status: "rejected", reason: "closed" };
       }
       this.state = "working";
       return { status: "accepted", delivery, commandId: current.id, turnId };
     } catch (error) {
-      const failure = driverError("process", "failed_to_start", String(error), true);
-      for (const commandId of commandIds) {
-        this.emit({ type: "command_failed", commandId, turnId, error: failure });
+      if (!this.isStartCurrent(generation, turnId) || admission.finalized) {
+        return { status: "rejected", reason: "closed" };
       }
+      const failure = driverError("process", "failed_to_start", String(error), true);
+      this.failTurnAdmissionWithError(failure);
       this.activeTurn = undefined;
       this.emit({ type: "session_failed", error: failure });
       await this.finish(
@@ -395,7 +416,7 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     };
   }
 
-  private async openLane(prompt: string): Promise<void> {
+  private async openLane(prompt: string, generation: number): Promise<boolean> {
     if (!this.instructionsMaterialized) {
       const strategy = this.adapter.instructionDelivery;
       if (strategy.kind === "workspace_file" && this.launch.instructions) {
@@ -406,9 +427,13 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     const ctx = this.internalContext(prompt);
     if (this.adapter.execution.kind === "in_process_sdk" && this.adapter.openSdkSession) {
       const lane = await this.adapter.openSdkSession(ctx) as SdkLane;
+      if (!this.isOpenCurrent(generation)) {
+        await this.stopLaneInstanceBounded(lane, "stale_open", this.hostReleaseTimeoutMs);
+        return false;
+      }
       this.lane = lane;
       this.attachLane(lane);
-      return;
+      return true;
     }
     const lane = createProcessLane(this.adapter, ctx, {
       onRawStdoutLine: (text) => this.host.onRawOutput({
@@ -421,6 +446,12 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     this.lane = lane;
     this.attachLane(lane);
     await lane.start({ text: prompt, sessionId: ctx.config.sessionId });
+    if (!this.isOpenCurrent(generation)) {
+      await this.stopLaneInstanceBounded(lane, "stale_open", this.hostReleaseTimeoutMs);
+      if (this.lane === lane) this.lane = null;
+      return false;
+    }
+    return true;
   }
 
   private attachLane(lane: Lane): void {
@@ -440,7 +471,7 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
   }
 
   private onParsedEvent(event: AdapterEvent): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed" || this.state === "stopping" || this.finishing) return;
     const turnId = this.activeTurn?.turnId;
     switch (event.kind) {
       case "session_init":
@@ -512,6 +543,12 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
   private completeTurn(sessionId?: string): void {
     const active = this.activeTurn;
     if (!active) return;
+    const terminalizing = this.state === "stopping" || this.finishing;
+    this.failTurnAdmission(
+      "cancelled",
+      "turn_completed_before_command_acceptance",
+      "Turn completed before command acceptance",
+    );
     this.failSafeBoundaryDelivery(
       "cancelled",
       "turn_completed_before_command_acceptance",
@@ -535,6 +572,10 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     this.compacting = false;
     this.reviewing = false;
     this.toolBoundaryFlushDisabled = false;
+    if (terminalizing) {
+      this.state = "stopping";
+      return;
+    }
     this.state = "idle";
     if (this.adapter.execution.kind === "per_turn_process") {
       this.processTurnEnded = true;
@@ -542,7 +583,12 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
         void this.stopLane("turn_complete", 2_000);
       }
     } else {
-      void this.startNextQueued();
+      // Defer the next turn until the claimed physical send settles. The first
+      // microtask also covers a synchronous turn_end raised before the outer
+      // flush promise has been assigned.
+      void Promise.resolve()
+        .then(() => this.safeBoundaryFlush)
+        .then(() => this.startNextQueued());
     }
   }
 
@@ -617,6 +663,24 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     });
   }
 
+  private failTurnAdmission(
+    category: AgentDriverError["category"],
+    code: string,
+    message: string,
+  ): void {
+    this.failTurnAdmissionWithError(driverError(category, code, message));
+  }
+
+  private failTurnAdmissionWithError(error: AgentDriverError): void {
+    const admission = this.turnAdmission;
+    if (!admission || admission.finalized) return;
+    admission.finalized = true;
+    if (this.turnAdmission === admission) this.turnAdmission = undefined;
+    for (const message of admission.messages) {
+      this.emit({ type: "command_failed", commandId: message.id, turnId: admission.turnId, error });
+    }
+  }
+
   private async startNextQueued(): Promise<void> {
     if (this.state !== "idle" || this.queued.length === 0) return;
     const item = this.queued.shift()!;
@@ -685,11 +749,14 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
         }, this.hostReleaseTimeoutMs);
         timer.unref?.();
       });
-      const release = this.prepared.release({
-        reason,
-        signal: abort.signal,
-        deadlineAt: this.host.now() + this.hostReleaseTimeoutMs,
-      }).then((): HostCleanupResult => ({ status: "released" })).catch((error): HostCleanupResult => ({
+      const release = Promise.resolve()
+        .then(() => this.prepared.release({
+          reason,
+          signal: abort.signal,
+          deadlineAt: this.host.now() + this.hostReleaseTimeoutMs,
+        }))
+        .then((): HostCleanupResult => ({ status: "released" }))
+        .catch((error): HostCleanupResult => ({
           status: "failed",
           error: driverError("internal", "host_release_failed", String(error)),
         }));
@@ -716,7 +783,13 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     if (this.terminalResult) return;
     if (!this.finishPromise) {
       this.finishing = true;
+      this.enterStopping();
       this.finishPromise = (async () => {
+        this.failTurnAdmission(
+          "cancelled",
+          "session_closed",
+          "Session closed before command acceptance",
+        );
         this.failSafeBoundaryDelivery(
           "cancelled",
           "session_closed",
@@ -758,10 +831,21 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
   private async failBufferOverflow(): Promise<void> {
     if (this.terminalResult || this.finishing) return;
     const error = driverError("buffer_overflow", "event_buffer_overflow", "Event buffer exceeded 4 MiB");
-    this.state = "stopping";
-    try {
-      if (this.lane) await this.stopLane("event_buffer_overflow", 0);
-    } catch {}
+    this.enterStopping();
+    if (this.lane) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const stopped = this.stopLane("event_buffer_overflow", 0).catch(() => {});
+        const deadline = new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, this.hostReleaseTimeoutMs);
+          timer.unref?.();
+        });
+        await Promise.race([stopped, deadline]);
+        stopped.catch(() => {});
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
     this.emit({ type: "session_failed", error });
     await this.finish(
       (cleanup) => ({ outcome: "crashed", requested: false, exitCode: null, signal: null, error, cleanup }),
@@ -790,5 +874,43 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     return this.lane instanceof SdkLane
       ? this.lane.stop()
       : this.lane.stop({ reason, forceAfterMs });
+  }
+
+  private enterStopping(): string {
+    if (this.state !== "stopping") {
+      this.state = "stopping";
+      this.lifecycleGeneration += 1;
+    }
+    this.stopRequestId ??= this.host.createId();
+    return this.stopRequestId;
+  }
+
+  private isOpenCurrent(generation: number): boolean {
+    return generation === this.lifecycleGeneration
+      && this.state === "starting"
+      && !this.finishing
+      && !this.terminalResult;
+  }
+
+  private isStartCurrent(generation: number, turnId: string): boolean {
+    return this.isOpenCurrent(generation) && this.activeTurn?.turnId === turnId;
+  }
+
+  private async stopLaneInstanceBounded(lane: Lane, reason: string, timeoutMs: number): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stopped = (lane instanceof SdkLane
+      ? lane.stop()
+      : lane.stop({ reason, forceAfterMs: 0 }))
+      .catch(() => {});
+    const deadline = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs);
+      timer.unref?.();
+    });
+    try {
+      await Promise.race([stopped, deadline]);
+      stopped.catch(() => {});
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 }

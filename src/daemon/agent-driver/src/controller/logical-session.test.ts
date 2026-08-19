@@ -45,10 +45,13 @@ class FakeDriver implements BackendAdapter {
   failDispose?: Error;
   rejectWrites = false;
   hangDispose = false;
+  spawnGate?: Promise<void>;
+  sdkOpenGate?: Promise<void>;
 
   constructor(readonly id: BuiltinBackendId, readonly execution: BackendExecution) {}
   probe() { return { status: "healthy" as const }; }
   async spawn(ctx: AdapterLaunchContext) {
+    await this.spawnGate;
     if (this.failSpawn) throw this.failSpawn;
     this.spawnContexts.push(ctx);
     const proc = Object.assign(new EventEmitter(), {
@@ -64,6 +67,7 @@ class FakeDriver implements BackendAdapter {
     return { process: proc };
   }
   async openSdkSession(_ctx: AdapterLaunchContext): Promise<SdkLane> {
+    await this.sdkOpenGate;
     const handle = {
       isStreaming: false,
       prompt: vi.fn(async () => {
@@ -87,6 +91,12 @@ class FakeDriver implements BackendAdapter {
     this.writes.push(text);
     return this.rejectWrites ? "" : text;
   }
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => { resolve = done; });
+  return { promise, resolve };
 }
 
 function executionFor(backend: BuiltinBackendId): BackendExecution {
@@ -407,7 +417,7 @@ describe("backend-owned delivery behavior", () => {
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
-  it("settles an in-flight safe-boundary admission before a same-tick terminal stop", async () => {
+  it("cancels an in-flight safe-boundary admission once before a same-tick terminal stop", async () => {
     const { session, driver } = makeSession("claude");
     const iterator = session.events[Symbol.asyncIterator]();
     await session.start({ id: "one", kind: "user", text: "start" });
@@ -420,13 +430,29 @@ describe("backend-owned delivery behavior", () => {
       && event.commandId === "two"
     );
     expect(driver.writes).toEqual(["follow two"]);
-    expect(admission).toMatchObject([{ type: "command_accepted", commandId: "two", delivery: "steer" }]);
+    expect(admission).toMatchObject([{
+      type: "command_failed",
+      commandId: "two",
+      error: { code: "session_stopping" },
+    }]);
     expect(events.findIndex((event) => event === admission[0]))
       .toBeLessThan(events.findIndex((event) => event.type === "turn_completed"));
     expect(events.find((event) => event.type === "turn_completed"))
-      .toMatchObject({ commandIds: ["one", "two"] });
+      .toMatchObject({ commandIds: ["one"] });
     expect(events.findIndex((event) => event.type === "turn_completed"))
       .toBeLessThan(events.findIndex((event) => event.type === "session_closed"));
+  });
+
+  it("keeps stop bounded when a safe-boundary continuation never settles", async () => {
+    const { session } = makeSession("claude");
+    await session.start({ id: "one", kind: "user", text: "start" });
+    Object.assign(session, { safeBoundaryFlush: new Promise<void>(() => {}) });
+    const stopped = await Promise.race([
+      session.stop({ reason: "shutdown", forceAfterMs: 10 }),
+      new Promise<"timed_out">((resolve) => setTimeout(() => resolve("timed_out"), 50)),
+    ]);
+    expect(stopped).toMatchObject({ status: "accepted" });
+    await expect(session.closed).resolves.toMatchObject({ outcome: "stopped" });
   });
 
   it("fails an in-flight boundary command before a same-tick turn completion", async () => {
@@ -475,6 +501,38 @@ describe("backend-owned delivery behavior", () => {
       .toBeLessThan(events.findIndex((event) => event.type === "turn_completed"));
     expect(events.find((event) => event.type === "turn_completed"))
       .toMatchObject({ commandIds: ["one"] });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("does not start the next turn while a cancelled boundary send is still physically in flight", async () => {
+    const { session, driver } = makeSession("claude");
+    await session.start({ id: "one", kind: "user", text: "start" });
+    const internals = session as unknown as {
+      sendLane(text: string, mode: "busy" | "idle"): Promise<unknown>;
+    };
+    const sendLane = internals.sendLane.bind(session);
+    let settleBoundary = () => {};
+    const boundary = new Promise<void>((resolve) => { settleBoundary = resolve; });
+    const startedBoundaryWrites: string[] = [];
+    vi.spyOn(internals, "sendLane").mockImplementation((text, mode) => {
+      if (mode === "busy") {
+        startedBoundaryWrites.push(text);
+        return boundary;
+      }
+      return sendLane(text, mode);
+    });
+    await session.send({ id: "two", kind: "user", text: "follow two" });
+    emitNow(driver, { kind: "compaction_finished" });
+    await session.send({ id: "three", kind: "user", text: "follow three" });
+    emitNow(driver, { kind: "turn_end" });
+    await Promise.resolve();
+    expect(startedBoundaryWrites).toEqual(["follow two"]);
+    expect(driver.writes).toEqual([]);
+    expect(session.snapshot()).toMatchObject({ state: "idle", queuedCommands: [{ commandId: "three" }] });
+    settleBoundary();
+    await boundary;
+    await vi.waitFor(() => expect(driver.writes).toEqual(["follow three"]));
+    expect(session.snapshot()).toMatchObject({ activeTurn: { commandIds: ["three"] }, queuedCommands: [] });
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
@@ -588,6 +646,36 @@ describe("logical-session terminal facts", () => {
     expect(host.releases).toHaveLength(1);
   });
 
+  it("bounds overflow teardown when an SDK dispose never settles", async () => {
+    vi.useFakeTimers();
+    try {
+      const { session, driver, host } = makeSession("pi", { timeout: 10 });
+      const iterator = session.events[Symbol.asyncIterator]();
+      driver.hangDispose = true;
+      await session.start({ id: "one", kind: "user", text: "start" });
+      driver.lane!.emitEvents([{ kind: "text", text: "x".repeat(session.events.maxBufferedBytes) }]);
+      await expect(session.stop({ reason: "shutdown", forceAfterMs: 10 })).resolves.toMatchObject({
+        status: "already_stopping",
+        requestId: expect.any(String),
+      });
+      await vi.advanceTimersByTimeAsync(11);
+      await expect(session.closed).resolves.toMatchObject({
+        outcome: "crashed",
+        error: { code: "event_buffer_overflow" },
+        cleanup: { status: "released" },
+      });
+      const observed: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
+      for await (const event of { [Symbol.asyncIterator]: () => iterator }) observed.push(event);
+      expect(observed.at(-1)).toMatchObject({
+        type: "session_closed",
+        result: { error: { code: "event_buffer_overflow" } },
+      });
+      expect(host.releases).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("returns the interrupted turn id when an SDK abort emits turn_end before resolving", async () => {
     const { session, driver } = makeSession("pi");
     const started = await session.start({ id: "one", kind: "user", text: "start" });
@@ -603,6 +691,44 @@ describe("logical-session terminal facts", () => {
       turnId: started.status === "accepted" ? started.turnId : "unreachable",
     });
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("keeps admission closed while a stop-triggered SDK turn_end races a pending abort", async () => {
+    const { session, driver } = makeSession("pi");
+    await session.start({ id: "one", kind: "user", text: "start" });
+    const abortGate = deferred();
+    driver.sdkHandle!.isStreaming = true;
+    driver.sdkHandle!.abort.mockImplementation(() => {
+      driver.lane!.emitEvents([{ kind: "turn_end", sessionId: "sdk-session" }]);
+      return abortGate.promise;
+    });
+
+    const stopping = session.stop({ reason: "owner_request", forceAfterMs: 1_000 });
+    expect(session.snapshot().state).toBe("stopping");
+    await expect(session.send({ id: "two", kind: "user", text: "must not start" })).resolves.toEqual({
+      status: "rejected",
+      reason: "closed",
+    });
+    expect(driver.sdkHandle!.prompt).toHaveBeenCalledOnce();
+    abortGate.resolve();
+    await expect(stopping).resolves.toMatchObject({ status: "accepted" });
+    await expect(session.closed).resolves.toMatchObject({ outcome: "stopped" });
+  });
+
+  it.each(["claude", "pi"] as const)("cleans up a late %s open after stop has already closed the session", async (backend) => {
+    const gate = deferred();
+    const { session, driver } = makeSession(backend, { timeout: 25 });
+    if (backend === "pi") driver.sdkOpenGate = gate.promise;
+    else driver.spawnGate = gate.promise;
+
+    const starting = session.start({ id: "one", kind: "user", text: "start" });
+    await Promise.resolve();
+    await expect(session.stop({ reason: "owner_request", forceAfterMs: 10 })).resolves.toMatchObject({ status: "accepted" });
+    await expect(session.closed).resolves.toMatchObject({ outcome: "stopped" });
+    gate.resolve();
+    await expect(starting).resolves.toEqual({ status: "rejected", reason: "closed" });
+    if (backend === "pi") expect(driver.sdkHandle!.dispose).toHaveBeenCalledOnce();
+    else expect(driver.processes[0].kill).toHaveBeenCalledWith("SIGTERM");
   });
 
   it("does not revive an SDK session after the first prompt fails synchronously", async () => {
@@ -683,6 +809,24 @@ describe("logical-session terminal facts", () => {
     expect(await session.closed).toMatchObject({ outcome: "crashed", exitCode: 7, signal: null });
   });
 
+  it("closes admission immediately while crash cleanup is pending", async () => {
+    const releaseGate = deferred();
+    const prepared: PreparedExecutionResource = {
+      environmentLayers: { base: {}, hostStatic: {}, identityProtected: {}, platformProtected: {}, runtimeProtected: {}, networkProtected: {}, credentialSensitive: {} },
+      release: vi.fn(() => releaseGate.promise),
+    };
+    const { session, driver } = makeSession("claude", { prepared, timeout: 1_000 });
+    await session.start({ id: "one", kind: "user", text: "start" });
+    driver.processes[0].emit("exit", 7, null);
+    await expect(session.send({ id: "two", kind: "user", text: "must not queue" })).resolves.toEqual({
+      status: "rejected",
+      reason: "closed",
+    });
+    expect(session.snapshot()).toMatchObject({ state: "stopping", queuedCommands: [] });
+    releaseGate.resolve();
+    await expect(session.closed).resolves.toMatchObject({ outcome: "crashed" });
+  });
+
   it("bounds a hung host release and still closes the iterator", async () => {
     vi.useFakeTimers();
     try {
@@ -699,6 +843,29 @@ describe("logical-session terminal facts", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it.each(["throw", "reject"] as const)("settles one failed cleanup diagnostic when host release %ss", async (mode) => {
+    const prepared: PreparedExecutionResource = {
+      environmentLayers: { base: {}, hostStatic: {}, identityProtected: {}, platformProtected: {}, runtimeProtected: {}, networkProtected: {}, credentialSensitive: {} },
+      release: vi.fn(() => {
+        if (mode === "throw") throw new Error("private release detail");
+        return Promise.reject(new Error("private release detail"));
+      }),
+    };
+    const { session } = makeSession("claude", { prepared });
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    await expect(session.stop({ reason: "owner_request", forceAfterMs: 10 })).resolves.toMatchObject({ status: "accepted" });
+    await expect(session.closed).resolves.toMatchObject({
+      outcome: "stopped",
+      cleanup: { status: "failed", error: { code: "host_release_failed" } },
+    });
+    const observed: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
+    for await (const event of { [Symbol.asyncIterator]: () => iterator }) observed.push(event);
+    expect(observed.filter((event) => event.type === "diagnostic" && event.source === "host")).toHaveLength(1);
+    expect(observed.at(-1)?.type).toBe("session_closed");
+    expect(prepared.release).toHaveBeenCalledOnce();
   });
 
   it("shares one terminal cleanup across concurrent stop calls", async () => {
