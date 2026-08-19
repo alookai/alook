@@ -60,6 +60,16 @@ describe("E2E UI workflow", () => {
   it("does not install Bun for Node-only browser tests", () => {
     expect(workflow).not.toContain("oven-sh/setup-bun")
   })
+
+  it("runs shards in the lockfile-selected Playwright image without host installs", () => {
+    expect(workflow).toContain("image: ${{ matrix.image }}")
+    expect(workflow).toContain("options: --init --ipc=host --user 1001")
+    expect(workflow).toMatch(/defaults:\n      run:\n        shell: bash/)
+    expect(workflow).not.toContain("playwright-browser-cache")
+    expect(workflow).not.toContain("~/.cache/ms-playwright")
+    expect(workflow).not.toContain("playwright install-deps")
+    expect(workflow).not.toContain("playwright install chromium")
+  })
 })
 
 describe("Bun workflow setup", () => {
@@ -84,6 +94,82 @@ describe("Bun workflow setup", () => {
 describe("CI test budgets", () => {
   it("gives the slower Windows workspace suite enough job time", () => {
     expect(ciJob("test-windows")).toContain("timeout-minutes: 15")
+  })
+})
+
+describe("CI dependency setup", () => {
+  it("installs cargo-machete from the pinned release action", () => {
+    const desktopRust = ciJob("desktop-rust")
+    expect(desktopRust).toContain(
+      "taiki-e/install-action@d9585d8b553a3309cc2e7a695952297e311e4c10 # cargo-machete",
+    )
+    expect(desktopRust).not.toContain("cargo install cargo-machete")
+    expect(desktopRust).toContain("run: cargo machete")
+  })
+
+  it("caches pnpm and target-specific Rust artifacts for desktop releases", () => {
+    const pnpmSetup = desktopReleaseWorkflow.indexOf("pnpm/action-setup@")
+    const nodeSetup = desktopReleaseWorkflow.indexOf("actions/setup-node@")
+    expect(pnpmSetup).toBeGreaterThan(-1)
+    expect(nodeSetup).toBeGreaterThan(pnpmSetup)
+    expect(desktopReleaseWorkflow).toContain("cache: pnpm")
+    expect(desktopReleaseWorkflow).toContain("cache-dependency-path: pnpm-lock.yaml")
+    expect(desktopReleaseWorkflow).toContain(
+      "Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2",
+    )
+    expect(desktopReleaseWorkflow).toContain("key: ${{ matrix.target }}")
+  })
+})
+
+describe("Turbo CI execution", () => {
+  const cachedJobs = ["blog-content", "quality", "knip", "test-linux", "test-windows", "build"]
+  const affectedJobs = ["quality", "knip", "test-linux", "test-windows", "build"]
+
+  it("persists a task cache isolated by operating system, architecture, and job", () => {
+    expect(ciWorkflow.match(/actions\/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9/g))
+      .toHaveLength(cachedJobs.length)
+    for (const job of cachedJobs) {
+      const definition = ciJob(job)
+      expect(definition).toContain("path: .turbo/cache")
+      expect(definition).toContain(
+        "key: turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ github.sha }}",
+      )
+      expect(definition).toContain(
+        "turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-",
+      )
+    }
+  })
+
+  it("provides complete history and explicit comparison commits to affected jobs", () => {
+    const scope = ciJob("scope")
+    expect(scope).toContain("full: ${{ steps.scope.outputs.full }}")
+    expect(scope).toContain("base_sha: ${{ steps.scope.outputs.base_sha }}")
+    expect(scope).toContain("head_sha: ${{ steps.scope.outputs.head_sha }}")
+
+    for (const job of affectedJobs) {
+      const definition = ciJob(job)
+      expect(definition).toContain("fetch-depth: 0")
+      expect(definition).toContain("needs.scope.outputs.full == 'true'")
+      expect(definition).toContain("needs.scope.outputs.full != 'true'")
+      expect(definition).toContain("TURBO_SCM_BASE: ${{ needs.scope.outputs.base_sha }}")
+      expect(definition).toContain("TURBO_SCM_HEAD: ${{ needs.scope.outputs.head_sha }}")
+      expect(definition).toContain("--affected")
+    }
+  })
+
+  it("retains full commands when scope classification fails closed", () => {
+    expect(ciJob("quality")).toContain("run: pnpm typecheck")
+    expect(ciJob("quality")).toContain("run: pnpm lint")
+    expect(ciJob("knip")).toContain("run: pnpm knip")
+    for (const job of ["test-linux", "test-windows"]) {
+      const definition = ciJob(job)
+      expect(definition).toContain("run: pnpm turbo run test --filter=@alook/daemon")
+      expect(definition).toContain("run: pnpm turbo run test --filter='!@alook/daemon'")
+      expect(definition.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(2)
+    }
+    expect(ciJob("build")).toContain(
+      "run: pnpm build --filter=@alook/shared --filter=@alook/web --filter=@alook/cli --filter=@alook/email-worker --filter=@alook/ws-do --filter=@alook/wake-worker",
+    )
   })
 })
 

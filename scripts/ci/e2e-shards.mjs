@@ -1,10 +1,11 @@
-import { appendFileSync, readdirSync } from "node:fs"
+import { appendFileSync, readFileSync, readdirSync } from "node:fs"
 import { relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 export const E2E_SPEC_ROOT = "src/web/src/test/e2e-ui"
 export const E2E_SHARD_COUNT = 5
 export const DEFAULT_SPEC_SECONDS = 60
+export const PLAYWRIGHT_IMAGE_REPOSITORY = "mcr.microsoft.com/playwright"
 
 export const SPEC_SECONDS = {
   "01-auth.spec.ts": 5,
@@ -44,6 +45,30 @@ export function discoverE2eSpecs(root = resolve(E2E_SPEC_ROOT)) {
     .filter((path) => path.endsWith(".spec.ts"))
     .map((path) => relative(root, path).replaceAll("\\", "/"))
     .sort()
+}
+
+export function resolvePlaywrightVersion(lockfile = readFileSync(resolve("pnpm-lock.yaml"), "utf8")) {
+  const normalizedLockfile = lockfile.replaceAll("\r\n", "\n")
+  const importerStart = normalizedLockfile.indexOf("\n  src/web:\n")
+  if (importerStart < 0) throw new Error("pnpm lockfile is missing the src/web importer")
+
+  const importerBody = normalizedLockfile.slice(importerStart + 1)
+  const nextImporter = importerBody.slice(1).search(/\n  \S[^\n]*:\n/)
+  const importer = nextImporter < 0
+    ? importerBody
+    : importerBody.slice(0, nextImporter + 1)
+  const dependency = importer.match(
+    /\n      '@playwright\/test':\n(?:        [^\n]*\n)*?        version: ([^\s(]+)/,
+  )
+  if (!dependency) throw new Error("src/web importer is missing an exact @playwright/test version")
+  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(dependency[1])) {
+    throw new Error(`invalid @playwright/test version: ${dependency[1]}`)
+  }
+  return dependency[1]
+}
+
+export function resolvePlaywrightImage(lockfile) {
+  return `${PLAYWRIGHT_IMAGE_REPOSITORY}:v${resolvePlaywrightVersion(lockfile)}-noble`
 }
 
 export function planE2eShards(
@@ -89,12 +114,13 @@ export function planE2eShards(
   }))
 }
 
-export function createE2eMatrix(specs = discoverE2eSpecs()) {
+export function createE2eMatrix(specs = discoverE2eSpecs(), image = resolvePlaywrightImage()) {
   const shards = planE2eShards(specs)
   return {
     include: shards.map((shard) => ({
       shard: shard.shard,
       total: shards.length,
+      image,
       predicted_seconds: shard.predicted_seconds,
       specs: shard.files.map((path) => `src/test/e2e-ui/${path}`),
     })),
