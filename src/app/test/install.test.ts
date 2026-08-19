@@ -36,6 +36,15 @@ describe("install", () => {
     vi.resetModules();
   });
 
+  describe("normalizeInstallFilePath", () => {
+    it("uses forward slashes for logical install paths", async () => {
+      const { normalizeInstallFilePath } = await import("../src/lib/install.js");
+      expect(normalizeInstallFilePath("wake-worker\\wrangler.toml")).toBe(
+        "wake-worker/wrangler.toml",
+      );
+    });
+  });
+
   describe("isInstalled", () => {
     it("returns false when required files are absent", async () => {
       const { isInstalled } = await import("../src/lib/install.js");

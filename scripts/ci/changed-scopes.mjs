@@ -100,7 +100,7 @@ export function classifyPaths(inputPaths, options = {}) {
     blog_only: effectiveBlogOnly,
     workflow_changed: workflowChanged,
     run_code_checks: runCodeChecks,
-    run_windows: runCodeChecks && (full || cli || daemon || shared),
+    run_windows: runCodeChecks && (full || app || cli || daemon || shared),
     run_e2e: runCodeChecks && (full || web || shared || cli || daemon || worker || integration),
     run_ui_e2e: !effectiveBlogOnly && runCodeChecks && (full || web || shared || wsDo),
     run_rust: runCodeChecks && (full || desktop),
