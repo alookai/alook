@@ -21,12 +21,12 @@ export const blogTopics = [
       "Understand what agents are, then design the roles, handoffs, and operating patterns that keep a team on track.",
     pillarSlug: "ai-agent-team",
     entries: [
-      { slug: "ai-agent-vs-chatbot", userJob: "Decide between an agent and a chatbot" },
-      { slug: "how-to-delegate-tasks-to-ai-agents", userJob: "Package a task reliably" },
-      { slug: "ai-agent-team", userJob: "Design multi-agent team roles and handoffs" },
-      { slug: "ai-agent-orchestration", userJob: "Understand the coordination layer" },
-      { slug: "multi-agent-workflow-patterns", userJob: "Pick a workflow pattern" },
-      { slug: "run-ai-agent-team-that-stays-on-track", userJob: "Keep a team from drifting" },
+      { slug: "ai-agent-vs-chatbot", userJob: "Decide whether I need an agent or a chatbot" },
+      { slug: "how-to-delegate-tasks-to-ai-agents", userJob: "Package a task so an agent can run it reliably" },
+      { slug: "ai-agent-team", userJob: "Design a multi-agent team with roles and handoffs" },
+      { slug: "ai-agent-orchestration", userJob: "Understand the coordination layer between agents" },
+      { slug: "multi-agent-workflow-patterns", userJob: "Pick a workflow pattern for my multi-agent setup" },
+      { slug: "run-ai-agent-team-that-stays-on-track", userJob: "Keep a running agent team from drifting" },
     ],
   },
   {
@@ -36,30 +36,30 @@ export const blogTopics = [
       "Coordinate coding agents across tools and repositories without duplicated work, lost decisions, or merge conflicts.",
     pillarSlug: "claude-code-and-codex-same-team",
     entries: [
-      { slug: "ai-team-vs-ai-tools", userJob: "Stop being the copy-paste layer" },
+      { slug: "ai-team-vs-ai-tools", userJob: "Stop being the copy-paste layer between coding agents" },
       {
         slug: "claude-code-subagents-vs-independent-agents",
-        userJob: "Choose nested or independent agents",
+        userJob: "Choose nested vs independent agents for my Claude Code work",
       },
       {
         slug: "claude-code-and-codex-same-team",
-        userJob: "Coordinate Claude Code and Codex",
+        userJob: "Use Claude Code and Codex together as one coordinated team",
       },
       {
         slug: "claude-code-dynamic-workflow-alternative",
-        userJob: "Compare session workflows with persistent coordination",
+        userJob: "Choose between session workflows and persistent coordination",
       },
       {
         slug: "keep-context-across-coding-agent-sessions",
-        userJob: "Carry decisions across sessions",
+        userJob: "Carry decisions across coding agent sessions",
       },
       {
         slug: "multiple-ai-agents-edit-same-repository",
-        userJob: "Run agents in parallel without conflicts",
+        userJob: "Run parallel agents on one repo without conflicts",
       },
       {
         slug: "prevent-coding-agents-duplicating-work",
-        userJob: "Stop agents from duplicating work",
+        userJob: "Stop agents from redoing each other's work",
       },
     ],
   },
@@ -70,23 +70,23 @@ export const blogTopics = [
       "Build a workspace where people and agents share context, remain addressable, and coordinate in the same rooms.",
     pillarSlug: "humans-and-ai-agents-in-one-room",
     entries: [
-      { slug: "shared-context-between-agents", userJob: "Understand why agents drift" },
+      { slug: "shared-context-between-agents", userJob: "Understand why agents drift without shared context" },
       {
         slug: "what-makes-a-shared-ai-workspace-usable",
-        userJob: "Judge whether a shared workspace works",
+        userJob: "Judge whether a shared workspace actually works",
       },
       {
         slug: "human-ai-collaboration-small-teams",
-        userJob: "Move from one chat to a coordinated team",
+        userJob: "Move from one chat to a coordinated human+agent team",
       },
       {
         slug: "humans-and-ai-agents-in-one-room",
-        userJob: "Put multiple people's agents in one room",
+        userJob: "Bring multiple people's agents into one shared room",
       },
-      { slug: "why-we-built-alook", userJob: "Understand why Alook exists" },
+      { slug: "why-we-built-alook", userJob: "Understand why Alook exists (founder narrative)" },
       {
         slug: "ai-agent-identity",
-        userJob: "Keep an agent addressable across rooms and servers",
+        userJob: "Evaluate whether an agent stays addressable across rooms and servers",
       },
     ],
   },
@@ -97,14 +97,14 @@ export const blogTopics = [
       "Turn repeatable work into a coordinated agent operation without building a custom orchestration system.",
     pillarSlug: "personal-ai-company",
     entries: [
-      { slug: "personal-ai-company", userJob: "Build a one-person company" },
+      { slug: "personal-ai-company", userJob: "Run a one-person company with AI agents" },
       {
         slug: "multi-agent-collaboration-without-code",
-        userJob: "Coordinate agents without orchestration code",
+        userJob: "Coordinate multiple agents without writing orchestration code",
       },
       {
         slug: "no-code-automation-ai-agents",
-        userJob: "Choose trigger-action automation or an agent team",
+        userJob: "Choose between trigger-action automation and agent teams",
       },
     ],
   },

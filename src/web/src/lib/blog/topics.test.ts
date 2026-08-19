@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync, readdirSync } from "fs";
+import { join } from "path";
 import type { BlogPost } from "./types";
+import { isDraftBlogPost, readBlogMetadata } from "./validate-assets";
 import {
   blogTopics,
   getBlogTopicBySlug,
@@ -22,6 +25,27 @@ const allPosts = blogTopics.flatMap((topic) =>
 );
 
 describe("blogTopics", () => {
+  it("matches the real published post set in both directions", () => {
+    const registrySlugs = blogTopics
+      .flatMap((topic) => topic.entries.map((entry) => entry.slug))
+      .sort();
+    const contentDir = join(process.cwd(), "src", "content");
+    const publishedSlugs = readdirSync(contentDir)
+      .filter((file) => file.endsWith(".mdx"))
+      .flatMap((file) => {
+        const fileSlug = file.replace(/\.mdx$/, "");
+        const content = readFileSync(join(contentDir, file), "utf-8");
+        if (isDraftBlogPost(content)) return [];
+
+        const { metadata, errors } = readBlogMetadata(content, fileSlug);
+        expect(errors).toEqual([]);
+        return metadata.slug ? [metadata.slug] : [];
+      })
+      .sort();
+
+    expect(registrySlugs).toEqual(publishedSlugs);
+  });
+
   it("covers all 22 locked slugs exactly once", () => {
     const orderedSlugs = blogTopics.map((topic) =>
       topic.entries.map((entry) => entry.slug)
@@ -70,6 +94,57 @@ describe("blogTopics", () => {
         topic.pillarSlug
       );
     }
+  });
+
+  it("preserves the exact locked user job for every slug", () => {
+    expect(
+      Object.fromEntries(
+        blogTopics.flatMap((topic) =>
+          topic.entries.map((entry) => [entry.slug, entry.userJob])
+        )
+      )
+    ).toEqual({
+      "ai-agent-vs-chatbot": "Decide whether I need an agent or a chatbot",
+      "how-to-delegate-tasks-to-ai-agents":
+        "Package a task so an agent can run it reliably",
+      "ai-agent-team": "Design a multi-agent team with roles and handoffs",
+      "ai-agent-orchestration":
+        "Understand the coordination layer between agents",
+      "multi-agent-workflow-patterns":
+        "Pick a workflow pattern for my multi-agent setup",
+      "run-ai-agent-team-that-stays-on-track":
+        "Keep a running agent team from drifting",
+      "ai-team-vs-ai-tools":
+        "Stop being the copy-paste layer between coding agents",
+      "claude-code-subagents-vs-independent-agents":
+        "Choose nested vs independent agents for my Claude Code work",
+      "claude-code-and-codex-same-team":
+        "Use Claude Code and Codex together as one coordinated team",
+      "claude-code-dynamic-workflow-alternative":
+        "Choose between session workflows and persistent coordination",
+      "keep-context-across-coding-agent-sessions":
+        "Carry decisions across coding agent sessions",
+      "multiple-ai-agents-edit-same-repository":
+        "Run parallel agents on one repo without conflicts",
+      "prevent-coding-agents-duplicating-work":
+        "Stop agents from redoing each other's work",
+      "shared-context-between-agents":
+        "Understand why agents drift without shared context",
+      "what-makes-a-shared-ai-workspace-usable":
+        "Judge whether a shared workspace actually works",
+      "human-ai-collaboration-small-teams":
+        "Move from one chat to a coordinated human+agent team",
+      "humans-and-ai-agents-in-one-room":
+        "Bring multiple people's agents into one shared room",
+      "why-we-built-alook": "Understand why Alook exists (founder narrative)",
+      "ai-agent-identity":
+        "Evaluate whether an agent stays addressable across rooms and servers",
+      "personal-ai-company": "Run a one-person company with AI agents",
+      "multi-agent-collaboration-without-code":
+        "Coordinate multiple agents without writing orchestration code",
+      "no-code-automation-ai-agents":
+        "Choose between trigger-action automation and agent teams",
+    });
   });
 
   it("resolves a topic from any mapped slug", () => {
