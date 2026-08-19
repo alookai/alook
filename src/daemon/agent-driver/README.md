@@ -12,6 +12,8 @@ The package root exposes only the logical SDK/session/event/result contract.
 Adapter authors use the separately versioned `@alook/agent-driver/adapter-author`
 extension boundary; process and vendor-SDK declarations are intentionally absent
 from both the root and `/testing` declarations.
+Daemon embedders use the narrow `@alook/agent-driver/host` boundary for host
+resource preparation and the host-enabled built-in SDK factory.
 
 ```ts
 import { createAgentDriverSdk } from "@alook/agent-driver";

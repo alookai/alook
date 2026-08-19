@@ -15,6 +15,10 @@
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js"
     },
+    "./host": {
+      "types": "./dist/host.d.ts",
+      "import": "./dist/host.js"
+    },
     "./adapter-author": {
       "types": "./dist/adapter-author.d.ts",
       "import": "./dist/adapter-author.js"

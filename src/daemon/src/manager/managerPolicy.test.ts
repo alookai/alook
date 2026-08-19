@@ -93,6 +93,18 @@ function startAdmission(
 }
 
 describe("reduceManager — single-flight spawn", () => {
+  it("ignores a stale session close", () => {
+    let state = register(createInitialManagerState(), "a", PERSISTENT_GATED);
+    state = spawnRoot(state, 1);
+    const result = reduceManager(state, {
+      type: "session_closed",
+      agentId: "a",
+      sessionInstanceId: "stale-session",
+      nowMs: 2,
+    });
+    expect(result).toEqual({ state, effects: [] });
+  });
+
   it("first wake from idle spawns; second wake while starting does NOT spawn again", () => {
     let s = createInitialManagerState();
     s = register(s, "a", PERSISTENT_GATED);

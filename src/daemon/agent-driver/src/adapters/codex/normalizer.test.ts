@@ -166,7 +166,7 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
     expect(n.normalizeLine(notify("turn/completed", {
       threadId: "root-thread",
       turn: { id: "root-turn", status: "completed" },
-    }))).toEqual([{ kind: "turn_end", sessionId: "root-thread" }]);
+    }))).toEqual([{ kind: "turn_end", sessionId: "root-thread", turnOwner: "codex:root-thread:root-turn" }]);
     expect(n.currentTurnId).toBeNull();
   });
 
@@ -178,7 +178,7 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
       turn: { id: "root-turn", status: "completed" },
     });
 
-    expect(n.normalizeLine(completed)).toEqual([{ kind: "turn_end", sessionId: "root-thread" }]);
+    expect(n.normalizeLine(completed)).toEqual([{ kind: "turn_end", sessionId: "root-thread", turnOwner: "codex:root-thread:root-turn" }]);
     expect(n.currentTurnId).toBeNull();
     expect(n.normalizeLine(completed)).toEqual([]);
     expect(n.normalizeLine(notify("rawResponseItem/completed", {
@@ -194,13 +194,16 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
       threadId: "root-thread",
       turnId: "root-turn",
     }))).toEqual([{ kind: "internal_progress", source: "codex_raw_item", itemType: "rawResponseItem" }]);
-    expect(n.normalizeLine(completed)).toEqual([{ kind: "turn_end", sessionId: "root-thread" }]);
+    expect(n.normalizeLine(completed)).toEqual([{ kind: "turn_end", sessionId: "root-thread", turnOwner: "codex:root-thread:root-turn" }]);
     expect(n.normalizeLine(completed)).toEqual([]);
 
     expect(n.normalizeLine(notify("turn/started", {
       threadId: "root-thread",
       turn: { id: "next-turn", status: "inProgress" },
-    }))).toEqual([{ kind: "thinking", text: "" }]);
+    }))).toEqual([
+      { kind: "turn_owner", receipt: "codex:root-thread:next-turn" },
+      { kind: "thinking", text: "" },
+    ]);
     expect(n.normalizeLine(completed)).toEqual([]);
     expect(n.currentTurnId).toBe("next-turn");
   });
@@ -283,5 +286,41 @@ describe("CodexEventNormalizer — session_init dedup (result + thread/started n
     const b = n.normalizeLine(notify("thread/started", { thread: { id: "th_x" } }));
     expect(b.filter((e) => e.kind === "session_init")).toHaveLength(1);
     expect(n.currentSessionId).toBe("th_x");
+  });
+});
+
+describe("CodexEventNormalizer — complete owned event family", () => {
+  it("normalizes diagnostics, telemetry, lifecycle boundaries, fallbacks, and invalid envelopes", () => {
+    const n = new CodexEventNormalizer();
+    expect(n.normalizeLine(JSON.stringify({ jsonrpc: "2.0", result: {} }))).toEqual([]);
+    n.normalizeLine(notify("thread/started", { thread: { id: "root" } }));
+    expect(n.normalizeLine(notify("turn/started", { threadId: "root", turn: {} }))).toEqual([]);
+    n.normalizeLine(notify("turn/started", { threadId: "root", turn: { id: "turn" } }));
+    expect(n.normalizeLine(notify("item/reasoning/summaryTextDelta", { threadId: "root", turnId: "turn", delta: "why" }))).toEqual([
+      { kind: "thinking", text: "why" },
+    ]);
+    expect(n.normalizeLine(notify("item/agentMessage/delta", { threadId: "root", turnId: "turn", delta: "answer" }))).toEqual([
+      { kind: "text", text: "answer" },
+    ]);
+    expect(n.normalizeLine(notify("warning", { threadId: "root", message: "careful" }))).toEqual([
+      { kind: "runtime_diagnostic", severity: "warning", source: "warning", message: "careful" },
+    ]);
+    expect(n.normalizeLine(notify("error", { threadId: "root", message: "failed" }))).toEqual([
+      { kind: "error", message: "failed" },
+    ]);
+    expect(n.normalizeLine(notify("unknown", { threadId: "root" }))).toEqual([]);
+    expect(n.normalizeLine(notify("item/started", { threadId: "root", turnId: "turn", item: { type: "contextCompaction" } }))).toEqual([{ kind: "compaction_started" }]);
+    expect(n.normalizeLine(notify("item/started", { threadId: "root", turnId: "turn", item: { type: "enteredReviewMode" } }))).toEqual([{ kind: "review_started" }]);
+    expect(n.normalizeLine(notify("item/started", { threadId: "root", turnId: "turn", item: { type: "unknown" } }))).toEqual([]);
+    expect(n.normalizeLine(notify("item/completed", { threadId: "root", turnId: "turn", item: { type: "contextCompaction" } }))).toEqual([{ kind: "compaction_finished" }]);
+    expect(n.normalizeLine(notify("item/completed", { threadId: "root", turnId: "turn", item: { type: "exitedReviewMode" } }))).toEqual([{ kind: "review_finished" }]);
+    expect(n.normalizeLine(notify("item/completed", { threadId: "root", turnId: "turn", item: { type: "agentMessage", text: "final" } }))).toEqual([{ kind: "text", text: "final" }]);
+    expect(n.normalizeLine(notify("item/completed", { threadId: "root", turnId: "turn", item: { type: "reasoning", text: "thought" } }))).toEqual([{ kind: "thinking", text: "thought" }]);
+    expect(n.normalizeLine(notify("item/completed", { threadId: "root", turnId: "turn", item: { type: "unknown" } }))).toEqual([]);
+    expect(n.normalizeLine(notify("account/rateLimits/updated", { threadId: "root", rateLimits: {} }))).toHaveLength(1);
+    expect(n.normalizeLine(notify("turn/completed", { threadId: "root", turn: { id: "turn", status: "interrupted" } }))).toEqual([
+      { kind: "error", message: "Codex turn interrupted" },
+      { kind: "turn_end", sessionId: "root", turnOwner: "codex:root:turn" },
+    ]);
   });
 });

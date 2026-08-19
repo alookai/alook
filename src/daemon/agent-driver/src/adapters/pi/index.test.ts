@@ -89,6 +89,27 @@ describe("PiDriver.openSdkSession — does not fire the initial prompt itself", 
       { kind: "text", text: "hi" },
     ]);
   });
+
+  it("preserves terminal receipt ownership when the prior agent_end is duplicated after a new turn begins", async () => {
+    const deps = fakeDeps();
+    const driver = new PiDriver(() => deps);
+    const runtimeSession = await driver.openSdkSession(baseCtx());
+    const received: any[] = [];
+    runtimeSession.on("runtime_event", (event) => received.push(event));
+    const notify = deps.session.subscribe.mock.calls[0][0];
+
+    const firstOwner = driver.beginTurn();
+    notify({ type: "agent_end", messages: [{ id: "first" }] });
+    const secondOwner = driver.beginTurn();
+    notify({ type: "agent_end", messages: [{ id: "first" }] });
+    notify({ type: "agent_end", messages: [{ id: "second" }] });
+
+    expect(received.filter((event) => event.kind === "turn_end").map((event) => event.turnOwner)).toEqual([
+      firstOwner,
+      firstOwner,
+      secondOwner,
+    ]);
+  });
 });
 
 describe("Pi SDK event-family coverage", () => {

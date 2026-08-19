@@ -1,21 +1,4 @@
-/**
- * Pi driver — in-process, multi-provider SDK runtime (@earendil-works/pi-coding-agent).
- *
- * Pi runs in-process (no child process, no stdin). It is
- * multi-provider: model ids look like `provider/id` and resolve through an
- * auth/settings registry (Google / OpenAI / OpenRouter). Sessions persist as
- * JSONL; a custom bash tool is injected so shell calls inherit the CLI-transport
- * env. Steering is `direct` (guarded by `session.isStreaming`).
- *
- * The core materializes the standing prompt as `AGENTS.md` before opening the
- * in-process SDK lane. Pi's bash tool still uses the shared CLI environment.
- *
- * `openSdkSession` only builds and wires the session — it does not send the
- * first turn. The logical session controller attaches its normalized-event
- * listener to
- * the returned session first, then sends the initial prompt, so nothing
- * fires into an unlistened `EventEmitter` and gets dropped.
- */
+/** In-process Pi SDK adapter; the controller sends only after listeners attach. */
 import { createRequire } from "module";
 import { existsSync, readdirSync, readFileSync, realpathSync } from "fs";
 import { homedir } from "os";
@@ -25,10 +8,10 @@ import { SdkLane } from "../../controller/sdk-host.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
 import { resolveCommandOnPath, type ProbeDeps } from "../../internal/probe.js";
 import { createPiSessionDependencies, type PiSessionDependencies } from "./sessionDeps.js";
+import { TerminalReceiptFence } from "../../internal/terminal-receipt.js";
 
 const PI_SDK_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
 
-/** Minimal shape of the vendor SDK's `AgentSession` this driver actually calls. */
 interface PiSdkAgentSession {
   prompt(text: string, options?: { streamingBehavior?: "steer" | "followUp" }): Promise<void>;
   steer(text: string): Promise<void>;
@@ -38,45 +21,19 @@ interface PiSdkAgentSession {
   subscribe(listener: (event: unknown) => void): () => void;
 }
 
-/** True if `pkgJsonPath` exists and is the pi SDK's own `package.json`. */
 function isPiSdkPackageJson(pkgJsonPath: string): boolean {
   if (!existsSync(pkgJsonPath)) return false;
   try {
     const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as { name?: string };
     return pkg.name === PI_SDK_PACKAGE_NAME;
   } catch {
-    // Malformed package.json — treat as "not this package"; the caller
-    // keeps walking, it may just be an unrelated file that happens to sit
-    // alongside the binary.
     return false;
   }
 }
 
 /**
- * Fallback SDK detection for a globally-installed `pi` (e.g. `npm install -g
- * @earendil-works/pi-coding-agent`, a Homebrew formula, or a pnpm/yarn/nvm
- * global install). `require()` from the daemon's own file location can never
- * see a global install — it lives in a completely separate `node_modules`
- * tree — even though `pi --version` works fine in a shell. So instead we
- * resolve the `pi` binary on `PATH` (same as every other driver's `probe()`)
- * and walk upward from it looking for the package's own `package.json`,
- * checking two shapes at each level:
- *   1. `dir` itself IS inside the package — true on POSIX, where the PATH
- *      resolution follows a symlink through `realpathSync` into the
- *      package's real install directory (npm/Homebrew/pnpm/yarn/nvm all do
- *      this).
- *   2. `dir/node_modules/@earendil-works/pi-coding-agent` — true on Windows,
- *      where npm writes the `.cmd` shim as a real file directly in the
- *      global prefix root (e.g. `%AppData%\npm`) rather than a symlink INTO
- *      the package, so `realpathSync` never gets us inside it; the actual
- *      package instead sits in a SIBLING `node_modules` folder at that same
- *      level, never an ancestor.
- * This is package-manager-agnostic: it doesn't assume npm specifically (no
- * `npm root -g` shell-out), so it keeps working no matter how the global
- * install actually got there.
- *
- * Also used by `sessionDeps.ts::loadPiSdkModule` to find the real install
- * directory to `import()` when the SDK isn't a bundled dependency.
+ * Finds a globally installed Pi SDK from the PATH binary. Handles POSIX
+ * symlinks and Windows shims with sibling node_modules layouts.
  */
 export function resolvePiSdkPackageDir(deps: ProbeDeps = {}): string | undefined {
   const binPath = resolveCommandOnPath("pi", deps);
@@ -84,11 +41,6 @@ export function resolvePiSdkPackageDir(deps: ProbeDeps = {}): string | undefined
 
   try {
     let dir = path.dirname(realpathSync(binPath));
-    // 8 levels is enough to cover every layout we've seen: npm/pnpm globals
-    // resolve within 2-4 hops, nvm adds ~1, Homebrew Cellar adds ~2, and
-    // Windows `.cmd` shims sit alongside a sibling `node_modules` at the same
-    // root (0 hops upward, checked as the second shape below). Higher would
-    // wander into unrelated ancestor trees; lower would miss nvm-under-brew.
     const MAX_DEPTH = 8;
     for (let i = 0; i < MAX_DEPTH; i++) {
       if (isPiSdkPackageJson(path.join(dir, "package.json"))) return dir;
@@ -97,27 +49,15 @@ export function resolvePiSdkPackageDir(deps: ProbeDeps = {}): string | undefined
       if (isPiSdkPackageJson(path.join(siblingDir, "package.json"))) return siblingDir;
 
       const parent = path.dirname(dir);
-      if (parent === dir) break; // hit filesystem root
+      if (parent === dir) break;
       dir = parent;
     }
   } catch {
-    // Broken symlink, permission error, etc. — treat as not found.
   }
   return undefined;
 }
 
-/**
- * Locate the Pi SDK session-rollout file for `sessionId` in `sessionDir`.
- *
- * Pi persists each session as `<isoDate>_<sessionId>.jsonl` inside its session
- * directory (`--<encoded-cwd>--`). To resume a specific session we need the
- * actual file path — not just the id — because `SessionManager.open` takes a
- * path. Returns null if the directory is unreadable or no matching file exists
- * (the caller falls back to `create` in that case).
- *
- * Pure enough to unit-test without touching the SDK: read a directory, filter
- * by suffix, return the first match.
- */
+/** Finds Pi's persisted `<date>_<sessionId>.jsonl` rollout. */
 export function findPiSessionFile(sessionDir: string, sessionId: string): string | null {
   let entries: string[];
   try {
@@ -256,6 +196,7 @@ export class PiDriver implements BackendAdapter {
   readonly execution = { kind: "in_process_sdk", input: "direct" } as const;
 
   private sessionId: string | null = null;
+  private readonly terminalFence = new TerminalReceiptFence("pi");
 
   constructor(
     private readonly dependenciesFor: (ctx: AdapterLaunchContext) => PiSessionDependencies = createPiSessionDependencies,
@@ -312,15 +253,25 @@ export class PiDriver implements BackendAdapter {
       },
     };
     const runtimeSession = new SdkLane(handle, this.sessionId!);
-    session.subscribe((event: unknown) =>
-      runtimeSession.emitEvents(mapPiSdkEvent(event, this.sessionId!, state)),
-    );
+    session.subscribe((event: unknown) => {
+      const fingerprint = JSON.stringify(event);
+      const events = mapPiSdkEvent(event, this.sessionId!, state).map((mapped) =>
+        mapped.kind === "turn_end"
+          ? { ...mapped, turnOwner: this.terminalFence.claimTerminal(fingerprint) }
+          : mapped,
+      );
+      runtimeSession.emitEvents(events);
+    });
 
     return runtimeSession;
   }
 
   normalizeLine(): AdapterEvent[] {
     return [];
+  }
+
+  beginTurn(): string {
+    return this.terminalFence.beginTurn();
   }
 
   get currentSessionId(): string | null {

@@ -54,10 +54,17 @@ interface TurnAdmission {
   accepted: boolean;
 }
 
+interface ActiveTurn {
+  turnId: string;
+  commandIds: string[];
+  terminalOwner?: string;
+}
+
 interface ClosedLaneTombstone<Id extends string, Config> {
   sessionInstanceId: string;
   localTurnId: string;
   commandIds: string[];
+  terminalOwner?: string;
   physicalOwner: ProcessLane<Id, Config> | SdkLane;
   generation: number;
   state: "closed" | "reopened_after_terminal";
@@ -91,7 +98,7 @@ implements AgentSession<Specs, Id> {
   private state: SessionState = "new";
   private backendSessionId?: string;
   private lane: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane | null = null;
-  private activeTurn?: { turnId: string; commandIds: string[] };
+  private activeTurn?: ActiveTurn;
   private readonly queued: QueuedCommand[] = [];
   private readonly commands = new Map<string, CommandRecord>();
   private startedAdmitted = false;
@@ -253,7 +260,9 @@ implements AgentSession<Specs, Id> {
       sessionInstanceId: this.sessionInstanceId,
       state: this.state,
       backendSessionId: this.backendSessionId,
-      activeTurn: this.activeTurn,
+      activeTurn: this.activeTurn
+        ? { turnId: this.activeTurn.turnId, commandIds: this.activeTurn.commandIds }
+        : undefined,
       queuedCommands: this.queued.map(({ message }) => ({
         commandId: message.id,
         kind: message.kind,
@@ -347,10 +356,10 @@ implements AgentSession<Specs, Id> {
     messages: AgentMessage[],
     delivery: "prompt" | "steer",
   ): Promise<DeliveryReceipt> {
-    this.closedLaneTombstone = undefined;
     const turnId = this.host.createId();
     const commandIds = messages.map((message) => message.id);
-    this.activeTurn = { turnId, commandIds: [...commandIds] };
+    const terminalOwner = this.adapter.beginTurn?.();
+    this.activeTurn = { turnId, commandIds: [...commandIds], ...(terminalOwner ? { terminalOwner } : {}) };
     this.turnError = undefined;
     this.interruptedTurnId = undefined;
     this.processTurnEnded = false;
@@ -378,7 +387,12 @@ implements AgentSession<Specs, Id> {
         await this.sendLane(text, "idle");
       } else {
         const opened = await this.openLane(text, generation);
-        if (!opened) return { status: "rejected", reason: "closed" };
+        if (!opened) {
+          // A racing stop owns terminal settlement. Preserve the historical
+          // contract that session_closed is observable before start resolves.
+          if (this.finishPromise) await this.finishPromise;
+          return { status: "rejected", reason: "closed" };
+        }
         openedSdk = this.adapter.execution.kind === "in_process_sdk";
       }
       if (!this.isStartCurrent(generation, turnId)) {
@@ -509,6 +523,9 @@ implements AgentSession<Specs, Id> {
           this.emit({ type: "session_started", backendSessionId: event.sessionId });
         }
         return;
+      case "turn_owner":
+        if (this.activeTurn) this.activeTurn.terminalOwner = event.receipt;
+        return;
       case "thinking":
         if (turnId) this.emit({ type: "thinking_delta", turnId, text: event.text });
         return;
@@ -570,7 +587,7 @@ implements AgentSession<Specs, Id> {
         });
         return;
       case "turn_end":
-        this.completeTurn(event.sessionId, physicalOwner, generation);
+        this.completeTurn(event.sessionId, physicalOwner, generation, event.turnOwner);
         return;
     }
   }
@@ -598,7 +615,11 @@ implements AgentSession<Specs, Id> {
       || tombstone.generation !== generation
     ) return undefined;
     tombstone.state = "reopened_after_terminal";
-    this.activeTurn = { turnId: tombstone.localTurnId, commandIds: tombstone.commandIds };
+    this.activeTurn = {
+      turnId: tombstone.localTurnId,
+      commandIds: tombstone.commandIds,
+      ...(tombstone.terminalOwner ? { terminalOwner: tombstone.terminalOwner } : {}),
+    };
     this.state = "working";
     return tombstone.localTurnId;
   }
@@ -607,12 +628,23 @@ implements AgentSession<Specs, Id> {
     sessionId?: string,
     physicalOwner = this.lane,
     generation = this.lifecycleGeneration,
+    terminalOwner?: string,
   ): void {
     const active = this.activeTurn;
     if (!active) {
       return;
     }
-    const terminalizing = this.state === "stopping" || this.finishing;
+    if (active.terminalOwner && terminalOwner !== active.terminalOwner) return;
+    if (!active.terminalOwner && terminalOwner) {
+      const previous = this.closedLaneTombstone;
+      if (
+        previous?.terminalOwner === terminalOwner
+        && previous.localTurnId !== active.turnId
+        && previous.physicalOwner === physicalOwner
+        && previous.generation === generation
+      ) return;
+      active.terminalOwner = terminalOwner;
+    }
     this.failTurnAdmission(
       "cancelled",
       "turn_completed_before_command_acceptance",
@@ -642,6 +674,7 @@ implements AgentSession<Specs, Id> {
         sessionInstanceId: this.sessionInstanceId,
         localTurnId: active.turnId,
         commandIds: active.commandIds,
+        terminalOwner: active.terminalOwner,
         physicalOwner,
         generation,
         state: "closed",
@@ -654,10 +687,6 @@ implements AgentSession<Specs, Id> {
     this.compacting = false;
     this.reviewing = false;
     this.toolBoundaryFlushDisabled = false;
-    if (terminalizing) {
-      this.state = "stopping";
-      return;
-    }
     this.state = "idle";
     if (this.adapter.execution.kind === "per_turn_process") {
       this.processTurnEnded = true;
@@ -947,7 +976,7 @@ implements AgentSession<Specs, Id> {
   private sendLane(text: string, mode: "busy" | "idle"): Promise<unknown> {
     if (!this.lane) return Promise.reject(new Error("runtime lane is not open"));
     return (this.lane instanceof SdkLane
-      ? this.lane.send(text, mode)
+      ? this.lane.send(text, mode, mode === "idle" ? this.activeTurn?.terminalOwner : undefined)
       : Promise.resolve(this.lane.send({ text, mode })))
       .then((result) => {
         if (!result.ok) throw new Error(String("reason" in result ? result.reason : "runtime rejected delivery"));

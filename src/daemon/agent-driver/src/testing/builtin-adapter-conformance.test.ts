@@ -25,7 +25,7 @@ describe("builtin adapter protocol conformance", () => {
       },
       expectedEventKinds: ["session_init", "thinking", "tool_call", "tool_output", "text", "turn_end"],
     });
-    expect(events.at(-1)).toEqual({ kind: "turn_end", sessionId: "claude-root" });
+    expect(events.at(-1)).toEqual({ kind: "turn_end", sessionId: "claude-root", turnOwner: "claude:1" });
   });
 
   it("runs the real Codex adapter and rejects child completion/output in the shared contract", () => {
@@ -43,7 +43,7 @@ describe("builtin adapter protocol conformance", () => {
           ...adapter.normalizeLine(line({ jsonrpc: "2.0", method: "turn/completed", params: { threadId: rootThread, turn: { id: rootTurn, status: "completed" } } })),
         ];
       },
-      expectedEventKinds: ["session_init", "thinking", "tool_call", "tool_output", "turn_end"],
+      expectedEventKinds: ["session_init", "turn_owner", "thinking", "tool_call", "tool_output", "turn_end"],
     });
     expect(JSON.stringify(events)).not.toContain("must not leak");
   });

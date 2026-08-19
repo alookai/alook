@@ -15,11 +15,17 @@
  */
 import type { AdapterEvent } from "../../internal/adapter.js";
 import { tryParseJsonLine } from "../../internal/utils.js";
+import { TerminalReceiptFence } from "../../internal/terminal-receipt.js";
 
 const API_ERROR_RE = /API Error:.*(?:Connection error|\b[45]\d{2}\b)/i;
 
 export class ClaudeEventNormalizer {
   private currentSession: string | null = null;
+  private readonly terminalFence = new TerminalReceiptFence("claude");
+
+  beginTurn(): string {
+    return this.terminalFence.beginTurn();
+  }
 
   get currentSessionId(): string | null {
     return this.currentSession;
@@ -42,7 +48,7 @@ export class ClaudeEventNormalizer {
         this.handleUser(event, out);
         break;
       case "result":
-        this.handleResult(event, out);
+        this.handleResult(event, JSON.stringify(event), out);
         break;
     }
     return out;
@@ -95,13 +101,22 @@ export class ClaudeEventNormalizer {
     }
   }
 
-  private handleResult(event: any, out: AdapterEvent[]): void {
+  private handleResult(event: any, fingerprint: string, out: AdapterEvent[]): void {
+    const turnOwner = this.terminalFence.claimTerminal(fingerprint);
+    if (!this.terminalFence.isCurrent(turnOwner)) {
+      out.push({ kind: "turn_end", sessionId: event.session_id ?? this.currentSession ?? undefined, turnOwner });
+      return;
+    }
     const usage = this.buildUsageTelemetry(event);
     if (usage) out.push(usage);
     if (event.is_error || event.subtype === "error_during_execution") {
       out.push({ kind: "error", message: String(event.result ?? "Claude runtime error") });
     }
-    out.push({ kind: "turn_end", sessionId: event.session_id ?? this.currentSession ?? undefined });
+    out.push({
+      kind: "turn_end",
+      sessionId: event.session_id ?? this.currentSession ?? undefined,
+      turnOwner,
+    });
   }
 
   private buildUsageTelemetry(event: any): AdapterEvent | null {

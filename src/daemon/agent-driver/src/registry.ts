@@ -59,7 +59,7 @@ function assertRegistrationShape(registration: unknown): void {
   }
   const capabilities = candidate.capabilities as Record<string, unknown>;
   const enumFields = {
-    modelSelection: ["launchable", "unsupported"],
+    modelSelection: ["launchable", "suggestion_only", "unsupported"],
     resume: ["by_id", "none"],
     midTurnDelivery: ["safe_boundary_queue", "steer", "next_turn_queue"],
   } as const;

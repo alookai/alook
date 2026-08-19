@@ -46,9 +46,13 @@ try {
     .length
   const semanticClaims = ledger.testPreservation.semanticAudit?.claims ?? []
   const invalidSemanticClaims = semanticClaims.flatMap((claim, index) => {
-    const mapping = ledger.testPreservation.mappings.find((item) => item.before?.name === claim.beforeName)
+    const mappings = ledger.testPreservation.mappings.filter((item) => item.before?.name === claim.beforeName)
     const evidenceKey = `${claim.evidence?.file}\0${claim.evidence?.name}`
-    if (!mapping) return [{ index, reason: "before mapping missing", claim }]
+    if (mappings.length !== 1) return [{ index, reason: `expected one exact before mapping, found ${mappings.length}`, claim }]
+    const mapping = mappings[0]
+    if (mapping.after?.file !== claim.evidence?.file || mapping.after?.name !== claim.evidence?.name) {
+      return [{ index, reason: "mapping.after does not equal semantic evidence", claim, mappedAfter: mapping.after }]
+    }
     if (!keys.has(evidenceKey)) return [{ index, reason: "evidence test missing", claim }]
     return []
   })

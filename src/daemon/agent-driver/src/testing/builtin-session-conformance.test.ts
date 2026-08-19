@@ -19,7 +19,7 @@ import { PiDriver } from "../adapters/pi/index.js";
 import { ProcessLane } from "../controller/process-host.js";
 import { SdkLane } from "../controller/sdk-host.js";
 import { createFakeAgentDriverHost } from "./fake-host.js";
-import { createBuiltinAgentDriverRegistry } from "../registry.js";
+import { capabilitiesFor, createAgentDriverRegistry, createBuiltinAgentDriverRegistry } from "../registry.js";
 import { createAgentDriverSdkWithRegistry } from "../sdk.js";
 
 const configs: { [Id in BuiltinBackendId]: ConfigOf<BuiltinBackendSpecs, Id> } = {
@@ -44,6 +44,7 @@ interface VendorHarness {
   readonly handles: Array<VendorSessionHandle & { isStreaming: boolean }>;
   sessionReady(turn: number): void;
   completeTurn(turn: number): void;
+  duplicateTurn(turn: number): void;
 }
 
 const workingDirectories: string[] = [];
@@ -133,7 +134,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
     completeTurn(turn) {
       switch (backend) {
         case "claude":
-          write({ type: "result", subtype: "success", session_id: "claude-resumed" });
+          write({ type: "result", subtype: "success", session_id: "claude-resumed", duration_ms: turn });
           break;
         case "codex":
           write({ jsonrpc: "2.0", method: "turn/completed", params: {
@@ -148,6 +149,24 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
           break;
         case "pi":
           handles[0]!.isStreaming = false;
+          lanes[0]!.emitEvents([{ kind: "turn_end", sessionId: "pi-resumed" }]);
+          break;
+      }
+    },
+    duplicateTurn(turn) {
+      switch (backend) {
+        case "claude":
+          write({ type: "result", subtype: "success", session_id: "claude-resumed", duration_ms: turn });
+          break;
+        case "codex":
+          write({ jsonrpc: "2.0", method: "turn/completed", params: {
+            threadId: "codex-resumed", turn: { id: `codex-turn-${turn}`, status: "completed" },
+          } });
+          break;
+        case "cursor":
+        case "opencode":
+          throw new Error(`${backend} has a process-per-turn lane instead of a persistent terminal fence`);
+        case "pi":
           lanes[0]!.emitEvents([{ kind: "turn_end", sessionId: "pi-resumed" }]);
           break;
       }
@@ -264,13 +283,18 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
       if (!opened.ok) throw new Error(opened.error.message);
       const events: string[] = [];
       const collecting = (async () => { for await (const event of opened.session.events) events.push(event.type); })();
+      const settlementOrder: string[] = [];
+      void opened.session.closed.then(() => { settlementOrder.push("session_closed"); });
       const starting = opened.session.start({ id: "racing", kind: "user", text: "racing" });
+      void starting.then(() => { settlementOrder.push("start_resolved"); });
       const stopping = opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
       releaseOpen();
       expect(await starting).toMatchObject({ status: "rejected" });
       expect(await stopping).toMatchObject({ status: "accepted" });
       await opened.session.closed;
+      await starting;
       await collecting;
+      expect(settlementOrder.indexOf("session_closed")).toBeLessThan(settlementOrder.indexOf("start_resolved"));
       expect(events.filter((type) => type === "command_failed")).toHaveLength(1);
       expect(events).not.toContain("command_accepted");
       expect(events.at(-1)).toBe("session_closed");
@@ -372,5 +396,146 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
       expect(host.releases).toHaveLength(1);
       expect(host.releases[0]?.reason).toBe("requested_stop");
     });
+
+    it("closes as crashed on an unexpected registered-backend physical exit and releases exactly once", async () => {
+      const harness = installVendorHarness(backend);
+      const host = createFakeAgentDriverHost();
+      const sdk = createAgentDriverSdkWithRegistry({ host, registry: createBuiltinAgentDriverRegistry() });
+      const workingDirectory = mkdtempSync(join(tmpdir(), `agent-driver-crash-${backend}-`));
+      workingDirectories.push(workingDirectory);
+      const opened = await sdk.open({
+        backend,
+        config: configs[backend] as never,
+        launch: { workingDirectory, instructions: { format: "markdown", content: "" }, launchId: `crash-${backend}` },
+      });
+      if (!opened.ok) throw new Error(opened.error.message);
+      const events: string[] = [];
+      const collecting = (async () => { for await (const event of opened.session.events) events.push(event.type); })();
+      expect(await opened.session.start({ id: "crash", kind: "user", text: "crash" })).toMatchObject({ status: "accepted" });
+      if (backend === "pi") harness.lanes[0]!.reportUnexpectedExit();
+      else harness.processes[0]!.finish(17, null);
+      expect((await opened.session.closed).outcome).toBe("crashed");
+      await collecting;
+      expect(events).toContain("session_failed");
+      expect(events.at(-1)).toBe("session_closed");
+      expect(host.releases).toHaveLength(1);
+      expect(host.releases[0]?.reason).toBe("crash");
+    });
   },
 );
+
+describe("pi registered public-session lifecycle conformance", () => {
+  it("completes a clean SDK dispose before the force timer without waiting for its deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const harness = installVendorHarness("pi");
+      const host = createFakeAgentDriverHost();
+      const sdk = createAgentDriverSdkWithRegistry({ host, registry: createBuiltinAgentDriverRegistry() });
+      const workingDirectory = mkdtempSync(join(tmpdir(), "agent-driver-clean-dispose-pi-"));
+      workingDirectories.push(workingDirectory);
+      const opened = await sdk.open({
+        backend: "pi",
+        config: configs.pi,
+        launch: { workingDirectory, instructions: { format: "markdown", content: "" }, launchId: "clean-dispose-pi" },
+      });
+      if (!opened.ok) throw new Error(opened.error.message);
+      await opened.session.start({ id: "clean-dispose", kind: "user", text: "clean" });
+      harness.handles[0]!.isStreaming = false;
+      await vi.advanceTimersByTimeAsync(25);
+      const stopped = opened.session.stop({ reason: "shutdown", forceAfterMs: 60_000 });
+      expect(await stopped).toMatchObject({ status: "accepted" });
+      expect((await opened.session.closed).outcome).toBe("stopped");
+      expect(harness.handles[0]!.dispose).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe.each(["claude", "codex"] as const)("%s persistent terminal ownership", (backend) => {
+  it("keeps turn B active when turn A's terminal is duplicated after B starts", async () => {
+    const harness = installVendorHarness(backend);
+    const host = createFakeAgentDriverHost();
+    const sdk = createAgentDriverSdkWithRegistry({ host, registry: createBuiltinAgentDriverRegistry() });
+    const workingDirectory = mkdtempSync(join(tmpdir(), `agent-driver-terminal-owner-${backend}-`));
+    workingDirectories.push(workingDirectory);
+    const opened = await sdk.open({
+      backend,
+      config: configs[backend] as never,
+      launch: { workingDirectory, instructions: { format: "markdown", content: "" }, launchId: `terminal-owner-${backend}` },
+    });
+    if (!opened.ok) throw new Error(opened.error.message);
+    const events: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
+    const collecting = (async () => { for await (const event of opened.session.events) events.push(event as never); })();
+
+    const first = await opened.session.start({ id: "first", kind: "user", text: "first" });
+    expect(first.status).toBe("accepted");
+    harness.sessionReady(1);
+    harness.completeTurn(1);
+    await settle();
+    const second = await opened.session.send({ id: "second", kind: "user", text: "second" });
+    expect(second.status).toBe("accepted");
+    harness.sessionReady(2);
+    await settle();
+    harness.duplicateTurn(1);
+    await settle();
+    expect(opened.session.snapshot().activeTurn?.turnId).toBe(second.status === "accepted" ? second.turnId : "unreachable");
+    expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(1);
+    harness.completeTurn(2);
+    await settle();
+    expect(opened.session.snapshot().activeTurn).toBeUndefined();
+    expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(2);
+    await opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    await collecting;
+  });
+});
+
+it("Pi real adapter public chain rejects turn A's duplicate terminal while turn B is active", async () => {
+  let notify!: (event: unknown) => void;
+  const vendor = {
+    prompt: vi.fn(async () => {}),
+    steer: vi.fn(async () => {}),
+    abort: vi.fn(async () => {}),
+    dispose: vi.fn(async () => {}),
+    isStreaming: false,
+    subscribe(listener: (event: unknown) => void) { notify = listener; return () => {}; },
+  };
+  const adapter = new PiDriver(() => ({
+    buildSpawnEnv: async () => ({}),
+    createAgentSession: async () => ({ session: vendor, sessionId: "pi-terminal-owner" }),
+  } as never));
+  const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
+    id: "pi",
+    capabilities: capabilitiesFor("pi"),
+    createAdapter: () => adapter,
+  }] as never);
+  const host = createFakeAgentDriverHost();
+  const sdk = createAgentDriverSdkWithRegistry<BuiltinBackendSpecs>({ host, registry });
+  const workingDirectory = mkdtempSync(join(tmpdir(), "agent-driver-terminal-owner-pi-"));
+  workingDirectories.push(workingDirectory);
+  const opened = await sdk.open({
+    backend: "pi",
+    config: configs.pi,
+    launch: { workingDirectory, instructions: { format: "markdown", content: "" }, launchId: "terminal-owner-pi" },
+  });
+  if (!opened.ok) throw new Error(opened.error.message);
+  const events: Array<AgentEvent<BuiltinBackendSpecs, "pi">> = [];
+  const collecting = (async () => { for await (const event of opened.session.events) events.push(event); })();
+  await opened.session.start({ id: "first", kind: "user", text: "first" });
+  const firstTerminal = { type: "agent_end", messages: [{ id: "first" }] };
+  notify(firstTerminal);
+  await settle();
+  const second = await opened.session.send({ id: "second", kind: "user", text: "second" });
+  expect(second.status).toBe("accepted");
+  notify(firstTerminal);
+  await settle();
+  expect(opened.session.snapshot().activeTurn?.turnId).toBe(second.status === "accepted" ? second.turnId : "unreachable");
+  expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(1);
+  notify({ type: "agent_end", messages: [{ id: "second" }] });
+  await settle();
+  expect(opened.session.snapshot().activeTurn).toBeUndefined();
+  expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(2);
+  await opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  await collecting;
+});

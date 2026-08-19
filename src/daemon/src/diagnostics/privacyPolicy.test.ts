@@ -733,7 +733,7 @@ describe("B2c privacy policy", () => {
       fields: {
         agentId: "target-agent",
         runtime: "claude",
-        text: "provider failed cmk_ABC123 cmt_XYZ crk_RECONNECT Authorization: Bearer topsecret voucher=/tmp/voucher-token /Users/alice/project /home/bob/work C:\\Users\\alice\\secret \\\\server\\share\\private",
+        text: 'provider failed cmk_ABC123 cmt_XYZ crk_RECONNECT Authorization: Basic topsecret OPENAI_API_KEY=provider-secret {"apiKey":"json-secret"} voucher=/tmp/voucher-token /Users/Alice Smith/private key.json /home/bob/work C:\\Users\\alice\\secret \\\\server\\share\\private https://example.invalid/x?token=query-secret',
         prompt: "PROMPT_EXTRA_LEAK",
         authorization: "AUTH_EXTRA_LEAK",
         otherBotId: "second-agent",
@@ -749,7 +749,7 @@ describe("B2c privacy policy", () => {
       fields: { agentId: "target-agent", runtime: "claude" },
     });
     expect(encoded).toContain("provider failed");
-    expect(encoded).not.toMatch(/cmk_|cmt_|crk_|topsecret|voucher-token|\/Users\/alice|\/home\/bob|C:\\\\Users\\\\alice|server\\\\share|PROMPT_EXTRA|AUTH_EXTRA|second-agent/);
+    expect(encoded).not.toMatch(/cmk_|cmt_|crk_|topsecret|provider-secret|json-secret|voucher-token|Alice Smith|private key|\/home\/bob|C:\\\\Users\\\\alice|server\\\\share|query-secret|PROMPT_EXTRA|AUTH_EXTRA|second-agent/);
   });
 
   it("drops every non-allowlisted field from every admitted daemon tuple", async () => {

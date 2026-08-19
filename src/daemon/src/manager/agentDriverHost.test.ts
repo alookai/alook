@@ -133,4 +133,13 @@ describe("createDaemonAgentDriverHost", () => {
     await createDaemonAgentDriverHost(two).prepareExecution({ backend: "claude", launchId: "two", workingDirectory: two.workingDirectory });
     expect(cred.size).toBe(2);
   });
+
+  it("forwards only stdout raw output", () => {
+    const raw = vi.fn();
+    const host = createDaemonAgentDriverHost(context(broker()), raw);
+    host.onRawOutput({ backend: "codex", launchId: "l", stream: "stderr", text: "no" });
+    host.onRawOutput({ backend: "codex", launchId: "l", stream: "stdout", text: "yes" });
+    expect(raw).toHaveBeenCalledOnce();
+    expect(raw).toHaveBeenCalledWith("yes");
+  });
 });

@@ -42,11 +42,19 @@ describe("public driver error scrubbing", () => {
       retryable: false,
       details: {
         apiKey: "detail-secret",
-        nested: { authorization: "Basic nested-secret", path: "/Users/Alice Smith/private key.json" },
+        nested: { authorization: "Basic nested-secret", path: "/Users/Alice Smith/private key.json", attempts: 2, absent: null },
       },
     });
     expect(scrubbed.code).toBe("runtime_error");
     expect(JSON.stringify(scrubbed.details)).not.toMatch(/detail-secret|nested-secret|Alice Smith|private key/);
+    expect(scrubbed.details).toMatchObject({ nested: { attempts: 2, absent: null } });
+  });
+
+  it("scrubs provider-prefixed and compound credential assignment names", () => {
+    const message = scrubDriverErrorMessage(
+      "OPENAI_API_KEY=supersecret ANTHROPIC_API_KEY=othersecret AWS_SECRET_ACCESS_KEY=awssecret client_secret=clientsecret",
+    );
+    expect(message).not.toMatch(/supersecret|othersecret|awssecret|clientsecret/);
   });
 
   it("rejects vendor text as a public machine-readable code", () => {

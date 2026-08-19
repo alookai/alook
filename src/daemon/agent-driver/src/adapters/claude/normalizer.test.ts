@@ -86,4 +86,15 @@ describe("ClaudeEventNormalizer.normalizeLine", () => {
     expect(kinds.indexOf("error")).toBeGreaterThanOrEqual(0);
     expect(kinds.indexOf("error")).toBeLessThan(kinds.indexOf("turn_end"));
   });
+
+  it("keeps the completed turn receipt across the next turn and labels a stale duplicate as its original owner", () => {
+    const n = new ClaudeEventNormalizer();
+    const first = J({ type: "result", subtype: "success", session_id: "s1", duration_ms: 10 });
+    const second = J({ type: "result", subtype: "success", session_id: "s1", duration_ms: 20 });
+    const firstOwner = n.beginTurn();
+    expect(n.normalizeLine(first)).toContainEqual(expect.objectContaining({ kind: "turn_end", turnOwner: firstOwner }));
+    const secondOwner = n.beginTurn();
+    expect(n.normalizeLine(first)).toContainEqual(expect.objectContaining({ kind: "turn_end", turnOwner: firstOwner }));
+    expect(n.normalizeLine(second)).toContainEqual(expect.objectContaining({ kind: "turn_end", turnOwner: secondOwner }));
+  });
 });

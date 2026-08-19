@@ -37,4 +37,34 @@ describe("adapter registration runtime boundary", () => {
     };
     expect(() => createAgentDriverRegistry([registration, registration] as never)).toThrow("Duplicate agent backend registration");
   });
+
+  it("accepts the public suggestion_only model-selection capability for extension adapters", () => {
+    const registration = {
+      id: "sixth",
+      capabilities: { ...EXPECTED.claude, modelSelection: "suggestion_only" },
+      createAdapter: () => ({}),
+    };
+    expect(createAgentDriverRegistry([registration] as never).backendIds).toEqual(["sixth"]);
+  });
+
+  it("rejects each malformed registration capability and adapter shape at runtime", () => {
+    const valid = {
+      id: "sixth",
+      capabilities: EXPECTED.claude,
+      createAdapter: () => new (class {
+        id = "sixth";
+        instructionDelivery = { kind: "native" } as const;
+        execution = { kind: "persistent_process", input: "direct" } as const;
+        currentSessionId = null;
+        probe() { return { status: "healthy" as const }; }
+        normalizeLine() { return []; }
+        encodeMessage() { return ""; }
+        async spawn() { return { process: {} }; }
+      })(),
+    };
+    expect(() => createAgentDriverRegistry([{ ...valid, capabilities: null }] as never)).toThrow("requires capabilities");
+    expect(() => createAgentDriverRegistry([{ ...valid, capabilities: { ...EXPECTED.claude, resume: "bad" } }] as never)).toThrow("invalid capability resume");
+    expect(() => createAgentDriverRegistry([{ ...valid, capabilities: { ...EXPECTED.claude, interrupt: "yes" } }] as never)).toThrow("invalid capability interrupt");
+    expect(() => createAgentDriverRegistry([{ ...valid, createAdapter: null }] as never)).toThrow("requires createAdapter");
+  });
 });

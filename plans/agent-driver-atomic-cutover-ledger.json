@@ -419,11 +419,11 @@
       "files": [
         {
           "file": "src/daemon/agent-driver/src/adapter-author.ts",
-          "lines": 14
+          "lines": 10
         },
         {
           "file": "src/daemon/agent-driver/src/adapters/claude/index.ts",
-          "lines": 94
+          "lines": 98
         },
         {
           "file": "src/daemon/agent-driver/src/adapters/claude/launch.ts",
@@ -431,7 +431,7 @@
         },
         {
           "file": "src/daemon/agent-driver/src/adapters/claude/normalizer.ts",
-          "lines": 130
+          "lines": 145
         },
         {
           "file": "src/daemon/agent-driver/src/adapters/claude/providerIsolation.ts",
@@ -447,7 +447,7 @@
         },
         {
           "file": "src/daemon/agent-driver/src/adapters/codex/normalizer.ts",
-          "lines": 269
+          "lines": 276
         },
         {
           "file": "src/daemon/agent-driver/src/adapters/codex/telemetry.ts",
@@ -463,7 +463,7 @@
         },
         {
           "file": "src/daemon/agent-driver/src/adapters/pi/index.ts",
-          "lines": 334
+          "lines": 285
         },
         {
           "file": "src/daemon/agent-driver/src/adapters/pi/sessionDeps.ts",
@@ -483,7 +483,7 @@
         },
         {
           "file": "src/daemon/agent-driver/src/controller/logical-session.ts",
-          "lines": 1007
+          "lines": 1036
         },
         {
           "file": "src/daemon/agent-driver/src/controller/process-host.ts",
@@ -491,7 +491,11 @@
         },
         {
           "file": "src/daemon/agent-driver/src/controller/sdk-host.ts",
-          "lines": 146
+          "lines": 95
+        },
+        {
+          "file": "src/daemon/agent-driver/src/host.ts",
+          "lines": 10
         },
         {
           "file": "src/daemon/agent-driver/src/host/default-host.ts",
@@ -503,7 +507,7 @@
         },
         {
           "file": "src/daemon/agent-driver/src/internal/adapter.ts",
-          "lines": 105
+          "lines": 108
         },
         {
           "file": "src/daemon/agent-driver/src/internal/agentFile.ts",
@@ -523,7 +527,7 @@
         },
         {
           "file": "src/daemon/agent-driver/src/internal/errors.ts",
-          "lines": 52
+          "lines": 63
         },
         {
           "file": "src/daemon/agent-driver/src/internal/killTree.ts",
@@ -536,6 +540,10 @@
         {
           "file": "src/daemon/agent-driver/src/internal/spawnEnv.ts",
           "lines": 133
+        },
+        {
+          "file": "src/daemon/agent-driver/src/internal/terminal-receipt.ts",
+          "lines": 22
         },
         {
           "file": "src/daemon/agent-driver/src/internal/utils.ts",
@@ -575,7 +583,7 @@
         },
         {
           "file": "src/daemon/src/daemon/createDaemon.ts",
-          "lines": 1021
+          "lines": 1025
         },
         {
           "file": "src/daemon/src/discovery.ts",
@@ -627,7 +635,7 @@
         },
         {
           "file": "src/daemon/src/runtime/errorDiagnostics.ts",
-          "lines": 183
+          "lines": 179
         },
         {
           "file": "src/daemon/src/runtime/notificationState.ts",
@@ -642,8 +650,8 @@
           "lines": 44
         }
       ],
-      "total": 10829,
-      "deltaFromBaseline": -20
+      "total": 10826,
+      "deltaFromBaseline": -23
     }
   },
   "testPreservation": {
@@ -4242,8 +4250,8 @@
           "name": "SdkManagedSession > stop() forces \"exit\" within the deadline when inner.stop() hangs forever"
         },
         "after": {
-          "name": "logical-session terminal facts > bounds a hung SDK dispose and still settles closed",
-          "file": "src/daemon/agent-driver/src/controller/logical-session.test.ts"
+          "name": "pi registered public-session lifecycle conformance > forces a bounded stop and releases the registered adapter when its physical lane hangs",
+          "file": "src/daemon/agent-driver/src/testing/builtin-session-conformance.test.ts"
         },
         "disposition": "preserved_reexpressed_on_public_contract"
       },
@@ -4264,8 +4272,8 @@
           "name": "SdkManagedSession > stop() that disposes cleanly before the deadline does NOT wait out the timer"
         },
         "after": {
-          "name": "logical-session terminal facts > bounds a hung SDK dispose and still settles closed",
-          "file": "src/daemon/agent-driver/src/controller/logical-session.test.ts"
+          "name": "pi registered public-session lifecycle conformance > completes a clean SDK dispose before the force timer without waiting for its deadline",
+          "file": "src/daemon/agent-driver/src/testing/builtin-session-conformance.test.ts"
         },
         "disposition": "preserved_reexpressed_on_public_contract"
       },
@@ -6908,8 +6916,22 @@
         {
           "beforeName": "SdkManagedSession — start() does not block on the whole first turn > a wake that arrives while the first turn is still in flight is delivered as a real steer, not queued until turn_end",
           "evidence": {
+            "file": "src/daemon/agent-driver/src/controller/logical-session.test.ts",
+            "name": "backend-owned delivery behavior > Pi accepts a busy send as an in-turn steer"
+          }
+        },
+        {
+          "beforeName": "SdkManagedSession > stop() that disposes cleanly before the deadline does NOT wait out the timer",
+          "evidence": {
             "file": "src/daemon/agent-driver/src/testing/builtin-session-conformance.test.ts",
-            "name": "pi registered public-session lifecycle conformance > runs resume, busy admission, interrupt reuse, environment, release, and requested stop through sdk.open"
+            "name": "pi registered public-session lifecycle conformance > completes a clean SDK dispose before the force timer without waiting for its deadline"
+          }
+        },
+        {
+          "beforeName": "SdkManagedSession > start() does not resolve until a racing stop()'s disposal has fully finished (exit fires strictly before start() resolves)",
+          "evidence": {
+            "file": "src/daemon/agent-driver/src/testing/builtin-session-conformance.test.ts",
+            "name": "pi registered public-session lifecycle conformance > settles a stop racing an in-flight registered-adapter open without late acceptance"
           }
         }
       ]
@@ -6929,13 +6951,13 @@
       }
     ],
     "finalTargetAssignmentStatus": "complete",
-    "finalCollectedCases": 8284,
+    "finalCollectedCases": 8320,
     "verification": {
       "mappingCount": 568,
       "everyNonDeletedCaseNamesExistingFinalTest": true,
       "finalListSource": "scripts/verify-agent-driver-ledger.mjs (Vitest list JSON for driver, daemon, shared, and web)",
       "approvedContractChanges": 6,
-      "semanticAuditClaims": 5
+      "semanticAuditClaims": 7
     }
   },
   "checkpoint1": {
@@ -6969,8 +6991,8 @@
     }
   },
   "finalVerification": {
-    "packageTests": "30 files, 306 tests passed",
-    "daemonTests": "55 files, 1105 tests passed",
+    "packageTests": "31 files, 330 tests passed",
+    "daemonTests": "55 files, 1117 tests passed",
     "rootTests": "11/11 workspace tasks passed; post-workspace CI-script suite 9 files, 57 tests passed",
     "rootTypecheck": "passed (11 tasks)",
     "rootLint": "passed (5 tasks)",
@@ -6980,7 +7002,7 @@
     "packProofs": "driver fresh pack/install fixture passed (1 test); daemon packed boundary and version tests passed (2 tests)",
     "workflowContract": "13 tests passed",
     "productionResidueSearch": "zero forbidden production symbols/imports",
-    "productionLoc": "10829 fixed-denominator lines vs 10849 baseline (-20)",
+    "productionLoc": "10826 fixed-denominator lines vs 10849 baseline (-23)",
     "liveLifecycleQa": {
       "codex": "exact head cd230633; installed codex 0.146.0; start/tool accepted; exact-turn interrupt accepted; logical outcome interrupted; physical outcome crashed; exact returned-session-id resume succeeded; resumed turn success; requested stop closed stopped; session SHA-256 prefix 4394e6d33764; resumed text SHA-256 prefix aa6ed6f431ff",
       "pi": "exact head cd230633; installed pi 0.80.3; start accepted; tool start/finish observed; exact-turn interrupt accepted; logical outcome interrupted; requested stop closed stopped; exact returned-session-id resume succeeded; resumed turn success; requested stop closed stopped; session SHA-256 prefix 6aa76c55da2c",
@@ -6996,7 +7018,7 @@
       "cleanup": "isolated browser tab and local services stopped after evidence capture"
     },
     "windowsCiHarness": "bare npm pack install uses the Windows command shell; real-process timing bound widened without assertion changes",
-    "testLedger": "8284 collected cases; 568 mappings; zero missing non-deleted exact targets",
+    "testLedger": "8320 collected cases; 568 mappings; zero missing non-deleted exact targets",
     "productionCodeCommit": "cd230633c840689408b9230e0f45c31565a6ffe7; tree 416299b1e5cd506a474666afc706bc778c0008b1",
     "evidenceArtifact": "plans/agent-driver-final-evidence.md; plans/agent-driver-final-qa-cd230633.json; plans/agent-driver-final-qa-44047b78.json"
   }

@@ -30,7 +30,8 @@ export type AdapterEvent =
   | { kind: "review_finished" }
   | { kind: "internal_progress"; source?: string; itemType?: string; payloadBytes?: number }
   | { kind: "runtime_diagnostic"; severity?: string; source?: string; message: string }
-  | { kind: "turn_end"; sessionId?: string }
+  | { kind: "turn_owner"; receipt: string }
+  | { kind: "turn_end"; sessionId?: string; turnOwner?: string }
   | { kind: "error"; message: string }
   | { kind: "telemetry"; name: "token_usage" | "rate_limits"; source: string; usageKind?: string; attrs: Record<string, unknown> };
 
@@ -99,6 +100,8 @@ export interface BackendAdapter<Id extends string = BuiltinBackendId, Config = B
   probe(command?: string): ProbeResult | Promise<ProbeResult>;
   spawn?(ctx: AdapterLaunchContext<Id, Config>): Promise<SpawnedProcess>;
   openSdkSession?(ctx: AdapterLaunchContext<Id, Config>): Promise<unknown>;
+  /** Starts an adapter-owned receipt epoch for vendors without a turn id. */
+  beginTurn?(): string;
   normalizeLine(line: string): AdapterEvent[];
   readonly currentSessionId: string | null;
   encodeMessage(text: string, sessionId: string | null, opts?: EncodeMessageOptions): string | null;

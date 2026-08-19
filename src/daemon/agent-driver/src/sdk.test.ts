@@ -4,11 +4,13 @@ import type {
   BackendTypeSpec,
   BuiltinBackendSpecs,
 } from "./index.js";
-import type { AgentDriverHost, BackendAdapter } from "./adapter-author.js";
+import type { BackendAdapter } from "./adapter-author.js";
+import type { AgentDriverHost } from "./host.js";
 import { ClaudeDriver } from "./adapters/claude/index.js";
 import { createFakeAgentDriverHost } from "./testing/fake-host.js";
 import { createAgentDriverSdk, createAgentDriverSdkWithRegistry } from "./sdk.js";
 import { createAgentDriverRegistry } from "./registry.js";
+import { createAgentDriverSdk as createPublicAgentDriverSdk } from "./public-sdk.js";
 
 const claudeInput = {
   backend: "claude" as const,
@@ -73,6 +75,10 @@ describe("createAgentDriverSdk", () => {
       });
     },
   );
+
+  it("public SDK factory delegates to the built-in logical SDK", () => {
+    expect(createPublicAgentDriverSdk().backendIds).toEqual(["claude", "codex", "cursor", "opencode", "pi"]);
+  });
 
   it("returns host preparation failures without constructing a session", async () => {
     const error: AgentDriverError = {
@@ -186,10 +192,13 @@ describe("createAgentDriverSdk", () => {
 
   it.each([
     ["missing normalizer", { normalizeLine: undefined }],
+    ["invalid instruction kind", { instructionDelivery: { kind: "raw" } }],
     ["incomplete execution", { execution: { kind: "persistent_process", input: "unknown" } }],
+    ["invalid execution kind", { execution: { kind: "raw" } }],
     ["invalid workspace instruction", {
       instructionDelivery: { kind: "workspace_file", canonical: "", aliases: [1] },
     }],
+    ["invalid current session id", { currentSessionId: 42 }],
     ["missing lane factory", { spawn: undefined }],
   ] as const)("fails %s adapter shape validation before host preparation", async (_name, override) => {
     const host = createFakeAgentDriverHost();
@@ -198,7 +207,12 @@ describe("createAgentDriverSdk", () => {
     const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
       id: "claude",
       capabilities: claudeCapabilities,
-      createAdapter: () => Object.assign(valid, override) as never,
+      createAdapter: () => {
+        for (const [key, value] of Object.entries(override)) {
+          Object.defineProperty(valid, key, { configurable: true, value });
+        }
+        return valid as never;
+      },
     }]);
     const sdk = createAgentDriverSdkWithRegistry({ registry, host });
 

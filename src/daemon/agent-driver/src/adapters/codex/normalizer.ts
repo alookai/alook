@@ -102,7 +102,10 @@ export class CodexEventNormalizer {
         ) return [];
         this.turnId = params.turn.id;
         this.terminalTurn = null;
-        return [{ kind: "thinking", text: "" }];
+        return [
+          { kind: "turn_owner", receipt: this.turnReceipt(params.threadId, params.turn.id) },
+          { kind: "thinking", text: "" },
+        ];
 
       case "item/reasoning/textDelta":
       case "item/reasoning/summaryTextDelta":
@@ -133,13 +136,13 @@ export class CodexEventNormalizer {
         if (params.turn.status === "failed") {
           return [
             { kind: "error", message: "Codex turn failed" },
-            { kind: "turn_end", sessionId: this.threadId ?? undefined },
+            { kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) },
           ];
         }
         if (params.turn.status === "interrupted") {
-          return [{ kind: "error", message: "Codex turn interrupted" }, { kind: "turn_end", sessionId: this.threadId ?? undefined }];
+          return [{ kind: "error", message: "Codex turn interrupted" }, { kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) }];
         }
-        return [{ kind: "turn_end", sessionId: this.threadId ?? undefined }];
+        return [{ kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) }];
 
       case "error":
         return [{ kind: "error", message: params?.message ?? "Codex error" }];
@@ -165,6 +168,10 @@ export class CodexEventNormalizer {
   private notificationTurnId(params: any): string | null {
     if (typeof params?.turnId === "string") return params.turnId;
     return typeof params?.turn?.id === "string" ? params.turn.id : null;
+  }
+
+  private turnReceipt(threadId: string, turnId: string): string {
+    return `codex:${threadId}:${turnId}`;
   }
 
   private acceptRootWork(params: any): boolean {

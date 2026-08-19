@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createDaemon,
+  createBuiltinDaemonSessionFactory,
   createRuntimeRawLineTap,
   deriveAuditLogSubcommand,
   emitImplicitTypingStopOnSend,
@@ -264,6 +265,44 @@ function factory(sockets: FakeSocket[]) {
 }
 
 describe("createDaemon", () => {
+  it("opens the builtin session factory and reports host preparation failures", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "daemon-builtin-session-"));
+    try {
+      const broker = new CredentialBroker({ upstreamBaseUrl: "https://upstream.test", voucherDir: dir });
+      const ctx = {
+        workingDirectory: dir,
+        agentId: "a1",
+        standingPrompt: "",
+        prompt: "",
+        agentCliPath: process.execPath,
+        launchId: "launch-1",
+        credentialProxy: {
+          broker,
+          proxyUrl: "http://127.0.0.1:9/proxy",
+          runnerKey: "runner-test",
+          capabilities: ["send"],
+        },
+        config: {},
+      };
+      const runtimeConfig = {
+        version: 1 as const,
+        runtime: "codex" as const,
+        model: { kind: "default" as const },
+        mode: { kind: "default" as const },
+      };
+      const session = await createBuiltinDaemonSessionFactory(vi.fn())({ agentId: "a1", ctx, runtimeConfig });
+      expect(session.backend).toBe("codex");
+      await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+      await expect(createBuiltinDaemonSessionFactory()({
+        agentId: "a1",
+        ctx: { ...ctx, credentialProxy: undefined },
+        runtimeConfig,
+      })).rejects.toMatchObject({ code: "credential_proxy_required" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("routes local reminder expiry through the manager and cancels on exact-scope wake/stop/removal/daemon stop", async () => {
     const realFetch = globalThis.fetch;
     const sockets: FakeSocket[] = [];

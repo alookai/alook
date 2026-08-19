@@ -78,6 +78,10 @@ export class ClaudeDriver implements BackendAdapter {
     return this.eventNormalizer.normalizeLine(line);
   }
 
+  beginTurn(): string {
+    return this.eventNormalizer.beginTurn();
+  }
+
   get currentSessionId(): string | null {
     return this.eventNormalizer.currentSessionId;
   }

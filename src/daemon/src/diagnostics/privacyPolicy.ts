@@ -1,4 +1,5 @@
 import type { LogLevel } from "../logger.js";
+import { scrubAgentDriverDiagnosticText } from "@alook/agent-driver/host";
 
 type FieldRule =
   | { type: "string"; maxChars: number; values?: readonly string[]; scrub?: true; nullable?: true }
@@ -102,13 +103,7 @@ function boundedString(value: unknown, maxChars: number): value is string {
 }
 
 export function scrubDiagnosticText(value: string): string {
-  let scrubbed = value
-    .replace(/\b(?:cmk|cmt|crk)_[A-Za-z0-9_-]+\b/g, "[redacted-token]")
-    .replace(/Authorization\s*:\s*Bearer\s+[^\s]+/gi, "Authorization: Bearer [redacted]")
-    .replace(/\bvoucher\s*=\s*[^\s]+/gi, "voucher=[redacted]")
-    .replace(/\\\\[^\\\s]+\\[^\s]+/g, "[redacted-path]")
-    .replace(/\b[A-Za-z]:\\(?:[^\\\s]+\\)*[^\s]*/g, "[redacted-path]")
-    .replace(/(?<![A-Za-z0-9:/])\/(?:Users|home|tmp|var|etc|opt|private|usr|Library|Volumes|Applications|root|run|srv|mnt)(?:\/[^\s]*)?/g, "[redacted-path]");
+  let scrubbed = scrubAgentDriverDiagnosticText(value);
   const encoded = Buffer.from(scrubbed, "utf8");
   if (encoded.byteLength > 65_536) {
     let bytes = 0;

@@ -16,6 +16,7 @@ import type {
   AgentSession,
   AgentSessionResult,
   BuiltinBackendSpecs,
+  DeliveryReceipt,
 } from "@alook/agent-driver";
 import type { AdapterEvent } from "@alook/agent-driver/adapter-author";
 import { createBuiltinAgentDriverRegistry } from "@alook/agent-driver/adapter-author";
@@ -1465,13 +1466,16 @@ describe("AgentProcessManager — error audit emission", () => {
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
     await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    await session.fire("runtime_event", { kind: "error", message: "auth failed with sk-ant-abc123DEF456 token" });
+    await session.fire("runtime_event", {
+      kind: "error",
+      message: 'auth failed sk-ant-abc123DEF456 OPENAI_API_KEY=provider-secret {"apiKey":"json-secret"} Authorization: Basic basic-secret at /Users/Alice Smith/private key.json?token=query-secret',
+    });
 
     const errCall = onBotAuditEvent.mock.calls.find(
       ([, ev]) => (ev as { kind?: string })?.kind === "error",
     );
     const message = (errCall![1] as { payload: { message: string } }).payload.message;
-    expect(message).not.toContain("sk-ant-abc123DEF456");
+    expect(message).not.toMatch(/sk-ant-abc123DEF456|provider-secret|json-secret|basic-secret|Alice Smith|private key|query-secret/);
     expect(message).toContain("[redacted-token]");
   });
 });
@@ -3450,6 +3454,177 @@ describe("B1 red gate — stale owner isolation", () => {
     await second.fire("runtime_event", { kind: "turn_end" });
     const replacementCloses = b1SpanRows(rows).filter((row) => row.traceTurnId === replacementId && (row.event === "turn_end" || row.event === "turn_abort"));
     expect(replacementCloses).toHaveLength(1);
+  });
+});
+
+describe("AgentProcessManager — defensive owner fences", () => {
+  it("drops stale and superseded public events before state mutation", () => {
+    const logger = stubLogger();
+    const { mgr } = makeManager({ logger });
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+    const internal = mgr as unknown as {
+      activeSpawnState: Map<string, { sessionInstanceId: string | null; superseded: boolean }>;
+      onAgentEvent(agentId: string, event: object, runtimeId: "codex", owner: object): void;
+    };
+    const owner = internal.activeSpawnState.get("a1")!;
+    owner.sessionInstanceId = "test-instance";
+    internal.onAgentEvent("a1", {
+      type: "thinking_delta", turnId: "turn", text: "stale", sequence: 1,
+      sessionInstanceId: "stale-instance", at: Date.now(),
+    }, "codex", owner);
+    owner.superseded = true;
+    (mgr as unknown as { state: { agents: { a1: { execution: { sessionInstanceId: string } } } } })
+      .state.agents.a1.execution.sessionInstanceId = "replacement-instance";
+    internal.onAgentEvent("a1", {
+      type: "thinking_delta", turnId: "turn", text: "superseded", sequence: 2,
+      sessionInstanceId: "test-instance", at: Date.now(),
+    }, "codex", owner);
+    expect(logger.calls.warn.map(([message]) => message)).toEqual([
+      "ignored event from stale session epoch",
+      "ignored event from superseded session owner",
+    ]);
+  });
+
+  it.each(["resolve", "reject"] as const)("ignores a stale send promise %s", async (outcome) => {
+    const session = b1Session([]);
+    const { mgr } = b1Manager({ sessions: [session] });
+    mgr.deliver("a1", { id: "first", seq: 1, text: "first" });
+    await Promise.resolve();
+    let resolve!: (receipt: DeliveryReceipt) => void;
+    let reject!: (error: unknown) => void;
+    session.send = vi.fn(() => new Promise<DeliveryReceipt>((yes, no) => {
+      resolve = yes;
+      reject = no;
+    }));
+    mgr.deliver("a1", { id: "later", seq: 2, text: "later" });
+    const internal = mgr as unknown as { activeSpawnState: Map<string, { torndown: boolean }> };
+    internal.activeSpawnState.get("a1")!.torndown = true;
+    if (outcome === "resolve") {
+      resolve({ status: "rejected", reason: "closed" });
+    } else {
+      reject(new Error("late rejection"));
+    }
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(session.stop).not.toHaveBeenCalled();
+  });
+
+  it("rejects a send with no attached session and expires owned admissions", async () => {
+    const { mgr, session } = makeManager();
+    const internal = mgr as unknown as {
+      applyEffect(effect: object): void;
+      activeSpawnState: Map<string, {
+        sessionInstanceId: string | null;
+        pendingDeliverySpans: Map<string, object>;
+        terminationSemantics: string | null;
+      }>;
+    };
+    internal.applyEffect({
+      type: "send", agentId: "a1", message: { id: "missing", seq: 1, text: "missing" }, mode: "busy",
+    });
+    mgr.deliver("a1", { id: "first", seq: 2, text: "first" });
+    session.stop = vi.fn(session.stop);
+    const owner = internal.activeSpawnState.get("a1")!;
+    owner.sessionInstanceId = "test-instance";
+    owner.pendingDeliverySpans.set("expired", { sessionInstanceId: "test-instance", span: null });
+    internal.applyEffect({
+      type: "expire_admission", agentId: "a1", sessionInstanceId: "test-instance", commandIds: ["expired"],
+    });
+    expect(owner.pendingDeliverySpans.has("expired")).toBe(false);
+    expect(owner.terminationSemantics).toBe("killed_stalled");
+    expect(session.stop).toHaveBeenCalledWith({ reason: "stalled", forceAfterMs: 2_000 });
+  });
+
+  it("marks a previous spawn owner superseded before replacing it", () => {
+    const mgr = new AgentProcessManager({
+      driverFor: () => b1PersistentDriver(),
+      baseContextFor: () => ({
+        workingDirectory: "/tmp", agentId: "a1", standingPrompt: "",
+        config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      sessionFactory: (() => new Promise<FakeSession>(() => {})) as SessionFactory,
+    });
+    mgr.register("a1");
+    const internal = mgr as unknown as {
+      doSpawn(agentId: string, messages: Array<{ id: string; seq: number; text: string }>, resumeSessionId: null): void;
+      activeSpawnState: Map<string, { superseded: boolean }>;
+    };
+    internal.doSpawn("a1", [{ id: "one", seq: 1, text: "one" }], null);
+    const first = internal.activeSpawnState.get("a1")!;
+    internal.doSpawn("a1", [{ id: "two", seq: 2, text: "two" }], null);
+    expect(first.superseded).toBe(true);
+  });
+
+  it("abandons queued startup delivery when dispatch replaces its owner", async () => {
+    const session = fakeSession();
+    session.send = vi.fn(session.send);
+    const { mgr } = b1Manager({ sessions: [session] });
+    const internal = mgr as unknown as {
+      doSpawn(agentId: string, messages: Array<{ id: string; seq: number; text: string }>, resumeSessionId: null): void;
+      dispatch(event: { type: string }, owner?: object): void;
+      activeSpawnState: Map<string, object>;
+    };
+    const dispatch = internal.dispatch.bind(mgr);
+    vi.spyOn(internal, "dispatch").mockImplementation((event, owner) => {
+      dispatch(event, owner);
+      if (event.type === "spawned") internal.activeSpawnState.delete("a1");
+    });
+    internal.doSpawn("a1", [
+      { id: "first", seq: 1, text: "first" },
+      { id: "queued", seq: 2, text: "queued" },
+    ], null);
+    session.startResolver?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(session.send).not.toHaveBeenCalled();
+  });
+
+  it("abandons a queued receipt that settles after owner teardown", async () => {
+    const session = fakeSession();
+    session.stop = vi.fn(session.stop);
+    let resolve!: (receipt: DeliveryReceipt) => void;
+    session.send = vi.fn(() => new Promise<DeliveryReceipt>((done) => { resolve = done; }));
+    const { mgr } = b1Manager({ sessions: [session] });
+    const internal = mgr as unknown as {
+      doSpawn(agentId: string, messages: Array<{ id: string; seq: number; text: string }>, resumeSessionId: null): void;
+      activeSpawnState: Map<string, { torndown: boolean }>;
+    };
+    internal.doSpawn("a1", [
+      { id: "first", seq: 1, text: "first" },
+      { id: "queued", seq: 2, text: "queued" },
+    ], null);
+    session.startResolver?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(session.send).toHaveBeenCalledOnce();
+    internal.activeSpawnState.get("a1")!.torndown = true;
+    resolve({ status: "accepted", delivery: "steer", commandId: "queued", turnId: "test-turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(session.stop).not.toHaveBeenCalled();
+  });
+
+  it("audits an unexpected queued-delivery orchestration failure", async () => {
+    const session = fakeSession();
+    const { mgr } = b1Manager({ sessions: [session] });
+    const internal = mgr as unknown as {
+      doSpawn(agentId: string, messages: Array<{ id: string; seq: number; text: string }>, resumeSessionId: null): void;
+      beginPendingDelivery(...args: unknown[]): void;
+      emitErrorAudit(...args: unknown[]): void;
+    };
+    const begin = internal.beginPendingDelivery.bind(mgr);
+    let calls = 0;
+    vi.spyOn(internal, "beginPendingDelivery").mockImplementation((...args) => {
+      if (++calls === 2) throw new Error("queued orchestration failed");
+      begin(...args);
+    });
+    const audit = vi.spyOn(internal, "emitErrorAudit");
+    internal.doSpawn("a1", [
+      { id: "first", seq: 1, text: "first" },
+      { id: "queued", seq: 2, text: "queued" },
+    ], null);
+    session.startResolver?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(audit).toHaveBeenCalledWith("a1", "runtime", "send_failed", "Error: queued orchestration failed");
   });
 });
 

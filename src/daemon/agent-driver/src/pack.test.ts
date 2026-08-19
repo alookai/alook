@@ -109,7 +109,7 @@ console.log(JSON.stringify({ type: "result", subtype: "success", session_id: "pa
       chmodSync(executable, 0o755);
     }
     writeFileSync(join(root, "runtime.mjs"), `
-import { createBuiltinAgentDriverSdk } from "@alook/agent-driver/adapter-author";
+import { createBuiltinAgentDriverSdk } from "@alook/agent-driver/host";
 import { createFakeAgentDriverHost } from "@alook/agent-driver/testing";
 const sdk = createBuiltinAgentDriverSdk({ host: createFakeAgentDriverHost({
   environmentLayers: {
@@ -156,6 +156,7 @@ try {
     const installedDist = join(root, "node_modules/@alook/agent-driver/dist");
     const rootDeclaration = readFileSync(join(installedDist, "index.d.ts"), "utf8");
     const testingDeclaration = readFileSync(join(installedDist, "testing/index.d.ts"), "utf8");
+    const hostDeclaration = readFileSync(join(installedDist, "host.d.ts"), "utf8");
     for (const privateName of [
       "BackendAdapter",
       "BackendExecution",
@@ -166,6 +167,7 @@ try {
     ]) {
       expect(rootDeclaration).not.toContain(privateName);
       expect(testingDeclaration).not.toContain(privateName);
+      expect(hostDeclaration).not.toContain(privateName);
     }
   });
 });

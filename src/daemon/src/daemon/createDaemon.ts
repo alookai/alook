@@ -41,7 +41,7 @@ import type { RuntimeConfig } from "../runtimeConfig.js";
 import type { UnreadNotice, HostCommand } from "../server/contract.js";
 import { formatHandle } from "@alook/shared/lib/discriminator";
 import type { DiagnosticCollectCommand } from "@alook/shared";
-import { createBuiltinAgentDriverSdk } from "@alook/agent-driver/adapter-author";
+import { createBuiltinAgentDriverSdk } from "@alook/agent-driver/host";
 import {
   createDiagnosticsCommandListener,
   type DiagnosticFailureReport,
@@ -344,6 +344,32 @@ export interface RunningDaemon {
   onOpen(hook: () => void): void;
   proxyUrl: string;
   stop(): Promise<void>;
+}
+
+export function createBuiltinDaemonSessionFactory(
+  onRuntimeRawLine?: (agentId: string, line: string) => void,
+): SessionFactory {
+  return async ({ ctx, runtimeConfig }) => {
+    const selected = toAgentBackendSelection(runtimeConfig);
+    const sdk = createBuiltinAgentDriverSdk({
+      host: createDaemonAgentDriverHost(
+        ctx,
+        onRuntimeRawLine?.bind(null, ctx.agentId),
+      ),
+    });
+    const opened = await sdk.open({
+      backend: selected.backend,
+      launch: {
+        workingDirectory: ctx.workingDirectory,
+        instructions: { format: "markdown", content: ctx.standingPrompt },
+        resumeSessionId: ctx.config.sessionId,
+        launchId: ctx.launchId ?? ctx.agentId,
+      },
+      config: selected.config as never,
+    });
+    if (!opened.ok) throw Object.assign(new Error(opened.error.message), { code: opened.error.code });
+    return opened.session;
+  };
 }
 
 /**
@@ -777,29 +803,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       }
       return opts.driverFor(agentId, runtimeConfig);
     },
-    sessionFactory: opts.sessionFactory ?? (async ({ ctx, runtimeConfig }) => {
-      const selected = toAgentBackendSelection(runtimeConfig);
-      const sdk = createBuiltinAgentDriverSdk({
-        host: createDaemonAgentDriverHost(
-          ctx,
-          onRuntimeRawLine ? (line) => onRuntimeRawLine(ctx.agentId, line) : undefined,
-        ),
-      });
-      const opened = await sdk.open({
-        backend: selected.backend,
-        launch: {
-          workingDirectory: ctx.workingDirectory,
-          instructions: { format: "markdown", content: ctx.standingPrompt },
-          resumeSessionId: ctx.config.sessionId,
-          launchId: ctx.launchId ?? ctx.agentId,
-        },
-        config: selected.config as never,
-      });
-      if (!opened.ok) {
-        throw Object.assign(new Error(opened.error.message), { code: opened.error.code });
-      }
-      return opened.session;
-    }),
+    sessionFactory: opts.sessionFactory ?? createBuiltinDaemonSessionFactory(onRuntimeRawLine),
     onRuntimeSpawnFailed: (runtimeId, reason) => {
       router?.recordRuntimeSpawnFailure(runtimeId, reason);
     },

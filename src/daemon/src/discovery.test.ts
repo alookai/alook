@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -10,7 +10,7 @@ import {
   detectRuntimes,
   getAvailableRuntimes,
 } from "./discovery";
-import { listRuntimeIds, getDriver } from "./drivers/index";
+import * as drivers from "./drivers/index";
 
 const EXPECTED_RUNTIMES = ["claude", "codex", "cursor", "opencode", "pi"];
 
@@ -21,6 +21,7 @@ function mkTmp(): string {
   return d;
 }
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const d of tmpDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
 });
 
@@ -178,16 +179,25 @@ describe("detectRuntimes", () => {
     const advertised = runtimes.map((r) => r.id).sort();
     expect(advertised).toEqual([...EXPECTED_RUNTIMES].sort());
   });
+
+  it("reports an explicit unhealthy probe result", async () => {
+    vi.spyOn(drivers, "getDriver").mockReturnValue({
+      probe: async () => ({ status: "unhealthy", error: { code: "missing_binary", message: "missing" } }),
+    } as never);
+    const result = await detectRuntimes();
+    expect(result).toHaveLength(EXPECTED_RUNTIMES.length);
+    expect(result[0]).toMatchObject({ status: "unhealthy", lastError: "missing_binary" });
+  });
 });
 
 describe("driver registry", () => {
   it("contains exactly the five supported runtimes", () => {
-    expect(listRuntimeIds().slice().sort()).toEqual([...EXPECTED_RUNTIMES].sort());
+    expect(drivers.listRuntimeIds().slice().sort()).toEqual([...EXPECTED_RUNTIMES].sort());
   });
 
   it("rejects removed and unknown runtimes", () => {
     for (const removed of ["antigravity", "copilot", "gemini", "kimi", "unknown-runtime"]) {
-      expect(() => getDriver(removed)).toThrow(/Unknown runtime/);
+      expect(() => drivers.getDriver(removed)).toThrow(/Unknown runtime/);
     }
   });
 });

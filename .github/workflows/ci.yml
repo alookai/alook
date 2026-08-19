@@ -109,6 +109,7 @@ jobs:
           TURBO_SCM_HEAD: ${{ needs.scope.outputs.head_sha }}
         run: pnpm turbo run lint --affected
       - run: pnpm typegrep:ws
+      - run: pnpm typegrep:agent-driver
 
   knip:
     name: Dead Code Detection (knip)

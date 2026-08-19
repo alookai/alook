@@ -262,6 +262,42 @@ describe("closed physical-lane tombstone", () => {
     expect(observed.find((event) => event.type === "rate_limits")).toMatchObject({ turnId: undefined });
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
+
+  it("rejects a prior receipt after the next turn starts and accepts only the new terminal owner", async () => {
+    const { session, driver } = makeSession("claude");
+    const first = await session.start({ id: "one", kind: "user", text: "first" });
+    await emit(driver, { kind: "turn_owner", receipt: "owner-a" });
+    await emit(driver, { kind: "turn_end", sessionId: "root", turnOwner: "owner-a" });
+    const second = await session.send({ id: "two", kind: "user", text: "second" });
+    await emit(driver, { kind: "turn_end", sessionId: "root", turnOwner: "owner-a" });
+    expect(session.snapshot().activeTurn?.turnId).toBe(second.status === "accepted" ? second.turnId : "unreachable");
+    await emit(driver, { kind: "turn_end", sessionId: "root", turnOwner: "owner-b" });
+    expect(session.snapshot().activeTurn).toBeUndefined();
+    expect(first.status).toBe("accepted");
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("does not reopen a tombstone for a different physical owner or generation", async () => {
+    const { session, driver } = makeSession("claude");
+    await session.start({ id: "one", kind: "user", text: "first" });
+    await emit(driver, { kind: "turn_end", sessionId: "root" });
+    const reopened = (session as any).reopenClosedLaneForWork(
+      { kind: "text", text: "stale" },
+      new SdkLane({ prompt: async () => {}, steer: async () => {} }, "other"),
+      99,
+    );
+    expect(reopened).toBeUndefined();
+    expect(session.snapshot().activeTurn).toBeUndefined();
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+});
+
+it("returns not_running when an SDK lane declines interrupt without disturbing the active turn", async () => {
+  const { session } = makeSession("pi");
+  const started = await session.start({ id: "one", kind: "user", text: "first" });
+  expect(await session.interrupt({ requestId: "no-op", reason: "test" })).toEqual({ status: "not_running" });
+  expect(session.snapshot().activeTurn?.turnId).toBe(started.status === "accepted" ? started.turnId : "unreachable");
+  await session.stop({ reason: "shutdown", forceAfterMs: 10 });
 });
 
 describe("backend-owned delivery behavior", () => {
@@ -803,6 +839,18 @@ describe("logical-session terminal facts", () => {
     await expect(starting).resolves.toEqual({ status: "rejected", reason: "closed" });
     if (backend === "pi") expect(driver.sdkHandle!.dispose).toHaveBeenCalledOnce();
     else expect(driver.processes[0].kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("keeps a late spawn rejection closed after a racing stop", async () => {
+    const gate = deferred();
+    const { session, driver } = makeSession("claude");
+    driver.spawnGate = gate.promise;
+    driver.failSpawn = new Error("late spawn failure");
+    const starting = session.start({ id: "one", kind: "user", text: "start" });
+    await Promise.resolve();
+    await session.stop({ reason: "owner_request", forceAfterMs: 10 });
+    gate.resolve();
+    await expect(starting).resolves.toEqual({ status: "rejected", reason: "closed" });
   });
 
   it("does not revive an SDK session after the first prompt fails synchronously", async () => {
