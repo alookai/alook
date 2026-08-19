@@ -12,13 +12,13 @@ import {
   type SessionFactory,
 } from "./managerRuntime.js";
 import type {
-  AdapterEvent,
   AgentEvent,
   AgentSession,
   AgentSessionResult,
   BuiltinBackendSpecs,
 } from "@alook/agent-driver";
-import { createBuiltinAgentDriverRegistry } from "@alook/agent-driver";
+import type { AdapterEvent } from "@alook/agent-driver/adapter-author";
+import { createBuiltinAgentDriverRegistry } from "@alook/agent-driver/adapter-author";
 import type { AgentBackend as Driver } from "../drivers/index.js";
 import type { HostLaunchContext as LaunchContext } from "./hostContext.js";
 import type { RuntimeConfig } from "../runtimeConfig.js";
@@ -123,18 +123,24 @@ function fakeSession(): FakeSession {
       },
     },
     closed,
-    start() {
+    start(message: { id: string }) {
       return new Promise((resolve, reject) => {
-        s.startResolver = () => resolve({
-          status: "accepted",
-          delivery: "prompt",
-          commandId: "test-start",
-          turnId: "test-turn",
-        });
+        s.startResolver = () => {
+          push({ type: "command_accepted", commandId: message.id, turnId: "test-turn", delivery: "prompt" } as never);
+          push({ type: "turn_started", turnId: "test-turn", commandIds: [message.id] } as never);
+          resolve({
+            status: "accepted",
+            delivery: "prompt",
+            commandId: message.id,
+            turnId: "test-turn",
+          });
+        };
         s.startRejector = reject;
       });
     },
     async send(message: { id: string }) {
+      push({ type: "command_accepted", commandId: message.id, turnId: "test-turn", delivery: "steer" } as never);
+      push({ type: "turn_started", turnId: "test-turn", commandIds: [message.id] } as never);
       return {
         status: "accepted" as const,
         delivery: "steer" as const,
@@ -643,7 +649,7 @@ describe("AgentProcessManager — session race conditions", () => {
     }
   });
 
-  it("internal_progress heartbeats do NOT refresh the stall watchdog — a compacting agent that only emits stream_event pings still gets terminated at the threshold", async () => {
+  it("turn-correlated internal progress renews the execution lease after a false terminal", async () => {
     vi.useFakeTimers();
     try {
       let currentTime = 0;
@@ -654,30 +660,20 @@ describe("AgentProcessManager — session race conditions", () => {
       session.startResolver?.();
       await Promise.resolve();
       await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      currentTime = 10;
+      await session.fire("runtime_event", { kind: "turn_end" });
+      expect(mgr.snapshot().agents.a1).toMatchObject({ turnActive: false, idleSince: 10 });
 
-      // Simulate Claude going into compaction and emitting only heartbeats.
-      // Without the fix these keep bumping lastProgressAt and the stall never
-      // fires; with the fix they're ignored for stall purposes.
       currentTime = 50;
-      await session.fire("runtime_event", { kind: "compaction_started" });
-      currentTime = 80;
       await session.fire("runtime_event", { kind: "internal_progress", source: "claude_system", itemType: "stream_event" });
       currentTime = 150;
       await session.fire("runtime_event", { kind: "internal_progress", source: "claude_system", itemType: "stream_event" });
 
-      // 200ms since spawn (t=0), 120ms since compaction_started's real
-      // progress event. Threshold is 100ms → watchdog must fire.
       currentTime = 200;
       await vi.advanceTimersByTimeAsync(10);
 
-      expect(
-        logger.calls.info.some(
-          ([m, d]) =>
-            m === "agent session ended" &&
-            (d[0] as any).reason === "terminate_stalled" &&
-            (d[0] as any).sessionId === "s1",
-        ),
-      ).toBe(true);
+      expect(mgr.snapshot().agents.a1).toMatchObject({ status: "running", turnActive: true, idleSince: null });
+      expect(logger.calls.info.some(([m, d]) => m === "agent session ended" && (d[0] as any).reason === "terminate_stalled")).toBe(false);
     } finally {
       vi.useRealTimers();
     }
@@ -2700,15 +2696,19 @@ function b1GatedDriver(): Driver {
   } as Driver;
 }
 
-function b1Session(order: string[], name = "s"): FakeSession {
+function b1Session(order: string[], name = "s", turnId = "test-turn"): FakeSession {
   const session = fakeSession();
   session.start = vi.fn(async (input: { id: string; text: string }) => {
     order.push(`${name}:start:${input.text}`);
-    return { status: "accepted" as const, delivery: "prompt" as const, commandId: input.id, turnId: "test-turn" };
+    void session.pushAgentEvent({ type: "command_accepted", commandId: input.id, turnId, delivery: "prompt" });
+    void session.pushAgentEvent({ type: "turn_started", turnId, commandIds: [input.id] });
+    return { status: "accepted" as const, delivery: "prompt" as const, commandId: input.id, turnId };
   });
   session.send = vi.fn(async (input: { id: string; text: string }) => {
     order.push(`${name}:send:${input.text}`);
-    return { status: "accepted" as const, delivery: "steer" as const, commandId: input.id, turnId: "test-turn" };
+    void session.pushAgentEvent({ type: "command_accepted", commandId: input.id, turnId, delivery: "steer" });
+    void session.pushAgentEvent({ type: "turn_started", turnId, commandIds: [input.id] });
+    return { status: "accepted" as const, delivery: "steer" as const, commandId: input.id, turnId };
   });
   session.stop = vi.fn(async (opts?: { reason?: string }) => {
     order.push(`${name}:stop:${opts?.reason ?? ""}`);
@@ -2899,9 +2899,12 @@ describe("B1 red gate — daemon-owned turn span lifecycle", () => {
     });
     unknownManager.deliver("a1", { seq: 1, text: "unknown" });
     await Promise.resolve();
+    await Promise.resolve();
     (unknownManager as unknown as { dispatch(event: unknown): void }).dispatch({
-      type: "turn_end",
+      type: "turn_completed",
       agentId: "a1",
+      sessionInstanceId: "test-instance",
+      turnId: "test-turn",
       nowMs: 1,
       endReason: "errored",
       terminationCause: "HOSTILE_UNKNOWN_CAUSE_832a",
@@ -2914,7 +2917,7 @@ describe("B1 red gate — daemon-owned turn span lifecycle", () => {
     expect(JSON.stringify(unknownRows)).not.toContain("HOSTILE_UNKNOWN_CAUSE_832a");
   });
 
-  it("annotates active tick/progress/runtime_signal rows and clears every later row after close", async () => {
+  it("annotates active tick/root_work/runtime_signal rows and leaves tail diagnostics observational", async () => {
     vi.useFakeTimers();
     try {
       let now = 1_000;
@@ -2930,13 +2933,14 @@ describe("B1 red gate — daemon-owned turn span lifecycle", () => {
       mgr.deliver("a1", { seq: 1, text: "active" });
       await Promise.resolve();
       await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      await session.fire("runtime_event", { kind: "text", text: "root work" });
       now = 1_005;
       await vi.advanceTimersByTimeAsync(5);
 
       const begin = b1SpanRows(rows, "turn_begin")[0];
       expect(begin).toBeTruthy();
       const activeId = begin!.traceTurnId;
-      for (const event of ["progress", "runtime_signal", "tick"]) {
+      for (const event of ["root_work", "runtime_signal", "tick"]) {
         expect(rows.some((row) => row.event === event && row.traceTurnId === activeId)).toBe(true);
       }
 
@@ -2947,7 +2951,7 @@ describe("B1 red gate — daemon-owned turn span lifecycle", () => {
 
       now = 1_010;
       await vi.advanceTimersByTimeAsync(5);
-      await session.fire("runtime_event", { kind: "internal_progress" });
+      await session.fire("stderr", "tail diagnostic");
       await session.fire("exit", { code: 0, reason: "runtime_exit" });
       expect(rows.some((row) => ["tick", "runtime_signal", "exit"].includes(String(row.event)))).toBe(true);
       expect(rows.every((row) => row.traceTurnId === undefined)).toBe(true);
@@ -3236,6 +3240,7 @@ describe("B1 red gate — exact-once terminal matrix", () => {
       onAgentEvent(agentId: string, event: AgentEvent<BuiltinBackendSpecs, "codex">, runtimeId: "codex", owner: object): void;
     };
     const owner = internal.activeSpawnState.get("a1")!;
+    const baselineSignals = rows.filter((row) => row.event === "runtime_signal").length;
     let sequence = 100;
     const publish = (event: object) => internal.onAgentEvent("a1", {
       ...event,
@@ -3257,7 +3262,75 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     });
     publish({ type: "turn_started", turnId: "test-turn", commandIds: ["accepted"] });
 
-    expect(rows.filter((row) => row.event === "runtime_signal")).toHaveLength(9);
+    expect(rows.filter((row) => row.event === "runtime_signal")).toHaveLength(baselineSignals + 9);
+  });
+
+  it("keeps tail telemetry observational while turn-correlated work can recover a false terminal", async () => {
+    const session = b1Session([], "s", "root-turn");
+    const { mgr } = b1Manager({ sessions: [session] });
+    mgr.deliver("a1", { id: "root-command", seq: 1, text: "active" });
+    await Promise.resolve();
+    const internal = mgr as unknown as {
+      activeSpawnState: Map<string, object>;
+      onAgentEvent(agentId: string, event: AgentEvent<BuiltinBackendSpecs, "codex">, runtimeId: "codex", owner: object): void;
+    };
+    const owner = internal.activeSpawnState.get("a1")!;
+    let sequence = 200;
+    const publish = (event: object) => internal.onAgentEvent("a1", {
+      ...event,
+      sequence: ++sequence,
+      sessionInstanceId: "test-instance",
+      at: Date.now(),
+    } as never, "codex", owner);
+
+    publish({ type: "turn_started", turnId: "root-turn", commandIds: ["root-command"] });
+    publish({
+      type: "turn_completed",
+      turnId: "root-turn",
+      commandIds: ["root-command"],
+      result: { outcome: "success", backendSessionId: "s1" },
+    });
+    const idleSince = mgr.snapshot().agents.a1.idleSince;
+    expect(mgr.snapshot().agents.a1).toMatchObject({ turnActive: false, turnId: "root-turn" });
+
+    publish({ type: "diagnostic", turnId: "root-turn", severity: "warning", source: "codex", message: "tail" });
+    publish({ type: "token_usage", turnId: "root-turn", source: "codex", usage: {}, details: {} });
+    publish({ type: "rate_limits", source: "codex", details: {} });
+    expect(mgr.snapshot().agents.a1).toMatchObject({ turnActive: false, idleSince });
+
+    publish({ type: "internal_progress", turnId: "root-turn", source: "codex", itemType: "root-work" });
+    expect(mgr.snapshot().agents.a1).toMatchObject({ turnActive: true, turnId: "root-turn", idleSince: null });
+  });
+
+  it("requeues a later asynchronous command_failed exactly once by delivery id", async () => {
+    const session = b1Session([]);
+    const { mgr } = b1Manager({ sessions: [session] });
+    mgr.deliver("a1", { id: "first", seq: 1, text: "first" });
+    await Promise.resolve();
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    session.send = vi.fn(async () => ({ status: "queued" as const, reason: "unsafe_boundary" as const, commandId: "later" }));
+    mgr.deliver("a1", { id: "later", seq: 2, text: "later" });
+    await Promise.resolve();
+
+    const internal = mgr as unknown as {
+      activeSpawnState: Map<string, object>;
+      onAgentEvent(agentId: string, event: AgentEvent<BuiltinBackendSpecs, "codex">, runtimeId: "codex", owner: object): void;
+    };
+    const owner = internal.activeSpawnState.get("a1")!;
+    const failed = {
+      type: "command_failed",
+      commandId: "later",
+      turnId: "test-turn",
+      error: { category: "process", code: "delivery_failed", message: "failed", retryable: true },
+      sequence: 300,
+      sessionInstanceId: "test-instance",
+      at: Date.now(),
+    } as const;
+    internal.onAgentEvent("a1", failed as never, "codex", owner);
+    internal.onAgentEvent("a1", { ...failed, sequence: 301 } as never, "codex", owner);
+
+    expect(mgr.snapshot().agents.a1.inbox).toEqual([{ id: "later", seq: 2, text: "later" }]);
+    expect(session.stop).toHaveBeenCalledTimes(1);
   });
 
   for (const mode of ["idle", "busy"] as const) {
@@ -3509,15 +3582,15 @@ describe("Codex root event ownership — subagent completion isolation", () => {
           if (event.kind === "session_init") {
             await session.pushAgentEvent({ type: "session_started", backendSessionId: event.sessionId });
           } else if (event.kind === "thinking") {
-            await session.pushAgentEvent({ type: "thinking_delta", turnId: "root-turn", text: event.text });
+            await session.pushAgentEvent({ type: "thinking_delta", turnId: "test-turn", text: event.text });
           } else if (event.kind === "tool_call") {
-            await session.pushAgentEvent({ type: "tool_started", turnId: "root-turn", name: event.name, input: event.input as never });
+            await session.pushAgentEvent({ type: "tool_started", turnId: "test-turn", name: event.name, input: event.input as never });
           } else if (event.kind === "tool_output") {
-            await session.pushAgentEvent({ type: "tool_finished", turnId: "root-turn", name: event.name });
+            await session.pushAgentEvent({ type: "tool_finished", turnId: "test-turn", name: event.name });
           } else if (event.kind === "turn_end") {
             await session.pushAgentEvent({
               type: "turn_completed",
-              turnId: "root-turn",
+              turnId: "test-turn",
               commandIds: ["root-command"],
               result: { outcome: "success", backendSessionId: event.sessionId ?? "root-thread" },
             });

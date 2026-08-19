@@ -40,7 +40,7 @@ const EXPECTED_MANAGER_EVENTS = [
   "wake",
   "spawned",
   "session",
-  "progress",
+  "root_work",
   "turn_end",
   "exit",
   "tick",

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { AgentDriverHost, PreparedExecutionResource } from "@alook/agent-driver";
+import type { AgentDriverHost, PreparedExecutionResource } from "@alook/agent-driver/adapter-author";
 import type { HostLaunchContext } from "./hostContext.js";
 import { buildGitIdentityEnv, readHostGitIdentity } from "../drivers/gitIdentityEnv.js";
 

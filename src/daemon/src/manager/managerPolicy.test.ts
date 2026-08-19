@@ -34,6 +34,64 @@ function register(state: ManagerState, agentId: string, _caps: LegacyCaps): Mana
   return reduceManager(state, { type: "register", agentId }).state;
 }
 
+const SESSION_INSTANCE = "session-instance-a";
+
+function spawnRoot(state: ManagerState, nowMs: number, turnId = "turn-a"): ManagerState {
+  let next = reduceManager(state, {
+    type: "attach_session",
+    agentId: "a",
+    sessionInstanceId: SESSION_INSTANCE,
+    nowMs,
+  }).state;
+  next = reduceManager(next, {
+    type: "turn_started",
+    agentId: "a",
+    sessionInstanceId: SESSION_INSTANCE,
+    turnId,
+    commandIds: [],
+    nowMs,
+  }).state;
+  return reduceManager(next, { type: "spawned", agentId: "a", nowMs }).state;
+}
+
+function completeRoot(state: ManagerState, turnId: string, nowMs: number) {
+  return reduceManager(state, {
+    type: "turn_completed",
+    agentId: "a",
+    sessionInstanceId: SESSION_INSTANCE,
+    turnId,
+    nowMs,
+  });
+}
+
+function workRoot(state: ManagerState, turnId: string, nowMs: number): ManagerState {
+  return reduceManager(state, {
+    type: "turn_work",
+    agentId: "a",
+    sessionInstanceId: SESSION_INSTANCE,
+    turnId,
+    nowMs,
+  }).state;
+}
+
+function startAdmission(
+  state: ManagerState,
+  commandId: string,
+  nowMs: number,
+  sessionInstanceId = SESSION_INSTANCE,
+): ManagerState {
+  return reduceManager(state, {
+    type: "admission_started",
+    agentId: "a",
+    sessionInstanceId,
+    commandId,
+    exactAgentMsg: { id: commandId, text: commandId },
+    mode: "idle",
+    requeueOnFailure: true,
+    nowMs,
+  }).state;
+}
+
 describe("reduceManager — single-flight spawn", () => {
   it("first wake from idle spawns; second wake while starting does NOT spawn again", () => {
     let s = createInitialManagerState();
@@ -62,7 +120,7 @@ describe("reduceManager — steering a running persistent agent", () => {
     let s = createInitialManagerState();
     s = register(s, "a", PERSISTENT_DIRECT);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state; // running, turnActive
+    s = spawnRoot(s, 2); // running, turnActive
 
     const r = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m2" }, nowMs: 3 });
     expect(r.effects).toEqual([{ type: "send", agentId: "a", message: { text: "m2" }, mode: "busy" }]);
@@ -74,8 +132,8 @@ describe("reduceManager — steering a running persistent agent", () => {
     let s = createInitialManagerState();
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state;
-    s = reduceManager(s, { type: "turn_end", agentId: "a", nowMs: 3 }).state; // running, turnActive=false, idle
+    s = spawnRoot(s, 2);
+    s = completeRoot(s, "turn-a", 3).state; // running, turnActive=false, idle
 
     const r = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m2" }, nowMs: 4 });
     expect(r.effects).toEqual([{ type: "send", agentId: "a", message: { text: "m2" }, mode: "idle" }]);
@@ -85,34 +143,50 @@ describe("reduceManager — steering a running persistent agent", () => {
     let s = createInitialManagerState();
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state;
-    s = reduceManager(s, { type: "turn_end", agentId: "a", nowMs: 3 }).state; // running, turnActive=false, idle
+    s = spawnRoot(s, 2);
+    s = completeRoot(s, "turn-a", 3).state; // running, turnActive=false, idle
 
     expect(s.agents.a.turnActive).toBe(false);
     const r = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m2" }, nowMs: 4 });
-    expect(r.state.agents.a.turnActive).toBe(true);
+    expect(r.state.agents.a.turnActive).toBe(false);
+    s = startAdmission(r.state, "m2", 4);
+    expect(s.agents.a.turnActive).toBe(true);
   });
 
   it("restores an idle delivery to the inbox when the session rejects admission", () => {
     let s = createInitialManagerState();
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { id: "one", text: "first" }, nowMs: 1 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state;
-    s = reduceManager(s, { type: "turn_end", agentId: "a", nowMs: 3 }).state;
+    s = spawnRoot(s, 2);
+    s = completeRoot(s, "turn-a", 3).state;
     s = reduceManager(s, { type: "wake", agentId: "a", message: { id: "two", text: "retry me" }, nowMs: 4 }).state;
+    s = startAdmission(s, "two", 4);
     expect(s.agents.a).toMatchObject({ turnActive: true, inbox: [] });
 
-    const rejected = reduceManager(s, {
+    const failed = reduceManager(s, {
+      type: "admission_settled",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      commandId: "two",
+      outcome: "failed",
+    });
+    expect(failed.effects).toEqual([{
+      type: "requeue_delivery",
+      agentId: "a",
+      message: { id: "two", text: "two" },
+      mode: "idle",
+    }]);
+    const rejected = reduceManager(failed.state, {
       type: "delivery_rejected",
       agentId: "a",
-      message: { id: "two", text: "retry me" },
+      message: { id: "two", text: "two" },
       mode: "idle",
     });
     expect(rejected.effects).toEqual([]);
     expect(rejected.state.agents.a).toMatchObject({
       turnActive: false,
       lastDeliverAt: null,
-      inbox: [{ id: "two", text: "retry me" }],
+      inbox: [{ id: "two", text: "two" }],
     });
   });
 });
@@ -122,23 +196,23 @@ describe("reduceManager — turn_end behavior", () => {
     let s = createInitialManagerState();
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state;
+    s = spawnRoot(s, 2);
     // queue while running but pretend not steered: directly push via wake after turn?
     // Simulate a message arriving then the turn ending with it still queued:
     s = { ...s, agents: { ...s.agents, a: { ...s.agents.a, inbox: [{ text: "queued" }] } } };
 
-    const r = reduceManager(s, { type: "turn_end", agentId: "a", nowMs: 5 });
+    const r = completeRoot(s, "turn-a", 5);
     expect(r.effects).toEqual([{ type: "send", agentId: "a", message: { text: "queued" }, mode: "idle" }]);
-    expect(r.state.agents.a.turnActive).toBe(true);
+    expect(r.state.agents.a.turnActive).toBe(false);
   });
 
   it("persistent with empty inbox goes idle and starts the idle clock", () => {
     let s = createInitialManagerState();
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state;
+    s = spawnRoot(s, 2);
 
-    const r = reduceManager(s, { type: "turn_end", agentId: "a", nowMs: 5 });
+    const r = completeRoot(s, "turn-a", 5);
     expect(r.effects).toEqual([]);
     expect(r.state.agents.a.turnActive).toBe(false);
     expect(r.state.agents.a.idleSince).toBe(5);
@@ -150,7 +224,7 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
     let s = createInitialManagerState(100); // staleThresholdMs = 100
     s = register(s, "a", PER_TURN);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state; // lastProgressAt=0, turnActive
+    s = spawnRoot(s, 0); // lastProgressAt=0, turnActive
 
     const r = reduceManager(s, { type: "tick", nowMs: 200 });
     expect(r.effects).toEqual([{ type: "terminate_stalled", agentId: "a" }]);
@@ -161,7 +235,7 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
     let s = createInitialManagerState(100);
     s = register(s, "a", PER_TURN);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state;
+    s = spawnRoot(s, 0);
     expect(reduceManager(s, { type: "tick", nowMs: 50 }).effects).toEqual([]);
   });
 
@@ -169,9 +243,9 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
     let s = createInitialManagerState(100_000, 100); // idleTimeoutMs = 100
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state;
-    s = reduceManager(s, { type: "session", agentId: "a", sessionId: "sess-1" }).state;
-    s = reduceManager(s, { type: "turn_end", agentId: "a", nowMs: 0 }).state; // idleSince=0
+    s = spawnRoot(s, 0);
+    s = reduceManager(s, { type: "backend_session", agentId: "a", sessionId: "sess-1" }).state;
+    s = completeRoot(s, "turn-a", 0).state; // idleSince=0
 
     const r = reduceManager(s, { type: "tick", nowMs: 200 });
     expect(r.effects).toEqual([{ type: "stop", agentId: "a", reason: "idle_timeout" }]);
@@ -182,31 +256,74 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
     let s = createInitialManagerState(10_000, 100);
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state;
+    s = spawnRoot(s, 0);
 
     // Models the pre-fix ownership corruption: a child completion was mistaken
     // for the root terminal, but the parent keeps emitting real tool/content
     // progress well past the idle timeout.
-    s = reduceManager(s, { type: "turn_end", agentId: "a", nowMs: 10 }).state;
+    s = completeRoot(s, "turn-a", 10).state;
     expect(s.agents.a).toMatchObject({ turnActive: false, idleSince: 10 });
-    s = reduceManager(s, { type: "progress", agentId: "a", nowMs: 50 }).state;
+    s = reduceManager(s, { type: "turn_work", agentId: "a", sessionInstanceId: SESSION_INSTANCE, turnId: "turn-a", nowMs: 50 }).state;
     expect(s.agents.a).toMatchObject({ turnActive: true, idleSince: null, lastProgressAt: 50 });
-    s = reduceManager(s, { type: "progress", agentId: "a", nowMs: 250 }).state;
+    s = reduceManager(s, { type: "turn_work", agentId: "a", sessionInstanceId: SESSION_INSTANCE, turnId: "turn-a", nowMs: 250 }).state;
     expect(reduceManager(s, { type: "tick", nowMs: 500 }).effects).toEqual([]);
 
     // A genuine later root completion still arms and executes normal idle stop.
-    s = reduceManager(s, { type: "turn_end", agentId: "a", nowMs: 501 }).state;
+    s = completeRoot(s, "turn-a", 501).state;
     expect(reduceManager(s, { type: "tick", nowMs: 700 }).effects).toEqual([
       { type: "stop", agentId: "a", reason: "idle_timeout" },
     ]);
+  });
+
+  it("rejects stale/child turn terminals and activity outside the canonical execution lease", () => {
+    let s = createInitialManagerState(10_000, 100);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
+    s = spawnRoot(s, 0, "root-turn");
+
+    const beforeChildTerminal = s;
+    s = completeRoot(s, "child-turn", 10).state;
+    expect(s).toBe(beforeChildTerminal);
+    expect(s.agents.a).toMatchObject({ turnActive: true, turnId: "root-turn", idleSince: null });
+
+    s = completeRoot(s, "root-turn", 20).state;
+    s = reduceManager(s, { type: "turn_work", agentId: "a", sessionInstanceId: SESSION_INSTANCE, turnId: "child-turn", nowMs: 30 }).state;
+    expect(s.agents.a).toMatchObject({ turnActive: false, turnId: "root-turn", idleSince: 20 });
+
+    s = reduceManager(s, { type: "turn_work", agentId: "a", sessionInstanceId: SESSION_INSTANCE, turnId: "root-turn", nowMs: 40 }).state;
+    expect(s.agents.a).toMatchObject({ turnActive: true, turnId: "root-turn", idleSince: null });
+  });
+
+  it("does not let a duplicate previous terminal end a newly delivered turn before its identity is established", () => {
+    let s = createInitialManagerState(10_000, 100);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "first" }, nowMs: 0 }).state;
+    s = spawnRoot(s, 0, "turn-1");
+    s = completeRoot(s, "turn-1", 2).state;
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "second" }, nowMs: 3 }).state;
+    s = startAdmission(s, "second", 3);
+    expect(s.agents.a).toMatchObject({ turnActive: true, turnId: "turn-1", lastDeliverAt: 3 });
+
+    const beforeDuplicate = s;
+    s = completeRoot(s, "turn-1", 4).state;
+    expect(s).toBe(beforeDuplicate);
+    s = reduceManager(s, {
+      type: "turn_started",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      turnId: "turn-2",
+      commandIds: ["second"],
+      nowMs: 5,
+    }).state;
+    expect(s.agents.a).toMatchObject({ turnActive: true, turnId: "turn-2" });
   });
 
   it("idle timeout of 0 disables hibernation", () => {
     let s = createInitialManagerState(100_000, 0);
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state;
-    s = reduceManager(s, { type: "turn_end", agentId: "a", nowMs: 0 }).state;
+    s = spawnRoot(s, 0);
+    s = completeRoot(s, "turn-a", 0).state;
     expect(reduceManager(s, { type: "tick", nowMs: 10_000 }).effects).toEqual([]);
   });
 });
@@ -216,20 +333,21 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
 // predicates. Reproduces Olivia's wedge: a gated agent turn-ends idle, a later
 // wake drain-sends (stamping lastDeliverAt, re-arming turnActive), then the
 // process goes deaf — no progress, no turn_end, no exit ever follows.
-describe("reduceManager — tick: suspected-deaf detection (batch A)", () => {
+describe("reduceManager — admission timeout", () => {
   // Build the exact orphan tuple: running, turnActive (from the drain-send),
   // inbox empty (drained), lastDeliverAt > lastProgressAt, past the threshold.
   function toDeafOrphan(staleMs = 100) {
     let s = createInitialManagerState(staleMs);
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state;
-    s = reduceManager(s, { type: "session", agentId: "a", sessionId: "sess-1" }).state;
+    s = spawnRoot(s, 0);
+    s = reduceManager(s, { type: "backend_session", agentId: "a", sessionId: "sess-1" }).state;
     // Turn ends → turnActive false, idleSince armed, lastProgressAt=10.
-    s = reduceManager(s, { type: "turn_end", agentId: "a", nowMs: 10 }).state;
+    s = completeRoot(s, "turn-a", 10).state;
     // A later wake on the now-idle turn drain-sends into the (about-to-go-deaf)
     // process: stamps lastDeliverAt=20, re-arms turnActive, drains the inbox.
-    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m2" }, nowMs: 20 }).state;
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { id: "m2", text: "m2" }, nowMs: 20 }).state;
+    s = startAdmission(s, "m2", 20);
     return s;
   }
 
@@ -241,7 +359,15 @@ describe("reduceManager — tick: suspected-deaf detection (batch A)", () => {
     expect(s.agents.a.lastProgressAt).toBe(10); // deliver newer than last progress
 
     const r = reduceManager(s, { type: "tick", nowMs: 200 });
-    expect(r.effects).toEqual([{ type: "terminate_stalled", agentId: "a" }]);
+    expect(r.effects).toEqual([
+      { type: "requeue_delivery", agentId: "a", message: { id: "m2", text: "m2" }, mode: "idle" },
+      {
+        type: "expire_admission",
+        agentId: "a",
+        sessionInstanceId: SESSION_INSTANCE,
+        commandIds: ["m2"],
+      },
+    ]);
     expect(r.state.agents.a.status).toBe("stopping");
   });
 
@@ -252,10 +378,13 @@ describe("reduceManager — tick: suspected-deaf detection (batch A)", () => {
 
   it("does NOT flag a healthy agent whose process reported progress after the delivery", () => {
     let s = toDeafOrphan();
-    // Process answers: a progress event lands after the deliver → lastProgressAt
-    // (30) overtakes lastDeliverAt (20), so the suspicion clears on its own.
-    s = reduceManager(s, { type: "progress", agentId: "a", nowMs: 30 }).state;
-    s = { ...s, agents: { ...s.agents, a: { ...s.agents.a, turnActive: false } } };
+    s = reduceManager(s, {
+      type: "admission_settled",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      commandId: "m2",
+      outcome: "failed",
+    }).state;
     expect(reduceManager(s, { type: "tick", nowMs: 200 }).effects).toEqual([]);
   });
 
@@ -263,9 +392,9 @@ describe("reduceManager — tick: suspected-deaf detection (batch A)", () => {
     let s = createInitialManagerState(100);
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state;
+    s = spawnRoot(s, 0);
     expect(s.agents.a.lastDeliverAt).toBeNull();
-    s = { ...s, agents: { ...s.agents, a: { ...s.agents.a, turnActive: false } } };
+    s = completeRoot(s, "turn-a", 1).state;
     expect(reduceManager(s, { type: "tick", nowMs: 200 }).effects).toEqual([]);
   });
 
@@ -293,7 +422,7 @@ describe("reduceManager — tick: reset-stuck reconcile (batch D)", () => {
     let s = createInitialManagerState(100_000, 100_000, resetStuckMs);
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state; // running
+    s = spawnRoot(s, 0); // running
     s = reduceManager(s, { type: "begin_reset", agentId: "a", nowMs: 10 }).state; // resetting, resettingSince=10
     s = reduceManager(s, { type: "rewake_after_reset", agentId: "a", message: { text: "rewake" } }).state;
     s = reduceManager(s, { type: "exit", agentId: "a" }).state; // onExit → respawn, status=starting, resetting stays
@@ -331,7 +460,7 @@ describe("reduceManager — tick: reset-stuck reconcile (batch D)", () => {
     let s = toResetStuckOrphan();
     // The respawn finally reaches running → spawned → enterStable clears the
     // reset window. The reconcile must go quiet.
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 150 }).state;
+    s = spawnRoot(s, 150);
     expect(s.agents.a.resetting).toBe(false);
     expect(s.agents.a.resettingSince).toBeNull();
     expect(reduceManager(s, { type: "tick", nowMs: 10_000 }).effects).toEqual([]);
@@ -359,7 +488,7 @@ describe("reduceManager — tick: reset-stuck reconcile (batch D)", () => {
     let s = createInitialManagerState(100_000, 100_000, 100);
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state; // running, resetting=false
+    s = spawnRoot(s, 0); // running, resetting=false
     expect(reduceManager(s, { type: "tick", nowMs: 10_000 }).effects).toEqual([]);
   });
 });
@@ -378,8 +507,8 @@ describe("reduceManager — tick: stopping-stuck escalation (batch L3)", () => {
     let s = createInitialManagerState(1_000_000, 50, 1_000_000, stoppingStuckMs);
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state;
-    s = reduceManager(s, { type: "turn_end", agentId: "a", nowMs: 0 }).state; // idleSince=0
+    s = spawnRoot(s, 0);
+    s = completeRoot(s, "turn-a", 0).state; // idleSince=0
     // Idle-timeout tick (past idleTimeout=50) → status=stopping, stoppingSince stamped.
     s = reduceManager(s, { type: "tick", nowMs: 100 }).state;
     return s;
@@ -389,8 +518,8 @@ describe("reduceManager — tick: stopping-stuck escalation (batch L3)", () => {
     let s = createInitialManagerState(1_000_000, 50, 1_000_000, 100);
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state;
-    s = reduceManager(s, { type: "turn_end", agentId: "a", nowMs: 0 }).state;
+    s = spawnRoot(s, 0);
+    s = completeRoot(s, "turn-a", 0).state;
     const r = reduceManager(s, { type: "tick", nowMs: 100 });
     expect(r.effects).toEqual([{ type: "stop", agentId: "a", reason: "idle_timeout" }]);
     expect(r.state.agents.a.status).toBe("stopping");
@@ -437,8 +566,8 @@ describe("reduceManager — tick: stopping-stuck escalation (batch L3)", () => {
     // idle-timeout path isn't reachable in starting; instead drive it via a
     // fresh stopping through the reset-stuck-like route is out of scope here).
     // Minimal: confirm a NEW stopping stamps a fresh clock.
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 300 }).state; // running
-    s = reduceManager(s, { type: "turn_end", agentId: "a", nowMs: 300 }).state; // idle
+    s = spawnRoot(s, 300); // running
+    s = completeRoot(s, "turn-a", 300).state; // idle
     s = reduceManager(s, { type: "tick", nowMs: 400 }).state; // idle-timeout → stopping again
     expect(s.agents.a.status).toBe("stopping");
     expect(s.agents.a.stoppingSince).toBe(400); // fresh clock, not the old 100
@@ -450,7 +579,7 @@ describe("reduceManager — tick: stopping-stuck escalation (batch L3)", () => {
     let s = createInitialManagerState(1_000_000, 1_000_000, 1_000_000, 100);
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state;
+    s = spawnRoot(s, 0);
     expect(s.agents.a.stoppingSince).toBeNull();
     expect(reduceManager(s, { type: "tick", nowMs: 10_000 }).effects).toEqual([]);
   });
@@ -461,8 +590,8 @@ describe("reduceManager — reset_session", () => {
     let s = createInitialManagerState();
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state;
-    s = reduceManager(s, { type: "session", agentId: "a", sessionId: "sess-1" }).state;
+    s = spawnRoot(s, 0);
+    s = reduceManager(s, { type: "backend_session", agentId: "a", sessionId: "sess-1" }).state;
     expect(s.agents.a.sessionId).toBe("sess-1");
     const prevStatus = s.agents.a.status;
     const prevTurnActive = s.agents.a.turnActive;
@@ -515,7 +644,7 @@ describe("reduceManager — onWake `resetting` gate", () => {
     let s = createInitialManagerState();
     s = register(s, "a", PERSISTENT_DIRECT);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state;
+    s = spawnRoot(s, 2);
     // Set resetting via the FSM event (bypassing onSpawned's auto-clear
     // which fires before this event).
     s = reduceManager(s, { type: "begin_reset", agentId: "a", nowMs: 1 }).state;
@@ -531,7 +660,7 @@ describe("reduceManager — onWake `resetting` gate", () => {
     let s = createInitialManagerState();
     s = register(s, "a", PERSISTENT_GATED);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state;
+    s = spawnRoot(s, 2);
     s = reduceManager(s, { type: "begin_reset", agentId: "a", nowMs: 1 }).state;
 
     const r = reduceManager(s, { type: "wake", agentId: "a", message: { text: "unread" }, nowMs: 3 });
@@ -570,7 +699,7 @@ describe("reduceManager — onExit / onSpawned clear resetting", () => {
     s = register(s, "a", PERSISTENT_DIRECT);
     // Simulate live agent
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state;
+    s = spawnRoot(s, 2);
     // Begin reset: mark + enqueue rewake
     s = reduceManager(s, { type: "begin_reset", agentId: "a", nowMs: 1 }).state;
     s = reduceManager(s, { type: "rewake_after_reset", agentId: "a", message: { text: "REWAKE" } }).state;
@@ -593,7 +722,7 @@ describe("reduceManager — onExit / onSpawned clear resetting", () => {
     expect(r.state.agents.a.status).toBe("starting");
     expect(r.state.agents.a.resetting).toBe(true);
     // ...and closes on the respawn's `spawned`.
-    const r2 = reduceManager(r.state, { type: "spawned", agentId: "a", nowMs: 5 });
+    const r2 = { state: spawnRoot(r.state, 5), effects: [] };
     expect(r2.state.agents.a.status).toBe("running");
     expect(r2.state.agents.a.resetting).toBe(false);
     expect(r2.state.agents.a.resettingSince).toBeNull();
@@ -603,7 +732,7 @@ describe("reduceManager — onExit / onSpawned clear resetting", () => {
     let s = createInitialManagerState();
     s = register(s, "a", PERSISTENT_DIRECT);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;
-    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state;
+    s = spawnRoot(s, 2);
     s = reduceManager(s, { type: "begin_reset", agentId: "a", nowMs: 3 }).state;
     s = reduceManager(s, { type: "rewake_after_reset", agentId: "a", message: { text: "REWAKE" } }).state;
     // Kill → exit → respawn emitted, status goes to the transient `starting`.
@@ -626,7 +755,7 @@ describe("reduceManager — onExit / onSpawned clear resetting", () => {
     // Idle-branch deliver emits spawn (idle exempt).
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "REWAKE" }, nowMs: 1 }).state;
     expect(s.agents.a.resetting).toBe(true);
-    const r = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 });
+    const r = { state: spawnRoot(s, 2), effects: [] };
     expect(r.state.agents.a.resetting).toBe(false);
   });
 
@@ -653,6 +782,18 @@ describe("isActivelyWorking — single source of truth for the profile pill", ()
       status: fields.status,
       inbox: Array.from({ length: fields.inbox }, (_, i) => ({ seq: i, text: "m" })),
       sessionId: null,
+      execution: fields.turnActive
+        ? {
+            sessionInstanceId: SESSION_INSTANCE,
+            lease: {
+              state: "active",
+              identity: { sessionInstanceId: SESSION_INSTANCE, turnId: "turn-a" },
+              lastWorkAt: 0,
+            },
+          }
+        : { sessionInstanceId: SESSION_INSTANCE, lease: { state: "none", lastTerminal: null } },
+      pendingAdmissions: [],
+      turnId: fields.turnActive ? "turn-a" : null,
       turnActive: fields.turnActive,
       lastProgressAt: 0,
       lastDeliverAt: null,
@@ -679,5 +820,125 @@ describe("isActivelyWorking — single source of truth for the profile pill", ()
     for (const status of ["idle", "starting", "stopping"] as AgentStatus[]) {
       expect(isActivelyWorking(agentWith({ status, turnActive: true, inbox: 3 }))).toBe(false);
     }
+  });
+});
+
+describe("root execution lease — session epoch fences", () => {
+  it("rotates the admission ledger atomically and makes late old-session settlement/timeout inert", () => {
+    let s = createInitialManagerState(100);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { id: "old", text: "old exact text" }, nowMs: 0 }).state;
+    s = reduceManager(s, {
+      type: "attach_session",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      nowMs: 1,
+    }).state;
+    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 1 }).state;
+    s = reduceManager(s, {
+      type: "admission_started",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      commandId: "reused-command",
+      exactAgentMsg: { id: "reused-command", seq: 7, text: "old exact text" },
+      mode: "busy",
+      requeueOnFailure: true,
+      nowMs: 2,
+    }).state;
+
+    const replacementSession = "session-instance-b";
+    const rotated = reduceManager(s, {
+      type: "attach_session",
+      agentId: "a",
+      sessionInstanceId: replacementSession,
+      nowMs: 3,
+    });
+    expect(rotated.state.agents.a).toMatchObject({
+      execution: { sessionInstanceId: replacementSession, lease: { state: "none", lastTerminal: null } },
+      pendingAdmissions: [],
+    });
+    expect(rotated.effects).toEqual([{
+      type: "requeue_delivery",
+      agentId: "a",
+      message: { id: "reused-command", seq: 7, text: "old exact text" },
+      mode: "busy",
+    }]);
+
+    s = startAdmission(rotated.state, "reused-command", 90, replacementSession);
+    const replacement = s.agents.a;
+    for (const outcome of ["accepted", "failed"] as const) {
+      const late = reduceManager(s, {
+        type: "admission_settled",
+        agentId: "a",
+        sessionInstanceId: SESSION_INSTANCE,
+        commandId: "reused-command",
+        outcome,
+      });
+      expect(late.state).toBe(s);
+      expect(late.effects).toEqual([]);
+      expect(late.state.agents.a).toEqual(replacement);
+    }
+    const beforeOldTimeout = reduceManager(s, { type: "tick", nowMs: 150 });
+    expect(beforeOldTimeout.state.agents.a).toEqual(replacement);
+    expect(beforeOldTimeout.effects).toEqual([]);
+  });
+
+  it("ignores old-session admission, work, and terminal callbacks even when local turn ids are reused", () => {
+    let s = createInitialManagerState();
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { id: "first", text: "first" }, nowMs: 0 }).state;
+    s = spawnRoot(s, 1, "reused-turn");
+    s = completeRoot(s, "reused-turn", 2).state;
+    s = startAdmission(s, "old-pending", 3);
+
+    const replacementSession = "session-instance-b";
+    s = reduceManager(s, {
+      type: "attach_session",
+      agentId: "a",
+      sessionInstanceId: replacementSession,
+      nowMs: 4,
+    }).state;
+    s = startAdmission(s, "new-pending", 5, replacementSession);
+    s = reduceManager(s, {
+      type: "turn_started",
+      agentId: "a",
+      sessionInstanceId: replacementSession,
+      turnId: "reused-turn",
+      commandIds: ["new-pending"],
+      nowMs: 6,
+    }).state;
+    const replacement = s.agents.a.execution;
+
+    for (const late of [
+      { type: "admission_settled", agentId: "a", sessionInstanceId: SESSION_INSTANCE, commandId: "old-pending", outcome: "accepted" },
+      { type: "turn_work", agentId: "a", sessionInstanceId: SESSION_INSTANCE, turnId: "reused-turn", nowMs: 7 },
+      { type: "turn_completed", agentId: "a", sessionInstanceId: SESSION_INSTANCE, turnId: "reused-turn", nowMs: 8 },
+    ] as const) {
+      const before = s;
+      s = reduceManager(s, late).state;
+      expect(s).toBe(before);
+      expect(s.agents.a.execution).toEqual(replacement);
+    }
+  });
+
+  it("does not overwrite an active lease with a different turn identity", () => {
+    let s = createInitialManagerState();
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "first" }, nowMs: 0 }).state;
+    s = spawnRoot(s, 1, "root-turn");
+    const before = s;
+    s = reduceManager(s, {
+      type: "turn_started",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      turnId: "unexpected-turn",
+      commandIds: [],
+      nowMs: 2,
+    }).state;
+    expect(s).toBe(before);
+    expect(s.agents.a.execution.lease).toMatchObject({
+      state: "active",
+      identity: { sessionInstanceId: SESSION_INSTANCE, turnId: "root-turn" },
+    });
   });
 });

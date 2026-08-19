@@ -54,6 +54,15 @@ interface TurnAdmission {
   accepted: boolean;
 }
 
+interface ClosedLaneTombstone<Id extends string, Config> {
+  sessionInstanceId: string;
+  localTurnId: string;
+  commandIds: string[];
+  physicalOwner: ProcessLane<Id, Config> | SdkLane;
+  generation: number;
+  state: "closed" | "reopened_after_terminal";
+}
+
 function driverError(
   category: AgentDriverError["category"],
   code: string,
@@ -104,6 +113,7 @@ implements AgentSession<Specs, Id> {
   private turnAdmission?: TurnAdmission;
   private instructionsMaterialized = false;
   private lifecycleGeneration = 0;
+  private closedLaneTombstone?: ClosedLaneTombstone<Id, ConfigOf<Specs, Id>>;
 
   private readonly eventQueue: BufferedEventQueue<AgentEvent<Specs, Id>>;
   private readonly behavior;
@@ -146,9 +156,6 @@ implements AgentSession<Specs, Id> {
     if (this.state === "closed" || this.state === "stopping" || this.finishing) return { status: "closed" };
     if (!this.activeTurn || !this.lane) return { status: "not_running" };
     const turnId = this.activeTurn.turnId;
-    // Claim interruption intent before invoking the vendor. An SDK abort may
-    // synchronously emit turn_end before its promise resolves; the terminal
-    // event must still normalize to interrupted across every backend.
     this.interruptedTurnId = turnId;
     try {
       const accepted = this.lane instanceof SdkLane
@@ -158,9 +165,6 @@ implements AgentSession<Specs, Id> {
         if (this.interruptedTurnId === turnId) this.interruptedTurnId = undefined;
         return { status: "not_running" };
       }
-      // An SDK abort may synchronously emit its terminal event and clear
-      // activeTurn before the vendor promise resolves. The accepted receipt
-      // still belongs to the turn that was active when interruption began.
       return { status: "accepted", requestId: input.requestId, turnId };
     } catch (error) {
       if (this.interruptedTurnId === turnId) this.interruptedTurnId = undefined;
@@ -184,8 +188,6 @@ implements AgentSession<Specs, Id> {
       return { status: "already_stopping", requestId: this.enterStopping() };
     }
     const stopRequestId = this.enterStopping();
-    // Cancellation settles the claimed admission synchronously and seals its
-    // continuation. Stop remains bounded even if the physical send never does.
     this.failTurnAdmission("cancelled", "session_stopping", "Session is stopping");
     this.failSafeBoundaryDelivery("cancelled", "session_stopping", "Session is stopping");
     this.failQueued("cancelled", "session_stopping", "Session is stopping");
@@ -345,6 +347,7 @@ implements AgentSession<Specs, Id> {
     messages: AgentMessage[],
     delivery: "prompt" | "steer",
   ): Promise<DeliveryReceipt> {
+    this.closedLaneTombstone = undefined;
     const turnId = this.host.createId();
     const commandIds = messages.map((message) => message.id);
     this.activeTurn = { turnId, commandIds: [...commandIds] };
@@ -441,7 +444,7 @@ implements AgentSession<Specs, Id> {
         return false;
       }
       this.lane = lane;
-      this.attachLane(lane);
+      this.attachLane(lane, generation);
       return true;
     }
     const lane = createProcessLane(this.adapter, ctx, {
@@ -453,7 +456,7 @@ implements AgentSession<Specs, Id> {
       }),
     });
     this.lane = lane;
-    this.attachLane(lane);
+    this.attachLane(lane, generation);
     await lane.start({ text: prompt, sessionId: ctx.config.sessionId });
     if (!this.isOpenCurrent(generation)) {
       await this.stopLaneInstanceBounded(lane, "stale_open", this.hostReleaseTimeoutMs);
@@ -463,9 +466,13 @@ implements AgentSession<Specs, Id> {
     return true;
   }
 
-  private attachLane(lane: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane): void {
-    lane.on("runtime_event", (event: unknown) => this.onAdapterEvent(event as AdapterEvent));
+  private attachLane(lane: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane, generation: number): void {
+    const current = () => this.lane === lane && this.lifecycleGeneration === generation;
+    lane.on("runtime_event", (event: unknown) => {
+      if (current()) this.onAdapterEvent(event as AdapterEvent, lane, generation);
+    });
     lane.on("stderr", (value: unknown) => {
+      if (!current()) return;
       const text = String(value);
       this.host.onRawOutput({
         backend: this.backend,
@@ -480,13 +487,21 @@ implements AgentSession<Specs, Id> {
         message: scrubDriverErrorMessage(text, "Runtime emitted a warning"),
       });
     });
-    lane.on("error", (error: unknown) => this.onLaneError(error));
-    lane.on("exit", (info: unknown) => { void this.onLaneExit(lane, info); });
+    lane.on("error", (error: unknown) => {
+      if (current()) this.onLaneError(error, lane, generation);
+    });
+    lane.on("exit", (info: unknown) => {
+      if (current()) void this.onLaneExit(lane, info);
+    });
   }
 
-  private onAdapterEvent(event: AdapterEvent): void {
+  private onAdapterEvent(
+    event: AdapterEvent,
+    physicalOwner: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane,
+    generation: number,
+  ): void {
     if (this.state === "closed" || this.state === "stopping" || this.finishing) return;
-    const turnId = this.activeTurn?.turnId;
+    const turnId = this.activeTurn?.turnId ?? this.reopenClosedLaneForWork(event, physicalOwner, generation);
     switch (event.kind) {
       case "session_init":
         if (this.backendSessionId !== event.sessionId) {
@@ -555,14 +570,48 @@ implements AgentSession<Specs, Id> {
         });
         return;
       case "turn_end":
-        this.completeTurn(event.sessionId);
+        this.completeTurn(event.sessionId, physicalOwner, generation);
         return;
     }
   }
 
-  private completeTurn(sessionId?: string): void {
+  private reopenClosedLaneForWork(
+    event: AdapterEvent,
+    physicalOwner: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane,
+    generation: number,
+  ): string | undefined {
+    const isRootWork = event.kind === "thinking"
+      || event.kind === "text"
+      || event.kind === "tool_call"
+      || event.kind === "tool_output"
+      || event.kind === "compaction_started"
+      || event.kind === "compaction_finished"
+      || event.kind === "review_started"
+      || event.kind === "review_finished"
+      || event.kind === "internal_progress";
+    if (!isRootWork) return undefined;
+    const tombstone = this.closedLaneTombstone;
+    if (
+      !tombstone
+      || tombstone.sessionInstanceId !== this.sessionInstanceId
+      || tombstone.physicalOwner !== physicalOwner
+      || tombstone.generation !== generation
+    ) return undefined;
+    tombstone.state = "reopened_after_terminal";
+    this.activeTurn = { turnId: tombstone.localTurnId, commandIds: tombstone.commandIds };
+    this.state = "working";
+    return tombstone.localTurnId;
+  }
+
+  private completeTurn(
+    sessionId?: string,
+    physicalOwner = this.lane,
+    generation = this.lifecycleGeneration,
+  ): void {
     const active = this.activeTurn;
-    if (!active) return;
+    if (!active) {
+      return;
+    }
     const terminalizing = this.state === "stopping" || this.finishing;
     this.failTurnAdmission(
       "cancelled",
@@ -588,6 +637,16 @@ implements AgentSession<Specs, Id> {
           ? { outcome: "failed", backendSessionId: this.backendSessionId, error: this.turnError }
           : { outcome: "success", backendSessionId: this.backendSessionId ?? "" },
     });
+    if (physicalOwner) {
+      this.closedLaneTombstone = {
+        sessionInstanceId: this.sessionInstanceId,
+        localTurnId: active.turnId,
+        commandIds: active.commandIds,
+        physicalOwner,
+        generation,
+        state: "closed",
+      };
+    }
     this.activeTurn = undefined;
     this.turnError = undefined;
     this.interruptedTurnId = undefined;
@@ -606,9 +665,6 @@ implements AgentSession<Specs, Id> {
         void this.stopLane("turn_complete", 2_000);
       }
     } else {
-      // Defer the next turn until the claimed physical send settles. The first
-      // microtask also covers a synchronous turn_end raised before the outer
-      // flush promise has been assigned.
       void Promise.resolve()
         .then(() => this.safeBoundaryFlush)
         .then(() => this.startNextQueued());
@@ -710,9 +766,13 @@ implements AgentSession<Specs, Id> {
     await this.startTurn([item.message], "prompt");
   }
 
-  private onLaneError(error: unknown): void {
+  private onLaneError(
+    error: unknown,
+    physicalOwner: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane,
+    generation: number,
+  ): void {
     const message = error instanceof Error ? error.message : String(error);
-    this.onAdapterEvent({ kind: "error", message });
+    this.onAdapterEvent({ kind: "error", message }, physicalOwner, generation);
   }
 
   private async onLaneExit(lane: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane, info: unknown): Promise<void> {
@@ -906,6 +966,7 @@ implements AgentSession<Specs, Id> {
     if (this.state !== "stopping") {
       this.state = "stopping";
       this.lifecycleGeneration += 1;
+      this.closedLaneTombstone = undefined;
     }
     this.stopRequestId ??= this.host.createId();
     return this.stopRequestId;

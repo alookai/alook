@@ -109,9 +109,9 @@ console.log(JSON.stringify({ type: "result", subtype: "success", session_id: "pa
       chmodSync(executable, 0o755);
     }
     writeFileSync(join(root, "runtime.mjs"), `
-import { createAgentDriverSdk } from "@alook/agent-driver";
+import { createBuiltinAgentDriverSdk } from "@alook/agent-driver/adapter-author";
 import { createFakeAgentDriverHost } from "@alook/agent-driver/testing";
-const sdk = createAgentDriverSdk({ host: createFakeAgentDriverHost({
+const sdk = createBuiltinAgentDriverSdk({ host: createFakeAgentDriverHost({
   environmentLayers: {
     base: process.env,
     hostStatic: {}, identityProtected: {}, platformProtected: {},
@@ -153,5 +153,19 @@ try {
       .join("\n");
     expect(declarations).not.toContain("@alook/daemon");
     expect(declarations).not.toContain("src/daemon/src");
+    const installedDist = join(root, "node_modules/@alook/agent-driver/dist");
+    const rootDeclaration = readFileSync(join(installedDist, "index.d.ts"), "utf8");
+    const testingDeclaration = readFileSync(join(installedDist, "testing/index.d.ts"), "utf8");
+    for (const privateName of [
+      "BackendAdapter",
+      "BackendExecution",
+      "SpawnedProcess",
+      "VendorSessionHandle",
+      "AgentBackendRegistration",
+      "createAgentDriverRegistry",
+    ]) {
+      expect(rootDeclaration).not.toContain(privateName);
+      expect(testingDeclaration).not.toContain(privateName);
+    }
   });
 });

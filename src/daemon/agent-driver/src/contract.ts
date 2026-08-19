@@ -1,5 +1,3 @@
-import type { AgentDriverRegistry } from "./registry.js";
-
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
 export type JsonObject = { readonly [key: string]: JsonValue };
@@ -477,8 +475,7 @@ export interface DefaultAgentDriverHostOptions {
   readonly onRawOutput?: (event: RawOutputEvent) => void;
 }
 
-export interface CreateAgentDriverSdkOptions<Specs = BuiltinBackendSpecs> {
+export interface CreateAgentDriverSdkOptions {
   readonly host?: AgentDriverHost;
   readonly hostReleaseTimeoutMs?: number;
-  readonly registry?: AgentDriverRegistry<Specs>;
 }

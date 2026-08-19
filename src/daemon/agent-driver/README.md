@@ -7,7 +7,11 @@ interrupts, stop deadlines, and normalized events. Consumers select a backend
 and interact with one `AgentSession`; process and SDK implementation details are
 internal.
 
-Only the package root and `@alook/agent-driver/testing` are public subpaths.
+The package root exposes only the logical SDK/session/event/result contract.
+`@alook/agent-driver/testing` contains black-box public-session fixtures.
+Adapter authors use the separately versioned `@alook/agent-driver/adapter-author`
+extension boundary; process and vendor-SDK declarations are intentionally absent
+from both the root and `/testing` declarations.
 
 ```ts
 import { createAgentDriverSdk } from "@alook/agent-driver";

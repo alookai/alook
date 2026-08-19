@@ -14,6 +14,10 @@
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js"
+    },
+    "./adapter-author": {
+      "types": "./dist/adapter-author.d.ts",
+      "import": "./dist/adapter-author.js"
     }
   },
   "files": [

@@ -218,6 +218,52 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)("%s logi
   });
 });
 
+describe("closed physical-lane tombstone", () => {
+  it("reopens only for proven same-lane root work, re-closes once, and suppresses bare duplicate terminals", async () => {
+    const { session, driver } = makeSession("claude");
+    const iterator = session.events[Symbol.asyncIterator]();
+    const receipt = await session.start({ id: "one", kind: "user", text: "start" });
+    expect(receipt).toMatchObject({ status: "accepted" });
+    const turnId = receipt.status === "accepted" ? receipt.turnId : "unreachable";
+
+    await emit(driver, { kind: "turn_end", sessionId: "root-session" });
+    await emit(driver, { kind: "turn_end", sessionId: "root-session" });
+    await emit(driver, {
+      kind: "telemetry",
+      name: "rate_limits",
+      source: "tail-telemetry",
+      attrs: { remaining: 1 },
+    });
+    expect(session.snapshot().activeTurn).toBeUndefined();
+
+    await emit(driver, {
+      kind: "internal_progress",
+      source: "root-owner",
+      itemType: "post-terminal-work",
+    });
+    expect(session.snapshot().activeTurn).toEqual({ turnId, commandIds: ["one"] });
+
+    await emit(driver, { kind: "turn_end", sessionId: "root-session" });
+    await emit(driver, { kind: "turn_end", sessionId: "root-session" });
+    expect(session.snapshot().activeTurn).toBeUndefined();
+
+    const observed = await take(iterator as never, 7);
+    expect(observed.map((event) => event.type)).toEqual([
+      "command_accepted",
+      "turn_started",
+      "session_started",
+      "turn_completed",
+      "rate_limits",
+      "internal_progress",
+      "turn_completed",
+    ]);
+    expect(observed.filter((event) => event.type === "turn_completed")).toHaveLength(2);
+    expect(observed.find((event) => event.type === "internal_progress")).toMatchObject({ turnId });
+    expect(observed.find((event) => event.type === "rate_limits")).toMatchObject({ turnId: undefined });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+});
+
 describe("backend-owned delivery behavior", () => {
   it("writes AGENTS.md and the CLAUDE.md alias for non-empty instructions", async () => {
     const workingDirectory = mkdtempSync(join(tmpdir(), "agent-driver-instructions-"));

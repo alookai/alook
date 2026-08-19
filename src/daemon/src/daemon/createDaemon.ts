@@ -41,7 +41,7 @@ import type { RuntimeConfig } from "../runtimeConfig.js";
 import type { UnreadNotice, HostCommand } from "../server/contract.js";
 import { formatHandle } from "@alook/shared/lib/discriminator";
 import type { DiagnosticCollectCommand } from "@alook/shared";
-import { createAgentDriverSdk } from "@alook/agent-driver";
+import { createBuiltinAgentDriverSdk } from "@alook/agent-driver/adapter-author";
 import {
   createDiagnosticsCommandListener,
   type DiagnosticFailureReport,
@@ -779,7 +779,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     },
     sessionFactory: opts.sessionFactory ?? (async ({ ctx, runtimeConfig }) => {
       const selected = toAgentBackendSelection(runtimeConfig);
-      const sdk = createAgentDriverSdk({
+      const sdk = createBuiltinAgentDriverSdk({
         host: createDaemonAgentDriverHost(
           ctx,
           onRuntimeRawLine ? (line) => onRuntimeRawLine(ctx.agentId, line) : undefined,

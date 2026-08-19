@@ -1,0 +1,12 @@
+/** Consumer contract: logical SDK/session/event/result vocabulary only. */
+export type {
+  JsonPrimitive, JsonValue, JsonObject, BuiltinBackendId, ReasoningEffort, ModelSelection, DefaultProvider,
+  ClaudeProvider, PiProvider, BaseBackendConfig, ClaudeConfig, CodexConfig, ModelBackendConfig, CursorConfig,
+  OpenCodeConfig, PiConfig, BackendCapabilities, ClaudeCapabilities, CodexCapabilities, CursorCapabilities,
+  OpenCodeCapabilities, PiCapabilities, BackendExtensionSpec, BackendTypeSpec, BuiltinBackendSpecs, BackendId,
+  ConfigOf, CapabilitiesOf, ExtensionsOf, ExtraEventOf, AgentInstructions, AgentLaunchContext, AgentMessage,
+  AgentDriverError, OpenSessionResult, DeliveryReceipt, InterruptResult, StopInput, StopReceipt, HostCleanupResult,
+  AgentSessionResult, AgentTurnResult, TokenUsage, CoreAgentEventPayload, AgentEventEnvelope, AgentEvent,
+  AgentSessionSnapshot, AgentEventStream, ExtensionResult, AgentSession, ProbeInput, BackendProbe, OpenSessionInput,
+  AgentDriverSdk,
+} from "./contract.js";

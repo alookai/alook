@@ -44,6 +44,14 @@ try {
   const approvedContractChanges = ledger.testPreservation.mappings
     .filter((mapping) => mapping.disposition === "approved_contract_change")
     .length
+  const semanticClaims = ledger.testPreservation.semanticAudit?.claims ?? []
+  const invalidSemanticClaims = semanticClaims.flatMap((claim, index) => {
+    const mapping = ledger.testPreservation.mappings.find((item) => item.before?.name === claim.beforeName)
+    const evidenceKey = `${claim.evidence?.file}\0${claim.evidence?.name}`
+    if (!mapping) return [{ index, reason: "before mapping missing", claim }]
+    if (!keys.has(evidenceKey)) return [{ index, reason: "evidence test missing", claim }]
+    return []
+  })
 
   const result = {
     counts,
@@ -51,13 +59,17 @@ try {
     mappingCount: ledger.testPreservation.mappings.length,
     approvedContractChanges,
     missing,
+    semanticAuditClaims: semanticClaims.length,
+    invalidSemanticClaims,
   }
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
 
   if (missing.length > 0) process.exitCode = 1
+  if (invalidSemanticClaims.length > 0) process.exitCode = 1
   if (ledger.testPreservation.finalCollectedCases !== collected.length) process.exitCode = 1
   if (ledger.testPreservation.verification.mappingCount !== ledger.testPreservation.mappings.length) process.exitCode = 1
   if (ledger.testPreservation.verification.approvedContractChanges !== approvedContractChanges) process.exitCode = 1
+  if (ledger.testPreservation.verification.semanticAuditClaims !== semanticClaims.length) process.exitCode = 1
   if (!ledger.testPreservation.verification.everyNonDeletedCaseNamesExistingFinalTest) process.exitCode = 1
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true })

@@ -1,4 +1,3 @@
-/** Side-effect-free manager lifecycle policy; backend delivery belongs to agent-driver. */
 
 export type AgentStatus = "idle" | "starting" | "running" | "stopping";
 
@@ -8,32 +7,65 @@ export interface AgentMsg {
   text: string;
 }
 
+export interface TurnIdentity {
+  sessionInstanceId: string;
+  turnId: string;
+}
+
+export interface RootTerminal {
+  identity: TurnIdentity;
+  at: number;
+}
+
+export interface PendingAdmission {
+  sessionInstanceId: string;
+  commandId: string;
+  exactAgentMsg: AgentMsg;
+  admittedAt: number;
+  mode: "busy" | "idle";
+  requeueOnFailure: boolean;
+}
+
+export type RootLease =
+  | { state: "detached" }
+  | { state: "none"; lastTerminal: RootTerminal | null }
+  | { state: "active"; identity: TurnIdentity; lastWorkAt: number }
+  | {
+      state: "suspect_active";
+      identity: TurnIdentity;
+      lastWorkAt: number;
+      reason: "work_after_terminal";
+    };
+
+export type ExecutionEpoch =
+  | { sessionInstanceId: null; lease: { state: "detached" } }
+  | { sessionInstanceId: string; lease: Exclude<RootLease, { state: "detached" }> };
+
 export interface AgentState {
   agentId: string;
   status: AgentStatus;
   inbox: AgentMsg[];
   sessionId: string | null;
+  execution: ExecutionEpoch;
+  pendingAdmissions: PendingAdmission[];
+  turnId: string | null;
   turnActive: boolean;
   lastProgressAt: number;
-  /** Last delivery awaiting observable progress; null means none. */
   lastDeliverAt: number | null;
   idleSince: number | null;
-  /** Start of a stop awaiting exit; drives the stuck-stop backstop. */
   stoppingSince: number | null;
-  /** Reset gates non-idle wakes until a stable state is reached. */
   resetting: boolean;
-  /** Start of the active reset window; null outside reset. */
   resettingSince: number | null;
 }
 
 export function isActivelyWorking(agent: AgentState): boolean {
-  return agent.status === "running" && (agent.turnActive || agent.inbox.length > 0);
+  return agent.status === "running"
+    && (leaseIsWorking(agent.execution.lease) || agent.pendingAdmissions.length > 0 || agent.inbox.length > 0);
 }
 
 export interface ManagerState {
   agents: Record<string, AgentState>;
   staleThresholdMs: number;
-  /** 0/Infinity disables idle hibernation. */
   idleTimeoutMs: number;
   resetStuckThresholdMs: number;
   stoppingStuckThresholdMs: number;
@@ -43,18 +75,45 @@ export type ManagerEvent =
   | { type: "register"; agentId: string }
   | { type: "wake"; agentId: string; message: AgentMsg; nowMs: number }
   | { type: "spawned"; agentId: string; nowMs: number }
-  | { type: "session"; agentId: string; sessionId: string }
-  | { type: "progress"; agentId: string; nowMs: number }
-  /** Non-clean turn metadata; terminationCause is policy, errorDetail is trace-only. */
+  | { type: "backend_session"; agentId: string; sessionId: string }
+  | { type: "attach_session"; agentId: string; sessionInstanceId: string; nowMs: number }
   | {
-      type: "turn_end";
+      type: "admission_started";
       agentId: string;
+      sessionInstanceId: string;
+      commandId: string;
+      exactAgentMsg: AgentMsg;
+      mode: "busy" | "idle";
+      requeueOnFailure: boolean;
+      nowMs: number;
+    }
+  | {
+      type: "admission_settled";
+      agentId: string;
+      sessionInstanceId: string;
+      commandId: string;
+      outcome: "accepted" | "failed";
+    }
+  | {
+      type: "turn_started";
+      agentId: string;
+      sessionInstanceId: string;
+      turnId: string;
+      commandIds: readonly string[];
+      nowMs: number;
+    }
+  | { type: "turn_work"; agentId: string; sessionInstanceId: string; turnId: string; nowMs: number }
+  | {
+      type: "turn_completed";
+      agentId: string;
+      sessionInstanceId: string;
       nowMs: number;
       endReason?: "errored";
+      turnId: string;
       terminationCause?: "runtime_error" | "killed_stalled";
       errorDetail?: string;
     }
-  /** Physical exit facts are observability-only; reducer policy ignores them. */
+  | { type: "session_closed"; agentId: string; sessionInstanceId: string }
   | {
       type: "exit";
       agentId: string;
@@ -81,6 +140,8 @@ export type ManagerEffect =
   | { type: "send"; agentId: string; message: AgentMsg; mode: "busy" | "idle" }
   | { type: "stop"; agentId: string; reason: string }
   | { type: "terminate_stalled"; agentId: string }
+  | { type: "expire_admission"; agentId: string; sessionInstanceId: string; commandIds: string[] }
+  | { type: "requeue_delivery"; agentId: string; message: AgentMsg; mode: "busy" | "idle" }
   | { type: "force_exit"; agentId: string; reason: string };
 
 export const DEFAULT_STALE_THRESHOLD_MS = 120_000;
@@ -108,21 +169,70 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
       return withAgent(state, event.agentId, (a) => a ?? freshAgent(event.agentId), []);
 
     case "wake":
-      return onWake(state, event.agentId, event.message, event.nowMs);
+      return onWake(state, event.agentId, event.message);
 
     case "spawned":
       return mutate(state, event.agentId, (a) => {
         enterStable(a, "running");
-        a.turnActive = true;
-        a.lastProgressAt = event.nowMs;
-        a.lastDeliverAt = null;
-        a.idleSince = null;
+        syncExecutionProjection(a);
       });
 
-    case "session":
+    case "backend_session":
       return mutate(state, event.agentId, (a) => {
         a.sessionId = event.sessionId;
       });
+
+    case "attach_session": {
+      const existing = state.agents[event.agentId];
+      if (!existing) return { state, effects: [] };
+      const agent = clone(existing);
+      const effects = recoveryEffects(agent, agent.pendingAdmissions);
+      agent.pendingAdmissions = [];
+      {
+        const a = agent;
+        a.execution = { sessionInstanceId: event.sessionInstanceId, lease: { state: "none", lastTerminal: null } };
+        a.lastProgressAt = event.nowMs;
+        a.idleSince = null;
+        syncExecutionProjection(a);
+      }
+      return commit(state, agent, effects);
+    }
+
+    case "admission_started": {
+      const existing = state.agents[event.agentId];
+      if (!existing || existing.execution.sessionInstanceId !== event.sessionInstanceId) return { state, effects: [] };
+      return mutate(state, event.agentId, (a) => {
+        if (!matchesSession(a, event.sessionInstanceId)) return;
+        if (a.pendingAdmissions.some((entry) => entry.commandId === event.commandId)) return;
+        a.pendingAdmissions = [...a.pendingAdmissions, {
+          sessionInstanceId: event.sessionInstanceId,
+          commandId: event.commandId,
+          exactAgentMsg: event.exactAgentMsg,
+          admittedAt: event.nowMs,
+          mode: event.mode,
+          requeueOnFailure: event.requeueOnFailure,
+        }];
+        a.idleSince = null;
+        syncExecutionProjection(a);
+      });
+    }
+
+    case "admission_settled": {
+      const existing = state.agents[event.agentId];
+      if (!existing || existing.execution.sessionInstanceId !== event.sessionInstanceId) return { state, effects: [] };
+      const record = existing.pendingAdmissions.find((entry) =>
+        entry.sessionInstanceId === event.sessionInstanceId && entry.commandId === event.commandId);
+      if (!record) return { state, effects: [] };
+      const agent = clone(existing);
+      agent.pendingAdmissions = agent.pendingAdmissions.filter((entry) =>
+        entry.sessionInstanceId !== event.sessionInstanceId || entry.commandId !== event.commandId);
+      syncExecutionProjection(agent);
+      return commit(
+        state,
+        agent,
+        event.outcome === "failed" ? recoveryEffects(agent, [record]) : [],
+      );
+    }
 
     case "reset_session":
       if (!state.agents[event.agentId]) return { state, effects: [] };
@@ -144,18 +254,78 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
         a.idleSince = null;
       });
 
-    case "progress":
+    case "turn_started": {
+      const existing = state.agents[event.agentId];
+      if (!existing || existing.execution.sessionInstanceId !== event.sessionInstanceId) return { state, effects: [] };
+      const current = existing.execution.lease;
+      const nextIdentity = identityOf(event);
+      if (
+        (current.state === "active" || current.state === "suspect_active")
+        && !sameIdentity(current.identity, nextIdentity)
+      ) return { state, effects: [] };
       return mutate(state, event.agentId, (a) => {
+        if (!matchesSession(a, event.sessionInstanceId)) return;
+        const lease = a.execution.lease;
+        const identity = identityOf(event);
+        if ((lease.state === "active" || lease.state === "suspect_active") && !sameIdentity(lease.identity, identity)) return;
+        const startedCommands = new Set(event.commandIds);
+        a.pendingAdmissions = a.pendingAdmissions.filter((entry) => !startedCommands.has(entry.commandId));
+        a.execution.lease = { state: "active", identity, lastWorkAt: event.nowMs };
         a.lastProgressAt = event.nowMs;
-        // Root progress is authoritative evidence that the turn remains active.
-        if (a.status === "running" && !a.turnActive) {
-          a.turnActive = true;
-          a.idleSince = null;
-        }
+        a.idleSince = null;
+        syncExecutionProjection(a);
       });
+    }
 
-    case "turn_end":
-      return onTurnEnd(state, event.agentId, event.nowMs);
+    case "turn_work": {
+      const existing = state.agents[event.agentId];
+      if (!existing || existing.execution.sessionInstanceId !== event.sessionInstanceId) return { state, effects: [] };
+      const current = existing.execution.lease;
+      const nextIdentity = identityOf(event);
+      const matchesActive = (current.state === "active" || current.state === "suspect_active")
+        && sameIdentity(current.identity, nextIdentity);
+      const matchesTerminal = current.state === "none"
+        && current.lastTerminal !== null
+        && sameIdentity(current.lastTerminal.identity, nextIdentity);
+      if (!matchesActive && !matchesTerminal) return { state, effects: [] };
+      return mutate(state, event.agentId, (a) => {
+        if (!matchesSession(a, event.sessionInstanceId)) return;
+        const lease = a.execution.lease;
+        const identity = identityOf(event);
+        if ((lease.state === "active" || lease.state === "suspect_active") && sameIdentity(lease.identity, identity)) {
+          a.execution.lease = { ...lease, lastWorkAt: event.nowMs };
+        } else {
+          const terminal = lease.state === "none" ? lease.lastTerminal : null;
+          if (!terminal || !sameIdentity(terminal.identity, identity)) return;
+          a.execution.lease = {
+            state: "suspect_active",
+            identity,
+            lastWorkAt: event.nowMs,
+            reason: "work_after_terminal",
+          };
+        }
+        a.lastProgressAt = event.nowMs;
+        a.idleSince = null;
+        syncExecutionProjection(a);
+      });
+    }
+
+    case "turn_completed":
+      return onTurnCompleted(state, event.agentId, event.sessionInstanceId, event.nowMs, event.turnId);
+
+    case "session_closed":
+      if (state.agents[event.agentId]?.execution.sessionInstanceId !== event.sessionInstanceId) {
+        return { state, effects: [] };
+      }
+      {
+        const agent = clone(state.agents[event.agentId]!);
+        const closing = agent.pendingAdmissions.filter((entry) => entry.sessionInstanceId === event.sessionInstanceId);
+        agent.pendingAdmissions = agent.pendingAdmissions.filter((entry) => entry.sessionInstanceId !== event.sessionInstanceId);
+        agent.execution = { sessionInstanceId: null, lease: { state: "detached" } };
+        agent.idleSince = null;
+        syncExecutionProjection(agent);
+        return commit(state, agent, recoveryEffects(agent, closing));
+      }
 
     case "exit":
       return onExit(state, event.agentId);
@@ -171,21 +341,19 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
         if (!a.inbox.some((message) => message.id === event.message.id)) {
           a.inbox = [event.message, ...a.inbox];
         }
-        if (event.mode === "idle") a.turnActive = false;
-        a.lastDeliverAt = null;
+        syncExecutionProjection(a);
         a.idleSince = null;
       });
   }
 }
 
-function onWake(state: ManagerState, agentId: string, message: AgentMsg, nowMs: number): ReduceResult {
+function onWake(state: ManagerState, agentId: string, message: AgentMsg): ReduceResult {
   const existing = state.agents[agentId];
   const agent = existing ? clone(existing) : null;
   if (!agent) {
     return { state, effects: [] };
   }
 
-  // Idle reset wakes must spawn; other reset wakes wait for the replacement.
   if (agent.resetting && agent.status !== "idle") {
     agent.inbox = [...agent.inbox, message];
     agent.idleSince = null;
@@ -205,25 +373,34 @@ function onWake(state: ManagerState, agentId: string, message: AgentMsg, nowMs: 
 
   if (agent.status === "running") {
     const messages = drainInbox(agent);
-    const mode = agent.turnActive ? "busy" : "idle";
-    if (mode === "idle") agent.turnActive = true;
-    agent.lastDeliverAt = nowMs;
+    const mode = leaseIsWorking(agent.execution.lease) || agent.pendingAdmissions.length > 0 ? "busy" : "idle";
     return commit(state, agent, messages.map((queued) => ({ type: "send", agentId, message: queued, mode })));
   }
 
   return commit(state, agent, []);
 }
 
-function onTurnEnd(state: ManagerState, agentId: string, nowMs: number): ReduceResult {
+function onTurnCompleted(
+  state: ManagerState,
+  agentId: string,
+  sessionInstanceId: string,
+  nowMs: number,
+  turnId: string,
+): ReduceResult {
   const existing = state.agents[agentId];
   if (!existing) return { state, effects: [] };
   const agent = clone(existing);
-  agent.turnActive = false;
+  if (!matchesSession(agent, sessionInstanceId)) return { state, effects: [] };
+  const lease = agent.execution.lease;
+  if (lease.state !== "active" && lease.state !== "suspect_active") return { state, effects: [] };
+  const identity = { sessionInstanceId, turnId };
+  if (!sameIdentity(lease.identity, identity)) return { state, effects: [] };
+  const lastTerminal = { identity, at: nowMs };
+  agent.execution.lease = { state: "none", lastTerminal };
   agent.lastProgressAt = nowMs;
+  syncExecutionProjection(agent);
   if (agent.inbox.length > 0) {
     const messages = drainInbox(agent);
-    agent.turnActive = true;
-    agent.lastDeliverAt = nowMs;
     return commit(state, agent, messages.map((queued) => ({ type: "send", agentId, message: queued, mode: "idle" })));
   }
 
@@ -235,20 +412,22 @@ function onExit(state: ManagerState, agentId: string): ReduceResult {
   const existing = state.agents[agentId];
   if (!existing) return { state, effects: [] };
   const agent = clone(existing);
-  agent.turnActive = false;
+  const effects = recoveryEffects(agent, agent.pendingAdmissions);
+  agent.pendingAdmissions = [];
+  agent.execution = { sessionInstanceId: null, lease: { state: "detached" } };
   agent.stoppingSince = null;
-  agent.lastDeliverAt = null;
+  syncExecutionProjection(agent);
 
-  // Queued work respawns without closing the reset window.
   if (agent.inbox.length > 0) {
     agent.status = "starting";
     const messages = drainInbox(agent);
     return commit(state, agent, [
+      ...effects,
       { type: "spawn", agentId, messages, resumeSessionId: agent.sessionId },
     ]);
   }
   enterStable(agent, "idle");
-  return commit(state, agent, []);
+  return commit(state, agent, effects);
 }
 
 function onTick(state: ManagerState, nowMs: number): ReduceResult {
@@ -257,23 +436,36 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
   for (const id of Object.keys(agents)) {
     const a = agents[id];
 
-    const stalled =
-      a.status === "running" &&
-      a.turnActive &&
-      nowMs - a.lastProgressAt >= state.staleThresholdMs;
-    // A sent command without subsequent progress is a generic deaf-session signal.
-    const suspectedDeaf =
-      a.status === "running" &&
-      a.lastDeliverAt !== null &&
-      a.lastDeliverAt > a.lastProgressAt &&
-      nowMs - a.lastDeliverAt >= state.staleThresholdMs;
-    if (stalled || suspectedDeaf) {
+    const lease = a.execution.lease;
+    const stalled = a.status === "running"
+      && (lease.state === "active" || lease.state === "suspect_active")
+      && nowMs - lease.lastWorkAt >= state.staleThresholdMs;
+    if (stalled) {
       agents[id] = { ...a, status: "stopping", idleSince: null, stoppingSince: nowMs };
       effects.push({ type: "terminate_stalled", agentId: id });
       continue;
     }
 
-    // A reset that never reaches a stable state must be restarted.
+    const expiredAdmission = a.status === "running"
+      && a.pendingAdmissions.filter((entry) => nowMs - entry.admittedAt >= state.staleThresholdMs);
+    if (expiredAdmission && expiredAdmission.length > 0 && a.execution.sessionInstanceId !== null) {
+      agents[id] = {
+        ...a,
+        pendingAdmissions: a.pendingAdmissions.filter((entry) => !expiredAdmission.includes(entry)),
+        status: "stopping",
+        idleSince: null,
+        stoppingSince: nowMs,
+      };
+      effects.push(...recoveryEffects(a, expiredAdmission));
+      effects.push({
+        type: "expire_admission",
+        agentId: id,
+        sessionInstanceId: a.execution.sessionInstanceId,
+        commandIds: expiredAdmission.map((entry) => entry.commandId),
+      });
+      continue;
+    }
+
     const resetStuck =
       a.resetting &&
       a.status !== "stopping" &&
@@ -285,7 +477,6 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
       continue;
     }
 
-    // A stop whose exit never arrives uses the synthetic-exit backstop.
     const stoppingStuck =
       a.status === "stopping" &&
       a.stoppingSince !== null &&
@@ -297,7 +488,9 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
 
     const idleEligible =
       a.status === "running" &&
-      !a.turnActive &&
+      lease.state === "none" &&
+      a.pendingAdmissions.length === 0 &&
+      lease.lastTerminal !== null &&
       a.inbox.length === 0 &&
       state.idleTimeoutMs > 0 &&
       Number.isFinite(state.idleTimeoutMs);
@@ -315,6 +508,9 @@ function freshAgent(agentId: string): AgentState {
     status: "idle",
     inbox: [],
     sessionId: null,
+    execution: { sessionInstanceId: null, lease: { state: "detached" } },
+    pendingAdmissions: [],
+    turnId: null,
     turnActive: false,
     lastProgressAt: 0,
     lastDeliverAt: null,
@@ -325,7 +521,6 @@ function freshAgent(agentId: string): AgentState {
   };
 }
 
-/** Single owner for closing reset/stopping windows on stable transitions. */
 function enterStable(agent: AgentState, status: "running" | "idle"): void {
   agent.status = status;
   agent.resetting = false;
@@ -349,7 +544,57 @@ function clone(a: AgentState): AgentState {
   return {
     ...a,
     inbox: [...a.inbox],
+    pendingAdmissions: a.pendingAdmissions.map((entry) => ({ ...entry, exactAgentMsg: { ...entry.exactAgentMsg } })),
+    execution: cloneExecution(a.execution),
   };
+}
+
+function cloneExecution(execution: ExecutionEpoch): ExecutionEpoch {
+  if (execution.sessionInstanceId === null) return { sessionInstanceId: null, lease: { state: "detached" } };
+  const lease = execution.lease;
+  return { sessionInstanceId: execution.sessionInstanceId, lease: { ...lease } };
+}
+
+function matchesSession(agent: AgentState, sessionInstanceId: string): agent is AgentState & {
+  execution: { sessionInstanceId: string; lease: Exclude<RootLease, { state: "detached" }> };
+} {
+  return agent.execution.sessionInstanceId === sessionInstanceId;
+}
+
+function identityOf(event: { sessionInstanceId: string; turnId: string }): TurnIdentity {
+  return { sessionInstanceId: event.sessionInstanceId, turnId: event.turnId };
+}
+
+function sameIdentity(left: TurnIdentity, right: TurnIdentity): boolean {
+  return left.sessionInstanceId === right.sessionInstanceId && left.turnId === right.turnId;
+}
+
+function leaseIsWorking(lease: RootLease): boolean {
+  return lease.state === "active" || lease.state === "suspect_active";
+}
+
+function syncExecutionProjection(agent: AgentState): void {
+  const lease = agent.execution.lease;
+  agent.turnActive = leaseIsWorking(lease) || agent.pendingAdmissions.length > 0;
+  agent.turnId = lease.state === "active" || lease.state === "suspect_active"
+    ? lease.identity.turnId
+    : lease.state === "none"
+      ? lease.lastTerminal?.identity.turnId ?? null
+      : null;
+  agent.lastDeliverAt = agent.pendingAdmissions.length > 0
+    ? Math.max(...agent.pendingAdmissions.map((entry) => entry.admittedAt))
+    : null;
+}
+
+function recoveryEffects(agent: AgentState, records: readonly PendingAdmission[]): ManagerEffect[] {
+  return records
+    .filter((record) => record.requeueOnFailure)
+    .map((record) => ({
+      type: "requeue_delivery" as const,
+      agentId: agent.agentId,
+      message: record.exactAgentMsg,
+      mode: record.mode,
+    }));
 }
 
 function commit(state: ManagerState, agent: AgentState, effects: ManagerEffect[]): ReduceResult {

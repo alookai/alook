@@ -24,7 +24,7 @@
  *         `effects:['terminate_stalled']` tick; the following turn_end had
  *         already reset it to 0). Dropping it would shorten the reconstructed
  *         "stuck for how long". (Cecilia 架构#423 ④.)
- *   - SAMPLEABLE (throttled): unchanged-state `tick`, plus `progress` /
+ *   - SAMPLEABLE (throttled): unchanged-state `tick`, plus `root_work` /
  *     `runtime_signal` heartbeats. An unchanged-state tick is one with
  *     `effects==[]` AND status/turnActive/inbox/resetting/stopping unchanged
  *     from the previous emitted tick for that agent.
@@ -37,7 +37,7 @@
  * next emitted tick-stream row), and the terminating frame (effects tick / a
  * transition) is sacrosanct. `sinceProgressMs` is self-contained on each tick
  * row, so duration reconstructs from the tick stream alone even when the
- * `progress` stream is fully folded.
+ * `root_work` stream is fully folded.
  */
 
 /** Sampler-visible subset of the manager's explicitly allowlisted trace rows. */
@@ -61,7 +61,7 @@ export interface TraceSampler {
 }
 
 /** Streams that are throttled rather than always-emitted. */
-const SAMPLEABLE_EVENTS = new Set(["tick", "progress", "runtime_signal"]);
+const SAMPLEABLE_EVENTS = new Set(["tick", "root_work", "runtime_signal"]);
 const SACRED_TURN_SPAN_EVENTS = new Set(["turn_begin", "turn_end", "turn_abort"]);
 
 /** Default heartbeat throttle: at most one folded-stream row per agent per this. */
@@ -76,7 +76,7 @@ interface AgentSamplerState {
   lastTickEmitAt: number;
   /** The most recent throttled (folded) unchanged tick, held for tail-flush. */
   pendingTick: TraceRec | null;
-  /** Last emitted `progress` nowMs. */
+  /** Last emitted `root_work` nowMs. */
   lastProgressEmitAt: number;
   /** Last emitted `runtime_signal` apmPhase (edge detection) + nowMs. */
   lastSignalPhase: string | null;
@@ -202,7 +202,7 @@ export function createTraceSampler(
         return;
       }
 
-      if (event === "progress") {
+      if (event === "root_work") {
         // Redundant with the next tick's sinceProgressMs; keep a sparse sample
         // for a coarse liveness pulse, fold the rest.
         const now = nowOf(rec);

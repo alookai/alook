@@ -169,7 +169,7 @@ export function projectDaemonLogRow(value: unknown, targetAgentId: string): Reco
   };
 }
 
-const MANAGER_EVENTS = ["register", "wake", "spawned", "session", "progress", "turn_end", "exit", "tick", "reset_session", "begin_reset", "rewake_after_reset", "runtime_signal"] as const;
+const MANAGER_EVENTS = ["register", "wake", "spawned", "session", "root_work", "turn_end", "exit", "tick", "reset_session", "begin_reset", "rewake_after_reset", "runtime_signal"] as const;
 const MANAGER_EFFECTS = ["spawn", "send", "stop", "terminate_stalled", "force_exit", "gated_hold"] as const;
 const AGENT_STATUSES = ["idle", "starting", "running", "stopping"] as const;
 const APM_PHASES = ["idle", "tool_wait", "tool_boundary", "assistant_continuation", "compacting", "reviewing", "error"] as const;

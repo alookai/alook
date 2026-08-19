@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BUILTIN_BACKEND_IDS, capabilitiesFor } from "./registry.js";
+import { BUILTIN_BACKEND_IDS, capabilitiesFor, createAgentDriverRegistry } from "./registry.js";
 import type { BackendCapabilities, BuiltinBackendId } from "./contract.js";
 
 /**
@@ -19,5 +19,22 @@ const EXPECTED: Record<BuiltinBackendId, BackendCapabilities> = {
 describe("driver.capabilities", () => {
   it.each(BUILTIN_BACKEND_IDS)("%s declares the expected capability record", (id) => {
     expect(capabilitiesFor(id)).toEqual(EXPECTED[id]);
+  });
+});
+
+describe("adapter registration runtime boundary", () => {
+  it("rejects malformed registrations and duplicate ids at construction", () => {
+    expect(() => createAgentDriverRegistry([null] as never)).toThrow("Invalid agent backend registration");
+    expect(() => createAgentDriverRegistry([{
+      id: "",
+      capabilities: {},
+      createAdapter: () => ({}),
+    }] as never)).toThrow("non-empty id");
+    const registration = {
+      id: "sixth",
+      capabilities: EXPECTED.claude,
+      createAdapter: () => ({}),
+    };
+    expect(() => createAgentDriverRegistry([registration, registration] as never)).toThrow("Duplicate agent backend registration");
   });
 });

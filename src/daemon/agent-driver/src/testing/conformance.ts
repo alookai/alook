@@ -23,16 +23,12 @@ export interface AgentDriverConformanceResult {
   readonly events: readonly { readonly type: string; readonly sequence: number }[];
 }
 
-export interface AgentBackendAdapterConformanceFixture<Id extends string, Config> {
+interface AgentBackendAdapterConformanceFixture<Id extends string, Config> {
   exercise(adapter: BackendAdapter<Id, Config>): readonly AdapterEvent[];
   readonly expectedEventKinds: readonly AdapterEvent["kind"][];
 }
 
-/**
- * Runs the same protocol-shape contract against a real registered adapter
- * factory. The fixture supplies vendor protocol samples, while the runner owns
- * the cross-backend assertions and never substitutes a fake adapter.
- */
+/** Internal real-adapter contract runner; intentionally omitted from /testing. */
 export function runAgentBackendAdapterConformance<Specs, Id extends BackendId<Specs>>(
   registration: AgentBackendRegistration<Specs, Id>,
   fixture: AgentBackendAdapterConformanceFixture<Id, import("../contract.js").ConfigOf<Specs, Id>>,

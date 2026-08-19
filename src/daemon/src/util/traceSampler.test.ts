@@ -287,7 +287,7 @@ describe("B1 red gate — turn-span sacred rows", () => {
             Math.floor(offsetMs / TICK_EVERY_MS),
             PHASES.length - 1,
           );
-          sampler.offer(operationalRow(agentId, "progress", turnBaseMs + offsetMs + 100, {
+          sampler.offer(operationalRow(agentId, "root_work", turnBaseMs + offsetMs + 100, {
             apmPhase: PHASES[phaseIndex],
             ...spanFields,
           }));
@@ -354,7 +354,7 @@ describe("B1 red gate — turn-span sacred rows", () => {
     expect(DEFAULT_TRACE_SAMPLE_MS).toBe(30_000);
     expect(PHASES.length - 1).toBe(6);
     expect(count("runtime_signal")).toBe(AGENTS * TURNS_PER_AGENT_HOUR * PHASES.length);
-    expect(count("progress")).toBe(AGENTS * TURNS_PER_AGENT_HOUR);
+    expect(count("root_work")).toBe(AGENTS * TURNS_PER_AGENT_HOUR);
     // Five retained ticks per turn mechanically includes state-change edges,
     // throttle survivors, and the pending tail flushed by the next boundary.
     expect(count("tick")).toBe(AGENTS * TURNS_PER_AGENT_HOUR * 5);
@@ -362,7 +362,7 @@ describe("B1 red gate — turn-span sacred rows", () => {
     expect(count("turn_end", "turn_span")).toBe(AGENTS * CLEAN_TURNS_PER_AGENT_HOUR);
     expect(count("turn_abort", "turn_span")).toBe(AGENTS * FAILED_TURNS_PER_AGENT_HOUR);
     expect(survivors).toHaveLength(8_168);
-    expect(serializedBytesPerHour).toBe(4_010_728);
+    expect(serializedBytesPerHour).toBe(4_011_208);
 
     expect(productionPerFileCap).toBe(32 * 1024 * 1024);
     if (typeof productionPerFileCap !== "number") return;

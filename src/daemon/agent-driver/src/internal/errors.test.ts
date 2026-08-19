@@ -27,6 +27,28 @@ describe("public driver error scrubbing", () => {
     });
   });
 
+  it("scrubs assignment, JSON, Basic auth, whitespace paths, and nested details", () => {
+    const message = scrubDriverErrorMessage(
+      'apiKey=supersecret {"apiKey":"jsonsecret"} Authorization: Basic abc123 at /Users/Alice Smith/private key.json',
+    );
+    for (const secret of ["supersecret", "jsonsecret", "abc123", "Alice Smith", "private key.json"]) {
+      expect(message).not.toContain(secret);
+    }
+
+    const scrubbed = scrubDriverError({
+      category: "sdk",
+      code: "vendor said /Users/Alice/private",
+      message: "failed",
+      retryable: false,
+      details: {
+        apiKey: "detail-secret",
+        nested: { authorization: "Basic nested-secret", path: "/Users/Alice Smith/private key.json" },
+      },
+    });
+    expect(scrubbed.code).toBe("runtime_error");
+    expect(JSON.stringify(scrubbed.details)).not.toMatch(/detail-secret|nested-secret|Alice Smith|private key/);
+  });
+
   it("rejects vendor text as a public machine-readable code", () => {
     expect(stableErrorCode("ENOENT", "probe_failed")).toBe("ENOENT");
     expect(stableErrorCode("failed at /Users/alice secret", "probe_failed")).toBe("probe_failed");
