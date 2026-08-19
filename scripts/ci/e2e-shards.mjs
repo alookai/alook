@@ -29,6 +29,7 @@ export const SPEC_SECONDS = {
   "20-community-attachment-thumbnails.spec.ts": 60,
   "21-mobile-message-layout.spec.ts": 20,
   "22-committed-message-delivery.spec.ts": 85,
+  "23-message-selection-context-menu.spec.ts": 10,
 }
 
 function walk(directory) {
