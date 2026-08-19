@@ -400,7 +400,7 @@
     },
     "finalWorktree": {
       "schemaVersion": 1,
-      "ref": "cd230633c840689408b9230e0f45c31565a6ffe7",
+      "ref": "27bd08d08e8692c871a2073e49a2c563963e3f70",
       "scopeRoots": [
         "src/daemon/src/drivers",
         "src/daemon/src/runtime",
@@ -7003,23 +7003,26 @@
     "workflowContract": "13 tests passed",
     "productionResidueSearch": "zero forbidden production symbols/imports",
     "productionLoc": "10826 fixed-denominator lines vs 10849 baseline (-23)",
+    "changedLineCoverage": "1335/1335 executable changed lines covered (100.0000%); zero missing",
     "liveLifecycleQa": {
-      "codex": "exact head cd230633; installed codex 0.146.0; start/tool accepted; exact-turn interrupt accepted; logical outcome interrupted; physical outcome crashed; exact returned-session-id resume succeeded; resumed turn success; requested stop closed stopped; session SHA-256 prefix 4394e6d33764; resumed text SHA-256 prefix aa6ed6f431ff",
-      "pi": "exact head cd230633; installed pi 0.80.3; start accepted; tool start/finish observed; exact-turn interrupt accepted; logical outcome interrupted; requested stop closed stopped; exact returned-session-id resume succeeded; resumed turn success; requested stop closed stopped; session SHA-256 prefix 6aa76c55da2c",
+      "codex": "exact head 27bd08d0; installed codex 0.146.0; start/tool accepted; exact-turn interrupt accepted; logical outcome interrupted; physical outcome crashed; exact returned-session-id resume succeeded; resumed turn success; requested stop closed stopped; session SHA-256 prefix 61d9aecb922a; resumed text SHA-256 prefix d3ebf931065a",
+      "pi": "exact head 27bd08d0; installed pi 0.80.3; start/tool start/tool finish observed; exact-turn interrupt accepted; logical outcome interrupted; requested stop closed stopped; exact returned-session-id resume succeeded; resumed turn success; requested stop closed stopped; session SHA-256 prefix 37d85123f525",
       "secrets": "sanitized; no credentials, prompts, or raw model output retained"
     },
     "alookCQA": {
       "status": "PASS/PASS/PASS",
-      "sourceHead": "44047b789adfe8fabf686838fb8a117c42cb1bdc; tree f69005737a943fd291a6cb229bcfeaddb9a205be; carried forward because final delta changes only Codex normalization/tests/audit and the exercised web/control paths are byte-identical",
-      "runRef": "alook-c-qa-44047b78.c1WCPf",
-      "creation": "exactly claude/codex/cursor/opencode/pi offered; POST 201; stored runtime codex; matching bot:added",
-      "cancellation": "removed gemini remained unavailable; before/after normalized-row SHA-256 1d6603eb25fed143f7eba711c11bb24923ef656652549a1d7b243fa7d4410f1b; zero control updates",
-      "recovery": "row unchanged before save; saved runtime codex; after SHA-256 213ca7234878e9766c2246195e844478743941faf90e87425c2e8dea67773136; exactly one agent:reset carried codex",
+      "sourceHead": "27bd08d08e8692c871a2073e49a2c563963e3f70; tree f6bd126dea804b3aefb17f35fbba457594af0420; clean tracked worktree",
+      "runRef": "alook-c-qa-27bd08d0.XOKKTI",
+      "creation": "exactly claude/codex/cursor/opencode/pi offered; POST 201; stored runtime codex; exactly one matching bot:added",
+      "cancellation": "removed gemini remained unavailable; before/after normalized-row SHA-256 d1be123794334ce95620ba1baefccb42770c7c1f2b85172adabb3acaf1c59f8b; zero control updates",
+      "recovery": "row unchanged before save; PATCH 200 saved runtime codex; after SHA-256 04ac49f6c0c7c85b3a3f1967609b5653034799afd1cbb6b4fc5a1270927db6d5; exactly one agent:reset carried codex",
+      "servedArtifact": "62 observed local Next assets, 26192229 bytes, root SHA-256 f6e4383544e545876ad459ce3ded5ba525e0c89a1f087431905a3ca319b51c0e",
+      "rawEvidence": "7 sanitized files; manifest root SHA-256 06284fb7ee69c02b96c00d9edb05a1eae1bbef35aa591b8bcef76c141aea7581",
       "cleanup": "isolated browser tab and local services stopped after evidence capture"
     },
     "windowsCiHarness": "bare npm pack install uses the Windows command shell; real-process timing bound widened without assertion changes",
     "testLedger": "8320 collected cases; 568 mappings; zero missing non-deleted exact targets",
-    "productionCodeCommit": "cd230633c840689408b9230e0f45c31565a6ffe7; tree 416299b1e5cd506a474666afc706bc778c0008b1",
-    "evidenceArtifact": "plans/agent-driver-final-evidence.md; plans/agent-driver-final-qa-cd230633.json; plans/agent-driver-final-qa-44047b78.json"
+    "productionCodeCommit": "27bd08d08e8692c871a2073e49a2c563963e3f70; tree f6bd126dea804b3aefb17f35fbba457594af0420",
+    "evidenceArtifact": "plans/agent-driver-final-evidence.md; plans/agent-driver-final-qa-27bd08d0.json"
   }
 }
