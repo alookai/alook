@@ -5,8 +5,7 @@ import type {
   AgentSession,
   AgentSessionResult,
   AgentSessionSnapshot,
-  BuiltinBackendId,
-  BuiltinBackendSpecs,
+  BackendId,
   CapabilitiesOf,
   ConfigOf,
   CoreAgentEventPayload,
@@ -21,14 +20,13 @@ import type {
   StopReceipt,
 } from "../contract.js";
 import type { AgentDriverHost } from "../contract.js";
-import { capabilitiesFor } from "../registry.js";
 import type { BackendAdapter, AdapterLaunchContext, AdapterEvent } from "../internal/adapter.js";
 import { createProcessLane, type ProcessLane } from "./process-host.js";
 import { SdkLane } from "./sdk-host.js";
 import { BufferedEventQueue } from "./event-queue.js";
 import { writeAgentFile } from "../internal/agentFile.js";
+import { scrubDriverErrorMessage } from "../internal/errors.js";
 
-type Lane = ProcessLane | SdkLane;
 type SessionState = AgentSessionSnapshot["state"];
 
 interface QueuedCommand {
@@ -62,7 +60,7 @@ function driverError(
   message: string,
   retryable = false,
 ): AgentDriverError {
-  return { category, code, message, retryable };
+  return { category, code, message: scrubDriverErrorMessage(message), retryable };
 }
 
 function jsonValue(value: unknown): JsonValue {
@@ -74,16 +72,16 @@ function jsonValue(value: unknown): JsonValue {
   }
 }
 
-export class LogicalAgentSession<Id extends BuiltinBackendId>
-implements AgentSession<BuiltinBackendSpecs, Id> {
-  readonly capabilities: CapabilitiesOf<BuiltinBackendSpecs, Id>;
+export class LogicalAgentSession<Specs, Id extends BackendId<Specs>>
+implements AgentSession<Specs, Id> {
+  readonly capabilities: CapabilitiesOf<Specs, Id>;
   readonly sessionInstanceId: string;
   readonly events;
   readonly closed: Promise<AgentSessionResult>;
 
   private state: SessionState = "new";
   private backendSessionId?: string;
-  private lane: Lane | null = null;
+  private lane: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane | null = null;
   private activeTurn?: { turnId: string; commandIds: string[] };
   private readonly queued: QueuedCommand[] = [];
   private readonly commands = new Map<string, CommandRecord>();
@@ -94,6 +92,7 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
   private finishing = false;
   private finishPromise?: Promise<void>;
   private turnError?: AgentDriverError;
+  private interruptedTurnId?: string;
   private processTurnEnded = false;
   private stopRequestId?: string;
   private outstandingToolUses = 0;
@@ -106,24 +105,25 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
   private instructionsMaterialized = false;
   private lifecycleGeneration = 0;
 
-  private readonly eventQueue: BufferedEventQueue<AgentEvent<BuiltinBackendSpecs, Id>>;
+  private readonly eventQueue: BufferedEventQueue<AgentEvent<Specs, Id>>;
   private readonly behavior;
 
   constructor(
     readonly backend: Id,
-    private readonly config: ConfigOf<BuiltinBackendSpecs, Id>,
+    private readonly config: ConfigOf<Specs, Id>,
     private readonly launch: {
       workingDirectory: string;
       instructions: string;
       resumeSessionId?: string;
       launchId: string;
     },
-    private readonly adapter: BackendAdapter,
+    private readonly adapter: BackendAdapter<Id, ConfigOf<Specs, Id>>,
+    capabilities: CapabilitiesOf<Specs, Id>,
     private readonly host: AgentDriverHost,
     private readonly prepared: PreparedExecutionResource,
     private readonly hostReleaseTimeoutMs: number,
   ) {
-    this.capabilities = capabilitiesFor(backend);
+    this.capabilities = capabilities;
     this.behavior = this.capabilities as import("../contract.js").BackendCapabilities;
     this.sessionInstanceId = host.createId();
     this.closed = new Promise((resolve) => { this.resolveClosed = resolve; });
@@ -146,16 +146,24 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     if (this.state === "closed" || this.state === "stopping" || this.finishing) return { status: "closed" };
     if (!this.activeTurn || !this.lane) return { status: "not_running" };
     const turnId = this.activeTurn.turnId;
+    // Claim interruption intent before invoking the vendor. An SDK abort may
+    // synchronously emit turn_end before its promise resolves; the terminal
+    // event must still normalize to interrupted across every backend.
+    this.interruptedTurnId = turnId;
     try {
       const accepted = this.lane instanceof SdkLane
         ? await this.lane.interrupt()
         : this.lane.interrupt();
-      if (!accepted) return { status: "not_running" };
+      if (!accepted) {
+        if (this.interruptedTurnId === turnId) this.interruptedTurnId = undefined;
+        return { status: "not_running" };
+      }
       // An SDK abort may synchronously emit its terminal event and clear
       // activeTurn before the vendor promise resolves. The accepted receipt
       // still belongs to the turn that was active when interruption began.
       return { status: "accepted", requestId: input.requestId, turnId };
     } catch (error) {
+      if (this.interruptedTurnId === turnId) this.interruptedTurnId = undefined;
       return {
         status: "failed",
         error: driverError("process", "interrupt_failed", String(error), true),
@@ -341,6 +349,7 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     const commandIds = messages.map((message) => message.id);
     this.activeTurn = { turnId, commandIds: [...commandIds] };
     this.turnError = undefined;
+    this.interruptedTurnId = undefined;
     this.processTurnEnded = false;
     this.state = "starting";
     const generation = this.lifecycleGeneration;
@@ -400,7 +409,7 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     }
   }
 
-  private internalContext(prompt: string): AdapterLaunchContext {
+  private internalContext(prompt: string): AdapterLaunchContext<Id, ConfigOf<Specs, Id>> {
     return {
       backend: this.backend,
       agentId: this.launch.launchId,
@@ -411,7 +420,7 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
       prepared: this.prepared,
       config: {
         sessionId: this.backendSessionId ?? this.launch.resumeSessionId,
-        runtimeConfig: this.config as import("../internal/adapter.js").BackendConfig,
+        runtimeConfig: this.config,
       },
     };
   }
@@ -420,7 +429,7 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     if (!this.instructionsMaterialized) {
       const strategy = this.adapter.instructionDelivery;
       if (strategy.kind === "workspace_file" && this.launch.instructions) {
-        writeAgentFile(this.launch.workingDirectory, this.launch.instructions);
+        writeAgentFile(this.launch.workingDirectory, this.launch.instructions, strategy);
       }
       this.instructionsMaterialized = true;
     }
@@ -454,8 +463,8 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     return true;
   }
 
-  private attachLane(lane: Lane): void {
-    lane.on("runtime_event", (event: unknown) => this.onParsedEvent(event as AdapterEvent));
+  private attachLane(lane: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane): void {
+    lane.on("runtime_event", (event: unknown) => this.onAdapterEvent(event as AdapterEvent));
     lane.on("stderr", (value: unknown) => {
       const text = String(value);
       this.host.onRawOutput({
@@ -464,13 +473,18 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
         stream: "stderr",
         text,
       });
-      this.emit({ type: "diagnostic", severity: "warning", source: this.backend, message: text });
+      this.emit({
+        type: "diagnostic",
+        severity: "warning",
+        source: this.backend,
+        message: scrubDriverErrorMessage(text, "Runtime emitted a warning"),
+      });
     });
     lane.on("error", (error: unknown) => this.onLaneError(error));
     lane.on("exit", (info: unknown) => { void this.onLaneExit(lane, info); });
   }
 
-  private onParsedEvent(event: AdapterEvent): void {
+  private onAdapterEvent(event: AdapterEvent): void {
     if (this.state === "closed" || this.state === "stopping" || this.finishing) return;
     const turnId = this.activeTurn?.turnId;
     switch (event.kind) {
@@ -517,7 +531,7 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
             ? event.severity
             : "info",
           source: event.source,
-          message: event.message,
+          message: scrubDriverErrorMessage(event.message, "Runtime diagnostic"),
         });
         return;
       case "telemetry": {
@@ -532,7 +546,13 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
       case "error":
         this.toolBoundaryFlushDisabled = true;
         this.turnError = driverError("process", "runtime_error", event.message, true);
-        this.emit({ type: "diagnostic", turnId, severity: "error", source: this.backend, message: event.message });
+        this.emit({
+          type: "diagnostic",
+          turnId,
+          severity: "error",
+          source: this.backend,
+          message: scrubDriverErrorMessage(event.message),
+        });
         return;
       case "turn_end":
         this.completeTurn(event.sessionId);
@@ -562,12 +582,15 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
       type: "turn_completed",
       turnId: active.turnId,
       commandIds: active.commandIds,
-      result: this.turnError
-        ? { outcome: "failed", backendSessionId: this.backendSessionId, error: this.turnError }
-        : { outcome: "success", backendSessionId: this.backendSessionId ?? "" },
+      result: this.interruptedTurnId === active.turnId
+        ? { outcome: "interrupted", backendSessionId: this.backendSessionId }
+        : this.turnError
+          ? { outcome: "failed", backendSessionId: this.backendSessionId, error: this.turnError }
+          : { outcome: "success", backendSessionId: this.backendSessionId ?? "" },
     });
     this.activeTurn = undefined;
     this.turnError = undefined;
+    this.interruptedTurnId = undefined;
     this.outstandingToolUses = 0;
     this.compacting = false;
     this.reviewing = false;
@@ -689,10 +712,10 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
 
   private onLaneError(error: unknown): void {
     const message = error instanceof Error ? error.message : String(error);
-    this.onParsedEvent({ kind: "error", message });
+    this.onAdapterEvent({ kind: "error", message });
   }
 
-  private async onLaneExit(lane: Lane, info: unknown): Promise<void> {
+  private async onLaneExit(lane: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane, info: unknown): Promise<void> {
     if (this.lane !== lane || this.state === "closed") return;
     this.lane = null;
     if (this.state === "stopping") return;
@@ -724,7 +747,7 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
       sequence: ++this.eventSequence,
       sessionInstanceId: this.sessionInstanceId,
       at: this.host.now(),
-    } as AgentEvent<BuiltinBackendSpecs, Id>;
+    } as AgentEvent<Specs, Id>;
     this.eventQueue.push(event, payload.type === "session_closed");
   }
 
@@ -798,7 +821,9 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
         this.failQueued("cancelled", "session_closed", "Session closed before command acceptance");
         if (this.activeTurn) {
           const active = this.activeTurn;
-          const interrupted = releaseReason === "requested_stop" || releaseReason === "consumer_closed";
+          const interrupted = releaseReason === "requested_stop"
+            || releaseReason === "consumer_closed"
+            || this.interruptedTurnId === active.turnId;
           const error = this.turnError ?? driverError(
             interrupted ? "cancelled" : "process",
             interrupted ? "turn_interrupted" : "session_closed",
@@ -814,6 +839,7 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
               : { outcome: "failed", backendSessionId: this.backendSessionId, error },
           });
           this.activeTurn = undefined;
+          this.interruptedTurnId = undefined;
         }
         const cleanup = await this.cleanupResource(releaseReason);
         const result = buildResult(cleanup);
@@ -896,7 +922,11 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     return this.isOpenCurrent(generation) && this.activeTurn?.turnId === turnId;
   }
 
-  private async stopLaneInstanceBounded(lane: Lane, reason: string, timeoutMs: number): Promise<void> {
+  private async stopLaneInstanceBounded(
+    lane: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane,
+    reason: string,
+    timeoutMs: number,
+  ): Promise<void> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stopped = (lane instanceof SdkLane
       ? lane.stop()

@@ -78,7 +78,7 @@ afterEach(() => {
   }
 });
 
-describe("ChildProcessRuntimeSession — real subprocess exit fills the physical fact (T1 red-line-5b)", () => {
+describe("ProcessLane — real subprocess exit fills the physical fact (T1 red-line-5b)", () => {
   it("a real SIGKILLed subprocess emits exit with signal=SIGKILL, null code, reason=runtime_exit", async () => {
     // POSIX-only: Windows has no real signals — `process.kill(pid, "SIGKILL")`
     // terminates the child but Node reports `code=1, signal=null`, so the
@@ -125,7 +125,7 @@ describe("ChildProcessRuntimeSession — real subprocess exit fills the physical
   });
 });
 
-describe("ChildProcessRuntimeSession — raw stdout tap (P0-1)", () => {
+describe("ProcessLane — raw stdout tap (P0-1)", () => {
   it("taps each complete non-empty line before normalizeLine and preserves the original text", async () => {
     const order: string[] = [];
     const normalizeLine = vi.fn((line: string) => {

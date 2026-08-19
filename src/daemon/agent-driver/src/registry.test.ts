@@ -13,7 +13,7 @@ const EXPECTED: Record<BuiltinBackendId, BackendCapabilities> = {
   codex: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: true, disallowedTools: false, commandOverride: true, resume: "by_id", midTurnDelivery: "safe_boundary_queue", interrupt: true },
   cursor: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", midTurnDelivery: "next_turn_queue", interrupt: true },
   opencode: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", midTurnDelivery: "next_turn_queue", interrupt: true },
-  pi: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", midTurnDelivery: "steer", interrupt: true },
+  pi: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: false, resume: "by_id", midTurnDelivery: "steer", interrupt: true },
 };
 
 describe("driver.capabilities", () => {

@@ -20,7 +20,9 @@ const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 const tempRoots: string[] = [];
 
 afterEach(() => {
-  for (const root of tempRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+  if (process.env.KEEP_AGENT_DRIVER_PACK_TEMP !== "1") {
+    for (const root of tempRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+  }
 });
 
 function packageVersion(root: string): string {

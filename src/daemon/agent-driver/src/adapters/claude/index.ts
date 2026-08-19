@@ -5,14 +5,14 @@
  * channel; the initial prompt and every subsequent message are written as
  * `{type:"user", message:{role:"user", content:[{type:"text",text}]}}` lines.
  * Because mid-stream injection can collide with signed thinking blocks, busy
- * delivery is `gated` — held until a safe boundary (see runtime/apmStateMachine).
+ * delivery is queued by the logical-session controller until a safe boundary.
  */
 import type { BackendAdapter, EncodeMessageOptions, AdapterLaunchContext, AdapterEvent, SpawnedProcess } from "../../internal/adapter.js";
 import { prepareCliTransport } from "../../internal/cliTransport.js";
 import { buildClaudeProviderIsolationEnv } from "./providerIsolation.js";
 import { buildClaudeArgs } from "./launch.js";
 import { ClaudeEventNormalizer } from "./normalizer.js";
-import { probeClaude, resolveSpawnSpec, resolveClaudeCommand } from "../../internal/probe.js";
+import { probeClaude, probeCommandVersion, resolveSpawnSpec, resolveClaudeCommand } from "../../internal/probe.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
 import { spawnAgentProcess } from "../../internal/killTree.js";
 
@@ -23,8 +23,13 @@ export class ClaudeDriver implements BackendAdapter {
 
   private readonly eventNormalizer = new ClaudeEventNormalizer();
 
-  probe() {
-    return probeClaude();
+  probe(command?: string) {
+    const explicit = command?.trim();
+    if (!explicit) return probeClaude();
+    const result = probeCommandVersion(explicit);
+    return result.ok
+      ? { status: "healthy" as const, version: result.version }
+      : { status: "unhealthy" as const, lastError: result.error };
   }
 
   async spawn(ctx: AdapterLaunchContext): Promise<SpawnedProcess> {

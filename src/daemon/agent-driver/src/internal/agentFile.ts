@@ -37,19 +37,25 @@ function hasContentChanged(filePath: string, newContent: string): boolean {
   }
 }
 
-export function ensureSymlinks(workDir: string): void {
-  const canonicalPath = join(workDir, CANONICAL_FILE);
+export function ensureSymlinks(
+  workDir: string,
+  canonical = CANONICAL_FILE,
+  aliases: readonly string[] = SYMLINK_ALIASES,
+): void {
+  assertInstructionFileName(canonical);
+  const canonicalPath = join(workDir, canonical);
   if (!existsSync(canonicalPath)) return;
 
-  for (const alias of SYMLINK_ALIASES) {
-    if (alias === CANONICAL_FILE) continue;
+  for (const alias of aliases) {
+    assertInstructionFileName(alias);
+    if (alias === canonical) continue;
     const aliasPath = join(workDir, alias);
 
     try {
       const stat = lstatSync(aliasPath);
       if (stat.isSymbolicLink()) {
         const target = readlinkSync(aliasPath);
-        if (target === CANONICAL_FILE) continue;
+        if (target === canonical) continue;
         unlinkSync(aliasPath);
       } else {
         const aliasContent = readFileSync(aliasPath, "utf-8");
@@ -62,7 +68,7 @@ export function ensureSymlinks(workDir: string): void {
     }
 
     try {
-      symlinkSync(CANONICAL_FILE, aliasPath);
+      symlinkSync(canonical, aliasPath);
     } catch (err: unknown) {
       const code = (err as NodeJS.ErrnoException)?.code;
       if (code === "EEXIST") {
@@ -81,12 +87,26 @@ export function ensureSymlinks(workDir: string): void {
  * symlinks to it. Only writes if content has changed (avoids unnecessary fs churn).
  * Returns true if the file was actually written.
  */
-export function writeAgentFile(workDir: string, systemPromptContent: string): boolean {
-  const filePath = join(workDir, CANONICAL_FILE);
+export function writeAgentFile(
+  workDir: string,
+  systemPromptContent: string,
+  strategy: { readonly canonical: string; readonly aliases: readonly string[] } = {
+    canonical: CANONICAL_FILE,
+    aliases: SYMLINK_ALIASES,
+  },
+): boolean {
+  assertInstructionFileName(strategy.canonical);
+  const filePath = join(workDir, strategy.canonical);
   const changed = hasContentChanged(filePath, systemPromptContent);
   if (changed) {
     writeFileSync(filePath, systemPromptContent, "utf-8");
   }
-  ensureSymlinks(workDir);
+  ensureSymlinks(workDir, strategy.canonical, strategy.aliases);
   return changed;
+}
+
+function assertInstructionFileName(name: string): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) || name === "." || name === "..") {
+    throw new Error("Instruction file names must be plain workspace basenames");
+  }
 }

@@ -27,8 +27,8 @@ export class OpenCodeDriver implements BackendAdapter {
     return message?.type === "system";
   }
 
-  probe() {
-    return probeCliRuntime("opencode");
+  probe(command?: string) {
+    return probeCliRuntime("opencode", {}, command);
   }
 
   async spawn(ctx: AdapterLaunchContext): Promise<SpawnedProcess> {

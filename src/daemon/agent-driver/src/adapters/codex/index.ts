@@ -73,12 +73,12 @@ export class CodexDriver implements BackendAdapter {
     return this.codexHomeRoot;
   }
 
-  probe() {
+  probe(command?: string) {
     // probeCliRuntime spawns `--version` — a missing vendored binary (npm
     // package resolves but the aarch64 blob is absent) fails there even
     // though resolveCommandOnPath returned a JS wrapper. See
     // plans/community-machine-presence-fix.md.
-    return probeCliRuntime("codex");
+    return probeCliRuntime("codex", {}, command);
   }
 
   async spawn(ctx: AdapterLaunchContext): Promise<SpawnedProcess> {

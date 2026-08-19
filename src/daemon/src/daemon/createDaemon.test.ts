@@ -164,11 +164,7 @@ function fullFakeDriver(id: string): Driver {
 type DaemonTestSession = AgentSession<BuiltinBackendSpecs, "codex">;
 
 interface DaemonFakeSession extends DaemonTestSession {
-  fire(event: string, ...args: unknown[]): void;
-  bindManager(
-    publish: (event: AgentEvent<BuiltinBackendSpecs, "codex">) => void,
-    finish: (result: AgentSessionResult) => void,
-  ): void;
+  fire(event: string, ...args: unknown[]): Promise<void>;
 }
 
 function daemonFakeSession(options: {
@@ -177,13 +173,16 @@ function daemonFakeSession(options: {
 } = {}): DaemonFakeSession {
   type Event = AgentEvent<BuiltinBackendSpecs, "codex">;
   let sequence = 0;
-  let publish: ((event: Event) => void) | undefined;
-  let finish: ((result: AgentSessionResult) => void) | undefined;
+  const queued: Event[] = [];
+  const waiters: Array<(value: IteratorResult<Event>) => void> = [];
   let ended = false;
   let resolveClosed!: (result: AgentSessionResult) => void;
   const closed = new Promise<AgentSessionResult>((resolve) => { resolveClosed = resolve; });
   const emit = (payload: Omit<Event, "sequence" | "sessionInstanceId" | "at">) => {
-    publish?.({ ...payload, sequence: ++sequence, sessionInstanceId: "daemon-test", at: Date.now() } as Event);
+    const event = { ...payload, sequence: ++sequence, sessionInstanceId: "daemon-test", at: Date.now() } as Event;
+    const waiter = waiters.shift();
+    if (waiter) waiter({ done: false, value: event });
+    else queued.push(event);
   };
   const session: DaemonFakeSession = {
     backend: "codex",
@@ -191,19 +190,19 @@ function daemonFakeSession(options: {
     sessionInstanceId: "daemon-test",
     events: {
       maxBufferedBytes: 4_194_304,
-      async *[Symbol.asyncIterator]() {
-        await closed;
+      [Symbol.asyncIterator]() {
+        return {
+          next: () => queued.length > 0
+            ? Promise.resolve({ done: false as const, value: queued.shift()! })
+            : new Promise<IteratorResult<Event>>((resolve) => waiters.push(resolve)),
+        };
       },
     },
     closed,
-    bindManager(nextPublish, nextFinish) {
-      publish = nextPublish;
-      finish = nextFinish;
-    },
     async start(input) {
       options.onStart?.(input);
       if (options.establish !== false) {
-        session.fire("runtime_event", { kind: "session_init", sessionId: "test-session" });
+        await session.fire("runtime_event", { kind: "session_init", sessionId: "test-session" });
       }
       return { status: "accepted", delivery: "prompt", commandId: input.id, turnId: "daemon-test-turn" };
     },
@@ -215,7 +214,6 @@ function daemonFakeSession(options: {
       if (!ended) {
         ended = true;
         const result: AgentSessionResult = { outcome: "stopped", requested: true, exitCode: null, signal: null, cleanup: { status: "released" } };
-        finish?.(result);
         resolveClosed(result);
       }
       return { status: "accepted", requestId: "daemon-test-stop" };
@@ -226,7 +224,7 @@ function daemonFakeSession(options: {
     async invokeExtension() {
       return { ok: false, error: { category: "internal", code: "unsupported", message: "unsupported", retryable: false } };
     },
-    fire(event, ...args) {
+    async fire(event, ...args) {
       if (event === "runtime_event") {
         const runtime = args[0] as { kind: string; sessionId?: string; text?: string };
         if (runtime.kind === "session_init") {
@@ -239,9 +237,10 @@ function daemonFakeSession(options: {
       } else if (event === "exit") {
         const result: AgentSessionResult = { outcome: "stopped", requested: true, exitCode: null, signal: null, cleanup: { status: "released" } };
         ended = true;
-        finish?.(result);
         resolveClosed(result);
       }
+      await Promise.resolve();
+      await Promise.resolve();
     },
   } as DaemonFakeSession;
   return session;
@@ -250,9 +249,8 @@ function daemonFakeSession(options: {
 function daemonSessionFactory(
   options: Parameters<typeof daemonFakeSession>[0] = {},
 ): SessionFactory {
-  return (hooks) => {
+  return () => {
     const session = daemonFakeSession(options);
-    session.bindManager(hooks.publish as never, hooks.finish);
     return session;
   };
 }
@@ -915,11 +913,9 @@ describe("createDaemon — logging", () => {
 
     const spawn = vi.fn();
     const driver = fullFakeDriver("cursor");
-    const sessionFactory: SessionFactory = (hooks) => {
+    const sessionFactory: SessionFactory = () => {
       spawn();
-      const session = daemonFakeSession({ establish: false });
-      session.bindManager(hooks.publish as never, hooks.finish);
-      return session;
+      return daemonFakeSession({ establish: false });
     };
     const sockets: FakeSocket[] = [];
     const logger = stubLogger();
@@ -1060,9 +1056,7 @@ describe("createDaemon — logging", () => {
       sessionFactory: (hooks) => {
         const { ctx } = hooks;
         seenConfigs.push(ctx.config);
-        const session = daemonFakeSession();
-        session.bindManager(hooks.publish as never, hooks.finish);
-        return session;
+        return daemonFakeSession();
       },
       capabilities: [],
     });
@@ -1336,9 +1330,8 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
       webSocketFactory: factory(sockets) as any,
       runtimeReport: [{ id: "codex" }],
       driverFor: () => persistentDriver,
-      sessionFactory: (hooks) => {
+      sessionFactory: () => {
         const session = daemonFakeSession({ establish: false });
-        session.bindManager(hooks.publish as never, hooks.finish);
         emitters.push(session);
         return session;
       },
@@ -1361,7 +1354,7 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
     // reaches `running` (turnActive) — a steady working state.
     await vi.advanceTimersByTimeAsync(50);
     expect(emitters.length).toBeGreaterThan(0);
-    emitters[0].fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await emitters[0].fire("runtime_event", { kind: "session_init", sessionId: "s1" });
     await vi.advanceTimersByTimeAsync(1);
 
     const activityFrames = () =>
@@ -1537,16 +1530,13 @@ describe("AgentProcessManager.auditContext", () => {
         busyDeliveryMode: "none",
       } as never),
       baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", config: {} }) as never,
-      sessionFactory: (hooks) => {
-        session.bindManager(hooks.publish as never, hooks.finish);
-        return session;
-      },
+      sessionFactory: () => session,
     });
     mgr.register("a1", { launchId: "l_XYZ" });
     expect(mgr.auditContext("a1")).toEqual({ sessionId: null, launchId: "l_XYZ" });
 
     mgr.deliver("a1", { seq: 1, text: "hi" } as never);
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s_ABC" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s_ABC" });
     expect(mgr.auditContext("a1")).toEqual({ sessionId: "s_ABC", launchId: "l_XYZ" });
   });
 });

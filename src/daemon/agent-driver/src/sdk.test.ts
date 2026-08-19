@@ -1,8 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AgentDriverHost, AgentDriverError } from "./contract.js";
+import type {
+  AgentDriverHost,
+  AgentDriverError,
+  BackendAdapter,
+  BackendTypeSpec,
+} from "./index.js";
 import { ClaudeDriver } from "./adapters/claude/index.js";
 import { createFakeAgentDriverHost } from "./testing/fake-host.js";
 import { createAgentDriverSdk } from "./sdk.js";
+import { createAgentDriverRegistry } from "./registry.js";
 
 const claudeInput = {
   backend: "claude" as const,
@@ -43,7 +49,7 @@ describe("createAgentDriverSdk", () => {
     probe.mockRejectedValueOnce(new Error("probe exploded"));
     await expect(sdk.probe({ backend: "claude" })).resolves.toMatchObject({
       status: "unhealthy",
-      error: { code: "probe_threw", message: "Error: probe exploded" },
+      error: { code: "probe_threw", message: "Backend claude probe failed" },
     });
   });
 
@@ -72,5 +78,62 @@ describe("createAgentDriverSdk", () => {
     expect(opened.session.snapshot()).toMatchObject({ state: "new", queuedCommands: [] });
     await opened.session.stop({ reason: "shutdown", forceAfterMs: 1 });
     expect(host.releases).toHaveLength(1);
+  });
+
+  it("opens a sixth backend through only its public adapter registration", async () => {
+    const capabilities = {
+      modelSelection: "unsupported",
+      providerConfiguration: false,
+      reasoningEffort: false,
+      fastMode: false,
+      disallowedTools: false,
+      commandOverride: false,
+      resume: "none",
+      midTurnDelivery: "next_turn_queue",
+      interrupt: false,
+    } as const;
+    interface SixthSpecs {
+      readonly sixth: BackendTypeSpec<
+        { readonly flavor: string },
+        typeof capabilities,
+        Record<never, never>,
+        never
+      >;
+    }
+    const adapter: BackendAdapter<"sixth", { readonly flavor: string }> = {
+      id: "sixth",
+      instructionDelivery: { kind: "native" },
+      execution: { kind: "per_turn_process", start: "deferred", afterTurn: "terminate" },
+      probe: vi.fn(() => ({ status: "healthy" as const, version: "6.0.0" })),
+      normalizeLine: () => [],
+      currentSessionId: null,
+      encodeMessage: () => null,
+    };
+    const registry = createAgentDriverRegistry<SixthSpecs>([{
+      id: "sixth",
+      capabilities,
+      createAdapter: () => adapter,
+    }]);
+    const sdk = createAgentDriverSdk({ registry, host: createFakeAgentDriverHost() });
+
+    expect(sdk.backendIds).toEqual(["sixth"]);
+    await expect(sdk.probe({ backend: "sixth" })).resolves.toMatchObject({
+      status: "healthy",
+      version: "6.0.0",
+      capabilities,
+    });
+    const opened = await sdk.open({
+      backend: "sixth",
+      launch: {
+        workingDirectory: process.cwd(),
+        instructions: { format: "markdown", content: "native instructions" },
+        launchId: "sixth-launch",
+      },
+      config: { flavor: "vanilla" },
+    });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    expect(opened.session.backend).toBe("sixth");
+    await opened.session.stop({ reason: "shutdown", forceAfterMs: 1 });
   });
 });

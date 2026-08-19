@@ -27,66 +27,15 @@ export type {
 } from "@alook/shared/runtime-config";
 
 import type { RuntimeConfig } from "@alook/shared/runtime-config";
-import type {
-  BuiltinBackendId,
-  BuiltinBackendSpecs,
-  ClaudeConfig,
-  ConfigOf,
-  PiConfig,
+import {
+  toBuiltinBackendSelection,
+  type BuiltinBackendSelection,
 } from "@alook/agent-driver";
 
-export type AgentBackendSelection = {
-  [Id in BuiltinBackendId]: {
-    backend: Id;
-    config: ConfigOf<BuiltinBackendSpecs, Id>;
-  };
-}[BuiltinBackendId];
+export type AgentBackendSelection = BuiltinBackendSelection;
 
 export function toAgentBackendSelection(config: RuntimeConfig): AgentBackendSelection {
-  const model = config.model;
-  const environment = config.envVars;
-  const base = { model, command: config.command, environment };
-  switch (config.runtime) {
-    case "claude": {
-      const provider: ClaudeConfig["provider"] = config.provider?.kind === "custom"
-        ? { kind: "custom_endpoint", apiUrl: config.provider.apiUrl, apiKey: config.provider.apiKey }
-        : { kind: "default" };
-      return {
-        backend: "claude",
-        config: {
-          ...base,
-          provider,
-          reasoningEffort: config.reasoningEffort,
-          mode: config.mode.kind,
-          disallowedTools: config.disallowedTools,
-        },
-      };
-    }
-    case "codex":
-      return {
-        backend: "codex",
-        config: { ...base, reasoningEffort: config.reasoningEffort, mode: config.mode.kind },
-      };
-    case "cursor":
-      return { backend: "cursor", config: base };
-    case "opencode":
-      return { backend: "opencode", config: base };
-    case "pi": {
-      const provider: PiConfig["provider"] = config.provider?.kind === "pi-builtin"
-        ? {
-            kind: "builtin",
-            providerId: config.provider.providerId,
-            apiKey: config.provider.apiKey,
-          }
-        : { kind: "default" };
-      return {
-        backend: "pi",
-        config: { ...base, provider, reasoningEffort: config.reasoningEffort },
-      };
-    }
-    default:
-      throw new Error(`Unknown runtime: ${config.runtime}`);
-  }
+  return toBuiltinBackendSelection(config);
 }
 
 /** Backend-neutral projection used only for manager logs and trace metadata. */

@@ -1,3 +1,5 @@
+import type { AgentDriverRegistry } from "./registry.js";
+
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
 export type JsonObject = { readonly [key: string]: JsonValue };
@@ -41,15 +43,14 @@ export interface CodexConfig extends BaseBackendConfig {
   readonly mode: "default" | "fast";
 }
 
-export interface CursorConfig extends BaseBackendConfig {
+export interface ModelBackendConfig extends BaseBackendConfig {
   readonly model: ModelSelection;
 }
 
-export interface OpenCodeConfig extends BaseBackendConfig {
-  readonly model: ModelSelection;
-}
+export type CursorConfig = ModelBackendConfig;
+export type OpenCodeConfig = ModelBackendConfig;
 
-export interface PiConfig extends BaseBackendConfig {
+export interface PiConfig extends Omit<BaseBackendConfig, "command"> {
   readonly model: ModelSelection;
   readonly provider: PiProvider;
   readonly reasoningEffort?: ReasoningEffort;
@@ -67,55 +68,30 @@ export interface BackendCapabilities {
   readonly interrupt: boolean;
 }
 
-export type ClaudeCapabilities = BackendCapabilities & {
+type FixedCapabilities<
+  Provider extends boolean,
+  Reasoning extends boolean,
+  Fast extends boolean,
+  Tools extends boolean,
+  Command extends boolean,
+  Delivery extends BackendCapabilities["midTurnDelivery"],
+> = BackendCapabilities & {
   readonly modelSelection: "launchable";
-  readonly providerConfiguration: true;
-  readonly reasoningEffort: true;
-  readonly fastMode: true;
-  readonly disallowedTools: true;
-  readonly commandOverride: true;
+  readonly providerConfiguration: Provider;
+  readonly reasoningEffort: Reasoning;
+  readonly fastMode: Fast;
+  readonly disallowedTools: Tools;
+  readonly commandOverride: Command;
   readonly resume: "by_id";
-  readonly midTurnDelivery: "safe_boundary_queue";
+  readonly midTurnDelivery: Delivery;
   readonly interrupt: true;
 };
 
-export type CodexCapabilities = BackendCapabilities & {
-  readonly modelSelection: "launchable";
-  readonly providerConfiguration: false;
-  readonly reasoningEffort: true;
-  readonly fastMode: true;
-  readonly disallowedTools: false;
-  readonly commandOverride: true;
-  readonly resume: "by_id";
-  readonly midTurnDelivery: "safe_boundary_queue";
-  readonly interrupt: true;
-};
-
-export type CursorCapabilities = BackendCapabilities & {
-  readonly modelSelection: "launchable";
-  readonly providerConfiguration: false;
-  readonly reasoningEffort: false;
-  readonly fastMode: false;
-  readonly disallowedTools: false;
-  readonly commandOverride: true;
-  readonly resume: "by_id";
-  readonly midTurnDelivery: "next_turn_queue";
-  readonly interrupt: true;
-};
-
+export type ClaudeCapabilities = FixedCapabilities<true, true, true, true, true, "safe_boundary_queue">;
+export type CodexCapabilities = FixedCapabilities<false, true, true, false, true, "safe_boundary_queue">;
+export type CursorCapabilities = FixedCapabilities<false, false, false, false, true, "next_turn_queue">;
 export type OpenCodeCapabilities = CursorCapabilities;
-
-export type PiCapabilities = BackendCapabilities & {
-  readonly modelSelection: "launchable";
-  readonly providerConfiguration: true;
-  readonly reasoningEffort: true;
-  readonly fastMode: false;
-  readonly disallowedTools: false;
-  readonly commandOverride: true;
-  readonly resume: "by_id";
-  readonly midTurnDelivery: "steer";
-  readonly interrupt: true;
-};
+export type PiCapabilities = FixedCapabilities<true, true, false, false, false, "steer">;
 
 export interface BackendExtensionSpec<Input, Output> {
   readonly input: Input;
@@ -250,14 +226,6 @@ export type HostCleanupResult =
   | { readonly status: "timed_out"; readonly error: AgentDriverError };
 
 export type AgentSessionResult =
-  | {
-      readonly outcome: "completed";
-      readonly requested: false;
-      readonly backendSessionId?: string;
-      readonly exitCode?: 0 | null;
-      readonly signal?: null;
-      readonly cleanup: HostCleanupResult;
-    }
   | {
       readonly outcome: "stopped";
       readonly requested: true;
@@ -484,15 +452,11 @@ export interface RawOutputEvent {
 }
 
 export interface PreparedExecutionResource {
-  readonly environmentLayers: {
-    readonly base: Readonly<Record<string, string | undefined>>;
-    readonly hostStatic: Readonly<Record<string, string | undefined>>;
-    readonly identityProtected: Readonly<Record<string, string | undefined>>;
-    readonly platformProtected: Readonly<Record<string, string | undefined>>;
-    readonly runtimeProtected: Readonly<Record<string, string | undefined>>;
-    readonly networkProtected: Readonly<Record<string, string | undefined>>;
-    readonly credentialSensitive: Readonly<Record<string, string | undefined>>;
-  };
+  readonly environmentLayers: Readonly<Record<
+    "base" | "hostStatic" | "identityProtected" | "platformProtected" |
+    "runtimeProtected" | "networkProtected" | "credentialSensitive",
+    Readonly<Record<string, string | undefined>>
+  >>;
   readonly executablePath?: string;
   release(input: {
     readonly reason: "normal" | "failed_start" | "crash" | "requested_stop" | "consumer_closed";
@@ -513,7 +477,8 @@ export interface DefaultAgentDriverHostOptions {
   readonly onRawOutput?: (event: RawOutputEvent) => void;
 }
 
-export interface CreateAgentDriverSdkOptions {
+export interface CreateAgentDriverSdkOptions<Specs = BuiltinBackendSpecs> {
   readonly host?: AgentDriverHost;
   readonly hostReleaseTimeoutMs?: number;
+  readonly registry?: AgentDriverRegistry<Specs>;
 }

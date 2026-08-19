@@ -196,8 +196,9 @@ export function probeClaude(deps: ProbeDeps = {}): ProbeResult {
  * rather than living inline so a future change to probe semantics is one edit,
  * not eight.
  */
-export function probeCliRuntime(binary: string, deps: ProbeDeps = {}): ProbeResult {
-  const command = resolveCommandOnPath(binary, deps);
+export function probeCliRuntime(binary: string, deps: ProbeDeps = {}, override?: string): ProbeResult {
+  const explicit = override?.trim();
+  const command = explicit || resolveCommandOnPath(binary, deps);
   if (!command) return { status: "unhealthy", lastError: "not_on_path" };
   const r = probeCommandVersion(command, [], deps);
   if (!r.ok) return { status: "unhealthy", lastError: r.error };

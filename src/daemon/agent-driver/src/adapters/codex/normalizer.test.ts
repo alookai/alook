@@ -13,6 +13,11 @@ function notify(method: string, params: unknown): string {
   return JSON.stringify({ jsonrpc: "2.0", method, params });
 }
 
+function adoptRootTurn(n: CodexEventNormalizer, threadId: string, turnId: string): void {
+  n.normalizeLine(notify("thread/started", { thread: { id: threadId } }));
+  n.normalizeLine(notify("turn/started", { threadId, turn: { id: turnId, status: "inProgress" } }));
+}
+
 describe("CodexEventNormalizer — tool_call/tool_output symmetry", () => {
   it("fileChange: item/started then item/completed emits tool_call then tool_output", () => {
     const n = new CodexEventNormalizer();
@@ -124,23 +129,76 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
   it("captures params.turn.id on turn/started and exposes it via currentTurnId", () => {
     const n = new CodexEventNormalizer();
     expect(n.currentTurnId).toBeNull();
-    n.normalizeLine(notify("turn/started", { threadId: "th_1", turn: { id: "turn_abc", status: "inProgress" } }));
+    adoptRootTurn(n, "th_1", "turn_abc");
     expect(n.currentTurnId).toBe("turn_abc");
   });
 
   it("clears the turn id on turn/completed (no live turn to steer after)", () => {
     const n = new CodexEventNormalizer();
-    n.normalizeLine(notify("turn/started", { threadId: "th_1", turn: { id: "turn_abc" } }));
+    adoptRootTurn(n, "th_1", "turn_abc");
     expect(n.currentTurnId).toBe("turn_abc");
-    n.normalizeLine(notify("turn/completed", { status: "completed" }));
+    n.normalizeLine(notify("turn/completed", { threadId: "th_1", turn: { id: "turn_abc", status: "completed" } }));
     expect(n.currentTurnId).toBeNull();
   });
 
   it("clears the turn id on an interrupted/failed turn too", () => {
     const n = new CodexEventNormalizer();
-    n.normalizeLine(notify("turn/started", { threadId: "th_1", turn: { id: "turn_x" } }));
-    n.normalizeLine(notify("turn/completed", { status: "failed" }));
+    adoptRootTurn(n, "th_1", "turn_x");
+    n.normalizeLine(notify("turn/completed", { threadId: "th_1", turn: { id: "turn_x", status: "failed" } }));
     expect(n.currentTurnId).toBeNull();
+  });
+
+  it("ignores child and unknown completions without clearing or terminating the active root turn", () => {
+    const n = new CodexEventNormalizer();
+    adoptRootTurn(n, "root-thread", "root-turn");
+
+    expect(n.normalizeLine(notify("turn/completed", {
+      threadId: "child-thread-1",
+      turn: { id: "child-turn-1", status: "completed" },
+    }))).toEqual([]);
+    expect(n.normalizeLine(notify("turn/completed", {
+      threadId: "root-thread",
+      turn: { id: "unknown-turn", status: "completed" },
+    }))).toEqual([]);
+    expect(n.currentSessionId).toBe("root-thread");
+    expect(n.currentTurnId).toBe("root-turn");
+
+    expect(n.normalizeLine(notify("turn/completed", {
+      threadId: "root-thread",
+      turn: { id: "root-turn", status: "completed" },
+    }))).toEqual([{ kind: "turn_end", sessionId: "root-thread" }]);
+    expect(n.currentTurnId).toBeNull();
+  });
+
+  it("ignores child thread and turn announcements after the root is adopted", () => {
+    const n = new CodexEventNormalizer();
+    adoptRootTurn(n, "root-thread", "root-turn");
+
+    expect(n.normalizeLine(notify("thread/started", { thread: { id: "child-thread" } }))).toEqual([]);
+    expect(n.normalizeLine(notify("turn/started", {
+      threadId: "child-thread",
+      turn: { id: "child-turn", status: "inProgress" },
+    }))).toEqual([]);
+    expect(n.currentSessionId).toBe("root-thread");
+    expect(n.currentTurnId).toBe("root-turn");
+  });
+
+  it("filters child output and tool events from the root event stream", () => {
+    const n = new CodexEventNormalizer();
+    adoptRootTurn(n, "root-thread", "root-turn");
+
+    expect(n.normalizeLine(notify("item/agentMessage/delta", {
+      threadId: "child-thread",
+      turnId: "child-turn",
+      delta: "child leak",
+    }))).toEqual([]);
+    expect(n.normalizeLine(notify("item/started", {
+      threadId: "child-thread",
+      turnId: "child-turn",
+      item: { type: "commandExecution", command: "secret" },
+    }))).toEqual([]);
+    expect(n.currentSessionId).toBe("root-thread");
+    expect(n.currentTurnId).toBe("root-turn");
   });
 });
 
@@ -157,12 +215,12 @@ describe("CodexEventNormalizer — session_init dedup (result + thread/started n
     // but the id is still adopted regardless of which arrived.
     expect(n.currentSessionId).toBe("th_1");
   });
-  it("emits session_init again for a DIFFERENT thread (fresh-thread fallback)", () => {
+  it("does not let a later child thread result replace the adopted root thread", () => {
     const n = new CodexEventNormalizer();
     n.normalizeLine(result("th_1"));
-    const fresh = n.normalizeLine(result("th_2")); // e.g. missing-rollout fallback fresh thread
-    expect(fresh.filter((e) => e.kind === "session_init")).toHaveLength(1);
-    expect(n.currentSessionId).toBe("th_2");
+    const child = n.normalizeLine(result("th_2"));
+    expect(child.filter((e) => e.kind === "session_init")).toHaveLength(0);
+    expect(n.currentSessionId).toBe("th_1");
   });
   it("adopts the id from the notification even when the result never emitted it (notification first)", () => {
     const n = new CodexEventNormalizer();

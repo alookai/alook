@@ -31,4 +31,14 @@ describe("resolveLaunchFieldsOrDefault", () => {
       provider: { kind: "builtin", providerId: "unknown", apiKey: "pi-key" },
     }).providerEnv).toEqual({});
   });
+
+  it("keeps non-Claude custom models free of Claude provider environment", () => {
+    expect(resolveLaunchFieldsOrDefault({
+      model: { kind: "custom", name: "custom-codex-model" },
+      mode: "default",
+    })).toMatchObject({
+      model: "custom-codex-model",
+      providerEnv: {},
+    });
+  });
 });

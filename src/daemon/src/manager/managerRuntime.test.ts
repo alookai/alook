@@ -12,11 +12,13 @@ import {
   type SessionFactory,
 } from "./managerRuntime.js";
 import type {
+  AdapterEvent,
   AgentEvent,
   AgentSession,
   AgentSessionResult,
   BuiltinBackendSpecs,
 } from "@alook/agent-driver";
+import { createBuiltinAgentDriverRegistry } from "@alook/agent-driver";
 import type { AgentBackend as Driver } from "../drivers/index.js";
 import type { HostLaunchContext as LaunchContext } from "./hostContext.js";
 import type { RuntimeConfig } from "../runtimeConfig.js";
@@ -83,9 +85,9 @@ function controllableChildDriver(id: string): { driver: Driver; stdout: PassThro
 type TestAgentSession = AgentSession<BuiltinBackendSpecs, "codex">;
 interface FakeSession extends TestAgentSession {
   fire(evt: string, ...args: unknown[]): Promise<void>;
+  pushAgentEvent(event: Omit<AgentEvent<BuiltinBackendSpecs, "codex">, "sequence" | "sessionInstanceId" | "at">): Promise<void>;
   startResolver?: () => void;
   startRejector?: (err: unknown) => void;
-  bindManager(publish: (event: AgentEvent<BuiltinBackendSpecs, "codex">) => void, finish: (result: AgentSessionResult) => void): void;
 }
 
 function fakeSession(): FakeSession {
@@ -93,8 +95,6 @@ function fakeSession(): FakeSession {
   const queued: Event[] = [];
   const waiters: Array<(value: IteratorResult<Event>) => void> = [];
   let sequence = 0;
-  let publishToManager: ((event: Event) => void) | undefined;
-  let finishManager: ((result: AgentSessionResult) => void) | undefined;
   let resolveClosed!: (result: AgentSessionResult) => void;
   const closed = new Promise<AgentSessionResult>((resolve) => { resolveClosed = resolve; });
   const push = (payload: Omit<Event, "sequence" | "sessionInstanceId" | "at">) => {
@@ -104,10 +104,6 @@ function fakeSession(): FakeSession {
       sessionInstanceId: "test-instance",
       at: Date.now(),
     } as Event;
-    if (publishToManager) {
-      publishToManager(event);
-      return;
-    }
     const waiter = waiters.shift();
     if (waiter) waiter({ done: false, value: event });
     else queued.push(event);
@@ -127,10 +123,6 @@ function fakeSession(): FakeSession {
       },
     },
     closed,
-    bindManager(publish: (event: Event) => void, finish: (result: AgentSessionResult) => void) {
-      publishToManager = publish;
-      finishManager = finish;
-    },
     start() {
       return new Promise((resolve, reject) => {
         s.startResolver = () => resolve({
@@ -163,6 +155,11 @@ function fakeSession(): FakeSession {
     async invokeExtension() {
       return { ok: false as const, error: { category: "internal" as const, code: "unsupported", message: "unsupported", retryable: false } };
     },
+    async pushAgentEvent(event) {
+      push(event as never);
+      await Promise.resolve();
+      await Promise.resolve();
+    },
     async fire(evt: string, ...args: unknown[]) {
       if (evt === "runtime_event") {
         const event = args[0] as { kind: string; sessionId?: string; text?: string; name?: string; input?: unknown; message?: string; source?: string; itemType?: string; payloadBytes?: number };
@@ -194,10 +191,9 @@ function fakeSession(): FakeSession {
         const result: AgentSessionResult = info?.reason === "requested"
           ? { outcome: "stopped", requested: true, exitCode: info.code ?? null, signal: info.signal ?? null, cleanup: { status: "released" } }
           : (info?.code ?? null) === 0 && (info?.signal ?? null) === null
-            ? { outcome: "completed", requested: false, exitCode: 0, signal: null, cleanup: { status: "released" } }
+            ? { outcome: "crashed", requested: false, exitCode: 0, signal: null, cleanup: { status: "released" } }
           : { outcome: "crashed", requested: false, exitCode: info?.code ?? null, signal: info?.signal ?? null, cleanup: { status: "released" } };
-        if (finishManager) finishManager(result);
-        else resolveClosed(result);
+        resolveClosed(result);
       }
       await Promise.resolve();
       await Promise.resolve();
@@ -207,7 +203,7 @@ function fakeSession(): FakeSession {
 }
 
 function sessionFactoryFor(session: FakeSession): SessionFactory {
-  return (hooks) => bindFactorySession(hooks, session);
+  return () => session;
 }
 
 function fireManagedError(
@@ -237,10 +233,9 @@ function fireManagedError(
 }
 
 function bindFactorySession(
-  { publish, finish }: Parameters<SessionFactory>[0],
+  _args: Parameters<SessionFactory>[0],
   session: FakeSession,
 ): FakeSession {
-  session.bindManager(publish as never, finish);
   return session;
 }
 
@@ -269,13 +264,13 @@ function makeManager(opts: { logger?: Logger; tickIntervalMs?: number; idleTimeo
 }
 
 describe("AgentProcessManager — runtime health callbacks", () => {
-  it("ENOENT `error` followed by `exit` reports the failure ONCE with the specific code", () => {
+  it("ENOENT `error` followed by `exit` reports the failure ONCE with the specific code", async () => {
     const { mgr, session, onRuntimeSpawnFailed } = makeManager();
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
     // child_process emits `error` first (with ENOENT), then `exit`.
-    session.fire("error", { code: "ENOENT" });
-    session.fire("exit");
+    await session.fire("error", { code: "ENOENT" });
+    await session.fire("exit");
 
     expect(onRuntimeSpawnFailed).toHaveBeenCalledTimes(1);
     expect(onRuntimeSpawnFailed).toHaveBeenCalledWith("codex", "ENOENT");
@@ -285,7 +280,7 @@ describe("AgentProcessManager — runtime health callbacks", () => {
     const { mgr, session, onRuntimeSpawnFailed } = makeManager();
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("error", { code: "ENOENT" });
+    await session.fire("error", { code: "ENOENT" });
     session.startRejector?.({ code: "spawn_threw" });
     // Let the .catch microtask drain.
     await new Promise((r) => setTimeout(r, 0));
@@ -294,39 +289,39 @@ describe("AgentProcessManager — runtime health callbacks", () => {
     expect(onRuntimeSpawnFailed).toHaveBeenCalledWith("codex", "ENOENT");
   });
 
-  it("`exit` alone (no `error`) reports as pre_handshake_exit", () => {
+  it("`exit` alone (no `error`) reports as pre_handshake_exit", async () => {
     const { mgr, session, onRuntimeSpawnFailed } = makeManager();
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("exit");
+    await session.fire("exit");
 
     expect(onRuntimeSpawnFailed).toHaveBeenCalledTimes(1);
     expect(onRuntimeSpawnFailed).toHaveBeenCalledWith("codex", "pre_handshake_exit");
   });
 
-  it("runtime_event marks the session established AND heals the runtime; subsequent error is session-level (no spawn-failed)", () => {
+  it("runtime_event marks the session established AND heals the runtime; subsequent error is session-level (no spawn-failed)", async () => {
     const { mgr, session, onRuntimeSpawnFailed, onRuntimeSessionEstablished } = makeManager();
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    session.fire("runtime_event", { kind: "text", text: "hi" });
-    session.fire("error", { code: "EPIPE" });
-    session.fire("exit");
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("runtime_event", { kind: "text", text: "hi" });
+    await session.fire("error", { code: "EPIPE" });
+    await session.fire("exit");
 
     expect(onRuntimeSessionEstablished).toHaveBeenCalledWith("codex");
     expect(onRuntimeSpawnFailed).not.toHaveBeenCalled();
   });
 
-  it("heals runtime health only from the typed session_started event", () => {
+  it("heals runtime health only from the typed session_started event", async () => {
     const { mgr, session, onRuntimeSessionEstablished } = makeManager();
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("runtime_event", { kind: "text", text: "one" });
-    session.fire("runtime_event", { kind: "text", text: "two" });
-    session.fire("runtime_event", { kind: "text", text: "three" });
+    await session.fire("runtime_event", { kind: "text", text: "one" });
+    await session.fire("runtime_event", { kind: "text", text: "two" });
+    await session.fire("runtime_event", { kind: "text", text: "three" });
 
     expect(onRuntimeSessionEstablished).not.toHaveBeenCalled();
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
     expect(onRuntimeSessionEstablished).toHaveBeenCalledTimes(1);
   });
 });
@@ -358,7 +353,7 @@ describe("AgentProcessManager — raw runtime line tap (P0-1)", () => {
     expect(parseLine).not.toHaveBeenCalled();
   });
 
-  it("does not attach the child stdout tap to a custom session factory", () => {
+  it("does not attach the child stdout tap to a custom session factory", async () => {
     const session = fakeSession();
     const sessionFactory = vi.fn(() => session);
     const onRuntimeRawLine = vi.fn();
@@ -383,7 +378,7 @@ describe("AgentProcessManager — raw runtime line tap (P0-1)", () => {
 });
 
 describe("AgentProcessManager — logging", () => {
-  it("logs info on spawn start with agentId + runtime", () => {
+  it("logs info on spawn start with agentId + runtime", async () => {
     const logger = stubLogger();
     const { mgr } = makeManager({ logger });
     mgr.deliver("a1", { seq: 1, text: "hello" });
@@ -395,12 +390,12 @@ describe("AgentProcessManager — logging", () => {
     ).toBe(true);
   });
 
-  it("logs info on session established (session_init) with agentId/sessionId/runtime", () => {
+  it("logs info on session established (session_init) with agentId/sessionId/runtime", async () => {
     const logger = stubLogger();
     const { mgr, session } = makeManager({ logger });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
 
     expect(
       logger.calls.info.some(
@@ -413,13 +408,13 @@ describe("AgentProcessManager — logging", () => {
     ).toBe(true);
   });
 
-  it("logs warn on a pre-handshake spawn failure (ENOENT)", () => {
+  it("logs warn on a pre-handshake spawn failure (ENOENT)", async () => {
     const logger = stubLogger();
     const { mgr, session } = makeManager({ logger });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("error", { code: "ENOENT" });
-    session.fire("exit");
+    await session.fire("error", { code: "ENOENT" });
+    await session.fire("exit");
 
     expect(
       logger.calls.warn.some(
@@ -428,13 +423,13 @@ describe("AgentProcessManager — logging", () => {
     ).toBe(true);
   });
 
-  it("logs info on session ended with reason=turn_end", () => {
+  it("logs info on session ended with reason=turn_end", async () => {
     const logger = stubLogger();
     const { mgr, session } = makeManager({ logger });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    session.fire("runtime_event", { kind: "turn_end" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("runtime_event", { kind: "turn_end" });
 
     expect(
       logger.calls.info.some(
@@ -444,13 +439,13 @@ describe("AgentProcessManager — logging", () => {
     ).toBe(true);
   });
 
-  it("logs info on session ended with reason=exit for an ESTABLISHED session's process exit", () => {
+  it("logs info on session ended with reason=exit for an ESTABLISHED session's process exit", async () => {
     const logger = stubLogger();
     const { mgr, session } = makeManager({ logger });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    session.fire("exit");
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("exit");
 
     expect(
       logger.calls.info.some(
@@ -459,23 +454,23 @@ describe("AgentProcessManager — logging", () => {
     ).toBe(true);
   });
 
-  it("does NOT log session-ended for a pre-handshake exit (already a spawn-failed warning)", () => {
+  it("does NOT log session-ended for a pre-handshake exit (already a spawn-failed warning)", async () => {
     const logger = stubLogger();
     const { mgr, session } = makeManager({ logger });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("exit");
+    await session.fire("exit");
 
     expect(logger.calls.info.some(([m]) => m === "agent session ended")).toBe(false);
   });
 
-  it("logs one logical turn end without observing a backend's hidden physical exit", () => {
+  it("logs one logical turn end without observing a backend's hidden physical exit", async () => {
     const logger = stubLogger();
     const { mgr, session } = makeManager({ logger }); // fakeDriver's lifecycle.kind is "per_turn"
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    session.fire("runtime_event", { kind: "turn_end" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("runtime_event", { kind: "turn_end" });
     const ended = logger.calls.info.filter(([m]) => m === "agent session ended");
     expect(ended).toHaveLength(1);
     expect((ended[0]![1][0] as any).reason).toBe("turn_end");
@@ -489,7 +484,7 @@ describe("AgentProcessManager — launchId threading", () => {
   // it there) instead of the launchId tracked from the latest agent:wake —
   // every real spawn's voucher silently collided on cliTransport's "default"
   // fallback path (see plans/fix-credential-proxy-connection-leak.md).
-  it("passes the latest agent:wake's launchId into the spawned driver's LaunchContext", () => {
+  it("passes the latest agent:wake's launchId into the spawned driver's LaunchContext", async () => {
     let capturedCtx: LaunchContext | undefined;
     const factory: SessionFactory = (hooks) => {
       const { ctx } = hooks;
@@ -515,7 +510,7 @@ describe("AgentProcessManager — launchId threading", () => {
     expect(capturedCtx?.launchId).toBe("wake-launch-42");
   });
 
-  it("falls back to baseContextFor's launchId when no wake launchId is tracked", () => {
+  it("falls back to baseContextFor's launchId when no wake launchId is tracked", async () => {
     let capturedCtx: LaunchContext | undefined;
     const factory: SessionFactory = (hooks) => {
       const { ctx } = hooks;
@@ -580,7 +575,7 @@ describe("AgentProcessManager — session race conditions", () => {
 
     // The race: exit fires (as it would from a stop()/terminate_stalled
     // effect) WHILE start() is still pending.
-    session1.fire("exit");
+    await session1.fire("exit");
     // Only now does the slow start() finally resolve.
     session1.startResolver?.();
     await Promise.resolve();
@@ -604,13 +599,13 @@ describe("AgentProcessManager — session race conditions", () => {
       mgr.deliver("a1", { seq: 1, text: "hello" });
       session.startResolver?.();
       await Promise.resolve();
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
 
       currentTime = 200;
       await vi.advanceTimersByTimeAsync(10);
       // The stall watchdog issued session.stop() — simulate the underlying
       // process actually exiting shortly after.
-      session.fire("exit");
+      await session.fire("exit");
 
       const ended = logger.calls.info.filter(([m]) => m === "agent session ended");
       expect(ended).toHaveLength(1);
@@ -630,7 +625,7 @@ describe("AgentProcessManager — session race conditions", () => {
       mgr.deliver("a1", { seq: 1, text: "hello" });
       session.startResolver?.();
       await Promise.resolve();
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
 
       currentTime = 200;
       await vi.advanceTimersByTimeAsync(10);
@@ -658,17 +653,17 @@ describe("AgentProcessManager — session race conditions", () => {
       mgr.deliver("a1", { seq: 1, text: "hello" });
       session.startResolver?.();
       await Promise.resolve();
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
 
       // Simulate Claude going into compaction and emitting only heartbeats.
       // Without the fix these keep bumping lastProgressAt and the stall never
       // fires; with the fix they're ignored for stall purposes.
       currentTime = 50;
-      session.fire("runtime_event", { kind: "compaction_started" });
+      await session.fire("runtime_event", { kind: "compaction_started" });
       currentTime = 80;
-      session.fire("runtime_event", { kind: "internal_progress", source: "claude_system", itemType: "stream_event" });
+      await session.fire("runtime_event", { kind: "internal_progress", source: "claude_system", itemType: "stream_event" });
       currentTime = 150;
-      session.fire("runtime_event", { kind: "internal_progress", source: "claude_system", itemType: "stream_event" });
+      await session.fire("runtime_event", { kind: "internal_progress", source: "claude_system", itemType: "stream_event" });
 
       // 200ms since spawn (t=0), 120ms since compaction_started's real
       // progress event. Threshold is 100ms → watchdog must fire.
@@ -718,8 +713,8 @@ describe("AgentProcessManager — session race conditions", () => {
       mgr.deliver("a1", { seq: 1, text: "hello" });
       session.startResolver?.();
       await Promise.resolve();
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-      session.fire("runtime_event", { kind: "turn_end" });
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      await session.fire("runtime_event", { kind: "turn_end" });
 
       mgr.start();
       currentTime = 100;
@@ -762,8 +757,8 @@ describe("AgentProcessManager — session race conditions", () => {
       mgr.deliver("a1", { seq: 1, text: "hello" });
       session.startResolver?.();
       await Promise.resolve();
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-      session.fire("runtime_event", { kind: "turn_end" });
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      await session.fire("runtime_event", { kind: "turn_end" });
       mgr.start();
 
       // Idle-timeout tick → status=stopping, issues a stop. Crucially we DO NOT
@@ -809,8 +804,8 @@ describe("AgentProcessManager — session race conditions", () => {
       mgr.deliver("a1", { seq: 1, text: "hello" });
       session.startResolver?.();
       await Promise.resolve();
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-      session.fire("runtime_event", { kind: "turn_end" });
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      await session.fire("runtime_event", { kind: "turn_end" });
       mgr.start();
       currentTime = 100;
       await vi.advanceTimersByTimeAsync(10); // → stopping
@@ -849,8 +844,8 @@ describe("AgentProcessManager — session race conditions", () => {
       mgr.deliver("a1", { seq: 1, text: "hello" });
       session.startResolver?.();
       await Promise.resolve();
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-      session.fire("runtime_event", { kind: "turn_end" });
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      await session.fire("runtime_event", { kind: "turn_end" });
       mgr.start();
       currentTime = 100;
       await vi.advanceTimersByTimeAsync(10); // → stopping
@@ -900,8 +895,8 @@ describe("AgentProcessManager — onAgentActivity (derived activity reporting)",
       mgr.deliver("a1", { seq: 1, text: "hello" }); // idle -> starting
       session.startResolver?.();
       await Promise.resolve();
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" }); // spawned -> running
-      session.fire("runtime_event", { kind: "turn_end" }); // running,turnActive=false -> derived idle
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" }); // spawned -> running
+      await session.fire("runtime_event", { kind: "turn_end" }); // running,turnActive=false -> derived idle
 
       mgr.start();
       currentTime = 100; // past idleTimeoutMs — FSM flips running->stopping via hibernation
@@ -948,11 +943,11 @@ describe("AgentProcessManager — onAgentActivity (derived activity reporting)",
     mgr.deliver("a1", { seq: 1, text: "hello" }); // idle -> starting
     session.startResolver?.();
     await Promise.resolve();
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" }); // -> running
-    session.fire("runtime_event", { kind: "turn_end" }); // -> idle (derived)
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" }); // -> running
+    await session.fire("runtime_event", { kind: "turn_end" }); // -> idle (derived)
 
     mgr.deliver("a1", { seq: 2, text: "second turn" }); // re-wake: running,turnActive=false -> running
-    session.fire("runtime_event", { kind: "turn_end" }); // -> idle again
+    await session.fire("runtime_event", { kind: "turn_end" }); // -> idle again
 
     expect(onAgentActivity.mock.calls.map((c) => c[0])).toEqual([
       { agentId: "a1", state: "starting" },
@@ -989,11 +984,11 @@ describe("AgentProcessManager — onAgentActivity (derived activity reporting)",
     mgr.deliver("a1", { seq: 1, text: "hello" });
     session.startResolver?.();
     await Promise.resolve();
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" }); // -> running, turnActive
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" }); // -> running, turnActive
     expect(mgr.agentActivity("a1")).toBe("running");
     expect(mgr.liveAgentActivities()).toEqual([{ agentId: "a1", state: "running" }]);
 
-    session.fire("runtime_event", { kind: "turn_end" }); // running, !turnActive, empty inbox -> idle
+    await session.fire("runtime_event", { kind: "turn_end" }); // running, !turnActive, empty inbox -> idle
     expect(mgr.agentActivity("a1")).toBe("idle");
     expect(mgr.liveAgentActivities()).toEqual([{ agentId: "a1", state: "idle" }]);
 
@@ -1040,10 +1035,10 @@ describe("AgentProcessManager — onAgentActivity (derived activity reporting)",
       sessionA.startResolver?.();
       sessionB.startResolver?.();
       await Promise.resolve();
-      sessionA.fire("runtime_event", { kind: "session_init", sessionId: "sa" });
-      sessionA.fire("runtime_event", { kind: "turn_end" });
-      sessionB.fire("runtime_event", { kind: "session_init", sessionId: "sb" });
-      sessionB.fire("runtime_event", { kind: "turn_end" });
+      await sessionA.fire("runtime_event", { kind: "session_init", sessionId: "sa" });
+      await sessionA.fire("runtime_event", { kind: "turn_end" });
+      await sessionB.fire("runtime_event", { kind: "session_init", sessionId: "sb" });
+      await sessionB.fire("runtime_event", { kind: "turn_end" });
       onAgentActivity.mockClear();
 
       mgr.start();
@@ -1065,7 +1060,7 @@ describe("AgentProcessManager — onAgentActivity (derived activity reporting)",
     }
   });
 
-  it("register alone (no wake) never fires onAgentActivity", () => {
+  it("register alone (no wake) never fires onAgentActivity", async () => {
     const onAgentActivity = vi.fn();
     const mgr = new AgentProcessManager({
       driverFor: () => fakeDriver("codex"),
@@ -1085,14 +1080,14 @@ describe("AgentProcessManager — onAgentActivity (derived activity reporting)",
 });
 
 describe("truncateThinking", () => {
-  it("returns text unchanged when under the byte budget", () => {
+  it("returns text unchanged when under the byte budget", async () => {
     const { text, truncated, chars } = truncateThinking("short");
     expect(text).toBe("short");
     expect(truncated).toBe(false);
     expect(chars).toBe(5);
   });
 
-  it("truncates > 4KB text and reports the original char count", () => {
+  it("truncates > 4KB text and reports the original char count", async () => {
     const long = "a".repeat(5000);
     const { text, truncated, chars } = truncateThinking(long);
     expect(truncated).toBe(true);
@@ -1100,7 +1095,7 @@ describe("truncateThinking", () => {
     expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(4096);
   });
 
-  it("never splits a multi-byte UTF-8 sequence", () => {
+  it("never splits a multi-byte UTF-8 sequence", async () => {
     // Build a string whose 4096-byte boundary lands inside a 4-byte emoji.
     // Each 😀 is 4 bytes. 1023 emojis = 4092 bytes; add "a" to get to 4093;
     // then more emojis to push past 4096 mid-glyph.
@@ -1115,14 +1110,14 @@ describe("truncateThinking", () => {
 });
 
 describe("AgentProcessManager — bot audit event emission", () => {
-  it("emits `thinking` with truncated+chars fields (flushed at the next event)", () => {
+  it("emits `thinking` with truncated+chars fields (flushed at the next event)", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("runtime_event", { kind: "thinking", text: "think about it" });
+    await session.fire("runtime_event", { kind: "thinking", text: "think about it" });
     expect(onBotAuditEvent).not.toHaveBeenCalled();
-    session.fire("runtime_event", { kind: "turn_end" });
+    await session.fire("runtime_event", { kind: "turn_end" });
 
     expect(onBotAuditEvent).toHaveBeenCalledWith(
       "a1",
@@ -1138,16 +1133,16 @@ describe("AgentProcessManager — bot audit event emission", () => {
     );
   });
 
-  it("coalesces delta-streamed thinking into ONE row and drops empty deltas", () => {
+  it("coalesces delta-streamed thinking into ONE row and drops empty deltas", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("runtime_event", { kind: "thinking", text: "" });
-    session.fire("runtime_event", { kind: "thinking", text: "let me " });
-    session.fire("runtime_event", { kind: "thinking", text: "count" });
-    session.fire("runtime_event", { kind: "thinking", text: "" });
-    session.fire("runtime_event", { kind: "tool_call", name: "Read", input: { file_path: "/x" } });
+    await session.fire("runtime_event", { kind: "thinking", text: "" });
+    await session.fire("runtime_event", { kind: "thinking", text: "let me " });
+    await session.fire("runtime_event", { kind: "thinking", text: "count" });
+    await session.fire("runtime_event", { kind: "thinking", text: "" });
+    await session.fire("runtime_event", { kind: "tool_call", name: "Read", input: { file_path: "/x" } });
 
     const thinkingCalls = onBotAuditEvent.mock.calls.filter(
       ([, ev]) => (ev as { kind?: string })?.kind === "thinking"
@@ -1161,12 +1156,12 @@ describe("AgentProcessManager — bot audit event emission", () => {
     );
   });
 
-  it("emits `tool_call` with canonical name + resolved target", () => {
+  it("emits `tool_call` with canonical name + resolved target", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("runtime_event", { kind: "tool_call", name: "Read", input: { file_path: "/etc/passwd" } });
+    await session.fire("runtime_event", { kind: "tool_call", name: "Read", input: { file_path: "/etc/passwd" } });
 
     expect(onBotAuditEvent).toHaveBeenCalledWith(
       "a1",
@@ -1175,13 +1170,13 @@ describe("AgentProcessManager — bot audit event emission", () => {
     );
   });
 
-  it("carries sessionId (populated after session_init) into the context arg", () => {
+  it("carries sessionId (populated after session_init) into the context arg", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s_abc" });
-    session.fire("runtime_event", { kind: "tool_call", name: "Read", input: { file_path: "/x" } });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s_abc" });
+    await session.fire("runtime_event", { kind: "tool_call", name: "Read", input: { file_path: "/x" } });
 
     expect(onBotAuditEvent).toHaveBeenCalledWith(
       "a1",
@@ -1190,27 +1185,27 @@ describe("AgentProcessManager — bot audit event emission", () => {
     );
   });
 
-  it("DROPS bash-family tool_call whose command is `alook <sub>` for BOTH capitalized and lowercase names", () => {
+  it("DROPS bash-family tool_call whose command is `alook <sub>` for BOTH capitalized and lowercase names", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("runtime_event", {
+    await session.fire("runtime_event", {
       kind: "tool_call",
       name: "Bash",
       input: { command: "alook inbox pull --max 5" },
     });
-    session.fire("runtime_event", {
+    await session.fire("runtime_event", {
       kind: "tool_call",
       name: "bash",
       input: { command: "  alook message send @gus hi" },
     });
-    session.fire("runtime_event", {
+    await session.fire("runtime_event", {
       kind: "tool_call",
       name: "Bash",
       input: { command: "alook" },
     });
-    session.fire("runtime_event", {
+    await session.fire("runtime_event", {
       kind: "tool_call",
       name: "shell",
       input: { command: "alook inbox pull" },
@@ -1222,14 +1217,14 @@ describe("AgentProcessManager — bot audit event emission", () => {
     expect(bashCalls).toHaveLength(0);
   });
 
-  it("EMITS bash tool_call for non-alook shell work with canonical `bash` name + target", () => {
+  it("EMITS bash tool_call for non-alook shell work with canonical `bash` name + target", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("runtime_event", { kind: "tool_call", name: "Bash", input: { command: "rm -rf /tmp/xxx" } });
-    session.fire("runtime_event", { kind: "tool_call", name: "bash", input: { command: "sed -i '' '/pattern/d' todo.md" } });
-    session.fire("runtime_event", { kind: "tool_call", name: "Bash", input: { command: "echo -n > todo.md" } });
+    await session.fire("runtime_event", { kind: "tool_call", name: "Bash", input: { command: "rm -rf /tmp/xxx" } });
+    await session.fire("runtime_event", { kind: "tool_call", name: "bash", input: { command: "sed -i '' '/pattern/d' todo.md" } });
+    await session.fire("runtime_event", { kind: "tool_call", name: "Bash", input: { command: "echo -n > todo.md" } });
 
     const bashCalls = onBotAuditEvent.mock.calls.filter(
       ([, ev]) => (ev as { kind?: string })?.kind === "tool_call"
@@ -1243,13 +1238,13 @@ describe("AgentProcessManager — bot audit event emission", () => {
     expect((bashCalls[2]![1] as { payload: { target?: string } }).payload.target).toBe("echo -n > todo.md");
   });
 
-  it("truncates a long Bash target to <= 200 chars with an ellipsis", () => {
+  it("truncates a long Bash target to <= 200 chars with an ellipsis", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
     const long = "echo " + "x".repeat(400);
-    session.fire("runtime_event", { kind: "tool_call", name: "Bash", input: { command: long } });
+    await session.fire("runtime_event", { kind: "tool_call", name: "Bash", input: { command: long } });
 
     const [call] = onBotAuditEvent.mock.calls.filter(
       ([, ev]) => (ev as { kind?: string })?.kind === "tool_call",
@@ -1259,12 +1254,12 @@ describe("AgentProcessManager — bot audit event emission", () => {
     expect(target.endsWith("…")).toBe(true);
   });
 
-  it("emits bash tool_call without `target` when input has no command string", () => {
+  it("emits bash tool_call without `target` when input has no command string", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("runtime_event", { kind: "tool_call", name: "Bash", input: {} });
+    await session.fire("runtime_event", { kind: "tool_call", name: "Bash", input: {} });
 
     const [call] = onBotAuditEvent.mock.calls.filter(
       ([, ev]) => (ev as { kind?: string })?.kind === "tool_call",
@@ -1272,16 +1267,16 @@ describe("AgentProcessManager — bot audit event emission", () => {
     expect((call![1] as { payload: unknown }).payload).toEqual({ name: "bash" });
   });
 
-  it("canonicalizes tool names on tool_calls (Edit → edit, MultiEdit → edit, Grep → grep, Glob → glob) with resolved target", () => {
+  it("canonicalizes tool names on tool_calls (Edit → edit, MultiEdit → edit, Grep → grep, Glob → glob) with resolved target", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("runtime_event", { kind: "tool_call", name: "Edit", input: { file_path: "/x" } });
-    session.fire("runtime_event", { kind: "tool_call", name: "Write", input: { file_path: "/y" } });
-    session.fire("runtime_event", { kind: "tool_call", name: "MultiEdit", input: { file_path: "/z" } });
-    session.fire("runtime_event", { kind: "tool_call", name: "Grep", input: { pattern: "TODO" } });
-    session.fire("runtime_event", { kind: "tool_call", name: "Glob", input: { pattern: "**/*.ts" } });
+    await session.fire("runtime_event", { kind: "tool_call", name: "Edit", input: { file_path: "/x" } });
+    await session.fire("runtime_event", { kind: "tool_call", name: "Write", input: { file_path: "/y" } });
+    await session.fire("runtime_event", { kind: "tool_call", name: "MultiEdit", input: { file_path: "/z" } });
+    await session.fire("runtime_event", { kind: "tool_call", name: "Grep", input: { pattern: "TODO" } });
+    await session.fire("runtime_event", { kind: "tool_call", name: "Glob", input: { pattern: "**/*.ts" } });
 
     const payloads = onBotAuditEvent.mock.calls
       .filter(([, ev]) => (ev as { kind?: string })?.kind === "tool_call")
@@ -1295,25 +1290,25 @@ describe("AgentProcessManager — bot audit event emission", () => {
     ]);
   });
 
-  it("does NOT emit for non-audit event kinds (session_init, text, turn_end)", () => {
+  it("does NOT emit for non-audit event kinds (session_init, text, turn_end)", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    session.fire("runtime_event", { kind: "text", text: "hi human" });
-    session.fire("runtime_event", { kind: "turn_end" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("runtime_event", { kind: "text", text: "hi human" });
+    await session.fire("runtime_event", { kind: "turn_end" });
 
     expect(onBotAuditEvent).not.toHaveBeenCalled();
   });
 
-  it("payload never contains extra fields beyond {name, target?} (T11)", () => {
+  it("payload never contains extra fields beyond {name, target?} (T11)", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("runtime_event", { kind: "tool_call", name: "Edit", input: { file_path: "/x", oldText: "a", newText: "b", edits: [] } });
-    session.fire("runtime_event", { kind: "tool_call", name: "Bash", input: { command: "rm x", stdin: "secret" } });
+    await session.fire("runtime_event", { kind: "tool_call", name: "Edit", input: { file_path: "/x", oldText: "a", newText: "b", edits: [] } });
+    await session.fire("runtime_event", { kind: "tool_call", name: "Bash", input: { command: "rm x", stdin: "secret" } });
 
     const payloads = onBotAuditEvent.mock.calls
       .filter(([, ev]) => (ev as { kind?: string })?.kind === "tool_call")
@@ -1326,12 +1321,12 @@ describe("AgentProcessManager — bot audit event emission", () => {
 });
 
 describe("AgentProcessManager — error audit emission", () => {
-  it("emits an `error` row on a pre-handshake exit (spawn scope)", () => {
+  it("emits an `error` row on a pre-handshake exit (spawn scope)", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("exit");
+    await session.fire("exit");
 
     const errCalls = onBotAuditEvent.mock.calls.filter(
       ([, ev]) => (ev as { kind?: string })?.kind === "error",
@@ -1342,14 +1337,14 @@ describe("AgentProcessManager — error audit emission", () => {
     );
   });
 
-  it("emits an `error` row for a runtime `{kind:'error'}` event (runtime scope) and does NOT count it as progress", () => {
+  it("emits an `error` row for a runtime `{kind:'error'}` event (runtime scope) and does NOT count it as progress", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
     // Establish first so the error is session-level (runtime), not spawn.
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    session.fire("runtime_event", { kind: "error", message: "rate limited: 429 Too Many Requests" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("runtime_event", { kind: "error", message: "rate limited: 429 Too Many Requests" });
 
     const errCalls = onBotAuditEvent.mock.calls.filter(
       ([, ev]) => (ev as { kind?: string })?.kind === "error",
@@ -1361,7 +1356,7 @@ describe("AgentProcessManager — error audit emission", () => {
     expect(payload.message).toContain("429");
   });
 
-  it("does NOT emit a `runtime_error` row for the death rattle of a session an intentional kill superseded", () => {
+  it("does NOT emit a `runtime_error` row for the death rattle of a session an intentional kill superseded", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
@@ -1371,9 +1366,9 @@ describe("AgentProcessManager — error audit emission", () => {
     // marks THIS live session's per-session state `superseded`, so the gate
     // suppresses its rattle by session identity (not the agent-level reset
     // flag) — the reborn session, a fresh state, would still surface its own.
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
     mgr.markResetting("a1");
-    session.fire("runtime_event", { kind: "error", message: "turn interrupted" });
+    await session.fire("runtime_event", { kind: "error", message: "turn interrupted" });
 
     const errCalls = onBotAuditEvent.mock.calls.filter(
       ([, ev]) => (ev as { kind?: string })?.kind === "error",
@@ -1381,7 +1376,7 @@ describe("AgentProcessManager — error audit emission", () => {
     expect(errCalls).toHaveLength(0);
   });
 
-  it("DOES emit a `runtime_error` for a REBORN (non-superseded) session's error even while the agent's reset window is still open — batch C reader-C fix", () => {
+  it("DOES emit a `runtime_error` for a REBORN (non-superseded) session's error even while the agent's reset window is still open — batch C reader-C fix", async () => {
     // Batch C keeps `resetting` open across the respawn until the reborn
     // process reaches `running`, so the reborn session is live while the reset
     // window is still open. Gating the audit on the agent-level reset window
@@ -1408,7 +1403,7 @@ describe("AgentProcessManager — error audit emission", () => {
     expect((errCalls[0]![1] as { payload: { message: string } }).payload.message).toContain("rate limit");
   });
 
-  it("does NOT emit for a SUPERSEDED session's death rattle (the outgoing session an intentional kill interrupted) — batch C reader-C fix", () => {
+  it("does NOT emit for a SUPERSEDED session's death rattle (the outgoing session an intentional kill interrupted) — batch C reader-C fix", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr } = makeManager({ onBotAuditEvent });
     // Superseded session identity → its interrupted-turn error is teardown
@@ -1421,7 +1416,7 @@ describe("AgentProcessManager — error audit emission", () => {
     expect(errCalls).toHaveLength(0);
   });
 
-  it("adds a stuck-reset correlation trace for a reborn error while the reset window is wedged — WITHOUT suppressing the error (batch D)", () => {
+  it("adds a stuck-reset correlation trace for a reborn error while the reset window is wedged — WITHOUT suppressing the error (batch D)", async () => {
     // Batch D: the stuck-reset trace is purely additive. A reborn (non-
     // superseded) session's genuine error must STILL surface as an audit row
     // (batch C's 命门, unchanged); on top of that, if the agent's reset window
@@ -1450,7 +1445,7 @@ describe("AgentProcessManager — error audit emission", () => {
     expect(logger.calls.warn.some(([m]) => m === "runtime error during a stuck reset window")).toBe(true);
   });
 
-  it("does NOT add the stuck-reset trace for a reborn error when the reset window is NOT stuck (batch D)", () => {
+  it("does NOT add the stuck-reset trace for a reborn error when the reset window is NOT stuck (batch D)", async () => {
     let clock = 0;
     const onBotAuditEvent = vi.fn();
     const logger = stubLogger();
@@ -1468,13 +1463,13 @@ describe("AgentProcessManager — error audit emission", () => {
     expect(logger.calls.warn.some(([m]) => m === "runtime error during a stuck reset window")).toBe(false);
   });
 
-  it("scrubs secrets out of an error message before it becomes an audit row", () => {
+  it("scrubs secrets out of an error message before it becomes an audit row", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    session.fire("runtime_event", { kind: "error", message: "auth failed with sk-ant-abc123DEF456 token" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("runtime_event", { kind: "error", message: "auth failed with sk-ant-abc123DEF456 token" });
 
     const errCall = onBotAuditEvent.mock.calls.find(
       ([, ev]) => (ev as { kind?: string })?.kind === "error",
@@ -1520,7 +1515,7 @@ describe("AgentProcessManager — handshake watchdog", () => {
     expect(mgr.snapshot().agents["a1"]?.status).toBe("running");
 
     // No handshake ever arrives; the deadline elapses.
-    vi.advanceTimersByTime(1000);
+    await vi.advanceTimersByTimeAsync(1000);
 
     expect(onRuntimeSpawnFailed).toHaveBeenCalledWith("codex", "handshake_timeout");
     expect(stopSpy).toHaveBeenCalledTimes(1);
@@ -1560,7 +1555,7 @@ describe("AgentProcessManager — handshake watchdog", () => {
     await Promise.resolve();
 
     // Handshake lands well within the window.
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
     vi.advanceTimersByTime(1000);
 
     expect(onRuntimeSpawnFailed).not.toHaveBeenCalled();
@@ -1573,13 +1568,13 @@ describe("AgentProcessManager — handshake watchdog", () => {
 });
 
 describe("canonicalToolName", () => {
-  it("canonicalizes bash/shell to bash (case-insensitive)", () => {
+  it("canonicalizes bash/shell to bash (case-insensitive)", async () => {
     expect(canonicalToolName("Bash")).toBe("bash");
     expect(canonicalToolName("bash")).toBe("bash");
     expect(canonicalToolName("BASH")).toBe("bash");
     expect(canonicalToolName("shell")).toBe("bash");
   });
-  it("canonicalizes file-target tools", () => {
+  it("canonicalizes file-target tools", async () => {
     expect(canonicalToolName("Read")).toBe("read");
     expect(canonicalToolName("read")).toBe("read");
     expect(canonicalToolName("Edit")).toBe("edit");
@@ -1589,18 +1584,18 @@ describe("canonicalToolName", () => {
     expect(canonicalToolName("LS")).toBe("ls");
     expect(canonicalToolName("NotebookEdit")).toBe("notebook_edit");
   });
-  it("canonicalizes pattern tools", () => {
+  it("canonicalizes pattern tools", async () => {
     expect(canonicalToolName("Grep")).toBe("grep");
     expect(canonicalToolName("Glob")).toBe("glob");
     expect(canonicalToolName("Find")).toBe("find");
   });
-  it("canonicalizes web + todo tools", () => {
+  it("canonicalizes web + todo tools", async () => {
     expect(canonicalToolName("WebSearch")).toBe("web_search");
     expect(canonicalToolName("web_search")).toBe("web_search");
     expect(canonicalToolName("WebFetch")).toBe("web_fetch");
     expect(canonicalToolName("TodoWrite")).toBe("todo_write");
   });
-  it("falls through to lowercase for unknown names", () => {
+  it("falls through to lowercase for unknown names", async () => {
     expect(canonicalToolName("mcp_search")).toBe("mcp_search");
     expect(canonicalToolName("Frobnicate")).toBe("frobnicate");
     expect(canonicalToolName("collab_tool_call")).toBe("collab_tool_call");
@@ -1608,44 +1603,44 @@ describe("canonicalToolName", () => {
 });
 
 describe("extractToolAudit — shell class", () => {
-  it("Anthropic Bash + non-alook command yields {name: 'bash', target, suppressed: false}", () => {
+  it("Anthropic Bash + non-alook command yields {name: 'bash', target, suppressed: false}", async () => {
     expect(extractToolAudit("Bash", { command: "rm -rf tmp" })).toEqual({
       name: "bash",
       target: "rm -rf tmp",
       suppressed: false,
     });
   });
-  it("pi lowercase bash + non-alook command yields the same shape", () => {
+  it("pi lowercase bash + non-alook command yields the same shape", async () => {
     expect(extractToolAudit("bash", { command: "sed -i '' '/x/d' todo.md" })).toEqual({
       name: "bash",
       target: "sed -i '' '/x/d' todo.md",
       suppressed: false,
     });
   });
-  it("suppresses alook invocations for capitalized Bash", () => {
+  it("suppresses alook invocations for capitalized Bash", async () => {
     expect(extractToolAudit("Bash", { command: "alook inbox pull" }).suppressed).toBe(true);
   });
-  it("suppresses alook invocations for lowercase bash (pi)", () => {
+  it("suppresses alook invocations for lowercase bash (pi)", async () => {
     expect(extractToolAudit("bash", { command: "alook" }).suppressed).toBe(true);
   });
-  it("suppresses even with leading whitespace (raw command trimmed for the check)", () => {
+  it("suppresses even with leading whitespace (raw command trimmed for the check)", async () => {
     expect(extractToolAudit("Bash", { command: "  alook  message send" }).suppressed).toBe(true);
   });
-  it("codex shell (string command) — driver already unwrapped params.item", () => {
+  it("codex shell (string command) — driver already unwrapped params.item", async () => {
     expect(extractToolAudit("shell", { command: "pnpm test" })).toEqual({
       name: "bash",
       target: "pnpm test",
       suppressed: false,
     });
   });
-  it("codex shell (array command) — joined with spaces, noisy-but-honest form", () => {
+  it("codex shell (array command) — joined with spaces, noisy-but-honest form", async () => {
     expect(extractToolAudit("shell", { command: ["bash", "-lc", "rm -rf tmp"] })).toEqual({
       name: "bash",
       target: "bash -lc rm -rf tmp",
       suppressed: false,
     });
   });
-  it("codex shell array wrapping `alook …` inside `bash -lc` does NOT suppress — outer shell is real work", () => {
+  it("codex shell array wrapping `alook …` inside `bash -lc` does NOT suppress — outer shell is real work", async () => {
     const out = extractToolAudit("shell", { command: ["bash", "-lc", "alook inbox pull"] });
     expect(out.suppressed).toBe(false);
     expect(out.name).toBe("bash");
@@ -1654,60 +1649,60 @@ describe("extractToolAudit — shell class", () => {
 });
 
 describe("extractToolAudit — file-target class", () => {
-  it("Anthropic Read → file_path", () => {
+  it("Anthropic Read → file_path", async () => {
     expect(extractToolAudit("Read", { file_path: "/etc/passwd" })).toEqual({
       name: "read",
       target: "/etc/passwd",
       suppressed: false,
     });
   });
-  it("pi read → path", () => {
+  it("pi read → path", async () => {
     expect(extractToolAudit("read", { path: "AGENTS.md" })).toEqual({
       name: "read",
       target: "AGENTS.md",
       suppressed: false,
     });
   });
-  it("Edit picks file_path, ignoring other keys", () => {
+  it("Edit picks file_path, ignoring other keys", async () => {
     expect(extractToolAudit("Edit", { file_path: "src/foo.ts", oldText: "x", newText: "y" })).toEqual({
       name: "edit",
       target: "src/foo.ts",
       suppressed: false,
     });
   });
-  it("pi edit → path", () => {
+  it("pi edit → path", async () => {
     expect(extractToolAudit("edit", { path: "plans/x.md", edits: [] })).toEqual({
       name: "edit",
       target: "plans/x.md",
       suppressed: false,
     });
   });
-  it("Write / pi write → file_path / path", () => {
+  it("Write / pi write → file_path / path", async () => {
     expect(extractToolAudit("Write", { file_path: "x.md", content: "..." }).target).toBe("x.md");
     expect(extractToolAudit("write", { path: "x.md", content: "..." }).target).toBe("x.md");
   });
-  it("MultiEdit → edit + file_path (semantic collapse)", () => {
+  it("MultiEdit → edit + file_path (semantic collapse)", async () => {
     expect(extractToolAudit("MultiEdit", { file_path: "x.ts", edits: [] })).toEqual({
       name: "edit",
       target: "x.ts",
       suppressed: false,
     });
   });
-  it("NotebookEdit → notebook_path", () => {
+  it("NotebookEdit → notebook_path", async () => {
     expect(extractToolAudit("NotebookEdit", { notebook_path: "nb.ipynb" })).toEqual({
       name: "notebook_edit",
       target: "nb.ipynb",
       suppressed: false,
     });
   });
-  it("LS → path", () => {
+  it("LS → path", async () => {
     expect(extractToolAudit("LS", { path: "src/" })).toEqual({
       name: "ls",
       target: "src/",
       suppressed: false,
     });
   });
-  it("codex file_change → edit + adapter-flattened ordered paths", () => {
+  it("codex file_change → edit + adapter-flattened ordered paths", async () => {
     expect(extractToolAudit("file_change", { path: "a.ts, b.ts" })).toEqual({
       name: "edit",
       target: "a.ts, b.ts",
@@ -1717,55 +1712,55 @@ describe("extractToolAudit — file-target class", () => {
 });
 
 describe("extractToolAudit — pattern class", () => {
-  it("Grep with pattern + path picks pattern", () => {
+  it("Grep with pattern + path picks pattern", async () => {
     expect(extractToolAudit("Grep", { pattern: "TODO", path: "src/" }).target).toBe("TODO");
   });
-  it("pi grep with pattern only", () => {
+  it("pi grep with pattern only", async () => {
     expect(extractToolAudit("grep", { pattern: "TODO" }).target).toBe("TODO");
   });
-  it("Glob picks pattern", () => {
+  it("Glob picks pattern", async () => {
     expect(extractToolAudit("Glob", { pattern: "**/*.tsx" }).target).toBe("**/*.tsx");
   });
-  it("find picks pattern", () => {
+  it("find picks pattern", async () => {
     expect(extractToolAudit("find", { pattern: "*.ts", path: "src" }).target).toBe("*.ts");
   });
-  it("grep falls back to path when no pattern is set", () => {
+  it("grep falls back to path when no pattern is set", async () => {
     expect(extractToolAudit("grep", { path: "src" }).target).toBe("src");
   });
 });
 
 describe("extractToolAudit — fallthrough / MCP / web", () => {
-  it("WebFetch → url", () => {
+  it("WebFetch → url", async () => {
     expect(extractToolAudit("WebFetch", { url: "https://example.com" })).toEqual({
       name: "web_fetch",
       target: "https://example.com",
       suppressed: false,
     });
   });
-  it("mcp_search stays as mcp_search + query target", () => {
+  it("mcp_search stays as mcp_search + query target", async () => {
     expect(extractToolAudit("mcp_search", { query: "foo" })).toEqual({
       name: "mcp_search",
       target: "foo",
       suppressed: false,
     });
   });
-  it("web_search → query", () => {
+  it("web_search → query", async () => {
     expect(extractToolAudit("web_search", { query: "cats" })).toEqual({
       name: "web_search",
       target: "cats",
       suppressed: false,
     });
   });
-  it("collab_tool_call → name (from input.name)", () => {
+  it("collab_tool_call → name (from input.name)", async () => {
     expect(extractToolAudit("collab_tool_call", { name: "x" }).target).toBe("x");
   });
-  it("TodoWrite → no target", () => {
+  it("TodoWrite → no target", async () => {
     expect(extractToolAudit("TodoWrite", { todos: [] })).toEqual({
       name: "todo_write",
       suppressed: false,
     });
   });
-  it("Unknown tool falls through as lowercased name + no target", () => {
+  it("Unknown tool falls through as lowercased name + no target", async () => {
     expect(extractToolAudit("Frobnicate", {})).toEqual({
       name: "frobnicate",
       suppressed: false,
@@ -1774,39 +1769,39 @@ describe("extractToolAudit — fallthrough / MCP / web", () => {
 });
 
 describe("extractToolAudit — non-object input guard", () => {
-  it("null / undefined / string / number / array — all return no target without throwing", () => {
+  it("null / undefined / string / number / array — all return no target without throwing", async () => {
     expect(extractToolAudit("Bash", null)).toEqual({ name: "bash", suppressed: false });
     expect(extractToolAudit("Bash", undefined)).toEqual({ name: "bash", suppressed: false });
     expect(extractToolAudit("Bash", "raw string")).toEqual({ name: "bash", suppressed: false });
     expect(extractToolAudit("Bash", 42)).toEqual({ name: "bash", suppressed: false });
     expect(extractToolAudit("Bash", ["a", "b"])).toEqual({ name: "bash", suppressed: false });
   });
-  it("stringified-JSON recovery: input is a JSON string that decodes to a record", () => {
+  it("stringified-JSON recovery: input is a JSON string that decodes to a record", async () => {
     expect(extractToolAudit("Bash", '{"command":"rm -rf tmp"}')).toEqual({
       name: "bash",
       target: "rm -rf tmp",
       suppressed: false,
     });
   });
-  it("invalid JSON string — no throw, returns no target", () => {
+  it("invalid JSON string — no throw, returns no target", async () => {
     expect(extractToolAudit("Bash", "not json{")).toEqual({ name: "bash", suppressed: false });
   });
-  it("JSON string that decodes to a non-object — no throw, returns no target", () => {
+  it("JSON string that decodes to a non-object — no throw, returns no target", async () => {
     expect(extractToolAudit("Bash", "42")).toEqual({ name: "bash", suppressed: false });
     expect(extractToolAudit("Bash", '["a","b"]')).toEqual({ name: "bash", suppressed: false });
   });
 });
 
 describe("truncateTargetToCodeUnits", () => {
-  it("passes short strings through unchanged", () => {
+  it("passes short strings through unchanged", async () => {
     expect(truncateTargetToCodeUnits("hello")).toBe("hello");
   });
-  it("truncates a 300-unit ASCII string to <=200 units + ellipsis", () => {
+  it("truncates a 300-unit ASCII string to <=200 units + ellipsis", async () => {
     const out = truncateTargetToCodeUnits("a".repeat(300));
     expect(out.length).toBeLessThanOrEqual(200);
     expect(out.endsWith("…")).toBe(true);
   });
-  it("emoji-heavy: never emits a lone surrogate + round-trips clean UTF-8", () => {
+  it("emoji-heavy: never emits a lone surrogate + round-trips clean UTF-8", async () => {
     const emoji = "😀";
     const s = emoji.repeat(200);
     const out = truncateTargetToCodeUnits(s);
@@ -1817,25 +1812,25 @@ describe("truncateTargetToCodeUnits", () => {
 });
 
 describe("isAlookShellInvocation", () => {
-  it("matches `alook <sub>` and bare `alook`", () => {
+  it("matches `alook <sub>` and bare `alook`", async () => {
     expect(isAlookShellInvocation("alook")).toBe(true);
     expect(isAlookShellInvocation("alook inbox pull")).toBe(true);
     expect(isAlookShellInvocation("  alook message send")).toBe(true);
   });
-  it("matches the `$ALOOK_CLI` env-var form the system prompt now teaches", () => {
+  it("matches the `$ALOOK_CLI` env-var form the system prompt now teaches", async () => {
     expect(isAlookShellInvocation("$ALOOK_CLI inbox pull")).toBe(true);
     expect(isAlookShellInvocation("${ALOOK_CLI} message send")).toBe(true);
     expect(isAlookShellInvocation("$ALOOK_CLI")).toBe(true);
     expect(isAlookShellInvocation("  $ALOOK_CLI nap")).toBe(true);
   });
-  it("does NOT match commands that merely mention alook", () => {
+  it("does NOT match commands that merely mention alook", async () => {
     expect(isAlookShellInvocation("rm alook.log")).toBe(false);
     expect(isAlookShellInvocation("echo alook")).toBe(false);
     expect(isAlookShellInvocation("alookalike")).toBe(false);
     // A different env var that merely starts with the same prefix must not match.
     expect(isAlookShellInvocation("$ALOOK_CLIENT foo")).toBe(false);
   });
-  it("returns false for missing input", () => {
+  it("returns false for missing input", async () => {
     expect(isAlookShellInvocation(undefined)).toBe(false);
     expect(isAlookShellInvocation("")).toBe(false);
   });
@@ -1904,7 +1899,7 @@ describe("extractToolAudit — driver coverage matrix", () => {
 });
 
 describe("onBotAuditEvent — integration through onRuntimeEvent (T9/T10)", () => {
-  it("emits canonical lowercase name for every driver × tool combo", () => {
+  it("emits canonical lowercase name for every driver × tool combo", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
@@ -1922,7 +1917,7 @@ describe("onBotAuditEvent — integration through onRuntimeEvent (T9/T10)", () =
     ];
 
     for (const c of combos) {
-      session.fire("runtime_event", { kind: "tool_call", name: c.name, input: c.input });
+      await session.fire("runtime_event", { kind: "tool_call", name: c.name, input: c.input });
     }
 
     const payloads = onBotAuditEvent.mock.calls
@@ -1931,14 +1926,14 @@ describe("onBotAuditEvent — integration through onRuntimeEvent (T9/T10)", () =
     expect(payloads).toEqual(combos.map((c) => c.expect));
   });
 
-  it("alook-shell suppression fires for Bash, pi bash, AND codex shell", () => {
+  it("alook-shell suppression fires for Bash, pi bash, AND codex shell", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
-    session.fire("runtime_event", { kind: "tool_call", name: "Bash", input: { command: "alook inbox pull" } });
-    session.fire("runtime_event", { kind: "tool_call", name: "bash", input: { command: "alook" } });
-    session.fire("runtime_event", { kind: "tool_call", name: "shell", input: { command: "alook message send" } });
+    await session.fire("runtime_event", { kind: "tool_call", name: "Bash", input: { command: "alook inbox pull" } });
+    await session.fire("runtime_event", { kind: "tool_call", name: "bash", input: { command: "alook" } });
+    await session.fire("runtime_event", { kind: "tool_call", name: "shell", input: { command: "alook message send" } });
 
     const toolCalls = onBotAuditEvent.mock.calls.filter(
       ([, ev]) => (ev as { kind?: string })?.kind === "tool_call"
@@ -1954,17 +1949,24 @@ describe("onBotAuditEvent — integration through onRuntimeEvent (T9/T10)", () =
 describe("AgentProcessManager — onFsmTransition trace (observability, zero behavior change)", () => {
   function makeWithTrace(trace?: (rec: Record<string, unknown>) => void) {
     const session = fakeSession();
+    const sessions = [session];
+    let sessionIndex = 0;
     const mgr = new AgentProcessManager({
       driverFor: () => fakeDriver("codex"),
       baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
-      sessionFactory: (hooks) => bindFactorySession(hooks, session),
+      sessionFactory: () => {
+        const next = sessions[sessionIndex] ?? fakeSession();
+        if (!sessions[sessionIndex]) sessions.push(next);
+        sessionIndex += 1;
+        return next;
+      },
       onFsmTransition: trace as never,
     });
     mgr.register("a1");
-    return { mgr, session };
+    return { mgr, session, sessions };
   }
 
-  it("fires once per agent-scoped dispatch with the wedge-triage fields", () => {
+  it("fires once per agent-scoped dispatch with the wedge-triage fields", async () => {
     const recs: Record<string, unknown>[] = [];
     const { mgr } = makeWithTrace((r) => recs.push(r));
     mgr.deliver("a1", { seq: 1, text: "hello" });
@@ -1979,7 +1981,7 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
     expect(Array.isArray(wake!.effects)).toBe(true);
   });
 
-  it("does NOT change behavior — the observed effect sequence is identical with and without the hook", () => {
+  it("does NOT change behavior — the observed effect sequence is identical with and without the hook", async () => {
     // deliver() returns a boolean (produced-effect), so compare the effect
     // SEQUENCE the trace observed instead: it reflects exactly what the reducer
     // emitted. A wired hook must not perturb that sequence.
@@ -2053,8 +2055,8 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       mgr.deliver("a1", { seq: 1, text: "hi" });
       session.startResolver?.();
       await Promise.resolve();
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-      session.fire("runtime_event", { kind: "turn_end" });
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      await session.fire("runtime_event", { kind: "turn_end" });
 
       // While running/idle-not-stopping, the field is null.
       const runningRec = recs.find((r) => r.status === "running");
@@ -2080,15 +2082,15 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
   // distinguishable from a clean nap/idle (red line 7). B1 only RECORDS it —
   // onTurnEnd behavior is unchanged (verified in the "clean" case below).
 
-  it("a mid-turn error then turn_end stamps fixed metadata but drops free-text errorDetail", () => {
+  it("a mid-turn error then turn_end stamps fixed metadata but drops free-text errorDetail", async () => {
     const recs: Record<string, unknown>[] = [];
     const { mgr, session } = makeWithTrace((r) => recs.push(r));
     mgr.deliver("a1", { seq: 1, text: "hi" });
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
     // Genuinely interrupt the turn: an `error` event (as the normalizer emits
     // from an is_error result) FOLLOWED by the trailing turn_end.
-    session.fire("runtime_event", { kind: "error", message: "boom: model overloaded" });
-    session.fire("runtime_event", { kind: "turn_end" });
+    await session.fire("runtime_event", { kind: "error", message: "boom: model overloaded" });
+    await session.fire("runtime_event", { kind: "turn_end" });
 
     const turnEnd = recs.find((r) => r.event === "turn_end" && r.agentId === "a1");
     expect(turnEnd).toBeTruthy();
@@ -2097,12 +2099,12 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
     expect(turnEnd!.errorDetail).toBeUndefined();
   });
 
-  it("a CLEAN turn_end (no preceding error/kill) carries no endReason/terminationCause/errorDetail (byte-for-byte the old row)", () => {
+  it("a CLEAN turn_end (no preceding error/kill) carries no endReason/terminationCause/errorDetail (byte-for-byte the old row)", async () => {
     const recs: Record<string, unknown>[] = [];
     const { mgr, session } = makeWithTrace((r) => recs.push(r));
     mgr.deliver("a1", { seq: 1, text: "hi" });
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    session.fire("runtime_event", { kind: "turn_end" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("runtime_event", { kind: "turn_end" });
 
     const turnEnd = recs.find((r) => r.event === "turn_end" && r.agentId === "a1");
     expect(turnEnd).toBeTruthy();
@@ -2111,17 +2113,17 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
     expect(turnEnd!.errorDetail).toBeUndefined();
   });
 
-  it("an intentional-kill (superseded) death-rattle error does NOT tag its turn_end errored (red line 5 — reset/nap is not a crash)", () => {
+  it("an intentional-kill (superseded) death-rattle error does NOT tag its turn_end errored (red line 5 — reset/nap is not a crash)", async () => {
     const recs: Record<string, unknown>[] = [];
     const { mgr, session } = makeWithTrace((r) => recs.push(r));
     mgr.deliver("a1", { seq: 1, text: "hi" });
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
     // Enter the reset/nap kill window, THEN the dying process rattles. The
     // marker is gated by the same `!sessionSuperseded` as the audit, so it must
     // NOT set — a nap must stay indistinguishable-from-clean, not read as crash.
     mgr.markResetting("a1");
-    session.fire("runtime_event", { kind: "error", message: "turn interrupted" });
-    session.fire("runtime_event", { kind: "turn_end" });
+    await session.fire("runtime_event", { kind: "error", message: "turn interrupted" });
+    await session.fire("runtime_event", { kind: "turn_end" });
 
     const turnEnd = recs.find((r) => r.event === "turn_end" && r.agentId === "a1");
     expect(turnEnd).toBeTruthy();
@@ -2129,22 +2131,23 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
     expect(turnEnd!.terminationCause).toBeUndefined();
   });
 
-  it("a mid-turn error followed by a hard exit (no turn_end) clears the marker so the NEXT turn is not mis-tagged (3a marker-leak guard)", () => {
+  it("a mid-turn error followed by a hard exit (no turn_end) clears the marker so the NEXT turn is not mis-tagged (3a marker-leak guard)", async () => {
     const recs: Record<string, unknown>[] = [];
-    const { mgr, session } = makeWithTrace((r) => recs.push(r));
+    const { mgr, session, sessions } = makeWithTrace((r) => recs.push(r));
     mgr.deliver("a1", { seq: 1, text: "hi" });
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
     // Error with NO trailing turn_end, then a hard process exit (bypasses the
     // normalizer) — the marker would otherwise leak in the map.
-    session.fire("runtime_event", { kind: "error", message: "crashed hard" });
-    session.fire("exit");
+    await session.fire("runtime_event", { kind: "error", message: "crashed hard" });
+    await session.fire("exit");
 
     // A fresh wake spawns a new session; its clean turn_end must NOT inherit the
     // stale marker.
     recs.length = 0;
     mgr.deliver("a1", { seq: 2, text: "again" });
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s2" });
-    session.fire("runtime_event", { kind: "turn_end" });
+    const rebornSession = sessions[1]!;
+    await rebornSession.fire("runtime_event", { kind: "session_init", sessionId: "s2" });
+    await rebornSession.fire("runtime_event", { kind: "turn_end" });
 
     const turnEnd = recs.find((r) => r.event === "turn_end" && r.agentId === "a1");
     expect(turnEnd).toBeTruthy();
@@ -2175,7 +2178,7 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       mgr.deliver("a1", { seq: 1, text: "hi" });
       session.startResolver?.();
       await Promise.resolve();
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
       // Turn is in flight (turnActive) and makes NO progress. No error injected —
       // this is a genuine hang, exactly Blair's case.
       now = 200; // past staleThreshold=100 → stalled watchdog fires terminate_stalled
@@ -2186,7 +2189,7 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       // The SIGKILL makes the process emit its trailing turn_end (no error
       // rattle needed — that's the whole point of keying on cause, not rattle).
       recs.length = 0;
-      session.fire("runtime_event", { kind: "turn_end" });
+      await session.fire("runtime_event", { kind: "turn_end" });
       const turnEnd = recs.find((r) => r.event === "turn_end" && r.agentId === "a1");
       expect(turnEnd).toBeTruthy();
       expect(turnEnd!.endReason).toBe("errored");
@@ -2231,7 +2234,7 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       mgr.deliver("a1", { seq: 1, text: "hi" });
       session.startResolver?.();
       await Promise.resolve();
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
       // Turn is in flight (turnActive) and makes NO progress → terminate_stalled
       // sets killed_stalled marker. (Same trigger as the killed_stalled test.)
       now = 200;
@@ -2248,8 +2251,8 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       rebornSession.startResolver?.();
       await Promise.resolve();
       recs.length = 0;
-      rebornSession.fire("runtime_event", { kind: "session_init", sessionId: "s2" });
-      rebornSession.fire("runtime_event", { kind: "turn_end" });
+      await rebornSession.fire("runtime_event", { kind: "session_init", sessionId: "s2" });
+      await rebornSession.fire("runtime_event", { kind: "turn_end" });
       const turnEnd = recs.find((r) => r.event === "turn_end" && r.agentId === "a1");
       expect(turnEnd).toBeTruthy();
       // The whole point: marker was cleared at force_exit, so this healthy turn
@@ -2290,8 +2293,8 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       mgr.deliver("a1", { seq: 1, text: "hi" });
       session.startResolver?.();
       await Promise.resolve();
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-      session.fire("runtime_event", { kind: "turn_end" }); // clean end → idle
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      await session.fire("runtime_event", { kind: "turn_end" }); // clean end → idle
       recs.length = 0;
       now = 100; // past idleTimeout=50 → idle-hibernation issues a voluntary stop
       await vi.advanceTimersByTimeAsync(10);
@@ -2311,13 +2314,13 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
   // trace. T1 threads the raw physical fact (exitCode/exitSignal/abnormal) onto
   // the exit event → trace. Physical fact only; onExit behavior UNCHANGED.
 
-  it("T1 — an established session's exit on a signal records exitSignal + abnormal=true on the trace exit row", () => {
+  it("T1 — an established session's exit on a signal records exitSignal + abnormal=true on the trace exit row", async () => {
     const recs: Record<string, unknown>[] = [];
     const { mgr, session } = makeWithTrace((r) => recs.push(r));
     mgr.deliver("a1", { seq: 1, text: "hi" });
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" }); // hasEstablished
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" }); // hasEstablished
     // Hard death on SIGKILL, NOT a requested stop → abnormal physical fact.
-    session.fire("exit", { signal: "SIGKILL", reason: "runtime_exit" });
+    await session.fire("exit", { signal: "SIGKILL", reason: "runtime_exit" });
 
     const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
     expect(exitRec).toBeTruthy();
@@ -2326,12 +2329,12 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
     expect(exitRec!.abnormal).toBe(true);
   });
 
-  it("T1 — an established session's non-zero code exit records exitCode + abnormal=true", () => {
+  it("T1 — an established session's non-zero code exit records exitCode + abnormal=true", async () => {
     const recs: Record<string, unknown>[] = [];
     const { mgr, session } = makeWithTrace((r) => recs.push(r));
     mgr.deliver("a1", { seq: 1, text: "hi" });
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    session.fire("exit", { code: 137, reason: "runtime_exit" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("exit", { code: 137, reason: "runtime_exit" });
 
     const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
     expect(exitRec).toBeTruthy();
@@ -2340,12 +2343,12 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
     expect(exitRec!.abnormal).toBe(true);
   });
 
-  it("T1 — a clean code-0 exit records abnormal=false (distinguishable from a crash in the trace)", () => {
+  it("T1 — a clean code-0 exit records abnormal=false (distinguishable from a crash in the trace)", async () => {
     const recs: Record<string, unknown>[] = [];
     const { mgr, session } = makeWithTrace((r) => recs.push(r));
     mgr.deliver("a1", { seq: 1, text: "hi" });
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    session.fire("exit", { code: 0, reason: "runtime_exit" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("exit", { code: 0, reason: "runtime_exit" });
 
     const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
     expect(exitRec).toBeTruthy();
@@ -2353,7 +2356,7 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
     expect(exitRec!.abnormal).toBe(false);
   });
 
-  it("T1 — a deliberate stop (reason=requested) records the physical fact but abnormal=false", () => {
+  it("T1 — a deliberate stop (reason=requested) records the physical fact but abnormal=false", async () => {
     // A requested stop that still died on a signal (SIGTERM grace → the process
     // exits): the physical fact (signal) is recorded, but it's NOT abnormal —
     // reason==="requested" gates that. So trace shows how it died without
@@ -2361,8 +2364,8 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
     const recs: Record<string, unknown>[] = [];
     const { mgr, session } = makeWithTrace((r) => recs.push(r));
     mgr.deliver("a1", { seq: 1, text: "hi" });
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    session.fire("exit", { signal: "SIGTERM", reason: "requested" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("exit", { signal: "SIGTERM", reason: "requested" });
 
     const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
     expect(exitRec).toBeTruthy();
@@ -2370,28 +2373,28 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
     expect(exitRec!.abnormal).toBe(false);
   });
 
-  it("T1 — the exit physical fact is READ-ONLY: abnormal exit and clean exit produce the SAME onExit respawn/idle decision (Claudette #382)", () => {
+  it("T1 — the exit physical fact is READ-ONLY: abnormal exit and clean exit produce the SAME onExit respawn/idle decision (Claudette #382)", async () => {
     // With a queued inbox, onExit respawns (spawn effect); with empty inbox it
     // settles idle. That decision keys on inbox.length ONLY — the new
     // exitCode/exitSignal/abnormal fields must NOT change the branch.
-    function exitEffectsFor(exitInfo: Record<string, unknown>, queueBefore: boolean): string[] {
+    async function exitEffectsFor(exitInfo: Record<string, unknown>, queueBefore: boolean): Promise<string[]> {
       const recs: Record<string, unknown>[] = [];
       const { mgr, session } = makeWithTrace((r) => recs.push(r));
       mgr.deliver("a1", { seq: 1, text: "hi" });
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
       if (queueBefore) mgr.deliver("a1", { seq: 2, text: "queued" }); // inbox non-empty at exit
       recs.length = 0;
-      session.fire("exit", exitInfo);
+      await session.fire("exit", exitInfo);
       const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
       return (exitRec!.effects as string[]) ?? [];
     }
     // Empty inbox: idle (no spawn), identical for abnormal vs clean.
-    expect(exitEffectsFor({ signal: "SIGKILL", reason: "runtime_exit" }, false)).toEqual(
-      exitEffectsFor({ code: 0, reason: "runtime_exit" }, false),
+    expect(await exitEffectsFor({ signal: "SIGKILL", reason: "runtime_exit" }, false)).toEqual(
+      await exitEffectsFor({ code: 0, reason: "runtime_exit" }, false),
     );
     // Queued inbox: respawn (spawn), identical for abnormal vs clean.
-    expect(exitEffectsFor({ signal: "SIGKILL", reason: "runtime_exit" }, true)).toEqual(
-      exitEffectsFor({ code: 0, reason: "runtime_exit" }, true),
+    expect(await exitEffectsFor({ signal: "SIGKILL", reason: "runtime_exit" }, true)).toEqual(
+      await exitEffectsFor({ code: 0, reason: "runtime_exit" }, true),
     );
   });
 
@@ -2401,43 +2404,43 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
   // in the trace it was indistinguishable from a clean exit. T2 carries the
   // failure reason (same value as the audit) onto the exit event → trace.
 
-  it("T2 — a pre-handshake exit records spawnFailureReason on the trace exit row", () => {
+  it("T2 — a pre-handshake exit records spawnFailureReason on the trace exit row", async () => {
     const recs: Record<string, unknown>[] = [];
     const { mgr, session } = makeWithTrace((r) => recs.push(r));
     mgr.deliver("a1", { seq: 1, text: "hi" });
     // Exit with NO prior runtime_event (never established) → pre_handshake_exit.
-    session.fire("exit");
+    await session.fire("exit");
 
     const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
     expect(exitRec).toBeTruthy();
     expect(exitRec!.spawnFailureReason).toBe("pre_handshake_exit");
   });
 
-  it("T2 — an ENOENT spawn error carries that exact reason (same string as the web audit) into the trace", () => {
+  it("T2 — an ENOENT spawn error carries that exact reason (same string as the web audit) into the trace", async () => {
     const recs: Record<string, unknown>[] = [];
     const { mgr, session } = makeWithTrace((r) => recs.push(r));
     mgr.deliver("a1", { seq: 1, text: "hi" });
-    session.fire("error", { code: "ENOENT" });
-    session.fire("exit");
+    await session.fire("error", { code: "ENOENT" });
+    await session.fire("exit");
 
     const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
     expect(exitRec).toBeTruthy();
     expect(exitRec!.spawnFailureReason).toBe("ENOENT");
   });
 
-  it("T2 — a normal established exit carries NO spawnFailureReason", () => {
+  it("T2 — a normal established exit carries NO spawnFailureReason", async () => {
     const recs: Record<string, unknown>[] = [];
     const { mgr, session } = makeWithTrace((r) => recs.push(r));
     mgr.deliver("a1", { seq: 1, text: "hi" });
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" }); // established
-    session.fire("exit", { code: 0, reason: "runtime_exit" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" }); // established
+    await session.fire("exit", { code: 0, reason: "runtime_exit" });
 
     const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
     expect(exitRec).toBeTruthy();
     expect(exitRec!.spawnFailureReason).toBeUndefined();
   });
 
-  it("T2 no-leak (Claudette #398) — a spawn failure then a SUCCESSFUL spawn + clean exit: the clean exit carries NO stale spawnFailureReason", () => {
+  it("T2 no-leak (Claudette #398) — a spawn failure then a SUCCESSFUL spawn + clean exit: the clean exit carries NO stale spawnFailureReason", async () => {
     // Guards the per-spawn `state` isolation: the failure reason lives on the
     // spawn's own `state` object (fresh each doSpawn), so a later spawn's exit
     // can't inherit it. This assertion would also catch a regression to a
@@ -2460,13 +2463,13 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
 
     // Spawn #1: fails pre-handshake.
     mgr.deliver("a1", { seq: 1, text: "hi" });
-    sessions[0]!.fire("exit"); // → pre_handshake_exit, agent back to idle
+    await sessions[0]!.fire("exit"); // → pre_handshake_exit, agent back to idle
 
     // Spawn #2: succeeds (establishes), then exits cleanly.
     recs.length = 0;
     mgr.deliver("a1", { seq: 2, text: "again" });
-    sessions[1]!.fire("runtime_event", { kind: "session_init", sessionId: "s2" });
-    sessions[1]!.fire("exit", { code: 0, reason: "runtime_exit" });
+    await sessions[1]!.fire("runtime_event", { kind: "session_init", sessionId: "s2" });
+    await sessions[1]!.fire("exit", { code: 0, reason: "runtime_exit" });
 
     const cleanExit = recs.find((r) => r.event === "exit" && r.agentId === "a1");
     expect(cleanExit).toBeTruthy();
@@ -2500,12 +2503,12 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       mgr.deliver("a1", { seq: 1, text: "hi" });
       session.startResolver?.();
       await Promise.resolve();
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
       now = 200; // past staleThreshold → terminate_stalled (sets the semantic marker)
       await vi.advanceTimersByTimeAsync(10);
       // The killed process's real exit (via the exit listener, where state lives).
       recs.length = 0;
-      session.fire("exit", { signal: "SIGKILL", reason: "requested" });
+      await session.fire("exit", { signal: "SIGKILL", reason: "requested" });
 
       const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
       expect(exitRec).toBeTruthy();
@@ -2540,12 +2543,12 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       mgr.deliver("a1", { seq: 1, text: "hi" });
       session.startResolver?.();
       await Promise.resolve();
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-      session.fire("runtime_event", { kind: "turn_end" }); // clean end → idle
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      await session.fire("runtime_event", { kind: "turn_end" }); // clean end → idle
       now = 100; // past idleTimeout → voluntary stop (sets idle_stop, NOT killed_stalled)
       await vi.advanceTimersByTimeAsync(10);
       recs.length = 0;
-      session.fire("exit", { signal: "SIGTERM", reason: "requested" });
+      await session.fire("exit", { signal: "SIGTERM", reason: "requested" });
 
       const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
       expect(exitRec).toBeTruthy();
@@ -2582,8 +2585,8 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
       mgr.deliver("a1", { seq: 1, text: "hi" });
       session.startResolver?.();
       await Promise.resolve();
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-      session.fire("runtime_event", { kind: "turn_end" });
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      await session.fire("runtime_event", { kind: "turn_end" });
       now = 100; // idle-timeout → stopping (stop swallowed, no exit)
       await vi.advanceTimersByTimeAsync(10);
       recs.length = 0;
@@ -2603,12 +2606,12 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
     }
   });
 
-  it("T3 — a plain runtime exit (no recovery) carries NO terminationSemantics", () => {
+  it("T3 — a plain runtime exit (no recovery) carries NO terminationSemantics", async () => {
     const recs: Record<string, unknown>[] = [];
     const { mgr, session } = makeWithTrace((r) => recs.push(r));
     mgr.deliver("a1", { seq: 1, text: "hi" });
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    session.fire("exit", { code: 0, reason: "runtime_exit" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("exit", { code: 0, reason: "runtime_exit" });
 
     const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
     expect(exitRec).toBeTruthy();
@@ -2639,12 +2642,12 @@ describe("T1 — abnormal-exit user audit stays gated (no nap-noise on deliberat
       mgr.deliver("a1", { seq: 1, text: "hi" });
       session.startResolver?.();
       await Promise.resolve();
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
       // Stall → terminate_stalled sets suppressExitLog before the kill.
       now = 200;
       await vi.advanceTimersByTimeAsync(10);
       // The killed process exits on a signal (a requested/deliberate stop path).
-      session.fire("exit", { signal: "SIGKILL", reason: "requested" });
+      await session.fire("exit", { signal: "SIGKILL", reason: "requested" });
 
       // Trace: the physical fact IS recorded (forensics needs it).
       const exitRec = recs.find((r) => r.event === "exit" && r.agentId === "a1");
@@ -2794,11 +2797,11 @@ describe("B1 red gate — daemon-owned turn span lifecycle", () => {
 
     mgr.deliver("a1", { seq: 1, text: "first" });
     await Promise.resolve();
-    session.fire("runtime_event", { kind: "session_init", sessionId: "session-a" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "session-a" });
     mgr.deliver("a1", { seq: 2, text: "busy" });
-    session.fire("runtime_event", { kind: "turn_end" });
+    await session.fire("runtime_event", { kind: "turn_end" });
     mgr.deliver("a1", { seq: 3, text: "idle-second" });
-    session.fire("runtime_event", { kind: "turn_end" });
+    await session.fire("runtime_event", { kind: "turn_end" });
 
     const begins = b1SpanRows(rows, "turn_begin");
     const ends = b1SpanRows(rows, "turn_end");
@@ -2829,8 +2832,8 @@ describe("B1 red gate — daemon-owned turn span lifecycle", () => {
     mgr.deliver("a1", { seq: 1, text: "first" });
     await Promise.resolve();
     mgr.deliver("a1", { seq: 2, text: "queued" });
-    first.fire("runtime_event", { kind: "turn_end" });
-    first.fire("exit", { code: 0, reason: "runtime_exit" });
+    await first.fire("runtime_event", { kind: "turn_end" });
+    await first.fire("exit", { code: 0, reason: "runtime_exit" });
     await Promise.resolve();
 
     const begins = b1SpanRows(rows, "turn_begin");
@@ -2840,7 +2843,7 @@ describe("B1 red gate — daemon-owned turn span lifecycle", () => {
     expect(order.filter((entry) => entry.startsWith("b:start:"))).toHaveLength(0);
   });
 
-  it("uses the process nonce fallback only when launchId is absent", () => {
+  it("uses the process nonce fallback only when launchId is absent", async () => {
     const rows: B1TraceRow[] = [];
     const session = b1Session([]);
     const { mgr } = b1Manager({ sessions: [session], launchId: null, trace: (row) => rows.push(row) });
@@ -2863,8 +2866,8 @@ describe("B1 red gate — daemon-owned turn span lifecycle", () => {
     });
     cleanManager.deliver("a1", { seq: 1, text: "clean" });
     await Promise.resolve();
-    cleanSession.fire("runtime_event", { kind: "session_init", sessionId: "clean-session" });
-    cleanSession.fire("runtime_event", { kind: "turn_end" });
+    await cleanSession.fire("runtime_event", { kind: "session_init", sessionId: "clean-session" });
+    await cleanSession.fire("runtime_event", { kind: "turn_end" });
 
     const cleanEnd = b1SpanRows(cleanRows, "turn_end")[0];
     expect(cleanEnd).toBeTruthy();
@@ -2879,9 +2882,9 @@ describe("B1 red gate — daemon-owned turn span lifecycle", () => {
     });
     errorManager.deliver("a1", { seq: 1, text: "error" });
     await Promise.resolve();
-    errorSession.fire("runtime_event", { kind: "session_init", sessionId: "error-session" });
-    errorSession.fire("runtime_event", { kind: "error", message: "HOSTILE_RUNTIME_DETAIL_220b" });
-    errorSession.fire("runtime_event", { kind: "turn_end" });
+    await errorSession.fire("runtime_event", { kind: "session_init", sessionId: "error-session" });
+    await errorSession.fire("runtime_event", { kind: "error", message: "HOSTILE_RUNTIME_DETAIL_220b" });
+    await errorSession.fire("runtime_event", { kind: "turn_end" });
 
     const errorEnd = b1SpanRows(errorRows, "turn_end")[0];
     expect(errorEnd).toBeTruthy();
@@ -2926,7 +2929,7 @@ describe("B1 red gate — daemon-owned turn span lifecycle", () => {
       mgr.start();
       mgr.deliver("a1", { seq: 1, text: "active" });
       await Promise.resolve();
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
       now = 1_005;
       await vi.advanceTimersByTimeAsync(5);
 
@@ -2937,15 +2940,15 @@ describe("B1 red gate — daemon-owned turn span lifecycle", () => {
         expect(rows.some((row) => row.event === event && row.traceTurnId === activeId)).toBe(true);
       }
 
-      session.fire("runtime_event", { kind: "turn_end" });
+      await session.fire("runtime_event", { kind: "turn_end" });
       const close = b1SpanRows(rows, "turn_end")[0];
       expect(close!.traceTurnId).toBe(activeId);
       rows.length = 0;
 
       now = 1_010;
       await vi.advanceTimersByTimeAsync(5);
-      session.fire("runtime_event", { kind: "internal_progress" });
-      session.fire("exit", { code: 0, reason: "runtime_exit" });
+      await session.fire("runtime_event", { kind: "internal_progress" });
+      await session.fire("exit", { code: 0, reason: "runtime_exit" });
       expect(rows.some((row) => ["tick", "runtime_signal", "exit"].includes(String(row.event)))).toBe(true);
       expect(rows.every((row) => row.traceTurnId === undefined)).toBe(true);
     } finally {
@@ -2961,8 +2964,8 @@ describe("B1 red gate — strict read-only trace sink", () => {
     const { mgr } = b1Manager({ sessions: [session], trace, now: () => 1_700_000_000_000 });
     mgr.deliver("a1", { seq: 1, text: "one" });
     await Promise.resolve();
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    session.fire("runtime_event", { kind: "turn_end" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("runtime_event", { kind: "turn_end" });
     mgr.deliver("a1", { seq: 2, text: "two" });
     await mgr.stop("a1");
     return { state: mgr.snapshot(), calls, runtimeCalls: b1CallProjection(session) };
@@ -3058,16 +3061,16 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     const { mgr } = b1Manager({ sessions: [session], trace: (row) => rows.push(row) });
     mgr.deliver("a1", { seq: 1, text: "active" });
     await Promise.resolve();
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    session.fire("exit", { signal: "SIGKILL", reason: "runtime_exit" });
-    session.fire("exit", { signal: "SIGKILL", reason: "runtime_exit" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("exit", { signal: "SIGKILL", reason: "runtime_exit" });
+    await session.fire("exit", { signal: "SIGKILL", reason: "runtime_exit" });
 
     const aborts = b1SpanRows(rows, "turn_abort");
     expect(aborts).toHaveLength(1);
     expect(aborts[0]!.abortCause).toBe("physical_exit");
   });
 
-  it("start synchronous throw aborts once and reports the public open failure", () => {
+  it("start synchronous throw aborts once and reports the public open failure", async () => {
     const rows: B1TraceRow[] = [];
     const error = new Error("unique-start-sync-secret");
     const session = b1Session([]);
@@ -3265,8 +3268,8 @@ describe("B1 red gate — exact-once terminal matrix", () => {
       const { mgr } = b1Manager({ sessions: [session], trace: (row) => rows.push(row) });
       mgr.deliver("a1", { seq: 1, text: "first" });
       await Promise.resolve();
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-      if (mode === "idle") session.fire("runtime_event", { kind: "turn_end" });
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      if (mode === "idle") await session.fire("runtime_event", { kind: "turn_end" });
       session.send = vi.fn(() => {
         throw error;
       });
@@ -3324,7 +3327,7 @@ describe("B1 red gate — exact-once terminal matrix", () => {
       mgr.start();
       mgr.deliver("a1", { seq: 1, text: "active" });
       await Promise.resolve();
-      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
       now = 100;
       await vi.advanceTimersByTimeAsync(10);
       now = 200;
@@ -3348,15 +3351,15 @@ describe("B1 red gate — stale owner isolation", () => {
     const { mgr } = b1Manager({ sessions: [first, second], trace: (row) => rows.push(row), launchId: "launch-a" });
     mgr.deliver("a1", { seq: 1, text: "first" });
     await mgr.resetSession("a1", { runtimeConfig: B1_RUNTIME_CONFIG, launchId: "launch-b", rewakePrompt: "reborn" });
-    first.fire("exit", { signal: "SIGTERM", reason: "requested" });
+    await first.fire("exit", { signal: "SIGTERM", reason: "requested" });
     await Promise.resolve();
 
     const begins = b1SpanRows(rows, "turn_begin");
     expect(begins).toHaveLength(2);
     const replacementId = begins[1]!.traceTurnId;
     rows.length = 0;
-    first.fire("runtime_event", { kind: "text", text: "late old output" });
-    first.fire("runtime_event", { kind: "turn_end" });
+    await first.fire("runtime_event", { kind: "text", text: "late old output" });
+    await first.fire("runtime_event", { kind: "turn_end" });
     first.startRejector!(new Error("HOSTILE_LATE_START_REJECTION_19cf"));
     await new Promise((resolve) => setTimeout(resolve, 0));
     const staleRows = [...rows];
@@ -3371,14 +3374,14 @@ describe("B1 red gate — stale owner isolation", () => {
     ).toHaveLength(0);
     expect(JSON.stringify(rows)).not.toContain("HOSTILE_LATE_START_REJECTION_19cf");
 
-    second.fire("runtime_event", { kind: "turn_end" });
+    await second.fire("runtime_event", { kind: "turn_end" });
     const replacementCloses = b1SpanRows(rows).filter((row) => row.traceTurnId === replacementId && (row.event === "turn_end" || row.event === "turn_abort"));
     expect(replacementCloses).toHaveLength(1);
   });
 });
 
 describe("B1 red gate — privacy normalization and coherent time", () => {
-  it("drops hostile prompt/error detail, normalizes unknown spawn reason, and preserves the audit callback input", () => {
+  it("drops hostile prompt/error detail, normalizes unknown spawn reason, and preserves the audit callback input", async () => {
     const rows: B1TraceRow[] = [];
     const onRuntimeSpawnFailed = vi.fn();
     const session = b1Session([]);
@@ -3390,8 +3393,8 @@ describe("B1 red gate — privacy normalization and coherent time", () => {
     const prompt = "UNIQUE_PROMPT_SECRET_8f26";
     const hostileCode = "UNIQUE_RAW_REASON_SECRET_71ac";
     mgr.deliver("a1", { seq: 1, text: prompt });
-    session.fire("error", { code: hostileCode, message: "UNIQUE_DETAIL_SECRET_5d44" });
-    session.fire("exit");
+    await session.fire("error", { code: hostileCode, message: "UNIQUE_DETAIL_SECRET_5d44" });
+    await session.fire("exit");
 
     const serialized = JSON.stringify(rows);
     expect(serialized).not.toContain(prompt);
@@ -3422,15 +3425,15 @@ describe("B1 red gate — privacy normalization and coherent time", () => {
 
     mgr.deliver("a1", { seq: 1, text: secrets.prompt });
     await Promise.resolve();
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    session.fire("runtime_event", { kind: "text", text: secrets.response });
-    session.fire("runtime_event", { kind: "thinking", text: secrets.thinking });
-    session.fire("runtime_event", {
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("runtime_event", { kind: "text", text: secrets.response });
+    await session.fire("runtime_event", { kind: "thinking", text: secrets.thinking });
+    await session.fire("runtime_event", {
       kind: "tool_call",
       name: "Read",
       input: { file_path: secrets.tool, nested: { raw: secrets.tool } },
     });
-    session.fire("runtime_event", { kind: secrets.recentEvent, text: secrets.response });
+    await session.fire("runtime_event", { kind: secrets.recentEvent, text: secrets.response });
     mgr.deliver("a1", { seq: 2, text: secrets.send });
 
     expect(rows.some((row) => Array.isArray(row.effects) && (row.effects as string[]).includes("gated_hold"))).toBe(false);
@@ -3458,7 +3461,7 @@ describe("B1 red gate — privacy normalization and coherent time", () => {
     expect(JSON.stringify(rows)).not.toContain("HOSTILE_TERMINATION_SEMANTIC_03cc");
   });
 
-  it("derives every row timeIso from that row's single nowMs sample", () => {
+  it("derives every row timeIso from that row's single nowMs sample", async () => {
     let tick = 0;
     const rows: B1TraceRow[] = [];
     const session = b1Session([]);
@@ -3468,12 +3471,99 @@ describe("B1 red gate — privacy normalization and coherent time", () => {
       now: () => Date.UTC(2026, 0, 1) + tick++,
     });
     mgr.deliver("a1", { seq: 1, text: "time" });
-    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    session.fire("runtime_event", { kind: "turn_end" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await session.fire("runtime_event", { kind: "turn_end" });
 
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
       expect(row.timeIso).toBe(new Date(row.nowMs as number).toISOString());
+    }
+  });
+});
+
+describe("Codex root event ownership — subagent completion isolation", () => {
+  it("ignores multiple child completions while the parent keeps working past idle timeout, then hibernates after the true root completion", async () => {
+    vi.useFakeTimers();
+    try {
+      let now = 0;
+      const session = fakeSession();
+      const adapter = createBuiltinAgentDriverRegistry().get("codex").createAdapter();
+      const mgr = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"),
+        baseContextFor: () => ({
+          workingDirectory: "/tmp",
+          agentId: "a1",
+          standingPrompt: "",
+          config: {} as LaunchContext["config"],
+          credentialProxy: {} as LaunchContext["credentialProxy"],
+        }),
+        sessionFactory: sessionFactoryFor(session),
+        now: () => now,
+        tickIntervalMs: 5,
+        idleTimeoutMs: 50,
+        staleThresholdMs: 1_000,
+      });
+
+      const publishNormalized = async (events: readonly AdapterEvent[]) => {
+        for (const event of events) {
+          if (event.kind === "session_init") {
+            await session.pushAgentEvent({ type: "session_started", backendSessionId: event.sessionId });
+          } else if (event.kind === "thinking") {
+            await session.pushAgentEvent({ type: "thinking_delta", turnId: "root-turn", text: event.text });
+          } else if (event.kind === "tool_call") {
+            await session.pushAgentEvent({ type: "tool_started", turnId: "root-turn", name: event.name, input: event.input as never });
+          } else if (event.kind === "tool_output") {
+            await session.pushAgentEvent({ type: "tool_finished", turnId: "root-turn", name: event.name });
+          } else if (event.kind === "turn_end") {
+            await session.pushAgentEvent({
+              type: "turn_completed",
+              turnId: "root-turn",
+              commandIds: ["root-command"],
+              result: { outcome: "success", backendSessionId: event.sessionId ?? "root-thread" },
+            });
+          }
+        }
+      };
+      const notify = (method: string, params: unknown) => JSON.stringify({ jsonrpc: "2.0", method, params });
+
+      mgr.start();
+      mgr.register("a1");
+      mgr.deliver("a1", { id: "root-command", text: "work" });
+      session.startResolver?.();
+      await Promise.resolve();
+      await publishNormalized(adapter.normalizeLine(JSON.stringify({ jsonrpc: "2.0", id: 2, result: { thread: { id: "root-thread" } } })));
+      await publishNormalized(adapter.normalizeLine(notify("turn/started", {
+        threadId: "root-thread",
+        turn: { id: "root-turn", status: "inProgress" },
+      })));
+
+      for (let child = 1; child <= 3; child += 1) {
+        const events = adapter.normalizeLine(notify("turn/completed", {
+          threadId: `child-thread-${child}`,
+          turn: { id: `child-turn-${child}`, status: "completed" },
+        }));
+        expect(events).toEqual([]);
+        await publishNormalized(events);
+        now += 40;
+        await publishNormalized(adapter.normalizeLine(notify(child % 2 === 0 ? "item/completed" : "item/started", {
+          threadId: "root-thread",
+          turnId: "root-turn",
+          item: { type: "commandExecution" },
+        })));
+        await vi.advanceTimersByTimeAsync(40);
+        expect(mgr.snapshot().agents.a1).toMatchObject({ status: "running", turnActive: true });
+      }
+
+      await publishNormalized(adapter.normalizeLine(notify("turn/completed", {
+        threadId: "root-thread",
+        turn: { id: "root-turn", status: "completed" },
+      })));
+      expect(mgr.snapshot().agents.a1).toMatchObject({ status: "running", turnActive: false });
+      now += 60;
+      await vi.advanceTimersByTimeAsync(60);
+      expect(mgr.snapshot().agents.a1.status).toBe("stopping");
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

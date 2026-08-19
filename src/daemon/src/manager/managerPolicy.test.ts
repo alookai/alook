@@ -92,6 +92,29 @@ describe("reduceManager — steering a running persistent agent", () => {
     const r = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m2" }, nowMs: 4 });
     expect(r.state.agents.a.turnActive).toBe(true);
   });
+
+  it("restores an idle delivery to the inbox when the session rejects admission", () => {
+    let s = createInitialManagerState();
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { id: "one", text: "first" }, nowMs: 1 }).state;
+    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state;
+    s = reduceManager(s, { type: "turn_end", agentId: "a", nowMs: 3 }).state;
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { id: "two", text: "retry me" }, nowMs: 4 }).state;
+    expect(s.agents.a).toMatchObject({ turnActive: true, inbox: [] });
+
+    const rejected = reduceManager(s, {
+      type: "delivery_rejected",
+      agentId: "a",
+      message: { id: "two", text: "retry me" },
+      mode: "idle",
+    });
+    expect(rejected.effects).toEqual([]);
+    expect(rejected.state.agents.a).toMatchObject({
+      turnActive: false,
+      lastDeliverAt: null,
+      inbox: [{ id: "two", text: "retry me" }],
+    });
+  });
 });
 
 describe("reduceManager — turn_end behavior", () => {
@@ -153,6 +176,29 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
     const r = reduceManager(s, { type: "tick", nowMs: 200 });
     expect(r.effects).toEqual([{ type: "stop", agentId: "a", reason: "idle_timeout" }]);
     expect(r.state.agents.a.sessionId).toBe("sess-1"); // preserved for resume
+  });
+
+  it("root progress after a stale turn_end restores active work and cancels idle hibernation", () => {
+    let s = createInitialManagerState(10_000, 100);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
+    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 0 }).state;
+
+    // Models the pre-fix ownership corruption: a child completion was mistaken
+    // for the root terminal, but the parent keeps emitting real tool/content
+    // progress well past the idle timeout.
+    s = reduceManager(s, { type: "turn_end", agentId: "a", nowMs: 10 }).state;
+    expect(s.agents.a).toMatchObject({ turnActive: false, idleSince: 10 });
+    s = reduceManager(s, { type: "progress", agentId: "a", nowMs: 50 }).state;
+    expect(s.agents.a).toMatchObject({ turnActive: true, idleSince: null, lastProgressAt: 50 });
+    s = reduceManager(s, { type: "progress", agentId: "a", nowMs: 250 }).state;
+    expect(reduceManager(s, { type: "tick", nowMs: 500 }).effects).toEqual([]);
+
+    // A genuine later root completion still arms and executes normal idle stop.
+    s = reduceManager(s, { type: "turn_end", agentId: "a", nowMs: 501 }).state;
+    expect(reduceManager(s, { type: "tick", nowMs: 700 }).effects).toEqual([
+      { type: "stop", agentId: "a", reason: "idle_timeout" },
+    ]);
   });
 
   it("idle timeout of 0 disables hibernation", () => {

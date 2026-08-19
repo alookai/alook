@@ -1,69 +1,79 @@
 import type {
   AgentDriverSdk,
-  BuiltinBackendId,
+  BackendId,
+  BackendProbe,
   BuiltinBackendSpecs,
+  CapabilitiesOf,
   CreateAgentDriverSdkOptions,
   OpenSessionInput,
   OpenSessionResult,
   ProbeInput,
-  BackendProbe,
-  CapabilitiesOf,
 } from "./contract.js";
 import { createDefaultAgentDriverHost } from "./host/default-host.js";
-import { BUILTIN_BACKEND_IDS, capabilitiesFor } from "./registry.js";
-import { createAdapter } from "./internal/createAdapter.js";
+import { createBuiltinAgentDriverRegistry, type AgentDriverRegistry } from "./registry.js";
 import { LogicalAgentSession } from "./controller/logical-session.js";
+import { scrubDriverError, stableErrorCode } from "./internal/errors.js";
 
 export function createAgentDriverSdk(
-  options: CreateAgentDriverSdkOptions = {},
-): AgentDriverSdk<BuiltinBackendSpecs> {
+  options?: CreateAgentDriverSdkOptions<BuiltinBackendSpecs>,
+): AgentDriverSdk<BuiltinBackendSpecs>;
+export function createAgentDriverSdk<Specs>(
+  options: CreateAgentDriverSdkOptions<Specs> & { readonly registry: AgentDriverRegistry<Specs> },
+): AgentDriverSdk<Specs>;
+export function createAgentDriverSdk<Specs = BuiltinBackendSpecs>(
+  options: CreateAgentDriverSdkOptions<Specs> = {},
+): AgentDriverSdk<Specs> {
   const host = options.host ?? createDefaultAgentDriverHost();
   const hostReleaseTimeoutMs = options.hostReleaseTimeoutMs ?? 5_000;
+  const registry = options.registry
+    ?? createBuiltinAgentDriverRegistry() as unknown as AgentDriverRegistry<Specs>;
   return {
-    backendIds: BUILTIN_BACKEND_IDS,
-    async probe<Id extends BuiltinBackendId>(
-      input: ProbeInput<BuiltinBackendSpecs, Id>,
-    ): Promise<BackendProbe<CapabilitiesOf<BuiltinBackendSpecs, Id>>> {
-      const adapter = createAdapter(input.backend);
-      const capabilities = capabilitiesFor(input.backend);
+    backendIds: registry.backendIds,
+    async probe<Id extends BackendId<Specs>>(
+      input: ProbeInput<Specs, Id>,
+    ): Promise<BackendProbe<CapabilitiesOf<Specs, Id>>> {
+      const registration = registry.get(input.backend);
+      const capabilities = registration.capabilities;
       try {
-        const result = await adapter.probe(input.command);
-        if (result.status === "healthy") {
-          return { status: "healthy", version: result.version, capabilities };
-        }
+        const command = (capabilities as { readonly commandOverride: boolean }).commandOverride
+          ? input.command
+          : undefined;
+        const result = await registration.createAdapter().probe(command);
+        if (result.status === "healthy") return { status: "healthy", version: result.version, capabilities };
         return {
           status: "unhealthy",
           error: {
             category: "runtime_unavailable",
-            code: result.lastError ?? "probe_failed",
+            code: stableErrorCode(result.lastError, "probe_failed"),
             message: `Backend ${input.backend} is unavailable`,
             retryable: true,
           },
           capabilities,
         };
-      } catch (error) {
+      } catch {
         return {
           status: "unhealthy",
           error: {
             category: "runtime_unavailable",
             code: "probe_threw",
-            message: String(error),
+            message: `Backend ${input.backend} probe failed`,
             retryable: true,
           },
           capabilities,
         };
       }
     },
-    async open<Id extends BuiltinBackendId>(
-      input: OpenSessionInput<BuiltinBackendSpecs, Id>,
-    ): Promise<OpenSessionResult<BuiltinBackendSpecs, Id>> {
+    async open<Id extends BackendId<Specs>>(
+      input: OpenSessionInput<Specs, Id>,
+    ): Promise<OpenSessionResult<Specs, Id>> {
+      const registration = registry.get(input.backend);
       const prepared = await host.prepareExecution({
         backend: input.backend,
         launchId: input.launch.launchId,
         workingDirectory: input.launch.workingDirectory,
       });
-      if (!prepared.ok) return prepared;
-      const session = new LogicalAgentSession(
+      if (!prepared.ok) return { ok: false, error: scrubDriverError(prepared.error) };
+      const session = new LogicalAgentSession<Specs, Id>(
         input.backend,
         input.config,
         {
@@ -72,12 +82,13 @@ export function createAgentDriverSdk(
           resumeSessionId: input.launch.resumeSessionId,
           launchId: input.launch.launchId,
         },
-        createAdapter(input.backend),
+        registration.createAdapter(),
+        registration.capabilities,
         host,
         prepared.resource,
         hostReleaseTimeoutMs,
       );
-      return { ok: true, session, capabilities: capabilitiesFor(input.backend) };
+      return { ok: true, session, capabilities: registration.capabilities };
     },
   };
 }

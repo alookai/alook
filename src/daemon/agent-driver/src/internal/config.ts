@@ -62,7 +62,9 @@ export function resolveLaunchFieldsOrDefault(
     model,
     reasoningEffort: normalized.reasoningEffort,
     fastMode: "mode" in normalized && normalized.mode === "fast",
-    command: normalized.command,
+    command: "command" in normalized && typeof normalized.command === "string"
+      ? normalized.command
+      : undefined,
     disallowedTools: normalized.disallowedTools,
     envVars,
     providerEnv,

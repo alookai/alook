@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { execFileSync } from "child_process";
-import { resolveSpawnSpec, probeCommandVersion } from "./probe.js";
+import { resolveSpawnSpec, probeCliRuntime, probeCommandVersion } from "./probe.js";
 
 vi.mock("child_process", () => ({ execFileSync: vi.fn() }));
 
@@ -175,6 +175,24 @@ describe("probeCommandVersion — version validation + non-interactive spawn", (
         encoding: "utf8",
         env: expect.objectContaining({ CI: "1" }),
       }),
+    );
+  });
+});
+
+describe("probeCliRuntime command override", () => {
+  it("probes the explicit command without resolving the default binary", () => {
+    vi.mocked(execFileSync).mockReturnValue("custom v6.0.0\n");
+    const which = vi.fn(() => "/default/runtime");
+
+    expect(probeCliRuntime("default-runtime", { which }, "/custom/runtime")).toEqual({
+      status: "healthy",
+      version: "custom v6.0.0",
+    });
+    expect(which).not.toHaveBeenCalled();
+    expect(execFileSync).toHaveBeenCalledWith(
+      "/custom/runtime",
+      ["--version"],
+      expect.any(Object),
     );
   });
 });

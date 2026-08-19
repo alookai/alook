@@ -9,6 +9,7 @@ import type {
   AgentEvent,
   BuiltinBackendId,
   BuiltinBackendSpecs,
+  ConfigOf,
   PreparedExecutionResource,
 } from "../contract.js";
 import type { BackendAdapter, BackendExecution, AdapterLaunchContext, AdapterEvent } from "../internal/adapter.js";
@@ -16,6 +17,7 @@ import { createFakeAgentDriverHost } from "../testing/fake-host.js";
 import { runAgentDriverConformance } from "../testing/conformance.js";
 import { LogicalAgentSession } from "./logical-session.js";
 import { SdkLane } from "./sdk-host.js";
+import { capabilitiesFor } from "../registry.js";
 
 const configs: Record<BuiltinBackendId, unknown> = {
   claude: { model: { kind: "default" }, provider: { kind: "default" }, mode: "default" },
@@ -133,7 +135,7 @@ function makeSession<Id extends BuiltinBackendId>(
     async release(input) { host.releases.push(input); },
     ...options.prepared,
   };
-  const session = new LogicalAgentSession(
+  const session = new LogicalAgentSession<BuiltinBackendSpecs, Id>(
     backend,
     configs[backend] as never,
     {
@@ -142,7 +144,8 @@ function makeSession<Id extends BuiltinBackendId>(
       launchId: `launch-${backend}`,
       resumeSessionId: options.resumeSessionId,
     },
-    driver,
+    driver as unknown as BackendAdapter<Id, ConfigOf<BuiltinBackendSpecs, Id>>,
+    capabilitiesFor(backend),
     host,
     prepared,
     options.timeout ?? 100,
@@ -678,6 +681,7 @@ describe("logical-session terminal facts", () => {
 
   it("returns the interrupted turn id when an SDK abort emits turn_end before resolving", async () => {
     const { session, driver } = makeSession("pi");
+    const iterator = session.events[Symbol.asyncIterator]();
     const started = await session.start({ id: "one", kind: "user", text: "start" });
     expect(started).toMatchObject({ status: "accepted" });
     driver.sdkHandle!.isStreaming = true;
@@ -690,7 +694,31 @@ describe("logical-session terminal facts", () => {
       requestId: "interrupt-one",
       turnId: started.status === "accepted" ? started.turnId : "unreachable",
     });
+    const events = await take(iterator as never, 4);
+    expect(events.find((event) => event.type === "turn_completed")).toMatchObject({
+      type: "turn_completed",
+      result: { outcome: "interrupted" },
+    });
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("normalizes an accepted process interrupt followed by SIGINT exit as an interrupted turn", async () => {
+    const { session, driver } = makeSession("claude");
+    const iterator = session.events[Symbol.asyncIterator]();
+    const started = await session.start({ id: "one", kind: "user", text: "start" });
+    expect(await session.interrupt({ requestId: "interrupt-process", reason: "test" })).toMatchObject({
+      status: "accepted",
+      turnId: started.status === "accepted" ? started.turnId : "unreachable",
+    });
+
+    driver.processes[0]!.emit("exit", null, "SIGINT");
+    await expect(session.closed).resolves.toMatchObject({ outcome: "crashed", signal: "SIGINT" });
+    const observed: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
+    for await (const event of { [Symbol.asyncIterator]: () => iterator }) observed.push(event);
+    expect(observed.find((event) => event.type === "turn_completed")).toMatchObject({
+      type: "turn_completed",
+      result: { outcome: "interrupted" },
+    });
   });
 
   it("keeps admission closed while a stop-triggered SDK turn_end races a pending abort", async () => {

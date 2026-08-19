@@ -47,6 +47,19 @@ describe("writeAgentFile", () => {
     expect(stat.isSymbolicLink()).toBe(true);
     expect(fs.readlinkSync(path.join(tmpDir, SYMLINK_ALIASES[0]))).toBe(CANONICAL_FILE);
   });
+
+  it("materializes the adapter's declared canonical file and aliases", () => {
+    writeAgentFile(tmpDir, "custom", { canonical: "SYSTEM.md", aliases: ["BOT.md", "CLAUDE.md"] });
+    expect(fs.readFileSync(path.join(tmpDir, "SYSTEM.md"), "utf8")).toBe("custom");
+    expect(fs.readlinkSync(path.join(tmpDir, "BOT.md"))).toBe("SYSTEM.md");
+    expect(fs.readlinkSync(path.join(tmpDir, "CLAUDE.md"))).toBe("SYSTEM.md");
+  });
+
+  it("rejects adapter-declared instruction paths that escape the workspace", () => {
+    expect(() => writeAgentFile(tmpDir, "unsafe", { canonical: "../outside.md", aliases: [] }))
+      .toThrow("plain workspace basenames");
+    expect(fs.existsSync(path.join(tmpDir, "..", "outside.md"))).toBe(false);
+  });
 });
 
 describe("ensureSymlinks", () => {

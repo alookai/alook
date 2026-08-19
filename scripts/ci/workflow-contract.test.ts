@@ -41,6 +41,9 @@ const publishWorkflows = ["publish-app.yml", "publish-cli.yml", "publish-daemon.
 const publishAgentDriverWorkflow = normalizeWorkflow(
   readFileSync(resolve(workflowRoot, "publish-agent-driver.yml"), "utf8"),
 )
+const publishDaemonWorkflow = normalizeWorkflow(
+  readFileSync(resolve(workflowRoot, "publish-daemon.yml"), "utf8"),
+)
 
 function ciJob(name: string): string {
   const start = ciWorkflow.indexOf(`\n  ${name}:\n`)
@@ -101,6 +104,13 @@ describe("Agent driver publishing", () => {
     expect(publishAgentDriverWorkflow).toContain("pnpm -C src/daemon/agent-driver run build")
     expect(publishAgentDriverWorkflow).toContain("npm publish --access public")
     expect(publishAgentDriverWorkflow).toContain("id-token: write")
+  })
+
+  it("builds the workspace driver before a clean daemon publish build", () => {
+    const driverBuild = publishDaemonWorkflow.indexOf("pnpm -C src/daemon/agent-driver run build")
+    const daemonBuild = publishDaemonWorkflow.indexOf("pnpm -C src/daemon run build")
+    expect(driverBuild).toBeGreaterThan(0)
+    expect(daemonBuild).toBeGreaterThan(driverBuild)
   })
 })
 

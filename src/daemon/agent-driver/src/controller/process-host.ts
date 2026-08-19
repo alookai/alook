@@ -10,8 +10,14 @@
  * EventEmitter-based session from `openSdkSession` and throw from `spawn`.
  */
 import { EventEmitter } from "events";
-import type { ChildProcess } from "child_process";
-import type { BackendAdapter, AdapterLaunchContext, InputMode } from "../internal/adapter.js";
+import type {
+  BackendAdapter,
+  BackendConfig,
+  AdapterLaunchContext,
+  InputMode,
+  SpawnedProcessHandle,
+} from "../internal/adapter.js";
+import type { BuiltinBackendId } from "../contract.js";
 import { killProcessTree, SESSION_STOP_GRACE_MS } from "../internal/killTree.js";
 
 interface StartInput {
@@ -29,16 +35,16 @@ interface ProcessLaneOptions {
   onRawStdoutLine?: (line: string) => void;
 }
 
-export class ProcessLane {
+export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendConfig> {
   private readonly events = new EventEmitter();
-  private process: ChildProcess | null = null;
+  private process: SpawnedProcessHandle | null = null;
   private started = false;
   private stdoutBuffer = "";
   private requestedStopReason?: string;
 
   constructor(
-    private readonly driver: BackendAdapter,
-    private readonly ctx: AdapterLaunchContext,
+    private readonly driver: BackendAdapter<Id, Config>,
+    private readonly ctx: AdapterLaunchContext<Id, Config>,
     private readonly opts: ProcessLaneOptions = {},
   ) {}
 
@@ -51,7 +57,7 @@ export class ProcessLane {
   get exitCode(): number | null {
     return this.process?.exitCode ?? null;
   }
-  get signalCode(): NodeJS.Signals | null {
+  get signalCode(): string | null {
     return this.process?.signalCode ?? null;
   }
   get closed(): boolean {
@@ -68,7 +74,7 @@ export class ProcessLane {
       return { ok: false, reason: "runtime_error", error: "runtime session already started" };
     }
     this.started = true;
-    const launchCtx: AdapterLaunchContext = {
+    const launchCtx: AdapterLaunchContext<Id, Config> = {
       ...this.ctx,
       prompt: input.text,
       config: { ...this.ctx.config, sessionId: input.sessionId ?? this.ctx.config.sessionId },
@@ -90,7 +96,7 @@ export class ProcessLane {
     return { ok: true, acceptedAs: input.mode === "busy" ? "steer" : "prompt" };
   }
 
-  async stop(opts?: { reason?: string; signal?: NodeJS.Signals; forceAfterMs?: number }): Promise<void> {
+  async stop(opts?: { reason?: string; signal?: "SIGTERM" | "SIGINT" | "SIGKILL"; forceAfterMs?: number }): Promise<void> {
     const proc = this.process;
     if (!proc || this.closed) return;
     this.requestedStopReason = opts?.reason;
@@ -109,8 +115,8 @@ export class ProcessLane {
   }
 
   /** Wire stdout line-buffering → normalizeLine → runtime_event, plus lifecycle. */
-  private attachProcess(proc: ChildProcess): void {
-    proc.stdout?.on("data", (chunk: Buffer) => {
+  private attachProcess(proc: SpawnedProcessHandle): void {
+    proc.stdout?.on("data", (chunk) => {
       const chunkText = chunk.toString();
       this.events.emit("stdout", chunkText);
       this.stdoutBuffer += chunkText;
@@ -128,7 +134,7 @@ export class ProcessLane {
         }
       }
     });
-    proc.stderr?.on("data", (chunk: Buffer) => {
+    proc.stderr?.on("data", (chunk) => {
       const text = chunk.toString().trim();
       if (text) this.events.emit("stderr", text);
     });
@@ -142,10 +148,10 @@ export class ProcessLane {
   }
 }
 
-export function createProcessLane(
-  driver: BackendAdapter,
-  ctx: AdapterLaunchContext,
+export function createProcessLane<Id extends string, Config>(
+  driver: BackendAdapter<Id, Config>,
+  ctx: AdapterLaunchContext<Id, Config>,
   opts?: ProcessLaneOptions,
-): ProcessLane {
+): ProcessLane<Id, Config> {
   return new ProcessLane(driver, ctx, opts);
 }

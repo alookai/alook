@@ -16,26 +16,38 @@ function fakeRecorder(resume: Record<string, string> = {}) {
 }
 
 function manager(rec: TimelineRecorder, capture: { ctx?: LaunchContext }) {
-  let publish: ((event: AgentEvent<BuiltinBackendSpecs, "codex">) => void) | undefined;
-  let finish: ((result: AgentSessionResult) => void) | undefined;
+  type Event = AgentEvent<BuiltinBackendSpecs, "codex">;
+  const queued: Event[] = [];
+  const waiters: Array<(value: IteratorResult<Event>) => void> = [];
+  let resolveClosed!: (result: AgentSessionResult) => void;
+  const closed = new Promise<AgentSessionResult>((resolve) => { resolveClosed = resolve; });
   let sequence = 0;
+  const publish = (event: Event) => {
+    const waiter = waiters.shift();
+    if (waiter) waiter({ done: false, value: event });
+    else queued.push(event);
+  };
   const mgr = new AgentProcessManager({
     driverFor: () =>
       ({ lifecycle: { kind: "persistent", stdin: "gated", inFlightWake: "queue" } }) as never,
     baseContextFor: (agentId) => ({ agentId, workingDirectory: "/tmp/x", standingPrompt: "", config: {} }),
-    sessionFactory: ({ ctx, publish: nextPublish, finish: nextFinish }) => {
+    sessionFactory: ({ ctx }) => {
       capture.ctx = ctx;
-      publish = nextPublish as never;
-      finish = nextFinish;
       return {
         backend: "codex" as const,
         capabilities: {} as never,
         sessionInstanceId: "timeline-test",
         events: {
           maxBufferedBytes: 4_194_304 as const,
-          async *[Symbol.asyncIterator]() { await new Promise(() => {}); },
+          [Symbol.asyncIterator]() {
+            return {
+              next: () => queued.length > 0
+                ? Promise.resolve({ done: false as const, value: queued.shift()! })
+                : new Promise<IteratorResult<Event>>((resolve) => waiters.push(resolve)),
+            };
+          },
         },
-        closed: new Promise<AgentSessionResult>(() => {}),
+        closed,
         async start(message: { id: string }) {
           return { status: "accepted" as const, delivery: "prompt" as const, commandId: message.id, turnId: "test-turn" };
         },
@@ -55,35 +67,37 @@ function manager(rec: TimelineRecorder, capture: { ctx?: LaunchContext }) {
     timeline: rec,
     tickIntervalMs: 10_000,
   });
-  const emit = (ev: string, arg?: unknown) => {
+  const emit = async (ev: string, arg?: unknown) => {
     if (ev === "runtime_event") {
       const event = arg as { kind: string; sessionId?: string; text?: string };
       const base = { sequence: ++sequence, sessionInstanceId: "timeline-test", at: Date.now() };
       if (event.kind === "session_init") {
-        publish?.({ ...base, type: "session_started", backendSessionId: event.sessionId ?? "test-session" });
+        publish({ ...base, type: "session_started", backendSessionId: event.sessionId ?? "test-session" });
       } else if (event.kind === "text") {
-        publish?.({ ...base, type: "text_delta", turnId: "test-turn", text: event.text ?? "" });
+        publish({ ...base, type: "text_delta", turnId: "test-turn", text: event.text ?? "" });
       }
     } else if (ev === "exit") {
-      finish?.({ outcome: "completed", exitCode: 0, signal: null, cleanup: { status: "released" } });
+      resolveClosed({ outcome: "crashed", requested: false, exitCode: 0, signal: null, cleanup: { status: "released" } });
     }
+    await Promise.resolve();
+    await Promise.resolve();
   };
   return { mgr, emit };
 }
 
 describe("manager ↔ timeline (daily log + resume)", () => {
-  it("annotates the latest entry on session_init / text / exit (by agent, not task id)", () => {
+  it("annotates the latest entry on session_init / text / exit (by agent, not task id)", async () => {
     const { rec, calls } = fakeRecorder();
     const cap: { ctx?: LaunchContext } = {};
     const { mgr, emit } = manager(rec, cap);
     mgr.register("agent_1");
     mgr.deliver("agent_1", { seq: 1, text: "hi" });
 
-    emit("runtime_event", { kind: "session_init", sessionId: "sess-7" });
-    emit("runtime_event", { kind: "text", text: "part 1" });
-    emit("runtime_event", { kind: "text", text: "part 2" });
-    emit("runtime_event", { kind: "text", text: "" }); // empty text ignored
-    emit("exit");
+    await emit("runtime_event", { kind: "session_init", sessionId: "sess-7" });
+    await emit("runtime_event", { kind: "text", text: "part 1" });
+    await emit("runtime_event", { kind: "text", text: "part 2" });
+    await emit("runtime_event", { kind: "text", text: "" }); // empty text ignored
+    await emit("exit");
 
     // The manager does NOT open the entry (that's the data plane / inbox pull)
     // and there's no status close — it records the session id and accumulates the
@@ -172,8 +186,10 @@ describe("manager.resetSession", () => {
       driverFor: () =>
         ({ lifecycle: { kind: "persistent", stdin: "direct", inFlightWake: "steer" } }) as never,
       baseContextFor: (agentId) => ({ agentId, workingDirectory: "/tmp/x", standingPrompt: "", config: {} }),
-      sessionFactory: ({ ctx, finish }) => {
-        const entry: (typeof sessionsCreated)[number] = { ctx, finish, stopCalled: false, sends: [] };
+      sessionFactory: ({ ctx }) => {
+        let finish!: (result: AgentSessionResult) => void;
+        const closed = new Promise<AgentSessionResult>((resolve) => { finish = resolve; });
+        const entry: (typeof sessionsCreated)[number] = { ctx, finish: (result) => finish(result), stopCalled: false, sends: [] };
         sessionsCreated.push(entry);
         return {
           backend: "codex" as const,
@@ -183,7 +199,7 @@ describe("manager.resetSession", () => {
             maxBufferedBytes: 4_194_304 as const,
             async *[Symbol.asyncIterator]() { await new Promise(() => {}); },
           },
-          closed: new Promise<AgentSessionResult>(() => {}),
+          closed,
           async start(m: { id: string }) {
             return { status: "accepted" as const, delivery: "prompt" as const, commandId: m.id, turnId: "test-turn" };
           },
@@ -236,7 +252,8 @@ describe("manager.resetSession", () => {
     expect(mgr.snapshot().agents.agent_run.inbox.map((m) => m.text)).toEqual(["REWAKE"]);
 
     // Fire the session exit → onExit drains rewake into a fresh spawn.
-    first.finish({ outcome: "completed", exitCode: 0, signal: null, cleanup: { status: "released" } });
+    first.finish({ outcome: "stopped", requested: true, exitCode: 0, signal: null, cleanup: { status: "released" } });
+    await Promise.resolve();
     await Promise.resolve();
 
     expect(sessionsCreated).toHaveLength(2);

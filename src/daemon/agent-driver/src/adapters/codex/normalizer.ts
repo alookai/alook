@@ -76,6 +76,10 @@ export class CodexEventNormalizer {
    * latch never needed the duplicate; this dedups at the source.
    */
   private adoptAndInit(threadId: string): AdapterEvent[] {
+    // One normalizer owns exactly one root thread. Codex subagents announce
+    // their own threads on the same app-server stream; adopting one here would
+    // redirect subsequent turn ownership away from the root session.
+    if (this.threadId !== null && threadId !== this.threadId) return [];
     const firstSight = threadId !== this.sessionInitEmittedFor;
     this.threadId = threadId;
     if (!firstSight) return [];
@@ -102,6 +106,13 @@ export class CodexEventNormalizer {
   }
 
   private handleNotification(method: string, params: any): AdapterEvent[] {
+    const notificationThreadId = typeof params?.threadId === "string" ? params.threadId : null;
+    if (
+      this.threadId !== null &&
+      notificationThreadId !== null &&
+      notificationThreadId !== this.threadId
+    ) return [];
+
     switch (method) {
       case "thread/started":
         return params?.thread?.id ? this.adoptAndInit(params.thread.id) : [];
@@ -109,7 +120,12 @@ export class CodexEventNormalizer {
       case "turn/started":
         // Capture the turn id — codex needs it back as `expectedTurnId` on a
         // `turn/steer` against this turn (see CodexDriver.encodeMessage).
-        if (params?.turn?.id) this.turnId = params.turn.id;
+        if (
+          typeof params?.threadId !== "string" ||
+          params.threadId !== this.threadId ||
+          typeof params?.turn?.id !== "string"
+        ) return [];
+        this.turnId = params.turn.id;
         return [{ kind: "thinking", text: "" }];
 
       case "item/reasoning/textDelta":
@@ -139,10 +155,23 @@ export class CodexEventNormalizer {
         ];
 
       case "turn/completed":
-        // Turn is over — no live turn to steer against anymore.
+        // The app-server multiplexes root and subagent notifications. Only the
+        // completion that names BOTH our root thread and current root turn may
+        // clear ownership or emit the logical root terminal event.
+        if (
+          typeof params?.threadId !== "string" ||
+          params.threadId !== this.threadId ||
+          typeof params?.turn?.id !== "string" ||
+          params.turn.id !== this.turnId
+        ) return [];
         this.turnId = null;
-        if (params?.status === "failed") return [{ kind: "error", message: "Codex turn failed" }];
-        if (params?.status === "interrupted") {
+        if (params.turn.status === "failed") {
+          return [
+            { kind: "error", message: "Codex turn failed" },
+            { kind: "turn_end", sessionId: this.threadId ?? undefined },
+          ];
+        }
+        if (params.turn.status === "interrupted") {
           return [{ kind: "error", message: "Codex turn interrupted" }, { kind: "turn_end", sessionId: this.threadId ?? undefined }];
         }
         return [{ kind: "turn_end", sessionId: this.threadId ?? undefined }];

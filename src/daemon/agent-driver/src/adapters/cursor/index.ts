@@ -27,8 +27,8 @@ export class CursorDriver implements BackendAdapter {
 
   private sessionId: string | null = null;
 
-  probe() {
-    return probeCliRuntime("cursor-agent");
+  probe(command?: string) {
+    return probeCliRuntime("cursor-agent", {}, command);
   }
 
   async spawn(ctx: AdapterLaunchContext): Promise<SpawnedProcess> {

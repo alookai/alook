@@ -3,6 +3,7 @@ import {
   createAgentDriverSdk,
   getBuiltinBackendCapabilities,
   type BackendCapabilities,
+  type BackendProbe,
   type BuiltinBackendId,
 } from "@alook/agent-driver";
 
@@ -11,7 +12,7 @@ export type RuntimeId = BuiltinBackendId;
 export interface AgentBackend {
   readonly id: RuntimeId;
   readonly capabilities: BackendCapabilities;
-  probe(): ReturnType<ReturnType<typeof createAgentDriverSdk>["probe"]>;
+  probe(): Promise<BackendProbe<BackendCapabilities>>;
 }
 
 export function getDriver(runtimeId: string): AgentBackend {

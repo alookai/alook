@@ -1,4 +1,3 @@
-import type { ChildProcess } from "node:child_process";
 import type {
   BuiltinBackendId,
   ClaudeConfig,
@@ -46,9 +45,9 @@ export interface AdapterRuntimeContext {
   workspacePath: string;
 }
 
-export interface AdapterLaunchConfig {
+export interface AdapterLaunchConfig<Config = BackendConfig> {
   sessionId?: string;
-  runtimeConfig?: BackendConfig;
+  runtimeConfig?: Config;
   description?: string;
   runtimeContext?: AdapterRuntimeContext;
   agentName?: string;
@@ -57,18 +56,30 @@ export interface AdapterLaunchConfig {
   ownerHandle?: string;
 }
 
-export interface AdapterLaunchContext {
-  backend: BuiltinBackendId;
+export interface AdapterLaunchContext<Id extends string = BuiltinBackendId, Config = BackendConfig> {
+  backend: Id;
   agentId: string;
   launchId: string;
   workingDirectory: string;
   standingPrompt: string;
   prompt: string;
   prepared: PreparedExecutionResource;
-  config: AdapterLaunchConfig;
+  config: AdapterLaunchConfig<Config>;
 }
 
-export interface SpawnedProcess { process: ChildProcess }
+export interface SpawnedProcessHandle {
+  readonly stdout?: { on(event: "data", listener: (chunk: { toString(): string }) => void): unknown } | null;
+  readonly stderr?: { on(event: "data", listener: (chunk: { toString(): string }) => void): unknown } | null;
+  readonly stdin?: { readonly destroyed?: boolean; write(chunk: string): unknown } | null;
+  readonly pid?: number;
+  readonly exitCode: number | null;
+  readonly signalCode: string | null;
+  kill(signal?: "SIGTERM" | "SIGINT" | "SIGKILL"): boolean;
+  on(event: "error", listener: (error: unknown) => void): unknown;
+  on(event: "exit" | "close", listener: (code: number | null, signal: string | null) => void): unknown;
+}
+
+export interface SpawnedProcess { process: SpawnedProcessHandle }
 export interface ProbeResult { status: "healthy" | "unhealthy"; version?: string; lastError?: string }
 
 export interface VendorSessionHandle {
@@ -79,13 +90,15 @@ export interface VendorSessionHandle {
   readonly isStreaming?: boolean;
 }
 
-export interface BackendAdapter {
-  readonly id: BuiltinBackendId;
-  readonly instructionDelivery: { readonly kind: "workspace_file"; readonly canonical: "AGENTS.md"; readonly aliases: readonly ["CLAUDE.md"] };
+export interface BackendAdapter<Id extends string = BuiltinBackendId, Config = BackendConfig> {
+  readonly id: Id;
+  readonly instructionDelivery:
+    | { readonly kind: "native" }
+    | { readonly kind: "workspace_file"; readonly canonical: string; readonly aliases: readonly string[] };
   readonly execution: BackendExecution;
   probe(command?: string): ProbeResult | Promise<ProbeResult>;
-  spawn?(ctx: AdapterLaunchContext): Promise<SpawnedProcess>;
-  openSdkSession?(ctx: AdapterLaunchContext): Promise<unknown>;
+  spawn?(ctx: AdapterLaunchContext<Id, Config>): Promise<SpawnedProcess>;
+  openSdkSession?(ctx: AdapterLaunchContext<Id, Config>): Promise<unknown>;
   normalizeLine(line: string): AdapterEvent[];
   readonly currentSessionId: string | null;
   encodeMessage(text: string, sessionId: string | null, opts?: EncodeMessageOptions): string | null;

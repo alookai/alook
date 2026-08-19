@@ -1,15 +1,4 @@
-/**
- * Agent process manager — thin side-effect executor.
- *
- * This is the impure half: it owns the mutable `ManagerState`, drives the pure
- * `reduceManager` policy with real events, and applies the emitted effects
- * against real runtime sessions (spawn / send / stop) plus a tick timer for
- * stall detection. It is intentionally thin — all decisions live in the policy;
- * this layer only does I/O.
- *
- * A host wires it up with a `SessionFactory` (how to build a runtime session for
- * an agent) and feeds it inbound messages via `deliver()`.
- */
+/** Side-effect executor for the pure manager policy. */
 import {
   reduceManager,
   createInitialManagerState,
@@ -40,12 +29,6 @@ import { randomUUID } from "node:crypto";
 
 const SESSION_STOP_GRACE_MS = 2_000;
 
-/**
- * Derived activity state reported up the control plane — NOT a raw passthrough
- * of `AgentState.status` (see `deriveActivity` below). Mirrors
- * `@alook/shared`'s `AgentActivityState`, inlined here since this is
- * daemon-internal.
- */
 export type AgentActivityState = "idle" | "starting" | "running" | "stopping";
 
 export type DaemonAgentSession = AgentSession<BuiltinBackendSpecs, BuiltinBackendId>;
@@ -148,7 +131,6 @@ type TurnSpanTraceRecord = TraceRecordBase &
     | { recordKind: "turn_span"; event: "turn_abort"; abortCause: TraceAbortCause }
   );
 
-/** Metadata-only local trace row with an explicit privacy allowlist. */
 export type ManagerTraceRecord = FsmTraceRecord | TurnSpanTraceRecord;
 
 function normalizeTerminationCause(value: unknown): TraceTerminationCause {
@@ -199,83 +181,29 @@ function normalizeTerminationSemantics(value: unknown): TraceTerminationSemantic
   }
 }
 
-/**
- * How the host builds a public logical session for an agent launch.
- */
 export type SessionFactory = (args: {
   agentId: string;
   ctx: HostLaunchContext;
   runtimeConfig: RuntimeConfig;
-  /** Deterministic test harnesses may inject typed events synchronously. */
-  publish(event: ManagedEvent): void;
-  /** Deterministic test harnesses may settle the public terminal result synchronously. */
-  finish(result: AgentSessionResult): void;
 }) => DaemonAgentSession | Promise<DaemonAgentSession>;
 
 export interface ManagerRuntimeOpts {
-  /**
-   * Resolve a driver for an agent. The optional `runtimeConfig` is supplied
-   * whenever the manager knows it (i.e. after `register` with the server-pushed
-   * config) so callers can pick the right runtime; tests may omit it.
-   */
   driverFor: (agentId: string, runtimeConfig?: RuntimeConfig) => { readonly id: BuiltinBackendId };
   baseContextFor: (agentId: string) => Omit<HostLaunchContext, "prompt" | "config" | "standingPrompt"> & {
     standingPrompt?: string;
     config?: HostLaunchContext["config"];
   };
   sessionFactory?: SessionFactory;
-  /**
-   * Zero-trust credential handoff for real (child-process) spawns. Required when
-   * NOT using a `sessionFactory` — `prepareCliTransport` refuses to launch a CLI
-   * runtime without it (no plaintext fallback). Threaded into each LaunchContext.
-   */
   credentialProxy?: HostLaunchContext["credentialProxy"];
   staleThresholdMs?: number;
-  /** Idle hibernation timeout (ms): stop a persistent process idle this long. */
   idleTimeoutMs?: number;
-  /** Reset-stuck reconcile threshold (ms): `resetting` stuck this long ⇒ escalate. */
   resetStuckThresholdMs?: number;
-  /** Stopping-stuck escalation threshold (ms): `stopping` this long (no exit came) ⇒ force_exit. */
   stoppingStuckThresholdMs?: number;
-  /**
-   * Handshake watchdog (ms): a spawned session that never emits its first
-   * `runtime_event` (the handshake) within this window is treated as a
-   * pre-establishment failure — the process is stopped, an `error` audit row
-   * is emitted, and the FSM is returned to idle. Catches the case a bad model
-   * makes the CLI HANG (no exit, no stderr, no stdout) — otherwise invisible
-   * and unrecoverable (the `onTick` stall watchdog excludes an empty-inbox
-   * gated agent). Defaults to 60s: a healthy cold start handshakes in <10s.
-   */
   handshakeTimeoutMs?: number;
   tickIntervalMs?: number;
-  /** Injectable clock (tests). Defaults to Date.now. */
   now?: () => number;
-  /**
-   * Notified when an agent's runtime session id is first learned (from a
-   * `session_init` event). The router relays this to the server as
-   * `reportAgentSession` so the server can correlate + resume.
-   */
   onAgentSession?: (info: { agentId: string; sessionId: string; launchId: string }) => void;
-  /**
-   * Notified whenever an agent's DERIVED activity (per `deriveActivity`)
-   * changes — not on every raw FSM transition. See the Design Overview in
-   * plans/community-bot-status-telemetry.md.
-   */
   onAgentActivity?: (info: { agentId: string; state: AgentActivityState }) => void;
-  /**
-   * Notified whenever a runtime `thinking` or `tool_call` event lands. Wired
-   * in `createDaemon` to send a `bot_audit_event` frame through the WS
-   * control channel. Tool calls flow through `extractToolAudit`, which
-   * canonicalizes the tool name to lowercase (`Bash` → `bash`, codex
-   * `shell` → `bash`, codex `file_change` → `edit`, etc.), picks a
-   * `target` field driver-agnostically (file path / shell command /
-   * pattern / url / mcp name), and suppresses any bash-family call whose
-   * resolved command is `alook <sub>` — the credential-proxy
-   * `cli_invocation` sighting is authoritative for those.
-   *
-   * `thinking` payloads carry truncated `text` + original `chars`; the audit
-   * log does not record raw tool input beyond the optional `target`.
-   */
   onBotAuditEvent?: (
     agentId: string,
     event:
@@ -292,122 +220,27 @@ export interface ManagerRuntimeOpts {
         },
     context: { sessionId: string | null; launchId: string | null }
   ) => void;
-  /**
-   * Notified when the daemon itself terminates an agent (idle hibernation or
-   * stall-recovery) — NOT for server-sent `agent:stop`, which the router
-   * already tracks. Wired in `createDaemon` to `AgentRouter.markLocallyStopped`
-   * so `ready.runningAgents` stays aligned with what's actually live.
-   */
   onAgentLocallyStopped?: (info: { agentId: string; reason: "stop" | "terminate_stalled" }) => void;
-  /**
-   * Observability-only tap for complete child-process stdout lines. The host
-   * owns persistence; the manager only adds agent identity before the shared
-   * runtime session parses the line. SDK sessions do not emit through it.
-   */
   onRuntimeRawLine?: (agentId: string, line: string) => void;
-  /**
-   * Pure-observability FSM and turn-lifecycle trace. Each agent-scoped
-   * `dispatch` emits the post-reduce key fields + effect kinds; trace-only
-   * turn_begin/end/abort rows add lifecycle boundaries without entering the
-   * reducer. Wired in `createDaemon` when `ALOOK_FSM_TRACE` is set. No behavior
-   * change; omit ⇒ no-op.
-   */
   onFsmTransition?: (rec: ManagerTraceRecord) => void;
-  /**
-   * Optional context-timeline recorder. When provided, the manager logs each
-   * spawn as a "running" row, fills in the session id on session_init, and closes
-   * the row on turn_end / exit — a pure DAILY LOG, no steering. It also supplies
-   * the resume session id for an agent's next launch (latest finished session in
-   * that agent's own timeline). Omitted ⇒ no logging, in-memory resume only.
-   */
   timeline?: TimelineRecorder;
-  /**
-   * Appended once to the coalesced wake prompt (after dedup). Use for a
-   * one-shot instruction like "Use `alook inbox pull` to read your messages."
-   */
   wakePromptFooter?: string;
-  /**
-   * When true, prepend a `[<local-tz ISO>]` timestamp to every prompt handed
-   * to the runtime driver (both spawn's initial prompt and mid-turn steer
-   * sends). Stamped inside `withFooter` — as close to "the moment the agent
-   * actually sees this text" as we can get — so the number reflects the real
-   * arrival wall-clock, not an earlier layer's timestamp. Off in tests so
-   * exact-string assertions on send/prompt stay stable; enabled in production
-   * via `createDaemon`.
-   */
   stampWakePromptTime?: boolean;
-  /**
-   * Notified when a spawn fails BEFORE the runtime emits its handshake
-   * `runtime_event` (pre-establishment error). The host may use definitive
-   * executable errors to update global runtime health, but transient failures
-   * such as `handshake_timeout` must remain scoped to this launch so a later
-   * wake can retry.
-   *
-   * `reason` is a short code like `"ENOENT"` or `"pre_handshake_exit"`.
-   */
   onRuntimeSpawnFailed?: (runtimeId: string, reason: string) => void;
-  /**
-   * Notified once per session when it emits its first post-handshake
-   * `runtime_event`. Typically wired to `AgentRouter.markRuntimeHealthy` so
-   * a runtime that was flagged unhealthy self-heals after the user fixes
-   * their install (or after a genuine transient failure).
-   */
   onRuntimeSessionEstablished?: (runtimeId: string) => void;
-  /** Defaults to `createLogger({ header: "@alook/daemon:manager" })`. */
   logger?: Logger;
 }
 
-/**
- * Lifecycle sink the manager calls to record turns + look up resume. Kept as an
- * injected interface so managerRuntime stays fs-free and unit-testable; the
- * daemon backs it with the `src/timeline` module over the agent's workdir.
- */
 export interface TimelineRecorder {
-  /**
-   * Record the runtime session id (from session_init). The recorder bakes it into
-   * the entry opened by the agent's next inbox pull (which happens after
-   * session_init), so the row carries the right session id.
-   */
   setSession(agentId: string, sessionId: string): void;
-  /**
-   * Append a piece of the agent's response (a runtime `text` event) to the
-   * agent's latest entry's `agent_responses` — the "what I said this turn" data
-   * that makes the timeline usable as memory. The entry itself is opened on the
-   * DATA plane (inbox pull); the manager only accumulates onto the latest row.
-   */
   appendResponseToLatest(agentId: string, text: string): void;
-  /** Latest session id for this agent (resume target), or null. */
   resumeSessionId(agentId: string, provider: string | null): string | null;
-  /**
-   * Reset: the caller asked the daemon to forget this agent's prior session so
-   * the next spawn starts fresh. Recorder appends a `system` barrier row —
-   * `reset_session` (owner) or `nap` (agent self-reset, default
-   * `reset_session`) — visible to both the resume walker (returns null on the
-   * barrier — every turn at or before it becomes invisible to
-   * `resumeSessionId`) and the agent's own history read (so the agent sees it
-   * in-line with turns). Kill happens BEFORE the barrier is written (see
-   * `AgentProcessManager.resetSession`), so no race — no `forgot_session_id`
-   * needed. Safe to call on an unknown agentId.
-   */
   forgetSession(agentId: string, barrierType?: "reset_session" | "nap"): void;
 }
 
-/** Max UTF-8 byte budget for `thinking` text in the audit log. */
 const THINKING_MAX_BYTES = 4096;
-
-/** Max length of a runtime-stderr line the daemon logs verbatim (with an ellipsis when cut). */
-
-/** Max length of an `error` audit row's message (schema caps at 2048; leave headroom). */
 const AUDIT_ERROR_MESSAGE_MAX_LEN = 2000;
 
-/**
- * Max UTF-16 code units for a tool_call's `target` field. The wire schema
- * caps `target` at 240 (see `AuditLogToolCallPayloadSchema`) and Zod's
- * `.max()` measures UTF-16 length — the extractor truncates at 200 to keep
- * 40 units of headroom for any future producer that stamps a suffix before
- * wire validation. Truncating on codepoints would let an emoji-heavy target
- * exceed 240 UTF-16 units and get rejected at the wire.
- */
 const MAX_TARGET_CODE_UNITS = 200;
 
 /**
@@ -1426,26 +1259,57 @@ export class AgentProcessManager {
             throw error;
           }
           void Promise.resolve(sent).then((receipt) => {
-            if (receipt.status === "rejected" && exactOwner) {
+            if (
+              !exactOwner
+              || exactOwner.torndown
+              || this.sessions.get(effect.agentId) !== session
+              || this.activeSpawnState.get(effect.agentId) !== exactOwner
+            ) return;
+            if (receipt.status === "rejected") {
               this.closeTurn(exactOwner, associatedSpan, {
                 event: "turn_abort",
                 abortCause: "send_threw",
               });
+              this.dispatch({
+                type: "delivery_rejected",
+                agentId: effect.agentId,
+                message: effect.message,
+                mode: effect.mode,
+              }, exactOwner);
               this.emitErrorAudit(
                 effect.agentId,
                 "runtime",
                 receipt.error?.code ?? receipt.reason,
                 receipt.error?.message ?? `Delivery rejected (${receipt.reason})`,
               );
+              void session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS });
             }
           }).catch((error) => {
-            if (exactOwner) {
-              this.closeTurn(exactOwner, associatedSpan, {
-                event: "turn_abort",
-                abortCause: "send_threw",
-              });
-            }
+            if (
+              !exactOwner
+              || exactOwner.torndown
+              || this.sessions.get(effect.agentId) !== session
+              || this.activeSpawnState.get(effect.agentId) !== exactOwner
+            ) return;
+            this.closeTurn(exactOwner, associatedSpan, {
+              event: "turn_abort",
+              abortCause: "send_threw",
+            });
+            this.dispatch({
+              type: "delivery_rejected",
+              agentId: effect.agentId,
+              message: effect.message,
+              mode: effect.mode,
+            }, exactOwner);
             this.emitErrorAudit(effect.agentId, "runtime", "send_failed", String(error));
+            void session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS });
+          });
+        } else {
+          this.dispatch({
+            type: "delivery_rejected",
+            agentId: effect.agentId,
+            message: effect.message,
+            mode: effect.mode,
           });
         }
         this.log.info("steering message sent to running agent", { agentId: effect.agentId, mode: effect.mode });
@@ -1673,7 +1537,12 @@ export class AgentProcessManager {
       });
       const exitCode = "exitCode" in result ? result.exitCode ?? null : null;
       const exitSignal = "signal" in result ? result.signal ?? null : null;
-      const abnormal = result.outcome === "crashed";
+      // This trace field is the raw physical exit fact, not the logical-session
+      // result category. A code-0 process exit can still be logically
+      // unexpected (`crashed` closes the long-lived session), while remaining
+      // physically clean and therefore `abnormal:false` here.
+      const requested = "requested" in result && result.requested === true;
+      const abnormal = !requested && (exitSignal !== null || (exitCode !== null && exitCode !== 0));
       if (state.hasEstablished && !state.suppressExitLog) {
         this.logSessionEnded(agentId, "exit");
         if (abnormal) {
@@ -1754,19 +1623,28 @@ export class AgentProcessManager {
         this.dispatch({ type: "spawned", agentId, nowMs: this.now() }, state);
         void (async () => {
           for (const message of pending) {
+            if (state.torndown || this.sessions.get(agentId) !== session || this.activeSpawnState.get(agentId) !== state) {
+              return;
+            }
             const queuedReceipt = await session.send({
               id: message.id!,
               kind: "user",
               text: this.stampNow(this.withFooter(message.text)),
               sequence: message.seq,
             });
+            if (state.torndown || this.sessions.get(agentId) !== session || this.activeSpawnState.get(agentId) !== state) {
+              return;
+            }
             if (queuedReceipt.status === "rejected") {
+              this.dispatch({ type: "delivery_rejected", agentId, message, mode: "busy" }, state);
               this.emitErrorAudit(
                 agentId,
                 "runtime",
                 queuedReceipt.error?.code ?? queuedReceipt.reason,
                 queuedReceipt.error?.message ?? `Delivery rejected (${queuedReceipt.reason})`,
               );
+              void session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS });
+              return;
             }
           }
         })().catch((error) => this.emitErrorAudit(agentId, "runtime", "send_failed", String(error)));
@@ -1803,8 +1681,6 @@ export class AgentProcessManager {
         agentId,
         ctx,
         runtimeConfig,
-        publish: onEvent,
-        finish: teardown,
       });
     } catch (error) {
       // Preserve the synchronous factory-failure contract: restartAgent owns
