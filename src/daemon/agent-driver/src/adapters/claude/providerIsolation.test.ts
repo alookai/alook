@@ -6,6 +6,16 @@ import { fakeLaunchContext } from "../../testing/adapter-fixture.js";
 import { buildClaudeProviderIsolationEnv } from "./providerIsolation.js";
 
 describe("buildClaudeProviderIsolationEnv", () => {
+  it("does not isolate when runtime config has no provider", async () => {
+    const ctx = fakeLaunchContext("claude", process.cwd());
+    expect(buildClaudeProviderIsolationEnv(ctx)).toEqual({});
+    await expect(ctx.prepared.release({
+      reason: "normal",
+      signal: new AbortController().signal,
+      deadlineAt: Date.now() + 1_000,
+    })).resolves.toBeUndefined();
+  });
+
   it("does not isolate a default provider", () => {
     const ctx = fakeLaunchContext("claude", process.cwd(), {
       config: { runtimeConfig: { model: { kind: "default" }, provider: { kind: "default" }, mode: "default" } },

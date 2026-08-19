@@ -296,6 +296,9 @@ describe("CodexEventNormalizer — complete owned event family", () => {
     n.normalizeLine(notify("thread/started", { thread: { id: "root" } }));
     expect(n.normalizeLine(notify("turn/started", { threadId: "root", turn: {} }))).toEqual([]);
     n.normalizeLine(notify("turn/started", { threadId: "root", turn: { id: "turn" } }));
+    expect(n.normalizeLine(notify("item/reasoning/textDelta", { threadId: "root", turnId: "turn", delta: "why-now" }))).toEqual([
+      { kind: "thinking", text: "why-now" },
+    ]);
     expect(n.normalizeLine(notify("item/reasoning/summaryTextDelta", { threadId: "root", turnId: "turn", delta: "why" }))).toEqual([
       { kind: "thinking", text: "why" },
     ]);
@@ -304,6 +307,9 @@ describe("CodexEventNormalizer — complete owned event family", () => {
     ]);
     expect(n.normalizeLine(notify("warning", { threadId: "root", message: "careful" }))).toEqual([
       { kind: "runtime_diagnostic", severity: "warning", source: "warning", message: "careful" },
+    ]);
+    expect(n.normalizeLine(notify("configWarning", { threadId: "root", message: "config" }))).toEqual([
+      { kind: "runtime_diagnostic", severity: "warning", source: "configWarning", message: "config" },
     ]);
     expect(n.normalizeLine(notify("error", { threadId: "root", message: "failed" }))).toEqual([
       { kind: "error", message: "failed" },
@@ -317,6 +323,7 @@ describe("CodexEventNormalizer — complete owned event family", () => {
     expect(n.normalizeLine(notify("item/completed", { threadId: "root", turnId: "turn", item: { type: "agentMessage", text: "final" } }))).toEqual([{ kind: "text", text: "final" }]);
     expect(n.normalizeLine(notify("item/completed", { threadId: "root", turnId: "turn", item: { type: "reasoning", text: "thought" } }))).toEqual([{ kind: "thinking", text: "thought" }]);
     expect(n.normalizeLine(notify("item/completed", { threadId: "root", turnId: "turn", item: { type: "unknown" } }))).toEqual([]);
+    expect(n.normalizeLine(notify("thread/tokenUsage/updated", { threadId: "root", tokenUsage: {} }))).toHaveLength(1);
     expect(n.normalizeLine(notify("account/rateLimits/updated", { threadId: "root", rateLimits: {} }))).toHaveLength(1);
     expect(n.normalizeLine(notify("turn/completed", { threadId: "root", turn: { id: "turn", status: "interrupted" } }))).toEqual([
       { kind: "error", message: "Codex turn interrupted" },

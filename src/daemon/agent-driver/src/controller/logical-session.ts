@@ -404,9 +404,7 @@ implements AgentSession<Specs, Id> {
       }
       const current = messages.at(-1)!;
       if (!this.isStartCurrent(generation, turnId)) {
-        return admission.accepted
-          ? { status: "accepted", delivery, commandId: current.id, turnId }
-          : { status: "rejected", reason: "closed" };
+        return { status: "accepted", delivery, commandId: current.id, turnId };
       }
       this.state = "working";
       return { status: "accepted", delivery, commandId: current.id, turnId };

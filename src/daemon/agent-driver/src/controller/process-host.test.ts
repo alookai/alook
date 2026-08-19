@@ -173,6 +173,7 @@ describe("ProcessLane interrupt", () => {
     const session = new ProcessLane(driver, minimalCtx());
     expect(session.interrupt()).toBe(false);
     await session.start({ text: "go" });
+    expect(session.signalCode).toBeNull();
     expect(session.interrupt()).toBe(true);
     expect(kill).toHaveBeenCalledWith("SIGINT");
     Object.assign(proc, { exitCode: 0 });

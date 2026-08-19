@@ -41,4 +41,11 @@ describe("resolveLaunchFieldsOrDefault", () => {
       providerEnv: {},
     });
   });
+
+  it("unwraps a complete adapter launch config", () => {
+    expect(resolveLaunchFieldsOrDefault({
+      sessionId: "session-1",
+      runtimeConfig: { model: { kind: "custom", name: "wrapped-model" } },
+    })).toMatchObject({ model: "wrapped-model", fastMode: false });
+  });
 });

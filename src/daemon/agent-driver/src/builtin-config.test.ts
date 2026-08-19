@@ -24,6 +24,12 @@ describe("builtin config boundary", () => {
       backend: "pi",
       config: { provider: { kind: "builtin", providerId: "openai", apiKey: "pi-key" } },
     });
+    expect(toBuiltinBackendSelection(config("claude", {
+      provider: { kind: "default" },
+    }))).toMatchObject({
+      backend: "claude",
+      config: { provider: { kind: "default" } },
+    });
   });
 
   it.each(["codex", "cursor", "opencode", "pi"])("maps %s without daemon-side switches", (runtime) => {

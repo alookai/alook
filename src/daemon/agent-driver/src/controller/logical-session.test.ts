@@ -16,6 +16,7 @@ import type { BackendAdapter, BackendExecution, AdapterLaunchContext, AdapterEve
 import { createFakeAgentDriverHost } from "../testing/fake-host.js";
 import { runAgentDriverConformance } from "../testing/conformance.js";
 import { LogicalAgentSession } from "./logical-session.js";
+import { ProcessLane } from "./process-host.js";
 import { SdkLane } from "./sdk-host.js";
 import { capabilitiesFor } from "../registry.js";
 
@@ -689,6 +690,30 @@ describe("backend-owned delivery behavior", () => {
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
+  it("projects ordinary compaction and runtime diagnostics for the active turn", async () => {
+    const { session, driver } = makeSession("codex");
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    await emit(driver, { kind: "compaction_started" });
+    await emit(driver, { kind: "compaction_finished" });
+    await emit(driver, {
+      kind: "runtime_diagnostic",
+      severity: "warning",
+      source: "codex",
+      message: "careful",
+    });
+    const events = await take(iterator as never, 5);
+    expect(events.map((event) => event.type)).toEqual([
+      "command_accepted",
+      "turn_started",
+      "compaction_started",
+      "compaction_finished",
+      "diagnostic",
+    ]);
+    expect(events.at(-1)).toMatchObject({ severity: "warning", message: "careful" });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
   it("does not tool-boundary flush after an error in the same turn", async () => {
     const { session, driver } = makeSession("claude");
     await session.start({ id: "one", kind: "user", text: "start" });
@@ -883,6 +908,25 @@ describe("logical-session terminal facts", () => {
     await expect(starting).resolves.toEqual({ status: "rejected", reason: "closed" });
     if (backend === "pi") expect(driver.sdkHandle!.dispose).toHaveBeenCalledOnce();
     else expect(driver.processes[0].kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("absorbs a rejected process-lane stop while cleaning up a late open", async () => {
+    const gate = deferred();
+    const stop = vi.spyOn(ProcessLane.prototype, "stop")
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("stop rejected"));
+    try {
+      const { session, driver } = makeSession("claude", { timeout: 25 });
+      driver.spawnGate = gate.promise;
+      const starting = session.start({ id: "one", kind: "user", text: "start" });
+      await Promise.resolve();
+      await expect(session.stop({ reason: "owner_request", forceAfterMs: 10 })).resolves.toMatchObject({ status: "accepted" });
+      gate.resolve();
+      await expect(starting).resolves.toEqual({ status: "rejected", reason: "closed" });
+      expect(stop).toHaveBeenCalledTimes(2);
+    } finally {
+      stop.mockRestore();
+    }
   });
 
   it("keeps a late spawn rejection closed after a racing stop", async () => {

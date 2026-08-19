@@ -239,6 +239,35 @@ function fireManagedError(
   }, "codex", owner);
 }
 
+function fireManagedTurnFailure(
+  mgr: AgentProcessManager,
+  message: string,
+): void {
+  const internal = mgr as unknown as {
+    activeSpawnState: Map<string, { superseded: boolean }>;
+    onAgentEvent(
+      agentId: string,
+      event: AgentEvent<BuiltinBackendSpecs, "codex">,
+      runtimeId: "codex",
+      owner: { superseded: boolean },
+    ): void;
+  };
+  if (!internal.activeSpawnState.has("a1")) mgr.deliver("a1", { seq: 1, text: "hello" });
+  const owner = internal.activeSpawnState.get("a1")!;
+  internal.onAgentEvent("a1", {
+    type: "turn_completed",
+    turnId: "test-turn",
+    commandIds: ["test-start"],
+    result: {
+      outcome: "failed",
+      error: { category: "process", code: "runtime_error", message, retryable: true },
+    },
+    sequence: 1,
+    sessionInstanceId: "test-instance",
+    at: Date.now(),
+  }, "codex", owner);
+}
+
 function bindFactorySession(
   _args: Parameters<SessionFactory>[0],
   session: FakeSession,
@@ -786,7 +815,7 @@ describe("AgentProcessManager — session race conditions", () => {
         lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
       } as Driver;
       const session = fakeSession();
-      const stopSpy = vi.fn();
+      const stopSpy = vi.fn().mockRejectedValue(new Error("stop rejected"));
       session.stop = stopSpy;
       const mgr = new AgentProcessManager({
         driverFor: () => persistentDriver,
@@ -1351,6 +1380,19 @@ describe("AgentProcessManager — error audit emission", () => {
     expect(payload.scope).toBe("runtime");
     expect(payload.code).toBe("runtime_error");
     expect(payload.message).toContain("429");
+  });
+
+  it("emits the failed turn result message as a runtime error", () => {
+    const onBotAuditEvent = vi.fn();
+    const { mgr } = makeManager({ onBotAuditEvent });
+    fireManagedTurnFailure(mgr, "turn failed after the provider stopped");
+
+    const errCalls = onBotAuditEvent.mock.calls.filter(
+      ([, ev]) => (ev as { kind?: string })?.kind === "error",
+    );
+    expect(errCalls).toHaveLength(1);
+    expect((errCalls[0]![1] as { payload: { message: string } }).payload.message)
+      .toContain("turn failed after the provider stopped");
   });
 
   it("does NOT emit a `runtime_error` row for the death rattle of a session an intentional kill superseded", async () => {

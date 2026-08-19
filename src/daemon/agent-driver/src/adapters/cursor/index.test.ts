@@ -77,6 +77,12 @@ describe("CursorDriver spawn args", () => {
 });
 
 describe("CursorDriver normalizeLine", () => {
+  it("exposes its per-turn no-stdin contract", () => {
+    const driver = new CursorDriver();
+    expect(driver.currentSessionId).toBeNull();
+    expect(driver.encodeMessage()).toBeNull();
+  });
+
   it("normalizes assistant blocks with defensive defaults", () => {
     const driver = new CursorDriver();
     expect(driver.normalizeLine(JSON.stringify({

@@ -1,6 +1,9 @@
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import { execFileSync } from "child_process";
-import { resolveSpawnSpec, probeCliRuntime, probeCommandVersion } from "./probe.js";
+import { resolveClaudeCommand, resolveSpawnSpec, probeCliRuntime, probeCommandVersion } from "./probe.js";
 
 vi.mock("child_process", () => ({ execFileSync: vi.fn() }));
 
@@ -65,6 +68,28 @@ describe("resolveSpawnSpec", () => {
     const spec = resolveSpawnSpec("codex", [], "   ", { which }, "linux");
     expect(spec.command).toBe("/usr/local/bin/codex");
     expect(which).toHaveBeenCalledWith("codex");
+  });
+});
+
+describe("resolveClaudeCommand", () => {
+  it("uses the macOS per-user app fallback when PATH has no Claude binary", () => {
+    const homeDir = mkdtempSync(join(tmpdir(), "claude-probe-home-"));
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+    try {
+      const executable = join(
+        homeDir,
+        "Applications/Claude Code URL Handler.app/Contents/MacOS/claude",
+      );
+      mkdirSync(join(executable, ".."), { recursive: true });
+      writeFileSync(executable, "");
+      expect(resolveClaudeCommand({
+        homeDir,
+        which: () => null,
+      })).toBe(executable);
+    } finally {
+      platform.mockRestore();
+      rmSync(homeDir, { recursive: true, force: true });
+    }
   });
 });
 

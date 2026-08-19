@@ -1,5 +1,13 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { EventEmitter } from "node:events";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { fakeLaunchContext } from "../../testing/adapter-fixture.js";
 import { OpenCodeDriver } from "./index.js";
+
+const spawnAgentProcess = vi.hoisted(() => vi.fn());
+vi.mock("../../internal/killTree.js", async () => ({
+  ...(await vi.importActual<typeof import("../../internal/killTree.js")>("../../internal/killTree.js")),
+  spawnAgentProcess,
+}));
 
 describe("OpenCodeDriver.normalizeLine — step_finish turn-end timing", () => {
   let driver: OpenCodeDriver;
@@ -11,6 +19,15 @@ describe("OpenCodeDriver.normalizeLine — step_finish turn-end timing", () => {
   function line(obj: unknown): string {
     return JSON.stringify(obj);
   }
+
+  it("spawns one deferred turn and exposes its no-stdin continuation contract", async () => {
+    const end = vi.fn();
+    spawnAgentProcess.mockReturnValue(Object.assign(new EventEmitter(), { stdin: { end } }));
+    const spawned = await driver.spawn(fakeLaunchContext("opencode", process.cwd(), { prompt: "hello" }));
+    expect(spawned.process).toBeDefined();
+    expect(end).toHaveBeenCalledOnce();
+    expect(driver.encodeMessage()).toBeNull();
+  });
 
   it("does NOT end the turn on an intermediate step_finish (reason: tool-calls)", () => {
     const events = driver.normalizeLine(

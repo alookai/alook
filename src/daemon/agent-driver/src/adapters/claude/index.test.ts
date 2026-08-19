@@ -20,6 +20,13 @@ afterEach(() => {
 });
 
 describe("ClaudeDriver", () => {
+  it("reports an explicit missing command as unhealthy", () => {
+    expect(new ClaudeDriver().probe("/definitely/missing/alook-claude")).toMatchObject({
+      status: "unhealthy",
+      lastError: expect.any(String),
+    });
+  });
+
   it("encodes same-turn safe-boundary input with the active resumed session", () => {
     const driver = new ClaudeDriver();
     expect(JSON.parse(driver.encodeMessage("follow up", "session-1"))).toEqual({

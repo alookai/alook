@@ -131,8 +131,8 @@ describe("CodexDriver initial-prompt delivery", () => {
 });
 
 // A JSON-RPC error response to thread/resume — the prior thread's rollout is gone.
-function missingRolloutError(): string {
-  return JSON.stringify({ jsonrpc: "2.0", id: 2, error: { message: "no rollout found for thread id th_prior" } });
+function missingRolloutError(message = "no rollout found for thread id th_prior"): string {
+  return JSON.stringify({ jsonrpc: "2.0", id: 2, error: { message } });
 }
 function threadStarts(writes: string[]): any[] {
   return writes.map((w) => JSON.parse(w.trim())).filter((m) => m.method === "thread/start");
@@ -170,6 +170,17 @@ describe("CodexDriver missing-rollout resume recovery", () => {
     expect(turns).toHaveLength(1);
     expect(turns[0].params.threadId).toBe("th_fresh");
     expect(turns[0].params.input).toEqual([{ type: "text", text: "hi" }]);
+  });
+
+  it("recognizes a missing rollout when the error leads with not-found", async () => {
+    const driver = new CodexDriver();
+    const ctx = baseCtx();
+    ctx.config = { sessionId: "th_prior" };
+    const { process: proc } = await driver.spawn(ctx);
+    await Promise.resolve();
+
+    expect(driver.normalizeLine(missingRolloutError("not found for requested rollout"))).toEqual([]);
+    expect(threadStarts(stdinWrites(proc))).toHaveLength(1);
   });
 
   it("a successful resume does NOT trigger the fallback (no spurious fresh thread/start)", async () => {

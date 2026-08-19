@@ -46,6 +46,12 @@ function fakeDeps() {
 }
 
 describe("PiDriver.openSdkSession — AGENTS.md packing", () => {
+  it("exposes SDK-only parser and encoder no-ops", () => {
+    const driver = new PiDriver(() => fakeDeps());
+    expect(driver.normalizeLine()).toEqual([]);
+    expect(driver.encodeMessage()).toBeNull();
+  });
+
   it("does not write AGENTS.md itself — the logical-session core is the single packing point", async () => {
     const deps = fakeDeps();
     const driver = new PiDriver(() => deps);

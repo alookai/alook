@@ -188,6 +188,15 @@ describe("detectRuntimes", () => {
     expect(result).toHaveLength(EXPECTED_RUNTIMES.length);
     expect(result[0]).toMatchObject({ status: "unhealthy", lastError: "missing_binary" });
   });
+
+  it("reports an explicit healthy probe result with its version", async () => {
+    vi.spyOn(drivers, "getDriver").mockReturnValue({
+      probe: async () => ({ status: "healthy", version: "9.8.7" }),
+    } as never);
+    const result = await detectRuntimes();
+    expect(result).toHaveLength(EXPECTED_RUNTIMES.length);
+    expect(result[0]).toEqual({ id: EXPECTED_RUNTIMES[0], status: "healthy", version: "9.8.7" });
+  });
 });
 
 describe("driver registry", () => {
