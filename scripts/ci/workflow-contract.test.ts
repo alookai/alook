@@ -87,6 +87,58 @@ describe("CI test budgets", () => {
   })
 })
 
+describe("Turbo CI execution", () => {
+  const cachedJobs = ["blog-content", "quality", "knip", "test-linux", "test-windows", "build"]
+  const affectedJobs = ["quality", "knip", "test-linux", "test-windows", "build"]
+
+  it("persists a task cache isolated by operating system, architecture, and job", () => {
+    expect(ciWorkflow.match(/actions\/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9/g))
+      .toHaveLength(cachedJobs.length)
+    for (const job of cachedJobs) {
+      const definition = ciJob(job)
+      expect(definition).toContain("path: .turbo/cache")
+      expect(definition).toContain(
+        "key: turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ github.sha }}",
+      )
+      expect(definition).toContain(
+        "turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-",
+      )
+    }
+  })
+
+  it("provides complete history and explicit comparison commits to affected jobs", () => {
+    const scope = ciJob("scope")
+    expect(scope).toContain("full: ${{ steps.scope.outputs.full }}")
+    expect(scope).toContain("base_sha: ${{ steps.scope.outputs.base_sha }}")
+    expect(scope).toContain("head_sha: ${{ steps.scope.outputs.head_sha }}")
+
+    for (const job of affectedJobs) {
+      const definition = ciJob(job)
+      expect(definition).toContain("fetch-depth: 0")
+      expect(definition).toContain("needs.scope.outputs.full == 'true'")
+      expect(definition).toContain("needs.scope.outputs.full != 'true'")
+      expect(definition).toContain("TURBO_SCM_BASE: ${{ needs.scope.outputs.base_sha }}")
+      expect(definition).toContain("TURBO_SCM_HEAD: ${{ needs.scope.outputs.head_sha }}")
+      expect(definition).toContain("--affected")
+    }
+  })
+
+  it("retains full commands when scope classification fails closed", () => {
+    expect(ciJob("quality")).toContain("run: pnpm typecheck")
+    expect(ciJob("quality")).toContain("run: pnpm lint")
+    expect(ciJob("knip")).toContain("run: pnpm knip")
+    for (const job of ["test-linux", "test-windows"]) {
+      const definition = ciJob(job)
+      expect(definition).toContain("run: pnpm turbo run test --filter=@alook/daemon")
+      expect(definition).toContain("run: pnpm turbo run test --filter='!@alook/daemon'")
+      expect(definition.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(2)
+    }
+    expect(ciJob("build")).toContain(
+      "run: pnpm build --filter=@alook/shared --filter=@alook/web --filter=@alook/cli --filter=@alook/email-worker --filter=@alook/ws-do --filter=@alook/wake-worker",
+    )
+  })
+})
+
 describe("Desktop updater release", () => {
   it("uploads assets without replacing the auto-tag title or changelog", () => {
     expect(autoTagReleaseWorkflow).toContain('--title "$TAG"')
