@@ -86,6 +86,24 @@ test.describe.serial("mobile layout", () => {
     await expect(page.getByTestId(tid.composerInput)).toBeVisible()
   })
 
+  test("server-root modal markers are one-shot on mobile", async ({ asUser }) => {
+    for (const marker of ["settings", "invite"]) {
+      const { page } = await asUser("alice")
+      await page.goto(`/c/channels/${serverId}?${marker}=1&keep=${marker}`)
+
+      await expect.poll(() => new URL(page.url()).pathname).toBe(
+        `/c/channels/${serverId}`,
+      )
+      await expect.poll(() => new URL(page.url()).searchParams.has(marker)).toBe(false)
+      expect(new URL(page.url()).searchParams.get("keep")).toBe(marker)
+
+      await page.reload()
+      expect(new URL(page.url()).searchParams.has(marker)).toBe(false)
+      await expect(page.getByTestId(tid.serverIcon(serverId))).toBeVisible()
+      await page.close()
+    }
+  })
+
   test("a direct DM opens detail and Header Back replaces it with Me root", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await page.goto(`/c/me/${dmId}`)

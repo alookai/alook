@@ -3,6 +3,7 @@
 import { useCallback, useEffect } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useBreakpoint } from "@/hooks/use-mobile"
+import { useCommunityOnboarding } from "@/lib/community-onboarding"
 import { resolveCommunityRoute } from "@/lib/community/community-route"
 import { useCommunityStore } from "@/stores/community"
 import { ShellFrameView } from "./shell-frame-view"
@@ -25,7 +26,9 @@ export function ShellFrame(props: ShellFrameProps) {
   } = props
   const queryClient = useQueryClient()
   const breakpoint = useBreakpoint()
+  const onboardingState = useCommunityOnboarding()
   const navigation = useCommunityNavigationController()
+  const replacePath = navigation.replace
   const pathname = navigation.currentHref.split("?")[0]!
   const route = resolveCommunityRoute(pathname)
 
@@ -52,6 +55,17 @@ export function ShellFrame(props: ShellFrameProps) {
   const goBackMobile = useCallback(() => {
     if (route.parentPath) navigation.replace(route.parentPath)
   }, [navigation, route.parentPath])
+
+  useEffect(() => {
+    if (
+      breakpoint !== "mobile" ||
+      onboardingState?.status !== "active" ||
+      onboardingState.stage !== "server" ||
+      route.surface !== "detail" ||
+      !route.parentPath
+    ) return
+    replacePath(route.parentPath)
+  }, [breakpoint, onboardingState, replacePath, route.parentPath, route.surface])
 
   useEffect(() => {
     useCommunityStore.getState().registerUiHandlers({

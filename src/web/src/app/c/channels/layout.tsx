@@ -12,7 +12,11 @@ import { useChannelTree } from "@/components/community/channels/use-channel-tree
 import { patchChannelUnread } from "@/hooks/community/server-detail-cache"
 import type { ServerDetail } from "@/hooks/community/use-servers"
 import { ShellFrame } from "@/components/community/shell/shell-frame"
-import { childChannelHref, removeCommunityParam } from "@/lib/community/community-route"
+import {
+  childChannelHref,
+  serverModalMarkerCleanupHref,
+} from "@/lib/community/community-route"
+import { useBreakpoint } from "@/hooks/use-mobile"
 import { ChannelSidebar } from "@/components/community/channels/channel-sidebar"
 import { ServerSettings } from "@/components/community/settings/server-settings"
 import { ImageCropDialog } from "@/components/community/image-crop-dialog"
@@ -76,6 +80,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       ? decodeURIComponent(params.channelId)
       : null
   const hasChannel = !!routeChannelId
+  const breakpoint = useBreakpoint()
 
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -241,33 +246,37 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   }, [searchParams])
 
   useEffect(() => {
-    const wantsSettings = searchParams.get("settings") === "1"
-    const wantsInvite = searchParams.get("invite") === "1"
-    if (!wantsSettings && !wantsInvite) return
-
     // These flags land on the bare `/c/channels/:serverId` URL
     // (e.g. right-click a rail server → "Server settings"/"Invite to
     // Server"), which is also the URL the sibling default-channel page
-    // redirects away from once it knows the server's first channel. When
-    // that server's detail query is already warm in the cache, both
-    // redirects fire in the very same commit — and since React runs a
-    // child's effects before its parent's, our `router.replace` below would
-    // run *after* the page's channel redirect and clobber it, stranding the
-    // URL on the channel-less server root. Wait for that race to resolve
-    // (channel present, or confirmed there are none) before stripping the
-    // query so we don't fight the page's own navigation — once it lands on
-    // a channel URL, that URL has no query string left to strip anyway.
-    const stillRedirecting =
-      !hasChannel && !!currentServer && currentServer.categories.some((c) => c.channels.length > 0)
-    if (stillRedirecting) return
-
-    cancelPendingNavigation()
+    // redirects away from once it knows the server's first channel on
+    // desktop. With a warm detail query, the child and parent effects can
+    // replace in the same commit, so desktop waits until the channel route
+    // wins. Mobile intentionally remains on the server root and must consume
+    // the one-shot marker there instead of waiting for a redirect that never
+    // runs.
     const search = searchParams.toString()
     const currentHref = `${pathname}${search ? `?${search}` : ""}`
-    const withoutSettings = removeCommunityParam(currentHref, "settings")
-    const withoutInvite = removeCommunityParam(withoutSettings, "invite")
-    router.replace(withoutInvite)
-  }, [cancelPendingNavigation, searchParams, pathname, router, hasChannel, currentServer])
+    const cleanupHref = serverModalMarkerCleanupHref(currentHref, {
+      breakpoint,
+      hasChannel,
+      hasServerChannels: Boolean(
+        currentServer?.categories.some((category) => category.channels.length > 0),
+      ),
+    })
+    if (!cleanupHref) return
+
+    cancelPendingNavigation()
+    router.replace(cleanupHref)
+  }, [
+    breakpoint,
+    cancelPendingNavigation,
+    searchParams,
+    pathname,
+    router,
+    hasChannel,
+    currentServer,
+  ])
 
   const categories = useMemo(() => (currentServer?.categories ?? []).map((category) => ({
     ...category,

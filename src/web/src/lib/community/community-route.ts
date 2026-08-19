@@ -52,6 +52,33 @@ export function removeCommunityParam(href: string, key: string): string {
   })
 }
 
+export function serverModalMarkerCleanupHref(
+  href: string,
+  {
+    breakpoint,
+    hasChannel,
+    hasServerChannels,
+  }: {
+    breakpoint: "unknown" | "desktop" | "mobile"
+    hasChannel: boolean
+    hasServerChannels: boolean
+  },
+): string | null {
+  const hashIndex = href.indexOf("#")
+  const hrefWithoutHash = hashIndex === -1 ? href : href.slice(0, hashIndex)
+  const queryIndex = hrefWithoutHash.indexOf("?")
+  const searchParams = new URLSearchParams(
+    queryIndex === -1 ? "" : hrefWithoutHash.slice(queryIndex + 1),
+  )
+  const hasModalMarker =
+    searchParams.get("settings") === "1" || searchParams.get("invite") === "1"
+  if (!hasModalMarker) return null
+
+  if (breakpoint === "desktop" && !hasChannel && hasServerChannels) return null
+
+  return removeCommunityParam(removeCommunityParam(href, "settings"), "invite")
+}
+
 function updateHrefSearchParams(
   href: string,
   update: (searchParams: URLSearchParams) => void,

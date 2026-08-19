@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => {
   return {
     currentHref: { current: "/c/channels/s1" },
     breakpoint: { current: "desktop" },
+    onboardingState: { current: null as Record<string, unknown> | null },
     replace: vi.fn(),
     push: vi.fn(),
     registerUiHandlers: vi.fn(),
@@ -34,6 +35,9 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({}) }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mocks.breakpoint.current }))
+vi.mock("@/lib/community-onboarding", () => ({
+  useCommunityOnboarding: () => mocks.onboardingState.current,
+}))
 vi.mock("./use-community-navigation-controller", () => ({
   useCommunityNavigationController: () => ({
     currentHref: mocks.currentHref.current,
@@ -73,6 +77,7 @@ describe("ShellFrame orchestration", () => {
   beforeEach(() => {
     mocks.currentHref.current = "/c/channels/s1"
     mocks.breakpoint.current = "desktop"
+    mocks.onboardingState.current = null
     mocks.registerUiHandlers.mockClear()
     mocks.replace.mockClear()
     mocks.push.mockClear()
@@ -104,6 +109,30 @@ describe("ShellFrame orchestration", () => {
     const handlers = mocks.registerUiHandlers.mock.calls.at(-1)?.[0]
     handlers.goBackMobile()
     expect(mocks.replace).toHaveBeenLastCalledWith("/c/channels/s1")
+  })
+
+  it("returns mobile server onboarding to the semantic list surface", async () => {
+    mocks.breakpoint.current = "mobile"
+    mocks.currentHref.current = "/c/me/dm_1"
+    mocks.onboardingState.current = { status: "active", stage: "server" }
+
+    await act(async () => {
+      TestRenderer.create(createElement(ShellFrame, baseProps))
+    })
+
+    expect(mocks.replace).toHaveBeenCalledWith("/c/me")
+  })
+
+  it("keeps mobile server onboarding stable on an existing list surface", async () => {
+    mocks.breakpoint.current = "mobile"
+    mocks.currentHref.current = "/c/me"
+    mocks.onboardingState.current = { status: "active", stage: "server" }
+
+    await act(async () => {
+      TestRenderer.create(createElement(ShellFrame, baseProps))
+    })
+
+    expect(mocks.replace).not.toHaveBeenCalled()
   })
 
   it("registers the shared navigation and UI handlers", async () => {
