@@ -4,6 +4,7 @@ import {
   collectBlogAssetErrors,
   findBlogImageErrors,
   findDuplicateMdxH1Errors,
+  isDraftBlogPost,
   readBlogMetadata,
   runValidateBlogAssetsCli,
   validateBlogAssets,
@@ -80,6 +81,18 @@ describe("readBlogMetadata", () => {
     expect(
       readBlogMetadata('export const metadata = { slug: "demo"', "demo").errors[0]
     ).toContain("Missing or unterminated");
+  });
+});
+
+describe("isDraftBlogPost", () => {
+  it("reads the draft flag only from the metadata object", () => {
+    expect(
+      isDraftBlogPost(post().replace('title: "Demo",', 'title: "Demo",\n  draft: true,'))
+    ).toBe(true);
+    expect(isDraftBlogPost(`${post()}\nDraft example: draft: true`)).toBe(false);
+    expect(
+      isDraftBlogPost(post().replace('title: "Demo",', 'title: "Demo",\n  draft: false,'))
+    ).toBe(false);
   });
 });
 

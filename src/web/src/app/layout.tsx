@@ -7,6 +7,7 @@ import { MockNetworkBanner } from "@/components/mock-network-banner";
 import { TauriThemeSync } from "@/components/tauri-theme-sync";
 import { ThemeColorSync } from "@/components/theme-color-sync";
 import { BRAND_DESCRIPTION, BRAND_SLOGAN, BRAND_TITLE } from "@/lib/brand-copy";
+import { ALOOK_ORGANIZATION } from "@/lib/seo/entities";
 import { caveat, dmMono, dmSans, instrumentSerif, literata, vt323 } from "./fonts";
 import "./globals.css";
 
@@ -112,15 +113,7 @@ export default function RootLayout({
               },
               {
                 "@context": "https://schema.org",
-                "@type": "Organization",
-                name: "Alook",
-                url: SITE_URL,
-                logo: `${SITE_URL}/alook.svg`,
-                contactPoint: {
-                  "@type": "ContactPoint",
-                  email: "support@alook.ai",
-                  contactType: "customer support",
-                },
+                ...ALOOK_ORGANIZATION,
               },
             ]),
           }}

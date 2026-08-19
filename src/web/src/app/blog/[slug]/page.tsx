@@ -4,6 +4,12 @@ import Link from "next/link";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { getAllPosts, getPostBySlug } from "@/lib/blog/posts";
 import { buildBlogPostingJsonLd } from "@/lib/blog/json-ld";
+import {
+  getBlogTopicBySlug,
+  getBlogTopicEntryBySlug,
+  getNextTopicBridge,
+  getRelatedPosts,
+} from "@/lib/blog/topics";
 
 export const dynamicParams = false;
 
@@ -62,9 +68,9 @@ export default async function BlogPostPage({
   if (!post) notFound();
 
   const posts = await getAllPosts();
-  const currentIndex = posts.findIndex((p) => p.slug === slug);
-  const prevPost = currentIndex < posts.length - 1 ? posts[currentIndex + 1] : null;
-  const nextPost = currentIndex > 0 ? posts[currentIndex - 1] : null;
+  const topic = getBlogTopicBySlug(slug);
+  const relatedPosts = getRelatedPosts(slug, posts);
+  const nextTopicBridge = getNextTopicBridge(slug, posts);
 
   const { default: PostContent, jsonLd } = await import(
     `@/content/${slug}.mdx`
@@ -96,6 +102,14 @@ export default async function BlogPostPage({
         </Link>
 
         <header className="mb-10 sm:mb-16">
+          {topic && (
+            <Link
+              href={`/blog#${topic.id}`}
+              className="mb-4 inline-block font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {topic.label}
+            </Link>
+          )}
           <h1 className="font-news text-4xl sm:text-5xl font-semibold tracking-tight leading-[1.12]">
             {post.title}
           </h1>
@@ -131,40 +145,71 @@ export default async function BlogPostPage({
           <PostContent />
         </div>
 
-        <nav className="mt-20 border-t border-border pt-10 flex items-stretch justify-between gap-6">
-          {prevPost ? (
-            <Link
-              href={`/blog/${prevPost.slug}`}
-              className="group flex flex-col gap-2 text-left max-w-[45%]"
-            >
-              <span className="text-[11px] uppercase tracking-[0.15em] font-mono text-muted-foreground flex items-center gap-2">
-                <ArrowLeft className="size-3" />
-                Previous
-              </span>
-              <span className="text-[15px] font-sans group-hover:-translate-x-0.5 transition-transform duration-200 leading-snug">
-                {prevPost.title}
-              </span>
-            </Link>
-          ) : (
-            <div />
-          )}
-          {nextPost ? (
-            <Link
-              href={`/blog/${nextPost.slug}`}
-              className="group flex flex-col gap-2 text-right ml-auto max-w-[45%]"
-            >
-              <span className="text-[11px] uppercase tracking-[0.15em] font-mono text-muted-foreground flex items-center justify-end gap-2">
-                Next
-                <ArrowRight className="size-3" />
-              </span>
-              <span className="text-[15px] font-sans group-hover:translate-x-0.5 transition-transform duration-200 leading-snug">
-                {nextPost.title}
-              </span>
-            </Link>
-          ) : (
-            <div />
-          )}
-        </nav>
+        {topic && (relatedPosts.length > 0 || nextTopicBridge) && (
+          <aside className="mt-20 border-t border-border pt-10">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground/60">
+                  Keep exploring
+                </p>
+                <h2 className="mt-2 font-news text-2xl sm:text-3xl font-semibold tracking-tight">
+                  {topic.label}
+                </h2>
+              </div>
+              <Link
+                href={`/blog#${topic.id}`}
+                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                All in this topic
+              </Link>
+            </div>
+
+            {relatedPosts.length > 0 && (
+              <nav
+                aria-label={`More in ${topic.label}`}
+                className="mt-7 grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-3"
+              >
+                {relatedPosts.map((relatedPost) => (
+                  <Link
+                    key={relatedPost.slug}
+                    href={`/blog/${relatedPost.slug}`}
+                    className="group flex min-h-44 flex-col bg-background p-5 transition-colors hover:bg-muted/50"
+                  >
+                    <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-muted-foreground/60">
+                      {getBlogTopicEntryBySlug(relatedPost.slug)?.userJob}
+                    </span>
+                    <span className="mt-3 font-news text-lg font-semibold leading-snug tracking-tight group-hover:translate-x-0.5 transition-transform duration-200">
+                      {relatedPost.title}
+                    </span>
+                    <span className="mt-auto pt-4 text-xs text-muted-foreground">
+                      {relatedPost.readingTime}
+                    </span>
+                  </Link>
+                ))}
+              </nav>
+            )}
+
+            {nextTopicBridge && (
+              <Link
+                href={`/blog/${nextTopicBridge.post.slug}`}
+                className="group mt-5 grid gap-3 rounded-xl border border-border p-5 transition-colors hover:bg-muted/40 sm:grid-cols-[9rem_1fr_auto] sm:items-center sm:gap-6"
+              >
+                <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">
+                  Next topic
+                </span>
+                <span>
+                  <span className="block text-xs text-muted-foreground">
+                    {nextTopicBridge.topic.label}
+                  </span>
+                  <span className="mt-1 block font-news text-lg font-semibold leading-snug tracking-tight">
+                    {nextTopicBridge.post.title}
+                  </span>
+                </span>
+                <ArrowRight className="hidden size-4 text-muted-foreground transition-transform duration-200 group-hover:translate-x-1 sm:block" />
+              </Link>
+            )}
+          </aside>
+        )}
       </article>
     </>
   );
