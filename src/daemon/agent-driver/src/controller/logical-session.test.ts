@@ -423,6 +423,8 @@ describe("backend-owned delivery behavior", () => {
     expect(admission).toMatchObject([{ type: "command_accepted", commandId: "two", delivery: "steer" }]);
     expect(events.findIndex((event) => event === admission[0]))
       .toBeLessThan(events.findIndex((event) => event.type === "turn_completed"));
+    expect(events.find((event) => event.type === "turn_completed"))
+      .toMatchObject({ commandIds: ["one", "two"] });
     expect(events.findIndex((event) => event.type === "turn_completed"))
       .toBeLessThan(events.findIndex((event) => event.type === "session_closed"));
   });
@@ -447,6 +449,32 @@ describe("backend-owned delivery behavior", () => {
     }]);
     expect(events.findIndex((event) => event === admission[0]))
       .toBeLessThan(events.findIndex((event) => event.type === "turn_completed"));
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("settles a rejected in-flight boundary command once before same-tick turn completion", async () => {
+    const { session, driver } = makeSession("claude");
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    await session.send({ id: "two", kind: "user", text: "follow two" });
+    driver.rejectWrites = true;
+    emitNow(driver, { kind: "compaction_finished" });
+    emitNow(driver, { kind: "turn_end" });
+    const events = await take(iterator as never, 6);
+    const admission = events.filter((event) =>
+      (event.type === "command_accepted" || event.type === "command_failed")
+      && event.commandId === "two"
+    );
+    expect(driver.writes).toEqual(["follow two"]);
+    expect(admission).toMatchObject([{
+      type: "command_failed",
+      commandId: "two",
+      error: { code: "turn_completed_before_command_acceptance" },
+    }]);
+    expect(events.findIndex((event) => event === admission[0]))
+      .toBeLessThan(events.findIndex((event) => event.type === "turn_completed"));
+    expect(events.find((event) => event.type === "turn_completed"))
+      .toMatchObject({ commandIds: ["one"] });
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
