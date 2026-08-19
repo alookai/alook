@@ -400,7 +400,7 @@
     },
     "finalWorktree": {
       "schemaVersion": 1,
-      "ref": "27bd08d08e8692c871a2073e49a2c563963e3f70",
+      "ref": "4908cc25ca34eb18c71e5ef7ba4ee8cc248d33c9",
       "scopeRoots": [
         "src/daemon/src/drivers",
         "src/daemon/src/runtime",
@@ -423,7 +423,7 @@
         },
         {
           "file": "src/daemon/agent-driver/src/adapters/claude/index.ts",
-          "lines": 98
+          "lines": 94
         },
         {
           "file": "src/daemon/agent-driver/src/adapters/claude/launch.ts",
@@ -431,7 +431,7 @@
         },
         {
           "file": "src/daemon/agent-driver/src/adapters/claude/normalizer.ts",
-          "lines": 145
+          "lines": 133
         },
         {
           "file": "src/daemon/agent-driver/src/adapters/claude/providerIsolation.ts",
@@ -463,7 +463,7 @@
         },
         {
           "file": "src/daemon/agent-driver/src/adapters/pi/index.ts",
-          "lines": 285
+          "lines": 276
         },
         {
           "file": "src/daemon/agent-driver/src/adapters/pi/sessionDeps.ts",
@@ -491,7 +491,7 @@
         },
         {
           "file": "src/daemon/agent-driver/src/controller/sdk-host.ts",
-          "lines": 95
+          "lines": 106
         },
         {
           "file": "src/daemon/agent-driver/src/host.ts",
@@ -542,10 +542,6 @@
           "lines": 133
         },
         {
-          "file": "src/daemon/agent-driver/src/internal/terminal-receipt.ts",
-          "lines": 22
-        },
-        {
           "file": "src/daemon/agent-driver/src/internal/utils.ts",
           "lines": 28
         },
@@ -571,7 +567,7 @@
         },
         {
           "file": "src/daemon/agent-driver/src/testing/conformance.ts",
-          "lines": 128
+          "lines": 135
         },
         {
           "file": "src/daemon/agent-driver/src/testing/fake-host.ts",
@@ -650,8 +646,8 @@
           "lines": 44
         }
       ],
-      "total": 10826,
-      "deltaFromBaseline": -23
+      "total": 10797,
+      "deltaFromBaseline": -52
     }
   },
   "testPreservation": {
@@ -6951,7 +6947,7 @@
       }
     ],
     "finalTargetAssignmentStatus": "complete",
-    "finalCollectedCases": 8320,
+    "finalCollectedCases": 8322,
     "verification": {
       "mappingCount": 568,
       "everyNonDeletedCaseNamesExistingFinalTest": true,
@@ -6991,7 +6987,7 @@
     }
   },
   "finalVerification": {
-    "packageTests": "31 files, 330 tests passed",
+    "packageTests": "30 files, 332 tests passed",
     "daemonTests": "55 files, 1117 tests passed",
     "rootTests": "11/11 workspace tasks passed; post-workspace CI-script suite 9 files, 57 tests passed",
     "rootTypecheck": "passed (11 tasks)",
@@ -7002,27 +6998,28 @@
     "packProofs": "driver fresh pack/install fixture passed (1 test); daemon packed boundary and version tests passed (2 tests)",
     "workflowContract": "13 tests passed",
     "productionResidueSearch": "zero forbidden production symbols/imports",
-    "productionLoc": "10826 fixed-denominator lines vs 10849 baseline (-23)",
-    "changedLineCoverage": "1335/1335 executable changed lines covered (100.0000%); zero missing",
+    "productionLoc": "10797 fixed-denominator lines vs 10849 baseline (-52)",
+    "changedLineCoverage": "1336/1336 executable changed lines covered (100.0000%); zero missing",
     "liveLifecycleQa": {
-      "codex": "exact head 27bd08d0; installed codex 0.146.0; start/tool accepted; exact-turn interrupt accepted; logical outcome interrupted; physical outcome crashed; exact returned-session-id resume succeeded; resumed turn success; requested stop closed stopped; session SHA-256 prefix 61d9aecb922a; resumed text SHA-256 prefix d3ebf931065a",
-      "pi": "exact head 27bd08d0; installed pi 0.80.3; start/tool start/tool finish observed; exact-turn interrupt accepted; logical outcome interrupted; requested stop closed stopped; exact returned-session-id resume succeeded; resumed turn success; requested stop closed stopped; session SHA-256 prefix 37d85123f525",
+      "claude": "exact head 4908cc25; installed Claude Code 2.1.220; two consecutive accepted root turns on one logical session both completed success through turn-scoped processes; requested stop closed stopped; exact returned-session-id resume succeeded and closed stopped; session SHA-256 prefix 771f35cbe240",
+      "codex": "exact head 4908cc25; installed codex 0.146.0; start/tool accepted; exact-turn interrupt accepted; logical outcome interrupted; physical outcome crashed; exact returned-session-id resume succeeded; resumed turn success; requested stop closed stopped; session SHA-256 prefix c19a46ffec65; resumed text SHA-256 prefix d3ebf931065a",
+      "pi": "exact head 4908cc25; installed pi 0.80.3; start/tool start/tool finish observed; exact-turn interrupt accepted; logical outcome interrupted; requested stop closed stopped; exact returned-session-id resume succeeded; resumed turn success; requested stop closed stopped; session SHA-256 prefix 7737c336a037",
       "secrets": "sanitized; no credentials, prompts, or raw model output retained"
     },
     "alookCQA": {
       "status": "PASS/PASS/PASS",
-      "sourceHead": "27bd08d08e8692c871a2073e49a2c563963e3f70; tree f6bd126dea804b3aefb17f35fbba457594af0420; clean tracked worktree",
-      "runRef": "alook-c-qa-27bd08d0.XOKKTI",
+      "sourceHead": "4908cc25ca34eb18c71e5ef7ba4ee8cc248d33c9; tree 700a1f4ccc1a1f73243ef00c00f1079df981573b; clean tracked worktree",
+      "runRef": "alook-c-qa-4908cc25.EQZRXx",
       "creation": "exactly claude/codex/cursor/opencode/pi offered; POST 201; stored runtime codex; exactly one matching bot:added",
-      "cancellation": "removed gemini remained unavailable; before/after normalized-row SHA-256 d1be123794334ce95620ba1baefccb42770c7c1f2b85172adabb3acaf1c59f8b; zero control updates",
-      "recovery": "row unchanged before save; PATCH 200 saved runtime codex; after SHA-256 04ac49f6c0c7c85b3a3f1967609b5653034799afd1cbb6b4fc5a1270927db6d5; exactly one agent:reset carried codex",
-      "servedArtifact": "62 observed local Next assets, 26192229 bytes, root SHA-256 f6e4383544e545876ad459ce3ded5ba525e0c89a1f087431905a3ca319b51c0e",
-      "rawEvidence": "7 sanitized files; manifest root SHA-256 06284fb7ee69c02b96c00d9edb05a1eae1bbef35aa591b8bcef76c141aea7581",
-      "cleanup": "isolated browser tab and local services stopped after evidence capture"
+      "cancellation": "removed gemini remained unavailable; before/after normalized-row SHA-256 1aaf185b9dff02e4580447d614984189777d0dbac3989ed221a0697044ba3a7d; zero control updates",
+      "recovery": "row unchanged before save; PATCH 200 saved runtime codex; after SHA-256 b56ed1d93eb8d8f6dcc4396b9ae56329a23f2a63cebeea983c75b2b8447c1d78; exactly one agent:reset carried codex",
+      "servedArtifact": "70 browser-observed local Next assets, 26545099 bytes, root SHA-256 af9a73a1000eb98fff242e6d491dd65e5416c550d21e27ae3aabbb516e21a7f7",
+      "rawEvidence": "8 sanitized files; manifest root SHA-256 10e1853c344b389141e35fe44174f9a5aa006878b45e77a166020783ad82a8d8",
+      "cleanup": "isolated browser tab and local services stopped after evidence capture; temporary QA credential revoked"
     },
     "windowsCiHarness": "bare npm pack install uses the Windows command shell; real-process timing bound widened without assertion changes",
-    "testLedger": "8320 collected cases; 568 mappings; zero missing non-deleted exact targets",
-    "productionCodeCommit": "27bd08d08e8692c871a2073e49a2c563963e3f70; tree f6bd126dea804b3aefb17f35fbba457594af0420",
-    "evidenceArtifact": "plans/agent-driver-final-evidence.md; plans/agent-driver-final-qa-27bd08d0.json"
+    "testLedger": "8322 collected cases; 568 mappings; zero missing non-deleted exact targets; seven semantic claims valid",
+    "productionCodeCommit": "4908cc25ca34eb18c71e5ef7ba4ee8cc248d33c9; tree 700a1f4ccc1a1f73243ef00c00f1079df981573b",
+    "evidenceArtifact": "plans/agent-driver-final-evidence.md; plans/agent-driver-final-qa-4908cc25.json"
   }
 }
