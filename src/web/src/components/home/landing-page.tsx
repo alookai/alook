@@ -307,7 +307,7 @@ export function LandingPage({ isLoggedIn }: { isLoggedIn: boolean }) {
           <div className={styles.sectionIntro}>
             <div className={styles.sectionLead}>
               <p className={styles.sectionMuted}>Across every room</p>
-              <h2>One persistent identity across rooms</h2>
+              <h2>One persistent agent identity</h2>
             </div>
           </div>
           <IdentityProof />
