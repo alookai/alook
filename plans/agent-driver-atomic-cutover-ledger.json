@@ -400,7 +400,7 @@
     },
     "finalWorktree": {
       "schemaVersion": 1,
-      "ref": "44047b789adfe8fabf686838fb8a117c42cb1bdc",
+      "ref": "cd230633c840689408b9230e0f45c31565a6ffe7",
       "scopeRoots": [
         "src/daemon/src/drivers",
         "src/daemon/src/runtime",
@@ -6982,13 +6982,13 @@
     "productionResidueSearch": "zero forbidden production symbols/imports",
     "productionLoc": "10829 fixed-denominator lines vs 10849 baseline (-20)",
     "liveLifecycleQa": {
-      "codex": "exact head 44047b78; installed codex 0.146.0; start accepted; exact-turn interrupt accepted; logical outcome interrupted; physical outcome crashed; exact returned-session-id resume succeeded; resumed turn success; requested stop closed stopped; session SHA-256 prefix 611bb32ebd34; resumed text SHA-256 prefix df630930b7f9",
-      "pi": "exact head 44047b78; installed pi 0.80.3; start accepted; tool start/finish observed; exact-turn interrupt accepted; logical outcome interrupted; requested stop closed stopped; exact returned-session-id resume succeeded; resumed turn success; requested stop closed stopped; session SHA-256 prefix d986eef12296",
+      "codex": "exact head cd230633; installed codex 0.146.0; start/tool accepted; exact-turn interrupt accepted; logical outcome interrupted; physical outcome crashed; exact returned-session-id resume succeeded; resumed turn success; requested stop closed stopped; session SHA-256 prefix 4394e6d33764; resumed text SHA-256 prefix aa6ed6f431ff",
+      "pi": "exact head cd230633; installed pi 0.80.3; start accepted; tool start/finish observed; exact-turn interrupt accepted; logical outcome interrupted; requested stop closed stopped; exact returned-session-id resume succeeded; resumed turn success; requested stop closed stopped; session SHA-256 prefix 6aa76c55da2c",
       "secrets": "sanitized; no credentials, prompts, or raw model output retained"
     },
     "alookCQA": {
       "status": "PASS/PASS/PASS",
-      "sourceHead": "44047b789adfe8fabf686838fb8a117c42cb1bdc; tree f69005737a943fd291a6cb229bcfeaddb9a205be (production tree; follow-up changes evidence only)",
+      "sourceHead": "44047b789adfe8fabf686838fb8a117c42cb1bdc; tree f69005737a943fd291a6cb229bcfeaddb9a205be; carried forward because final delta changes only Codex normalization/tests/audit and the exercised web/control paths are byte-identical",
       "runRef": "alook-c-qa-44047b78.c1WCPf",
       "creation": "exactly claude/codex/cursor/opencode/pi offered; POST 201; stored runtime codex; matching bot:added",
       "cancellation": "removed gemini remained unavailable; before/after normalized-row SHA-256 1d6603eb25fed143f7eba711c11bb24923ef656652549a1d7b243fa7d4410f1b; zero control updates",
@@ -6997,7 +6997,7 @@
     },
     "windowsCiHarness": "bare npm pack install uses the Windows command shell; real-process timing bound widened without assertion changes",
     "testLedger": "8284 collected cases; 568 mappings; zero missing non-deleted exact targets",
-    "productionCodeCommit": "44047b789adfe8fabf686838fb8a117c42cb1bdc",
-    "evidenceArtifact": "plans/agent-driver-final-evidence.md; plans/agent-driver-final-qa-44047b78.json"
+    "productionCodeCommit": "cd230633c840689408b9230e0f45c31565a6ffe7; tree 416299b1e5cd506a474666afc706bc778c0008b1",
+    "evidenceArtifact": "plans/agent-driver-final-evidence.md; plans/agent-driver-final-qa-cd230633.json; plans/agent-driver-final-qa-44047b78.json"
   }
 }
