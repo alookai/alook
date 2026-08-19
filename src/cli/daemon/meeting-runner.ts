@@ -19,6 +19,7 @@ import { mkdirSync } from "fs"
 import { tempDir } from "../lib/platform.js"
 import { createLogger } from "../lib/logger.js"
 import { createTimelineEntry, initEntry, updateEntry } from "./execenv/timeline.js"
+import { sendMeetingCallback } from "./meeting-callback.js"
 
 const log = createLogger({ module: "meeting-runner" })
 
@@ -46,23 +47,8 @@ async function callbackWeb(
   transcript?: string,
   error?: string,
 ): Promise<void> {
-  const payload = JSON.stringify({
-    meetingId: input.meetingId,
-    workspaceId: input.workspaceId,
-    status,
-    transcript: transcript || undefined,
-    error: error || undefined,
-  })
-
   try {
-    const res = await fetch(`${input.callbackUrl}/api/meeting/callback`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${input.authToken}`,
-      },
-      body: payload,
-    })
+    const res = await sendMeetingCallback(input, status, transcript, error)
     log.info(`callback ${status} → HTTP ${res.status}`, { meeting: input.meetingId })
   } catch (err) {
     log.error(`callback failed: ${err instanceof Error ? err.message : err}`, { meeting: input.meetingId })
