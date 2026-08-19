@@ -116,6 +116,7 @@ export const GET = withCommunityActor(async (req, ctx) => {
       serverId: ch?.serverId,
       channel: ch ? ch.name : "Unknown",
       channelId: row.mark.channelId,
+      parentChannelId: ch?.parentChannelId ?? null,
       m: {
         id: row.message.id,
         authorId: row.author.id,

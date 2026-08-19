@@ -21,6 +21,7 @@ import { usePinMessage, useUnpinMessage, useCreateThread, useToggleMark } from "
 import type { FileAttachment, ImagePreview, MessagesPage, Msg, Reaction, RenderMsg } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
+import { childChannelHref } from "@/lib/community/community-route"
 
 export type ReplyTarget = { id: string; authorName: string; text: string }
 
@@ -313,9 +314,9 @@ export function MessageContextSheet({
     if (type === "dm") return
     const serverId = routeParams?.serverId
     if (!serverId) return
-    router.push(`/c/channels/${serverId}/${threadId}`)
+    router.push(childChannelHref(serverId, channelId, threadId))
     onOpenChange(false)
-  }, [type, router, routeParams, onOpenChange])
+  }, [type, router, routeParams, channelId, onOpenChange])
 
   const onPreviewImage = useCallback((image: ImagePreview) => {
     uiHandlers.previewImage?.(image)

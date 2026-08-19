@@ -43,7 +43,8 @@ const { mockRouteModel, mockMemberViewModel, mockRouter } = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => mockRouter,
-  useSearchParams: () => new URLSearchParams("msg=m_target&pane=nav&keep=1"),
+  usePathname: () => "/c/channels/server_1/channel_1",
+  useSearchParams: () => new URLSearchParams("msg=m_target&keep=1"),
 }))
 vi.mock("sonner", () => ({ toast: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn(), toastApiError: vi.fn() }))
@@ -253,7 +254,7 @@ describe("ChannelRoute message surface ownership", () => {
 
     expect(mockedUseChannelMessageFeed).toHaveBeenCalledTimes(1)
     expect(mockRouter.replace).toHaveBeenCalledWith(
-      "/c/channels/server_1/channel_1?pane=nav&keep=1",
+      "/c/channels/server_1/channel_1?keep=1",
       { scroll: false },
     )
     expect(mockedUseChannelMessageFeed).toHaveBeenCalledWith(expect.objectContaining({ channelId: "channel_1" }))
@@ -331,6 +332,9 @@ describe("ChannelRoute message surface ownership", () => {
       channelId: "channel_1",
       isChildChannel: true,
     }))
+    expect(mockRouter.replace).toHaveBeenLastCalledWith(
+      "/c/channels/server_1/parent_1/channel_1?msg=m_target&keep=1",
+    )
   })
 
   it("keeps a child target through warm cache and 5000ms until MessageList consumes it", () => {

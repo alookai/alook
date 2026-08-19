@@ -20,7 +20,6 @@ export function lastMeLocationKey(): string {
 }
 
 export function meLeafFromPathname(pathname: string): string | null {
-  if (pathname === ME_ROOT) return FRIENDS_LEAF
   const prefix = `${ME_ROOT}/`
   if (!pathname.startsWith(prefix)) return null
   const leaf = pathname.slice(prefix.length)
@@ -46,8 +45,10 @@ export function clearLastMeLocation(): void {
 }
 
 export function pickMeLandingLocation(lastLeaf: string | null): string {
-  if (lastLeaf === null || !lastLeaf || !isSafeMeLeaf(lastLeaf)) return ME_ROOT
-  return lastLeaf === FRIENDS_LEAF ? ME_ROOT : `${ME_ROOT}/${lastLeaf}`
+  if (lastLeaf === null || !lastLeaf || !isSafeMeLeaf(lastLeaf)) {
+    return `${ME_ROOT}/${FRIENDS_LEAF}`
+  }
+  return `${ME_ROOT}/${lastLeaf}`
 }
 
 export function resolveMeLocationStatus({

@@ -103,7 +103,7 @@ export function ThreadChannelSurface({
   const openPinned = useCallback(() => setRightPanel("pinned"), [])
   const navigateBack = useCallback(() => {
     if (parentChannelId) {
-      router.push(`/c/channels/${serverParam}/${parentChannelId}`)
+      router.replace(`/c/channels/${serverParam}/${parentChannelId}`)
       return
     }
     onBack?.()
@@ -248,7 +248,7 @@ export function ThreadChannelSurface({
                   onTyping={controller.handleTyping}
                   replyingTo={controller.replyTo?.authorName}
                   onCancelReply={() => controller.setReplyTo(null)}
-                  autoFocus={breakpoint !== "mobile"}
+                  autoFocus={breakpoint === "desktop"}
                   draftKey={`${serverId}/${channelId}`}
                 />
               </div>

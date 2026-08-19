@@ -106,7 +106,12 @@ describe("GET /api/community/users/me/marks", () => {
         author: { id: "u-alice", name: "Alice", email: "alice@t.com", image: null },
       },
     ])
-    mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "general", serverId: "s1" }])
+    mockGetChannelsByIds.mockResolvedValue([{
+      id: "c1",
+      name: "general",
+      serverId: "s1",
+      parentChannelId: "parent1",
+    }])
     mockGetServersByIds.mockResolvedValue([{ id: "s1", name: "Server 1" }])
 
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/marks"))
@@ -118,6 +123,7 @@ describe("GET /api/community/users/me/marks", () => {
       serverId: "s1",
       channel: "general",
       channelId: "c1",
+      parentChannelId: "parent1",
       // serverId + channelId locate the channel, m.seq jumps to the message —
       // all three required for cross-channel navigation. seq lives inside `m`
       // to match the frontend `Marked` type (m: Msg).

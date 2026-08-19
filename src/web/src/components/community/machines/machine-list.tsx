@@ -44,7 +44,7 @@ import {
   updateCommunityOnboardingResources,
   useCommunityOnboarding,
 } from "@/lib/community-onboarding"
-import { removeCommunityParam } from "@/components/community/shell/mobile-zone"
+import { removeCommunityParam } from "@/lib/community/community-route"
 
 // Loading placeholder shaped like a real MachineCard (size-10 rounded-xl icon +
 // name row + meta lines + trailing kebab slot) so the list doesn't reflow when
@@ -192,9 +192,11 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
         updateCommunityOnboardingResources({ machineRecovery: false })
         continueOnboarding = true
       }
-      if (continueOnboarding) router.push("/c/me/bots")
+      if (continueOnboarding) {
+        useCommunityStore.getState().uiHandlers.navigatePath?.("/c/me/bots")
+      }
     }
-  }, [machines, pendingMachineTokenId, pendingTokenId, connectedHostname, router])
+  }, [machines, pendingMachineTokenId, pendingTokenId, connectedHostname])
 
   const openPair = useCallback(() => {
     setPairMode({ kind: "pair" })
@@ -451,7 +453,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
                   onClick={() => {
                     const machineId = confirmDelete?.id
                     setConfirmDelete(null)
-                    router.push(
+                    useCommunityStore.getState().uiHandlers.navigatePath?.(
                       machineId
                         ? `/c/me/bots?machineId=${machineId}`
                         : "/c/me/bots"

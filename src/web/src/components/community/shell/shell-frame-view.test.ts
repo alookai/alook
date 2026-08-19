@@ -72,13 +72,32 @@ describe("ShellFrameView", () => {
     vi.stubGlobal("ResizeObserver", ResizeObserverMock)
   })
 
+  it("shows one stable loading frame while the breakpoint is unknown", async () => {
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ShellFrameView, {
+        breakpoint: "unknown",
+        surface: "detail",
+        navigationPending: false,
+        sidebar: () => createElement("sidebar-content"),
+        cancelPendingNavigation: vi.fn(),
+        rail,
+        profile,
+        inbox,
+      }, createElement("main-content")))
+    })
+    expect(renderer.root.findAllByType("channel-loading-frame")).toHaveLength(1)
+    expect(renderer.root.findAllByType("server-rail")).toHaveLength(0)
+    expect(renderer.root.findAllByType("main-content")).toHaveLength(0)
+  })
+
   it("keeps the desktop panel geometry, order, and seeded overlay call", async () => {
     const sidebar = vi.fn(() => createElement("sidebar-content"))
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
       renderer = TestRenderer.create(createElement(ShellFrameView, {
         breakpoint: "desktop",
-        mobileZone: "messages",
+        surface: "detail",
         navigationPending: false,
         sidebar,
         cancelPendingNavigation: vi.fn(),
@@ -128,7 +147,7 @@ describe("ShellFrameView", () => {
     await act(async () => {
       renderer = TestRenderer.create(createElement(ShellFrameView, {
         breakpoint: "mobile",
-        mobileZone: "nav",
+        surface: "list",
         navigationPending: false,
         sidebar,
         cancelPendingNavigation: vi.fn(),
@@ -151,7 +170,7 @@ describe("ShellFrameView", () => {
     await act(async () => {
       renderer.update(createElement(ShellFrameView, {
         breakpoint: "mobile",
-        mobileZone: "messages",
+        surface: "detail",
         navigationPending: false,
         sidebar,
         cancelPendingNavigation: vi.fn(),
@@ -170,7 +189,7 @@ describe("ShellFrameView", () => {
   it("disconnects and re-subscribes sidebar observation across breakpoint changes", async () => {
     const sidebar = vi.fn(() => createElement("sidebar-content"))
     const common = {
-      mobileZone: "nav" as const,
+      surface: "list" as const,
       navigationPending: false,
       sidebar,
       cancelPendingNavigation: vi.fn(),
@@ -224,7 +243,7 @@ describe("ShellFrameView", () => {
     await act(async () => {
       renderer = TestRenderer.create(createElement(
         ShellFrameView,
-        { ...common, breakpoint: "desktop", mobileZone: "messages" },
+        { ...common, breakpoint: "desktop", surface: "detail" },
         createElement("main-content"),
       ), { createNodeMock: () => ({ offsetWidth: 240 }) })
     })
@@ -234,7 +253,7 @@ describe("ShellFrameView", () => {
     await act(async () => {
       renderer.update(createElement(
         ShellFrameView,
-        { ...common, breakpoint: "mobile", mobileZone: "nav" },
+        { ...common, breakpoint: "mobile", surface: "list" },
         createElement("main-content"),
       ))
     })
@@ -243,7 +262,7 @@ describe("ShellFrameView", () => {
     await act(async () => {
       renderer.update(createElement(
         ShellFrameView,
-        { ...common, breakpoint: "mobile", mobileZone: "messages" },
+        { ...common, breakpoint: "mobile", surface: "detail" },
         createElement("main-content"),
       ))
     })

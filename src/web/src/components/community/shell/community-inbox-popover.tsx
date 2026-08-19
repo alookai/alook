@@ -24,7 +24,7 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenForumThread, o
   servers: UnreadServer[]
   dms: UnreadDm[]
   loading?: boolean
-  onOpenChannel?: (serverId: string, channelId: string) => void
+  onOpenChannel?: (serverId: string, channelId: string, parentChannelId?: string) => void
   onOpenForumThread: (serverId: string, parentChannelId: string, childChannelId: string, openerMessageId: string) => void
   onOpenDm?: (dmId: string) => void
 }) {
@@ -72,7 +72,7 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenForumThread, o
                     if (child.openerMessageId) {
                       onOpenForumThread(s.serverId, c.channelId, child.channelId, child.openerMessageId)
                     } else {
-                      onOpenChannel?.(s.serverId, child.channelId)
+                      onOpenChannel?.(s.serverId, child.channelId, c.channelId)
                     }
                   }}
                   className="flex w-full items-center gap-2 rounded-md py-1.5 pl-8 pr-2 text-left text-sm hover:bg-accent"
@@ -204,7 +204,7 @@ export function InboxPopover({
   marked: Marked[]
   markedLoading?: boolean
   loading?: boolean
-  onOpenChannel?: (serverId: string, channelId: string) => void
+  onOpenChannel?: (serverId: string, channelId: string, parentChannelId?: string) => void
   onOpenForumThread: (serverId: string, parentChannelId: string, childChannelId: string, openerMessageId: string) => void
   onOpenDm?: (dmId: string) => void
   onOpenMention?: (m: Mention) => void

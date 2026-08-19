@@ -50,7 +50,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   serverIcon?: string | null
   activeChannel: string
   setActiveChannel: (id: string) => void
-  prefetchChannel?: (id: string) => void
+  prefetchChannel?: (id: string, parentId?: string) => void
   noHeader?: boolean
   onOpenSettings?: (section?: SettingsSection) => void
   isAdmin?: boolean
@@ -73,7 +73,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   onInvitePopoverOpenChange?: (open: boolean) => void
   forumThreadsByParent?: Record<string, ForumSidebarThread[]>
   activeThreadId?: string | null
-  onSelectForumThread?: (id: string) => void
+  onSelectForumThread?: (parentId: string, id: string) => void
 }) {
   const { collapsed, catOrder, order, catNames, catPrivate, catPending, toggleCat, removeChannel, renameChannel, renameCategory, onDragOver, onDragEnd: treeDragEnd } = tree
   // Category the dragged channel started in — captured at drag start, because
@@ -181,8 +181,8 @@ export const ChannelSidebar = memo(function ChannelSidebar({
             thread={thread}
             active={thread.id === activeThreadId}
             muted={!!mutedChannels?.[parentId]}
-            onClick={() => onSelectForumThread?.(thread.id)}
-            onPrefetch={() => prefetchChannel?.(thread.id)}
+            onClick={() => onSelectForumThread?.(parentId, thread.id)}
+            onPrefetch={() => prefetchChannel?.(thread.id, parentId)}
           />
         ))}
       </div>

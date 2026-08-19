@@ -3,12 +3,12 @@
 // were; this remembers, per browser, the last channel/post opened in each
 // server so the server-landing page can restore to it.
 //
-// Deliberately narrow: it stores ONLY which channel (a serverId -> channelId
-// map), never scroll position or read-to-seq — those are server read-state, a
-// separate concern this must not touch. localStorage-only (no backend, no
-// daemon, no cross-device sync). Pure guarded wrappers (SSR + privacy-mode safe)
-// mirroring `composer-draft.ts` — any failure degrades to "no memory", i.e.
-// exactly today's default-channel behavior, never a throw.
+// Deliberately narrow: it stores ONLY the route leaf (a serverId -> channelId or
+// parentId/channelId map), never scroll position or read-to-seq — those are
+// server read-state, a separate concern this must not touch. localStorage-only
+// (no backend, no daemon, no cross-device sync). Pure guarded wrappers (SSR +
+// privacy-mode safe) mirroring `composer-draft.ts` — any failure degrades to
+// "no memory", i.e. exactly today's default-channel behavior, never a throw.
 
 import {
   clearNavigationMemory,

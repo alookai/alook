@@ -108,7 +108,7 @@ Two stages, not three. The split lives at **`640px`** — Tailwind's default `sm
 
 | Stage | Range | Layout shape |
 | --- | --- | --- |
-| **Mobile** | `< 640px` | Single column with zone switching (`MobileZone = "nav" \| "messages"`). Back button in headers. Popovers may promote to sheets when they'd overflow. |
+| **Mobile** | `< 640px` | Single column with pathname-owned list/detail routing. Back button in detail headers. Popovers may promote to sheets when they'd overflow. |
 | **Desktop** | `≥ 640px` | Multi-column shells — server rail + channel/DM sidebar + main (in community), or app sidebar + workspace (elsewhere). Hover surfaces reveal actions. No back button in headers. |
 
 Rules:

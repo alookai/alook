@@ -1,16 +1,16 @@
 "use client"
 
 import { useCallback, useEffect } from "react"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useCommunityOnboarding } from "@/lib/community-onboarding"
+import { resolveCommunityRoute } from "@/lib/community/community-route"
 import { useCommunityStore } from "@/stores/community"
 import { ShellFrameView } from "./shell-frame-view"
 import { useShellRailController } from "./use-shell-rail-controller"
 import { useShellProfileController } from "./use-shell-profile-controller"
 import { useShellInboxController } from "./use-shell-inbox-controller"
-import { resolveMobileZone, withMobileZone } from "./mobile-zone"
+import { useCommunityNavigationController } from "./use-community-navigation-controller"
 import type { ShellFrameProps } from "./shell-frame-types"
 
 /** Shared community shell orchestration for the server and DM layouts. */
@@ -24,53 +24,48 @@ export function ShellFrame(props: ShellFrameProps) {
     onOpenActiveServerSettings,
     onOpenActiveServerInvite,
   } = props
-  const router = useRouter()
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const breakpoint = useBreakpoint()
   const onboardingState = useCommunityOnboarding()
-  const search = searchParams.toString()
-  const currentHref = search ? `${pathname}?${search}` : pathname
-  const mobileZone = resolveMobileZone(searchParams)
-
-  useEffect(() => {
-    if (breakpoint !== "mobile" || onboardingState?.status !== "active") return
-    const browserHref = `${currentHref}${window.location.hash}`
-    const nextHref = withMobileZone(
-      browserHref,
-      onboardingState.stage === "server" ? "nav" : "messages",
-    )
-    if (nextHref !== browserHref) window.history.replaceState(null, "", nextHref)
-  }, [breakpoint, currentHref, onboardingState])
+  const navigation = useCommunityNavigationController()
+  const replacePath = navigation.replace
+  const pathname = navigation.currentHref.split("?")[0]!
+  const route = resolveCommunityRoute(pathname)
 
   const rail = useShellRailController({
-    router,
+    navigation,
     queryClient,
-    breakpoint,
-    currentHref,
     view,
     activeServerId,
     onOpenActiveServerSettings,
     onOpenActiveServerInvite,
   })
   const profile = useShellProfileController({
-    router,
+    router: navigation,
     queryClient,
-    cancelPendingNavigation: rail.cancelPendingNavigation,
+    cancelPendingNavigation: navigation.cancelPendingNavigation,
     view,
     activeServerId,
   })
   const inbox = useShellInboxController({
-    router,
+    router: navigation,
     queryClient,
-    cancelPendingNavigation: rail.cancelPendingNavigation,
+    cancelPendingNavigation: navigation.cancelPendingNavigation,
   })
   const goBackMobile = useCallback(() => {
-    const browserHref = `${currentHref}${window.location.hash}`
-    const nextHref = withMobileZone(browserHref, "nav")
-    if (nextHref !== browserHref) window.history.replaceState(null, "", nextHref)
-  }, [currentHref])
+    if (route.parentPath) navigation.replace(route.parentPath)
+  }, [navigation, route.parentPath])
+
+  useEffect(() => {
+    if (
+      breakpoint !== "mobile" ||
+      onboardingState?.status !== "active" ||
+      onboardingState.stage !== "server" ||
+      route.surface !== "detail" ||
+      !route.parentPath
+    ) return
+    replacePath(route.parentPath)
+  }, [breakpoint, onboardingState, replacePath, route.parentPath, route.surface])
 
   useEffect(() => {
     useCommunityStore.getState().registerUiHandlers({
@@ -78,26 +73,30 @@ export function ShellFrame(props: ShellFrameProps) {
       previewAttachment: profile.previewAttachment,
       openProfile: profile.openProfile,
       goBackMobile,
+      navigatePath: navigation.push,
+      replacePath: navigation.replace,
       navigate: rail.navigate,
-      cancelPendingNavigation: rail.cancelPendingNavigation,
+      cancelPendingNavigation: navigation.cancelPendingNavigation,
     })
   }, [
     goBackMobile,
     profile.openProfile,
     profile.previewAttachment,
     profile.previewImage,
-    rail.cancelPendingNavigation,
     rail.navigate,
+    navigation.cancelPendingNavigation,
+    navigation.push,
+    navigation.replace,
   ])
 
   return (
     <ShellFrameView
       breakpoint={breakpoint}
-      mobileZone={mobileZone}
+      surface={route.surface}
       sidebar={sidebar}
       extraDialogs={extraDialogs}
-      cancelPendingNavigation={rail.cancelPendingNavigation}
-      navigationPending={rail.navigationPending}
+      cancelPendingNavigation={navigation.cancelPendingNavigation}
+      navigationPending={navigation.navigationPending}
       rail={rail}
       profile={profile}
       inbox={inbox}

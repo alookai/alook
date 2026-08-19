@@ -52,8 +52,7 @@ export function ThemeColorSync() {
     syncThemeColorToRailBackground();
     scheduleSync();
 
-    // Next can replace viewport metadata during client navigation, including a
-    // query-only mobile pane change where usePathname() does not change.
+    // Next can replace viewport metadata during client navigation.
     const observer = new MutationObserver(() => {
       scheduleSync();
     });

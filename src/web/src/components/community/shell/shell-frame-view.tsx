@@ -15,7 +15,7 @@ import {
   desktopUserBarOverlayWidth,
 } from "./shell-frame-geometry"
 import type { Breakpoint } from "@/hooks/use-mobile"
-import type { MobileZone } from "./mobile-zone"
+import type { CommunitySurface } from "@/lib/community/community-route"
 import type { ShellFrameProps } from "./shell-frame-types"
 import type { useShellRailController } from "./use-shell-rail-controller"
 import type { useShellProfileController } from "./use-shell-profile-controller"
@@ -23,7 +23,7 @@ import type { useShellInboxController } from "./use-shell-inbox-controller"
 
 type Props = Pick<ShellFrameProps, "sidebar" | "children" | "extraDialogs"> & {
   breakpoint: Breakpoint
-  mobileZone: MobileZone
+  surface: CommunitySurface
   cancelPendingNavigation: () => void
   navigationPending: boolean
   rail: ReturnType<typeof useShellRailController>
@@ -35,7 +35,7 @@ const SHELL_SURFACE_CLASS = "rounded-tl-xl rounded-tr-none rounded-br-none round
 
 export function ShellFrameView({
   breakpoint,
-  mobileZone,
+  surface,
   sidebar,
   children,
   extraDialogs,
@@ -62,6 +62,16 @@ export function ShellFrameView({
     id: profile.currentUser.id,
     name: profile.currentUser.name,
     avatar: profile.currentUser.avatar,
+  }
+
+  if (breakpoint === "unknown") {
+    return (
+      <Shell onNavigationIntent={cancelPendingNavigation}>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+          <ChannelLoadingFrame />
+        </div>
+      </Shell>
+    )
   }
 
   if (breakpoint === "desktop") {
@@ -131,7 +141,7 @@ export function ShellFrameView({
 
   return (
     <Shell onNavigationIntent={cancelPendingNavigation}>
-      {mobileZone === "nav" && (
+      {surface === "list" && (
         <>
           <ServerRail {...rail.railProps} bottomInset={60} />
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col pt-2">
@@ -154,12 +164,12 @@ export function ShellFrameView({
           </div>
         </>
       )}
-      {mobileZone === "messages" && (
+      {surface === "detail" && (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
           {navigationPending ? <ChannelLoadingFrame /> : children}
         </div>
       )}
-      {mobileZone === "nav" && navigationPending && (
+      {surface === "list" && navigationPending && (
         <div className="absolute inset-0 z-20 flex bg-background">
           <ChannelLoadingFrame />
         </div>

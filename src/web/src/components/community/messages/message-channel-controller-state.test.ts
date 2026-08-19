@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => {
     createActions: vi.fn((_input?: unknown) => messageActions),
     accept: vi.fn(() => true),
     run: vi.fn(async () => {}),
+    pathname: "/c/channels/server_1/channel_1",
     seq: null as string | null,
     sendMutation: vi.fn(),
     reactionMutation: vi.fn(),
@@ -50,8 +51,9 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("next/navigation", () => ({
   useRouter: () => mocks.router,
+  usePathname: () => mocks.pathname,
   useSearchParams: () => new URLSearchParams(
-    mocks.seq ? `seq=${mocks.seq}&pane=nav&keep=1` : "",
+    mocks.seq ? `seq=${mocks.seq}&keep=1` : "",
   ),
 }))
 vi.mock("@/lib/api/client", () => ({
@@ -146,6 +148,7 @@ describe("useMessageChannelController", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.order.length = 0
+    mocks.pathname = "/c/channels/server_1/channel_1"
     mocks.seq = null
     mocks.storeState.pendingReply = null
     mocks.apiFetch.mockResolvedValue({ results: [] })
@@ -316,7 +319,7 @@ describe("useMessageChannelController", () => {
       serverId: "server_1", channelId: "channel_1", label: "general", seq: 7,
     })
     expect(mocks.router.replace).toHaveBeenCalledWith(
-      "/c/channels/server_1/channel_1?pane=nav&keep=1", { scroll: false },
+      "/c/channels/server_1/channel_1?keep=1", { scroll: false },
     )
     expect(mocks.storeState.registerUiHandlers).toHaveBeenCalledWith({
       jumpToSeq: expect.any(Function), openMessageContext: expect.any(Function),
@@ -335,6 +338,22 @@ describe("useMessageChannelController", () => {
     expect(mocks.storeState.registerUiHandlers).toHaveBeenLastCalledWith({
       jumpToSeq: undefined, openMessageContext: undefined,
     })
+  })
+
+  it("consumes seq on the current canonical child route and preserves other query state", () => {
+    mocks.pathname = "/c/channels/server_1/parent_1/channel_1"
+    mocks.seq = "7"
+    act(() => {
+      TestRenderer.create(React.createElement(Probe, { value: props() }))
+    })
+
+    expect(latest.contextTarget).toEqual({
+      serverId: "server_1", channelId: "channel_1", label: "general", seq: 7,
+    })
+    expect(mocks.router.replace).toHaveBeenCalledWith(
+      "/c/channels/server_1/parent_1/channel_1?keep=1",
+      { scroll: false },
+    )
   })
 
   it("clears missing anchors only on authoritative error and consumes only the matching target", () => {

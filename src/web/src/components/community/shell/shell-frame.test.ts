@@ -12,11 +12,11 @@ const mocks = vi.hoisted(() => {
     cancelPendingNavigation: vi.fn(),
   }
   return {
-    onboarding: { current: { status: "active", stage: "server" } as unknown },
-    pathname: { current: "/c/channels/s1" },
-    searchParams: { current: new URLSearchParams() },
+    currentHref: { current: "/c/channels/s1" },
     breakpoint: { current: "desktop" },
-    replaceState: vi.fn(),
+    onboardingState: { current: null as Record<string, unknown> | null },
+    replace: vi.fn(),
+    push: vi.fn(),
     registerUiHandlers: vi.fn(),
     handlers,
     rail: {
@@ -33,15 +33,21 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
-  usePathname: () => mocks.pathname.current,
-  useSearchParams: () => mocks.searchParams.current,
-}))
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({}) }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mocks.breakpoint.current }))
 vi.mock("@/lib/community-onboarding", () => ({
-  useCommunityOnboarding: () => mocks.onboarding.current,
+  useCommunityOnboarding: () => mocks.onboardingState.current,
+}))
+vi.mock("./use-community-navigation-controller", () => ({
+  useCommunityNavigationController: () => ({
+    currentHref: mocks.currentHref.current,
+    navigationPending: false,
+    push: mocks.push,
+    replace: mocks.replace,
+    prefetch: vi.fn(),
+    resolveAndPush: vi.fn(),
+    cancelPendingNavigation: mocks.handlers.cancelPendingNavigation,
+  }),
 }))
 vi.mock("@/stores/community", () => ({
   useCommunityStore: Object.assign(vi.fn(), {
@@ -69,54 +75,67 @@ const baseProps = {
 
 describe("ShellFrame orchestration", () => {
   beforeEach(() => {
-    mocks.onboarding.current = { status: "active", stage: "server" }
-    mocks.pathname.current = "/c/channels/s1"
-    mocks.searchParams.current = new URLSearchParams()
+    mocks.currentHref.current = "/c/channels/s1"
     mocks.breakpoint.current = "desktop"
+    mocks.onboardingState.current = null
     mocks.registerUiHandlers.mockClear()
-    mocks.replaceState.mockClear()
-    vi.stubGlobal("window", {
-      history: { replaceState: mocks.replaceState },
-      location: { hash: "" },
-    })
+    mocks.replace.mockClear()
+    mocks.push.mockClear()
   })
 
   afterEach(() => vi.unstubAllGlobals())
 
-  it("derives the pane from the current URL and tracks search-param updates", async () => {
-    mocks.searchParams.current = new URLSearchParams("pane=nav")
+  it("derives list and detail surfaces from the pathname", async () => {
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
       renderer = TestRenderer.create(createElement(ShellFrame, baseProps))
     })
-    expect(renderer.root.findByType("shell-frame-view").props.mobileZone).toBe("nav")
+    expect(renderer.root.findByType("shell-frame-view").props.surface).toBe("list")
 
-    mocks.searchParams.current = new URLSearchParams()
+    mocks.currentHref.current = "/c/channels/s1/c1?keep=1"
     await act(async () => {
       renderer.update(createElement(ShellFrame, baseProps, "next"))
     })
-    expect(renderer.root.findByType("shell-frame-view").props.mobileZone).toBe("messages")
+    expect(renderer.root.findByType("shell-frame-view").props.surface).toBe("detail")
   })
 
-  it("commits onboarding pane changes through native history on mobile", async () => {
+  it("replaces a mobile detail with its semantic parent", async () => {
     mocks.breakpoint.current = "mobile"
+    mocks.currentHref.current = "/c/channels/s1/c1"
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
       renderer = TestRenderer.create(createElement(ShellFrame, baseProps))
     })
-    expect(mocks.replaceState).toHaveBeenLastCalledWith(
-      null, "", "/c/channels/s1?pane=nav",
-    )
-
-    mocks.searchParams.current = new URLSearchParams("pane=nav")
-    mocks.onboarding.current = { status: "active", stage: "channel" }
-    await act(async () => {
-      renderer.update(createElement(ShellFrame, baseProps, "channel"))
-    })
-    expect(mocks.replaceState).toHaveBeenLastCalledWith(null, "", "/c/channels/s1")
+    const handlers = mocks.registerUiHandlers.mock.calls.at(-1)?.[0]
+    handlers.goBackMobile()
+    expect(mocks.replace).toHaveBeenLastCalledWith("/c/channels/s1")
   })
 
-  it("registers exactly six stable UI handlers", async () => {
+  it("returns mobile server onboarding to the semantic list surface", async () => {
+    mocks.breakpoint.current = "mobile"
+    mocks.currentHref.current = "/c/me/dm_1"
+    mocks.onboardingState.current = { status: "active", stage: "server" }
+
+    await act(async () => {
+      TestRenderer.create(createElement(ShellFrame, baseProps))
+    })
+
+    expect(mocks.replace).toHaveBeenCalledWith("/c/me")
+  })
+
+  it("keeps mobile server onboarding stable on an existing list surface", async () => {
+    mocks.breakpoint.current = "mobile"
+    mocks.currentHref.current = "/c/me"
+    mocks.onboardingState.current = { status: "active", stage: "server" }
+
+    await act(async () => {
+      TestRenderer.create(createElement(ShellFrame, baseProps))
+    })
+
+    expect(mocks.replace).not.toHaveBeenCalled()
+  })
+
+  it("registers the shared navigation and UI handlers", async () => {
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
       renderer = TestRenderer.create(createElement(ShellFrame, baseProps))
@@ -126,26 +145,26 @@ describe("ShellFrame orchestration", () => {
       "cancelPendingNavigation",
       "goBackMobile",
       "navigate",
+      "navigatePath",
       "openProfile",
       "previewAttachment",
       "previewImage",
+      "replacePath",
     ])
 
-    mocks.searchParams.current = new URLSearchParams("msg=m1")
-    Object.assign(window.location, { hash: "#anchor" })
+    mocks.currentHref.current = "/c/channels/s1/c1?msg=m1"
     await act(async () => {
       renderer.update(createElement(ShellFrame, baseProps, "message"))
     })
     const withMessage = mocks.registerUiHandlers.mock.calls.at(-1)?.[0]
     withMessage.goBackMobile()
-    expect(mocks.replaceState).toHaveBeenLastCalledWith(
-      null, "", "/c/channels/s1?msg=m1&pane=nav#anchor",
-    )
+    expect(mocks.replace).toHaveBeenLastCalledWith("/c/channels/s1")
 
     await act(async () => {
       renderer.update(createElement(ShellFrame, baseProps, "rerender"))
     })
     const second = mocks.registerUiHandlers.mock.calls.at(-1)?.[0]
-    for (const key of Object.keys(withMessage)) expect(second[key]).toBe(withMessage[key])
+    expect(second.navigatePath).toBe(withMessage.navigatePath)
+    expect(second.replacePath).toBe(withMessage.replacePath)
   })
 })

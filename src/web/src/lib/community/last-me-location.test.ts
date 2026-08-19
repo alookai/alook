@@ -32,7 +32,7 @@ describe("last-me-location", () => {
   })
 
   it.each([
-    "/c/me",
+    "/c/me/friends",
     "/c/me/machines",
     "/c/me/bots",
     "/c/me/dm_123",
@@ -47,6 +47,7 @@ describe("last-me-location", () => {
     "/c/me/machines?reconnect=1",
     "/c/me/bots#owned",
     "/c/me/",
+    "/c/me",
   ])("rejects %s", (pathname) => {
     expect(isRememberableMeLocation(pathname)).toBe(false)
   })
@@ -58,9 +59,9 @@ describe("last-me-location", () => {
   })
 
   it("falls back to friends for missing or dirty memory", () => {
-    expect(pickMeLandingLocation(null)).toBe("/c/me")
-    expect(pickMeLandingLocation("dm_1/messages")).toBe("/c/me")
-    expect(pickMeLandingLocation("friends")).toBe("/c/me")
+    expect(pickMeLandingLocation(null)).toBe("/c/me/friends")
+    expect(pickMeLandingLocation("dm_1/messages")).toBe("/c/me/friends")
+    expect(pickMeLandingLocation("friends")).toBe("/c/me/friends")
     expect(pickMeLandingLocation("dm_1")).toBe("/c/me/dm_1")
   })
 })

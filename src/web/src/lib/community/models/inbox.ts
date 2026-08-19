@@ -34,6 +34,9 @@ export type Marked = {
   // For a server message this is the channel id; for a DM it's the DM channel
   // id, which is also the frontend `/c/me/<id>` route param.
   channelId: string
+  // Child-channel marks include their canonical parent route segment. Optional
+  // for backward compatibility with older cached marked-feed payloads.
+  parentChannelId?: string | null
   m: Msg
 }
 

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import type { MentionType } from "@alook/shared"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -31,7 +31,7 @@ import {
   acceptChannelMessage,
   runAcceptedMessageIntent,
 } from "./message-channel-controller-send"
-import { removeCommunityParam } from "@/components/community/shell/mobile-zone"
+import { removeCommunityParam } from "@/lib/community/community-route"
 import type {
   MessageChannelControllerProps,
   MessageChannelControllerValue,
@@ -42,7 +42,6 @@ import type {
 export function useMessageChannelController({
   channelId,
   serverId,
-  serverParam,
   channelName,
   forumParentChannelId,
   viewer,
@@ -54,6 +53,7 @@ export function useMessageChannelController({
   resolveUserName,
 }: Omit<MessageChannelControllerProps, "children">): MessageChannelControllerValue {
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
@@ -189,9 +189,9 @@ export function useMessageChannelController({
     const seq = Number(seqParam)
     if (!Number.isFinite(seq)) return
     setContextTarget({ serverId, channelId, label: channelName, seq })
-    const href = `/c/channels/${serverParam}/${channelId}${searchParamsString ? `?${searchParamsString}` : ""}`
+    const href = `${pathname}${searchParamsString ? `?${searchParamsString}` : ""}`
     router.replace(removeCommunityParam(href, "seq"), { scroll: false })
-  }, [seqParam, serverId, channelId, channelName, router, searchParamsString, serverParam])
+  }, [seqParam, serverId, channelId, channelName, pathname, router, searchParamsString])
 
   const messageScope = useMemo(
     () => ({ kind: "channel" as const, id: channelId, serverId }),

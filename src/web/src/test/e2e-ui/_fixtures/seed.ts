@@ -159,6 +159,22 @@ export async function seedMessage(author: UserKey, channelId: string, content: s
   return data.message.id
 }
 
+export async function seedMark(author: UserKey, channelId: string, messageId: string): Promise<void> {
+  const response = await retrySeedRequest(() => fetch(
+    `${WEB_URL}/api/community/messages/${messageId}/marks`,
+    {
+      method: "PUT",
+      headers: {
+        Cookie: sessionCookie(author),
+        "Content-Type": "application/json",
+        Origin: WEB_URL,
+      },
+      body: JSON.stringify({ channelId }),
+    },
+  ))
+  if (!response.ok) throw new Error(`seedMark failed (${response.status})`)
+}
+
 // Create a forum post (a child channel of a `type:"forum"` channel) via API.
 // Returns the post's own channel id. The creator is enrolled as a participant
 // server-side. Use when a spec needs an existing post before driving the UI.
