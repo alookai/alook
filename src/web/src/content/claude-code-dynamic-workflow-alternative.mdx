@@ -60,15 +60,27 @@ If you searched for an **OpenCode dynamic workflow**, start here: Claude Code’
 
 ## What Claude Code dynamic workflows do well
 
-You write JavaScript that orchestrates agents:
+Claude writes a JavaScript workflow that orchestrates subagents. The runtime primitives are `agent()` (one subagent) and `pipeline()` (one subagent per item in a list):
 
 ```javascript
-const results = await Promise.all([
-  agent1.investigate("security implications"),
-  agent2.investigate("performance impact"),
-  agent3.investigate("test coverage")
-]);
-const report = await synthesizer.merge(results);
+export const meta = {
+  name: "audit-routes",
+  description: "Audit every route handler for missing auth checks",
+};
+
+const found = await agent("List every .ts file under src/routes/.", {
+  schema: {
+    type: "object",
+    required: ["files"],
+    properties: { files: { type: "array", items: { type: "string" } } },
+  },
+});
+
+const audits = await pipeline(found.files, (file) =>
+  agent(`Audit ${file} for missing authentication checks.`, { label: file }),
+);
+
+return audits.filter(Boolean);
 ```
 
 You can fan out a large parallel batch while you keep working in that session. When the run finishes, you get one merged report. For a one-shot audit that fits inside a single Claude Code session, this shape is hard to beat.
@@ -79,7 +91,7 @@ A large dynamic-workflow run can still be a good trade for a one-shot audit. The
 
 Resume works within the same session: completed agents can return cached results when you pause and resume from `/workflows`. A new session starts the workflow fresh. You cannot hand the live run to a teammate as a shared, ongoing job. The work stays tied to that Claude Code session.
 
-Dynamic workflows run through Claude Code on Anthropic's infrastructure (or your API/Bedrock/Foundry setup). They require a paid Claude plan, API access, or an equivalent hosted integration. A single low-tier consumer plan alone is often not enough for this class of run.
+Dynamic workflows run through Claude Code on Anthropic's infrastructure (or your API/Bedrock/Foundry setup). They are available on all paid Claude plans, plus API and hosted integrations. Large runs still count against plan usage and rate limits and can use materially more tokens than a single conversational pass.
 
 ## OpenCode dynamic workflow vs Claude Code dynamic workflows
 
@@ -126,7 +138,7 @@ Building a content program? Async coordination. Research accumulates. Writing im
 
 Claude Code v2.1.154 minimum. Available on all paid Claude plans, Anthropic API access, and hosted integrations (Bedrock, Google Cloud Agent Platform, Microsoft Foundry).
 
-Enable in settings, then:
+On Pro, turn them on from the Dynamic workflows row in `/config`. Then ask Claude to run a workflow, for example:
 > Run a workflow to find all TypeScript files importing deprecated APIs
 
 Watch the progress bar. See agent count, token spend, partial results.
