@@ -2,7 +2,12 @@ import { Command } from "commander";
 import { execSync, spawn as spawnAsync } from "child_process";
 import { createInterface } from "readline";
 import { checkNodeVersion, checkPorts } from "../lib/checks.js";
-import { isInstalled, installBundled } from "../lib/install.js";
+import {
+  assertInstallationComplete,
+  getMissingInstallFiles,
+  installBundled,
+  isInstalled,
+} from "../lib/install.js";
 import { ensureSecrets } from "../lib/secrets.js";
 import { runMigrations } from "../lib/migrate.js";
 import { startServices, isRunning } from "../lib/services.js";
@@ -59,12 +64,14 @@ export function onboardCommand(): Command {
       } else {
         // Production: install bundled assets
         if (!isInstalled()) {
-          console.log("Installing Alook...");
+          const missingFiles = getMissingInstallFiles();
+          console.log(`Installing missing Alook files (${missingFiles.length} required files missing)...`);
           installBundled();
         } else {
           console.log(`Installation found at ${SELF_HOSTED_DIR}`);
         }
 
+        assertInstallationComplete();
         ensureSecrets(ports.web);
         patchWranglerConfigs(ports);
         runMigrations();
