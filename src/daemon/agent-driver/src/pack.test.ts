@@ -89,8 +89,8 @@ void { result, observedText };
       },
       include: ["usage.ts"],
     }));
-    const tsc = join(repositoryRoot, "node_modules", ".bin", process.platform === "win32" ? "tsc.cmd" : "tsc");
-    await execFileAsync(tsc, ["-p", join(root, "tsconfig.json")], { cwd: root });
+    const tsc = join(repositoryRoot, "node_modules", "typescript", "bin", "tsc");
+    await execFileAsync(process.execPath, [tsc, "-p", join(root, "tsconfig.json")], { cwd: root });
 
     writeFileSync(join(root, "fake-cursor.mjs"), `
 console.log(JSON.stringify({ type: "system", subtype: "init", session_id: "packed-session" }));

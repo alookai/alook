@@ -345,6 +345,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @alook/agent-driver build
       - run: pnpm vitest run --coverage --coverage.reporter=json --coverage.reporter=text
       - uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
