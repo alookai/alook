@@ -33,7 +33,8 @@ describe("classifyPaths", () => {
     expect(result.full).toBe(true)
   })
 
-  it("keeps Windows for shared and CLI changes", () => {
+  it("keeps Windows for app, shared, and CLI changes", () => {
+    expect(classifyPaths(["src/app/src/lib/install.ts"]).run_windows).toBe(true)
     expect(classifyPaths(["src/shared/src/schema.ts"]).run_windows).toBe(true)
     expect(classifyPaths(["src/cli/src/index.ts"]).run_windows).toBe(true)
     expect(classifyPaths(["src/web/src/app/page.tsx"]).run_windows).toBe(false)

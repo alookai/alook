@@ -5,6 +5,10 @@ import { SELF_HOSTED_DIR } from "./constants.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+export function normalizeInstallFilePath(path: string): string {
+  return path.replaceAll("\\", "/");
+}
+
 function bundledDir(): string {
   const candidate = join(__dirname, "..", "..", "bundled");
   if (existsSync(candidate)) return candidate;
@@ -18,7 +22,7 @@ function bundledFiles(rootDir: string, currentDir = rootDir): string[] {
     const path = join(currentDir, entry.name);
     return entry.isDirectory()
       ? bundledFiles(rootDir, path)
-      : [relative(rootDir, path)];
+      : [normalizeInstallFilePath(relative(rootDir, path))];
   });
 }
 
