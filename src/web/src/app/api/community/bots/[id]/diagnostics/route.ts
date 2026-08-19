@@ -68,8 +68,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     fromMs: report.fromMs,
     deadlineAt: report.deadlineAt,
   });
-  if (delivery.kind === "delivered") {
-    return reportEnvelope("accepted", report, nowMs, 202);
+  if (delivery.kind === "attempted") {
+    return reportEnvelope("unknown", report, nowMs, 202);
   }
   if (delivery.kind === "ambiguous") {
     return reportEnvelope("unknown", report, nowMs, 202);

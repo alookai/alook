@@ -291,7 +291,7 @@ describe("WebSocketDurableObject", () => {
           body,
         }))
 
-        await expect(response.json()).resolves.toEqual({ sent: 1 })
+        await expect(response.json()).resolves.toEqual({ attempted: 1, sent: 1 })
         expect(ws.send).toHaveBeenCalledWith(body)
       })
 
@@ -320,9 +320,32 @@ describe("WebSocketDurableObject", () => {
         }))
 
         expect(response.status).toBe(200)
-        await expect(response.json()).resolves.toEqual({ sent: 1 })
+        await expect(response.json()).resolves.toEqual({ attempted: 1, sent: 1 })
         expect(ws.send).toHaveBeenCalledOnce()
         expect(JSON.parse(ws.send.mock.calls[0]![0] as string)).toEqual(payload)
+      })
+
+      it("registers a strict machine-keyed diagnostic deadline without forwarding a command", async () => {
+        vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000)
+        const { durable, getWebSockets, store, storage } = createDO()
+        getWebSockets.mockReturnValue([])
+
+        const response = await durable.fetch(new Request(
+          "http://internal/register-diagnostic-deadline?machineId=cm_1",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ deadlineAt: 1_700_087_000_000 }),
+          },
+        ))
+
+        expect(response.status).toBe(200)
+        await expect(response.json()).resolves.toEqual({ registered: true })
+        expect(store.get("community-machine-diagnostic-alarm-hint")).toEqual({
+          machineId: "cm_1",
+          deadlineAt: 1_700_087_000_000,
+        })
+        expect(storage.setAlarm).toHaveBeenCalledWith(1_700_087_000_000)
       })
 
       it.each([

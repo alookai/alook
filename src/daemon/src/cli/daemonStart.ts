@@ -15,7 +15,11 @@ import { createLogger } from "../logger.js";
 import { readDaemonVersion } from "../version.js";
 import { runPreparedDaemon, type DaemonReadyReceipt, type PreparedDaemon } from "./daemonRunner.js";
 import { spawn, type ChildProcess } from "node:child_process";
-import { parseReleaseVersion } from "@alook/shared";
+import {
+  CommunityDaemonActivateErrorResponseSchema,
+  CommunityDaemonActivateResponseSchema,
+  parseReleaseVersion,
+} from "@alook/shared";
 
 /**
  * Grace window for a daemon to exit on SIGTERM before we escalate to SIGKILL.
@@ -28,10 +32,13 @@ const STOP_KILL_GRACE_MS = 2_000;
 /** How often `daemonStop` polls `isProcessAlive` while waiting on SIGTERM. */
 const POLL_MS = 100;
 const START_RECEIPT_TIMEOUT_MS = 15_000;
+const PAIRING_ACTIVATION_TIMEOUT_MS = 30_000;
 const RUNNER_TERM_GRACE_MS = 2_000;
 const RUNNER_KILL_GRACE_MS = 2_000;
 const MACHINE_ID_PATTERN = /^cm_[A-Za-z0-9_-]{8,64}$/;
 const LEGACY_DAEMON_ID_PATTERN = /^[a-f0-9]{12}$/;
+const DEFAULT_SERVER_URL = "https://alook.ai";
+const DEFAULT_WS_URL = "wss://alook.ai/api/ws/community-daemon";
 
 function resolveDefaultBaseDir(): string {
   const root = process.env.ALOOK_PROJECT_ROOT || path.join(homedir(), ".alook");
@@ -401,11 +408,10 @@ export function acquireDaemonReplacementLock(args: {
 }
 
 /**
- * COARSE start-lock for the `cmt_` path (C0.1): the machineId isn't known until
- * after async `/activate`, so this baseDir-level lock blocks a concurrent local
- * start during the activate window (when a human is most likely to fire `start`
- * twice). Handed off to the final machineId lock — acquire-final-THEN-release-
- * coarse, never a naked gap (Claudette 架构#499). `.start.lock` holds the pid.
+ * COARSE start-lock for first pairing only: the machineId isn't known until
+ * after async `/activate`, so this baseDir-level lock blocks a duplicate local
+ * start during that window. Exact-machine reconnect already owns its replacement
+ * request and goes straight to the per-machine launch lock.
  */
 function coarseStartLockPath(baseDir: string): string {
   return path.join(daemonsDir(baseDir), ".start.lock");
@@ -511,6 +517,21 @@ export interface DaemonInfo {
   lastActiveMs: number | null;
 }
 
+function daemonLastActiveMs(snapshot: DaemonStatusResult, nowMs: number): number | null {
+  const writtenAt = snapshot.writtenAt;
+  if (writtenAt == null || !Number.isFinite(writtenAt) || writtenAt < 0) return null;
+
+  let latest: number | null = null;
+  for (const agent of snapshot.agents) {
+    const sinceProgressMs = agent.sinceProgressMs;
+    if (!Number.isFinite(sinceProgressMs) || sinceProgressMs < 0) continue;
+    const progressAt = writtenAt - sinceProgressMs;
+    if (progressAt <= 0 || progressAt > nowMs) continue;
+    latest = latest == null ? progressAt : Math.max(latest, progressAt);
+  }
+  return latest;
+}
+
 export function daemonList(opts: DaemonListOpts): DaemonInfo[] {
   const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
   const dir = daemonsDir(baseDir);
@@ -536,7 +557,7 @@ export function daemonList(opts: DaemonListOpts): DaemonInfo[] {
       if (s.found) {
         agents = s.agents.length;
         running = s.agents.filter((a) => a.derivedActivity === "running").length;
-        lastActiveMs = s.writtenAt;
+        lastActiveMs = daemonLastActiveMs(s, now);
       }
     }
     results.push({ id, pid: data.pid, alive, agents, running, lastActiveMs });
@@ -739,6 +760,25 @@ export interface DaemonStartOpts {
   foreground?: boolean;
   /** Internal-only replacement lock bypass. Never exposed on normal start. */
   resumeRequestId?: string;
+  /** Internal reconnect guard sent to /activate before any credential rotate. */
+  expectedMachineId?: string;
+  /** Internal reconnect state hook; never logs or exposes the pairing token. */
+  onActivationAttempt?: () => void;
+}
+
+export interface DaemonReconnectOpts {
+  id: string;
+  machineKey: string;
+  serverUrl?: string;
+  wsUrl?: string;
+  baseDir?: string;
+}
+
+export interface DaemonReconnectDeps {
+  isProcessAlive?: (pid: number) => boolean;
+  stopExactDaemonPid?: (pid: number) => Promise<void>;
+  start?: typeof daemonStart;
+  resume?: typeof daemonResume;
 }
 
 export interface DaemonLaunchRecord {
@@ -846,24 +886,70 @@ async function activatePairingToken(
   osRelease: string,
   daemonVersion: string,
   runtimeReport: Array<{ id: string; version?: string; status?: "healthy" | "unhealthy"; lastError?: string; lastErrorAt?: string }>,
+  expectedMachineId?: string,
 ): Promise<{ credential: string; machineId: string }> {
-  const res = await fetch(`${serverUrl}/api/community/daemon/activate`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${tokenId}`,
-    },
-    body: JSON.stringify({ hostname, platform, arch, osRelease, daemonVersion, runtimeReport }),
-  });
-  const json = (await res.json().catch(() => ({}))) as {
-    credential?: string;
-    machineId?: string;
-    error?: string;
-  };
-  if (!res.ok || !json.credential || !json.machineId) {
-    throw new Error(json.error ?? `activate failed (${res.status})`);
+  let res: Response;
+  let json: unknown;
+  let timedOut = false;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, PAIRING_ACTIVATION_TIMEOUT_MS);
+  timeout.unref?.();
+  try {
+    res = await fetch(`${serverUrl}/api/community/daemon/activate`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${tokenId}`,
+      },
+      body: JSON.stringify({
+        hostname,
+        platform,
+        arch,
+        osRelease,
+        daemonVersion,
+        runtimeReport,
+        ...(expectedMachineId ? { expectedMachineId } : {}),
+      }),
+      signal: controller.signal,
+    });
+    json = await res.json().catch(() => null);
+  } catch (error) {
+    throw new PairingActivationError(
+      timedOut
+        ? "activation timed out before commit status was known"
+        : error instanceof Error ? error.message : String(error),
+      "unknown",
+    );
+  } finally {
+    clearTimeout(timeout);
   }
-  return { credential: json.credential, machineId: json.machineId };
+  if (!res.ok) {
+    const parsed = CommunityDaemonActivateErrorResponseSchema.safeParse(json);
+    throw new PairingActivationError(
+      parsed.success ? parsed.data.error : `activate failed (${res.status})`,
+      res.status >= 400 && res.status < 500 && parsed.success
+        ? parsed.data.sessionOutcome
+        : "unknown",
+    );
+  }
+  const parsed = CommunityDaemonActivateResponseSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new PairingActivationError("activate returned an invalid response", "unknown");
+  }
+  return { credential: parsed.data.credential, machineId: parsed.data.machineId };
+}
+
+class PairingActivationError extends Error {
+  constructor(
+    message: string,
+    readonly sessionOutcome: "not_committed" | "unknown",
+  ) {
+    super(message);
+    this.name = "PairingActivationError";
+  }
 }
 
 async function resolveMachineIdentity(serverUrl: string, credential: string): Promise<string> {
@@ -883,10 +969,8 @@ interface PreparedStart {
 }
 
 async function prepareDaemonStart(opts: DaemonStartOpts): Promise<PreparedStart> {
-  const serverUrl = opts.serverUrl || process.env.ALOOK_SERVER_URL;
-  const wsUrl = opts.wsUrl || process.env.ALOOK_SERVER_WS_URL;
-  if (!serverUrl) throw new Error("Server URL required — pass --server-url or set ALOOK_SERVER_URL");
-  if (!wsUrl) throw new Error("WebSocket URL required — pass --ws-url or set ALOOK_SERVER_WS_URL");
+  const serverUrl = opts.serverUrl || process.env.ALOOK_SERVER_URL || DEFAULT_SERVER_URL;
+  const wsUrl = opts.wsUrl || process.env.ALOOK_SERVER_WS_URL || DEFAULT_WS_URL;
   if (!opts.machineKey.startsWith("cmt_") && !opts.machineKey.startsWith("cmk_")) {
     throw new Error("invalid machine key format — expected `cmt_` or `cmk_`");
   }
@@ -897,12 +981,19 @@ async function prepareDaemonStart(opts: DaemonStartOpts): Promise<PreparedStart>
   const persisted = opts.machineKey.startsWith("cmk_")
     ? findExistingCredentialForBearer(baseDir, opts.machineKey)
     : null;
+  const reconnectMachineId = opts.machineKey.startsWith("cmt_")
+    && opts.expectedMachineId
+    && opts.resumeRequestId
+    ? validateMachineId(opts.expectedMachineId)
+    : undefined;
   let coarseLockPath: string | null = null;
   let launchLockPath: string | null = null;
   try {
     let machineKey = persisted?.credential;
-    let machineId = persisted ? validateMachineId(persisted.machineId) : undefined;
-    if (machineKey && machineId) {
+    let machineId = persisted
+      ? validateMachineId(persisted.machineId)
+      : reconnectMachineId;
+    if (machineId) {
       launchLockPath = acquireLaunchLock(baseDir, machineId, ownerToken, opts.resumeRequestId);
     } else {
       coarseLockPath = acquireCoarseLock(baseDir, ownerToken);
@@ -915,6 +1006,7 @@ async function prepareDaemonStart(opts: DaemonStartOpts): Promise<PreparedStart>
       .filter((runtime) => runtime.status === "healthy")
       .map((runtime) => runtime.id);
     if (opts.machineKey.startsWith("cmt_")) {
+      opts.onActivationAttempt?.();
       const activated = await activatePairingToken(
         serverUrl,
         opts.machineKey,
@@ -924,9 +1016,16 @@ async function prepareDaemonStart(opts: DaemonStartOpts): Promise<PreparedStart>
         os.release(),
         daemonVersion,
         runtimeReport,
+        opts.expectedMachineId,
       );
       machineKey = activated.credential;
       machineId = validateMachineId(activated.machineId);
+      if (
+        opts.expectedMachineId &&
+        machineId !== validateMachineId(opts.expectedMachineId)
+      ) {
+        throw new Error("activate returned a different machine identity");
+      }
     } else {
       machineKey ??= opts.machineKey;
       machineId ??= validateMachineId(await resolveMachineIdentity(serverUrl, opts.machineKey));
@@ -940,6 +1039,13 @@ async function prepareDaemonStart(opts: DaemonStartOpts): Promise<PreparedStart>
       wsUrl,
       daemonVersion,
     });
+    if (
+      process.env.NODE_ENV === "test" &&
+      process.env.ALOOK_DAEMON_TEST_FAIL_AFTER_ACTIVATE === "1" &&
+      opts.expectedMachineId
+    ) {
+      throw new Error("test-gated daemon start failure after activation");
+    }
     if (coarseLockPath) removeOwnedFile(coarseLockPath, process.pid, ownerToken);
     const startedAt = new Date().toISOString();
     return {
@@ -1008,6 +1114,84 @@ export async function daemonStartById(opts: {
     baseDir,
     foreground: opts.foreground,
   });
+}
+
+function pidOwnershipEqual(a: DaemonPidFile | null, b: DaemonPidFile | null): boolean {
+  if (!a || !b) return a === b;
+  return a.pid === b.pid
+    && a.machineId === b.machineId
+    && a.startedAt === b.startedAt
+    && a.ownerToken === b.ownerToken;
+}
+
+/**
+ * Exact-machine reconnect. Replacement ownership is acquired before the old
+ * PID is touched and held through activation plus replacement readiness.
+ */
+export async function daemonReconnect(
+  opts: DaemonReconnectOpts,
+  deps: DaemonReconnectDeps = {},
+): Promise<void> {
+  if (!opts.machineKey.startsWith("cmt_")) {
+    throw new Error("daemon reconnect requires a cmt_ pairing token");
+  }
+  const machineId = validateMachineId(opts.id);
+  const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
+  const launch = readDaemonLaunchRecord(baseDir, machineId);
+  const pidPath = pidfilePathById(baseDir, machineId);
+  const before = readPidFile(pidPath);
+  if (
+    before &&
+    (before.machineId !== machineId || !before.startedAt || !before.ownerToken)
+  ) {
+    throw new Error("daemon reconnect cannot verify the current pid ownership tuple");
+  }
+
+  const requestId = crypto.randomUUID();
+  const replacement = acquireDaemonReplacementLock({ baseDir, machineId, requestId });
+  let oldStopped = false;
+  let activationAttempted = false;
+  try {
+    const owned = readPidFile(pidPath);
+    if (!pidOwnershipEqual(before, owned)) {
+      throw new Error("daemon ownership changed after reconnect lock acquisition");
+    }
+    if (owned && (deps.isProcessAlive ?? isProcessAlive)(owned.pid)) {
+      await (deps.stopExactDaemonPid ?? stopExactDaemonPid)(owned.pid);
+      oldStopped = true;
+      removePidFileIfMatches(pidPath, owned);
+    } else if (owned) {
+      removePidFileIfMatches(pidPath, owned);
+    }
+
+    try {
+      await (deps.start ?? daemonStart)({
+        machineKey: opts.machineKey,
+        serverUrl: opts.serverUrl ?? launch.serverUrl,
+        wsUrl: opts.wsUrl ?? launch.wsUrl,
+        baseDir,
+        resumeRequestId: requestId,
+        expectedMachineId: machineId,
+        onActivationAttempt: () => { activationAttempted = true; },
+      });
+    } catch (error) {
+      const canRestoreOldEpoch = !activationAttempted
+        || (error instanceof PairingActivationError && error.sessionOutcome === "not_committed");
+      if (oldStopped && canRestoreOldEpoch) {
+        try {
+          await (deps.resume ?? daemonResume)({ id: machineId, baseDir, requestId });
+        } catch (rollbackError) {
+          throw new AggregateError(
+            [error, rollbackError],
+            "reconnect failed before rotation and the prior daemon could not be resumed",
+          );
+        }
+      }
+      throw error;
+    }
+  } finally {
+    removeReplacementLockIfMatches(replacement.path, replacement.lock);
+  }
 }
 
 function runnerArguments(): string[] {

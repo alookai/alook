@@ -1,8 +1,9 @@
+import { parseAttemptedCountReceipt } from "@alook/shared";
 import type { DiagnosticCollectPayload } from "@alook/shared";
 import { wsDoFetch } from "@/lib/broadcast";
 
 export type DiagnosticDeliveryOutcome =
-  | { kind: "delivered"; sent: number }
+  | { kind: "attempted"; attempted: number }
   | { kind: "offline" }
   | { kind: "ambiguous" };
 
@@ -24,13 +25,14 @@ export async function pushDiagnosticReportToMachine(
       { label: machineId, type: "diagnostics:collect" },
     );
     if (!response.ok) return { kind: "ambiguous" };
-    const result = await response.json() as { sent?: unknown };
-    if (!Number.isSafeInteger(result.sent) || (result.sent as number) < 0) {
-      return { kind: "ambiguous" };
-    }
-    return (result.sent as number) === 0
+    const attempted = parseAttemptedCountReceipt(await response.json(), {
+      // A legacy sent-only ws-do predates deterministic deadline ownership,
+      // so it cannot establish a safe offline/attempted result for new web.
+      allowLegacySentOnly: false,
+    });
+    return attempted === 0
       ? { kind: "offline" }
-      : { kind: "delivered", sent: result.sent as number };
+      : { kind: "attempted", attempted };
   } catch {
     return { kind: "ambiguous" };
   }

@@ -8,6 +8,7 @@ import {
   communityServerMember,
   communityMention,
   communityMessage,
+  communityReadState,
 } from "../../src/db/community-schema";
 
 // Mocks a Drizzle DB where each insert()/select() chain resolves to a
@@ -369,6 +370,8 @@ describe("listUserServers — mention aggregate for the rail badge", () => {
     const joinedTables = sub.innerJoins.map((j: any) => j.table);
     expect(joinedTables).toContain(communityMessage);
     expect(joinedTables).toContain(communityChannel);
+    expect(sub.leftJoins).toHaveLength(1);
+    expect(sub.leftJoins[0].table).toBe(communityReadState);
     // groupBy on channel.serverId so the row shape is (serverId, count).
     expect(sub.groupBy).toBe(communityChannel.serverId);
     expect(sub.aliased).toBe("mention_counts");
@@ -459,6 +462,13 @@ describe("listUserServers — filter predicates (source-level pin)", () => {
     // bare "mention" string.
     expect(src).toMatch(/communityMention\.kind/);
     expect(src).toMatch(/MENTION_KIND\.MENTION/);
+  });
+
+  it("gates the rail count by current policy and the aligned read cursor", () => {
+    expect(src).toMatch(/notificationEligibleSql/);
+    expect(src).toMatch(/channelReadableSql/);
+    expect(src).toMatch(/communityMessage\.seq/);
+    expect(src).toMatch(/communityReadState\.lastReadSeq/);
   });
 
   it("joins go through community_message → community_channel so DM mentions never land in the aggregate", () => {

@@ -48,8 +48,7 @@ const mockHardDeleteMessage = vi.fn()
 const mockRebindPendingAttachmentsToChild = vi.fn()
 
 const mockFanOutToChannel = vi.fn()
-const mockResolveChannelRecipients = vi.fn(async () => [] as string[])
-const mockDispatchMessageNotify = vi.fn(async () => {})
+const mockDispatchCommittedMessage = vi.fn(async () => {})
 const mockBroadcastToUser = vi.fn()
 const mockCheckMessageRateLimit = vi.fn()
 
@@ -145,11 +144,10 @@ vi.mock("@alook/shared", async () => {
 
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
-  resolveChannelRecipients: (...a: unknown[]) => mockResolveChannelRecipients(...a),
 }))
 
-vi.mock("@/lib/community/notify", () => ({
-  dispatchMessageNotify: (...a: unknown[]) => mockDispatchMessageNotify(...a),
+vi.mock("@/lib/community/message-dispatcher", () => ({
+  dispatchCommittedMessage: (...a: unknown[]) => mockDispatchCommittedMessage(...a),
 }))
 
 vi.mock("@/lib/broadcast", () => ({
@@ -438,13 +436,9 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(payload.kind).toBe("mention")
     expect(payload.userIds.sort()).toEqual(["u2", "u3"])
 
-    // MENTION_CREATE pushes now flow through the level-gated notify pipeline
-    // (not raw broadcastToUser). The @everyone expansion is handed to it as the
-    // mention set — @everyone counts as a mention (Gener #28), author excluded.
-    expect(mockDispatchMessageNotify).toHaveBeenCalledTimes(1)
-    const notifyArgs = mockDispatchMessageNotify.mock.calls[0]
-    const mentionedUserIds = (notifyArgs[4] as { mentionedUserIds: string[] }).mentionedUserIds
-    expect([...mentionedUserIds].sort()).toEqual(["u2", "u3"])
+    // Delivery receives only the committed identity. The dispatcher reads the
+    // mention rows back from D1 and derives policy/audience itself.
+    expect(mockDispatchCommittedMessage).toHaveBeenCalledWith({}, "m1", {})
   })
 
   it("resolves @Bob candidate via listMembers (name-projected) when content includes '@'", async () => {
@@ -491,7 +485,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(mockListMemberUserIds).not.toHaveBeenCalled()
   })
 
-  it("fans CHILD_CHANNEL_UPDATE to the parent when POSTing to a thread channel", async () => {
+  it("hands a thread message to the D1-backed dispatcher without route-owned parent fanout", async () => {
     // A channel row with a non-null parentChannelId is a thread. Server-side
     // detection replaced the client-side branch: the client always POSTs to
     // /channels/{id}, and this route must recognize the thread and fan out
@@ -515,14 +509,8 @@ describe("POST /api/community/channels/[id]/messages", () => {
     const res = await POST(postReq({ content: "in-thread" }), ctx)
     expect(res.status).toBe(201)
 
-    const childUpdateCall = mockFanOutToChannel.mock.calls.find(
-      (c) => c[1]?.type === WS_EVENTS.CHILD_CHANNEL_UPDATE,
-    )
-    expect(childUpdateCall).toBeTruthy()
-    expect(childUpdateCall![0]).toBe("c-parent")
-    expect(childUpdateCall![1].parentChannelId).toBe("c-parent")
-    expect(childUpdateCall![1].channelId).toBe("c1")
-    expect(childUpdateCall![1].changes.messageCount).toBe(7)
+    expect(mockDispatchCommittedMessage).toHaveBeenCalledWith({}, "m1", {})
+    expect(mockFanOutToChannel).not.toHaveBeenCalled()
   })
 
   it("does NOT fan CHILD_CHANNEL_UPDATE for a top-level channel (regression)", async () => {

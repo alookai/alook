@@ -29,6 +29,13 @@ import type { SettingsSection } from "@/components/community/settings/settings-t
 import type { Member, InviteRow } from "@/lib/community/models/people"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { SettingsShell, SettingsShellPanel, type SettingsShellTab } from "./settings-shell"
+import { useBots } from "@/hooks/community/use-bots"
+import {
+  resolveServerNotificationDisplayLevel,
+  useBotNotificationSetting,
+  useSetBotNotificationSetting,
+} from "@/hooks/community/use-notification-settings"
+import { toastApiError } from "@/lib/api/client"
 
 const SETTABLE_ROLES: Role[] = ["admin", "member"]
 
@@ -102,7 +109,7 @@ export function ServerSettings({
         <SettingsShellPanel value="overview"><SettingsOverview serverId={serverId} serverName={serverName} serverDescription={serverDescription} serverIcon={serverIcon} onUploadIcon={onUploadIcon} onUpdateServer={onUpdateServer} onRequestDelete={() => setConfirmDelete(true)} /></SettingsShellPanel>
         <SettingsShellPanel value="members"><SettingsMembers members={members} loading={membersLoading} loadingMore={membersLoadingMore} hasMore={membersHasMore} total={membersTotal} onLoadMore={onLoadMoreMembers} onSearch={onSearchMembers} onOpenProfile={onOpenProfile} onKickMember={onKickMember} onSetRole={onSetRole} /></SettingsShellPanel>
         <SettingsShellPanel value="invites"><SettingsInvites invites={invites} loading={invitesLoading} onRevokeInvite={onRevokeInvite} onCopyInvite={onCopyInvite} /></SettingsShellPanel>
-        <SettingsShellPanel value="notifications"><SettingsNotifications level={notifLevel ?? notifLevelDisplay("mentions")} onSetLevel={onSetNotifLevel} /></SettingsShellPanel>
+        <SettingsShellPanel value="notifications"><SettingsNotifications serverId={serverId} level={notifLevel} onSetLevel={onSetNotifLevel} /></SettingsShellPanel>
       </SettingsShell>
     </>
   )
@@ -364,25 +371,51 @@ function SettingsInvites({ invites, loading, onRevokeInvite, onCopyInvite }: {
   )
 }
 
-function SettingsNotifications({ level, onSetLevel }: { level: string; onSetLevel?: (l: string) => void }) {
+export function SettingsNotifications({ serverId, level, onSetLevel }: { serverId: string; level?: string; onSetLevel?: (l: string) => void }) {
+  const { bots } = useBots()
+  const [botId, setBotId] = useState<string | null>(null)
+  const botSetting = useBotNotificationSetting(botId, { kind: "server", id: serverId })
+  const setBotSetting = useSetBotNotificationSetting()
+  const selectedLevel = botId
+    ? notifLevelDisplay((botSetting.data?.level ?? "all") as "all" | "mentions" | "nothing")
+    : resolveServerNotificationDisplayLevel(level)
   // Server-level dropdown = the three shared levels (no "Use Server Default"
   // sentinel — that's channel-only). Value/label/hint from the single source.
-  const levels: { value: string; label: string; hint: string }[] = NOTIF_LEVELS.map((l) => ({
+  const levels = NOTIF_LEVELS.map((l) => ({
     value: l.display,
+    raw: l.value,
     label: l.label,
     hint: l.value === "all" ? "Notify for every new message on this server" : l.hint,
   }))
+  const update = (display: string, raw: "all" | "mentions" | "nothing") => {
+    if (!botId) return onSetLevel?.(display)
+    setBotSetting.mutate({ botId, scope: { kind: "server", id: serverId }, level: raw }, {
+      onError: (error) => toastApiError(error, "Failed to update bot notifications"),
+    })
+  }
   return (
     <div className="mx-auto max-w-md space-y-2">
       <div className="mb-3 text-sm text-muted-foreground">Default notifications for this server</div>
+      {bots.length > 0 && (
+        <div className="mb-4 flex flex-wrap gap-1" aria-label="Notification actor">
+          <Button size="sm" variant={botId === null ? "secondary" : "ghost"} onClick={() => setBotId(null)}>You</Button>
+          {bots.map((bot) => (
+            <Button key={bot.id} size="sm" variant={botId === bot.id ? "secondary" : "ghost"} onClick={() => setBotId(bot.id)}>{bot.name}</Button>
+          ))}
+        </div>
+      )}
+      {botId && botSetting.isError && (
+        <div className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">This bot cannot access this server.</div>
+      )}
       {levels.map((l) => (
         <button
           key={l.value}
-          onClick={() => onSetLevel?.(l.value)}
-          className={`flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors ${level === l.value ? "bg-accent" : "hover:bg-accent/40"}`}
+          onClick={() => update(l.value, l.raw)}
+          disabled={Boolean(botId && (botSetting.isLoading || botSetting.isError || setBotSetting.isPending))}
+          className={`flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors disabled:opacity-50 ${selectedLevel === l.value ? "bg-accent" : "hover:bg-accent/40"}`}
         >
-          <span className={`grid size-4 shrink-0 place-items-center rounded-full border ${level === l.value ? "border-primary" : "border-muted-foreground"}`}>
-            {level === l.value && <span className="size-2 rounded-full bg-primary" />}
+          <span className={`grid size-4 shrink-0 place-items-center rounded-full border ${selectedLevel === l.value ? "border-primary" : "border-muted-foreground"}`}>
+            {selectedLevel === l.value && <span className="size-2 rounded-full bg-primary" />}
           </span>
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium">{l.label}</div>
@@ -390,6 +423,7 @@ function SettingsNotifications({ level, onSetLevel }: { level: string; onSetLeve
           </div>
         </button>
       ))}
+      <p className="pt-2 text-xs text-muted-foreground">Changing this setting clears existing unread in every affected channel.</p>
     </div>
   )
 }

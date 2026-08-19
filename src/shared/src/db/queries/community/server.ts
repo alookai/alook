@@ -7,6 +7,7 @@ import {
   communityServerMember,
   communityMention,
   communityMessage,
+  communityReadState,
 } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
@@ -15,6 +16,8 @@ import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 import { MENTION_KIND } from "../../../constants/community";
 import { withUniqueDiscriminator } from "../user";
 import { parseNameAndTag } from "../../../lib/discriminator";
+import { notificationEligibleSql } from "./notification-eligibility";
+import { channelReadableSql } from "./channel";
 
 export async function createServer(
   db: Database,
@@ -188,11 +191,34 @@ export async function listUserServers(db: Database, userId: string) {
     .from(communityMention)
     .innerJoin(communityMessage, eq(communityMessage.id, communityMention.messageId))
     .innerJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
+    .leftJoin(
+      communityReadState,
+      and(
+        eq(communityReadState.userId, userId),
+        eq(communityReadState.channelId, communityChannel.id)
+      )
+    )
     .where(
       and(
         eq(communityMention.userId, userId),
         eq(communityMention.read, 0),
-        eq(communityMention.kind, MENTION_KIND.MENTION)
+        eq(communityMention.kind, MENTION_KIND.MENTION),
+        sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
+        channelReadableSql(userId, {
+          id: communityChannel.id,
+          type: communityChannel.type,
+          serverId: communityChannel.serverId,
+          parentChannelId: communityChannel.parentChannelId,
+        }),
+        notificationEligibleSql(
+          userId,
+          {
+            id: communityChannel.id,
+            serverId: communityChannel.serverId,
+            parentChannelId: communityChannel.parentChannelId,
+          },
+          { id: communityMessage.id }
+        )
       )
     )
     .groupBy(communityChannel.serverId)

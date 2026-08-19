@@ -15,7 +15,7 @@ describe("community/thread exports", () => {
   });
 });
 
-describe("listForumThreadsByActivity against real SQLite", () => {
+describe("listForumThreadsByCreatedAt against real SQLite", () => {
   let sqlite: Sqlite.Database;
   let db: ReturnType<typeof drizzle>;
 
@@ -44,6 +44,9 @@ describe("listForumThreadsByActivity against real SQLite", () => {
         tag TEXT NOT NULL,
         UNIQUE(message_id, tag)
       );
+      CREATE INDEX idx_channel_forum_created
+      ON community_channel(parent_channel_id, created_at DESC, id DESC)
+      WHERE type = 'thread' AND archived = 0 AND parent_message_id IS NOT NULL;
       CREATE TABLE user (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -66,7 +69,7 @@ describe("listForumThreadsByActivity against real SQLite", () => {
     `);
     insertChannel.run("t_new", "new activity", "thread", "forum_1", "m_new", 0, "2026-08-08T05:00:00.000Z", "2026-01-01T00:00:00.000Z");
     insertChannel.run("t_tie_b", "tie b", "thread", "forum_1", "m_tie_b", 0, "2026-08-08T04:00:00.000Z", "2026-01-02T00:00:00.000Z");
-    insertChannel.run("t_tie_a", "tie a", "thread", "forum_1", "m_tie_a", 0, "2026-08-08T04:00:00.000Z", "2026-01-03T00:00:00.000Z");
+    insertChannel.run("t_tie_a", "tie a", "thread", "forum_1", "m_tie_a", 0, "2026-08-08T04:00:00.000Z", "2026-01-02T00:00:00.000Z");
     insertChannel.run("t_created", "created fallback", "thread", "forum_1", "m_created", 0, null, "2026-08-08T02:00:00.000Z");
     insertChannel.run("t_archived", "archived", "thread", "forum_1", "m_archived", 1, "2026-08-09T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
     insertChannel.run("t_rootless", "rootless", "thread", "forum_1", null, 0, "2026-08-09T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
@@ -81,30 +84,48 @@ describe("listForumThreadsByActivity against real SQLite", () => {
 
   afterEach(() => sqlite.close());
 
-  it("orders by activity and pages stable timestamp ties without overlap", async () => {
-    const first = await threadQueries.listForumThreadsByActivity(db as never, {
+  it("keeps creation order when an older post has newer activity and pages ties without overlap", async () => {
+    const first = await threadQueries.listForumThreadsByCreatedAt(db as never, {
       parentChannelId: "forum_1",
       limit: 2,
     });
-    const second = await threadQueries.listForumThreadsByActivity(db as never, {
+    const second = await threadQueries.listForumThreadsByCreatedAt(db as never, {
       parentChannelId: "forum_1",
-      cursor: { activityAt: first[1]!.activityAt, id: first[1]!.id },
+      cursor: { createdAt: first[1]!.createdAt, id: first[1]!.id },
       limit: 3,
     });
 
-    expect(first.map((row) => row.id)).toEqual(["t_new", "t_tie_b"]);
-    expect(second.map((row) => row.id)).toEqual(["t_tie_a", "t_created"]);
-    expect(second[1]!.activityAt).toBe("2026-08-08T02:00:00.000Z");
+    expect(first.map((row) => row.id)).toEqual(["t_created", "t_tie_b"]);
+    expect(second.map((row) => row.id)).toEqual(["t_tie_a", "t_new"]);
+    expect(second[1]!.activityAt).toBe("2026-08-08T05:00:00.000Z");
     expect(new Set([...first, ...second].map((row) => row.id)).size).toBe(4);
   });
 
-  it("applies the tag and forum scope before the activity limit", async () => {
-    const rows = await threadQueries.listForumThreadsByActivity(db as never, {
+  it("applies the tag and forum scope before the creation limit", async () => {
+    const rows = await threadQueries.listForumThreadsByCreatedAt(db as never, {
       parentChannelId: "forum_1",
       tag: "bug",
       limit: 5,
     });
-    expect(rows.map((row) => row.id)).toEqual(["t_tie_a", "t_created"]);
+    expect(rows.map((row) => row.id)).toEqual(["t_created", "t_tie_a"]);
+  });
+
+  it("uses the forum creation index without a temp B-tree for the untagged feed", () => {
+    const plan = sqlite.prepare(`
+      EXPLAIN QUERY PLAN
+      SELECT id
+      FROM community_channel
+      WHERE parent_channel_id = ?
+        AND type = 'thread'
+        AND archived = 0
+        AND parent_message_id IS NOT NULL
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?
+    `).all("forum_1", 50) as Array<{ detail: string }>;
+    const details = plan.map((row) => row.detail);
+
+    expect(details.some((detail) => detail.includes("USING INDEX idx_channel_forum_created"))).toBe(true);
+    expect(details.some((detail) => detail.includes("USE TEMP B-TREE"))).toBe(false);
   });
 
   it("preserves SQLite BINARY participant tie ordering for case-sensitive ids", async () => {

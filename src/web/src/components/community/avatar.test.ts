@@ -39,11 +39,13 @@ describe("Avatar seed contract", () => {
     expect(html).not.toContain('data-slot="avatar-fallback"')
   })
 
-  it("keeps stored avatar sources out of the accessibility tree", () => {
-    for (const source of [
+  it("keeps stored avatar sources out of accessible labels", () => {
+    const sources = [
       serializeBeamSeed("private-seed"),
       "https://cdn.example.com/private-avatar.png",
-    ]) {
+    ]
+
+    for (const source of sources) {
       const element = Avatar({ label: source, seed: "usr_1" })
       const html = render({ label: source, seed: "usr_1" })
 
@@ -52,8 +54,10 @@ describe("Avatar seed contract", () => {
       expect(html).toContain('aria-hidden="true"')
       expect(html).not.toContain('role="img"')
       expect(html).not.toContain("aria-label")
-      expect(html).not.toContain(source)
     }
+
+    expect(render({ label: sources[0]!, seed: "usr_1" })).not.toContain(sources[0]!)
+    expect(render({ label: sources[1]!, seed: "usr_1" })).toContain(`src="${sources[1]}"`)
   })
 
   it("is stable for the same seed", () => {

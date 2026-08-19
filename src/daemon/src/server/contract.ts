@@ -43,10 +43,10 @@ export type {
   InboxPullRequest,
   InboxPullResponse,
   AckRequest,
+  AckResponse,
+  AckFailure,
   SendRequest,
   SendResponse,
-  CreatePostRequest,
-  CreatePostResponse,
   CommunityAgentReactAddResponse,
   MessageMarkRequest,
   MessageMarkListResponse,
@@ -82,6 +82,7 @@ export type {
 } from "@alook/shared/community-cli-contract";
 
 export {
+  CONTROL_HEARTBEAT_CAPABILITY,
   DM_SERVER,
   parseRef,
   formatRef,

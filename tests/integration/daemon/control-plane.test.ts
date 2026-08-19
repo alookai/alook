@@ -4,7 +4,7 @@
  * suite instead drives the ACTUAL production path end to end:
  *
  *   POST /api/community/channels/:id/messages (human, real HTTP)
- *     → fanOutToChannel → enqueueBotWakes (dev HTTP transport)
+ *     → committed message dispatcher → wake producer (dev HTTP transport)
  *     → alook-wake-worker (real process) → dispatchOneUnreadWake
  *     → sendWakeToMachine → alook-ws-do (real DO) → the daemon's real
  *       `WsControlChannel`, over a real WebSocket, receives `agent:wake`
@@ -128,7 +128,12 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
       receivedCommands.push(cmd)
     })
     channel.onResync(() => ({
-      ready: { runtimeReport: [{ id: "claude" }], runningAgents: [], daemonVersion: "0.1.7" },
+      ready: {
+        runtimeReport: [{ id: "claude" }],
+        runningAgents: [],
+        daemonVersion: "0.1.7",
+        capabilities: ["control-heartbeat-v1"],
+      },
       sessions: [],
       activities: [],
     }))
@@ -142,7 +147,7 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
     await opened
 
     // Human owner posts a real message — exercises the real wake-producer
-    // path (fanOutToChannel → enqueueBotWakes → dev HTTP transport →
+    // path (committed dispatcher → wake producer → dev HTTP transport →
     // wake-worker → forward-agent-wake → the DO → our open socket).
     const postRes = await sessionRequest(`/api/community/channels/${fixture.channelId}/messages`, cookie, {
       method: "POST",

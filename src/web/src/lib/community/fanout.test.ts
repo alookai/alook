@@ -62,11 +62,6 @@ vi.mock("../broadcast", () => ({
   broadcastToUsers: (...a: unknown[]) => mockBroadcastToUsers(...a),
 }))
 
-const mockEnqueueBotWakes = vi.fn()
-vi.mock("./wake-producer", () => ({
-  enqueueBotWakes: (...a: unknown[]) => mockEnqueueBotWakes(...a),
-}))
-
 const mockListMembers = vi.fn()
 const mockListMemberUserIds = vi.fn()
 const mockGetChannel = vi.fn()
@@ -87,7 +82,6 @@ import {
   fanOutToDM,
   fanOutStatusUpdate,
   broadcastToUserSafe,
-  resolveChannelRecipients,
 } from "./fanout"
 import { WS_EVENTS } from "@alook/shared"
 
@@ -230,58 +224,6 @@ describe("fanOutToServerMembers", () => {
     expect(mockBroadcastToUsers).toHaveBeenCalledTimes(1)
   })
 
-  it("keeps Web type and selected-branch retries as two independently labelled phases", async () => {
-    const typeQuery = vi.fn(async () => "text")
-    const scopeQuery = vi.fn(async () => ["u1"])
-    mockResolveChannelRecipientUserIds.mockImplementationOnce(async (_db, _channelId, runQuery) => {
-      await runQuery("channel-type", typeQuery)
-      return runQuery("scope-members", scopeQuery)
-    })
-
-    await expect(resolveChannelRecipients({} as never, "c1")).resolves.toEqual(["u1"])
-
-    expect(mockWithD1Retry).toHaveBeenCalledTimes(2)
-    expect(mockWithD1Retry.mock.calls.map((call) => call[1])).toEqual([
-      { route: "fanout:channel-type" },
-      { route: "fanout:scope-members" },
-    ])
-    expect(typeQuery).toHaveBeenCalledTimes(1)
-    expect(scopeQuery).toHaveBeenCalledTimes(1)
-  })
-
-  it("stops after a type-phase failure without starting the recipient phase", async () => {
-    const failure = new Error("bad channel type")
-    const scopeQuery = vi.fn(async () => ["u1"])
-    mockResolveChannelRecipientUserIds.mockImplementationOnce(async (_db, _channelId, runQuery) => {
-      await runQuery("channel-type", async () => { throw failure })
-      return runQuery("scope-members", scopeQuery)
-    })
-
-    await expect(resolveChannelRecipients({} as never, "c1")).rejects.toBe(failure)
-    expect(mockWithD1Retry).toHaveBeenCalledTimes(1)
-    expect(mockWithD1Retry.mock.calls[0]?.[1]).toEqual({ route: "fanout:channel-type" })
-    expect(scopeQuery).not.toHaveBeenCalled()
-  })
-
-  it("retries only the selected branch without re-reading channel type", async () => {
-    const typeQuery = vi.fn(async () => "text")
-    const scopeQuery = vi.fn()
-      .mockRejectedValueOnce(new Error("SQLITE_BUSY"))
-      .mockResolvedValueOnce(["u1"])
-    mockWithD1Retry.mockImplementation(async (fn, opts) => {
-      if ((opts as { route?: string }).route !== "fanout:scope-members") return fn()
-      try { return await fn() } catch { return fn() }
-    })
-    mockResolveChannelRecipientUserIds.mockImplementationOnce(async (_db, _channelId, runQuery) => {
-      await runQuery("channel-type", typeQuery)
-      return runQuery("scope-members", scopeQuery)
-    })
-
-    await expect(resolveChannelRecipients({} as never, "c1")).resolves.toEqual(["u1"])
-    expect(typeQuery).toHaveBeenCalledTimes(1)
-    expect(scopeQuery).toHaveBeenCalledTimes(2)
-  })
-
   it("contains no local reach classifier after delegating to shared", () => {
     const source = readFileSync(new URL("./fanout.ts", import.meta.url), "utf8")
     expect(source).not.toMatch(/\bchannelReach\b|\bisStoredChannelType\b|switch\s*\(\s*reach\s*\)/)
@@ -338,178 +280,6 @@ describe("fanOutStatusUpdate", () => {
       "fanout_status_update_failed",
       expect.objectContaining({ userId: "self1", err: expect.stringContaining("db down") }),
     )
-  })
-})
-
-describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for MESSAGE_CREATE with a wakeMessageRow", () => {
-  const wakeMessageRow = {
-    id: "msg_1",
-    seq: 7,
-    authorId: "u1",
-    channelId: "c1",
-  }
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockGetCloudflareContext.mockImplementation(() => ({ env: { DB: {} } }))
-    mockBroadcastToUser.mockResolvedValue(undefined)
-    mockBroadcastToUsers.mockResolvedValue(undefined)
-    mockEnqueueBotWakes.mockResolvedValue(undefined)
-  })
-
-  it("fanOutToChannel includes the actor in browser fan-out but excludes them from wakes", async () => {
-    mockResolveChannelRecipientUserIds.mockResolvedValue(["u1", "u2", "u3"])
-
-    await fanOutToChannel(
-      "c1",
-      { type: WS_EVENTS.MESSAGE_CREATE, channelId: "c1", message: {} as never } as never,
-      { excludeWakeUserId: "u1", wakeMessageRow },
-    )
-
-    expect(mockEnqueueBotWakes).toHaveBeenCalledTimes(1)
-    expect(mockEnqueueBotWakes).toHaveBeenCalledWith({
-      recipients: ["u2", "u3"],
-      channelId: "c1",
-      messageRow: wakeMessageRow,
-      mentionedUserIds: undefined,
-    })
-    expect(mockBroadcastToUsers).toHaveBeenCalledWith(
-      ["u1", "u2", "u3"],
-      expect.objectContaining({ type: WS_EVENTS.MESSAGE_CREATE }),
-    )
-  })
-
-  it("starts wake enqueue before a slow recipient broadcast settles", async () => {
-    let releaseBroadcast!: () => void
-    mockBroadcastToUsers.mockImplementation(
-      () => new Promise<void>((resolve) => {
-        releaseBroadcast = resolve
-      }),
-    )
-
-    const pending = fanOutToChannel(
-      "c1",
-      { type: WS_EVENTS.MESSAGE_CREATE, channelId: "c1", message: {} as never } as never,
-      {
-        excludeWakeUserId: "u1",
-        recipients: ["u1", "u2"],
-        wakeMessageRow,
-      },
-    )
-
-    expect(mockEnqueueBotWakes).toHaveBeenCalledTimes(1)
-    releaseBroadcast()
-    await pending
-  })
-
-  it("starts wake enqueue even when the bulk hop rejects", async () => {
-    mockBroadcastToUsers.mockRejectedValue(new Error("bulk down"))
-
-    await expect(fanOutToChannel(
-      "c1",
-      { type: WS_EVENTS.MESSAGE_CREATE, channelId: "c1", message: {} as never } as never,
-      {
-        excludeWakeUserId: "u1",
-        recipients: ["u1", "u2"],
-        wakeMessageRow,
-      },
-    )).resolves.toBeUndefined()
-
-    expect(mockEnqueueBotWakes).toHaveBeenCalledTimes(1)
-    expect(mockBroadcastToUsers).toHaveBeenCalledTimes(1)
-  })
-
-  it("fire-and-forget fanOut registers its waitUntil before recipient resolution settles", async () => {
-    const waitUntil = vi.fn()
-    mockGetCloudflareContext.mockImplementation(() => ({
-      env: { DB: {} },
-      ctx: { waitUntil },
-    }))
-    let releaseRecipients!: (ids: string[]) => void
-    mockResolveChannelRecipientUserIds.mockImplementationOnce(
-      () => new Promise<string[]>((resolve) => {
-        releaseRecipients = resolve
-      }),
-    )
-
-    const floatingFanout = fanOutToChannel(
-      "c1",
-      { type: WS_EVENTS.MESSAGE_CREATE, channelId: "c1", message: {} as never } as never,
-      {
-        excludeWakeUserId: "u1",
-        wakeMessageRow,
-      },
-    )
-
-    expect(waitUntil).toHaveBeenCalledTimes(1)
-    expect(mockEnqueueBotWakes).not.toHaveBeenCalled()
-
-    releaseRecipients(["u1", "u2"])
-    await waitUntil.mock.calls[0]![0]
-    expect(mockEnqueueBotWakes).toHaveBeenCalledTimes(1)
-    await floatingFanout
-  })
-
-  it("fanOutToDM enqueues wakes with channelId scope via listChannelMemberUserIds", async () => {
-    mockGetDM.mockResolvedValue({ id: "dm1" })
-    mockListChannelMemberUserIds.mockResolvedValue(["u1", "u2"])
-
-    await fanOutToDM(
-      "dm1",
-      { type: WS_EVENTS.MESSAGE_CREATE, channelId: "dm1", message: {} as never } as never,
-      { excludeWakeUserId: "u1", wakeMessageRow: { ...wakeMessageRow, channelId: "dm1" } },
-    )
-
-    expect(mockListChannelMemberUserIds).toHaveBeenCalledWith(expect.anything(), "dm1")
-    expect(mockEnqueueBotWakes).toHaveBeenCalledTimes(1)
-    expect(mockEnqueueBotWakes).toHaveBeenCalledWith({
-      recipients: ["u2"],
-      channelId: "dm1",
-      messageRow: { ...wakeMessageRow, channelId: "dm1" },
-      mentionedUserIds: undefined,
-    })
-  })
-
-  it("does not enqueue wakes when wakeMessageRow is omitted", async () => {
-    mockResolveChannelRecipientUserIds.mockResolvedValue(["u1", "u2"])
-
-    await fanOutToChannel("c1", {
-      type: WS_EVENTS.MESSAGE_CREATE,
-      channelId: "c1",
-      message: {} as never,
-    } as never)
-
-    expect(mockEnqueueBotWakes).not.toHaveBeenCalled()
-  })
-
-  it("does not enqueue wakes for non-MESSAGE_CREATE events even with a wakeMessageRow", async () => {
-    mockResolveChannelRecipientUserIds.mockResolvedValue(["u1", "u2"])
-
-    await fanOutToChannel(
-      "c1",
-      {
-        type: WS_EVENTS.CHILD_CHANNEL_UPDATE,
-        parentChannelId: "parent1",
-        channelId: "c1",
-        changes: { messageCount: 1, lastMessageAt: "2026-01-01T00:00:00.000Z" },
-      } as never,
-      { wakeMessageRow } as never,
-    )
-
-    expect(mockEnqueueBotWakes).not.toHaveBeenCalled()
-  })
-
-  it("a failing enqueueBotWakes does not reject fanOutToChannel", async () => {
-    mockResolveChannelRecipientUserIds.mockResolvedValue(["u1"])
-    mockEnqueueBotWakes.mockRejectedValue(new Error("queue down"))
-
-    await expect(
-      fanOutToChannel(
-        "c1",
-        { type: WS_EVENTS.MESSAGE_CREATE, channelId: "c1", message: {} as never } as never,
-        { wakeMessageRow },
-      ),
-    ).resolves.toBeUndefined()
   })
 })
 

@@ -70,6 +70,7 @@ export type {
 // Diagnostic report contract (neutral schemas/constants shared by HTTP, WS,
 // daemon, and the D1 query layer).
 export * from "./diagnostics-contract";
+export { compareAsciiSqliteBinary } from "./lib/sqlite-binary";
 
 // Constants
 export {
@@ -260,6 +261,7 @@ export {
   CommunityPairTokenResponseSchema,
   CommunityDaemonActivateRequestSchema,
   CommunityDaemonActivateResponseSchema,
+  CommunityDaemonActivateErrorResponseSchema,
   CommunityDaemonEnrollAgentRequestSchema,
   CommunityDaemonEnrollAgentResponseSchema,
   HostReadyMessageSchema,
@@ -269,6 +271,8 @@ export {
   AgentTypingStopMessageSchema,
   AgentSessionMessageSchema,
   AgentWakeAckMessageSchema,
+  MachineHeartbeatAckMessageSchema,
+  DiagnosticCommandAckMessageSchema,
   COMMUNITY_RUNTIME_ID_MAX,
   COMMUNITY_RUNTIME_VERSION_MAX,
   COMMUNITY_RUNTIME_LIST_MAX,
@@ -282,7 +286,6 @@ export {
   CommunityAgentReadRequestSchema,
   CommunityAgentResolveRequestSchema,
   CommunityAgentListChannelsRequestSchema,
-  CommunityAgentCreatePostRequestSchema,
   CommunityAgentListMembersRequestSchema,
   CommunityAgentChannelMemberRequestSchema,
   CommunityAgentJoinServerRequestSchema,
@@ -360,6 +363,7 @@ export type {
   CommunityPairTokenResponse,
   CommunityDaemonActivateRequest,
   CommunityDaemonActivateResponse,
+  CommunityDaemonActivateErrorResponse,
   CommunityDaemonEnrollAgentRequest,
   CommunityDaemonEnrollAgentResponse,
   HostReadyMessage,
@@ -369,6 +373,8 @@ export type {
   AgentTypingStopMessage,
   AgentSessionMessage,
   AgentWakeAckMessage,
+  MachineHeartbeatAckMessage,
+  DiagnosticCommandAckMessage,
   CommunityBotCreateRequest,
   CommunityBotPatchRequest,
   CommunityBotAddToServerRequest,
@@ -420,6 +426,8 @@ export type {
   InboxPullRequest as CommunityCliInboxPullRequest,
   InboxPullResponse as CommunityCliInboxPullResponse,
   AckRequest as CommunityCliAckRequest,
+  AckResponse as CommunityCliAckResponse,
+  AckFailure as CommunityCliAckFailure,
   SendRequest as CommunityCliSendRequest,
   SendResponse as CommunityCliSendResponse,
   CommunityAgentReactAddResponse,
@@ -452,7 +460,15 @@ export type {
   HostBotAuditEventFrame,
   BotAuditEventPayload,
 } from "./community-cli-contract";
-export { DM_SERVER, parseRef, formatRef, formatCanonicalRef, parseSeq, formatSeq } from "./community-cli-contract";
+export {
+  CONTROL_HEARTBEAT_CAPABILITY,
+  DM_SERVER,
+  parseRef,
+  formatRef,
+  formatCanonicalRef,
+  parseSeq,
+  formatSeq,
+} from "./community-cli-contract";
 export type { CanonicalRefScope } from "./community-cli-contract";
 
 export type {
@@ -480,7 +496,27 @@ export {
   modelNameFromSelect,
 } from "./community/bot-model";
 
-export { sendWakeToMachine, buildUnreadWakeCommand, dispatchOneUnreadWake } from "./community/wake-dispatch";
+export {
+  sendWakeToMachine,
+  buildUnreadWakeCommand,
+  dispatchOneUnreadWake,
+} from "./community/wake-dispatch";
+export { parseAttemptedCountReceipt } from "./transport-receipt";
+export { parseStrictFailedSubset } from "./strict-failed-subset";
+export type { StrictFailedSubsetOptions } from "./strict-failed-subset";
+export {
+  MESSAGE_DELIVERY_BODY_MAX_BYTES,
+  MESSAGE_DELIVERY_MAX_EVENTS_PER_USER,
+  MESSAGE_DELIVERY_MAX_USERS,
+  parseMessageDeliveryBatch,
+  serializeMessageDeliveryBatch,
+} from "./community-message-delivery";
+export type {
+  MessageDeliveryBatch,
+  MessageDeliveryBatchParseResult,
+  MessageDeliveryMemberAdded,
+  MessageDeliveryPartial,
+} from "./community-message-delivery";
 export type { DispatchOneWakeResult } from "./community/wake-dispatch";
 export type { WakePayload, BuildUnreadWakeResult } from "./community/wake-dispatch";
 

@@ -12,6 +12,7 @@ import { user } from "../../schema";
 import type { Database } from "../../index";
 import { listParticipatingThreadIds } from "./thread";
 import { reachIsParticipantSet } from "../../../utils/community-roles";
+import { hasUnreadAttentionSql, notificationEligibleSql } from "./notification-eligibility";
 
 export interface UnreadChannelRow {
   channelId: string;
@@ -25,6 +26,10 @@ export interface UnreadChannelRow {
   // null for a top-level channel; set for a child thread. The
   // inbox route uses this to nest child unreads under their parent channel.
   parentChannelId: string | null;
+}
+
+export interface EligibleUnreadChannelRow extends UnreadChannelRow {
+  mentionCount: number;
 }
 
 export interface UnreadForumOpenerRow {
@@ -193,6 +198,97 @@ export async function listUnreadChannels(
 }
 
 /**
+ * Web Inbox channel summary over the same attention-eligible unread set used
+ * by bot pull/snapshot and wake delivery. Policy filtering happens before the
+ * aggregate, so its timestamp and mention count describe the eligible subset
+ * rather than raw channel backlog.
+ */
+export async function listEligibleUnreadChannels(
+  db: Database,
+  userId: string,
+  visibleChannelIds: string[]
+): Promise<EligibleUnreadChannelRow[]> {
+  if (visibleChannelIds.length === 0) return [];
+
+  const rows = (
+    await Promise.all(
+      chunk(visibleChannelIds, D1_MAX_IN_PARAMS).map((ids) =>
+        db
+          .select({
+            channelId: communityChannel.id,
+            channelName: communityChannel.name,
+            serverId: communityChannel.serverId,
+            serverName: communityServer.name,
+            type: communityChannel.type,
+            parentChannelId: communityChannel.parentChannelId,
+            lastMessageAt: sql<string>`MAX(${communityMessage.createdAt})`,
+            mentionCount: sql<number>`SUM(CASE WHEN ${hasUnreadAttentionSql(userId, communityMessage.id)} THEN 1 ELSE 0 END)`,
+          })
+          .from(communityMessage)
+          .innerJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
+          .innerJoin(communityServer, eq(communityServer.id, communityChannel.serverId))
+          .innerJoin(
+            communityServerMember,
+            and(
+              eq(communityServerMember.serverId, communityChannel.serverId),
+              eq(communityServerMember.userId, userId)
+            )
+          )
+          .leftJoin(
+            communityReadState,
+            and(
+              eq(communityReadState.channelId, communityChannel.id),
+              eq(communityReadState.userId, userId)
+            )
+          )
+          .where(
+            and(
+              inArray(communityChannel.id, ids),
+              eq(communityChannel.archived, 0),
+              or(
+                and(
+                  isNotNull(communityReadState.id),
+                  gt(
+                    communityMessage.seq,
+                    sql<number>`COALESCE(${communityReadState.lastReadSeq}, 0)`
+                  )
+                ),
+                and(
+                  isNull(communityReadState.id),
+                  gt(communityMessage.createdAt, communityServerMember.joinedAt)
+                )
+              ),
+              notificationEligibleSql(
+                userId,
+                {
+                  id: communityChannel.id,
+                  serverId: communityChannel.serverId,
+                  parentChannelId: communityChannel.parentChannelId,
+                },
+                {
+                  id: communityMessage.id,
+                }
+              )
+            )
+          )
+          .groupBy(communityChannel.id)
+      )
+    )
+  ).flat();
+
+  const notifyScopedIds = rows
+    .filter((row) => reachIsParticipantSet(row.type))
+    .map((row) => row.channelId);
+  const participatingIds = notifyScopedIds.length > 0
+    ? new Set(await listParticipatingThreadIds(db, notifyScopedIds, userId))
+    : new Set<string>();
+
+  return rows.filter(
+    (row) => !reachIsParticipantSet(row.type) || participatingIds.has(row.channelId)
+  );
+}
+
+/**
  * Project every unread forum opener under an already-authorized parent scope.
  *
  * `forumParentIds` is intentionally supplied by the caller after visibility
@@ -266,6 +362,17 @@ export async function listUnreadForumOpeners(
                   isNull(communityReadState.id),
                   gt(communityMessage.createdAt, communityServerMember.joinedAt)
                 )
+              ),
+              notificationEligibleSql(
+                userId,
+                {
+                  id: communityChannel.id,
+                  serverId: communityChannel.serverId,
+                  parentChannelId: communityChannel.parentChannelId,
+                },
+                {
+                  id: communityMessage.id,
+                }
               )
             )
           )
@@ -483,4 +590,86 @@ export async function listUnreadDms(
       otherUserImage: r.otherUserImage,
       lastMessageAt: r.lastMessageAt!,
     }));
+}
+
+/** DM counterpart of `listEligibleUnreadChannels`. */
+export async function listEligibleUnreadDms(
+  db: Database,
+  userId: string
+): Promise<UnreadDmRow[]> {
+  const selfRows = await db
+    .select({ channelId: communityChannelMember.channelId })
+    .from(communityChannelMember)
+    .innerJoin(communityChannel, eq(communityChannel.id, communityChannelMember.channelId))
+    .where(
+      and(
+        eq(communityChannelMember.userId, userId),
+        eq(communityChannelMember.relation, "access"),
+        eq(communityChannel.type, "dm")
+      )
+    );
+  const dmChannelIds = selfRows.map((row) => row.channelId);
+  if (dmChannelIds.length === 0) return [];
+
+  const rows = (
+    await Promise.all(
+      chunk(dmChannelIds, D1_MAX_IN_PARAMS).map((ids) =>
+        db
+          .select({
+            channelId: communityChannel.id,
+            otherUserId: user.id,
+            otherUserName: user.name,
+            otherUserImage: user.image,
+            lastMessageAt: sql<string>`MAX(${communityMessage.createdAt})`,
+          })
+          .from(communityMessage)
+          .innerJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
+          .innerJoin(
+            communityChannelMember,
+            and(
+              eq(communityChannelMember.channelId, communityChannel.id),
+              eq(communityChannelMember.relation, "access"),
+              ne(communityChannelMember.userId, userId)
+            )
+          )
+          .innerJoin(user, eq(user.id, communityChannelMember.userId))
+          .leftJoin(
+            communityReadState,
+            and(
+              eq(communityReadState.channelId, communityChannel.id),
+              eq(communityReadState.userId, userId)
+            )
+          )
+          .where(
+            and(
+              inArray(communityChannel.id, ids),
+              isNull(user.deletedAt),
+              gt(
+                communityMessage.seq,
+                sql<number>`COALESCE(${communityReadState.lastReadSeq}, 0)`
+              ),
+              notificationEligibleSql(
+                userId,
+                {
+                  id: communityChannel.id,
+                  serverId: communityChannel.serverId,
+                  parentChannelId: communityChannel.parentChannelId,
+                },
+                {
+                  id: communityMessage.id,
+                }
+              )
+            )
+          )
+          .groupBy(communityChannel.id, user.id)
+      )
+    )
+  ).flat();
+
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    if (seen.has(row.channelId)) return false;
+    seen.add(row.channelId);
+    return true;
+  });
 }

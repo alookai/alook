@@ -742,7 +742,10 @@ describe("getInboxSnapshotForAgent", () => {
     const channelTypes = channels.map(({ id, type }) => ({ id, type }));
     const aggregated = Array.from({ length: 101 }, (_, i) => ({
       channelId: `ch_${i}`, pendingCount: i + 1, firstPendingSeq: i + 2,
-      latestSeq: i + 3, latestSenderId: `sender_${i}`, mentionCount: i % 2,
+      latestSeq: i + 3, mentionCount: i % 2,
+    }));
+    const latestMessages = Array.from({ length: 101 }, (_, i) => ({
+      channelId: `ch_${i}`, seq: i + 3, authorId: `sender_${i}`,
     }));
     const firstSenderChunk = Array.from({ length: 100 }, (_, i) => ({
       id: `sender_${i}`, name: `Sender${i}`, discriminator: String(i).padStart(4, "0"),
@@ -750,6 +753,7 @@ describe("getInboxSnapshotForAgent", () => {
     const db = createSequentialDb([
       [{ serverId: "srv_1" }], channels, [], [], [], channelTypes.slice(0, 100), channelTypes.slice(100),
       aggregated.slice(0, 100), aggregated.slice(100),
+      latestMessages.slice(0, 50), latestMessages.slice(50, 100), latestMessages.slice(100),
       firstSenderChunk, [], // sender_100 is absent in the second hydration chunk
     ]);
     const out = await agentInbox.getInboxSnapshotForAgent(db, "bot_1");
@@ -782,7 +786,6 @@ describe("getInboxSnapshotForAgent", () => {
           pendingCount: 3,
           firstPendingSeq: 5,
           latestSeq: 7,
-          latestSenderId: "u_1",
           mentionCount: 1,
         },
         {
@@ -790,9 +793,12 @@ describe("getInboxSnapshotForAgent", () => {
           pendingCount: 1,
           firstPendingSeq: 9,
           latestSeq: 9,
-          latestSenderId: "u_2",
           mentionCount: 0,
         },
+      ],
+      [
+        { channelId: "ch_1", seq: 7, authorId: "u_1" },
+        { channelId: "ch_2", seq: 9, authorId: "u_2" },
       ],
       [
         { id: "u_1", name: "Alice", discriminator: "1234" },

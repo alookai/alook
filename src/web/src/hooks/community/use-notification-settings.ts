@@ -1,6 +1,6 @@
 "use client"
 
-import { useQuery, type UseQueryResult } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query"
 import { notifLevelDisplay } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
@@ -34,6 +34,12 @@ const EMPTY_NOTIF_CHANNEL: Readonly<Record<string, string>> = Object.freeze({})
 // drifted on casing ("All Messages" vs the shared const's "All messages").
 const displayNotifLevel = notifLevelDisplay
 
+const DEFAULT_SERVER_NOTIFICATION_LEVEL = notifLevelDisplay("all")
+
+export function resolveServerNotificationDisplayLevel(level?: string): string {
+  return level ?? DEFAULT_SERVER_NOTIFICATION_LEVEL
+}
+
 export const notificationSettingsQueryFn = async (): Promise<NotificationSettings> => {
   const rows = await apiFetch<NotificationSettingRow[]>(
     "/api/community/users/me/notifications",
@@ -61,4 +67,51 @@ export function useNotificationSettings(): UseQueryResult<NotificationSettings> 
     server: query.data?.server ?? (EMPTY_NOTIF_SERVER as Record<string, string>),
     channel: query.data?.channel ?? (EMPTY_NOTIF_CHANNEL as Record<string, string>),
   }
+}
+
+export type BotNotificationScope = { kind: "server" | "channel"; id: string }
+
+type BotNotificationSetting = { level: string | null }
+
+export function useBotNotificationSetting(
+  botId: string | null,
+  scope: BotNotificationScope,
+) {
+  return useQuery({
+    queryKey: communityKeys.botNotificationSetting(botId ?? "", scope.kind, scope.id),
+    queryFn: () => apiFetch<BotNotificationSetting>(
+      `/api/community/bots/${botId}/notifications/${scope.kind}/${scope.id}`,
+    ),
+    enabled: Boolean(botId),
+  })
+}
+
+export function useSetBotNotificationSetting() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ botId, scope, level }: {
+      botId: string
+      scope: BotNotificationScope
+      level: string | null
+    }) => {
+      const url = `/api/community/bots/${botId}/notifications/${scope.kind}/${scope.id}`
+      if (level === null) {
+        await apiFetch(url, { method: "DELETE" })
+      } else {
+        await apiFetch(url, {
+          method: "PUT",
+          body: JSON.stringify({ level }),
+        })
+      }
+    },
+    onSuccess: (_data, args) => {
+      queryClient.invalidateQueries({
+        queryKey: communityKeys.botNotificationSetting(args.botId, args.scope.kind, args.scope.id),
+      })
+      queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
+      queryClient.invalidateQueries({
+        predicate: ({ queryKey }) => queryKey.includes("read-state-snapshot"),
+      })
+    },
+  })
 }

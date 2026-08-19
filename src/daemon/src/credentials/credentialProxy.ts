@@ -310,12 +310,15 @@ export interface CredentialProxyOptions {
   /** Path → capability mapping for scoping. Default `DEFAULT_CAPABILITY_RESOLVER`. */
   capabilityResolver?: CapabilityResolver;
   /**
-   * Called after a successful inboxPull response is forwarded back to the agent.
+   * Called after a successful inboxPull response is validated and before it is
+   * forwarded back to the agent.
    * The proxy knows the agentId (from voucher) and can parse the response body to
    * surface the pulled messages — used by the daemon to write timeline entries
    * regardless of whether the agent is an in-process stub or a real subprocess.
    */
-  onInboxPullResponse?: (agentId: string, messages: Message[]) => void;
+  onInboxPullStart?: (agentId: string) => unknown;
+  onInboxPullResponse?: (agentId: string, messages: Message[], observationToken?: unknown) => void;
+  onInboxPullObservationError?: (failure: InboxPullObservationFailure) => void;
   /**
    * Called once per successfully-authorized upstream proxy request, BEFORE the
    * upstream is dispatched. Fires only on `verdict.ok === true` — never on
@@ -343,6 +346,20 @@ export interface CredentialProxyOptions {
   upstreamTimeoutMs?: number;
 }
 
+export type InboxPullObservationFailureReason =
+  | "unexpected_content_encoding"
+  | "invalid_json"
+  | "invalid_inbox_shape"
+  | "observer_failed";
+
+export type InboxPullContentEncoding = "identity" | "gzip" | "deflate" | "br" | "other";
+
+export interface InboxPullObservationFailure {
+  agentId: string;
+  reason: InboxPullObservationFailureReason;
+  contentEncoding: InboxPullContentEncoding;
+}
+
 export interface RunningProxy {
   url: string;
   port: number;
@@ -352,6 +369,13 @@ export interface RunningProxy {
 function writeJson(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json" });
   res.end(JSON.stringify(body));
+}
+
+function normalizeContentEncoding(value: string | string[] | undefined): InboxPullContentEncoding {
+  const normalized = (Array.isArray(value) ? value.join(",") : value ?? "").trim().toLowerCase();
+  if (!normalized || normalized === "identity") return "identity";
+  if (normalized === "gzip" || normalized === "deflate" || normalized === "br") return normalized;
+  return "other";
 }
 
 function isCanonicalChannelScope(channel: string): boolean {
@@ -467,6 +491,13 @@ export async function startCredentialProxy(
 
   const onPull = options.onInboxPullResponse;
   const onProxyRequest = options.onProxyRequest;
+  const reportInboxPullObservationError = (failure: InboxPullObservationFailure): void => {
+    try {
+      options.onInboxPullObservationError?.(failure);
+    } catch {
+      // Observational callback — never disrupt the proxy response.
+    }
+  };
 
   const server = http.createServer((req, res) => {
     const pathname = new URL(req.url ?? "/", "http://placeholder").pathname;
@@ -529,7 +560,20 @@ export async function startCredentialProxy(
     // `callInboxPull` sends this full path directly, no rewrite). The flat
     // `/api/inboxPull` verb is deleted (flat-delete step). inboxSnapshot is
     // deliberately EXCLUDED (peek, no `{ messages }` to record).
-    const isInboxPull = onPull && pathname === "/api/community/users/me/inbox/pull";
+    const isInboxPull = req.method === "POST" && pathname === "/api/community/users/me/inbox/pull";
+    const shouldObserveInboxPull = Boolean(isInboxPull && onPull);
+    let inboxPullObservationToken: unknown;
+    if (shouldObserveInboxPull) {
+      try {
+        inboxPullObservationToken = options.onInboxPullStart?.(reg.agentId);
+      } catch {
+        reportInboxPullObservationError({
+          agentId: reg.agentId,
+          reason: "observer_failed",
+          contentEncoding: "identity",
+        });
+      }
+    }
 
     if (onProxyRequest) {
       try {
@@ -549,6 +593,7 @@ export async function startCredentialProxy(
     outHeaders[broker.headerNames.agentId.toLowerCase()] = reg.agentId;
     outHeaders[broker.headerNames.client.toLowerCase()] = broker.clientLabel;
     outHeaders[broker.headerNames.capabilities.toLowerCase()] = [...reg.capabilities].join(",");
+    if (isInboxPull) outHeaders["accept-encoding"] = "identity";
 
     // `responded` guards only against writing a second response to the
     // DOWNSTREAM client (writeHead/end can't fire twice) — it does NOT gate
@@ -585,18 +630,65 @@ export async function startCredentialProxy(
         };
         res_.on("error", destroyResIfIncomplete);
         res_.on("close", destroyResIfIncomplete);
-        if (isInboxPull && res_.statusCode && res_.statusCode < 300) {
+        if (
+          shouldObserveInboxPull
+          && res_.statusCode !== undefined
+          && res_.statusCode >= 200
+          && res_.statusCode < 300
+        ) {
           // Buffer the inboxPull response to surface pulled messages to the daemon.
           const chunks: Buffer[] = [];
           res_.on("data", (chunk: Buffer) => chunks.push(chunk));
           res_.on("end", () => {
             const body = Buffer.concat(chunks);
+            const contentEncoding = normalizeContentEncoding(res_.headers["content-encoding"]);
+            if (contentEncoding !== "identity") {
+              reportInboxPullObservationError({
+                agentId: reg.agentId,
+                reason: "unexpected_content_encoding",
+                contentEncoding,
+              });
+            } else {
+              let parsed: unknown;
+              try {
+                parsed = JSON.parse(body.toString("utf8"));
+              } catch {
+                reportInboxPullObservationError({
+                  agentId: reg.agentId,
+                  reason: "invalid_json",
+                  contentEncoding,
+                });
+              }
+              if (parsed !== undefined) {
+                if (
+                  !parsed
+                  || typeof parsed !== "object"
+                  || Array.isArray(parsed)
+                  || !Array.isArray((parsed as { messages?: unknown }).messages)
+                ) {
+                  reportInboxPullObservationError({
+                    agentId: reg.agentId,
+                    reason: "invalid_inbox_shape",
+                    contentEncoding,
+                  });
+                } else {
+                  const messages = (parsed as { messages: Message[] }).messages;
+                  if (messages.length > 0) {
+                    try {
+                      onPull!(reg.agentId, messages, inboxPullObservationToken);
+                    } catch {
+                      reportInboxPullObservationError({
+                        agentId: reg.agentId,
+                        reason: "observer_failed",
+                        contentEncoding,
+                      });
+                    }
+                  }
+                }
+              }
+            }
             res.writeHead(res_.statusCode!, res_.headers);
             res.end(body);
-            try {
-              const parsed = JSON.parse(body.toString()) as { messages?: Message[] };
-              if (parsed.messages) onPull(reg.agentId, parsed.messages);
-            } catch { /* best-effort */ }
           });
         } else {
           res.writeHead(res_.statusCode ?? 502, res_.headers);

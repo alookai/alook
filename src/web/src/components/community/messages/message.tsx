@@ -58,6 +58,42 @@ export function shouldSuppressTouchMenuOpen({
   return nestedControl || selectionInsideRow || longPress
 }
 
+type RowSelection = Pick<Selection, "isCollapsed" | "anchorNode" | "focusNode">
+
+export function selectionBelongsToRow(
+  selection: RowSelection | null,
+  row: Pick<HTMLElement, "contains">,
+): boolean {
+  if (!selection || selection.isCollapsed) return false
+  return (!!selection.anchorNode && row.contains(selection.anchorNode))
+    || (!!selection.focusNode && row.contains(selection.focusNode))
+}
+
+export function createMessageMenuPointAnchor(clientX: number, clientY: number) {
+  const rect = {
+    x: clientX,
+    y: clientY,
+    top: clientY,
+    right: clientX,
+    bottom: clientY,
+    left: clientX,
+    width: 0,
+    height: 0,
+    toJSON: () => ({
+      x: clientX,
+      y: clientY,
+      top: clientY,
+      right: clientX,
+      bottom: clientY,
+      left: clientX,
+      width: 0,
+      height: 0,
+    }),
+  } satisfies DOMRect
+
+  return { getBoundingClientRect: () => rect }
+}
+
 function MessageImpl({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onPin, onMark, onCreateThread, onCopy, onEdit, onRetry, onDismiss,
@@ -119,6 +155,7 @@ function MessageImpl({
   // Touch devices use a normal tap-triggered dropdown. Long-press is left to
   // the browser so message text keeps native selection/copy behavior.
   const [touchMenuOpen, setTouchMenuOpen] = useState(false)
+  const [touchMenuAnchor, setTouchMenuAnchor] = useState<ReturnType<typeof createMessageMenuPointAnchor> | null>(null)
   const touchStartedAt = useRef<number | null>(null)
   const suppressLongPressClick = useRef(false)
   // The Mark/Unmark label needs to know if THIS message is already in the
@@ -178,12 +215,27 @@ function MessageImpl({
         "group relative -mx-2 flex gap-2 rounded px-2 transition-colors",
         m.grouped ? "py-0" : "mt-3 pt-1.5 pb-0",
         selectable ? "cursor-pointer pl-9" : "",
-        interactive && !hoverCapable && !selectMode ? "pr-11" : "",
         selected ? "bg-primary/10" : highlighted ? "bg-primary/10" : selectable ? "hover:bg-accent/40" : "hover:bg-accent/40",
       ].join(" ")}
       onPointerEnter={activate}
       onFocusCapture={activate}
       onKeyDownCapture={activate}
+      onContextMenu={interactive && hoverCapable
+        ? (event) => {
+            if (!selectionBelongsToRow(window.getSelection(), event.currentTarget)) return
+
+            // Base UI merges the rendered row's handler before its own context-
+            // menu handler. Cancel only that library handler, then keep the
+            // event away from Base UI's document listener (which otherwise
+            // prevents the native menu). Deliberately do not preventDefault:
+            // the browser must remain in charge of copying the selection.
+            const baseUIEvent = event as typeof event & {
+              preventBaseUIHandler?: () => void
+            }
+            baseUIEvent.preventBaseUIHandler?.()
+            event.stopPropagation()
+          }
+        : undefined}
       onTouchStart={interactive && !hoverCapable
           ? () => {
             touchStartedAt.current = performance.now()
@@ -209,10 +261,7 @@ function MessageImpl({
         : interactive && !hoverCapable
           ? (event) => {
             const selection = window.getSelection()
-            const selectionInsideRow = !!selection
-              && !selection.isCollapsed
-              && !!selection.anchorNode
-              && event.currentTarget.contains(selection.anchorNode)
+            const selectionInsideRow = selectionBelongsToRow(selection, event.currentTarget)
             const nearestControl = (event.target as Element).closest(
               "button, a, input, textarea, select, [role=button]",
             )
@@ -227,6 +276,7 @@ function MessageImpl({
             // short tap on its non-control body opens the controlled menu;
             // nested buttons/links and native long-press selection stay intact.
             if (!suppress) {
+              setTouchMenuAnchor(createMessageMenuPointAnchor(event.clientX, event.clientY))
               setTouchMenuOpen(true)
             }
           }
@@ -531,15 +581,22 @@ function MessageImpl({
             render={(
               <button
                 type="button"
-                aria-label={m.seq != null && m.seq > 0 ? `Actions for message ${m.seq}` : "Message actions"}
-                className={`absolute right-0 z-20 grid size-11 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none ${m.grouped ? "top-0" : "top-3"}`}
+                aria-hidden
+                tabIndex={-1}
+                className={`pointer-events-none absolute right-0 size-0 overflow-hidden ${m.grouped ? "top-0" : "top-3"}`}
               />
             )}
-          >
-            <MoreHorizontal className="size-5" />
-          </DropdownMenuTrigger>
+          />
         </div>
-        <DropdownMenuContent align="end" className="w-48 select-none">
+        <DropdownMenuContent
+          anchor={touchMenuAnchor ?? undefined}
+          positionMethod="fixed"
+          side="bottom"
+          align="start"
+          collisionPadding={8}
+          collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }}
+          className="w-48 select-none"
+        >
           <MessageDropdownItems {...menuHandlers} touch />
         </DropdownMenuContent>
       </DropdownMenu>

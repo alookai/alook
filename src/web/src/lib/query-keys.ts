@@ -83,8 +83,8 @@ export const communityKeys = {
     [...communityKeys.all, "channel", channelId, "pins"] as const,
   threads: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "threads"] as const,
-  forumActivityFeed: (channelId: string, tag: string | null) =>
-    [...communityKeys.threads(channelId), "activity", tag] as const,
+  forumFeed: (channelId: string, tag: string | null) =>
+    [...communityKeys.threads(channelId), "feed", tag] as const,
   forumTags: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "forum-tags"] as const,
   // #3: the viewer's `communityReadState` row for a single channel, fetched
@@ -135,6 +135,8 @@ export const communityKeys = {
   // ── Notification settings ───────────────────────────────────────────────
   notificationSettings: () =>
     [...communityKeys.all, "notification-settings"] as const,
+  botNotificationSetting: (botId: string, scope: "server" | "channel", scopeId: string) =>
+    [...communityKeys.all, "bot", botId, "notification-settings", scope, scopeId] as const,
 
   // ── Profile / user cards ────────────────────────────────────────────────
   profile: (userId: string) =>

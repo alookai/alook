@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
-import { queries, withD1Retry, CommunityAgentAckRequestSchema } from "@alook/shared"
+import { queries, withD1Retry, CommunityAgentAckRequestSchema, type CommunityCliAckResponse } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
 import { resolveTargetForMember } from "@/lib/community/resolve-ref"
@@ -109,5 +109,6 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     applied.push({ channel: cursor.channel, seq: cursor.seq })
   }
 
-  return NextResponse.json({ ok: failed.length === 0, applied, failed })
+  const response: CommunityCliAckResponse = { ok: failed.length === 0, applied, failed }
+  return NextResponse.json(response)
 })

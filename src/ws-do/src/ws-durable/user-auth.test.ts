@@ -110,6 +110,81 @@ describe("WebSocketDurableObject", () => {
     })
   })
 
+  describe("fetch — strict community ordered bundle", () => {
+    const events = [
+      {
+        type: "community:message.create",
+        channelId: "ch-1",
+        message: {
+          id: "m-1",
+          seq: 1,
+          authorId: "author",
+          authorName: "Alice",
+          content: "hello",
+          type: "chat",
+          createdAt: "2026-08-18T00:00:00.000Z",
+        },
+        contractVersion: 1,
+      },
+      {
+        type: "community:unread.bump",
+        userId: "user-42",
+        channelId: "ch-1",
+        isMention: false,
+        contractVersion: 1,
+      },
+      {
+        type: "community:mention.create",
+        userId: "user-42",
+        messageId: "m-1",
+        channelId: "ch-1",
+        authorName: "Alice",
+        contractVersion: 1,
+      },
+    ]
+
+    it("validates all events before sending them in order to every target tab", async () => {
+      const { durable, ctx } = createDO()
+      const first = createMockWebSocket()
+      const second = createMockWebSocket()
+      first.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
+      second.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([first, second])
+
+      const response = await durable.fetch(new Request("http://internal/community-broadcast-bundle", {
+        method: "POST",
+        headers: { [INTERNAL_USER_TARGET_HEADER]: encodeURIComponent("user-42") },
+        body: JSON.stringify({ events }),
+      }))
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ accepted: 3 })
+      expect(first.send.mock.calls.map(([body]) => JSON.parse(body as string).type)).toEqual([
+        "community:message.create",
+        "community:unread.bump",
+        "community:mention.create",
+      ])
+      expect(second.send).toHaveBeenCalledTimes(3)
+    })
+
+    it("sends zero frames when any event is invalid", async () => {
+      const { durable, ctx } = createDO()
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([ws])
+      const invalid = [...events, { type: "community:unknown", contractVersion: 1 }]
+
+      const response = await durable.fetch(new Request("http://internal/community-broadcast-bundle", {
+        method: "POST",
+        headers: { [INTERNAL_USER_TARGET_HEADER]: encodeURIComponent("user-42") },
+        body: JSON.stringify({ events: invalid }),
+      }))
+
+      expect(response.status).toBe(400)
+      expect(ws.send).not.toHaveBeenCalled()
+    })
+  })
+
 
   describe("fetch — WebSocket upgrade", () => {
     it("returns 101 for valid WebSocket upgrade", async () => {

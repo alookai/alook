@@ -61,6 +61,23 @@ describe("hasMentionForMessage", () => {
   });
 });
 
+describe("listMessageMentionUserIds", () => {
+  it("returns one persisted attention target per user across mention kinds", async () => {
+    const chain: any = {};
+    chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => Promise.resolve([
+      { userId: "u_mention" },
+      { userId: "u_reply" },
+      { userId: "u_mention" },
+    ]));
+    const db = { select: vi.fn(() => chain) };
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      mentionQueries.listMessageMentionUserIds(db as any, "msg_1"),
+    ).resolves.toEqual(["u_mention", "u_reply"]);
+  });
+});
+
 describe("markChannelMentionsReadBuilder", () => {
   it("returns a builder synchronously and never awaits a select", () => {
     const db = createUpdateBuilderMock();

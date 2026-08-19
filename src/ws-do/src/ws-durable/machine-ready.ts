@@ -1,4 +1,5 @@
 import {
+  CONTROL_HEARTBEAT_CAPABILITY,
   createDb,
   HostReadyMessageSchema,
   queries,
@@ -59,10 +60,37 @@ export async function handleReadyFrame(
   context: WsDurableContext,
   parsed: unknown,
   identity: CommunityMachineIdentity,
+  ws: WebSocket,
 ): Promise<boolean> {
   const readyParse = HostReadyMessageSchema.safeParse(parsed)
   if (!readyParse.success) return false
   const ready = readyParse.data
+  const controlHeartbeat = ready.capabilities.includes(CONTROL_HEARTBEAT_CAPABILITY)
+  const state = ws.deserializeAttachment() as import("./internal").ConnectionState
+  if (
+    state?.type === "community-machine" &&
+    state.authenticated &&
+    state.userId === identity.userId &&
+    state.machineId === identity.machineId
+  ) {
+    ws.serializeAttachment({
+      ...state,
+      controlHeartbeat,
+      ...(controlHeartbeat ? { lastHeartbeatAckAt: Date.now() } : {}),
+      pendingHeartbeatNonce: undefined,
+    })
+  }
+  if (!controlHeartbeat) {
+    try {
+      ws.send(JSON.stringify({
+        type: "error",
+        code: "UPGRADE_REQUIRED",
+        reason: "daemon does not support the required heartbeat lease",
+      }))
+    } catch { }
+    try { ws.close(1008, "Daemon upgrade required") } catch { }
+    return true
+  }
   try {
     const hostname = ready.hostname ?? ""
     const platform = ready.platform ?? ""
@@ -72,14 +100,17 @@ export async function handleReadyFrame(
     const availableRuntimes: CommunityMachineRuntime[] = ready.runtimeReport
 
     const db = createDb(context.env.DB)
-    const result = await queries.communityMachine.upsertMachineByMachineId(
-      db,
-      identity.userId,
-      identity.machineId,
-      { hostname, platform, arch, daemonVersion, osRelease, availableRuntimes }
-    )
-    if (!result) {
-      context.log.warn("community machine row missing on ready", { machineId: identity.machineId })
+    const result = await queries.communityMachineSession.transitionMachineSessionEpoch(db, {
+      type: "ready",
+      epoch: identity,
+      metadata: { hostname, platform, arch, daemonVersion, osRelease, availableRuntimes },
+    })
+    if (result.type === "stale_epoch") {
+      context.log.warn("community machine epoch rejected on ready", { machineId: identity.machineId })
+      try {
+        ws.send(JSON.stringify({ type: "error", code: "AUTH_REJECTED" }))
+      } catch { }
+      try { ws.close(1008, "Credential no longer current") } catch { }
       return true
     }
     const { machine, priorAvailableRuntimes, priorDaemonVersion, priorStatus } = result

@@ -10,7 +10,7 @@ import type { CommunityMemberJoin } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers"
-import { fanOutToServerMembers, broadcastToUserSafe } from "@/lib/community/fanout"
+import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { createCommunityMessage } from "@/lib/community/message-handler"
 
 const log = createLogger({ service: "community-bots-server-add" })
@@ -94,20 +94,17 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   // "undefined".
   const caller = await queries.user.getUserSelf(db, ctx.userId)
   const requesterLabel = caller?.name?.trim() || "A friend"
-  const botName = target.name || "the bot"
   // Unified pipeline, broadcast-deferred: the card must not reach the owner
   // until the approval-request row commits (a rollback below would otherwise
-  // leave a phantom, unactionable card). `skipMentions`/`skipWake` — a bot DM
-  // card mentions no one and wakes no one. The returned `broadcast` thunk is
-  // never invoked; this route fires its own minimal `MESSAGE_CREATE` after the
-  // approval row persists.
+  // leave a phantom, unactionable card). The bot DM card mentions no one, so
+  // mention persistence is skipped. Its dispatcher thunk is invoked only after the
+  // approval row persists, so no client can observe an unactionable card.
   const created = await createCommunityMessage({
     db,
     authorId: botId,
     target: { kind: "dm", channelId: dm.id, otherUserId: ownerId },
     body: { content: `${requesterLabel} wants to add me to a server. Approve?` },
     skipMentions: true,
-    skipWake: true,
     deferBroadcast: true,
   })
   if (!created.ok) return writeError(created.error, created.status)
@@ -147,23 +144,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     // the caller-facing shape identical to the idempotent case above.
     return writeJSON({ status: "pending" }, 200)
   }
-
-
-  // Fan-out the DM to the owner so their DM view updates. DMs are channels
-  // now — key the MESSAGE_CREATE by the DM's channel id.
-  broadcastToUserSafe(ownerId, {
-    type: WS_EVENTS.MESSAGE_CREATE,
-    channelId: dm.id,
-    message: {
-      id: msg.id,
-      seq: msg.seq,
-      authorId: botId,
-      authorName: botName,
-      content: msg.content,
-      type: "chat",
-      createdAt: msg.createdAt,
-    },
-  })
+  await created.broadcast?.()
 
   return writeJSON({ status: "pending" }, 200)
 })

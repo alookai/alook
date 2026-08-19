@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { IssueStatus, TASK_TYPES } from "./constants";
 import { sanitizeSlug } from "./utils/slug";
+import { DiagnosticReportIdSchema } from "./diagnostics-contract";
 import {
   ALLOWED_ICON_MIME_TYPES,
   MAX_ATTACHMENTS_PER_MESSAGE,
@@ -899,6 +900,7 @@ export const CommunityMachineSummarySchema = z.object({
 export const HostReadyMessageSchema = z.object({
   type: z.literal("ready"),
   runtimeReport: CommunityMachineRuntimeListSchema,
+  capabilities: z.array(z.string().min(1).max(64)).max(16).optional().default([]),
   runningAgents: z.array(z.string()).default([]),
   hostname: z.string().optional(),
   platform: z.string().optional(),
@@ -1002,6 +1004,18 @@ export const AgentWakeAckMessageSchema = z.object({
 });
 export type AgentWakeAckMessage = z.infer<typeof AgentWakeAckMessageSchema>;
 
+export const MachineHeartbeatAckMessageSchema = z.strictObject({
+  type: z.literal("machine_heartbeat_ack"),
+  nonce: z.string().min(1).max(128),
+});
+export type MachineHeartbeatAckMessage = z.infer<typeof MachineHeartbeatAckMessageSchema>;
+
+export const DiagnosticCommandAckMessageSchema = z.strictObject({
+  type: z.literal("diagnostics_ack"),
+  reportId: DiagnosticReportIdSchema,
+});
+export type DiagnosticCommandAckMessage = z.infer<typeof DiagnosticCommandAckMessageSchema>;
+
 
 export const CommunityPairTokenResponseSchema = z.object({
   tokenId: z.string(),
@@ -1019,6 +1033,7 @@ export const CommunityDaemonActivateRequestSchema = z.object({
   hostname: z.string(),
   platform: z.string(),
   arch: z.string(),
+  expectedMachineId: z.string().min(1).optional(),
   osRelease: z.string().optional(),
   daemonVersion: z.string().optional(),
   runtimeReport: CommunityMachineRuntimeListSchema.optional(),
@@ -1029,8 +1044,15 @@ export const CommunityDaemonActivateResponseSchema = z.object({
   credential: z.string(),
   machineId: z.string(),
   expiresAt: z.string().nullable(),
+  sessionOutcome: z.literal("committed"),
 });
 export type CommunityDaemonActivateResponse = z.infer<typeof CommunityDaemonActivateResponseSchema>;
+
+export const CommunityDaemonActivateErrorResponseSchema = z.object({
+  error: z.string(),
+  sessionOutcome: z.enum(["not_committed", "unknown"]),
+});
+export type CommunityDaemonActivateErrorResponse = z.infer<typeof CommunityDaemonActivateErrorResponseSchema>;
 
 export const CommunityDaemonEnrollAgentRequestSchema = z.object({
   agentId: z.string().min(1).max(128),
@@ -1265,27 +1287,6 @@ export const CommunityAgentListChannelsRequestSchema = z.object({
 export type CommunityAgentListChannelsRequest = z.infer<
   typeof CommunityAgentListChannelsRequestSchema
 >;
-
-// CLI adapter input for `alook message post`. The daemon maps this shape onto
-// the canonical forum send body: title → opener message, content → the ordinary
-// thread's first reply. An attachment-only reply is legitimate; pending ids are
-// uploaded against the forum before the thread exists.
-export const CommunityAgentCreatePostRequestSchema = z
-  .object({
-    forum: z.string().min(1),
-    title: z.string().min(1),
-    content: CommunityAgentMessageContentSchema,
-    attachments: z
-      .array(z.string().min(1))
-      .max(MAX_ATTACHMENTS_PER_MESSAGE)
-      .default([]),
-    nonce: z.string().min(1).max(128).optional(),
-  })
-  .refine(
-    (d) => d.content.text.trim().length > 0 || d.attachments.length > 0,
-    { message: "post must have text or attachments" }
-  );
-export type CommunityAgentCreatePostRequest = z.infer<typeof CommunityAgentCreatePostRequestSchema>;
 
 export const CommunityAgentListMembersRequestSchema = z.object({
   server: z.string().min(1),

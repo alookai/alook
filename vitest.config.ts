@@ -19,6 +19,7 @@ export default defineConfig({
         "**/*.d.ts",
         "src/cli/src/index.ts",
         "src/web/scripts/**",
+        "src/web/readme-capture/**",
         "src/web/src/**/*.tsx",
         // React hooks (useEffect/useState/render-time refs) with no jsdom/RTL
         // test path — excluded for the same reason as the .tsx exclude above.

@@ -17,7 +17,7 @@ const mockGetUser = vi.fn()
 const mockListMessages = vi.fn()
 const mockFilterMessageIdsByTag = vi.fn()
 const mockListTagsForMessages = vi.fn()
-const mockListForumThreadsByActivity = vi.fn()
+const mockListForumThreadsByCreatedAt = vi.fn()
 const mockListParticipantsForChannels = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
@@ -46,7 +46,7 @@ vi.mock("@alook/shared", async () => {
         listTagsForMessages: (...a: unknown[]) => mockListTagsForMessages(...a),
       },
       communityThread: {
-        listForumThreadsByActivity: (...a: unknown[]) => mockListForumThreadsByActivity(...a),
+        listForumThreadsByCreatedAt: (...a: unknown[]) => mockListForumThreadsByCreatedAt(...a),
         listParticipantsForChannels: (...a: unknown[]) => mockListParticipantsForChannels(...a),
       },
       user: {
@@ -176,11 +176,19 @@ describe("GET /api/community/channels/[id]/threads", () => {
     expect(mockFilterMessageIdsByTag).not.toHaveBeenCalled()
   })
 
-  it("returns an activity page with scoped included resources and an opaque next cursor", async () => {
-    mockListForumThreadsByActivity.mockResolvedValue([
-      { id: "t3", parentMessageId: "m3", activityAt: "2026-08-08T03:00:00.000Z" },
-      { id: "t2", parentMessageId: "m2", activityAt: "2026-08-08T02:00:00.000Z" },
-      { id: "t1", parentMessageId: "m1", activityAt: "2026-08-08T01:00:00.000Z" },
+  it.each(["activity", "newest", "createdat"])("rejects unsupported order=%s instead of falling through", async (order) => {
+    const res = await GET(req(`http://localhost/api/community/channels/c1/threads?order=${order}`), ctx)
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: "invalid order" })
+    expect(mockListChildChannels).not.toHaveBeenCalled()
+    expect(mockListForumThreadsByCreatedAt).not.toHaveBeenCalled()
+  })
+
+  it("returns a created-order page with scoped included resources and an opaque next cursor", async () => {
+    mockListForumThreadsByCreatedAt.mockResolvedValue([
+      { id: "t3", parentMessageId: "m3", createdAt: "2026-08-08T03:00:00.000Z", activityAt: "2026-08-10T03:00:00.000Z" },
+      { id: "t2", parentMessageId: "m2", createdAt: "2026-08-08T02:00:00.000Z", activityAt: "2026-08-11T02:00:00.000Z" },
+      { id: "t1", parentMessageId: "m1", createdAt: "2026-08-08T01:00:00.000Z", activityAt: "2026-08-12T01:00:00.000Z" },
     ])
     mockGetMessagesByIds.mockResolvedValue([{ id: "m3" }, { id: "m2" }])
     mockGetFirstMessageByChannelIds.mockResolvedValue([{ channelId: "t3", content: "preview" }])
@@ -188,7 +196,7 @@ describe("GET /api/community/channels/[id]/threads", () => {
     mockListParticipantsForChannels.mockResolvedValue([{ channelId: "t3", userId: "u1" }])
 
     const res = await GET(req(
-      "http://localhost/api/community/channels/c1/threads?order=activity&limit=2&include=parentMessage,firstMessage,tags,participants",
+      "http://localhost/api/community/channels/c1/threads?order=createdAt&limit=2&include=parentMessage,firstMessage,tags,participants",
     ), ctx)
     expect(res.status).toBe(200)
     const body = await res.json()
@@ -205,7 +213,7 @@ describe("GET /api/community/channels/[id]/threads", () => {
       },
     })
     expect(body.nextCursor).toEqual(expect.any(String))
-    expect(mockListForumThreadsByActivity).toHaveBeenCalledWith(expect.anything(), {
+    expect(mockListForumThreadsByCreatedAt).toHaveBeenCalledWith(expect.anything(), {
       parentChannelId: "c1",
       limit: 3,
     })
@@ -213,25 +221,25 @@ describe("GET /api/community/channels/[id]/threads", () => {
     expect(mockGetFirstMessageByChannelIds).toHaveBeenCalledWith(expect.anything(), ["t3", "t2"])
     expect(mockListParticipantsForChannels).toHaveBeenCalledWith(expect.anything(), ["t3", "t2"], 5)
 
-    mockListForumThreadsByActivity.mockResolvedValue([])
+    mockListForumThreadsByCreatedAt.mockResolvedValue([])
     const next = await GET(req(
-      `http://localhost/api/community/channels/c1/threads?order=activity&limit=2&cursor=${encodeURIComponent(body.nextCursor)}`,
+      `http://localhost/api/community/channels/c1/threads?order=createdAt&limit=2&cursor=${encodeURIComponent(body.nextCursor)}`,
     ), ctx)
     expect(next.status).toBe(200)
-    expect(mockListForumThreadsByActivity).toHaveBeenLastCalledWith(expect.anything(), {
+    expect(mockListForumThreadsByCreatedAt).toHaveBeenLastCalledWith(expect.anything(), {
       parentChannelId: "c1",
-      cursor: { activityAt: "2026-08-08T02:00:00.000Z", id: "t2" },
+      cursor: { createdAt: "2026-08-08T02:00:00.000Z", id: "t2" },
       limit: 3,
     })
   })
 
-  it("applies a normalized tag before activity pagination", async () => {
-    mockListForumThreadsByActivity.mockResolvedValue([])
+  it("applies a normalized tag before created-order pagination", async () => {
+    mockListForumThreadsByCreatedAt.mockResolvedValue([])
     const res = await GET(req(
-      "http://localhost/api/community/channels/c1/threads?order=activity&tag=%20BUG%20&limit=5",
+      "http://localhost/api/community/channels/c1/threads?order=createdAt&tag=%20BUG%20&limit=5",
     ), ctx)
     expect(res.status).toBe(200)
-    expect(mockListForumThreadsByActivity).toHaveBeenCalledWith(expect.anything(), {
+    expect(mockListForumThreadsByCreatedAt).toHaveBeenCalledWith(expect.anything(), {
       parentChannelId: "c1",
       tag: "bug",
       limit: 6,
@@ -240,34 +248,34 @@ describe("GET /api/community/channels/[id]/threads", () => {
     expect(mockFilterMessageIdsByTag).not.toHaveBeenCalled()
   })
 
-  it("rejects malformed and cross-forum activity cursors without querying children", async () => {
+  it("rejects malformed and cross-forum created-order cursors without querying children", async () => {
     const malformed = await GET(req(
-      "http://localhost/api/community/channels/c1/threads?order=activity&cursor=not-a-cursor",
+      "http://localhost/api/community/channels/c1/threads?order=createdAt&cursor=not-a-cursor",
     ), ctx)
     expect(malformed.status).toBe(400)
 
     const foreignPayload = btoa(encodeURIComponent(JSON.stringify({
       parentChannelId: "another-forum",
-      activityAt: "2026-08-08T02:00:00.000Z",
+      createdAt: "2026-08-08T02:00:00.000Z",
       id: "t2",
       tag: null,
     }))).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
     const foreign = await GET(req(
-      `http://localhost/api/community/channels/c1/threads?order=activity&cursor=${foreignPayload}`,
+      `http://localhost/api/community/channels/c1/threads?order=createdAt&cursor=${foreignPayload}`,
     ), ctx)
     expect(foreign.status).toBe(400)
-    expect(mockListForumThreadsByActivity).not.toHaveBeenCalled()
+    expect(mockListForumThreadsByCreatedAt).not.toHaveBeenCalled()
   })
 
   it("rejects unknown included resources before querying children", async () => {
     const res = await GET(req(
-      "http://localhost/api/community/channels/c1/threads?order=activity&include=parentMessage,secrets",
+      "http://localhost/api/community/channels/c1/threads?order=createdAt&include=parentMessage,secrets",
     ), ctx)
     expect(res.status).toBe(400)
-    expect(mockListForumThreadsByActivity).not.toHaveBeenCalled()
+    expect(mockListForumThreadsByCreatedAt).not.toHaveBeenCalled()
   })
 
-  it("does not query activity children when the forum access gate rejects the viewer", async () => {
+  it("does not query created-order children when the forum access gate rejects the viewer", async () => {
     mockResolveChannelAccessContext.mockResolvedValue({
       channel: { id: "c1", serverId: "s1", type: "forum" },
       anchor: { id: "c1", serverId: "s1", type: "forum" },
@@ -277,10 +285,10 @@ describe("GET /api/community/channels/[id]/threads", () => {
       isChannelMember: false,
     })
     const res = await GET(req(
-      "http://localhost/api/community/channels/c1/threads?order=activity",
+      "http://localhost/api/community/channels/c1/threads?order=createdAt",
     ), ctx)
     expect(res.status).toBe(403)
-    expect(mockListForumThreadsByActivity).not.toHaveBeenCalled()
+    expect(mockListForumThreadsByCreatedAt).not.toHaveBeenCalled()
     expect(mockGetMessagesByIds).not.toHaveBeenCalled()
   })
 })

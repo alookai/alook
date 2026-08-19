@@ -31,6 +31,8 @@ type Props = Pick<ShellFrameProps, "sidebar" | "children" | "extraDialogs"> & {
   inbox: ReturnType<typeof useShellInboxController>
 }
 
+const SHELL_SURFACE_CLASS = "rounded-tl-xl rounded-tr-none rounded-br-none rounded-bl-none ring-0 border-l border-t border-border/40 shadow-none"
+
 export function ShellFrameView({
   breakpoint,
   mobileZone,
@@ -67,7 +69,7 @@ export function ShellFrameView({
       <Shell onNavigationIntent={cancelPendingNavigation}>
         <ServerRail {...rail.railProps} bottomInset={60} />
         <div className="relative flex-1 flex flex-col min-w-0 pt-2">
-          <AppSurface className="rounded-tl-xl rounded-tr-none rounded-br-none rounded-bl-none ring-0 border-l border-t border-border/40 shadow-none">
+          <AppSurface className={SHELL_SURFACE_CLASS}>
             <ResizablePanelGroup
               id="community-shell"
               orientation="horizontal"
@@ -132,19 +134,23 @@ export function ShellFrameView({
       {mobileZone === "nav" && (
         <>
           <ServerRail {...rail.railProps} bottomInset={60} />
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-sidebar">
-            <div className="flex min-h-0 min-w-0 flex-1">
-              {sidebar({ noHeader: false })}
-            </div>
-            <UserBar
-              user={user}
-              onOpenProfile={profile.openProfile}
-              onEditProfile={profile.openUserSettings}
-              inbox={inboxElement}
-              hasUnread={inbox.hasUnread}
-              inboxOpen={inbox.open}
-              onInboxOpenChange={inbox.onOpenChange}
-            />
+          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col pt-2">
+            <AppSurface className={SHELL_SURFACE_CLASS}>
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-sidebar">
+                <div className="flex min-h-0 min-w-0 flex-1">
+                  {sidebar({ noHeader: false })}
+                </div>
+                <UserBar
+                  user={user}
+                  onOpenProfile={profile.openProfile}
+                  onEditProfile={profile.openUserSettings}
+                  inbox={inboxElement}
+                  hasUnread={inbox.hasUnread}
+                  inboxOpen={inbox.open}
+                  onInboxOpenChange={inbox.onOpenChange}
+                />
+              </div>
+            </AppSurface>
           </div>
         </>
       )}

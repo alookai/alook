@@ -19,6 +19,7 @@
  * server recovers this host's state after a dropped control connection.
  */
 import type { HostCommand, HostControlChannel, HostReady, HostReadyRuntime, UnreadNotice, AgentSessionReport, SessionErrorFrame, AgentId } from "../server/contract.js";
+import { CONTROL_HEARTBEAT_CAPABILITY } from "../server/contract.js";
 import type { AgentProcessManager } from "./managerRuntime.js";
 import type { TypingScopeTracker } from "./typingScopeTracker.js";
 import { createLogger, type Logger } from "../logger.js";
@@ -217,6 +218,7 @@ export class AgentRouter {
   buildReady(): HostReady {
     return {
       runtimeReport: [...this.runtimes.values()],
+      capabilities: [CONTROL_HEARTBEAT_CAPABILITY],
       runningAgents: [...this.running],
       hostname: this.opts.hostname,
       platform: this.opts.platform,

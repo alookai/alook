@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useInfiniteQuery, type InfiniteData } from "@tanstack/react-query"
-import { DEFAULT_MESSAGE_PAGE_SIZE } from "@alook/shared"
+import { compareAsciiSqliteBinary, DEFAULT_MESSAGE_PAGE_SIZE } from "@alook/shared"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -10,7 +10,7 @@ import { readForumTagSelection, validateForumTagSelection, writeForumTagSelectio
 import type { ForumThread } from "@/lib/community/models/message"
 import { useForumTags } from "./use-channel-panels"
 
-type ActivityThread = {
+type FeedThread = {
   id: string
   name: string | null
   creatorId: string | null
@@ -41,10 +41,10 @@ type IncludedParticipant = {
   participantCount?: number
 }
 
-export type ForumActivityPage = {
+export type ForumFeedPage = {
   serverId: string
   parentType: string
-  threads: ActivityThread[]
+  threads: FeedThread[]
   included: {
     parentMessages: IncludedMessage[]
     firstMessages: IncludedFirstMessage[]
@@ -55,23 +55,24 @@ export type ForumActivityPage = {
   nextCursor?: string
 }
 
-export function forumActivityPageQueryFn(channelId: string, tag: string | null) {
+export function forumFeedPageQueryFn(channelId: string, tag: string | null) {
   return ({ pageParam }: { pageParam: string | null }) => {
     const params = new URLSearchParams({
-      order: "activity",
+      order: "createdAt",
       limit: String(DEFAULT_MESSAGE_PAGE_SIZE),
       include: "parentMessage,firstMessage,tags,participants",
     })
     if (tag) params.set("tag", tag)
     if (pageParam) params.set("cursor", pageParam)
-    return apiFetch<ForumActivityPage>(
+    return apiFetch<ForumFeedPage>(
       `/api/community/channels/${channelId}/threads?${params.toString()}`,
     )
   }
 }
 
-export function mapForumActivityPages(pages: ForumActivityPage[]): ForumThread[] {
+export function mapForumFeedPages(pages: ForumFeedPage[]): ForumThread[] {
   const byId = new Map<string, ForumThread>()
+  const createdAtById = new Map<string, string>()
   for (const page of pages) {
     const openerById = new Map(page.included.parentMessages.map((message) => [message.id, message]))
     const firstByChannel = new Map(page.included.firstMessages.map((message) => [message.channelId, message]))
@@ -95,6 +96,7 @@ export function mapForumActivityPages(pages: ForumActivityPage[]): ForumThread[]
 
     for (const thread of page.threads) {
       if (byId.has(thread.id)) continue
+      createdAtById.set(thread.id, thread.createdAt)
       const opener = thread.parentMessageId ? openerById.get(thread.parentMessageId) : undefined
       const first = firstByChannel.get(thread.id)
       byId.set(thread.id, {
@@ -118,8 +120,8 @@ export function mapForumActivityPages(pages: ForumActivityPage[]): ForumThread[]
     }
   }
   return [...byId.values()].sort((a, b) => {
-    const activity = b.lastMessageAt.localeCompare(a.lastMessageAt)
-    return activity || b.id.localeCompare(a.id)
+    const createdAt = compareAsciiSqliteBinary(createdAtById.get(b.id)!, createdAtById.get(a.id)!)
+    return createdAt || compareAsciiSqliteBinary(b.id, a.id)
   })
 }
 
@@ -141,21 +143,21 @@ export function useForumFeed(_serverId: string, channelId: string) {
     try { writeForumTagSelection(window.localStorage, channelId, next) } catch { }
   }, [channelId])
   const selectedTag = tag === "All" ? null : tag
-  const queryKey = communityKeys.forumActivityFeed(channelId, selectedTag)
+  const queryKey = communityKeys.forumFeed(channelId, selectedTag)
   const query = useInfiniteQuery<
-    ForumActivityPage,
+    ForumFeedPage,
     Error,
-    InfiniteData<ForumActivityPage, string | null>,
+    InfiniteData<ForumFeedPage, string | null>,
     typeof queryKey,
     string | null
   >({
     queryKey,
-    queryFn: forumActivityPageQueryFn(channelId, selectedTag),
+    queryFn: forumFeedPageQueryFn(channelId, selectedTag),
     initialPageParam: null,
     getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.nextCursor : undefined,
   })
   const posts = useMemo(
-    () => mapForumActivityPages(query.data?.pages ?? []),
+    () => mapForumFeedPages(query.data?.pages ?? []),
     [query.data?.pages],
   )
 

@@ -8,7 +8,7 @@ import {
   primaryKey,
   type SQLiteTableWithColumns,
 } from "drizzle-orm/sqlite-core";
-import { sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { user } from "./schema";
 
@@ -93,6 +93,9 @@ export const communityChannel: SQLiteTableWithColumns<any> = sqliteTable(
     index("idx_channel_server_position").on(t.serverId, t.position),
     index("idx_channel_server_last_message").on(t.serverId, t.lastMessageAt),
     index("idx_channel_parent").on(t.parentChannelId),
+    index("idx_channel_forum_created")
+      .on(t.parentChannelId, desc(t.createdAt), desc(t.id))
+      .where(and(eq(t.type, "thread"), eq(t.archived, 0), isNotNull(t.parentMessageId))!),
     // Partial unique — top-level channel names are unique per server.
     // Source of truth: migration 0057_channel_unique_name.sql. Threads
     // (parent_channel_id NOT NULL) are exempt by design.

@@ -129,13 +129,13 @@ describe("useCreateForumThread", () => {
     const { useCreateForumThread } = await load()
     useCreateForumThread()
     capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), { pages: [], pageParams: [] })
-    capturedQc.setQueryData(communityKeys.forumActivityFeed("forum_1", null), { pages: [], pageParams: [] })
+    capturedQc.setQueryData(communityKeys.forumFeed("forum_1", null), { pages: [], pageParams: [] })
     apiFetchMock.mockResolvedValueOnce({ threadId: "p_new" })
 
     await runMutation({ nonce: "command_1", channelId: "forum_1", name: "n", content: "c" })
 
     expect(capturedQc.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(true)
-    expect(capturedQc.getQueryState(communityKeys.forumActivityFeed("forum_1", null))?.isInvalidated).toBe(true)
+    expect(capturedQc.getQueryState(communityKeys.forumFeed("forum_1", null))?.isInvalidated).toBe(true)
   })
 })
 
@@ -145,11 +145,11 @@ describe("useUpdatePostTags", () => {
     useUpdatePostTags()
     capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), { pages: [], pageParams: [] })
     const bugKey = [...communityKeys.channelMessages("forum_1"), "tag", "bug"] as const
-    const activityAllKey = communityKeys.forumActivityFeed("forum_1", null)
-    const activityBugKey = communityKeys.forumActivityFeed("forum_1", "bug")
+    const feedAllKey = communityKeys.forumFeed("forum_1", null)
+    const feedBugKey = communityKeys.forumFeed("forum_1", "bug")
     capturedQc.setQueryData(bugKey, { pages: [], pageParams: [] })
-    capturedQc.setQueryData(activityAllKey, { pages: [], pageParams: [] })
-    capturedQc.setQueryData(activityBugKey, { pages: [], pageParams: [] })
+    capturedQc.setQueryData(feedAllKey, { pages: [], pageParams: [] })
+    capturedQc.setQueryData(feedBugKey, { pages: [], pageParams: [] })
     capturedQc.setQueryData(communityKeys.forumTags("forum_1"), { tags: ["bug", "p0"] })
     apiFetchMock.mockResolvedValueOnce({ tags: ["bug", "p0"] })
 
@@ -166,8 +166,8 @@ describe("useUpdatePostTags", () => {
     })
     expect(capturedQc.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(true)
     expect(capturedQc.getQueryState(bugKey)?.isInvalidated).toBe(true)
-    expect(capturedQc.getQueryState(activityAllKey)?.isInvalidated).toBe(true)
-    expect(capturedQc.getQueryState(activityBugKey)?.isInvalidated).toBe(true)
+    expect(capturedQc.getQueryState(feedAllKey)?.isInvalidated).toBe(true)
+    expect(capturedQc.getQueryState(feedBugKey)?.isInvalidated).toBe(true)
     expect(capturedQc.getQueryState(communityKeys.forumTags("forum_1"))?.isInvalidated).toBe(true)
   })
 
@@ -177,7 +177,7 @@ describe("useUpdatePostTags", () => {
     const feedBefore = { pages: [{ messages: [{ id: "m_p2" }] }], pageParams: [null] }
     const tagsBefore = { tags: ["bug"] }
     capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), feedBefore)
-    capturedQc.setQueryData(communityKeys.forumActivityFeed("forum_1", null), feedBefore)
+    capturedQc.setQueryData(communityKeys.forumFeed("forum_1", null), feedBefore)
     capturedQc.setQueryData(communityKeys.forumTags("forum_1"), tagsBefore)
     apiFetchMock.mockRejectedValueOnce(new Error("500"))
 
@@ -191,7 +191,7 @@ describe("useUpdatePostTags", () => {
     expect(capturedQc.getQueryData(communityKeys.channelMessages("forum_1"))).toEqual(feedBefore)
     expect(capturedQc.getQueryData(communityKeys.forumTags("forum_1"))).toEqual(tagsBefore)
     expect(capturedQc.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(false)
-    expect(capturedQc.getQueryState(communityKeys.forumActivityFeed("forum_1", null))?.isInvalidated).toBe(false)
+    expect(capturedQc.getQueryState(communityKeys.forumFeed("forum_1", null))?.isInvalidated).toBe(false)
     expect(capturedQc.getQueryState(communityKeys.forumTags("forum_1"))?.isInvalidated).toBe(false)
   })
 })
@@ -202,7 +202,7 @@ describe("useDeleteForumThread", () => {
     useDeleteForumThread()
 
     capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), { pages: [], pageParams: [] })
-    capturedQc.setQueryData(communityKeys.forumActivityFeed("forum_1", null), { pages: [], pageParams: [] })
+    capturedQc.setQueryData(communityKeys.forumFeed("forum_1", null), { pages: [], pageParams: [] })
     const sidebarKey = communityKeys.forumSidebarThreads("server_1")
     capturedQc.setQueryData(sidebarKey, {
       channels: [], included: { parentMessages: [] }, serverNow: "2026-08-08T00:00:00.000Z",
@@ -215,7 +215,7 @@ describe("useDeleteForumThread", () => {
 
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/p2", { method: "DELETE" })
     expect(capturedQc.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(true)
-    expect(capturedQc.getQueryState(communityKeys.forumActivityFeed("forum_1", null))?.isInvalidated).toBe(true)
+    expect(capturedQc.getQueryState(communityKeys.forumFeed("forum_1", null))?.isInvalidated).toBe(true)
     expect(capturedQc.getQueryData<{ threads: unknown[] }>(sidebarKey)?.threads).toEqual([])
   })
 
@@ -225,12 +225,12 @@ describe("useDeleteForumThread", () => {
 
     const before = { pages: [{ messages: [{ id: "m_p2" }] }], pageParams: [null] }
     capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), before)
-    capturedQc.setQueryData(communityKeys.forumActivityFeed("forum_1", null), before)
+    capturedQc.setQueryData(communityKeys.forumFeed("forum_1", null), before)
     apiFetchMock.mockRejectedValueOnce(new Error("500"))
 
     await runMutationExpectError({ serverId: "server_1", forumChannelId: "forum_1", threadId: "p2" })
 
     expect(capturedQc.getQueryData(communityKeys.channelMessages("forum_1"))).toEqual(before)
-    expect(capturedQc.getQueryData(communityKeys.forumActivityFeed("forum_1", null))).toEqual(before)
+    expect(capturedQc.getQueryData(communityKeys.forumFeed("forum_1", null))).toEqual(before)
   })
 })

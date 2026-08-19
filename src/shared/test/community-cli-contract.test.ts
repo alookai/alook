@@ -313,6 +313,18 @@ describe("HostCommand diagnostics contract", () => {
   });
 });
 
+describe("HostCommand control heartbeat contract", () => {
+  it("keeps a strict nonce-only arm", () => {
+    expect(HostCommandSchema.parse({ type: "machine:heartbeat", nonce: "nonce_1" }))
+      .toEqual({ type: "machine:heartbeat", nonce: "nonce_1" });
+    expect(HostCommandSchema.safeParse({
+      type: "machine:heartbeat",
+      nonce: "nonce_1",
+      machineId: "injected",
+    }).success).toBe(false);
+  });
+});
+
 describe("HostCommand machine update contract", () => {
   it("keeps the no-payload arm in the type and strict runtime schema", () => {
     type UpdateCommand = { type: "machine:update" };

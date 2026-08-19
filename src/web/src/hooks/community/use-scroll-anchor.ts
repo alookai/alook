@@ -40,6 +40,25 @@ import { estimateRowHeight, computeBelowCount, type FlatItem } from "@/lib/commu
 // `resizeItem` above-viewport compensation (defaults to 1px otherwise).
 export const NEAR_BOTTOM_PX = 100
 
+/**
+ * Measure the row's current visual footprint instead of trusting the initial
+ * text estimate or a previously cached measurement. The virtualizer's default
+ * synchronous path deliberately reuses its cache, which can leave a narrow,
+ * long Markdown row at the 400px estimate when its content finishes laying
+ * out later. WebKit can also expose `borderBoxSize` differently across
+ * versions, so reading the live element here keeps the result independent of
+ * the ResizeObserverEntry shape.
+ *
+ * `scrollHeight` is included because a descendant that temporarily overflows
+ * the auto-sized wrapper still occupies visible space. Rounding up prevents a
+ * fractional CSS-pixel remainder from placing the following absolute row on
+ * top of the final text line.
+ */
+export function measureMessageRow(element: Element): number {
+  const row = element as HTMLElement
+  return Math.ceil(Math.max(element.getBoundingClientRect().height, row.scrollHeight))
+}
+
 // Structural fields used by `shouldAdjustMessageScrollPosition`. Do not
 // `Pick<>` them from Virtualizer — `scrollAdjustments` / `itemSizeCache` are
 // private on current @tanstack/virtual-core and break `tsc`.
@@ -405,6 +424,10 @@ export function useScrollAnchor({
   const stateRef = useRef<ScrollAnchorState>(createScrollAnchorState())
   const messages = extractScrollAnchorMessages(items)
   const tailId = messages[messages.length - 1]?.id ?? null
+  const wasAtEndRef = useRef(true)
+  const userScrolledAwayRef = useRef(false)
+  const measuredRowHeightsRef = useRef(new WeakMap<Element, number>())
+  const bottomRepinQueuedRef = useRef(false)
 
   // eslint-disable-next-line react-hooks/incompatible-library -- library limitation, same as member-list.tsx
   const virtualizer = useVirtualizer({
@@ -412,6 +435,52 @@ export function useScrollAnchor({
     count: items.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: (index) => estimateRowHeight(items[index]),
+    measureElement: (element) => {
+      const size = measureMessageRow(element)
+      const previousSize = measuredRowHeightsRef.current.get(element)
+      measuredRowHeightsRef.current.set(element, size)
+
+      // `resizeItem` grows the direct-DOM sizer only after this callback
+      // returns. Its immediate scroll adjustment can therefore be clamped by
+      // the old scrollHeight. Queue one follow-up after the sizer update so a
+      // viewer who was already pinned remains pinned; never move somebody who
+      // deliberately scrolled away.
+      if (
+        previousSize !== undefined
+        && previousSize !== size
+        // Read the last real scroll sample, not `instance.isAtEnd()` here.
+        // By the time ResizeObserver calls us, an overflowing child can have
+        // already increased the browser scrollHeight without emitting a
+        // scroll event, making a formerly pinned viewport appear far away.
+        && wasAtEndRef.current
+        && !userScrolledAwayRef.current
+        && !bottomRepinQueuedRef.current
+      ) {
+        bottomRepinQueuedRef.current = true
+        queueMicrotask(() => {
+          if (element.isConnected && !userScrolledAwayRef.current) {
+            const scrollElement = scrollRef.current
+            if (scrollElement) scrollElement.scrollTop = scrollElement.scrollHeight
+          }
+          // Markdown/code layout can settle through more than one observer
+          // callback in the same frame. Keep the batch coalesced and land on
+          // the final browser max once all of those sizes are reflected. The
+          // browser's max is authoritative here because it also includes the
+          // non-virtualized hero above the rows; `scrollToEnd()` operates in
+          // the virtualizer's scroll-margin coordinate system and can stop by
+          // exactly that hero height after a row-only resize.
+          element.ownerDocument.defaultView?.requestAnimationFrame(() => {
+            bottomRepinQueuedRef.current = false
+            if (element.isConnected && !userScrolledAwayRef.current) {
+              const scrollElement = scrollRef.current
+              if (scrollElement) scrollElement.scrollTop = scrollElement.scrollHeight
+            }
+          })
+        })
+      }
+
+      return size
+    },
     getItemKey: (index) => items[index].key,
     anchorTo: "end",
     // Deliberately OFF — see this file's module doc comment for the
@@ -446,8 +515,6 @@ export function useScrollAnchor({
   // auto-scroll when I'm at the bottom" bug). Appending content below does not
   // move `scrollTop`, so it fires no scroll event; this ref therefore still
   // holds the pre-append position when the layout effect below reads it.
-  const wasAtEndRef = useRef(true)
-  const userScrolledAwayRef = useRef(false)
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return

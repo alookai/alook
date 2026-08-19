@@ -333,50 +333,6 @@ describe("createProxyServerApi — send (retargeted to the canonical messages do
   });
 });
 
-describe("createProxyServerApi — createPost (folded into the canonical messages door)", () => {
-  it("maps the legacy CLI contract onto forum send and adapts the thread reply response", async () => {
-    const seen: Array<{ url: string; init?: RequestInit }> = [];
-    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
-      seen.push({ url, init });
-      return seen.length === 1
-        ? jsonBody(JSON.stringify({
-            state: "sent",
-            message: { seq: "#12", channel: "/demo#1234/forum", content: { text: "Title" } },
-            threadId: "thread_1",
-          }))
-        : jsonBody(JSON.stringify({
-            state: "sent",
-            message: { seq: "#1", channel: "/demo#1234/forum/#12", content: { text: "Body" } },
-          }));
-    });
-    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    const out = await api.createPost({
-      agentId: "a1",
-      forum: "/demo#1234/forum",
-      title: "Title",
-      content: { text: "Body" },
-      attachments: ["att_1"],
-      nonce: "nonce_1",
-    });
-
-    expect(seen[0].url).toBe("http://proxy.test/api/community/channels/resolve/messages");
-    expect(seen[0].init?.method).toBe("POST");
-    expect(JSON.parse(String(seen[0].init?.body))).toEqual({
-      channel: "/demo#1234/forum",
-      content: { text: "Title" },
-      attachments: ["att_1"],
-      nonce: "nonce_1:opener",
-    });
-    expect(JSON.parse(String(seen[1].init?.body))).toEqual({
-      channel: "/demo#1234/forum/#12",
-      content: { text: "Body" },
-      attachments: ["att_1"],
-      nonce: "nonce_1:reply",
-    });
-    expect(out).toEqual({ ref: "/demo#1234/forum/#12", name: "Title", seq: 1 });
-  });
-});
-
 describe("createProxyServerApi — channelMember (retargeted to the canonical members door)", () => {
   it("GETs channels/{id}/members with ?ref= (encoded); returns the ChannelMemberResult", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];
@@ -450,7 +406,8 @@ describe("createProxyServerApi — inbox trinity pull/snapshot/ack (retargeted t
       return jsonBody(JSON.stringify({ ok: true, applied: [], failed: [] }), { status: 200 });
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    await api.ack({ agentId: "a1", cursors: [{ channel: "/s/c", seq: 5 }] } as never);
+    const result = await api.ack({ agentId: "a1", cursors: [{ channel: "/s/c", seq: 5 }] } as never);
+    expect(result).toEqual({ ok: true, applied: [], failed: [] });
     expect(seen[0].url).toBe("http://proxy.test/api/community/users/me/inbox/ack");
     expect(seen[0].init?.method).toBe("POST");
     const body = JSON.parse(String(seen[0].init?.body ?? "{}"));

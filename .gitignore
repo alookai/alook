@@ -9,6 +9,7 @@ bundled/
 .env.*
 !.env.example
 .next/
+src/web/readme-capture/next-env.d.ts
 coverage/
 .open-next/
 temp/

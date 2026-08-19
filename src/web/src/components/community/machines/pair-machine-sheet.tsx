@@ -18,27 +18,28 @@ import { Button } from "@/components/ui/button"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { tid } from "@/lib/community/testids"
 import { isLocalMode, WS_DO_PORT_DEFAULT } from "@/lib/utils"
+import { websocketUrl } from "@/lib/websocket-url"
 
-// Community daemon HTTP/WS endpoints live on the same worker + ws-do as the
-// rest of the app — see use-user-ws.ts, which connects to the identical
-// ws-do for the user's live WS channel. ws-do routes community-daemon
-// connections by their `Authorization: Bearer cmk_...` header, not by host
-// or path, so we reuse that exact local/origin split instead of introducing
-// a separate URL concept (or env vars) just for this sheet.
-const isLocal = isLocalMode()
-
+// Production daemons use their built-in endpoints. Local development appends
+// the browser origin and local ws-do address so the command stays on the dev stack.
 // Only ever called once `pendingTokenId` is set, which happens from a
-// client-only effect — safe to touch `location` here (never runs during SSR).
-function buildPairCommand(machineKey: string): string {
+// client-only effect — safe to touch `location` in the local branch.
+function buildPairCommand(machineKey: string, machineId?: string): string {
+  const isLocal = isLocalMode()
+  const bin = isLocal
+    ? "pnpm daemon"
+    : "npx --yes @alook/daemon@latest daemon"
+  const action = machineId
+    ? `reconnect --id ${machineId} --machine-key ${machineKey}`
+    : `start --machine-key ${machineKey}`
+  const command = `${bin} ${action}`
+  if (!isLocal) return command
   const { serverUrl, wsUrl } = pairEndpoints()
-  const bin = isLocal ? "pnpm daemon" : "npx @alook/daemon daemon"
-  return `${bin} start --machine-key ${machineKey} --server-url ${serverUrl} --ws-url ${wsUrl}`
+  return `${command} --server-url ${serverUrl} --ws-url ${wsUrl}`
 }
 
 function pairEndpoints(): { serverUrl: string; wsUrl: string } {
-  const wsUrl = isLocal
-    ? `ws://localhost:${WS_DO_PORT_DEFAULT}`
-    : `${location.origin.replace("http", "ws")}/api/ws/community-daemon`
+  const wsUrl = websocketUrl("community-daemon", { local: true, port: WS_DO_PORT_DEFAULT })
   return { serverUrl: location.origin, wsUrl }
 }
 
@@ -143,7 +144,7 @@ export function PairMachineSheet({
           available: false,
           reason: nativeErrorMessage(
             error,
-            "Alook couldn't check Node.js, npm, and npx on this computer.",
+            "Alook couldn't check Node.js and npm on this computer.",
           ),
           nodeVersion: null,
         })
@@ -156,7 +157,12 @@ export function PairMachineSheet({
     }
   }, [open, desktopNative])
 
-  const command = pendingTokenId ? buildPairCommand(pendingTokenId) : ""
+  const command = pendingTokenId
+    ? buildPairCommand(
+        pendingTokenId,
+        mode.kind === "reconnect" ? mode.machineId : undefined,
+      )
+    : ""
 
   const copyCommand = useCallback(async () => {
     if (!command) return
@@ -176,6 +182,7 @@ export function PairMachineSheet({
     try {
       const result = await tauriInvoke<{ success: boolean; message: string }>("daemon_pair", {
         machineKey: pendingTokenId,
+        machineId: mode.kind === "reconnect" ? mode.machineId : null,
       })
       if (!result.success) throw new Error(result.message || "The daemon did not start")
       setStarted(true)
@@ -191,7 +198,7 @@ export function PairMachineSheet({
       connectingRef.current = false
       setConnecting(false)
     }
-  }, [pendingTokenId, runtimeCapability?.available, isReconnect])
+  }, [pendingTokenId, runtimeCapability?.available, isReconnect, mode])
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -205,7 +212,7 @@ export function PairMachineSheet({
           </SheetTitle>
           <SheetDescription>
             {isReconnect
-              ? "We rotated the key. Run the new command before it expires — the old one is no longer accepted."
+              ? "Run this command before it expires. It safely replaces the running daemon, then rotates its key."
               : "Run this on the computer you want to connect. The key is good for 15 minutes."}
           </SheetDescription>
         </SheetHeader>
@@ -330,7 +337,7 @@ function Step1({
       </header>
       <p className="text-sm text-muted-foreground">
         Open a terminal on the computer you want to connect, paste the command,
-        and hit enter. Node.js with npm and npx is required.
+        and hit enter. Node.js with npm is required.
       </p>
       {generating ? (
         <div className="flex items-center gap-2 rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
@@ -361,8 +368,8 @@ function Step1({
                   {launchError
                     ? `${launchError} The terminal command remains available below.`
                     : checkingRuntime
-                      ? "Checking this computer for Node.js, npm, and npx…"
-                      : runtimeCapability?.reason ?? "Node.js, npm, and npx are required for one-click connection."}
+                      ? "Checking this computer for Node.js and npm…"
+                      : runtimeCapability?.reason ?? "Node.js and npm are required for one-click connection."}
                 </p>
               )}
             </div>

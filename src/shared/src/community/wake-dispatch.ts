@@ -1,4 +1,3 @@
-import { nanoid } from "nanoid";
 import type { HostCommand, UnreadNotice } from "../community-cli-contract";
 import { makeRuntimeConfig } from "../runtime-config";
 import { resolveModelConfig } from "./bot-model";
@@ -7,12 +6,14 @@ import { utcDayKey } from "../utils/day-key";
 import * as message from "../db/queries/community/message";
 import * as bot from "../db/queries/community/bot";
 import * as member from "../db/queries/community/member";
-import * as readState from "../db/queries/community/read-state";
 import * as agentInbox from "../db/queries/community/agent-inbox";
 import * as mention from "../db/queries/community/mention";
 import * as botAuditLog from "../db/queries/community/bot-audit-log";
+import * as notificationEligibility from "../db/queries/community/notification-eligibility";
+import { policyAllows } from "../db/queries/community/notification-setting";
 import { getUsersByIds } from "../db/queries/user";
 import type { Database } from "../db/index";
+import { parseAttemptedCountReceipt } from "../transport-receipt";
 
 /**
  * Deliberately NOT `@cloudflare/workers-types`' `Fetcher` — this module is
@@ -31,12 +32,39 @@ interface WakeDispatchEnv {
 }
 
 /**
+ * Stable, opaque identity for one semantic unread wake. Queue retries and
+ * daemon reconnect resync rebuild the command independently from D1, so a
+ * random id here would turn one unread message into multiple commands. The
+ * domain-separated digest avoids adding a command ledger without exposing the
+ * internal message id through daemon logs or the agent launch environment.
+ */
+async function unreadWakeLaunchId(input: {
+  botUserId: string;
+  messageId: string;
+}): Promise<string> {
+  const identity = JSON.stringify([
+    "alook:unread-wake:v1",
+    input.botUserId,
+    input.messageId,
+  ]);
+  const digest = new Uint8Array(
+    await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(identity),
+    ),
+  );
+  return `wake_${Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/**
  * One `WAKE_QUEUE` message — deliberately minimal (plan
  * minimal-wake-queue-unread-notice §1): just enough to rebuild the wake
  * command from CURRENT D1 state at consume time. No `machineId`, `runtime`,
  * `launchId`, message text, sender, or preview — all of that is re-derived
  * by `buildUnreadWakeCommand` in `src/wake-worker` so a stale queue item
- * never wakes an old machine or carries stale content.
+ * never wakes an old machine or carries stale content. `launchId` is derived
+ * deterministically from the bot/message tuple so retry and reconnect replay
+ * retain one semantic command identity.
  */
 export interface WakePayload {
   messageId: string;
@@ -54,14 +82,14 @@ export interface WakePayload {
  * surface (never a raw DO namespace — `src/web`/`src/wake-worker` cannot
  * fetch a DO stub directly). This function POSTs an already-fully-built
  * `HostCommand` to that worker's `/community-machine/by-id/<machineId>/forward-agent-wake`
- * route and normalizes the response to a boolean — it never inspects,
+ * route and normalizes the attempted socket-write count to a boolean — it never inspects,
  * validates, or constructs any part of `command`, and it never exposes the
  * DO-naming mechanics (no public `getMachineDoName` here or anywhere else).
  *
  * Error contract (load-bearing for the queue consumer's retry semantics):
- * - `{ sent: true }` — at least one live doName's DO forwarded the command
- *   to an authenticated daemon WebSocket.
- * - `{ sent: false }` — the ws-do route responded 200 with `{ sent: 0 }`:
+ * - `{ attempted: true }` — at least one live doName's DO attempted the command
+ *   on an authenticated daemon WebSocket. This is not a daemon receipt.
+ * - `{ attempted: false }` — the ws-do route responded 200 with `{ attempted: 0 }`:
  *   no active credential for this machine, or a live credential but no open
  *   WS (daemon offline). This is a known-permanent state for this attempt —
  *   the consumer must `ack()`, not `retry()`. Daemon reconnect warmup
@@ -69,14 +97,14 @@ export interface WakePayload {
  * - throws — the ws-do route (or the service-binding fetch itself) returned
  *   non-2xx, or the fetch itself threw (network error/timeout). This is
  *   transient — the consumer must `retry()`. Never swallowed into
- *   `{ sent: false }`, or a real outage would look identical to "daemon is
+ *   `{ attempted: false }`, or a real outage would look identical to "daemon is
  *   just offline" and stop retrying.
  */
 export async function sendWakeToMachine(
   env: { WS_DO_WORKER: FetcherLike },
   machineId: string,
   command: HostCommand
-): Promise<{ sent: boolean }> {
+): Promise<{ attempted: boolean }> {
   const path = `/community-machine/by-id/${encodeURIComponent(machineId)}/forward-agent-wake`;
   const res = await env.WS_DO_WORKER.fetch(`http://internal${path}`, {
     method: "POST",
@@ -88,8 +116,7 @@ export async function sendWakeToMachine(
     throw new Error(`sendWakeToMachine: ws-do route returned ${res.status} for machine ${machineId}`);
   }
 
-  const data = (await res.json()) as { sent?: number };
-  return { sent: (data.sent ?? 0) > 0 };
+  return { attempted: parseAttemptedCountReceipt(await res.json()) > 0 };
 }
 
 /** Why `buildUnreadWakeCommand` decided NOT to wake — every reason is a permanent, current-state miss the consumer must `ack()`, never `retry()`. */
@@ -100,9 +127,11 @@ export type SkipReason =
   | "bot_missing"
   | "bot_deleted"
   | "bot_unbound"
-  | "bot_not_in_scope"
+  | "forbidden"
   | "notice_channel_unresolvable"
-  | "already_read";
+  | "already_read"
+  | "muted"
+  | "mention_only";
 
 export type BuildUnreadWakeResult =
   | {
@@ -149,10 +178,27 @@ export async function buildUnreadWakeCommand(
   if (botCtx.state !== "ready") return { state: "skip", reason: botCtx.state };
 
   const canRead = await member.canBotReadWakeScope(db, input.botUserId, scope);
-  if (!canRead) return { state: "skip", reason: "bot_not_in_scope" };
+  if (!canRead) return { state: "skip", reason: "forbidden" };
 
-  const lastReadSeq = await readState.getWakeReadSeq(db, input.botUserId, scope);
-  if (lastReadSeq >= msg.seq) return { state: "skip", reason: "already_read" };
+  // Queue items are hints, not authority. Re-check current policy, persisted
+  // attention, and the read cursor in one snapshot so a concurrent setting
+  // mutation cannot clear this message between separate gates.
+  const policyByUser = await notificationEligibility.resolveNotificationEligibilityForUsers(
+    db,
+    [input.botUserId],
+    input.messageId,
+  );
+  const policy = policyByUser.get(input.botUserId);
+  if (!policy) return { state: "skip", reason: "message_missing" };
+  if (!policy.isReadable) return { state: "skip", reason: "forbidden" };
+  if (!policy.isUnread) return { state: "skip", reason: "already_read" };
+  const currentAllowed = policyAllows(policy.currentLevel, policy.hasAttention);
+  if (!currentAllowed) {
+    return {
+      state: "skip",
+      reason: policy.currentLevel === "nothing" ? "muted" : "mention_only",
+    };
+  }
 
   const channel = await agentInbox.resolveUnreadNoticeChannel(db, scope, input.botUserId);
   if (!channel) return { state: "skip", reason: "notice_channel_unresolvable" };
@@ -174,7 +220,10 @@ export async function buildUnreadWakeCommand(
     type: "agent:wake",
     agentId: botCtx.botUserId,
     config,
-    launchId: nanoid(),
+    launchId: await unreadWakeLaunchId({
+      botUserId: botCtx.botUserId,
+      messageId: msg.id,
+    }),
     unreadNotice,
   };
 
@@ -286,8 +335,8 @@ async function writeWakeTriggerAudit(
 /** Outcome of resolving ONE wake candidate — what every caller (the real queue consumer, and the dev-only inline stand-in) needs to decide what to log. */
 export type DispatchOneWakeResult =
   | { outcome: "skip"; reason: SkipReason }
-  | { outcome: "sent" }
-  | { outcome: "delivered_nowhere"; machineId: string };
+  | { outcome: "attempted" }
+  | { outcome: "attempted_nowhere"; machineId: string };
 
 /**
  * The ONE place that decides what happens for a single `{ messageId,
@@ -308,6 +357,6 @@ export async function dispatchOneUnreadWake(
 ): Promise<DispatchOneWakeResult> {
   const result = await buildUnreadWakeCommand(db, input, env);
   if (result.state === "skip") return { outcome: "skip", reason: result.reason };
-  const { sent } = await sendWakeToMachine(env, result.machineId, result.command);
-  return sent ? { outcome: "sent" } : { outcome: "delivered_nowhere", machineId: result.machineId };
+  const { attempted } = await sendWakeToMachine(env, result.machineId, result.command);
+  return attempted ? { outcome: "attempted" } : { outcome: "attempted_nowhere", machineId: result.machineId };
 }

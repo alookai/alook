@@ -6,9 +6,9 @@ vi.mock("@/lib/api/client", () => ({
 }))
 
 import {
-  forumActivityPageQueryFn,
-  mapForumActivityPages,
-  type ForumActivityPage,
+  forumFeedPageQueryFn,
+  mapForumFeedPages,
+  type ForumFeedPage,
 } from "./use-forum-feed"
 
 const emptyIncluded = {
@@ -18,26 +18,26 @@ const emptyIncluded = {
   participants: [],
 }
 
-describe("forumActivityPageQueryFn", () => {
+describe("forumFeedPageQueryFn", () => {
   beforeEach(() => apiFetchMock.mockReset())
 
-  it("requests the canonical activity collection with includes, tag, and cursor", async () => {
+  it("requests the canonical created-order collection with includes, tag, and cursor", async () => {
     apiFetchMock.mockResolvedValue({ threads: [], included: emptyIncluded, hasMore: false })
-    await forumActivityPageQueryFn("forum_one", "bug")({ pageParam: "opaque cursor" })
+    await forumFeedPageQueryFn("forum_one", "bug")({ pageParam: "opaque cursor" })
 
     const url = apiFetchMock.mock.calls[0]![0] as string
     expect(url).toContain("/api/community/channels/forum_one/threads?")
     const params = new URL(url, "http://localhost").searchParams
-    expect(params.get("order")).toBe("activity")
+    expect(params.get("order")).toBe("createdAt")
     expect(params.get("include")).toBe("parentMessage,firstMessage,tags,participants")
     expect(params.get("tag")).toBe("bug")
     expect(params.get("cursor")).toBe("opaque cursor")
   })
 })
 
-describe("mapForumActivityPages", () => {
-  it("joins included resources, deduplicates pages, and keeps latest activity first", () => {
-    const pages: ForumActivityPage[] = [
+describe("mapForumFeedPages", () => {
+  it("joins included resources, deduplicates pages, and keeps newest-created first", () => {
+    const pages: ForumFeedPage[] = [
       {
         serverId: "server_1",
         parentType: "forum",
@@ -97,9 +97,9 @@ describe("mapForumActivityPages", () => {
       },
     ]
 
-    const result = mapForumActivityPages(pages)
-    expect(result.map((thread) => thread.id)).toEqual(["t2", "t1"])
-    expect(result[0]).toMatchObject({
+    const result = mapForumFeedPages(pages)
+    expect(result.map((thread) => thread.id)).toEqual(["t1", "t2"])
+    expect(result[1]).toMatchObject({
       name: "  Opener title  ",
       parentSeq: 42,
       authorId: "u2",
@@ -113,12 +113,49 @@ describe("mapForumActivityPages", () => {
         { id: "u3", name: "Bob", avatar: "bob.png" },
       ],
     })
-    expect(result[1]).toMatchObject({
+    expect(result[0]).toMatchObject({
       name: "fallback one",
       authorId: "creator_1",
       preview: "",
       tags: [],
       participantCount: 0,
     })
+  })
+
+  it("matches SQLite BINARY id ordering for equal-created mixed-case nanoids", () => {
+    const expectedIds = [
+      "kMRip4KDm4Ki2HU8vQ2qd",
+      "bc02tEwQaazjdPwrMuNih",
+      "XzKeKetmiRMJ16hwOrhSl",
+      "3kY1MAppCm6RYM4IvnXPN",
+    ]
+    const threads = expectedIds.map((id) => ({
+      id,
+      name: id,
+      creatorId: "creator",
+      messageCount: 0,
+      parentMessageId: null,
+      lastMessageAt: null,
+      createdAt: "2026-08-17T06:35:00.000Z",
+      activityAt: "2026-08-17T06:35:00.000Z",
+    }))
+    const pages: ForumFeedPage[] = [
+      {
+        serverId: "server_1",
+        parentType: "forum",
+        threads: threads.slice(2),
+        included: emptyIncluded,
+        hasMore: false,
+      },
+      {
+        serverId: "server_1",
+        parentType: "forum",
+        threads: threads.slice(0, 2),
+        included: emptyIncluded,
+        hasMore: false,
+      },
+    ]
+
+    expect(mapForumFeedPages(pages).map((thread) => thread.id)).toEqual(expectedIds)
   })
 })

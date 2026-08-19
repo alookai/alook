@@ -17,21 +17,10 @@ import { queries, createLogger, WS_EVENTS, withD1Retry } from "@alook/shared"
 import type { CommunityWsEvent, Database } from "@alook/shared"
 import { getDb } from "../db"
 import { broadcastToUser, broadcastToUsers } from "../broadcast"
-import { enqueueBotWakes, type WakeMessageRow } from "./wake-producer"
 
 const log = createLogger({ service: "community-fanout" })
 
 type BroadcastableEvent = CommunityWsEvent & { type: string }
-
-/**
- * Passed by `message-handler.ts` alongside a `MESSAGE_CREATE` event so
- * `fanOutToChannel`/`fanOutToDM` can trigger the push-wake pipeline (plan
- * §8) using the SAME recipient list already resolved for the human-WS
- * broadcast, instead of re-querying membership a second time. Omitted (or
- * event.type !== MESSAGE_CREATE) → no wake dispatch, e.g.
- * `CHILD_CHANNEL_UPDATE` never wakes anyone.
- */
-type WakeOpts = { wakeMessageRow?: WakeMessageRow; mentionedUserIds?: string[] }
 
 /**
  * Resolves all member user IDs for a server.
@@ -73,23 +62,12 @@ async function getChannelRecipientUserIds(db: Database, channelId: string): Prom
 }
 
 /**
- * Public wrapper so `message-handler` can resolve a channel's recipient set
- * ONCE and share it between the unfiltered `MESSAGE_CREATE` fan-out and the
- * level-filtered notify pipeline (no second membership query). Same split as
- * `getChannelRecipientUserIds` (child thread → participants; dm → access
- * members; channel/forum → scope audience).
- */
-export async function resolveChannelRecipients(db: Database, channelId: string): Promise<string[]> {
-  return getChannelRecipientUserIds(db, channelId)
-}
-
-/**
  * Fan out an event to all members of the server that owns a channel.
  */
 export function fanOutToChannel(
   channelId: string,
   event: BroadcastableEvent,
-  opts?: { excludeWakeUserId?: string; recipients?: string[] } & WakeOpts
+  opts?: { recipients?: string[] }
 ): Promise<void> {
   try {
     const { env, ctx } = getCloudflareContext()
@@ -100,9 +78,6 @@ export function fanOutToChannel(
         // (message-handler shares one set between fan-out and the notify pipeline),
         // else resolve here.
         const userIds = opts?.recipients ?? await getChannelRecipientUserIds(db, channelId)
-        // Register the wake's waitUntil before any human-WS broadcast can stall.
-        // A slow best-effort UI fan-out must never delay or drop the bot wake.
-        maybeEnqueueWakes(event, userIds, { channelId }, opts)
         await broadcastToRecipients(userIds, event)
       } catch (err) {
         log.warn("fanout_to_channel_failed", {
@@ -135,7 +110,6 @@ export function fanOutToChannel(
 export function fanOutToDM(
   channelId: string,
   event: BroadcastableEvent,
-  opts?: { excludeWakeUserId?: string } & WakeOpts
 ): Promise<void> {
   try {
     const { env, ctx } = getCloudflareContext()
@@ -148,8 +122,6 @@ export function fanOutToDM(
           return
         }
         const userIds = await queries.communityChannel.listChannelMemberUserIds(db, channelId)
-        // Keep wake delivery independent from the best-effort UI broadcast.
-        maybeEnqueueWakes(event, userIds, { channelId }, opts)
         await broadcastToRecipients(userIds, event)
       } catch (err) {
         log.warn("fanout_to_dm_failed", {
@@ -170,35 +142,6 @@ export function fanOutToDM(
     return Promise.resolve()
   }
 }
-
-/**
- * Wake dispatch only fires for real new-message events (plan §8) — reactions,
- * edits, pins, `CHILD_CHANNEL_UPDATE`, etc. never wake anyone. The sender is
- * excluded independently from browser fan-out (a bot never wakes itself off
- * its own send, while the author's other browser connections still sync).
- * Never throws — `enqueueBotWakes` owns its own error handling via
- * `ctx.waitUntil`; this is best-effort on top.
- */
-function maybeEnqueueWakes(
-  event: BroadcastableEvent,
-  recipients: string[],
-  scope: { channelId: string },
-  opts?: { excludeWakeUserId?: string } & WakeOpts
-): void {
-  if (event.type !== WS_EVENTS.MESSAGE_CREATE || !opts?.wakeMessageRow) return
-  const filtered = opts.excludeWakeUserId
-    ? recipients.filter((id) => id !== opts.excludeWakeUserId)
-    : recipients
-  enqueueBotWakes({
-    recipients: filtered,
-    ...scope,
-    messageRow: opts.wakeMessageRow,
-    mentionedUserIds: opts.mentionedUserIds,
-  }).catch((err) => {
-    log.warn("enqueue_bot_wakes_from_fanout_failed", { err: String(err) })
-  })
-}
-
 
 /**
  * Resolves the audience for a self-authored profile change: co-members

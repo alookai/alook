@@ -41,6 +41,21 @@ export function createInternalCommunityUserBroadcastRequest(
   })
 }
 
+export function createInternalCommunityUserBundleRequest(
+  targetUserId: string,
+  events: readonly unknown[],
+): Request {
+  const headers = new Headers({
+    "content-type": "application/json",
+    [INTERNAL_USER_TARGET_HEADER]: encodeURIComponent(targetUserId),
+  })
+  return new Request("http://internal/community-broadcast-bundle", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ events }),
+  })
+}
+
 export function createInternalBrowserBroadcastRequest(
   targetUserId: string,
   payload: unknown,

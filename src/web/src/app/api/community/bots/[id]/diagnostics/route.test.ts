@@ -89,7 +89,7 @@ describe("POST /api/community/bots/:id/diagnostics", () => {
     vi.clearAllMocks();
     vi.spyOn(Date, "now").mockReturnValue(NOW);
     createOrGet.mockResolvedValue({ kind: "created", report: row() });
-    pushDiagnostic.mockResolvedValue({ kind: "delivered", sent: 1 });
+    pushDiagnostic.mockResolvedValue({ kind: "attempted", attempted: 1 });
   });
 
   it.each([
@@ -136,7 +136,7 @@ describe("POST /api/community/bots/:id/diagnostics", () => {
     expect(getForOwner).not.toHaveBeenCalled();
   });
 
-  it("creates through the atomic owner gate and returns 202 accepted pending", async () => {
+  it("creates through the atomic owner gate and returns 202 unknown after a socket attempt", async () => {
     const response = await POST(request(), context);
 
     expect(createOrGet).toHaveBeenCalledWith({}, {
@@ -158,7 +158,7 @@ describe("POST /api/community/bots/:id/diagnostics", () => {
     );
     expect(response.status).toBe(202);
     await expect(response.json()).resolves.toEqual({
-      delivery: "accepted",
+      delivery: "unknown",
       report: {
         reportId: "dbr_0123456789abcdef",
         status: "pending",
@@ -170,7 +170,7 @@ describe("POST /api/community/bots/:id/diagnostics", () => {
     });
   });
 
-  it("turns definitive sent=0 into guarded offline and returns a 200 terminal envelope", async () => {
+  it("turns definitive attempted=0 into guarded offline and returns a 200 terminal envelope", async () => {
     pushDiagnostic.mockResolvedValue({ kind: "offline" });
     const failed = row({ status: "failed", failureCode: "offline", completedAt: NOW + 1 });
     failPending.mockResolvedValue(failed);
@@ -197,7 +197,7 @@ describe("POST /api/community/bots/:id/diagnostics", () => {
     });
   });
 
-  it("reads the authoritative owner row when the sent=0 offline CAS loses", async () => {
+  it("reads the authoritative owner row when the attempted=0 offline CAS loses", async () => {
     pushDiagnostic.mockResolvedValue({ kind: "offline" });
     failPending.mockResolvedValue(null);
     getForOwner.mockResolvedValue(row({
@@ -219,7 +219,7 @@ describe("POST /api/community/bots/:id/diagnostics", () => {
     });
   });
 
-  it("keeps delivery unknown when the sent=0 offline CAS loses to a still-pending row", async () => {
+  it("keeps delivery unknown when the attempted=0 offline CAS loses to a still-pending row", async () => {
     pushDiagnostic.mockResolvedValue({ kind: "offline" });
     failPending.mockResolvedValue(null);
     getForOwner.mockResolvedValue(row());

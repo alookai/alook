@@ -5,6 +5,7 @@ import { ToasterProvider } from "@/components/toaster-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { MockNetworkBanner } from "@/components/mock-network-banner";
 import { TauriThemeSync } from "@/components/tauri-theme-sync";
+import { ThemeColorSync } from "@/components/theme-color-sync";
 import { BRAND_DESCRIPTION, BRAND_SLOGAN, BRAND_TITLE } from "@/lib/brand-copy";
 import { caveat, dmMono, dmSans, instrumentSerif, literata, vt323 } from "./fonts";
 import "./globals.css";
@@ -20,8 +21,8 @@ export const viewport: Viewport = {
   viewportFit: "cover",
   interactiveWidget: "resizes-visual",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ede7dd" },
-    { media: "(prefers-color-scheme: dark)", color: "#262320" },
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#100d0a" },
   ],
 };
 
@@ -125,6 +126,7 @@ export default function RootLayout({
           }}
         />
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <ThemeColorSync />
           <TauriThemeSync />
           <TooltipProvider>
             {children}

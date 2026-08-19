@@ -28,6 +28,7 @@ coverage:
 ignore:
   - "src/web/src/components/home/**"
   - "src/web/scripts/**"
+  - "src/web/readme-capture/**"
   # Next config is loaded by the Next runtime, not vitest — redirects live in
   # `src/web/src/lib/blog/redirects.ts` (unit-tested) and are wired here only.
   - "src/web/next.config.ts"

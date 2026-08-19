@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 
 const mockDaemonStart = vi.hoisted(() => vi.fn(async () => {}));
 const mockDaemonStartById = vi.hoisted(() => vi.fn(async () => {}));
+const mockDaemonReconnect = vi.hoisted(() => vi.fn(async () => {}));
 const mockDaemonList = vi.hoisted(() => vi.fn(() => [{ id: "cm_saved_machine", pid: 42, alive: true, agents: 1, running: 0, lastActiveMs: 1 }]));
 const mockDaemonRunFromIpc = vi.hoisted(() => vi.fn(async () => new Promise<never>(() => {})));
 const mockArmMessageReminder = vi.hoisted(() => vi.fn(async () => ({ armed: true as const, dueAt: 123456 })));
@@ -10,6 +11,7 @@ vi.mock("./daemonStart", async (importOriginal) => ({
   ...await importOriginal<typeof import("./daemonStart")>(),
   daemonStart: mockDaemonStart,
   daemonStartById: mockDaemonStartById,
+  daemonReconnect: mockDaemonReconnect,
   daemonList: mockDaemonList,
   daemonRunFromIpc: mockDaemonRunFromIpc,
 }));
@@ -54,9 +56,8 @@ function stubApi(over: Partial<ServerApi> = {}): ServerApi {
     channelMember: async () => ({ visibility: "public", hint: "" }),
     inboxPull: async () => ({ messages: [], hasMore: false, markedCount: 0 }),
     inboxSnapshot: async () => ({ rows: [], pendingChannels: 0, pendingMessages: 0 }),
-    ack: async () => undefined,
+    ack: async (req) => ({ ok: true, applied: req.cursors, failed: [] }),
     send: async () => ({ state: "sent", message: { seq: "#1", channel: "/s/c", sender: "@a", content: { text: "" }, time: "" } }),
-    createPost: async () => ({ ref: "/s/c/post", name: "post", seq: 1 }),
     read: async () => ({ items: [], hasMore: false }),
     resolve: async () => null,
     listMembers: async () => ({ members: [], hasMore: false }),
@@ -94,6 +95,7 @@ beforeEach(() => {
   cap = captureStdout();
   mockDaemonStart.mockClear();
   mockDaemonStartById.mockClear();
+  mockDaemonReconnect.mockClear();
   mockDaemonRunFromIpc.mockClear();
   mockDaemonList.mockClear();
   process.env.ALOOK_AGENT_ID = "agent_test";
@@ -137,6 +139,26 @@ describe("daemon command contract", () => {
       foreground: false,
     });
     expect(mockDaemonStart).not.toHaveBeenCalled();
+  });
+
+  it("reconnects only with an explicit machine id and cmt token", async () => {
+    await main([
+      "daemon",
+      "reconnect",
+      "--id",
+      "cm_saved_machine",
+      "--machine-key",
+      "cmt_reconnect",
+      "--base-dir",
+      "/tmp/alook-daemon",
+    ]);
+    expect(mockDaemonReconnect).toHaveBeenCalledWith({
+      id: "cm_saved_machine",
+      machineKey: "cmt_reconnect",
+      baseDir: "/tmp/alook-daemon",
+      serverUrl: undefined,
+      wsUrl: undefined,
+    });
   });
 
   it("keeps missing and unknown arguments in the canonical Commander parser", async () => {
@@ -219,6 +241,7 @@ describe("envelope contract", () => {
     const out = cap.lines().join("");
     expect(out).toContain("Usage:");
     expect(out.trimStart().startsWith("{")).toBe(false);
+    expect(out).not.toMatch(/^\s+post\b/m);
   });
 
   it("BOUNDARY: normal commands + errors still emit JSON (only -h is text)", async () => {
@@ -400,7 +423,9 @@ describe("message send --reply", () => {
 
 describe("inbox pull", () => {
   it("never acks a rejected pull and only advances the returned cursor after repair", async () => {
-    const ackSpy = vi.fn(async () => undefined);
+    const ackSpy = vi.fn(async (req: { cursors: Array<{ channel: string; seq: number }> }) => ({
+      ok: true, applied: req.cursors, failed: [],
+    }));
     const pullSpy = vi.fn()
       .mockRejectedValueOnce(new Error("DM peer identity unavailable"))
       .mockResolvedValueOnce({
@@ -424,7 +449,9 @@ describe("inbox pull", () => {
   });
 
   it("acks by default and returns messages in success", async () => {
-    const ackSpy = vi.fn(async () => undefined);
+    const ackSpy = vi.fn(async (req: { cursors: Array<{ channel: string; seq: number }> }) => ({
+      ok: true, applied: req.cursors, failed: [],
+    }));
     setApiForTesting(
       stubApi({
         inboxPull: async () => ({
@@ -446,7 +473,9 @@ describe("inbox pull", () => {
   });
 
   it("--no-ack skips advancing the waterline", async () => {
-    const ackSpy = vi.fn(async () => undefined);
+    const ackSpy = vi.fn(async (req: { cursors: Array<{ channel: string; seq: number }> }) => ({
+      ok: true, applied: req.cursors, failed: [],
+    }));
     setApiForTesting(
       stubApi({
         inboxPull: async () => ({
@@ -510,7 +539,7 @@ describe("inbox pull", () => {
           hasMore: false,
           markedCount: 0,
         }),
-        ack: async () => undefined,
+        ack: async (req) => ({ ok: true, applied: req.cursors, failed: [] }),
       }),
     );
     await main(["inbox", "pull"]);
@@ -519,6 +548,43 @@ describe("inbox pull", () => {
     };
     expect(env.success.acked).toBe(1);
     expect(env.success.ackError).toBeUndefined();
+  });
+
+  it("reports only applied cursors as acked and preserves partial failures", async () => {
+    setApiForTesting(
+      stubApi({
+        inboxPull: async () => ({
+          messages: [
+            { seq: "#2", channel: "/s#0042/general", sender: "@x", content: { text: "ok" }, time: "" },
+            { seq: "#4", channel: "/s#0042/private", sender: "@x", content: { text: "blocked" }, time: "" },
+          ],
+          hasMore: false,
+          markedCount: 0,
+        }),
+        ack: async () => ({
+          ok: false,
+          applied: [{ channel: "/s#0042/general", seq: 2 }],
+          failed: [{
+            channel: "/s#0042/private",
+            seq: 4,
+            code: "forbidden",
+            error: "forbidden",
+          }],
+        }),
+      }),
+    );
+
+    await main(["inbox", "pull"]);
+    const env = parseEnvelope(cap.lines()) as {
+      success: { acked: number; failed: Array<{ channel: string; seq: number; code: string; error: string }> };
+    };
+    expect(env.success.acked).toBe(1);
+    expect(env.success.failed).toEqual([{
+      channel: "/s#0042/private",
+      seq: 4,
+      code: "forbidden",
+      error: "forbidden",
+    }]);
   });
 
   it.each([
@@ -595,74 +661,6 @@ describe("message send — idempotent retry (mutation-idempotency ②)", () => {
     const env = parseEnvelope(cap.lines());
     expect(env.error).toContain("reply target");
     expect(sendSpy).toHaveBeenCalledTimes(1); // deterministic business error — not retried
-  });
-});
-
-describe("message post", () => {
-  const okRes = { ref: "/s/ideas/my-post", name: "my-post", seq: 1 };
-
-  it("forwards forum ref + title + body, returns the canonical post ref", async () => {
-    const postSpy = vi.fn(async () => okRes);
-    setApiForTesting(stubApi({ createPost: postSpy }));
-    await main(["message", "post", "--target", "/s/ideas", "--title", "My Post", "--text", "hello"]);
-    const env = parseEnvelope(cap.lines());
-    expect(env.success.posted).toBe("/s/ideas/my-post");
-    expect(postSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ forum: "/s/ideas", title: "My Post", content: { text: "hello" } }),
-    );
-  });
-
-  it("requires --target (forum ref), never calling createPost", async () => {
-    const postSpy = vi.fn(async () => okRes);
-    setApiForTesting(stubApi({ createPost: postSpy }));
-    await main(["message", "post", "--title", "My Post", "--text", "hi"]);
-    const env = parseEnvelope(cap.lines());
-    expect(env.error).toContain("--target");
-    expect(postSpy).not.toHaveBeenCalled();
-  });
-
-  it("requires --title, never calling createPost", async () => {
-    const postSpy = vi.fn(async () => okRes);
-    setApiForTesting(stubApi({ createPost: postSpy }));
-    await main(["message", "post", "--target", "/s/ideas", "--text", "hi"]);
-    const env = parseEnvelope(cap.lines());
-    expect(env.error).toContain("--title");
-    expect(postSpy).not.toHaveBeenCalled();
-  });
-
-  it("requires text OR an attachment (empty opener → error, never calls createPost)", async () => {
-    const postSpy = vi.fn(async () => okRes);
-    setApiForTesting(stubApi({ createPost: postSpy }));
-    await main(["message", "post", "--target", "/s/ideas", "--title", "My Post"]);
-    const env = parseEnvelope(cap.lines());
-    expect(env.error).toContain("--text");
-    expect(postSpy).not.toHaveBeenCalled();
-  });
-
-  it("allows an attachment-only post (no --text)", async () => {
-    const postSpy = vi.fn(async () => okRes);
-    setApiForTesting(stubApi({ createPost: postSpy }));
-    await main(["message", "post", "--target", "/s/ideas", "--title", "My Post", "--attachment", "att_1"]);
-    const env = parseEnvelope(cap.lines());
-    expect(env.success.posted).toBe("/s/ideas/my-post");
-    expect(postSpy).toHaveBeenCalledWith(expect.objectContaining({ attachments: ["att_1"] }));
-  });
-
-  it("attaches a nonce and reuses it across a transient-5xx retry (no duplicate post)", async () => {
-    let calls = 0;
-    const nonces: (string | undefined)[] = [];
-    const postSpy = vi.fn(async (req: { nonce?: string }) => {
-      nonces.push(req.nonce);
-      calls++;
-      if (calls === 1) throw new Error("upstream returned 502 with non-JSON body from canonical messages door");
-      return okRes;
-    });
-    setApiForTesting(stubApi({ createPost: postSpy }));
-    await main(["message", "post", "--target", "/s/ideas", "--title", "My Post", "--text", "hi"]);
-    const env = parseEnvelope(cap.lines());
-    expect(env.success.posted).toBe("/s/ideas/my-post");
-    expect(calls).toBe(2);
-    expect(nonces[0]).toBe(nonces[1]); // same nonce → server dedupes, no second post
   });
 });
 

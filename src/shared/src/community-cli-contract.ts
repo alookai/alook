@@ -310,6 +310,17 @@ export interface AckRequest {
   cursors: Cursor[];
 }
 
+export interface AckFailure extends Cursor {
+  code: "unresolvable" | "forbidden" | "no_such_seq";
+  error: string;
+}
+
+export interface AckResponse {
+  ok: boolean;
+  applied: Cursor[];
+  failed: AckFailure[];
+}
+
 export interface SendRequest {
   agentId: AgentId;
   /** Path ref of the destination channel/DM/thread. */
@@ -413,34 +424,6 @@ export interface MessageMarkRequest {
 
 export interface MessageMarkListResponse {
   marked: Message[];
-}
-
-/**
- * Create a new forum post (`alook message post`). `forum` is a forum REF
- * (`/server/forum`), resolved server-side (bots hold refs, not ids — same reason
- * `send` takes a ref). The canonical messages door stores `title` as an opener
- * message in the forum and `content` as the first reply in its ordinary thread.
- * The reply may contain text OR at least one attachment. `attachments` are
- * pending ids the bot uploaded against the forum before the thread exists.
- */
-export interface CreatePostRequest {
-  agentId: AgentId;
-  forum: ChannelRef;
-  title: string;
-  content: MessageContent;
-  attachments?: string[];
-  /** Idempotency key — reused across retries, server dedupes (same as `send`). */
-  nonce?: string;
-}
-
-/**
- * The created thread's canonical address. `ref` is `/server/forum/#N`, where
- * `N` is the opener message seq; `seq` is the first reply's seq in that thread.
- */
-export interface CreatePostResponse {
-  ref: ChannelRef;
-  name: string;
-  seq: Seq;
 }
 
 export interface ReadRequest {
@@ -630,13 +613,10 @@ export interface ServerApi {
   inboxSnapshot(req: { agentId: AgentId }): Promise<InboxSnapshot>;
 
   /** Advance per-channel read waterlines (so drained messages stop reappearing). */
-  ack(req: AckRequest): Promise<void>;
+  ack(req: AckRequest): Promise<AckResponse>;
 
   /** Send a message to a channel ref. May be held by the freshness guard. */
   send(req: SendRequest): Promise<SendResponse>;
-
-  /** Create a new forum post in a forum ref, with its body as the first message. */
-  createPost(req: CreatePostRequest): Promise<CreatePostResponse>;
 
   /** Read history for a channel with seq-anchored pagination. */
   read(req: ReadRequest): Promise<Page<Message>>;
@@ -729,6 +709,8 @@ export interface UnreadNotice {
 /* Control plane — server → host commands                              */
 /* ------------------------------------------------------------------ */
 
+export const CONTROL_HEARTBEAT_CAPABILITY = "control-heartbeat-v1";
+
 /**
  * Commands the SERVER pushes DOWN to a host (daemon). This is the control plane —
  * distinct from the agent-initiated data plane (`ServerApi`). The server owns
@@ -742,6 +724,7 @@ export interface UnreadNotice {
  * coalesce the notice for the next turn (see `AgentProcessManager`).
  */
 export type HostCommand =
+  | { type: "machine:heartbeat"; nonce: string }
   | {
     type: "agent:wake";
     agentId: AgentId;
@@ -862,6 +845,8 @@ export interface HostReady {
    * reader-side concern (server-side bot-create validator, client picker).
    */
   runtimeReport: HostReadyRuntime[];
+  /** Capability gates for wire behavior that is unsafe to assume on legacy daemons. */
+  capabilities?: string[];
   /** Agents currently running on this host. */
   runningAgents: AgentId[];
   hostname?: string;
@@ -1047,6 +1032,8 @@ export interface WebSocketLike {
   send(data: string): void;
   close(): void;
   ping?(): void;
+  /** Hard-close a half-open client socket when the implementation supports it (`ws`). */
+  terminate?(): void;
 }
 
 /** Builds a client `WebSocketLike` for a url + headers (injected; no hard `ws` dep). */
@@ -1399,6 +1386,10 @@ export function formatSeq(seq: Seq): string {
 // downstream with its own defaulting, so deep-validating it here would only turn
 // a forward-compatible server field into a hard drop on an older daemon.
 export const HostCommandSchema = z.discriminatedUnion("type", [
+  z.strictObject({
+    type: z.literal("machine:heartbeat"),
+    nonce: z.string().min(1).max(128),
+  }),
   z.object({
     type: z.literal("agent:wake"),
     agentId: z.string().min(1),

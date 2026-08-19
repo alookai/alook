@@ -36,6 +36,7 @@ import type {
 } from "./contract.js";
 import { HostCommandSchema } from "./contract.js";
 import { createLogger, type Logger } from "../logger.js";
+import { WakeCoordinator } from "../manager/wakeCoordinator.js";
 // Re-export so existing importers of these from this module keep working.
 export type { WebSocketLike, WebSocketFactory } from "./contract.js";
 
@@ -50,6 +51,7 @@ export const WS_CONTROL_COMMAND_CONSUMED = Symbol("ws-control-command-consumed")
 type CommandListener = (
   cmd: HostCommand,
 ) => void | Promise<void> | typeof WS_CONTROL_COMMAND_CONSUMED;
+type WakeDesiredListener = (cmd: Extract<HostCommand, { type: "agent:wake" }>) => void;
 
 /** Heartbeat: how often we ping the server WebSocket. */
 const DEFAULT_PING_INTERVAL_MS = 15_000;
@@ -132,6 +134,8 @@ type OutboundFrame =
       status: AgentCommandAckStatus;
       error?: AgentCommandAckError;
     }
+  | { type: "machine_heartbeat_ack"; nonce: string }
+  | { type: "diagnostics_ack"; reportId: string }
   | HostBotAuditEventFrame
   | SessionErrorFrame;
 
@@ -151,6 +155,7 @@ export class WsControlChannel implements HostControlChannel {
   // Multiple listeners so consumers can layer behavior (e.g. bot-cache pre-hook
   // + AgentRouter's real handler) without monkey-patching this class.
   private commandCbs: CommandListener[] = [];
+  private wakeDesiredCbs: WakeDesiredListener[] = [];
   private resyncHooks: Array<() => void> = [];
   private ws: WebSocketLike | null = null;
   private attempt = 0;
@@ -160,6 +165,7 @@ export class WsControlChannel implements HostControlChannel {
   private pongDeadline = 0;
   private resyncProvider: ResyncProvider | null = null;
   private readonly log: Logger;
+  private readonly wakeCoordinator = new WakeCoordinator();
 
   constructor(private readonly opts: WsControlChannelOpts) {
     this.log = opts.logger ?? createLogger({ header: "@alook/daemon:ws" });
@@ -193,6 +199,46 @@ export class WsControlChannel implements HostControlChannel {
    */
   onCommand(cb: CommandListener): void {
     this.commandCbs.push(cb);
+  }
+
+  /** Observe only wakes that advance an agent/channel desired watermark. */
+  onWakeDesiredAdvance(cb: WakeDesiredListener): void {
+    this.wakeDesiredCbs.push(cb);
+  }
+
+  /**
+   * Inject a command through the same schema and semantic ingress as a WS
+   * frame, so alternate control transports cannot bypass observers, routing,
+   * lifecycle handling, or duplicate suppression.
+   */
+  async ingestCommand(frame: unknown): Promise<boolean> {
+    const parsed = HostCommandSchema.safeParse(frame);
+    if (!parsed.success) {
+      this.log.warn("dropped malformed HostCommand frame", {
+        type: typeof frame === "object" && frame !== null && "type" in frame
+          ? String((frame as { type?: unknown }).type)
+          : "unknown",
+        issues: parsed.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          code: issue.code,
+        })),
+      });
+      return false;
+    }
+    await this.dispatchIngressCommand(parsed.data as HostCommand);
+    return true;
+  }
+
+  modelSeenGeneration(agentId: string): number {
+    return this.wakeCoordinator.modelSeenGeneration(agentId);
+  }
+
+  recordModelSeen(
+    agentId: string,
+    messages: ReadonlyArray<{ channel: string; seq: string }>,
+    generation = this.wakeCoordinator.modelSeenGeneration(agentId),
+  ): boolean {
+    return this.wakeCoordinator.recordModelSeen(agentId, messages, generation);
   }
 
   /**
@@ -237,6 +283,7 @@ export class WsControlChannel implements HostControlChannel {
   }
 
   async reportAgentActivity(info: { agentId: AgentId; state: AgentActivityState }): Promise<void> {
+    this.wakeCoordinator.recordAgentActivity(info.agentId, info.state);
     this.sendFrame({ type: "agent_activity", ...info });
   }
 
@@ -283,6 +330,7 @@ export class WsControlChannel implements HostControlChannel {
     status: AgentCommandAckStatus;
     error?: AgentCommandAckError;
   }): Promise<void> {
+    this.wakeCoordinator.recordDeliveryAck(info.agentId, info.launchId, info.status);
     this.sendFrame({ type: "agent_wake_ack", ...info });
   }
 
@@ -390,19 +438,13 @@ export class WsControlChannel implements HostControlChannel {
     // schema gate and short-circuits regardless of command validity.
     this.attempt = 0;
 
-    // Validate the downlink shape before dispatch — the mirror of ws-do's
-    // per-frame `safeParse` on the uplink. A malformed/half-written frame (or a
-    // producer bug) must be DROPPED + logged here, never handed to the router's
-    // arms as a lie. Valid frames dispatch exactly as before (transparent gate).
-    const parsed = HostCommandSchema.safeParse(frame);
-    if (!parsed.success) {
-      this.log.warn("dropped malformed HostCommand frame", {
-        type: frame.type,
-        issues: parsed.error.issues.map((i) => ({ path: i.path.join("."), code: i.code })),
-      });
-      return;
-    }
-    const cmd = parsed.data as HostCommand;
+    void this.ingestCommand(frame).catch((err: unknown) => {
+      this.log.warn("command ingress failed", { type: frame.type, err: describeErr(err) });
+    });
+  }
+
+  private async dispatchListeners(cmd: HostCommand): Promise<void> {
+    const pending: Promise<void>[] = [];
     for (const cb of this.commandCbs) {
       // Each listener is fire-and-forget; failures in one must not skip the
       // next. Catch rejections explicitly — a bare `void cb(cmd)` on an async
@@ -411,13 +453,69 @@ export class WsControlChannel implements HostControlChannel {
       try {
         const result = cb(cmd);
         if (result === WS_CONTROL_COMMAND_CONSUMED) break;
-        Promise.resolve(result).catch((err: unknown) => {
+        pending.push(Promise.resolve(result).catch((err: unknown) => {
           this.log.warn("command listener threw", { type: cmd.type, err: describeErr(err) });
-        });
+        }));
       } catch (err) {
         this.log.warn("command listener threw synchronously", { type: cmd.type, err: describeErr(err) });
       }
     }
+    await Promise.all(pending);
+  }
+
+  private async dispatchIngressCommand(cmd: HostCommand): Promise<void> {
+    if (cmd.type === "machine:heartbeat") {
+      this.sendFrame({ type: "machine_heartbeat_ack", nonce: cmd.nonce });
+      return;
+    }
+    if (cmd.type === "diagnostics:collect") {
+      // Receipt means only that the daemon websocket ingress parsed this frame.
+      // Collection acceptance/completion remains authoritative in the durable
+      // diagnostic-report row and must never be inferred from this ack.
+      this.sendFrame({ type: "diagnostics_ack", reportId: cmd.reportId });
+      await this.dispatchListeners(cmd);
+      return;
+    }
+    if (cmd.type === "agent:wake") {
+      const result = await this.wakeCoordinator.run(cmd, (accepted) =>
+        this.dispatchListeners(accepted), (advanced) => {
+          for (const cb of this.wakeDesiredCbs) {
+            try {
+              cb(advanced);
+            } catch (err) {
+              this.log.warn("wake desired observer threw", { err: describeErr(err) });
+            }
+          }
+        });
+      if (result.state === "suppressed") {
+        await this.reportWakeAck({
+          agentId: cmd.agentId,
+          launchId: cmd.launchId,
+          status: "ok",
+        });
+        this.log.debug("duplicate wake suppressed", {
+          agentId: cmd.agentId,
+          channel: cmd.unreadNotice.channel,
+          latestSeq: cmd.unreadNotice.latestSeq,
+          coveredSeq: result.coveredSeq,
+        });
+      }
+      return;
+    }
+
+    if (cmd.type === "machine:reset_all") {
+      for (const reset of cmd.resets) this.wakeCoordinator.invalidate(reset.agentId, true);
+      await this.dispatchListeners(cmd);
+      return;
+    }
+    if (cmd.type === "agent:stop" || cmd.type === "agent:model_switch") {
+      this.wakeCoordinator.invalidate(cmd.agentId, false);
+    } else if (cmd.type === "agent:reset" || cmd.type === "agent:nap") {
+      this.wakeCoordinator.invalidate(cmd.agentId, true);
+    } else if (cmd.type === "bot:removed") {
+      this.wakeCoordinator.invalidate(cmd.botId, true);
+    }
+    await this.dispatchListeners(cmd);
   }
 
   private onSocketClosed(code?: number, reason?: unknown): void {
@@ -462,7 +560,8 @@ export class WsControlChannel implements HostControlChannel {
       if (this.now() > this.pongDeadline) {
         // Watchdog: no pong in time → treat as dead, force reconnect.
         this.log.warn("heartbeat pong timeout — forcing reconnect");
-        this.ws?.close();
+        if (this.ws?.terminate) this.ws.terminate();
+        else this.ws?.close();
         return;
       }
       this.log.debug("heartbeat ping");

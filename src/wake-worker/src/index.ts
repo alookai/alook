@@ -19,11 +19,11 @@ async function resolveAndLog(db: Database, env: Env, item: WakePayload) {
   if (result.outcome === "skip") {
     // Every skip reason is a permanent current-state miss — caller must ack, never retry.
     log.info("wake_skipped", { botUserId: item.botUserId, messageId: item.messageId, reason: result.reason })
-  } else if (result.outcome === "delivered_nowhere") {
+  } else if (result.outcome === "attempted_nowhere") {
     // ws-do resolved cleanly but the daemon is offline — a known-permanent
     // state for this attempt (plan §3's error contract). Daemon reconnect
     // warmup recovers; retrying would just spin, so this also acks.
-    log.info("wake_delivered_nowhere", { botUserId: item.botUserId, machineId: result.machineId })
+    log.info("wake_attempted_nowhere", { botUserId: item.botUserId, machineId: result.machineId })
   }
   return result
 }

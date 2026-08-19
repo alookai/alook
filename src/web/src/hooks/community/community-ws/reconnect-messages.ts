@@ -2,7 +2,7 @@ import type { InfiniteData, QueryClient, QueryKey } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
+import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import type {
   MessagesPage,
   MessagesPageParam,
@@ -105,6 +105,82 @@ function cachedLatestSeq(cache: MessageCache): number {
     page.latestSeq ?? 0,
     ...page.messages.map((message) => message.seq ?? 0),
   ), 0)
+}
+
+function cachedMessageRowLatestSeq(cache: MessageCache): number {
+  return cache.pages.reduce((latest, page) => Math.max(
+    latest,
+    ...page.messages.map((message) => message.seq ?? 0),
+  ), 0)
+}
+
+type GapRepairScope = {
+  kind: "channel" | "dm"
+  scopeId: string
+  serverId?: string
+}
+
+const gapRepairs = new WeakMap<QueryClient, Map<string, Promise<void>>>()
+
+function knownFocusedMessageSeq(
+  queryClient: QueryClient,
+  scope: GapRepairScope,
+): number {
+  const queryKey = scope.kind === "channel"
+    ? communityKeys.channelMessages(scope.scopeId)
+    : communityKeys.dmMessages(scope.scopeId)
+  const queries = queryClient.getQueryCache().findAll({ queryKey, type: "active" })
+  let latest = 0
+  for (const query of queries) {
+    if (isMessageCache(query.state.data)) {
+      // `page.latestSeq` is a server watermark, not proof that the row is
+      // present locally. Only concrete cached messages close a sequence gap.
+      latest = Math.max(latest, cachedMessageRowLatestSeq(query.state.data))
+    }
+  }
+  const overlay = scope.kind === "channel"
+    ? getMessageOverlay({
+        kind: "channel",
+        id: scope.scopeId,
+        serverId: scope.serverId ?? "",
+      })
+    : getMessageOverlay({ kind: "dm", id: scope.scopeId })
+  for (const message of overlay.liveById.values()) {
+    latest = Math.max(latest, message.seq ?? 0)
+  }
+  return latest
+}
+
+/**
+ * Detect a missing focused message before the incoming frame is projected.
+ * One repair runs per scope; later gap frames share the in-flight D1 catch-up.
+ */
+export function scheduleFocusedMessageGapRepair(
+  queryClient: QueryClient,
+  scope: GapRepairScope,
+  incomingSeq: number,
+): Promise<void> | null {
+  if (incomingSeq <= knownFocusedMessageSeq(queryClient, scope) + 1) return null
+  let repairs = gapRepairs.get(queryClient)
+  if (!repairs) {
+    repairs = new Map()
+    gapRepairs.set(queryClient, repairs)
+  }
+  const key = `${scope.kind}:${scope.scopeId}`
+  const existing = repairs.get(key)
+  if (existing) return existing
+  const repair = reconcileFocusedMessageQueries(
+    queryClient,
+    scope.kind,
+    scope.scopeId,
+  ).catch(() => {
+    // Realtime delivery is fail-open. A reconnect still runs the same
+    // authoritative reconciliation path if this best-effort repair fails.
+  }).finally(() => {
+    repairs!.delete(key)
+  })
+  repairs.set(key, repair)
+  return repair
 }
 
 /**

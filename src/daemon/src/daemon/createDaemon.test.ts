@@ -36,6 +36,10 @@ const timelineSweepHarness = vi.hoisted(() => {
   };
 });
 
+const credentialProxyHarness = vi.hoisted(() => ({
+  onInboxPullObservationError: undefined as ((failure: Record<string, unknown>) => void) | undefined,
+}));
+
 vi.mock("../timeline/index.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../timeline/index.js")>();
   return {
@@ -44,11 +48,27 @@ vi.mock("../timeline/index.js", async (importOriginal) => {
   };
 });
 
+vi.mock("../credentials/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../credentials/index.js")>();
+  return {
+    ...actual,
+    startCredentialProxy: (
+      ...args: Parameters<typeof actual.startCredentialProxy>
+    ): ReturnType<typeof actual.startCredentialProxy> => {
+      credentialProxyHarness.onInboxPullObservationError = args[1]?.onInboxPullObservationError as
+        | ((failure: Record<string, unknown>) => void)
+        | undefined;
+      return actual.startCredentialProxy(...args);
+    },
+  };
+});
+
 const startupSweepDirs: string[] = [];
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   timelineSweepHarness.reset();
+  credentialProxyHarness.onInboxPullObservationError = undefined;
   for (const dir of startupSweepDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -164,7 +184,7 @@ describe("createDaemon", () => {
       if (url.includes("/daemon/bots")) {
         return Response.json({ bots: [{ id: "bot_1", name: "Bot", discriminator: "0001" }] });
       }
-      return Response.json({ woken: 0 });
+      return Response.json({ attempted: 0 });
     }));
 
     const daemon = await createDaemon({
@@ -227,23 +247,38 @@ describe("createDaemon", () => {
         launchId: "launch_2",
         unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 9 },
       }));
-      await vi.waitFor(() => expect(deliver).toHaveBeenCalledTimes(3));
+      await new Promise((resolve) => setTimeout(resolve, 0));
       runTimer(1);
-      expect(deliver).toHaveBeenCalledTimes(3);
+      expect(deliver).toHaveBeenCalledTimes(2);
 
       await arm(10);
-      sockets[0]!.emit("message", JSON.stringify({ type: "agent:stop", agentId: "bot_1" }));
+      sockets[0]!.emit("message", JSON.stringify({
+        type: "agent:wake",
+        agentId: "bot_1",
+        config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
+        launchId: "launch_duplicate",
+        unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 9 },
+      }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
       runTimer(2);
       expect(deliver).toHaveBeenCalledTimes(3);
+      expect(deliver).toHaveBeenLastCalledWith("bot_1", expect.objectContaining({
+        text: expect.stringContaining("/demo#1234/general#10"),
+      }));
 
       await arm(11);
-      sockets[0]!.emit("message", JSON.stringify({ type: "bot:removed", botId: "bot_1" }));
+      sockets[0]!.emit("message", JSON.stringify({ type: "agent:stop", agentId: "bot_1" }));
       runTimer(3);
       expect(deliver).toHaveBeenCalledTimes(3);
 
       await arm(12);
-      await daemon.stop();
+      sockets[0]!.emit("message", JSON.stringify({ type: "bot:removed", botId: "bot_1" }));
       runTimer(4);
+      expect(deliver).toHaveBeenCalledTimes(3);
+
+      await arm(13);
+      await daemon.stop();
+      runTimer(5);
       expect(deliver).toHaveBeenCalledTimes(3);
     } finally {
       // stop is idempotent enough for the failure path and keeps the loopback
@@ -286,6 +321,40 @@ describe("createDaemon", () => {
     }
   });
 
+  it("uses one clock sample for status writtenAt and agent progress ages", async () => {
+    const sockets: FakeSocket[] = [];
+    const root = mkdtempSync(join(tmpdir(), "daemon-status-clock-"));
+    startupSweepDirs.push(root);
+    const statusFilePath = join(root, "status.json");
+    const projectionTimes: number[] = [];
+    let nowMs = 10_000;
+    vi.spyOn(Date, "now").mockImplementation(() => ++nowMs);
+    vi.spyOn(AgentProcessManager.prototype, "statusProjection").mockImplementation((sampledNowMs) => {
+      projectionTimes.push(sampledNowMs);
+      return [];
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ bots: [] })));
+
+    const daemon = await createDaemon({
+      machineKey: "cmk_status_clock",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as never,
+      runtimeReport: [],
+      driverFor: () => fakeDriver,
+      capabilities: [],
+      statusFilePath,
+    });
+
+    try {
+      const snapshot = JSON.parse(readFileSync(statusFilePath, "utf8")) as { writtenAt: number };
+      expect(projectionTimes).toHaveLength(1);
+      expect(snapshot.writtenAt).toBe(projectionTimes[0]);
+    } finally {
+      await daemon.stop();
+    }
+  });
+
   it("consumes diagnostics before Router and invokes the injected handler once", async () => {
     const sockets: FakeSocket[] = [];
     const routerEntry = spyOnRouterCommandEntry();
@@ -298,7 +367,7 @@ describe("createDaemon", () => {
           bots: [{ id: "bot_1", name: "Bot", discriminator: "0001" }],
         });
       }
-      return Response.json({ woken: 0 });
+      return Response.json({ attempted: 0 });
     }));
     const daemon = await createDaemon({
       machineKey: "cmk_diagnostics",
@@ -369,7 +438,7 @@ describe("createDaemon", () => {
       const url = String(input);
       return url.includes("/api/community/daemon/bots")
         ? Response.json({ bots: [{ id: "bot_1", name: "Bot", discriminator: "0001" }] })
-        : Response.json({ woken: 0 });
+        : Response.json({ attempted: 0 });
     }));
     const daemon = await createDaemon({
       machineKey: "cmk_diagnostics_failure",
@@ -468,6 +537,40 @@ describe("createDaemon", () => {
       capabilities: [],
     });
     expect(daemon.proxyUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+/);
+    await daemon.stop();
+  });
+
+  it("wires inbox observation failures to one bounded redacted daemon warning", async () => {
+    const sockets: FakeSocket[] = [];
+    const logger = stubLogger();
+    const daemon = await createDaemon({
+      machineKey: "cmk_observation_warning",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [],
+      driverFor: () => fakeDriver,
+      capabilities: [],
+      logger,
+    });
+
+    expect(credentialProxyHarness.onInboxPullObservationError).toBeTypeOf("function");
+    credentialProxyHarness.onInboxPullObservationError?.({
+      agentId: "agent-1",
+      reason: "invalid_json",
+      contentEncoding: "gzip",
+      body: "private message body",
+      authorization: "Bearer private-runner-key",
+    });
+
+    const warnings = logger.calls.warn.filter(([, message]) => message === "inbox pull timeline observation failed");
+    expect(warnings).toEqual([[
+      "root",
+      "inbox pull timeline observation failed",
+      [{ agentId: "agent-1", reason: "invalid_json", contentEncoding: "gzip" }],
+    ]]);
+    expect(JSON.stringify(warnings)).not.toContain("private");
+    expect(JSON.stringify(warnings)).not.toContain("Bearer");
     await daemon.stop();
   });
 
@@ -1025,12 +1128,12 @@ describe("createDaemon — logging", () => {
     await daemon.stop();
   });
 
-  it("calls resync-wakes with the machine key bearer on open and logs the woken count", async () => {
+  it("calls resync-wakes with the machine key bearer on open and logs the attempted count", async () => {
     global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
       const href = String(url);
       if (href.includes("/resync-wakes")) {
         expect((init?.headers as Record<string, string>).authorization).toBe("Bearer cmk_resync");
-        return new Response(JSON.stringify({ woken: 2 }), { status: 200 });
+        return new Response(JSON.stringify({ attempted: 2 }), { status: 200 });
       }
       return new Response(JSON.stringify({ bots: [] }), { status: 200 });
     }) as unknown as typeof fetch;
@@ -1051,7 +1154,7 @@ describe("createDaemon — logging", () => {
     await new Promise((r) => setTimeout(r, 20));
 
     expect(
-      logger.calls.info.some(([, m, d]) => m === "wake resync completed" && (d[0] as any).woken === 2),
+      logger.calls.info.some(([, m, d]) => m === "wake resync completed" && (d[0] as any).attempted === 2),
     ).toBe(true);
     await daemon.stop();
   });

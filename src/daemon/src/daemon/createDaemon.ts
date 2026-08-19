@@ -408,7 +408,16 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
 
   const broker = new CredentialBroker({ upstreamBaseUrl: opts.serverUrl });
   const proxy = await startCredentialProxy(broker, {
-    onInboxPullResponse: (agentId, messages) => timeline.appendEntryForAgent(agentId, messages),
+    onInboxPullStart: (agentId) => channelRef?.modelSeenGeneration(agentId),
+    onInboxPullResponse: (agentId, messages, observationToken) => {
+      timeline.appendEntryForAgent(agentId, messages);
+      if (typeof observationToken === "number") {
+        channelRef?.recordModelSeen(agentId, messages, observationToken);
+      }
+    },
+    onInboxPullObservationError: ({ agentId, reason, contentEncoding }) => {
+      log.warn("inbox pull timeline observation failed", { agentId, reason, contentEncoding });
+    },
     onMessageReminderArm: (input) =>
       reminderSchedulerRef?.arm(input) ?? { armed: false, reason: "reminder_scheduler_unavailable" },
     // Bot audit log — Producer B (authoritative for `alook <sub>`). Fires
@@ -575,7 +584,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
    * Ask the server to re-check each of this machine's bots for unread work
    * and re-wake any that have some. Recovers a message that arrived while
    * this daemon was offline: the wake-queue consumer acks (never retries) a
-   * `delivered_nowhere` outcome, so without this call that wake is gone for
+   * `attempted_nowhere` outcome, so without this call that wake is gone for
    * good once the daemon reconnects. The daemon drives WHEN this runs; the
    * server alone decides WHAT an `agent:wake` looks like (same
    * `dispatchOneUnreadWake` rebuild the queue consumer uses) — this call
@@ -589,10 +598,28 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         headers: { authorization: `Bearer ${opts.machineKey}` },
       });
       if (!res.ok) throw new Error(`resync-wakes ${res.status}`);
-      const json = (await res.json()) as { woken?: number };
-      log.info("wake resync completed", { woken: json.woken ?? 0 });
+      const json = (await res.json()) as { attempted?: number };
+      log.info("wake resync completed", { attempted: json.attempted ?? 0 });
     } catch (err) {
       log.warn("wake resync failed", { err: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  async function resyncPendingDiagnostics(): Promise<void> {
+    try {
+      const res = await fetch(`${opts.serverUrl}/api/community/daemon/resync-diagnostics`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${opts.machineKey}` },
+      });
+      if (!res.ok) throw new Error(`resync-diagnostics ${res.status}`);
+      const json = (await res.json()) as { pending?: number; attempted?: number; ambiguous?: number };
+      log.info("diagnostics resync completed", {
+        pending: json.pending ?? 0,
+        attempted: json.attempted ?? 0,
+        ambiguous: json.ambiguous ?? 0,
+      });
+    } catch (err) {
+      log.warn("diagnostics resync failed", { err: err instanceof Error ? err.message : String(err) });
     }
   }
 
@@ -845,8 +872,10 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   let statusTimer: ReturnType<typeof setInterval> | null = null;
   if (opts.statusFilePath) {
     const statusPath = opts.statusFilePath;
-    const writeStatus = () =>
-      writeStatusFile(statusPath, { writtenAt: Date.now(), agents: manager.statusProjection(Date.now()) });
+    const writeStatus = () => {
+      const nowMs = Date.now();
+      writeStatusFile(statusPath, { writtenAt: nowMs, agents: manager.statusProjection(nowMs) });
+    };
     writeStatus(); // one immediately so `daemon status` works right after boot
     statusTimer = setInterval(writeStatus, STATUS_WRITE_INTERVAL_MS);
     statusTimer.unref?.();
@@ -906,14 +935,14 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     handleDiagnosticCommand: opts.handleDiagnosticCommand,
     reportDiagnosticFailure: opts.reportDiagnosticFailure,
   }));
-  // Local reminder bookkeeping observes the original FIFO control stream
-  // before AgentRouter registers its listener in router.start(). It never
-  // consumes commands; AgentRouter remains the sole server-wake dispatcher.
+  // Local reminder bookkeeping observes real desired-watermark advances even
+  // when an active agent coalesces the wake before AgentRouter. Replayed/old
+  // wakes do not create a second observation or enter agent routing.
+  channel.onWakeDesiredAdvance((cmd) => {
+    reminderSchedulerRef?.observe(cmd.agentId, cmd.unreadNotice.channel, cmd.unreadNotice.latestSeq);
+  });
   channel.onCommand((cmd) => {
     switch (cmd.type) {
-      case "agent:wake":
-        reminderSchedulerRef?.observe(cmd.agentId, cmd.unreadNotice.channel, cmd.unreadNotice.latestSeq);
-        break;
       case "agent:stop":
         reminderSchedulerRef?.clearAgent(cmd.agentId);
         break;
@@ -933,6 +962,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   channel.onOpen(() => {
     void coldStartWarmup();
     void resyncPendingWakes();
+    void resyncPendingDiagnostics();
   });
 
   channel.connect();

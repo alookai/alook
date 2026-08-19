@@ -8,6 +8,7 @@ import {
 } from "./routes/broadcast"
 import { handleMachinePush, handleMachineWake } from "./routes/community-machine-delivery"
 import { handleMachineDiagnostics } from "./routes/community-machine-diagnostics"
+import { handleMessageDelivery } from "./routes/message-delivery"
 import {
   handleMachineBatchReset,
   handleMachineForceClose,
@@ -48,6 +49,8 @@ export default {
     response = await handleCommunityUserBroadcast(context)
     if (response) return response
     response = await handleCommunityUsersBroadcast(context)
+    if (response) return response
+    response = await handleMessageDelivery(context)
     if (response) return response
     response = await handleUserBroadcast(context)
     if (response) return response

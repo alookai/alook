@@ -8,10 +8,9 @@ import { buildBotAvatarKey, botAvatarUrl } from "@/lib/community/storage"
 
 // No ownership check — other members/DM peers need to see a bot's avatar.
 //
-// The URL never changes across re-uploads (deterministic key), so caching by
-// max-age alone would keep every other viewer's browser stuck on the old
-// bytes for up to an hour after a replace. Revalidate on every request but
-// key it off the R2 ETag so a cache hit is a cheap 304, not a full re-fetch.
+// The URL never changes across re-uploads (deterministic key). Let the browser
+// paint stale bytes while it revalidates the R2 ETag in the background, so a
+// warm avatar never waits behind a network round trip.
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const botId = ctx.params?.id
   if (!botId) return writeError("missing bot id", 400)

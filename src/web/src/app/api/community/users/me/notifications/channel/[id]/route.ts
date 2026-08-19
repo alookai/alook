@@ -3,14 +3,14 @@ import { queries, NOTIFICATION_LEVEL_VALUES } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
-import { requireChannelMember } from "@/lib/community/permissions"
+import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
 
 export const PUT = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 
   const db = getDb(ctx.env.DB)
-  const auth = await requireChannelMember(db, channelId, ctx.userId)
+  const auth = await requireMessageSurfaceAccess(db, channelId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
   let body: { level: string }
@@ -38,7 +38,7 @@ export const DELETE = withAuth(async (_req, ctx) => {
   if (!channelId) return writeError("missing channel id", 400)
 
   const db = getDb(ctx.env.DB)
-  const auth = await requireChannelMember(db, channelId, ctx.userId)
+  const auth = await requireMessageSurfaceAccess(db, channelId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
   await queries.communityNotificationSetting.removeChannelOverride(db, {

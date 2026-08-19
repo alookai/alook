@@ -4,7 +4,9 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
+  createMessageMenuPointAnchor,
   Message,
+  selectionBelongsToRow,
   shouldActivateMessageOverlays,
   shouldSuppressTouchMenuOpen,
 } from "./message"
@@ -60,6 +62,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe("Message memo comparator", () => {
@@ -128,7 +131,22 @@ describe("Message memo comparator", () => {
 })
 
 describe("Message touch action menu", () => {
-  it("uses a tap dropdown and does not mount a long-press context-menu trigger", async () => {
+  it("creates a zero-size virtual anchor at the viewport click coordinates", () => {
+    const rect = createMessageMenuPointAnchor(123, 456).getBoundingClientRect()
+
+    expect(rect).toMatchObject({
+      x: 123,
+      y: 456,
+      top: 456,
+      right: 123,
+      bottom: 456,
+      left: 123,
+      width: 0,
+      height: 0,
+    })
+  })
+
+  it("uses row taps with an invisible dropdown anchor and no persistent ellipsis", async () => {
     let renderer: TestRenderer.ReactTestRenderer | undefined
     await act(async () => {
       renderer = TestRenderer.create(
@@ -148,8 +166,10 @@ describe("Message touch action menu", () => {
     )
     const trigger = triggers.find((node) => node.type === "button")
     expect(trigger).toBeDefined()
-    expect(trigger?.props["aria-label"]).toBe("Message actions")
-    expect(trigger?.props.className).toContain("focus-visible:ring-2")
+    expect(trigger?.props["aria-hidden"]).toBe(true)
+    expect(trigger?.props.tabIndex).toBe(-1)
+    expect(trigger?.props.className).toContain("size-0")
+    expect(trigger?.findAll((node) => node.type === "svg")).toHaveLength(0)
     expect(renderer!.root.findAll(
       (node) => node.props["data-slot"] === "context-menu-trigger",
     )).toHaveLength(0)
@@ -158,9 +178,57 @@ describe("Message touch action menu", () => {
       (node) => typeof node.props.className === "string"
         && node.props.className.includes("group relative -mx-2"),
     )
+    expect(row.props.className).not.toContain("pr-11")
     expect(row.props.className).not.toContain("select-none")
     expect(row.props.role).toBeUndefined()
     expect(row.props.tabIndex).toBeUndefined()
+    act(() => renderer!.unmount())
+  })
+
+  it("anchors an accepted row tap to its viewport coordinates", async () => {
+    vi.stubGlobal("window", { getSelection: () => null })
+    let renderer: TestRenderer.ReactTestRenderer | undefined
+    await act(async () => {
+      renderer = TestRenderer.create(
+        makeTree({
+          m: baseMsg({ content: "long message\n".repeat(200) }),
+          hoverCapable: false,
+          onOpenThread: vi.fn(),
+          onReply: vi.fn(),
+          onCopy: vi.fn(),
+        }),
+        { createNodeMock: () => genericMock },
+      )
+    })
+
+    const row = renderer!.root.find(
+      (node) => typeof node.props.className === "string"
+        && node.props.className.includes("group relative -mx-2"),
+    )
+    await act(async () => {
+      row.props.onClick({
+        clientX: 271,
+        clientY: 603,
+        currentTarget: { contains: () => false },
+        target: { closest: () => null },
+      })
+    })
+
+    const positioner = renderer!.root.find(
+      (node) => node.props.positionMethod === "fixed" && node.props.anchor,
+    )
+    expect(positioner.props.anchor.getBoundingClientRect()).toMatchObject({
+      x: 271,
+      y: 603,
+      width: 0,
+      height: 0,
+    })
+    expect(positioner.props.collisionPadding).toBe(8)
+    expect(positioner.props.collisionAvoidance).toEqual({
+      side: "flip",
+      align: "shift",
+      fallbackAxisSide: "none",
+    })
     act(() => renderer!.unmount())
   })
 
@@ -199,6 +267,112 @@ describe("Message touch action menu", () => {
     expect(globalCss).toMatch(
       /\[data-community-message-body\]\s*\{[^}]*-webkit-touch-callout:\s*default;[^}]*user-select:\s*text;/s,
     )
+    act(() => renderer!.unmount())
+  })
+})
+
+describe("Message desktop text selection", () => {
+  const insideAnchor = {} as Node
+  const insideFocus = {} as Node
+  const outside = {} as Node
+  const rowElement = {
+    contains: (node: Node | null) => node === insideAnchor || node === insideFocus,
+  }
+
+  it("recognizes a non-collapsed selection with either endpoint inside the row", () => {
+    expect(selectionBelongsToRow({
+      isCollapsed: false,
+      anchorNode: insideAnchor,
+      focusNode: outside,
+    }, rowElement)).toBe(true)
+    expect(selectionBelongsToRow({
+      isCollapsed: false,
+      anchorNode: outside,
+      focusNode: insideFocus,
+    }, rowElement)).toBe(true)
+  })
+
+  it("rejects collapsed and outside-row selections", () => {
+    expect(selectionBelongsToRow({
+      isCollapsed: true,
+      anchorNode: insideAnchor,
+      focusNode: insideFocus,
+    }, rowElement)).toBe(false)
+    expect(selectionBelongsToRow({
+      isCollapsed: false,
+      anchorNode: outside,
+      focusNode: outside,
+    }, rowElement)).toBe(false)
+    expect(selectionBelongsToRow(null, rowElement)).toBe(false)
+  })
+
+  it("preserves the native context menu for a selection inside the row", () => {
+    vi.stubGlobal("window", {
+      getSelection: () => ({
+        isCollapsed: false,
+        anchorNode: insideAnchor,
+        focusNode: insideFocus,
+      }),
+    })
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg(),
+        onOpenThread: vi.fn(),
+        onCopy: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+
+    const row = renderer!.root.find(
+      (node) => typeof node.props.className === "string"
+        && node.props.className.includes("group relative -mx-2"),
+    )
+
+    const stopPropagation = vi.fn()
+    const preventDefault = vi.fn()
+    const preventBaseUIHandler = vi.fn()
+    act(() => row.props.onContextMenu({
+      currentTarget: rowElement,
+      stopPropagation,
+      preventDefault,
+      preventBaseUIHandler,
+    }))
+
+    expect(stopPropagation).toHaveBeenCalledOnce()
+    expect(preventDefault).not.toHaveBeenCalled()
+    expect(preventBaseUIHandler).toHaveBeenCalledOnce()
+    act(() => renderer!.unmount())
+  })
+
+  it("keeps Alook's context menu for a row with no active selection", () => {
+    vi.stubGlobal("window", { getSelection: () => null })
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg(),
+        onOpenThread: vi.fn(),
+        onCopy: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+
+    const row = renderer!.root.find(
+      (node) => typeof node.props.className === "string"
+        && node.props.className.includes("group relative -mx-2"),
+    )
+
+    const stopPropagation = vi.fn()
+    const preventDefault = vi.fn()
+    const preventBaseUIHandler = vi.fn()
+    act(() => row.props.onContextMenu({
+      currentTarget: rowElement,
+      stopPropagation,
+      preventDefault,
+      preventBaseUIHandler,
+    }))
+
+    expect(stopPropagation).not.toHaveBeenCalled()
+    expect(preventDefault).not.toHaveBeenCalled()
+    expect(preventBaseUIHandler).not.toHaveBeenCalled()
     act(() => renderer!.unmount())
   })
 })

@@ -47,7 +47,10 @@ import {
   type ForumSidebarThread,
 } from "@/hooks/community/use-forum-sidebar-threads"
 import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
-import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
+import {
+  resolveServerNotificationDisplayLevel,
+  useNotificationSettings,
+} from "@/hooks/community/use-notification-settings"
 import {
   useCreateChannel,
   useDeleteChannel,
@@ -104,7 +107,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const presence = usePresence(serverId)
   const { online: initialOnline } = presence
   const notifs = useNotificationSettings()
-  const notifLevel = notifs.server[serverId] ?? notifLevelDisplay("mentions")
+  const notifLevel = resolveServerNotificationDisplayLevel(notifs.server[serverId])
   const channelNotif = notifs.channel
   const currentChannelId = useCurrentChannelId()
   const currentChannelMeta = useCurrentChannelMeta()

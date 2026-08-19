@@ -105,9 +105,9 @@ describe("GET /api/community/bots/[id]/avatar", () => {
     expect(res.status).toBe(404)
   })
 
-  it("revalidates on every request instead of a long max-age (deterministic key never changes on re-upload)", async () => {
+  it("serves cached bytes while revalidating the deterministic URL in the background", async () => {
     const res = await GET(getReq(), ctx("b1"))
-    expect(res.headers.get("Cache-Control")).toBe("no-cache, must-revalidate")
+    expect(res.headers.get("Cache-Control")).toBe("private, max-age=0, stale-while-revalidate=31536000")
     expect(res.headers.get("ETag")).toBe('"etag-1"')
   })
 
@@ -119,6 +119,7 @@ describe("GET /api/community/bots/[id]/avatar", () => {
     const res = await GET(req, ctx("b1"))
     expect(res.status).toBe(304)
     expect(res.headers.get("ETag")).toBe('"etag-1"')
+    expect(res.headers.get("Cache-Control")).toBe("private, max-age=0, stale-while-revalidate=31536000")
   })
 })
 

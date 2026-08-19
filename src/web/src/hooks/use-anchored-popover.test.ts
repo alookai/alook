@@ -14,17 +14,20 @@ function rect(top: number, left: number, height = 16): AnchorRect {
 }
 
 describe("anchoredPopoverStyle", () => {
-  it("anchors above the caret when the visual viewport has room", () => {
+  it("converts visual coordinates to layout-fixed coordinates exactly once", () => {
     const style = anchoredPopoverStyle(rect(400, 40), VIEWPORT, 256, 240)
-    expect(style.top).toBe(396)
-    expect(style.left).toBe(40)
+    expect(style.top).toBe(496)
+    expect(style.left).toBe(60)
+    expect(Number(style.top) - VIEWPORT.top).toBe(396)
+    expect(Number(style.left) - VIEWPORT.left).toBe(40)
     expect(style.transform).toBe("translateY(-100%)")
     expect(style["--anchored-popover-max-height"]).toBe("240px")
   })
 
   it("flips below a caret near the visual viewport top", () => {
-    const style = anchoredPopoverStyle(rect(120, 40), VIEWPORT, 256, 240)
+    const style = anchoredPopoverStyle(rect(20, 40), VIEWPORT, 256, 240)
     expect(style.top).toBe(140)
+    expect(Number(style.top) - VIEWPORT.top).toBe(40)
     expect(style.transform).toBeUndefined()
   })
 
@@ -35,9 +38,21 @@ describe("anchoredPopoverStyle", () => {
 
   it("uses the roomier side and reduces list height when neither side fully fits", () => {
     const shortViewport = { top: 100, left: 0, width: 320, height: 220 }
-    const style = anchoredPopoverStyle(rect(180, 20), shortViewport, 256, 240)
+    const style = anchoredPopoverStyle(rect(80, 20), shortViewport, 256, 240)
     expect(style.transform).toBeUndefined()
     expect(style["--anchored-popover-max-height"]).toBe("102px")
+  })
+
+  it("keeps zero-offset desktop geometry unchanged", () => {
+    const style = anchoredPopoverStyle(
+      rect(400, 40),
+      { top: 0, left: 0, width: 320, height: 500 },
+      256,
+      240,
+    )
+    expect(style.top).toBe(396)
+    expect(style.left).toBe(40)
+    expect(style.transform).toBe("translateY(-100%)")
   })
 })
 

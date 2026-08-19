@@ -37,6 +37,7 @@ import { DmHeader } from "@/components/community/channels/dm-header"
 import { ChannelHeader } from "@/components/community/channels/channel-header"
 import { Avatar } from "@/components/community/avatar"
 import { Message } from "@/components/community/messages/message"
+import { TypingIndicator } from "@/components/community/messages/typing-indicator"
 import { InboxPopover } from "@/components/community/shell/community-inbox-popover"
 import { MachineCard } from "@/components/community/machines/machine-card"
 import { PairMachineSteps } from "@/components/community/machines/pair-machine-sheet"
@@ -74,6 +75,11 @@ const SPACE_SERVERS: Server[] = [
   { id: "work", name: "Studio", initial: "S", active: true, mentions: 0, isOwner: true, icon: null },
   { id: "life", name: "Home", initial: "H", active: false, mentions: 0, isOwner: true, icon: null },
   { id: "play", name: "Game Night", initial: "G", active: false, mentions: 0, isOwner: true, icon: null },
+]
+
+const OVERVIEW_SERVERS: Server[] = [
+  ...SERVERS,
+  ...SPACE_SERVERS.map((server) => ({ ...server, active: false })),
 ]
 
 const CHANNELS: Category[] = [
@@ -202,7 +208,7 @@ const MESSAGES: RenderMsg[] = [
     authorName: "Alli",
     authorAvatar: "avatar:beam:alli",
     content: "On it.",
-    createdAt: "2026-08-06T04:20:04.000Z",
+    createdAt: "2026-08-06T04:21:00.000Z",
     seq: 426,
     grouped: false,
   },
@@ -213,7 +219,7 @@ const MESSAGES: RenderMsg[] = [
     authorName: "Ruthann",
     authorAvatar: "avatar:beam:ruth",
     content: "I’ll review the flow.",
-    createdAt: "2026-08-06T04:20:07.000Z",
+    createdAt: "2026-08-06T04:22:00.000Z",
     seq: 427,
     grouped: false,
   },
@@ -224,7 +230,7 @@ const MESSAGES: RenderMsg[] = [
     authorName: "Shelly",
     authorAvatar: "avatar:beam:shelly",
     content: "Ready to ship.",
-    createdAt: "2026-08-06T04:20:11.000Z",
+    createdAt: "2026-08-06T04:23:00.000Z",
     seq: 428,
     grouped: false,
   },
@@ -507,7 +513,7 @@ const BOT_AVATAR_DRAFT: AvatarDraft = {
 }
 
 const PAIR_COMMAND =
-  "npx @alook/daemon daemon start --machine-key cmk_demo --server-url https://alook.ai --ws-url wss://alook.ai/api/ws/community-daemon"
+  "npx --yes @alook/daemon@latest daemon start --machine-key cmk_demo"
 
 function useReducedMotion() {
   const [reduced, setReduced] = useState(false)
@@ -605,10 +611,12 @@ function useVisualFocus(scene: LandingScene, focus: string | null) {
 export function LandingShellMotion({
   scene,
   machineIntroDescription,
+  overviewDetails = false,
   beat: controlledBeat,
 }: {
   scene: LandingScene
   machineIntroDescription?: string
+  overviewDetails?: boolean
   beat?: number
 }) {
   const [localBeat, setLocalBeat] = useState(0)
@@ -704,6 +712,7 @@ export function LandingShellMotion({
                 scene={scene}
                 snapshot={visualSnapshot}
                 machineIntroDescription={machineIntroDescription}
+                overviewDetails={overviewDetails}
               />
             </QueryClientProvider>
             <MousePointer2
@@ -799,10 +808,12 @@ function PrototypeShell({
   scene,
   snapshot,
   machineIntroDescription,
+  overviewDetails,
 }: {
   scene: LandingScene
   snapshot: SceneSnapshot
   machineIntroDescription?: string
+  overviewDetails: boolean
 }) {
   const continuityRoom = scene === "continuity" && snapshot.beat >= 7
     ? snapshot.room
@@ -813,7 +824,11 @@ function PrototypeShell({
     scene === "identity" ||
     continuityRoom !== null
   const room = scene === "spaces" || scene === "identity" ? snapshot.room : continuityRoom
-  const servers = room
+  const servers = overviewDetails && scene === "server"
+    ? OVERVIEW_SERVERS
+    : scene === "continuity"
+    ? SPACE_SERVERS.map((server) => ({ ...server, active: server.id === room }))
+    : room
     ? SPACE_SERVERS.map((server) => ({ ...server, active: server.id === room }))
     : SERVERS
   return (
@@ -834,6 +849,7 @@ function PrototypeShell({
                 <PrototypeChannelSidebar
                   room={room}
                   channels={scene === "continuity" ? CONTINUITY_CHANNELS : SPACE_CHANNELS}
+                  rootChannels={overviewDetails && scene === "server" ? SPACE_CHANNELS.work : CHANNELS}
                 />
               ) : (
                 <PrototypeDmSidebar scene={scene} snapshot={snapshot} />
@@ -843,7 +859,9 @@ function PrototypeShell({
               key={`content-${scene}-${room ?? "default"}`}
               className={`flex min-w-0 flex-1 flex-col bg-background ${styles.sceneEnter}`}
             >
-              {scene === "server" && <ServerScene snapshot={snapshot} />}
+              {scene === "server" && (
+                <ServerScene snapshot={snapshot} showTypingPill={overviewDetails} />
+              )}
               {scene === "machine" && (
                 <MachineScene
                   snapshot={snapshot}
@@ -915,7 +933,7 @@ function PrototypeUserBar({
       <UserBar
         user={{ id: "gus", name: "Gus", avatar: "avatar:beam:gus" }}
         onEditProfile={() => {}}
-        inbox={scene === "continuity" ? <span /> : undefined}
+        inbox={scene === "continuity" || scene === "server" || scene === "machine" ? <span /> : undefined}
         hasUnread={hasUnread}
         inboxOpen={false}
         onInboxOpenChange={() => {}}
@@ -971,11 +989,13 @@ function PrototypeServerRail({
 function PrototypeChannelSidebar({
   room,
   channels = SPACE_CHANNELS,
+  rootChannels = CHANNELS,
 }: {
   room: LandingRoom | null
   channels?: Record<LandingRoom, Category[]>
+  rootChannels?: Category[]
 }) {
-  const categories = room ? channels[room] : CHANNELS
+  const categories = room ? channels[room] : rootChannels
   const tree = useChannelTree(categories)
   const serverName = room
     ? SPACE_SERVERS.find((server) => server.id === room)?.name ?? ""
@@ -1096,7 +1116,13 @@ function PrototypeSheet({
   )
 }
 
-function ServerScene({ snapshot }: { snapshot: SceneSnapshot }) {
+function ServerScene({
+  snapshot,
+  showTypingPill,
+}: {
+  snapshot: SceneSnapshot
+  showTypingPill: boolean
+}) {
   return (
     <>
       <ChannelHeader
@@ -1106,7 +1132,7 @@ function ServerScene({ snapshot }: { snapshot: SceneSnapshot }) {
         server={{ id: "gus", name: "Gus", icon: null }}
       />
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="flex-1 overflow-hidden px-4 py-3">
+        <div className="relative flex-1 overflow-hidden px-4 py-3">
           {MESSAGES.map((message, index) => (
             <div
               key={message.id}
@@ -1121,6 +1147,7 @@ function ServerScene({ snapshot }: { snapshot: SceneSnapshot }) {
               </div>
             </div>
           ))}
+          {showTypingPill && <TypingIndicator names={[DMS[0].name]} />}
         </div>
         <PrototypeComposer
           snapshot={snapshot}

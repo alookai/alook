@@ -19,11 +19,11 @@ describe("pushDiagnosticReportToMachine", () => {
   beforeEach(() => wsDoFetch.mockReset());
 
   it("uses only the purpose-built diagnostics route and narrow body", async () => {
-    wsDoFetch.mockResolvedValue(Response.json({ sent: 1 }));
+    wsDoFetch.mockResolvedValue(Response.json({ attempted: 1, sent: 1 }));
 
     const outcome = await pushDiagnosticReportToMachine(env, "cm one", command);
 
-    expect(outcome).toEqual({ kind: "delivered", sent: 1 });
+    expect(outcome).toEqual({ kind: "attempted", attempted: 1 });
     const [, path, init, audit] = wsDoFetch.mock.calls[0]!;
     expect(path).toBe("/community-machine/by-id/cm%20one/forward-diagnostics-collect");
     expect(init.method).toBe("POST");
@@ -32,14 +32,14 @@ describe("pushDiagnosticReportToMachine", () => {
     expect(audit).toEqual({ label: "cm one", type: "diagnostics:collect" });
   });
 
-  it("distinguishes delivered, definite offline, and ambiguous transport", async () => {
-    wsDoFetch.mockResolvedValueOnce(Response.json({ sent: 2 }));
+  it("distinguishes attempted, definite offline, and ambiguous transport", async () => {
+    wsDoFetch.mockResolvedValueOnce(Response.json({ attempted: 2 }));
     await expect(pushDiagnosticReportToMachine(env, "cm_1", command)).resolves.toEqual({
-      kind: "delivered",
-      sent: 2,
+      kind: "attempted",
+      attempted: 2,
     });
 
-    wsDoFetch.mockResolvedValueOnce(Response.json({ sent: 0 }));
+    wsDoFetch.mockResolvedValueOnce(Response.json({ attempted: 0 }));
     await expect(pushDiagnosticReportToMachine(env, "cm_1", command)).resolves.toEqual({
       kind: "offline",
     });
@@ -56,10 +56,12 @@ describe("pushDiagnosticReportToMachine", () => {
   });
 
   it.each([
-    ["missing sent", {}],
-    ["negative sent", { sent: -1 }],
-    ["fractional sent", { sent: 0.5 }],
-    ["string sent", { sent: "1" }],
+    ["missing attempted", {}],
+    ["legacy sent-only without deadline proof", { sent: 1 }],
+    ["negative attempted", { attempted: -1 }],
+    ["fractional attempted", { attempted: 0.5 }],
+    ["string attempted", { attempted: "1" }],
+    ["mismatched sent alias", { attempted: 1, sent: 0 }],
   ])("fails closed on a 2xx response with %s", async (_label, response) => {
     wsDoFetch.mockResolvedValue(Response.json(response));
 

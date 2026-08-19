@@ -2,6 +2,13 @@
 <html>
 <head>
 <meta charset="utf-8">
+<!--
+  Capture this banner with Playwright using the installed Chrome browser:
+  chromium.launch({ channel: "chrome", headless: true }), then screenshot
+  page.locator(".card") with { omitBackground: true } at a 1280x500 viewport.
+  Do not use Playwright's bundled Chromium: it can flatten the nested 3D
+  typewriter layers and hide the paper even though this HTML is correct.
+-->
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@700&family=DM+Sans:wght@400;600;700&family=VT323&display=swap');
 
@@ -21,7 +28,7 @@ body {
   display: flex;
   align-items: center;
   padding: 60px 80px;
-  background: linear-gradient(135deg, #f5f0e8 0%, #ddd5c8 100%);
+  background: #f4f9e9;
   border-radius: 24px;
   overflow: hidden;
   position: relative;
@@ -51,13 +58,13 @@ body {
   font-family: 'Caveat', cursive;
   font-size: 36px;
   font-weight: 700;
-  color: #3d3428;
+  color: #1b271f;
 }
 
 .title {
   font-size: 40px;
   font-weight: 600;
-  color: #2a231a;
+  color: #1b271f;
   line-height: 1.15;
 }
 
@@ -70,14 +77,14 @@ body {
 .spec {
   font-size: 12px;
   font-weight: 600;
-  color: #5a5347;
+  color: #47633b;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   font-family: 'DM Sans', sans-serif;
   padding: 6px 14px;
-  background: rgba(61, 52, 40, 0.08);
+  background: rgb(27 39 31 / 8%);
   border-radius: 20px;
-  border: 1px solid rgba(61, 52, 40, 0.1);
+  border: 1px solid rgb(27 39 31 / 12%);
 }
 
 .right {
@@ -96,8 +103,8 @@ body {
   --tw-body-top: oklch(0.28 0.01 60);
   --tw-chrome: oklch(0.72 0.01 75);
   --tw-chrome-hi: oklch(0.82 0.005 80);
-  --tw-paper: oklch(0.97 0.008 80);
-  --tw-blob: oklch(0.88 0.025 82);
+  --tw-paper: #fbfdf4;
+  --tw-blob: #ddedb7;
   --tw-roller: oklch(0.15 0.01 55);
 }
 
@@ -322,7 +329,7 @@ body {
       <img src="../alook.svg" alt="" />
       <span class="brand-name">Alook</span>
     </div>
-    <div class="title">Run Your Personal AI Company</div>
+    <div class="title">Share your agents<br>with people you trust.</div>
     <div class="specs">
       <span class="spec">Collaboration</span>
       <span class="spec">Always-On</span>
@@ -345,12 +352,12 @@ body {
               <div class="tw-paper-track">
                 <div class="tw-paper">
                   <div class="tw-email-headers">
-                    <div class="tw-email-line"><span>From:</span> jarvis@alook.ai</div>
-                    <div class="tw-email-line"><span>To:</span> you@email.com</div>
-                    <div class="tw-email-line"><span>Subject:</span> Good morning!</div>
+                    <div class="tw-email-line">HOME / FAMILY-PLANS</div>
+                    <div class="tw-email-line"><span>Maya joined the room.</span></div>
+                    <div class="tw-email-line">A note for Alli#8145</div>
                   </div>
                   <div class="tw-email-body">
-                    Your agents are always on. I handled everything overnight.
+                    Maya and Alli now share this channel. Either can reply here, and Gus can catch up when he returns.
                   </div>
                 </div>
               </div>
