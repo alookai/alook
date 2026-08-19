@@ -47,6 +47,7 @@ describe("packed @alook/agent-driver", () => {
     await execFileAsync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", tarball], {
       cwd: root,
       maxBuffer: 10 * 1024 * 1024,
+      shell: process.platform === "win32",
     });
     writeFileSync(join(root, "usage.ts"), `
 import { createAgentDriverSdk } from "@alook/agent-driver";

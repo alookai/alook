@@ -42,7 +42,11 @@ describe("packed daemon agent-driver boundary", () => {
       "--prefix",
       installRoot,
       join(root, tarballName),
-    ], { cwd: root, maxBuffer: 20 * 1024 * 1024 });
+    ], {
+      cwd: root,
+      maxBuffer: 20 * 1024 * 1024,
+      shell: process.platform === "win32",
+    });
 
     const installedRoot = join(installRoot, "node_modules/@alook/daemon");
     const manifest = JSON.parse(readFileSync(join(installedRoot, "package.json"), "utf8")) as {
