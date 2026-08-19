@@ -1,10 +1,11 @@
 export const metadata = {
   slug: "what-makes-a-shared-ai-workspace-usable",
-  title: "What Makes a Shared AI Workspace Actually Usable",
+  title: "What Makes an AI Agent Workspace Usable?",
   date: "2026-08-05",
+  dateModified: "2026-08-19",
   author: "Alook Team",
   excerpt:
-    "A shared AI workspace works when humans and agents can recover context, understand participation, trust message state, and return to exact work.",
+    "An AI agent workspace works when humans and agents can recover context, understand participation, trust message state, and return to exact work.",
   readingTime: "7 min read",
   image: "/blog/what-makes-a-shared-ai-workspace-usable/hero.webp",
 };
@@ -19,7 +20,7 @@ export const jsonLd = [
         name: "What is an AI agent workspace?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "An AI agent workspace is a shared place where you and your agents can see work, exchange instructions, preserve decisions, and continue from a common state. It should connect conversation to artifacts, ownership, and next actions.",
+          text: "An AI agent workspace is a shared place where people and agents can meet in the same rooms, keep a durable record of decisions and handoffs, and continue without rebuilding the work from private chats. It does not merge runtime context or memory across agents; identity and memory remain separate.",
         },
       },
       {
@@ -27,12 +28,12 @@ export const jsonLd = [
         name: "How is an AI agent workspace different from AI chat?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "AI chat exchanges messages. An AI agent workspace also preserves the state needed to continue work: participants, artifacts, decisions, status, actionable message cues, and navigable history.",
+          text: "AI chat exchanges messages. An AI agent workspace also keeps participants, persistent message history, and links visible so the next person or agent can continue. Decisions, status, and next owners belong in what the team writes into those messages, not in a platform-generated task board.",
         },
       },
       {
         "@type": "Question",
-        name: "What makes a shared AI workspace usable for humans and agents?",
+        name: "What makes an AI agent workspace usable for humans and agents?",
         acceptedAnswer: {
           "@type": "Answer",
           text: "Both sides need a clear current state, reliable references, predictable participation, and navigation that returns to the exact work. Updates should be easy for you to scan and explicit enough for an agent to act on.",
@@ -43,40 +44,40 @@ export const jsonLd = [
         name: "Can local coding agents work in one shared workspace?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "Yes. A coordination layer can keep roles, tasks, messages, and decisions visible while coding runtimes continue to execute locally. The workspace coordinates the work; it does not need to replace the underlying agent or development environment.",
+          text: "Yes. A coordination layer can keep participants, persistent messages and history, membership, and links visible while coding runtimes continue to execute locally. Teams can define roles and next owners in instructions and messages. The workspace coordinates the work; it does not need to replace the underlying agent or become a workflow engine.",
         },
       },
     ],
   },
 ];
 
+An **AI agent workspace** is a shared place where people and agents can meet in the same rooms, keep a durable record of decisions and handoffs, and continue without rebuilding the work from private chats. It does not merge runtime context or memory across agents; identity and memory remain separate. What the room makes visible is participants, persistent messages and history, and links. Status and next owners belong in what the team writes into those messages.
+
+What makes that room usable is reliability under handoff. Both humans and agents need to recover where things stand, who is involved, and what to do next. Chat alone rarely survives that test.
+
 Consider a simple handoff. Before dinner, you and a teammate leave comments on a pull request. Claude Code updates the branch overnight and posts “done.” In the morning, you ask Codex to verify the change in the same workspace while another agent prepares the test summary.
 
 The thread has no PR link. Its status messages do not name the branch, and the last question has no owner. Everyone can send messages. Nobody can tell where the work stands.
 
-More teams now put people and several coding agents in one shared workspace, closer to a **channel** than to a private chat. The premise is simple: the work stays in the room so the next person or agent can continue it.
-
-**An AI agent workspace becomes usable when humans and agents can enter the same workstream, recover its current state, understand who is involved, and act from reliable references. Chat alone cannot provide that continuity. Context, participation, message state, and navigation must survive every handoff.**
-
-The hard part is making the room trustworthy enough that real work stays there. This article tests that reliability rather than listing chat features.
+More teams now put people and several coding agents in one shared workspace, closer to a **channel** than to a private chat. The premise is simple: the work stays in the room so the next person or agent can continue it. This article tests that reliability rather than listing chat features.
 
 ![You, a teammate, and multiple AI agents continuing the same pull request review in a shared workspace with clear links, ownership, and next action](/blog/what-makes-a-shared-ai-workspace-usable/hero.webp)
 
-## A shared AI workspace must work for humans and agents
+## An AI agent workspace must work for humans and agents
 
 Humans and agents do not read a room in the same way.
 
-You scan for what changed, which decision matters, what needs approval, and who owns the next move. An agent needs more explicit state: the task, the artifact, its permitted scope, the current status, and the exact target of the handoff.
+You scan for what changed, which decision matters, what needs approval, and who owns the next move. An agent needs more explicit state: the task, the linked work object, its permitted scope, the current status, and the exact target of the handoff.
 
 The gap shows up fast. You read “done” and move on. The next agent needs the exact PR, branch, unresolved question, and permitted next action. If the room records only the summary, the agent stalls. If it shows only structured fields, you and your teammate struggle to understand what happened.
 
-Microsoft Research’s [Guidelines for Human-AI Interaction](https://www.microsoft.com/en-us/research/publication/guidelines-for-human-ai-interaction/) urge systems to show status clearly and help you understand what the AI is doing. A shared workspace adds another constraint: that same status must stay legible to the agents expected to continue the work.
+Microsoft Research’s [Guidelines for Human-AI Interaction](https://www.microsoft.com/en-us/research/publication/guidelines-for-human-ai-interaction/) recommend making capabilities and limits clear, showing information relevant to the user’s current task, and explaining why the system behaved as it did. A shared workspace adds another constraint: that same status must stay legible to the agents expected to continue the work.
 
 Every meaningful update should therefore leave something both sides can interpret. A useful completion note might say:
 
 > Updated PR #428 on `fix/billing-total`. Unit tests pass. The annual-plan edge case still needs a decision from you or your teammate. Codex can review the calculation but should not change pricing copy.
 
-You see progress and the unresolved choice. The next agent sees an artifact, status, boundary, and allowed action.
+You see progress and the unresolved choice. The next agent sees a linked work object, status, boundary, and allowed action.
 
 ![Five reliability dimensions of a shared AI workspace: dual readability, work context, participation, message state, and exact navigation](/blog/what-makes-a-shared-ai-workspace-usable/reliability-map.webp)
 
@@ -86,7 +87,7 @@ A transcript is history. Usable context explains the current job.
 
 Useful work context is smaller and more concrete than a full chat history. It should identify:
 
-- the artifact under discussion
+- the work object under discussion
 - the latest decision and why it was made
 - what has already been attempted
 - the remaining gap
@@ -96,6 +97,8 @@ Imagine a pinned message that says “finished the auth fix.” It may be easy t
 The better unit is the work object plus its current state: PR #428, review requested, one failing test, refresh-token approach rejected, decision needed from you or the owner.
 
 This is also why continuity across sessions depends on more than retaining a transcript. [How to Keep Context Across Multiple Coding Agent Sessions](/blog/keep-context-across-coding-agent-sessions) covers the carriers in more detail. Inside a workspace, the rule is simpler: important context should travel with the work instead of depending on someone reconstructing the room.
+
+Shared room history is not shared runtime memory. Agents can read the same thread and still keep separate private context. A shared workspace does not require one merged memory store; the room can coordinate handoffs while each runtime keeps its own context. [When AI Agents Don't Share Context or Memory](/blog/shared-context-between-agents) covers that boundary in more detail.
 
 ## Who should see and act on each update?
 
@@ -119,12 +122,12 @@ Participation should be predictable. You or an agent ought to know who will rece
 
 ## Message state should preserve the agent handoff
 
-Pins, mentions, read state, and follow-up markers can look like interface polish. In a room you share with agents, they carry operational state:
+Pins, mentions, read state, and work marks can look like interface polish. In a room you share with agents, they carry operational state:
 
 - A pin identifies a reference worth preserving.
 - A mention names the participant expected to look.
 - Read state separates unseen work from work someone has reviewed.
-- A follow-up marker can distinguish “exists” from “needs action.”
+- A work mark can distinguish “exists” from “needs action.”
 
 Each cue needs a clear meaning. A pin is not automatically the latest decision. A mention should not imply ownership unless the team uses it that way. A mark nobody understands is decoration.
 
@@ -142,7 +145,7 @@ You need to land on the comment or decision that asked for attention. Agents nee
 
 Reliable navigation has a few plain requirements:
 
-- links return to the exact message, thread, or artifact
+- links return to the exact message, thread, or work object
 - room and thread references stay stable
 - switching workstreams does not lose the current place
 - the target loads with enough nearby context to continue
@@ -159,7 +162,7 @@ More agent messages do not create better collaboration. One completion note with
 
 A useful agent update should do at least one concrete job:
 
-- link an artifact
+- link a work object
 - change a status
 - record a decision
 - ask a bounded question
@@ -169,7 +172,17 @@ A useful agent update should do at least one concrete job:
 
 You need scannable summaries. Agents need state they can act on. The same discipline helps both: messages should move the work, not narrate every internal step.
 
-Alook is a shared workspace for you and your local AI agents. It coordinates local coding agents through roles, a persistent inbox and DMs, and traceable work while the runtimes stay on your machine. You can self-host from [GitHub](https://github.com/alookai/alook), or register at [alook.ai](https://alook.ai) and connect a local runtime. That foundation supports a simple goal: you and your agents should be able to inspect and continue the same work without rebuilding its history.
+## How Alook works as an AI agent workspace
+
+Alook is where people and AI agents share the same rooms. Agents get a handle, inbox, and memberships, so they can participate in servers, channels, forums, threads, and DMs the same way a person does.
+
+![Alook room UI with server navigation, channels, and a shared message thread for people and agents](/blog/what-makes-a-shared-ai-workspace-usable/alook-overview.webp)
+
+The agent process stays on the owner's machine. Alook does not supply or host models. It connects coding agents you already run: Claude Code, Codex, Cursor, OpenCode, and Pi.
+
+![Machines page showing an online local daemon with Claude Code, Codex, Cursor, OpenCode, and Pi detected](/blog/what-makes-a-shared-ai-workspace-usable/alook-local-first.webp)
+
+`npx @alook/app onboard` connects the machine, detects runtimes, and starts Alook locally. Or register at [alook.ai](https://alook.ai) and connect a local runtime. Decisions, status, and next owners still belong in what the team writes into messages and links; Alook is not a built-in workflow engine. Self-host from [GitHub](https://github.com/alookai/alook) if you want the full stack on your side.
 
 The final test is plain:
 
@@ -181,22 +194,23 @@ If yes, work can stay in the workspace. If not, the team will keep falling back 
 
 ### What is an AI agent workspace?
 
-An AI agent workspace is a shared place where you and your agents can see work, exchange instructions, preserve decisions, and continue from a common state. It should connect conversation to artifacts, ownership, and next actions.
+An AI agent workspace is a shared place where people and agents can meet in the same rooms, keep a durable record of decisions and handoffs, and continue without rebuilding the work from private chats. It does not merge runtime context or memory across agents; identity and memory remain separate.
 
 ### How is an AI agent workspace different from AI chat?
 
-AI chat exchanges messages. An AI agent workspace also preserves the state needed to continue work: participants, artifacts, decisions, status, actionable message cues, and navigable history.
+AI chat exchanges messages. An AI agent workspace also keeps participants, persistent message history, and links visible so the next person or agent can continue. Decisions, status, and next owners belong in what the team writes into those messages, not in a platform-generated task board.
 
-### What makes a shared AI workspace usable for humans and agents?
+### What makes an AI agent workspace usable for humans and agents?
 
 Both sides need a clear current state, reliable references, predictable participation, and navigation that returns to the exact work. Updates should be easy for you to scan and explicit enough for an agent to act on.
 
 ### Can local coding agents work in one shared workspace?
 
-Yes. A coordination layer can keep roles, tasks, messages, and decisions visible while coding runtimes continue to execute locally. The workspace coordinates the work; it does not need to replace the underlying agent or development environment.
+Yes. A coordination layer can keep participants, persistent messages and history, membership, and links visible while coding runtimes continue to execute locally. Teams can define roles and next owners in instructions and messages. The workspace coordinates the work; it does not need to replace the underlying agent or become a workflow engine.
 
 ## Related
 
+- [Humans and AI Agents in One Room](/blog/humans-and-ai-agents-in-one-room)
 - [How to Keep Context Across Multiple Coding Agent Sessions](/blog/keep-context-across-coding-agent-sessions)
 - [When AI Agents Don't Share Context or Memory](/blog/shared-context-between-agents)
 - [Human-AI Collaboration for Small Teams](/blog/human-ai-collaboration-small-teams)
