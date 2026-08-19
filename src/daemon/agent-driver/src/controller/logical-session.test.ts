@@ -219,6 +219,50 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)("%s logi
 });
 
 describe("closed physical-lane tombstone", () => {
+  it("drops every closed per-turn lane tail before it can poison the next turn boundary", async () => {
+    const { session, driver } = makeSession("claude", {
+      execution: { kind: "per_turn_process", start: "immediate", afterTurn: "terminate" },
+    });
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "a", kind: "user", text: "first" });
+    await emit(driver, { kind: "turn_end", sessionId: "root" });
+    await emit(driver, { kind: "tool_call", name: "late", input: {} });
+    await emit(driver, { kind: "compaction_started" });
+    await emit(driver, { kind: "review_started" });
+    await emit(driver, { kind: "error", message: "late error" });
+    await emit(driver, { kind: "internal_progress", source: "late", itemType: "tail" });
+    driver.processes[0]!.emit("exit", 0, null);
+    await Promise.resolve();
+
+    const second = await session.send({ id: "b", kind: "user", text: "second" });
+    expect(second.status).toBe("accepted");
+    expect(await session.send({ id: "c", kind: "user", text: "third" })).toEqual({
+      status: "queued",
+      reason: "unsafe_boundary",
+      commandId: "c",
+    });
+    await emit(driver, { kind: "tool_call", name: "current", input: {} });
+    await emit(driver, { kind: "tool_output", name: "current" });
+    await vi.waitFor(() => {
+      expect(session.snapshot()).toMatchObject({
+        activeTurn: { commandIds: ["b", "c"] },
+        queuedCommands: [],
+      });
+    });
+
+    const observed: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
+    while (observed.length < 10) {
+      const next = await iterator.next();
+      if (next.done) break;
+      observed.push(next.value);
+    }
+    expect(observed.filter((event) => event.type === "internal_progress")).toHaveLength(0);
+    expect(observed.filter((event) => event.type === "diagnostic")).toHaveLength(0);
+    expect(observed.filter((event) => event.type === "command_accepted" && event.commandId === "c"))
+      .toHaveLength(1);
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
   it("reopens only for proven same-lane root work, re-closes once, and suppresses bare duplicate terminals", async () => {
     const { session, driver } = makeSession("claude");
     const iterator = session.events[Symbol.asyncIterator]();

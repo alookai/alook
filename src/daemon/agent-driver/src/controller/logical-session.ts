@@ -515,6 +515,7 @@ implements AgentSession<Specs, Id> {
     generation: number,
   ): void {
     if (this.state === "closed" || this.state === "stopping" || this.finishing) return;
+    if (this.isClosedPerTurnLaneTail(physicalOwner, generation)) return;
     const turnId = this.activeTurn?.turnId ?? this.reopenClosedLaneForWork(event, physicalOwner, generation);
     switch (event.kind) {
       case "session_init":
@@ -592,15 +593,26 @@ implements AgentSession<Specs, Id> {
     }
   }
 
+  private isClosedPerTurnLaneTail(
+    physicalOwner: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane,
+    generation: number,
+  ): boolean {
+    if (this.adapter.execution.kind !== "per_turn_process" || this.activeTurn) return false;
+    const tombstone = this.closedLaneTombstone;
+    return tombstone?.state === "closed"
+      && tombstone.sessionInstanceId === this.sessionInstanceId
+      && tombstone.physicalOwner === physicalOwner
+      && tombstone.generation === generation;
+  }
+
   private reopenClosedLaneForWork(
     event: AdapterEvent,
     physicalOwner: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane,
     generation: number,
   ): string | undefined {
-    // A per-turn process has already surrendered ownership once it emits its
-    // terminal event. Any later output from that process is tail noise from the
-    // closed transport generation; reopening it would leave the logical turn
-    // active when the deliberately terminated process exits.
+    // Defense in depth for direct/internal callers. Normal event delivery drops
+    // every event from a closed per-turn transport before any shared-state side
+    // effect in onAdapterEvent's switch can run.
     if (this.adapter.execution.kind === "per_turn_process") return undefined;
     const isRootWork = event.kind === "thinking"
       || event.kind === "text"

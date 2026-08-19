@@ -555,7 +555,7 @@ describe("claude turn-scoped transport ownership", () => {
       const collecting = (async () => { for await (const event of opened.session.events) events.push(event); })();
       const init = { type: "system", subtype: "init", session_id: "claude-resumed" };
       const terminal = { type: "result", subtype: "success", session_id: "claude-resumed" };
-      const tail = { type: "assistant", session_id: "claude-resumed", message: { content: [{ type: "text", text: "late tail" }] } };
+      const tail = { type: "assistant", session_id: "claude-resumed", message: { content: [{ type: "tool_use", name: "LateTail", input: {} }] } };
 
       const first = await opened.session.start({ id: "first", kind: "user", text: "first" });
       expect(first.status).toBe("accepted");
@@ -569,7 +569,7 @@ describe("claude turn-scoped transport ownership", () => {
       await settle();
       expect(opened.session.snapshot().activeTurn).toBeUndefined();
       expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(1);
-      expect(events.filter((event) => event.type === "text_delta")).toHaveLength(0);
+      expect(events.filter((event) => event.type === "tool_started")).toHaveLength(0);
 
       harness.processes[0]!.finish(0);
       await settle();
@@ -579,6 +579,25 @@ describe("claude turn-scoped transport ownership", () => {
       expect(second.status).toBe("accepted");
       expect(harness.processes).toHaveLength(2);
       harness.sessionReady(2);
+      const third = await opened.session.send({ id: "third", kind: "user", text: "third" });
+      expect(third).toEqual({ status: "queued", reason: "unsafe_boundary", commandId: "third" });
+      harness.processes[1]!.stdout.write(`${JSON.stringify({
+        type: "assistant",
+        session_id: "claude-resumed",
+        message: { content: [{ type: "tool_use", name: "CurrentTool", input: {} }] },
+      })}\n${JSON.stringify({
+        type: "user",
+        session_id: "claude-resumed",
+        message: { content: [{ type: "tool_result", tool_use_id: "current", content: "done" }] },
+      })}\n`);
+      await vi.waitFor(() => {
+        expect(opened.session.snapshot()).toMatchObject({
+          activeTurn: { commandIds: ["second", "third"] },
+          queuedCommands: [],
+        });
+      });
+      expect(events.filter((event) => event.type === "command_accepted" && event.commandId === "third"))
+        .toHaveLength(1);
       harness.processes[1]!.stdout.write(`${JSON.stringify(terminal)}\n`);
       await settle();
       expect(opened.session.snapshot().activeTurn).toBeUndefined();
