@@ -342,7 +342,7 @@ describe("prepareCliTransport — unified AGENTS.md packing", () => {
   });
 
   it("every child-process driver gets the same file regardless of its own delivery mechanism", async () => {
-    // Simulates what claude/kimi/codex/gemini/etc. all do: call prepareCliTransport
+    // Simulates what every supported child-process driver does: call prepareCliTransport
     // with a real standingPrompt before their driver-specific spawn logic.
     const wd = mkTmp();
     await prepareCliTransport(baseCtx(wd, { standingPrompt: "standing prompt content" }), { NO_COLOR: "1" }, undefined, "linux");

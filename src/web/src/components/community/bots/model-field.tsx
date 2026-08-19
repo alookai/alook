@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react"
 import {
   getRuntimeModelCatalog,
-  runtimeSupportsModel,
   modelSelectState,
   modelNameFromSelect,
   MODEL_SELECT_DEFAULT,
@@ -24,9 +23,6 @@ import {
  * Per-bot model picker. A `Select` over `[Default, ...catalog, Custom…]` plus a
  * conditionally-rendered custom text input. All model-name ↔ Select translation
  * goes through the shared `bot-model` helpers — never ad-hoc string logic.
- *
- * Renders nothing when the runtime doesn't honor a launch model (antigravity):
- * offering the choice would be a lie.
  *
  * The picker keeps its OWN Select/custom-text state rather than deriving purely
  * from `value`, because "Custom… selected with an empty name" and "Default" both
@@ -63,8 +59,6 @@ export function ModelField({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runtime, value])
-
-  if (!runtimeSupportsModel(runtime)) return null
 
   const isCustom = selectValue === MODEL_SELECT_CUSTOM
   const defaultLabel = runtime ? `Default (${runtime}'s own default)` : "Default"

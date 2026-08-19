@@ -56,10 +56,9 @@ export type VersionProbeResult =
  * A `--version` line must look like a version to be accepted: it has to contain
  * a digit-dotted token (e.g. `1.2.3`, `v0.4`, `2024.1`). This is the
  * load-bearing defense against a CLI whose `--version` doesn't print a version
- * but instead an interactive prompt or error. Confirmed case: the VS Code
- * GitHub Copilot shim resolves as `copilot` on PATH, exits 0, and prints
- * `Install GitHub Copilot CLI? ['y/N']` to stdout — no version token, so it's
- * rejected here rather than surfacing as a bogus "version" on the Runtimes
+ * but instead an interactive prompt or error. A shim can resolve on PATH, exit
+ * 0, and print an installation prompt with no version token; it is rejected
+ * here rather than surfacing as a bogus "version" on the Runtimes
  * page. The non-interactive spawn options below can't catch it (the shim exits
  * 0 even with stdin closed), so this regex is what draws the line.
  */

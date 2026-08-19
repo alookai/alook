@@ -5,8 +5,8 @@ import { resolveSpawnSpec, probeCommandVersion } from "./probe";
 vi.mock("child_process", () => ({ execFileSync: vi.fn() }));
 
 /**
- * `resolveSpawnSpec` is what makes Cursor/Copilot/Antigravity/Kimi/OpenCode
- * (and Codex/Gemini) spawnable on Windows when the CLI resolves to a
+ * `resolveSpawnSpec` is what makes Cursor/OpenCode/Codex spawnable on Windows
+ * when the CLI resolves to a
  * `.cmd`/`.bat` shim, which `child_process.spawn` can only exec through a
  * shell. See plans/other-drivers-audit-fixes.md finding #2.
  */
@@ -27,17 +27,17 @@ describe("resolveSpawnSpec", () => {
   });
 
   it("sets shell: true on win32 when the resolved binary is a .bat shim", () => {
-    const spec = resolveSpawnSpec("kimi", [], undefined, { which: () => "C:\\tools\\kimi.bat" }, "win32");
+    const spec = resolveSpawnSpec("opencode", [], undefined, { which: () => "C:\\tools\\opencode.bat" }, "win32");
     expect(spec.shell).toBe(true);
   });
 
   it("does not set shell when the resolved binary is a native .exe on win32", () => {
-    const spec = resolveSpawnSpec("copilot", [], undefined, { which: () => "C:\\tools\\copilot.exe" }, "win32");
+    const spec = resolveSpawnSpec("codex", [], undefined, { which: () => "C:\\tools\\codex.exe" }, "win32");
     expect(spec.shell).toBe(false);
   });
 
   it("never sets shell on POSIX, even for a path that looks like a shim", () => {
-    const spec = resolveSpawnSpec("agy", [], undefined, { which: () => "/usr/local/bin/agy.cmd" }, "darwin");
+    const spec = resolveSpawnSpec("opencode", [], undefined, { which: () => "/usr/local/bin/opencode.cmd" }, "darwin");
     expect(spec.shell).toBe(false);
   });
 
@@ -54,10 +54,10 @@ describe("resolveSpawnSpec", () => {
   });
 
   it("resolves a bare-name override via PATH (so a user can point at a differently-named binary)", () => {
-    const which = vi.fn(() => "/opt/kimi-custom/bin/kimi-alt");
-    const spec = resolveSpawnSpec("kimi", [], "kimi-alt", { which }, "linux");
-    expect(spec.command).toBe("/opt/kimi-custom/bin/kimi-alt");
-    expect(which).toHaveBeenCalledWith("kimi-alt");
+    const which = vi.fn(() => "/opt/opencode-custom/bin/opencode-alt");
+    const spec = resolveSpawnSpec("opencode", [], "opencode-alt", { which }, "linux");
+    expect(spec.command).toBe("/opt/opencode-custom/bin/opencode-alt");
+    expect(which).toHaveBeenCalledWith("opencode-alt");
   });
 
   it("treats empty or whitespace-only override as absent (falls back to command)", () => {
@@ -94,49 +94,48 @@ describe("probeCommandVersion — Windows shim shell parity with resolveSpawnSpe
   it("runs .bat shims through a shell on win32", () => {
     vi.mocked(execFileSync).mockReturnValue("1.2.3\n");
 
-    probeCommandVersion("C:\\tools\\kimi.bat", [], {}, "win32");
+    probeCommandVersion("C:\\tools\\opencode.bat", [], {}, "win32");
 
-    expect(execFileSync).toHaveBeenCalledWith("C:\\tools\\kimi.bat", ["--version"], expect.objectContaining({ shell: true }));
+    expect(execFileSync).toHaveBeenCalledWith("C:\\tools\\opencode.bat", ["--version"], expect.objectContaining({ shell: true }));
   });
 
   it("does not use a shell for a native .exe on win32", () => {
     vi.mocked(execFileSync).mockReturnValue("1.2.3\n");
 
-    probeCommandVersion("C:\\tools\\copilot.exe", [], {}, "win32");
+    probeCommandVersion("C:\\tools\\codex.exe", [], {}, "win32");
 
-    expect(execFileSync).toHaveBeenCalledWith("C:\\tools\\copilot.exe", ["--version"], expect.objectContaining({ shell: false }));
+    expect(execFileSync).toHaveBeenCalledWith("C:\\tools\\codex.exe", ["--version"], expect.objectContaining({ shell: false }));
   });
 
   it("never uses a shell on POSIX, even for a path that looks like a shim", () => {
     vi.mocked(execFileSync).mockReturnValue("1.2.3\n");
 
-    probeCommandVersion("/usr/local/bin/agy.cmd", [], {}, "darwin");
+    probeCommandVersion("/usr/local/bin/opencode.cmd", [], {}, "darwin");
 
-    expect(execFileSync).toHaveBeenCalledWith("/usr/local/bin/agy.cmd", ["--version"], expect.objectContaining({ shell: false }));
+    expect(execFileSync).toHaveBeenCalledWith("/usr/local/bin/opencode.cmd", ["--version"], expect.objectContaining({ shell: false }));
   });
 });
 
 /**
- * Version-shape validation + non-interactive spawn — the fix for the GitHub
- * Copilot shim that prints `Install GitHub Copilot CLI? ['y/N']` and exits 0.
- * The shim's prompt has no version token, so it must be rejected as
+ * Version-shape validation + non-interactive spawn. An installation prompt has
+ * no version token, so it must be rejected as
  * `invalid_version_output` rather than surfacing as a bogus "version". These
  * assert on the RETURNED result (the older tests only assert call args), so the
  * validation is actually covered.
  */
 describe("probeCommandVersion — version validation + non-interactive spawn", () => {
-  it("rejects the Copilot install prompt (exit 0, no version token)", () => {
-    vi.mocked(execFileSync).mockReturnValue("Install GitHub Copilot CLI? ['y/N'] ");
+  it("rejects an interactive install prompt (exit 0, no version token)", () => {
+    vi.mocked(execFileSync).mockReturnValue("Install runtime CLI? ['y/N'] ");
 
-    const result = probeCommandVersion("copilot", [], {}, "darwin");
+    const result = probeCommandVersion("runtime-cli", [], {}, "darwin");
 
     expect(result).toEqual({ ok: false, error: "invalid_version_output" });
   });
 
   it("rejects a non-version first line", () => {
-    vi.mocked(execFileSync).mockReturnValue("Cannot find GitHub Copilot CLI\n");
+    vi.mocked(execFileSync).mockReturnValue("Cannot find runtime CLI\n");
 
-    expect(probeCommandVersion("copilot", [], {}, "darwin")).toEqual({
+    expect(probeCommandVersion("runtime-cli", [], {}, "darwin")).toEqual({
       ok: false,
       error: "invalid_version_output",
     });
@@ -145,7 +144,7 @@ describe("probeCommandVersion — version validation + non-interactive spawn", (
   it("returns empty_version_output for blank output", () => {
     vi.mocked(execFileSync).mockReturnValue("\n");
 
-    expect(probeCommandVersion("copilot", [], {}, "darwin")).toEqual({
+    expect(probeCommandVersion("runtime-cli", [], {}, "darwin")).toEqual({
       ok: false,
       error: "empty_version_output",
     });
@@ -166,10 +165,10 @@ describe("probeCommandVersion — version validation + non-interactive spawn", (
   it("spawns non-interactively: empty stdin + CI env, stdout still piped", () => {
     vi.mocked(execFileSync).mockReturnValue("1.2.3\n");
 
-    probeCommandVersion("gemini", [], {}, "darwin");
+    probeCommandVersion("opencode", [], {}, "darwin");
 
     expect(execFileSync).toHaveBeenCalledWith(
-      "gemini",
+      "opencode",
       ["--version"],
       expect.objectContaining({
         input: "",

@@ -8,33 +8,21 @@
 import type { Driver } from "../types.js";
 import { ClaudeDriver } from "./claude.js";
 import { CodexDriver } from "./codex.js";
-import { GeminiDriver } from "./gemini.js";
-import { CopilotDriver } from "./copilot.js";
 import { CursorDriver } from "./cursor.js";
 import { OpenCodeDriver } from "./opencode.js";
-import { AntigravityDriver } from "./antigravity.js";
-import { KimiDriver } from "./kimi.js";
 import { PiDriver } from "./pi.js";
 
 export type RuntimeId =
   | "claude"
   | "codex"
-  | "antigravity"
-  | "copilot"
   | "cursor"
-  | "gemini"
-  | "kimi"
   | "opencode"
   | "pi";
 
 const driverFactories: Record<RuntimeId, () => Driver> = {
   claude: () => new ClaudeDriver(),
   codex: () => new CodexDriver(),
-  antigravity: () => new AntigravityDriver(),
-  copilot: () => new CopilotDriver(),
   cursor: () => new CursorDriver(),
-  gemini: () => new GeminiDriver(),
-  kimi: () => new KimiDriver(),
   opencode: () => new OpenCodeDriver(),
   pi: () => new PiDriver(),
 };
@@ -55,11 +43,7 @@ export function listRuntimeIds(): RuntimeId[] {
 export {
   ClaudeDriver,
   CodexDriver,
-  GeminiDriver,
-  CopilotDriver,
   CursorDriver,
   OpenCodeDriver,
-  AntigravityDriver,
-  KimiDriver,
   PiDriver,
 };

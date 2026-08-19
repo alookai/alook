@@ -1,8 +1,8 @@
 /**
  * Core types for the daemon's driver layer.
  *
- * A *driver* adapts one AI coding runtime (Claude Code, Codex, Gemini, Kimi,
- * Pi, …) to a single uniform interface the daemon drives. The daemon never
+ * A *driver* adapts one AI coding runtime (Claude Code, Codex, Cursor,
+ * OpenCode, or Pi) to a single uniform interface the daemon drives. The daemon never
  * speaks a runtime's native protocol directly — it goes through a driver, which
  * knows how to:
  *   - spawn / create the runtime session,
@@ -116,21 +116,14 @@ export function supportsStdinNotificationOf(lifecycle: DriverLifecycle): boolean
  *
  * `sessionResumeMode`:
  *   - `by-id`: resume the specific `sessionId` the caller asked for.
- *   - `most-recent`: driver has no by-id resume — falls back to the CLI's
- *     "continue most recent" (see AntigravityDriver).
  *   - `none`: no resume support at all.
- *
- * `model` is intentionally omitted here because every driver either uses the
- * model field or explicitly suppresses it; the flag would be trivially true
- * for all drivers except antigravity — a special case documented in comments
- * on that driver's `capabilities` const.
  */
 export interface DriverCapabilities {
   readonly reasoningEffort: boolean;
   readonly fastMode: boolean;
   readonly disallowedTools: boolean;
   readonly command: boolean;
-  readonly sessionResumeMode: "by-id" | "most-recent" | "none";
+  readonly sessionResumeMode: "by-id" | "none";
 }
 
 /* ------------------------------------------------------------------ */

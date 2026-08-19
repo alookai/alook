@@ -22,7 +22,7 @@ describe("resolveModelConfig", () => {
     });
     expect(resolveModelConfig("claude", "my-ft")).toEqual({ kind: "custom", name: "my-ft" });
     // Empty catalog ⇒ always custom.
-    expect(resolveModelConfig("gemini", "anything")).toEqual({ kind: "custom", name: "anything" });
+    expect(resolveModelConfig("cursor", "anything")).toEqual({ kind: "custom", name: "anything" });
     // Null runtime ⇒ fallback empty catalog ⇒ custom.
     expect(resolveModelConfig(null, "x")).toEqual({ kind: "custom", name: "x" });
   });

@@ -1,11 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { resolveLaunchFields } from "./runtimeConfig";
 import { makeRuntimeConfig } from "./runtimeConfig";
-import { buildAntigravityArgs } from "./drivers/antigravity";
-import type { LaunchContext } from "./types";
 
 describe("resolveLaunchFields — model id resolution across runtimes", () => {
-  for (const runtime of ["claude", "codex", "gemini", "kimi"]) {
+  for (const runtime of ["claude", "codex", "cursor", "opencode", "pi"]) {
     it(`${runtime}: {kind:"named",name:"opus"} → f.model === "opus"`, () => {
       const f = resolveLaunchFields(makeRuntimeConfig({ runtime, model: { kind: "named", name: "opus" } }));
       expect(f.model).toBe("opus");
@@ -25,22 +23,7 @@ describe("resolveLaunchFields — model id resolution across runtimes", () => {
   });
 
   it("default model → f.model is undefined", () => {
-    const f = resolveLaunchFields(makeRuntimeConfig({ runtime: "gemini" }));
+    const f = resolveLaunchFields(makeRuntimeConfig({ runtime: "cursor" }));
     expect(f.model).toBeUndefined();
-  });
-});
-
-describe("antigravity — discards the model at launch", () => {
-  it("buildAntigravityArgs emits no model arg even when a model is set", () => {
-    const ctx = {
-      workingDirectory: "/tmp",
-      agentId: "a1",
-      standingPrompt: "",
-      prompt: "hi",
-      config: { runtimeConfig: makeRuntimeConfig({ runtime: "antigravity", model: { kind: "named", name: "opus" } }) },
-    } as unknown as LaunchContext;
-    const args = buildAntigravityArgs(ctx);
-    expect(args).not.toContain("--model");
-    expect(args.join(" ")).not.toContain("opus");
   });
 });

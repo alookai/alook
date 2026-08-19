@@ -15,7 +15,7 @@ const PERSISTENT_GATED: AgentRuntimeCaps = {
   supportsStdinNotification: true,
   busyDeliveryMode: "gated",
 };
-/** Matches Pi/Kimi — NOT Codex, which this plan moves to "gated". */
+/** Matches Pi — NOT Codex, which this plan moves to "gated". */
 const PERSISTENT_DIRECT: AgentRuntimeCaps = {
   lifecycleKind: "persistent",
   supportsStdinNotification: true,
@@ -69,7 +69,7 @@ describe("reduceManager — steering a running persistent agent", () => {
     expect(r.state.agents.a.inbox.map((m) => m.text)).toEqual(["m2"]);
   });
 
-  it("direct (Pi/Kimi profile): wake while running+turnActive still steers as busy immediately — regression guard, gating must not affect non-gated drivers", () => {
+  it("direct (Pi profile): wake while running+turnActive still steers as busy immediately — regression guard, gating must not affect non-gated drivers", () => {
     let s = createInitialManagerState();
     s = register(s, "a", PERSISTENT_DIRECT);
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;

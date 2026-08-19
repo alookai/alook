@@ -15,7 +15,7 @@ describe("runtimeDisplayName", () => {
   });
 
   it("falls back to the generic label for unknown slugs", () => {
-    expect(runtimeDisplayName("gemini")).toBe(GENERIC_RUNTIME_NAME);
+    expect(runtimeDisplayName("unknown-runtime")).toBe(GENERIC_RUNTIME_NAME);
     expect(runtimeDisplayName("CLAUDE")).toBe(GENERIC_RUNTIME_NAME); // case-sensitive by design
   });
 

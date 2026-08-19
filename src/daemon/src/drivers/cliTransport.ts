@@ -1,6 +1,6 @@
 /**
  * Shared CLI transport — the common launch scaffolding for every CLI-style
- * runtime (Claude, Codex, Gemini, Kimi, Copilot, Cursor, OpenCode, Antigravity).
+ * runtime (Claude, Codex, Cursor, OpenCode).
  *
  * The runtime child process talks back to its host platform through a small
  * **Alook CLI**, reached purely via the exec environment (PATH + env vars). The
@@ -26,10 +26,10 @@
  * driver relies on, mirroring `src/cli/daemon/execenv/index.ts`'s
  * `writeInstructionFileIfChanged`, which does the same thing unconditionally
  * regardless of which runtime is about to be spawned. Every mainstream
- * coding-agent CLI this backend drives (Claude Code, Codex, Kimi, OpenCode,
- * Gemini, Cursor, Copilot, Antigravity) auto-reads `AGENTS.md`/`CLAUDE.md`
+ * coding-agent CLI this backend drives (Claude Code, Codex, OpenCode, Cursor)
+ * auto-reads `AGENTS.md`/`CLAUDE.md`
  * from cwd, so no driver needs its own bespoke delivery channel — there is
- * exactly one packing mechanism, not nine. (`pi` is the sole exception: it
+ * exactly one packing mechanism. (`pi` is the sole exception: it
  * runs in-process with no child process, so it doesn't go through
  * `prepareCliTransport` at all — it calls `writeAgentFile` directly with the
  * same file, for the same reason: its SDK auto-reads `AGENTS.md` from cwd.)

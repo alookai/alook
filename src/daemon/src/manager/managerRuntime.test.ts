@@ -1743,7 +1743,7 @@ describe("extractToolAudit — non-object input guard", () => {
     expect(extractToolAudit("Bash", 42)).toEqual({ name: "bash", suppressed: false });
     expect(extractToolAudit("Bash", ["a", "b"])).toEqual({ name: "bash", suppressed: false });
   });
-  it("copilot stringified-JSON recovery: input is a JSON string that decodes to a record", () => {
+  it("stringified-JSON recovery: input is a JSON string that decodes to a record", () => {
     expect(extractToolAudit("Bash", '{"command":"rm -rf tmp"}')).toEqual({
       name: "bash",
       target: "rm -rf tmp",
@@ -1835,17 +1835,17 @@ describe("extractToolAudit — driver coverage matrix", () => {
     { driver: "codex", rawName: "mcp_search", rawInput: { query: "foo" }, expected: { name: "mcp_search", target: "foo", suppressed: false } },
     { driver: "codex", rawName: "collab_tool_call", rawInput: { name: "x" }, expected: { name: "collab_tool_call", target: "x", suppressed: false } },
 
-    { driver: "gemini", rawName: "bash", rawInput: { command: "rm tmp" }, expected: { name: "bash", target: "rm tmp", suppressed: false } },
-    { driver: "gemini", rawName: "read", rawInput: { path: "/x" }, expected: { name: "read", target: "/x", suppressed: false } },
-    { driver: "gemini", rawName: "edit", rawInput: { file_path: "/x" }, expected: { name: "edit", target: "/x", suppressed: false } },
-    { driver: "gemini", rawName: "write", rawInput: { path: "/x" }, expected: { name: "write", target: "/x", suppressed: false } },
-    { driver: "gemini", rawName: "grep", rawInput: { pattern: "TODO" }, expected: { name: "grep", target: "TODO", suppressed: false } },
+    { driver: "generic-json", rawName: "bash", rawInput: { command: "rm tmp" }, expected: { name: "bash", target: "rm tmp", suppressed: false } },
+    { driver: "generic-json", rawName: "read", rawInput: { path: "/x" }, expected: { name: "read", target: "/x", suppressed: false } },
+    { driver: "generic-json", rawName: "edit", rawInput: { file_path: "/x" }, expected: { name: "edit", target: "/x", suppressed: false } },
+    { driver: "generic-json", rawName: "write", rawInput: { path: "/x" }, expected: { name: "write", target: "/x", suppressed: false } },
+    { driver: "generic-json", rawName: "grep", rawInput: { pattern: "TODO" }, expected: { name: "grep", target: "TODO", suppressed: false } },
 
-    { driver: "kimi", rawName: "bash", rawInput: { command: "rm tmp" }, expected: { name: "bash", target: "rm tmp", suppressed: false } },
-    { driver: "kimi", rawName: "read", rawInput: { path: "/x" }, expected: { name: "read", target: "/x", suppressed: false } },
-    { driver: "kimi", rawName: "edit", rawInput: { file_path: "/x" }, expected: { name: "edit", target: "/x", suppressed: false } },
-    { driver: "kimi", rawName: "write", rawInput: { path: "/x" }, expected: { name: "write", target: "/x", suppressed: false } },
-    { driver: "kimi", rawName: "grep", rawInput: { pattern: "TODO" }, expected: { name: "grep", target: "TODO", suppressed: false } },
+    { driver: "generic-lowercase", rawName: "bash", rawInput: { command: "rm tmp" }, expected: { name: "bash", target: "rm tmp", suppressed: false } },
+    { driver: "generic-lowercase", rawName: "read", rawInput: { path: "/x" }, expected: { name: "read", target: "/x", suppressed: false } },
+    { driver: "generic-lowercase", rawName: "edit", rawInput: { file_path: "/x" }, expected: { name: "edit", target: "/x", suppressed: false } },
+    { driver: "generic-lowercase", rawName: "write", rawInput: { path: "/x" }, expected: { name: "write", target: "/x", suppressed: false } },
+    { driver: "generic-lowercase", rawName: "grep", rawInput: { pattern: "TODO" }, expected: { name: "grep", target: "TODO", suppressed: false } },
 
     { driver: "opencode", rawName: "bash", rawInput: { command: "rm tmp" }, expected: { name: "bash", target: "rm tmp", suppressed: false } },
     { driver: "opencode", rawName: "read", rawInput: { file_path: "/x" }, expected: { name: "read", target: "/x", suppressed: false } },
@@ -1853,12 +1853,12 @@ describe("extractToolAudit — driver coverage matrix", () => {
     { driver: "opencode", rawName: "write", rawInput: { file_path: "/x" }, expected: { name: "write", target: "/x", suppressed: false } },
     { driver: "opencode", rawName: "grep", rawInput: { pattern: "TODO" }, expected: { name: "grep", target: "TODO", suppressed: false } },
 
-    { driver: "copilot", rawName: "bash", rawInput: '{"command":"rm tmp"}', expected: { name: "bash", target: "rm tmp", suppressed: false } },
-    { driver: "copilot", rawName: "bash", rawInput: { command: "rm tmp" }, expected: { name: "bash", target: "rm tmp", suppressed: false } },
-    { driver: "copilot", rawName: "read", rawInput: { file_path: "/x" }, expected: { name: "read", target: "/x", suppressed: false } },
-    { driver: "copilot", rawName: "edit", rawInput: { file_path: "/x" }, expected: { name: "edit", target: "/x", suppressed: false } },
-    { driver: "copilot", rawName: "write", rawInput: { file_path: "/x" }, expected: { name: "write", target: "/x", suppressed: false } },
-    { driver: "copilot", rawName: "grep", rawInput: { pattern: "TODO" }, expected: { name: "grep", target: "TODO", suppressed: false } },
+    { driver: "generic-string-input", rawName: "bash", rawInput: '{"command":"rm tmp"}', expected: { name: "bash", target: "rm tmp", suppressed: false } },
+    { driver: "generic-file-path", rawName: "bash", rawInput: { command: "rm tmp" }, expected: { name: "bash", target: "rm tmp", suppressed: false } },
+    { driver: "generic-file-path", rawName: "read", rawInput: { file_path: "/x" }, expected: { name: "read", target: "/x", suppressed: false } },
+    { driver: "generic-file-path", rawName: "edit", rawInput: { file_path: "/x" }, expected: { name: "edit", target: "/x", suppressed: false } },
+    { driver: "generic-file-path", rawName: "write", rawInput: { file_path: "/x" }, expected: { name: "write", target: "/x", suppressed: false } },
+    { driver: "generic-file-path", rawName: "grep", rawInput: { pattern: "TODO" }, expected: { name: "grep", target: "TODO", suppressed: false } },
   ];
   it.each(cases)("$driver × $rawName produces canonical shape", ({ rawName, rawInput, expected }) => {
     expect(extractToolAudit(rawName, rawInput)).toEqual(expected);

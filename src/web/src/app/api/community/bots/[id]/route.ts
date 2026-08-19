@@ -7,7 +7,6 @@ import {
   WS_EVENTS,
   makeRuntimeConfig,
   resolveModelConfig,
-  runtimeSupportsModel,
   formatHandle,
   createLogger,
 } from "@alook/shared"
@@ -66,9 +65,6 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     if (!runtime) return writeError(`runtime ${targetRuntime} not available on this machine`, 400)
     if (runtime.status === "unhealthy") {
       return writeError(`runtime ${targetRuntime} is currently unavailable on this machine`, 400)
-    }
-    if (nextModel !== null && nextModel !== undefined && !runtimeSupportsModel(targetRuntime)) {
-      return writeError(`runtime ${targetRuntime} does not support a model selection`, 400)
     }
   }
   // Will we push bot:updated to the daemon? (Iff name/description changed —

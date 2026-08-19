@@ -3,8 +3,8 @@
  *
  * These are read from `@alook/daemon`'s own `package.json` across the source,
  * library bundle, and nested CLI bundle layouts. Everything on the wire that
- * identifies the daemon to a remote runtime CLI (Kimi's `initialize.client`,
- * Codex's `initialize.clientInfo`)
+ * identifies the daemon to a remote runtime CLI (for example Codex's
+ * `initialize.clientInfo`)
  * flows through `getDaemonClientInfo()` so nobody hand-types the pre-alook
  * daemon-identity strings anymore.
  */

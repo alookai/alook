@@ -11,12 +11,8 @@ import type { DriverCapabilities } from "../types";
 const EXPECTED: Record<RuntimeId, DriverCapabilities> = {
   claude:      { reasoningEffort: true,  fastMode: true,  disallowedTools: true,  command: true, sessionResumeMode: "by-id" },
   codex:       { reasoningEffort: true,  fastMode: true,  disallowedTools: false, command: true, sessionResumeMode: "by-id" },
-  kimi:        { reasoningEffort: false, fastMode: false, disallowedTools: false, command: true, sessionResumeMode: "by-id" },
-  gemini:      { reasoningEffort: false, fastMode: false, disallowedTools: false, command: true, sessionResumeMode: "by-id" },
-  copilot:     { reasoningEffort: true,  fastMode: false, disallowedTools: false, command: true, sessionResumeMode: "by-id" },
   cursor:      { reasoningEffort: false, fastMode: false, disallowedTools: false, command: true, sessionResumeMode: "by-id" },
   opencode:    { reasoningEffort: false, fastMode: false, disallowedTools: false, command: true, sessionResumeMode: "by-id" },
-  antigravity: { reasoningEffort: false, fastMode: false, disallowedTools: false, command: true, sessionResumeMode: "most-recent" },
   pi:          { reasoningEffort: true,  fastMode: false, disallowedTools: false, command: true, sessionResumeMode: "by-id" },
 };
 

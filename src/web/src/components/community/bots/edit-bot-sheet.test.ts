@@ -294,7 +294,7 @@ describe("EditBotSheet — current unhealthy runtime stays selectable (Alli #128
           availableRuntimes: [
             { id: "claude", status: "unhealthy" },
             { id: "codex", status: "healthy" },
-            { id: "gemini", status: "unhealthy" },
+            { id: "cursor", status: "unhealthy" },
           ],
         },
       ],
@@ -304,11 +304,27 @@ describe("EditBotSheet — current unhealthy runtime stays selectable (Alli #128
   it("selected current runtime is not disabled even when unhealthy; other unhealthy candidates are", () => {
     const renderer = renderSheet({ ...BOT, runtime: "claude" })
     const current = runtimeRadio(renderer, "claude")
-    const otherUnhealthy = runtimeRadio(renderer, "gemini")
+    const otherUnhealthy = runtimeRadio(renderer, "cursor")
     const healthy = runtimeRadio(renderer, "codex")
     expect(current.props.checked).toBe(true)
     expect(current.props.disabled).toBe(false)
     expect(otherUnhealthy.props.disabled).toBe(true)
     expect(healthy.props.disabled).toBe(false)
+  })
+
+  it("shows a stored removed runtime as unavailable and allows switching without changing bot data first", () => {
+    useMachinesMock.mockReturnValue(HEALTHY_MACHINES)
+    const renderer = renderSheet({ ...BOT, runtime: "gemini", modelName: "legacy-model" })
+    const removed = runtimeRadio(renderer, "gemini")
+    const healthy = runtimeRadio(renderer, "codex")
+
+    expect(removed.props.checked).toBe(true)
+    expect(removed.props.disabled).toBe(false)
+    expect(renderer.root.findAll((n) => n.type === "span" && n.props.children === "unavailable")).toHaveLength(1)
+    expect(healthy.props.disabled).toBe(false)
+
+    act(() => healthy.props.onChange())
+    expect(runtimeRadio(renderer, "codex").props.checked).toBe(true)
+    expect(updateMutateAsync).not.toHaveBeenCalled()
   })
 })

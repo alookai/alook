@@ -67,14 +67,9 @@ describe("ModelField", () => {
     expect(values).toContain("__custom__")
   })
 
-  it("renders only Default + Custom… for gemini (empty catalog)", () => {
-    const values = itemValues(render({ runtime: "gemini", value: null }))
+  it("renders only Default + Custom… for cursor (empty catalog)", () => {
+    const values = itemValues(render({ runtime: "cursor", value: null }))
     expect(values).toEqual(["__default__", "__custom__"])
-  })
-
-  it("renders nothing for antigravity", () => {
-    const renderer = render({ runtime: "antigravity", value: null })
-    expect(renderer.root.findAll((n) => n.props?.["data-mock"] === "select")).toHaveLength(0)
   })
 
   it("selecting a catalog entry emits that id; selecting Default emits null", () => {

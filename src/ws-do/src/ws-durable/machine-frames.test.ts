@@ -89,7 +89,7 @@ describe("WebSocketDurableObject", () => {
           type: "session.error",
           code: "runtime_not_available",
           agentId: "a1",
-          payload: { requested: "gemini", available: ["codex"] },
+          payload: { requested: "unknown-runtime", available: ["codex"] },
         })
         await durable.webSocketMessage(ws as any, frame)
 
@@ -97,7 +97,7 @@ describe("WebSocketDurableObject", () => {
           | { requested: string; available: string[]; at: string }
           | undefined
         expect(overlay).toBeDefined()
-        expect(overlay?.requested).toBe("gemini")
+        expect(overlay?.requested).toBe("unknown-runtime")
         expect(overlay?.available).toEqual(["codex"])
 
         // Fan-out went to the user DO with the overlay attached.
@@ -111,7 +111,7 @@ describe("WebSocketDurableObject", () => {
         }
         expect(body.type).toBe("community:machine.updated")
         expect(body.machine.lastRuntimeError).toMatchObject({
-          requested: "gemini",
+          requested: "unknown-runtime",
           available: ["codex"],
         })
       })

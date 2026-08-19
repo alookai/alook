@@ -2,9 +2,8 @@
 
 A **pure, host-neutral agent-runtime "driver" abstraction** in TypeScript.
 
-It documents — as compilable code — how a host adapts many different AI coding
-runtimes (Claude Code, Codex, Gemini, Kimi, Pi, Copilot, Cursor, OpenCode,
-Antigravity) behind one uniform interface, and how it delivers messages into a
+It documents — as compilable code — how a host adapts five AI coding runtimes
+(Claude Code, Codex, Cursor, OpenCode, and Pi) behind one uniform interface, and how it delivers messages into a
 running agent (the "steering" mechanism).
 
 The backend hardcodes **no specific host platform**. The agent always invokes a
@@ -87,7 +86,7 @@ same `Driver` capability flags, the rest of the daemon is transport-agnostic.
 
 When a message arrives, what happens depends on the runtime's lifecycle:
 
-### Persistent runtimes (claude, codex, kimi, pi)
+### Persistent runtimes (claude, codex, pi)
 One long-lived process spans many turns. A new message is **written onto the
 still-open input channel** — no restart. This is "steering."
 
@@ -97,7 +96,7 @@ source of truth, so a driver's mode can't drift from it (it used to: a driver
 could declare `lifecycle.stdin: "gated"` yet `busyDeliveryMode: "direct"`).
 `persistent+direct → direct`, `persistent+gated → gated`, `per_turn → none`.
 
-- **`direct`** (kimi, pi): write immediately; the runtime tolerates injection
+- **`direct`** (pi): write immediately; the runtime tolerates injection
   any time.
 - **`gated`** (claude, codex): a raw write mid-stream could collide with an active
   signed thinking block, so writes are **held until a safe boundary**,
@@ -114,7 +113,7 @@ launched with `--input-format stream-json --output-format stream-json
 --include-partial-messages`, and each message is one NDJSON line
 `{"type":"user","message":{"role":"user","content":[{"type":"text","text":…}]}}`.
 
-### Per-turn runtimes (gemini, copilot, cursor, opencode, antigravity)
+### Per-turn runtimes (cursor, opencode)
 The process handles exactly one turn and exits. `supportsStdinNotification` is
 `false` and `encodeStdinMessage` returns `null`. A new message means a **brand-new
 process**; the agent re-checks the inbox each wake. This lifecycle
@@ -131,13 +130,9 @@ message and terminates the process on turn end.
 |---|---|---|---|---|---|
 | **claude** | persistent | child process, stream-json NDJSON | `gated` | `{type:"user",…}` line on stdin | stream-json |
 | **codex** | persistent | child process, JSON-RPC 2.0 (`app-server --listen stdio://`) | `gated` | `initialize` → `thread/start`/`resume` | JSON-RPC notifications |
-| **kimi** | persistent | child process, JSON-RPC "wire" | `direct` (`steer`) | `initialize` → `prompt` | JSON-RPC events |
 | **pi** | persistent | in-process SDK (`@earendil-works/pi-coding-agent`), multi-provider | `direct` | `session.prompt()` | SDK event callback |
-| **gemini** | per-turn | child process, stream-json | none | prompt on stdin, then close | stream-json |
-| **copilot** | per-turn | child process, JSON | none | prompt as `-p` arg | JSON events |
 | **cursor** | per-turn | child process, stream-json | none | prompt as trailing arg | stream-json |
 | **opencode** | per-turn (defer-spawn, terminate-on-end) | child process, JSON | none | prompt as `-- <arg>` | JSON events |
-| **antigravity** | per-turn | child process, **plain text** | none | prompt on stdin, then close | plain text lines |
 
 (Each driver's exact launch flags live in its file under `src/drivers/`.)
 
@@ -161,8 +156,7 @@ src/
     claudeProviderIsolation.ts   #   custom-provider HOME/config isolation
     claudeEventNormalizer.ts     #   stream-json → ParsedEvent
     codex.ts / codexEventNormalizer.ts / codexTelemetrySidecar.ts
-    gemini.ts  copilot.ts  cursor.ts  opencode.ts  antigravity.ts
-    kimi.ts                      # child-process Kimi (JSON-RPC wire)
+    cursor.ts / opencode.ts      # per-turn CLI drivers
     pi.ts                        # in-process Pi SDK (multi-provider)
   runtime/
     runtimeSession.ts            # ChildProcessRuntimeSession + descriptor

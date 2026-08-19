@@ -59,10 +59,6 @@ describe("magic-number extractions", () => {
     expect(readSrc("server/wsControlChannel.ts")).toMatch(/DEFAULT_PONG_TIMEOUT_MS\s*=\s*30_?000\b/);
   });
 
-  it("KIMI_WIRE_PROTOCOL_VERSION is '1.3' in drivers/kimi.ts", () => {
-    expect(readSrc("drivers/kimi.ts")).toMatch(/KIMI_WIRE_PROTOCOL_VERSION\s*=\s*["']1\.3["']/);
-  });
-
   it("MESSAGE_ID_SHORT_LEN is set to 8 in inbox/projection.ts", () => {
     expect(readSrc("inbox/projection.ts")).toMatch(/MESSAGE_ID_SHORT_LEN\s*=\s*8\b/);
   });

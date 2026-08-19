@@ -9,7 +9,7 @@
  * `sessionFactory`, bypassing real process/SDK spawning) to assert the
  * orchestration contract each profile is supposed to get.
  *
- * Why this exists: `PiDriver` and `KimiDriver` both declare
+ * Why this exists: `PiDriver` declares
  * `{kind: "persistent", stdin: "direct", inFlightWake: "steer"}` +
  * `busyDeliveryMode: "direct"`. A real production bug shipped because
  * `SdkManagedSession.start()` (Pi's session adapter) used to await the
@@ -21,7 +21,7 @@
  * That fix lives in `sdkManagedSession.ts`/`pi.ts` and is regression-tested
  * in `sdkManagedSession.test.ts` — but that only protects Pi. This file
  * protects the *manager's* half of the contract for EVERY driver sharing
- * that capability profile today (Pi and Kimi declare direct/steer; Codex
+ * that capability profile today (Pi declares direct/steer; Codex
  * joins Claude in the gated/queue bucket — see
  * plans/wire-gated-busy-steering-daemon.md) and any future one, without
  * needing driver-specific test plumbing.
@@ -307,8 +307,8 @@ describe("AgentProcessManager capability contract — bucket sanity", () => {
     expect(gatedQueueBuckets[0]!.driverIds.slice().sort()).toEqual(["claude", "codex"]);
   });
 
-  it("the direct/steer bucket contains exactly pi and kimi — codex moved to gated/queue, NOT just pi alone", () => {
-    expect(directSteerBuckets.flatMap((b) => b.driverIds).sort()).toEqual(["kimi", "pi"]);
+  it("the direct/steer bucket contains exactly pi — codex remains gated/queue", () => {
+    expect(directSteerBuckets.flatMap((b) => b.driverIds).sort()).toEqual(["pi"]);
   });
 });
 
@@ -323,13 +323,9 @@ describe("AgentProcessManager capability contract — #4 lifecycle-derived equiv
   const EXPECTED: Record<string, { busyDeliveryMode: "direct" | "gated" | "none"; supportsStdinNotification: boolean }> = {
     claude: { busyDeliveryMode: "gated", supportsStdinNotification: true },
     codex: { busyDeliveryMode: "gated", supportsStdinNotification: true },
-    kimi: { busyDeliveryMode: "direct", supportsStdinNotification: true },
     pi: { busyDeliveryMode: "direct", supportsStdinNotification: true },
-    gemini: { busyDeliveryMode: "none", supportsStdinNotification: false },
-    copilot: { busyDeliveryMode: "none", supportsStdinNotification: false },
     cursor: { busyDeliveryMode: "none", supportsStdinNotification: false },
     opencode: { busyDeliveryMode: "none", supportsStdinNotification: false },
-    antigravity: { busyDeliveryMode: "none", supportsStdinNotification: false },
   };
 
   it("every registered driver is in the equivalence table (guards against an unlisted new driver)", () => {

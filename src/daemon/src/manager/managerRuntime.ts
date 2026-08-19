@@ -494,9 +494,8 @@ function classify(canonicalName: string): ToolClass {
  * Coerce a runtime-emitted `input` to a plain record for field-picking.
  * Non-object inputs (null, undefined, array, number, boolean) become
  * `undefined`. As a special case, string inputs get a single `JSON.parse`
- * attempt: copilot's OpenAI-style tool-call `arguments` reaches this layer
- * as a stringified JSON blob when the driver's `arguments ?? parameters ??
- * input ?? {}` fallback picks the raw string up unparsed. If the parse
+ * attempt because OpenAI-style tool-call `arguments` can reach this layer as
+ * a stringified JSON blob when a normalizer passes the raw value through. If the parse
  * succeeds and yields a record, that record is returned; on any failure
  * (non-JSON string, JSON that decodes to a non-object) we return
  * `undefined` — never throw. One parse attempt per event, so an adversarial
@@ -521,7 +520,7 @@ function coerceInputRecord(input: unknown): Record<string, unknown> | undefined 
 /**
  * Extract a raw command string from a shell-class tool_call's `input`. Every
  * driver reduces to a root `input.command` after its normalizer runs
- * (Anthropic, cursor, kimi, opencode, pi, gemini, copilot, and codex — the
+ * (Anthropic, cursor, opencode, pi, and codex — the
  * codex normalizer unwraps `params.item`, so `command` is already flat).
  * String or array (`["bash", "-lc", "..."]` from codex) — arrays get
  * space-joined, keeping the honest form the runtime saw. Returns
@@ -679,7 +678,7 @@ export class AgentProcessManager {
   private readonly liveSessions = new Map<string, string>();
   /**
    * agentId → accumulated `thinking` text for the current reasoning block.
-   * Several drivers (codex, pi, copilot) stream thinking token-by-token; we
+   * Several drivers (codex and pi) stream thinking token-by-token; we
    * buffer the deltas and flush ONE audit row at the next non-thinking event /
    * turn boundary / exit, instead of a D1 insert+prune per token. Block-based
    * drivers (claude, cursor) emit one full-text event → one row, unchanged.

@@ -3,7 +3,6 @@ import {
   queries,
   CommunityBotCreateRequestSchema,
   COMMUNITY_BOT_LIMIT_PER_OWNER,
-  runtimeSupportsModel,
   utcDayKeyDaysAgo,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
@@ -69,12 +68,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     )
   }
 
-  // antigravity discards the model at launch; storing an inert value would make
-  // the card lie. Reject a non-null model on a runtime that doesn't honor it.
   const modelName = body.model ?? null
-  if (modelName !== null && !runtimeSupportsModel(body.runtime)) {
-    return writeError(`runtime ${body.runtime} does not support a model selection`, 400)
-  }
 
   const created = await queries.communityBot.createBot(db, {
     ownerId: ctx.userId,
