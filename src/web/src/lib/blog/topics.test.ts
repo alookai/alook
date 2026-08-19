@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
+import { fileURLToPath } from "url";
 import type { BlogPost } from "./types";
 import { isDraftBlogPost, readBlogMetadata } from "./validate-assets";
 import {
@@ -29,7 +30,7 @@ describe("blogTopics", () => {
     const registrySlugs = blogTopics
       .flatMap((topic) => topic.entries.map((entry) => entry.slug))
       .sort();
-    const contentDir = join(process.cwd(), "src", "content");
+    const contentDir = fileURLToPath(new URL("../../content", import.meta.url));
     const publishedSlugs = readdirSync(contentDir)
       .filter((file) => file.endsWith(".mdx"))
       .flatMap((file) => {
