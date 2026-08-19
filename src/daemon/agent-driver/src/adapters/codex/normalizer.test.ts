@@ -170,6 +170,62 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
     expect(n.currentTurnId).toBeNull();
   });
 
+  it("reopens and re-closes only the matching completed root vendor turn", () => {
+    const n = new CodexEventNormalizer();
+    adoptRootTurn(n, "root-thread", "root-turn");
+    const completed = notify("turn/completed", {
+      threadId: "root-thread",
+      turn: { id: "root-turn", status: "completed" },
+    });
+
+    expect(n.normalizeLine(completed)).toEqual([{ kind: "turn_end", sessionId: "root-thread" }]);
+    expect(n.currentTurnId).toBeNull();
+    expect(n.normalizeLine(completed)).toEqual([]);
+    expect(n.normalizeLine(notify("rawResponseItem/completed", {
+      threadId: "child-thread",
+      turnId: "root-turn",
+    }))).toEqual([]);
+    expect(n.normalizeLine(notify("rawResponseItem/completed", {
+      threadId: "root-thread",
+      turnId: "stale-turn",
+    }))).toEqual([]);
+
+    expect(n.normalizeLine(notify("rawResponseItem/completed", {
+      threadId: "root-thread",
+      turnId: "root-turn",
+    }))).toEqual([{ kind: "internal_progress", source: "codex_raw_item", itemType: "rawResponseItem" }]);
+    expect(n.normalizeLine(completed)).toEqual([{ kind: "turn_end", sessionId: "root-thread" }]);
+    expect(n.normalizeLine(completed)).toEqual([]);
+
+    expect(n.normalizeLine(notify("turn/started", {
+      threadId: "root-thread",
+      turn: { id: "next-turn", status: "inProgress" },
+    }))).toEqual([{ kind: "thinking", text: "" }]);
+    expect(n.normalizeLine(completed)).toEqual([]);
+    expect(n.currentTurnId).toBe("next-turn");
+  });
+
+  it("clears terminal ownership when a new thread is explicitly adopted and rejects an unowned terminal", () => {
+    const n = new CodexEventNormalizer();
+    adoptRootTurn(n, "old-thread", "old-turn");
+    n.normalizeLine(notify("turn/completed", {
+      threadId: "old-thread",
+      turn: { id: "old-turn", status: "completed" },
+    }));
+
+    n.adoptThreadId("new-thread");
+    expect(n.currentSessionId).toBe("new-thread");
+    expect(n.currentTurnId).toBeNull();
+    expect(n.normalizeLine(notify("rawResponseItem/completed", {
+      threadId: "old-thread",
+      turnId: "old-turn",
+    }))).toEqual([]);
+    expect(n.normalizeLine(notify("turn/completed", {
+      threadId: "new-thread",
+      turn: { status: "completed" },
+    }))).toEqual([]);
+  });
+
   it("ignores child thread and turn announcements after the root is adopted", () => {
     const n = new CodexEventNormalizer();
     adoptRootTurn(n, "root-thread", "root-turn");

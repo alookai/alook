@@ -447,7 +447,7 @@
         },
         {
           "file": "src/daemon/agent-driver/src/adapters/codex/normalizer.ts",
-          "lines": 238
+          "lines": 269
         },
         {
           "file": "src/daemon/agent-driver/src/adapters/codex/telemetry.ts",
@@ -642,8 +642,8 @@
           "lines": 44
         }
       ],
-      "total": 10798,
-      "deltaFromBaseline": -51
+      "total": 10829,
+      "deltaFromBaseline": -20
     }
   },
   "testPreservation": {
@@ -6929,7 +6929,7 @@
       }
     ],
     "finalTargetAssignmentStatus": "complete",
-    "finalCollectedCases": 8282,
+    "finalCollectedCases": 8284,
     "verification": {
       "mappingCount": 568,
       "everyNonDeletedCaseNamesExistingFinalTest": true,
@@ -6969,7 +6969,7 @@
     }
   },
   "finalVerification": {
-    "packageTests": "30 files, 304 tests passed",
+    "packageTests": "30 files, 306 tests passed",
     "daemonTests": "55 files, 1105 tests passed",
     "rootTests": "11/11 workspace tasks passed; post-workspace CI-script suite 9 files, 57 tests passed",
     "rootTypecheck": "passed (11 tasks)",
@@ -6980,7 +6980,7 @@
     "packProofs": "driver fresh pack/install fixture passed (1 test); daemon packed boundary and version tests passed (2 tests)",
     "workflowContract": "13 tests passed",
     "productionResidueSearch": "zero forbidden production symbols/imports",
-    "productionLoc": "10798 fixed-denominator lines vs 10849 baseline (-51)",
+    "productionLoc": "10829 fixed-denominator lines vs 10849 baseline (-20)",
     "liveLifecycleQa": {
       "codex": "exact head 44047b78; installed codex 0.146.0; start accepted; exact-turn interrupt accepted; logical outcome interrupted; physical outcome crashed; exact returned-session-id resume succeeded; resumed turn success; requested stop closed stopped; session SHA-256 prefix 611bb32ebd34; resumed text SHA-256 prefix df630930b7f9",
       "pi": "exact head 44047b78; installed pi 0.80.3; start accepted; tool start/finish observed; exact-turn interrupt accepted; logical outcome interrupted; requested stop closed stopped; exact returned-session-id resume succeeded; resumed turn success; requested stop closed stopped; session SHA-256 prefix d986eef12296",
@@ -6996,7 +6996,7 @@
       "cleanup": "isolated browser tab and local services stopped after evidence capture"
     },
     "windowsCiHarness": "bare npm pack install uses the Windows command shell; real-process timing bound widened without assertion changes",
-    "testLedger": "8282 collected cases; 568 mappings; zero missing non-deleted exact targets",
+    "testLedger": "8284 collected cases; 568 mappings; zero missing non-deleted exact targets",
     "productionCodeCommit": "44047b789adfe8fabf686838fb8a117c42cb1bdc",
     "evidenceArtifact": "plans/agent-driver-final-evidence.md; plans/agent-driver-final-qa-44047b78.json"
   }

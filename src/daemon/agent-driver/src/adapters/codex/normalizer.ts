@@ -1,16 +1,3 @@
-/**
- * CodexEventNormalizer — maps Codex's JSON-RPC 2.0 app-server protocol into
- * `AdapterEvent`s.
- *
- * Codex speaks JSON-RPC over stdio (`app-server --listen stdio://`). After an
- * `initialize` handshake the daemon starts/resumes a thread; the thread then
- * streams `item/*` and `turn/*` notifications. Session id = the thread id from
- * the `thread/started` (or thread/resume) result.
- *
- * It also folds in two telemetry streams via the sidecar mapper:
- *   - `thread/tokenUsage/updated`     → cumulative-session token telemetry
- *   - `account/rateLimits/updated`    → rate-limit telemetry
- */
 import type { AdapterEvent } from "../../internal/adapter.js";
 import { mapCodexTelemetry } from "./telemetry.js";
 import { tryParseJsonLine } from "../../internal/utils.js";
@@ -37,48 +24,39 @@ function normalizeFileChangeInput(item: any): { path?: string } {
 
 export class CodexEventNormalizer {
   private threadId: string | null = null;
-  /**
-   * The active turn's id, from `turn/started`'s `params.turn.id`. Codex requires
-   * it as `expectedTurnId` on a `turn/steer` (a busy-steer against the in-flight
-   * turn) — without it codex rejects the steer ("missing field expectedTurnId").
-   * Set on `turn/started`, cleared on `turn/completed`. Null when no turn is live
-   * (then a message is a fresh `turn/start`, which takes no expectedTurnId).
-   */
   private turnId: string | null = null;
   /**
-   * The threadId we've already emitted `session_init` for — dedups codex's
-   * double thread announcement (result + notification). See `adoptAndInit`.
+   * A completed root vendor turn remains an ownership fence until Codex starts
+   * another root turn. Codex can rarely report proven work after its first
+   * terminal notification. In that consistency-recovery case the matching
+   * work reopens this tombstone and one matching terminal may close it again.
+   * Keeping this separate from `turnId` is intentional: there is no live turn
+   * to steer after the first completion.
    */
+  private terminalTurn: {
+    threadId: string;
+    turnId: string;
+    state: "closed" | "reopened_after_terminal";
+  } | null = null;
   private sessionInitEmittedFor: string | null = null;
 
   get currentSessionId(): string | null {
     return this.threadId;
   }
 
-  /** The in-flight turn's id, or null when no turn is active. */
   get currentTurnId(): string | null {
     return this.turnId;
   }
 
   adoptThreadId(threadId: string | null): void {
+    if (threadId !== this.threadId) {
+      this.turnId = null;
+      this.terminalTurn = null;
+    }
     this.threadId = threadId;
   }
 
-  /**
-   * Emit `session_init` for `threadId` ONLY the first time this thread is seen.
-   * Codex announces a thread TWICE — the `thread/start` RESULT and the
-   * `thread/started` NOTIFICATION — both carrying the same id. Both must adopt
-   * the id (so `currentSessionId` is set no matter which arrives first), but
-   * only ONE should surface `session_init`: downstream consumers that RECORD on
-   * session_init (the timeline/reset-audit recorder) would otherwise log the
-   * event twice — the "two identical reset records for codex only" bug. Other
-   * runtimes emit session_init once, hence codex-only. The submit-once prompt
-   * latch never needed the duplicate; this dedups at the source.
-   */
   private adoptAndInit(threadId: string): AdapterEvent[] {
-    // One normalizer owns exactly one root thread. Codex subagents announce
-    // their own threads on the same app-server stream; adopting one here would
-    // redirect subsequent turn ownership away from the root session.
     if (this.threadId !== null && threadId !== this.threadId) return [];
     const firstSight = threadId !== this.sessionInitEmittedFor;
     this.threadId = threadId;
@@ -91,12 +69,10 @@ export class CodexEventNormalizer {
     const msg = tryParseJsonLine(line) as any;
     if (!msg) return [];
 
-    // JSON-RPC error response.
     if (msg?.error && msg.id !== undefined) {
       return [{ kind: "error", message: msg.error?.message ?? "Codex RPC error" }];
     }
 
-    // Result of thread/start | thread/resume carries the thread id.
     if (msg?.result?.thread?.id) {
       return this.adoptAndInit(msg.result.thread.id);
     }
@@ -112,20 +88,20 @@ export class CodexEventNormalizer {
       notificationThreadId !== null &&
       notificationThreadId !== this.threadId
     ) return [];
+    if (this.isRootWorkNotification(method) && !this.acceptRootWork(params)) return [];
 
     switch (method) {
       case "thread/started":
         return params?.thread?.id ? this.adoptAndInit(params.thread.id) : [];
 
       case "turn/started":
-        // Capture the turn id — codex needs it back as `expectedTurnId` on a
-        // `turn/steer` against this turn (see CodexDriver.encodeMessage).
         if (
           typeof params?.threadId !== "string" ||
           params.threadId !== this.threadId ||
           typeof params?.turn?.id !== "string"
         ) return [];
         this.turnId = params.turn.id;
+        this.terminalTurn = null;
         return [{ kind: "thinking", text: "" }];
 
       case "item/reasoning/textDelta":
@@ -141,11 +117,9 @@ export class CodexEventNormalizer {
       case "item/completed":
         return this.handleItemCompleted(params);
 
-      // A raw response item is a liveness signal (no user-visible content).
       case "rawResponseItem/completed":
         return [{ kind: "internal_progress", source: "codex_raw_item", itemType: "rawResponseItem" }];
 
-      // Non-fatal diagnostics surfaced by Codex.
       case "configWarning":
       case "warning":
       case "guardianWarning":
@@ -155,16 +129,7 @@ export class CodexEventNormalizer {
         ];
 
       case "turn/completed":
-        // The app-server multiplexes root and subagent notifications. Only the
-        // completion that names BOTH our root thread and current root turn may
-        // clear ownership or emit the logical root terminal event.
-        if (
-          typeof params?.threadId !== "string" ||
-          params.threadId !== this.threadId ||
-          typeof params?.turn?.id !== "string" ||
-          params.turn.id !== this.turnId
-        ) return [];
-        this.turnId = null;
+        if (!this.acceptRootTerminal(params)) return [];
         if (params.turn.status === "failed") {
           return [
             { kind: "error", message: "Codex turn failed" },
@@ -186,6 +151,72 @@ export class CodexEventNormalizer {
       default:
         return [];
     }
+  }
+
+  private isRootWorkNotification(method: string): boolean {
+    return method === "item/reasoning/textDelta"
+      || method === "item/reasoning/summaryTextDelta"
+      || method === "item/agentMessage/delta"
+      || method === "item/started"
+      || method === "item/completed"
+      || method === "rawResponseItem/completed";
+  }
+
+  private notificationTurnId(params: any): string | null {
+    if (typeof params?.turnId === "string") return params.turnId;
+    return typeof params?.turn?.id === "string" ? params.turn.id : null;
+  }
+
+  private acceptRootWork(params: any): boolean {
+    const notificationThreadId = typeof params?.threadId === "string" ? params.threadId : null;
+    const notificationTurnId = this.notificationTurnId(params);
+    if (this.turnId !== null) {
+      return (notificationThreadId === null || notificationThreadId === this.threadId)
+        && (notificationTurnId === null || notificationTurnId === this.turnId);
+    }
+    if (this.terminalTurn) {
+      if (
+        notificationThreadId !== this.terminalTurn.threadId
+        || notificationTurnId !== this.terminalTurn.turnId
+      ) return false;
+      this.terminalTurn.state = "reopened_after_terminal";
+      return true;
+    }
+    // Parser-only callers may normalize isolated fixture lines before a root
+    // thread is adopted. Once ownership exists, work without a live or closed
+    // root turn is not attributable and must not cross the adapter boundary.
+    return this.threadId === null;
+  }
+
+  private acceptRootTerminal(params: any): boolean {
+    const notificationThreadId = typeof params?.threadId === "string" ? params.threadId : null;
+    const notificationTurnId = this.notificationTurnId(params);
+    if (
+      notificationThreadId === null
+      || notificationThreadId !== this.threadId
+      || notificationTurnId === null
+    ) return false;
+    if (notificationTurnId === this.turnId) {
+      this.turnId = null;
+      this.terminalTurn = {
+        threadId: notificationThreadId,
+        turnId: notificationTurnId,
+        state: "closed",
+      };
+      return true;
+    }
+    const terminalTurn = this.terminalTurn;
+    if (
+      this.turnId === null
+      && terminalTurn !== null
+      && terminalTurn.threadId === notificationThreadId
+      && terminalTurn.turnId === notificationTurnId
+      && terminalTurn.state === "reopened_after_terminal"
+    ) {
+      terminalTurn.state = "closed";
+      return true;
+    }
+    return false;
   }
 
   private handleItemStarted(params: any): AdapterEvent[] {
