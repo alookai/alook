@@ -1,29 +1,29 @@
 {
   "schemaVersion": 2,
   "kind": "agent-driver-final-sanitized-qa",
-  "sourceHead": "71ad350886f83ab823dc80d03738e5683e64fb15",
-  "sourceTree": "98f5f17f25e2514a1a9f907be1e98cc13a43da7e",
+  "sourceHead": "cc8f5fd555c797f9baec268717d7fc3d18c1a784",
+  "sourceTree": "5cef16e8d7dceca8183b7b9128d58a2b67a4baf8",
   "trackedWorktree": "clean",
-  "runRef": "alook-c-qa-71ad3508.m6r3aU",
+  "runRef": "alook-c-qa-cc8f5fd5.Q3DfMA",
   "secrets": "sanitized; credentials, session tokens, prompts, raw model output, and browser session data omitted",
   "provenance": {
     "driverDistFileCount": 160,
-    "driverDistRootSha256": "1531e7cf2744161ecbb0770f76af7ebf277b38ebfe2edbb7488126fbe5bc4c00",
-    "servedAssetInventoryId": "30f1ed4d-dafb-4d41-9548-961413587645",
-    "servedAssetCount": 70,
-    "servedAssetBytes": 26545099,
-    "servedAssetRootSha256": "af9a73a1000eb98fff242e6d491dd65e5416c550d21e27ae3aabbb516e21a7f7",
+    "driverDistRootSha256": "74c13fe2b9c49e49ec0148c22a31681234e495561af25511a7c599a0505ad657",
+    "servedAssetInventoryId": "35276f28-e1bd-4b54-8095-a87929f90204",
+    "servedAssetCount": 73,
+    "servedAssetBytes": 27209192,
+    "servedAssetRootSha256": "1f45c0c98899dd2edcf374f93b0da1b31464c29fb9c2c59dcdf828c6bddcabd9",
     "rawEvidenceManifest": [
-      { "file": "asset-urls.json", "bytes": 6080, "sha256": "592d8e8062750d940fd4038497dd15d45a2bd605153a839cd748fb41c686891b" },
-      { "file": "community-cancellation.json", "bytes": 395, "sha256": "eefa5570026dee6afc35c96643caf4101711fe1f12e691d5788af103330b74f3" },
-      { "file": "community-creation.json", "bytes": 371, "sha256": "66295eb9b08dc17d09e2ad73c5c7632344dfb726ae60cc7d12a14710bb50c6f5" },
-      { "file": "community-recovery.json", "bytes": 404, "sha256": "22bbb030120cccc09f92fd02f3b4f4f42ef0f758234da9d9d087df3b3fa7a20c" },
-      { "file": "installed-backend-lifecycle.json", "bytes": 2155, "sha256": "4e62691c3c338b12ded03bb84dd7938b80634072c6d218cb6245c0e9094c9deb" },
-      { "file": "run-meta.json", "bytes": 619, "sha256": "1a4cc29b9c5934fe2512db99285dea9b1dbd581210a5cd8771fdb72d4c74e967" },
-      { "file": "served-assets.json", "bytes": 13958, "sha256": "ad218c5257fdee4ea0609aa539a452d980a6cb74c7bc4dc03207282ed6eddaf1" },
-      { "file": "worker-log-evidence.json", "bytes": 369, "sha256": "ce8ed6b6e3a33f8d62646ec43e3cb8eca272abb4c52c5b4bf0247fea7b7b6cf9" }
+      { "file": "asset-urls.json", "bytes": 6318, "sha256": "03bf2e4fb77f3606d3518eb7f3c61a1dde10e89ff5e67960d016a3b85c54cbdd" },
+      { "file": "community-cancellation.json", "bytes": 395, "sha256": "dacc3ea2fb8b7ce13532d861d2918a493161913ed002972577500b07da9cbe51" },
+      { "file": "community-creation.json", "bytes": 371, "sha256": "273696727529876da6fd7831348eeb9b2aa8a0f1846ed15f0f36d5335eb0c6e4" },
+      { "file": "community-recovery.json", "bytes": 404, "sha256": "aa093a420e6ed533e704568e823941ac22952e1a80092168b1734662b2c5e955" },
+      { "file": "installed-backend-lifecycle.json", "bytes": 2155, "sha256": "5298b2762e62e6e5f209ec32f9551e15e17e888589a45b930fdf829c8d4ac628" },
+      { "file": "run-meta.json", "bytes": 619, "sha256": "aedfb24e898fca2731b833504c3655713d99db907d639b65a7e0c22013360bfb" },
+      { "file": "served-assets.json", "bytes": 14524, "sha256": "68d58ad9583e1879e9a075e68b648661090700e866e3dc8c53441eca30caf834" },
+      { "file": "worker-log-evidence.json", "bytes": 369, "sha256": "69ebef7c42a6ce977374d4af753a2c3fe043aeb410aba3daa28cb0744ecd9865" }
     ],
-    "rawEvidenceRootSha256": "f23e7ece3fd64cd18f16c1c5fd93adbe0493ffee84cec29cdc7221541709c262"
+    "rawEvidenceRootSha256": "ffb0ba4d221347d633ab21d8372bc6d247c84c8e2dad78d5e5cc98444e392020"
   },
   "installedBackendLifecycle": {
     "claude": {
@@ -35,7 +35,7 @@
         "secondOutcome": "success",
         "stop": "accepted",
         "sessionOutcome": "stopped",
-        "backendSessionIdSha256": "f64b1c121d9a094c240a1bfa2afff9be4a199edb0e72d87e0f344300617c91d6",
+        "backendSessionIdSha256": "bd01699771f081a182a8c96d24637a7b4106fa686614a952a276cf6ea7c58ae9",
         "combinedTextBytes": 31,
         "combinedTextSha256": "1d8722b4983f89eac3573d072d68fb65f27d7d557952e4f099ae6e9e5431db86"
       },
@@ -57,9 +57,9 @@
         "interrupt": "accepted",
         "turnOutcome": "interrupted",
         "physicalSessionOutcome": "crashed",
-        "backendSessionIdSha256": "9df106abe45d8d4c4d4a5f9d55748f8d6570e0b85f5b54d14c4f8d84832999ce",
+        "backendSessionIdSha256": "09cecdbb7332b09edd5e7a0d1b2ed56db13ccd26bf35c3f98f6956b4c22b3e01",
         "textBytes": 134,
-        "textSha256": "642c8dc6cc36b161f177aab164c7d2ebb524d2d0902ebd428d5091f50ce1178e"
+        "textSha256": "6e8709650d83d128dd985352818adfec6745a0ef0100990894654d14c6ef6820"
       },
       "resume": {
         "start": "accepted",
@@ -80,7 +80,7 @@
         "turnOutcome": "interrupted",
         "stop": "accepted",
         "sessionOutcome": "stopped",
-        "backendSessionIdSha256": "326309d69b6149bec0fc10ae0f107124ed6063bc7a9fc70f74f767dc3024bf21"
+        "backendSessionIdSha256": "5d928232bf0e8f372c74835125171f7383866f7315b153b9db7187ae55054753"
       },
       "resume": {
         "start": "accepted",
@@ -94,19 +94,19 @@
     "creation": {
       "status": "PASS",
       "offeredRuntimes": ["claude", "codex", "cursor", "opencode", "pi"],
-      "botId": "nrqTW6vkUALIrj157ehVx",
+      "botId": "15tAmn5nvbhqNYaAermeC",
       "machineId": "cm_k6VNR4l0-p5VQ4QHUUWJr",
       "storedRuntime": "codex",
       "httpStatus": 201,
       "botAddedFrames": 1,
-      "botAddedAt": "2026-08-19T18:11:56.488Z"
+      "botAddedAt": "2026-08-19T18:27:55.340Z"
     },
     "cancellation": {
       "status": "PASS",
       "storedRemovedRuntime": "gemini",
-      "normalizedRowBytes": 473,
-      "beforeSha256": "bc46a3067acc145d61dae678bad59c28755b6cb81d5f6b9ca7fe5c63594e5306",
-      "afterSha256": "bc46a3067acc145d61dae678bad59c28755b6cb81d5f6b9ca7fe5c63594e5306",
+      "normalizedRowBytes": 451,
+      "beforeSha256": "f2bc69c4b2310b1c27470b2c00294839e57470c15586a1a0e32d000c1db7ca1b",
+      "afterSha256": "f2bc69c4b2310b1c27470b2c00294839e57470c15586a1a0e32d000c1db7ca1b",
       "byteIdentical": true,
       "controlUpdates": 0
     },
@@ -114,11 +114,11 @@
       "status": "PASS",
       "beforeRuntime": "gemini",
       "afterRuntime": "codex",
-      "beforeSha256": "bc46a3067acc145d61dae678bad59c28755b6cb81d5f6b9ca7fe5c63594e5306",
-      "afterSha256": "6e4d2b2c0b850e1f605388eda6a8efd1b3f71b6874b2db70fff73db0937fdcaa",
+      "beforeSha256": "f2bc69c4b2310b1c27470b2c00294839e57470c15586a1a0e32d000c1db7ca1b",
+      "afterSha256": "ac13da235aa2c831ba44e0a426f7e407572f36f89270386a85d872e20bb3eb44",
       "agentResetFrames": 1,
       "agentResetRuntime": "codex",
-      "agentResetAt": "2026-08-19T18:13:08.454Z",
+      "agentResetAt": "2026-08-19T18:32:08.035Z",
       "httpStatus": 200
     }
   }
