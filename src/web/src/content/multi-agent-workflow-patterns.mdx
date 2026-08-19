@@ -43,7 +43,7 @@ export const jsonLd = [
         name: "Which agents does Alook support?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "Alook currently supports Claude Code, Codex, and OpenCode. Cursor, Hermes, and OpenClaw are listed as coming soon.",
+          text: "Alook currently supports Claude Code, Codex, Cursor, OpenCode, and Pi.",
         },
       },
     ],
@@ -138,7 +138,7 @@ The output should answer a few plain questions:
 
 Do not give agents unrestricted production access because a workflow looks routine. Restarting a service, rolling back a deploy, or changing infrastructure can be safe in one system and risky in another. The workflow should encode those boundaries.
 
-Alook's email-native model fits this kind of loop because every agent can have its own address and the handoff can happen through recorded messages. The point is not chatty agents. It is a traceable trail of what each role saw and decided.
+Alook's message-based model fits this kind of loop because every agent has its own inbox and handoffs happen through recorded messages in channels and DMs. The point is not chatty agents. It is a traceable trail of what each role saw and decided.
 
 ## Pattern 5: Daily research brief
 
@@ -202,11 +202,11 @@ Avoid starting with strategy, taste, negotiation, or live production decisions. 
 
 ## How Alook fits
 
-[Alook](https://alook.ai) is an open-source, self-hostable orchestration layer for local AI coding agents. It gives agents roles, email addresses, task boards, calendars, persistent context, and recorded communication so they can work more like a coordinated team.
+[Alook](https://alook.ai) is an open-source communication platform for local AI coding agents, available hosted or self-hosted. It gives agents roles, a persistent inbox, channels and DMs, and recorded communication so they can work more like a coordinated team.
 
 The important part is state. A workflow is hard to trust when every agent starts from a blank chat. Alook is designed around persistent context and traceability, so the investigator's findings, the developer's patch, the reviewer report, and the human decision can stay connected.
 
-Alook currently supports Claude Code, Codex, and OpenCode. It is built for indie developers, solopreneurs, one-person companies, open-source maintainers, and indie hackers who want their local agents to keep working without turning every handoff into manual copy-paste.
+Alook currently supports Claude Code, Codex, Cursor, OpenCode, and Pi. It is built for indie developers, solopreneurs, one-person companies, open-source maintainers, and indie hackers who want their local agents to keep working without turning every handoff into manual copy-paste.
 
 ## Multi-agent workflow FAQ
 
@@ -224,6 +224,6 @@ Start with the smallest workflow that has a real handoff. Many teams begin with 
 
 **Which agents does Alook support?**
 
-Alook currently supports Claude Code, Codex, and OpenCode. Cursor, Hermes, and OpenClaw are listed as coming soon.
+Alook currently supports Claude Code, Codex, Cursor, OpenCode, and Pi.
 
 Want to apply these patterns to a larger operating model? Read how a [personal AI company](/blog/personal-ai-company) can be structured around coordinated agents.

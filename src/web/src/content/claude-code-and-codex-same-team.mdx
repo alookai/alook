@@ -22,7 +22,7 @@ export const jsonLd = [
         name: "How do you use Claude and Codex together?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "Run both against the same repo, assign stable roles, move code through Git, and pass handoffs the next runtime can act on. When sessions close, add identities, threads, or task records so review findings and implementation updates do not depend on you pasting between terminals.",
+          text: "Run both against the same repo, assign stable roles, move code through Git, and pass handoffs the next runtime can act on. When sessions close, add identities, threads, or marks so review findings and implementation updates do not depend on you pasting between terminals.",
         },
       },
       {
@@ -95,7 +95,7 @@ This section describes public product models, not a ranking of which tool is "be
 
 Inside a single Claude Code session, you can delegate to [specialized subagents](https://docs.anthropic.com/en/docs/claude-code/sub-agents). Subagents run in separate context windows, work on scoped tasks, and return results to the main session. That is orchestration within one runtime. For how that nested model differs from independent agents, see [Claude Code subagents vs independent agents](/blog/claude-code-subagents-vs-independent-agents).
 
-Claude Code can also run [dynamic workflows](https://docs.anthropic.com/en/docs/claude-code/workflows) for large parallel jobs inside the same ecosystem. We covered how that differs from persistent cross-session coordination in our guide to [Claude Code dynamic workflows and email-based agent coordination](/blog/claude-code-dynamic-workflow-alternative). This article focuses on a different problem: coordinating Claude Code with an independent Codex runtime.
+Claude Code can also run [dynamic workflows](https://docs.anthropic.com/en/docs/claude-code/workflows) for large parallel jobs inside the same ecosystem. We covered how that differs from persistent cross-session coordination in our guide to [Claude Code dynamic workflows vs async coordination](/blog/claude-code-dynamic-workflow-alternative). This article focuses on a different problem: coordinating Claude Code with an independent Codex runtime.
 
 ### Codex
 
@@ -204,15 +204,11 @@ It is a poor fit for a single quick question inside one runtime, or for work tha
 
 ### Publicly documented setup
 
-From the project onboarding flow:
+Two paths:
 
-1. Install and run onboarding:
+1. **Hosted:** Register at [alook.ai](https://alook.ai), pair your machine with the generated daemon command, and connect the local environments where Claude Code and Codex run.
 
-```bash
-npx @alook/app onboard
-```
-
-2. Or register at [alook.ai](https://alook.ai), pair your machine, and connect the local environments where Claude Code and Codex run. Self-hosting from GitHub is the other path when you want the control plane on your own infra.
+2. **Self-hosted:** Run `npx @alook/app onboard` to start four Wrangler services plus the local daemon. Note: self-host disables OAuth login (email/password required) and email sending/receiving is unavailable.
 
 3. Create agents with distinct roles so each runtime has a clear owner for implementation, review, or research.
 
@@ -230,7 +226,7 @@ A minimal cross-runtime team **could** be configured like this:
 
 Work flows: you assign a scoped task to Builder → Builder commits and sends a handoff with branch, files, and open questions → Reviewer receives the task → Reviewer returns findings → Builder addresses them → you merge when satisfied.
 
-That pattern mirrors the example workflow earlier. Alook supplies the shared room, identities, and task visibility; each runtime still executes commands and edits files locally.
+That pattern mirrors the example workflow earlier. Alook supplies the shared room, identities, and message history; each runtime still executes commands and edits files locally.
 
 ![Org chart with a human owner, a Builder agent on Claude Code, and a Reviewer agent on Codex connected by handoff arrows](/blog/claude-code-and-codex-same-team/team-setup.webp)
 
@@ -239,7 +235,7 @@ That pattern mirrors the example workflow earlier. Alook supplies the shared roo
 - Agent identity across rooms
 - Role ownership across runtimes
 - Durable threads that outlive a single CLI session
-- Task visibility and progress tracking
+- Ownership and status visible in messages and marks
 - Cross-runtime handoff routing
 
 ### What Claude Code and Codex still control
@@ -261,7 +257,7 @@ For broader team design, see [AI agent orchestration](/blog/ai-agent-orchestrati
 
 ## Claude Code and Codex FAQ
 
-**How do you use Claude and Codex together?** Run both against the same repo, assign stable roles, move code through Git, and pass handoffs the next runtime can act on. When sessions close, add identities, threads, or task records so review findings and implementation updates do not depend on you pasting between terminals.
+**How do you use Claude and Codex together?** Run both against the same repo, assign stable roles, move code through Git, and pass handoffs the next runtime can act on. When sessions close, add identities, threads, or marks so review findings and implementation updates do not depend on you pasting between terminals.
 
 **Codex vs Claude Code: which should you use?** Neither wins every job. Pick by task, subscription, and habit. Many teams keep both and split implementation from review instead of forcing every slice into one runtime.
 

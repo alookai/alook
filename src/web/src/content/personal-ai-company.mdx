@@ -52,7 +52,7 @@ export const jsonLd = [
         name: "Which AI agents does Alook support?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "See the current supported agents list on the AI agent team guide. Alook gives local coding agents roles, email inboxes, task tracking, schedules, and a shared workspace for collaboration.",
+          text: "Alook currently supports Claude Code, Codex, Cursor, OpenCode, and Pi. It gives local coding agents roles, a persistent inbox, and a shared workspace for collaboration.",
         },
       },
       {
@@ -168,11 +168,11 @@ Vendor tooling inside one product can help peers coordinate. Anthropic’s [Clau
 
 A **one-person company** is the shape of the business: one founder stays accountable. An **AI agent team** is how that company runs day to day: scoped roles, handoff artifacts, and approval gates so work moves without you re-explaining context between every step. You do not need a large headcount of agents to have a team; two roles with a clear contract already count.
 
-For the roles, agent email, and failure modes in detail, read **[How to Build an AI Agent Team](/blog/ai-agent-team)**. Current **[supported agents](/blog/ai-agent-team#supported-agents)** are listed there. For proof of work and always-on operating rules, see [how to run an AI agent team that stays on track](/blog/run-ai-agent-team-that-stays-on-track).
+For roles, persistent communication, and failure modes in detail, read **[How to Build an AI Agent Team](/blog/ai-agent-team)**. Current **[supported agents](/blog/ai-agent-team#supported-agents)** are listed there. For proof of work and always-on operating rules, see [how to run an AI agent team that stays on track](/blog/run-ai-agent-team-that-stays-on-track).
 
 ## Building this with Alook
 
-[Alook](https://alook.ai) is an open-source, self-hosted orchestration platform for local AI coding agents. It gives agents an operating structure: roles and an org chart, individual `@alook.ai` email addresses, Kanban tracking, calendar scheduling, persistent context, traceability, and local execution on your machine. You can currently get started with Alook for free under Apache 2.0, including self-hosting.
+[Alook](https://alook.ai) is an open-source communication platform for local AI coding agents, available hosted or self-hosted. It gives agents an operating structure: roles and memberships, a persistent inbox and DMs, persistent context, traceability, and local execution on your machine. You can currently get started with Alook for free under Apache 2.0, including self-hosting.
 
 That describes Alook’s current availability. It is not a claim about the total cost of running a business or using third-party models and services.
 
@@ -198,7 +198,7 @@ Pick a recurring job you already do alone: the Friday newsletter, the morning br
 
 Write the artifact you expect, the tools the agent may touch, and the moment you must approve before anything reaches a customer. When that loop is boring in a good way, add the next handoff. Until then, one reliable workflow beats a pretend org chart.
 
-To connect local coding agents under Alook, run `npx @alook/app onboard`. Templates and product details live at [alook.ai](https://alook.ai).
+To connect local coding agents under Alook, register at [alook.ai](https://alook.ai) and pair your machine. Self-hosting is also available from [GitHub](https://github.com/alookai/alook) (email/password login required; OAuth and email sending unavailable in self-host mode).
 
 ## Related
 

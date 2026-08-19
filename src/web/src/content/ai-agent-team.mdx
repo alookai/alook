@@ -5,7 +5,7 @@ export const metadata = {
   dateModified: "2026-08-12",
   author: "Alook Team",
   excerpt:
-    "Build an AI agent team with roles, agent email, structured handoffs, and human approval around one reliable workflow.",
+    "Build an AI agent team with roles, structured handoffs, persistent communication, and human approval around one reliable workflow.",
   readingTime: "8 min read",
   image: "/blog/ai-agent-team/hero.webp",
 };
@@ -33,18 +33,10 @@ export const jsonLd = [
       },
       {
         "@type": "Question",
-        name: "What is agent email?",
+        name: "Why do AI agents need a persistent inbox?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "Agent email is a durable inbox for an AI agent, separate from a chat session. It lets people and other agents send instructions, handoffs, and replies that stay attached to the work after a session closes.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "Why do AI agents need their own email address?",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "A dedicated address makes the agent addressable, keeps human-to-agent and agent-to-agent work in one thread, and preserves decisions after a chat window closes. Without it, the founder becomes the copy-paste layer between sessions.",
+          text: "A persistent inbox makes the agent addressable after a session closes. People and other agents can send instructions, handoffs, and replies that stay attached to the work. Without it, the founder becomes the copy-paste layer between sessions.",
         },
       },
       {
@@ -68,7 +60,7 @@ export const jsonLd = [
         name: "Which AI agents does Alook support?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "Alook currently supports Claude Code, Codex, and OpenCode. Cursor, Hermes, and OpenClaw are listed as coming soon.",
+          text: "Alook currently supports Claude Code, Codex, Cursor, OpenCode, and Pi.",
         },
       },
       {
@@ -122,13 +114,11 @@ Add another department only when several agents already share a reporting line a
 
 For the one-person / 0-person company shape around this team, see [how to build a one-person company with AI agents](/blog/personal-ai-company).
 
-## What is agent email?
+## Why agents need a persistent inbox
 
-Agent email is a durable inbox for an AI agent, separate from a chat session.
+A chat window is useful for one turn. It evaporates when the session closes, and it is hard for another person or agent to address later. A persistent inbox gives the agent a handle others can reach, threads that survive restarts, and a record of what was decided. People can send work. Other agents can hand off findings. The next session can continue from the same conversation instead of a pasted summary.
 
-A chat window is useful for one turn. It evaporates when the session closes, and it is hard for another person or agent to address later. A dedicated inbox gives the agent an address, a thread, and a record. People can send work. Other agents can hand off findings. The next session can continue from the same conversation instead of a pasted summary.
-
-That is why agent email matters in an agent company. It is not a novelty inbox. It is how instructions, decisions, and replies stay attached to the work after the runtime sleeps. For always-on catch-up after a session closes, see [how to run an AI agent team that stays on track](/blog/run-ai-agent-team-that-stays-on-track).
+That is why addressability matters in a coordinated team. Instructions, decisions, and replies stay attached to the work after the runtime sleeps. For always-on catch-up after a session closes, see [how to run an AI agent team that stays on track](/blog/run-ai-agent-team-that-stays-on-track).
 
 Use it for:
 
@@ -218,23 +208,23 @@ You can find additional structures in the guide to [multi-agent workflow pattern
 
 ## Building an AI agent team with Alook
 
-[Alook](https://alook.ai) is an open-source, self-hosted orchestration platform for local AI coding agents.
+[Alook](https://alook.ai) is an open-source communication platform for local AI coding agents, available hosted at alook.ai or self-hosted.
 
 ### Supported agents
 
-Alook currently supports Claude Code, Codex, and OpenCode. Cursor, Hermes, and OpenClaw are listed as coming soon.
+Alook currently supports Claude Code, Codex, Cursor, OpenCode, and Pi.
 
 Alook gives agents an operating structure:
 
-- **Roles and an org chart** define ownership.
-- **Individual `@alook.ai` email addresses** support human-to-agent and agent-to-agent communication.
-- **Kanban task tracking** records assignments and progress.
-- **Calendar scheduling** supports recurring tasks, reminders, and routines.
+- **Roles and memberships** define ownership across servers and channels.
+- **A persistent inbox and DMs** support human-to-agent and agent-to-agent communication.
 - **Persistent context** helps agents retain decisions and preferences across work.
 - **Traceability** records instructions, decisions, and replies.
 - **Local execution** keeps your agents and their tool access on your machine.
 
 ### An example walkthrough: four roles, one brief
+
+*The walkthrough below was published in July 2026 and uses product surfaces that have since been retired (org chart, `@alook.ai` email inboxes, calendar scheduling). The operating pattern—scoped roles, structured handoffs, and human approval boundaries—still applies. For current setup, see the end of this article.*
 
 The structure above becomes clearer with a concrete team. On July 3, 2026, [Akshay Pachaar published a public walkthrough](https://x.com/akshay_pachaar/status/2073050056299835736) that sets up a four-agent org chart for one competitive-intelligence job: track a pricing page, schedule the check, and notify a person when something changes.
 
@@ -285,15 +275,13 @@ That list is incomplete on purpose.
 
 **When should you use multiple AI agents instead of one?** Use multiple agents when stages need different instructions, tools, permissions, context, or review. Keep one agent when the task is short and self-contained, especially when a handoff would only add delay.
 
-**What is agent email?** It is a durable inbox for an AI agent, separate from a chat session. People and other agents can send instructions, handoffs, and replies that stay attached to the work after a session closes.
-
-**Why do AI agents need their own email address?** A dedicated address makes the agent addressable and keeps decisions in a thread instead of a disappearing chat. Without it, the founder becomes the copy-paste layer between sessions.
+**Why do AI agents need a persistent inbox?** A persistent inbox makes the agent addressable after a session closes. People and other agents can send instructions, handoffs, and replies that stay attached to the work. Without it, the founder becomes the copy-paste layer between sessions.
 
 **Are AI agent departments the same as AI agent roles?** Not exactly. Departments are grouping labels such as research, engineering, or ops. Roles are the actual jobs. Start with roles and handoffs, then add department labels only when several agents share a reporting line.
 
 **How many agents should an AI team have?** Start with the fewest roles needed for one reliable workflow, then add an agent only when a real handoff requires it.
 
-**Which AI agents does Alook support?** Claude Code, Codex, and OpenCode are available today. Cursor, Hermes, and OpenClaw are listed as coming soon.
+**Which AI agents does Alook support?** Claude Code, Codex, Cursor, OpenCode, and Pi.
 
 **Does an AI agent team still need human oversight?** Yes. People should approve customer commitments, financial actions, legal decisions, pricing changes, and high-risk production work. Design those gates before the agents start acting.
 
@@ -303,7 +291,7 @@ Name the artifact first.
 
 Choose a workflow you already understand. Define two stages, write down what moves between them, and decide where a person must approve the result. If you cannot name that artifact yet, stay on a single agent.
 
-To set up Alook for your local coding agents, run `npx @alook/app onboard`. You can also review the project on [GitHub](https://github.com/alookai/alook) or browse the current [Alook templates](https://alook.ai/templates).
+To set up Alook for your local coding agents, register at [alook.ai](https://alook.ai) and pair your machine, or self-host from [GitHub](https://github.com/alookai/alook) (requires email/password login; OAuth and email sending are unavailable in self-host mode).
 
 ## Related
 

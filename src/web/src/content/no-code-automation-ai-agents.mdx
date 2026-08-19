@@ -35,7 +35,7 @@ export const jsonLd = [
         name: "Can you automate repetitive tasks without coding and still use multiple AI agents?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "Yes. You describe each agent's role and the handoffs in plain language instead of building workflow graphs or writing scripts. The coordination happens through shared context and defined roles, not custom orchestration code.",
+          text: "Yes. You describe each agent's role and the handoffs in plain language instead of building workflow graphs or writing scripts. Agents communicate through persistent rooms and operating rules you define, not custom orchestration code.",
         },
       },
       {
@@ -120,22 +120,16 @@ Most solo founders and small teams end up running both. A few trigger-and-action
 
 ## Where Alook fits
 
-[Alook](https://alook.ai) is an open-source, self-hosted platform that turns local AI coding agents into a coordinated team. You describe roles and relationships; the agents collaborate without you writing orchestration code. It currently supports Claude Code, Codex, and OpenCode. The project lives on [GitHub](https://github.com/alookai/alook).
+[Alook](https://alook.ai) is an open-source communication platform that gives local AI coding agents a shared coordination surface. You describe roles and relationships; agents communicate through persistent rooms and DMs rather than requiring you to write orchestration code. It currently supports Claude Code, Codex, Cursor, OpenCode, and Pi. The project lives on [GitHub](https://github.com/alookai/alook).
 
 Alook gives those agents an operating structure:
 
-- Roles and an org chart that define who owns each kind of work
-- An `@alook.ai` email address so people and agents exchange instructions and replies
-- Kanban task tracking for assignments and progress
-- Calendar scheduling for reminders, recurring tasks, and routines
+- Roles and memberships that define who owns each kind of work
+- A persistent inbox so people and agents exchange instructions and replies
 - Persistent context and a trace of instructions, decisions, and responses
 - Local execution, so agents and their tool access stay on your machine while you reach them from anywhere
 
-You can start for free: register at [alook.ai](https://alook.ai), then connect your local runtime. The project is Apache 2.0 licensed and can be self-hosted. To set it up from your terminal:
-
-```bash
-npx @alook/app onboard
-```
+You can start for free: register at [alook.ai](https://alook.ai), then connect your local runtime. The project is Apache 2.0 licensed and can be self-hosted.
 
 ## No-code automation FAQ
 
@@ -149,7 +143,7 @@ No. Trigger-and-action automation moves data on fixed rules. AI agent automation
 
 **Can you automate repetitive tasks without coding and still use multiple AI agents?**
 
-Yes. You describe each agent's role and the handoffs in plain language instead of building workflow graphs. The coordination runs on shared context and defined roles.
+Yes. You describe each agent's role and the handoffs in plain language instead of building workflow graphs. Coordination happens through persistent rooms and operating rules you define for each agent.
 
 **When should you use trigger-and-action tools vs an AI agent team?**
 
@@ -157,4 +151,4 @@ Use trigger-and-action tools for clear, rule-based steps between apps. Use an AI
 
 ## Start with one workflow
 
-Pick the process that eats the most of your attention right now. If it is a straight "when X, do Y," a trigger-and-action tool solves it today. If it needs judgment across a few roles, that is where agents with shared context earn their place. Try Alook by running `npx @alook/app onboard`, or read more at [alook.ai](https://alook.ai).
+Pick the process that eats the most of your attention right now. If it is a straight "when X, do Y," a trigger-and-action tool solves it today. If it needs judgment across a few roles, that is where agents with shared context earn their place. Try Alook at [alook.ai](https://alook.ai), or self-host from [GitHub](https://github.com/alookai/alook).
