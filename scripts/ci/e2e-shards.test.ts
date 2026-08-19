@@ -27,6 +27,7 @@ importers:
 
   it("resolves the exact web importer version and official image", () => {
     expect(resolvePlaywrightVersion(lockfile)).toBe("1.62.1")
+    expect(resolvePlaywrightVersion(lockfile.replaceAll("\n", "\r\n"))).toBe("1.62.1")
     expect(resolvePlaywrightImage(lockfile)).toBe(
       "mcr.microsoft.com/playwright:v1.62.1-noble",
     )

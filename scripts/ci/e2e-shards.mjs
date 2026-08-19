@@ -47,10 +47,11 @@ export function discoverE2eSpecs(root = resolve(E2E_SPEC_ROOT)) {
 }
 
 export function resolvePlaywrightVersion(lockfile = readFileSync(resolve("pnpm-lock.yaml"), "utf8")) {
-  const importerStart = lockfile.indexOf("\n  src/web:\n")
+  const normalizedLockfile = lockfile.replaceAll("\r\n", "\n")
+  const importerStart = normalizedLockfile.indexOf("\n  src/web:\n")
   if (importerStart < 0) throw new Error("pnpm lockfile is missing the src/web importer")
 
-  const importerBody = lockfile.slice(importerStart + 1)
+  const importerBody = normalizedLockfile.slice(importerStart + 1)
   const nextImporter = importerBody.slice(1).search(/\n  \S[^\n]*:\n/)
   const importer = nextImporter < 0
     ? importerBody
