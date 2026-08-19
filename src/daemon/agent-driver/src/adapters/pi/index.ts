@@ -8,7 +8,6 @@ import { SdkLane } from "../../controller/sdk-host.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
 import { resolveCommandOnPath, type ProbeDeps } from "../../internal/probe.js";
 import { createPiSessionDependencies, type PiSessionDependencies } from "./sessionDeps.js";
-import { TerminalReceiptFence } from "../../internal/terminal-receipt.js";
 
 const PI_SDK_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
 
@@ -153,6 +152,7 @@ export const PI_IGNORED_EVENT_TYPES = [
   "thinking_level_changed",
   "auto_retry_start",
   "auto_retry_end",
+  "agent_end",
 ] as const;
 
 /** Map a Pi SDK event to zero or more normalized events. */
@@ -182,8 +182,6 @@ export function mapPiSdkEvent(event: any, sessionId: string, state: { sawTextDel
       return [{ kind: "compaction_started" }];
     case "compaction_end":
       return [{ kind: "compaction_finished" }];
-    case "agent_end":
-      return [{ kind: "turn_end", sessionId }];
     default:
       // PI_IGNORED_EVENT_TYPES documents the complete known no-op family.
       return [];
@@ -196,7 +194,7 @@ export class PiDriver implements BackendAdapter {
   readonly execution = { kind: "in_process_sdk", input: "direct" } as const;
 
   private sessionId: string | null = null;
-  private readonly terminalFence = new TerminalReceiptFence("pi");
+  private terminalSequence = 0;
 
   constructor(
     private readonly dependenciesFor: (ctx: AdapterLaunchContext) => PiSessionDependencies = createPiSessionDependencies,
@@ -239,12 +237,11 @@ export class PiDriver implements BackendAdapter {
 
     const state = { sawTextDelta: false };
     const handle: VendorSessionHandle = {
-      // `session.prompt()` throws "Agent is already processing" if a prior
-      // turn is still streaming (the controller's send is
-      // the primary defense — this is a belt-and-suspenders guard against
-      // any remaining window between our own turn_end detection and the SDK
-      // flipping `isStreaming`): queue as a follow-up instead of throwing.
-      prompt: (t: string) => session.prompt(t, session.isStreaming ? { streamingBehavior: "followUp" } : undefined),
+      // A root turn is owned by this exact prompt promise. Never downgrade it
+      // to followUp/steer, whose completion belongs to a different invocation.
+      // SdkLane waits for idle and turns a persistent-busy race into a
+      // controlled failed terminal instead of guessing terminal ownership.
+      prompt: (t: string) => session.prompt(t),
       steer: (t: string) => session.steer(t),
       abort: () => session.abort(),
       dispose: () => session.dispose(),
@@ -252,15 +249,9 @@ export class PiDriver implements BackendAdapter {
         return session.isStreaming;
       },
     };
-    const runtimeSession = new SdkLane(handle, this.sessionId!);
+    const runtimeSession = new SdkLane(handle, this.sessionId!, { terminalOnPromptSettled: true });
     session.subscribe((event: unknown) => {
-      const fingerprint = JSON.stringify(event);
-      const events = mapPiSdkEvent(event, this.sessionId!, state).map((mapped) =>
-        mapped.kind === "turn_end"
-          ? { ...mapped, turnOwner: this.terminalFence.claimTerminal(fingerprint) }
-          : mapped,
-      );
-      runtimeSession.emitEvents(events);
+      runtimeSession.emitEvents(mapPiSdkEvent(event, this.sessionId!, state));
     });
 
     return runtimeSession;
@@ -271,7 +262,7 @@ export class PiDriver implements BackendAdapter {
   }
 
   beginTurn(): string {
-    return this.terminalFence.beginTurn();
+    return `pi:${++this.terminalSequence}`;
   }
 
   get currentSessionId(): string | null {

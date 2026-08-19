@@ -1,11 +1,11 @@
 /**
- * Claude Code driver — persistent, stream-json, gated steering.
+ * Claude Code driver — turn-scoped stream-json process with gated steering.
  *
- * Lifecycle: one long-lived process per session. stdin is a stream-json NDJSON
- * channel; the initial prompt and every subsequent message are written as
- * `{type:"user", message:{role:"user", content:[{type:"text",text}]}}` lines.
- * Because mid-stream injection can collide with signed thinking blocks, busy
- * delivery is queued by the logical-session controller until a safe boundary.
+ * Each root turn owns one physical stdout stream and resumes the same vendor
+ * session id on the next process. That transport generation is the terminal
+ * owner: a late line from a completed process can never terminate a later turn.
+ * Mid-turn injection still uses the same stream-json stdin and remains gated
+ * by the logical-session controller until a safe boundary.
  */
 import type { BackendAdapter, EncodeMessageOptions, AdapterLaunchContext, AdapterEvent, SpawnedProcess } from "../../internal/adapter.js";
 import { prepareCliTransport } from "../../internal/cliTransport.js";
@@ -19,7 +19,7 @@ import { spawnAgentProcess } from "../../internal/killTree.js";
 export class ClaudeDriver implements BackendAdapter {
   readonly id = "claude";
   readonly instructionDelivery = { kind: "workspace_file", canonical: "AGENTS.md", aliases: ["CLAUDE.md"] } as const;
-  readonly execution = { kind: "persistent_process", input: "safe_boundary" } as const;
+  readonly execution = { kind: "per_turn_process", start: "immediate", afterTurn: "terminate" } as const;
 
   private readonly eventNormalizer = new ClaudeEventNormalizer();
 
@@ -76,10 +76,6 @@ export class ClaudeDriver implements BackendAdapter {
 
   normalizeLine(line: string): AdapterEvent[] {
     return this.eventNormalizer.normalizeLine(line);
-  }
-
-  beginTurn(): string {
-    return this.eventNormalizer.beginTurn();
   }
 
   get currentSessionId(): string | null {

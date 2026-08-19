@@ -76,18 +76,19 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
   const processes: HarnessProcess[] = [];
   const lanes: SdkLane[] = [];
   const handles: Array<VendorSessionHandle & { isStreaming: boolean }> = [];
+  const piPromptResolutions: Array<() => void> = [];
   if (backend === "pi") {
     vi.spyOn(PiDriver.prototype, "openSdkSession").mockImplementation(async (ctx) => {
       contexts.push(ctx);
       const handle = {
-        isStreaming: true,
-        prompt: vi.fn(async () => {}),
+        isStreaming: false,
+        prompt: vi.fn(() => new Promise<void>((resolve) => { piPromptResolutions.push(resolve); })),
         steer: vi.fn(async () => {}),
         abort: vi.fn(async () => {}),
         dispose: vi.fn(async () => {}),
       };
       handles.push(handle);
-      const lane = new SdkLane(handle, "pi-resumed");
+      const lane = new SdkLane(handle, "pi-resumed", { terminalOnPromptSettled: true });
       lanes.push(lane);
       return lane;
     });
@@ -127,6 +128,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
           write({ type: "step_start", sessionID: "opencode-resumed" });
           break;
         case "pi":
+          handles[0]!.isStreaming = true;
           lanes[0]!.emitEvents([{ kind: "thinking", text: `turn-${turn}` }]);
           break;
       }
@@ -149,7 +151,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
           break;
         case "pi":
           handles[0]!.isStreaming = false;
-          lanes[0]!.emitEvents([{ kind: "turn_end", sessionId: "pi-resumed" }]);
+          piPromptResolutions[turn - 1]!();
           break;
       }
     },
@@ -167,8 +169,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
         case "opencode":
           throw new Error(`${backend} has a process-per-turn lane instead of a persistent terminal fence`);
         case "pi":
-          lanes[0]!.emitEvents([{ kind: "turn_end", sessionId: "pi-resumed" }]);
-          break;
+          throw new Error("pi terminals are owned by prompt promise settlement, not vendor event payloads");
       }
     },
   };
@@ -222,7 +223,7 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
   const interrupted = await session.interrupt({ requestId: "interrupt-1", reason: "conformance" });
   expect(interrupted.status).toBe("accepted");
   harness.completeTurn(1);
-  if (backend === "cursor" || backend === "opencode") harness.processes[0]!.finish();
+  if (backend === "claude" || backend === "cursor" || backend === "opencode") harness.processes[0]!.finish();
   await settle();
 
   if (backend === "pi") {
@@ -232,7 +233,7 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
   harness.sessionReady(2);
   await settle();
   harness.completeTurn(2);
-  if (backend === "cursor" || backend === "opencode") harness.processes[1]!.finish();
+  if (backend === "claude" || backend === "cursor" || backend === "opencode") harness.processes[1]!.finish();
   await settle();
 
   expect(await session.stop({ reason: "shutdown", forceAfterMs: 25 })).toMatchObject({ status: "accepted" });
@@ -453,8 +454,9 @@ describe("pi registered public-session lifecycle conformance", () => {
   });
 });
 
-describe.each(["claude", "codex"] as const)("%s persistent terminal ownership", (backend) => {
+describe("codex persistent terminal ownership", () => {
   it("keeps turn B active when turn A's terminal is duplicated after B starts", async () => {
+    const backend = "codex" as const;
     const harness = installVendorHarness(backend);
     const host = createFakeAgentDriverHost();
     const sdk = createAgentDriverSdkWithRegistry({ host, registry: createBuiltinAgentDriverRegistry() });
@@ -491,10 +493,61 @@ describe.each(["claude", "codex"] as const)("%s persistent terminal ownership", 
   });
 });
 
-it("Pi real adapter public chain rejects turn A's duplicate terminal while turn B is active", async () => {
+describe("claude turn-scoped transport ownership", () => {
+  it("accepts identical legitimate terminals while every late old-lane duplicate stays fenced", async () => {
+    const backend = "claude" as const;
+    const harness = installVendorHarness(backend);
+    const host = createFakeAgentDriverHost();
+    const sdk = createAgentDriverSdkWithRegistry({ host, registry: createBuiltinAgentDriverRegistry() });
+    const workingDirectory = mkdtempSync(join(tmpdir(), "agent-driver-terminal-owner-claude-"));
+    workingDirectories.push(workingDirectory);
+    const opened = await sdk.open({
+      backend,
+      config: configs.claude,
+      launch: { workingDirectory, instructions: { format: "markdown", content: "" }, launchId: "terminal-owner-claude" },
+    });
+    if (!opened.ok) throw new Error(opened.error.message);
+    const events: Array<AgentEvent<BuiltinBackendSpecs, "claude">> = [];
+    const collecting = (async () => { for await (const event of opened.session.events) events.push(event); })();
+    const terminal = { type: "result", subtype: "success", session_id: "claude-resumed" };
+
+    const first = await opened.session.start({ id: "first", kind: "user", text: "same" });
+    expect(first.status).toBe("accepted");
+    harness.sessionReady(1);
+    harness.processes[0]!.stdout.write(`${JSON.stringify(terminal)}\n`);
+    await settle();
+    const second = await opened.session.send({ id: "second", kind: "user", text: "same" });
+    expect(second.status).toBe("accepted");
+    expect(harness.processes).toHaveLength(2);
+    harness.sessionReady(2);
+
+    for (let index = 0; index < 128; index += 1) {
+      harness.processes[0]!.stdout.write(`${JSON.stringify(terminal)}\n`);
+    }
+    await settle();
+    expect(opened.session.snapshot().activeTurn?.turnId).toBe(second.status === "accepted" ? second.turnId : "unreachable");
+    expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(1);
+
+    harness.processes[1]!.stdout.write(`${JSON.stringify(terminal)}\n`);
+    await settle();
+    expect(opened.session.snapshot().activeTurn).toBeUndefined();
+    expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(2);
+    expect(harness.contexts[1]!.config.sessionId).toBe("claude-resumed");
+    await opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    await collecting;
+  });
+});
+
+it("Pi real adapter public chain owns identical turns by prompt invocation and ignores old completion duplicates", async () => {
   let notify!: (event: unknown) => void;
+  const prompts: Array<{ resolve: () => void; promise: Promise<void> }> = [];
   const vendor = {
-    prompt: vi.fn(async () => {}),
+    prompt: vi.fn(() => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((done) => { resolve = done; });
+      prompts.push({ resolve, promise });
+      return promise;
+    }),
     steer: vi.fn(async () => {}),
     abort: vi.fn(async () => {}),
     dispose: vi.fn(async () => {}),
@@ -523,16 +576,23 @@ it("Pi real adapter public chain rejects turn A's duplicate terminal while turn 
   const events: Array<AgentEvent<BuiltinBackendSpecs, "pi">> = [];
   const collecting = (async () => { for await (const event of opened.session.events) events.push(event); })();
   await opened.session.start({ id: "first", kind: "user", text: "first" });
-  const firstTerminal = { type: "agent_end", messages: [{ id: "first" }] };
+  const firstTerminal = { type: "agent_end", messages: [] };
   notify(firstTerminal);
+  prompts[0]!.resolve();
+  await prompts[0]!.promise;
   await settle();
   const second = await opened.session.send({ id: "second", kind: "user", text: "second" });
   expect(second.status).toBe("accepted");
-  notify(firstTerminal);
+  for (let index = 0; index < 128; index += 1) {
+    notify(firstTerminal);
+    prompts[0]!.resolve();
+  }
   await settle();
   expect(opened.session.snapshot().activeTurn?.turnId).toBe(second.status === "accepted" ? second.turnId : "unreachable");
   expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(1);
-  notify({ type: "agent_end", messages: [{ id: "second" }] });
+  notify({ type: "agent_end", messages: [] });
+  prompts[1]!.resolve();
+  await prompts[1]!.promise;
   await settle();
   expect(opened.session.snapshot().activeTurn).toBeUndefined();
   expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(2);

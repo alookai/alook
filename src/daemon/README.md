@@ -111,7 +111,7 @@ exits naturally; OpenCode declares `start: "deferred"` and
 
 | Runtime | Lifecycle | Transport / protocol | Steering | Initial input | Output format |
 |---|---|---|---|---|---|
-| **claude** | persistent process | stream-json NDJSON | `safe_boundary_queue` | stdin user-message line | stream-json |
+| **claude** | turn-scoped process with session resume | stream-json NDJSON | `safe_boundary_queue` | stdin user-message line | stream-json |
 | **codex** | persistent process | JSON-RPC 2.0 (`app-server --listen stdio://`) | `safe_boundary_queue` | `initialize` → `thread/start`/`resume` | JSON-RPC notifications |
 | **pi** | in-process SDK | `@earendil-works/pi-coding-agent` | `steer` | `session.prompt()` | SDK callback |
 | **cursor** | per-turn process | stream-json | next-turn queue | trailing prompt argument | stream-json |

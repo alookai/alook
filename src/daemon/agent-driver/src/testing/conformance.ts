@@ -26,6 +26,7 @@ export interface AgentDriverConformanceResult {
 interface AgentBackendAdapterConformanceFixture<Id extends string, Config> {
   exercise(adapter: BackendAdapter<Id, Config>): readonly AdapterEvent[];
   readonly expectedEventKinds: readonly AdapterEvent["kind"][];
+  readonly terminalSource?: "normalized_event" | "transport_invocation";
 }
 
 /** Internal real-adapter contract runner; intentionally omitted from /testing. */
@@ -53,7 +54,13 @@ export function runAgentBackendAdapterConformance<Specs, Id extends BackendId<Sp
     JSON.stringify(events.map((event) => event.kind)) === JSON.stringify(fixture.expectedEventKinds),
     `normalized event order for ${registration.id} did not match the contract fixture`,
   );
-  assert(events.filter((event) => event.kind === "turn_end").length === 1, "fixture must produce exactly one turn_end");
+  const terminalCount = events.filter((event) => event.kind === "turn_end").length;
+  if (fixture.terminalSource === "transport_invocation") {
+    assert(first.execution.kind === "in_process_sdk", "transport-owned terminal requires an SDK execution");
+    assert(terminalCount === 0, "transport-owned terminal must not also come from an unowned vendor event payload");
+  } else {
+    assert(terminalCount === 1, "fixture must produce exactly one turn_end");
+  }
   return events;
 }
 
@@ -102,7 +109,7 @@ export async function runAgentDriverConformance<Specs, Id extends BackendId<Spec
   }>;
   const firstCommandId = "conformance-first";
   const commandOutcomes = coreObserved.filter((event) =>
-    (event.type === "command_accepted" || event.type === "command_failed")
+    ["command_accepted", "command_failed"].includes(event.type)
     && event.commandId === firstCommandId);
   assert(commandOutcomes.length === 1, "first command must have exactly one final admission outcome");
   const acceptedIndex = coreObserved.findIndex((event) => event.type === "command_accepted" && event.commandId === firstCommandId);

@@ -21,6 +21,7 @@ export class SdkLane {
   constructor(
     private readonly handle: VendorSessionHandle,
     private readonly sessionId: string,
+    private readonly options: { terminalOnPromptSettled?: boolean } = {},
   ) {}
 
   on(event: string, cb: (...args: unknown[]) => void): void {
@@ -53,11 +54,21 @@ export class SdkLane {
       }
       const stillStreaming = this.handle.isStreaming && !(await this.waitForStreamingToClear());
       if (stillStreaming) {
+        if (this.options.terminalOnPromptSettled) {
+          this.emitEvents([
+            { kind: "error", message: "SDK remained busy before the next owned prompt" },
+            { kind: "turn_end", sessionId: this.sessionId, turnOwner: terminalOwner },
+          ]);
+          return;
+        }
         await this.handle.steer(text);
         return;
       }
       try {
         await this.handle.prompt(text);
+        if (this.options.terminalOnPromptSettled) {
+          this.emitEvents([{ kind: "turn_end", sessionId: this.sessionId, turnOwner: terminalOwner }]);
+        }
       } catch (err) {
         this.emitEvents([
           { kind: "error", message: errorMessage(err) },

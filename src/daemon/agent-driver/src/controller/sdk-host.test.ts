@@ -30,6 +30,36 @@ describe("SdkLane.send", () => {
     settlePrompt();
   });
 
+  it("emits the exact invocation owner only when its prompt promise settles", async () => {
+    const pending: Array<{ resolve: () => void; promise: Promise<void> }> = [];
+    const handle = fakeHandle(false);
+    handle.prompt.mockImplementation(() => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((done) => { resolve = done; });
+      pending.push({ resolve, promise });
+      return promise;
+    });
+    const session = new SdkLane(handle, "s1", { terminalOnPromptSettled: true });
+    const received: unknown[] = [];
+    session.on("runtime_event", (event) => received.push(event));
+
+    await session.send("same", "idle", "pi:1");
+    expect(received).toEqual([]);
+    pending[0]!.resolve();
+    await pending[0]!.promise;
+    await Promise.resolve();
+    expect(received).toEqual([
+      { kind: "session_init", sessionId: "s1" },
+      { kind: "turn_end", sessionId: "s1", turnOwner: "pi:1" },
+    ]);
+
+    await session.send("same", "idle", "pi:2");
+    pending[1]!.resolve();
+    await pending[1]!.promise;
+    await Promise.resolve();
+    expect(received.at(-1)).toEqual({ kind: "turn_end", sessionId: "s1", turnOwner: "pi:2" });
+  });
+
   it("idle send while not streaming calls prompt() directly, no wait", async () => {
     const handle = fakeHandle(false);
     const session = new SdkLane(handle, "s1");
@@ -84,6 +114,29 @@ describe("SdkLane.send", () => {
 
       expect(handle.steer).toHaveBeenCalledWith("hi");
       expect(handle.prompt).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails an owned root invocation instead of rebinding it to a still-streaming steer", async () => {
+    vi.useFakeTimers();
+    try {
+      const handle = fakeHandle(true);
+      const session = new SdkLane(handle, "s1", { terminalOnPromptSettled: true });
+      const received: unknown[] = [];
+      session.on("runtime_event", (event) => received.push(event));
+
+      await session.send("hi", "idle", "pi:2");
+      await vi.advanceTimersByTimeAsync(1100);
+
+      expect(handle.prompt).not.toHaveBeenCalled();
+      expect(handle.steer).not.toHaveBeenCalled();
+      expect(received).toEqual([
+        { kind: "session_init", sessionId: "s1" },
+        { kind: "error", message: "SDK remained busy before the next owned prompt" },
+        { kind: "turn_end", sessionId: "s1", turnOwner: "pi:2" },
+      ]);
     } finally {
       vi.useRealTimers();
     }

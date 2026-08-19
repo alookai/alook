@@ -90,8 +90,15 @@ describe("PiDriver.openSdkSession — does not fire the initial prompt itself", 
     ]);
   });
 
-  it("preserves terminal receipt ownership when the prior agent_end is duplicated after a new turn begins", async () => {
+  it("binds terminal ownership to each prompt promise and ignores duplicate content-identical agent_end events", async () => {
     const deps = fakeDeps();
+    const prompts: Array<{ resolve: () => void; promise: Promise<void> }> = [];
+    deps.session.prompt.mockImplementation(() => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((done) => { resolve = done; });
+      prompts.push({ resolve, promise });
+      return promise;
+    });
     const driver = new PiDriver(() => deps);
     const runtimeSession = await driver.openSdkSession(baseCtx());
     const received: any[] = [];
@@ -99,16 +106,24 @@ describe("PiDriver.openSdkSession — does not fire the initial prompt itself", 
     const notify = deps.session.subscribe.mock.calls[0][0];
 
     const firstOwner = driver.beginTurn();
-    notify({ type: "agent_end", messages: [{ id: "first" }] });
+    await runtimeSession.send("same", "idle", firstOwner);
+    notify({ type: "agent_end", messages: [] });
+    prompts[0]!.resolve();
+    await prompts[0]!.promise;
+    await Promise.resolve();
     const secondOwner = driver.beginTurn();
-    notify({ type: "agent_end", messages: [{ id: "first" }] });
-    notify({ type: "agent_end", messages: [{ id: "second" }] });
+    await runtimeSession.send("same", "idle", secondOwner);
+    notify({ type: "agent_end", messages: [] });
+    notify({ type: "agent_end", messages: [] });
+    prompts[1]!.resolve();
+    await prompts[1]!.promise;
+    await Promise.resolve();
 
     expect(received.filter((event) => event.kind === "turn_end").map((event) => event.turnOwner)).toEqual([
       firstOwner,
-      firstOwner,
       secondOwner,
     ]);
+    expect(deps.session.prompt.mock.calls).toEqual([["same"], ["same"]]);
   });
 });
 
@@ -123,7 +138,6 @@ describe("Pi SDK event-family coverage", () => {
       { input: { type: "tool_execution_end", toolName: "bash" }, kind: "tool_output" },
       { input: { type: "compaction_start" }, kind: "compaction_started" },
       { input: { type: "compaction_end" }, kind: "compaction_finished" },
-      { input: { type: "agent_end" }, kind: "turn_end" },
     ];
     for (const item of supported) {
       expect(mapPiSdkEvent(item.input, "session", state)[0]?.kind).toBe(item.kind);

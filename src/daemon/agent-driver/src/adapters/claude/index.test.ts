@@ -20,6 +20,15 @@ afterEach(() => {
 });
 
 describe("ClaudeDriver", () => {
+  it("encodes same-turn safe-boundary input with the active resumed session", () => {
+    const driver = new ClaudeDriver();
+    expect(JSON.parse(driver.encodeMessage("follow up", "session-1"))).toEqual({
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text: "follow up" }] },
+      session_id: "session-1",
+    });
+  });
+
   it("spawns the configured command and writes the initial stream-json message", async () => {
     const stdin = new PassThrough();
     const write = vi.spyOn(stdin, "write");

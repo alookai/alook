@@ -100,7 +100,7 @@ export interface BackendAdapter<Id extends string = BuiltinBackendId, Config = B
   probe(command?: string): ProbeResult | Promise<ProbeResult>;
   spawn?(ctx: AdapterLaunchContext<Id, Config>): Promise<SpawnedProcess>;
   openSdkSession?(ctx: AdapterLaunchContext<Id, Config>): Promise<unknown>;
-  /** Starts an adapter-owned receipt epoch for vendors without a turn id. */
+  /** Binds a logical turn to an authoritative vendor/transport invocation. */
   beginTurn?(): string;
   normalizeLine(line: string): AdapterEvent[];
   readonly currentSessionId: string | null;

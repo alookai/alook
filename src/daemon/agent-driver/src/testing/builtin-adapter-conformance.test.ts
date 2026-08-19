@@ -25,7 +25,7 @@ describe("builtin adapter protocol conformance", () => {
       },
       expectedEventKinds: ["session_init", "thinking", "tool_call", "tool_output", "text", "turn_end"],
     });
-    expect(events.at(-1)).toEqual({ kind: "turn_end", sessionId: "claude-root", turnOwner: "claude:1" });
+    expect(events.at(-1)).toEqual({ kind: "turn_end", sessionId: "claude-root" });
   });
 
   it("runs the real Codex adapter and rejects child completion/output in the shared contract", () => {
@@ -93,7 +93,8 @@ describe("builtin adapter protocol conformance", () => {
         ];
         return vendorEvents.flatMap((event) => mapPiSdkEvent(event, "pi-root", state)) as AdapterEvent[];
       },
-      expectedEventKinds: ["thinking", "tool_call", "tool_output", "text", "turn_end"],
+      expectedEventKinds: ["thinking", "tool_call", "tool_output", "text"],
+      terminalSource: "transport_invocation",
     });
   });
 });
