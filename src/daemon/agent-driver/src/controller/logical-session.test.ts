@@ -407,6 +407,49 @@ describe("backend-owned delivery behavior", () => {
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
+  it("settles an in-flight safe-boundary admission before a same-tick terminal stop", async () => {
+    const { session, driver } = makeSession("claude");
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    await session.send({ id: "two", kind: "user", text: "follow two" });
+    emitNow(driver, { kind: "compaction_finished" });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    const events = await take(iterator as never, 99);
+    const admission = events.filter((event) =>
+      (event.type === "command_accepted" || event.type === "command_failed")
+      && event.commandId === "two"
+    );
+    expect(driver.writes).toEqual(["follow two"]);
+    expect(admission).toMatchObject([{ type: "command_accepted", commandId: "two", delivery: "steer" }]);
+    expect(events.findIndex((event) => event === admission[0]))
+      .toBeLessThan(events.findIndex((event) => event.type === "turn_completed"));
+    expect(events.findIndex((event) => event.type === "turn_completed"))
+      .toBeLessThan(events.findIndex((event) => event.type === "session_closed"));
+  });
+
+  it("fails an in-flight boundary command before a same-tick turn completion", async () => {
+    const { session, driver } = makeSession("claude");
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    await session.send({ id: "two", kind: "user", text: "follow two" });
+    emitNow(driver, { kind: "compaction_finished" });
+    emitNow(driver, { kind: "turn_end" });
+    const events = await take(iterator as never, 6);
+    const admission = events.filter((event) =>
+      (event.type === "command_accepted" || event.type === "command_failed")
+      && event.commandId === "two"
+    );
+    expect(driver.writes).toEqual(["follow two"]);
+    expect(admission).toMatchObject([{
+      type: "command_failed",
+      commandId: "two",
+      error: { code: "turn_completed_before_command_acceptance" },
+    }]);
+    expect(events.findIndex((event) => event === admission[0]))
+      .toBeLessThan(events.findIndex((event) => event.type === "turn_completed"));
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
   it("waits for the final nested tool output before flushing a gated command", async () => {
     const { session, driver } = makeSession("claude");
     await session.start({ id: "one", kind: "user", text: "start" });

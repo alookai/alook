@@ -42,6 +42,12 @@ interface CommandRecord {
   promise: Promise<DeliveryReceipt>;
 }
 
+interface SafeBoundaryDelivery {
+  item: QueuedCommand;
+  activeTurn: { turnId: string; commandIds: string[] };
+  finalized: boolean;
+}
+
 function driverError(
   category: AgentDriverError["category"],
   code: string,
@@ -87,6 +93,7 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
   private reviewing = false;
   private toolBoundaryFlushDisabled = false;
   private safeBoundaryFlush?: Promise<void>;
+  private safeBoundaryDelivery?: SafeBoundaryDelivery;
   private instructionsMaterialized = false;
 
   private readonly eventQueue: BufferedEventQueue<AgentEvent<BuiltinBackendSpecs, Id>>;
@@ -160,6 +167,11 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     }
     this.state = "stopping";
     this.stopRequestId = this.host.createId();
+    // A boundary delivery owns its command until the physical send settles.
+    // Let that already-started admission publish its outcome before failing
+    // commands that are still only queued, so stop cannot race it into both a
+    // failed and an accepted terminal admission event.
+    if (this.safeBoundaryFlush) await this.safeBoundaryFlush;
     this.failQueued("cancelled", "session_stopping", "Session is stopping");
     let forced = false;
     let stopFailure: AgentDriverError | undefined;
@@ -500,6 +512,11 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
   private completeTurn(sessionId?: string): void {
     const active = this.activeTurn;
     if (!active) return;
+    this.failSafeBoundaryDelivery(
+      "cancelled",
+      "turn_completed_before_command_acceptance",
+      "Turn completed before command acceptance",
+    );
     if (sessionId && this.backendSessionId !== sessionId) {
       this.backendSessionId = sessionId;
       this.emit({ type: "session_started", backendSessionId: sessionId });
@@ -540,7 +557,8 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
   }
 
   private canFlushSafeBoundaryQueue(): boolean {
-    return this.behavior.midTurnDelivery === "safe_boundary_queue"
+    return this.state === "working"
+      && this.behavior.midTurnDelivery === "safe_boundary_queue"
       && this.outstandingToolUses === 0
       && !this.compacting
       && !this.reviewing
@@ -551,21 +569,28 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
 
   private async drainSafeBoundaryQueue(): Promise<void> {
     while (this.canFlushSafeBoundaryQueue()) {
-      const item = this.queued[0]!;
+      const item = this.queued.shift()!;
       const activeTurn = this.activeTurn!;
+      const delivery: SafeBoundaryDelivery = { item, activeTurn, finalized: false };
+      this.safeBoundaryDelivery = delivery;
       try {
         await this.sendLane(item.message.text, "busy");
       } catch (error) {
-        this.queued.shift();
-        this.emit({
-          type: "command_failed",
-          commandId: item.message.id,
-          turnId: activeTurn.turnId,
-          error: driverError("process", "delivery_failed", String(error), true),
-        });
+        if (!delivery.finalized) {
+          delivery.finalized = true;
+          this.emit({
+            type: "command_failed",
+            commandId: item.message.id,
+            turnId: activeTurn.turnId,
+            error: driverError("process", "delivery_failed", String(error), true),
+          });
+        }
         continue;
+      } finally {
+        if (this.safeBoundaryDelivery === delivery) this.safeBoundaryDelivery = undefined;
       }
-      this.queued.shift();
+      if (delivery.finalized) continue;
+      delivery.finalized = true;
       activeTurn.commandIds.push(item.message.id);
       this.emit({
         type: "command_accepted",
@@ -574,6 +599,22 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
         delivery: "steer",
       });
     }
+  }
+
+  private failSafeBoundaryDelivery(
+    category: AgentDriverError["category"],
+    code: string,
+    message: string,
+  ): void {
+    const delivery = this.safeBoundaryDelivery;
+    if (!delivery || delivery.finalized) return;
+    delivery.finalized = true;
+    this.emit({
+      type: "command_failed",
+      commandId: delivery.item.message.id,
+      turnId: delivery.activeTurn.turnId,
+      error: driverError(category, code, message),
+    });
   }
 
   private async startNextQueued(): Promise<void> {
@@ -676,6 +717,11 @@ implements AgentSession<BuiltinBackendSpecs, Id> {
     if (!this.finishPromise) {
       this.finishing = true;
       this.finishPromise = (async () => {
+        this.failSafeBoundaryDelivery(
+          "cancelled",
+          "session_closed",
+          "Session closed before command acceptance",
+        );
         this.failQueued("cancelled", "session_closed", "Session closed before command acceptance");
         if (this.activeTurn) {
           const active = this.activeTurn;
