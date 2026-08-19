@@ -597,6 +597,11 @@ implements AgentSession<Specs, Id> {
     physicalOwner: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane,
     generation: number,
   ): string | undefined {
+    // A per-turn process has already surrendered ownership once it emits its
+    // terminal event. Any later output from that process is tail noise from the
+    // closed transport generation; reopening it would leave the logical turn
+    // active when the deliberately terminated process exits.
+    if (this.adapter.execution.kind === "per_turn_process") return undefined;
     const isRootWork = event.kind === "thinking"
       || event.kind === "text"
       || event.kind === "tool_call"

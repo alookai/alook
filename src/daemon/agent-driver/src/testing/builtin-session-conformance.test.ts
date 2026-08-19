@@ -536,6 +536,57 @@ describe("claude turn-scoped transport ownership", () => {
     await opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
     await collecting;
   });
+
+  it.each(["same stdout chunk", "separate stdout chunks"] as const)(
+    "ignores terminal tail work in %s and starts turn B after the old lane exits",
+    async (delivery) => {
+      const harness = installVendorHarness("claude");
+      const host = createFakeAgentDriverHost();
+      const sdk = createAgentDriverSdkWithRegistry({ host, registry: createBuiltinAgentDriverRegistry() });
+      const workingDirectory = mkdtempSync(join(tmpdir(), "agent-driver-terminal-tail-claude-"));
+      workingDirectories.push(workingDirectory);
+      const opened = await sdk.open({
+        backend: "claude",
+        config: configs.claude,
+        launch: { workingDirectory, instructions: { format: "markdown", content: "" }, launchId: "terminal-tail-claude" },
+      });
+      if (!opened.ok) throw new Error(opened.error.message);
+      const events: Array<AgentEvent<BuiltinBackendSpecs, "claude">> = [];
+      const collecting = (async () => { for await (const event of opened.session.events) events.push(event); })();
+      const init = { type: "system", subtype: "init", session_id: "claude-resumed" };
+      const terminal = { type: "result", subtype: "success", session_id: "claude-resumed" };
+      const tail = { type: "assistant", session_id: "claude-resumed", message: { content: [{ type: "text", text: "late tail" }] } };
+
+      const first = await opened.session.start({ id: "first", kind: "user", text: "first" });
+      expect(first.status).toBe("accepted");
+      if (delivery === "same stdout chunk") {
+        harness.processes[0]!.stdout.write(`${[init, terminal, tail].map((event) => JSON.stringify(event)).join("\n")}\n`);
+      } else {
+        harness.processes[0]!.stdout.write(`${JSON.stringify(init)}\n${JSON.stringify(terminal)}\n`);
+        await settle();
+        harness.processes[0]!.stdout.write(`${JSON.stringify(tail)}\n`);
+      }
+      await settle();
+      expect(opened.session.snapshot().activeTurn).toBeUndefined();
+      expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(1);
+      expect(events.filter((event) => event.type === "text_delta")).toHaveLength(0);
+
+      harness.processes[0]!.finish(0);
+      await settle();
+      expect(opened.session.snapshot().activeTurn).toBeUndefined();
+
+      const second = await opened.session.send({ id: "second", kind: "user", text: "second" });
+      expect(second.status).toBe("accepted");
+      expect(harness.processes).toHaveLength(2);
+      harness.sessionReady(2);
+      harness.processes[1]!.stdout.write(`${JSON.stringify(terminal)}\n`);
+      await settle();
+      expect(opened.session.snapshot().activeTurn).toBeUndefined();
+      expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(2);
+      await opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
+      await collecting;
+    },
+  );
 });
 
 it("Pi real adapter public chain owns identical turns by prompt invocation and ignores old completion duplicates", async () => {
