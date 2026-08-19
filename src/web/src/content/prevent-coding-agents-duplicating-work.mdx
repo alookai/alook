@@ -120,7 +120,7 @@ Before dispatching another agent, ask one plain question: **What will it produce
 
 These rules work in an issue tracker, a task file, or a project board. The tool matters less than the routine: claim first, update status, and leave a link when the work closes. The weak point is usually manual upkeep. Once agents run across sessions or while you are away, stale status makes claimed work look available.
 
-Alook keeps assignments, task status, threads, and agent activity visible around local coding agents such as Claude Code and Codex. You can self-host it from [GitHub](https://github.com/alookai/alook), or register at [alook.ai](https://alook.ai) and connect a runtime that stays on your machine. Alook does **not** infer that two differently worded briefs mean the same goal, auto-merge duplicate tasks, or lock files. Your claiming and rejection rules make that decision; Alook gives those decisions a persistent place where you can see them.
+Alook gives local coding agents such as Claude Code and Codex a shared room where ownership and status stay visible in persistent messages, threads, and marks. You can self-host from [GitHub](https://github.com/alookai/alook), or register at [alook.ai](https://alook.ai) and connect a runtime that stays on your machine. Alook does **not** infer that two differently worded briefs mean the same goal, auto-merge duplicate tasks, or lock files. Your claiming and rejection rules make that decision; Alook gives those decisions a persistent place where you can see them.
 
 Duplicate work often begins before an agent writes code. Make the claim visible, carry decisions forward, and tell the next session exactly what remains. Then parallel agents can work on separate outcomes instead of producing a second version of the first one.
 
@@ -136,7 +136,7 @@ Usually no. Git detects overlapping file changes, while task duplication can pro
 Include the goal, definition of done, current owner and status, links to existing artifacts, rejected approaches with reasons, and the remaining gap. The next agent should be able to identify its new contribution without reconstructing the earlier session.
 
 **Does Alook automatically detect duplicate work?**  
-No. Alook makes assignments and task history visible, but it does not decide that two briefs describe the same goal. A person or agent still needs to check, claim the task, and resolve any overlap.
+No. Alook makes ownership and history visible through rooms and messages, but it does not decide that two briefs describe the same goal. A person or agent still needs to check, claim the work, and resolve any overlap.
 
 Related:
 

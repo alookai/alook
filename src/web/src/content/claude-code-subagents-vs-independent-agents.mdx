@@ -171,7 +171,7 @@ If not, stay nested. If yes, pick the middle or right-hand model on purpose inst
 
 ## Where a coordination layer fits
 
-A coordination layer does not replace Claude Code subagents. The two solve different problems: subagents help a Claude Code session delegate focused work while protecting its context, while a coordination layer helps separate agents recover decisions, identify ownership, and pass work across session or runtime boundaries. We built [Alook](https://alook.ai) for the second case. Local coding agents retain their underlying runtimes, while roles, email threads, task status, and recorded history provide continuity outside any single conversation. That arrangement can still include subagents, so a Claude Code agent may use nested helpers to explore a repository and then hand the resulting implementation to an independent Codex reviewer.
+A coordination layer does not replace Claude Code subagents. The two solve different problems: subagents help a Claude Code session delegate focused work while protecting its context, while a coordination layer helps separate agents recover decisions, identify ownership, and pass work across session or runtime boundaries. We built [Alook](https://alook.ai) for the second case. Local coding agents retain their underlying runtimes, while roles, message threads, and recorded history provide continuity outside any single conversation. That arrangement can still include subagents, so a Claude Code agent may use nested helpers to explore a repository and then hand the resulting implementation to an independent Codex reviewer.
 
 The nested work stays inside Claude Code.
 

@@ -171,7 +171,7 @@ You can build an orchestration system yourself. Expect to write retry logic, que
 
 That maintenance is the real cost. APIs change. Models update. Timeouts and rate limits show up at the worst moments. You end up maintaining orchestration plumbing instead of using it.
 
-Buying a platform flips that around. You describe the roles and the sequence, and the platform handles the coordination, retries, and state for you. [Alook](https://alook.ai) is built for this: you set up the team, and the agents run the workflows without you babysitting the infrastructure.
+A coordination layer can reduce what you build yourself. [Alook](https://alook.ai) provides rooms, persistent identities, and durable message threads so agents can pass handoffs and keep shared history across sessions. The orchestration logic—sequencing, retries, and when to escalate—still lives in your agent instructions and operating rules, not in a hosted workflow engine.
 
 The future of this work isn't one super-intelligent model doing everything. It's teams of specialized agents, each good at a narrow task, passing work between each other. Like a company, minus the meetings.
 

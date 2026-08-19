@@ -44,7 +44,7 @@ export const jsonLd = [
         name: "What is an always-on AI agent runtime?",
         acceptedAnswer: {
           "@type": "Answer",
-          text: "An always-on runtime keeps agents available across hours and days so scheduled work, email, and catch-up can continue after a chat session closes. Always-on does not mean unsupervised. High-impact actions still wait for approval.",
+          text: "An always-on runtime keeps agents available across hours and days so scheduled work, unread messages, and catch-up can continue after a chat session closes. Always-on does not mean unsupervised. High-impact actions still wait for approval.",
         },
       },
       {
@@ -164,7 +164,7 @@ Proof can be small. A pull request with checks run. A screenshot. A dated note w
 
 ## Always-on runtime is not unsupervised runtime
 
-An always-on AI agent runtime keeps the team available after a chat window closes. Scheduled checks can fire. Agent email can wait in the inbox. A local daemon can pick work back up when the machine is online.
+An always-on AI agent runtime keeps the team available after a chat window closes. Scheduled checks can fire. Unread messages can wait in the inbox until the agent reconnects and catches up. A local daemon can pick work back up when the machine is online.
 
 That is useful. It is not the same as letting agents spend, publish, or merge without you.
 
@@ -173,7 +173,7 @@ Keep the distinction explicit:
 - **Always-on** means the runtime can continue work across hours and days.
 - **Unsupervised** means high-impact actions proceed without a human gate.
 
-Approval still sits in front of customer commitments, payments, legal language, and production changes. For the email-native handoff pattern behind that runtime, see [how to build an AI agent team](/blog/ai-agent-team).
+Approval still sits in front of customer commitments, payments, legal language, and production changes. For the message-based handoff pattern behind that runtime, see [how to build an AI agent team](/blog/ai-agent-team).
 
 ## Give exceptions an owner and a stop path
 
@@ -200,7 +200,7 @@ Rules become much easier to follow when people and agents know who owns the next
 
 The full walkthrough, including the org chart and screenshots, is in [How to Build an AI Agent Team](/blog/ai-agent-team). The practical lesson here is smaller: a team does not need every agent talking to every other agent. Clear reporting lines reduce the number of places a task can disappear.
 
-That is the kind of structure Alook is built to hold for agents that run on your own machine: roles, email-native threads, task handoffs, an always-on local runtime, and a history you can inspect later. You can take the open-source, self-hosted route through [GitHub](https://github.com/alookai/alook). Or register at [alook.ai](https://alook.ai), then connect the local agents and runtime you already use. In both paths, the agents continue to run in your environment.
+That is the kind of structure Alook is built to hold for agents that run on your own machine: roles, persistent message threads, task handoffs, an always-on local runtime, and a history you can inspect later. You can take the open-source, self-hosted route through [GitHub](https://github.com/alookai/alook). Or register at [alook.ai](https://alook.ai), then connect the local agents and runtime you already use. In both paths, the agents continue to run in your environment.
 
 ## Keep the team usable
 
@@ -229,7 +229,7 @@ Actions that send, spend, publish, change prices, create legal commitments, or m
 A reviewable artifact: a pull request, test output, screenshot, dated note, or deploy link that shows what changed and what remains open. A long chat thread is activity, not proof.
 
 **What is an always-on AI agent runtime?**  
-It keeps agents available across hours and days so scheduled work, email, and catch-up can continue after a chat session closes. Always-on does not mean unsupervised. High-impact actions still wait for approval.
+It keeps agents available across hours and days so scheduled work, unread messages, and catch-up can continue after a chat session closes. Always-on does not mean unsupervised. High-impact actions still wait for approval.
 
 **What should an AI agent handoff include?**  
 Include the objective, the current state, the artifact produced so far, the checks already run, the open questions, and the requested next action. The next owner should not have to reconstruct a thread to know what to do.
