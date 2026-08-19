@@ -88,6 +88,14 @@ function readStringProperty(object: string, property: string): string | null {
   return null;
 }
 
+export function isDraftBlogPost(content: string): boolean {
+  const object = extractMetadataObject(content);
+  if (!object) return false;
+  return new RegExp(`(?:^|[,\\n])\\s*draft\\s*:\\s*true(?:\\s*[,\\n]|\\s*$)`).test(
+    object
+  );
+}
+
 function isIsoDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00.000Z`);

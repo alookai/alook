@@ -1,6 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getAllPosts } from "@/lib/blog/posts";
+import {
+  blogTopics,
+  getBlogTopicEntryBySlug,
+  getPostsForTopic,
+} from "@/lib/blog/topics";
 
 const pageTitle = "Multi-Agent Collaboration & AI Team";
 
@@ -47,7 +52,6 @@ const collectionJsonLd = {
 
 export default async function BlogPage() {
   const posts = await getAllPosts();
-  const [featured, ...rest] = posts;
 
   return (
     <>
@@ -55,8 +59,8 @@ export default async function BlogPage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionJsonLd) }}
       />
-      <div className="mx-auto max-w-3xl px-6 pt-10 sm:pt-20 pb-24">
-        <header className="mb-16">
+      <div className="mx-auto max-w-5xl px-6 pt-10 sm:pt-20 pb-24">
+        <header className="max-w-3xl">
           <h1 className="font-news text-5xl sm:text-6xl font-semibold tracking-tight leading-none">
             {pageTitle}
           </h1>
@@ -77,64 +81,129 @@ export default async function BlogPage() {
           </p>
         </header>
 
-        {featured && (
-          <Link
-            href={`/blog/${featured.slug}`}
-            className="group block pb-14 mb-14 border-b border-border"
-          >
-            <span className="text-xs font-mono uppercase tracking-[0.2em] text-muted-foreground/60">
-              Latest
-            </span>
-            <h2 className="mt-3 font-news text-3xl sm:text-4xl font-semibold tracking-tight leading-tight group-hover:translate-x-1 transition-transform duration-200">
-              {featured.title}
-            </h2>
-            <p className="mt-3 text-sm text-muted-foreground">
-              {new Date(featured.date).toLocaleDateString("en-US", {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-              })}{" "}
-              &middot; {featured.readingTime}
-            </p>
-            <p className="mt-4 font-sans text-lg text-foreground/80 leading-relaxed max-w-2xl">
-              {featured.excerpt}
-            </p>
-          </Link>
-        )}
-
-        <div className="space-y-0">
-          {rest.map((post, i) => (
-            <article
-              key={post.slug}
-              className={`py-10 ${i < rest.length - 1 ? "border-b border-border" : ""}`}
+        <nav
+          aria-label="Blog topics"
+          className="mt-12 grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-2 lg:grid-cols-4"
+        >
+          {blogTopics.map((topic, index) => (
+            <a
+              key={topic.id}
+              href={`#${topic.id}`}
+              className="group bg-background px-5 py-5 transition-colors hover:bg-muted/60"
             >
-              <Link href={`/blog/${post.slug}`} className="group block">
-                <div className="flex items-baseline gap-4">
-                  <span className="text-xs font-mono text-muted-foreground/40 tabular-nums w-6 shrink-0">
-                    {String(i + 2).padStart(2, "0")}
-                  </span>
+              <span className="font-mono text-[11px] tabular-nums text-muted-foreground/50">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              <span className="mt-3 block font-sans text-sm font-medium leading-snug group-hover:translate-x-0.5 transition-transform duration-200">
+                {topic.label}
+              </span>
+            </a>
+          ))}
+        </nav>
+
+        <div className="mt-24 space-y-24">
+          {blogTopics.map((topic, topicIndex) => {
+            const topicPosts = getPostsForTopic(topic, posts);
+            const pillar = topicPosts.find(
+              (post) => post.slug === topic.pillarSlug
+            );
+            const supportPosts = topicPosts.filter(
+              (post) => post.slug !== topic.pillarSlug
+            );
+
+            return (
+              <section
+                key={topic.id}
+                id={topic.id}
+                className="scroll-mt-24"
+                aria-labelledby={`${topic.id}-heading`}
+              >
+                <div className="grid gap-5 border-t border-border pt-7 md:grid-cols-[11rem_1fr] md:gap-10">
+                  <p className="font-mono text-xs uppercase tracking-[0.16em] text-muted-foreground/60">
+                    Topic {String(topicIndex + 1).padStart(2, "0")}
+                  </p>
                   <div>
-                    <h2 className="font-news text-xl sm:text-2xl font-semibold tracking-tight group-hover:translate-x-0.5 transition-transform duration-200">
-                      {post.title}
+                    <h2
+                      id={`${topic.id}-heading`}
+                      className="font-news text-3xl sm:text-4xl font-semibold tracking-tight leading-tight"
+                    >
+                      {topic.label}
                     </h2>
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      {new Date(post.date).toLocaleDateString("en-US", {
-                        year: "numeric",
-                        month: "long",
-                        day: "numeric",
-                      })}{" "}
-                      &middot; {post.readingTime}
-                    </p>
-                    <p className="mt-3 font-sans text-foreground/75 leading-relaxed">
-                      {post.excerpt}
+                    <p className="mt-3 max-w-2xl font-sans text-foreground/70 leading-relaxed">
+                      {topic.description}
                     </p>
                   </div>
                 </div>
-              </Link>
-            </article>
-          ))}
+
+                {pillar && (
+                  <Link
+                    href={`/blog/${pillar.slug}`}
+                    className="group mt-10 block rounded-xl border border-border bg-muted/25 p-6 sm:p-8 transition-colors hover:bg-muted/50"
+                  >
+                    <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground/60">
+                      Start here
+                    </span>
+                    <div className="mt-4 grid gap-4 md:grid-cols-[1fr_14rem] md:gap-10">
+                      <div>
+                        <h3 className="font-news text-2xl sm:text-3xl font-semibold tracking-tight leading-tight group-hover:translate-x-0.5 transition-transform duration-200">
+                          {pillar.title}
+                        </h3>
+                        <p className="mt-3 font-sans text-foreground/75 leading-relaxed">
+                          {pillar.excerpt}
+                        </p>
+                      </div>
+                      <div className="md:border-l md:border-border md:pl-6">
+                        <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground/60">
+                          Use this to
+                        </p>
+                        <p className="mt-2 text-sm leading-relaxed text-foreground/80">
+                          {getBlogTopicEntryBySlug(pillar.slug)?.userJob}
+                        </p>
+                        <p className="mt-4 text-xs text-muted-foreground">
+                          {formatPostDate(pillar.date)} &middot;{" "}
+                          {pillar.readingTime}
+                        </p>
+                      </div>
+                    </div>
+                  </Link>
+                )}
+
+                <div className="mt-4 grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-2">
+                  {supportPosts.map((post) => (
+                    <article key={post.slug} className="bg-background">
+                      <Link
+                        href={`/blog/${post.slug}`}
+                        className="group flex h-full flex-col p-6 transition-colors hover:bg-muted/40"
+                      >
+                        <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground/60">
+                          {getBlogTopicEntryBySlug(post.slug)?.userJob}
+                        </p>
+                        <h3 className="mt-3 font-news text-xl sm:text-2xl font-semibold tracking-tight leading-snug group-hover:translate-x-0.5 transition-transform duration-200">
+                          {post.title}
+                        </h3>
+                        <p className="mt-3 font-sans text-sm text-foreground/70 leading-relaxed">
+                          {post.excerpt}
+                        </p>
+                        <p className="mt-auto pt-5 text-xs text-muted-foreground">
+                          {formatPostDate(post.date)} &middot; {post.readingTime}
+                        </p>
+                      </Link>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
         </div>
       </div>
     </>
   );
+}
+
+function formatPostDate(date: string): string {
+  return new Date(date).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 }
