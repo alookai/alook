@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -43,6 +43,17 @@ const claudeCapabilities = {
 } as const;
 
 afterEach(() => vi.restoreAllMocks());
+
+function sdkTestLane(receipt = "fresh-receipt") {
+  return {
+    currentSessionId: "fresh-session",
+    start: vi.fn(async () => ({ ok: true as const, acceptedAs: "prompt" as const, receipt })),
+    send: vi.fn(async () => ({ ok: true as const, acceptedAs: "prompt" as const, receipt })),
+    interrupt: vi.fn(async () => false),
+    stop: vi.fn(async () => {}),
+    on: vi.fn(),
+  };
+}
 
 describe("createAgentDriverSdk", () => {
   it("exposes the built-ins with default options", () => {
@@ -117,14 +128,7 @@ describe("createAgentDriverSdk", () => {
     const host = createFakeAgentDriverHost();
     const adapter = new ClaudeDriver();
     vi.spyOn(adapter, "beginTurn").mockReturnValue("fresh-receipt");
-    const lane = {
-      currentSessionId: "fresh-session",
-      start: vi.fn(async () => ({ ok: true as const, acceptedAs: "prompt" as const, receipt: "fresh-receipt" })),
-      send: vi.fn(async () => ({ ok: true as const, acceptedAs: "prompt" as const, receipt: "fresh-send" })),
-      interrupt: vi.fn(async () => false),
-      stop: vi.fn(async () => {}),
-      on: vi.fn(),
-    };
+    const lane = sdkTestLane();
     const openLane = vi.spyOn(adapter, "openLane").mockImplementation(async (ctx) => {
       expect(ctx.workingDirectory).toBe(workingDirectory);
       expect(readFileSync(join(workingDirectory, "AGENTS.md"), "utf8")).toBe("Fresh instructions.");
@@ -154,6 +158,120 @@ describe("createAgentDriverSdk", () => {
       expect(openLane).toHaveBeenCalledTimes(1);
       await opened.session.stop({ reason: "shutdown", forceAfterMs: 1 });
       expect(lane.stop).toHaveBeenCalledTimes(1);
+      expect(host.releases).toHaveLength(1);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("creates a fresh workspace for empty instructions before lane open", async () => {
+    const base = mkdtempSync(join(tmpdir(), "agent-driver-empty-workspace-"));
+    const workingDirectory = join(base, "nested", "agent");
+    const host = createFakeAgentDriverHost();
+    const adapter = new ClaudeDriver();
+    vi.spyOn(adapter, "beginTurn").mockReturnValue("fresh-receipt");
+    const lane = sdkTestLane();
+    const openLane = vi.spyOn(adapter, "openLane").mockImplementation(async () => {
+      expect(existsSync(workingDirectory)).toBe(true);
+      return lane;
+    });
+    const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
+      id: "claude",
+      contractVersion: 1,
+      capabilities: claudeCapabilities,
+      createAdapter: () => adapter,
+    }]);
+
+    try {
+      const opened = await createAgentDriverSdkWithRegistry({ registry, host }).open({
+        ...claudeInput,
+        launch: { ...claudeInput.launch, workingDirectory },
+      });
+      expect(opened.ok).toBe(true);
+      if (!opened.ok) throw new Error("expected a session");
+      await expect(opened.session.start({ id: "fresh-empty", kind: "user", text: "hello" }))
+        .resolves.toMatchObject({ status: "accepted" });
+      expect(openLane).toHaveBeenCalledTimes(1);
+      await opened.session.stop({ reason: "shutdown", forceAfterMs: 1 });
+      expect(host.releases).toHaveLength(1);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves existing workspace content while materializing instructions", async () => {
+    const workingDirectory = mkdtempSync(join(tmpdir(), "agent-driver-existing-workspace-"));
+    const marker = join(workingDirectory, "keep.txt");
+    writeFileSync(marker, "keep me");
+    const host = createFakeAgentDriverHost();
+    const adapter = new ClaudeDriver();
+    vi.spyOn(adapter, "beginTurn").mockReturnValue("fresh-receipt");
+    const lane = sdkTestLane();
+    vi.spyOn(adapter, "openLane").mockResolvedValue(lane);
+    const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
+      id: "claude",
+      contractVersion: 1,
+      capabilities: claudeCapabilities,
+      createAdapter: () => adapter,
+    }]);
+
+    try {
+      const opened = await createAgentDriverSdkWithRegistry({ registry, host }).open({
+        ...claudeInput,
+        launch: {
+          ...claudeInput.launch,
+          workingDirectory,
+          instructions: { format: "markdown", content: "Existing workspace instructions." },
+        },
+      });
+      expect(opened.ok).toBe(true);
+      if (!opened.ok) throw new Error("expected a session");
+      await expect(opened.session.start({ id: "existing", kind: "user", text: "hello" }))
+        .resolves.toMatchObject({ status: "accepted" });
+      expect(readFileSync(marker, "utf8")).toBe("keep me");
+      await opened.session.stop({ reason: "shutdown", forceAfterMs: 1 });
+      expect(host.releases).toHaveLength(1);
+    } finally {
+      rmSync(workingDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed before physical lane open when the workspace path is not a directory", async () => {
+    const base = mkdtempSync(join(tmpdir(), "agent-driver-invalid-workspace-"));
+    const workingDirectory = join(base, "not-a-directory");
+    writeFileSync(workingDirectory, "occupied");
+    const host = createFakeAgentDriverHost();
+    const adapter = new ClaudeDriver();
+    const openLane = vi.spyOn(adapter, "openLane").mockResolvedValue(sdkTestLane());
+    const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
+      id: "claude",
+      contractVersion: 1,
+      capabilities: claudeCapabilities,
+      createAdapter: () => adapter,
+    }]);
+
+    try {
+      const opened = await createAgentDriverSdkWithRegistry({ registry, host }).open({
+        ...claudeInput,
+        launch: {
+          ...claudeInput.launch,
+          workingDirectory,
+          instructions: { format: "markdown", content: "Cannot be written." },
+        },
+      });
+      expect(opened.ok).toBe(true);
+      if (!opened.ok) throw new Error("expected a session");
+      const eventTypes = (async () => {
+        const types: string[] = [];
+        for await (const event of opened.session.events) types.push(event.type);
+        return types;
+      })();
+      await expect(opened.session.start({ id: "blocked", kind: "user", text: "hello" }))
+        .resolves.toMatchObject({ status: "rejected", reason: "runtime_unavailable" });
+      await expect(opened.session.closed).resolves.toMatchObject({ outcome: "failed_to_start" });
+      expect(await eventTypes).not.toContain("session_started");
+      expect(openLane).not.toHaveBeenCalled();
+      expect(opened.session.snapshot().diagnostics.metrics.physicalOpenCount).toBe(0);
       expect(host.releases).toHaveLength(1);
     } finally {
       rmSync(base, { recursive: true, force: true });
