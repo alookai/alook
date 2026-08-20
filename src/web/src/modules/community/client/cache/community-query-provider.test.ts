@@ -30,7 +30,7 @@ vi.mock("@tanstack/react-query-devtools", () => ({
   ReactQueryDevtools: () => null,
 }))
 
-import { CommunityQueryProvider } from "./community-query-provider"
+import { CommunityQueryProvider } from "@/modules/community/client"
 
 describe("CommunityQueryProvider", () => {
   beforeEach(() => {

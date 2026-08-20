@@ -46,6 +46,15 @@ describe("user-scoped IDB persister", () => {
     await expect(bob.restoreClient()).resolves.toMatchObject({ timestamp: 2 })
   })
 
+  it("supports the persister remove contract", async () => {
+    const alice = createUserScopedIdbPersister({ userId: "platform-alice" })
+    await alice.persistClient(persistedClient(1))
+
+    await alice.removeClient()
+
+    await expect(alice.restoreClient()).resolves.toBeUndefined()
+  })
+
   it("fences a throttled stale write after explicit cache deletion", async () => {
     const alice = createUserScopedIdbPersister({ userId: "platform-alice" })
     await alice.persistClient(persistedClient(1))
