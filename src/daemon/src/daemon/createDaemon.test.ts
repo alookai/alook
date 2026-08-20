@@ -355,6 +355,7 @@ for await (const line of createInterface({ input: process.stdin })) {
       model: { kind: "default" as const },
       mode: { kind: "default" as const },
       command: fakeRuntime,
+      environment: { ALOOK_WINDOWS_JOB_DEBUG: "1" },
     };
 
     const session = await createBuiltinDaemonSessionFactory((_, line) => rawLines.push(line))({

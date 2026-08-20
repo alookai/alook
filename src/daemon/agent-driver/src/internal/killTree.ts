@@ -51,10 +51,11 @@ const WINDOWS_JOB_RUNNER_ENV = "ALOOK_WINDOWS_JOB_RUNNER";
 // authority after a `.cmd` shell or runtime root exits. The inner Node process
 // preserves Node's normal argv, shell, environment, and inherited-stdio
 // behavior without asking PowerShell to proxy the protocol streams.
-const WINDOWS_JOB_RUNNER = "const{spawn}=require('node:child_process');const p=JSON.parse(Buffer.from(process.env.ALOOK_WINDOWS_JOB_PAYLOAD,'base64').toString('utf8'));delete process.env.ALOOK_WINDOWS_JOB_NODE;delete process.env.ALOOK_WINDOWS_JOB_PAYLOAD;delete process.env.ALOOK_WINDOWS_JOB_RUNNER;const c=spawn(p.command,p.args,{cwd:p.cwd,env:process.env,shell:p.shell,stdio:'inherit',windowsHide:true});c.once('error',e=>{console.error(e);process.exitCode=1});c.once('exit',(code,signal)=>{process.exitCode=signal?1:(code??1)})";
+const WINDOWS_JOB_RUNNER = "const{spawn}=require('node:child_process');if(process.env.ALOOK_WINDOWS_JOB_DEBUG)console.error('alook-job-debug runner-start');const p=JSON.parse(Buffer.from(process.env.ALOOK_WINDOWS_JOB_PAYLOAD,'base64').toString('utf8'));delete process.env.ALOOK_WINDOWS_JOB_NODE;delete process.env.ALOOK_WINDOWS_JOB_PAYLOAD;delete process.env.ALOOK_WINDOWS_JOB_RUNNER;const c=spawn(p.command,p.args,{cwd:p.cwd,env:process.env,shell:p.shell,stdio:'inherit',windowsHide:true});c.once('error',e=>{console.error(e);process.exitCode=1});c.once('exit',(code,signal)=>{process.exitCode=signal?1:(code??1)})";
 
 const WINDOWS_JOB_BOOTSTRAP = String.raw`
 $ErrorActionPreference = "Stop"
+if ($env:ALOOK_WINDOWS_JOB_DEBUG) { [Console]::Error.WriteLine("alook-job-debug bootstrap-start") }
 Add-Type -TypeDefinition @"
 using System;
 using System.ComponentModel;
@@ -353,6 +354,7 @@ public static class AlookAgentJob {
   }
 }
 "@
+if ($env:ALOOK_WINDOWS_JOB_DEBUG) { [Console]::Error.WriteLine("alook-job-debug add-type-complete") }
 $exitCode = [AlookAgentJob]::RunNode($env:ALOOK_WINDOWS_JOB_NODE, $env:ALOOK_WINDOWS_JOB_RUNNER)
 exit $exitCode
 `;
