@@ -1,0 +1,78 @@
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { evaluateApiSurfaceGuard } from "./api-surface-guard.mjs";
+
+const headSha = "b".repeat(40);
+const publicSource = "src/daemon/agent-driver/src/adapter-author.ts";
+const golden = "src/daemon/agent-driver/etc/api/adapter-author.api.md";
+const ownerApproval = { id: 1, login: "independent-owner", state: "APPROVED", commitId: headSha };
+
+function evaluate(overrides: Record<string, unknown> = {}) {
+  return evaluateApiSurfaceGuard({
+    changedPaths: [publicSource],
+    labels: ["api-additive"],
+    reviews: [ownerApproval],
+    owners: ["author", "independent-owner"],
+    prAuthor: "author",
+    headSha,
+    baseContractVersion: 1,
+    headContractVersion: 1,
+    ...overrides,
+  } as never);
+}
+
+describe("api surface approval guard", () => {
+  it("requires exactly one API change label for public source", () => {
+    expect(evaluate({ labels: [] })).toMatchObject({ ok: false, reason: "exactly_one_api_label_required" });
+    expect(evaluate({ labels: ["api-additive", "api-breaking"] }))
+      .toMatchObject({ ok: false, reason: "exactly_one_api_label_required" });
+  });
+
+  it("rejects source plus golden drift without an independent current-head owner approval", () => {
+    expect(evaluate({ changedPaths: [publicSource, golden], reviews: [] }))
+      .toMatchObject({ ok: false, reason: "current_head_independent_owner_approval_required" });
+    expect(evaluate({ reviews: [{ ...ownerApproval, login: "author" }] }))
+      .toMatchObject({ ok: false, reason: "current_head_independent_owner_approval_required" });
+    expect(evaluate({ reviews: [{ ...ownerApproval, commitId: "a".repeat(40) }] }))
+      .toMatchObject({ ok: false, reason: "current_head_independent_owner_approval_required" });
+  });
+
+  it("accepts an allow-listed independent approval on the exact head", () => {
+    expect(evaluate()).toMatchObject({ ok: true, reason: "approved", approver: "independent-owner" });
+  });
+
+  it("requires a numeric contract bump for a breaking adapter-author report", () => {
+    expect(evaluate({
+      changedPaths: [golden],
+      labels: ["api-breaking"],
+      baseContractVersion: 1,
+      headContractVersion: 1,
+    })).toMatchObject({ ok: false, reason: "adapter_author_contract_version_must_increase" });
+    expect(evaluate({
+      changedPaths: [golden],
+      labels: ["api-breaking"],
+      baseContractVersion: 1,
+      headContractVersion: 2,
+    })).toMatchObject({ ok: true });
+  });
+
+  it("does not require an API label or review for unrelated internal changes", () => {
+    expect(evaluate({
+      changedPaths: ["src/daemon/agent-driver/src/adapters/claude/index.ts"],
+      labels: [],
+      reviews: [],
+    })).toEqual({ ok: true, reason: "no_api_surface_change" });
+  });
+
+  it("keeps approval enforcement base-owned and never executes pull-request head code", () => {
+    const workflow = readFileSync(resolve(process.cwd(), ".github/workflows/api-surface-guard.yml"), "utf8");
+    expect(workflow).toContain("pull_request_target:");
+    expect(workflow).toMatch(/pull_request_review:\n\s+types: \[submitted, dismissed\]/);
+    expect(workflow).toContain("if: github.event.pull_request.base.ref == 'main'");
+    expect(workflow).toContain("ref: ${{ github.event.pull_request.base.sha }}");
+    expect(workflow).not.toContain("pnpm install");
+    expect(workflow).not.toContain("pull request head");
+    expect(workflow).not.toContain("if [[ ! -f");
+  });
+});
