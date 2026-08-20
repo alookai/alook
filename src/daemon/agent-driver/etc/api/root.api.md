@@ -94,10 +94,6 @@ export interface AgentSession<Specs, Id extends BackendId<Specs>> {
         readonly requestId: string;
         readonly reason: string;
     }): Promise<InterruptResult>;
-    // Warning: (ae-forgotten-export) The symbol "ExtensionNames" needs to be exported by the entry point index.d.ts
-    // Warning: (ae-forgotten-export) The symbol "ExtensionInput" needs to be exported by the entry point index.d.ts
-    // Warning: (ae-forgotten-export) The symbol "ExtensionOutput" needs to be exported by the entry point index.d.ts
-    //
     // (undocumented)
     invokeExtension<Name extends ExtensionNames<Specs, Id>>(name: Name, input: ExtensionInput<Specs, Id, Name>): Promise<ExtensionResult<ExtensionOutput<Specs, Id, Name>>>;
     // (undocumented)
@@ -303,8 +299,6 @@ export interface BuiltinRuntimeConfigInput {
 // @public (undocumented)
 export type CapabilitiesOf<Specs, Id extends BackendId<Specs>> = Specs[Id] extends BackendTypeSpec<infer _Config, infer Caps, infer _Extensions, infer _Event> ? Caps : never;
 
-// Warning: (ae-forgotten-export) The symbol "FixedCapabilities" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ClaudeCapabilities = FixedCapabilities<true, true, true, true, true, "safe_boundary_queue">;
 
@@ -466,6 +460,15 @@ export type DeliveryReceipt = {
 };
 
 // @public (undocumented)
+export type ExtensionInput<Specs, Id extends BackendId<Specs>, Name extends ExtensionNames<Specs, Id>> = ExtensionsOf<Specs, Id>[Name] extends BackendExtensionSpec<infer Input, infer _Output> ? Input : never;
+
+// @public (undocumented)
+export type ExtensionNames<Specs, Id extends BackendId<Specs>> = Extract<keyof ExtensionsOf<Specs, Id>, string>;
+
+// @public (undocumented)
+export type ExtensionOutput<Specs, Id extends BackendId<Specs>, Name extends ExtensionNames<Specs, Id>> = ExtensionsOf<Specs, Id>[Name] extends BackendExtensionSpec<infer _Input, infer Output> ? Output : never;
+
+// @public (undocumented)
 export type ExtensionResult<Output> = {
     readonly ok: true;
     readonly value: Output;
@@ -479,6 +482,19 @@ export type ExtensionsOf<Specs, Id extends BackendId<Specs>> = Specs[Id] extends
 
 // @public (undocumented)
 export type ExtraEventOf<Specs, Id extends BackendId<Specs>> = Specs[Id] extends BackendTypeSpec<infer _Config, infer _Caps, infer _Extensions, infer Event> ? Event : never;
+
+// @public (undocumented)
+export type FixedCapabilities<Provider extends boolean, Reasoning extends boolean, Fast extends boolean, Tools extends boolean, Command extends boolean, Delivery extends BackendCapabilities["midTurnDelivery"]> = BackendCapabilities & {
+    readonly modelSelection: "launchable";
+    readonly providerConfiguration: Provider;
+    readonly reasoningEffort: Reasoning;
+    readonly fastMode: Fast;
+    readonly disallowedTools: Tools;
+    readonly commandOverride: Command;
+    readonly resume: "by_id";
+    readonly midTurnDelivery: Delivery;
+    readonly interrupt: true;
+};
 
 // @public (undocumented)
 export function getBuiltinBackendCapabilities<Id extends BuiltinBackendId>(backend: Id): CapabilitiesOf<BuiltinBackendSpecs, Id>;

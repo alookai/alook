@@ -5,21 +5,398 @@
 ```ts
 
 // @public (undocumented)
+export interface AgentDriverError {
+    // (undocumented)
+    readonly category: "runtime_unavailable" | "authentication" | "configuration" | "protocol" | "process" | "sdk" | "timeout" | "cancelled" | "buffer_overflow" | "internal";
+    // (undocumented)
+    readonly code: string;
+    // (undocumented)
+    readonly details?: JsonObject;
+    // (undocumented)
+    readonly message: string;
+    // (undocumented)
+    readonly retryable: boolean;
+}
+
+// @public (undocumented)
 export interface AgentDriverHost {
     // (undocumented)
     createId(): string;
     // (undocumented)
     now(): number;
-    // Warning: (ae-forgotten-export) The symbol "RawOutputEvent" needs to be exported by the entry point host.d.ts
-    //
     // (undocumented)
     onRawOutput(event: RawOutputEvent): void;
-    // Warning: (ae-forgotten-export) The symbol "PrepareExecutionInput" needs to be exported by the entry point host.d.ts
-    // Warning: (ae-forgotten-export) The symbol "PrepareExecutionResult" needs to be exported by the entry point host.d.ts
-    //
     // (undocumented)
     prepareExecution(input: PrepareExecutionInput): Promise<PrepareExecutionResult>;
 }
+
+// @public (undocumented)
+export interface AgentDriverSdk<Specs = BuiltinBackendSpecs> {
+    // (undocumented)
+    readonly backendIds: readonly BackendId<Specs>[];
+    // (undocumented)
+    open<Id extends BackendId<Specs>>(input: OpenSessionInput<Specs, Id>): Promise<OpenSessionResult<Specs, Id>>;
+    // (undocumented)
+    probe<Id extends BackendId<Specs>>(input: ProbeInput<Specs, Id>): Promise<BackendProbe<CapabilitiesOf<Specs, Id>>>;
+}
+
+// @public (undocumented)
+export type AgentEvent<Specs, Id extends BackendId<Specs>> = AgentEventEnvelope & (CoreAgentEventPayload | ExtraEventOf<Specs, Id>);
+
+// @public (undocumented)
+export interface AgentEventEnvelope {
+    // (undocumented)
+    readonly at: number;
+    // (undocumented)
+    readonly sequence: number;
+    // (undocumented)
+    readonly sessionInstanceId: string;
+}
+
+// @public (undocumented)
+export interface AgentEventStream<Event> extends AsyncIterable<Event> {
+    // (undocumented)
+    readonly maxBufferedBytes: 4_194_304;
+}
+
+// @public (undocumented)
+export interface AgentInstructions {
+    // (undocumented)
+    readonly content: string;
+    // (undocumented)
+    readonly format: "markdown";
+}
+
+// @public (undocumented)
+export interface AgentLaunchContext {
+    // (undocumented)
+    readonly instructions: AgentInstructions;
+    // (undocumented)
+    readonly launchId: string;
+    // (undocumented)
+    readonly resumeSessionId?: string;
+    // (undocumented)
+    readonly workingDirectory: string;
+}
+
+// @public (undocumented)
+export interface AgentMessage {
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly kind: "user" | "system" | "recovery";
+    // (undocumented)
+    readonly sequence?: number;
+    // (undocumented)
+    readonly text: string;
+}
+
+// @public (undocumented)
+export interface AgentSession<Specs, Id extends BackendId<Specs>> {
+    // (undocumented)
+    readonly backend: Id;
+    // (undocumented)
+    readonly capabilities: CapabilitiesOf<Specs, Id>;
+    // (undocumented)
+    readonly closed: Promise<AgentSessionResult>;
+    // (undocumented)
+    readonly events: AgentEventStream<AgentEvent<Specs, Id>>;
+    // (undocumented)
+    interrupt(input: {
+        readonly requestId: string;
+        readonly reason: string;
+    }): Promise<InterruptResult>;
+    // (undocumented)
+    invokeExtension<Name extends ExtensionNames<Specs, Id>>(name: Name, input: ExtensionInput<Specs, Id, Name>): Promise<ExtensionResult<ExtensionOutput<Specs, Id, Name>>>;
+    // (undocumented)
+    send(message: AgentMessage): Promise<DeliveryReceipt>;
+    // (undocumented)
+    readonly sessionInstanceId: string;
+    // (undocumented)
+    snapshot(): AgentSessionSnapshot;
+    // (undocumented)
+    start(message: AgentMessage): Promise<DeliveryReceipt>;
+    // (undocumented)
+    stop(input: StopInput): Promise<StopReceipt>;
+}
+
+// @public (undocumented)
+export type AgentSessionResult = {
+    readonly outcome: "stopped";
+    readonly requested: true;
+    readonly backendSessionId?: string;
+    readonly exitCode?: number | null;
+    readonly signal?: string | null;
+    readonly cleanup: HostCleanupResult;
+} | {
+    readonly outcome: "crashed";
+    readonly requested: false;
+    readonly backendSessionId?: string;
+    readonly exitCode: number | null;
+    readonly signal: string | null;
+    readonly error?: AgentDriverError;
+    readonly cleanup: HostCleanupResult;
+} | {
+    readonly outcome: "failed_to_start";
+    readonly requested: false;
+    readonly error: AgentDriverError;
+    readonly cleanup: HostCleanupResult;
+} | {
+    readonly outcome: "forced";
+    readonly requested: true;
+    readonly backendSessionId?: string;
+    readonly error: AgentDriverError;
+    readonly cleanup: HostCleanupResult;
+};
+
+// @public (undocumented)
+export interface AgentSessionSnapshot {
+    // (undocumented)
+    readonly activeTurn?: {
+        readonly turnId: string;
+        readonly commandIds: readonly string[];
+    };
+    // (undocumented)
+    readonly backendSessionId?: string;
+    // (undocumented)
+    readonly lastEventSequence: number;
+    // (undocumented)
+    readonly queuedCommands: readonly {
+        readonly commandId: string;
+        readonly kind: AgentMessage["kind"];
+    }[];
+    // (undocumented)
+    readonly sessionInstanceId: string;
+    // (undocumented)
+    readonly state: "new" | "awaiting_first_message" | "starting" | "idle" | "working" | "stopping" | "closed";
+}
+
+// @public (undocumented)
+export type AgentTurnResult = {
+    readonly outcome: "success";
+    readonly backendSessionId: string;
+} | {
+    readonly outcome: "interrupted";
+    readonly backendSessionId?: string;
+} | {
+    readonly outcome: "failed";
+    readonly backendSessionId?: string;
+    readonly error: AgentDriverError;
+};
+
+// @public (undocumented)
+export interface BackendCapabilities {
+    // (undocumented)
+    readonly commandOverride: boolean;
+    // (undocumented)
+    readonly disallowedTools: boolean;
+    // (undocumented)
+    readonly fastMode: boolean;
+    // (undocumented)
+    readonly interrupt: boolean;
+    // (undocumented)
+    readonly midTurnDelivery: "steer" | "safe_boundary_queue" | "next_turn_queue";
+    // (undocumented)
+    readonly modelSelection: "launchable" | "suggestion_only" | "unsupported";
+    // (undocumented)
+    readonly providerConfiguration: boolean;
+    // (undocumented)
+    readonly reasoningEffort: boolean;
+    // (undocumented)
+    readonly resume: "by_id" | "none";
+}
+
+// @public (undocumented)
+export interface BackendExtensionSpec<Input, Output> {
+    // (undocumented)
+    readonly input: Input;
+    // (undocumented)
+    readonly output: Output;
+}
+
+// @public (undocumented)
+export type BackendId<Specs> = Extract<keyof Specs, string>;
+
+// @public (undocumented)
+export type BackendProbe<Capabilities> = {
+    readonly status: "healthy";
+    readonly version?: string;
+    readonly capabilities: Capabilities;
+} | {
+    readonly status: "unhealthy";
+    readonly error: AgentDriverError;
+    readonly capabilities: Capabilities;
+};
+
+// @public (undocumented)
+export interface BackendTypeSpec<Config, Capabilities, Extensions, ExtraEvent> {
+    // (undocumented)
+    readonly capabilities: Capabilities;
+    // (undocumented)
+    readonly config: Config;
+    // (undocumented)
+    readonly extensions: Extensions;
+    // (undocumented)
+    readonly extraEvent: ExtraEvent;
+}
+
+// @public (undocumented)
+export interface BaseBackendConfig {
+    // (undocumented)
+    readonly command?: string;
+    // (undocumented)
+    readonly environment?: Readonly<Record<string, string>>;
+}
+
+// @public (undocumented)
+export type BuiltinBackendId = "claude" | "codex" | "cursor" | "opencode" | "pi";
+
+// @public (undocumented)
+export interface BuiltinBackendSpecs {
+    // (undocumented)
+    readonly claude: BackendTypeSpec<ClaudeConfig, ClaudeCapabilities, {}, never>;
+    // (undocumented)
+    readonly codex: BackendTypeSpec<CodexConfig, CodexCapabilities, {}, never>;
+    // (undocumented)
+    readonly cursor: BackendTypeSpec<CursorConfig, CursorCapabilities, {}, never>;
+    // (undocumented)
+    readonly opencode: BackendTypeSpec<OpenCodeConfig, OpenCodeCapabilities, {}, never>;
+    // (undocumented)
+    readonly pi: BackendTypeSpec<PiConfig, PiCapabilities, {}, never>;
+}
+
+// @public (undocumented)
+export type CapabilitiesOf<Specs, Id extends BackendId<Specs>> = Specs[Id] extends BackendTypeSpec<infer _Config, infer Caps, infer _Extensions, infer _Event> ? Caps : never;
+
+// @public (undocumented)
+export type ClaudeCapabilities = FixedCapabilities<true, true, true, true, true, "safe_boundary_queue">;
+
+// @public (undocumented)
+export interface ClaudeConfig extends BaseBackendConfig {
+    // (undocumented)
+    readonly disallowedTools?: string;
+    // (undocumented)
+    readonly mode: "default" | "fast";
+    // (undocumented)
+    readonly model: ModelSelection;
+    // (undocumented)
+    readonly provider: ClaudeProvider;
+    // (undocumented)
+    readonly reasoningEffort?: ReasoningEffort;
+}
+
+// @public (undocumented)
+export type ClaudeProvider = DefaultProvider | {
+    readonly kind: "custom_endpoint";
+    readonly apiUrl: string;
+    readonly apiKey: string;
+};
+
+// @public (undocumented)
+export type CodexCapabilities = FixedCapabilities<false, true, true, false, true, "safe_boundary_queue">;
+
+// @public (undocumented)
+export interface CodexConfig extends BaseBackendConfig {
+    // (undocumented)
+    readonly mode: "default" | "fast";
+    // (undocumented)
+    readonly model: ModelSelection;
+    // (undocumented)
+    readonly reasoningEffort?: ReasoningEffort;
+}
+
+// @public (undocumented)
+export type ConfigOf<Specs, Id extends BackendId<Specs>> = Specs[Id] extends BackendTypeSpec<infer Config, infer _Caps, infer _Extensions, infer _Event> ? Config : never;
+
+// @public (undocumented)
+export type CoreAgentEventPayload = {
+    readonly type: "session_started";
+    readonly backendSessionId: string;
+} | {
+    readonly type: "command_queued";
+    readonly commandId: string;
+    readonly reason: "unsafe_boundary" | "runtime_busy" | "waiting_for_message";
+} | {
+    readonly type: "command_accepted";
+    readonly commandId: string;
+    readonly turnId: string;
+    readonly delivery: "prompt" | "steer";
+} | {
+    readonly type: "command_failed";
+    readonly commandId: string;
+    readonly turnId?: string;
+    readonly error: AgentDriverError;
+} | {
+    readonly type: "turn_started";
+    readonly turnId: string;
+    readonly commandIds: readonly string[];
+} | {
+    readonly type: "thinking_delta";
+    readonly turnId: string;
+    readonly text: string;
+} | {
+    readonly type: "text_delta";
+    readonly turnId: string;
+    readonly text: string;
+} | {
+    readonly type: "tool_started";
+    readonly turnId: string;
+    readonly callId?: string;
+    readonly name: string;
+    readonly input: JsonValue;
+} | {
+    readonly type: "tool_finished";
+    readonly turnId: string;
+    readonly callId?: string;
+    readonly name: string;
+    readonly output?: JsonValue;
+} | {
+    readonly type: "compaction_started";
+    readonly turnId: string;
+} | {
+    readonly type: "compaction_finished";
+    readonly turnId: string;
+} | {
+    readonly type: "review_started";
+    readonly turnId: string;
+} | {
+    readonly type: "review_finished";
+    readonly turnId: string;
+} | {
+    readonly type: "internal_progress";
+    readonly turnId?: string;
+    readonly source?: string;
+    readonly itemType?: string;
+    readonly payloadBytes?: number;
+} | {
+    readonly type: "diagnostic";
+    readonly turnId?: string;
+    readonly severity: "debug" | "info" | "warning" | "error";
+    readonly source?: string;
+    readonly message: string;
+} | {
+    readonly type: "token_usage";
+    readonly turnId?: string;
+    readonly source: string;
+    readonly usage: TokenUsage;
+    readonly details: JsonObject;
+} | {
+    readonly type: "rate_limits";
+    readonly turnId?: string;
+    readonly source: string;
+    readonly details: JsonObject;
+} | {
+    readonly type: "turn_completed";
+    readonly turnId: string;
+    readonly commandIds: readonly string[];
+    readonly result: AgentTurnResult;
+} | {
+    readonly type: "session_failed";
+    readonly error: AgentDriverError;
+} | {
+    readonly type: "session_closed";
+    readonly result: AgentSessionResult;
+};
 
 // @public (undocumented)
 export interface CreateAgentDriverSdkOptions {
@@ -29,14 +406,17 @@ export interface CreateAgentDriverSdkOptions {
     readonly hostReleaseTimeoutMs?: number;
 }
 
-// Warning: (ae-forgotten-export) The symbol "AgentDriverSdk" needs to be exported by the entry point host.d.ts
-// Warning: (ae-forgotten-export) The symbol "BuiltinBackendSpecs" needs to be exported by the entry point host.d.ts
-//
 // @public (undocumented)
 export function createBuiltinAgentDriverSdk(options?: CreateAgentDriverSdkOptions): AgentDriverSdk<BuiltinBackendSpecs>;
 
 // @public (undocumented)
 export function createDefaultAgentDriverHost(options?: DefaultAgentDriverHostOptions): AgentDriverHost;
+
+// @public (undocumented)
+export type CursorCapabilities = FixedCapabilities<false, false, false, false, true, "next_turn_queue">;
+
+// @public (undocumented)
+export type CursorConfig = ModelBackendConfig;
 
 // @public (undocumented)
 export interface DefaultAgentDriverHostOptions {
@@ -45,6 +425,167 @@ export interface DefaultAgentDriverHostOptions {
     // (undocumented)
     readonly onRawOutput?: (event: RawOutputEvent) => void;
 }
+
+// @public (undocumented)
+export type DefaultProvider = {
+    readonly kind: "default";
+};
+
+// @public (undocumented)
+export type DeliveryReceipt = {
+    readonly status: "accepted";
+    readonly delivery: "prompt" | "steer";
+    readonly commandId: string;
+    readonly turnId: string;
+} | {
+    readonly status: "queued";
+    readonly reason: "unsafe_boundary" | "runtime_busy" | "waiting_for_message";
+    readonly commandId: string;
+} | {
+    readonly status: "rejected";
+    readonly reason: "closed" | "unsupported" | "invalid_input" | "runtime_unavailable" | "already_started" | "not_started" | "duplicate_conflict";
+    readonly error?: AgentDriverError;
+};
+
+// @public (undocumented)
+export type ExtensionInput<Specs, Id extends BackendId<Specs>, Name extends ExtensionNames<Specs, Id>> = ExtensionsOf<Specs, Id>[Name] extends BackendExtensionSpec<infer Input, infer _Output> ? Input : never;
+
+// @public (undocumented)
+export type ExtensionNames<Specs, Id extends BackendId<Specs>> = Extract<keyof ExtensionsOf<Specs, Id>, string>;
+
+// @public (undocumented)
+export type ExtensionOutput<Specs, Id extends BackendId<Specs>, Name extends ExtensionNames<Specs, Id>> = ExtensionsOf<Specs, Id>[Name] extends BackendExtensionSpec<infer _Input, infer Output> ? Output : never;
+
+// @public (undocumented)
+export type ExtensionResult<Output> = {
+    readonly ok: true;
+    readonly value: Output;
+} | {
+    readonly ok: false;
+    readonly error: AgentDriverError;
+};
+
+// @public (undocumented)
+export type ExtensionsOf<Specs, Id extends BackendId<Specs>> = Specs[Id] extends BackendTypeSpec<infer _Config, infer _Caps, infer Extensions, infer _Event> ? Extensions : never;
+
+// @public (undocumented)
+export type ExtraEventOf<Specs, Id extends BackendId<Specs>> = Specs[Id] extends BackendTypeSpec<infer _Config, infer _Caps, infer _Extensions, infer Event> ? Event : never;
+
+// @public (undocumented)
+export type FixedCapabilities<Provider extends boolean, Reasoning extends boolean, Fast extends boolean, Tools extends boolean, Command extends boolean, Delivery extends BackendCapabilities["midTurnDelivery"]> = BackendCapabilities & {
+    readonly modelSelection: "launchable";
+    readonly providerConfiguration: Provider;
+    readonly reasoningEffort: Reasoning;
+    readonly fastMode: Fast;
+    readonly disallowedTools: Tools;
+    readonly commandOverride: Command;
+    readonly resume: "by_id";
+    readonly midTurnDelivery: Delivery;
+    readonly interrupt: true;
+};
+
+// @public (undocumented)
+export type HostCleanupResult = {
+    readonly status: "not_acquired";
+} | {
+    readonly status: "released";
+} | {
+    readonly status: "failed";
+    readonly error: AgentDriverError;
+} | {
+    readonly status: "timed_out";
+    readonly error: AgentDriverError;
+};
+
+// @public (undocumented)
+export type InterruptResult = {
+    readonly status: "accepted";
+    readonly requestId: string;
+    readonly turnId: string;
+} | {
+    readonly status: "not_running";
+} | {
+    readonly status: "unsupported";
+} | {
+    readonly status: "closed";
+} | {
+    readonly status: "failed";
+    readonly error: AgentDriverError;
+};
+
+// @public (undocumented)
+export type JsonObject = {
+    readonly [key: string]: JsonValue;
+};
+
+// @public (undocumented)
+export type JsonPrimitive = string | number | boolean | null;
+
+// @public (undocumented)
+export type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
+
+// @public (undocumented)
+export interface ModelBackendConfig extends BaseBackendConfig {
+    // (undocumented)
+    readonly model: ModelSelection;
+}
+
+// @public (undocumented)
+export type ModelSelection = {
+    readonly kind: "default";
+} | {
+    readonly kind: "named";
+    readonly name: string;
+} | {
+    readonly kind: "custom";
+    readonly name: string;
+};
+
+// @public (undocumented)
+export type OpenCodeCapabilities = CursorCapabilities;
+
+// @public (undocumented)
+export type OpenCodeConfig = ModelBackendConfig;
+
+// @public (undocumented)
+export interface OpenSessionInput<Specs, Id extends BackendId<Specs>> {
+    // (undocumented)
+    readonly backend: Id;
+    // (undocumented)
+    readonly config: ConfigOf<Specs, Id>;
+    // (undocumented)
+    readonly launch: AgentLaunchContext;
+}
+
+// @public (undocumented)
+export type OpenSessionResult<Specs, Id extends BackendId<Specs>> = {
+    readonly ok: true;
+    readonly session: AgentSession<Specs, Id>;
+    readonly capabilities: CapabilitiesOf<Specs, Id>;
+} | {
+    readonly ok: false;
+    readonly error: AgentDriverError;
+};
+
+// @public (undocumented)
+export type PiCapabilities = FixedCapabilities<true, true, false, false, false, "steer">;
+
+// @public (undocumented)
+export interface PiConfig extends Omit<BaseBackendConfig, "command"> {
+    // (undocumented)
+    readonly model: ModelSelection;
+    // (undocumented)
+    readonly provider: PiProvider;
+    // (undocumented)
+    readonly reasoningEffort?: ReasoningEffort;
+}
+
+// @public (undocumented)
+export type PiProvider = DefaultProvider | {
+    readonly kind: "builtin";
+    readonly providerId: "google" | "openai" | "openrouter" | (string & {});
+    readonly apiKey: string;
+};
 
 // @public (undocumented)
 export interface PreparedExecutionResource {
@@ -61,7 +602,86 @@ export interface PreparedExecutionResource {
 }
 
 // @public (undocumented)
+export interface PrepareExecutionInput {
+    // (undocumented)
+    readonly backend: string;
+    // (undocumented)
+    readonly launchId: string;
+    // (undocumented)
+    readonly workingDirectory: string;
+}
+
+// @public (undocumented)
+export type PrepareExecutionResult = {
+    readonly ok: true;
+    readonly resource: PreparedExecutionResource;
+} | {
+    readonly ok: false;
+    readonly error: AgentDriverError;
+};
+
+// @public (undocumented)
+export interface ProbeInput<Specs, Id extends BackendId<Specs>> {
+    // (undocumented)
+    readonly backend: Id;
+    // (undocumented)
+    readonly command?: string;
+}
+
+// @public (undocumented)
+export interface RawOutputEvent {
+    // (undocumented)
+    readonly backend: string;
+    // (undocumented)
+    readonly launchId: string;
+    // (undocumented)
+    readonly stream: "stdout" | "stderr";
+    // (undocumented)
+    readonly text: string;
+}
+
+// @public (undocumented)
+export type ReasoningEffort = "low" | "medium" | "high";
+
+// @public (undocumented)
 export function scrubAgentDriverDiagnosticText(value: unknown, fallback?: string): string;
+
+// @public (undocumented)
+export interface StopInput {
+    // (undocumented)
+    readonly forceAfterMs: number;
+    // (undocumented)
+    readonly reason: "owner_request" | "idle_timeout" | "stalled" | "shutdown" | "reset";
+}
+
+// @public (undocumented)
+export type StopReceipt = {
+    readonly status: "accepted";
+    readonly requestId: string;
+} | {
+    readonly status: "already_stopping";
+    readonly requestId: string;
+} | {
+    readonly status: "closed";
+    readonly result: AgentSessionResult;
+} | {
+    readonly status: "failed";
+    readonly error: AgentDriverError;
+};
+
+// @public (undocumented)
+export interface TokenUsage {
+    // (undocumented)
+    readonly cachedInputTokens?: number;
+    // (undocumented)
+    readonly inputTokens?: number;
+    // (undocumented)
+    readonly outputTokens?: number;
+    // (undocumented)
+    readonly reasoningTokens?: number;
+    // (undocumented)
+    readonly totalTokens?: number;
+}
 
 // (No @packageDocumentation comment for this package)
 

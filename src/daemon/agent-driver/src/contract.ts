@@ -66,7 +66,7 @@ export interface BackendCapabilities {
   readonly interrupt: boolean;
 }
 
-type FixedCapabilities<
+export type FixedCapabilities<
   Provider extends boolean,
   Reasoning extends boolean,
   Fast extends boolean,
@@ -376,12 +376,12 @@ export interface AgentEventStream<Event> extends AsyncIterable<Event> {
   readonly maxBufferedBytes: 4_194_304;
 }
 
-type ExtensionNames<Specs, Id extends BackendId<Specs>> = Extract<keyof ExtensionsOf<Specs, Id>, string>;
-type ExtensionInput<Specs, Id extends BackendId<Specs>, Name extends ExtensionNames<Specs, Id>> =
+export type ExtensionNames<Specs, Id extends BackendId<Specs>> = Extract<keyof ExtensionsOf<Specs, Id>, string>;
+export type ExtensionInput<Specs, Id extends BackendId<Specs>, Name extends ExtensionNames<Specs, Id>> =
   ExtensionsOf<Specs, Id>[Name] extends BackendExtensionSpec<infer Input, infer _Output>
     ? Input
     : never;
-type ExtensionOutput<Specs, Id extends BackendId<Specs>, Name extends ExtensionNames<Specs, Id>> =
+export type ExtensionOutput<Specs, Id extends BackendId<Specs>, Name extends ExtensionNames<Specs, Id>> =
   ExtensionsOf<Specs, Id>[Name] extends BackendExtensionSpec<infer _Input, infer Output>
     ? Output
     : never;
