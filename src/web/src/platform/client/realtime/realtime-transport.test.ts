@@ -706,6 +706,7 @@ describe("useRealtimeTransport", () => {
     ws.open()
     expect(() => ws.message({ type: "auth.ok" })).not.toThrow()
     expect(() => ws.message({ type: "safe.event" })).not.toThrow()
+    expect(() => ws.message({ type: "unsafe event" })).not.toThrow()
     expect(() => ws.close()).not.toThrow()
     await flushPromises()
 
@@ -716,6 +717,10 @@ describe("useRealtimeTransport", () => {
     expect(warn).toHaveBeenCalledWith(
       "[ws] lifecycle callback rejected",
       { callback: "disconnect" },
+    )
+    expect(warn).toHaveBeenCalledWith(
+      "[ws] message callback threw",
+      { type: "unknown" },
     )
     expect(JSON.stringify(warn.mock.calls)).not.toContain("private auth error")
     expect(JSON.stringify(warn.mock.calls)).not.toContain("private message error")
