@@ -30,6 +30,7 @@ import type {
 import { BufferedEventQueue } from "./event-queue.js";
 import { writeAgentFile } from "../internal/agentFile.js";
 import { scrubDriverErrorMessage } from "../internal/errors.js";
+import { mkdirSync } from "node:fs";
 
 type SessionState = AgentSessionSnapshot["state"];
 
@@ -510,6 +511,11 @@ implements AgentSession<Specs, Id> {
     generation: number,
   ): Promise<LaneAdmission | null> {
     if (!this.instructionsMaterialized) {
+      // The public controller owns the workspace precondition shared by every
+      // adapter. Fresh daemon agents do not have an agent-specific directory
+      // yet, and both workspace-file materialization and child-process cwd
+      // require it to exist before the physical lane opens.
+      mkdirSync(this.launch.workingDirectory, { recursive: true });
       const strategy = this.adapter.instructionDelivery;
       if (strategy.kind === "workspace_file" && this.launch.instructions) {
         writeAgentFile(this.launch.workingDirectory, this.launch.instructions, strategy);

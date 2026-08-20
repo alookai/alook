@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
   AgentDriverError,
   BackendTypeSpec,
@@ -106,6 +109,55 @@ describe("createAgentDriverSdk", () => {
     expect(opened.session.snapshot()).toMatchObject({ state: "new", queuedCommands: [] });
     await opened.session.stop({ reason: "shutdown", forceAfterMs: 1 });
     expect(host.releases).toHaveLength(1);
+  });
+
+  it("creates a fresh workspace before public instruction materialization and lane open", async () => {
+    const base = mkdtempSync(join(tmpdir(), "agent-driver-fresh-workspace-"));
+    const workingDirectory = join(base, "nested", "agent");
+    const host = createFakeAgentDriverHost();
+    const adapter = new ClaudeDriver();
+    vi.spyOn(adapter, "beginTurn").mockReturnValue("fresh-receipt");
+    const lane = {
+      currentSessionId: "fresh-session",
+      start: vi.fn(async () => ({ ok: true as const, acceptedAs: "prompt" as const, receipt: "fresh-receipt" })),
+      send: vi.fn(async () => ({ ok: true as const, acceptedAs: "prompt" as const, receipt: "fresh-send" })),
+      interrupt: vi.fn(async () => false),
+      stop: vi.fn(async () => {}),
+      on: vi.fn(),
+    };
+    const openLane = vi.spyOn(adapter, "openLane").mockImplementation(async (ctx) => {
+      expect(ctx.workingDirectory).toBe(workingDirectory);
+      expect(readFileSync(join(workingDirectory, "AGENTS.md"), "utf8")).toBe("Fresh instructions.");
+      expect(readFileSync(join(workingDirectory, "CLAUDE.md"), "utf8")).toBe("Fresh instructions.");
+      return lane;
+    });
+    const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
+      id: "claude",
+      contractVersion: 1,
+      capabilities: claudeCapabilities,
+      createAdapter: () => adapter,
+    }]);
+
+    try {
+      const opened = await createAgentDriverSdkWithRegistry({ registry, host }).open({
+        ...claudeInput,
+        launch: {
+          ...claudeInput.launch,
+          workingDirectory,
+          instructions: { format: "markdown", content: "Fresh instructions." },
+        },
+      });
+      expect(opened.ok).toBe(true);
+      if (!opened.ok) throw new Error("expected a session");
+      await expect(opened.session.start({ id: "fresh", kind: "user", text: "hello" }))
+        .resolves.toMatchObject({ status: "accepted" });
+      expect(openLane).toHaveBeenCalledTimes(1);
+      await opened.session.stop({ reason: "shutdown", forceAfterMs: 1 });
+      expect(lane.stop).toHaveBeenCalledTimes(1);
+      expect(host.releases).toHaveLength(1);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 
   it("opens a sixth backend through only its public adapter registration", async () => {

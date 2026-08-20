@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { EventEmitter } from "events";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -301,6 +301,65 @@ describe("createDaemon", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("starts the builtin Codex lane from a fresh nested daemon workspace", async () => {
+    const base = mkdtempSync(join(tmpdir(), "daemon-fresh-workspace-"));
+    startupSweepDirs.push(base);
+    const workingDirectory = join(base, "daemon", "agent-fresh");
+    const fakeRuntime = join(base, process.platform === "win32" ? "fake-codex.cmd" : "fake-codex");
+    const fakeModule = join(base, "fake-codex.mjs");
+    writeFileSync(fakeModule, `
+import { createInterface } from "node:readline";
+const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
+for await (const line of createInterface({ input: process.stdin })) {
+  const message = JSON.parse(line);
+  if (message.method === "initialize") {
+    send({ jsonrpc: "2.0", id: message.id, result: {} });
+  } else if (message.method === "thread/start") {
+    send({ jsonrpc: "2.0", id: message.id, result: { thread: { id: "fresh-thread" } } });
+  } else if (message.method === "turn/start") {
+    send({ jsonrpc: "2.0", method: "turn/started", params: { threadId: "fresh-thread", turn: { id: "fresh-turn" } } });
+  }
+}
+`);
+    if (process.platform === "win32") {
+      writeFileSync(fakeRuntime, `@node "%~dp0\\fake-codex.mjs" %*\r\n`);
+    } else {
+      writeFileSync(fakeRuntime, `#!/usr/bin/env node\nawait import(${JSON.stringify(fakeModule)});\n`);
+      chmodSync(fakeRuntime, 0o755);
+    }
+
+    const broker = new CredentialBroker({ upstreamBaseUrl: "https://upstream.test", voucherDir: base });
+    const ctx = {
+      workingDirectory,
+      agentId: "agent-fresh",
+      standingPrompt: "Fresh daemon instructions.",
+      prompt: "",
+      agentCliPath: process.execPath,
+      launchId: "fresh-launch",
+      credentialProxy: {
+        broker,
+        proxyUrl: "http://127.0.0.1:9/proxy",
+        runnerKey: "runner-fresh",
+        capabilities: ["send"],
+      },
+      config: {},
+    };
+    const runtimeConfig = {
+      version: 1 as const,
+      runtime: "codex" as const,
+      model: { kind: "default" as const },
+      mode: { kind: "default" as const },
+      command: fakeRuntime,
+    };
+
+    const session = await createBuiltinDaemonSessionFactory()({ agentId: "agent-fresh", ctx, runtimeConfig });
+    await expect(session.start({ id: "first", kind: "user", text: "hello" }))
+      .resolves.toMatchObject({ status: "accepted" });
+    expect(readFileSync(join(workingDirectory, "AGENTS.md"), "utf8")).toBe("Fresh daemon instructions.");
+    expect(readFileSync(join(workingDirectory, "CLAUDE.md"), "utf8")).toBe("Fresh daemon instructions.");
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
   it("routes local reminder expiry through the manager and cancels on exact-scope wake/stop/removal/daemon stop", async () => {
