@@ -225,7 +225,11 @@ describe("ProcessLane prompt admission ownership", () => {
       acceptedAs: "prompt",
       receipt: "owner-authoritative",
     });
-    expect(observed).toEqual([{ kind: "turn_owner", receipt: "owner-authoritative" }]);
+    stdout.write(`${JSON.stringify({ kind: "turn_end", sessionId: "session-one" })}\n`);
+    expect(observed).toEqual([
+      { kind: "turn_owner", receipt: "owner-authoritative" },
+      { kind: "turn_end", sessionId: "session-one", turnOwner: "owner-authoritative" },
+    ]);
   });
 
   it("rejects a second root while authority is pending and settles transport errors", async () => {

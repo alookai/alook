@@ -6,6 +6,7 @@ import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import type { ChildProcess } from "node:child_process";
 import type {
+  AgentDriverError,
   AgentEvent,
   BuiltinBackendId,
   BuiltinBackendSpecs,
@@ -501,14 +502,20 @@ describe("logical delivery diagnostics", () => {
   it("settles physical and cancellation steering failures exactly once", async () => {
     const rejectedLane = new ControlledRuntimeLane();
     rejectedLane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "opencode:test:1" };
-    rejectedLane.sendImpl = async () => { throw new Error("steer transport failed"); };
+    const physicalFailure = {
+      category: "protocol",
+      code: "structured_steer_failure",
+      message: "steer transport failed",
+      retryable: false,
+    } satisfies AgentDriverError;
+    rejectedLane.sendImpl = async () => { throw physicalFailure; };
     const rejectedSession = makeSession("opencode", { lane: rejectedLane }).session;
     const rejectedIterator = rejectedSession.events[Symbol.asyncIterator]();
     await rejectedSession.start({ id: "one", kind: "user", text: "start" });
     await expect(rejectedSession.send({ id: "two", kind: "user", text: "steer" })).resolves.toMatchObject({
       status: "rejected",
       reason: "runtime_unavailable",
-      error: { code: "delivery_failed" },
+      error: physicalFailure,
     });
     const rejectedEvents = await take(rejectedIterator as never, 3);
     expect(rejectedEvents.filter((event) => event.type === "command_failed" && event.commandId === "two"))
@@ -523,14 +530,20 @@ describe("logical delivery diagnostics", () => {
     await cancelledSession.start({ id: "one", kind: "user", text: "start" });
     const sending = cancelledSession.send({ id: "two", kind: "user", text: "steer" });
     const cancelledInternals = cancelledSession as unknown as {
-      steeringDeliveries: Set<{ cancel(error: Error): void }>;
+      steeringDeliveries: Set<{ cancel(error: AgentDriverError): void }>;
     };
     await vi.waitFor(() => expect(cancelledInternals.steeringDeliveries.size).toBe(1));
-    [...cancelledInternals.steeringDeliveries][0]!.cancel(new Error("external cancellation"));
+    const cancellationFailure = {
+      category: "cancelled",
+      code: "structured_external_cancellation",
+      message: "external cancellation",
+      retryable: false,
+    } satisfies AgentDriverError;
+    [...cancelledInternals.steeringDeliveries][0]!.cancel(cancellationFailure);
     await expect(sending).resolves.toMatchObject({
       status: "rejected",
       reason: "runtime_unavailable",
-      error: { code: "delivery_failed" },
+      error: cancellationFailure,
     });
     const cancelledEvents = await take(cancelledIterator as never, 3);
     expect(cancelledEvents.filter((event) => event.type === "command_failed" && event.commandId === "two"))
