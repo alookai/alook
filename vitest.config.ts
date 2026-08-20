@@ -5,7 +5,7 @@ export default defineConfig({
     projects: ["src/shared", "src/web", "src/cli", "src/daemon", "src/email-worker", "src/ws-do", "src/app", "tests/utils", "scripts/ci"],
     coverage: {
       provider: "v8",
-      include: ["src/**/*.{ts,tsx,js,jsx}"],
+      include: ["src/**/*.{ts,tsx,js,jsx}", "scripts/ci/**/*.mjs"],
       exclude: [
         "**/*.test.*",
         "**/*.spec.*",
