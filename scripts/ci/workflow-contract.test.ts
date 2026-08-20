@@ -125,16 +125,25 @@ describe("CI test budgets", () => {
       "pnpm --filter @alook/agent-driver exec vitest run src/internal/killTree.test.ts",
     )
     const driver = windows.indexOf(
-      "pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism",
+      "pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism --coverage --coverage.reporter=json --coverage.reporter=text",
     )
+    const coverageUpload = windows.indexOf("files: ./src/daemon/agent-driver/coverage/coverage-final.json")
     const focusedAdmission = windows.indexOf(
       "pnpm --filter @alook/daemon exec vitest run src/daemon/createDaemon.test.ts",
     )
     const daemon = windows.indexOf("pnpm --filter @alook/daemon test")
     expect(processAuthority).toBeGreaterThan(0)
     expect(driver).toBeGreaterThan(processAuthority)
-    expect(focusedAdmission).toBeGreaterThan(driver)
+    expect(coverageUpload).toBeGreaterThan(driver)
+    expect(focusedAdmission).toBeGreaterThan(coverageUpload)
     expect(daemon).toBeGreaterThan(focusedAdmission)
+  })
+
+  it("uploads the Windows driver report without accidentally discovering unrelated files", () => {
+    const windows = ciJob("test-windows")
+    expect(windows).toContain("disable_search: true")
+    expect(windows).toContain("name: windows-agent-driver")
+    expect(windows).toContain("fail_ci_if_error: true")
   })
 
   it("does not rerun Windows process-bearing packages inside the Turbo workspace step", () => {

@@ -183,6 +183,21 @@ describe("ProcessLane — raw stdout tap (P0-1)", () => {
 });
 
 describe("ProcessLane prompt admission ownership", () => {
+  it("exposes process state and rejects a second start", async () => {
+    const { driver } = controllableDriver(() => []);
+    Object.assign(driver, { currentSessionId: "session-one" });
+    const session = new ProcessLane(driver, minimalCtx());
+
+    expect(session.currentSessionId).toBe("session-one");
+    expect(session.exitCode).toBeNull();
+    await expect(session.start({ text: "go" })).resolves.toMatchObject({ ok: true });
+    await expect(session.start({ text: "again" })).resolves.toEqual({
+      ok: false,
+      reason: "runtime_error",
+      error: "runtime session already started",
+    });
+  });
+
   it("waits for a transport-owned turn receipt and returns that exact acknowledgement", async () => {
     const { driver, stdout } = controllableDriver((line) => [JSON.parse(line)]);
     Object.assign(driver, {
@@ -211,6 +226,53 @@ describe("ProcessLane prompt admission ownership", () => {
       receipt: "owner-authoritative",
     });
     expect(observed).toEqual([{ kind: "turn_owner", receipt: "owner-authoritative" }]);
+  });
+
+  it("rejects a second root while authority is pending and settles transport errors", async () => {
+    const { driver, stdout } = controllableDriver((line) => [JSON.parse(line)]);
+    Object.assign(driver, {
+      execution: {
+        lifetime: "session",
+        transport: { kind: "stdio_rpc", protocol: "test.rpc.v1" },
+        wakeStart: "immediate",
+        terminalOwnership: "transport_request",
+      },
+    });
+    const session = new ProcessLane(driver, minimalCtx());
+    const starting = session.start({ text: "go" });
+    await Promise.resolve();
+
+    await expect(session.send({ text: "next", mode: "idle" })).resolves.toEqual({
+      ok: false,
+      reason: "runtime_busy",
+      error: "prompt admission is already pending",
+    });
+    stdout.write(`${JSON.stringify({ kind: "error", message: "transport rejected" })}\n`);
+    await expect(starting).resolves.toEqual({
+      ok: false,
+      reason: "runtime_error",
+      error: "transport rejected",
+    });
+  });
+
+  it("clears idle ownership when stdin throws synchronously", async () => {
+    const { driver, process: proc } = controllableDriver(() => []);
+    Object.assign(driver, {
+      execution: {
+        lifetime: "session",
+        transport: { kind: "stdio_stream", protocol: "test.stream.v1" },
+        wakeStart: "immediate",
+        terminalOwnership: "vendor_message",
+      },
+      encodeMessage: () => "encoded",
+    });
+    const session = new ProcessLane(driver, minimalCtx());
+    await session.start({ text: "go", terminalOwner: "owner-start" });
+    vi.spyOn(proc.stdin!, "write").mockImplementation(() => {
+      throw new Error("stdin exploded");
+    });
+
+    await expect(session.send({ text: "next", mode: "idle" })).rejects.toThrow("stdin exploded");
   });
 
   it.each(["missing", "destroyed", "ended"] as const)(

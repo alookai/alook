@@ -335,7 +335,7 @@ describe("runtime-lane admission state machine", () => {
     async (reason) => {
       const lane = new ControlledRuntimeLane();
       lane.startAdmission = { ok: false, reason, error: `Cursor ACP ${reason}` };
-      const { session } = makeSession("cursor", { lane });
+      const { session } = makeSession("cursor", { lane, resumeSessionId: "legacy-session" });
       const iterator = session.events[Symbol.asyncIterator]();
 
       await expect(session.start({ id: "one", kind: "user", text: "start" })).resolves.toMatchObject({
@@ -413,6 +413,22 @@ describe("runtime-lane admission state machine", () => {
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
+  it("diagnoses a runtime turn-owner acknowledgement that conflicts with admission", async () => {
+    const lane = new ControlledRuntimeLane();
+    const { session } = makeSession("claude", { lane });
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+
+    lane.emit({ kind: "turn_owner", receipt: "different-owner" });
+    const events = await take(iterator as never, 3);
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "diagnostic",
+      severity: "error",
+      message: "Runtime terminal ownership did not match command admission",
+    }));
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
   it("ignores a forged terminal owner and completes only for the admission receipt", async () => {
     const lane = new ControlledRuntimeLane();
     const { session } = makeSession("claude", { lane });
@@ -455,6 +471,73 @@ describe("runtime-lane admission state machine", () => {
 });
 
 describe("logical delivery diagnostics", () => {
+  it("rejects stale/mismatched admission internals and synchronous FIFO operations", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "opencode:test:1" };
+    const { session } = makeSession("opencode", { lane });
+    await session.start({ id: "one", kind: "user", text: "start" });
+    const internals = session as unknown as {
+      activeTurn: { turnId: string; terminalOwner?: string };
+      acceptTurnAdmission(admission: { turnId: string }, laneAdmission: LaneAdmission): void;
+      enqueueLaneAdmission<T>(operation: () => Promise<T>): Promise<T>;
+    };
+
+    const activeTurn = internals.activeTurn;
+    expect(() => internals.acceptTurnAdmission(
+      { turnId: "stale-turn" },
+      { ok: true, acceptedAs: "prompt", receipt: "stale-owner" },
+    )).toThrow("stale turn");
+    internals.activeTurn = activeTurn;
+    expect(() => internals.acceptTurnAdmission(
+      { turnId: internals.activeTurn.turnId },
+      { ok: true, acceptedAs: "prompt", receipt: "different-owner" },
+    )).toThrow("prepared terminal owner");
+    await expect(internals.enqueueLaneAdmission(() => {
+      throw new Error("synchronous admission failure");
+    })).rejects.toThrow("synchronous admission failure");
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("settles physical and cancellation steering failures exactly once", async () => {
+    const rejectedLane = new ControlledRuntimeLane();
+    rejectedLane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "opencode:test:1" };
+    rejectedLane.sendImpl = async () => { throw new Error("steer transport failed"); };
+    const rejectedSession = makeSession("opencode", { lane: rejectedLane }).session;
+    const rejectedIterator = rejectedSession.events[Symbol.asyncIterator]();
+    await rejectedSession.start({ id: "one", kind: "user", text: "start" });
+    await expect(rejectedSession.send({ id: "two", kind: "user", text: "steer" })).resolves.toMatchObject({
+      status: "rejected",
+      reason: "runtime_unavailable",
+      error: { code: "delivery_failed" },
+    });
+    const rejectedEvents = await take(rejectedIterator as never, 3);
+    expect(rejectedEvents.filter((event) => event.type === "command_failed" && event.commandId === "two"))
+      .toHaveLength(1);
+    await rejectedSession.stop({ reason: "shutdown", forceAfterMs: 10 });
+
+    const cancelledLane = new ControlledRuntimeLane();
+    cancelledLane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "opencode:test:1" };
+    cancelledLane.sendPromise = new Promise<LaneAdmission>(() => {});
+    const { session: cancelledSession } = makeSession("opencode", { lane: cancelledLane });
+    const cancelledIterator = cancelledSession.events[Symbol.asyncIterator]();
+    await cancelledSession.start({ id: "one", kind: "user", text: "start" });
+    const sending = cancelledSession.send({ id: "two", kind: "user", text: "steer" });
+    const cancelledInternals = cancelledSession as unknown as {
+      steeringDeliveries: Set<{ cancel(error: Error): void }>;
+    };
+    await vi.waitFor(() => expect(cancelledInternals.steeringDeliveries.size).toBe(1));
+    [...cancelledInternals.steeringDeliveries][0]!.cancel(new Error("external cancellation"));
+    await expect(sending).resolves.toMatchObject({
+      status: "rejected",
+      reason: "runtime_unavailable",
+      error: { code: "delivery_failed" },
+    });
+    const cancelledEvents = await take(cancelledIterator as never, 3);
+    expect(cancelledEvents.filter((event) => event.type === "command_failed" && event.commandId === "two"))
+      .toHaveLength(1);
+    await cancelledSession.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
   it("uses deterministic precedence and cumulative count/total-ms metrics from logical-session facts", async () => {
     let now = 100;
     const lane = new ControlledRuntimeLane();

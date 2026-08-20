@@ -44,6 +44,15 @@ describe("OpenCodeDriver persistent v2 service", () => {
     expect(second).not.toBe(first);
   });
 
+  it("opens a persistent service lane without spawning before start", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "opencode-lane-"));
+    directories.push(directory);
+    await expect(driver.openLane(fakeLaunchContext("opencode", directory))).resolves.toMatchObject({
+      currentSessionId: null,
+    });
+    expect(spawnAgentProcess).not.toHaveBeenCalled();
+  });
+
   it("spawns one loopback service without putting its password in argv", async () => {
     const directory = mkdtempSync(join(tmpdir(), "opencode-driver-"));
     directories.push(directory);

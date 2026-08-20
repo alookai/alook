@@ -29,6 +29,7 @@ describe("ClaudeDriver", () => {
 
   it("encodes same-turn safe-boundary input with the active resumed session", () => {
     const driver = new ClaudeDriver();
+    expect(driver.currentSessionId).toBeNull();
     const rootReceipt = driver.beginTurn();
     const idle = JSON.parse(driver.encodeMessage("first", "session-1", { mode: "idle" }));
     const busy = JSON.parse(driver.encodeMessage("follow up", "session-1", { mode: "busy" }));

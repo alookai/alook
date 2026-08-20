@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
-  BUILTIN_BACKEND_IDS, capabilitiesFor, createAgentDriverRegistry, createBuiltinAgentDriverRegistry,
+  assertAdapterCompatibility, BUILTIN_BACKEND_IDS, capabilitiesFor, createAgentDriverRegistry,
+  createBuiltinAgentDriverRegistry,
 } from "./registry.js";
 import type { BackendCapabilities, BuiltinBackendId } from "./contract.js";
+import { ADAPTER_AUTHOR_CONTRACT_VERSION } from "./adapter-author.js";
 
 /**
  * Every driver declares which `RuntimeConfig` fields it actually consumes,
@@ -24,6 +26,7 @@ describe("driver.capabilities", () => {
   });
 
   it("pins the orthogonal built-in execution matrix and adapter-author version", () => {
+    expect(ADAPTER_AUTHOR_CONTRACT_VERSION).toBe(1);
     const registry = createBuiltinAgentDriverRegistry();
     const expected = {
       claude: {
@@ -131,5 +134,25 @@ describe("adapter registration runtime boundary", () => {
       expect(() => createAgentDriverRegistry([{ ...valid, contractVersion }] as never))
         .toThrow("unsupported adapter-author contract version");
     }
+  });
+
+  it("rejects next-turn delivery adapters that declare a per-turn execution", () => {
+    const adapter = {
+      id: "sixth",
+      instructionDelivery: { kind: "native" },
+      execution: {
+        lifetime: "turn",
+        transport: { kind: "one_shot_cli", protocol: "sixth.test.v1" },
+        wakeStart: "immediate",
+        terminalOwnership: "lane_generation",
+      },
+      probe() {},
+      openLane() {},
+    };
+    expect(() => assertAdapterCompatibility(
+      "sixth",
+      { ...EXPECTED.claude, sessionLifetime: "per_turn" },
+      adapter,
+    )).toThrow("delivery conflicts with its execution lifetime");
   });
 });

@@ -219,7 +219,15 @@ jobs:
       - name: Run Windows process authority fixtures
         run: pnpm --filter @alook/agent-driver exec vitest run src/internal/killTree.test.ts
       - name: Run agent-driver tests in isolation
-        run: pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism
+        run: pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism --coverage --coverage.reporter=json --coverage.reporter=text
+      - name: Upload Windows agent-driver coverage
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./src/daemon/agent-driver/coverage/coverage-final.json
+          disable_search: true
+          fail_ci_if_error: true
+          name: windows-agent-driver
       - name: Run Windows daemon admission fixture
         run: |
           pnpm --filter @alook/agent-driver build

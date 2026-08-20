@@ -8,6 +8,7 @@ import type { AdapterEvent, AdapterLaunchContext, RuntimeLane, SpawnedProcessHan
 import { createAgentDriverSdk } from "../../sdk.js";
 import { fakeLaunchContext } from "../../testing/adapter-fixture.js";
 import { createFakeAgentDriverHost } from "../../testing/fake-host.js";
+import { CursorAcpLane } from "./acp-lane.js";
 import { CursorDriver } from "./index.js";
 
 type RpcMessage = Record<string, unknown>;
@@ -197,6 +198,22 @@ describe("CursorDriver persistent ACP transport", () => {
       acceptedAs: "prompt",
       receipt: "cursor:acp:4",
     });
+    expect(lane.currentSessionId).toBe("cursor-acp-session");
+    await expect(lane.start({ text: "again" })).resolves.toEqual({
+      ok: false,
+      reason: "runtime_error",
+      error: "Cursor ACP session already started",
+    });
+    await expect(lane.send({ text: "busy", mode: "busy" })).resolves.toEqual({
+      ok: false,
+      reason: "unsupported",
+      error: "Cursor ACP does not support mid-turn steering",
+    });
+    await expect(lane.send({ text: "idle", mode: "idle" })).resolves.toEqual({
+      ok: false,
+      reason: "runtime_busy",
+      error: "Cursor ACP prompt is still active",
+    });
 
     expect(lastSpawn).toMatchObject({ args: ["acp"] });
     expect(lastSpawn!.args).not.toContain("--print");
@@ -244,7 +261,88 @@ describe("CursorDriver persistent ACP transport", () => {
     expect(exits).toEqual([]);
   });
 
+  it("rejects non-missing load failures, invalid new ids, and mismatched resumed ids", async () => {
+    installServer({ sessionId: "legacy", loadError: "Permission denied" });
+    const loadFailure = await new CursorDriver().openLane(baseCtx({ config: {
+      sessionId: "legacy",
+      runtimeConfig: { model: { kind: "default" } },
+    } }));
+    eventsFrom(loadFailure);
+    await expect(loadFailure.start({ text: "resume", sessionId: "legacy" }))
+      .rejects.toThrow("Permission denied");
+
+    installServer({ sessionId: "" });
+    const invalid = await new CursorDriver().openLane(baseCtx());
+    eventsFrom(invalid);
+    await expect(invalid.start({ text: "new" })).rejects.toThrow("valid session id");
+
+    installServer({ sessionId: "different" });
+    const mismatched = await new CursorDriver().openLane(baseCtx({ config: {
+      sessionId: "requested",
+      runtimeConfig: { model: { kind: "default" } },
+    } }));
+    eventsFrom(mismatched);
+    await expect(mismatched.start({ text: "resume", sessionId: "requested" })).resolves.toMatchObject({
+      ok: false,
+      reason: "reset_required",
+      error: expect.stringContaining("loaded a different session"),
+    });
+  });
+
+  it("times out an unanswered handshake call", async () => {
+    const process = fakeProcess();
+    const lane = new CursorAcpLane(
+      { spawn: async () => ({ process }) },
+      baseCtx(),
+      { handshakeTimeoutMs: 10 },
+    );
+    lane.on("runtime_event", () => {});
+    lane.on("error", () => {});
+    onClientMessage = () => {};
+
+    await expect(lane.start({ text: "timeout" })).rejects.toThrow("Cursor ACP initialize timed out");
+  });
+
+  it("cleans request and prompt ownership when stdin becomes unwritable", async () => {
+    const requestProcess = fakeProcess();
+    requestProcess.stdin.end();
+    const requestLane = new CursorAcpLane({ spawn: async () => ({ process: requestProcess }) }, baseCtx());
+    requestLane.on("runtime_event", () => {});
+    requestLane.on("error", () => {});
+    await expect(requestLane.start({ text: "request write" })).rejects.toThrow("stdin is not writable");
+
+    installServer();
+    const original = onClientMessage;
+    onClientMessage = (process, message) => {
+      original(process, message);
+      if (message.method === "session/new") process.stdin.end();
+    };
+    const promptLane = await new CursorDriver().openLane(baseCtx());
+    eventsFrom(promptLane);
+    await expect(promptLane.start({ text: "prompt write" })).rejects.toThrow("stdin is not writable");
+  });
+
+  it("fails a handshake response that omits both result and error", async () => {
+    onClientMessage = (process, message) => {
+      if (message.method === "initialize") {
+        process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: message.id })}\n`);
+      }
+    };
+    const lane = await new CursorDriver().openLane(baseCtx());
+    eventsFrom(lane);
+    await expect(lane.start({ text: "missing result" })).rejects.toThrow("response omitted result");
+  });
+
   it.each([
+    {
+      name: "protocol version 1",
+      initialize: {
+        protocolVersion: 2,
+        agentCapabilities: { loadSession: true },
+        authMethods: [{ id: "cursor_login" }],
+      },
+      error: "protocol version 1",
+    },
     {
       name: "loadSession capability",
       initialize: {
@@ -281,7 +379,7 @@ describe("CursorDriver persistent ACP transport", () => {
 
   it("maps a configured model through ACP config options and fails closed when unavailable", async () => {
     const server = installServer({
-      modelOptions: [{ value: "gpt-5.6-sol[reasoning=medium]", name: "gpt-5.6-sol" }],
+      modelOptions: [[{ value: "gpt-5.6-sol[reasoning=medium]", name: "gpt-5.6-sol" }]] as never,
     });
     const lane = await new CursorDriver().openLane(baseCtx({
       config: { runtimeConfig: { model: { kind: "named", name: "gpt-5.6-sol" } } },
@@ -304,6 +402,71 @@ describe("CursorDriver persistent ACP transport", () => {
       reason: "incompatible_configuration",
       error: expect.stringContaining("missing-model"),
     });
+  });
+
+  it("fails closed when requested model configuration is absent or rejected", async () => {
+    installServer();
+    const absent = await new CursorDriver().openLane(baseCtx({
+      config: { runtimeConfig: { model: { kind: "named", name: "gpt-5.6-sol" } } },
+    }));
+    eventsFrom(absent);
+    await expect(absent.start({ text: "configured" })).resolves.toMatchObject({
+      ok: false,
+      reason: "incompatible_configuration",
+      error: expect.stringContaining("does not support model configuration"),
+    });
+
+    installServer({ modelOptions: [{ value: "gpt-5.6-sol", name: "gpt-5.6-sol" }] });
+    const original = onClientMessage;
+    onClientMessage = (process, message) => {
+      if (message.method === "session/set_config_option") fail(process, message, "rejected");
+      else original(process, message);
+    };
+    const rejected = await new CursorDriver().openLane(baseCtx({
+      config: { runtimeConfig: { model: { kind: "named", name: "gpt-5.6-sol" } } },
+    }));
+    eventsFrom(rejected);
+    await expect(rejected.start({ text: "configured" })).resolves.toMatchObject({
+      ok: false,
+      reason: "incompatible_configuration",
+      error: expect.stringContaining("rejected model configuration"),
+    });
+  });
+
+  it("settles malformed and failed prompt responses without leaking ownership", async () => {
+    const server = installServer();
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const events = eventsFrom(lane);
+    await lane.start({ text: "first" });
+    const process = spawned[0]!;
+
+    fail(process, server.prompts[0]!, "Prompt failed", { message: "private vendor detail" });
+    await settle();
+    expect(events).toContainEqual({ kind: "error", message: "Prompt failed: private vendor detail" });
+
+    await lane.send({ text: "second", mode: "idle" });
+    respond(process, server.prompts[1]!, { stopReason: "unknown" });
+    await settle();
+    expect(events).toContainEqual({
+      kind: "error",
+      message: "Cursor ACP prompt response did not contain a supported stopReason",
+    });
+
+    await lane.send({ text: "third", mode: "idle" });
+    process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: server.prompts[2]!.id })}\n`);
+    await settle();
+    expect(events).toContainEqual({ kind: "error", message: "Cursor ACP response omitted result" });
+
+    await lane.send({ text: "fourth", mode: "idle" });
+    respond(process, server.prompts[3]!, { stopReason: "end_turn", usage: { inputTokens: 2, outputTokens: 3 } });
+    await settle();
+    expect(events).toContainEqual({
+      kind: "telemetry",
+      name: "token_usage",
+      source: "cursor.acp",
+      attrs: { inputTokens: 2, outputTokens: 3 },
+    });
+    expect(events.filter((event) => event.kind === "turn_end")).toHaveLength(4);
   });
 
   it("keeps ten identical root turns on one ACP process and correlates terminals by request id", async () => {
@@ -470,6 +633,80 @@ describe("CursorDriver persistent ACP transport", () => {
     completePrompt(process, server.prompts[0]!, "cancelled");
     await settle();
     expect(events).toContainEqual(expect.objectContaining({ kind: "turn_end" }));
+  });
+
+  it("answers unsupported client requests and diagnoses unknown notifications", async () => {
+    const server = installServer();
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const events = eventsFrom(lane);
+    await lane.start({ text: "protocol extensions" });
+    const process = spawned[0]!;
+
+    process.stdout.write(`${JSON.stringify({
+      jsonrpc: "2.0",
+      id: "client-request",
+      method: "terminal_create",
+      params: {},
+    })}\n`);
+    process.stdout.write(`${JSON.stringify({
+      jsonrpc: "2.0",
+      method: "vendor_secret",
+      params: {},
+    })}\n`);
+
+    expect(server.messages).toContainEqual({
+      jsonrpc: "2.0",
+      id: "client-request",
+      error: { code: -32601, message: "Unsupported Cursor ACP client request" },
+    });
+    expect(events).toContainEqual(expect.objectContaining({
+      kind: "runtime_diagnostic",
+      message: "Unsupported Cursor ACP client request: terminal_create",
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      kind: "runtime_diagnostic",
+      message: "Unsupported Cursor ACP notification: vendor_secret",
+    }));
+    const stderr: string[] = [];
+    lane.on("stderr", (text) => stderr.push(text));
+    process.stderr.write("  warning from cursor  \n");
+    expect(stderr).toEqual(["warning from cursor"]);
+  });
+
+  it("fails closed when a client request cannot be written back", async () => {
+    installServer();
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const errors: Error[] = [];
+    lane.on("runtime_event", () => {});
+    lane.on("error", (error) => errors.push(error instanceof Error ? error : new Error(String(error))));
+    await lane.start({ text: "broken response pipe" });
+    const process = spawned[0]!;
+    process.stdin.end();
+    process.stdout.write(`${JSON.stringify({
+      jsonrpc: "2.0",
+      id: "client-request",
+      method: "terminal_create",
+      params: {},
+    })}\n`);
+
+    await vi.waitFor(() => expect(errors).toContainEqual(
+      new Error("Cursor ACP could not answer a client-side protocol request"),
+    ));
+  });
+
+  it.each([
+    { wire: { jsonrpc: "1.0" }, message: "invalid JSON-RPC message" },
+    { wire: { jsonrpc: "2.0" }, message: "unrecognized JSON-RPC message" },
+  ])("fails closed on an $message", async ({ wire, message }) => {
+    installServer();
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const errors: Error[] = [];
+    lane.on("runtime_event", () => {});
+    lane.on("error", (error) => errors.push(error instanceof Error ? error : new Error(String(error))));
+    await lane.start({ text: "invalid protocol" });
+
+    spawned.at(-1)!.stdout.write(`${JSON.stringify(wire)}\n`);
+    await vi.waitFor(() => expect(errors).toContainEqual(new Error(`Cursor ACP emitted an ${message}`)));
   });
 
   it("cancels permissions outside the active root prompt, including after a same-chunk terminal", async () => {
@@ -749,6 +986,14 @@ describe("CursorDriver persistent ACP transport", () => {
       content: { type: "text", text: "hello" },
     });
     update("cursor-acp-session", {
+      sessionUpdate: "agent_thought_chunk",
+      content: { type: "text", text: "thinking" },
+    });
+    update("cursor-acp-session", {
+      sessionUpdate: "user_message_chunk",
+      content: { type: "text", text: "echo" },
+    });
+    update("cursor-acp-session", {
       sessionUpdate: "tool_call",
       toolCallId: "tool-1",
       title: "Read",
@@ -760,6 +1005,8 @@ describe("CursorDriver persistent ACP transport", () => {
       title: "Read",
       status: "completed",
     });
+    update("cursor-acp-session", { sessionUpdate: "tool_call", toolCallId: 42, title: "bad" });
+    update("cursor-acp-session", { sessionUpdate: "plan" });
     update("cursor-acp-session", { sessionUpdate: "secret=value" });
     update("other-session", {
       sessionUpdate: "agent_message_chunk",
@@ -767,8 +1014,14 @@ describe("CursorDriver persistent ACP transport", () => {
     });
 
     expect(events).toContainEqual({ kind: "text", text: "hello" });
+    expect(events).toContainEqual({ kind: "thinking", text: "thinking" });
     expect(events).toContainEqual({ kind: "tool_call", name: "Read", input: { path: "README.md" } });
     expect(events).toContainEqual({ kind: "tool_output", name: "Read" });
+    expect(events).toContainEqual({ kind: "internal_progress", source: "cursor.acp", itemType: "plan" });
+    expect(events).toContainEqual(expect.objectContaining({
+      kind: "runtime_diagnostic",
+      message: "Cursor ACP emitted a malformed tool_call update",
+    }));
     expect(JSON.stringify(events)).not.toContain("secret=value");
     expect(JSON.stringify(events)).not.toContain("must-not-project");
   });
