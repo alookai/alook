@@ -16,7 +16,7 @@ import type { PendingFile } from "@/hooks/use-file-attachments"
 import type { ChannelRefPopupState } from "@/lib/community/channel-ref-extension"
 import type { MentionPopupState } from "@/lib/community/mention-extension"
 import { tid } from "@/lib/community/testids"
-import { EmojiPickerPopover } from "./emoji-picker"
+import { EmojiPickerPopover } from "@/components/community/messages/emoji-picker"
 import {
   ChannelRefList,
   CommunityMentionList,

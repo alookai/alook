@@ -324,6 +324,67 @@ describe("useComposerSuggestions", () => {
         getRect: null,
       })
     })
+    const everyoneState = resultRef.current!.mentionPopup
+    const currentChannelItems = resultRef.current!.channelRefPopup.items
+    mocks.rankMention.mockReturnValue([
+      { kind: "everyone", id: "everyone", label: "everyone" },
+    ])
+    mocks.rankChannel.mockReturnValue(currentChannelItems)
+    await act(async () => {
+      renderer.update(
+        createElement(Harness, {
+          members: [member({ name: "Equal trigger" })],
+          context: "dm",
+          channelRefCandidates: [channel()],
+          resultRef,
+        }),
+      )
+    })
+    expect(resultRef.current!.mentionPopup).toBe(everyoneState)
+
+    mocks.rankMention.mockReturnValue([
+      { kind: "everyone", id: "everyone", label: "all" },
+    ])
+    await act(async () => {
+      renderer.update(
+        createElement(Harness, {
+          members: [member({ name: "Mismatch trigger" })],
+          context: "dm",
+          channelRefCandidates: [channel()],
+          resultRef,
+        }),
+      )
+    })
+    expect(resultRef.current!.mentionPopup.items[0]).toMatchObject({ label: "all" })
+
+    const sameChannelItems = resultRef.current!.channelRefPopup.items
+    const sameChannelState = resultRef.current!.channelRefPopup
+    mocks.rankChannel.mockReturnValue(sameChannelItems)
+    await act(async () => {
+      renderer.update(
+        createElement(Harness, {
+          members: [member({ name: "Mismatch trigger" })],
+          context: "dm",
+          channelRefCandidates: [channel({ serverName: "Same ref trigger" })],
+          resultRef,
+        }),
+      )
+    })
+    expect(resultRef.current!.channelRefPopup).toBe(sameChannelState)
+
+    mocks.rankChannel.mockReturnValue(sameChannelItems.map((item) => ({ ...item })))
+    await act(async () => {
+      renderer.update(
+        createElement(Harness, {
+          members: [member({ name: "Mismatch trigger" })],
+          context: "dm",
+          channelRefCandidates: [channel({ serverName: "Copied trigger" })],
+          resultRef,
+        }),
+      )
+    })
+    expect(resultRef.current!.channelRefPopup).toBe(sameChannelState)
+
     const previousState = resultRef.current!.channelRefPopup
     mocks.rankChannel.mockReturnValue([channel({ serverName: "Two" })])
     await act(async () => {

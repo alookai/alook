@@ -5,8 +5,8 @@ import {
   anchoredPopoverStyle,
   useAnchoredPopover,
 } from "@/hooks/use-anchored-popover"
-import { Avatar } from "../avatar"
-import { ChannelIcon } from "../channels/channel-icon"
+import { Avatar } from "@/components/community/avatar"
+import { ChannelIcon } from "@/components/community/channels/channel-icon"
 import { nextListScrollTop } from "@/lib/community/popup-scroll"
 import { tid } from "@/lib/community/testids"
 import {

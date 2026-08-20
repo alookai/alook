@@ -171,6 +171,21 @@ describe("message channel send helpers", () => {
     expect(runner).toHaveBeenCalledWith("nonce_1")
     expect(mocks.resetTyping).toHaveBeenCalledWith({ channelId: "channel_1" })
     expect(clearReply).toHaveBeenCalledOnce()
+
+    mocks.accept.mockClear()
+    expect(acceptChannelMessage({
+      markdown: "text only",
+      messageScope: scope,
+      viewer,
+      replyTo: null,
+      runAcceptedIntent: runner,
+      channelId: "channel_1",
+      clearReply,
+    })).toBe(true)
+    expect(mocks.accept).toHaveBeenCalledWith(
+      scope,
+      expect.objectContaining({ localUploads: [] }),
+    )
   })
 
   it("reuses settled projections and dispatches all-or-nothing upload failure without sending", async () => {
@@ -223,6 +238,45 @@ describe("message channel send helpers", () => {
     expect(mocks.toastApiError).toHaveBeenCalledWith(expect.any(Error), "Failed to attach file")
     expect(mocks.dispatch).toHaveBeenCalledWith(scope, { type: "uploadFailed", nonce: "nonce_2" })
     expect(sendMessageAsync).not.toHaveBeenCalled()
+
+    mocks.getRetryPayload.mockReturnValueOnce({
+      localUploads: [local],
+      uploadStatus: "settled",
+      message: { content: undefined },
+    })
+    uploadFileAsync.mockResolvedValueOnce({
+      id: "fallback", filename: "a.png", contentType: "image/png", size: 3,
+    })
+    mocks.zip.mockReturnValueOnce([{
+      id: "fallback", filename: "a.png", contentType: "image/png", size: 3,
+    }])
+    sendMessageAsync.mockClear()
+    await runAcceptedMessageIntent({
+      messageScope: scope, nonce: "nonce_3", uploadFileAsync, sendMessageAsync,
+      channelId: "channel_1", serverId: "server_1", viewer,
+    })
+    expect(uploadFileAsync).toHaveBeenCalledTimes(3)
+    expect(sendMessageAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ content: "", nonce: "nonce_3" }),
+    )
+
+    mocks.getRetryPayload.mockReturnValueOnce({
+      localUploads: [local],
+      uploadStatus: "settled",
+      message: {
+        content: "projected file",
+        attachments: [{ kind: "file", url: "/att/projected" }],
+      },
+    })
+    sendMessageAsync.mockClear()
+    await runAcceptedMessageIntent({
+      messageScope: scope, nonce: "nonce_4", uploadFileAsync, sendMessageAsync,
+      channelId: "channel_1", serverId: "server_1", viewer,
+    })
+    expect(sendMessageAsync).toHaveBeenCalledWith(expect.objectContaining({
+      attachments: [expect.not.objectContaining({ hasThumbnail: true })],
+      nonce: "nonce_4",
+    }))
   })
 
   it("uploads in parallel, zips dimensions, dispatches settled VMs, then sends the exact payload", async () => {

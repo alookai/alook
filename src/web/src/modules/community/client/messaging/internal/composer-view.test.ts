@@ -35,7 +35,7 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
 vi.mock("@/components/ui/skeleton", () => ({
   Skeleton: (props: Record<string, unknown>) => createElement("skeleton", props),
 }))
-vi.mock("./emoji-picker", () => ({
+vi.mock("@/components/community/messages/emoji-picker", () => ({
   EmojiPickerPopover: (props: Record<string, unknown>) =>
     createElement("emoji-picker", props),
 }))
@@ -284,6 +284,17 @@ describe("ComposerView", () => {
         (node) =>
           node.type === "div" &&
           node.props.className?.includes("focus-within:ring-2"),
+      ).props.className,
+    ).toContain("rounded-xl")
+
+    await act(async () => {
+      renderer.update(createElement(ComposerView, baseProps({ dragging: true })))
+    })
+    expect(
+      renderer.root.find(
+        (node) =>
+          node.type === "div" &&
+          node.props.className?.includes("border-dashed"),
       ).props.className,
     ).toContain("rounded-xl")
 

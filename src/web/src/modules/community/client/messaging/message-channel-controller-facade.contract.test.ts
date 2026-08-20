@@ -3,7 +3,21 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { ComponentProps, ComponentRef, ReactNode } from "react"
 import type { MentionType } from "@alook/shared"
-import { describe, expect, expectTypeOf, it } from "vitest"
+import { describe, expect, expectTypeOf, it, vi } from "vitest"
+
+const mocks = vi.hoisted(() => ({
+  useController: vi.fn(),
+  renderController: vi.fn(),
+}))
+
+vi.mock("./internal/message-channel-controller-state", () => ({
+  useMessageChannelController: (...args: unknown[]) =>
+    mocks.useController(...args),
+}))
+vi.mock("./internal/message-channel-controller-view", () => ({
+  renderMessageChannelController: (...args: unknown[]) =>
+    mocks.renderController(...args),
+}))
 import * as facade from "./message-channel-controller"
 import type { MessageChannelControllerValue as FacadeControllerValue } from "./message-channel-controller"
 import type {
@@ -82,7 +96,7 @@ type ExpectedControllerProps = {
   children: (controller: ExpectedControllerValue) => ReactNode
 }
 
-const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
+const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../..")
 const source = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
 
 describe("MessageChannelController facade contract", () => {
@@ -95,11 +109,32 @@ describe("MessageChannelController facade contract", () => {
     expectTypeOf<FacadeControllerValue>().toEqualTypeOf<ExpectedControllerValue>()
     expectTypeOf<ExpectedControllerValue>().toEqualTypeOf<FacadeControllerValue>()
     expectTypeOf<ComponentRef<typeof facade.MessageChannelController>>().toEqualTypeOf<never>()
-    const text = source("src/components/community/messages/message-channel-controller.tsx")
+    const text = source("src/modules/community/client/messaging/message-channel-controller.tsx")
     expect(text).toContain("useMessageChannelController(props)")
     expect(text).toContain("return renderMessageChannelController(children, value)")
     expect(text).not.toMatch(/<MessageChannelControllerView\b|createElement\(MessageChannelControllerView/)
     expect(text).not.toMatch(/forwardRef|useImperativeHandle/)
+
+    const children = vi.fn()
+    const props = { children } as ComponentProps<
+      typeof facade.MessageChannelController
+    >
+    const value = { feed: "controller-value" }
+    mocks.useController.mockReturnValue(value)
+    mocks.renderController.mockReturnValue("rendered-controller")
+    expect(facade.MessageChannelController(props)).toBe("rendered-controller")
+    expect(mocks.useController).toHaveBeenCalledWith({})
+    expect(mocks.renderController).toHaveBeenCalledWith(children, value)
+  })
+
+  it("keeps the legacy file as a re-export-only compatibility facade", () => {
+    const text = source("src/components/community/messages/message-channel-controller.tsx")
+    expect(text).toContain(
+      'from "@/modules/community/client/messaging/message-channel-controller"',
+    )
+    expect(text).toMatch(/^export\s+\{/)
+    expect(text).not.toMatch(/\b(import|function|const|let|class|use[A-Z]\w*)\b/)
+    expect(text).not.toMatch(/<\w|=>/)
   })
 
   it("keeps production and test consumers on the original path", () => {
@@ -117,10 +152,10 @@ describe("MessageChannelController facade contract", () => {
   })
 
   it("keeps hook wiring in one owner and pure helpers hook-free", () => {
-    const state = source("src/components/community/messages/message-channel-controller-state.ts")
+    const state = source("src/modules/community/client/messaging/internal/message-channel-controller-state.ts")
     const body = state.slice(state.indexOf("export function useMessageChannelController"))
-    const actions = source("src/components/community/messages/message-channel-controller-actions.ts")
-    const send = source("src/components/community/messages/message-channel-controller-send.ts")
+    const actions = source("src/modules/community/client/messaging/internal/message-channel-controller-actions.ts")
+    const send = source("src/modules/community/client/messaging/internal/message-channel-controller-send.ts")
     const orderedHooks = [
       "const router = useRouter()",
       "const searchParams = useSearchParams()",

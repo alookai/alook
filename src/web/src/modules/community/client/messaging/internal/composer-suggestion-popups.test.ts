@@ -13,10 +13,10 @@ vi.mock("react-dom", () => ({
 vi.mock("@/lib/community/popup-scroll", () => ({
   nextListScrollTop: (...args: unknown[]) => mocks.nextScrollTop(...args),
 }))
-vi.mock("../avatar", () => ({
+vi.mock("@/components/community/avatar", () => ({
   Avatar: (props: Record<string, unknown>) => createElement("avatar", props),
 }))
-vi.mock("../channels/channel-icon", () => ({
+vi.mock("@/components/community/channels/channel-icon", () => ({
   ChannelIcon: (props: Record<string, unknown>) =>
     createElement("channel-icon", props),
 }))
@@ -113,6 +113,31 @@ describe("Composer suggestion popups", () => {
       document.body,
     )
 
+    listNode.querySelector.mockReturnValue(null)
+    await act(async () => {
+      TestRenderer.create(
+        createElement(ChannelRefList, {
+          state: {
+            items: [{
+              id: "channel-1",
+              name: "general",
+              serverId: "server-1",
+              serverName: "One",
+              serverDiscriminator: "0001",
+            }],
+            selectedIndex: -1,
+            command: vi.fn(),
+            getRect: () => rect(500),
+          },
+        }),
+        {
+          createNodeMock: (element) =>
+            element.props.className?.includes("overflow-y-auto") ? listNode : {},
+        },
+      )
+    })
+    expect(listNode.querySelector).toHaveBeenCalledWith('[aria-selected="true"]')
+    expect(mocks.nextScrollTop).not.toHaveBeenCalled()
   })
 
   it("renders virtual/member rows in order and selects on mousedown", async () => {

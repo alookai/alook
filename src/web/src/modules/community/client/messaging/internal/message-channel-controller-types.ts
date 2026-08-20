@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import type { MentionType } from "@alook/shared"
 import type { FileAttachment, ImagePreview, Msg } from "@/lib/community/models/message"
-import type { SendAttachment } from "./composer"
+import type { SendAttachment } from "../composer"
 import type { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 
 type MessageFeed = ReturnType<typeof useChannelMessageFeed>

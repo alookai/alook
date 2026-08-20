@@ -17,7 +17,22 @@ const mocks = vi.hoisted(() => ({
   buildPasteDom: vi.fn(),
   fromSchema: vi.fn(),
   parseSlice: vi.fn(),
+  refs: [] as Array<{ current: unknown }>,
+  refInitialValues: [] as unknown[],
 }))
+
+vi.mock("react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react")>()
+  return {
+    ...actual,
+    useRef: <T,>(initialValue: T) => {
+      const ref = actual.useRef(initialValue)
+      mocks.refs.push(ref as { current: unknown })
+      mocks.refInitialValues.push(initialValue)
+      return ref
+    },
+  }
+})
 
 vi.mock("@tiptap/react", () => ({
   useEditor: (...args: unknown[]) => mocks.useEditor(...args),
@@ -110,6 +125,8 @@ describe("useComposerController", () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.refs.length = 0
+    mocks.refInitialValues.length = 0
     pendingFiles = []
     clearContent = vi.fn()
     focus = vi.fn()
@@ -800,6 +817,140 @@ describe("useComposerController", () => {
       preserveWhitespace: true,
       context,
     })
+  })
+
+  it("covers null-editor, empty/attachment-only, and stale completion defenses", async () => {
+    const nullRef = createRef<ComposerHandle>()
+    mocks.useEditor.mockImplementationOnce((options) => {
+      editorOptions = options
+      return null
+    })
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(
+        createElement(Harness, {
+          ...acceptedProps(() => true),
+          context: "dm",
+          draftKey: undefined,
+          ref: nullRef,
+        }),
+      )
+    })
+    const initialSend = mocks.refInitialValues.find(
+      (value): value is () => void => typeof value === "function",
+    )
+    expect(initialSend).toBeTypeOf("function")
+    initialSend?.()
+    expect(nullRef.current?.isEmpty()).toBe(true)
+    nullRef.current?.submitNow()
+    nullRef.current?.resetAfterSubmit()
+    expect(mocks.placeholderConfigure).toHaveBeenLastCalledWith({
+      placeholder: "Message general",
+    })
+    await act(async () => renderer.unmount())
+
+    const accept = vi.fn(() => true)
+    const handleRef = createRef<ComposerHandle>()
+    await act(async () => {
+      renderer = TestRenderer.create(
+        createElement(Harness, {
+          ...acceptedProps(accept),
+          draftKey: "",
+          ref: handleRef,
+        }),
+      )
+    })
+    await act(async () => {
+      renderer.update(
+        createElement(Harness, {
+          ...acceptedProps(accept),
+          draftKey: undefined,
+          ref: handleRef,
+        }),
+      )
+      editorOptions.onUpdate({ editor })
+    })
+    expect(mocks.writeDraft).not.toHaveBeenCalled()
+
+    editor.isEmpty = true
+    pendingFiles = [{
+      file: new File(["x"], "attachment.txt", { type: "text/plain" }),
+      thumbnailUrl: null,
+      thumbnailBlob: null,
+    }]
+    handleRef.current?.submitNow()
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(accept).toHaveBeenCalledWith("", expect.any(Array), "everyone")
+
+    pendingFiles = []
+    handleRef.current?.submitNow()
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(accept).toHaveBeenCalledOnce()
+    await act(async () => renderer.unmount())
+
+    let resolveFiles!: (files: PendingFile[]) => void
+    const successGate = new Promise<PendingFile[]>((resolve) => {
+      resolveFiles = resolve
+    })
+    mocks.refs.length = 0
+    awaitPendingFiles.mockImplementationOnce(() => successGate)
+    const staleSuccessRef = createRef<ComposerHandle>()
+    await act(async () => {
+      renderer = TestRenderer.create(
+        createElement(Harness, {
+          ...acceptedProps(() => true),
+          ref: staleSuccessRef,
+        }),
+      )
+    })
+    staleSuccessRef.current?.submitNow()
+    const successFlight = mocks.refs.find(
+      (ref) => ref.current instanceof Promise,
+    )
+    expect(successFlight).toBeDefined()
+    successFlight!.current = Promise.resolve()
+    await act(async () => {
+      resolveFiles([])
+      await successGate
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await act(async () => renderer.unmount())
+
+    let rejectFiles!: (error: Error) => void
+    const failureGate = new Promise<PendingFile[]>((_resolve, reject) => {
+      rejectFiles = reject
+    })
+    mocks.refs.length = 0
+    awaitPendingFiles.mockImplementationOnce(() => failureGate)
+    const staleFailureRef = createRef<ComposerHandle>()
+    await act(async () => {
+      renderer = TestRenderer.create(
+        createElement(Harness, {
+          ...acceptedProps(() => true),
+          ref: staleFailureRef,
+        }),
+      )
+    })
+    staleFailureRef.current?.submitNow()
+    const failureFlight = mocks.refs.find(
+      (ref) => ref.current instanceof Promise,
+    )
+    expect(failureFlight).toBeDefined()
+    failureFlight!.current = Promise.resolve()
+    await act(async () => {
+      rejectFiles(new Error("stale failure"))
+      await failureGate.catch(() => undefined)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await act(async () => renderer.unmount())
   })
 
   it("pins the layout/draft/typing ordering boundaries in source", () => {

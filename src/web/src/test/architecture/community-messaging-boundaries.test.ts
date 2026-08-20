@@ -19,17 +19,29 @@ function productionSources(root: string): string[] {
 describe("Community messaging boundaries", () => {
   it("keeps the stable value allowlist exact and hides internal owners", () => {
     expect(Object.keys(messaging).sort()).toEqual([
+      "Composer",
+      "ComposerSkeleton",
+      "MessageChannelController",
       "MessageList",
       "MessageRow",
       "TypingIndicator",
     ])
     const entry = readFileSync(join(MESSAGING_ROOT, "index.ts"), "utf8")
     expect(entry).not.toMatch(/internal\//)
-    expect(entry).not.toMatch(/MessageRowProps/)
+    expect(entry).not.toMatch(
+      /MessageRowProps|ResolvedMessageListProps|MessageChannelControllerProps|ComposerViewProps|MessageActionContext|clipboardFiles|pendingFilesToSendAttachments/,
+    )
   })
 
-  it("keeps all four legacy files as re-export-only facades", () => {
-    const files = ["message-list.tsx", "message-row.tsx", "message.tsx", "typing-indicator.tsx"]
+  it("keeps all six legacy files as re-export-only facades", () => {
+    const files = [
+      "composer.tsx",
+      "message-channel-controller.tsx",
+      "message-list.tsx",
+      "message-row.tsx",
+      "message.tsx",
+      "typing-indicator.tsx",
+    ]
     for (const file of files) {
       const source = readFileSync(join(SRC_ROOT, "components/community/messages", file), "utf8")
       expect(source).toMatch(/^export\s+\{/)
@@ -38,9 +50,11 @@ describe("Community messaging boundaries", () => {
     }
   })
 
-  it("keeps both Views free of client capability ownership", () => {
+  it("keeps all four Views free of client capability ownership", () => {
     const views = [
+      "internal/composer-view.tsx",
       "internal/message-list-view.tsx",
+      "internal/message-channel-controller-view.ts",
       "internal/message-row-view.tsx",
     ]
     for (const file of views) {
@@ -51,9 +65,17 @@ describe("Community messaging boundaries", () => {
   })
 
   it("keeps the new owner independent of superseded production paths", () => {
-    const forbidden = /components\/community\/messages\/(message-list(?:-controller|-types|-row|-view)?|message-row|message|typing-indicator|virtual-cursor-list)(?:["']|$)/
+    const forbidden = /components\/community\/messages\/(composer(?:-types|-view|-suggestion-popups|-file-utils)?|use-composer-(?:controller|suggestions)|message-channel-controller(?:-state|-types|-actions|-send|-view)?|message-list(?:-controller|-types|-row|-view)?|message-row|message|typing-indicator|virtual-cursor-list)(?:["']|$)/
     for (const path of productionSources(MESSAGING_ROOT)) {
       expect(readFileSync(path, "utf8")).not.toMatch(forbidden)
+    }
+  })
+
+  it("keeps Composer and MessageChannelController internals private to messaging", () => {
+    const forbiddenInternal = /modules\/community\/client\/messaging\/internal\/(?:composer|use-composer|message-channel-controller)/
+    for (const path of productionSources(SRC_ROOT)) {
+      if (path.startsWith(MESSAGING_ROOT)) continue
+      expect(readFileSync(path, "utf8"), path).not.toMatch(forbiddenInternal)
     }
   })
 })

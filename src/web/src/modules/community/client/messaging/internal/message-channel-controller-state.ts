@@ -6,7 +6,7 @@ import type { MentionType } from "@alook/shared"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { Msg } from "@/lib/community/models/message"
-import type { SendAttachment } from "./composer"
+import type { SendAttachment } from "../composer"
 import {
   useCommunityStore,
   useTypingNamesForScope,

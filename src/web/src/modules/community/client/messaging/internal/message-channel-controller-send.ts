@@ -1,5 +1,5 @@
 import type { MentionType } from "@alook/shared"
-import type { SendAttachment } from "./composer"
+import type { SendAttachment } from "../composer"
 import type { ReplyTarget, Viewer } from "./message-channel-controller-types"
 import { toOptimisticReplyPreview } from "@/lib/community/reply-preview"
 import {

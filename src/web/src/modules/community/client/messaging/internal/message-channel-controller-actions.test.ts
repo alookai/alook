@@ -91,6 +91,18 @@ describe("createMessageActions", () => {
     vi.stubGlobal("document", { createElement: vi.fn(() => link) })
     harness.actions.onReply("m1")
     expect(harness.setReplyTo).toHaveBeenCalledWith({ id: "m1", authorName: "Viewer", text: "hello" })
+    harness.actions.onReply("missing")
+    harness.actionContext.current.messages = [{
+      ...harness.actionContext.current.messages[0],
+      authorName: undefined,
+      content: undefined,
+    }]
+    harness.actions.onReply("m1")
+    expect(harness.setReplyTo).toHaveBeenLastCalledWith({
+      id: "m1",
+      authorName: "",
+      text: "",
+    })
     harness.actions.onToggleReaction("m1", "👍")
     harness.actions.onReact("m1", "🔥")
     expect(harness.toggleReactionApi).toHaveBeenNthCalledWith(1, {

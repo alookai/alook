@@ -6,7 +6,7 @@ import { avatarInitial } from "@/lib/community/avatar"
 import type {
   MessageChannelControllerProps,
 } from "./message-channel-controller-types"
-import type { MessageChannelControllerValue } from "./message-channel-controller"
+import type { MessageChannelControllerValue } from "../message-channel-controller"
 
 const mocks = vi.hoisted(() => {
   const order: string[] = []
@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => {
     run: vi.fn(async () => {}),
     pathname: "/c/channels/server_1/channel_1",
     seq: null as string | null,
+    searchParamsString: null as string | null,
     sendMutation: vi.fn(),
     reactionMutation: vi.fn(),
     pinMutation: vi.fn(),
@@ -46,15 +47,44 @@ const mocks = vi.hoisted(() => {
     typingScopes: { users: [] as string[], names: [] as string[] },
     typingIds: ["u1"],
     typingNames: { u1: "Alice" },
+    nextFunctionalState: { enabled: false, value: null as unknown },
+  }
+})
+
+vi.mock("react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react")>()
+  return {
+    ...actual,
+    useState: <T,>(initialValue: T | (() => T)) => {
+      const [value, setValue] = actual.useState(initialValue)
+      const setInterceptedValue = (nextValue: T | ((current: T) => T)) => {
+        if (
+          mocks.nextFunctionalState.enabled &&
+          typeof nextValue === "function"
+        ) {
+          mocks.nextFunctionalState.enabled = false
+          setValue(
+            (nextValue as (current: T) => T)(
+              mocks.nextFunctionalState.value as T,
+            ),
+          )
+          return
+        }
+        setValue(nextValue)
+      }
+      return [value, setInterceptedValue] as const
+    },
   }
 })
 
 vi.mock("next/navigation", () => ({
   useRouter: () => mocks.router,
   usePathname: () => mocks.pathname,
-  useSearchParams: () => new URLSearchParams(
-    mocks.seq ? `seq=${mocks.seq}&keep=1` : "",
-  ),
+  useSearchParams: () => {
+    const params = new URLSearchParams(mocks.seq ? `seq=${mocks.seq}&keep=1` : "")
+    if (mocks.searchParamsString === null) return params
+    return { get: (key: string) => params.get(key), toString: () => mocks.searchParamsString }
+  },
 }))
 vi.mock("@/lib/api/client", () => ({
   apiFetch: mocks.apiFetch,
@@ -150,6 +180,7 @@ describe("useMessageChannelController", () => {
     mocks.order.length = 0
     mocks.pathname = "/c/channels/server_1/channel_1"
     mocks.seq = null
+    mocks.searchParamsString = null
     mocks.storeState.pendingReply = null
     mocks.apiFetch.mockResolvedValue({ results: [] })
     mocks.createActions.mockImplementation(() => mocks.messageActions)
@@ -157,6 +188,8 @@ describe("useMessageChannelController", () => {
     mocks.typingScopes.names.length = 0
     mocks.typingIds = ["u1"]
     mocks.typingNames = { u1: "Alice" }
+    mocks.nextFunctionalState.enabled = false
+    mocks.nextFunctionalState.value = null
   })
   afterEach(() => vi.clearAllMocks())
 
@@ -324,6 +357,12 @@ describe("useMessageChannelController", () => {
     expect(mocks.storeState.registerUiHandlers).toHaveBeenCalledWith({
       jumpToSeq: expect.any(Function), openMessageContext: expect.any(Function),
     })
+    const registered = mocks.storeState.registerUiHandlers.mock.calls[0][0]
+    const directTarget = {
+      serverId: "server_1", channelId: "channel_1", label: "general", seq: 8,
+    }
+    act(() => registered.openMessageContext(directTarget))
+    expect(latest.contextTarget).toEqual(directTarget)
 
     act(() => latest.setContextTarget({
       serverId: "server_2", channelId: "channel_2", label: "other", seq: 2,
@@ -380,6 +419,30 @@ describe("useMessageChannelController", () => {
     expect(latest.scrollTargetId).toBe("m1")
     act(() => latest.consumeScrollTarget("m1"))
     expect(latest.scrollTargetId).toBeNull()
+  })
+
+  it("exercises stale scroll cleanup and handles an empty serialized query", () => {
+    const missingFeed = { ...feed, messages: [], isError: true }
+    let renderer: TestRenderer.ReactTestRenderer
+    mocks.nextFunctionalState = { enabled: true, value: "newer" }
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(Probe, {
+        value: props({ feed: missingFeed, anchorMessageId: "missing" }),
+      }))
+    })
+    expect(mocks.nextFunctionalState.enabled).toBe(false)
+    expect(latest.scrollTargetId).toBeNull()
+    act(() => renderer!.unmount())
+
+    mocks.seq = "9"
+    mocks.searchParamsString = ""
+    act(() => {
+      TestRenderer.create(React.createElement(Probe, { value: props() }))
+    })
+    expect(mocks.router.replace).toHaveBeenLastCalledWith(
+      "/c/channels/server_1/channel_1",
+      { scroll: false },
+    )
   })
 
   it("maps search avatars, reports failures, and retains the current unguarded completion race", async () => {
