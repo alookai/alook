@@ -208,8 +208,18 @@ describe("api surface approval guard", () => {
     ];
     for (const path of mechanismPaths) {
       expect(evaluate({ changedPaths: [path], labels: [], reviews: [] }))
-        .toMatchObject({ ok: false, reason: "exactly_one_api_label_required" });
+        .toMatchObject({ ok: false, reason: "current_head_independent_owner_approval_required" });
+      expect(evaluate({ changedPaths: [path], labels: [], reviews: [ownerApproval] }))
+        .toMatchObject({ ok: true, reason: "approved", changedApiPaths: [], changedMechanismPaths: [path] });
     }
+  });
+
+  it("still requires one API label when surface and mechanism paths change together", () => {
+    expect(evaluate({
+      changedPaths: [publicSource, "scripts/ci/api-surface-guard.mjs"],
+      labels: [],
+      reviews: [ownerApproval],
+    })).toMatchObject({ ok: false, reason: "exactly_one_api_label_required" });
   });
 
   it("keeps approval enforcement base-owned and never executes pull-request head code", () => {

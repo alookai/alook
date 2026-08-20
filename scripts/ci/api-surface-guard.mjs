@@ -42,7 +42,11 @@ const API_MECHANISM_PATHS = new Set([
 ]);
 
 export function isApiSurfacePath(path) {
-  return path.startsWith(API_REPORT_PREFIX) || API_SOURCE_PATHS.has(path) || API_MECHANISM_PATHS.has(path);
+  return path.startsWith(API_REPORT_PREFIX) || API_SOURCE_PATHS.has(path);
+}
+
+export function isApiMechanismPath(path) {
+  return API_MECHANISM_PATHS.has(path);
 }
 
 export function collectChangedPaths(files, expectedChangedFileCount) {
@@ -116,43 +120,51 @@ export function parseAdapterAuthorContractVersion(source) {
 
 export function evaluateApiSurfaceGuard(input) {
   const changedApiPaths = input.changedPaths.filter(isApiSurfacePath);
+  const changedMechanismPaths = input.changedPaths.filter(isApiMechanismPath);
+  if (changedApiPaths.length === 0 && changedMechanismPaths.length === 0) {
+    return { ok: true, reason: "no_api_surface_change" };
+  }
+
   const selectedLabels = API_LABELS.filter((label) => input.labels.includes(label));
   const adapterAuthorReportChanged = changedApiPaths.includes(`${API_REPORT_PREFIX}adapter-author.api.md`);
-  const baseVersion = input.baseContractVersion;
-  const headVersion = input.headContractVersion;
-  const baseHasVersion = Number.isSafeInteger(baseVersion) && baseVersion >= 1;
-  const headHasVersion = Number.isSafeInteger(headVersion) && headVersion >= 1;
-  if ((baseVersion !== null && !baseHasVersion) || (headVersion !== null && !headHasVersion)) {
-    return { ok: false, reason: "invalid_adapter_author_contract_version", changedApiPaths };
-  }
-  if (baseHasVersion && (!headHasVersion || headVersion < baseVersion)) {
-    return { ok: false, reason: "adapter_author_contract_version_must_not_regress", changedApiPaths };
-  }
-  if (baseHasVersion && headHasVersion && headVersion > baseVersion) {
-    const isBreakingReportChange = adapterAuthorReportChanged
-      && selectedLabels.length === 1
-      && selectedLabels[0] === "api-breaking";
-    if (!isBreakingReportChange) {
-      return { ok: false, reason: "adapter_author_contract_version_bump_requires_breaking_report", changedApiPaths };
+  let baseVersion;
+  let headVersion;
+  let baseHasVersion;
+  let headHasVersion;
+  if (changedApiPaths.length > 0) {
+    baseVersion = input.baseContractVersion;
+    headVersion = input.headContractVersion;
+    baseHasVersion = Number.isSafeInteger(baseVersion) && baseVersion >= 1;
+    headHasVersion = Number.isSafeInteger(headVersion) && headVersion >= 1;
+    if ((baseVersion !== null && !baseHasVersion) || (headVersion !== null && !headHasVersion)) {
+      return { ok: false, reason: "invalid_adapter_author_contract_version", changedApiPaths };
     }
-  }
-  if (adapterAuthorReportChanged && !headHasVersion) {
-    return { ok: false, reason: "adapter_author_contract_version_required", changedApiPaths };
-  }
-  if (baseVersion === null && headHasVersion) {
-    const isBreakingBootstrap = adapterAuthorReportChanged
-      && selectedLabels.length === 1
-      && selectedLabels[0] === "api-breaking"
-      && headVersion === 1;
-    if (!isBreakingBootstrap) {
-      return { ok: false, reason: "adapter_author_contract_version_bootstrap_requires_breaking_v1", changedApiPaths };
+    if (baseHasVersion && (!headHasVersion || headVersion < baseVersion)) {
+      return { ok: false, reason: "adapter_author_contract_version_must_not_regress", changedApiPaths };
     }
-  }
-
-  if (changedApiPaths.length === 0) return { ok: true, reason: "no_api_surface_change" };
-
-  if (selectedLabels.length !== 1) {
-    return { ok: false, reason: "exactly_one_api_label_required", changedApiPaths };
+    if (baseHasVersion && headHasVersion && headVersion > baseVersion) {
+      const isBreakingReportChange = adapterAuthorReportChanged
+        && selectedLabels.length === 1
+        && selectedLabels[0] === "api-breaking";
+      if (!isBreakingReportChange) {
+        return { ok: false, reason: "adapter_author_contract_version_bump_requires_breaking_report", changedApiPaths };
+      }
+    }
+    if (adapterAuthorReportChanged && !headHasVersion) {
+      return { ok: false, reason: "adapter_author_contract_version_required", changedApiPaths };
+    }
+    if (baseVersion === null && headHasVersion) {
+      const isBreakingBootstrap = adapterAuthorReportChanged
+        && selectedLabels.length === 1
+        && selectedLabels[0] === "api-breaking"
+        && headVersion === 1;
+      if (!isBreakingBootstrap) {
+        return { ok: false, reason: "adapter_author_contract_version_bootstrap_requires_breaking_v1", changedApiPaths };
+      }
+    }
+    if (selectedLabels.length !== 1) {
+      return { ok: false, reason: "exactly_one_api_label_required", changedApiPaths };
+    }
   }
 
   const latestByReviewer = new Map();
@@ -168,7 +180,12 @@ export function evaluateApiSurfaceGuard(input) {
     && review.commitId === input.headSha
   );
   if (!approver) {
-    return { ok: false, reason: "current_head_independent_owner_approval_required", changedApiPaths };
+    return {
+      ok: false,
+      reason: "current_head_independent_owner_approval_required",
+      changedApiPaths,
+      changedMechanismPaths,
+    };
   }
 
   if (selectedLabels[0] === "api-breaking" && adapterAuthorReportChanged) {
@@ -179,7 +196,7 @@ export function evaluateApiSurfaceGuard(input) {
     }
   }
 
-  return { ok: true, reason: "approved", approver: approver.login, changedApiPaths };
+  return { ok: true, reason: "approved", approver: approver.login, changedApiPaths, changedMechanismPaths };
 }
 
 async function githubJson(url, token, allowNotFound = false) {
