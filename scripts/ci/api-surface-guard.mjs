@@ -22,6 +22,36 @@ export function isApiSurfacePath(path) {
   return path.startsWith(API_REPORT_PREFIX) || API_SOURCE_PATHS.has(path);
 }
 
+export function collectChangedPaths(files, expectedChangedFileCount) {
+  if (!Array.isArray(files)) throw new Error("Invalid pull request files response");
+  if (!Number.isSafeInteger(expectedChangedFileCount) || expectedChangedFileCount < 0) {
+    throw new Error("Invalid pull request changed_files count");
+  }
+
+  const returnedFileNames = new Set();
+  const changedPaths = new Set();
+  for (const file of files) {
+    if (!file || typeof file.filename !== "string" || file.filename.length === 0) {
+      throw new Error("Invalid pull request file entry");
+    }
+    returnedFileNames.add(file.filename);
+    changedPaths.add(file.filename);
+    if (file.previous_filename !== undefined) {
+      if (typeof file.previous_filename !== "string" || file.previous_filename.length === 0) {
+        throw new Error("Invalid pull request previous filename");
+      }
+      changedPaths.add(file.previous_filename);
+    }
+  }
+
+  if (returnedFileNames.size !== expectedChangedFileCount) {
+    throw new Error(
+      `Incomplete pull request files response: expected ${expectedChangedFileCount}, received ${returnedFileNames.size}`,
+    );
+  }
+  return [...changedPaths];
+}
+
 export function evaluateApiSurfaceGuard(input) {
   const changedApiPaths = input.changedPaths.filter(isApiSurfacePath);
   if (changedApiPaths.length === 0) return { ok: true, reason: "no_api_surface_change" };
@@ -49,11 +79,11 @@ export function evaluateApiSurfaceGuard(input) {
 
   const adapterAuthorReportChanged = changedApiPaths.includes(`${API_REPORT_PREFIX}adapter-author.api.md`);
   if (selectedLabels[0] === "api-breaking" && adapterAuthorReportChanged) {
-    if (
-      !Number.isInteger(input.baseContractVersion)
-      || !Number.isInteger(input.headContractVersion)
-      || input.headContractVersion <= input.baseContractVersion
-    ) {
+    const isInitialVersion = input.baseContractVersion === null && input.headContractVersion === 1;
+    const isIncrement = Number.isInteger(input.baseContractVersion)
+      && Number.isInteger(input.headContractVersion)
+      && input.headContractVersion > input.baseContractVersion;
+    if (!isInitialVersion && !isIncrement) {
       return { ok: false, reason: "adapter_author_contract_version_must_increase", changedApiPaths };
     }
   }
@@ -127,8 +157,10 @@ async function main() {
   if (pull.base.sha !== baseSha || pull.head.sha !== headSha || pull.user.login !== process.env.API_PR_AUTHOR) {
     throw new Error("Pull request identity changed while evaluating API approval");
   }
-  const changedPaths = (await fetchAllPages(repository, pullNumber, "files", token))
-    .map((file) => file.filename);
+  const changedPaths = collectChangedPaths(
+    await fetchAllPages(repository, pullNumber, "files", token),
+    pull.changed_files,
+  );
   const labels = JSON.parse(process.env.API_LABELS_JSON ?? "[]").map((label) =>
     typeof label === "string" ? label : label.name
   );

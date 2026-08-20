@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { evaluateApiSurfaceGuard } from "./api-surface-guard.mjs";
+import { collectChangedPaths, evaluateApiSurfaceGuard } from "./api-surface-guard.mjs";
 
 const headSha = "b".repeat(40);
 const publicSource = "src/daemon/agent-driver/src/adapter-author.ts";
@@ -42,7 +42,22 @@ describe("api surface approval guard", () => {
     expect(evaluate()).toMatchObject({ ok: true, reason: "approved", approver: "independent-owner" });
   });
 
-  it("requires a numeric contract bump for a breaking adapter-author report", () => {
+  it("allows only version 1 when bootstrapping the adapter-author contract", () => {
+    expect(evaluate({
+      changedPaths: [golden],
+      labels: ["api-breaking"],
+      baseContractVersion: null,
+      headContractVersion: 1,
+    })).toMatchObject({ ok: true });
+    expect(evaluate({
+      changedPaths: [golden],
+      labels: ["api-breaking"],
+      baseContractVersion: null,
+      headContractVersion: 2,
+    })).toMatchObject({ ok: false, reason: "adapter_author_contract_version_must_increase" });
+  });
+
+  it("requires an established adapter-author contract version to increase and forbids removal", () => {
     expect(evaluate({
       changedPaths: [golden],
       labels: ["api-breaking"],
@@ -55,6 +70,31 @@ describe("api surface approval guard", () => {
       baseContractVersion: 1,
       headContractVersion: 2,
     })).toMatchObject({ ok: true });
+    expect(evaluate({
+      changedPaths: [golden],
+      labels: ["api-breaking"],
+      baseContractVersion: 1,
+      headContractVersion: null,
+    })).toMatchObject({ ok: false, reason: "adapter_author_contract_version_must_increase" });
+  });
+
+  it("includes a rename's protected previous path without inflating the returned file count", () => {
+    const changedPaths = collectChangedPaths([{
+      filename: "src/daemon/agent-driver/src/internal/legacy-adapter-author.ts",
+      previous_filename: publicSource,
+    }], 1);
+    expect(changedPaths).toEqual([
+      "src/daemon/agent-driver/src/internal/legacy-adapter-author.ts",
+      publicSource,
+    ]);
+    expect(evaluate({ changedPaths, labels: [], reviews: [] }))
+      .toMatchObject({ ok: false, reason: "exactly_one_api_label_required" });
+  });
+
+  it("fails closed when the pull request files response is incomplete", () => {
+    expect(() => collectChangedPaths([
+      { filename: "src/daemon/agent-driver/src/adapters/claude/index.ts" },
+    ], 2)).toThrow("Incomplete pull request files response: expected 2, received 1");
   });
 
   it("does not require an API label or review for unrelated internal changes", () => {
