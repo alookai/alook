@@ -36,6 +36,7 @@ type SessionState = AgentSessionSnapshot["state"];
 interface QueuedCommand {
   message: AgentMessage;
   reason: "unsafe_boundary" | "runtime_busy" | "waiting_for_message";
+  queuedAt: number;
 }
 
 interface CommandRecord {
@@ -48,6 +49,15 @@ interface SafeBoundaryDelivery {
   item: QueuedCommand;
   activeTurn: { turnId: string; commandIds: string[] };
   finalized: boolean;
+}
+
+interface SteeringDelivery {
+  message: AgentMessage;
+  activeTurn: ActiveTurn;
+  finalized: boolean;
+  failure?: AgentDriverError;
+  cancel(error: AgentDriverError): void;
+  cancellation: Promise<never>;
 }
 
 interface TurnAdmission {
@@ -116,6 +126,7 @@ implements AgentSession<Specs, Id> {
   private activeTurn?: ActiveTurn;
   private readonly queued: QueuedCommand[] = [];
   private readonly commands = new Map<string, CommandRecord>();
+  private readonly commandAdmittedAt = new Map<string, number>();
   private startedAdmitted = false;
   private eventSequence = 0;
   private resolveClosed!: (result: AgentSessionResult) => void;
@@ -129,6 +140,9 @@ implements AgentSession<Specs, Id> {
   private outstandingToolUses = 0;
   private compacting = false;
   private reviewing = false;
+  private readonly steeringDeliveries = new Set<SteeringDelivery>();
+  private steeringTail: Promise<void> = Promise.resolve();
+  private steeringPhysicalPending = 0;
   private toolBoundaryFlushDisabled = false;
   private safeBoundaryFlush?: Promise<void>;
   private safeBoundaryDelivery?: SafeBoundaryDelivery;
@@ -136,6 +150,14 @@ implements AgentSession<Specs, Id> {
   private instructionsMaterialized = false;
   private lifecycleGeneration = 0;
   private closedLaneTombstone?: ClosedLaneTombstone;
+  private physicalOpenCount = 0;
+  private turnCount = 0;
+  private commandAdmissionCount = 0;
+  private commandAdmissionLatencyTotalMs = 0;
+  private queueDwellCount = 0;
+  private queueDwellTotalMs = 0;
+  private sseReconnectCount = 0;
+  private resumeOutcome: AgentSessionSnapshot["diagnostics"]["metrics"]["resumeOutcome"];
 
   private readonly eventQueue: BufferedEventQueue<AgentEvent<Specs, Id>>;
   private readonly behavior;
@@ -157,6 +179,7 @@ implements AgentSession<Specs, Id> {
   ) {
     this.capabilities = capabilities;
     this.behavior = this.capabilities as import("../contract.js").BackendCapabilities;
+    this.resumeOutcome = launch.resumeSessionId ? "pending" : "not_requested";
     this.sessionInstanceId = host.createId();
     this.closed = new Promise((resolve) => { this.resolveClosed = resolve; });
     this.eventQueue = new BufferedEventQueue(
@@ -210,6 +233,7 @@ implements AgentSession<Specs, Id> {
     const stopRequestId = this.enterStopping();
     this.failTurnAdmission("cancelled", "session_stopping", "Session is stopping");
     this.failSafeBoundaryDelivery("cancelled", "session_stopping", "Session is stopping");
+    this.failSteeringDeliveries("cancelled", "session_stopping", "Session is stopping");
     this.failQueued("cancelled", "session_stopping", "Session is stopping");
     let forced = false;
     let stopFailure: AgentDriverError | undefined;
@@ -281,6 +305,20 @@ implements AgentSession<Specs, Id> {
         kind: message.kind,
       })),
       lastEventSequence: this.eventSequence,
+      diagnostics: {
+        deliveryPhase: this.deliveryPhase(),
+        metrics: {
+          physicalOpenCount: this.metricValue(this.physicalOpenCount),
+          turnCount: this.metricValue(this.turnCount),
+          commandAdmissionCount: this.metricValue(this.commandAdmissionCount),
+          commandAdmissionLatencyTotalMs: this.metricValue(this.commandAdmissionLatencyTotalMs),
+          queueDwellCount: this.metricValue(this.queueDwellCount),
+          queueDwellTotalMs: this.metricValue(this.queueDwellTotalMs),
+          sseReconnectCount: this.metricValue(this.sseReconnectCount),
+          resumeOutcome: this.resumeOutcome,
+          terminalOwnerKind: this.adapter.execution.terminalOwnership,
+        },
+      },
     };
   }
 
@@ -298,7 +336,11 @@ implements AgentSession<Specs, Id> {
       if (existing.method === method && existing.canonical === canonical) return existing.promise;
       return Promise.resolve({ status: "rejected", reason: "duplicate_conflict" });
     }
-    const promise = this.admitFresh(method, message);
+    this.commandAdmittedAt.set(message.id, this.metricNow());
+    const promise = this.admitFresh(method, message).then((receipt) => {
+      if (receipt.status === "rejected") this.commandAdmittedAt.delete(message.id);
+      return receipt;
+    });
     this.commands.set(message.id, { method, canonical, promise });
     return promise;
   }
@@ -326,25 +368,15 @@ implements AgentSession<Specs, Id> {
     if (!this.startedAdmitted) return { status: "rejected", reason: "not_started" };
     if (this.state === "awaiting_first_message") {
       if (message.kind === "system") return this.queue(message, "waiting_for_message");
-      const prefix = this.queued.splice(0).map((item) => item.message);
+      const prefix = this.queued.splice(0).map((item) => {
+        this.recordQueueDwell(item);
+        return item.message;
+      });
       return this.startTurn([...prefix, message], "prompt");
     }
     if (this.state === "working" || this.state === "starting") {
       if (this.behavior.midTurnDelivery === "steer" && this.activeTurn && this.lane) {
-        await this.sendLane(message.text, "busy");
-        this.activeTurn.commandIds.push(message.id);
-        this.emit({
-          type: "command_accepted",
-          commandId: message.id,
-          turnId: this.activeTurn.turnId,
-          delivery: "steer",
-        });
-        return {
-          status: "accepted",
-          delivery: "steer",
-          commandId: message.id,
-          turnId: this.activeTurn.turnId,
-        };
+        return this.deliverSteer(message, this.activeTurn);
       }
       const reason = this.behavior.midTurnDelivery === "safe_boundary_queue"
         ? "unsafe_boundary"
@@ -355,6 +387,12 @@ implements AgentSession<Specs, Id> {
       }
       return receipt;
     }
+    if (
+      this.state === "idle"
+      && (this.queued.length > 0 || this.safeBoundaryFlush !== undefined || this.safeBoundaryDelivery !== undefined)
+    ) {
+      return this.queue(message, "runtime_busy");
+    }
     return this.startTurn([message], "prompt");
   }
 
@@ -363,7 +401,7 @@ implements AgentSession<Specs, Id> {
     reason: QueuedCommand["reason"],
     nextState?: SessionState,
   ): DeliveryReceipt {
-    this.queued.push({ message, reason });
+    this.queued.push({ message, reason, queuedAt: this.metricNow() });
     if (nextState) this.state = nextState;
     this.emit({ type: "command_queued", commandId: message.id, reason });
     return { status: "queued", reason, commandId: message.id };
@@ -402,6 +440,10 @@ implements AgentSession<Specs, Id> {
     try {
       let laneAdmission: LaneAdmission;
       if (this.adapter.execution.lifetime === "session" && this.lane) {
+        if (this.steeringPhysicalPending > 0) {
+          await this.steeringTail;
+          if (!this.isStartCurrent(generation, turnId)) return { status: "rejected", reason: "closed" };
+        }
         laneAdmission = await this.sendLane(text, "idle");
       } else {
         const opened = await this.openLane(text, generation);
@@ -426,6 +468,11 @@ implements AgentSession<Specs, Id> {
       const failure = error instanceof StructuredLaneAdmissionError
         ? driverError("configuration", error.code, error.message, false)
         : driverError("process", "failed_to_start", String(error), true);
+      if (this.launch.resumeSessionId && this.resumeOutcome === "pending") {
+        this.resumeOutcome = error instanceof StructuredLaneAdmissionError && error.code === "reset_required"
+          ? "reset_required"
+          : "failed";
+      }
       this.failTurnAdmissionWithError(failure);
       this.activeTurn = undefined;
       const failedLane = this.lane;
@@ -478,6 +525,7 @@ implements AgentSession<Specs, Id> {
         text,
       }),
     });
+    this.physicalOpenCount += 1;
     this.lane = lane;
     this.attachLane(lane, generation);
     if (!this.isOpenCurrent(generation)) {
@@ -549,6 +597,9 @@ implements AgentSession<Specs, Id> {
     const turnId = this.activeTurn?.turnId ?? this.reopenClosedLaneForWork(event, physicalOwner, generation);
     switch (event.kind) {
       case "session_init":
+        if (this.launch.resumeSessionId && this.resumeOutcome === "pending") {
+          this.resumeOutcome = event.sessionId === this.launch.resumeSessionId ? "resumed" : "failed";
+        }
         if (this.backendSessionId !== event.sessionId) {
           this.backendSessionId = event.sessionId;
           this.emit({ type: "session_started", backendSessionId: event.sessionId });
@@ -612,6 +663,9 @@ implements AgentSession<Specs, Id> {
           source: event.source,
           message: scrubDriverErrorMessage(event.message, "Runtime diagnostic"),
         });
+        return;
+      case "runtime_metric":
+        if (event.name === "sse_reconnect" && event.increment === 1) this.sseReconnectCount += 1;
         return;
       case "telemetry": {
         const details = jsonValue(event.attrs) as JsonObject;
@@ -708,6 +762,12 @@ implements AgentSession<Specs, Id> {
       "turn_completed_before_command_acceptance",
       "Turn completed before command acceptance",
     );
+    this.failSteeringDeliveries(
+      "cancelled",
+      "turn_completed_before_command_acceptance",
+      "Turn completed before command acceptance",
+      active,
+    );
     if (sessionId && this.backendSessionId !== sessionId) {
       this.backendSessionId = sessionId;
       this.emit({ type: "session_started", backendSessionId: sessionId });
@@ -774,6 +834,7 @@ implements AgentSession<Specs, Id> {
   private async drainSafeBoundaryQueue(): Promise<void> {
     while (this.canFlushSafeBoundaryQueue()) {
       const item = this.queued.shift()!;
+      this.recordQueueDwell(item);
       const activeTurn = this.activeTurn!;
       const delivery: SafeBoundaryDelivery = { item, activeTurn, finalized: false };
       this.safeBoundaryDelivery = delivery;
@@ -856,6 +917,7 @@ implements AgentSession<Specs, Id> {
     admission.accepted = true;
     if (this.turnAdmission === admission) this.turnAdmission = undefined;
     this.state = "working";
+    this.turnCount += 1;
     for (const message of admission.messages) {
       this.emit({
         type: "command_accepted",
@@ -877,6 +939,7 @@ implements AgentSession<Specs, Id> {
   private async startNextQueued(): Promise<void> {
     if (this.state !== "idle" || this.queued.length === 0) return;
     const item = this.queued.shift()!;
+    this.recordQueueDwell(item);
     await this.startTurn([item.message], "prompt");
   }
 
@@ -916,11 +979,20 @@ implements AgentSession<Specs, Id> {
   }
 
   private emit(payload: CoreAgentEventPayload): void {
+    const at = this.metricNow();
+    if (payload.type === "command_accepted" || payload.type === "command_failed") {
+      const admittedAt = this.commandAdmittedAt.get(payload.commandId);
+      if (admittedAt !== undefined) {
+        this.commandAdmittedAt.delete(payload.commandId);
+        this.commandAdmissionCount += 1;
+        this.commandAdmissionLatencyTotalMs += Math.max(0, at - admittedAt);
+      }
+    }
     const event = {
       ...payload,
       sequence: ++this.eventSequence,
       sessionInstanceId: this.sessionInstanceId,
-      at: this.host.now(),
+      at,
     } as AgentEvent<Specs, Id>;
     this.eventQueue.push(event, payload.type === "session_closed");
   }
@@ -928,7 +1000,108 @@ implements AgentSession<Specs, Id> {
   private failQueued(category: AgentDriverError["category"], code: string, message: string): void {
     const error = driverError(category, code, message);
     for (const item of this.queued.splice(0)) {
+      this.recordQueueDwell(item);
       this.emit({ type: "command_failed", commandId: item.message.id, error });
+    }
+  }
+
+  private deliveryPhase(): AgentSessionSnapshot["diagnostics"]["deliveryPhase"] {
+    if (this.state === "stopping" || this.state === "closed") return "idle";
+    if (this.turnAdmission) return "admission_wait";
+    if (this.steeringDeliveries.size > 0 || this.safeBoundaryDelivery) return "steering";
+    if (this.behavior.midTurnDelivery === "next_turn_queue" && this.queued.length > 0) return "next_turn_queued";
+    if (this.compacting) return "compacting";
+    if (this.reviewing) return "reviewing";
+    if (this.outstandingToolUses > 0) return "tool_wait";
+    if (this.activeTurn) return "working";
+    return "idle";
+  }
+
+  private metricNow(): number {
+    const now = this.host.now();
+    return Number.isFinite(now) && now >= 0 ? now : 0;
+  }
+
+  private metricValue(value: number): number {
+    return Number.isFinite(value) && value >= 0 ? value : 0;
+  }
+
+  private recordQueueDwell(item: QueuedCommand): void {
+    this.queueDwellCount += 1;
+    this.queueDwellTotalMs += Math.max(0, this.metricNow() - item.queuedAt);
+  }
+
+  private async deliverSteer(message: AgentMessage, activeTurn: ActiveTurn): Promise<DeliveryReceipt> {
+    let rejectCancellation!: (error: AgentDriverError) => void;
+    const cancellation = new Promise<never>((_resolve, reject) => { rejectCancellation = reject; });
+    const delivery: SteeringDelivery = {
+      message,
+      activeTurn,
+      finalized: false,
+      cancellation,
+      cancel(error) {
+        rejectCancellation(error);
+      },
+    };
+    this.steeringDeliveries.add(delivery);
+    this.steeringPhysicalPending += 1;
+    const physical = this.steeringTail.then(async () => {
+      if (delivery.finalized || this.activeTurn !== activeTurn) {
+        throw delivery.failure ?? driverError(
+          "cancelled",
+          "turn_closed_before_command_acceptance",
+          "Turn closed before command acceptance",
+        );
+      }
+      await this.sendLane(message.text, "busy");
+    }).finally(() => { this.steeringPhysicalPending = Math.max(0, this.steeringPhysicalPending - 1); });
+    this.steeringTail = physical.then(() => {}, () => {});
+    try {
+      await Promise.race([physical, cancellation]);
+      if (delivery.finalized || this.activeTurn !== activeTurn) {
+        throw delivery.failure ?? driverError(
+          "cancelled",
+          "turn_closed_before_command_acceptance",
+          "Turn closed before command acceptance",
+        );
+      }
+      delivery.finalized = true;
+      activeTurn.commandIds.push(message.id);
+      this.emit({ type: "command_accepted", commandId: message.id, turnId: activeTurn.turnId, delivery: "steer" });
+      return { status: "accepted", delivery: "steer", commandId: message.id, turnId: activeTurn.turnId };
+    } catch (error) {
+      const failure = delivery.failure ?? (typeof error === "object" && error !== null && "category" in error
+        ? error as AgentDriverError
+        : driverError("process", "delivery_failed", String(error), true));
+      if (!delivery.finalized) {
+        delivery.finalized = true;
+        this.emit({ type: "command_failed", commandId: message.id, turnId: activeTurn.turnId, error: failure });
+      }
+      return { status: "rejected", reason: "runtime_unavailable", error: failure };
+    } finally {
+      this.steeringDeliveries.delete(delivery);
+    }
+  }
+
+  private failSteeringDeliveries(
+    category: AgentDriverError["category"],
+    code: string,
+    message: string,
+    activeTurn?: ActiveTurn,
+  ): void {
+    const error = driverError(category, code, message);
+    for (const delivery of this.steeringDeliveries) {
+      if (activeTurn && delivery.activeTurn !== activeTurn) continue;
+      if (delivery.finalized) continue;
+      delivery.finalized = true;
+      delivery.failure = error;
+      this.emit({
+        type: "command_failed",
+        commandId: delivery.message.id,
+        turnId: delivery.activeTurn.turnId,
+        error,
+      });
+      delivery.cancel(error);
     }
   }
 
@@ -988,6 +1161,11 @@ implements AgentSession<Specs, Id> {
           "Session closed before command acceptance",
         );
         this.failSafeBoundaryDelivery(
+          "cancelled",
+          "session_closed",
+          "Session closed before command acceptance",
+        );
+        this.failSteeringDeliveries(
           "cancelled",
           "session_closed",
           "Session closed before command acceptance",

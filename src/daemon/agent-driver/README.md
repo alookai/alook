@@ -53,3 +53,52 @@ const result = await session.closed;
 await eventsDone;
 void { result, observedText };
 ```
+
+## Built-in execution matrix
+
+All built-ins keep one physical lane for the lifetime of a logical session.
+There is no per-turn built-in fallback.
+
+| Backend | Physical lifetime | Transport | Busy delivery | Terminal owner |
+|---|---|---|---|---|
+| Claude | session | `stdio_stream` / `claude.stream-json.v1` | `safe_boundary_queue` | `vendor_message` |
+| Codex | session | `stdio_rpc` / `codex.app-server.v1` | `safe_boundary_queue` | `transport_request` |
+| Cursor | session | `stdio_rpc` / `cursor.acp.v1` | `next_turn_queue` | `transport_request` |
+| OpenCode | session | `http_sse` / `opencode.v2.service.1.17.20` | `steer` | `transport_request` |
+| Pi | session | `in_process_sdk` / `pi_sdk` | `steer` | `prompt_invocation` |
+
+## Diagnostics
+
+`session.snapshot().diagnostics` is the public, read-only diagnostic surface.
+`deliveryPhase` comes from the same logical-session facts that own admission and
+FIFO delivery. Its fixed precedence is admission wait, in-flight steering,
+next-turn queue, compaction, review, tool wait, generic work, then idle. This
+keeps a queued or in-flight delivery from being hidden by a generic working
+state.
+
+The accompanying metrics are cumulative and contain no prompt, response, tool,
+credential, path, or vendor payload:
+
+- physical opens and logical turns;
+- command-admission count and total admission latency in milliseconds;
+- queue-dwell count and total dwell time in milliseconds;
+- SSE reconnect count;
+- resume outcome and terminal-owner kind.
+
+Every numeric metric is finite and non-negative. A latency or dwell value is a
+`*TotalMs` accumulator, not an instantaneous sample.
+
+## Migration from daemon-owned runtimes
+
+Consumers should create one `AgentSession`, attach its event iterator before
+`start`, and keep that session until `closed` settles. Do not spawn a backend per
+turn or infer completion from text, idle notifications, process exit, or SDK
+callbacks that do not own the current terminal receipt. Each command settles
+exactly once through `command_accepted` or `command_failed`; a queued receipt is
+not final.
+
+The old daemon trace field `apmPhase` has been removed. Trace consumers should
+read `deliveryPhase` and the allowlisted cumulative metrics projected from the
+session snapshot. The daemon's pending-delivery mode is used only during the
+narrow interval before the driver has observed an admission; after that, the
+snapshot is authoritative.

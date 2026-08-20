@@ -326,7 +326,7 @@ describe("daemon runner logger", () => {
       resetting: false,
       resettingSince: null,
       stoppingSince: null,
-      apmPhase: "idle",
+      deliveryPhase: "idle",
       effects: [],
       nowMs: eventTime,
       timeIso: new Date(eventTime).toISOString(),

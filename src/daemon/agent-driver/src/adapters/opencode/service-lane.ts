@@ -619,6 +619,11 @@ export class OpenCodeServiceLane implements RuntimeLane {
       }
       this.durableGap = true;
       this.durableGate = makeGate();
+      this.events.emit("runtime_event", {
+        kind: "runtime_metric",
+        name: "sse_reconnect",
+        increment: 1,
+      } satisfies AdapterEvent);
       await delay(this.options.reconnectDelayMs ?? RECONNECT_DELAY_MS);
     }
   }
@@ -644,6 +649,11 @@ export class OpenCodeServiceLane implements RuntimeLane {
         this.diagnostic("warning", "OpenCode live event stream reconnecting after transport failure");
       }
       this.liveGate = makeGate();
+      this.events.emit("runtime_event", {
+        kind: "runtime_metric",
+        name: "sse_reconnect",
+        increment: 1,
+      } satisfies AdapterEvent);
       await delay(this.options.reconnectDelayMs ?? RECONNECT_DELAY_MS);
     }
   }

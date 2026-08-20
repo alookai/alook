@@ -9,6 +9,28 @@ const line = (value: unknown): string => JSON.stringify(value);
 describe("builtin adapter protocol conformance", () => {
   const registry = createBuiltinAgentDriverRegistry();
 
+  it("locks the exact built-in lifetime, transport, delivery, and terminal-owner matrix", () => {
+    const expected = {
+      claude: ["session", "stdio_stream", "claude.stream-json.v1", "safe_boundary_queue", "vendor_message"],
+      codex: ["session", "stdio_rpc", "codex.app-server.v1", "safe_boundary_queue", "transport_request"],
+      cursor: ["session", "stdio_rpc", "cursor.acp.v1", "next_turn_queue", "transport_request"],
+      opencode: ["session", "http_sse", "opencode.v2.service.1.17.20", "steer", "transport_request"],
+      pi: ["session", "in_process_sdk", "pi_sdk", "steer", "prompt_invocation"],
+    } as const;
+    const actual = Object.fromEntries(registry.backendIds.map((backend) => {
+      const registration = registry.get(backend);
+      const execution = registration.createAdapter().execution;
+      return [backend, [
+        execution.lifetime,
+        execution.transport.kind,
+        execution.transport.protocol,
+        registration.capabilities.midTurnDelivery,
+        execution.terminalOwnership,
+      ]];
+    }));
+    expect(actual).toEqual(expected);
+  });
+
   it("runs the real Claude adapter through the shared normalized-event contract", () => {
     const events = runAgentBackendAdapterConformance(registry.get("claude"), {
       exercise(adapter) {

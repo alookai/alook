@@ -727,7 +727,11 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
     killers.set(service.process.pid, () => service.close());
     service.holdDurableConnections = true;
     service.disconnectDurable();
-    await new Promise((resolve) => setTimeout(resolve, 15));
+    await vi.waitFor(() => expect(runtime.filter((event) => event.kind === "runtime_metric")).toEqual([{
+      kind: "runtime_metric",
+      name: "sse_reconnect",
+      increment: 1,
+    }]));
 
     const before = service.prompts.length;
     const steer = lane.send({ text: "after-gap", mode: "busy" });
@@ -745,6 +749,7 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
 
   it("replies allow-once to live and recovered pending permissions", async () => {
     const lane = makeLane();
+    const { runtime } = collectEvents(lane);
     await lane.start({ text: "root", terminalOwner: "msg_root" });
     const service = factories.at(-1)!.service!;
     killers.set(service.process.pid, () => service.close());
@@ -757,6 +762,11 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
       resources: ["file"],
     });
     service.disconnectLive();
+    await vi.waitFor(() => expect(runtime.filter((event) => event.kind === "runtime_metric")).toEqual([{
+      kind: "runtime_metric",
+      name: "sse_reconnect",
+      increment: 1,
+    }]));
     await vi.waitFor(() => expect(service.permissionReplies).toContainEqual({ id: "per_recovered", reply: "once" }));
     await lane.stop({ reason: "test", forceAfterMs: 0 });
   });

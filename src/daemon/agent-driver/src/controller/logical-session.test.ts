@@ -121,6 +121,8 @@ class ControlledRuntimeLane implements RuntimeLane {
   readonly events = new EventEmitter();
   startAdmission: LaneAdmission = { ok: true, acceptedAs: "prompt", receipt: "claude:test:1" };
   sendAdmission: LaneAdmission = { ok: true, acceptedAs: "prompt", receipt: "claude:test:2" };
+  startPromise?: Promise<LaneAdmission>;
+  sendPromise?: Promise<LaneAdmission>;
   onStart?: (input: LaneStartInput) => void;
   onSend?: (input: LaneSendInput) => void;
   readonly stop = vi.fn(async () => {});
@@ -134,11 +136,11 @@ class ControlledRuntimeLane implements RuntimeLane {
   }
   start(input: LaneStartInput): Promise<LaneAdmission> {
     this.onStart?.(input);
-    return Promise.resolve(this.startAdmission);
+    return this.startPromise ?? Promise.resolve(this.startAdmission);
   }
   send(input: LaneSendInput): Promise<LaneAdmission> {
     this.onSend?.(input);
-    return Promise.resolve(this.sendAdmission);
+    return this.sendPromise ?? Promise.resolve(this.sendAdmission);
   }
   emit(event: AdapterEvent): void {
     this.events.emit("runtime_event", event);
@@ -148,6 +150,12 @@ class ControlledRuntimeLane implements RuntimeLane {
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
   const promise = new Promise<void>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+function deferredValue<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
 }
 
@@ -195,13 +203,15 @@ function makeSession<Id extends BuiltinBackendId>(
     lane?: RuntimeLane;
     authoritativeOwner?: boolean;
     promptAdmissionTimeoutMs?: number;
+    now?: () => number;
   } = {},
 ) {
   const driver = new FakeDriver(backend, options.execution ?? executionFor(backend));
   driver.laneOverride = options.lane;
   driver.promptAdmissionTimeoutMs = options.promptAdmissionTimeoutMs;
   if (options.authoritativeOwner) driver.beginTurn = undefined;
-  const host = createFakeAgentDriverHost(options.prepared);
+  const baseHost = createFakeAgentDriverHost(options.prepared);
+  const host = options.now ? { ...baseHost, now: options.now } : baseHost;
   const prepared: PreparedExecutionResource = {
     environmentLayers: {
       base: {}, hostStatic: {}, identityProtected: {}, platformProtected: {},
@@ -439,6 +449,149 @@ describe("runtime-lane admission state machine", () => {
       error: { code: "failed_to_start" },
     });
     expect(lane.stop).toHaveBeenCalledOnce();
+  });
+});
+
+describe("logical delivery diagnostics", () => {
+  it("uses deterministic precedence and cumulative count/total-ms metrics from logical-session facts", async () => {
+    let now = 100;
+    const lane = new ControlledRuntimeLane();
+    const startGate = deferredValue<LaneAdmission>();
+    lane.startPromise = startGate.promise;
+    const { session } = makeSession("claude", { lane, now: () => now });
+
+    expect(session.snapshot().diagnostics).toEqual({
+      deliveryPhase: "idle",
+      metrics: {
+        physicalOpenCount: 0,
+        turnCount: 0,
+        commandAdmissionCount: 0,
+        commandAdmissionLatencyTotalMs: 0,
+        queueDwellCount: 0,
+        queueDwellTotalMs: 0,
+        sseReconnectCount: 0,
+        resumeOutcome: "not_requested",
+        terminalOwnerKind: "vendor_message",
+      },
+    });
+
+    const starting = session.start({ id: "one", kind: "user", text: "start" });
+    await Promise.resolve();
+    expect(session.snapshot().diagnostics.deliveryPhase).toBe("admission_wait");
+    now = 110;
+    startGate.resolve({ ok: true, acceptedAs: "prompt", receipt: "claude:test:1" });
+    await starting;
+    expect(session.snapshot().diagnostics).toMatchObject({
+      deliveryPhase: "working",
+      metrics: {
+        physicalOpenCount: 1,
+        turnCount: 1,
+        commandAdmissionCount: 1,
+        commandAdmissionLatencyTotalMs: 10,
+      },
+    });
+
+    lane.emit({ kind: "tool_call", name: "Read", input: {} });
+    expect(session.snapshot().diagnostics.deliveryPhase).toBe("tool_wait");
+    lane.emit({ kind: "review_started" });
+    expect(session.snapshot().diagnostics.deliveryPhase).toBe("reviewing");
+    lane.emit({ kind: "compaction_started" });
+    expect(session.snapshot().diagnostics.deliveryPhase).toBe("compacting");
+    lane.emit({ kind: "compaction_finished" });
+    expect(session.snapshot().diagnostics.deliveryPhase).toBe("reviewing");
+    lane.emit({ kind: "review_finished" });
+    expect(session.snapshot().diagnostics.deliveryPhase).toBe("tool_wait");
+
+    now = 120;
+    expect(await session.send({ id: "two", kind: "user", text: "queued" })).toMatchObject({ status: "queued" });
+    const sendGate = deferredValue<LaneAdmission>();
+    lane.sendPromise = sendGate.promise;
+    now = 135;
+    lane.emit({ kind: "tool_output", name: "Read" });
+    await Promise.resolve();
+    expect(session.snapshot().diagnostics.deliveryPhase).toBe("steering");
+    sendGate.resolve({ ok: true, acceptedAs: "steer", receipt: "claude:test:2" });
+    await vi.waitFor(() => expect(session.snapshot().activeTurn?.commandIds).toEqual(["one", "two"]));
+    lane.emit({ kind: "runtime_metric", name: "sse_reconnect", increment: 1 });
+    const metrics = session.snapshot().diagnostics.metrics;
+    expect(metrics).toMatchObject({
+      physicalOpenCount: 1,
+      turnCount: 1,
+      commandAdmissionCount: 2,
+      commandAdmissionLatencyTotalMs: 25,
+      queueDwellCount: 1,
+      queueDwellTotalMs: 15,
+      sseReconnectCount: 1,
+    });
+    const numericMetrics = Object.values(metrics).filter((value): value is number => typeof value === "number");
+    expect(numericMetrics.every((value) => Number.isFinite(value) && value >= 0)).toBe(true);
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("keeps in-flight steering and next-turn FIFO queues above generic work blockers", async () => {
+    const steerLane = new ControlledRuntimeLane();
+    steerLane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "opencode:test:1" };
+    const { session: steerSession } = makeSession("opencode", { lane: steerLane });
+    await steerSession.start({ id: "root", kind: "user", text: "root" });
+    const steerGate = deferredValue<LaneAdmission>();
+    steerLane.sendPromise = steerGate.promise;
+    const steering = steerSession.send({ id: "steer", kind: "user", text: "steer" });
+    await Promise.resolve();
+    expect(steerSession.snapshot().diagnostics.deliveryPhase).toBe("steering");
+    steerGate.resolve({ ok: true, acceptedAs: "steer", receipt: "opencode:test:2" });
+    await steering;
+
+    const queueLane = new ControlledRuntimeLane();
+    queueLane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "cursor:test:1" };
+    const { session: queueSession } = makeSession("cursor", { lane: queueLane });
+    await queueSession.start({ id: "root", kind: "user", text: "root" });
+    queueLane.emit({ kind: "tool_call", name: "Read", input: {} });
+    expect(await queueSession.send({ id: "next", kind: "user", text: "next" })).toMatchObject({ status: "queued" });
+    expect(queueSession.snapshot().diagnostics.deliveryPhase).toBe("next_turn_queued");
+
+    await steerSession.stop({ reason: "shutdown", forceAfterMs: 10 });
+    await queueSession.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("reports exact resume outcomes without exposing vendor payloads", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "codex:test:1" };
+    lane.onStart = () => lane.emit({ kind: "session_init", sessionId: "resume-exact" });
+    const { session } = makeSession("codex", { lane, resumeSessionId: "resume-exact" });
+    expect(session.snapshot().diagnostics.metrics.resumeOutcome).toBe("pending");
+    await session.start({ id: "one", kind: "user", text: "resume" });
+    expect(session.snapshot().diagnostics.metrics.resumeOutcome).toBe("resumed");
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("cancels serialized in-flight steers at terminal exactly once before admitting the next idle root", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "opencode:test:1" };
+    const { session } = makeSession("opencode", { lane });
+    const events: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
+    const collecting = (async () => { for await (const event of session.events) events.push(event as never); })();
+    await session.start({ id: "one", kind: "user", text: "one" });
+
+    const sendGate = deferredValue<LaneAdmission>();
+    lane.sendPromise = sendGate.promise;
+    const second = session.send({ id: "two", kind: "user", text: "two" });
+    const third = session.send({ id: "three", kind: "user", text: "three" });
+    await Promise.resolve();
+    lane.emit({ kind: "turn_end", sessionId: "root", turnOwner: "opencode:test:1" });
+    const fourth = session.send({ id: "four", kind: "user", text: "four" });
+    expect(session.snapshot().diagnostics.deliveryPhase).toBe("admission_wait");
+    sendGate.resolve({ ok: true, acceptedAs: "steer", receipt: "opencode:test:2" });
+
+    await expect(second).resolves.toMatchObject({ status: "rejected" });
+    await expect(third).resolves.toMatchObject({ status: "rejected" });
+    await expect(fourth).resolves.toMatchObject({ status: "accepted", commandId: "four" });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    await collecting;
+    const finals = events.filter((event) => event.type === "command_accepted" || event.type === "command_failed");
+    expect(finals.map((event) => event.commandId)).toEqual(["one", "two", "three", "four"]);
+    for (const id of ["one", "two", "three", "four"]) {
+      expect(finals.filter((event) => event.commandId === id)).toHaveLength(1);
+    }
   });
 });
 

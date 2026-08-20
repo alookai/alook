@@ -25,14 +25,15 @@ async function loadSubject(): Promise<PrivacyPolicyModule> {
   return vi.importActual<PrivacyPolicyModule>("./privacyPolicy.js");
 }
 
-const EXPECTED_APM_PHASES = [
+const EXPECTED_DELIVERY_PHASES = [
   "idle",
-  "tool_wait",
-  "tool_boundary",
-  "assistant_continuation",
+  "admission_wait",
+  "steering",
+  "next_turn_queued",
   "compacting",
   "reviewing",
-  "error",
+  "tool_wait",
+  "working",
 ] as const;
 
 const EXPECTED_MANAGER_EVENTS = [
@@ -48,6 +49,8 @@ const EXPECTED_MANAGER_EVENTS = [
   "begin_reset",
   "rewake_after_reset",
   "runtime_signal",
+  "admission_started",
+  "admission_settled",
 ] as const;
 
 const EXPECTED_MANAGER_EFFECTS = ["spawn", "send", "stop", "terminate_stalled", "force_exit", "gated_hold"] as const;
@@ -118,6 +121,7 @@ const EXPECTED_EXIT_SIGNALS = [
 type ProjectionFieldRule = (
   | { type: "string"; maxChars: number; nullable?: true }
   | { type: "integer"; min: number; max: number; nullable?: true }
+  | { type: "number"; min: number; max: number }
   | { type: "boolean" }
   | { type: "timestamp" }
   | { type: "enum"; values: readonly string[]; maxChars?: number; nullable?: true; unknownBucket?: "other" }
@@ -137,7 +141,16 @@ const FSM_FIELD_RULES: Readonly<Record<string, ProjectionFieldRule>> = {
   resetting: { type: "boolean" },
   resettingSince: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER, nullable: true },
   stoppingSince: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER, nullable: true },
-  apmPhase: { type: "enum", values: EXPECTED_APM_PHASES },
+  deliveryPhase: { type: "enum", values: EXPECTED_DELIVERY_PHASES },
+  physicalOpenCount: { type: "number", min: 0, max: Number.MAX_VALUE, optional: true },
+  turnCount: { type: "number", min: 0, max: Number.MAX_VALUE, optional: true },
+  commandAdmissionCount: { type: "number", min: 0, max: Number.MAX_VALUE, optional: true },
+  commandAdmissionLatencyTotalMs: { type: "number", min: 0, max: Number.MAX_VALUE, optional: true },
+  queueDwellCount: { type: "number", min: 0, max: Number.MAX_VALUE, optional: true },
+  queueDwellTotalMs: { type: "number", min: 0, max: Number.MAX_VALUE, optional: true },
+  sseReconnectCount: { type: "number", min: 0, max: Number.MAX_VALUE, optional: true },
+  resumeOutcome: { type: "enum", values: ["not_requested", "pending", "resumed", "reset_required", "failed"], optional: true },
+  terminalOwnerKind: { type: "enum", values: ["transport_request", "vendor_message", "prompt_invocation", "lane_generation"], optional: true },
   effects: { type: "enum_array", values: EXPECTED_MANAGER_EFFECTS, maxItems: 32, dropUnknown: true },
   nowMs: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER },
   timeIso: { type: "timestamp" },
@@ -366,7 +379,7 @@ function baseFsm(overrides: Record<string, unknown> = {}): Record<string, unknow
     resetting: false,
     resettingSince: null,
     stoppingSince: null,
-    apmPhase: "idle",
+    deliveryPhase: "idle",
     effects: ["spawn", "send", "unknown-effect"],
     nowMs: 120,
     timeIso: "1970-01-01T00:00:00.120Z",
@@ -399,13 +412,30 @@ function baseTurnSpan(overrides: Record<string, unknown> = {}): Record<string, u
   };
 }
 
+const TRACE_METRICS = {
+  physicalOpenCount: 1,
+  turnCount: 2,
+  commandAdmissionCount: 3,
+  commandAdmissionLatencyTotalMs: 4.5,
+  queueDwellCount: 5,
+  queueDwellTotalMs: 6.5,
+  sseReconnectCount: 7,
+  resumeOutcome: "resumed",
+  terminalOwnerKind: "transport_request",
+} as const;
+const TRACE_METRIC_FIELDS = new Set(Object.keys(TRACE_METRICS));
+
 function fsmWithField(field: string, value: unknown): Record<string, unknown> {
   const context = ["endReason", "terminationCause"].includes(field)
     ? { event: "turn_end", endReason: "errored", terminationCause: "runtime_error" }
     : ["exitCode", "exitSignal", "abnormal", "spawnFailureReason", "terminationSemantics"].includes(field)
       ? { event: "exit", exitCode: null, exitSignal: null, abnormal: false }
       : {};
-  return baseFsm({ ...context, [field]: value });
+  return baseFsm({
+    ...context,
+    ...(TRACE_METRIC_FIELDS.has(field) ? TRACE_METRICS : {}),
+    [field]: value,
+  });
 }
 
 function turnSpanWithField(field: string, value: unknown): Record<string, unknown> {
@@ -423,6 +453,8 @@ function invalidProjectionValues(rule: ProjectionFieldRule): unknown[] {
       return [1, "x".repeat(rule.maxChars + 1)];
     case "integer":
       return ["1", rule.min - 1, rule.max + 1, rule.min + 0.5, Number.POSITIVE_INFINITY];
+    case "number":
+      return ["1", rule.min - 1, Number.POSITIVE_INFINITY, Number.NaN];
     case "boolean":
       return ["true", 1];
     case "timestamp":
@@ -490,7 +522,7 @@ describe("B2c privacy policy", () => {
       resetting: false,
       resettingSince: null,
       stoppingSince: null,
-      apmPhase: "idle",
+      deliveryPhase: "idle",
       effects: ["spawn", "send"],
       nowMs: 120,
       timeIso: "1970-01-01T00:00:00.120Z",
@@ -505,8 +537,8 @@ describe("B2c privacy policy", () => {
     });
     expect(JSON.stringify(projected)).not.toMatch(/PROMPT_LEAK|SEND_LEAK|RESPONSE_LEAK|THINKING_LEAK|TOOL_LEAK|ERROR_LEAK|RECENT_LEAK|UNKNOWN_LEAK/);
 
-    for (const apmPhase of EXPECTED_APM_PHASES) {
-      expect(api.projectFsmTraceRow(baseFsm({ apmPhase }), "target-agent"), apmPhase).toMatchObject({ apmPhase });
+    for (const deliveryPhase of EXPECTED_DELIVERY_PHASES) {
+      expect(api.projectFsmTraceRow(baseFsm({ deliveryPhase }), "target-agent"), deliveryPhase).toMatchObject({ deliveryPhase });
     }
     for (const event of EXPECTED_MANAGER_EVENTS) {
       expect(api.projectFsmTraceRow(baseFsm({ event }), "target-agent"), event).toMatchObject({ event });
@@ -616,6 +648,10 @@ describe("B2c privacy policy", () => {
         expect(api.projectFsmTraceRow(turnSpanWithField(field, rule.min), "target-agent"), `span.${field}=min`)
           .toMatchObject({ [field]: rule.min });
       }
+      if (rule.type === "number") {
+        expect(api.projectFsmTraceRow(fsmWithField(field, rule.min), "target-agent"), `${field}=min`)
+          .toMatchObject({ [field]: rule.min });
+      }
       if (rule.type === "string" && field !== "agentId") {
         const bounded = "x".repeat(rule.maxChars);
         expect(api.projectFsmTraceRow(turnSpanWithField(field, bounded), "target-agent"), `span.${field}=maxChars`)
@@ -638,8 +674,8 @@ describe("B2c privacy policy", () => {
     expect(api.projectFsmTraceRow(baseFsm({ recordKind: "unknown" }), "target-agent")).toBeNull();
     expect(api.projectFsmTraceRow(baseFsm({ event: "HOSTILE_EVENT" }), "target-agent")).toBeNull();
     expect(api.projectFsmTraceRow(baseFsm({ status: "HOSTILE_STATUS" }), "target-agent")).toBeNull();
-    expect(api.projectFsmTraceRow(baseFsm({ apmPhase: "working" }), "target-agent")).toBeNull();
-    expect(api.projectFsmTraceRow(baseFsm({ apmPhase: "HOSTILE_APM_PHASE" }), "target-agent")).toBeNull();
+    expect(api.projectFsmTraceRow(baseFsm({ deliveryPhase: "tool_boundary" }), "target-agent")).toBeNull();
+    expect(api.projectFsmTraceRow(baseFsm({ deliveryPhase: "HOSTILE_DELIVERY_PHASE" }), "target-agent")).toBeNull();
     expect(api.projectFsmTraceRow(baseFsm({ nowMs: Number.POSITIVE_INFINITY }), "target-agent")).toBeNull();
     expect(api.projectFsmTraceRow(baseFsm({ traceTurnId: "x".repeat(1025) }), "target-agent")).toBeNull();
     const boundedAgentId = "a".repeat(128);
@@ -683,7 +719,9 @@ describe("B2c privacy policy", () => {
           .toMatchObject({ [field]: "other" });
       }
       if (rule.optional) {
-        const withoutOptional = fsmWithField(field, rule.type === "enum" ? rule.values[0] : undefined);
+        const withoutOptional = TRACE_METRIC_FIELDS.has(field)
+          ? baseFsm()
+          : fsmWithField(field, rule.type === "enum" ? rule.values[0] : undefined);
         delete withoutOptional[field];
         expect(api.projectFsmTraceRow(withoutOptional, "target-agent"), `${field}=omitted`).not.toBeNull();
       }

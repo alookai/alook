@@ -74,15 +74,14 @@ they are deliberately not public daemon primitives.
 
 ---
 
-## Two delivery models (the heart of it)
+## Persistent delivery models (the heart of it)
 
 When a message arrives, what happens depends on the runtime's lifecycle:
 
-### Persistent runtimes (Claude and Codex)
+### Safe-boundary runtimes (Claude and Codex)
 
-One child process spans many turns. Both adapters declare
-`execution.kind: "persistent_process"`; their public capability is
-`midTurnDelivery: "safe_boundary_queue"`. A message arriving during tool use,
+One child process spans many turns. Both adapters declare `lifetime: "session"`;
+their public capability is `midTurnDelivery: "safe_boundary_queue"`. A message arriving during tool use,
 compaction, or review is queued by `LogicalAgentSession` and receives a later
 `command_accepted` or `command_failed` event. The daemon does not implement that
 protocol or queue.
@@ -94,7 +93,7 @@ launched with `--input-format stream-json --output-format stream-json
 
 ### In-process SDK runtime (Pi)
 
-Pi declares `execution.kind: "in_process_sdk"` and
+Pi declares the `in_process_sdk` transport and
 `midTurnDelivery: "steer"`. Its lane delegates prompt, steer, abort, and dispose
 to the SDK while preserving the same receipts, events, and terminal contract.
 
@@ -105,11 +104,12 @@ session. Each idle command is a `session/prompt` request; while one is active,
 later commands remain in the logical next-turn FIFO until its correlated
 response arrives. Interrupt sends `session/cancel` without killing the process.
 
-### Per-turn runtime (OpenCode)
+### Persistent service runtime (OpenCode)
 
-Each command gets a new child process and later commands queue for the next
-turn. OpenCode starts on the first real prompt rather than a bookkeeping-only
-system wake, then exits after the turn.
+OpenCode starts one authenticated, loopback-only v2 service per logical session.
+Root prompts and busy steers share the same service and vendor session. Durable
+session SSE is replayed by event id and sequence across reconnects; a separate
+live stream handles permissions.
 
 ---
 
@@ -117,11 +117,11 @@ system wake, then exits after the turn.
 
 | Runtime | Lifecycle | Transport / protocol | Steering | Initial input | Output format |
 |---|---|---|---|---|---|
-| **claude** | turn-scoped process with session resume | stream-json NDJSON | `safe_boundary_queue` | stdin user-message line | stream-json |
-| **codex** | persistent process | JSON-RPC 2.0 (`app-server --listen stdio://`) | `safe_boundary_queue` | `initialize` → `thread/start`/`resume` | JSON-RPC notifications |
-| **pi** | in-process SDK | `@earendil-works/pi-coding-agent` | `steer` | `session.prompt()` | SDK callback |
-| **cursor** | persistent process/session | ACP JSON-RPC 2.0 (`cursor-agent acp`) | next-turn queue | `session/prompt` | `session/update` + correlated prompt response |
-| **opencode** | deferred per-turn process | JSON | next-turn queue | `-- <prompt>` | JSON events |
+| **claude** | persistent session | stream-json NDJSON | `safe_boundary_queue` | stdin user-message line | stream-json |
+| **codex** | persistent session | JSON-RPC 2.0 (`app-server --listen stdio://`) | `safe_boundary_queue` | `initialize` → `thread/start`/`resume` | JSON-RPC notifications |
+| **pi** | persistent session | `@earendil-works/pi-coding-agent` | `steer` | `session.prompt()` | SDK callback |
+| **cursor** | persistent session | ACP JSON-RPC 2.0 (`cursor-agent acp`) | `next_turn_queue` | `session/prompt` | `session/update` + correlated prompt response |
+| **opencode** | persistent session | authenticated HTTP + SSE (`opencode serve --pure`) | `steer` | v2 session prompt API | durable + live SSE |
 
 (Exact launch flags live in `agent-driver/src/adapters/<backend>/`.)
 

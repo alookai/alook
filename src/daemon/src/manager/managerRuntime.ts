@@ -13,6 +13,7 @@ import {
 import type {
   AgentEvent,
   AgentSession,
+  AgentSessionSnapshot,
   AgentSessionResult,
   BuiltinBackendId,
   BuiltinBackendSpecs,
@@ -57,6 +58,8 @@ interface ActiveTurnSpan {
 interface PendingDeliveryTrace {
   sessionInstanceId: string;
   span: ActiveTurnSpan | null;
+  mode: "busy" | "idle";
+  driverObserved: boolean;
 }
 interface ActiveSpawnState {
   agentId: string;
@@ -102,7 +105,16 @@ interface FsmTraceRecord extends TraceRecordBase, Partial<TraceSpanMetadata> {
   resetting: boolean;
   resettingSince: number | null;
   stoppingSince: number | null;
-  apmPhase: "idle";
+  deliveryPhase: AgentSessionSnapshot["diagnostics"]["deliveryPhase"];
+  physicalOpenCount?: number;
+  turnCount?: number;
+  commandAdmissionCount?: number;
+  commandAdmissionLatencyTotalMs?: number;
+  queueDwellCount?: number;
+  queueDwellTotalMs?: number;
+  sseReconnectCount?: number;
+  resumeOutcome?: "not_requested" | "pending" | "resumed" | "reset_required" | "failed";
+  terminalOwnerKind?: "transport_request" | "vendor_message" | "prompt_invocation" | "lane_generation";
   sinceProgressMs: number;
   sinceDeliverMs: number | null;
   sinceStoppingMs: number | null;
@@ -723,6 +735,7 @@ export class AgentProcessManager {
         const a = this.state.agents[agentId];
         if (!a) return;
         const nowMs = this.now();
+        const diagnostics = this.traceDiagnostics(agentId, capturedOwner);
         const activeSpan = this.traceOwnerFor(agentId, capturedOwner)?.activeSpan ?? null;
         const myEffects = effects.filter((e) => (e as { agentId?: string }).agentId === agentId).map((e) => e.type);
         this.emitTrace({
@@ -743,7 +756,7 @@ export class AgentProcessManager {
           resetting: a.resetting,
           resettingSince: a.resettingSince,
           stoppingSince: a.stoppingSince,
-          apmPhase: "idle",
+          ...diagnostics,
           effects: myEffects,
           nowMs,
           timeIso: new Date(nowMs).toISOString(),
@@ -829,6 +842,31 @@ export class AgentProcessManager {
     if (agent.status === "running") return isActivelyWorking(agent) ? "running" : "idle";
     return agent.status;
   }
+  private traceDiagnostics(agentId: string, capturedOwner?: ActiveSpawnState): Pick<
+    FsmTraceRecord,
+    | "deliveryPhase"
+    | "physicalOpenCount"
+    | "turnCount"
+    | "commandAdmissionCount"
+    | "commandAdmissionLatencyTotalMs"
+    | "queueDwellCount"
+    | "queueDwellTotalMs"
+    | "sseReconnectCount"
+    | "resumeOutcome"
+    | "terminalOwnerKind"
+  > {
+    const owner = this.traceOwnerFor(agentId, capturedOwner);
+    const snapshot = owner?.session?.snapshot();
+    const pending = owner
+      ? [...owner.pendingDeliverySpans.values()].find((delivery) => !delivery.driverObserved)
+      : undefined;
+    const snapshotDiagnostics = snapshot?.diagnostics;
+    const deliveryPhase = pending
+      ? pending.mode === "idle" ? "admission_wait" : "steering"
+      : snapshotDiagnostics?.deliveryPhase ?? "idle";
+    if (!snapshotDiagnostics) return { deliveryPhase };
+    return { deliveryPhase, ...snapshotDiagnostics.metrics };
+  }
   private withFooter(text: string): string {
     return this.opts.wakePromptFooter ? `${text}\n\n${this.opts.wakePromptFooter}` : text;
   }
@@ -845,7 +883,12 @@ export class AgentProcessManager {
   ): boolean {
     const sessionInstanceId = owner.sessionInstanceId;
     if (!sessionInstanceId || owner.pendingDeliverySpans.has(commandId)) return false;
-    owner.pendingDeliverySpans.set(commandId, { sessionInstanceId, span });
+    owner.pendingDeliverySpans.set(commandId, {
+      sessionInstanceId,
+      span,
+      mode,
+      driverObserved: false,
+    });
     this.dispatch({
       type: "admission_started",
       agentId: owner.agentId,
@@ -857,6 +900,10 @@ export class AgentProcessManager {
       nowMs: this.now(),
     }, owner);
     return true;
+  }
+  private markPendingDeliveryObserved(owner: ActiveSpawnState, commandId: string): void {
+    const pending = owner.pendingDeliverySpans.get(commandId);
+    if (pending) pending.driverObserved = true;
   }
   private settlePendingDelivery(
     owner: ActiveSpawnState,
@@ -900,6 +947,7 @@ export class AgentProcessManager {
           let sent: ReturnType<DaemonAgentSession["send"]>;
           try {
             sent = session.send(input);
+            if (exactOwner) this.markPendingDeliveryObserved(exactOwner, input.id);
           } catch (error) {
             if (exactOwner) {
               this.settlePendingDelivery(exactOwner, input.id);
@@ -1225,6 +1273,7 @@ export class AgentProcessManager {
           text: this.stampNow(prompt),
           sequence: first.seq,
         });
+        this.markPendingDeliveryObserved(state, commandId);
       } catch (error) {
         this.settlePendingDelivery(state, commandId);
         this.closeTurn(state, startedSpan, { event: "turn_abort", abortCause: "start_threw" });
@@ -1248,12 +1297,14 @@ export class AgentProcessManager {
             this.beginPendingDelivery(state, message.id!, message, "busy", state.activeSpan);
             let queuedReceipt: DeliveryReceipt;
             try {
-              queuedReceipt = await session.send({
-              id: message.id!,
-              kind: "user",
-              text: this.stampNow(this.withFooter(message.text)),
-              sequence: message.seq,
+              const queuedResult = session.send({
+                id: message.id!,
+                kind: "user",
+                text: this.stampNow(this.withFooter(message.text)),
+                sequence: message.seq,
               });
+              this.markPendingDeliveryObserved(state, message.id!);
+              queuedReceipt = await queuedResult;
             } catch (error) {
               this.settlePendingDelivery(state, message.id!);
               if (!state.torndown && this.sessions.get(agentId) === session && this.activeSpawnState.get(agentId) === state) {

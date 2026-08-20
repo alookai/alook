@@ -52,6 +52,7 @@ export type AdapterEvent =
   | { kind: "review_finished" }
   | { kind: "internal_progress"; source?: string; itemType?: string; payloadBytes?: number }
   | { kind: "runtime_diagnostic"; severity?: string; source?: string; message: string }
+  | { kind: "runtime_metric"; name: "sse_reconnect"; increment: 1 }
   | { kind: "turn_owner"; receipt: string }
   | { kind: "turn_end"; sessionId?: string; turnOwner?: string }
   | { kind: "error"; message: string }

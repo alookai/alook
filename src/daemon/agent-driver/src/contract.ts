@@ -373,6 +373,32 @@ export interface AgentSessionSnapshot {
     readonly kind: AgentMessage["kind"];
   }[];
   readonly lastEventSequence: number;
+  readonly diagnostics: {
+    readonly deliveryPhase:
+      | "idle"
+      | "admission_wait"
+      | "steering"
+      | "next_turn_queued"
+      | "compacting"
+      | "reviewing"
+      | "tool_wait"
+      | "working";
+    readonly metrics: {
+      readonly physicalOpenCount: number;
+      readonly turnCount: number;
+      readonly commandAdmissionCount: number;
+      readonly commandAdmissionLatencyTotalMs: number;
+      readonly queueDwellCount: number;
+      readonly queueDwellTotalMs: number;
+      readonly sseReconnectCount: number;
+      readonly resumeOutcome: "not_requested" | "pending" | "resumed" | "reset_required" | "failed";
+      readonly terminalOwnerKind:
+        | "transport_request"
+        | "vendor_message"
+        | "prompt_invocation"
+        | "lane_generation";
+    };
+  };
 }
 
 export interface AgentEventStream<Event> extends AsyncIterable<Event> {

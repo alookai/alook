@@ -476,6 +476,137 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
   expect(events.filter((event) => event.type === "command_accepted" && event.commandId === "busy")).toHaveLength(1);
 }
 
+async function openRegisteredHarness(backend: BuiltinBackendId, label: string) {
+  const harness = installVendorHarness(backend);
+  const host = createFakeAgentDriverHost();
+  const sdk = createAgentDriverSdkWithRegistry({ host, registry: createBuiltinAgentDriverRegistry(), hostReleaseTimeoutMs: 50 });
+  const workingDirectory = mkdtempSync(join(tmpdir(), `agent-driver-${label}-${backend}-`));
+  workingDirectories.push(workingDirectory);
+  const opened = await sdk.open({
+    backend,
+    config: configs[backend] as never,
+    launch: { workingDirectory, instructions: { format: "markdown", content: "" }, launchId: `${label}-${backend}` },
+  });
+  if (!opened.ok) throw new Error(opened.error.message);
+  const events: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
+  const collecting = (async () => { for await (const event of opened.session.events) events.push(event as never); })();
+  return { session: opened.session, harness, host, events, collecting };
+}
+
+async function stopRegisteredHarness(
+  backend: BuiltinBackendId,
+  fixture: Awaited<ReturnType<typeof openRegisteredHarness>>,
+): Promise<void> {
+  const stopping = fixture.session.stop({ reason: "shutdown", forceAfterMs: 25 });
+  if (backend === "claude") fixture.harness.processes[0]?.finish();
+  await stopping;
+  await fixture.session.closed;
+  await fixture.collecting;
+}
+
+function emitStaleTerminal(backend: BuiltinBackendId, harness: VendorHarness): void {
+  if (backend === "opencode") {
+    harness.openCodeLanes[0]!.emit({
+      kind: "turn_end",
+      sessionId: "opencode-resumed",
+      turnOwner: "msg_opencode_root",
+    });
+    return;
+  }
+  if (backend === "pi") {
+    harness.lanes[0]!.emitEvents([{ kind: "turn_end", sessionId: "pi-resumed", turnOwner: "pi-stale" }]);
+    return;
+  }
+  harness.duplicateTurn(1);
+}
+
+describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
+  "%s shared persistent stress conformance",
+  (backend) => {
+    it("runs ten sequential public turns through one physical open", async () => {
+      const fixture = await openRegisteredHarness(backend, "shared-ten-turn");
+      for (let turn = 1; turn <= 10; turn += 1) {
+        const pending = turn === 1
+          ? fixture.session.start({ id: `turn-${turn}`, kind: "user", text: `turn ${turn}` })
+          : fixture.session.send({ id: `turn-${turn}`, kind: "user", text: `turn ${turn}` });
+        expect(await settlePromptAdmission(backend, fixture.harness, turn, pending)).toMatchObject({ status: "accepted" });
+        if (backend !== "codex") fixture.harness.sessionReady(turn);
+        fixture.harness.completeTurn(turn);
+        await vi.waitFor(() => expect(fixture.session.snapshot().activeTurn).toBeUndefined());
+      }
+      expect(fixture.session.snapshot().diagnostics.metrics).toMatchObject({
+        physicalOpenCount: 1,
+        turnCount: 10,
+        commandAdmissionCount: 10,
+      });
+      await vi.waitFor(() => expect(fixture.events.filter((event) => event.type === "turn_completed")).toHaveLength(10));
+      await stopRegisteredHarness(backend, fixture);
+    });
+
+    it("settles a ten-command busy/terminal/idle burst exactly once in FIFO order", async () => {
+      const fixture = await openRegisteredHarness(backend, "shared-high-frequency");
+      const ids = Array.from({ length: 10 }, (_, index) => `command-${index}`);
+      const first = fixture.session.start({ id: ids[0]!, kind: "user", text: ids[0]! });
+      await settlePromptAdmission(backend, fixture.harness, 1, first);
+      if (backend !== "codex") fixture.harness.sessionReady(1);
+
+      const busy = ids.slice(1, 6).map((id) => fixture.session.send({ id, kind: "user", text: id }));
+      await Promise.all(busy);
+      fixture.harness.completeTurn(1);
+      await settle();
+
+      const idleBurst = ids.slice(6).map((id) => fixture.session.send({ id, kind: "user", text: id }));
+      if (backend === "codex") {
+        await vi.waitFor(() => expect(fixture.session.snapshot().diagnostics.deliveryPhase).toBe("admission_wait"));
+        fixture.harness.sessionReady(2);
+      }
+      await Promise.all(idleBurst);
+      if (backend !== "codex" && backend !== "cursor") fixture.harness.sessionReady(2);
+      let turn = 2;
+      let staleTerminalEmitted = false;
+      let completedTurnId: string | undefined;
+      while (
+        fixture.session.snapshot().diagnostics.metrics.commandAdmissionCount < ids.length
+        || fixture.session.snapshot().activeTurn
+      ) {
+        await vi.waitFor(() => {
+          const activeTurnId = fixture.session.snapshot().activeTurn?.turnId;
+          expect(activeTurnId).toBeDefined();
+          expect(activeTurnId).not.toBe(completedTurnId);
+        });
+        if (backend === "codex" && fixture.session.snapshot().diagnostics.deliveryPhase === "admission_wait") {
+          fixture.harness.sessionReady(turn);
+          await vi.waitFor(() => expect(fixture.session.snapshot().diagnostics.deliveryPhase).not.toBe("admission_wait"));
+        }
+        if (!staleTerminalEmitted) {
+          emitStaleTerminal(backend, fixture.harness);
+          staleTerminalEmitted = true;
+          await settle();
+          expect(fixture.session.snapshot().activeTurn).toBeDefined();
+        }
+        completedTurnId = fixture.session.snapshot().activeTurn!.turnId;
+        fixture.harness.completeTurn(turn);
+        turn += 1;
+        if (turn > 11) throw new Error(`${backend} did not drain the ten-command FIFO`);
+        await settle();
+      }
+      await vi.waitFor(() => {
+        expect(fixture.events.filter((event) => event.type === "command_accepted" || event.type === "command_failed"))
+          .toHaveLength(ids.length);
+      });
+
+      const finalEvents = fixture.events.filter((event) => event.type === "command_accepted" || event.type === "command_failed");
+      expect(finalEvents.map((event) => event.commandId)).toEqual(ids);
+      for (const id of ids) expect(finalEvents.filter((event) => event.commandId === id)).toHaveLength(1);
+      expect(fixture.session.snapshot().diagnostics.metrics).toMatchObject({
+        physicalOpenCount: 1,
+        commandAdmissionCount: 10,
+      });
+      await stopRegisteredHarness(backend, fixture);
+    });
+  },
+);
+
 describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
   "%s registered public-session lifecycle conformance",
   (backend) => {

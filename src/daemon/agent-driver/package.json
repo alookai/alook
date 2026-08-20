@@ -27,6 +27,7 @@
   "files": [
     "dist",
     "README.md",
+    "RELEASE_NOTES.md",
     "LICENSE"
   ],
   "engines": {

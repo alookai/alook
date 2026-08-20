@@ -2016,11 +2016,63 @@ describe("AgentProcessManager — onFsmTransition trace (observability, zero beh
     const wake = recs.find((r) => r.event === "wake");
     expect(wake).toBeTruthy();
     // Every field the triage needs to split the three "why no watchdog" exits.
-    for (const k of ["agentId", "event", "status", "turnActive", "inbox", "lastDeliverAt", "lastProgressAt", "resetting", "resettingSince", "apmPhase", "effects", "nowMs"]) {
+    for (const k of ["agentId", "event", "status", "turnActive", "inbox", "lastDeliverAt", "lastProgressAt", "resetting", "resettingSince", "deliveryPhase", "effects", "nowMs"]) {
       expect(wake).toHaveProperty(k);
     }
     expect(wake!.agentId).toBe("a1");
     expect(Array.isArray(wake!.effects)).toBe(true);
+  });
+
+  it("uses manager pending mode only before admission reaches the driver, then projects authoritative snapshot diagnostics", async () => {
+    const recs: Record<string, unknown>[] = [];
+    const session = fakeSession();
+    const baseSnapshot = session.snapshot.bind(session);
+    session.snapshot = () => ({
+      ...baseSnapshot(),
+      diagnostics: {
+        deliveryPhase: "compacting",
+        metrics: {
+          physicalOpenCount: 1,
+          turnCount: 2,
+          commandAdmissionCount: 3,
+          commandAdmissionLatencyTotalMs: 12.5,
+          queueDwellCount: 4,
+          queueDwellTotalMs: 8.5,
+          sseReconnectCount: 6,
+          resumeOutcome: "resumed",
+          terminalOwnerKind: "transport_request",
+        },
+      },
+    });
+    const mgr = new AgentProcessManager({
+      driverFor: () => fakeDriver("codex"),
+      baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", standingPrompt: "", config: {} as LaunchContext["config"], credentialProxy: {} as LaunchContext["credentialProxy"] }),
+      sessionFactory: sessionFactoryFor(session),
+      onFsmTransition: ((row: Record<string, unknown>) => recs.push(row)) as never,
+    });
+    mgr.register("a1");
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+    await vi.waitFor(() => expect(session.startResolver).toBeTypeOf("function"));
+
+    expect(recs.find((row) => row.event === "admission_started")).toMatchObject({
+      deliveryPhase: "admission_wait",
+    });
+    await session.pushAgentEvent({ type: "internal_progress", turnId: "test-turn", source: "test" });
+    expect(recs.filter((row) => row.event === "runtime_signal").at(-1)).toMatchObject({
+      deliveryPhase: "compacting",
+      physicalOpenCount: 1,
+      turnCount: 2,
+      commandAdmissionCount: 3,
+      commandAdmissionLatencyTotalMs: 12.5,
+      queueDwellCount: 4,
+      queueDwellTotalMs: 8.5,
+      sseReconnectCount: 6,
+      resumeOutcome: "resumed",
+      terminalOwnerKind: "transport_request",
+    });
+    expect(recs.some((row) => "apmPhase" in row)).toBe(false);
+    session.startResolver?.();
+    await Promise.resolve();
   });
 
   it("does NOT change behavior — the observed effect sequence is identical with and without the hook", async () => {

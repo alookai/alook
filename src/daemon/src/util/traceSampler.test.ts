@@ -57,7 +57,7 @@ function operationalRow(
     resetting: false,
     resettingSince: null,
     stoppingSince: null,
-    apmPhase: "idle",
+    deliveryPhase: "idle",
     effects: [],
     nowMs,
     timeIso: new Date(nowMs).toISOString(),
@@ -142,19 +142,19 @@ describe("traceSampler — ② reconstruction: a wedge is reconstructable from r
   it("stuck run → retained rows reconstruct which phase, how long, and the kill", () => {
     const { s, out } = collect(30_000);
     // Enter the stuck state (edge).
-    s.offer(tick("a", 0, { apmPhase: "tool_wait", sinceProgressMs: 0 }));
+    s.offer(tick("a", 0, { deliveryPhase: "tool_wait", sinceProgressMs: 0 }));
     // Long unchanged run, no progress — a hang. Ticks every 2s, sinceProgressMs climbs.
     for (let t = 2000; t < 121000; t += 2000) {
-      s.offer(tick("a", t, { apmPhase: "tool_wait", sinceProgressMs: t }));
+      s.offer(tick("a", t, { deliveryPhase: "tool_wait", sinceProgressMs: t }));
     }
     // Watchdog fires at 121846ms of no progress → terminate_stalled (sacrosanct).
-    s.offer(tick("a", 121846, { apmPhase: "tool_wait", effects: ["terminate_stalled"], sinceProgressMs: 121846 }));
+    s.offer(tick("a", 121846, { deliveryPhase: "tool_wait", effects: ["terminate_stalled"], sinceProgressMs: 121846 }));
     // The kill's terminal transition.
     s.offer({ agentId: "a", event: "turn_end", status: "stopping", turnActive: true, nowMs: 121850, sinceProgressMs: 0, effects: [] });
 
     const ticks = out.filter((r) => r.event === "tick");
     // (a) which phase: the retained ticks show tool_wait.
-    expect(ticks.every((r) => r.apmPhase === "tool_wait")).toBe(true);
+    expect(ticks.every((r) => r.deliveryPhase === "tool_wait")).toBe(true);
     // (b) how long: the peak sinceProgressMs is retained (on the effects frame),
     //     self-contained on that row — no join needed.
     const peak = Math.max(...out.map((r) => (typeof r.sinceProgressMs === "number" ? r.sinceProgressMs : 0)));
@@ -288,16 +288,16 @@ describe("B1 red gate — turn-span sacred rows", () => {
             PHASES.length - 1,
           );
           sampler.offer(operationalRow(agentId, "root_work", turnBaseMs + offsetMs + 100, {
-            apmPhase: PHASES[phaseIndex],
+            deliveryPhase: PHASES[phaseIndex],
             ...spanFields,
           }));
           sampler.offer(operationalRow(agentId, "runtime_signal", turnBaseMs + offsetMs + 200, {
-            apmPhase: PHASES[phaseIndex],
+            deliveryPhase: PHASES[phaseIndex],
             ...spanFields,
           }));
           sampler.offer(operationalRow(agentId, "tick", turnBaseMs + offsetMs + 300, {
             turnActive: true,
-            apmPhase: PHASES[phaseIndex],
+            deliveryPhase: PHASES[phaseIndex],
             ...spanFields,
           }));
         }
@@ -327,7 +327,7 @@ describe("B1 red gate — turn-span sacred rows", () => {
         ) {
           sampler.offer(operationalRow(agentId, "tick", turnBaseMs + offsetMs + 300, {
             turnActive: false,
-            apmPhase: PHASES.at(-1),
+            deliveryPhase: PHASES.at(-1),
           }));
         }
       }
@@ -362,7 +362,7 @@ describe("B1 red gate — turn-span sacred rows", () => {
     expect(count("turn_end", "turn_span")).toBe(AGENTS * CLEAN_TURNS_PER_AGENT_HOUR);
     expect(count("turn_abort", "turn_span")).toBe(AGENTS * FAILED_TURNS_PER_AGENT_HOUR);
     expect(survivors).toHaveLength(8_168);
-    expect(serializedBytesPerHour).toBe(4_011_208);
+    expect(serializedBytesPerHour).toBe(4_052_048);
 
     expect(productionPerFileCap).toBe(32 * 1024 * 1024);
     if (typeof productionPerFileCap !== "number") return;

@@ -52,7 +52,7 @@ interface TraceRec {
   inbox?: unknown;
   resetting?: unknown;
   stoppingSince?: unknown;
-  apmPhase?: unknown;
+  deliveryPhase?: unknown;
 }
 
 export interface TraceSampler {
@@ -78,7 +78,7 @@ interface AgentSamplerState {
   pendingTick: TraceRec | null;
   /** Last emitted `root_work` nowMs. */
   lastProgressEmitAt: number;
-  /** Last emitted `runtime_signal` apmPhase (edge detection) + nowMs. */
+  /** Last emitted `runtime_signal` deliveryPhase (edge detection) + nowMs. */
   lastSignalPhase: string | null;
   lastSignalEmitAt: number;
 }
@@ -215,7 +215,7 @@ export function createTraceSampler(
 
       // runtime_signal: keep phase-change EDGES, throttle same-phase runs.
       if (event === "runtime_signal") {
-        const phase = typeof rec.apmPhase === "string" ? rec.apmPhase : "";
+        const phase = typeof rec.deliveryPhase === "string" ? rec.deliveryPhase : "";
         const now = nowOf(rec);
         if (phase !== s.lastSignalPhase || now - s.lastSignalEmitAt >= throttleMs) {
           s.lastSignalPhase = phase;
