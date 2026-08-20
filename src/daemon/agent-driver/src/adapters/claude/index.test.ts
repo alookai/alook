@@ -29,11 +29,23 @@ describe("ClaudeDriver", () => {
 
   it("encodes same-turn safe-boundary input with the active resumed session", () => {
     const driver = new ClaudeDriver();
-    expect(JSON.parse(driver.encodeMessage("follow up", "session-1"))).toEqual({
+    const rootReceipt = driver.beginTurn();
+    const idle = JSON.parse(driver.encodeMessage("first", "session-1", { mode: "idle" }));
+    const busy = JSON.parse(driver.encodeMessage("follow up", "session-1", { mode: "busy" }));
+    expect(idle).toEqual({
       type: "user",
-      message: { role: "user", content: [{ type: "text", text: "follow up" }] },
+      message: { role: "user", content: [{ type: "text", text: "first" }] },
+      uuid: rootReceipt.slice("claude:".length),
       session_id: "session-1",
     });
+    expect(busy).toEqual({
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text: "follow up" }] },
+      uuid: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      priority: "now",
+      session_id: "session-1",
+    });
+    expect(busy.uuid).not.toBe(idle.uuid);
   });
 
   it("spawns the configured command and writes the initial stream-json message", async () => {
@@ -57,6 +69,7 @@ describe("ClaudeDriver", () => {
     });
 
     const driver = new ClaudeDriver();
+    const receipt = driver.beginTurn();
     await expect(driver.spawn(ctx)).resolves.toEqual({ process });
     expect(spawnAgentProcess).toHaveBeenCalledWith(
       "/custom/claude",
@@ -64,5 +77,6 @@ describe("ClaudeDriver", () => {
       expect.objectContaining({ cwd: workingDirectory }),
     );
     expect(write).toHaveBeenCalledWith(expect.stringContaining('"text":"hello"'));
+    expect(write).toHaveBeenCalledWith(expect.stringContaining(`"uuid":"${receipt.slice("claude:".length)}"`));
   });
 });

@@ -26,6 +26,7 @@ export function buildClaudeArgs(config: AdapterLaunchConfig): string[] {
     "stream-json",
     "--input-format",
     "stream-json",
+    "--replay-user-messages",
     "--include-partial-messages",
     "--disallowed-tools",
     f.disallowedTools || CLAUDE_DISALLOWED_TOOLS,

@@ -12,20 +12,33 @@ describe("builtin adapter protocol conformance", () => {
   it("runs the real Claude adapter through the shared normalized-event contract", () => {
     const events = runAgentBackendAdapterConformance(registry.get("claude"), {
       exercise(adapter) {
+        const receipt = adapter.beginTurn?.();
+        const rootUuid = receipt?.slice("claude:".length);
         return [
           ...adapter.normalizeLine(line({ type: "system", subtype: "init", session_id: "claude-root" })),
+          ...adapter.normalizeLine(line({
+            type: "user",
+            isReplay: true,
+            uuid: rootUuid,
+            message: { role: "user", content: [{ type: "text", text: "prompt" }] },
+          })),
           ...adapter.normalizeLine(line({ type: "assistant", message: { content: [
             { type: "thinking", thinking: "plan" },
             { type: "tool_use", name: "Read", input: { path: "x" } },
           ] } })),
           ...adapter.normalizeLine(line({ type: "user", message: { content: [{ type: "tool_result" }] } })),
           ...adapter.normalizeLine(line({ type: "assistant", message: { content: [{ type: "text", text: "done" }] } })),
-          ...adapter.normalizeLine(line({ type: "result", subtype: "success", session_id: "claude-root" })),
+          ...adapter.normalizeLine(line({
+            type: "result",
+            subtype: "success",
+            session_id: "claude-root",
+            user_message_uuid: rootUuid,
+          })),
         ];
       },
       expectedEventKinds: ["session_init", "thinking", "tool_call", "tool_output", "text", "turn_end"],
     });
-    expect(events.at(-1)).toEqual({ kind: "turn_end", sessionId: "claude-root" });
+    expect(events.at(-1)).toMatchObject({ kind: "turn_end", sessionId: "claude-root", turnOwner: expect.stringMatching(/^claude:/) });
   });
 
   it("runs the real Codex adapter and rejects child completion/output in the shared contract", () => {

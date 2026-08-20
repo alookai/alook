@@ -237,12 +237,12 @@ describe("closed physical-lane tombstone", () => {
 
     const second = await session.send({ id: "b", kind: "user", text: "second" });
     expect(second.status).toBe("accepted");
+    await emit(driver, { kind: "tool_call", name: "current", input: {} });
     expect(await session.send({ id: "c", kind: "user", text: "third" })).toEqual({
       status: "queued",
       reason: "unsafe_boundary",
       commandId: "c",
     });
-    await emit(driver, { kind: "tool_call", name: "current", input: {} });
     await emit(driver, { kind: "tool_output", name: "current" });
     await vi.waitFor(() => {
       expect(session.snapshot()).toMatchObject({
@@ -362,6 +362,7 @@ describe("backend-owned delivery behavior", () => {
   it.each(["claude", "codex"] as const)("%s queues mid-turn and flushes at a safe boundary", async (backend) => {
     const { session, driver } = makeSession(backend);
     await session.start({ id: "one", kind: "user", text: "start" });
+    await emit(driver, { kind: "compaction_started" });
     expect(await session.send({ id: "two", kind: "user", text: "follow" })).toEqual({ status: "queued", reason: "unsafe_boundary", commandId: "two" });
     expect(session.snapshot().queuedCommands).toEqual([{ commandId: "two", kind: "user" }]);
     expect(driver.writes).toEqual([]);
@@ -374,6 +375,7 @@ describe("backend-owned delivery behavior", () => {
     const { session, driver } = makeSession(backend);
     const iterator = session.events[Symbol.asyncIterator]();
     await session.start({ id: "one", kind: "user", text: "start" });
+    await emit(driver, { kind: "compaction_started" });
     expect(await session.send({ id: "same-a", kind: "user", text: "same" })).toMatchObject({ status: "queued" });
     expect(await session.send({ id: "same-b", kind: "user", text: "same" })).toMatchObject({ status: "queued" });
     await emit(driver, { kind: "compaction_finished" });
@@ -387,6 +389,48 @@ describe("backend-owned delivery behavior", () => {
       }
     }
     expect(accepted).toEqual(["same-a", "same-b"]);
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it.each(["claude", "codex"] as const)("%s flushes a message that arrives at an already-safe boundary", async (backend) => {
+    const { session, driver } = makeSession(backend);
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+
+    expect(await session.send({ id: "two", kind: "user", text: "follow" })).toEqual({
+      status: "queued",
+      reason: "unsafe_boundary",
+      commandId: "two",
+    });
+    await vi.waitFor(() => expect(driver.writes).toEqual(["follow"]));
+    expect(session.snapshot()).toMatchObject({
+      activeTurn: { commandIds: ["one", "two"] },
+      queuedCommands: [],
+    });
+    const events = await take(iterator as never, 4);
+    expect(events.filter((event) => event.type === "command_accepted" && event.commandId === "two"))
+      .toHaveLength(1);
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("flushes a safe-boundary message queued while the persistent lane is still starting", async () => {
+    const { session, driver } = makeSession("claude");
+    const gate = deferred();
+    driver.spawnGate = gate.promise;
+    const starting = session.start({ id: "one", kind: "user", text: "start" });
+    await Promise.resolve();
+    expect(await session.send({ id: "two", kind: "user", text: "follow" })).toEqual({
+      status: "queued",
+      reason: "unsafe_boundary",
+      commandId: "two",
+    });
+    gate.resolve();
+    await expect(starting).resolves.toMatchObject({ status: "accepted" });
+    await vi.waitFor(() => expect(driver.writes).toEqual(["follow"]));
+    expect(session.snapshot()).toMatchObject({
+      activeTurn: { commandIds: ["one", "two"] },
+      queuedCommands: [],
+    });
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
@@ -482,9 +526,10 @@ describe("backend-owned delivery behavior", () => {
   });
 
   it("fails every still-queued command when the session stops", async () => {
-    const { session } = makeSession("claude");
+    const { session, driver } = makeSession("claude");
     const iterator = session.events[Symbol.asyncIterator]();
     await session.start({ id: "one", kind: "user", text: "start" });
+    await emit(driver, { kind: "compaction_started" });
     await session.send({ id: "two", kind: "user", text: "follow" });
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
     const events = await take(iterator as never, 6);
@@ -497,11 +542,12 @@ describe("backend-owned delivery behavior", () => {
     const { session, driver } = makeSession("claude");
     const iterator = session.events[Symbol.asyncIterator]();
     await session.start({ id: "one", kind: "user", text: "start" });
+    await emit(driver, { kind: "compaction_started" });
     await session.send({ id: "two", kind: "user", text: "follow two" });
     await session.send({ id: "three", kind: "user", text: "follow three" });
     driver.rejectWrites = true;
     await emit(driver, { kind: "compaction_finished" });
-    const events = await take(iterator as never, 7);
+    const events = await take(iterator as never, 8);
     expect(events.filter((event) => event.type === "command_failed").map((event) => event.commandId))
       .toEqual(["two", "three"]);
     expect(session.snapshot().queuedCommands).toEqual([]);
@@ -512,11 +558,12 @@ describe("backend-owned delivery behavior", () => {
     const { session, driver } = makeSession("claude");
     const iterator = session.events[Symbol.asyncIterator]();
     await session.start({ id: "one", kind: "user", text: "start" });
+    await emit(driver, { kind: "compaction_started" });
     await session.send({ id: "two", kind: "user", text: "follow two" });
     await session.send({ id: "three", kind: "user", text: "follow three" });
     emitNow(driver, { kind: "compaction_finished" });
     emitNow(driver, { kind: "review_finished" });
-    const events = await take(iterator as never, 8);
+    const events = await take(iterator as never, 9);
     expect(driver.writes).toEqual(["follow two", "follow three"]);
     expect(events.filter((event) => event.type === "command_accepted").map((event) => event.commandId))
       .toEqual(["one", "two", "three"]);
@@ -531,12 +578,13 @@ describe("backend-owned delivery behavior", () => {
     const { session, driver } = makeSession("claude");
     const iterator = session.events[Symbol.asyncIterator]();
     await session.start({ id: "one", kind: "user", text: "start" });
+    await emit(driver, { kind: "compaction_started" });
     await session.send({ id: "two", kind: "user", text: "follow two" });
     await session.send({ id: "three", kind: "user", text: "follow three" });
     driver.rejectWrites = true;
     emitNow(driver, { kind: "compaction_finished" });
     emitNow(driver, { kind: "review_finished" });
-    const events = await take(iterator as never, 8);
+    const events = await take(iterator as never, 9);
     expect(driver.writes).toEqual(["follow two", "follow three"]);
     expect(events.filter((event) => event.type === "command_failed").map((event) => event.commandId))
       .toEqual(["two", "three"]);
@@ -551,6 +599,7 @@ describe("backend-owned delivery behavior", () => {
     const { session, driver } = makeSession("claude");
     const iterator = session.events[Symbol.asyncIterator]();
     await session.start({ id: "one", kind: "user", text: "start" });
+    await emit(driver, { kind: "compaction_started" });
     await session.send({ id: "two", kind: "user", text: "follow two" });
     emitNow(driver, { kind: "compaction_finished" });
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
@@ -589,10 +638,11 @@ describe("backend-owned delivery behavior", () => {
     const { session, driver } = makeSession("claude");
     const iterator = session.events[Symbol.asyncIterator]();
     await session.start({ id: "one", kind: "user", text: "start" });
+    await emit(driver, { kind: "compaction_started" });
     await session.send({ id: "two", kind: "user", text: "follow two" });
     emitNow(driver, { kind: "compaction_finished" });
     emitNow(driver, { kind: "turn_end" });
-    const events = await take(iterator as never, 6);
+    const events = await take(iterator as never, 7);
     const admission = events.filter((event) =>
       (event.type === "command_accepted" || event.type === "command_failed")
       && event.commandId === "two"
@@ -612,11 +662,12 @@ describe("backend-owned delivery behavior", () => {
     const { session, driver } = makeSession("claude");
     const iterator = session.events[Symbol.asyncIterator]();
     await session.start({ id: "one", kind: "user", text: "start" });
+    await emit(driver, { kind: "compaction_started" });
     await session.send({ id: "two", kind: "user", text: "follow two" });
     driver.rejectWrites = true;
     emitNow(driver, { kind: "compaction_finished" });
     emitNow(driver, { kind: "turn_end" });
-    const events = await take(iterator as never, 6);
+    const events = await take(iterator as never, 7);
     const admission = events.filter((event) =>
       (event.type === "command_accepted" || event.type === "command_failed")
       && event.commandId === "two"
@@ -637,6 +688,7 @@ describe("backend-owned delivery behavior", () => {
   it("does not start the next turn while a cancelled boundary send is still physically in flight", async () => {
     const { session, driver } = makeSession("claude");
     await session.start({ id: "one", kind: "user", text: "start" });
+    await emit(driver, { kind: "compaction_started" });
     const internals = session as unknown as {
       sendLane(text: string, mode: "busy" | "idle"): Promise<unknown>;
     };

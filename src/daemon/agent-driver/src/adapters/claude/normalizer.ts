@@ -15,11 +15,14 @@
  */
 import type { AdapterEvent } from "../../internal/adapter.js";
 import { tryParseJsonLine } from "../../internal/utils.js";
+import type { ClaudeTurnProtocol } from "./turnProtocol.js";
 
 const API_ERROR_RE = /API Error:.*(?:Connection error|\b[45]\d{2}\b)/i;
 
 export class ClaudeEventNormalizer {
   private currentSession: string | null = null;
+
+  constructor(private readonly turnProtocol?: ClaudeTurnProtocol) {}
 
   get currentSessionId(): string | null {
     return this.currentSession;
@@ -33,10 +36,10 @@ export class ClaudeEventNormalizer {
     const out: AdapterEvent[] = [];
     switch (event?.type) {
       case "system":
-        this.handleSystem(event, out);
+        if (event.subtype === "init" || this.acceptsTurnWork()) this.handleSystem(event, out);
         break;
       case "assistant":
-        this.handleAssistant(event, out);
+        if (this.acceptsTurnWork()) this.handleAssistant(event, out);
         break;
       case "user":
         this.handleUser(event, out);
@@ -88,6 +91,10 @@ export class ClaudeEventNormalizer {
   }
 
   private handleUser(event: any, out: AdapterEvent[]): void {
+    if (event.isReplay === true && typeof event.uuid === "string") {
+      this.turnProtocol?.acknowledge(event.uuid);
+    }
+    if (!this.acceptsTurnWork()) return;
     const content = event?.message?.content;
     if (!Array.isArray(content)) return;
     for (const block of content) {
@@ -96,6 +103,13 @@ export class ClaudeEventNormalizer {
   }
 
   private handleResult(event: any, out: AdapterEvent[]): void {
+    const rawOwner = typeof event.user_message_uuid === "string" && event.user_message_uuid.length > 0
+      ? event.user_message_uuid
+      : null;
+    const turnOwner = rawOwner
+      ? this.turnProtocol?.claimResult(rawOwner) ?? (this.turnProtocol ? null : `claude:${rawOwner}`)
+      : null;
+    if (this.turnProtocol && !turnOwner) return;
     const usage = this.buildUsageTelemetry(event);
     if (usage) out.push(usage);
     if (event.is_error || event.subtype === "error_during_execution") {
@@ -104,7 +118,12 @@ export class ClaudeEventNormalizer {
     out.push({
       kind: "turn_end",
       sessionId: event.session_id ?? this.currentSession ?? undefined,
+      ...(turnOwner ? { turnOwner } : {}),
     });
+  }
+
+  private acceptsTurnWork(): boolean {
+    return this.turnProtocol?.acceptsTurnWork() ?? true;
   }
 
   private buildUsageTelemetry(event: any): AdapterEvent | null {

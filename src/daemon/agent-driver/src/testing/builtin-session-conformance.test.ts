@@ -42,9 +42,15 @@ interface VendorHarness {
   readonly processes: HarnessProcess[];
   readonly lanes: SdkLane[];
   readonly handles: Array<VendorSessionHandle & { isStreaming: boolean }>;
+  readonly claudeInputUuids: readonly string[];
+  readonly stdinMessages: readonly Record<string, unknown>[];
   sessionReady(turn: number): void;
   completeTurn(turn: number): void;
-  duplicateTurn(turn: number): void;
+  duplicateTurn(turn: number, overrides?: Record<string, unknown>): void;
+  completeTurnWithTail(turn: number, tail: readonly unknown[], sameChunk: boolean): void;
+  emitProvider(event: unknown): void;
+  replayClaudeInput(index: number): void;
+  resultForClaudeInput(index: number, overrides?: Record<string, unknown>): void;
 }
 
 const workingDirectories: string[] = [];
@@ -77,6 +83,10 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
   const lanes: SdkLane[] = [];
   const handles: Array<VendorSessionHandle & { isStreaming: boolean }> = [];
   const piPromptResolutions: Array<() => void> = [];
+  const claudeTurnUuids: string[] = [];
+  const claudeInputUuids: string[] = [];
+  const stdinMessages: Record<string, unknown>[] = [];
+  let claudeAckCursor = 0;
   if (backend === "pi") {
     vi.spyOn(PiDriver.prototype, "openSdkSession").mockImplementation(async (ctx) => {
       contexts.push(ctx);
@@ -94,9 +104,39 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
     });
   } else {
     const classes = { claude: ClaudeDriver, codex: CodexDriver, cursor: CursorDriver, opencode: OpenCodeDriver };
+    if (backend === "claude") {
+      const beginTurn = ClaudeDriver.prototype.beginTurn;
+      vi.spyOn(ClaudeDriver.prototype, "beginTurn").mockImplementation(function (this: ClaudeDriver) {
+        const receipt = beginTurn.call(this);
+        const uuid = receipt.slice("claude:".length);
+        claudeTurnUuids.push(uuid);
+        claudeInputUuids.push(uuid);
+        return receipt;
+      });
+      const encodeMessage = ClaudeDriver.prototype.encodeMessage;
+      vi.spyOn(ClaudeDriver.prototype, "encodeMessage").mockImplementation(function (
+        this: ClaudeDriver,
+        text,
+        sessionId,
+        opts,
+      ) {
+        const encoded = encodeMessage.call(this, text, sessionId, opts);
+        if (opts?.mode === "busy") claudeInputUuids.push(JSON.parse(encoded).uuid);
+        return encoded;
+      });
+    }
     vi.spyOn(classes[backend].prototype, "spawn").mockImplementation(async (ctx) => {
       contexts.push(ctx as AdapterLaunchContext);
       const process = fakeProcess();
+      let stdinBuffer = "";
+      process.stdin.on("data", (chunk) => {
+        stdinBuffer += chunk.toString();
+        const lines = stdinBuffer.split("\n");
+        stdinBuffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (line.trim()) stdinMessages.push(JSON.parse(line) as Record<string, unknown>);
+        }
+      });
       processes.push(process);
       return { process };
     });
@@ -105,11 +145,33 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
   const write = (value: unknown, index = processes.length - 1) => {
     processes[index]!.stdout.write(`${JSON.stringify(value)}\n`);
   };
+  const acknowledgeClaudeInputs = () => {
+    for (const uuid of claudeInputUuids.slice(claudeAckCursor)) {
+      write({
+        type: "user",
+        isReplay: true,
+        uuid,
+        session_id: "claude-resumed",
+        message: { role: "user", content: [{ type: "text", text: "ack" }] },
+      });
+    }
+    claudeAckCursor = claudeInputUuids.length;
+  };
+  const claudeTerminal = (turn: number, overrides: Record<string, unknown> = {}) => ({
+    type: "result",
+    subtype: "success",
+    session_id: "claude-resumed",
+    user_message_uuid: claudeTurnUuids[turn - 1],
+    duration_ms: turn,
+    ...overrides,
+  });
   return {
     contexts,
     processes,
     lanes,
     handles,
+    claudeInputUuids,
+    stdinMessages,
     sessionReady(turn) {
       switch (backend) {
         case "claude":
@@ -136,7 +198,8 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
     completeTurn(turn) {
       switch (backend) {
         case "claude":
-          write({ type: "result", subtype: "success", session_id: "claude-resumed", duration_ms: turn });
+          acknowledgeClaudeInputs();
+          write(claudeTerminal(turn));
           break;
         case "codex":
           write({ jsonrpc: "2.0", method: "turn/completed", params: {
@@ -155,10 +218,10 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
           break;
       }
     },
-    duplicateTurn(turn) {
+    duplicateTurn(turn, overrides = {}) {
       switch (backend) {
         case "claude":
-          write({ type: "result", subtype: "success", session_id: "claude-resumed", duration_ms: turn });
+          write(claudeTerminal(turn, overrides));
           break;
         case "codex":
           write({ jsonrpc: "2.0", method: "turn/completed", params: {
@@ -171,6 +234,43 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
         case "pi":
           throw new Error("pi terminals are owned by prompt promise settlement, not vendor event payloads");
       }
+    },
+    completeTurnWithTail(turn, tail, sameChunk) {
+      if (backend !== "claude") throw new Error("terminal tail fixture is Claude-specific");
+      acknowledgeClaudeInputs();
+      const events = [claudeTerminal(turn), ...tail];
+      if (sameChunk) {
+        processes[0]!.stdout.write(`${events.map((event) => JSON.stringify(event)).join("\n")}\n`);
+      } else {
+        for (const event of events) write(event, 0);
+      }
+    },
+    emitProvider(event) {
+      write(event);
+    },
+    replayClaudeInput(index) {
+      if (backend !== "claude") throw new Error("replay acknowledgements are Claude-specific");
+      const uuid = claudeInputUuids[index];
+      if (!uuid) throw new Error(`missing Claude input UUID at index ${index}`);
+      write({
+        type: "user",
+        isReplay: true,
+        uuid,
+        session_id: "claude-resumed",
+        message: { role: "user", content: [{ type: "text", text: "ack" }] },
+      });
+    },
+    resultForClaudeInput(index, overrides = {}) {
+      if (backend !== "claude") throw new Error("input-owned results are Claude-specific");
+      const uuid = claudeInputUuids[index];
+      if (!uuid) throw new Error(`missing Claude input UUID at index ${index}`);
+      write({
+        type: "result",
+        subtype: "success",
+        session_id: "claude-resumed",
+        user_message_uuid: uuid,
+        ...overrides,
+      });
     },
   };
 }
@@ -223,20 +323,22 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
   const interrupted = await session.interrupt({ requestId: "interrupt-1", reason: "conformance" });
   expect(interrupted.status).toBe("accepted");
   harness.completeTurn(1);
-  if (backend === "claude" || backend === "cursor" || backend === "opencode") harness.processes[0]!.finish();
+  if (backend === "cursor" || backend === "opencode") harness.processes[0]!.finish();
   await settle();
 
-  if (backend === "pi") {
+  if (backend === "pi" || backend === "claude" || backend === "codex") {
     expect(await session.send({ id: "reuse", kind: "user", text: "reuse" })).toMatchObject({ status: "accepted" });
-    harness.handles[0]!.isStreaming = true;
+    if (backend === "pi") harness.handles[0]!.isStreaming = true;
   }
   harness.sessionReady(2);
   await settle();
   harness.completeTurn(2);
-  if (backend === "claude" || backend === "cursor" || backend === "opencode") harness.processes[1]!.finish();
+  if (backend === "cursor" || backend === "opencode") harness.processes[1]!.finish();
   await settle();
 
-  expect(await session.stop({ reason: "shutdown", forceAfterMs: 25 })).toMatchObject({ status: "accepted" });
+  const stopping = session.stop({ reason: "shutdown", forceAfterMs: 25 });
+  if (backend === "claude") harness.processes[0]!.finish();
+  expect(await stopping).toMatchObject({ status: "accepted" });
   const closed = await session.closed;
   await collecting;
   expect(closed.outcome).toBe("stopped");
@@ -493,8 +595,8 @@ describe("codex persistent terminal ownership", () => {
   });
 });
 
-describe("claude turn-scoped transport ownership", () => {
-  it("accepts identical legitimate terminals while every late old-lane duplicate stays fenced", async () => {
+describe("claude persistent transport ownership", () => {
+  it("accepts identical legitimate terminals while a late prior-turn duplicate stays fenced on one process", async () => {
     const backend = "claude" as const;
     const harness = installVendorHarness(backend);
     const host = createFakeAgentDriverHost();
@@ -509,40 +611,88 @@ describe("claude turn-scoped transport ownership", () => {
     if (!opened.ok) throw new Error(opened.error.message);
     const events: Array<AgentEvent<BuiltinBackendSpecs, "claude">> = [];
     const collecting = (async () => { for await (const event of opened.session.events) events.push(event); })();
-    const terminal = { type: "result", subtype: "success", session_id: "claude-resumed" };
 
     const first = await opened.session.start({ id: "first", kind: "user", text: "same" });
     expect(first.status).toBe("accepted");
     harness.sessionReady(1);
-    harness.processes[0]!.stdout.write(`${JSON.stringify(terminal)}\n`);
+    harness.completeTurn(1);
     await settle();
     const second = await opened.session.send({ id: "second", kind: "user", text: "same" });
     expect(second.status).toBe("accepted");
-    expect(harness.processes).toHaveLength(2);
+    expect(harness.processes).toHaveLength(1);
     harness.sessionReady(2);
 
     for (let index = 0; index < 128; index += 1) {
-      harness.processes[0]!.stdout.write(`${JSON.stringify(terminal)}\n`);
+      harness.duplicateTurn(1);
     }
     await settle();
     expect(opened.session.snapshot().activeTurn?.turnId).toBe(second.status === "accepted" ? second.turnId : "unreachable");
     expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(1);
 
-    harness.processes[1]!.stdout.write(`${JSON.stringify(terminal)}\n`);
+    harness.completeTurn(2);
     await settle();
     expect(opened.session.snapshot().activeTurn).toBeUndefined();
     expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(2);
-    expect(harness.contexts[1]!.config.sessionId).toBe("claude-resumed");
-    await opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    expect(harness.contexts).toHaveLength(1);
+    const stopping = opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    harness.processes[0]!.finish();
+    await stopping;
     await collecting;
   });
 
-  it.each(["same stdout chunk", "separate stdout chunks"] as const)(
-    "ignores terminal tail work in %s and starts turn B after the old lane exits",
-    async (delivery) => {
+  it("drops stale errored-result side effects before they can poison the active turn", async () => {
+    const harness = installVendorHarness("claude");
+    const sdk = createAgentDriverSdkWithRegistry({
+      host: createFakeAgentDriverHost(),
+      registry: createBuiltinAgentDriverRegistry(),
+    });
+    const workingDirectory = mkdtempSync(join(tmpdir(), "agent-driver-stale-error-claude-"));
+    workingDirectories.push(workingDirectory);
+    const opened = await sdk.open({
+      backend: "claude",
+      config: configs.claude,
+      launch: { workingDirectory, instructions: { format: "markdown", content: "" }, launchId: "stale-error-claude" },
+    });
+    if (!opened.ok) throw new Error(opened.error.message);
+    const events: Array<AgentEvent<BuiltinBackendSpecs, "claude">> = [];
+    const collecting = (async () => { for await (const event of opened.session.events) events.push(event); })();
+
+    await opened.session.start({ id: "first", kind: "user", text: "first" });
+    harness.sessionReady(1);
+    harness.completeTurn(1);
+    await settle();
+    const second = await opened.session.send({ id: "second", kind: "user", text: "second" });
+    expect(second.status).toBe("accepted");
+    harness.sessionReady(2);
+    harness.duplicateTurn(1, {
+      is_error: true,
+      result: "stale failure",
+      usage: { input_tokens: 99, output_tokens: 99 },
+    });
+    await settle();
+    expect(opened.session.snapshot().activeTurn?.turnId).toBe(second.status === "accepted" ? second.turnId : "unreachable");
+    expect(events.filter((event) => event.type === "diagnostic")).toHaveLength(0);
+    expect(events.filter((event) => event.type === "token_usage")).toHaveLength(0);
+
+    harness.completeTurn(2);
+    await settle();
+    const completions = events.filter((event) => event.type === "turn_completed");
+    expect(completions).toHaveLength(2);
+    expect(completions.at(-1)).toMatchObject({ result: { outcome: "success" } });
+    const stopping = opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    harness.processes[0]!.finish();
+    await stopping;
+    await collecting;
+  });
+
+  it.each([true, false] as const)(
+    "drops provider work after a final result (%s chunk) and starts B on the same process",
+    async (sameChunk) => {
       const harness = installVendorHarness("claude");
-      const host = createFakeAgentDriverHost();
-      const sdk = createAgentDriverSdkWithRegistry({ host, registry: createBuiltinAgentDriverRegistry() });
+      const sdk = createAgentDriverSdkWithRegistry({
+        host: createFakeAgentDriverHost(),
+        registry: createBuiltinAgentDriverRegistry(),
+      });
       const workingDirectory = mkdtempSync(join(tmpdir(), "agent-driver-terminal-tail-claude-"));
       workingDirectories.push(workingDirectory);
       const opened = await sdk.open({
@@ -553,59 +703,155 @@ describe("claude turn-scoped transport ownership", () => {
       if (!opened.ok) throw new Error(opened.error.message);
       const events: Array<AgentEvent<BuiltinBackendSpecs, "claude">> = [];
       const collecting = (async () => { for await (const event of opened.session.events) events.push(event); })();
-      const init = { type: "system", subtype: "init", session_id: "claude-resumed" };
-      const terminal = { type: "result", subtype: "success", session_id: "claude-resumed" };
-      const tail = { type: "assistant", session_id: "claude-resumed", message: { content: [{ type: "tool_use", name: "LateTail", input: {} }] } };
 
-      const first = await opened.session.start({ id: "first", kind: "user", text: "first" });
-      expect(first.status).toBe("accepted");
-      if (delivery === "same stdout chunk") {
-        harness.processes[0]!.stdout.write(`${[init, terminal, tail].map((event) => JSON.stringify(event)).join("\n")}\n`);
-      } else {
-        harness.processes[0]!.stdout.write(`${JSON.stringify(init)}\n${JSON.stringify(terminal)}\n`);
-        await settle();
-        harness.processes[0]!.stdout.write(`${JSON.stringify(tail)}\n`);
-      }
+      await opened.session.start({ id: "first", kind: "user", text: "first" });
+      harness.sessionReady(1);
+      harness.completeTurnWithTail(1, [
+        { type: "assistant", message: { content: [{ type: "text", text: "late text" }] } },
+        { type: "assistant", message: { content: [{ type: "tool_use", name: "LateTool", input: {} }] } },
+        { type: "system", subtype: "status", status: "late-progress" },
+      ], sameChunk);
       await settle();
       expect(opened.session.snapshot().activeTurn).toBeUndefined();
-      expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(1);
+      expect(events.filter((event) => event.type === "text_delta")).toHaveLength(0);
       expect(events.filter((event) => event.type === "tool_started")).toHaveLength(0);
-
-      harness.processes[0]!.finish(0);
-      await settle();
-      expect(opened.session.snapshot().activeTurn).toBeUndefined();
+      expect(events.filter((event) => event.type === "internal_progress")).toHaveLength(0);
 
       const second = await opened.session.send({ id: "second", kind: "user", text: "second" });
       expect(second.status).toBe("accepted");
-      expect(harness.processes).toHaveLength(2);
+      expect(harness.processes).toHaveLength(1);
       harness.sessionReady(2);
-      const third = await opened.session.send({ id: "third", kind: "user", text: "third" });
-      expect(third).toEqual({ status: "queued", reason: "unsafe_boundary", commandId: "third" });
-      harness.processes[1]!.stdout.write(`${JSON.stringify({
-        type: "assistant",
-        session_id: "claude-resumed",
-        message: { content: [{ type: "tool_use", name: "CurrentTool", input: {} }] },
-      })}\n${JSON.stringify({
-        type: "user",
-        session_id: "claude-resumed",
-        message: { content: [{ type: "tool_result", tool_use_id: "current", content: "done" }] },
-      })}\n`);
-      await vi.waitFor(() => {
-        expect(opened.session.snapshot()).toMatchObject({
-          activeTurn: { commandIds: ["second", "third"] },
-          queuedCommands: [],
-        });
-      });
-      expect(events.filter((event) => event.type === "command_accepted" && event.commandId === "third"))
-        .toHaveLength(1);
-      harness.processes[1]!.stdout.write(`${JSON.stringify(terminal)}\n`);
+      harness.completeTurn(2);
       await settle();
-      expect(opened.session.snapshot().activeTurn).toBeUndefined();
       expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(2);
-      await opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
+      const stopping = opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
+      harness.processes[0]!.finish();
+      await stopping;
       await collecting;
     },
   );
+
+  it("delivers high-frequency FIFO steering inside one turn and one process across a follow-on provider segment", async () => {
+    const harness = installVendorHarness("claude");
+    const sdk = createAgentDriverSdkWithRegistry({
+      host: createFakeAgentDriverHost(),
+      registry: createBuiltinAgentDriverRegistry(),
+    });
+    const workingDirectory = mkdtempSync(join(tmpdir(), "agent-driver-steering-claude-"));
+    workingDirectories.push(workingDirectory);
+    const opened = await sdk.open({
+      backend: "claude",
+      config: configs.claude,
+      launch: { workingDirectory, instructions: { format: "markdown", content: "" }, launchId: "steering-claude" },
+    });
+    if (!opened.ok) throw new Error(opened.error.message);
+    const events: Array<AgentEvent<BuiltinBackendSpecs, "claude">> = [];
+    const collecting = (async () => { for await (const event of opened.session.events) events.push(event); })();
+
+    await opened.session.start({ id: "root", kind: "user", text: "root" });
+    harness.sessionReady(1);
+    harness.emitProvider({
+      type: "assistant",
+      message: { content: [{ type: "tool_use", id: "tool-1", name: "Read", input: {} }] },
+    });
+    await settle();
+
+    const steering = Array.from({ length: 9 }, (_, index) => ({
+      id: `steer-${index + 1}`,
+      text: `steer-${index + 1}`,
+    }));
+    for (const message of steering) {
+      expect(await opened.session.send({ id: message.id, kind: "user", text: message.text }))
+        .toEqual({ status: "queued", reason: "unsafe_boundary", commandId: message.id });
+    }
+    expect(harness.stdinMessages).toHaveLength(0);
+
+    harness.emitProvider({
+      type: "user",
+      message: { content: [{ type: "tool_result", tool_use_id: "tool-1", content: "done" }] },
+    });
+    await vi.waitFor(() => expect(harness.stdinMessages).toHaveLength(9));
+    expect(harness.processes).toHaveLength(1);
+    expect(harness.stdinMessages.map((frame) => frame.priority)).toEqual(Array(9).fill("now"));
+    for (const [index, frame] of harness.stdinMessages.entries()) {
+      expect(frame).toMatchObject({
+        type: "user",
+        message: { role: "user", content: [{ type: "text", text: steering[index]!.text }] },
+      });
+    }
+    const wireUuids = harness.stdinMessages.map((frame) => frame.uuid);
+    expect(new Set(wireUuids).size).toBe(9);
+    expect(wireUuids).toEqual(harness.claudeInputUuids.slice(1));
+    await vi.waitFor(() => {
+      expect(opened.session.snapshot()).toMatchObject({
+        activeTurn: { commandIds: ["root", ...steering.map((message) => message.id)] },
+        queuedCommands: [],
+      });
+    });
+    await vi.waitFor(() => {
+      for (const message of steering) {
+        expect(events.filter((event) => event.type === "command_accepted" && event.commandId === message.id))
+          .toHaveLength(1);
+      }
+    });
+
+    harness.replayClaudeInput(0);
+    harness.resultForClaudeInput(0);
+    await settle();
+    expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(0);
+    expect(opened.session.snapshot().activeTurn).toBeDefined();
+
+    for (let index = 1; index <= steering.length; index += 1) harness.replayClaudeInput(index);
+    harness.resultForClaudeInput(1);
+    await settle();
+    expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(0);
+    harness.resultForClaudeInput(steering.length);
+    await settle();
+    const completions = events.filter((event) => event.type === "turn_completed");
+    expect(completions).toHaveLength(1);
+    expect(completions[0]).toMatchObject({
+      commandIds: ["root", ...steering.map((message) => message.id)],
+      result: { outcome: "success" },
+    });
+    expect(harness.processes).toHaveLength(1);
+
+    const stopping = opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    harness.processes[0]!.finish();
+    await stopping;
+    await collecting;
+  });
+
+  it("keeps ten sequential turns on one stdin/stdout process", async () => {
+    const harness = installVendorHarness("claude");
+    const host = createFakeAgentDriverHost();
+    const sdk = createAgentDriverSdkWithRegistry({ host, registry: createBuiltinAgentDriverRegistry() });
+    const workingDirectory = mkdtempSync(join(tmpdir(), "agent-driver-terminal-tail-claude-"));
+    workingDirectories.push(workingDirectory);
+    const opened = await sdk.open({
+      backend: "claude",
+      config: configs.claude,
+      launch: { workingDirectory, instructions: { format: "markdown", content: "" }, launchId: "terminal-tail-claude" },
+    });
+    if (!opened.ok) throw new Error(opened.error.message);
+    const events: Array<AgentEvent<BuiltinBackendSpecs, "claude">> = [];
+    const collecting = (async () => { for await (const event of opened.session.events) events.push(event); })();
+    for (let turn = 1; turn <= 10; turn += 1) {
+      const receipt = turn === 1
+        ? await opened.session.start({ id: `message-${turn}`, kind: "user", text: `turn-${turn}` })
+        : await opened.session.send({ id: `message-${turn}`, kind: "user", text: `turn-${turn}` });
+      expect(receipt.status).toBe("accepted");
+      harness.sessionReady(turn);
+      harness.completeTurn(turn);
+      await settle();
+    }
+    expect(harness.processes).toHaveLength(1);
+    expect(harness.contexts).toHaveLength(1);
+    expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(10);
+    const stopping = opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    harness.processes[0]!.finish();
+    await stopping;
+    await collecting;
+  });
 });
 
 it("Pi real adapter public chain owns identical turns by prompt invocation and ignores old completion duplicates", async () => {

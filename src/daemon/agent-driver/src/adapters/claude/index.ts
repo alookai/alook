@@ -1,11 +1,11 @@
 /**
- * Claude Code driver — turn-scoped stream-json process with gated steering.
+ * Claude Code driver — persistent stream-json process with gated steering.
  *
- * Each root turn owns one physical stdout stream and resumes the same vendor
- * session id on the next process. That transport generation is the terminal
- * owner: a late line from a completed process can never terminate a later turn.
- * Mid-turn injection still uses the same stream-json stdin and remains gated
- * by the logical-session controller until a safe boundary.
+ * Claude's stdin protocol accepts a stable UUID on every user frame and its
+ * terminal `result` reports the root `user_message_uuid`. That provider-owned
+ * receipt, rather than payload content or a process restart, binds a terminal
+ * to the logical turn that initiated it. Safe-boundary steering frames use
+ * fresh UUIDs while Claude keeps the root UUID on the eventual result.
  */
 import type { BackendAdapter, EncodeMessageOptions, AdapterLaunchContext, AdapterEvent, SpawnedProcess } from "../../internal/adapter.js";
 import { prepareCliTransport } from "../../internal/cliTransport.js";
@@ -15,13 +15,19 @@ import { ClaudeEventNormalizer } from "./normalizer.js";
 import { probeClaude, probeCommandVersion, resolveSpawnSpec, resolveClaudeCommand } from "../../internal/probe.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
 import { spawnAgentProcess } from "../../internal/killTree.js";
+import { ClaudeTurnProtocol } from "./turnProtocol.js";
 
 export class ClaudeDriver implements BackendAdapter {
   readonly id = "claude";
   readonly instructionDelivery = { kind: "workspace_file", canonical: "AGENTS.md", aliases: ["CLAUDE.md"] } as const;
-  readonly execution = { kind: "per_turn_process", start: "immediate", afterTurn: "terminate" } as const;
+  readonly execution = { kind: "persistent_process", input: "safe_boundary" } as const;
 
-  private readonly eventNormalizer = new ClaudeEventNormalizer();
+  private readonly turnProtocol = new ClaudeTurnProtocol();
+  private readonly eventNormalizer = new ClaudeEventNormalizer(this.turnProtocol);
+
+  beginTurn(): string {
+    return this.turnProtocol.beginTurn();
+  }
 
   probe(command?: string) {
     const explicit = command?.trim();
@@ -67,6 +73,7 @@ export class ClaudeDriver implements BackendAdapter {
     const stdinMsg = JSON.stringify({
       type: "user",
       message: { role: "user", content: [{ type: "text", text: ctx.prompt }] },
+      uuid: this.turnProtocol.rootInputUuid(),
       ...(ctx.config.sessionId ? { session_id: ctx.config.sessionId } : {}),
     });
     proc.stdin?.write(stdinMsg + "\n");
@@ -83,10 +90,15 @@ export class ClaudeDriver implements BackendAdapter {
   }
 
   /** Both idle and busy messages use the same stream-json user-message shape. */
-  encodeMessage(text: string, sessionId: string | null, _opts?: EncodeMessageOptions): string {
+  encodeMessage(text: string, sessionId: string | null, opts?: EncodeMessageOptions): string {
+    const uuid = opts?.mode === "idle"
+      ? this.turnProtocol.rootInputUuid()
+      : this.turnProtocol.steeringInputUuid();
     return JSON.stringify({
       type: "user",
       message: { role: "user", content: [{ type: "text", text }] },
+      uuid,
+      ...(opts?.mode === "busy" ? { priority: "now" } : {}),
       ...(sessionId ? { session_id: sessionId } : {}),
     });
   }

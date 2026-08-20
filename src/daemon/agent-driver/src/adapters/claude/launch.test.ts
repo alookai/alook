@@ -19,6 +19,10 @@ function makeRuntimeConfig(overrides: Partial<ClaudeConfig> = {}): ClaudeConfig 
  * decide" across every driver, matching every non-claude driver's behavior.
  */
 describe("buildClaudeArgs — model flag is conditional", () => {
+  it("requests provider user-message acknowledgements for persistent turn ownership", () => {
+    expect(buildClaudeArgs({ runtimeConfig: makeRuntimeConfig() })).toContain("--replay-user-messages");
+  });
+
   it("omits --model when runtimeConfig.model.kind === 'default'", () => {
     const config: AdapterLaunchConfig = { runtimeConfig: makeRuntimeConfig() };
     const args = buildClaudeArgs(config);

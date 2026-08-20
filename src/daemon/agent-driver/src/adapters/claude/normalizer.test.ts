@@ -59,11 +59,12 @@ describe("ClaudeEventNormalizer.normalizeLine", () => {
 
   it("result → telemetry + turn_end", () => {
     const out = new ClaudeEventNormalizer().normalizeLine(
-      J({ type: "result", subtype: "success", session_id: "s1", usage: { input_tokens: 3, output_tokens: 5 } }),
+      J({ type: "result", subtype: "success", session_id: "s1", user_message_uuid: "root-1", usage: { input_tokens: 3, output_tokens: 5 } }),
     );
     const kinds = out.map((e) => e.kind);
     expect(kinds).toContain("turn_end");
     expect(kinds).toContain("telemetry");
+    expect(out).toContainEqual({ kind: "turn_end", sessionId: "s1", turnOwner: "claude:root-1" });
   });
 
   it("result with is_error → error + turn_end", () => {
@@ -87,10 +88,11 @@ describe("ClaudeEventNormalizer.normalizeLine", () => {
     expect(kinds.indexOf("error")).toBeLessThan(kinds.indexOf("turn_end"));
   });
 
-  it("normalizes byte-identical result payloads without inventing content-based ownership", () => {
+  it("binds terminals to provider user-message UUIDs rather than payload content", () => {
     const n = new ClaudeEventNormalizer();
-    const terminal = J({ type: "result", subtype: "success", session_id: "s1" });
-    expect(n.normalizeLine(terminal)).toEqual([{ kind: "turn_end", sessionId: "s1" }]);
-    expect(n.normalizeLine(terminal)).toEqual([{ kind: "turn_end", sessionId: "s1" }]);
+    const first = J({ type: "result", subtype: "success", session_id: "s1", user_message_uuid: "first" });
+    const second = J({ type: "result", subtype: "success", session_id: "s1", user_message_uuid: "second" });
+    expect(n.normalizeLine(first)).toEqual([{ kind: "turn_end", sessionId: "s1", turnOwner: "claude:first" }]);
+    expect(n.normalizeLine(second)).toEqual([{ kind: "turn_end", sessionId: "s1", turnOwner: "claude:second" }]);
   });
 });

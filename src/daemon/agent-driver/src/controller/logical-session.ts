@@ -336,7 +336,11 @@ implements AgentSession<Specs, Id> {
       const reason = this.behavior.midTurnDelivery === "safe_boundary_queue"
         ? "unsafe_boundary"
         : "runtime_busy";
-      return this.queue(message, reason);
+      const receipt = this.queue(message, reason);
+      if (this.behavior.midTurnDelivery === "safe_boundary_queue") {
+        void this.flushSafeBoundaryQueue();
+      }
+      return receipt;
     }
     return this.startTurn([message], "prompt");
   }
@@ -407,6 +411,7 @@ implements AgentSession<Specs, Id> {
         return { status: "accepted", delivery, commandId: current.id, turnId };
       }
       this.state = "working";
+      void this.flushSafeBoundaryQueue();
       return { status: "accepted", delivery, commandId: current.id, turnId };
     } catch (error) {
       if (!this.isStartCurrent(generation, turnId) || admission.finalized) {
