@@ -13,7 +13,7 @@ import { patchChannelUnread } from "@/hooks/community/server-detail-cache"
 import type { ServerDetail } from "@/hooks/community/use-servers"
 import { ShellFrame } from "@/components/community/shell/shell-frame"
 import {
-  childChannelHref,
+  channelHref,
   serverModalMarkerCleanupHref,
 } from "@/lib/community/community-route"
 import { useBreakpoint } from "@/hooks/use-mobile"
@@ -70,15 +70,11 @@ import {
 } from "@/hooks/community/mutations"
 
 export default function ServerLayout({ children }: { children: ReactNode }) {
-  const params = useParams<{ serverId: string; channelId?: string; childChannelId?: string }>()
+  const params = useParams<{ serverId: string; channelId?: string }>()
   const searchParams = useSearchParams()
   const pathname = usePathname()
   const serverId = decodeURIComponent(params.serverId)
-  const routeChannelId = params.childChannelId
-    ? decodeURIComponent(params.childChannelId)
-    : params.channelId
-      ? decodeURIComponent(params.channelId)
-      : null
+  const routeChannelId = params.channelId ? decodeURIComponent(params.channelId) : null
   const hasChannel = !!routeChannelId
   const breakpoint = useBreakpoint()
 
@@ -319,7 +315,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     // trusts the cache unconditionally, so both directions must write to it.
     markSwitch("channel", id)
     cancelPendingNavigation()
-    useCommunityStore.getState().uiHandlers.navigatePath?.(`/c/channels/${serverId}/${id}`)
+    useCommunityStore.getState().uiHandlers.navigatePath?.(channelHref(serverId, id))
     channelTree.markRead(id)
     const hasChildFallback = setForumSidebarParentUnreadBase(
       queryClient,
@@ -335,22 +331,18 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     }
   }, [cancelPendingNavigation, channelTree, queryClient, serverId])
 
-  const setActiveForumThread = useCallback((parentId: string, id: string) => {
+  const setActiveForumThread = useCallback((id: string) => {
     markSwitch("channel", id)
     cancelPendingNavigation()
     useCommunityStore.getState().uiHandlers.navigatePath?.(
-      childChannelHref(serverId, parentId, id),
+      channelHref(serverId, id),
     )
     removeForumSidebarUnreadChild(queryClient, serverId, id)
     patchForumSidebarUnreadExact(queryClient, serverId, id, false)
   }, [cancelPendingNavigation, queryClient, serverId])
 
   const prefetchChannel = useCallback(
-    (id: string, parentId?: string) => router.prefetch(
-      parentId
-        ? childChannelHref(serverId, parentId, id)
-        : `/c/channels/${serverId}/${id}`,
-    ),
+    (id: string) => router.prefetch(channelHref(serverId, id)),
     [router, serverId],
   )
 

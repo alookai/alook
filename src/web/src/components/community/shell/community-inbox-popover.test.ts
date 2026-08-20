@@ -97,7 +97,7 @@ describe("InboxPopover forum post rows", () => {
     expect(row).toBeDefined()
     await act(async () => row!.props.onClick())
 
-    expect(onOpenChannel).toHaveBeenCalledWith("s1", "t1", "f1")
+    expect(onOpenChannel).toHaveBeenCalledWith("s1", "t1")
     expect(onOpenForumThread).not.toHaveBeenCalled()
   })
 })

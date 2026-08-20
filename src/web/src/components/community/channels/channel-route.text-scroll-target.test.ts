@@ -7,8 +7,11 @@ import { MessageList } from "../messages/message-list"
 import { useChannelMemberViewModel } from "../members/channel-member-view-model"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 
-const { mockRouteModel, mockMemberViewModel, mockRouter } = vi.hoisted(() => ({
+const { mockRouteModel, mockMemberViewModel, mockRouter, mockUiHandlers, mockBreakpoint, mockHeaderBack } = vi.hoisted(() => ({
   mockRouter: { push: vi.fn(), replace: vi.fn(), back: vi.fn() },
+  mockUiHandlers: { replacePath: vi.fn(), goBackMobile: vi.fn() },
+  mockBreakpoint: { value: "desktop" as "desktop" | "mobile" },
+  mockHeaderBack: { current: undefined as undefined | (() => void) },
   mockRouteModel: {
     server: {
       id: "server_1",
@@ -48,9 +51,12 @@ vi.mock("next/navigation", () => ({
 }))
 vi.mock("sonner", () => ({ toast: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn(), toastApiError: vi.fn() }))
-vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
+vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mockBreakpoint.value }))
 vi.mock("@/components/community/channels/channel-header", () => ({
-  ChannelHeader: () => null,
+  ChannelHeader: ({ onBack }: { onBack?: () => void }) => {
+    if (onBack) mockHeaderBack.current = onBack
+    return null
+  },
   ChannelHeaderSkeleton: () => null,
 }))
 vi.mock("@/components/community/messages/message-list", () => ({ MessageList: vi.fn(() => null) }))
@@ -66,7 +72,8 @@ vi.mock("@/components/community/members/channel-member-view-model", () => ({
   useChannelMemberViewModel: vi.fn(() => mockMemberViewModel),
 }))
 vi.mock("@/components/community/channels/channel-shell", () => ({
-  ChannelShell: ({ body }: { body: React.ReactNode }) => body,
+  ChannelShell: ({ header, body }: { header: React.ReactNode; body: React.ReactNode }) =>
+    React.createElement(React.Fragment, null, header, body),
 }))
 vi.mock("@/components/community/shell/community-panel-sheet", () => ({ CommunityPanelSheet: () => null }))
 vi.mock("@/components/community/messages/message-context-sheet", () => ({ MessageContextSheet: () => null }))
@@ -92,7 +99,7 @@ vi.mock("@/stores/community", () => {
   return {
     useCommunityStore,
     useCurrentChannelId: () => "channel_1",
-    useUiHandlers: () => ({}),
+    useUiHandlers: () => mockUiHandlers,
     useTypingUsersForScope: () => [],
     useTypingNamesForScope: () => ({}),
   }
@@ -218,6 +225,8 @@ describe("ChannelRoute message surface ownership", () => {
   beforeEach(() => {
     vi.useFakeTimers()
     mockedMessageList.mockClear()
+    mockBreakpoint.value = "desktop"
+    mockHeaderBack.current = undefined
     Object.assign(mockRouteModel, {
       server: {
         id: "server_1",
@@ -333,8 +342,42 @@ describe("ChannelRoute message surface ownership", () => {
       isChildChannel: true,
     }))
     expect(mockRouter.replace).toHaveBeenLastCalledWith(
-      "/c/channels/server_1/parent_1/channel_1?msg=m_target&keep=1",
+      "/c/channels/server_1/channel_1?keep=1",
+      { scroll: false },
     )
+  })
+
+  it("derives a mobile child Back destination from fetched parent metadata", () => {
+    configureThreadRoute()
+    mockBreakpoint.value = "mobile"
+    mockedUseChannelMessageFeed.mockImplementation(() => feed({ anchorInCache: true }))
+
+    act(() => {
+      TestRenderer.create(
+        React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
+      )
+    })
+    act(() => mockHeaderBack.current?.())
+
+    expect(mockUiHandlers.replacePath).toHaveBeenCalledWith(
+      "/c/channels/server_1/parent_1",
+    )
+    expect(mockUiHandlers.goBackMobile).not.toHaveBeenCalled()
+  })
+
+  it("uses the shell mobile Back handler for a top-level channel", () => {
+    mockBreakpoint.value = "mobile"
+    mockedUseChannelMessageFeed.mockImplementation(() => feed())
+
+    act(() => {
+      TestRenderer.create(
+        React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
+      )
+    })
+    act(() => mockHeaderBack.current?.())
+
+    expect(mockUiHandlers.goBackMobile).toHaveBeenCalledOnce()
+    expect(mockUiHandlers.replacePath).not.toHaveBeenCalled()
   })
 
   it("keeps a child target through warm cache and 5000ms until MessageList consumes it", () => {

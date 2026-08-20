@@ -2,7 +2,7 @@
 
 import { useCallback, useState, type ComponentProps } from "react"
 import { communityKeys } from "@/lib/query-keys"
-import { childChannelHref } from "@/lib/community/community-route"
+import { channelHref } from "@/lib/community/community-route"
 import type { Marked } from "@/lib/community/models/inbox"
 import { useInboxUnreads, useInboxMentions, useInboxMarked } from "@/hooks/community/use-inbox"
 import { useInboxAutoCollapse } from "@/hooks/community/use-inbox-auto-collapse"
@@ -45,14 +45,11 @@ export function useShellInboxController({
   const openServerChannel = useCallback((
     serverId: string,
     channelId: string,
-    parentChannelId?: string,
     watchKey: string = `channel:${channelId}`,
   ) => {
     watchInboxItem(watchKey)
     cancelPendingNavigation()
-    router.push(parentChannelId
-      ? childChannelHref(serverId, parentChannelId, channelId)
-      : `/c/channels/${serverId}/${channelId}`)
+    router.push(channelHref(serverId, channelId))
   }, [cancelPendingNavigation, router, watchInboxItem])
 
   const openForumThread = useCallback((
@@ -64,7 +61,7 @@ export function useShellInboxController({
     watchInboxItem(`channel:${childChannelId}`)
     readForumThreadFromInbox({ parentChannelId, openerMessageId })
     cancelPendingNavigation()
-    router.push(childChannelHref(serverId, parentChannelId, childChannelId))
+    router.push(channelHref(serverId, childChannelId))
   }, [cancelPendingNavigation, readForumThreadFromInbox, router, watchInboxItem])
 
   const openMarked = useCallback((marked: Marked) => {
@@ -72,9 +69,7 @@ export function useShellInboxController({
     cancelPendingNavigation()
     const seqQuery = marked.m.seq != null ? `?seq=${marked.m.seq}` : ""
     if (marked.serverId) {
-      const channelPath = marked.parentChannelId
-        ? childChannelHref(marked.serverId, marked.parentChannelId, marked.channelId)
-        : `/c/channels/${marked.serverId}/${marked.channelId}`
+      const channelPath = channelHref(marked.serverId, marked.channelId)
       router.push(`${channelPath}${seqQuery}`)
     } else {
       router.push(`/c/me/${marked.channelId}${seqQuery}`)
@@ -111,7 +106,7 @@ export function useShellInboxController({
     onOpenDm: openDm,
     onOpenMention: (mention) => {
       if (mention.serverId && mention.channelId) {
-        openServerChannel(mention.serverId, mention.channelId, undefined, `mention:${mention.id}`)
+        openServerChannel(mention.serverId, mention.channelId, `mention:${mention.id}`)
       }
     },
     onOpenMarked: openMarked,

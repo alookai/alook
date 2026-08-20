@@ -100,15 +100,28 @@ test.describe.serial("mobile layout", () => {
   test("canonical child detail consumes seq without dropping route or other URL state", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await page.goto(
-      `/c/channels/${serverId}/${channelId}/${childChannelId}?seq=1&keep=child-seq`,
+      `/c/channels/${serverId}/${childChannelId}?seq=1&keep=child-seq`,
     )
 
     await expect.poll(() => new URL(page.url()).pathname).toBe(
-      `/c/channels/${serverId}/${channelId}/${childChannelId}`,
+      `/c/channels/${serverId}/${childChannelId}`,
     )
     await expect.poll(() => new URL(page.url()).searchParams.has("seq")).toBe(false)
     expect(new URL(page.url()).searchParams.get("keep")).toBe("child-seq")
     await expect(page.getByRole("dialog").getByText("mobile child seq target")).toBeVisible()
+  })
+
+  test("a flat child derives Header Back from parent metadata", async ({ asUser }) => {
+    const { page } = await asUser("alice")
+    await page.goto(`/c/channels/${serverId}/${childChannelId}`)
+    await expect(
+      page.getByRole("banner").getByText("mobile-child", { exact: true }),
+    ).toBeVisible()
+
+    await page.getByRole("button", { name: "Back" }).click()
+    await expect.poll(() => new URL(page.url()).pathname).toBe(
+      `/c/channels/${serverId}/${channelId}`,
+    )
   })
 
   test("Marked opens a child message on its canonical route without losing context", async ({ asUser }) => {
@@ -119,10 +132,37 @@ test.describe.serial("mobile layout", () => {
     await page.getByText("mobile child seq target", { exact: true }).click()
 
     await expect.poll(() => new URL(page.url()).pathname).toBe(
-      `/c/channels/${serverId}/${channelId}/${childChannelId}`,
+      `/c/channels/${serverId}/${childChannelId}`,
     )
     await expect.poll(() => new URL(page.url()).searchParams.has("seq")).toBe(false)
     await expect(page.getByRole("dialog").getByText("mobile child seq target")).toBeVisible()
+  })
+
+  test("rejects the removed nested route and clears nested last-channel memory", async ({ asUser }) => {
+    const { page } = await asUser("alice")
+    const response = await page.goto(
+      `/c/channels/${serverId}/${channelId}/${childChannelId}`,
+    )
+    expect(response?.status()).toBe(404)
+
+    await page.goto("/c/me")
+    await page.evaluate(
+      ([key, value]) => localStorage.setItem(key, value),
+      [`community:lastChannel:${serverId}`, `${channelId}/${childChannelId}`],
+    )
+    await page.setViewportSize({ width: 900, height: 844 })
+    await page.goto(`/c/channels/${serverId}`)
+    await expect.poll(() => {
+      const segments = new URL(page.url()).pathname.split("/").filter(Boolean)
+      return segments.length === 4 ? segments.at(-1) : null
+    }).not.toBeNull()
+    const selectedChannelId = new URL(page.url()).pathname.split("/").at(-1)
+    expect(selectedChannelId).not.toBe(childChannelId)
+    await expect(page.getByTestId(tid.composerInput)).toBeVisible()
+    await expect.poll(() => page.evaluate(
+      (key) => localStorage.getItem(key),
+      `community:lastChannel:${serverId}`,
+    )).toBe(selectedChannelId)
   })
 
   test("server-root modal markers are one-shot on mobile", async ({ asUser }) => {

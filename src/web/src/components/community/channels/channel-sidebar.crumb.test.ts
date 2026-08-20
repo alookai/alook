@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
+import TestRenderer, { act } from "react-test-renderer"
 
 import { ChannelSidebar } from "./channel-sidebar"
 import type { ChannelTree } from "./use-channel-tree"
@@ -124,5 +125,40 @@ describe("ChannelSidebar header", () => {
 
   it("suppresses the child unread dot when its parent forum is muted", () => {
     expect(renderForum(true)).not.toContain("bg-primary")
+  })
+
+  it("emits only the flat child id for selection and prefetch", () => {
+    const onSelectForumThread = vi.fn()
+    const prefetchChannel = vi.fn()
+    let renderer!: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(createElement(ChannelSidebar, {
+        tree: forumTree,
+        serverName: "Alpha",
+        activeChannel: "forum_1",
+        setActiveChannel: vi.fn(),
+        isAdmin: false,
+        prefetchChannel,
+        forumThreadsByParent: {
+          forum_1: [{
+            id: "post_1",
+            parentChannelId: "forum_1",
+            parentMessageId: "opener_1",
+            title: "First post",
+            activityAt: "2026-08-08T00:00:00.000Z",
+            expiresAt: "2026-08-11T00:00:00.000Z",
+            unread: true,
+          }],
+        },
+        onSelectForumThread,
+      }))
+    })
+    const row = renderer.root.findByProps({
+      "data-testid": "community-forum-sidebar-thread-post_1",
+    })
+    act(() => row.props.onClick())
+    act(() => row.props.onPointerEnter())
+    expect(onSelectForumThread).toHaveBeenCalledWith("post_1")
+    expect(prefetchChannel).toHaveBeenCalledWith("post_1")
   })
 })

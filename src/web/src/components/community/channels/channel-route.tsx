@@ -27,7 +27,7 @@ import { useChannelRouteModel } from "@/hooks/community/use-channel-route-model"
 import { useForumOpenerHint } from "@/hooks/community/use-forum-opener-hint"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useSetChannelNotif } from "@/hooks/community/mutations"
-import { childChannelHref, removeCommunityParam } from "@/lib/community/community-route"
+import { channelHref, removeCommunityParam } from "@/lib/community/community-route"
 
 /**
  * /c/channels/:serverId/:channelId
@@ -36,14 +36,9 @@ import { childChannelHref, removeCommunityParam } from "@/lib/community/communit
  * - Text channel: MessageList + Composer + right panels
  * - Child thread opened via URL: child-channel view (breadcrumb + list)
  */
-export function ChannelRoute({
-  serverParam,
-  channelId,
-  parentChannelId: routeParentChannelId,
-}: {
+export function ChannelRoute({ serverParam, channelId }: {
   serverParam: string
   channelId: string
-  parentChannelId?: string
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -52,11 +47,8 @@ export function ChannelRoute({
   // memory) so re-entering the server restores here instead of the default.
   // Pure localStorage write; failures are swallowed in the helper.
   useEffect(() => {
-    setLastChannel(
-      serverId,
-      routeParentChannelId ? `${routeParentChannelId}/${channelId}` : channelId,
-    )
-  }, [serverId, channelId, routeParentChannelId])
+    setLastChannel(serverId, channelId)
+  }, [serverId, channelId])
   // Cross-channel "jump to message" target, captured ONCE at mount from `?msg=`.
   // `ChannelView` is keyed by `serverId/channelId`, so a fresh jump remounts and
   // re-reads this. The param is stripped from the URL right after (below) so a
@@ -124,7 +116,14 @@ export function ChannelRoute({
   const channelNotif = notifs.channel
   const { mutate: setChannelNotif } = useSetChannelNotif()
 
-  const goBack = useCallback(() => { uiHandlers.goBackMobile?.() }, [uiHandlers])
+  const goBack = useCallback(() => {
+    const parentChannelId = currentChannelMeta?.parentChannelId
+    if (isChildChannel && parentChannelId) {
+      uiHandlers.replacePath?.(channelHref(serverParam, parentChannelId))
+      return
+    }
+    uiHandlers.goBackMobile?.()
+  }, [currentChannelMeta?.parentChannelId, isChildChannel, serverParam, uiHandlers])
   const setNotificationLevel = useCallback((level: ChannelNotifLevel) => {
     setChannelNotif({ channelId, level }, {
       onError: (error) => toastApiError(error, "Failed to update notification level"),
@@ -137,38 +136,20 @@ export function ChannelRoute({
   useEffect(() => {
     if (!jumpTargetId) return
     const search = searchParams.toString()
-    const routePath = routeParentChannelId
-      ? childChannelHref(serverParam, routeParentChannelId, channelId)
-      : `/c/channels/${serverParam}/${channelId}`
+    const routePath = channelHref(serverParam, channelId)
     const href = `${routePath}${search ? `?${search}` : ""}`
     router.replace(removeCommunityParam(href, "msg"), { scroll: false })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once for this mount's jump
   }, [])
-
-  useEffect(() => {
-    const parentChannelId = currentChannelMeta?.parentChannelId
-    if (!isChildChannel || routeParentChannelId || !parentChannelId) return
-    const search = searchParams.toString()
-    const routePath = childChannelHref(serverParam, parentChannelId, channelId)
-    router.replace(`${routePath}${search ? `?${search}` : ""}`)
-  }, [
-    channelId,
-    currentChannelMeta?.parentChannelId,
-    isChildChannel,
-    routeParentChannelId,
-    router,
-    searchParams,
-    serverParam,
-  ])
 
   const enterThread = useCallback((id: string) => {
     // No eager read PUT here — the thread page's `useEagerChannelRead` fires it
     // on mount AFTER its read-state snapshot latches, so the "New" divider
     // still anchors to the pre-open pointer. A PUT here would race the snapshot.
     useCommunityStore.getState().uiHandlers.navigatePath?.(
-      childChannelHref(serverParam, channelId, id),
+      channelHref(serverParam, id),
     )
-  }, [channelId, serverParam])
+  }, [serverParam])
 
   const openProfile = useCallback<OpenProfile>((name, e, discriminator, userId) => {
     uiHandlers.openProfile?.(name, e, discriminator, userId)

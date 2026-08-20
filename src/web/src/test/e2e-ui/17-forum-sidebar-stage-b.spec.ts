@@ -71,7 +71,9 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     })
     await page.goto(`/c/channels/${serverId}/${threadId}`)
     await Promise.all([initialCombined, initialNewest, initialAnchored])
-    await page.waitForURL(new RegExp(threadId), { timeout: 20_000, waitUntil: "commit" })
+    await expect.poll(() => new URL(page.url()).pathname).toBe(
+      `/c/channels/${serverId}/${threadId}`,
+    )
     await expect(page.getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
     await expect(page.getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
     await expect(page.locator('[data-slot="skeleton"]')).toHaveCount(0)
@@ -103,6 +105,9 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     )
     await page.reload({ waitUntil: "commit" })
     await refreshCombined
+    await expect.poll(() => new URL(page.url()).pathname).toBe(
+      `/c/channels/${serverId}/${threadId}`,
+    )
     await expect(page.getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
     await expect(page.getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
     await expect(page.locator('[data-slot="skeleton"]')).toHaveCount(0)

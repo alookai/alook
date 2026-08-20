@@ -5,19 +5,20 @@ const readSource = (relativePath: string) =>
   readFileSync(new URL(relativePath, import.meta.url), "utf8")
 
 describe("adaptive navigation cutover contracts", () => {
-  it("uses canonical parent-aware routes for known child entries and prefetches", () => {
+  it("uses the one flat route builder for known child entries and prefetches", () => {
     const contextSheet = readSource("../messages/message-context-sheet.tsx")
     const layout = readSource("../../../app/c/channels/layout.tsx")
     const sidebar = readSource("./channel-sidebar.tsx")
 
     expect(contextSheet).toContain(
-      "router.push(childChannelHref(serverId, channelId, threadId))",
+      "push(channelHref(serverId, threadId))",
     )
     expect(contextSheet).not.toContain(
-      "router.push(`/c/channels/${serverId}/${threadId}`)",
+      "child" + "ChannelHref",
     )
-    expect(layout).toContain("childChannelHref(serverId, parentId, id)")
-    expect(sidebar).toContain("prefetchChannel?.(thread.id, parentId)")
+    expect(layout).toContain("channelHref(serverId, id)")
+    expect(sidebar).toContain("prefetchChannel?.(thread.id)")
+    expect(sidebar).toContain("onSelectForumThread?.(thread.id)")
   })
 
   it("autofocuses message composers only after desktop is known", () => {

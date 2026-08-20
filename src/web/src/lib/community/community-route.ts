@@ -18,12 +18,6 @@ export function resolveCommunityRoute(pathname: string): CommunityRoute {
   if (segments[1] === "channels" && segments[2]) {
     const serverRoot = `/c/channels/${segments[2]}`
     if (segments.length === 3) return { surface: "list", parentPath: null }
-    if (segments.length >= 5) {
-      return {
-        surface: "detail",
-        parentPath: `${serverRoot}/${segments[3]}`,
-      }
-    }
     return { surface: "detail", parentPath: serverRoot }
   }
 
@@ -36,14 +30,6 @@ export function serverRootHref(serverId: string): string {
 
 export function channelHref(serverId: string, channelId: string): string {
   return `${serverRootHref(serverId)}/${channelId}`
-}
-
-export function childChannelHref(
-  serverId: string,
-  parentChannelId: string,
-  childChannelId: string,
-): string {
-  return `${channelHref(serverId, parentChannelId)}/${childChannelId}`
 }
 
 export function removeCommunityParam(href: string, key: string): string {
