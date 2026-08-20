@@ -46,9 +46,12 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint .",
-    "knip": "knip"
+    "knip": "knip",
+    "api:check": "pnpm run build && node scripts/api-reports.mjs check",
+    "api:update": "pnpm run build && node scripts/api-reports.mjs update"
   },
   "devDependencies": {
+    "@microsoft/api-extractor": "^7.58.13",
     "@types/node": "^20.0.0",
     "eslint": "^9.39.5",
     "knip": "^5.85.0",

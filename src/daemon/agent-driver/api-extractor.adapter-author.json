@@ -1,0 +1,19 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/api-extractor/v7/api-extractor.schema.json",
+  "newlineKind": "lf",
+  "mainEntryPointFilePath": "<projectFolder>/dist/adapter-author.d.ts",
+  "apiReport": {
+    "enabled": true,
+    "reportFileName": "adapter-author",
+    "reportFolder": "<projectFolder>/etc/api",
+    "reportTempFolder": "<projectFolder>/temp/api"
+  },
+  "docModel": { "enabled": false },
+  "dtsRollup": { "enabled": false },
+  "tsdocMetadata": { "enabled": false },
+  "messages": {
+    "extractorMessageReporting": {
+      "ae-missing-release-tag": { "logLevel": "none" }
+    }
+  }
+}
