@@ -216,8 +216,13 @@ describe("killProcessTree", () => {
 
     await new Promise((resolve) => proc.once("exit", resolve));
 
-    await vi.waitFor(() => expect(isAlive(rootPid)).toBe(false), { timeout: 5_000 });
-    await vi.waitFor(() => expect(isAlive(childPid)).toBe(false), { timeout: 5_000 });
+    // The tracked supervisor exit is the host-release boundary. Descendants
+    // and cwd ownership must already be gone here; waiting after exit would
+    // hide the exact release race this fixture protects against.
+    expect(isAlive(rootPid)).toBe(false);
+    expect(isAlive(childPid)).toBe(false);
+    rmSync(cwd, { recursive: true, force: true });
+    tempDirs.splice(tempDirs.indexOf(cwd), 1);
     await expect(killProcessTree(proc.pid!, { graceMs: 0 })).resolves.toBeUndefined();
   });
 

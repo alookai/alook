@@ -60,6 +60,7 @@ using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 
 public static class AlookAgentJob {
   [StructLayout(LayoutKind.Sequential)]
@@ -93,6 +94,18 @@ public static class AlookAgentJob {
     public UIntPtr JobMemoryLimit;
     public UIntPtr PeakProcessMemoryUsed;
     public UIntPtr PeakJobMemoryUsed;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct BasicAccountingInformation {
+    public long TotalUserTime;
+    public long TotalKernelTime;
+    public long ThisPeriodTotalUserTime;
+    public long ThisPeriodTotalKernelTime;
+    public uint TotalPageFaultCount;
+    public uint TotalProcesses;
+    public uint ActiveProcesses;
+    public uint TotalTerminatedProcesses;
   }
 
   [StructLayout(LayoutKind.Sequential)]
@@ -138,6 +151,18 @@ public static class AlookAgentJob {
 
   [DllImport("kernel32.dll", SetLastError = true)]
   private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern bool QueryInformationJobObject(
+    IntPtr job,
+    int informationClass,
+    ref BasicAccountingInformation information,
+    uint informationLength,
+    IntPtr returnLength
+  );
 
   [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
   private static extern bool CreateProcessW(
@@ -242,6 +267,27 @@ public static class AlookAgentJob {
     return duplicate;
   }
 
+  private static void TerminateAndDrainJob(IntPtr job) {
+    const int BasicAccounting = 1;
+    if (!TerminateJobObject(job, 1))
+      throw new Win32Exception(Marshal.GetLastWin32Error(), "TerminateJobObject failed");
+    DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+    while (true) {
+      var accounting = new BasicAccountingInformation();
+      if (!QueryInformationJobObject(
+        job,
+        BasicAccounting,
+        ref accounting,
+        (uint)Marshal.SizeOf(accounting),
+        IntPtr.Zero
+      )) throw new Win32Exception(Marshal.GetLastWin32Error(), "QueryInformationJobObject failed");
+      if (accounting.ActiveProcesses == 0) return;
+      if (DateTime.UtcNow >= deadline)
+        throw new TimeoutException("Windows process job did not drain within 5000ms");
+      Thread.Sleep(10);
+    }
+  }
+
   public static int RunNode(string nodePath, string runner) {
     const uint CreateSuspended = 0x00000004;
     const uint StartfUseStdHandles = 0x00000100;
@@ -289,6 +335,7 @@ public static class AlookAgentJob {
         uint exitCode;
         if (!GetExitCodeProcess(child.Process, out exitCode))
           throw new Win32Exception(Marshal.GetLastWin32Error(), "GetExitCodeProcess failed");
+        TerminateAndDrainJob(job);
         return unchecked((int)exitCode);
       } catch {
         if (!assigned) TerminateProcess(child.Process, 1);
