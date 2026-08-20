@@ -1155,7 +1155,11 @@ export class OpenCodeServiceLane implements RuntimeLane {
     if (this.stopping) throw new OpenCodeStoppedError("OpenCode service lane is stopping");
     const controller = new AbortController();
     this.requestControllers.add(controller);
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
     timer.unref?.();
     try {
       const response = await this.fetchFn(`${this.baseUrl}${path}`, {
@@ -1166,10 +1170,11 @@ export class OpenCodeServiceLane implements RuntimeLane {
       if (!response.ok) return { response, body: undefined };
       try {
         return { response, body: await response.json() };
-      } catch {
-        if (controller.signal.aborted) {
+      } catch (error) {
+        if (timedOut) {
           throw new Error(`OpenCode ${operation} response timed out`);
         }
+        if (controller.signal.aborted) throw error;
         throw new OpenCodeProtocolError(`OpenCode ${operation} returned invalid JSON`);
       }
     } catch (error) {

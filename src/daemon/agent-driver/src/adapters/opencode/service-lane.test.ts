@@ -492,6 +492,21 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
     await activeLane.stop({ reason: "test", forceAfterMs: 0 });
   });
 
+  it("keeps an external stop abort distinct from a JSON response deadline", async () => {
+    const factory = new FakeOpenCodeFactory();
+    factory.stallJsonBodies.add("history");
+    const lane = makeLane(factory, 1_000, 1_000);
+    const starting = lane.start({ text: "root", terminalOwner: "msg_stopped" });
+    await vi.waitFor(() => expect(factory.service?.stalledJsonResponses.size).toBe(1));
+
+    const stopping = lane.stop({ reason: "test", forceAfterMs: 0 });
+    const error = await starting.catch((value: unknown) => value);
+    await stopping;
+
+    expect(error).toMatchObject({ name: "AbortError" });
+    expect(error).not.toMatchObject({ message: "OpenCode session history response timed out" });
+  });
+
   it("turns an activated process error into one killed crash completion", async () => {
     const lane = makeLane();
     const { errors, exits } = collectEvents(lane);
