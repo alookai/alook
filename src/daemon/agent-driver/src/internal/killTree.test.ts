@@ -173,6 +173,54 @@ describe("killProcessTree", () => {
     tempDirs.splice(tempDirs.indexOf(cwd), 1);
   });
 
+  it("keeps Windows tree authority when the CLI root exits before its descendant", async () => {
+    if (process.platform !== "win32") return;
+    const cwd = mkdtempSync(join(tmpdir(), "agent-driver-terminal-root-"));
+    tempDirs.push(cwd);
+    const childModule = join(cwd, "child.mjs");
+    const rootModule = join(cwd, "root.mjs");
+    const command = join(cwd, "runtime.cmd");
+    writeFileSync(childModule, "setInterval(() => {}, 1000);\n");
+    writeFileSync(rootModule, `
+      import { spawn } from "node:child_process";
+      const child = spawn(process.execPath, [${JSON.stringify(childModule)}], {
+        cwd: process.cwd(),
+        stdio: "ignore",
+      });
+      child.once("spawn", () => {
+        process.stdout.write(String(process.pid) + " " + String(child.pid) + "\\n");
+        setTimeout(() => process.exit(0), 250);
+      });
+    `);
+    writeFileSync(command, `@node "%~dp0\\root.mjs"\r\n`);
+
+    const proc = spawnAgentProcess(command, [], {
+      cwd,
+      env: process.env,
+      shell: true,
+    });
+    spawned.push(proc);
+    await new Promise((resolve) => proc.once("spawn", resolve));
+    const lines = createInterface({ input: proc.stdout! });
+    const [rootPid, childPid] = await new Promise<[number, number]>((resolve, reject) => {
+      lines.once("line", (line) => {
+        const [root, child] = line.split(" ").map(Number);
+        resolve([root, child]);
+      });
+      proc.once("exit", () => reject(new Error("supervisor exited before the fixture reported its pids")));
+    });
+    lines.close();
+    spawnedDescendantPids.push(rootPid, childPid);
+    expect(isAlive(rootPid)).toBe(true);
+    expect(isAlive(childPid)).toBe(true);
+
+    await new Promise((resolve) => proc.once("exit", resolve));
+
+    await vi.waitFor(() => expect(isAlive(rootPid)).toBe(false), { timeout: 5_000 });
+    await vi.waitFor(() => expect(isAlive(childPid)).toBe(false), { timeout: 5_000 });
+    await expect(killProcessTree(proc.pid!, { graceMs: 0 })).resolves.toBeUndefined();
+  });
+
   it("rejects when forced POSIX termination cannot make the target exit", async () => {
     if (process.platform === "win32") return;
     vi.useFakeTimers();

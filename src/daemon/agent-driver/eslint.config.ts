@@ -11,6 +11,23 @@ export default defineConfig([
     },
   },
   {
+    files: ["src/adapters/**/*.ts"],
+    ignores: ["src/adapters/**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: ["child_process", "node:child_process"].map((name) => ({
+            name,
+            importNames: ["spawn"],
+            message:
+              "Use spawnAgentProcess from the agent-driver killTree helper so every agent CLI retains the shared process-tree teardown contract.",
+          })),
+        },
+      ],
+    },
+  },
+  {
     files: ["src/contract.ts"],
     rules: {
       "@typescript-eslint/no-empty-object-type": "off",

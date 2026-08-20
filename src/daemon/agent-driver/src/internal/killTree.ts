@@ -14,10 +14,9 @@
  * can't be silently skipped by a new (or edited) driver.
  *
  * On POSIX, SIGTERM is a request and we escalate the process group to SIGKILL
- * after a grace window. Windows has no equivalent recursive graceful signal,
- * so we immediately delegate complete forced-tree termination to
- * `taskkill /T /F`. Awaiting taskkill is important: killing only the `.cmd`
- * shell pid can leave the actual runtime alive and holding its cwd open.
+ * after a grace window. On Windows, a kill-on-close Job Object holds the whole
+ * tree even after a `.cmd`/runtime root exits; explicit stop uses `taskkill`
+ * against that supervisor and the kernel job closes over any remaining child.
  */
 import { spawn, type ChildProcess } from "child_process";
 
@@ -41,6 +40,97 @@ const TASKKILL_WAIT_MS = 2_000;
 export const SESSION_STOP_GRACE_MS = 2000;
 const DEFAULT_GRACE_MS = SESSION_STOP_GRACE_MS;
 const isPosix = process.platform !== "win32";
+const WINDOWS_JOB_NODE_ENV = "ALOOK_WINDOWS_JOB_NODE";
+const WINDOWS_JOB_PAYLOAD_ENV = "ALOOK_WINDOWS_JOB_PAYLOAD";
+const WINDOWS_JOB_RUNNER_ENV = "ALOOK_WINDOWS_JOB_RUNNER";
+
+// The tracked Windows child is a PowerShell supervisor that puts itself in a
+// kill-on-close Job Object before starting the real CLI. Every descendant then
+// inherits the job, so the kernel retains tree authority after a `.cmd` shell
+// or runtime root exits. The inner Node process preserves Node's normal argv,
+// shell, environment, and raw inherited-stdio behavior.
+const WINDOWS_JOB_RUNNER = "const{spawn}=require('node:child_process');const p=JSON.parse(Buffer.from(process.env.ALOOK_WINDOWS_JOB_PAYLOAD,'base64').toString('utf8'));delete process.env.ALOOK_WINDOWS_JOB_NODE;delete process.env.ALOOK_WINDOWS_JOB_PAYLOAD;delete process.env.ALOOK_WINDOWS_JOB_RUNNER;const c=spawn(p.command,p.args,{cwd:p.cwd,env:process.env,shell:p.shell,stdio:'inherit',windowsHide:true});c.once('error',e=>{console.error(e);process.exitCode=1});c.once('exit',(code,signal)=>{process.exitCode=signal?1:(code??1)})";
+
+const WINDOWS_JOB_BOOTSTRAP = String.raw`
+$ErrorActionPreference = "Stop"
+Add-Type -TypeDefinition @"
+using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+
+public static class AlookAgentJob {
+  [StructLayout(LayoutKind.Sequential)]
+  private struct BasicLimits {
+    public long PerProcessUserTimeLimit;
+    public long PerJobUserTimeLimit;
+    public uint LimitFlags;
+    public UIntPtr MinimumWorkingSetSize;
+    public UIntPtr MaximumWorkingSetSize;
+    public uint ActiveProcessLimit;
+    public UIntPtr Affinity;
+    public uint PriorityClass;
+    public uint SchedulingClass;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct IoCounters {
+    public ulong ReadOperationCount;
+    public ulong WriteOperationCount;
+    public ulong OtherOperationCount;
+    public ulong ReadTransferCount;
+    public ulong WriteTransferCount;
+    public ulong OtherTransferCount;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct ExtendedLimits {
+    public BasicLimits BasicLimitInformation;
+    public IoCounters IoInfo;
+    public UIntPtr ProcessMemoryLimit;
+    public UIntPtr JobMemoryLimit;
+    public UIntPtr PeakProcessMemoryUsed;
+    public UIntPtr PeakJobMemoryUsed;
+  }
+
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  private static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern bool SetInformationJobObject(
+    IntPtr job,
+    int informationClass,
+    ref ExtendedLimits information,
+    uint informationLength
+  );
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+  public static IntPtr AttachCurrentProcess() {
+    const uint KillOnJobClose = 0x00002000;
+    const int ExtendedLimitInformation = 9;
+    IntPtr job = CreateJobObject(IntPtr.Zero, null);
+    if (job == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateJobObject failed");
+    var limits = new ExtendedLimits();
+    limits.BasicLimitInformation.LimitFlags = KillOnJobClose;
+    if (!SetInformationJobObject(job, ExtendedLimitInformation, ref limits, (uint)Marshal.SizeOf(limits)))
+      throw new Win32Exception(Marshal.GetLastWin32Error(), "SetInformationJobObject failed");
+    if (!AssignProcessToJobObject(job, Process.GetCurrentProcess().Handle))
+      throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject failed");
+    return job;
+  }
+}
+"@
+$jobHandle = [AlookAgentJob]::AttachCurrentProcess()
+$child = Start-Process -FilePath $env:ALOOK_WINDOWS_JOB_NODE -ArgumentList @("-e", $env:${WINDOWS_JOB_RUNNER_ENV}) -NoNewWindow -PassThru
+$child.WaitForExit()
+$exitCode = $child.ExitCode
+[GC]::KeepAlive($jobHandle)
+exit $exitCode
+`;
+
+const WINDOWS_JOB_ENCODED_COMMAND = Buffer.from(WINDOWS_JOB_BOOTSTRAP, "utf16le").toString("base64");
 
 interface AgentSpawnOptions {
   cwd: string;
@@ -64,6 +154,20 @@ interface AgentSpawnOptions {
  * entry point rather than each driver calling `child_process.spawn` itself.
  */
 export function spawnAgentProcess(command: string, args: string[], opts: AgentSpawnOptions): ChildProcess {
+  if (!isPosix) {
+    const env = {
+      ...opts.env,
+      [WINDOWS_JOB_NODE_ENV]: process.execPath,
+      [WINDOWS_JOB_PAYLOAD_ENV]: Buffer.from(JSON.stringify({ command, args, cwd: opts.cwd, shell: opts.shell ?? false })).toString("base64"),
+      [WINDOWS_JOB_RUNNER_ENV]: WINDOWS_JOB_RUNNER,
+    };
+    return spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", WINDOWS_JOB_ENCODED_COMMAND], {
+      cwd: opts.cwd,
+      stdio: [opts.stdin ?? "pipe", "pipe", "pipe"],
+      env,
+      windowsHide: true,
+    });
+  }
   return spawn(command, args, {
     cwd: opts.cwd,
     // stdout/stderr always piped (we read stream-json/JSON-RPC); stdin defaults
@@ -121,7 +225,7 @@ function signalTree(pid: number, signal: NodeJS.Signals): void {
   }
 }
 
-/** Run Windows' forced process-tree terminator and await its tree walk. */
+/** Stop the live Windows job supervisor and await its forced tree walk. */
 function taskkillTree(pid: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const killer = spawn("taskkill.exe", ["/pid", String(pid), "/t", "/f"], {
@@ -178,8 +282,8 @@ async function waitForProcessExit(pid: number, timeoutMs: number): Promise<void>
 
 /**
  * Terminate `pid` and its descendants: POSIX process-group signals with force
- * escalation after `graceMs`, or immediate Windows taskkill tree traversal.
- * Returns promptly when the target is already dead.
+ * escalation after `graceMs`, or immediate Windows job-supervisor teardown.
+ * A dead Windows supervisor has already closed its kill-on-close job.
  */
 export async function killProcessTree(
   pid: number,
