@@ -97,7 +97,7 @@ describe("builtin adapter protocol conformance", () => {
       exercise(adapter) {
         expect(adapter.execution).toEqual({
           lifetime: "session",
-          transport: { kind: "in_process_sdk", protocol: "pi.sdk.v1" },
+          transport: { kind: "in_process_sdk", protocol: "pi_sdk" },
           wakeStart: "immediate",
           terminalOwnership: "prompt_invocation",
         });

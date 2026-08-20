@@ -11,6 +11,10 @@ import {
   findPiSessionFile,
 } from "./index.js";
 import { CANONICAL_FILE } from "../../internal/agentFile.js";
+import { capabilitiesFor, createAgentDriverRegistry } from "../../registry.js";
+import { createAgentDriverSdkWithRegistry } from "../../sdk.js";
+import { createFakeAgentDriverHost } from "../../testing/fake-host.js";
+import type { BuiltinBackendSpecs } from "../../contract.js";
 import type { AdapterLaunchContext } from "../../internal/adapter.js";
 import { fakeLaunchContext } from "../../testing/adapter-fixture.js";
 
@@ -45,7 +49,7 @@ function fakeDeps() {
   return { buildSpawnEnv, createAgentSession, session };
 }
 
-describe("PiDriver.openSdkSession — AGENTS.md packing", () => {
+describe("PiDriver.openLane — AGENTS.md packing", () => {
   it("exposes SDK-only parser and encoder no-ops", () => {
     const driver = new PiDriver(() => fakeDeps());
     expect(driver.normalizeLine()).toEqual([]);
@@ -56,7 +60,7 @@ describe("PiDriver.openSdkSession — AGENTS.md packing", () => {
     const deps = fakeDeps();
     const driver = new PiDriver(() => deps);
 
-    await driver.openSdkSession(baseCtx());
+    await driver.openLane(baseCtx());
 
     // The adapter does not duplicate the core's instruction materialization.
     expect(fs.existsSync(path.join(tmpDir, CANONICAL_FILE))).toBe(false);
@@ -66,12 +70,12 @@ describe("PiDriver.openSdkSession — AGENTS.md packing", () => {
   });
 });
 
-describe("PiDriver.openSdkSession — does not fire the initial prompt itself", () => {
+describe("PiDriver.openLane — does not fire the initial prompt itself", () => {
   it("returns without calling session.prompt — the caller (logical session) sends the first turn", async () => {
     const deps = fakeDeps();
     const driver = new PiDriver(() => deps);
 
-    const runtimeSession = await driver.openSdkSession(baseCtx());
+    const runtimeSession = await driver.openLane(baseCtx());
 
     expect(deps.session.prompt).not.toHaveBeenCalled();
     expect(runtimeSession.currentSessionId).toBe("sess_1");
@@ -81,7 +85,7 @@ describe("PiDriver.openSdkSession — does not fire the initial prompt itself", 
     const deps = fakeDeps();
     const driver = new PiDriver(() => deps);
 
-    const runtimeSession = await driver.openSdkSession(baseCtx());
+    const runtimeSession = await driver.openLane(baseCtx());
     const received: unknown[] = [];
     runtimeSession.on("runtime_event", (e) => received.push(e));
 
@@ -106,7 +110,7 @@ describe("PiDriver.openSdkSession — does not fire the initial prompt itself", 
       return promise;
     });
     const driver = new PiDriver(() => deps);
-    const runtimeSession = await driver.openSdkSession(baseCtx());
+    const runtimeSession = await driver.openLane(baseCtx());
     const received: any[] = [];
     runtimeSession.on("runtime_event", (event) => received.push(event));
     const notify = deps.session.subscribe.mock.calls[0][0];
@@ -130,6 +134,95 @@ describe("PiDriver.openSdkSession — does not fire the initial prompt itself", 
       secondOwner,
     ]);
     expect(deps.session.prompt.mock.calls).toEqual([["same"], ["same"]]);
+  });
+});
+
+describe("PiDriver persistent RuntimeLane contract", () => {
+  it("keeps one vendor session across ten owned prompts, busy steer, interrupt, and stop", async () => {
+    const deps = fakeDeps();
+    const promptResolutions: Array<() => void> = [];
+    deps.session.prompt.mockImplementation(() => new Promise<void>((resolve) => {
+      promptResolutions.push(resolve);
+    }));
+    const driver = new PiDriver(() => deps);
+    const beginTurn = vi.spyOn(driver, "beginTurn");
+    const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
+      id: "pi",
+      contractVersion: 1,
+      capabilities: capabilitiesFor("pi"),
+      createAdapter: () => driver,
+    }]);
+    const sdk = createAgentDriverSdkWithRegistry({
+      registry,
+      host: createFakeAgentDriverHost(),
+    });
+    const opened = await sdk.open({
+      backend: "pi",
+      config: { model: { kind: "default" }, provider: { kind: "default" } },
+      launch: {
+        workingDirectory: tmpDir,
+        instructions: { format: "markdown", content: "You are Pi." },
+        launchId: "pi-ten-turns",
+      },
+    });
+    if (!opened.ok) throw new Error(opened.error.message);
+
+    const observed: Array<{ readonly type: string; readonly commandIds?: readonly string[] }> = [];
+    const collecting = (async () => {
+      for await (const event of opened.session.events) observed.push(event);
+    })();
+    const completedCount = () => observed.filter((event) => event.type === "turn_completed").length;
+
+    expect(await opened.session.start({ id: "root-1", kind: "user", text: "same prompt" }))
+      .toMatchObject({ status: "accepted" });
+    await vi.waitFor(() => expect(deps.session.prompt).toHaveBeenCalledTimes(1));
+    const notify = deps.session.subscribe.mock.calls[0]![0];
+
+    expect(await opened.session.interrupt({ requestId: "not-streaming", reason: "test" }))
+      .toEqual({ status: "not_running" });
+    expect(deps.session.abort).not.toHaveBeenCalled();
+
+    deps.session.isStreaming = true;
+    expect(await opened.session.send({ id: "busy", kind: "user", text: "busy steer" }))
+      .toMatchObject({ status: "accepted", delivery: "steer" });
+    expect(deps.session.steer).toHaveBeenCalledWith("busy steer");
+    expect(await opened.session.interrupt({ requestId: "streaming", reason: "test" }))
+      .toMatchObject({ status: "accepted", requestId: "streaming" });
+    expect(deps.session.abort).toHaveBeenCalledTimes(1);
+    deps.session.isStreaming = false;
+
+    for (let turn = 1; turn <= 10; turn += 1) {
+      if (turn > 1) {
+        expect(await opened.session.send({ id: `root-${turn}`, kind: "user", text: "same prompt" }))
+          .toMatchObject({ status: "accepted" });
+        await vi.waitFor(() => expect(deps.session.prompt).toHaveBeenCalledTimes(turn));
+      }
+      notify({ type: "agent_end", messages: [] });
+      notify({ type: "agent_end", messages: [] });
+      await Promise.resolve();
+      expect(completedCount()).toBe(turn - 1);
+      promptResolutions[turn - 1]!();
+      await vi.waitFor(() => expect(completedCount()).toBe(turn));
+    }
+
+    expect(deps.createAgentSession).toHaveBeenCalledTimes(1);
+    expect(deps.session.prompt.mock.calls).toEqual(Array.from({ length: 10 }, () => ["same prompt"]));
+    expect(deps.session.steer).toHaveBeenCalledTimes(1);
+    expect(beginTurn).toHaveBeenCalledTimes(10);
+    const owners = beginTurn.mock.results.map((result) => result.value);
+    expect(new Set(owners).size).toBe(10);
+    expect(observed.flatMap((event) => event.type === "turn_completed" ? [event.commandIds] : []))
+      .toEqual([
+        ["root-1", "busy"],
+        ...Array.from({ length: 9 }, (_, index) => [`root-${index + 2}`]),
+      ]);
+
+    expect(await opened.session.stop({ reason: "shutdown", forceAfterMs: 25 }))
+      .toMatchObject({ status: "accepted" });
+    await opened.session.closed;
+    await collecting;
+    expect(deps.session.dispose).toHaveBeenCalledTimes(1);
+    expect(deps.session.abort).toHaveBeenCalledTimes(1);
   });
 });
 

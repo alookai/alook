@@ -88,7 +88,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
   const stdinMessages: Record<string, unknown>[] = [];
   let claudeAckCursor = 0;
   if (backend === "pi") {
-    vi.spyOn(PiDriver.prototype, "openSdkSession").mockImplementation(async (ctx) => {
+    vi.spyOn(PiDriver.prototype, "openLane").mockImplementation(async (ctx) => {
       contexts.push(ctx);
       const handle = {
         isStreaming: false,
@@ -359,7 +359,7 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
       const harness = installVendorHarness(backend);
       let releaseOpen!: () => void;
       const openGate = new Promise<void>((resolve) => { releaseOpen = resolve; });
-      const method = backend === "pi" ? "openSdkSession" : "spawn";
+      const method = backend === "pi" ? "openLane" : "spawn";
       const prototype = backend === "pi"
         ? PiDriver.prototype
         : ({ claude: ClaudeDriver, codex: CodexDriver, cursor: CursorDriver, opencode: OpenCodeDriver } as const)[backend].prototype;
@@ -406,7 +406,7 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
 
     it("scrubs and releases a registered-adapter failed start", async () => {
       installVendorHarness(backend);
-      const method = backend === "pi" ? "openSdkSession" : "spawn";
+      const method = backend === "pi" ? "openLane" : "spawn";
       const prototype = backend === "pi"
         ? PiDriver.prototype
         : ({ claude: ClaudeDriver, codex: CodexDriver, cursor: CursorDriver, opencode: OpenCodeDriver } as const)[backend].prototype;

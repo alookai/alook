@@ -150,7 +150,7 @@ function parseModelString(model: string | undefined): { provider: string; id: st
 
 /**
  * Build the real Pi session dependencies for a launch. Closes over `ctx` so
- * `buildSpawnEnv` needs no arguments (matches `PiDriver.openSdkSession`'s
+ * `buildSpawnEnv` needs no arguments (matches `PiDriver.openLane`'s
  * existing contract) — a fresh instance is built per launch, so nothing here
  * is process-global mutable state (safe for concurrent agents with different
  * credentials).

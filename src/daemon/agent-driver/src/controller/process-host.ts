@@ -6,8 +6,8 @@
  * driver supplies the runtime-specific behavior; this class is the uniform
  * plumbing (start / send / stop / event fan-out) the daemon talks to.
  *
- * In-process SDK drivers (pi) do NOT use this — they return their own
- * EventEmitter-based session from `openSdkSession` and throw from `spawn`.
+ * In-process SDK adapters (Pi) do not use this helper; their `openLane()`
+ * returns a runtime lane backed directly by the vendor session.
  */
 import { EventEmitter } from "events";
 import type {

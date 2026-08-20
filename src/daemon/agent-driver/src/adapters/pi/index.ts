@@ -4,7 +4,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync } from "fs";
 import { homedir } from "os";
 import * as path from "path";
 import type {
-  BackendAdapter, AdapterLaunchContext, AdapterEvent, RuntimeLane, VendorSessionHandle,
+  BackendAdapter, AdapterLaunchContext, AdapterEvent, VendorSessionHandle,
 } from "../../internal/adapter.js";
 import { SdkLane } from "../../controller/sdk-host.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
@@ -195,7 +195,7 @@ export class PiDriver implements BackendAdapter {
   readonly instructionDelivery = { kind: "workspace_file", canonical: "AGENTS.md", aliases: ["CLAUDE.md"] } as const;
   readonly execution = {
     lifetime: "session",
-    transport: { kind: "in_process_sdk", protocol: "pi.sdk.v1" },
+    transport: { kind: "in_process_sdk", protocol: "pi_sdk" },
     wakeStart: "immediate",
     terminalOwnership: "prompt_invocation",
   } as const;
@@ -218,10 +218,6 @@ export class PiDriver implements BackendAdapter {
     return { status: "healthy" as const, version };
   }
 
-  async openLane(ctx: AdapterLaunchContext): Promise<RuntimeLane> {
-    return this.openSdkSession(ctx);
-  }
-
   /**
    * In-process session factory. The adapter owns vendor loading and session
    * construction; callers see only the public logical session.
@@ -233,7 +229,7 @@ export class PiDriver implements BackendAdapter {
    * attaches its own `"runtime_event"` listener to the session this returns
    * BEFORE sending the first turn via `.send()`, so nothing is lost.
    */
-  async openSdkSession(ctx: AdapterLaunchContext): Promise<SdkLane> {
+  async openLane(ctx: AdapterLaunchContext): Promise<SdkLane> {
     const deps = this.dependenciesFor(ctx);
     const spawnEnv = await deps.buildSpawnEnv();
     const f = resolveLaunchFieldsOrDefault(ctx.config.runtimeConfig);

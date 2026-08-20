@@ -56,7 +56,7 @@ class FakeDriver implements BackendAdapter {
   constructor(readonly id: BuiltinBackendId, readonly execution: BackendExecution) {}
   probe() { return { status: "healthy" as const }; }
   async openLane(ctx: AdapterLaunchContext, options?: RuntimeLaneOpenOptions): Promise<RuntimeLane> {
-    if (this.execution.transport.kind === "in_process_sdk") return this.openSdkSession(ctx);
+    if (this.execution.transport.kind === "in_process_sdk") return this.createSdkLane(ctx);
     return createProcessLane(this, ctx, {
       onRawStdoutLine: options?.onRawStdoutLine,
       stopAfterTurn: this.id === "opencode",
@@ -78,7 +78,7 @@ class FakeDriver implements BackendAdapter {
     this.processes.push(proc);
     return { process: proc };
   }
-  async openSdkSession(_ctx: AdapterLaunchContext): Promise<SdkLane> {
+  async createSdkLane(_ctx: AdapterLaunchContext): Promise<SdkLane> {
     await this.sdkOpenGate;
     const handle = {
       isStreaming: false,
