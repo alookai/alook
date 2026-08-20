@@ -2,13 +2,15 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { renderMessageListRow } from "./message-list-row"
-import { MessageRow } from "./message-row"
+import { MessageRow } from "../message-row"
 import type { FlatItem } from "@/lib/community/message-list-items"
 import type { MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
+import "./message-row-menu-parity.test"
+import "./message-row-view.test"
 
-vi.mock("./message-row", () => ({ MessageRow: vi.fn(() => null) }))
-vi.mock("../dividers", () => ({
+vi.mock("../message-row", () => ({ MessageRow: vi.fn(() => null) }))
+vi.mock("@/components/community/dividers", () => ({
   DateDivider: ({ label }: { label: string }) => React.createElement("date-divider", { label }),
   NewDivider: ({ dateLabel }: { dateLabel?: string }) => React.createElement("new-divider", { dateLabel }),
 }))

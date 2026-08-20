@@ -48,18 +48,18 @@ type ExpectedMessageListProps = {
   unreadCount?: number
 }
 
-const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
+const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../..")
 const source = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
 
 describe("MessageList facade contract", () => {
-  it("keeps the exact one-value public surface and applies defaults in the facade", () => {
+  it("keeps the exact one-value module surface and applies defaults in the owner", () => {
     expect(Object.keys(facade)).toEqual(["MessageList"])
     expectTypeOf<ComponentProps<typeof facade.MessageList>>()
       .toEqualTypeOf<ExpectedMessageListProps>()
     expectTypeOf<ExpectedMessageListProps>()
       .toEqualTypeOf<ComponentProps<typeof facade.MessageList>>()
     expectTypeOf<ComponentRef<typeof facade.MessageList>>().toEqualTypeOf<never>()
-    const text = source("src/components/community/messages/message-list.tsx")
+    const text = source("src/modules/community/client/messaging/message-list.tsx")
     expect(text).toContain('variant = "channel"')
     expect(text).toContain("initialScrollReady = true")
     expect(text).toContain("useMessageListController(resolvedProps)")
@@ -73,6 +73,13 @@ describe("MessageList facade contract", () => {
     )
     expect(text).not.toMatch(/<MessageListView\b|createElement\(MessageListView/)
     expect(text).not.toMatch(/forwardRef|useImperativeHandle/)
+  })
+
+  it("keeps the legacy file as a re-export-only facade", () => {
+    const text = source("src/components/community/messages/message-list.tsx")
+    expect(text.trim()).toBe(
+      'export { MessageList } from "@/modules/community/client/messaging/message-list"',
+    )
   })
 
   it("keeps all production consumers on the original path", () => {

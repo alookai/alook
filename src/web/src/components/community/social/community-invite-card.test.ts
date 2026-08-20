@@ -41,7 +41,7 @@ describe("resolveInviteCardPresentation", () => {
 
 describe("invite-card perspective wiring", () => {
   it("derives sender perspective from the message author and viewer", () => {
-    const message = readComponent("../messages/message.tsx")
+    const message = readComponent("../../../modules/community/client/messaging/internal/message-row-view.tsx")
 
     expect(message).toContain("m.authorId === viewerUserId ? \"sender\" : \"recipient\"")
     expect(message).toContain("a.authorId !== b.authorId")

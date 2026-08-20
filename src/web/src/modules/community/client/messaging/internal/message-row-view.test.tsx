@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
-import { attachmentAspectRatio } from "./attachment-layout"
+import { attachmentAspectRatio } from "@/components/community/messages/attachment-layout"
+import { TypingIndicator } from "../typing-indicator"
 
 // Reserves the correct CSS aspect-ratio box for an image attachment before
 // it decodes, mirroring the pattern the embed-image `<img>` already uses.
@@ -20,5 +21,17 @@ describe("attachmentAspectRatio", () => {
 
   it("falls back to 'auto' when both dimensions are missing", () => {
     expect(attachmentAspectRatio(undefined, undefined)).toBe("auto")
+  })
+})
+
+describe("TypingIndicator", () => {
+  it.each([
+    { names: [] as string[], visible: false },
+    { names: ["Alice"], visible: true },
+    { names: ["Alice", "Bob"], visible: true },
+    { names: ["Alice", "Bob", "Cora", "Drew"], visible: true },
+  ])("renders every label cardinality for $names", ({ names, visible }) => {
+    const element = TypingIndicator({ names })
+    expect(element.props["data-testid"] !== undefined).toBe(visible)
   })
 })

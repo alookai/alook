@@ -2,16 +2,17 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { renderMessageListView } from "./message-list-view"
-import { TypingIndicator } from "./typing-indicator"
-import { MessageShareDialog } from "./message-share-dialog"
+import { TypingIndicator } from "../typing-indicator"
+import { MessageShareDialog } from "@/components/community/messages/message-share-dialog"
 import { Button } from "@/components/ui/button"
 import type { MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
+import "./message-row-view.render.test"
 
-vi.mock("./typing-indicator", () => ({
+vi.mock("../typing-indicator", () => ({
   TypingIndicator: vi.fn(({ names }: { names: string[] }) => React.createElement("typing", { names })),
 }))
-vi.mock("./message-share-dialog", () => ({ MessageShareDialog: vi.fn(() => null) }))
+vi.mock("@/components/community/messages/message-share-dialog", () => ({ MessageShareDialog: vi.fn(() => null) }))
 vi.mock("@/components/ui/number-ticker", () => ({
   NumberTicker: ({ value }: { value: number }) => React.createElement("ticker", { value }),
 }))
@@ -231,5 +232,17 @@ describe("renderMessageListView", () => {
     expect(renderer!.root.findAllByProps({
       className: "mt-6 flex h-8 items-center justify-center text-xs text-muted-foreground",
     })).toHaveLength(0)
+  })
+
+  it("renders the DM-specific loading skeleton", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(renderMessageListView(
+        props({ messages: [], loading: true, variant: "dm" }),
+        controller({ isLoading: true }),
+        () => null,
+      ))
+    })
+    expect(renderer!.root.findAllByProps({ className: "mb-3 size-16 rounded-full" })).toHaveLength(1)
   })
 })

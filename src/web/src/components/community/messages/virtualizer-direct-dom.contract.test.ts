@@ -6,12 +6,14 @@ import { fileURLToPath } from "node:url"
 const componentDirectory = path.dirname(fileURLToPath(import.meta.url))
 const hooksDirectory = path.resolve(componentDirectory, "../../../hooks/community")
 const readComponent = (name: string) => fs.readFileSync(path.join(componentDirectory, name), "utf8")
+const srcDirectory = path.resolve(componentDirectory, "../../..")
+const readSource = (name: string) => fs.readFileSync(path.join(srcDirectory, name), "utf8")
 
 describe("community virtualizer direct DOM contract", () => {
-  const virtualRows = readComponent("virtual-cursor-list.tsx")
+  const virtualRows = readSource("components/ui/virtual-rows.tsx")
 
   it("keeps MessageList on the shared direct DOM row contract", () => {
-    const messageList = readComponent("message-list.tsx")
+    const messageList = readSource("modules/community/client/messaging/message-list.tsx")
     const scrollAnchor = fs.readFileSync(path.join(hooksDirectory, "use-scroll-anchor.ts"), "utf8")
 
     expect(messageList).toContain("<VirtualRows")
@@ -28,6 +30,7 @@ describe("community virtualizer direct DOM contract", () => {
 
     expect(forumView).toContain("...COMMUNITY_VIRTUALIZER_REACT_OPTIONS")
     expect(forumView).toContain("<VirtualRows")
+    expect(forumView).toContain('from "@/components/ui/virtual-rows"')
     expect(virtualRows).toContain("ref={virtualizer.containerRef}")
     expect(virtualRows).toContain("ref={virtualizer.measureElement}")
   })

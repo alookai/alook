@@ -6,8 +6,9 @@ import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useMessageListController, type MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
+import "../message-row-controller.test"
 
-const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
+const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../../..")
 const readWebSource = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
 
 const mocks = vi.hoisted(() => ({
@@ -381,6 +382,10 @@ describe("useMessageListController", () => {
     })
     expect(latest.selectedMessages.map((message) => [message.id, message.grouped]))
       .toEqual([["reply", false], ["ordinary", true]])
+    act(() => {
+      latest.onToggleSelectId("ordinary")
+      latest.onToggleSelectId("ordinary")
+    })
 
     act(() => {
       renderer!.update(React.createElement(Probe, {
@@ -395,7 +400,7 @@ describe("useMessageListController", () => {
 
   it("closes the share dialog before exiting selection mode", () => {
     const source = readWebSource(
-      "src/components/community/messages/message-list-controller.ts",
+      "src/modules/community/client/messaging/internal/message-list-controller.ts",
     )
     const closeShare = source.slice(
       source.indexOf("const closeShare = useCallback"),
@@ -521,5 +526,44 @@ describe("useMessageListController", () => {
     act(() => renderer!.unmount())
     expect(cancelFrame).toHaveBeenCalledWith(pendingFrame)
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("ignores stale clear callbacks and handles missing or offscreen scroll roots", () => {
+    const timeoutCallbacks: Array<() => void> = []
+    const originalSetTimeout = window.setTimeout
+    window.setTimeout = ((callback: () => void, delay?: number) => {
+      timeoutCallbacks.push(callback)
+      return originalSetTimeout(callback, delay)
+    }) as typeof window.setTimeout
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(Probe, { value: props() }),
+        { createNodeMock },
+      )
+    })
+
+    act(() => latest.jumpTo("m1"))
+    runNextFrame()
+    expect(timeoutCallbacks).toHaveLength(1)
+    act(() => latest.jumpTo("m2"))
+    visibleMessageIds = ["m2"]
+    runNextFrame()
+    expect(timeoutCallbacks).toHaveLength(2)
+    act(() => timeoutCallbacks[0]())
+    expect(latest.jumped).toBe("m2")
+
+    mocks.scrollRef.current = {
+      querySelectorAll: () => [{
+        dataset: { msgId: "outside" },
+        getBoundingClientRect: () => ({ top: 200, bottom: 300 }),
+      }],
+      getBoundingClientRect: () => ({ top: 0, bottom: 100 }),
+    } as unknown as HTMLDivElement
+    act(() => latest.jumpTo("outside"))
+    runNextFrame()
+    mocks.scrollRef.current = null
+    runNextFrame()
+    act(() => renderer!.unmount())
   })
 })

@@ -1,6 +1,6 @@
-import { DateDivider, NewDivider } from "../dividers"
+import { DateDivider, NewDivider } from "@/components/community/dividers"
 import { tid } from "@/lib/community/testids"
-import { MessageRow } from "./message-row"
+import { MessageRow } from "../message-row"
 import type { FlatItem } from "@/lib/community/message-list-items"
 import type { MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"

@@ -26,17 +26,22 @@ vi.mock("@tanstack/react-virtual", () => ({
 vi.mock("@/hooks/community/use-virtual-cursor-sentinel", () => ({
   useVirtualCursorSentinel: () => vi.fn(),
 }))
-vi.mock("./virtual-cursor-list", () => ({
-  VirtualRows: ({ items, renderItem }: {
+vi.mock("@/components/ui/virtual-rows", () => ({
+  VirtualRows: ({ items, itemKey, renderItem }: {
     items: Array<{ key: string }>
+    itemKey: (item: { key: string }) => string
     renderItem: (item: { key: string }) => React.ReactNode
-  }) => React.createElement(React.Fragment, null, ...items.map((item) => renderItem(item))),
+  }) => React.createElement(
+    React.Fragment,
+    null,
+    ...items.map((item) => React.createElement(React.Fragment, { key: itemKey(item) }, renderItem(item))),
+  ),
 }))
 vi.mock("./message-row", () => ({
   MessageRow: ({ m, highlighted }: { m: { id: string }; highlighted: boolean }) =>
     React.createElement("div", { "data-row-id": m.id, "data-highlighted": highlighted }),
 }))
-vi.mock("./message-share-dialog", () => ({ MessageShareDialog: () => null }))
+vi.mock("@/components/community/messages/message-share-dialog", () => ({ MessageShareDialog: () => null }))
 vi.mock("./typing-indicator", () => ({ TypingIndicator: () => null }))
 
 const target = {

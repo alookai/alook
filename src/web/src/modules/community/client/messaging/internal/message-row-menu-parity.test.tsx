@@ -15,8 +15,8 @@
  * surface — including the context sheet, whose parity is entirely transitive.
  */
 import { describe, it, expect } from "vitest"
-import { messageCanShare } from "./message"
-import { messageMenuItems } from "./message-menu"
+import { messageCanShare } from "./message-row-view"
+import { messageMenuItems } from "@/components/community/messages/message-menu"
 import type { RenderMsg } from "@/lib/community/models/message"
 
 const msg = (over: Partial<RenderMsg> = {}): RenderMsg =>
