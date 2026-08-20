@@ -306,14 +306,17 @@ describe("createDaemon", () => {
   it("starts the builtin Codex lane from a fresh nested daemon workspace", async () => {
     const base = mkdtempSync(join(tmpdir(), "daemon-fresh-workspace-"));
     startupSweepDirs.push(base);
+    const rawLines: string[] = [];
     const workingDirectory = join(base, "daemon", "agent-fresh");
     const fakeRuntime = join(base, process.platform === "win32" ? "fake-codex.cmd" : "fake-codex");
     const fakeModule = join(base, "fake-codex.mjs");
     writeFileSync(fakeModule, `
 import { createInterface } from "node:readline";
 const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
+process.stdout.write("TRACE boot " + JSON.stringify(process.argv.slice(2)) + "\\n");
 for await (const line of createInterface({ input: process.stdin })) {
   const message = JSON.parse(line);
+  process.stdout.write("TRACE recv " + String(message.method) + "\\n");
   if (message.method === "initialize") {
     send({ jsonrpc: "2.0", id: message.id, result: {} });
   } else if (message.method === "thread/start") {
@@ -354,16 +357,38 @@ for await (const line of createInterface({ input: process.stdin })) {
       command: fakeRuntime,
     };
 
-    const session = await createBuiltinDaemonSessionFactory()({ agentId: "agent-fresh", ctx, runtimeConfig });
-    await expect(session.start({ id: "first", kind: "user", text: "hello" }))
-      .resolves.toMatchObject({ status: "accepted" });
-    expect(readFileSync(join(workingDirectory, "AGENTS.md"), "utf8")).toBe("Fresh daemon instructions.");
-    expect(readFileSync(join(workingDirectory, "CLAUDE.md"), "utf8")).toBe("Fresh daemon instructions.");
-    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
-    await session.closed;
-    // `session.closed` is a teardown ownership boundary: the spawned shell and
-    // every runtime descendant must have released the workspace by this point.
-    rmSync(base, { recursive: true, force: true });
+    const session = await createBuiltinDaemonSessionFactory((_, line) => rawLines.push(line))({
+      agentId: "agent-fresh",
+      ctx,
+      runtimeConfig,
+    });
+    try {
+      const started = session.start({ id: "first", kind: "user", text: "hello" });
+      const admission = await new Promise<Awaited<typeof started>>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error(`fresh Codex admission timed out; raw stdout: ${JSON.stringify(rawLines)}`));
+        }, 15_000);
+        void started.then(
+          (result) => {
+            clearTimeout(timer);
+            resolve(result);
+          },
+          (error: unknown) => {
+            clearTimeout(timer);
+            reject(error);
+          },
+        );
+      });
+      expect(admission).toMatchObject({ status: "accepted" });
+      expect(readFileSync(join(workingDirectory, "AGENTS.md"), "utf8")).toBe("Fresh daemon instructions.");
+      expect(readFileSync(join(workingDirectory, "CLAUDE.md"), "utf8")).toBe("Fresh daemon instructions.");
+    } finally {
+      await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+      await session.closed;
+      // `session.closed` is a teardown ownership boundary: the spawned shell and
+      // every runtime descendant must have released the workspace by this point.
+      rmSync(base, { recursive: true, force: true });
+    }
   }, 30_000);
 
   it("routes local reminder expiry through the manager and cancels on exact-scope wake/stop/removal/daemon stop", async () => {
