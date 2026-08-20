@@ -364,7 +364,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     // `session.closed` is a teardown ownership boundary: the spawned shell and
     // every runtime descendant must have released the workspace by this point.
     rmSync(base, { recursive: true, force: true });
-  });
+  }, 30_000);
 
   it("routes local reminder expiry through the manager and cancels on exact-scope wake/stop/removal/daemon stop", async () => {
     const realFetch = globalThis.fetch;
