@@ -95,7 +95,12 @@ describe("builtin adapter protocol conformance", () => {
   it("runs the real Pi adapter registration and SDK mapper through the shared normalized-event contract", () => {
     runAgentBackendAdapterConformance(registry.get("pi"), {
       exercise(adapter) {
-        expect(adapter.execution).toEqual({ kind: "in_process_sdk", input: "direct" });
+        expect(adapter.execution).toEqual({
+          lifetime: "session",
+          transport: { kind: "in_process_sdk", protocol: "pi.sdk.v1" },
+          wakeStart: "immediate",
+          terminalOwnership: "prompt_invocation",
+        });
         const state = { sawTextDelta: false };
         const vendorEvents = [
           { type: "message_update", delta: { type: "thinking_delta", delta: "plan" } },

@@ -936,6 +936,7 @@ it("Pi real adapter public chain owns identical turns by prompt invocation and i
   } as never));
   const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
     id: "pi",
+    contractVersion: 1,
     capabilities: capabilitiesFor("pi"),
     createAdapter: () => adapter,
   }] as never);

@@ -1,4 +1,6 @@
 /** Explicit extension boundary for adapter authors; not part of the consumer root API. */
+export const ADAPTER_AUTHOR_CONTRACT_VERSION = 1 as const;
+
 export type * from "./public-contract.js";
 export {
   createAgentDriverSdkWithRegistry,
@@ -7,7 +9,10 @@ export { createAgentDriverRegistry, createBuiltinAgentDriverRegistry } from "./r
 export type { AgentBackendRegistration, AgentBackendRegistrationOf, AgentDriverRegistry } from "./registry.js";
 export type {
   AdapterEvent, AdapterLaunchConfig, AdapterLaunchContext, AdapterRuntimeContext, BackendAdapter, BackendConfig,
-  BackendExecution, EncodeMessageOptions, InputMode, ProbeResult,
+  AdapterTransport, BackendExecution, EncodeMessageOptions, InputMode, LaneAdmission,
+  LaneInterruptInput, LaneSendInput, LaneStartInput, LaneStopInput, ProbeResult,
+  RuntimeLane, RuntimeLaneEventMap, RuntimeLaneExit, RuntimeLaneOpenOptions,
+  TerminalOwnership, WellKnownTransportKind,
   SpawnedProcess, SpawnedProcessHandle, VendorSessionHandle,
 } from "./internal/adapter.js";
 export type {

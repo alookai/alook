@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { BUILTIN_BACKEND_IDS, capabilitiesFor, createAgentDriverRegistry } from "./registry.js";
+import {
+  BUILTIN_BACKEND_IDS, capabilitiesFor, createAgentDriverRegistry, createBuiltinAgentDriverRegistry,
+} from "./registry.js";
 import type { BackendCapabilities, BuiltinBackendId } from "./contract.js";
 
 /**
@@ -9,16 +11,57 @@ import type { BackendCapabilities, BuiltinBackendId } from "./contract.js";
  * without updating `capabilities`) trips CI.
  */
 const EXPECTED: Record<BuiltinBackendId, BackendCapabilities> = {
-  claude: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: true, disallowedTools: true, commandOverride: true, resume: "by_id", midTurnDelivery: "safe_boundary_queue", interrupt: true },
-  codex: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: true, disallowedTools: false, commandOverride: true, resume: "by_id", midTurnDelivery: "safe_boundary_queue", interrupt: true },
-  cursor: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", midTurnDelivery: "next_turn_queue", interrupt: true },
-  opencode: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", midTurnDelivery: "next_turn_queue", interrupt: true },
-  pi: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: false, resume: "by_id", midTurnDelivery: "steer", interrupt: true },
+  claude: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: true, disallowedTools: true, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true },
+  codex: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: true, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true },
+  cursor: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "per_turn", midTurnDelivery: "next_turn_queue", interrupt: true },
+  opencode: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "per_turn", midTurnDelivery: "next_turn_queue", interrupt: true },
+  pi: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: false, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
 };
 
 describe("driver.capabilities", () => {
   it.each(BUILTIN_BACKEND_IDS)("%s declares the expected capability record", (id) => {
     expect(capabilitiesFor(id)).toEqual(EXPECTED[id]);
+  });
+
+  it("pins the orthogonal built-in execution matrix and adapter-author version", () => {
+    const registry = createBuiltinAgentDriverRegistry();
+    const expected = {
+      claude: {
+        lifetime: "session",
+        transport: { kind: "stdio_stream", protocol: "claude.stream-json.v1" },
+        wakeStart: "immediate",
+        terminalOwnership: "vendor_message",
+      },
+      codex: {
+        lifetime: "session",
+        transport: { kind: "stdio_rpc", protocol: "codex.app-server.v1" },
+        wakeStart: "immediate",
+        terminalOwnership: "transport_request",
+      },
+      cursor: {
+        lifetime: "turn",
+        transport: { kind: "one_shot_cli", protocol: "cursor.print.stream-json.v1" },
+        wakeStart: "immediate",
+        terminalOwnership: "lane_generation",
+      },
+      opencode: {
+        lifetime: "turn",
+        transport: { kind: "one_shot_cli", protocol: "opencode.run.json.v1" },
+        wakeStart: "deferred",
+        terminalOwnership: "lane_generation",
+      },
+      pi: {
+        lifetime: "session",
+        transport: { kind: "in_process_sdk", protocol: "pi.sdk.v1" },
+        wakeStart: "immediate",
+        terminalOwnership: "prompt_invocation",
+      },
+    } as const;
+    for (const id of BUILTIN_BACKEND_IDS) {
+      const registration = registry.get(id);
+      expect(registration.contractVersion).toBe(1);
+      expect(registration.createAdapter().execution).toEqual(expected[id]);
+    }
   });
 });
 
@@ -32,6 +75,7 @@ describe("adapter registration runtime boundary", () => {
     }] as never)).toThrow("non-empty id");
     const registration = {
       id: "sixth",
+      contractVersion: 1 as const,
       capabilities: EXPECTED.claude,
       createAdapter: () => ({}),
     };
@@ -41,6 +85,7 @@ describe("adapter registration runtime boundary", () => {
   it("accepts the public suggestion_only model-selection capability for extension adapters", () => {
     const registration = {
       id: "sixth",
+      contractVersion: 1 as const,
       capabilities: { ...EXPECTED.claude, modelSelection: "suggestion_only" },
       createAdapter: () => ({}),
     };
@@ -50,15 +95,22 @@ describe("adapter registration runtime boundary", () => {
   it("rejects each malformed registration capability and adapter shape at runtime", () => {
     const valid = {
       id: "sixth",
+      contractVersion: 1 as const,
       capabilities: EXPECTED.claude,
       createAdapter: () => new (class {
         id = "sixth";
         instructionDelivery = { kind: "native" } as const;
-        execution = { kind: "persistent_process", input: "direct" } as const;
+        execution = {
+          lifetime: "session",
+          transport: { kind: "stdio_stream", protocol: "sixth.test.v1" },
+          wakeStart: "immediate",
+          terminalOwnership: "vendor_message",
+        } as const;
         currentSessionId = null;
         probe() { return { status: "healthy" as const }; }
         normalizeLine() { return []; }
         encodeMessage() { return ""; }
+        async openLane() { throw new Error("not opened by registration tests"); }
         async spawn() { return { process: {} }; }
       })(),
     };
@@ -66,5 +118,18 @@ describe("adapter registration runtime boundary", () => {
     expect(() => createAgentDriverRegistry([{ ...valid, capabilities: { ...EXPECTED.claude, resume: "bad" } }] as never)).toThrow("invalid capability resume");
     expect(() => createAgentDriverRegistry([{ ...valid, capabilities: { ...EXPECTED.claude, interrupt: "yes" } }] as never)).toThrow("invalid capability interrupt");
     expect(() => createAgentDriverRegistry([{ ...valid, createAdapter: null }] as never)).toThrow("requires createAdapter");
+  });
+
+  it("fails closed for missing, old, and unknown adapter-author contract versions", () => {
+    const valid = {
+      id: "sixth",
+      contractVersion: 1,
+      capabilities: EXPECTED.claude,
+      createAdapter: () => ({}),
+    };
+    for (const contractVersion of [undefined, 0, 2]) {
+      expect(() => createAgentDriverRegistry([{ ...valid, contractVersion }] as never))
+        .toThrow("unsupported adapter-author contract version");
+    }
   });
 });

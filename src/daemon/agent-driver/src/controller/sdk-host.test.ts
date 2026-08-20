@@ -25,7 +25,11 @@ describe("SdkLane.send", () => {
     handle.prompt.mockImplementation(() => new Promise<void>((resolve) => { settlePrompt = resolve; }));
     const session = new SdkLane(handle, "s1");
 
-    await expect(session.send("hi", "idle")).resolves.toEqual({ ok: true });
+    await expect(session.send({ text: "hi", mode: "idle" })).resolves.toEqual({
+      ok: true,
+      acceptedAs: "prompt",
+      receipt: "s1:sdk:1",
+    });
     expect(handle.prompt).toHaveBeenCalledWith("hi");
     settlePrompt();
   });
@@ -43,7 +47,7 @@ describe("SdkLane.send", () => {
     const received: unknown[] = [];
     session.on("runtime_event", (event) => received.push(event));
 
-    await session.send("same", "idle", "pi:1");
+    await session.send({ text: "same", mode: "idle", terminalOwner: "pi:1" });
     expect(received).toEqual([]);
     pending[0]!.resolve();
     await pending[0]!.promise;
@@ -53,7 +57,7 @@ describe("SdkLane.send", () => {
       { kind: "turn_end", sessionId: "s1", turnOwner: "pi:1" },
     ]);
 
-    await session.send("same", "idle", "pi:2");
+    await session.send({ text: "same", mode: "idle", terminalOwner: "pi:2" });
     pending[1]!.resolve();
     await pending[1]!.promise;
     await Promise.resolve();
@@ -64,7 +68,7 @@ describe("SdkLane.send", () => {
     const handle = fakeHandle(false);
     const session = new SdkLane(handle, "s1");
 
-    await session.send("hi", "idle");
+    await session.send({ text: "hi", mode: "idle" });
 
     expect(handle.prompt).toHaveBeenCalledWith("hi");
     expect(handle.steer).not.toHaveBeenCalled();
@@ -74,7 +78,7 @@ describe("SdkLane.send", () => {
     const handle = fakeHandle(false);
     const session = new SdkLane(handle, "s1");
 
-    await session.send("hi", "busy");
+    await session.send({ text: "hi", mode: "busy" });
 
     expect(handle.steer).toHaveBeenCalledWith("hi");
     expect(handle.prompt).not.toHaveBeenCalled();
@@ -86,7 +90,7 @@ describe("SdkLane.send", () => {
       const handle = fakeHandle(true);
       const session = new SdkLane(handle, "s1");
 
-      const pending = session.send("hi", "idle");
+      const pending = session.send({ text: "hi", mode: "idle" });
       await vi.advanceTimersByTimeAsync(50);
       // Still streaming for the first couple of polls — must not have prompted yet.
       expect(handle.prompt).not.toHaveBeenCalled();
@@ -108,7 +112,7 @@ describe("SdkLane.send", () => {
       const handle = fakeHandle(true); // stays streaming forever
       const session = new SdkLane(handle, "s1");
 
-      const pending = session.send("hi", "idle");
+      const pending = session.send({ text: "hi", mode: "idle" });
       await vi.advanceTimersByTimeAsync(1100);
       await pending;
 
@@ -127,7 +131,7 @@ describe("SdkLane.send", () => {
       const received: unknown[] = [];
       session.on("runtime_event", (event) => received.push(event));
 
-      await session.send("hi", "idle", "pi:2");
+      await session.send({ text: "hi", mode: "idle", terminalOwner: "pi:2" });
       await vi.advanceTimersByTimeAsync(1100);
 
       expect(handle.prompt).not.toHaveBeenCalled();
@@ -146,7 +150,7 @@ describe("SdkLane.send", () => {
     const handle = { prompt: vi.fn().mockResolvedValue(undefined), steer: vi.fn().mockResolvedValue(undefined) };
     const session = new SdkLane(handle, "s1");
 
-    await session.send("hi", "idle");
+    await session.send({ text: "hi", mode: "idle" });
 
     expect(handle.prompt).toHaveBeenCalledWith("hi");
   });
@@ -158,7 +162,7 @@ describe("SdkLane.send", () => {
     const received: unknown[] = [];
     session.on("runtime_event", (e) => received.push(e));
 
-    await expect(session.send("hi", "idle")).resolves.toEqual({ ok: true });
+    await expect(session.send({ text: "hi", mode: "idle" })).resolves.toMatchObject({ ok: true });
 
     expect(received).toContainEqual({ kind: "error", message: "boom" });
   });
@@ -177,7 +181,7 @@ describe("SdkLane.send", () => {
     const received: unknown[] = [];
     session.on("runtime_event", (e) => received.push(e));
 
-    await session.send("hi", "idle");
+    await session.send({ text: "hi", mode: "idle" });
 
     expect(received).toEqual([
       { kind: "session_init", sessionId: "s1" },
@@ -193,7 +197,7 @@ describe("SdkLane.send", () => {
     const received: unknown[] = [];
     session.on("runtime_event", (e) => received.push(e));
 
-    await expect(session.send("hi", "busy")).resolves.toEqual({ ok: true });
+    await expect(session.send({ text: "hi", mode: "busy" })).resolves.toMatchObject({ ok: true });
 
     expect(received).toContainEqual({ kind: "error", message: "nope" });
   });
@@ -208,7 +212,7 @@ describe("SdkLane.send", () => {
     const received: unknown[] = [];
     session.on("runtime_event", (e) => received.push(e));
 
-    await session.send("hi", "busy");
+    await session.send({ text: "hi", mode: "busy" });
 
     expect(received).not.toContainEqual(expect.objectContaining({ kind: "turn_end" }));
   });
@@ -225,7 +229,7 @@ describe("SdkLane.send", () => {
       const received: unknown[] = [];
       session.on("runtime_event", (e) => received.push(e));
 
-      const pending = session.send("hi", "idle");
+      const pending = session.send({ text: "hi", mode: "idle" });
       await vi.advanceTimersByTimeAsync(1100);
       await pending;
 

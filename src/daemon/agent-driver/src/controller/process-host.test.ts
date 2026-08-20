@@ -2,8 +2,8 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { EventEmitter } from "events";
 import { spawn, type ChildProcess } from "child_process";
 import { PassThrough } from "stream";
-import { ProcessLane } from "./process-host.js";
-import type { BackendAdapter, AdapterLaunchContext } from "../internal/adapter.js";
+import { ProcessLane, type ProcessAdapterPrimitives } from "./process-host.js";
+import type { AdapterLaunchContext, BackendConfig } from "../internal/adapter.js";
 import { fakeLaunchContext } from "../testing/adapter-fixture.js";
 
 /*
@@ -21,11 +21,10 @@ import { fakeLaunchContext } from "../testing/adapter-fixture.js";
 const spawned: ChildProcess[] = [];
 
 /** Minimal driver that spawns a real, long-lived child process. */
-function realSpawnDriver(): BackendAdapter {
+function realSpawnDriver(): ProcessAdapterPrimitives<string, BackendConfig> {
   return {
-    instructionDelivery: { kind: "workspace_file", canonical: "AGENTS.md", aliases: ["CLAUDE.md"] },
     id: "test-real",
-    execution: { kind: "persistent_process", input: "direct" },
+    currentSessionId: null,
     spawn: async () => {
       const proc = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
         stdio: ["pipe", "pipe", "pipe"],
@@ -35,8 +34,7 @@ function realSpawnDriver(): BackendAdapter {
     },
     normalizeLine: () => [],
     encodeMessage: () => null,
-    buildSystemPrompt: () => "",
-  } as unknown as BackendAdapter;
+  };
 }
 
 function minimalCtx(): AdapterLaunchContext {
@@ -45,8 +43,10 @@ function minimalCtx(): AdapterLaunchContext {
   });
 }
 
-function controllableDriver(normalizeLine: BackendAdapter["normalizeLine"]): {
-  driver: BackendAdapter;
+function controllableDriver(
+  normalizeLine: ProcessAdapterPrimitives<string, BackendConfig>["normalizeLine"],
+): {
+  driver: ProcessAdapterPrimitives<string, BackendConfig>;
   stdout: PassThrough;
   process: ChildProcess;
   kill: ReturnType<typeof vi.fn>;
@@ -68,7 +68,7 @@ function controllableDriver(normalizeLine: BackendAdapter["normalizeLine"]): {
     ...realSpawnDriver(),
     spawn: async () => ({ process: proc }),
     normalizeLine,
-  } as BackendAdapter;
+  };
   return { driver, stdout, process: proc, kill };
 }
 
@@ -112,7 +112,7 @@ describe("ProcessLane — real subprocess exit fills the physical fact (T1 red-l
         spawned.push(proc);
         return { process: proc };
       },
-    } as unknown as BackendAdapter;
+    };
     const session = new ProcessLane(cleanDriver, minimalCtx());
     const exitInfo = await new Promise<{ code: number | null; signal: string | null; reason?: string }>(
       (resolve) => {
@@ -171,12 +171,12 @@ describe("ProcessLane interrupt", () => {
   it("sends SIGINT only while the process is open", async () => {
     const { driver, process: proc, kill } = controllableDriver(() => []);
     const session = new ProcessLane(driver, minimalCtx());
-    expect(session.interrupt()).toBe(false);
+    await expect(session.interrupt()).resolves.toBe(false);
     await session.start({ text: "go" });
     expect(session.signalCode).toBeNull();
-    expect(session.interrupt()).toBe(true);
+    await expect(session.interrupt()).resolves.toBe(true);
     expect(kill).toHaveBeenCalledWith("SIGINT");
     Object.assign(proc, { exitCode: 0 });
-    expect(session.interrupt()).toBe(false);
+    await expect(session.interrupt()).resolves.toBe(false);
   });
 });

@@ -3,7 +3,9 @@ import { createRequire } from "module";
 import { existsSync, readdirSync, readFileSync, realpathSync } from "fs";
 import { homedir } from "os";
 import * as path from "path";
-import type { BackendAdapter, AdapterLaunchContext, AdapterEvent, VendorSessionHandle } from "../../internal/adapter.js";
+import type {
+  BackendAdapter, AdapterLaunchContext, AdapterEvent, RuntimeLane, VendorSessionHandle,
+} from "../../internal/adapter.js";
 import { SdkLane } from "../../controller/sdk-host.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
 import { resolveCommandOnPath, type ProbeDeps } from "../../internal/probe.js";
@@ -191,7 +193,12 @@ export function mapPiSdkEvent(event: any, sessionId: string, state: { sawTextDel
 export class PiDriver implements BackendAdapter {
   readonly id = "pi";
   readonly instructionDelivery = { kind: "workspace_file", canonical: "AGENTS.md", aliases: ["CLAUDE.md"] } as const;
-  readonly execution = { kind: "in_process_sdk", input: "direct" } as const;
+  readonly execution = {
+    lifetime: "session",
+    transport: { kind: "in_process_sdk", protocol: "pi.sdk.v1" },
+    wakeStart: "immediate",
+    terminalOwnership: "prompt_invocation",
+  } as const;
 
   private sessionId: string | null = null;
   private terminalSequence = 0;
@@ -209,6 +216,10 @@ export class PiDriver implements BackendAdapter {
       return { status: "unhealthy" as const, lastError: "sdk_not_installed" };
     }
     return { status: "healthy" as const, version };
+  }
+
+  async openLane(ctx: AdapterLaunchContext): Promise<RuntimeLane> {
+    return this.openSdkSession(ctx);
   }
 
   /**

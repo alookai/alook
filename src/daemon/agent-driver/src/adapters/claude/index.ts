@@ -7,7 +7,11 @@
  * to the logical turn that initiated it. Safe-boundary steering frames use
  * fresh UUIDs while Claude keeps the root UUID on the eventual result.
  */
-import type { BackendAdapter, EncodeMessageOptions, AdapterLaunchContext, AdapterEvent, SpawnedProcess } from "../../internal/adapter.js";
+import type {
+  BackendAdapter, EncodeMessageOptions, AdapterLaunchContext, AdapterEvent, RuntimeLane,
+  RuntimeLaneOpenOptions, SpawnedProcess,
+} from "../../internal/adapter.js";
+import { createProcessLane } from "../../controller/process-host.js";
 import { prepareCliTransport } from "../../internal/cliTransport.js";
 import { buildClaudeProviderIsolationEnv } from "./providerIsolation.js";
 import { buildClaudeArgs } from "./launch.js";
@@ -20,7 +24,12 @@ import { ClaudeTurnProtocol } from "./turnProtocol.js";
 export class ClaudeDriver implements BackendAdapter {
   readonly id = "claude";
   readonly instructionDelivery = { kind: "workspace_file", canonical: "AGENTS.md", aliases: ["CLAUDE.md"] } as const;
-  readonly execution = { kind: "persistent_process", input: "safe_boundary" } as const;
+  readonly execution = {
+    lifetime: "session",
+    transport: { kind: "stdio_stream", protocol: "claude.stream-json.v1" },
+    wakeStart: "immediate",
+    terminalOwnership: "vendor_message",
+  } as const;
 
   private readonly turnProtocol = new ClaudeTurnProtocol();
   private readonly eventNormalizer = new ClaudeEventNormalizer(this.turnProtocol);
@@ -36,6 +45,10 @@ export class ClaudeDriver implements BackendAdapter {
     return result.ok
       ? { status: "healthy" as const, version: result.version }
       : { status: "unhealthy" as const, lastError: result.error };
+  }
+
+  async openLane(ctx: AdapterLaunchContext, options?: RuntimeLaneOpenOptions): Promise<RuntimeLane> {
+    return createProcessLane(this, ctx, { onRawStdoutLine: options?.onRawStdoutLine });
   }
 
   async spawn(ctx: AdapterLaunchContext): Promise<SpawnedProcess> {

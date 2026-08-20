@@ -4,6 +4,9 @@
 
 ```ts
 
+// @public
+export const ADAPTER_AUTHOR_CONTRACT_VERSION: 1;
+
 // @public (undocumented)
 export type AdapterEvent = {
     kind: "session_init";
@@ -118,9 +121,21 @@ export interface AdapterRuntimeContext {
 }
 
 // @public (undocumented)
+export interface AdapterTransport {
+    // (undocumented)
+    readonly kind: WellKnownTransportKind | (string & {});
+    // (undocumented)
+    readonly metadata?: Readonly<Record<string, JsonValue>>;
+    // (undocumented)
+    readonly protocol: string;
+}
+
+// @public (undocumented)
 export interface AgentBackendRegistration<Specs, Id extends BackendId<Specs>> {
     // (undocumented)
     readonly capabilities: CapabilitiesOf<Specs, Id>;
+    // (undocumented)
+    readonly contractVersion: 1;
     // (undocumented)
     createAdapter(): BackendAdapter<Id, ConfigOf<Specs, Id>>;
     // (undocumented)
@@ -324,10 +339,6 @@ export type AgentTurnResult = {
 export interface BackendAdapter<Id extends string = BuiltinBackendId, Config = BackendConfig> {
     beginTurn?(): string;
     // (undocumented)
-    readonly currentSessionId: string | null;
-    // (undocumented)
-    encodeMessage(text: string, sessionId: string | null, opts?: EncodeMessageOptions): string | null;
-    // (undocumented)
     readonly execution: BackendExecution;
     // (undocumented)
     readonly id: Id;
@@ -340,13 +351,9 @@ export interface BackendAdapter<Id extends string = BuiltinBackendId, Config = B
         readonly aliases: readonly string[];
     };
     // (undocumented)
-    normalizeLine(line: string): AdapterEvent[];
-    // (undocumented)
-    openSdkSession?(ctx: AdapterLaunchContext<Id, Config>): Promise<unknown>;
+    openLane(ctx: AdapterLaunchContext<Id, Config>, options?: RuntimeLaneOpenOptions): Promise<RuntimeLane>;
     // (undocumented)
     probe(command?: string): ProbeResult | Promise<ProbeResult>;
-    // (undocumented)
-    spawn?(ctx: AdapterLaunchContext<Id, Config>): Promise<SpawnedProcess>;
 }
 
 // @public (undocumented)
@@ -369,23 +376,24 @@ export interface BackendCapabilities {
     readonly reasoningEffort: boolean;
     // (undocumented)
     readonly resume: "by_id" | "none";
+    // (undocumented)
+    readonly sessionLifetime: "persistent" | "per_turn";
 }
 
 // @public (undocumented)
 export type BackendConfig = ClaudeConfig | CodexConfig | CursorConfig | OpenCodeConfig | PiConfig;
 
 // @public (undocumented)
-export type BackendExecution = {
-    kind: "persistent_process";
-    input: "direct" | "safe_boundary";
-} | {
-    kind: "per_turn_process";
-    start: "immediate" | "deferred";
-    afterTurn: "natural_exit" | "terminate";
-} | {
-    kind: "in_process_sdk";
-    input: "direct";
-};
+export interface BackendExecution {
+    // (undocumented)
+    readonly lifetime: "session" | "turn";
+    // (undocumented)
+    readonly terminalOwnership: TerminalOwnership;
+    // (undocumented)
+    readonly transport: AdapterTransport;
+    // (undocumented)
+    readonly wakeStart: "immediate" | "deferred";
+}
 
 // @public (undocumented)
 export interface BackendExtensionSpec<Input, Output> {
@@ -450,7 +458,7 @@ export interface BuiltinBackendSpecs {
 export type CapabilitiesOf<Specs, Id extends BackendId<Specs>> = Specs[Id] extends BackendTypeSpec<infer _Config, infer Caps, infer _Extensions, infer _Event> ? Caps : never;
 
 // @public (undocumented)
-export type ClaudeCapabilities = FixedCapabilities<true, true, true, true, true, "safe_boundary_queue">;
+export type ClaudeCapabilities = FixedCapabilities<true, true, true, true, true, "safe_boundary_queue", "persistent">;
 
 // @public (undocumented)
 export interface ClaudeConfig extends BaseBackendConfig {
@@ -474,7 +482,7 @@ export type ClaudeProvider = DefaultProvider | {
 };
 
 // @public (undocumented)
-export type CodexCapabilities = FixedCapabilities<false, true, true, false, true, "safe_boundary_queue">;
+export type CodexCapabilities = FixedCapabilities<false, true, true, false, true, "safe_boundary_queue", "persistent">;
 
 // @public (undocumented)
 export interface CodexConfig extends BaseBackendConfig {
@@ -599,7 +607,7 @@ export function createAgentDriverSdkWithRegistry<Specs>(options: CreateAgentDriv
 export function createBuiltinAgentDriverRegistry(): AgentDriverRegistry<BuiltinBackendSpecs>;
 
 // @public (undocumented)
-export type CursorCapabilities = FixedCapabilities<false, false, false, false, true, "next_turn_queue">;
+export type CursorCapabilities = FixedCapabilities<false, false, false, false, true, "next_turn_queue", "per_turn">;
 
 // @public (undocumented)
 export type CursorConfig = ModelBackendConfig;
@@ -664,7 +672,7 @@ export type ExtensionsOf<Specs, Id extends BackendId<Specs>> = Specs[Id] extends
 export type ExtraEventOf<Specs, Id extends BackendId<Specs>> = Specs[Id] extends BackendTypeSpec<infer _Config, infer _Caps, infer _Extensions, infer Event> ? Event : never;
 
 // @public (undocumented)
-export type FixedCapabilities<Provider extends boolean, Reasoning extends boolean, Fast extends boolean, Tools extends boolean, Command extends boolean, Delivery extends BackendCapabilities["midTurnDelivery"]> = BackendCapabilities & {
+export type FixedCapabilities<Provider extends boolean, Reasoning extends boolean, Fast extends boolean, Tools extends boolean, Command extends boolean, Delivery extends BackendCapabilities["midTurnDelivery"], Lifetime extends BackendCapabilities["sessionLifetime"]> = BackendCapabilities & {
     readonly modelSelection: "launchable";
     readonly providerConfiguration: Provider;
     readonly reasoningEffort: Reasoning;
@@ -672,6 +680,7 @@ export type FixedCapabilities<Provider extends boolean, Reasoning extends boolea
     readonly disallowedTools: Tools;
     readonly commandOverride: Command;
     readonly resume: "by_id";
+    readonly sessionLifetime: Lifetime;
     readonly midTurnDelivery: Delivery;
     readonly interrupt: true;
 };
@@ -720,6 +729,51 @@ export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
 
 // @public (undocumented)
+export type LaneAdmission = {
+    readonly ok: true;
+    readonly acceptedAs: "prompt" | "steer";
+    readonly receipt: string;
+} | {
+    readonly ok: false;
+    readonly reason: string;
+    readonly error?: string;
+};
+
+// @public (undocumented)
+export interface LaneInterruptInput {
+    // (undocumented)
+    readonly reason?: string;
+    // (undocumented)
+    readonly requestId?: string;
+}
+
+// @public (undocumented)
+export interface LaneSendInput extends LaneStartInput {
+    // (undocumented)
+    readonly mode: InputMode;
+}
+
+// @public (undocumented)
+export interface LaneStartInput {
+    // (undocumented)
+    readonly sessionId?: string;
+    // (undocumented)
+    readonly terminalOwner?: string;
+    // (undocumented)
+    readonly text: string;
+}
+
+// @public (undocumented)
+export interface LaneStopInput {
+    // (undocumented)
+    readonly forceAfterMs?: number;
+    // (undocumented)
+    readonly reason?: string;
+    // (undocumented)
+    readonly signal?: "SIGTERM" | "SIGINT" | "SIGKILL";
+}
+
+// @public (undocumented)
 export interface ModelBackendConfig extends BaseBackendConfig {
     // (undocumented)
     readonly model: ModelSelection;
@@ -763,7 +817,7 @@ export type OpenSessionResult<Specs, Id extends BackendId<Specs>> = {
 };
 
 // @public (undocumented)
-export type PiCapabilities = FixedCapabilities<true, true, false, false, false, "steer">;
+export type PiCapabilities = FixedCapabilities<true, true, false, false, false, "steer", "persistent">;
 
 // @public (undocumented)
 export interface PiConfig extends Omit<BaseBackendConfig, "command"> {
@@ -849,6 +903,50 @@ export interface RawOutputEvent {
 export type ReasoningEffort = "low" | "medium" | "high";
 
 // @public (undocumented)
+export interface RuntimeLane {
+    // (undocumented)
+    readonly currentSessionId: string | null;
+    // (undocumented)
+    interrupt(input: LaneInterruptInput): Promise<boolean>;
+    // (undocumented)
+    on<K extends keyof RuntimeLaneEventMap>(event: K, listener: (value: RuntimeLaneEventMap[K]) => void): void;
+    // (undocumented)
+    send(input: LaneSendInput): Promise<LaneAdmission>;
+    // (undocumented)
+    start(input: LaneStartInput): Promise<LaneAdmission>;
+    // (undocumented)
+    stop(input: LaneStopInput): Promise<void>;
+}
+
+// @public (undocumented)
+export interface RuntimeLaneEventMap {
+    // (undocumented)
+    readonly error: unknown;
+    // (undocumented)
+    readonly exit: RuntimeLaneExit;
+    // (undocumented)
+    readonly runtime_event: AdapterEvent;
+    // (undocumented)
+    readonly stderr: string;
+}
+
+// @public (undocumented)
+export interface RuntimeLaneExit {
+    // (undocumented)
+    readonly code: number | null;
+    // (undocumented)
+    readonly reason: "requested" | "runtime_exit";
+    // (undocumented)
+    readonly signal: string | null;
+}
+
+// @public (undocumented)
+export interface RuntimeLaneOpenOptions {
+    // (undocumented)
+    readonly onRawStdoutLine?: (line: string) => void;
+}
+
+// @public (undocumented)
 export interface SpawnedProcess {
     // (undocumented)
     process: SpawnedProcessHandle;
@@ -911,6 +1009,9 @@ export type StopReceipt = {
 };
 
 // @public (undocumented)
+export type TerminalOwnership = "transport_request" | "vendor_message" | "prompt_invocation" | "lane_generation";
+
+// @public (undocumented)
 export interface TokenUsage {
     // (undocumented)
     readonly cachedInputTokens?: number;
@@ -937,6 +1038,9 @@ export interface VendorSessionHandle {
     // (undocumented)
     steer(text: string): void | Promise<void>;
 }
+
+// @public (undocumented)
+export type WellKnownTransportKind = "stdio_stream" | "stdio_rpc" | "http_sse" | "in_process_sdk" | "one_shot_cli";
 
 // (No @packageDocumentation comment for this package)
 

@@ -62,6 +62,7 @@ export interface BackendCapabilities {
   readonly disallowedTools: boolean;
   readonly commandOverride: boolean;
   readonly resume: "by_id" | "none";
+  readonly sessionLifetime: "persistent" | "per_turn";
   readonly midTurnDelivery: "steer" | "safe_boundary_queue" | "next_turn_queue";
   readonly interrupt: boolean;
 }
@@ -73,6 +74,7 @@ export type FixedCapabilities<
   Tools extends boolean,
   Command extends boolean,
   Delivery extends BackendCapabilities["midTurnDelivery"],
+  Lifetime extends BackendCapabilities["sessionLifetime"],
 > = BackendCapabilities & {
   readonly modelSelection: "launchable";
   readonly providerConfiguration: Provider;
@@ -81,15 +83,16 @@ export type FixedCapabilities<
   readonly disallowedTools: Tools;
   readonly commandOverride: Command;
   readonly resume: "by_id";
+  readonly sessionLifetime: Lifetime;
   readonly midTurnDelivery: Delivery;
   readonly interrupt: true;
 };
 
-export type ClaudeCapabilities = FixedCapabilities<true, true, true, true, true, "safe_boundary_queue">;
-export type CodexCapabilities = FixedCapabilities<false, true, true, false, true, "safe_boundary_queue">;
-export type CursorCapabilities = FixedCapabilities<false, false, false, false, true, "next_turn_queue">;
+export type ClaudeCapabilities = FixedCapabilities<true, true, true, true, true, "safe_boundary_queue", "persistent">;
+export type CodexCapabilities = FixedCapabilities<false, true, true, false, true, "safe_boundary_queue", "persistent">;
+export type CursorCapabilities = FixedCapabilities<false, false, false, false, true, "next_turn_queue", "per_turn">;
 export type OpenCodeCapabilities = CursorCapabilities;
-export type PiCapabilities = FixedCapabilities<true, true, false, false, false, "steer">;
+export type PiCapabilities = FixedCapabilities<true, true, false, false, false, "steer", "persistent">;
 
 export interface BackendExtensionSpec<Input, Output> {
   readonly input: Input;

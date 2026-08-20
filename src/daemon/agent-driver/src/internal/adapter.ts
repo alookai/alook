@@ -6,14 +6,36 @@ import type {
   OpenCodeConfig,
   PiConfig,
   PreparedExecutionResource,
+  JsonValue,
 } from "../contract.js";
 
 export type BackendConfig = ClaudeConfig | CodexConfig | CursorConfig | OpenCodeConfig | PiConfig;
 
-export type BackendExecution =
-  | { kind: "persistent_process"; input: "direct" | "safe_boundary" }
-  | { kind: "per_turn_process"; start: "immediate" | "deferred"; afterTurn: "natural_exit" | "terminate" }
-  | { kind: "in_process_sdk"; input: "direct" };
+export type WellKnownTransportKind =
+  | "stdio_stream"
+  | "stdio_rpc"
+  | "http_sse"
+  | "in_process_sdk"
+  | "one_shot_cli";
+
+export interface AdapterTransport {
+  readonly kind: WellKnownTransportKind | (string & {});
+  readonly protocol: string;
+  readonly metadata?: Readonly<Record<string, JsonValue>>;
+}
+
+export type TerminalOwnership =
+  | "transport_request"
+  | "vendor_message"
+  | "prompt_invocation"
+  | "lane_generation";
+
+export interface BackendExecution {
+  readonly lifetime: "session" | "turn";
+  readonly transport: AdapterTransport;
+  readonly wakeStart: "immediate" | "deferred";
+  readonly terminalOwnership: TerminalOwnership;
+}
 
 export type InputMode = "busy" | "idle";
 export interface EncodeMessageOptions { mode?: InputMode }
@@ -34,6 +56,60 @@ export type AdapterEvent =
   | { kind: "turn_end"; sessionId?: string; turnOwner?: string }
   | { kind: "error"; message: string }
   | { kind: "telemetry"; name: "token_usage" | "rate_limits"; source: string; usageKind?: string; attrs: Record<string, unknown> };
+
+export interface LaneStartInput {
+  readonly text: string;
+  readonly sessionId?: string;
+  readonly terminalOwner?: string;
+}
+
+export interface LaneSendInput extends LaneStartInput {
+  readonly mode: InputMode;
+}
+
+export type LaneAdmission =
+  | { readonly ok: true; readonly acceptedAs: "prompt" | "steer"; readonly receipt: string }
+  | { readonly ok: false; readonly reason: string; readonly error?: string };
+
+export interface LaneInterruptInput {
+  readonly requestId?: string;
+  readonly reason?: string;
+}
+
+export interface LaneStopInput {
+  readonly reason?: string;
+  readonly signal?: "SIGTERM" | "SIGINT" | "SIGKILL";
+  readonly forceAfterMs?: number;
+}
+
+export interface RuntimeLaneExit {
+  readonly code: number | null;
+  readonly signal: string | null;
+  readonly reason: "requested" | "runtime_exit";
+}
+
+export interface RuntimeLaneEventMap {
+  readonly runtime_event: AdapterEvent;
+  readonly stderr: string;
+  readonly error: unknown;
+  readonly exit: RuntimeLaneExit;
+}
+
+export interface RuntimeLane {
+  readonly currentSessionId: string | null;
+  start(input: LaneStartInput): Promise<LaneAdmission>;
+  send(input: LaneSendInput): Promise<LaneAdmission>;
+  interrupt(input: LaneInterruptInput): Promise<boolean>;
+  stop(input: LaneStopInput): Promise<void>;
+  on<K extends keyof RuntimeLaneEventMap>(
+    event: K,
+    listener: (value: RuntimeLaneEventMap[K]) => void,
+  ): void;
+}
+
+export interface RuntimeLaneOpenOptions {
+  readonly onRawStdoutLine?: (line: string) => void;
+}
 
 export interface AdapterRuntimeContext {
   agentId: string;
@@ -98,11 +174,10 @@ export interface BackendAdapter<Id extends string = BuiltinBackendId, Config = B
     | { readonly kind: "workspace_file"; readonly canonical: string; readonly aliases: readonly string[] };
   readonly execution: BackendExecution;
   probe(command?: string): ProbeResult | Promise<ProbeResult>;
-  spawn?(ctx: AdapterLaunchContext<Id, Config>): Promise<SpawnedProcess>;
-  openSdkSession?(ctx: AdapterLaunchContext<Id, Config>): Promise<unknown>;
+  openLane(
+    ctx: AdapterLaunchContext<Id, Config>,
+    options?: RuntimeLaneOpenOptions,
+  ): Promise<RuntimeLane>;
   /** Binds a logical turn to an authoritative vendor/transport invocation. */
   beginTurn?(): string;
-  normalizeLine(line: string): AdapterEvent[];
-  readonly currentSessionId: string | null;
-  encodeMessage(text: string, sessionId: string | null, opts?: EncodeMessageOptions): string | null;
 }

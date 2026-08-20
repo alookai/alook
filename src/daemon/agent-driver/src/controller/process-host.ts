@@ -11,39 +11,49 @@
  */
 import { EventEmitter } from "events";
 import type {
-  BackendAdapter,
   BackendConfig,
   AdapterLaunchContext,
-  InputMode,
+  LaneAdmission,
+  LaneSendInput,
+  LaneStartInput,
+  LaneStopInput,
+  RuntimeLane,
+  RuntimeLaneEventMap,
+  SpawnedProcess,
   SpawnedProcessHandle,
 } from "../internal/adapter.js";
 import type { BuiltinBackendId } from "../contract.js";
 import { killProcessTree, SESSION_STOP_GRACE_MS } from "../internal/killTree.js";
 
-interface StartInput {
-  text: string;
-  sessionId?: string;
-}
-interface SendInput {
-  text: string;
-  sessionId?: string;
-  mode?: InputMode;
-}
-
 interface ProcessLaneOptions {
   /** Observability-only tap for each complete non-empty stdout line, before parsing. */
   onRawStdoutLine?: (line: string) => void;
+  /** One-shot adapters that do not exit promptly after terminal output. */
+  stopAfterTurn?: boolean;
 }
 
-export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendConfig> {
+export interface ProcessAdapterPrimitives<Id extends string, Config> {
+  readonly id: Id;
+  readonly currentSessionId: string | null;
+  spawn(ctx: AdapterLaunchContext<Id, Config>): Promise<SpawnedProcess>;
+  normalizeLine(line: string): import("../internal/adapter.js").AdapterEvent[];
+  encodeMessage(
+    text: string,
+    sessionId: string | null,
+    opts?: import("../internal/adapter.js").EncodeMessageOptions,
+  ): string | null;
+}
+
+export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendConfig> implements RuntimeLane {
   private readonly events = new EventEmitter();
   private process: SpawnedProcessHandle | null = null;
   private started = false;
   private stdoutBuffer = "";
   private requestedStopReason?: string;
+  private admissionSequence = 0;
 
   constructor(
-    private readonly driver: BackendAdapter<Id, Config>,
+    private readonly driver: ProcessAdapterPrimitives<Id, Config>,
     private readonly ctx: AdapterLaunchContext<Id, Config>,
     private readonly opts: ProcessLaneOptions = {},
   ) {}
@@ -64,12 +74,15 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
     return this.process ? this.process.exitCode != null || this.process.signalCode != null : false;
   }
 
-  on(event: string, cb: (...args: unknown[]) => void): void {
-    this.events.on(event, cb);
+  on<K extends keyof RuntimeLaneEventMap>(
+    event: K,
+    listener: (value: RuntimeLaneEventMap[K]) => void,
+  ): void {
+    this.events.on(event, listener);
   }
 
   /** Spawn the process and deliver the initial prompt (handled inside spawn). */
-  async start(input: StartInput): Promise<{ ok: boolean; acceptedAs?: string; reason?: string; error?: string }> {
+  async start(input: LaneStartInput): Promise<LaneAdmission> {
     if (this.started) {
       return { ok: false, reason: "runtime_error", error: "runtime session already started" };
     }
@@ -79,24 +92,31 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
       prompt: input.text,
       config: { ...this.ctx.config, sessionId: input.sessionId ?? this.ctx.config.sessionId },
     };
-    if (!this.driver.spawn) throw new Error(`Backend ${this.driver.id} has no process launcher`);
     const { process: proc } = await this.driver.spawn(launchCtx);
     this.process = proc;
     this.attachProcess(proc);
-    return { ok: true, acceptedAs: "prompt" };
+    return {
+      ok: true,
+      acceptedAs: "prompt",
+      receipt: input.terminalOwner ?? `${this.driver.id}:process:${proc.pid ?? this.ctx.launchId}`,
+    };
   }
 
   /** Write a mid-session message (idle prompt or busy steer) to stdin. */
-  send(input: SendInput): { ok: boolean; acceptedAs?: string; reason?: string } {
+  async send(input: LaneSendInput): Promise<LaneAdmission> {
     const proc = this.process;
     if (!proc || this.closed) return { ok: false, reason: "closed" };
     const encoded = this.driver.encodeMessage(input.text, input.sessionId ?? null, { mode: input.mode });
     if (!encoded) return { ok: false, reason: "unsupported" };
     proc.stdin?.write(encoded + "\n");
-    return { ok: true, acceptedAs: input.mode === "busy" ? "steer" : "prompt" };
+    return {
+      ok: true,
+      acceptedAs: input.mode === "busy" ? "steer" : "prompt",
+      receipt: input.terminalOwner ?? `${this.driver.id}:send:${++this.admissionSequence}`,
+    };
   }
 
-  async stop(opts?: { reason?: string; signal?: "SIGTERM" | "SIGINT" | "SIGKILL"; forceAfterMs?: number }): Promise<void> {
+  async stop(opts: LaneStopInput = {}): Promise<void> {
     const proc = this.process;
     if (!proc || this.closed) return;
     this.requestedStopReason = opts?.reason;
@@ -108,7 +128,7 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
     }
   }
 
-  interrupt(): boolean {
+  async interrupt(): Promise<boolean> {
     const proc = this.process;
     if (!proc || this.closed) return false;
     return proc.kill("SIGINT");
@@ -131,6 +151,9 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
         }
         for (const event of this.driver.normalizeLine(line)) {
           this.events.emit("runtime_event", event);
+          if (event.kind === "turn_end" && this.opts.stopAfterTurn) {
+            void this.stop({ reason: "turn_complete", forceAfterMs: 2_000 });
+          }
         }
       }
     });
@@ -142,14 +165,11 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
     proc.on("exit", (code, signal) =>
       this.events.emit("exit", { code, signal, reason: this.requestedStopReason ? "requested" : "runtime_exit" }),
     );
-    proc.on("close", (code, signal) =>
-      this.events.emit("close", { code, signal, reason: this.requestedStopReason ? "requested" : "runtime_exit" }),
-    );
   }
 }
 
 export function createProcessLane<Id extends string, Config>(
-  driver: BackendAdapter<Id, Config>,
+  driver: ProcessAdapterPrimitives<Id, Config>,
   ctx: AdapterLaunchContext<Id, Config>,
   opts?: ProcessLaneOptions,
 ): ProcessLane<Id, Config> {

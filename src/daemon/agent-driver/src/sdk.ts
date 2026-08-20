@@ -39,7 +39,7 @@ export function createAgentDriverSdkWithRegistry<Specs>(
       const capabilities = registration.capabilities;
       try {
         const adapter = registration.createAdapter();
-        assertAdapterCompatibility(String(registration.id), adapter);
+        assertAdapterCompatibility(String(registration.id), registration.capabilities, adapter);
         const command = (capabilities as { readonly commandOverride: boolean }).commandOverride
           ? input.command
           : undefined;
@@ -78,7 +78,7 @@ export function createAgentDriverSdkWithRegistry<Specs>(
       let adapter;
       try {
         adapter = registration.createAdapter();
-        assertAdapterCompatibility(String(registration.id), adapter);
+        assertAdapterCompatibility(String(registration.id), registration.capabilities, adapter);
       } catch {
         return {
           ok: false,

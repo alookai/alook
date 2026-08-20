@@ -12,11 +12,13 @@ import type {
   ConfigOf,
   PreparedExecutionResource,
 } from "../contract.js";
-import type { BackendAdapter, BackendExecution, AdapterLaunchContext, AdapterEvent } from "../internal/adapter.js";
+import type {
+  BackendAdapter, BackendExecution, AdapterLaunchContext, AdapterEvent, RuntimeLane, RuntimeLaneOpenOptions,
+} from "../internal/adapter.js";
 import { createFakeAgentDriverHost } from "../testing/fake-host.js";
 import { runAgentDriverConformance } from "../testing/conformance.js";
 import { LogicalAgentSession } from "./logical-session.js";
-import { ProcessLane } from "./process-host.js";
+import { createProcessLane, ProcessLane } from "./process-host.js";
 import { SdkLane } from "./sdk-host.js";
 import { capabilitiesFor } from "../registry.js";
 
@@ -53,6 +55,13 @@ class FakeDriver implements BackendAdapter {
 
   constructor(readonly id: BuiltinBackendId, readonly execution: BackendExecution) {}
   probe() { return { status: "healthy" as const }; }
+  async openLane(ctx: AdapterLaunchContext, options?: RuntimeLaneOpenOptions): Promise<RuntimeLane> {
+    if (this.execution.transport.kind === "in_process_sdk") return this.openSdkSession(ctx);
+    return createProcessLane(this, ctx, {
+      onRawStdoutLine: options?.onRawStdoutLine,
+      stopAfterTurn: this.id === "opencode",
+    });
+  }
   async spawn(ctx: AdapterLaunchContext) {
     await this.spawnGate;
     if (this.failSpawn) throw this.failSpawn;
@@ -105,14 +114,25 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 function executionFor(backend: BuiltinBackendId): BackendExecution {
   if (backend === "cursor" || backend === "opencode") {
     return {
-      kind: "per_turn_process",
-      start: backend === "opencode" ? "deferred" : "immediate",
-      afterTurn: backend === "opencode" ? "terminate" : "natural_exit",
+      lifetime: "turn",
+      transport: { kind: "one_shot_cli", protocol: `${backend}.test.v1` },
+      wakeStart: backend === "opencode" ? "deferred" : "immediate",
+      terminalOwnership: "lane_generation",
     };
   }
   return backend === "pi"
-    ? { kind: "in_process_sdk", input: "direct" }
-    : { kind: "persistent_process", input: "safe_boundary" };
+    ? {
+        lifetime: "session",
+        transport: { kind: "in_process_sdk", protocol: "pi.test.v1" },
+        wakeStart: "immediate",
+        terminalOwnership: "prompt_invocation",
+      }
+    : {
+        lifetime: "session",
+        transport: { kind: "stdio_stream", protocol: `${backend}.test.v1` },
+        wakeStart: "immediate",
+        terminalOwnership: "vendor_message",
+      };
 }
 
 function makeSession<Id extends BuiltinBackendId>(
@@ -184,7 +204,7 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)("%s logi
       session,
       async completeFirstTurn() {
         await emit(driver, { kind: "turn_end", sessionId: `${backend}-session` });
-        if (driver.execution.kind === "per_turn_process") {
+        if (driver.execution.lifetime === "turn") {
           driver.processes[0].emit("exit", 0, null);
           await Promise.resolve();
         }
@@ -222,7 +242,12 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)("%s logi
 describe("closed physical-lane tombstone", () => {
   it("drops every closed per-turn lane tail before it can poison the next turn boundary", async () => {
     const { session, driver } = makeSession("claude", {
-      execution: { kind: "per_turn_process", start: "immediate", afterTurn: "terminate" },
+      execution: {
+        lifetime: "turn",
+        transport: { kind: "one_shot_cli", protocol: "test.one-shot.v1" },
+        wakeStart: "immediate",
+        terminalOwnership: "lane_generation",
+      },
     });
     const iterator = session.events[Symbol.asyncIterator]();
     await session.start({ id: "a", kind: "user", text: "first" });
@@ -451,7 +476,12 @@ describe("backend-owned delivery behavior", () => {
 
   it("derives deferred first-message behavior from the adapter execution declaration", async () => {
     const { session, driver } = makeSession("cursor", {
-      execution: { kind: "per_turn_process", start: "deferred", afterTurn: "natural_exit" },
+      execution: {
+        lifetime: "turn",
+        transport: { kind: "one_shot_cli", protocol: "test.deferred.v1" },
+        wakeStart: "deferred",
+        terminalOwnership: "lane_generation",
+      },
     });
     expect(await session.start({ id: "system", kind: "system", text: "standing" })).toEqual({
       status: "queued",
@@ -792,7 +822,7 @@ describe("backend-owned delivery behavior", () => {
     await emit(driver, { kind: "turn_end", sessionId: "s1" });
     driver.processes[0].emit("exit", 0, null);
     await Promise.resolve();
-    expect(driver.processes).toHaveLength(2);
+    await vi.waitFor(() => expect(driver.processes).toHaveLength(2));
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 

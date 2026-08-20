@@ -8,7 +8,10 @@
  * (OpenCode auto-reads it from cwd); the user message
  * is the trailing `-- <prompt>` positional.
  */
-import type { BackendAdapter, AdapterLaunchContext, AdapterEvent, SpawnedProcess } from "../../internal/adapter.js";
+import type {
+  BackendAdapter, AdapterLaunchContext, AdapterEvent, RuntimeLane, RuntimeLaneOpenOptions, SpawnedProcess,
+} from "../../internal/adapter.js";
+import { createProcessLane } from "../../controller/process-host.js";
 import { prepareCliTransport } from "../../internal/cliTransport.js";
 import { probeCliRuntime, resolveSpawnSpec } from "../../internal/probe.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
@@ -18,7 +21,12 @@ import { tryParseJsonLine } from "../../internal/utils.js";
 export class OpenCodeDriver implements BackendAdapter {
   readonly id = "opencode";
   readonly instructionDelivery = { kind: "workspace_file", canonical: "AGENTS.md", aliases: ["CLAUDE.md"] } as const;
-  readonly execution = { kind: "per_turn_process", start: "deferred", afterTurn: "terminate" } as const;
+  readonly execution = {
+    lifetime: "turn",
+    transport: { kind: "one_shot_cli", protocol: "opencode.run.json.v1" },
+    wakeStart: "deferred",
+    terminalOwnership: "lane_generation",
+  } as const;
 
   private sessionId: string | null = null;
 
@@ -29,6 +37,13 @@ export class OpenCodeDriver implements BackendAdapter {
 
   probe(command?: string) {
     return probeCliRuntime("opencode", {}, command);
+  }
+
+  async openLane(ctx: AdapterLaunchContext, options?: RuntimeLaneOpenOptions): Promise<RuntimeLane> {
+    return createProcessLane(this, ctx, {
+      onRawStdoutLine: options?.onRawStdoutLine,
+      stopAfterTurn: true,
+    });
   }
 
   async spawn(ctx: AdapterLaunchContext): Promise<SpawnedProcess> {

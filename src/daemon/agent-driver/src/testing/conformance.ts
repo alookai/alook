@@ -8,6 +8,10 @@ import type {
 import type { BackendAdapter, AdapterEvent } from "../internal/adapter.js";
 import type { AgentBackendRegistration } from "../registry.js";
 
+type NormalizingBackendAdapter<Id extends string, Config> = BackendAdapter<Id, Config> & {
+  normalizeLine(line: string): AdapterEvent[];
+};
+
 export interface AgentDriverConformanceFixture<Specs, Id extends BackendId<Specs>> {
   readonly session: AgentSession<Specs, Id>;
   completeFirstTurn(): Promise<void>;
@@ -24,7 +28,7 @@ export interface AgentDriverConformanceResult {
 }
 
 interface AgentBackendAdapterConformanceFixture<Id extends string, Config> {
-  exercise(adapter: BackendAdapter<Id, Config>): readonly AdapterEvent[];
+  exercise(adapter: NormalizingBackendAdapter<Id, Config>): readonly AdapterEvent[];
   readonly expectedEventKinds: readonly AdapterEvent["kind"][];
   readonly terminalSource?: "normalized_event" | "transport_invocation";
 }
@@ -34,7 +38,10 @@ export function runAgentBackendAdapterConformance<Specs, Id extends BackendId<Sp
   registration: AgentBackendRegistration<Specs, Id>,
   fixture: AgentBackendAdapterConformanceFixture<Id, import("../contract.js").ConfigOf<Specs, Id>>,
 ): readonly AdapterEvent[] {
-  const first = registration.createAdapter();
+  const first = registration.createAdapter() as NormalizingBackendAdapter<
+    Id,
+    import("../contract.js").ConfigOf<Specs, Id>
+  >;
   const second = registration.createAdapter();
   assert(first !== second, "registry factory must return a fresh adapter instance");
   assert(first.id === registration.id, "registration and adapter ids must match");
@@ -43,11 +50,10 @@ export function runAgentBackendAdapterConformance<Specs, Id extends BackendId<Sp
     "adapter must declare an instruction-delivery strategy",
   );
   assert(
-    first.execution.kind === "persistent_process"
-      || first.execution.kind === "per_turn_process"
-      || first.execution.kind === "in_process_sdk",
+    first.execution.lifetime === "session" || first.execution.lifetime === "turn",
     "adapter must declare an execution strategy",
   );
+  assert(typeof first.normalizeLine === "function", "built-in adapter must expose its internal event normalizer");
 
   const events = fixture.exercise(first);
   assert(
@@ -56,7 +62,10 @@ export function runAgentBackendAdapterConformance<Specs, Id extends BackendId<Sp
   );
   const terminalCount = events.filter((event) => event.kind === "turn_end").length;
   if (fixture.terminalSource === "transport_invocation") {
-    assert(first.execution.kind === "in_process_sdk", "transport-owned terminal requires an SDK execution");
+    assert(
+      first.execution.terminalOwnership === "prompt_invocation",
+      "transport-owned terminal requires prompt-invocation ownership",
+    );
     assert(terminalCount === 0, "transport-owned terminal must not also come from an unowned vendor event payload");
   } else {
     assert(terminalCount === 1, "fixture must produce exactly one turn_end");

@@ -1,6 +1,15 @@
 /** In-process lane with live-streaming prompt/steer protection. */
 import { EventEmitter } from "events";
-import type { AdapterEvent, VendorSessionHandle, InputMode } from "../internal/adapter.js";
+import type {
+  AdapterEvent,
+  InputMode,
+  LaneAdmission,
+  LaneSendInput,
+  LaneStartInput,
+  RuntimeLane,
+  RuntimeLaneEventMap,
+  VendorSessionHandle,
+} from "../internal/adapter.js";
 
 /** Poll briefly before degrading an idle prompt to a safe steer. */
 const IDLE_PROMPT_RETRY_MS = 25;
@@ -14,9 +23,10 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export class SdkLane {
+export class SdkLane implements RuntimeLane {
   private readonly events = new EventEmitter();
   private sentInit = false;
+  private admissionSequence = 0;
 
   constructor(
     private readonly handle: VendorSessionHandle,
@@ -24,12 +34,19 @@ export class SdkLane {
     private readonly options: { terminalOnPromptSettled?: boolean } = {},
   ) {}
 
-  on(event: string, cb: (...args: unknown[]) => void): void {
-    this.events.on(event, cb);
+  on<K extends keyof RuntimeLaneEventMap>(
+    event: K,
+    listener: (value: RuntimeLaneEventMap[K]) => void,
+  ): void {
+    this.events.on(event, listener);
   }
 
   reportUnexpectedExit(info: { code?: number | null; signal?: string | null } = {}): void {
-    this.events.emit("exit", info);
+    this.events.emit("exit", {
+      code: info.code ?? null,
+      signal: info.signal ?? null,
+      reason: "runtime_exit",
+    });
   }
 
   emitEvents(events: AdapterEvent[]): void {
@@ -40,10 +57,18 @@ export class SdkLane {
     for (const e of events) this.events.emit("runtime_event", e);
   }
 
+  start(input: LaneStartInput): Promise<LaneAdmission> {
+    return this.send({ ...input, mode: "idle" });
+  }
+
   /** Delivers immediately; failures return through normalized events. */
-  send(text: string, mode: InputMode, terminalOwner?: string): Promise<{ ok: boolean }> {
-    void this.deliver(text, mode, terminalOwner);
-    return Promise.resolve({ ok: true });
+  send(input: LaneSendInput): Promise<LaneAdmission> {
+    void this.deliver(input.text, input.mode, input.terminalOwner);
+    return Promise.resolve({
+      ok: true,
+      acceptedAs: input.mode === "busy" ? "steer" : "prompt",
+      receipt: input.terminalOwner ?? `${this.sessionId}:sdk:${++this.admissionSequence}`,
+    });
   }
 
   private async deliver(text: string, mode: InputMode, terminalOwner?: string): Promise<void> {

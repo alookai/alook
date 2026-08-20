@@ -13,7 +13,10 @@
  * access, write+bash). MCP approval moved out of the CLI into config
  * (`.cursor/mcp.json` + `cursor-agent mcp login`), so it has no launch flag.
  */
-import type { BackendAdapter, AdapterLaunchContext, AdapterEvent, SpawnedProcess } from "../../internal/adapter.js";
+import type {
+  BackendAdapter, AdapterLaunchContext, AdapterEvent, RuntimeLane, RuntimeLaneOpenOptions, SpawnedProcess,
+} from "../../internal/adapter.js";
+import { createProcessLane } from "../../controller/process-host.js";
 import { prepareCliTransport } from "../../internal/cliTransport.js";
 import { probeCliRuntime, resolveSpawnSpec } from "../../internal/probe.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
@@ -23,12 +26,21 @@ import { tryParseJsonLine } from "../../internal/utils.js";
 export class CursorDriver implements BackendAdapter {
   readonly id = "cursor";
   readonly instructionDelivery = { kind: "workspace_file", canonical: "AGENTS.md", aliases: ["CLAUDE.md"] } as const;
-  readonly execution = { kind: "per_turn_process", start: "immediate", afterTurn: "natural_exit" } as const;
+  readonly execution = {
+    lifetime: "turn",
+    transport: { kind: "one_shot_cli", protocol: "cursor.print.stream-json.v1" },
+    wakeStart: "immediate",
+    terminalOwnership: "lane_generation",
+  } as const;
 
   private sessionId: string | null = null;
 
   probe(command?: string) {
     return probeCliRuntime("cursor-agent", {}, command);
+  }
+
+  async openLane(ctx: AdapterLaunchContext, options?: RuntimeLaneOpenOptions): Promise<RuntimeLane> {
+    return createProcessLane(this, ctx, { onRawStdoutLine: options?.onRawStdoutLine });
   }
 
   async spawn(ctx: AdapterLaunchContext): Promise<SpawnedProcess> {

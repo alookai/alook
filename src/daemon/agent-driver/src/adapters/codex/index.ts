@@ -13,7 +13,11 @@
  * Handshake (queued on spawn): `initialize` → then `thread/start` (or
  * `thread/resume` with the prior threadId). The thread id is the session id.
  */
-import type { BackendAdapter, EncodeMessageOptions, AdapterLaunchContext, AdapterEvent, SpawnedProcess } from "../../internal/adapter.js";
+import type {
+  BackendAdapter, EncodeMessageOptions, AdapterLaunchContext, AdapterEvent, RuntimeLane,
+  RuntimeLaneOpenOptions, SpawnedProcess,
+} from "../../internal/adapter.js";
+import { createProcessLane } from "../../controller/process-host.js";
 import { prepareCliTransport } from "../../internal/cliTransport.js";
 import { CodexEventNormalizer } from "./normalizer.js";
 import { probeCliRuntime, resolveSpawnSpec } from "../../internal/probe.js";
@@ -35,7 +39,12 @@ function isCodexMissingRolloutError(message: string): boolean {
 export class CodexDriver implements BackendAdapter {
   readonly id = "codex";
   readonly instructionDelivery = { kind: "workspace_file", canonical: "AGENTS.md", aliases: ["CLAUDE.md"] } as const;
-  readonly execution = { kind: "persistent_process", input: "safe_boundary" } as const;
+  readonly execution = {
+    lifetime: "session",
+    transport: { kind: "stdio_rpc", protocol: "codex.app-server.v1" },
+    wakeStart: "immediate",
+    terminalOwnership: "transport_request",
+  } as const;
 
   private readonly eventNormalizer = new CodexEventNormalizer();
   private requestId = 0;
@@ -79,6 +88,10 @@ export class CodexDriver implements BackendAdapter {
     // though resolveCommandOnPath returned a JS wrapper. See
     // plans/community-machine-presence-fix.md.
     return probeCliRuntime("codex", {}, command);
+  }
+
+  async openLane(ctx: AdapterLaunchContext, options?: RuntimeLaneOpenOptions): Promise<RuntimeLane> {
+    return createProcessLane(this, ctx, { onRawStdoutLine: options?.onRawStdoutLine });
   }
 
   async spawn(ctx: AdapterLaunchContext): Promise<SpawnedProcess> {

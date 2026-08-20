@@ -34,6 +34,7 @@ const claudeCapabilities = {
   disallowedTools: true,
   commandOverride: true,
   resume: "by_id",
+  sessionLifetime: "persistent",
   midTurnDelivery: "safe_boundary_queue",
   interrupt: true,
 } as const;
@@ -116,6 +117,7 @@ describe("createAgentDriverSdk", () => {
       disallowedTools: false,
       commandOverride: false,
       resume: "none",
+      sessionLifetime: "per_turn",
       midTurnDelivery: "next_turn_queue",
       interrupt: false,
     } as const;
@@ -130,15 +132,18 @@ describe("createAgentDriverSdk", () => {
     const adapter: BackendAdapter<"sixth", { readonly flavor: string }> = {
       id: "sixth",
       instructionDelivery: { kind: "native" },
-      execution: { kind: "per_turn_process", start: "deferred", afterTurn: "terminate" },
+      execution: {
+        lifetime: "turn",
+        transport: { kind: "one_shot_cli", protocol: "sixth.test.v1" },
+        wakeStart: "deferred",
+        terminalOwnership: "lane_generation",
+      },
       probe: vi.fn(() => ({ status: "healthy" as const, version: "6.0.0" })),
-      spawn: vi.fn(async () => { throw new Error("not started by this test"); }),
-      normalizeLine: () => [],
-      currentSessionId: null,
-      encodeMessage: () => null,
+      openLane: vi.fn(async () => { throw new Error("not started by this test"); }),
     };
     const registry = createAgentDriverRegistry<SixthSpecs>([{
       id: "sixth",
+      contractVersion: 1,
       capabilities,
       createAdapter: () => adapter,
     }]);
@@ -170,6 +175,7 @@ describe("createAgentDriverSdk", () => {
     const prepare = vi.spyOn(host, "prepareExecution");
     const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
       id: "claude",
+      contractVersion: 1,
       capabilities: claudeCapabilities,
       createAdapter: () => {
         const adapter = new ClaudeDriver();
@@ -190,22 +196,64 @@ describe("createAgentDriverSdk", () => {
     expect(prepare).not.toHaveBeenCalled();
   });
 
+  it("accepts an opaque third-party transport kind without protocol-name branching", async () => {
+    const adapter = new ClaudeDriver();
+    Object.defineProperty(adapter, "execution", {
+      configurable: true,
+      value: {
+        lifetime: "session",
+        transport: {
+          kind: "websocket_multiplex",
+          protocol: "third-party.example.v7",
+          metadata: { framing: "binary" },
+        },
+        wakeStart: "immediate",
+        terminalOwnership: "transport_request",
+      },
+    });
+    vi.spyOn(adapter, "probe").mockReturnValue({ status: "healthy", version: "7.0.0" });
+    const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
+      id: "claude",
+      contractVersion: 1,
+      capabilities: claudeCapabilities,
+      createAdapter: () => adapter,
+    }]);
+
+    await expect(createAgentDriverSdkWithRegistry({ registry }).probe({ backend: "claude" }))
+      .resolves.toMatchObject({ status: "healthy", version: "7.0.0" });
+  });
+
   it.each([
-    ["missing normalizer", { normalizeLine: undefined }],
+    ["missing probe", { probe: undefined }],
     ["invalid instruction kind", { instructionDelivery: { kind: "raw" } }],
-    ["incomplete execution", { execution: { kind: "persistent_process", input: "unknown" } }],
-    ["invalid execution kind", { execution: { kind: "raw" } }],
+    ["incomplete execution", { execution: {
+      lifetime: "session", transport: { kind: "stdio_stream", protocol: "claude.test.v1" }, wakeStart: "unknown",
+      terminalOwnership: "vendor_message",
+    } }],
+    ["invalid execution kind", { execution: { lifetime: "raw" } }],
+    ["invalid transport", { execution: {
+      lifetime: "session", transport: { kind: "stdio_stream", protocol: "" }, wakeStart: "immediate",
+      terminalOwnership: "vendor_message",
+    } }],
+    ["lifetime mismatch", { execution: {
+      lifetime: "turn", transport: { kind: "one_shot_cli", protocol: "claude.test.v1" }, wakeStart: "immediate",
+      terminalOwnership: "lane_generation",
+    } }],
+    ["deferred persistent wake", { execution: {
+      lifetime: "session", transport: { kind: "stdio_stream", protocol: "claude.test.v1" }, wakeStart: "deferred",
+      terminalOwnership: "vendor_message",
+    } }],
     ["invalid workspace instruction", {
       instructionDelivery: { kind: "workspace_file", canonical: "", aliases: [1] },
     }],
-    ["invalid current session id", { currentSessionId: 42 }],
-    ["missing lane factory", { spawn: undefined }],
+    ["missing lane factory", { openLane: undefined }],
   ] as const)("fails %s adapter shape validation before host preparation", async (_name, override) => {
     const host = createFakeAgentDriverHost();
     const prepare = vi.spyOn(host, "prepareExecution");
     const valid = new ClaudeDriver();
     const registry = createAgentDriverRegistry<BuiltinBackendSpecs>([{
       id: "claude",
+      contractVersion: 1,
       capabilities: claudeCapabilities,
       createAdapter: () => {
         for (const [key, value] of Object.entries(override)) {

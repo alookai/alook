@@ -20,9 +20,7 @@ import type {
   StopReceipt,
 } from "../contract.js";
 import type { AgentDriverHost } from "../contract.js";
-import type { BackendAdapter, AdapterLaunchContext, AdapterEvent } from "../internal/adapter.js";
-import { createProcessLane, type ProcessLane } from "./process-host.js";
-import { SdkLane } from "./sdk-host.js";
+import type { BackendAdapter, AdapterLaunchContext, AdapterEvent, RuntimeLane } from "../internal/adapter.js";
 import { BufferedEventQueue } from "./event-queue.js";
 import { writeAgentFile } from "../internal/agentFile.js";
 import { scrubDriverErrorMessage } from "../internal/errors.js";
@@ -60,12 +58,12 @@ interface ActiveTurn {
   terminalOwner?: string;
 }
 
-interface ClosedLaneTombstone<Id extends string, Config> {
+interface ClosedLaneTombstone {
   sessionInstanceId: string;
   localTurnId: string;
   commandIds: string[];
   terminalOwner?: string;
-  physicalOwner: ProcessLane<Id, Config> | SdkLane;
+  physicalOwner: RuntimeLane;
   generation: number;
   state: "closed" | "reopened_after_terminal";
 }
@@ -97,7 +95,7 @@ implements AgentSession<Specs, Id> {
 
   private state: SessionState = "new";
   private backendSessionId?: string;
-  private lane: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane | null = null;
+  private lane: RuntimeLane | null = null;
   private activeTurn?: ActiveTurn;
   private readonly queued: QueuedCommand[] = [];
   private readonly commands = new Map<string, CommandRecord>();
@@ -120,7 +118,7 @@ implements AgentSession<Specs, Id> {
   private turnAdmission?: TurnAdmission;
   private instructionsMaterialized = false;
   private lifecycleGeneration = 0;
-  private closedLaneTombstone?: ClosedLaneTombstone<Id, ConfigOf<Specs, Id>>;
+  private closedLaneTombstone?: ClosedLaneTombstone;
 
   private readonly eventQueue: BufferedEventQueue<AgentEvent<Specs, Id>>;
   private readonly behavior;
@@ -165,9 +163,7 @@ implements AgentSession<Specs, Id> {
     const turnId = this.activeTurn.turnId;
     this.interruptedTurnId = turnId;
     try {
-      const accepted = this.lane instanceof SdkLane
-        ? await this.lane.interrupt()
-        : this.lane.interrupt();
+      const accepted = await this.lane.interrupt(input);
       if (!accepted) {
         if (this.interruptedTurnId === turnId) this.interruptedTurnId = undefined;
         return { status: "not_running" };
@@ -302,8 +298,8 @@ implements AgentSession<Specs, Id> {
       if (this.startedAdmitted) return { status: "rejected", reason: "already_started" };
       this.startedAdmitted = true;
       if (
-        this.adapter.execution.kind === "per_turn_process"
-        && this.adapter.execution.start === "deferred"
+        this.adapter.execution.lifetime === "turn"
+        && this.adapter.execution.wakeStart === "deferred"
         && message.kind === "system"
       ) {
         return this.queue(message, "waiting_for_message", "awaiting_first_message");
@@ -372,6 +368,13 @@ implements AgentSession<Specs, Id> {
     const text = messages.map((message) => message.text).join("\n\n");
     const admission: TurnAdmission = { messages, turnId, delivery, finalized: false, accepted: false };
     this.turnAdmission = admission;
+    const current = messages.at(-1)!;
+    const acceptedReceipt: DeliveryReceipt = {
+      status: "accepted",
+      delivery,
+      commandId: current.id,
+      turnId,
+    };
     try {
       const emitAdmission = () => {
         if (admission.finalized) return;
@@ -383,37 +386,34 @@ implements AgentSession<Specs, Id> {
         }
         this.emit({ type: "turn_started", turnId, commandIds });
       };
-      let openedSdk = false;
-      if (this.adapter.execution.kind === "in_process_sdk" && this.lane) {
-        emitAdmission();
-        await this.sendLane(text, "idle");
-      } else if (this.adapter.execution.kind === "persistent_process" && this.lane) {
+      if (this.adapter.execution.lifetime === "session" && this.lane) {
+        if (this.adapter.execution.terminalOwnership === "prompt_invocation") emitAdmission();
         await this.sendLane(text, "idle");
       } else {
-        const opened = await this.openLane(text, generation);
+        const opened = await this.openLane(
+          text,
+          generation,
+          this.adapter.execution.terminalOwnership === "prompt_invocation" ? emitAdmission : undefined,
+        );
         if (!opened) {
           // A racing stop owns terminal settlement. Preserve the historical
           // contract that session_closed is observable before start resolves.
           if (this.finishPromise) await this.finishPromise;
-          return { status: "rejected", reason: "closed" };
+          return admission.accepted ? acceptedReceipt : { status: "rejected", reason: "closed" };
         }
-        openedSdk = this.adapter.execution.kind === "in_process_sdk";
       }
       if (!this.isStartCurrent(generation, turnId)) {
-        return { status: "rejected", reason: "closed" };
+        return admission.accepted ? acceptedReceipt : { status: "rejected", reason: "closed" };
       }
       emitAdmission();
-      if (openedSdk) {
-        await this.sendLane(text, "idle");
-      }
-      const current = messages.at(-1)!;
       if (!this.isStartCurrent(generation, turnId)) {
-        return { status: "accepted", delivery, commandId: current.id, turnId };
+        return acceptedReceipt;
       }
       this.state = "working";
       void this.flushSafeBoundaryQueue();
-      return { status: "accepted", delivery, commandId: current.id, turnId };
+      return acceptedReceipt;
     } catch (error) {
+      if (admission.accepted) return acceptedReceipt;
       if (!this.isStartCurrent(generation, turnId) || admission.finalized) {
         return { status: "rejected", reason: "closed" };
       }
@@ -445,7 +445,11 @@ implements AgentSession<Specs, Id> {
     };
   }
 
-  private async openLane(prompt: string, generation: number): Promise<boolean> {
+  private async openLane(
+    prompt: string,
+    generation: number,
+    beforeStart?: () => void,
+  ): Promise<boolean> {
     if (!this.instructionsMaterialized) {
       const strategy = this.adapter.instructionDelivery;
       if (strategy.kind === "workspace_file" && this.launch.instructions) {
@@ -454,17 +458,7 @@ implements AgentSession<Specs, Id> {
       this.instructionsMaterialized = true;
     }
     const ctx = this.internalContext(prompt);
-    if (this.adapter.execution.kind === "in_process_sdk" && this.adapter.openSdkSession) {
-      const lane = await this.adapter.openSdkSession(ctx) as SdkLane;
-      if (!this.isOpenCurrent(generation)) {
-        await this.stopLaneInstanceBounded(lane, "stale_open", this.hostReleaseTimeoutMs);
-        return false;
-      }
-      this.lane = lane;
-      this.attachLane(lane, generation);
-      return true;
-    }
-    const lane = createProcessLane(this.adapter, ctx, {
+    const lane = await this.adapter.openLane(ctx, {
       onRawStdoutLine: (text) => this.host.onRawOutput({
         backend: this.backend,
         launchId: this.launch.launchId,
@@ -474,7 +468,18 @@ implements AgentSession<Specs, Id> {
     });
     this.lane = lane;
     this.attachLane(lane, generation);
-    await lane.start({ text: prompt, sessionId: ctx.config.sessionId });
+    if (!this.isOpenCurrent(generation)) {
+      await this.stopLaneInstanceBounded(lane, "stale_open", this.hostReleaseTimeoutMs);
+      if (this.lane === lane) this.lane = null;
+      return false;
+    }
+    beforeStart?.();
+    const admission = await lane.start({
+      text: prompt,
+      sessionId: ctx.config.sessionId,
+      terminalOwner: this.activeTurn?.terminalOwner,
+    });
+    if (!admission.ok) throw new Error(admission.error ?? admission.reason);
     if (!this.isOpenCurrent(generation)) {
       await this.stopLaneInstanceBounded(lane, "stale_open", this.hostReleaseTimeoutMs);
       if (this.lane === lane) this.lane = null;
@@ -483,7 +488,7 @@ implements AgentSession<Specs, Id> {
     return true;
   }
 
-  private attachLane(lane: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane, generation: number): void {
+  private attachLane(lane: RuntimeLane, generation: number): void {
     const current = () => this.lane === lane && this.lifecycleGeneration === generation;
     lane.on("runtime_event", (event: unknown) => {
       if (current()) this.onAdapterEvent(event as AdapterEvent, lane, generation);
@@ -514,7 +519,7 @@ implements AgentSession<Specs, Id> {
 
   private onAdapterEvent(
     event: AdapterEvent,
-    physicalOwner: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane,
+    physicalOwner: RuntimeLane,
     generation: number,
   ): void {
     if (this.state === "closed" || this.state === "stopping" || this.finishing) return;
@@ -597,10 +602,10 @@ implements AgentSession<Specs, Id> {
   }
 
   private isClosedPerTurnLaneTail(
-    physicalOwner: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane,
+    physicalOwner: RuntimeLane,
     generation: number,
   ): boolean {
-    if (this.adapter.execution.kind !== "per_turn_process" || this.activeTurn) return false;
+    if (this.adapter.execution.lifetime !== "turn" || this.activeTurn) return false;
     const tombstone = this.closedLaneTombstone;
     return tombstone?.state === "closed"
       && tombstone.sessionInstanceId === this.sessionInstanceId
@@ -610,13 +615,13 @@ implements AgentSession<Specs, Id> {
 
   private reopenClosedLaneForWork(
     event: AdapterEvent,
-    physicalOwner: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane,
+    physicalOwner: RuntimeLane,
     generation: number,
   ): string | undefined {
     // Defense in depth for direct/internal callers. Normal event delivery drops
     // every event from a closed per-turn transport before any shared-state side
     // effect in onAdapterEvent's switch can run.
-    if (this.adapter.execution.kind === "per_turn_process") return undefined;
+    if (this.adapter.execution.lifetime === "turn") return undefined;
     const isRootWork = event.kind === "thinking"
       || event.kind === "text"
       || event.kind === "tool_call"
@@ -708,11 +713,8 @@ implements AgentSession<Specs, Id> {
     this.reviewing = false;
     this.toolBoundaryFlushDisabled = false;
     this.state = "idle";
-    if (this.adapter.execution.kind === "per_turn_process") {
+    if (this.adapter.execution.lifetime === "turn") {
       this.processTurnEnded = true;
-      if (this.adapter.execution.afterTurn === "terminate" && this.lane) {
-        void this.stopLane("turn_complete", 2_000);
-      }
     } else {
       void Promise.resolve()
         .then(() => this.safeBoundaryFlush)
@@ -817,18 +819,18 @@ implements AgentSession<Specs, Id> {
 
   private onLaneError(
     error: unknown,
-    physicalOwner: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane,
+    physicalOwner: RuntimeLane,
     generation: number,
   ): void {
     const message = error instanceof Error ? error.message : String(error);
     this.onAdapterEvent({ kind: "error", message }, physicalOwner, generation);
   }
 
-  private async onLaneExit(lane: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane, info: unknown): Promise<void> {
+  private async onLaneExit(lane: RuntimeLane, info: unknown): Promise<void> {
     if (this.lane !== lane || this.state === "closed") return;
     this.lane = null;
     if (this.state === "stopping") return;
-    if (this.adapter.execution.kind === "per_turn_process" && this.processTurnEnded) {
+    if (this.adapter.execution.lifetime === "turn" && this.processTurnEnded) {
       this.processTurnEnded = false;
       await this.startNextQueued();
       return;
@@ -995,9 +997,12 @@ implements AgentSession<Specs, Id> {
 
   private sendLane(text: string, mode: "busy" | "idle"): Promise<unknown> {
     if (!this.lane) return Promise.reject(new Error("runtime lane is not open"));
-    return (this.lane instanceof SdkLane
-      ? this.lane.send(text, mode, mode === "idle" ? this.activeTurn?.terminalOwner : undefined)
-      : Promise.resolve(this.lane.send({ text, mode })))
+    return this.lane.send({
+      text,
+      mode,
+      sessionId: this.backendSessionId ?? this.launch.resumeSessionId,
+      terminalOwner: mode === "idle" ? this.activeTurn?.terminalOwner : undefined,
+    })
       .then((result) => {
         if (!result.ok) throw new Error(String("reason" in result ? result.reason : "runtime rejected delivery"));
         return result;
@@ -1006,9 +1011,7 @@ implements AgentSession<Specs, Id> {
 
   private stopLane(reason: string, forceAfterMs: number): Promise<unknown> {
     if (!this.lane) return Promise.resolve();
-    return this.lane instanceof SdkLane
-      ? this.lane.stop()
-      : this.lane.stop({ reason, forceAfterMs });
+    return this.lane.stop({ reason, forceAfterMs });
   }
 
   private enterStopping(): string {
@@ -1033,14 +1036,12 @@ implements AgentSession<Specs, Id> {
   }
 
   private async stopLaneInstanceBounded(
-    lane: ProcessLane<Id, ConfigOf<Specs, Id>> | SdkLane,
+    lane: RuntimeLane,
     reason: string,
     timeoutMs: number,
   ): Promise<void> {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const stopped = (lane instanceof SdkLane
-      ? lane.stop()
-      : lane.stop({ reason, forceAfterMs: 0 }))
+    const stopped = lane.stop({ reason, forceAfterMs: 0 })
       .catch(() => {});
     const deadline = new Promise<void>((resolve) => {
       timer = setTimeout(resolve, timeoutMs);

@@ -112,13 +112,13 @@ describe("PiDriver.openSdkSession — does not fire the initial prompt itself", 
     const notify = deps.session.subscribe.mock.calls[0][0];
 
     const firstOwner = driver.beginTurn();
-    await runtimeSession.send("same", "idle", firstOwner);
+    await runtimeSession.send({ text: "same", mode: "idle", terminalOwner: firstOwner });
     notify({ type: "agent_end", messages: [] });
     prompts[0]!.resolve();
     await prompts[0]!.promise;
     await Promise.resolve();
     const secondOwner = driver.beginTurn();
-    await runtimeSession.send("same", "idle", secondOwner);
+    await runtimeSession.send({ text: "same", mode: "idle", terminalOwner: secondOwner });
     notify({ type: "agent_end", messages: [] });
     notify({ type: "agent_end", messages: [] });
     prompts[1]!.resolve();

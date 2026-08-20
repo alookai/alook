@@ -233,6 +233,8 @@ export interface BackendCapabilities {
     readonly reasoningEffort: boolean;
     // (undocumented)
     readonly resume: "by_id" | "none";
+    // (undocumented)
+    readonly sessionLifetime: "persistent" | "per_turn";
 }
 
 // @public (undocumented)
@@ -298,7 +300,7 @@ export interface BuiltinBackendSpecs {
 export type CapabilitiesOf<Specs, Id extends BackendId<Specs>> = Specs[Id] extends BackendTypeSpec<infer _Config, infer Caps, infer _Extensions, infer _Event> ? Caps : never;
 
 // @public (undocumented)
-export type ClaudeCapabilities = FixedCapabilities<true, true, true, true, true, "safe_boundary_queue">;
+export type ClaudeCapabilities = FixedCapabilities<true, true, true, true, true, "safe_boundary_queue", "persistent">;
 
 // @public (undocumented)
 export interface ClaudeConfig extends BaseBackendConfig {
@@ -322,7 +324,7 @@ export type ClaudeProvider = DefaultProvider | {
 };
 
 // @public (undocumented)
-export type CodexCapabilities = FixedCapabilities<false, true, true, false, true, "safe_boundary_queue">;
+export type CodexCapabilities = FixedCapabilities<false, true, true, false, true, "safe_boundary_queue", "persistent">;
 
 // @public (undocumented)
 export interface CodexConfig extends BaseBackendConfig {
@@ -431,7 +433,7 @@ export type CoreAgentEventPayload = {
 export function createFakeAgentDriverHost(overrides?: Partial<PreparedExecutionResource>): FakeAgentDriverHost;
 
 // @public (undocumented)
-export type CursorCapabilities = FixedCapabilities<false, false, false, false, true, "next_turn_queue">;
+export type CursorCapabilities = FixedCapabilities<false, false, false, false, true, "next_turn_queue", "per_turn">;
 
 // @public (undocumented)
 export type CursorConfig = ModelBackendConfig;
@@ -498,7 +500,7 @@ export interface FakeAgentDriverHost extends AgentDriverHost {
 }
 
 // @public (undocumented)
-export type FixedCapabilities<Provider extends boolean, Reasoning extends boolean, Fast extends boolean, Tools extends boolean, Command extends boolean, Delivery extends BackendCapabilities["midTurnDelivery"]> = BackendCapabilities & {
+export type FixedCapabilities<Provider extends boolean, Reasoning extends boolean, Fast extends boolean, Tools extends boolean, Command extends boolean, Delivery extends BackendCapabilities["midTurnDelivery"], Lifetime extends BackendCapabilities["sessionLifetime"]> = BackendCapabilities & {
     readonly modelSelection: "launchable";
     readonly providerConfiguration: Provider;
     readonly reasoningEffort: Reasoning;
@@ -506,6 +508,7 @@ export type FixedCapabilities<Provider extends boolean, Reasoning extends boolea
     readonly disallowedTools: Tools;
     readonly commandOverride: Command;
     readonly resume: "by_id";
+    readonly sessionLifetime: Lifetime;
     readonly midTurnDelivery: Delivery;
     readonly interrupt: true;
 };
@@ -594,7 +597,7 @@ export type OpenSessionResult<Specs, Id extends BackendId<Specs>> = {
 };
 
 // @public (undocumented)
-export type PiCapabilities = FixedCapabilities<true, true, false, false, false, "steer">;
+export type PiCapabilities = FixedCapabilities<true, true, false, false, false, "steer", "persistent">;
 
 // @public (undocumented)
 export interface PiConfig extends Omit<BaseBackendConfig, "command"> {
