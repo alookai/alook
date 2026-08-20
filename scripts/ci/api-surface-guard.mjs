@@ -52,11 +52,74 @@ export function collectChangedPaths(files, expectedChangedFileCount) {
   return [...changedPaths];
 }
 
+export function parseAdapterAuthorContractVersion(source) {
+  const identifier = "ADAPTER_AUTHOR_CONTRACT_VERSION";
+  const occurrences = source.match(new RegExp(`\\b${identifier}\\b`, "g")) ?? [];
+  if (occurrences.length === 0) return null;
+  if (occurrences.length > 1) throw new Error("Multiple adapter-author contract version references");
+
+  let offset = source.charCodeAt(0) === 0xfeff ? 1 : 0;
+  while (offset < source.length) {
+    const remainder = source.slice(offset);
+    const whitespace = remainder.match(/^\s+/);
+    if (whitespace) {
+      offset += whitespace[0].length;
+      continue;
+    }
+    if (remainder.startsWith("//")) {
+      const newline = remainder.indexOf("\n");
+      offset += newline === -1 ? remainder.length : newline + 1;
+      continue;
+    }
+    if (remainder.startsWith("/*")) {
+      const end = remainder.indexOf("*/", 2);
+      if (end === -1) throw new Error("Unterminated leading comment in adapter-author contract source");
+      offset += end + 2;
+      continue;
+    }
+    break;
+  }
+
+  const declaration = source.slice(offset).match(
+    /^export[\t ]+const[\t ]+ADAPTER_AUTHOR_CONTRACT_VERSION[\t ]*=[\t ]*(\d+)(?:[\t ]+as[\t ]+const)?[\t ]*;?[\t ]*(?:\r?\n|$)/,
+  );
+  if (!declaration) throw new Error("Invalid adapter-author contract version declaration");
+  const version = Number(declaration[1]);
+  if (!Number.isSafeInteger(version) || version < 1) {
+    throw new Error("Invalid adapter-author contract version declaration");
+  }
+  return version;
+}
+
 export function evaluateApiSurfaceGuard(input) {
   const changedApiPaths = input.changedPaths.filter(isApiSurfacePath);
+  const selectedLabels = API_LABELS.filter((label) => input.labels.includes(label));
+  const adapterAuthorReportChanged = changedApiPaths.includes(`${API_REPORT_PREFIX}adapter-author.api.md`);
+  const baseVersion = input.baseContractVersion;
+  const headVersion = input.headContractVersion;
+  const baseHasVersion = Number.isSafeInteger(baseVersion) && baseVersion >= 1;
+  const headHasVersion = Number.isSafeInteger(headVersion) && headVersion >= 1;
+  if ((baseVersion !== null && !baseHasVersion) || (headVersion !== null && !headHasVersion)) {
+    return { ok: false, reason: "invalid_adapter_author_contract_version", changedApiPaths };
+  }
+  if (baseHasVersion && (!headHasVersion || headVersion < baseVersion)) {
+    return { ok: false, reason: "adapter_author_contract_version_must_not_regress", changedApiPaths };
+  }
+  if (adapterAuthorReportChanged && !headHasVersion) {
+    return { ok: false, reason: "adapter_author_contract_version_required", changedApiPaths };
+  }
+  if (baseVersion === null && headHasVersion) {
+    const isBreakingBootstrap = adapterAuthorReportChanged
+      && selectedLabels.length === 1
+      && selectedLabels[0] === "api-breaking"
+      && headVersion === 1;
+    if (!isBreakingBootstrap) {
+      return { ok: false, reason: "adapter_author_contract_version_bootstrap_requires_breaking_v1", changedApiPaths };
+    }
+  }
+
   if (changedApiPaths.length === 0) return { ok: true, reason: "no_api_surface_change" };
 
-  const selectedLabels = API_LABELS.filter((label) => input.labels.includes(label));
   if (selectedLabels.length !== 1) {
     return { ok: false, reason: "exactly_one_api_label_required", changedApiPaths };
   }
@@ -77,12 +140,9 @@ export function evaluateApiSurfaceGuard(input) {
     return { ok: false, reason: "current_head_independent_owner_approval_required", changedApiPaths };
   }
 
-  const adapterAuthorReportChanged = changedApiPaths.includes(`${API_REPORT_PREFIX}adapter-author.api.md`);
   if (selectedLabels[0] === "api-breaking" && adapterAuthorReportChanged) {
-    const isInitialVersion = input.baseContractVersion === null && input.headContractVersion === 1;
-    const isIncrement = Number.isInteger(input.baseContractVersion)
-      && Number.isInteger(input.headContractVersion)
-      && input.headContractVersion > input.baseContractVersion;
+    const isInitialVersion = baseVersion === null && headVersion === 1;
+    const isIncrement = baseHasVersion && headHasVersion && headVersion > baseVersion;
     if (!isInitialVersion && !isIncrement) {
       return { ok: false, reason: "adapter_author_contract_version_must_increase", changedApiPaths };
     }
@@ -136,8 +196,7 @@ async function contractVersionAt(repository, sha, token) {
   );
   if (!value?.content || value.encoding !== "base64") return null;
   const source = Buffer.from(value.content, "base64").toString("utf8");
-  const match = source.match(/ADAPTER_AUTHOR_CONTRACT_VERSION\s*=\s*(\d+)/);
-  return match ? Number(match[1]) : null;
+  return parseAdapterAuthorContractVersion(source);
 }
 
 async function main() {

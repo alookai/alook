@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { collectChangedPaths, evaluateApiSurfaceGuard } from "./api-surface-guard.mjs";
+import {
+  collectChangedPaths,
+  evaluateApiSurfaceGuard,
+  parseAdapterAuthorContractVersion,
+} from "./api-surface-guard.mjs";
 
 const headSha = "b".repeat(40);
 const publicSource = "src/daemon/agent-driver/src/adapter-author.ts";
@@ -54,10 +58,22 @@ describe("api surface approval guard", () => {
       labels: ["api-breaking"],
       baseContractVersion: null,
       headContractVersion: 2,
-    })).toMatchObject({ ok: false, reason: "adapter_author_contract_version_must_increase" });
+    })).toMatchObject({ ok: false, reason: "adapter_author_contract_version_bootstrap_requires_breaking_v1" });
+    expect(evaluate({
+      changedPaths: [golden],
+      labels: ["api-additive"],
+      baseContractVersion: null,
+      headContractVersion: 1,
+    })).toMatchObject({ ok: false, reason: "adapter_author_contract_version_bootstrap_requires_breaking_v1" });
+    expect(evaluate({
+      changedPaths: [golden],
+      labels: [],
+      baseContractVersion: null,
+      headContractVersion: 1,
+    })).toMatchObject({ ok: false, reason: "adapter_author_contract_version_bootstrap_requires_breaking_v1" });
   });
 
-  it("requires an established adapter-author contract version to increase and forbids removal", () => {
+  it("requires an established adapter-author contract version to increase for a breaking report", () => {
     expect(evaluate({
       changedPaths: [golden],
       labels: ["api-breaking"],
@@ -70,12 +86,52 @@ describe("api surface approval guard", () => {
       baseContractVersion: 1,
       headContractVersion: 2,
     })).toMatchObject({ ok: true });
-    expect(evaluate({
-      changedPaths: [golden],
-      labels: ["api-breaking"],
-      baseContractVersion: 1,
-      headContractVersion: null,
-    })).toMatchObject({ ok: false, reason: "adapter_author_contract_version_must_increase" });
+  });
+
+  it("forbids established contract removal or regression regardless of the API label", () => {
+    for (const labels of [["api-additive"], ["api-breaking"], []]) {
+      expect(evaluate({
+        changedPaths: [golden],
+        labels,
+        baseContractVersion: 2,
+        headContractVersion: 1,
+      })).toMatchObject({ ok: false, reason: "adapter_author_contract_version_must_not_regress" });
+      expect(evaluate({
+        changedPaths: [golden],
+        labels,
+        baseContractVersion: 1,
+        headContractVersion: null,
+      })).toMatchObject({ ok: false, reason: "adapter_author_contract_version_must_not_regress" });
+    }
+  });
+
+  it("reads one canonical contract declaration as the first non-comment statement", () => {
+    expect(parseAdapterAuthorContractVersion([
+      "/** Adapter-author contract version. */",
+      "export const ADAPTER_AUTHOR_CONTRACT_VERSION = 1 as const;",
+      "export type Example = string;",
+    ].join("\n"))).toBe(1);
+  });
+
+  it("rejects comment and string decoys instead of reading them as a bump", () => {
+    expect(() => parseAdapterAuthorContractVersion([
+      "// ADAPTER_AUTHOR_CONTRACT_VERSION = 2",
+      "export const ADAPTER_AUTHOR_CONTRACT_VERSION = 1 as const;",
+    ].join("\n"))).toThrow("Multiple adapter-author contract version references");
+    expect(() => parseAdapterAuthorContractVersion([
+      "const decoy = `export const ADAPTER_AUTHOR_CONTRACT_VERSION = 2`;",
+      "export const ADAPTER_AUTHOR_CONTRACT_VERSION = 1 as const;",
+    ].join("\n"))).toThrow("Multiple adapter-author contract version references");
+    expect(() => parseAdapterAuthorContractVersion(
+      "const decoy = 'ADAPTER_AUTHOR_CONTRACT_VERSION = 2';",
+    )).toThrow("Invalid adapter-author contract version declaration");
+  });
+
+  it("fails closed on multiple exported contract declarations", () => {
+    expect(() => parseAdapterAuthorContractVersion([
+      "export const ADAPTER_AUTHOR_CONTRACT_VERSION = 1",
+      "export const ADAPTER_AUTHOR_CONTRACT_VERSION = 2",
+    ].join("\n"))).toThrow("Multiple adapter-author contract version references");
   });
 
   it("includes a rename's protected previous path without inflating the returned file count", () => {
