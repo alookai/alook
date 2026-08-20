@@ -217,19 +217,19 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
 
   stop(opts: LaneStopInput = {}): Promise<void> {
     this.settlePendingPrompt({ ok: false, reason: "closed", error: "runtime lane stopped before command admission" });
-    if (!this.process || this.closed) return Promise.resolve();
+    if (!this.process) return Promise.resolve();
     this.stopPromise ??= this.stopProcess(opts);
     return this.stopPromise;
   }
 
   private async stopProcess(opts: LaneStopInput): Promise<void> {
     const proc = this.process;
-    if (!proc || this.closed) return;
+    if (!proc) return;
     this.requestedStopReason = opts?.reason;
     const pid = proc.pid;
     if (pid) {
       await killProcessTree(pid, { graceMs: opts?.forceAfterMs ?? SESSION_STOP_GRACE_MS });
-    } else {
+    } else if (!this.closed) {
       proc.kill(opts?.signal ?? "SIGTERM");
     }
   }

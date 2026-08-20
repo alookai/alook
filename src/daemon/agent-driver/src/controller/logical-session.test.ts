@@ -1590,6 +1590,29 @@ describe("logical-session terminal facts", () => {
     expect(await session.closed).toMatchObject({ outcome: "crashed", exitCode: 7, signal: null });
   });
 
+  it("holds a terminal-root lane through group cleanup when owner stop races its exit", async () => {
+    const lane = new ControlledRuntimeLane();
+    const cleanupGate = deferred();
+    lane.stop.mockImplementation(() => cleanupGate.promise);
+    const { session, host } = makeSession("claude", { lane, timeout: 1_000 });
+    await session.start({ id: "one", kind: "user", text: "start" });
+
+    lane.events.emit("exit", { code: 0, signal: null, reason: "runtime_exit" });
+    await Promise.resolve();
+
+    expect(lane.stop).toHaveBeenCalledWith({ reason: "runtime_exit", forceAfterMs: 0 });
+    await expect(session.stop({ reason: "owner_request", forceAfterMs: 10 })).resolves.toMatchObject({
+      status: "already_stopping",
+    });
+    expect(session.snapshot()).toMatchObject({ state: "stopping", queuedCommands: [] });
+    expect(host.releases).toHaveLength(0);
+
+    cleanupGate.resolve();
+    await expect(session.closed).resolves.toMatchObject({ outcome: "crashed", exitCode: 0, signal: null });
+    expect(lane.stop).toHaveBeenCalledOnce();
+    expect(host.releases).toHaveLength(1);
+  });
+
   it("closes admission immediately while crash cleanup is pending", async () => {
     const releaseGate = deferred();
     const prepared: PreparedExecutionResource = {

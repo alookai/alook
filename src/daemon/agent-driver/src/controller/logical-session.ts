@@ -948,9 +948,13 @@ implements AgentSession<Specs, Id> {
 
   private async onLaneExit(lane: RuntimeLane, info: unknown): Promise<void> {
     if (this.lane !== lane || this.state === "closed") return;
-    this.lane = null;
-    if (this.state === "stopping") return;
-    if (this.adapter.execution.lifetime === "turn" && this.processTurnEnded) {
+    const stoppingBeforeExit = this.state === "stopping" || this.finishing;
+    const expectedTurnExit = this.adapter.execution.lifetime === "turn" && this.processTurnEnded;
+    if (!stoppingBeforeExit && !expectedTurnExit) this.enterStopping();
+    await this.stopLaneInstanceBounded(lane, "runtime_exit", this.hostReleaseTimeoutMs);
+    if (this.lane === lane) this.lane = null;
+    if (this.terminalResult || stoppingBeforeExit) return;
+    if (expectedTurnExit) {
       this.processTurnEnded = false;
       await this.startNextQueued();
       return;

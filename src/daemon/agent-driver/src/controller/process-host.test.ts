@@ -6,6 +6,13 @@ import { ProcessLane, type ProcessAdapterPrimitives } from "./process-host.js";
 import type { AdapterLaunchContext, BackendConfig } from "../internal/adapter.js";
 import { fakeLaunchContext } from "../testing/adapter-fixture.js";
 
+const killProcessTree = vi.hoisted(() => vi.fn(async () => {}));
+
+vi.mock("../internal/killTree.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../internal/killTree.js")>(),
+  killProcessTree,
+}));
+
 /*
  * Red-line-5(b) of plans/daemon-trace-completeness-charter.md (T1): the synthetic
  * `session.fire("exit", {...})` tests in managerRuntime.test.ts prove the daemon
@@ -80,6 +87,7 @@ function controllableDriver(
 
 afterEach(() => {
   vi.useRealTimers();
+  killProcessTree.mockClear();
   for (const p of spawned.splice(0)) {
     try { p.kill("SIGKILL"); } catch { /* already dead */ }
   }
@@ -298,5 +306,36 @@ describe("ProcessLane interrupt", () => {
     expect(kill).toHaveBeenCalledWith("SIGINT");
     Object.assign(proc, { exitCode: 0 });
     await expect(session.interrupt()).resolves.toBe(false);
+  });
+});
+
+describe("ProcessLane stop", () => {
+  it("idempotently kills the detached process group when its root handle is already terminal", async () => {
+    const { driver, process: proc, kill } = controllableDriver(() => []);
+    Object.defineProperty(proc, "pid", { value: 41_002, configurable: true });
+    const session = new ProcessLane(driver, minimalCtx());
+    await session.start({ text: "go" });
+    Object.assign(proc, { exitCode: 0 });
+
+    await Promise.all([
+      session.stop({ reason: "shutdown", forceAfterMs: 0 }),
+      session.stop({ reason: "shutdown", forceAfterMs: 0 }),
+    ]);
+
+    expect(killProcessTree).toHaveBeenCalledOnce();
+    expect(killProcessTree).toHaveBeenCalledWith(41_002, { graceMs: 0 });
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to direct handle kill for a terminal root without a pid", async () => {
+    const { driver, process: proc, kill } = controllableDriver(() => []);
+    const session = new ProcessLane(driver, minimalCtx());
+    await session.start({ text: "go" });
+    Object.assign(proc, { exitCode: 0 });
+
+    await session.stop({ reason: "runtime_exit", forceAfterMs: 0 });
+
+    expect(killProcessTree).not.toHaveBeenCalled();
+    expect(kill).not.toHaveBeenCalled();
   });
 });
