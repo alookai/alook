@@ -29,12 +29,21 @@ const PROMPT_STOP_REASONS = new Set([
 type JsonRpcId = number | string;
 type JsonRecord = Record<string, unknown>;
 
-interface PendingRequest {
+interface PendingCall {
+  readonly kind: "call";
   readonly method: string;
   readonly resolve: (result: unknown) => void;
   readonly reject: (error: Error) => void;
   readonly timer?: ReturnType<typeof setTimeout>;
 }
+
+interface PendingPrompt {
+  readonly kind: "prompt";
+  readonly method: "session/prompt";
+  readonly active: ActivePrompt;
+}
+
+type PendingRequest = PendingCall | PendingPrompt;
 
 interface RpcRequest {
   readonly id: number;
@@ -124,6 +133,7 @@ export class CursorAcpLane implements RuntimeLane {
   private sessionId: string | null = null;
   private activePrompt: ActivePrompt | null = null;
   private requestedStopReason?: string;
+  private spawnPromise?: Promise<SpawnedProcess>;
   private stopPromise?: Promise<void>;
   private suppressExit = false;
 
@@ -155,14 +165,21 @@ export class CursorAcpLane implements RuntimeLane {
       config: { ...this.ctx.config, sessionId: input.sessionId ?? this.ctx.config.sessionId },
     };
     try {
-      const spawned = await this.factory.spawn(launchCtx);
-      this.process = spawned.process;
-      this.attachProcess(spawned.process);
+      this.spawnPromise = this.factory.spawn(launchCtx).then((spawned) => {
+        this.process = spawned.process;
+        this.attachProcess(spawned.process);
+        return spawned;
+      });
+      await this.spawnPromise;
       if (this.requestedStopReason) {
-        await this.stopProcess({ reason: this.requestedStopReason, forceAfterMs: 0 });
+        await this.stop({ reason: this.requestedStopReason, forceAfterMs: 0 });
         throw new Error("Cursor ACP start was cancelled");
       }
       await this.handshake(launchCtx);
+      if (this.requestedStopReason) {
+        await this.stop({ reason: this.requestedStopReason, forceAfterMs: 0 });
+        throw new Error("Cursor ACP start was cancelled");
+      }
       const sessionId = this.sessionId;
       if (!sessionId) throw new Error("Cursor ACP handshake completed without a session id");
       this.ready = true;
@@ -204,13 +221,14 @@ export class CursorAcpLane implements RuntimeLane {
     this.requestedStopReason ??= input.reason ?? "requested_stop";
     this.ready = false;
     this.activePrompt = null;
+    this.openToolCalls.clear();
     this.rejectAllPending(new Error("Cursor ACP lane stopped"));
-    if (!this.process || this.isClosed()) return Promise.resolve();
-    this.stopPromise ??= this.stopProcess(input);
+    this.stopPromise ??= this.stopPhysicalOnce(input);
     return this.stopPromise;
   }
 
-  private async stopProcess(input: LaneStopInput): Promise<void> {
+  private async stopPhysicalOnce(input: LaneStopInput): Promise<void> {
+    await this.spawnPromise?.catch(() => undefined);
     const proc = this.process;
     if (!proc || this.isClosed()) return;
     if (proc.pid) {
@@ -301,19 +319,29 @@ export class CursorAcpLane implements RuntimeLane {
   private admitPrompt(text: string): LaneAdmission {
     if (!this.sessionId) return { ok: false, reason: "not_ready", error: "Cursor ACP session is not ready" };
     if (this.activePrompt) return { ok: false, reason: "runtime_busy", error: "Cursor ACP prompt is still active" };
-    const request = this.request("session/prompt", {
-      sessionId: this.sessionId,
-      prompt: [{ type: "text", text }],
-    });
+    const requestId = ++this.requestSequence;
     const active: ActivePrompt = {
-      requestId: request.id,
-      receipt: `cursor:acp:${request.id}`,
+      requestId,
+      receipt: `cursor:acp:${requestId}`,
     };
+    this.openToolCalls.clear();
     this.activePrompt = active;
-    void request.promise.then(
-      (result) => this.completePrompt(active, result),
-      (error) => this.failPrompt(active, error),
-    );
+    this.pending.set(requestId, { kind: "prompt", method: "session/prompt", active });
+    try {
+      this.write({
+        jsonrpc: "2.0",
+        id: requestId,
+        method: "session/prompt",
+        params: {
+          sessionId: this.sessionId,
+          prompt: [{ type: "text", text }],
+        },
+      });
+    } catch (error) {
+      this.pending.delete(requestId);
+      if (this.activePrompt?.requestId === requestId) this.activePrompt = null;
+      throw error;
+    }
     return { ok: true, acceptedAs: "prompt", receipt: active.receipt };
   }
 
@@ -325,6 +353,7 @@ export class CursorAcpLane implements RuntimeLane {
       return;
     }
     this.activePrompt = null;
+    this.openToolCalls.clear();
     const usage = record(result.usage);
     if (usage) {
       this.events.emit("runtime_event", {
@@ -344,6 +373,7 @@ export class CursorAcpLane implements RuntimeLane {
   private failPrompt(active: ActivePrompt, error: unknown): void {
     if (this.activePrompt?.requestId !== active.requestId) return;
     this.activePrompt = null;
+    this.openToolCalls.clear();
     this.events.emit("runtime_event", {
       kind: "error",
       message: error instanceof Error ? error.message : String(error),
@@ -369,18 +399,18 @@ export class CursorAcpLane implements RuntimeLane {
     });
     const timer = timeoutMs === undefined ? undefined : setTimeout(() => {
       const pending = this.pending.get(id);
-      if (!pending) return;
+      if (!pending || pending.kind !== "call") return;
       this.pending.delete(id);
       pending.reject(new Error(`Cursor ACP ${method} timed out`));
     }, timeoutMs);
     timer?.unref?.();
-    this.pending.set(id, { method, resolve, reject, ...(timer ? { timer } : {}) });
+    this.pending.set(id, { kind: "call", method, resolve, reject, ...(timer ? { timer } : {}) });
     try {
       this.write({ jsonrpc: "2.0", id, method, params });
     } catch (error) {
       const pending = this.pending.get(id);
       this.pending.delete(id);
-      if (pending?.timer) clearTimeout(pending.timer);
+      if (pending?.kind === "call" && pending.timer) clearTimeout(pending.timer);
       throw error instanceof Error ? error : new Error(String(error));
     }
     return { id, promise };
@@ -463,14 +493,31 @@ export class CursorAcpLane implements RuntimeLane {
   }
 
   private handleResponse(id: JsonRpcId, message: JsonRecord): void {
-    if (typeof id !== "number" || !this.pending.has(id)) {
+    const pending = typeof id === "number" ? this.pending.get(id) : undefined;
+    if (typeof id !== "number" || !pending) {
       this.diagnostic("warning", "Cursor ACP emitted a duplicate or unknown response id");
+      return;
+    }
+    if (pending.kind === "prompt") {
+      this.pending.delete(id);
+      if (message.error !== undefined) {
+        const payload = record(message.error);
+        this.failPrompt(pending.active, new CursorAcpRpcError(
+          pending.method,
+          typeof payload?.code === "number" ? payload.code : undefined,
+          rpcErrorMessage(message.error),
+        ));
+      } else if (!("result" in message)) {
+        this.failPrompt(pending.active, new Error("Cursor ACP response omitted result"));
+      } else {
+        this.completePrompt(pending.active, message.result);
+      }
       return;
     }
     if (message.error !== undefined) {
       const payload = record(message.error);
       this.settleRequest(id, false, new CursorAcpRpcError(
-        this.pending.get(id)!.method,
+        pending.method,
         typeof payload?.code === "number" ? payload.code : undefined,
         rpcErrorMessage(message.error),
       ));
@@ -485,7 +532,7 @@ export class CursorAcpLane implements RuntimeLane {
 
   private settleRequest(id: number, ok: boolean, value: unknown): void {
     const pending = this.pending.get(id);
-    if (!pending) return;
+    if (!pending || pending.kind !== "call") return;
     this.pending.delete(id);
     if (pending.timer) clearTimeout(pending.timer);
     if (ok) pending.resolve(value);
@@ -506,9 +553,9 @@ export class CursorAcpLane implements RuntimeLane {
     const sameSession = payload?.sessionId === this.sessionId;
     const options = Array.isArray(payload?.options) ? payload.options.map(record).filter(Boolean) as JsonRecord[] : [];
     const allowOnce = options.find((option) => option.optionId === "allow-once" && option.kind === "allow_once");
-    if (!sameSession || !allowOnce) {
+    if (!this.ready || !this.activePrompt || !sameSession || !allowOnce) {
       this.write({ jsonrpc: "2.0", id, result: { outcome: { outcome: "cancelled" } } });
-      this.diagnostic("error", "Cursor ACP requested an unsupported permission type");
+      this.diagnostic("error", "Cursor ACP permission request was not allowed for the active prompt");
       return;
     }
     this.write({
@@ -530,6 +577,10 @@ export class CursorAcpLane implements RuntimeLane {
     const payload = record(params);
     if (!payload || payload.sessionId !== this.sessionId) {
       this.diagnostic("warning", "Cursor ACP emitted an update for a different session");
+      return;
+    }
+    if (!this.ready || !this.activePrompt) {
+      this.diagnostic("warning", "Cursor ACP emitted a session update without an active prompt");
       return;
     }
     const update = record(payload.update) ?? {};
@@ -606,7 +657,13 @@ export class CursorAcpLane implements RuntimeLane {
   }
 
   private rejectAllPending(error: Error): void {
-    for (const id of [...this.pending.keys()]) this.settleRequest(id, false, error);
+    for (const [id, pending] of [...this.pending]) {
+      this.pending.delete(id);
+      if (pending.kind === "call") {
+        if (pending.timer) clearTimeout(pending.timer);
+        pending.reject(error);
+      }
+    }
   }
 
   private isClosed(): boolean {

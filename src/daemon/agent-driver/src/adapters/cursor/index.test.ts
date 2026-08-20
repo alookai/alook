@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AdapterEvent, AdapterLaunchContext, RuntimeLane, SpawnedProcessHandle } from "../../internal/adapter.js";
+import { createAgentDriverSdk } from "../../sdk.js";
 import { fakeLaunchContext } from "../../testing/adapter-fixture.js";
+import { createFakeAgentDriverHost } from "../../testing/fake-host.js";
 import { CursorDriver } from "./index.js";
 
 type RpcMessage = Record<string, unknown>;
@@ -154,6 +156,16 @@ function completePrompt(process: FakeProcess, prompt: RpcMessage, stopReason = "
 async function settle(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((accept, decline) => {
+    resolve = accept;
+    reject = decline;
+  });
+  return { promise, resolve, reject };
 }
 
 beforeEach(() => {
@@ -326,6 +338,87 @@ describe("CursorDriver persistent ACP transport", () => {
     expect(events.filter((event) => event.kind === "turn_end")).toHaveLength(2);
   });
 
+  it("settles a prompt synchronously before dropping a later update in the same stdout chunk", async () => {
+    const server = installServer();
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const events = eventsFrom(lane);
+    await lane.start({ text: "wire order" });
+    const process = spawned[0]!;
+    const prompt = server.prompts[0]!;
+    process.stdout.write(`${JSON.stringify({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: "cursor-acp-session",
+        update: { sessionUpdate: "tool_call", toolCallId: "old-tool", title: "Old tool" },
+      },
+    })}\n`);
+    process.stdout.write([
+      JSON.stringify({ jsonrpc: "2.0", id: prompt.id, result: { stopReason: "end_turn" } }),
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "cursor-acp-session",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "must-not-project" },
+          },
+        },
+      }),
+      "",
+    ].join("\n"));
+
+    expect(events.findIndex((event) => event.kind === "turn_end")).toBeGreaterThanOrEqual(0);
+    expect(events.some((event) => event.kind === "text")).toBe(false);
+    expect(events.at(-1)).toMatchObject({
+      kind: "runtime_diagnostic",
+      severity: "warning",
+      message: "Cursor ACP emitted a session update without an active prompt",
+    });
+    await expect(lane.send({ text: "next", mode: "idle" })).resolves.toMatchObject({ ok: true });
+    process.stdout.write(`${JSON.stringify({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: "cursor-acp-session",
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "old-tool",
+          title: "Old tool",
+          status: "completed",
+        },
+      },
+    })}\n`);
+    expect(events.some((event) => event.kind === "tool_output")).toBe(false);
+  });
+
+  it("drops a next-tick same-session update after the prompt terminal", async () => {
+    const server = installServer();
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const events = eventsFrom(lane);
+    await lane.start({ text: "late update" });
+    completePrompt(spawned[0]!, server.prompts[0]!);
+    await settle();
+    spawned[0]!.stdout.write(`${JSON.stringify({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: "cursor-acp-session",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "must-not-project" },
+        },
+      },
+    })}\n`);
+
+    expect(events.some((event) => event.kind === "text")).toBe(false);
+    expect(events).toContainEqual(expect.objectContaining({
+      kind: "runtime_diagnostic",
+      message: "Cursor ACP emitted a session update without an active prompt",
+    }));
+  });
+
   it("answers only allow_once permissions, fails unknown permission types closed, and cancels without killing", async () => {
     const server = installServer();
     const lane = await new CursorDriver().openLane(baseCtx());
@@ -371,6 +464,165 @@ describe("CursorDriver persistent ACP transport", () => {
     completePrompt(process, server.prompts[0]!, "cancelled");
     await settle();
     expect(events).toContainEqual(expect.objectContaining({ kind: "turn_end" }));
+  });
+
+  it("cancels permissions outside the active root prompt, including after a same-chunk terminal", async () => {
+    const messages: RpcMessage[] = [];
+    const prompts: RpcMessage[] = [];
+    onClientMessage = (process, message) => {
+      messages.push(message);
+      if (message.method === "initialize") {
+        respond(process, message, {
+          protocolVersion: 1,
+          agentCapabilities: { loadSession: true },
+          authMethods: [{ id: "cursor_login" }],
+        });
+      } else if (message.method === "authenticate") {
+        respond(process, message, {});
+      } else if (message.method === "session/new") {
+        process.stdout.write(`${JSON.stringify({
+          jsonrpc: "2.0",
+          id: "permission-before-prompt",
+          method: "session/request_permission",
+          params: {
+            sessionId: "cursor-acp-session",
+            options: [{ optionId: "allow-once", kind: "allow_once" }],
+          },
+        })}\n`);
+        respond(process, message, { sessionId: "cursor-acp-session", configOptions: [] });
+      } else if (message.method === "session/prompt") {
+        prompts.push(message);
+      }
+    };
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const events = eventsFrom(lane);
+    await lane.start({ text: "permission fence" });
+    const process = spawned[0]!;
+
+    process.stdout.write(`${JSON.stringify({
+      jsonrpc: "2.0",
+      id: "permission-cross-session",
+      method: "session/request_permission",
+      params: {
+        sessionId: "other-session",
+        options: [{ optionId: "allow-once", kind: "allow_once" }],
+      },
+    })}\n`);
+    process.stdout.write(`${JSON.stringify({
+      jsonrpc: "2.0",
+      id: "permission-unknown-type",
+      method: "session/request_permission",
+      params: {
+        sessionId: "cursor-acp-session",
+        options: [{ optionId: "allow-always", kind: "allow_always" }],
+      },
+    })}\n`);
+    process.stdout.write([
+      JSON.stringify({ jsonrpc: "2.0", id: prompts[0]!.id, result: { stopReason: "end_turn" } }),
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: "permission-after-terminal",
+        method: "session/request_permission",
+        params: {
+          sessionId: "cursor-acp-session",
+          options: [{ optionId: "allow-once", kind: "allow_once" }],
+        },
+      }),
+      "",
+    ].join("\n"));
+
+    for (const id of [
+      "permission-before-prompt",
+      "permission-cross-session",
+      "permission-unknown-type",
+      "permission-after-terminal",
+    ]) {
+      expect(messages).toContainEqual({
+        jsonrpc: "2.0",
+        id,
+        result: { outcome: { outcome: "cancelled" } },
+      });
+    }
+    expect(events.filter((event) => event.kind === "turn_end")).toHaveLength(1);
+  });
+
+  it("fences a stop racing the final handshake response before ready or prompt admission", async () => {
+    const messages: RpcMessage[] = [];
+    let lane!: RuntimeLane;
+    onClientMessage = (process, message) => {
+      messages.push(message);
+      if (message.method === "initialize") {
+        respond(process, message, {
+          protocolVersion: 1,
+          agentCapabilities: { loadSession: true },
+          authMethods: [{ id: "cursor_login" }],
+        });
+      } else if (message.method === "authenticate") {
+        respond(process, message, {});
+      } else if (message.method === "session/new") {
+        respond(process, message, { sessionId: "cursor-acp-session", configOptions: [] });
+        void lane.stop({ reason: "race", forceAfterMs: 0 });
+      }
+    };
+    lane = await new CursorDriver().openLane(baseCtx());
+    eventsFrom(lane);
+
+    await expect(lane.start({ text: "must not admit" })).rejects.toThrow("start was cancelled");
+    expect(messages.some((message) => message.method === "session/prompt")).toBe(false);
+    expect(spawned[0]!.kill).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a pre-spawn stop durable and terminates the eventual process exactly once", async () => {
+    const spawnGate = deferred<{ process: FakeProcess }>();
+    const driver = new CursorDriver();
+    vi.spyOn(driver, "spawn").mockReturnValue(spawnGate.promise);
+    const lane = await driver.openLane(baseCtx());
+    eventsFrom(lane);
+    const starting = lane.start({ text: "must not admit" });
+    await settle();
+    const stopping = lane.stop({ reason: "race", forceAfterMs: 0 });
+    const process = fakeProcess();
+    spawnGate.resolve({ process });
+
+    await expect(stopping).resolves.toBeUndefined();
+    await expect(starting).rejects.toThrow("start was cancelled");
+    expect(process.kill).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the public session idle when a late Cursor update follows the terminal", async () => {
+    const server = installServer();
+    const host = createFakeAgentDriverHost();
+    const workingDirectory = mkdtempSync(join(tmpdir(), "cursor-acp-public-test-"));
+    temporaryDirectories.push(workingDirectory);
+    const opened = await createAgentDriverSdk({ host }).open({
+      backend: "cursor",
+      config: { model: { kind: "default" } },
+      launch: {
+        workingDirectory,
+        instructions: { format: "markdown", content: "" },
+        launchId: "cursor-acp-public-late-update",
+      },
+    });
+    if (!opened.ok) throw new Error(opened.error.message);
+    await expect(opened.session.start({ id: "one", kind: "user", text: "public" }))
+      .resolves.toMatchObject({ status: "accepted" });
+    completePrompt(spawned[0]!, server.prompts[0]!);
+    await settle();
+    spawned[0]!.stdout.write(`${JSON.stringify({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: "cursor-acp-session",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "must-not-resurrect" },
+        },
+      },
+    })}\n`);
+    await settle();
+
+    expect(opened.session.snapshot()).toMatchObject({ state: "idle", activeTurn: undefined });
+    await opened.session.stop({ reason: "shutdown", forceAfterMs: 0 });
   });
 
   it("projects same-session updates, scrubs unknown updates, and ignores cross-session content", async () => {
