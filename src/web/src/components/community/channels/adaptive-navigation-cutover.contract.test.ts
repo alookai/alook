@@ -20,6 +20,24 @@ describe("adaptive navigation cutover contracts", () => {
     expect(sidebar).toContain("prefetchChannel?.(thread.id, parentId)")
   })
 
+  it("keeps one channel subtree mounted across flat-to-nested canonicalization", () => {
+    const layout = readSource("../../../app/c/channels/layout.tsx")
+    const flatPage = readSource("../../../app/c/channels/[serverId]/[channelId]/page.tsx")
+    const nestedPage = readSource(
+      "../../../app/c/channels/[serverId]/[channelId]/[childChannelId]/page.tsx",
+    )
+
+    expect(layout).toContain(
+      'import { ChannelRoute } from "@/components/community/channels/channel-route"',
+    )
+    expect(layout).toContain("key={`${serverId}/${routeChannelId}`}")
+    expect(layout).toContain("parentChannelId={routeParentChannelId}")
+    for (const routePage of [flatPage, nestedPage]) {
+      expect(routePage).toContain("return null")
+      expect(routePage).not.toContain("<ChannelRoute")
+    }
+  })
+
   it("autofocuses message composers only after desktop is known", () => {
     const dmPage = readSource("../../../app/c/me/[dmId]/page.tsx")
     const textSurface = readSource("./text-channel-surface.tsx")

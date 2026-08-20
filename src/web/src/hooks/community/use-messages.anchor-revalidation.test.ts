@@ -46,7 +46,222 @@ async function waitForSettled(predicate: () => boolean, tries = 40) {
   }
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => { resolve = done })
+  return { promise, resolve }
+}
+
 describe("useMessages — Fix 3 anchor re-validation", () => {
+  it("shares one pending anchor repair across an asynchronous route remount", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const key = communityKeys.channelMessages("ch_remount")
+    queryClient.setQueryData(key, {
+      pages: [{
+        messages: [{ id: "m_newest", seq: 2, createdAt: "2026-08-20T00:00:02.000Z" }],
+        hasMoreOlder: true,
+        hasMoreNewer: false,
+      }],
+      pageParams: [{ mode: "newest" }],
+    })
+
+    const anchor = deferred<{
+      messages: Array<{ id: string; seq: number; createdAt: string }>
+      hasMoreOlder: boolean
+      hasMoreNewer: boolean
+    }>()
+    apiFetchMock.mockReturnValue(anchor.promise)
+
+    const firstRenders: string[][] = []
+    let first!: TestRenderer.ReactTestRenderer
+    act(() => {
+      first = TestRenderer.create(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(Capture, {
+            onRender: (ids) => { firstRenders.push(ids) },
+            channelId: "ch_remount",
+            lastReadMessageId: "m_anchor",
+          }),
+        ),
+      )
+    })
+    await waitForSettled(() => apiFetchMock.mock.calls.length === 1)
+
+    act(() => { first.unmount() })
+    const remountedRenders: string[][] = []
+    let remounted!: TestRenderer.ReactTestRenderer
+    act(() => {
+      remounted = TestRenderer.create(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(Capture, {
+            onRender: (ids) => { remountedRenders.push(ids) },
+            channelId: "ch_remount",
+            lastReadMessageId: "m_anchor",
+          }),
+        ),
+      )
+    })
+    await flush()
+
+    expect(apiFetchMock).toHaveBeenCalledTimes(1)
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/channels/ch_remount/messages?anchor=m_anchor",
+    )
+
+    anchor.resolve({
+      messages: [{ id: "m_anchor", seq: 1, createdAt: "2026-08-20T00:00:01.000Z" }],
+      hasMoreOlder: false,
+      hasMoreNewer: true,
+    })
+    await waitForSettled(() => remountedRenders.at(-1)?.includes("m_anchor") === true)
+
+    expect(firstRenders.every((ids) => ids.length > 0)).toBe(true)
+    expect(remountedRenders.every((ids) => ids.length > 0)).toBe(true)
+    expect(remountedRenders.at(-1)).toEqual(["m_anchor", "m_newest"])
+    act(() => { remounted.unmount() })
+  })
+
+  it("keeps settled observer remounts on the ordinary revalidation contract", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const key = communityKeys.channelMessages("ch_settled_remount")
+    queryClient.setQueryData(key, {
+      pages: [{
+        messages: [{ id: "m_newest", seq: 2, createdAt: "2026-08-20T00:00:02.000Z" }],
+        hasMoreOlder: true,
+        hasMoreNewer: false,
+      }],
+      pageParams: [{ mode: "newest" }],
+    })
+
+    const repairedPage = {
+      messages: [{ id: "m_anchor", seq: 1, createdAt: "2026-08-20T00:00:01.000Z" }],
+      hasMoreOlder: false,
+      hasMoreNewer: true,
+    }
+    const anchor = deferred<typeof repairedPage>()
+    apiFetchMock.mockReturnValue(anchor.promise)
+
+    let first!: TestRenderer.ReactTestRenderer
+    act(() => {
+      first = TestRenderer.create(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(Capture, {
+            onRender: () => undefined,
+            channelId: "ch_settled_remount",
+            lastReadMessageId: "m_anchor",
+          }),
+        ),
+      )
+    })
+    await waitForSettled(() => apiFetchMock.mock.calls.length === 1)
+    anchor.resolve(repairedPage)
+    await waitForSettled(() => (
+      queryClient.getQueryData<{
+        pageParams: Array<{ mode: string; anchor?: string }>
+      }>(key)?.pageParams[0]?.anchor === "m_anchor"
+    ))
+    act(() => { first.unmount() })
+
+    apiFetchMock.mockResolvedValue(repairedPage)
+    let remounted!: TestRenderer.ReactTestRenderer
+    act(() => {
+      remounted = TestRenderer.create(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(Capture, {
+            onRender: () => undefined,
+            channelId: "ch_settled_remount",
+            lastReadMessageId: "m_anchor",
+          }),
+        ),
+      )
+    })
+    await flush()
+
+    expect(apiFetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/community/channels/ch_settled_remount/messages?anchor=m_anchor",
+      "/api/community/channels/ch_settled_remount/messages?anchor=m_anchor",
+    ])
+    act(() => { remounted.unmount() })
+  })
+
+  it("keeps different anchor identities on independent requests", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const key = communityKeys.channelMessages("ch_distinct")
+    queryClient.setQueryData(key, {
+      pages: [{
+        messages: [{ id: "m_newest", seq: 3, createdAt: "2026-08-20T00:00:03.000Z" }],
+        hasMoreOlder: true,
+        hasMoreNewer: false,
+      }],
+      pageParams: [{ mode: "newest" }],
+    })
+
+    const firstAnchor = deferred<{
+      messages: never[]
+      hasMoreOlder: boolean
+      hasMoreNewer: boolean
+    }>()
+    const secondAnchor = deferred<{
+      messages: never[]
+      hasMoreOlder: boolean
+      hasMoreNewer: boolean
+    }>()
+    apiFetchMock.mockImplementation((url: string) => (
+      url.endsWith("anchor=m_anchor_a") ? firstAnchor.promise : secondAnchor.promise
+    ))
+
+    let first!: TestRenderer.ReactTestRenderer
+    act(() => {
+      first = TestRenderer.create(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(Capture, {
+            onRender: () => undefined,
+            channelId: "ch_distinct",
+            lastReadMessageId: "m_anchor_a",
+          }),
+        ),
+      )
+    })
+    await waitForSettled(() => apiFetchMock.mock.calls.length === 1)
+    act(() => { first.unmount() })
+
+    let second!: TestRenderer.ReactTestRenderer
+    act(() => {
+      second = TestRenderer.create(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(Capture, {
+            onRender: () => undefined,
+            channelId: "ch_distinct",
+            lastReadMessageId: "m_anchor_b",
+          }),
+        ),
+      )
+    })
+    await waitForSettled(() => apiFetchMock.mock.calls.length === 2)
+
+    expect(apiFetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/community/channels/ch_distinct/messages?anchor=m_anchor_a",
+      "/api/community/channels/ch_distinct/messages?anchor=m_anchor_b",
+    ])
+
+    firstAnchor.resolve({ messages: [], hasMoreOlder: false, hasMoreNewer: false })
+    secondAnchor.resolve({ messages: [], hasMoreOlder: false, hasMoreNewer: false })
+    await flush()
+    act(() => { second.unmount() })
+  })
+
   it("fresh cache with a drifted anchor: merges the new anchor page into the already-loaded history instead of discarding it", async () => {
     // `staleTime: Infinity` — without this, mounting a new observer over
     // already-cached data triggers TanStack's own implicit refetch-on-mount

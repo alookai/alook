@@ -5,6 +5,7 @@ import {
   useQueryClient,
   type UseInfiniteQueryResult,
   type InfiniteData,
+  type QueryClient,
 } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { apiFetch } from "@/lib/api/client"
@@ -146,6 +147,35 @@ export function mergeMessagesPages(pages: MessagesPage[]): Msg[] {
 const ANCHOR_CACHE_FRESHNESS_MS = 30_000
 
 type PageCache = InfiniteData<MessagesPage, MessagesPageParam>
+
+const inflightAnchorRepairs = new WeakMap<
+  QueryClient,
+  Map<string, Promise<MessagesPage>>
+>()
+
+function fetchSharedAnchorRepair(
+  queryClient: QueryClient,
+  requestKey: string,
+  fetchPage: () => Promise<MessagesPage>,
+): Promise<MessagesPage> {
+  let requests = inflightAnchorRepairs.get(queryClient)
+  const pending = requests?.get(requestKey)
+  if (pending) return pending
+
+  if (!requests) {
+    requests = new Map()
+    inflightAnchorRepairs.set(queryClient, requests)
+  }
+  const request = fetchPage()
+  requests.set(requestKey, request)
+  const release = () => {
+    if (requests.get(requestKey) !== request) return
+    requests.delete(requestKey)
+    if (requests.size === 0) inflightAnchorRepairs.delete(queryClient)
+  }
+  void request.then(release, release)
+  return request
+}
 
 function cacheHasAnchorPage(
   cache: PageCache | undefined,
@@ -449,7 +479,12 @@ function useMessagesInner(
     //   - STALE cache (cross-session IDB hydration): the loaded window is
     //     untrustworthy, so REPLACE it with just the fresh anchor page.
     const anchorPageParam: MessagesPageParam = { mode: "anchor", anchor: anchorId }
-    queryFn({ pageParam: anchorPageParam })
+    const anchorRequestKey = JSON.stringify([queryKey, anchorPageParam])
+    fetchSharedAnchorRepair(
+      queryClient,
+      anchorRequestKey,
+      () => queryFn({ pageParam: anchorPageParam }),
+    )
       .then((page) => {
         // Re-check right before the swap — a concurrent send/WS update or a
         // second re-anchor attempt in the interim shouldn't be clobbered by

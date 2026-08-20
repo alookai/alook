@@ -41,6 +41,23 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     const { page } = await asUser("alice")
     const requests: string[] = []
     const successfulResponses: string[] = []
+    let releaseFirstAnchor!: () => void
+    const firstAnchorGate = new Promise<void>((resolve) => { releaseFirstAnchor = resolve })
+    let anchorRouteRequests = 0
+    await page.route("**/api/community/channels/**/messages**", async (route) => {
+      const url = route.request().url()
+      if (
+        route.request().method() !== "GET"
+        || !isChannelMessagesRequest(url, threadId)
+        || !new URL(url).searchParams.has("anchor")
+      ) {
+        await route.continue()
+        return
+      }
+      anchorRouteRequests += 1
+      if (anchorRouteRequests === 1) await firstAnchorGate
+      await route.continue()
+    })
     page.on("request", (request) => {
       if (request.method() === "GET") requests.push(request.url())
     })
@@ -61,7 +78,18 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
       if (!response.ok() || !isChannelMessagesRequest(response.url(), threadId)) return false
       return new URL(response.url()).searchParams.has("anchor")
     })
-    await page.goto(`/c/channels/${serverId}/${threadId}`)
+    try {
+      await page.goto(`/c/channels/${serverId}/${threadId}`)
+      await expect.poll(() => anchorRouteRequests, { timeout: 20_000 }).toBeGreaterThan(0)
+      await page.waitForURL(
+        new RegExp(`/c/channels/${serverId}/${forumId}/${threadId}(?:\\?|$)`),
+        { timeout: 20_000, waitUntil: "commit" },
+      )
+      await page.waitForTimeout(500)
+      expect(anchorRouteRequests).toBe(1)
+    } finally {
+      releaseFirstAnchor()
+    }
     await Promise.all([initialCombined, initialNewest, initialAnchored])
     await page.waitForURL(new RegExp(threadId), { timeout: 20_000, waitUntil: "commit" })
     await expect(page.getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
@@ -82,6 +110,7 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
       .toHaveLength(1)
     expect(coldSuccessfulMessageResponses.filter((url) => new URL(url).searchParams.has("anchor")))
       .toHaveLength(1)
+    expect(anchorRouteRequests).toBe(1)
     expect(new Set(coldSuccessfulMessageResponses).size).toBe(coldSuccessfulMessageResponses.length)
     expect(coldMessageRequests.length).toBeGreaterThanOrEqual(coldSuccessfulMessageResponses.length)
 
@@ -117,6 +146,34 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     expect(refreshAnchorResponses.length).toBeLessThanOrEqual(1)
     expect(new Set(refreshSuccessfulMessageResponses).size)
       .toBe(refreshSuccessfulMessageResponses.length)
+  })
+
+  test("natural flat-route canonicalization preserves one settled message load", async ({ asUser }) => {
+    const { page } = await asUser("alice")
+    const successfulResponses: string[] = []
+    page.on("response", (response) => {
+      if (response.request().method() === "GET" && response.ok()) {
+        successfulResponses.push(response.url())
+      }
+    })
+
+    await page.goto(`/c/channels/${serverId}/${threadId}`)
+    await page.waitForURL(
+      new RegExp(`/c/channels/${serverId}/${forumId}/${threadId}(?:\\?|$)`),
+      { timeout: 20_000, waitUntil: "commit" },
+    )
+    await expect(page.getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
+    await expect(page.locator('[data-slot="skeleton"]')).toHaveCount(0)
+    await page.waitForTimeout(2_000)
+
+    const messageResponses = successfulResponses.filter((url) =>
+      isChannelMessagesRequest(url, threadId),
+    )
+    expect(messageResponses.filter((url) => new URL(url).searchParams.has("anchor")))
+      .toHaveLength(1)
+    expect(messageResponses.filter((url) => !new URL(url).searchParams.has("anchor")).length)
+      .toBeLessThanOrEqual(1)
   })
 
   test("switching between top-level channels reuses the warm canonical base", async ({ asUser }) => {
