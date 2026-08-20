@@ -79,6 +79,7 @@ class OpenCodeIncompatibleError extends Error {}
 class OpenCodeResetRequiredError extends Error {}
 class OpenCodePortBindError extends Error {}
 class OpenCodeProtocolError extends Error {}
+class OpenCodeStoppedError extends Error {}
 
 class OpenCodeHttpError extends Error {
   constructor(
@@ -169,7 +170,10 @@ export class OpenCodeServiceLane implements RuntimeLane {
   private suppressExit = false;
   private serviceActivated = false;
   private processStartError: Error | null = null;
+  private spawnPromise: Promise<SpawnedProcess> | null = null;
   private stopPromise?: Promise<void>;
+  private readonly processStopPromises = new WeakMap<object, Promise<void>>();
+  private terminalProcessGeneration: number | null = null;
   private durableAbort?: AbortController;
   private liveAbort?: AbortController;
   private durableTask?: Promise<void>;
@@ -178,7 +182,8 @@ export class OpenCodeServiceLane implements RuntimeLane {
   private liveGate = makeGate();
   private durableGap = true;
   private lastDurableSeq = 0;
-  private readonly seenDurableIds = new Set<string>();
+  private readonly durableSeqById = new Map<string, number>();
+  private readonly durableIdBySeq = new Map<number, string>();
   private readonly toolNames = new Map<string, string>();
   private readonly handledPermissions = new Set<string>();
   private readonly permissionFlights = new Map<string, Promise<void>>();
@@ -216,10 +221,16 @@ export class OpenCodeServiceLane implements RuntimeLane {
     this.started = true;
     try {
       await this.startService();
+      const startupIdentity = this.identity;
+      if (!startupIdentity) throw new Error("OpenCode service started without an identity");
+      this.assertStartupIdentity(startupIdentity);
       await this.openSession(input.sessionId ?? this.ctx.config.sessionId);
+      this.assertStartupIdentity(startupIdentity);
       await this.primeHistory();
+      this.assertStartupIdentity(startupIdentity);
       this.startStreams();
       await this.waitForStreams();
+      this.assertStartupIdentity(startupIdentity);
       if (!this.sessionId) throw new Error("OpenCode v2 session was not initialized");
       this.ready = true;
       this.events.emit("runtime_event", {
@@ -227,6 +238,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
         sessionId: this.sessionId,
       } satisfies AdapterEvent);
       const admission = await this.beginRoot(input);
+      this.assertStartupIdentity(startupIdentity);
       this.serviceActivated = true;
       return admission;
     } catch (error) {
@@ -300,13 +312,17 @@ export class OpenCodeServiceLane implements RuntimeLane {
   }
 
   private async stopPhysicalOnce(input: LaneStopInput): Promise<void> {
-    const proc = this.process;
-    if (!proc || this.isProcessClosed(proc)) return;
-    if (proc.pid) {
-      await killProcessTree(proc.pid, { graceMs: input.forceAfterMs ?? SESSION_STOP_GRACE_MS });
-    } else {
-      proc.kill(input.signal ?? "SIGTERM");
+    let proc = this.process;
+    const pendingSpawn = this.spawnPromise;
+    if (!proc && pendingSpawn) {
+      try {
+        proc = (await pendingSpawn).process;
+      } catch {
+        return;
+      }
     }
+    if (!proc) return;
+    await this.stopProcessOnce(proc, input);
   }
 
   private async startService(): Promise<void> {
@@ -314,13 +330,17 @@ export class OpenCodeServiceLane implements RuntimeLane {
     let lastError: unknown;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       const port = await (this.options.allocatePort ?? allocateLoopbackPort)();
+      this.assertRunning();
       const generation = ++this.serviceGeneration;
       this.baseUrl = `http://${HOST}:${port}`;
       this.stderrBuffer = "";
       this.serviceActivated = false;
       this.processStartError = null;
+      this.terminalProcessGeneration = null;
       try {
-        const spawned = await this.factory.spawnService(this.ctx, port, this.password);
+        const spawnPromise = this.factory.spawnService(this.ctx, port, this.password);
+        this.spawnPromise = spawnPromise;
+        const spawned = await spawnPromise;
         const pid = spawned.process.pid;
         if (!Number.isInteger(pid) || Number(pid) < 1) {
           throw new Error("OpenCode service did not expose a process id");
@@ -328,10 +348,13 @@ export class OpenCodeServiceLane implements RuntimeLane {
         this.process = spawned.process;
         this.identity = { generation, process: spawned.process, pid: Number(pid) };
         this.attachProcess(spawned.process, generation);
+        this.assertRunning();
         await this.waitForCompatibility(generation);
+        this.assertRunning();
         return;
       } catch (error) {
         lastError = error;
+        if (this.stopping) throw error;
         const retryable = error instanceof OpenCodePortBindError
           || (error instanceof Error && /EADDRINUSE|address already in use/i.test(error.message));
         await this.killCandidate();
@@ -345,9 +368,23 @@ export class OpenCodeServiceLane implements RuntimeLane {
     const proc = this.process;
     this.process = null;
     this.identity = null;
-    if (!proc || this.isProcessClosed(proc)) return;
-    if (proc.pid) await killProcessTree(proc.pid, { graceMs: 0 });
-    else proc.kill("SIGKILL");
+    if (!proc) return;
+    await this.stopProcessOnce(proc, { signal: "SIGKILL", forceAfterMs: 0 });
+  }
+
+  private stopProcessOnce(proc: SpawnedProcessHandle, input: LaneStopInput): Promise<void> {
+    const existing = this.processStopPromises.get(proc);
+    if (existing) return existing;
+    const stopping = (async () => {
+      if (this.isProcessClosed(proc)) return;
+      if (proc.pid) {
+        await killProcessTree(proc.pid, { graceMs: input.forceAfterMs ?? SESSION_STOP_GRACE_MS });
+      } else {
+        proc.kill(input.signal ?? "SIGTERM");
+      }
+    })();
+    this.processStopPromises.set(proc, stopping);
+    return stopping;
   }
 
   private attachProcess(proc: SpawnedProcessHandle, generation: number): void {
@@ -376,10 +413,10 @@ export class OpenCodeServiceLane implements RuntimeLane {
       if (this.identity?.generation !== generation || this.suppressExit) return;
       if (!this.serviceActivated) {
         this.processStartError = error instanceof Error ? error : new Error("OpenCode service process failed to start");
-        for (const controller of this.requestControllers) controller.abort();
+        this.abortRuntime(this.processStartError);
         return;
       }
-      this.events.emit("error", error);
+      this.handleActiveProcessError(proc, generation, error);
     });
     proc.on("exit", (code, signal) => this.handleProcessExit(proc, generation, code, signal));
   }
@@ -391,19 +428,54 @@ export class OpenCodeServiceLane implements RuntimeLane {
     signal: string | null,
   ): void {
     if (this.identity?.generation !== generation || this.identity.process !== proc) return;
-    this.ready = false;
-    this.durableAbort?.abort();
-    this.liveAbort?.abort();
-    for (const controller of this.requestControllers) controller.abort();
+    if (this.terminalProcessGeneration === generation) return;
+    this.terminalProcessGeneration = generation;
     const error = new Error("OpenCode service exited");
-    this.durableGate.reject(error);
-    this.liveGate.reject(error);
+    this.abortRuntime(error);
     if (this.suppressExit || !this.serviceActivated) return;
     this.events.emit("exit", {
       code,
       signal,
       reason: this.requestedStopReason ? "requested" : "runtime_exit",
     } satisfies RuntimeLaneEventMap["exit"]);
+  }
+
+  private handleActiveProcessError(proc: SpawnedProcessHandle, generation: number, value: unknown): void {
+    if (
+      this.identity?.generation !== generation
+      || this.identity.process !== proc
+      || this.terminalProcessGeneration === generation
+    ) return;
+    this.terminalProcessGeneration = generation;
+    const error = value instanceof Error ? value : new Error("OpenCode service process failed");
+    this.abortRuntime(error);
+    void this.stop({ reason: "runtime_error", forceAfterMs: 0 });
+    this.events.emit("error", error);
+    this.events.emit("exit", {
+      code: null,
+      signal: null,
+      reason: "runtime_exit",
+    } satisfies RuntimeLaneEventMap["exit"]);
+  }
+
+  private abortRuntime(error: Error): void {
+    this.ready = false;
+    this.durableAbort?.abort();
+    this.liveAbort?.abort();
+    for (const controller of this.requestControllers) controller.abort();
+    this.durableGate.reject(error);
+    this.liveGate.reject(error);
+  }
+
+  private assertRunning(): void {
+    if (this.stopping) throw new OpenCodeStoppedError("OpenCode service lane stopped during startup");
+  }
+
+  private assertStartupIdentity(identity: ServiceIdentity): void {
+    this.assertRunning();
+    if (!this.isIdentity(identity)) {
+      throw new Error("OpenCode service identity changed during startup");
+    }
   }
 
   private async waitForCompatibility(generation: number): Promise<void> {
@@ -415,9 +487,19 @@ export class OpenCodeServiceLane implements RuntimeLane {
         throw new Error("OpenCode service exited before readiness");
       }
       try {
-        const response = await this.fetchWithTimeout("/global/health", { method: "GET" }, "health", 1_000);
+        const healthTimeoutMs = Math.max(1, Math.min(
+          1_000,
+          deadline - Date.now(),
+          this.options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
+        ));
+        const { response, body } = await this.fetchJsonWithTimeout(
+          "/global/health",
+          { method: "GET" },
+          "health",
+          healthTimeoutMs,
+        );
         if (response.ok) {
-          const health = record(await response.json());
+          const health = record(body);
           if (health?.healthy !== true || health.version !== SUPPORTED_VERSION) {
             throw new OpenCodeIncompatibleError(`Installed OpenCode service must be version ${SUPPORTED_VERSION}`);
           }
@@ -434,9 +516,9 @@ export class OpenCodeServiceLane implements RuntimeLane {
   }
 
   private async verifyOpenApi(): Promise<void> {
-    const response = await this.fetchWithTimeout("/doc", { method: "GET" }, "OpenAPI");
+    const { response, body } = await this.fetchJsonWithTimeout("/doc", { method: "GET" }, "OpenAPI");
     if (!response.ok) throw new OpenCodeIncompatibleError("Installed OpenCode service does not expose its OpenAPI document");
-    const document = record(await response.json());
+    const document = record(body);
     const paths = record(document?.paths);
     const required = [
       "/api/session",
@@ -458,7 +540,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
   private async openSession(resumeId: string | undefined): Promise<void> {
     const model = parseModelRef(resolveLaunchFieldsOrDefault(this.ctx.config.runtimeConfig).model);
     if (resumeId) {
-      const response = await this.fetchWithTimeout(
+      const { response, body } = await this.fetchJsonWithTimeout(
         `/api/session/${encodeURIComponent(resumeId)}`,
         { method: "GET" },
         "session resume",
@@ -467,8 +549,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
         throw new OpenCodeResetRequiredError("OpenCode session cannot be loaded through the v2 service; reset this agent to start a new session");
       }
       if (!response.ok) throw new OpenCodeHttpError(response.status, "session resume");
-      const body = record(await response.json());
-      const session = record(body?.data);
+      const session = record(record(body)?.data);
       if (session?.id !== resumeId) {
         throw new OpenCodeResetRequiredError("OpenCode v2 returned a different resumed session; reset this agent before continuing");
       }
@@ -487,13 +568,13 @@ export class OpenCodeServiceLane implements RuntimeLane {
       location: { directory: this.ctx.workingDirectory },
       ...(model ? { model } : {}),
     };
-    const response = await this.fetchWithTimeout("/api/session", {
+    const { response, body: responseBody } = await this.fetchJsonWithTimeout("/api/session", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     }, "session create");
     if (!response.ok) throw new OpenCodeHttpError(response.status, "session create");
-    const payload = record(await response.json());
+    const payload = record(responseBody);
     const session = record(payload?.data);
     if (typeof session?.id !== "string" || !/^ses/.test(session.id)) {
       throw new Error("OpenCode v2 did not return a valid session id");
@@ -526,7 +607,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
         this.durableGap = false;
         this.durableGate.resolve();
         this.scheduleEvaluation();
-        await this.consumeSse(response, (value) => this.handleDurableEvent(value, true));
+        await this.consumeSse(response, async (value) => { await this.handleDurableEvent(value, true); });
         if (!this.stopping) this.diagnostic("warning", "OpenCode durable event stream disconnected; replaying from its cursor");
       } catch (error) {
         if (this.stopping || !this.isIdentity(identity) || controller.signal.aborted) return;
@@ -620,21 +701,24 @@ export class OpenCodeServiceLane implements RuntimeLane {
     const run = this.historyTail.then(async () => {
       if (!this.sessionId || this.stopping) return;
       let hasMore = true;
+      let historyCursor = this.lastDurableSeq;
       while (hasMore && !this.stopping) {
-        const response = await this.fetchWithTimeout(
-          `/api/session/${encodeURIComponent(this.sessionId)}/history?after=${this.lastDurableSeq}&limit=${HISTORY_PAGE_LIMIT}`,
+        const { response, body: responseBody } = await this.fetchJsonWithTimeout(
+          `/api/session/${encodeURIComponent(this.sessionId)}/history?after=${historyCursor}&limit=${HISTORY_PAGE_LIMIT}`,
           { method: "GET" },
           "session history",
         );
         if (!response.ok) throw new OpenCodeHttpError(response.status, "session history");
-        const body = record(await response.json());
+        const body = record(responseBody);
         if (!Array.isArray(body?.data) || typeof body.hasMore !== "boolean") {
           throw new OpenCodeProtocolError("OpenCode session history returned an invalid page");
         }
-        const before = this.lastDurableSeq;
-        for (const event of body.data) await this.handleDurableEvent(event, project);
+        const before = historyCursor;
+        for (const event of body.data) {
+          historyCursor = Math.max(historyCursor, await this.handleDurableEvent(event, project));
+        }
         hasMore = body.hasMore;
-        if (hasMore && this.lastDurableSeq === before) {
+        if (hasMore && historyCursor === before) {
           throw new OpenCodeProtocolError("OpenCode session history cursor did not advance");
         }
       }
@@ -643,7 +727,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
     return run;
   }
 
-  private async handleDurableEvent(value: unknown, project: boolean): Promise<void> {
+  private async handleDurableEvent(value: unknown, project: boolean): Promise<number> {
     const event = record(value);
     const durable = record(event?.durable);
     const data = record(event?.data);
@@ -660,14 +744,24 @@ export class OpenCodeServiceLane implements RuntimeLane {
       throw new OpenCodeProtocolError("OpenCode session stream emitted an invalid durable event");
     }
     const seq = Number(durable.seq);
-    if (this.seenDurableIds.has(event.id)) return;
-    this.seenDurableIds.add(event.id);
-    if (seq <= this.lastDurableSeq) {
-      this.diagnostic("warning", "OpenCode replayed an unknown lower durable sequence; it cannot advance terminal state");
-      return;
+    const priorSeq = this.durableSeqById.get(event.id);
+    if (priorSeq !== undefined) {
+      if (priorSeq !== seq) {
+        throw new OpenCodeProtocolError("OpenCode replayed a durable event id at a different sequence");
+      }
+      return seq;
     }
-    this.lastDurableSeq = seq;
+    const priorId = this.durableIdBySeq.get(seq);
+    if (priorId !== undefined) {
+      throw new OpenCodeProtocolError("OpenCode emitted different durable event ids at the same sequence");
+    }
+    if (seq < this.lastDurableSeq) {
+      throw new OpenCodeProtocolError("OpenCode emitted an unseen durable event below the replay cursor");
+    }
+    this.durableSeqById.set(event.id, seq);
+    this.durableIdBySeq.set(seq, event.id);
     const root = this.activeRoot;
+    this.lastDurableSeq = Math.max(this.lastDurableSeq, seq);
     if (event.type === "session.next.prompt.admitted") {
       const messageId = data.messageID;
       if (root && typeof messageId === "string") {
@@ -681,7 +775,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
     }
     if (!project || !root || seq <= root.baselineSeq) {
       this.scheduleEvaluation();
-      return;
+      return seq;
     }
     switch (event.type) {
       case "session.next.step.started":
@@ -748,6 +842,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
         break;
     }
     this.scheduleEvaluation();
+    return seq;
   }
 
   private async handleLiveEvent(value: unknown): Promise<void> {
@@ -762,13 +857,13 @@ export class OpenCodeServiceLane implements RuntimeLane {
 
   private async recoverPendingPermissions(): Promise<void> {
     if (!this.sessionId) return;
-    const response = await this.fetchWithTimeout(
+    const { response, body: responseBody } = await this.fetchJsonWithTimeout(
       `/api/session/${encodeURIComponent(this.sessionId)}/permission`,
       { method: "GET" },
       "permission list",
     );
     if (!response.ok) throw new OpenCodeHttpError(response.status, "permission list");
-    const body = record(await response.json());
+    const body = record(responseBody);
     if (!Array.isArray(body?.data)) throw new OpenCodeProtocolError("OpenCode permission list returned invalid data");
     for (const item of body.data) {
       const permission = record(item);
@@ -829,7 +924,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
         return { ok: false, reason: "closed" };
       }
       await this.waitForStreams();
-      const response = await this.fetchWithTimeout(
+      const { response, body: responseBody } = await this.fetchJsonWithTimeout(
         `/api/session/${encodeURIComponent(this.sessionId)}/prompt`,
         {
           method: "POST",
@@ -839,7 +934,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
         "prompt admission",
       );
       if (!response.ok) throw new OpenCodeHttpError(response.status, "prompt admission");
-      const body = record(await response.json());
+      const body = record(responseBody);
       const admitted = record(body?.data);
       if (
         admitted?.id !== messageId
@@ -858,8 +953,15 @@ export class OpenCodeServiceLane implements RuntimeLane {
         }
         root.observedAdmissions.add(messageId);
       } else {
-        void this.catchUpHistory(true).catch(() => {
+        void this.catchUpHistory(true).catch((error) => {
           if (!this.stopping && this.activeRoot === root) {
+            if (
+              error instanceof OpenCodeProtocolError
+              || (error instanceof OpenCodeHttpError && error.status < 500)
+            ) {
+              this.protocolFailure("OpenCode session history violated the v2 protocol", error);
+              return;
+            }
             this.diagnostic("warning", "OpenCode durable admission catch-up failed; waiting for SSE replay");
           }
         });
@@ -911,9 +1013,13 @@ export class OpenCodeServiceLane implements RuntimeLane {
     this.evaluating = true;
     const generation = root.generation;
     try {
-      const response = await this.fetchWithTimeout("/api/session/active", { method: "GET" }, "active session query");
+      const { response, body: responseBody } = await this.fetchJsonWithTimeout(
+        "/api/session/active",
+        { method: "GET" },
+        "active session query",
+      );
       if (!response.ok) throw new OpenCodeHttpError(response.status, "active session query");
-      const body = record(await response.json());
+      const body = record(responseBody);
       const active = record(body?.data);
       if (!active) throw new OpenCodeProtocolError("OpenCode active session query returned invalid data");
       if (!this.barrierStillCurrent(root, identity, generation)) return;
@@ -1022,6 +1128,40 @@ export class OpenCodeServiceLane implements RuntimeLane {
         headers: this.headers(init.headers),
         signal: controller.signal,
       });
+    } catch (error) {
+      throw error instanceof Error ? error : new Error(`OpenCode ${operation} request failed`);
+    } finally {
+      clearTimeout(timer);
+      this.requestControllers.delete(controller);
+    }
+  }
+
+  private async fetchJsonWithTimeout(
+    path: string,
+    init: RequestInit,
+    operation: string,
+    timeoutMs = this.options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
+  ): Promise<{ response: Response; body: unknown }> {
+    if (this.stopping) throw new OpenCodeStoppedError("OpenCode service lane is stopping");
+    const controller = new AbortController();
+    this.requestControllers.add(controller);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    timer.unref?.();
+    try {
+      const response = await this.fetchFn(`${this.baseUrl}${path}`, {
+        ...init,
+        headers: this.headers(init.headers),
+        signal: controller.signal,
+      });
+      if (!response.ok) return { response, body: undefined };
+      try {
+        return { response, body: await response.json() };
+      } catch {
+        if (controller.signal.aborted) {
+          throw new Error(`OpenCode ${operation} response timed out`);
+        }
+        throw new OpenCodeProtocolError(`OpenCode ${operation} returned invalid JSON`);
+      }
     } catch (error) {
       throw error instanceof Error ? error : new Error(`OpenCode ${operation} request failed`);
     } finally {

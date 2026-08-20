@@ -62,19 +62,24 @@ class FakeOpenCodeService {
   readonly durableEvents: Record<string, unknown>[] = [];
   readonly pendingPromptResponses: PendingResponse[] = [];
   readonly pendingActiveResponses: PendingResponse[] = [];
+  readonly pendingHistoryResponses: PendingResponse[] = [];
   readonly durableClients = new Set<ServerResponse>();
   readonly liveClients = new Set<ServerResponse>();
   readonly heldDurableClients: ServerResponse[] = [];
+  readonly stalledJsonResponses = new Set<ServerResponse>();
+  readonly stallJsonBodies = new Set<"health" | "history" | "prompt" | "active">();
   readonly pendingPermissions: Record<string, unknown>[] = [];
   readonly existingSessions = new Set<string>();
   active = false;
   holdPromptResponses = false;
   holdActiveResponses = false;
+  holdHistoryResponses = false;
   holdDurableConnections = false;
   malformedPromptReceipt = false;
   malformedActiveResponse = false;
   createCount = 0;
   interruptCount = 0;
+  activeCount = 0;
   private seq = 0;
   private eventId = 0;
   private server: Server;
@@ -98,7 +103,12 @@ class FakeOpenCodeService {
 
   close(signal = "SIGTERM"): void {
     if (this.process.exitCode !== null || this.process.signalCode !== null) return;
-    for (const response of [...this.durableClients, ...this.liveClients, ...this.heldDurableClients]) response.destroy();
+    for (const response of [
+      ...this.durableClients,
+      ...this.liveClients,
+      ...this.heldDurableClients,
+      ...this.stalledJsonResponses,
+    ]) response.destroy();
     this.server.close();
     this.process.signalCode = signal;
     this.process.emit("exit", null, signal);
@@ -110,6 +120,10 @@ class FakeOpenCodeService {
 
   releaseActive(): void {
     this.pendingActiveResponses.shift()?.respond();
+  }
+
+  releaseHistory(): void {
+    this.pendingHistoryResponses.shift()?.respond();
   }
 
   releaseDurableConnections(): void {
@@ -128,6 +142,12 @@ class FakeOpenCodeService {
   }
 
   publish(type: string, data: Record<string, unknown>): number {
+    const event = this.appendHistoryOnly(type, data);
+    this.broadcast(this.durableClients, event);
+    return (event.durable as { seq: number }).seq;
+  }
+
+  appendHistoryOnly(type: string, data: Record<string, unknown>): Record<string, unknown> {
     const seq = ++this.seq;
     const event = {
       id: `evt_${++this.eventId}`,
@@ -136,8 +156,7 @@ class FakeOpenCodeService {
       data: { sessionID: this.sessionId, ...data },
     };
     this.durableEvents.push(event);
-    this.broadcast(this.durableClients, event);
-    return seq;
+    return event;
   }
 
   replayDurable(event: Record<string, unknown>): void {
@@ -184,6 +203,15 @@ class FakeOpenCodeService {
     for (const response of clients) response.write(`data: ${JSON.stringify(event)}\n\n`);
   }
 
+  private stallJson(key: "health" | "history" | "prompt" | "active", response: ServerResponse): boolean {
+    if (!this.stallJsonBodies.has(key)) return false;
+    response.writeHead(200, { "content-type": "application/json" });
+    response.flushHeaders();
+    this.stalledJsonResponses.add(response);
+    response.on("close", () => this.stalledJsonResponses.delete(response));
+    return true;
+  }
+
   private authorized(request: IncomingMessage, response: ServerResponse): boolean {
     const header = String(request.headers.authorization ?? "");
     this.authHeaders.push(header);
@@ -198,6 +226,7 @@ class FakeOpenCodeService {
     const url = new URL(request.url ?? "/", `http://127.0.0.1:${this.port}`);
     const path = url.pathname;
     if (request.method === "GET" && path === "/global/health") {
+      if (this.stallJson("health", response)) return;
       json(response, this.healthStatus, { healthy: this.healthStatus === 200, version: this.healthVersion });
       return;
     }
@@ -234,13 +263,18 @@ class FakeOpenCodeService {
       return;
     }
     if (request.method === "GET" && path === `/api/session/${this.sessionId}/history`) {
+      if (this.stallJson("history", response)) return;
       const after = Number(url.searchParams.get("after") ?? 0);
       const limit = Number(url.searchParams.get("limit") ?? 100);
-      const events = this.durableEvents.filter((event) => {
-        const durable = event.durable as { seq: number };
-        return durable.seq > after;
-      });
-      json(response, 200, { data: events.slice(0, limit), hasMore: events.length > limit });
+      const respond = () => {
+        const events = this.durableEvents.filter((event) => {
+          const durable = event.durable as { seq: number };
+          return durable.seq > after;
+        });
+        json(response, 200, { data: events.slice(0, limit), hasMore: events.length > limit });
+      };
+      if (this.holdHistoryResponses) this.pendingHistoryResponses.push({ respond });
+      else respond();
       return;
     }
     if (request.method === "POST" && path === `/api/session/${this.sessionId}/prompt`) {
@@ -250,23 +284,30 @@ class FakeOpenCodeService {
       const delivery = String(body.delivery);
       const admittedSeq = this.publish("session.next.prompt.admitted", { messageID: messageId, delivery, prompt: body.prompt });
       this.active = true;
-      const respond = () => json(response, 200, {
-        data: {
-          admittedSeq,
-          id: this.malformedPromptReceipt ? "msg_wrong" : messageId,
-          sessionID: this.sessionId,
-          prompt: body.prompt,
-          delivery,
-          timeCreated: Date.now(),
-        },
-      });
+      const respond = () => {
+        if (this.stallJson("prompt", response)) return;
+        json(response, 200, {
+          data: {
+            admittedSeq,
+            id: this.malformedPromptReceipt ? "msg_wrong" : messageId,
+            sessionID: this.sessionId,
+            prompt: body.prompt,
+            delivery,
+            timeCreated: Date.now(),
+          },
+        });
+      };
       if (this.holdPromptResponses) this.pendingPromptResponses.push({ respond });
       else respond();
       return;
     }
     if (request.method === "GET" && path === "/api/session/active") {
+      this.activeCount += 1;
       const snapshot = this.active ? { [this.sessionId]: { type: "running" } } : {};
-      const respond = () => json(response, 200, this.malformedActiveResponse ? { data: null } : { data: snapshot });
+      const respond = () => {
+        if (this.stallJson("active", response)) return;
+        json(response, 200, this.malformedActiveResponse ? { data: null } : { data: snapshot });
+      };
       if (this.holdActiveResponses) this.pendingActiveResponses.push({ respond });
       else respond();
       return;
@@ -299,12 +340,22 @@ class FakeOpenCodeFactory implements OpenCodeServiceProcessFactory {
   failPortAttempts = 0;
   healthVersion = "1.17.20";
   healthStatus = 200;
+  holdSpawn = false;
+  readonly stallJsonBodies = new Set<"health" | "history" | "prompt" | "active">();
   readonly existingSessions = new Set<string>();
   service: FakeOpenCodeService | undefined;
   private nextPid = 41000;
+  private releaseSpawnGate?: () => void;
+
+  releaseSpawn(): void {
+    this.releaseSpawnGate?.();
+  }
 
   async spawnService(_ctx: Parameters<OpenCodeServiceProcessFactory["spawnService"]>[0], port: number, password: string) {
     this.spawnCount += 1;
+    if (this.holdSpawn) {
+      await new Promise<void>((resolve) => { this.releaseSpawnGate = resolve; });
+    }
     if (this.failPortAttempts > 0) {
       this.failPortAttempts -= 1;
       throw new Error("listen EADDRINUSE: address already in use");
@@ -323,8 +374,10 @@ class FakeOpenCodeFactory implements OpenCodeServiceProcessFactory {
       }),
     }) as MutableProcess;
     this.service = new FakeOpenCodeService(port, password, process, this.healthVersion, this.healthStatus);
+    for (const key of this.stallJsonBodies) this.service.stallJsonBodies.add(key);
     for (const id of this.existingSessions) this.service.existingSessions.add(id);
     await this.service.listen();
+    killers.set(process.pid, () => this.service?.close());
     return { process };
   }
 }
@@ -332,7 +385,11 @@ class FakeOpenCodeFactory implements OpenCodeServiceProcessFactory {
 const factories: FakeOpenCodeFactory[] = [];
 const killers = new Map<number, () => void>();
 
-function makeLane(factory = new FakeOpenCodeFactory(), startTimeoutMs = 1_000): OpenCodeServiceLane {
+function makeLane(
+  factory = new FakeOpenCodeFactory(),
+  startTimeoutMs = 1_000,
+  requestTimeoutMs = 1_000,
+): OpenCodeServiceLane {
   factories.push(factory);
   const lane = new OpenCodeServiceLane(
     factory,
@@ -344,7 +401,7 @@ function makeLane(factory = new FakeOpenCodeFactory(), startTimeoutMs = 1_000): 
       activePollMs: 5,
       reconnectDelayMs: 5,
       startTimeoutMs,
-      requestTimeoutMs: 1_000,
+      requestTimeoutMs,
     },
   );
   return lane;
@@ -381,6 +438,121 @@ afterEach(() => {
 });
 
 describe("OpenCodeServiceLane authenticated persistent protocol", () => {
+  it("keeps pre-spawn stop pending until the eventual child is killed exactly once", async () => {
+    const factory = new FakeOpenCodeFactory();
+    factory.holdSpawn = true;
+    const lane = makeLane(factory);
+    const starting = lane.start({ text: "root", terminalOwner: "msg_root" });
+    await vi.waitFor(() => expect(factory.spawnCount).toBe(1));
+
+    let stopSettled = false;
+    const stopping = lane.stop({ reason: "pre_spawn_stop", forceAfterMs: 0 })
+      .then(() => { stopSettled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(stopSettled).toBe(false);
+
+    factory.releaseSpawn();
+    await stopping;
+    await expect(starting).rejects.toThrow("stopped during startup");
+    expect(killProcessTree).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds JSON response bodies for health, history, prompt admission, and active barriers", async () => {
+    const healthFactory = new FakeOpenCodeFactory();
+    healthFactory.stallJsonBodies.add("health");
+    const healthLane = makeLane(healthFactory, 60, 20);
+    await expect(healthLane.start({ text: "root", terminalOwner: "msg_health" }))
+      .rejects.toThrow("OpenCode service readiness timed out");
+
+    const historyFactory = new FakeOpenCodeFactory();
+    historyFactory.stallJsonBodies.add("history");
+    const historyLane = makeLane(historyFactory, 1_000, 20);
+    await expect(historyLane.start({ text: "root", terminalOwner: "msg_history" }))
+      .rejects.toThrow("OpenCode session history response timed out");
+
+    const promptLane = makeLane(new FakeOpenCodeFactory(), 1_000, 20);
+    const promptEvents = collectEvents(promptLane);
+    await promptLane.start({ text: "root", terminalOwner: "msg_prompt" });
+    const promptService = factories.at(-1)!.service!;
+    promptService.stallJsonBodies.add("prompt");
+    await expect(promptLane.send({ text: "steer", mode: "busy" }))
+      .rejects.toThrow("OpenCode prompt admission response timed out");
+    expect(promptEvents.errors).toContainEqual(
+      new Error("OpenCode prompt admission did not produce a valid durable receipt"),
+    );
+
+    const activeLane = makeLane(new FakeOpenCodeFactory(), 1_000, 20);
+    const activeEvents = collectEvents(activeLane);
+    await activeLane.start({ text: "root", terminalOwner: "msg_active" });
+    const activeService = factories.at(-1)!.service!;
+    activeService.stallJsonBodies.add("active");
+    activeService.finishSuccess();
+    await vi.waitFor(() => expect(activeService.activeCount).toBeGreaterThanOrEqual(2));
+    expect(activeEvents.runtime.some((event) => event.kind === "turn_end")).toBe(false);
+    await activeLane.stop({ reason: "test", forceAfterMs: 0 });
+  });
+
+  it("turns an activated process error into one killed crash completion", async () => {
+    const lane = makeLane();
+    const { errors, exits } = collectEvents(lane);
+    await lane.start({ text: "root", terminalOwner: "msg_root" });
+    const service = factories.at(-1)!.service!;
+    service.process.emit("error", new Error("EIO"));
+
+    await vi.waitFor(() => expect(killProcessTree).toHaveBeenCalledWith(service.process.pid, { graceMs: 0 }));
+    expect(errors).toContainEqual(new Error("EIO"));
+    expect(exits).toEqual([{ code: null, signal: null, reason: "runtime_exit" }]);
+    service.process.emit("exit", 1, null);
+    expect(exits).toHaveLength(1);
+  });
+
+  it("fails closed on unseen lower history events and sequence identity collisions", async () => {
+    const lane = makeLane();
+    const laneEvents = collectEvents(lane);
+    await lane.start({ text: "root", terminalOwner: "msg_root" });
+    const service = factories.at(-1)!.service!;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    service.holdHistoryResponses = true;
+    service.appendHistoryOnly("session.next.step.ended", {
+      assistantMessageID: "msg_assistant",
+      finish: "stop",
+      cost: 0,
+      tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
+    });
+    const catchingUp = (lane as unknown as { catchUpHistory(project: boolean): Promise<void> })
+      .catchUpHistory(true);
+    await vi.waitFor(() => expect(service.pendingHistoryResponses).toHaveLength(1));
+    service.replayDurable({
+      id: "evt_higher_first",
+      type: "session.next.text.ended",
+      durable: { aggregateID: service.sessionId, seq: 3, version: 1 },
+      data: { sessionID: service.sessionId, assistantMessageID: "msg_assistant", textID: "text_3", text: "done" },
+    });
+    await vi.waitFor(() => expect(laneEvents.runtime).toContainEqual({ kind: "text", text: "done" }));
+    service.releaseHistory();
+    await expect(catchingUp).rejects.toThrow("OpenCode emitted an unseen durable event below the replay cursor");
+    expect(laneEvents.runtime.some((event) => event.kind === "turn_end")).toBe(false);
+    await lane.stop({ reason: "test", forceAfterMs: 0 });
+
+    const collisionLane = makeLane();
+    const collisionEvents = collectEvents(collisionLane);
+    await collisionLane.start({ text: "root", terminalOwner: "msg_collision" });
+    const collisionService = factories.at(-1)!.service!;
+    const first = {
+      id: "evt_seq_owner",
+      type: "session.next.text.ended",
+      durable: { aggregateID: collisionService.sessionId, seq: 2, version: 1 },
+      data: { sessionID: collisionService.sessionId, assistantMessageID: "msg_assistant", textID: "text_2", text: "one" },
+    };
+    collisionService.replayDurable(first);
+    collisionService.replayDurable({ ...first, id: "evt_seq_collision" });
+    await vi.waitFor(() => {
+      expect(collisionEvents.errors).toContainEqual(
+        new Error("OpenCode durable event stream violated the v2 protocol"),
+      );
+    });
+  });
+
   it("does not accept a root until the caller-id admission response arrives", async () => {
     const factory = new FakeOpenCodeFactory();
     const lane = makeLane(factory);
@@ -419,18 +591,6 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
     const service = factory.service!;
     killers.set(service.process.pid, () => service.close());
     service.replayDurable(service.durableEvents[0]!);
-    service.replayDurable({
-      id: "evt_unknown_lower",
-      type: "session.next.step.ended",
-      durable: { aggregateID: service.sessionId, seq: 0, version: 1 },
-      data: {
-        sessionID: service.sessionId,
-        assistantMessageID: "msg_old",
-        finish: "stop",
-        cost: 0,
-        tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
-      },
-    });
 
     for (let turn = 1; turn <= 10; turn += 1) {
       service.emitGlobalIdle();
