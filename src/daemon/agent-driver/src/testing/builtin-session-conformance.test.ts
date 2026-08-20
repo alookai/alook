@@ -14,6 +14,7 @@ import type { AdapterLaunchContext, SpawnedProcessHandle, VendorSessionHandle } 
 import { ClaudeDriver } from "../adapters/claude/index.js";
 import { CodexDriver } from "../adapters/codex/index.js";
 import { CursorDriver } from "../adapters/cursor/index.js";
+import { CursorAcpLane } from "../adapters/cursor/acp-lane.js";
 import { OpenCodeDriver } from "../adapters/opencode/index.js";
 import { PiDriver } from "../adapters/pi/index.js";
 import { ProcessLane } from "../controller/process-host.js";
@@ -134,7 +135,29 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
         const lines = stdinBuffer.split("\n");
         stdinBuffer = lines.pop() ?? "";
         for (const line of lines) {
-          if (line.trim()) stdinMessages.push(JSON.parse(line) as Record<string, unknown>);
+          if (!line.trim()) continue;
+          const message = JSON.parse(line) as Record<string, unknown>;
+          stdinMessages.push(message);
+          if (backend !== "cursor") continue;
+          const respond = (result: unknown) => process.stdout.write(`${JSON.stringify({
+            jsonrpc: "2.0",
+            id: message.id,
+            result,
+          })}\n`);
+          if (message.method === "initialize") {
+            respond({
+              protocolVersion: 1,
+              agentCapabilities: { loadSession: true },
+              authMethods: [{ id: "cursor_login", name: "Cursor Login" }],
+            });
+          } else if (message.method === "authenticate") {
+            respond({});
+          } else if (message.method === "session/load") {
+            const params = message.params as { sessionId?: string } | undefined;
+            respond({ sessionId: params?.sessionId ?? "cursor-resumed", configOptions: [] });
+          } else if (message.method === "session/new") {
+            respond({ sessionId: "cursor-resumed", configOptions: [] });
+          }
         }
       });
       processes.push(process);
@@ -184,7 +207,6 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
           } });
           break;
         case "cursor":
-          write({ type: "system", subtype: "init", session_id: "cursor-resumed" });
           break;
         case "opencode":
           write({ type: "step_start", sessionID: "opencode-resumed" });
@@ -207,7 +229,11 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
           } });
           break;
         case "cursor":
-          write({ type: "result", subtype: "success", session_id: "cursor-resumed" });
+          {
+            const prompts = stdinMessages.filter((message) => message.method === "session/prompt");
+            const prompt = prompts[turn - 1]!;
+            write({ jsonrpc: "2.0", id: prompt.id, result: { stopReason: "end_turn" } });
+          }
           break;
         case "opencode":
           write({ type: "step_finish", sessionID: "opencode-resumed", part: { reason: "stop" } });
@@ -228,9 +254,14 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
             threadId: "codex-resumed", turn: { id: `codex-turn-${turn}`, status: "completed" },
           } });
           break;
-        case "cursor":
+        case "cursor": {
+          const prompts = stdinMessages.filter((message) => message.method === "session/prompt");
+          const prompt = prompts[turn - 1]!;
+          write({ jsonrpc: "2.0", id: prompt.id, result: { stopReason: "end_turn", ...overrides } });
+          break;
+        }
         case "opencode":
-          throw new Error(`${backend} has a process-per-turn lane instead of a persistent terminal fence`);
+          throw new Error("opencode has a process-per-turn lane instead of a persistent terminal fence");
         case "pi":
           throw new Error("pi terminals are owned by prompt promise settlement, not vendor event payloads");
       }
@@ -337,19 +368,32 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
   const interrupted = await session.interrupt({ requestId: "interrupt-1", reason: "conformance" });
   expect(interrupted.status).toBe("accepted");
   harness.completeTurn(1);
-  if (backend === "cursor" || backend === "opencode") harness.processes[0]!.finish();
+  if (backend === "opencode") harness.processes[0]!.finish();
   await settle();
 
-  if (backend === "pi" || backend === "claude" || backend === "codex") {
+  if (backend === "cursor") {
+    await vi.waitFor(() => {
+      expect(harness.stdinMessages.filter((message) => message.method === "session/prompt")).toHaveLength(2);
+    });
+    harness.completeTurn(2);
+    await settle();
+    const reuse = session.send({ id: "reuse", kind: "user", text: "reuse" });
+    expect(await settlePromptAdmission(backend, harness, 3, reuse)).toMatchObject({ status: "accepted" });
+    harness.sessionReady(3);
+    await settle();
+    harness.completeTurn(3);
+  } else if (backend === "pi" || backend === "claude" || backend === "codex") {
     const reuse = session.send({ id: "reuse", kind: "user", text: "reuse" });
     expect(await settlePromptAdmission(backend, harness, 2, reuse)).toMatchObject({ status: "accepted" });
     if (backend === "pi") harness.handles[0]!.isStreaming = true;
   }
-  if (backend !== "codex") harness.sessionReady(2);
-  await settle();
-  harness.completeTurn(2);
-  if (backend === "cursor" || backend === "opencode") harness.processes[1]!.finish();
-  await settle();
+  if (backend !== "cursor") {
+    if (backend !== "codex") harness.sessionReady(2);
+    await settle();
+    harness.completeTurn(2);
+    if (backend === "opencode") harness.processes[1]!.finish();
+    await settle();
+  }
 
   const stopping = session.stop({ reason: "shutdown", forceAfterMs: 25 });
   if (backend === "claude") harness.processes[0]!.finish();
@@ -471,7 +515,9 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
       const harness = installVendorHarness(backend);
       const laneStop = backend === "pi"
         ? vi.spyOn(SdkLane.prototype, "stop")
-        : vi.spyOn(ProcessLane.prototype, "stop");
+        : backend === "cursor"
+          ? vi.spyOn(CursorAcpLane.prototype, "stop")
+          : vi.spyOn(ProcessLane.prototype, "stop");
       laneStop.mockRejectedValueOnce(new Error("dispose rejected at /Users/Alice/private"));
       const host = createFakeAgentDriverHost();
       const sdk = createAgentDriverSdkWithRegistry({ host, registry: createBuiltinAgentDriverRegistry() });
@@ -500,7 +546,9 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
       const harness = installVendorHarness(backend);
       const laneStop = backend === "pi"
         ? vi.spyOn(SdkLane.prototype, "stop")
-        : vi.spyOn(ProcessLane.prototype, "stop");
+        : backend === "cursor"
+          ? vi.spyOn(CursorAcpLane.prototype, "stop")
+          : vi.spyOn(ProcessLane.prototype, "stop");
       laneStop.mockImplementationOnce(() => new Promise<void>(() => {}));
       const host = createFakeAgentDriverHost();
       const sdk = createAgentDriverSdkWithRegistry({ host, registry: createBuiltinAgentDriverRegistry() });
@@ -620,6 +668,88 @@ describe("codex persistent terminal ownership", () => {
     await settle();
     expect(opened.session.snapshot().activeTurn).toBeUndefined();
     expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(2);
+    await opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    await collecting;
+  });
+});
+
+describe("cursor persistent ACP ownership", () => {
+  it("keeps a queued second root off the wire and fences a late first response by JSON-RPC id", async () => {
+    const harness = installVendorHarness("cursor");
+    const host = createFakeAgentDriverHost();
+    const sdk = createAgentDriverSdkWithRegistry({ host, registry: createBuiltinAgentDriverRegistry() });
+    const workingDirectory = mkdtempSync(join(tmpdir(), "agent-driver-terminal-owner-cursor-"));
+    workingDirectories.push(workingDirectory);
+    const opened = await sdk.open({
+      backend: "cursor",
+      config: configs.cursor,
+      launch: {
+        workingDirectory,
+        instructions: { format: "markdown", content: "" },
+        launchId: "terminal-owner-cursor",
+      },
+    });
+    if (!opened.ok) throw new Error(opened.error.message);
+    const events: Array<AgentEvent<BuiltinBackendSpecs, "cursor">> = [];
+    const collecting = (async () => { for await (const event of opened.session.events) events.push(event); })();
+
+    expect(await opened.session.start({ id: "first", kind: "user", text: "same" }))
+      .toMatchObject({ status: "accepted" });
+    expect(harness.stdinMessages.filter((message) => message.method === "session/prompt")).toHaveLength(1);
+    expect(await opened.session.send({ id: "second", kind: "user", text: "same" }))
+      .toEqual({ status: "queued", reason: "runtime_busy", commandId: "second" });
+    expect(harness.stdinMessages.filter((message) => message.method === "session/prompt")).toHaveLength(1);
+
+    harness.completeTurn(1);
+    await vi.waitFor(() => {
+      expect(harness.stdinMessages.filter((message) => message.method === "session/prompt")).toHaveLength(2);
+    });
+    const secondTurnId = opened.session.snapshot().activeTurn?.turnId;
+    harness.duplicateTurn(1);
+    await settle();
+    expect(opened.session.snapshot().activeTurn?.turnId).toBe(secondTurnId);
+    expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(1);
+
+    harness.completeTurn(2);
+    await vi.waitFor(() => expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(2));
+    expect(harness.processes).toHaveLength(1);
+    await opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    await collecting;
+  });
+
+  it("keeps ten sequential public root turns on one process and one ACP session", async () => {
+    const harness = installVendorHarness("cursor");
+    const host = createFakeAgentDriverHost();
+    const sdk = createAgentDriverSdkWithRegistry({ host, registry: createBuiltinAgentDriverRegistry() });
+    const workingDirectory = mkdtempSync(join(tmpdir(), "agent-driver-ten-turn-cursor-"));
+    workingDirectories.push(workingDirectory);
+    const opened = await sdk.open({
+      backend: "cursor",
+      config: configs.cursor,
+      launch: {
+        workingDirectory,
+        instructions: { format: "markdown", content: "" },
+        launchId: "ten-turn-cursor",
+      },
+    });
+    if (!opened.ok) throw new Error(opened.error.message);
+    const events: Array<AgentEvent<BuiltinBackendSpecs, "cursor">> = [];
+    const collecting = (async () => { for await (const event of opened.session.events) events.push(event); })();
+
+    for (let turn = 1; turn <= 10; turn += 1) {
+      const receipt = turn === 1
+        ? await opened.session.start({ id: `cursor-${turn}`, kind: "user", text: "same" })
+        : await opened.session.send({ id: `cursor-${turn}`, kind: "user", text: "same" });
+      expect(receipt.status).toBe("accepted");
+      harness.completeTurn(turn);
+      await vi.waitFor(() => {
+        expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(turn);
+      });
+    }
+    expect(harness.processes).toHaveLength(1);
+    expect(harness.contexts).toHaveLength(1);
+    expect(harness.stdinMessages.filter((message) => message.method === "session/new")).toHaveLength(1);
+    expect(harness.stdinMessages.filter((message) => message.method === "session/prompt")).toHaveLength(10);
     await opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
     await collecting;
   });

@@ -90,8 +90,8 @@ export type FixedCapabilities<
 
 export type ClaudeCapabilities = FixedCapabilities<true, true, true, true, true, "safe_boundary_queue", "persistent">;
 export type CodexCapabilities = FixedCapabilities<false, true, true, false, true, "safe_boundary_queue", "persistent">;
-export type CursorCapabilities = FixedCapabilities<false, false, false, false, true, "next_turn_queue", "per_turn">;
-export type OpenCodeCapabilities = CursorCapabilities;
+export type CursorCapabilities = FixedCapabilities<false, false, false, false, true, "next_turn_queue", "persistent">;
+export type OpenCodeCapabilities = FixedCapabilities<false, false, false, false, true, "next_turn_queue", "per_turn">;
 export type PiCapabilities = FixedCapabilities<true, true, false, false, false, "steer", "persistent">;
 
 export interface BackendExtensionSpec<Input, Output> {

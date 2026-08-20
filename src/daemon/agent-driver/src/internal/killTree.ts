@@ -42,13 +42,9 @@ interface AgentSpawnOptions {
   /** Run through a shell — needed on Windows for `.cmd`/`.bat` shims. */
   shell?: boolean;
   /**
-   * stdin disposition. Default `"pipe"` — codex/claude/pi write to stdin
-   * (initial prompt, `turn/steer`), so they need it. A per-turn driver that
-   * never writes stdin (cursor: prompt is a positional arg, `encodeMessage`
-   * returns null) must use `"ignore"`: cursor-agent BLOCKS waiting on a piped
-   * stdin even though the prompt is already supplied, emitting nothing →
-   * handshake_timeout. `"ignore"` lets it detect there's no interactive input
-   * and run. stdout/stderr stay piped regardless (we always read stream-json).
+   * stdin disposition. Default `"pipe"` for persistent stdio transports. A
+   * one-shot adapter that proves it never reads stdin may opt into `"ignore"`.
+   * stdout/stderr stay piped regardless for protocol output and diagnostics.
    */
   stdin?: "pipe" | "ignore";
 }
@@ -64,9 +60,8 @@ interface AgentSpawnOptions {
 export function spawnAgentProcess(command: string, args: string[], opts: AgentSpawnOptions): ChildProcess {
   return spawn(command, args, {
     cwd: opts.cwd,
-    // stdout/stderr always piped (we read the runtime's stream-json/JSON-RPC);
-    // stdin defaults to pipe (writers: codex/claude/pi) but a no-stdin driver
-    // (cursor) opts into "ignore" — see AgentSpawnOptions.stdin.
+    // stdout/stderr always piped (we read stream-json/JSON-RPC); stdin defaults
+    // to pipe for persistent transports. See AgentSpawnOptions.stdin.
     stdio: [opts.stdin ?? "pipe", "pipe", "pipe"],
     env: opts.env,
     shell: opts.shell ?? false,

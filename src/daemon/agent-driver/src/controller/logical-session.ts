@@ -88,6 +88,12 @@ function driverError(
   return { category, code, message: scrubDriverErrorMessage(message), retryable };
 }
 
+class StructuredLaneAdmissionError extends Error {
+  constructor(readonly code: "reset_required" | "incompatible_configuration", message: string) {
+    super(message);
+  }
+}
+
 function jsonValue(value: unknown): JsonValue {
   if (value === undefined) return null;
   try {
@@ -417,7 +423,9 @@ implements AgentSession<Specs, Id> {
       if (!this.isStartCurrent(generation, turnId) || admission.finalized) {
         return admission.accepted ? acceptedReceipt : { status: "rejected", reason: "closed" };
       }
-      const failure = driverError("process", "failed_to_start", String(error), true);
+      const failure = error instanceof StructuredLaneAdmissionError
+        ? driverError("configuration", error.code, error.message, false)
+        : driverError("process", "failed_to_start", String(error), true);
       this.failTurnAdmissionWithError(failure);
       this.activeTurn = undefined;
       const failedLane = this.lane;
@@ -482,7 +490,12 @@ implements AgentSession<Specs, Id> {
       sessionId: ctx.config.sessionId,
       terminalOwner: this.activeTurn?.terminalOwner,
     });
-    if (!admission.ok) throw new Error(admission.error ?? admission.reason);
+    if (!admission.ok) {
+      if (admission.reason === "reset_required" || admission.reason === "incompatible_configuration") {
+        throw new StructuredLaneAdmissionError(admission.reason, admission.error ?? admission.reason);
+      }
+      throw new Error(admission.error ?? admission.reason);
+    }
     if (!this.isOpenCurrent(generation)) {
       await this.stopLaneInstanceBounded(lane, "stale_open", this.hostReleaseTimeoutMs);
       if (this.lane === lane) this.lane = null;

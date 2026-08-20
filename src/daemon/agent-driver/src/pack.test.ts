@@ -95,9 +95,36 @@ void { result, observedText };
     await execFileAsync(process.execPath, [tsc, "-p", join(root, "tsconfig.json")], { cwd: root });
 
     writeFileSync(join(root, "fake-cursor.mjs"), `
-console.log(JSON.stringify({ type: "system", subtype: "init", session_id: "packed-session" }));
-console.log(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "packed-ok" }] } }));
-console.log(JSON.stringify({ type: "result", subtype: "success", session_id: "packed-session" }));
+import { createInterface } from "node:readline";
+const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
+for await (const line of createInterface({ input: process.stdin })) {
+  const message = JSON.parse(line);
+  if (message.method === "initialize") {
+    send({
+      jsonrpc: "2.0",
+      id: message.id,
+      result: {
+        protocolVersion: 1,
+        agentCapabilities: { loadSession: true },
+        authMethods: [{ id: "cursor_login", name: "Cursor Login" }],
+      },
+    });
+  } else if (message.method === "authenticate") {
+    send({ jsonrpc: "2.0", id: message.id, result: {} });
+  } else if (message.method === "session/new") {
+    send({ jsonrpc: "2.0", id: message.id, result: { sessionId: "packed-session", configOptions: [] } });
+  } else if (message.method === "session/prompt") {
+    send({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: "packed-session",
+        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "packed-ok" } },
+      },
+    });
+    send({ jsonrpc: "2.0", id: message.id, result: { stopReason: "end_turn" } });
+  }
+}
 `);
     const executable = process.platform === "win32"
       ? join(root, "fake-cursor.cmd")

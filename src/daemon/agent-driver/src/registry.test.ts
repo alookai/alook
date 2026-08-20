@@ -13,7 +13,7 @@ import type { BackendCapabilities, BuiltinBackendId } from "./contract.js";
 const EXPECTED: Record<BuiltinBackendId, BackendCapabilities> = {
   claude: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: true, disallowedTools: true, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true },
   codex: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: true, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true },
-  cursor: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "per_turn", midTurnDelivery: "next_turn_queue", interrupt: true },
+  cursor: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "next_turn_queue", interrupt: true },
   opencode: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "per_turn", midTurnDelivery: "next_turn_queue", interrupt: true },
   pi: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: false, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
 };
@@ -39,10 +39,10 @@ describe("driver.capabilities", () => {
         terminalOwnership: "transport_request",
       },
       cursor: {
-        lifetime: "turn",
-        transport: { kind: "one_shot_cli", protocol: "cursor.print.stream-json.v1" },
+        lifetime: "session",
+        transport: { kind: "stdio_rpc", protocol: "cursor.acp.v1" },
         wakeStart: "immediate",
-        terminalOwnership: "lane_generation",
+        terminalOwnership: "transport_request",
       },
       opencode: {
         lifetime: "turn",

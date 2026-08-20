@@ -98,12 +98,18 @@ Pi declares `execution.kind: "in_process_sdk"` and
 `midTurnDelivery: "steer"`. Its lane delegates prompt, steer, abort, and dispose
 to the SDK while preserving the same receipts, events, and terminal contract.
 
-### Per-turn runtimes (Cursor and OpenCode)
+### Persistent queued runtime (Cursor)
 
-Each command gets a new child process and later commands queue for the next turn.
-The adapter declaration is the source of truth: Cursor starts immediately and
-exits naturally; OpenCode declares `start: "deferred"` and
-`afterTurn: "terminate"`, so a bookkeeping-only system wake does not spawn it.
+Cursor keeps one `cursor-agent acp` process and ACP session for the logical
+session. Each idle command is a `session/prompt` request; while one is active,
+later commands remain in the logical next-turn FIFO until its correlated
+response arrives. Interrupt sends `session/cancel` without killing the process.
+
+### Per-turn runtime (OpenCode)
+
+Each command gets a new child process and later commands queue for the next
+turn. OpenCode starts on the first real prompt rather than a bookkeeping-only
+system wake, then exits after the turn.
 
 ---
 
@@ -114,7 +120,7 @@ exits naturally; OpenCode declares `start: "deferred"` and
 | **claude** | turn-scoped process with session resume | stream-json NDJSON | `safe_boundary_queue` | stdin user-message line | stream-json |
 | **codex** | persistent process | JSON-RPC 2.0 (`app-server --listen stdio://`) | `safe_boundary_queue` | `initialize` → `thread/start`/`resume` | JSON-RPC notifications |
 | **pi** | in-process SDK | `@earendil-works/pi-coding-agent` | `steer` | `session.prompt()` | SDK callback |
-| **cursor** | per-turn process | stream-json | next-turn queue | trailing prompt argument | stream-json |
+| **cursor** | persistent process/session | ACP JSON-RPC 2.0 (`cursor-agent acp`) | next-turn queue | `session/prompt` | `session/update` + correlated prompt response |
 | **opencode** | deferred per-turn process | JSON | next-turn queue | `-- <prompt>` | JSON events |
 
 (Exact launch flags live in `agent-driver/src/adapters/<backend>/`.)

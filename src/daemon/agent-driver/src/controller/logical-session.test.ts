@@ -152,12 +152,20 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 }
 
 function executionFor(backend: BuiltinBackendId): BackendExecution {
-  if (backend === "cursor" || backend === "opencode") {
+  if (backend === "opencode") {
     return {
       lifetime: "turn",
-      transport: { kind: "one_shot_cli", protocol: `${backend}.test.v1` },
-      wakeStart: backend === "opencode" ? "deferred" : "immediate",
+      transport: { kind: "one_shot_cli", protocol: "opencode.test.v1" },
+      wakeStart: "deferred",
       terminalOwnership: "lane_generation",
+    };
+  }
+  if (backend === "cursor") {
+    return {
+      lifetime: "session",
+      transport: { kind: "stdio_rpc", protocol: "cursor.test.v1" },
+      wakeStart: "immediate",
+      terminalOwnership: "transport_request",
     };
   }
   return backend === "pi"
@@ -309,6 +317,30 @@ describe("runtime-lane admission state machine", () => {
     expect(lane.stop).toHaveBeenCalledOnce();
     expect(host.releases).toHaveLength(1);
   });
+
+  it.each(["reset_required", "incompatible_configuration"] as const)(
+    "preserves structured %s admission failures for reset and configuration UX",
+    async (reason) => {
+      const lane = new ControlledRuntimeLane();
+      lane.startAdmission = { ok: false, reason, error: `Cursor ACP ${reason}` };
+      const { session } = makeSession("cursor", { lane });
+      const iterator = session.events[Symbol.asyncIterator]();
+
+      await expect(session.start({ id: "one", kind: "user", text: "start" })).resolves.toMatchObject({
+        status: "rejected",
+        reason: "runtime_unavailable",
+        error: { category: "configuration", code: reason, retryable: false },
+      });
+      await expect(session.closed).resolves.toMatchObject({
+        outcome: "failed_to_start",
+        error: { category: "configuration", code: reason, retryable: false },
+      });
+      const events = await take(iterator as never, 99);
+      expect(events.find((event) => event.type === "command_failed")).toMatchObject({
+        error: { category: "configuration", code: reason, retryable: false },
+      });
+    },
+  );
 
   it("fails a silent authoritative admission without publishing acceptance and stops its process", async () => {
     vi.useFakeTimers();
@@ -981,7 +1013,8 @@ describe("backend-owned delivery behavior", () => {
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
-  it.each(["cursor", "opencode"] as const)("%s queues for a new physical turn and never creates two lanes concurrently", async (backend) => {
+  it("opencode queues for a new physical turn and never creates two lanes concurrently", async () => {
+    const backend = "opencode" as const;
     const { session, driver } = makeSession(backend);
     if (backend === "opencode") {
       expect(await session.start({ id: "system", kind: "system", text: "standing" })).toEqual({ status: "queued", reason: "waiting_for_message", commandId: "system" });

@@ -61,20 +61,15 @@ describe("builtin adapter protocol conformance", () => {
     expect(JSON.stringify(events)).not.toContain("must not leak");
   });
 
-  it("runs the real Cursor adapter through the shared normalized-event contract", () => {
-    runAgentBackendAdapterConformance(registry.get("cursor"), {
-      exercise(adapter) {
-        return [
-          ...adapter.normalizeLine(line({ type: "system", subtype: "init", session_id: "cursor-root" })),
-          ...adapter.normalizeLine(line({ type: "assistant", message: { content: [
-            { type: "thinking", thinking: "plan" },
-            { type: "tool_use", name: "Read", input: {} },
-          ] } })),
-          ...adapter.normalizeLine(line({ type: "result", subtype: "success", session_id: "cursor-root" })),
-        ];
-      },
-      expectedEventKinds: ["session_init", "thinking", "tool_call", "turn_end"],
+  it("declares the real Cursor adapter as a lane-owned persistent ACP transport", () => {
+    const adapter = registry.get("cursor").createAdapter();
+    expect(adapter.execution).toEqual({
+      lifetime: "session",
+      transport: { kind: "stdio_rpc", protocol: "cursor.acp.v1" },
+      wakeStart: "immediate",
+      terminalOwnership: "transport_request",
     });
+    expect("normalizeLine" in adapter).toBe(false);
   });
 
   it("runs the real OpenCode adapter through the shared normalized-event contract", () => {

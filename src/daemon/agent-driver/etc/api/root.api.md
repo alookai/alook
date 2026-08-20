@@ -435,7 +435,7 @@ export type CoreAgentEventPayload = {
 export function createAgentDriverSdk(options?: PublicAgentDriverSdkOptions): AgentDriverSdk<BuiltinBackendSpecs>;
 
 // @public (undocumented)
-export type CursorCapabilities = FixedCapabilities<false, false, false, false, true, "next_turn_queue", "per_turn">;
+export type CursorCapabilities = FixedCapabilities<false, false, false, false, true, "next_turn_queue", "persistent">;
 
 // @public (undocumented)
 export type CursorConfig = ModelBackendConfig;
@@ -560,7 +560,7 @@ export type ModelSelection = {
 };
 
 // @public (undocumented)
-export type OpenCodeCapabilities = CursorCapabilities;
+export type OpenCodeCapabilities = FixedCapabilities<false, false, false, false, true, "next_turn_queue", "per_turn">;
 
 // @public (undocumented)
 export type OpenCodeConfig = ModelBackendConfig;
