@@ -1460,13 +1460,68 @@ describe("logical-session terminal facts", () => {
   it("bounds a hung SDK dispose and still settles closed", async () => {
     vi.useFakeTimers();
     try {
-      const { session, driver } = makeSession("pi");
+      const { session, driver, host } = makeSession("pi");
       driver.hangDispose = true;
       await session.start({ id: "one", kind: "user", text: "start" });
       const stopped = session.stop({ reason: "owner_request", forceAfterMs: 25 });
-      await vi.advanceTimersByTimeAsync(30);
+      await vi.advanceTimersByTimeAsync(130);
       expect(await stopped).toMatchObject({ status: "accepted" });
       expect(await session.closed).toMatchObject({ outcome: "forced" });
+      expect(host.releases).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not close or release after the outer stop deadline until hard teardown settles", async () => {
+    vi.useFakeTimers();
+    try {
+      const lane = new ControlledRuntimeLane();
+      const gate = deferred();
+      lane.stop.mockImplementation(() => gate.promise);
+      const { session, host } = makeSession("claude", { lane, timeout: 50 });
+      await session.start({ id: "one", kind: "user", text: "start" });
+      let closed = false;
+      void session.closed.then(() => { closed = true; });
+
+      const stopped = session.stop({ reason: "owner_request", forceAfterMs: 10 });
+      await vi.advanceTimersByTimeAsync(11);
+      expect(closed).toBe(false);
+      expect(host.releases).toHaveLength(0);
+
+      gate.resolve();
+      await expect(stopped).resolves.toMatchObject({ status: "accepted" });
+      await expect(session.closed).resolves.toMatchObject({ outcome: "forced" });
+      expect(host.releases).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("surfaces a hard teardown rejection that arrives after the outer stop deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const lane = new ControlledRuntimeLane();
+      let rejectStop!: (error: Error) => void;
+      const laneStop = new Promise<void>((_resolve, reject) => { rejectStop = reject; });
+      lane.stop.mockImplementation(() => laneStop);
+      const { session, host } = makeSession("claude", { lane, timeout: 50 });
+      await session.start({ id: "one", kind: "user", text: "start" });
+      let closed = false;
+      void session.closed.then(() => { closed = true; });
+
+      const stopped = session.stop({ reason: "owner_request", forceAfterMs: 10 });
+      await vi.advanceTimersByTimeAsync(11);
+      expect(closed).toBe(false);
+      expect(host.releases).toHaveLength(0);
+
+      rejectStop(new Error("tree kill denied"));
+      await expect(stopped).resolves.toMatchObject({ status: "failed", error: { code: "stop_failed" } });
+      await expect(session.closed).resolves.toMatchObject({
+        outcome: "forced",
+        error: { code: "stop_failed" },
+      });
+      expect(host.releases).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }
@@ -1512,6 +1567,19 @@ describe("logical-session terminal facts", () => {
     driver.failSpawn = new Error("spawn failed");
     expect(await session.start({ id: "one", kind: "user", text: "start" })).toMatchObject({ status: "rejected", reason: "runtime_unavailable" });
     expect(await session.closed).toMatchObject({ outcome: "failed_to_start", cleanup: { status: "released" } });
+    expect(host.releases).toHaveLength(1);
+  });
+
+  it("settles closed and releases resources when lane stop throws", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.stop.mockImplementation(() => { throw new Error("stop threw"); });
+    const { session, host } = makeSession("claude", { lane });
+    await session.start({ id: "one", kind: "user", text: "start" });
+    await expect(session.stop({ reason: "owner_request", forceAfterMs: 25 })).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "stop_failed" },
+    });
+    await expect(session.closed).resolves.toMatchObject({ outcome: "forced", error: { code: "stop_failed" } });
     expect(host.releases).toHaveLength(1);
   });
 

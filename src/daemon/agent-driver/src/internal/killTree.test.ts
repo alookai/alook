@@ -124,14 +124,20 @@ describe("killProcessTree", () => {
     tempDirs.push(cwd);
     const childModule = join(cwd, "child.mjs");
     const parentModule = join(cwd, "parent.mjs");
-    writeFileSync(childModule, "setInterval(() => {}, 1000);\n");
+    // The root exits on SIGTERM while this descendant deliberately survives it.
+    // killProcessTree must keep the detached process group as its authority and
+    // escalate before reporting that the tree has stopped.
+    writeFileSync(
+      childModule,
+      "process.on('SIGTERM', () => {}); process.stdout.write('ready\\n'); setInterval(() => {}, 1000);\n",
+    );
     writeFileSync(parentModule, `
       import { spawn } from "node:child_process";
       const child = spawn(process.execPath, [${JSON.stringify(childModule)}], {
         cwd: process.cwd(),
-        stdio: "ignore",
+        stdio: ["ignore", "pipe", "ignore"],
       });
-      child.once("spawn", () => process.stdout.write(String(child.pid) + "\\n"));
+      child.stdout.once("data", () => process.stdout.write(String(child.pid) + "\\n"));
       setInterval(() => {}, 1000);
     `);
     const command = process.platform === "win32" ? join(cwd, "runtime.cmd") : process.execPath;
@@ -159,7 +165,7 @@ describe("killProcessTree", () => {
     expect(isAlive(proc.pid!)).toBe(true);
     expect(isAlive(childPid)).toBe(true);
 
-    await killProcessTree(proc.pid!, { graceMs: 0 });
+    await killProcessTree(proc.pid!, { graceMs: 300 });
 
     expect(isAlive(proc.pid!)).toBe(false);
     expect(isAlive(childPid)).toBe(false);

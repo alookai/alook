@@ -239,21 +239,9 @@ implements AgentSession<Specs, Id> {
     let forced = false;
     let stopFailure: AgentDriverError | undefined;
     if (this.lane) {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        const timeout = new Promise<"forced">((resolve) => {
-          timer = setTimeout(() => resolve("forced"), input.forceAfterMs);
-          timer.unref?.();
-        });
-          const stopped = this.stopLane(input.reason, input.forceAfterMs)
-          .then(() => "stopped" as const);
-        stopped.catch(() => {});
-        forced = (await Promise.race([stopped, timeout])) === "forced";
-      } catch (error) {
-        stopFailure = driverError("process", "stop_failed", String(error), true);
-      } finally {
-        if (timer) clearTimeout(timer);
-      }
+      const settlement = await this.settleLaneStop(input.reason, input.forceAfterMs);
+      forced = settlement.forced;
+      stopFailure = settlement.failure;
     }
     if (stopFailure) {
       const error = stopFailure;
@@ -1291,6 +1279,51 @@ implements AgentSession<Specs, Id> {
   private stopLane(reason: string, forceAfterMs: number): Promise<unknown> {
     if (!this.lane) return Promise.resolve();
     return this.lane.stop({ reason, forceAfterMs });
+  }
+
+  /**
+   * Own physical stop settlement across two bounded windows.
+   *
+   * `forceAfterMs` decides whether the public result is forced, but it is not
+   * permission to release host resources while the lane's already-started hard
+   * teardown is still settling. After that outer deadline, wait one separate
+   * host-owned cleanup window so a tree-kill success/rejection remains visible.
+   * A truly hung SDK lane is still bounded by the second window.
+   */
+  private async settleLaneStop(
+    reason: string,
+    forceAfterMs: number,
+  ): Promise<{ forced: boolean; failure?: AgentDriverError }> {
+    type StopSettlement = { kind: "stopped" } | { kind: "failed"; error: unknown };
+    const stopped: Promise<StopSettlement> = Promise.resolve()
+      .then(() => this.stopLane(reason, forceAfterMs))
+      .then(
+        () => ({ kind: "stopped" }),
+        (error: unknown) => ({ kind: "failed", error }),
+      );
+    let outerTimer: ReturnType<typeof setTimeout> | undefined;
+    const outerDeadline = new Promise<{ kind: "outer_deadline" }>((resolve) => {
+      outerTimer = setTimeout(() => resolve({ kind: "outer_deadline" }), forceAfterMs);
+      outerTimer.unref?.();
+    });
+    const first = await Promise.race([stopped, outerDeadline]);
+    if (outerTimer) clearTimeout(outerTimer);
+    if (first.kind === "stopped") return { forced: false };
+    if (first.kind === "failed") {
+      return { forced: false, failure: driverError("process", "stop_failed", String(first.error), true) };
+    }
+
+    let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+    const cleanupDeadline = new Promise<{ kind: "cleanup_deadline" }>((resolve) => {
+      cleanupTimer = setTimeout(() => resolve({ kind: "cleanup_deadline" }), this.hostReleaseTimeoutMs);
+      cleanupTimer.unref?.();
+    });
+    const final = await Promise.race([stopped, cleanupDeadline]);
+    if (cleanupTimer) clearTimeout(cleanupTimer);
+    if (final.kind === "failed") {
+      return { forced: true, failure: driverError("process", "stop_failed", String(final.error), true) };
+    }
+    return { forced: true };
   }
 
   private enterStopping(): string {
