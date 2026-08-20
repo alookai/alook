@@ -81,6 +81,8 @@ async function authenticateAs(context: BrowserContext, email: string): Promise<v
 // ResizeObserver on the message scroll container, all on the browser clock.
 const INPAGE_SETUP = `
 (() => {
+  if (window.__PERF_RESOURCE_OBSERVER__) window.__PERF_RESOURCE_OBSERVER__.disconnect();
+  if (window.__PERF_LAYOUT_OBSERVER__) window.__PERF_LAYOUT_OBSERVER__.disconnect();
   window.__PERF_RESOURCES__ = [];
   window.__PERF_SHIFTS__ = [];
   window.__PERF_RESIZES__ = [];
@@ -91,6 +93,7 @@ const INPAGE_SETUP = `
       }
     }
   });
+  window.__PERF_RESOURCE_OBSERVER__ = ro;
   ro.observe({ type: 'resource', buffered: true });
   const lo = new PerformanceObserver((list) => {
     for (const e of list.getEntries()) {
@@ -99,6 +102,7 @@ const INPAGE_SETUP = `
       window.__PERF_SHIFTS__.push({ ts: e.startTime, value: e.value, hadRecentInput: e.hadRecentInput });
     }
   });
+  window.__PERF_LAYOUT_OBSERVER__ = lo;
   try { lo.observe({ type: 'layout-shift', buffered: true }); } catch (_) {}
   // Attach a ResizeObserver to the message scroll container. The container is
   // persistent, but on a cold switch it may be re-created (React swaps the
@@ -246,7 +250,10 @@ test("community switch perceived-latency capture", async ({ browser }) => {
       window.__PERF_ATTACH_RESIZE__?.()
     })
     const markName = `alook:switch:${kind}:${targetId}`
-    const t0 = await page.evaluate(() => performance.now())
+    const t0 = await page.evaluate(() => {
+      window.__ALOOK_PERF__ = []
+      return performance.now()
+    })
 
     await navigate()
 
