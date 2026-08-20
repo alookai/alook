@@ -409,7 +409,9 @@ export function spawnAgentProcess(command: string, args: string[], opts: AgentSp
           stdinProxy.pipe(socket);
         })
       : undefined;
-    stdinProxy?.once("close", () => stdinSocket?.destroy());
+    stdinProxy?.once("close", () => {
+      if (!stdinProxy.writableFinished) stdinSocket?.destroy();
+    });
     stdinServer?.once("error", () => stdinProxy?.destroy());
     if (stdinPipe) stdinServer?.listen(stdinPipe);
     const env: NodeJS.ProcessEnv = {
