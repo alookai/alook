@@ -136,6 +136,7 @@ export class CursorAcpLane implements RuntimeLane {
   private spawnPromise?: Promise<SpawnedProcess>;
   private stopPromise?: Promise<void>;
   private suppressExit = false;
+  private processTerminal = false;
 
   constructor(
     private readonly factory: CursorAcpProcessFactory,
@@ -455,12 +456,33 @@ export class CursorAcpLane implements RuntimeLane {
       if (text) this.events.emit("stderr", text);
     });
     proc.on("error", (error) => {
-      this.rejectAllPending(error instanceof Error ? error : new Error(String(error)));
-      this.events.emit("error", error);
-    });
-    proc.on("exit", (code, signal) => {
+      if (this.process !== proc || this.processTerminal) return;
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      this.rejectAllPending(normalized);
+      if (!this.ready) {
+        this.events.emit("error", normalized);
+        return;
+      }
+      this.processTerminal = true;
       this.ready = false;
       this.activePrompt = null;
+      this.openToolCalls.clear();
+      this.stopPromise ??= this.stopPhysicalOnce({ reason: "runtime_error", forceAfterMs: 0 });
+      void this.stopPromise.catch(() => {});
+      this.events.emit("error", normalized);
+      if (this.suppressExit) return;
+      this.events.emit("exit", {
+        code: null,
+        signal: null,
+        reason: "runtime_exit",
+      });
+    });
+    proc.on("exit", (code, signal) => {
+      if (this.processTerminal || this.process !== proc) return;
+      this.processTerminal = true;
+      this.ready = false;
+      this.activePrompt = null;
+      this.openToolCalls.clear();
       this.rejectAllPending(new Error("Cursor ACP process exited"));
       if (this.suppressExit) return;
       this.events.emit("exit", {

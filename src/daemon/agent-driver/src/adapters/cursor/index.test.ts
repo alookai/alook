@@ -15,6 +15,7 @@ type FakeProcess = SpawnedProcessHandle & {
   stdout: PassThrough;
   stderr: PassThrough;
   stdin: PassThrough;
+  emit(event: string, ...args: unknown[]): boolean;
   finish(code?: number | null, signal?: NodeJS.Signals | null): void;
 };
 
@@ -662,6 +663,43 @@ describe("CursorDriver persistent ACP transport", () => {
     await opened.session.stop({ reason: "shutdown", forceAfterMs: 0 });
   });
 
+  it("closes an active public session on process error without exit and deduplicates a later exit", async () => {
+    installServer();
+    const host = createFakeAgentDriverHost();
+    const workingDirectory = mkdtempSync(join(tmpdir(), "cursor-acp-public-error-test-"));
+    temporaryDirectories.push(workingDirectory);
+    const opened = await createAgentDriverSdk({ host }).open({
+      backend: "cursor",
+      config: { model: { kind: "default" } },
+      launch: {
+        workingDirectory,
+        instructions: { format: "markdown", content: "" },
+        launchId: "cursor-acp-public-error-only",
+      },
+    });
+    if (!opened.ok) throw new Error(opened.error.message);
+    await expect(opened.session.start({ id: "one", kind: "user", text: "public" }))
+      .resolves.toMatchObject({ status: "accepted" });
+    const process = spawned[0]!;
+
+    process.emit("error", new Error("EIO"));
+    process.emit("error", new Error("duplicate"));
+
+    await expect(opened.session.closed).resolves.toMatchObject({
+      outcome: "crashed",
+      exitCode: null,
+      signal: null,
+    });
+    expect(process.kill).toHaveBeenCalledOnce();
+    expect(host.releases).toHaveLength(1);
+
+    process.finish(17, null);
+    process.emit("error", new Error("late"));
+    await settle();
+    expect(process.kill).toHaveBeenCalledOnce();
+    expect(host.releases).toHaveLength(1);
+  });
+
   it("projects same-session updates, scrubs unknown updates, and ignores cross-session content", async () => {
     const server = installServer();
     const lane = await new CursorDriver().openLane(baseCtx());
@@ -700,6 +738,92 @@ describe("CursorDriver persistent ACP transport", () => {
     expect(events).toContainEqual({ kind: "tool_output", name: "Read" });
     expect(JSON.stringify(events)).not.toContain("secret=value");
     expect(JSON.stringify(events)).not.toContain("must-not-project");
+  });
+
+  it("turns an activated process error into one killed crash exit", async () => {
+    installServer();
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const errors: Error[] = [];
+    const exits: unknown[] = [];
+    lane.on("error", (error) => errors.push(error instanceof Error ? error : new Error(String(error))));
+    lane.on("runtime_event", () => {});
+    lane.on("exit", (exit) => exits.push(exit));
+    await lane.start({ text: "crash" });
+    const process = spawned[0]!;
+
+    process.emit("error", new Error("EIO"));
+    process.emit("error", new Error("duplicate"));
+    await settle();
+
+    expect(errors).toEqual([new Error("EIO")]);
+    expect(exits).toEqual([{ code: null, signal: null, reason: "runtime_exit" }]);
+    expect(process.kill).toHaveBeenCalledOnce();
+
+    process.finish(17, null);
+    process.emit("error", new Error("late"));
+    expect(exits).toHaveLength(1);
+    expect(errors).toHaveLength(1);
+    expect(process.kill).toHaveBeenCalledOnce();
+  });
+
+  it("ignores a process error after an authoritative exit", async () => {
+    installServer();
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const errors: Error[] = [];
+    const exits: unknown[] = [];
+    lane.on("error", (error) => errors.push(error instanceof Error ? error : new Error(String(error))));
+    lane.on("runtime_event", () => {});
+    lane.on("exit", (exit) => exits.push(exit));
+    await lane.start({ text: "crash" });
+    const process = spawned[0]!;
+
+    process.finish(17, null);
+    process.emit("error", new Error("late"));
+
+    expect(exits).toEqual([{ code: 17, signal: null, reason: "runtime_exit" }]);
+    expect(errors).toEqual([]);
+    expect(process.kill).not.toHaveBeenCalled();
+  });
+
+  it("keeps requested stop ownership when the process errors during cleanup", async () => {
+    installServer();
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const errors: Error[] = [];
+    const exits: unknown[] = [];
+    lane.on("error", (error) => errors.push(error instanceof Error ? error : new Error(String(error))));
+    lane.on("runtime_event", () => {});
+    lane.on("exit", (exit) => exits.push(exit));
+    await lane.start({ text: "stop" });
+    const process = spawned[0]!;
+
+    const stopping = lane.stop({ reason: "test", forceAfterMs: 0 });
+    process.emit("error", new Error("EIO"));
+    await stopping;
+
+    expect(errors).toEqual([new Error("EIO")]);
+    expect(exits).toEqual([]);
+    expect(process.kill).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a handshake process error under failed-start ownership", async () => {
+    const messages: RpcMessage[] = [];
+    onClientMessage = (_process, message) => { messages.push(message); };
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const errors: Error[] = [];
+    const exits: unknown[] = [];
+    lane.on("error", (error) => errors.push(error instanceof Error ? error : new Error(String(error))));
+    lane.on("runtime_event", () => {});
+    lane.on("exit", (exit) => exits.push(exit));
+    const starting = lane.start({ text: "must not admit" });
+    await vi.waitFor(() => expect(messages.map((message) => message.method)).toEqual(["initialize"]));
+    const process = spawned[0]!;
+
+    process.emit("error", new Error("EIO"));
+
+    await expect(starting).rejects.toThrow("EIO");
+    expect(errors).toEqual([new Error("EIO")]);
+    expect(exits).toEqual([]);
+    expect(process.kill).toHaveBeenCalledOnce();
   });
 
   it("fails malformed JSON and reports an unexpected ACP process exit", async () => {
