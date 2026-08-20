@@ -20,7 +20,6 @@
  */
 import { spawn, type ChildProcess } from "child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { PassThrough } from "node:stream";
 
@@ -49,16 +48,6 @@ const WINDOWS_JOB_PAYLOAD_ENV = "ALOOK_WINDOWS_JOB_PAYLOAD";
 const WINDOWS_JOB_RUNNER_ENV = "ALOOK_WINDOWS_JOB_RUNNER";
 const WINDOWS_JOB_STDIN_PIPE_ENV = "ALOOK_WINDOWS_JOB_STDIN_PIPE";
 
-function traceWindowsJob(env: NodeJS.ProcessEnv, phase: string): void {
-  const path = env.ALOOK_WINDOWS_JOB_DEBUG_FILE;
-  if (!path) return;
-  try {
-    appendFileSync(path, `${phase}\n`);
-  } catch {
-    // Diagnostic tracing must never alter process lifecycle.
-  }
-}
-
 // The tracked Windows child is a PowerShell supervisor that owns a kill-on-close
 // Job Object. It creates the inner Node process suspended, gives it the
 // supervisor's raw output handles, assigns it to the job, and only then
@@ -66,11 +55,10 @@ function traceWindowsJob(env: NodeJS.ProcessEnv, phase: string): void {
 // authority after a `.cmd` shell or runtime root exits. Persistent protocol
 // stdin uses a dedicated named pipe: PowerShell must not own that pipe because
 // its host can block while probing stdin before it runs the encoded bootstrap.
-const WINDOWS_JOB_RUNNER = "const{spawn}=require('node:child_process');const{appendFileSync}=require('node:fs');const{connect}=require('node:net');const debug=process.env.ALOOK_WINDOWS_JOB_DEBUG_FILE;const trace=m=>{if(debug)try{appendFileSync(debug,m+'\\n')}catch{}};trace('runner-start');const p=JSON.parse(Buffer.from(process.env.ALOOK_WINDOWS_JOB_PAYLOAD,'base64').toString('utf8'));const pipe=process.env.ALOOK_WINDOWS_JOB_STDIN_PIPE;delete process.env.ALOOK_WINDOWS_JOB_NODE;delete process.env.ALOOK_WINDOWS_JOB_PAYLOAD;delete process.env.ALOOK_WINDOWS_JOB_RUNNER;delete process.env.ALOOK_WINDOWS_JOB_STDIN_PIPE;const run=stdin=>{const c=spawn(p.command,p.args,{cwd:p.cwd,env:process.env,shell:p.shell,stdio:[stdin,'inherit','inherit'],windowsHide:true});c.once('spawn',()=>{trace('runtime-spawn');if(stdin!=='ignore')stdin.unref()});c.once('error',e=>{trace('runtime-error '+e.message);console.error(e);process.exitCode=1});c.once('exit',(code,signal)=>{trace('runtime-exit '+code+' '+signal);process.exitCode=signal?1:(code??1)})};if(pipe){const input=connect(pipe);input.once('connect',()=>{trace('runner-connect');run(input)});input.once('error',e=>{trace('runner-connect-error '+e.message);console.error(e);process.exitCode=1})}else run('ignore')";
+const WINDOWS_JOB_RUNNER = "const{spawn}=require('node:child_process');const{connect}=require('node:net');const p=JSON.parse(Buffer.from(process.env.ALOOK_WINDOWS_JOB_PAYLOAD,'base64').toString('utf8'));const pipe=process.env.ALOOK_WINDOWS_JOB_STDIN_PIPE;delete process.env.ALOOK_WINDOWS_JOB_NODE;delete process.env.ALOOK_WINDOWS_JOB_PAYLOAD;delete process.env.ALOOK_WINDOWS_JOB_RUNNER;delete process.env.ALOOK_WINDOWS_JOB_STDIN_PIPE;const run=stdin=>{const c=spawn(p.command,p.args,{cwd:p.cwd,env:process.env,shell:p.shell,stdio:[stdin,'inherit','inherit'],windowsHide:true});c.once('spawn',()=>{if(stdin!=='ignore')stdin.unref()});c.once('error',e=>{console.error(e);process.exitCode=1});c.once('exit',(code,signal)=>{process.exitCode=signal?1:(code??1)})};if(pipe){const input=connect(pipe);input.once('connect',()=>run(input));input.once('error',e=>{console.error(e);process.exitCode=1})}else run('ignore')";
 
 const WINDOWS_JOB_BOOTSTRAP = String.raw`
 $ErrorActionPreference = "Stop"
-if ($env:ALOOK_WINDOWS_JOB_DEBUG_FILE) { try { Add-Content -LiteralPath $env:ALOOK_WINDOWS_JOB_DEBUG_FILE -Value "bootstrap-start" } catch {} }
 Add-Type -TypeDefinition @"
 using System;
 using System.ComponentModel;
@@ -375,7 +363,6 @@ public static class AlookAgentJob {
   }
 }
 "@
-if ($env:ALOOK_WINDOWS_JOB_DEBUG_FILE) { try { Add-Content -LiteralPath $env:ALOOK_WINDOWS_JOB_DEBUG_FILE -Value "add-type-complete" } catch {} }
 $exitCode = [AlookAgentJob]::RunNode($env:ALOOK_WINDOWS_JOB_NODE, $env:ALOOK_WINDOWS_JOB_RUNNER)
 exit $exitCode
 `;
@@ -413,7 +400,6 @@ export function spawnAgentProcess(command: string, args: string[], opts: AgentSp
     let stdinSocket: Socket | undefined;
     const stdinServer = stdinProxy
       ? createServer((socket) => {
-          traceWindowsJob(opts.env, "stdin-server-connect");
           stdinSocket = socket;
           stdinServer?.close();
           socket.once("close", () => {
@@ -423,7 +409,6 @@ export function spawnAgentProcess(command: string, args: string[], opts: AgentSp
           stdinProxy.pipe(socket);
         })
       : undefined;
-    stdinServer?.once("listening", () => traceWindowsJob(opts.env, "stdin-server-listening"));
     stdinProxy?.once("close", () => {
       if (!stdinProxy.writableFinished) stdinSocket?.destroy();
     });
@@ -436,7 +421,6 @@ export function spawnAgentProcess(command: string, args: string[], opts: AgentSp
       [WINDOWS_JOB_RUNNER_ENV]: WINDOWS_JOB_RUNNER,
       ...(stdinPipe ? { [WINDOWS_JOB_STDIN_PIPE_ENV]: stdinPipe } : {}),
     };
-    traceWindowsJob(env, "spawn-called");
     let proc: ChildProcess;
     try {
       proc = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", WINDOWS_JOB_ENCODED_COMMAND], {
@@ -452,9 +436,6 @@ export function spawnAgentProcess(command: string, args: string[], opts: AgentSp
       stdinProxy?.destroy();
       throw error;
     }
-    proc.once("spawn", () => traceWindowsJob(env, "powershell-spawn"));
-    proc.once("error", (error) => traceWindowsJob(env, `powershell-error ${error.message}`));
-    proc.once("exit", (code, signal) => traceWindowsJob(env, `powershell-exit ${String(code)} ${String(signal)}`));
     if (stdinProxy) Object.defineProperty(proc, "stdin", { value: stdinProxy });
     const closeStdinBridge = () => {
       if (stdinServer?.listening) stdinServer.close();
