@@ -178,6 +178,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
   private liveAbort?: AbortController;
   private durableTask?: Promise<void>;
   private liveTask?: Promise<void>;
+  private durableBootstrapAdmissionUsed = false;
   private durableGate = makeGate();
   private liveGate = makeGate();
   private durableGap = true;
@@ -229,7 +230,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
       await this.primeHistory();
       this.assertStartupIdentity(startupIdentity);
       this.startStreams();
-      await this.waitForStreams();
+      await this.waitForLiveStream();
       this.assertStartupIdentity(startupIdentity);
       if (!this.sessionId) throw new Error("OpenCode v2 session was not initialized");
       this.ready = true;
@@ -376,10 +377,9 @@ export class OpenCodeServiceLane implements RuntimeLane {
     const existing = this.processStopPromises.get(proc);
     if (existing) return existing;
     const stopping = (async () => {
-      if (this.isProcessClosed(proc)) return;
       if (proc.pid) {
         await killProcessTree(proc.pid, { graceMs: input.forceAfterMs ?? SESSION_STOP_GRACE_MS });
-      } else {
+      } else if (!this.isProcessClosed(proc)) {
         proc.kill(input.signal ?? "SIGTERM");
       }
     })();
@@ -596,7 +596,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
   private async runDurableStream(identity: ServiceIdentity): Promise<void> {
     while (!this.stopping && this.isIdentity(identity)) {
       this.durableGap = true;
-      this.durableGate = makeGate();
+      const gate = this.durableGate;
       const controller = new AbortController();
       this.durableAbort = controller;
       try {
@@ -605,7 +605,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
         await this.catchUpHistory(true);
         if (!this.isIdentity(identity)) return;
         this.durableGap = false;
-        this.durableGate.resolve();
+        gate.resolve();
         this.scheduleEvaluation();
         await this.consumeSse(response, async (value) => { await this.handleDurableEvent(value, true); });
         if (!this.stopping) this.diagnostic("warning", "OpenCode durable event stream disconnected; replaying from its cursor");
@@ -618,7 +618,12 @@ export class OpenCodeServiceLane implements RuntimeLane {
         this.diagnostic("warning", "OpenCode durable event stream reconnecting after transport failure");
       }
       this.durableGap = true;
-      this.durableGate = makeGate();
+      if (this.durableGate === gate) {
+        this.durableGate = makeGate();
+        // A pre-open failure leaves the old gate unresolved. Wake its waiters
+        // so they can observe the generation change and bind to the retry.
+        gate.resolve();
+      }
       this.events.emit("runtime_event", {
         kind: "runtime_metric",
         name: "sse_reconnect",
@@ -630,14 +635,14 @@ export class OpenCodeServiceLane implements RuntimeLane {
 
   private async runLiveStream(identity: ServiceIdentity): Promise<void> {
     while (!this.stopping && this.isIdentity(identity)) {
-      this.liveGate = makeGate();
+      const gate = this.liveGate;
       const controller = new AbortController();
       this.liveAbort = controller;
       try {
         const response = await this.openStream("/api/event", controller, "live event stream");
         await this.recoverPendingPermissions();
         if (!this.isIdentity(identity)) return;
-        this.liveGate.resolve();
+        gate.resolve();
         await this.consumeSse(response, (value) => this.handleLiveEvent(value));
         if (!this.stopping) this.diagnostic("warning", "OpenCode live event stream disconnected; reconnecting");
       } catch (error) {
@@ -648,7 +653,10 @@ export class OpenCodeServiceLane implements RuntimeLane {
         }
         this.diagnostic("warning", "OpenCode live event stream reconnecting after transport failure");
       }
-      this.liveGate = makeGate();
+      if (this.liveGate === gate) {
+        this.liveGate = makeGate();
+        gate.resolve();
+      }
       this.events.emit("runtime_event", {
         kind: "runtime_metric",
         name: "sse_reconnect",
@@ -933,7 +941,15 @@ export class OpenCodeServiceLane implements RuntimeLane {
       if (!this.ready || this.stopping || this.activeRoot !== root || !this.sessionId || !this.identityMatches()) {
         return { ok: false, reason: "closed" };
       }
-      await this.waitForStreams();
+      await this.waitForLiveStream();
+      // OpenCode 1.17.20 does not flush the durable SSE response headers until
+      // the first durable event. The first prompt admission creates that event,
+      // so waiting for the durable fetch here deadlocks startup. History closes
+      // the pre-admission gap; after this POST releases the stream, the normal
+      // durable cursor/frontier barrier remains the sole terminal authority.
+      if (this.durableGap && this.durableBootstrapAdmissionUsed) await this.waitForStreams();
+      this.durableBootstrapAdmissionUsed = true;
+      if (this.durableGap) await this.catchUpHistory(true);
       const { response, body: responseBody } = await this.fetchJsonWithTimeout(
         `/api/session/${encodeURIComponent(this.sessionId)}/prompt`,
         {
@@ -1235,6 +1251,15 @@ export class OpenCodeServiceLane implements RuntimeLane {
 
   private isProcessClosed(proc: SpawnedProcessHandle): boolean {
     return proc.exitCode !== null || proc.signalCode !== null;
+  }
+
+  private async waitForLiveStream(): Promise<void> {
+    while (!this.stopping) {
+      const live = this.liveGate;
+      await live.promise;
+      if (live === this.liveGate) return;
+    }
+    throw new Error("OpenCode service lane stopped before stream recovery");
   }
 
   private async waitForStreams(): Promise<void> {

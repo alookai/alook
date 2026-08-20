@@ -238,10 +238,10 @@ export class CursorAcpLane implements RuntimeLane {
   private async stopPhysicalOnce(input: LaneStopInput): Promise<void> {
     await this.spawnPromise?.catch(() => undefined);
     const proc = this.process;
-    if (!proc || this.isClosed()) return;
+    if (!proc) return;
     if (proc.pid) {
       await killProcessTree(proc.pid, { graceMs: input.forceAfterMs ?? SESSION_STOP_GRACE_MS });
-    } else {
+    } else if (!this.isClosed()) {
       proc.kill(input.signal ?? "SIGTERM");
     }
   }

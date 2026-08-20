@@ -23,6 +23,7 @@ let lastSpawn: { command: string; args: string[]; opts: unknown } | null = null;
 let spawned: FakeProcess[] = [];
 let onClientMessage: (process: FakeProcess, message: RpcMessage) => void = () => {};
 let killEmitsExit = false;
+const killProcessTree = vi.hoisted(() => vi.fn());
 
 function fakeProcess(): FakeProcess {
   const process = Object.assign(new EventEmitter(), {
@@ -59,6 +60,7 @@ vi.mock("../../internal/killTree.js", async () => {
   const actual = await vi.importActual<typeof import("../../internal/killTree.js")>("../../internal/killTree.js");
   return {
     ...actual,
+    killProcessTree,
     spawnAgentProcess: (command: string, args: string[], opts: unknown) => {
       lastSpawn = { command, args, opts };
       const process = fakeProcess();
@@ -174,6 +176,8 @@ beforeEach(() => {
   spawned = [];
   onClientMessage = () => {};
   killEmitsExit = false;
+  killProcessTree.mockReset();
+  killProcessTree.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -832,6 +836,21 @@ describe("CursorDriver persistent ACP transport", () => {
     expect(errors).toEqual([new Error("EIO")]);
     expect(exits).toEqual([]);
     expect(process.kill).toHaveBeenCalledOnce();
+  });
+
+  it("kills the detached ACP group even after its root handle is already terminal", async () => {
+    installServer();
+    const lane = await new CursorDriver().openLane(baseCtx());
+    eventsFrom(lane);
+    await lane.start({ text: "stop" });
+    const process = spawned[0]!;
+    Object.defineProperty(process, "pid", { value: 41_001, configurable: true });
+    process.finish(0, null);
+
+    await lane.stop({ reason: "test", forceAfterMs: 0 });
+
+    expect(killProcessTree).toHaveBeenCalledWith(41_001, { graceMs: 0 });
+    expect(process.kill).not.toHaveBeenCalled();
   });
 
   it("keeps a handshake process error under failed-start ownership", async () => {
