@@ -529,6 +529,74 @@ describe("useRealtimeTransport", () => {
     expect(MockWebSocket.instances.some((ws) => ws.url.includes("retired-user"))).toBe(false)
   })
 
+  it("generation-fences a stale HTTP failure before retry scheduling", async () => {
+    const firstToken = deferred<Response>()
+    const secondToken = deferred<Response>()
+    mockFetch
+      .mockReturnValueOnce(firstToken.promise)
+      .mockReturnValueOnce(secondToken.promise)
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    warn.mockClear()
+    await mount({ onMessage: vi.fn() })
+
+    replayEffects()
+    secondToken.resolve(tokenResponse("latest-token", "latest-user"))
+    await flushPromises()
+    firstToken.resolve({ ok: false, status: 503 } as Response)
+    await flushPromises()
+
+    expect(MockWebSocket.instances).toHaveLength(1)
+    expect(MockWebSocket.instances[0]?.url).toContain("latest-user")
+    expect(warn).not.toHaveBeenCalledWith("[ws] token fetch failed:", 503)
+  })
+
+  it("generation-fences a constructor failure that retires its own attempt", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    warn.mockClear()
+    class RetiringWebSocket {
+      static OPEN = MockWebSocket.OPEN
+
+      constructor() {
+        cleanupEffects()
+        throw new Error("retired constructor")
+      }
+    }
+    vi.stubGlobal("WebSocket", RetiringWebSocket)
+
+    try {
+      await mount({ onMessage: vi.fn() })
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      expect(mockFetch).toHaveBeenCalledOnce()
+      expect(warn).not.toHaveBeenCalledWith(
+        "[ws] WebSocket creation failed:",
+        expect.anything(),
+      )
+    } finally {
+      vi.stubGlobal("WebSocket", MockWebSocket)
+    }
+  })
+
+  it("generation-fences a retired connection timeout", async () => {
+    await mount({ onMessage: vi.fn() })
+    const ws = MockWebSocket.instances[0]!
+    const close = vi.spyOn(ws, "close")
+    const clearTimeoutSpy = vi
+      .spyOn(globalThis, "clearTimeout")
+      .mockImplementation(() => {})
+
+    try {
+      cleanupEffects()
+      expect(close).toHaveBeenCalledOnce()
+      close.mockClear()
+      await vi.advanceTimersByTimeAsync(10_000)
+
+      expect(close).not.toHaveBeenCalled()
+    } finally {
+      clearTimeoutSpy.mockRestore()
+    }
+  })
+
   it("reconnects with backoff only after replacement auth and reports the gap", async () => {
     const onDisconnect = vi.fn()
     const onReconnect = vi.fn()
