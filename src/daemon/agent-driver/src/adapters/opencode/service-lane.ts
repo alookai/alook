@@ -671,19 +671,24 @@ export class OpenCodeServiceLane implements RuntimeLane {
     this.protocolFailure(`OpenCode ${kind} stream stopped unexpectedly`, error);
   }
 
-  private async openStream(path: string, controller: AbortController, operation: string): Promise<Response> {
-    const timeout = setTimeout(() => controller.abort(), this.options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS);
+  private async openStream(path: string, lifecycle: AbortController, operation: string): Promise<Response> {
+    const request = new AbortController();
+    const abortForLifecycle = () => request.abort();
+    if (lifecycle.signal.aborted) abortForLifecycle();
+    else lifecycle.signal.addEventListener("abort", abortForLifecycle, { once: true });
+    const timeout = setTimeout(() => request.abort(), this.options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS);
     timeout.unref?.();
     try {
       const response = await this.fetchFn(`${this.baseUrl}${path}`, {
         method: "GET",
         headers: this.headers({ accept: "text/event-stream" }),
-        signal: controller.signal,
+        signal: request.signal,
       });
       if (!response.ok || !response.body) throw new OpenCodeHttpError(response.status, operation);
       return response;
     } finally {
       clearTimeout(timeout);
+      lifecycle.signal.removeEventListener("abort", abortForLifecycle);
     }
   }
 

@@ -66,6 +66,7 @@ class FakeOpenCodeService {
   readonly durableClients = new Set<ServerResponse>();
   readonly liveClients = new Set<ServerResponse>();
   readonly heldDurableClients: ServerResponse[] = [];
+  readonly stalledStreamResponses = new Set<ServerResponse>();
   readonly stalledJsonResponses = new Set<ServerResponse>();
   readonly stallJsonBodies = new Set<"health" | "history" | "prompt" | "active">();
   readonly pendingPermissions: Record<string, unknown>[] = [];
@@ -78,6 +79,8 @@ class FakeOpenCodeService {
   releaseDurableOnPrompt = false;
   failDurableConnections = 0;
   failLiveConnections = 0;
+  stallDurableConnections = 0;
+  stallLiveConnections = 0;
   durableConnectionAttempts = 0;
   liveConnectionAttempts = 0;
   malformedPromptReceipt = false;
@@ -112,6 +115,7 @@ class FakeOpenCodeService {
       ...this.durableClients,
       ...this.liveClients,
       ...this.heldDurableClients,
+      ...this.stalledStreamResponses,
       ...this.stalledJsonResponses,
     ]) response.destroy();
     this.server.close();
@@ -217,6 +221,11 @@ class FakeOpenCodeService {
     return true;
   }
 
+  private stallStream(response: ServerResponse): void {
+    this.stalledStreamResponses.add(response);
+    response.on("close", () => this.stalledStreamResponses.delete(response));
+  }
+
   private authorized(request: IncomingMessage, response: ServerResponse): boolean {
     const header = String(request.headers.authorization ?? "");
     this.authHeaders.push(header);
@@ -260,6 +269,11 @@ class FakeOpenCodeService {
     }
     if (request.method === "GET" && path === `/api/session/${this.sessionId}/event`) {
       this.durableConnectionAttempts += 1;
+      if (this.stallDurableConnections > 0) {
+        this.stallDurableConnections -= 1;
+        this.stallStream(response);
+        return;
+      }
       if (this.failDurableConnections > 0) {
         this.failDurableConnections -= 1;
         json(response, 503, { error: "durable unavailable" });
@@ -271,6 +285,11 @@ class FakeOpenCodeService {
     }
     if (request.method === "GET" && path === "/api/event") {
       this.liveConnectionAttempts += 1;
+      if (this.stallLiveConnections > 0) {
+        this.stallLiveConnections -= 1;
+        this.stallStream(response);
+        return;
+      }
       if (this.failLiveConnections > 0) {
         this.failLiveConnections -= 1;
         json(response, 503, { error: "live unavailable" });
@@ -363,6 +382,8 @@ class FakeOpenCodeFactory implements OpenCodeServiceProcessFactory {
   releaseDurableOnPrompt = false;
   failDurableConnections = 0;
   failLiveConnections = 0;
+  stallDurableConnections = 0;
+  stallLiveConnections = 0;
   readonly stallJsonBodies = new Set<"health" | "history" | "prompt" | "active">();
   readonly existingSessions = new Set<string>();
   service: FakeOpenCodeService | undefined;
@@ -400,6 +421,8 @@ class FakeOpenCodeFactory implements OpenCodeServiceProcessFactory {
     this.service.releaseDurableOnPrompt = this.releaseDurableOnPrompt;
     this.service.failDurableConnections = this.failDurableConnections;
     this.service.failLiveConnections = this.failLiveConnections;
+    this.service.stallDurableConnections = this.stallDurableConnections;
+    this.service.stallLiveConnections = this.stallLiveConnections;
     for (const key of this.stallJsonBodies) this.service.stallJsonBodies.add(key);
     for (const id of this.existingSessions) this.service.existingSessions.add(id);
     await this.service.listen();
@@ -519,6 +542,34 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
     await expect(starting).resolves.toMatchObject({ ok: true, acceptedAs: "prompt" });
     expect(factory.service?.liveConnectionAttempts).toBeGreaterThanOrEqual(2);
     await lane.stop({ reason: "test", forceAfterMs: 0 });
+  });
+
+  it("retries a live header deadline without cancelling lifecycle readiness", async () => {
+    const factory = new FakeOpenCodeFactory();
+    factory.stallLiveConnections = 1;
+    const lane = makeLane(factory, 1_000, 20);
+    const starting = lane.start({ text: "root", terminalOwner: "msg_root" });
+
+    await vi.waitFor(() => expect(factory.service?.prompts).toHaveLength(1));
+    await expect(starting).resolves.toMatchObject({ ok: true, acceptedAs: "prompt" });
+    expect(factory.service?.liveConnectionAttempts).toBeGreaterThanOrEqual(2);
+    await lane.stop({ reason: "test", forceAfterMs: 0 });
+  });
+
+  it("does not retry a stalled stream after lifecycle stop aborts it", async () => {
+    const factory = new FakeOpenCodeFactory();
+    factory.stallLiveConnections = 1;
+    const lane = makeLane(factory, 1_000, 1_000);
+    const { runtime } = collectEvents(lane);
+    const starting = lane.start({ text: "root", terminalOwner: "msg_root" });
+    await vi.waitFor(() => expect(factory.service?.liveConnectionAttempts).toBe(1));
+
+    await lane.stop({ reason: "test", forceAfterMs: 0 });
+    await expect(starting).rejects.toThrow("OpenCode service lane stopped");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(factory.service?.liveConnectionAttempts).toBe(1);
+    expect(runtime.filter((event) => event.kind === "runtime_metric")).toHaveLength(0);
   });
 
   it("bounds JSON response bodies for health, history, prompt admission, and active barriers", async () => {
@@ -840,6 +891,25 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
     await vi.waitFor(() => expect(service.durableConnectionAttempts).toBeGreaterThanOrEqual(3));
     service.finishSuccess("history-only");
     service.releaseDurableConnections();
+
+    await expect(steer).resolves.toMatchObject({ ok: true, acceptedAs: "steer" });
+    await lane.stop({ reason: "test", forceAfterMs: 0 });
+  });
+
+  it("retries a durable header deadline while keeping later admission paused", async () => {
+    const lane = makeLane(new FakeOpenCodeFactory(), 1_000, 100, 50);
+    const { runtime } = collectEvents(lane);
+    await lane.start({ text: "root", terminalOwner: "msg_root" });
+    const service = factories.at(-1)!.service!;
+    service.stallDurableConnections = 1;
+    service.disconnectDurable();
+    await vi.waitFor(() => expect(runtime.filter((event) => event.kind === "runtime_metric")).toHaveLength(1));
+
+    const steer = lane.send({ text: "after-deadline", mode: "busy" });
+    await vi.waitFor(() => expect(service.durableConnectionAttempts).toBe(2));
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(service.prompts).toHaveLength(1);
+    await vi.waitFor(() => expect(service.durableConnectionAttempts).toBeGreaterThanOrEqual(3));
 
     await expect(steer).resolves.toMatchObject({ ok: true, acceptedAs: "steer" });
     await lane.stop({ reason: "test", forceAfterMs: 0 });
