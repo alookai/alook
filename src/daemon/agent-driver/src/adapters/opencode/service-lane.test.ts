@@ -572,6 +572,30 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
     expect(runtime.filter((event) => event.kind === "runtime_metric")).toHaveLength(0);
   });
 
+  it("aborts established live and durable streams on stop without process teardown", async () => {
+    const factory = new FakeOpenCodeFactory();
+    const lane = makeLane(factory, 1_000, 1_000);
+    const { runtime } = collectEvents(lane);
+    await lane.start({ text: "root", terminalOwner: "msg_root" });
+    const service = factory.service!;
+    await vi.waitFor(() => {
+      expect(service.liveClients.size).toBe(1);
+      expect(service.durableClients.size).toBe(1);
+    });
+    killProcessTree.mockImplementation(async () => {});
+
+    await lane.stop({ reason: "test", forceAfterMs: 0 });
+    await vi.waitFor(() => {
+      expect(service.liveClients.size).toBe(0);
+      expect(service.durableClients.size).toBe(0);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(service.liveConnectionAttempts).toBe(1);
+    expect(service.durableConnectionAttempts).toBe(1);
+    expect(runtime.filter((event) => event.kind === "runtime_metric")).toHaveLength(0);
+  });
+
   it("bounds JSON response bodies for health, history, prompt admission, and active barriers", async () => {
     const healthFactory = new FakeOpenCodeFactory();
     healthFactory.stallJsonBodies.add("health");
