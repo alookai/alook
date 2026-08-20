@@ -522,6 +522,18 @@ describe("logical delivery diagnostics", () => {
       .toHaveLength(1);
     await rejectedSession.stop({ reason: "shutdown", forceAfterMs: 10 });
 
+    const plainRejectedLane = new ControlledRuntimeLane();
+    plainRejectedLane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "opencode:test:1" };
+    plainRejectedLane.sendImpl = async () => { throw new Error("plain steer failure"); };
+    const plainRejectedSession = makeSession("opencode", { lane: plainRejectedLane }).session;
+    await plainRejectedSession.start({ id: "one", kind: "user", text: "start" });
+    await expect(plainRejectedSession.send({ id: "two", kind: "user", text: "steer" })).resolves.toMatchObject({
+      status: "rejected",
+      reason: "runtime_unavailable",
+      error: { category: "process", code: "delivery_failed" },
+    });
+    await plainRejectedSession.stop({ reason: "shutdown", forceAfterMs: 10 });
+
     const cancelledLane = new ControlledRuntimeLane();
     cancelledLane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "opencode:test:1" };
     cancelledLane.sendPromise = new Promise<LaneAdmission>(() => {});
@@ -549,6 +561,24 @@ describe("logical delivery diagnostics", () => {
     expect(cancelledEvents.filter((event) => event.type === "command_failed" && event.commandId === "two"))
       .toHaveLength(1);
     await cancelledSession.stop({ reason: "shutdown", forceAfterMs: 10 });
+
+    const plainCancelledLane = new ControlledRuntimeLane();
+    plainCancelledLane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "opencode:test:1" };
+    plainCancelledLane.sendPromise = new Promise<LaneAdmission>(() => {});
+    const plainCancelledSession = makeSession("opencode", { lane: plainCancelledLane }).session;
+    await plainCancelledSession.start({ id: "one", kind: "user", text: "start" });
+    const plainSending = plainCancelledSession.send({ id: "two", kind: "user", text: "steer" });
+    const plainCancelledInternals = plainCancelledSession as unknown as {
+      steeringDeliveries: Set<{ cancel(error: unknown): void }>;
+    };
+    await vi.waitFor(() => expect(plainCancelledInternals.steeringDeliveries.size).toBe(1));
+    [...plainCancelledInternals.steeringDeliveries][0]!.cancel(new Error("plain cancellation"));
+    await expect(plainSending).resolves.toMatchObject({
+      status: "rejected",
+      reason: "runtime_unavailable",
+      error: { category: "process", code: "delivery_failed" },
+    });
+    await plainCancelledSession.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
   it("uses deterministic precedence and cumulative count/total-ms metrics from logical-session facts", async () => {

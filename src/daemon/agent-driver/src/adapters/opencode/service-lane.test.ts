@@ -1135,6 +1135,10 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
       assistantMessageID: "msg_assistant",
       error: { message: "secret vendor detail" },
     });
+    service.publish("session.next.step.failed", {
+      assistantMessageID: "msg_assistant",
+      error: {},
+    });
     service.active = false;
 
     await waitForTurn(runtime, 1);
@@ -1145,7 +1149,7 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
     expect(runtime).toContainEqual({ kind: "tool_output", name: "OpenCode tool" });
     expect(runtime).toContainEqual({ kind: "compaction_started" });
     expect(runtime).toContainEqual({ kind: "compaction_finished" });
-    expect(runtime).toContainEqual({ kind: "error", message: "OpenCode turn failed" });
+    expect(runtime).toContainEqual({ kind: "error", message: "OpenCode reported an inconsistent turn outcome" });
     expect(JSON.stringify(runtime)).not.toContain("secret vendor detail");
     await lane.stop({ reason: "test", forceAfterMs: 0 });
   });

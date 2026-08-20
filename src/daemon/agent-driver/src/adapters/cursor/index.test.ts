@@ -333,6 +333,21 @@ describe("CursorDriver persistent ACP transport", () => {
     await expect(lane.start({ text: "missing result" })).rejects.toThrow("response omitted result");
   });
 
+  it("uses the safe fallback for a JSON-RPC error without a message", async () => {
+    onClientMessage = (process, message) => {
+      if (message.method === "initialize") {
+        process.stdout.write(`${JSON.stringify({
+          jsonrpc: "2.0",
+          id: message.id,
+          error: { code: -32000 },
+        })}\n`);
+      }
+    };
+    const lane = await new CursorDriver().openLane(baseCtx());
+    eventsFrom(lane);
+    await expect(lane.start({ text: "missing error message" })).rejects.toThrow("Cursor ACP request failed");
+  });
+
   it.each([
     {
       name: "protocol version 1",

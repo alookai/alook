@@ -272,6 +272,20 @@ describe("spawnAgentProcess", () => {
     expect(proc.stderr).not.toBeNull();
   });
 
+  it("supports a runtime that explicitly ignores stdin", async () => {
+    const proc = spawnAgentProcess(process.execPath, ["-e", "process.exit(0)"], {
+      cwd: process.cwd(),
+      env: process.env,
+      stdin: "ignore",
+    });
+    spawned.push(proc);
+    expect(proc.stdin).toBeNull();
+    await new Promise((resolve, reject) => {
+      proc.once("error", reject);
+      proc.once("exit", resolve);
+    });
+  });
+
   it("preserves persistent Windows stdin/stdout, cwd/env, and the exact inner exit code", async () => {
     if (process.platform !== "win32") return;
     const base = mkdtempSync(join(tmpdir(), "agent-driver-job-stdio-"));
