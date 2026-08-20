@@ -5,12 +5,12 @@ import { QueryClient } from "@tanstack/react-query"
 import type { PersistedClient } from "@tanstack/react-query-persist-client"
 import { communityKeys } from "@/lib/query-keys"
 import {
-  clearPersistedCache,
-  createIdbPersister,
   isTrustedMessagesPageZero,
   shouldPersistQuery,
   shouldPersistQueryKey,
-} from "@/lib/query-persister"
+  createCommunityQueryPersister,
+} from "./community-query-persistence"
+import { clearPersistedQueryCache } from "@/platform/client"
 import type { MessagesPage } from "@/lib/community/models/message"
 
 // ── shouldPersistQueryKey ─────────────────────────────────────────────────
@@ -58,7 +58,7 @@ describe("shouldPersistQueryKey", () => {
   })
 })
 
-// ── createIdbPersister: serialize scrubbing ───────────────────────────────
+// ── Community persistence serialization policy ───────────────────────────
 
 function makePage(messages: Array<Partial<MessagesPage["messages"][number]>>): MessagesPage {
   return {
@@ -76,10 +76,10 @@ async function readPersistedBlob(userId: string | null): Promise<PersistedClient
   return JSON.parse(raw) as PersistedClient
 }
 
-describe("createIdbPersister — serialize filter", () => {
+describe("createCommunityQueryPersister — serialize filter", () => {
   beforeEach(async () => {
-    await clearPersistedCache("u_1")
-    await clearPersistedCache(null)
+    await clearPersistedQueryCache("u_1")
+    await clearPersistedQueryCache(null)
   })
 
   it("strips temp_* rows from persisted channel message pages", async () => {
@@ -95,7 +95,7 @@ describe("createIdbPersister — serialize filter", () => {
       pageParams: [{ mode: "newest" }],
     })
 
-    const persister = createIdbPersister("u_1")
+    const persister = createCommunityQueryPersister("u_1")
     await persister.persistClient({
       timestamp: Date.now(),
       buster: "v1",
@@ -137,7 +137,7 @@ describe("createIdbPersister — serialize filter", () => {
       pageParams: [{ mode: "newest" }],
     })
 
-    const persister = createIdbPersister("u_1")
+    const persister = createCommunityQueryPersister("u_1")
     await persister.persistClient({
       timestamp: Date.now(),
       buster: "v1",
@@ -179,7 +179,7 @@ describe("createIdbPersister — serialize filter", () => {
       pageParams: [{ mode: "since", since: "cur_since" }],
     })
 
-    const persister = createIdbPersister("u_1")
+    const persister = createCommunityQueryPersister("u_1")
     await persister.persistClient({
       timestamp: Date.now(),
       buster: "v1",
@@ -218,7 +218,7 @@ describe("createIdbPersister — serialize filter", () => {
       pageParams: [{ mode: "anchor", anchor: "m_1" }],
     })
 
-    const persister = createIdbPersister("u_1")
+    const persister = createCommunityQueryPersister("u_1")
     await persister.persistClient({
       timestamp: Date.now(),
       buster: "v1",
@@ -249,7 +249,7 @@ describe("createIdbPersister — serialize filter", () => {
       pageParams: [{ mode: "newest" }],
     })
 
-    const persister = createIdbPersister("u_1")
+    const persister = createCommunityQueryPersister("u_1")
     await persister.persistClient({
       timestamp: Date.now(),
       buster: "v1",
@@ -388,15 +388,15 @@ describe("shouldPersistQuery", () => {
 
 // ── User-scoped namespaces ────────────────────────────────────────────────
 
-describe("createIdbPersister — user scoping", () => {
+describe("createCommunityQueryPersister — user scoping", () => {
   beforeEach(async () => {
-    await clearPersistedCache("u_alice")
-    await clearPersistedCache("u_bob")
+    await clearPersistedQueryCache("u_alice")
+    await clearPersistedQueryCache("u_bob")
   })
 
   it("writes to a per-user IDB key so accounts don't leak", async () => {
-    const alice = createIdbPersister("u_alice")
-    const bob = createIdbPersister("u_bob")
+    const alice = createCommunityQueryPersister("u_alice")
+    const bob = createCommunityQueryPersister("u_bob")
     const stateForAlice: PersistedClient = {
       timestamp: 1,
       buster: "v1",
@@ -416,9 +416,9 @@ describe("createIdbPersister — user scoping", () => {
     expect(bobBlob.timestamp).toBe(2)
   })
 
-  it("clearPersistedCache only removes the target user's blob", async () => {
-    const alice = createIdbPersister("u_alice")
-    const bob = createIdbPersister("u_bob")
+  it("clearPersistedQueryCache only removes the target user's blob", async () => {
+    const alice = createCommunityQueryPersister("u_alice")
+    const bob = createCommunityQueryPersister("u_bob")
     await alice.persistClient({
       timestamp: 1,
       buster: "v1",
@@ -430,7 +430,7 @@ describe("createIdbPersister — user scoping", () => {
       clientState: { mutations: [], queries: [] },
     })
 
-    await clearPersistedCache("u_alice")
+    await clearPersistedQueryCache("u_alice")
 
     // Alice's blob is gone but Bob's is untouched.
     expect(await get(`alook:qc:v1:u_alice:client`)).toBeUndefined()

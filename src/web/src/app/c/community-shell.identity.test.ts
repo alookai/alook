@@ -6,8 +6,8 @@ let activeUser = { id: "user-a", name: "A", email: "a@example.com", avatar: "A" 
 let providerInstance = 0
 const renderedProviders: Array<{ userId: string | null; instance: number }> = []
 
-vi.mock("./QueryProvider", () => ({
-  QueryProvider: ({ children, userId }: { children: React.ReactNode; userId: string | null }) => {
+vi.mock("@/modules/community/client", () => ({
+  CommunityQueryProvider: ({ children, userId }: { children: React.ReactNode; userId: string | null }) => {
     const [instance] = useState(() => {
       providerInstance += 1
       return providerInstance

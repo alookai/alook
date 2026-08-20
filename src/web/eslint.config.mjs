@@ -33,6 +33,54 @@ const eslintConfig = defineConfig([
     },
   },
   {
+    files: ["src/platform/client/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/modules/**", "@/lib/community/**", "@/components/community/**", "@/hooks/community/**", "@/stores/community/**", "**/modules/**", "**/lib/community/**", "**/components/community/**", "**/hooks/community/**", "**/stores/community/**"],
+              message: "Platform client code cannot depend on product modules or Community ownership.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/modules/community/client/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/platform/server", "@/platform/server/**", "@/modules/community/server", "@/modules/community/server/**", "**/server", "**/server/**", "cloudflare:*", "@cloudflare/**", "wrangler", "@opennextjs/cloudflare"],
+              message: "Community client code cannot import server or Cloudflare capabilities.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/app/c/community-shell.tsx"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/modules/community/client/**"],
+              message: "App routes and shells must import the Community client public entry.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: [
       "**/*.test.ts",
       "**/*.test.tsx",

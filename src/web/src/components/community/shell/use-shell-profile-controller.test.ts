@@ -87,7 +87,7 @@ vi.mock("@/components/community/social/profile-lookup", () => ({
 }))
 vi.mock("@/lib/community/presence", () => ({ resolveProfilePresence: () => "online" }))
 vi.mock("@/lib/community/avatar", () => ({ avatarInitial: () => "?" }))
-vi.mock("@/lib/query-persister", () => ({ clearPersistedCache: mocks.clearCache }))
+vi.mock("@/platform/client", () => ({ clearPersistedQueryCache: mocks.clearCache }))
 vi.mock("@/lib/auth-client", () => ({ signOut: mocks.signOut }))
 
 type Result = ReturnType<typeof useShellProfileController>

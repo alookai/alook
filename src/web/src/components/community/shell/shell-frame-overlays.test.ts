@@ -153,7 +153,7 @@ describe("ShellFrameOverlays", () => {
       "@/stores/",
       "@/hooks/community/mutations",
       "@/lib/auth-client",
-      "@/lib/query-persister",
+      "@/platform/",
     ]) {
       expect(source).not.toContain(forbidden)
     }

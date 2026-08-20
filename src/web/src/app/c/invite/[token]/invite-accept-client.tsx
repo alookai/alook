@@ -90,7 +90,7 @@ export function InviteAcceptClient({ token }: { token: string }) {
       const result = (await res.json()) as { serverId: string }
       toast("Joined server")
       // Navigate into the joined server. This page renders standalone (outside
-      // CommunityShell / its QueryProvider), so there's no community query cache
+      // CommunityShell / its CommunityQueryProvider), so there's no community query cache
       // to invalidate here — arriving at /c/channels mounts the shell fresh and
       // its server list fetches on mount.
       router.push(`/c/channels/${result.serverId}`)

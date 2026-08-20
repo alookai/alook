@@ -1,17 +1,6 @@
-import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister"
-import type {
-  PersistedClient,
-  Persister,
-} from "@tanstack/react-query-persist-client"
-import { del, get, set } from "idb-keyval"
+import type { PersistedClient, Persister } from "@tanstack/react-query-persist-client"
 import type { MessagesPage, Msg } from "@/lib/community/models/message"
-
-/**
- * IDB namespace root. Bumping the tail segment (`v1` → `v2`) invalidates every
- * cached payload — use it as the escape hatch when the persisted query shape
- * changes in a way the runtime can't reconcile against fresh server data.
- */
-const IDB_PREFIX = "alook:qc:v1"
+import { createUserScopedIdbPersister } from "@/platform/client"
 
 /**
  * Buster tag paired with `PersistedClient`. TanStack throws away restored
@@ -19,10 +8,10 @@ const IDB_PREFIX = "alook:qc:v1"
  * shape of a specific query needs to be reset without touching the IDB
  * namespace.
  */
-export const PERSIST_BUSTER = "v1"
+export const COMMUNITY_QUERY_PERSIST_BUSTER = "v1"
 
 /** Persister max-age; queries older than this are discarded on restore. */
-export const PERSIST_MAX_AGE_MS = 24 * 60 * 60 * 1000
+export const COMMUNITY_QUERY_PERSIST_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
 /**
  * Only these query-key kinds are persisted. Everything else refetches on mount
@@ -112,7 +101,7 @@ export function isTrustedMessagesPageZero(page: MessagesPage | undefined): boole
 
 /**
  * Query-level filter used by both `shouldDehydrateQuery` (write side) and
- * `scrubDehydratedClient` (read side of the same walk). Non-message queries
+ * `scrubCommunityPersistedClient` (read side of the same walk). Non-message queries
  * fall through to `shouldPersistQueryKey`; message queries additionally check
  * `pages[0]` shape so a stale/mid-history cache never survives to the next
  * mount.
@@ -163,7 +152,9 @@ function scrubPage(page: MessagesPage): MessagesPage {
  * from the persister's `serialize` hook, so the filter is applied every time
  * TanStack throttles a save.
  */
-function scrubDehydratedClient(client: PersistedClient): PersistedClient {
+function scrubCommunityPersistedClient(
+  client: PersistedClient,
+): PersistedClient {
   const queries: typeof client.clientState.queries = []
   for (const q of client.clientState.queries) {
     const kind = keyKindFor(q.queryKey)
@@ -186,52 +177,11 @@ function scrubDehydratedClient(client: PersistedClient): PersistedClient {
   }
 }
 
-/** IDB key namespace for a given user. `null` = pre-auth or logged out. */
-function namespaceFor(userId: string | null): string {
-  return `${IDB_PREFIX}:${userId ?? "anon"}`
-}
-
-/** Storage sub-key for the persister blob within a user's namespace. */
-function blobKeyFor(userId: string | null): string {
-  return `${namespaceFor(userId)}:client`
-}
-
-/**
- * Create an async-storage persister scoped to a specific user id.
- *
- * Every read/write is namespaced by `userId` so signing in as a different
- * account never surfaces the previous user's cached rows. `serialize` scrubs
- * `temp_*` and `failed: true` rows before they hit disk (see `scrubMessage`).
- */
-export function createIdbPersister(userId: string | null): Persister {
-  const key = blobKeyFor(userId)
-  return createAsyncStoragePersister({
-    storage: {
-      getItem: async (_k: string) => {
-        const value = await get<string>(key)
-        return value ?? null
-      },
-      setItem: async (_k: string, value: string) => {
-        await set(key, value)
-      },
-      removeItem: async (_k: string) => {
-        await del(key)
-      },
-    },
-    // Passed to storage under the covers, but our storage adapter ignores the
-    // key argument (we own the namespace). Leaving a stable literal keeps the
-    // persister's internal throttle bookkeeping predictable.
-    key: "alook-query-cache",
-    serialize: (client) => JSON.stringify(scrubDehydratedClient(client)),
-    deserialize: (raw) => JSON.parse(raw) as PersistedClient,
+export function createCommunityQueryPersister(
+  userId: string | null,
+): Persister {
+  return createUserScopedIdbPersister({
+    userId,
+    serialize: (client) => JSON.stringify(scrubCommunityPersistedClient(client)),
   })
-}
-
-/**
- * Delete the persisted blob for a given user id. Wire into the sign-out flow
- * so a shared machine doesn't leak the previous session's cached message
- * history to the next tab.
- */
-export async function clearPersistedCache(userId: string | null): Promise<void> {
-  await del(blobKeyFor(userId))
 }

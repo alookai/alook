@@ -26,7 +26,7 @@ vi.mock("@/lib/auth-client", () => ({
   signOut: vi.fn(),
 }))
 vi.mock("@/lib/chat-cache", () => ({ clearAllCache: vi.fn() }))
-vi.mock("@/lib/query-persister", () => ({ clearPersistedCache: vi.fn() }))
+vi.mock("@/platform/client", () => ({ clearPersistedQueryCache: vi.fn() }))
 vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenu: ({ children }: React.PropsWithChildren) => React.createElement("div", null, children),
   DropdownMenuContent: ({ children }: React.PropsWithChildren) => React.createElement("div", null, children),

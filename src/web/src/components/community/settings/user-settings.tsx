@@ -8,7 +8,7 @@ import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
-import { clearPersistedCache } from "@/lib/query-persister"
+import { clearPersistedQueryCache } from "@/platform/client"
 import { Avatar } from "../avatar"
 import { Field } from "./field"
 import { StatusEditor, hasStatus } from "../social/status-editor"
@@ -84,7 +84,7 @@ function AdvancedSettings({ userId }: { userId: string | null }) {
         onConfirm={async () => {
           setClearing(true)
           try {
-            await clearPersistedCache(userId)
+            await clearPersistedQueryCache(userId)
             toast("Local cache cleared — reloading")
             // Hard reload so the QueryClient starts fresh without racing an
             // in-flight persister write.

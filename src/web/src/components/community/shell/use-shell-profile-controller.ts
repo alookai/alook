@@ -18,7 +18,7 @@ import {
 import { resolveProfilePresence } from "@/lib/community/presence"
 import { avatarInitial } from "@/lib/community/avatar"
 import { signOut } from "@/lib/auth-client"
-import { clearPersistedCache } from "@/lib/query-persister"
+import { clearPersistedQueryCache } from "@/platform/client"
 import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
@@ -251,7 +251,7 @@ export function useShellProfileController({
     useCommunityWsStore.getState().reset()
     useMessageStreamStore.getState().resetAll()
     queryClient.clear()
-    await clearPersistedCache(currentUser.id).catch(() => {})
+    await clearPersistedQueryCache(currentUser.id).catch(() => {})
     await signOut()
     router.push("/sign-in")
   }

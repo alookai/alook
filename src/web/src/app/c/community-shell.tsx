@@ -2,7 +2,7 @@
 
 import { useEffect, type ReactNode } from "react"
 import { apiFetch } from "@/lib/api/client"
-import { QueryProvider } from "./QueryProvider"
+import { CommunityQueryProvider } from "@/modules/community/client"
 import {
   CurrentUserProvider,
   useCurrentUser,
@@ -34,11 +34,11 @@ export function CommunityShell({
   children: ReactNode
 }) {
   return (
-    <QueryProvider key={currentUser.id} userId={currentUser.id}>
+    <CommunityQueryProvider key={currentUser.id} userId={currentUser.id}>
       <CurrentUserProvider initialUser={currentUser}>
         <CommunityBootstrap>{children}</CommunityBootstrap>
       </CurrentUserProvider>
-    </QueryProvider>
+    </CommunityQueryProvider>
   )
 }
 

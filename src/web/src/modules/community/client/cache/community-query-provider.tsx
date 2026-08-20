@@ -3,13 +3,13 @@
 import { useState, type ReactNode } from "react"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client"
-import { createQueryClient } from "@/lib/query-client"
+import { createQueryClient } from "@/platform/client"
 import {
-  createIdbPersister,
-  PERSIST_BUSTER,
-  PERSIST_MAX_AGE_MS,
+  createCommunityQueryPersister,
+  COMMUNITY_QUERY_PERSIST_BUSTER,
+  COMMUNITY_QUERY_PERSIST_MAX_AGE_MS,
   shouldPersistQuery,
-} from "@/lib/query-persister"
+} from "./community-query-persistence"
 
 /**
  * Owns the TanStack QueryClient for the community subtree.
@@ -25,18 +25,20 @@ import {
  * the previous session's cached message list. Passing `null` (pre-auth) hits
  * an "anon" namespace that never carries real content.
  */
-export function QueryProvider({
+export function CommunityQueryProvider({
   children,
   userId,
 }: {
   children: ReactNode
   userId: string | null
 }) {
-  const [queryClient] = useState(() => createQueryClient())
+  const [queryClient] = useState(() => createQueryClient({
+    persistedCacheMaxAgeMs: COMMUNITY_QUERY_PERSIST_MAX_AGE_MS,
+  }))
   // Persister is bound to the userId at construction; on account switch the
   // whole community subtree unmounts and the shell re-renders with the new
   // id, so we don't need to reactively rebuild the persister mid-session.
-  const [persister] = useState(() => createIdbPersister(userId))
+  const [persister] = useState(() => createCommunityQueryPersister(userId))
   const isDev = process.env.NODE_ENV !== "production"
 
   return (
@@ -44,8 +46,8 @@ export function QueryProvider({
       client={queryClient}
       persistOptions={{
         persister,
-        maxAge: PERSIST_MAX_AGE_MS,
-        buster: PERSIST_BUSTER,
+        maxAge: COMMUNITY_QUERY_PERSIST_MAX_AGE_MS,
+        buster: COMMUNITY_QUERY_PERSIST_BUSTER,
         dehydrateOptions: {
           shouldDehydrateQuery: (query) => {
             // Two-stage filter:
