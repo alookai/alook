@@ -17,9 +17,32 @@ const API_SOURCE_PATHS = new Set([
   "src/daemon/agent-driver/src/registry.ts",
   "src/daemon/agent-driver/src/internal/adapter.ts",
 ]);
+const API_MECHANISM_PATHS = new Set([
+  ".github/CODEOWNERS",
+  ".github/api-surface-owners.json",
+  ".github/workflows/api-surface-check.yml",
+  ".github/workflows/api-surface-guard.yml",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "scripts/ci/api-report-contract.test.ts",
+  "scripts/ci/api-surface-guard.mjs",
+  "scripts/ci/api-surface-guard.test.ts",
+  "src/daemon/agent-driver/api-extractor.adapter-author.json",
+  "src/daemon/agent-driver/api-extractor.host.json",
+  "src/daemon/agent-driver/api-extractor.root.json",
+  "src/daemon/agent-driver/api-extractor.testing.json",
+  "src/daemon/agent-driver/package.json",
+  "src/daemon/agent-driver/scripts/api-reports.mjs",
+  "src/daemon/agent-driver/scripts/prepare-dist.mjs",
+  "src/daemon/agent-driver/scripts/prune-dist.mjs",
+  "src/daemon/agent-driver/tsconfig.build.json",
+  "src/daemon/agent-driver/tsconfig.json",
+  "vitest.config.ts",
+]);
 
 export function isApiSurfacePath(path) {
-  return path.startsWith(API_REPORT_PREFIX) || API_SOURCE_PATHS.has(path);
+  return path.startsWith(API_REPORT_PREFIX) || API_SOURCE_PATHS.has(path) || API_MECHANISM_PATHS.has(path);
 }
 
 export function collectChangedPaths(files, expectedChangedFileCount) {
@@ -104,6 +127,14 @@ export function evaluateApiSurfaceGuard(input) {
   }
   if (baseHasVersion && (!headHasVersion || headVersion < baseVersion)) {
     return { ok: false, reason: "adapter_author_contract_version_must_not_regress", changedApiPaths };
+  }
+  if (baseHasVersion && headHasVersion && headVersion > baseVersion) {
+    const isBreakingReportChange = adapterAuthorReportChanged
+      && selectedLabels.length === 1
+      && selectedLabels[0] === "api-breaking";
+    if (!isBreakingReportChange) {
+      return { ok: false, reason: "adapter_author_contract_version_bump_requires_breaking_report", changedApiPaths };
+    }
   }
   if (adapterAuthorReportChanged && !headHasVersion) {
     return { ok: false, reason: "adapter_author_contract_version_required", changedApiPaths };

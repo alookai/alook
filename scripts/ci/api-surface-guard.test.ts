@@ -105,6 +105,27 @@ describe("api surface approval guard", () => {
     }
   });
 
+  it("allows established version bumps only for a breaking adapter-author report", () => {
+    expect(evaluate({
+      changedPaths: [golden],
+      labels: ["api-additive"],
+      baseContractVersion: 1,
+      headContractVersion: 2,
+    })).toMatchObject({ ok: false, reason: "adapter_author_contract_version_bump_requires_breaking_report" });
+    expect(evaluate({
+      changedPaths: [publicSource],
+      labels: ["api-breaking"],
+      baseContractVersion: 1,
+      headContractVersion: 2,
+    })).toMatchObject({ ok: false, reason: "adapter_author_contract_version_bump_requires_breaking_report" });
+    expect(evaluate({
+      changedPaths: [golden],
+      labels: [],
+      baseContractVersion: 1,
+      headContractVersion: 2,
+    })).toMatchObject({ ok: false, reason: "adapter_author_contract_version_bump_requires_breaking_report" });
+  });
+
   it("reads one canonical contract declaration as the first non-comment statement", () => {
     expect(parseAdapterAuthorContractVersion([
       "/** Adapter-author contract version. */",
@@ -161,14 +182,48 @@ describe("api surface approval guard", () => {
     })).toEqual({ ok: true, reason: "no_api_surface_change" });
   });
 
+  it("protects the API report generation chain and trusted guard mechanism itself", () => {
+    const mechanismPaths = [
+      ".github/CODEOWNERS",
+      ".github/api-surface-owners.json",
+      ".github/workflows/api-surface-check.yml",
+      ".github/workflows/api-surface-guard.yml",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "scripts/ci/api-report-contract.test.ts",
+      "scripts/ci/api-surface-guard.mjs",
+      "scripts/ci/api-surface-guard.test.ts",
+      "src/daemon/agent-driver/api-extractor.adapter-author.json",
+      "src/daemon/agent-driver/api-extractor.host.json",
+      "src/daemon/agent-driver/api-extractor.root.json",
+      "src/daemon/agent-driver/api-extractor.testing.json",
+      "src/daemon/agent-driver/package.json",
+      "src/daemon/agent-driver/scripts/api-reports.mjs",
+      "src/daemon/agent-driver/scripts/prepare-dist.mjs",
+      "src/daemon/agent-driver/scripts/prune-dist.mjs",
+      "src/daemon/agent-driver/tsconfig.build.json",
+      "src/daemon/agent-driver/tsconfig.json",
+      "vitest.config.ts",
+    ];
+    for (const path of mechanismPaths) {
+      expect(evaluate({ changedPaths: [path], labels: [], reviews: [] }))
+        .toMatchObject({ ok: false, reason: "exactly_one_api_label_required" });
+    }
+  });
+
   it("keeps approval enforcement base-owned and never executes pull-request head code", () => {
     const workflow = readFileSync(resolve(process.cwd(), ".github/workflows/api-surface-guard.yml"), "utf8");
-    expect(workflow).toContain("pull_request_target:");
-    expect(workflow).toMatch(/pull_request_review:\n\s+types: \[submitted, dismissed\]/);
-    expect(workflow).toContain("if: github.event.pull_request.base.ref == 'main'");
-    expect(workflow).toContain("ref: ${{ github.event.pull_request.base.sha }}");
-    expect(workflow).not.toContain("pnpm install");
-    expect(workflow).not.toContain("pull request head");
-    expect(workflow).not.toContain("if [[ ! -f");
+    const lfWorkflow = workflow.replaceAll("\r\n", "\n");
+    for (const workflowSource of [lfWorkflow, lfWorkflow.replaceAll("\n", "\r\n")]) {
+      const normalizedWorkflow = workflowSource.replaceAll("\r\n", "\n");
+      expect(normalizedWorkflow).toContain("pull_request_target:");
+      expect(normalizedWorkflow).toMatch(/pull_request_review:\n\s+types: \[submitted, dismissed\]/);
+      expect(normalizedWorkflow).toContain("if: github.event.pull_request.base.ref == 'main'");
+      expect(normalizedWorkflow).toContain("ref: ${{ github.event.pull_request.base.sha }}");
+      expect(normalizedWorkflow).not.toContain("pnpm install");
+      expect(normalizedWorkflow).not.toContain("pull request head");
+      expect(normalizedWorkflow).not.toContain("if [[ ! -f");
+    }
   });
 });
