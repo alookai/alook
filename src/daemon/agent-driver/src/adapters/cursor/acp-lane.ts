@@ -137,6 +137,8 @@ export class CursorAcpLane implements RuntimeLane {
   private stopPromise?: Promise<void>;
   private suppressExit = false;
   private processTerminal = false;
+  private processActivated = false;
+  private processStartError: Error | null = null;
 
   constructor(
     private readonly factory: CursorAcpProcessFactory,
@@ -181,8 +183,13 @@ export class CursorAcpLane implements RuntimeLane {
         await this.stop({ reason: this.requestedStopReason, forceAfterMs: 0 });
         throw new Error("Cursor ACP start was cancelled");
       }
+      if (this.processStartError) throw this.processStartError;
+      if (this.processTerminal || this.isClosed()) {
+        throw new Error("Cursor ACP process exited during startup");
+      }
       const sessionId = this.sessionId;
       if (!sessionId) throw new Error("Cursor ACP handshake completed without a session id");
+      this.processActivated = true;
       this.ready = true;
       this.events.emit("runtime_event", { kind: "session_init", sessionId } satisfies AdapterEvent);
       return this.admitPrompt(input.text);
@@ -459,7 +466,8 @@ export class CursorAcpLane implements RuntimeLane {
       if (this.process !== proc || this.processTerminal) return;
       const normalized = error instanceof Error ? error : new Error(String(error));
       this.rejectAllPending(normalized);
-      if (!this.ready) {
+      if (!this.processActivated || this.requestedStopReason) {
+        if (!this.processActivated) this.processStartError ??= normalized;
         this.events.emit("error", normalized);
         return;
       }
@@ -484,7 +492,7 @@ export class CursorAcpLane implements RuntimeLane {
       this.activePrompt = null;
       this.openToolCalls.clear();
       this.rejectAllPending(new Error("Cursor ACP process exited"));
-      if (this.suppressExit) return;
+      if (this.suppressExit || !this.processActivated) return;
       this.events.emit("exit", {
         code,
         signal,

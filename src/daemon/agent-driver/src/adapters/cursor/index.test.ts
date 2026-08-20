@@ -610,6 +610,35 @@ describe("CursorDriver persistent ACP transport", () => {
     expect(spawned[0]!.kill).toHaveBeenCalledOnce();
   });
 
+  it("does not activate when the process exits with the final handshake response", async () => {
+    const messages: RpcMessage[] = [];
+    onClientMessage = (process, message) => {
+      messages.push(message);
+      if (message.method === "initialize") {
+        respond(process, message, {
+          protocolVersion: 1,
+          agentCapabilities: { loadSession: true },
+          authMethods: [{ id: "cursor_login" }],
+        });
+      } else if (message.method === "authenticate") {
+        respond(process, message, {});
+      } else if (message.method === "session/new") {
+        respond(process, message, { sessionId: "cursor-acp-session", configOptions: [] });
+        process.finish(17, null);
+      }
+    };
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const exits: unknown[] = [];
+    lane.on("error", () => {});
+    lane.on("runtime_event", () => {});
+    lane.on("exit", (exit) => exits.push(exit));
+
+    await expect(lane.start({ text: "must not admit" })).rejects.toThrow("process exited during startup");
+    expect(messages.some((message) => message.method === "session/prompt")).toBe(false);
+    expect(exits).toEqual([]);
+    expect(spawned[0]!.kill).not.toHaveBeenCalled();
+  });
+
   it("keeps a pre-spawn stop durable and terminates the eventual process exactly once", async () => {
     const spawnGate = deferred<{ process: FakeProcess }>();
     const driver = new CursorDriver();
@@ -824,6 +853,49 @@ describe("CursorDriver persistent ACP transport", () => {
     expect(errors).toEqual([new Error("EIO")]);
     expect(exits).toEqual([]);
     expect(process.kill).toHaveBeenCalledOnce();
+  });
+
+  it("keeps same-tick handshake error then exit under failed-start ownership", async () => {
+    const messages: RpcMessage[] = [];
+    onClientMessage = (_process, message) => { messages.push(message); };
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const errors: Error[] = [];
+    const exits: unknown[] = [];
+    lane.on("error", (error) => errors.push(error instanceof Error ? error : new Error(String(error))));
+    lane.on("runtime_event", () => {});
+    lane.on("exit", (exit) => exits.push(exit));
+    const starting = lane.start({ text: "must not admit" });
+    await vi.waitFor(() => expect(messages.map((message) => message.method)).toEqual(["initialize"]));
+    const process = spawned[0]!;
+
+    process.emit("error", new Error("EIO"));
+    process.finish(17, null);
+
+    await expect(starting).rejects.toThrow("EIO");
+    expect(errors).toEqual([new Error("EIO")]);
+    expect(exits).toEqual([]);
+    expect(process.kill).not.toHaveBeenCalled();
+  });
+
+  it("keeps a bare handshake exit under failed-start ownership", async () => {
+    const messages: RpcMessage[] = [];
+    onClientMessage = (_process, message) => { messages.push(message); };
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const errors: Error[] = [];
+    const exits: unknown[] = [];
+    lane.on("error", (error) => errors.push(error instanceof Error ? error : new Error(String(error))));
+    lane.on("runtime_event", () => {});
+    lane.on("exit", (exit) => exits.push(exit));
+    const starting = lane.start({ text: "must not admit" });
+    await vi.waitFor(() => expect(messages.map((message) => message.method)).toEqual(["initialize"]));
+    const process = spawned[0]!;
+
+    process.finish(17, null);
+
+    await expect(starting).rejects.toThrow("Cursor ACP process exited");
+    expect(errors).toEqual([]);
+    expect(exits).toEqual([]);
+    expect(process.kill).not.toHaveBeenCalled();
   });
 
   it("fails malformed JSON and reports an unexpected ACP process exit", async () => {
