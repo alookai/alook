@@ -216,6 +216,8 @@ jobs:
           restore-keys: |
             turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
       - run: pnpm install --frozen-lockfile
+      - name: Run Windows process authority fixtures
+        run: pnpm --filter @alook/agent-driver exec vitest run src/internal/killTree.test.ts
       - name: Run daemon tests in isolation
         if: needs.scope.outputs.full == 'true'
         env:

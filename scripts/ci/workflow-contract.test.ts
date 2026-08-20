@@ -118,6 +118,16 @@ describe("CI test budgets", () => {
   it("gives the slower Windows workspace suite enough job time", () => {
     expect(ciJob("test-windows")).toContain("timeout-minutes: 15")
   })
+
+  it("runs Windows process-authority fixtures before the daemon suite", () => {
+    const windows = ciJob("test-windows")
+    const processAuthority = windows.indexOf(
+      "pnpm --filter @alook/agent-driver exec vitest run src/internal/killTree.test.ts",
+    )
+    const daemon = windows.indexOf("pnpm turbo run test --filter=@alook/daemon")
+    expect(processAuthority).toBeGreaterThan(0)
+    expect(daemon).toBeGreaterThan(processAuthority)
+  })
 })
 
 describe("CI dependency setup", () => {
