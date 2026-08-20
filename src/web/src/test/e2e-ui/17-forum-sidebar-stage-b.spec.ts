@@ -1,3 +1,4 @@
+import type { Request } from "@playwright/test"
 import { test, expect } from "./_fixtures/community-fixture"
 import { tid } from "./_fixtures/testids"
 import { seedChannel, seedForumThread, seedServer } from "./_fixtures/seed"
@@ -40,13 +41,20 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
   test("a cold direct child and hard refresh use one combined GET with no exact meta/opener GETs", async ({ asUser }) => {
     const { page } = await asUser("alice")
     const requests: string[] = []
-    const successfulResponses: string[] = []
+    type CapturePhase = "cold" | "refresh"
+    let capturePhase: CapturePhase = "cold"
+    const requestPhases = new WeakMap<Request, CapturePhase>()
+    const successfulResponses: { phase: CapturePhase; url: string }[] = []
     page.on("request", (request) => {
+      requestPhases.set(request, capturePhase)
       if (request.method() === "GET") requests.push(request.url())
     })
     page.on("response", (response) => {
       if (response.request().method() === "GET" && response.ok()) {
-        successfulResponses.push(response.url())
+        successfulResponses.push({
+          phase: requestPhases.get(response.request()) ?? capturePhase,
+          url: response.url(),
+        })
       }
     })
 
@@ -74,9 +82,11 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     expect(requests.filter((url) => isExactChannelRequest(url, threadId))).toHaveLength(0)
     expect(requests.filter(isExactMessageRequest)).toHaveLength(0)
     const coldMessageRequests = requests.filter((url) => isChannelMessagesRequest(url, threadId))
-    const coldSuccessfulMessageResponses = successfulResponses.filter((url) =>
-      isChannelMessagesRequest(url, threadId),
-    )
+    const coldSuccessfulMessageResponses = successfulResponses
+      .filter(({ phase, url }) => (
+        phase === "cold" && isChannelMessagesRequest(url, threadId)
+      ))
+      .map(({ url }) => url)
     expect(coldSuccessfulMessageResponses).toHaveLength(2)
     expect(coldSuccessfulMessageResponses.filter((url) => !new URL(url).searchParams.has("anchor")))
       .toHaveLength(1)
@@ -87,6 +97,7 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
 
     requests.length = 0
     successfulResponses.length = 0
+    capturePhase = "refresh"
     const refreshCombined = page.waitForResponse((response) =>
       response.ok() && isSidebarRequest(response.url(), serverId),
     )
@@ -104,9 +115,11 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     expect(requests.filter(isExactMessageRequest)).toHaveLength(0)
     const refreshMessageRequests = requests.filter((url) => isChannelMessagesRequest(url, threadId))
     expect(refreshMessageRequests.length).toBeGreaterThanOrEqual(1)
-    const refreshSuccessfulMessageResponses = successfulResponses.filter((url) =>
-      isChannelMessagesRequest(url, threadId),
-    )
+    const refreshSuccessfulMessageResponses = successfulResponses
+      .filter(({ phase, url }) => (
+        phase === "refresh" && isChannelMessagesRequest(url, threadId)
+      ))
+      .map(({ url }) => url)
     const refreshNewestResponses = refreshSuccessfulMessageResponses.filter((url) =>
       !new URL(url).searchParams.has("anchor"),
     )
