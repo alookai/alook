@@ -13,11 +13,16 @@
  * — always go through `spawnAgentProcess` here, so the detached contract
  * can't be silently skipped by a new (or edited) driver.
  *
- * SIGTERM is a request; after a grace window we escalate to SIGKILL.
+ * On POSIX, SIGTERM is a request and we escalate the process group to SIGKILL
+ * after a grace window. Windows has no equivalent process-group signal, so we
+ * delegate recursive termination to `taskkill /T`, escalating to `/F` after the
+ * same grace window. Awaiting taskkill is important: killing only the `.cmd`
+ * shell pid can leave the actual runtime alive and holding its cwd open.
  */
 import { spawn, type ChildProcess } from "child_process";
 
 const POLL_MS = 100;
+const FORCE_EXIT_WAIT_MS = 2_000;
 /**
  * Standard grace before SIGKILL when the manager stops a running session.
  * Every session-level stop path (logical stop, forced stop,
@@ -105,9 +110,63 @@ function signalTree(pid: number, signal: NodeJS.Signals): void {
   }
 }
 
+/** Run Windows' forced process-tree terminator and await its tree walk. */
+function taskkillTree(pid: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const killer = spawn("taskkill.exe", ["/pid", String(pid), "/t", "/f"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    let settled = false;
+    const settle = (result: "resolve" | "reject", error?: Error) => {
+      if (settled) return;
+      settled = true;
+      if (result === "resolve") resolve();
+      else reject(error);
+    };
+    killer.once("error", (error) => {
+      settle("reject", new Error(`failed to launch Windows process-tree termination: ${error.message}`));
+    });
+    killer.once("close", (code, signal) => {
+      if (code === 0) {
+        settle("resolve");
+        return;
+      }
+      settle(
+        "reject",
+        new Error(`Windows process-tree termination failed (exit=${String(code)}, signal=${String(signal)})`),
+      );
+    });
+  });
+}
+
+async function killWindowsProcessTree(pid: number, graceMs: number): Promise<void> {
+  const deadline = Date.now() + graceMs;
+  while (Date.now() < deadline) {
+    if (!isAlive(pid)) return;
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+  }
+
+  if (!isAlive(pid)) return;
+  // A single /T /F call snapshots and terminates the complete tree while the
+  // wrapper pid is still alive. Killing the wrapper first would orphan the
+  // actual runtime and make a later tree walk unable to discover it.
+  await taskkillTree(pid);
+  await waitForProcessExit(pid, FORCE_EXIT_WAIT_MS);
+  if (isAlive(pid)) throw new Error(`Windows process tree ${pid} remained alive after taskkill completed`);
+}
+
+async function waitForProcessExit(pid: number, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (isAlive(pid) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+  }
+}
+
 /**
- * Terminate `pid` and its descendants: group SIGTERM, then group SIGKILL after
- * `graceMs`. Returns promptly when the target is already dead.
+ * Terminate `pid` and its descendants: POSIX process-group signals or Windows
+ * taskkill tree traversal, with force escalation after `graceMs`. Returns
+ * promptly when the target is already dead.
  */
 export async function killProcessTree(
   pid: number,
@@ -117,6 +176,10 @@ export async function killProcessTree(
   if (!isAlive(pid)) return;
 
   const graceMs = opts?.graceMs ?? DEFAULT_GRACE_MS;
+  if (!isPosix) {
+    await killWindowsProcessTree(pid, graceMs);
+    return;
+  }
   signalTree(pid, "SIGTERM");
 
   const deadline = Date.now() + graceMs;
@@ -127,5 +190,7 @@ export async function killProcessTree(
 
   if (isAlive(pid)) {
     signalTree(pid, "SIGKILL");
+    await waitForProcessExit(pid, FORCE_EXIT_WAIT_MS);
+    if (isAlive(pid)) throw new Error(`POSIX process tree ${pid} remained alive after SIGKILL`);
   }
 }

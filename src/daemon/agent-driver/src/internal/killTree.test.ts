@@ -1,5 +1,9 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { spawn, type ChildProcess } from "child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createInterface } from "node:readline";
 import { spawnAgentProcess, killProcessTree, isAlive } from "./killTree.js";
 
 /**
@@ -10,6 +14,8 @@ import { spawnAgentProcess, killProcessTree, isAlive } from "./killTree.js";
  */
 
 const spawned: ChildProcess[] = [];
+const spawnedDescendantPids: number[] = [];
+const tempDirs: string[] = [];
 
 /** A child that just idles until signaled. */
 function spawnIdleChild(opts: { detached?: boolean } = {}): ChildProcess {
@@ -42,6 +48,18 @@ afterEach(() => {
         // already dead
       }
     }
+  }
+  for (const pid of spawnedDescendantPids.splice(0)) {
+    if (isAlive(pid)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // already dead
+      }
+    }
+  }
+  for (const dir of tempDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   }
 });
 
@@ -99,6 +117,69 @@ describe("killProcessTree", () => {
     await killProcessTree(proc.pid!, { graceMs: 300 });
 
     expect(isAlive(proc.pid!)).toBe(false);
+  });
+
+  it("kills runtime descendants before releasing a shell-owning workspace", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "agent-driver-tree-"));
+    tempDirs.push(cwd);
+    const childModule = join(cwd, "child.mjs");
+    const parentModule = join(cwd, "parent.mjs");
+    writeFileSync(childModule, "setInterval(() => {}, 1000);\n");
+    writeFileSync(parentModule, `
+      import { spawn } from "node:child_process";
+      const child = spawn(process.execPath, [${JSON.stringify(childModule)}], {
+        cwd: process.cwd(),
+        stdio: "ignore",
+      });
+      child.once("spawn", () => process.stdout.write(String(child.pid) + "\\n"));
+      setInterval(() => {}, 1000);
+    `);
+    const command = process.platform === "win32" ? join(cwd, "runtime.cmd") : process.execPath;
+    const args = process.platform === "win32" ? [] : [parentModule];
+    if (process.platform === "win32") {
+      writeFileSync(command, `@node "%~dp0\\parent.mjs"\r\n`);
+    }
+    const proc = spawnAgentProcess(command, args, {
+      cwd,
+      env: process.env,
+      // Exercise the `.cmd` launch shape on Windows: the tracked pid is the
+      // command shell, while the runtime and its descendants own the cwd.
+      shell: process.platform === "win32",
+    });
+    spawned.push(proc);
+    await new Promise((resolve) => proc.once("spawn", resolve));
+    const lines = createInterface({ input: proc.stdout! });
+    const childPid = await new Promise<number>((resolve, reject) => {
+      lines.once("line", (line) => resolve(Number(line)));
+      proc.once("exit", () => reject(new Error("parent exited before reporting its child pid")));
+    });
+    lines.close();
+    spawnedDescendantPids.push(childPid);
+    expect(Number.isInteger(childPid)).toBe(true);
+    expect(isAlive(proc.pid!)).toBe(true);
+    expect(isAlive(childPid)).toBe(true);
+
+    await killProcessTree(proc.pid!, { graceMs: 0 });
+
+    expect(isAlive(proc.pid!)).toBe(false);
+    expect(isAlive(childPid)).toBe(false);
+    rmSync(cwd, { recursive: true, force: true });
+    tempDirs.splice(tempDirs.indexOf(cwd), 1);
+  });
+
+  it("rejects when forced POSIX termination cannot make the target exit", async () => {
+    if (process.platform === "win32") return;
+    vi.useFakeTimers();
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => true);
+    try {
+      const stopped = killProcessTree(999_999, { graceMs: 0 });
+      const rejection = expect(stopped).rejects.toThrow("remained alive after SIGKILL");
+      await vi.advanceTimersByTimeAsync(2_100);
+      await rejection;
+    } finally {
+      kill.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });
 

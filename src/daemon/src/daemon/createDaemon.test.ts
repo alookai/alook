@@ -361,10 +361,9 @@ for await (const line of createInterface({ input: process.stdin })) {
     expect(readFileSync(join(workingDirectory, "CLAUDE.md"), "utf8")).toBe("Fresh daemon instructions.");
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
     await session.closed;
-    // Windows can retain the spawned .cmd/Node tree's cwd handle briefly
-    // after taskkill reports success. Keep fixture cleanup bounded but retry
-    // the documented transient EBUSY case instead of making the test flaky.
-    rmSync(base, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    // `session.closed` is a teardown ownership boundary: the spawned shell and
+    // every runtime descendant must have released the workspace by this point.
+    rmSync(base, { recursive: true, force: true });
   });
 
   it("routes local reminder expiry through the manager and cancels on exact-scope wake/stop/removal/daemon stop", async () => {
