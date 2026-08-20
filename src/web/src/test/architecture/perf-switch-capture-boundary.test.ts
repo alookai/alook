@@ -25,6 +25,26 @@ function expectOrdered(text: string, tokens: string[]): void {
 }
 
 describe("performance switch capture boundary", () => {
+  it("passes both bounded waits through Playwright's third options argument", () => {
+    const readiness = sourceBetween(
+      "  // Prove the react-scan hook registered early enough:",
+      "  const degraded =",
+    )
+    const measure = sourceBetween(
+      "  async function measureSwitch(",
+      "\n  function flushCapture",
+    )
+
+    expect(readiness).toMatch(
+      /page\.waitForFunction\(\s*\(\) =>[\s\S]*?,\s*undefined,\s*\{ timeout: 20_000 \},\s*\)/,
+    )
+    expect(measure).toMatch(
+      /\.waitForFunction\(\s*\(\{ kind, targetId, composerTestId \}\) =>[\s\S]*?,\s*\{ kind, targetId, composerTestId: tid\.composerInput \},\s*\{ timeout: 25_000 \},\s*\)/,
+    )
+    expect(source).toContain('import { tid } from "../_fixtures/testids"')
+    expect(measure).not.toContain("community-composer-input")
+  })
+
   it("replaces stale React events after readiness and immediately before navigation", () => {
     const readiness = "Array.isArray(window.__ALOOK_PERF__) && window.__ALOOK_PERF__.length > 0"
     const measureStart = "  async function measureSwitch("
@@ -54,6 +74,37 @@ describe("performance switch capture boundary", () => {
       "window.__PERF_LAYOUT_OBSERVER__ = lo",
       "lo.observe({ type: 'layout-shift', buffered: true })",
     ])
+  })
+
+  it("guards skeleton and asymmetric paint anchors with the measured route", () => {
+    const measure = sourceBetween(
+      "  async function measureSwitch(",
+      "\n  function flushCapture",
+    )
+
+    expectOrdered(measure, [
+      'const routeSegments = window.location.pathname.split("/").filter(Boolean)',
+      "routeSegments.length === 4",
+      'routeSegments[0] === "c"',
+      'routeSegments[1] === "channels"',
+      'routeSegments[3] === targetId',
+      'routeSegments[2] === targetId',
+      "if (!targetRoute) return false",
+      "window.__PERF_SKELETON_TS__ = performance.now()",
+      'const messageRow = document.querySelector("[data-msg-id]")',
+      "const loadedEmptyHero = Array.from(",
+      'startsWith("Beginning of the channel.")',
+      "const composer = document.querySelector(",
+      '`[data-testid="${composerTestId}"]`',
+      "const painted =",
+      'kind === "channel"',
+      "? messageRow",
+      ": messageRow || (loadedEmptyHero && composer)",
+      "window.__PERF_PAINTED_TS__ = performance.now()",
+    ])
+    expect(measure).not.toMatch(
+      /kind === "channel"[\s\S]*?loadedEmptyHero && composer[\s\S]*?\? messageRow/,
+    )
   })
 
   it("preserves current-switch filtering, full fibers, settle, and incremental flush", () => {

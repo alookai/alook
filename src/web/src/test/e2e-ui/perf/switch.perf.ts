@@ -39,6 +39,7 @@ import type {
   CapturedSwitch,
   SwitchKind,
 } from "./perf-capture-types"
+import { tid } from "../_fixtures/testids"
 
 const BASE_URL = process.env.ALOOK_SERVER_URL || "http://localhost:3000"
 const ARTIFACTS_DIR = resolve(__dirname, "..", "..", "..", "..", "perf-artifacts")
@@ -220,9 +221,11 @@ test("community switch perceived-latency capture", async ({ browser }) => {
   )
   // Prove the react-scan hook registered early enough: commit events must
   // actually arrive (not merely that hooks are "available").
-  await page.waitForFunction(() => Array.isArray(window.__ALOOK_PERF__) && window.__ALOOK_PERF__.length > 0, {
-    timeout: 20_000,
-  })
+  await page.waitForFunction(
+    () => Array.isArray(window.__ALOOK_PERF__) && window.__ALOOK_PERF__.length > 0,
+    undefined,
+    { timeout: 20_000 },
+  )
   const degraded = await page.evaluate(() => window.__ALOOK_PERF_DEGRADED__ === true)
   expect(degraded, "react-scan profiling hooks live").toBe(false)
 
@@ -265,7 +268,17 @@ test("community switch perceived-latency capture", async ({ browser }) => {
     // so skeleton stays null there (correctly — there was no loading spell).
     await page
       .waitForFunction(
-        () => {
+        ({ kind, targetId, composerTestId }) => {
+          const routeSegments = window.location.pathname.split("/").filter(Boolean)
+          const targetRoute =
+            routeSegments.length === 4 &&
+            routeSegments[0] === "c" &&
+            routeSegments[1] === "channels" &&
+            (kind === "channel"
+              ? routeSegments[3] === targetId
+              : routeSegments[2] === targetId)
+          if (!targetRoute) return false
+
           // Scope the skeleton probe to the message scroll container — a bare
           // `[data-slot=skeleton]` also matches sidebar/member-list skeletons
           // elsewhere on the page (and leftovers from the prior switch), which
@@ -277,12 +290,28 @@ test("community switch perceived-latency capture", async ({ browser }) => {
           ) {
             window.__PERF_SKELETON_TS__ = performance.now()
           }
-          const painted = document.querySelector("[data-msg-id]")
+          const messageRow = document.querySelector("[data-msg-id]")
+          const loadedEmptyHero = Array.from(
+            document.querySelectorAll(".thin-scrollbar h2"),
+          ).some((heading) =>
+            heading.parentElement
+              ?.querySelector("p")
+              ?.textContent?.trim()
+              .startsWith("Beginning of the channel."),
+          )
+          const composer = document.querySelector(
+            `[data-testid="${composerTestId}"]`,
+          )
+          const painted =
+            kind === "channel"
+              ? messageRow
+              : messageRow || (loadedEmptyHero && composer)
           if (painted && window.__PERF_PAINTED_TS__ == null) {
             window.__PERF_PAINTED_TS__ = performance.now()
           }
           return window.__PERF_PAINTED_TS__ != null
         },
+        { kind, targetId, composerTestId: tid.composerInput },
         { timeout: 25_000 },
       )
       .catch(() => {})
