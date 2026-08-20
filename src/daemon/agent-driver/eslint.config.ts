@@ -19,11 +19,25 @@ export default defineConfig([
         {
           paths: ["child_process", "node:child_process"].map((name) => ({
             name,
-            importNames: ["spawn"],
             message:
-              "Use spawnAgentProcess from the agent-driver killTree helper so every agent CLI retains the shared process-tree teardown contract.",
+              "Do not import child_process in production adapters. Use the agent-driver process helpers so every agent CLI retains the shared process-tree teardown contract.",
           })),
         },
+      ],
+      "no-restricted-syntax": [
+        "error",
+        ...["child_process", "node:child_process"].flatMap((name) => [
+          {
+            selector: `ImportExpression[source.value='${name}']`,
+            message:
+              "Do not dynamically import child_process in production adapters. Use the agent-driver process helpers.",
+          },
+          {
+            selector: `CallExpression[callee.name='require'][arguments.0.value='${name}']`,
+            message:
+              "Do not require child_process in production adapters. Use the agent-driver process helpers.",
+          },
+        ]),
       ],
     },
   },

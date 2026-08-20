@@ -44,11 +44,13 @@ const WINDOWS_JOB_NODE_ENV = "ALOOK_WINDOWS_JOB_NODE";
 const WINDOWS_JOB_PAYLOAD_ENV = "ALOOK_WINDOWS_JOB_PAYLOAD";
 const WINDOWS_JOB_RUNNER_ENV = "ALOOK_WINDOWS_JOB_RUNNER";
 
-// The tracked Windows child is a PowerShell supervisor that puts itself in a
-// kill-on-close Job Object before starting the real CLI. Every descendant then
-// inherits the job, so the kernel retains tree authority after a `.cmd` shell
-// or runtime root exits. The inner Node process preserves Node's normal argv,
-// shell, environment, and raw inherited-stdio behavior.
+// The tracked Windows child is a PowerShell supervisor that owns a kill-on-close
+// Job Object. It creates the inner Node process suspended, gives it the
+// supervisor's raw standard handles, assigns it to the job, and only then
+// resumes it. Every descendant inherits the job, so the kernel retains tree
+// authority after a `.cmd` shell or runtime root exits. The inner Node process
+// preserves Node's normal argv, shell, environment, and inherited-stdio
+// behavior without asking PowerShell to proxy the protocol streams.
 const WINDOWS_JOB_RUNNER = "const{spawn}=require('node:child_process');const p=JSON.parse(Buffer.from(process.env.ALOOK_WINDOWS_JOB_PAYLOAD,'base64').toString('utf8'));delete process.env.ALOOK_WINDOWS_JOB_NODE;delete process.env.ALOOK_WINDOWS_JOB_PAYLOAD;delete process.env.ALOOK_WINDOWS_JOB_RUNNER;const c=spawn(p.command,p.args,{cwd:p.cwd,env:process.env,shell:p.shell,stdio:'inherit',windowsHide:true});c.once('error',e=>{console.error(e);process.exitCode=1});c.once('exit',(code,signal)=>{process.exitCode=signal?1:(code??1)})";
 
 const WINDOWS_JOB_BOOTSTRAP = String.raw`
@@ -56,8 +58,8 @@ $ErrorActionPreference = "Stop"
 Add-Type -TypeDefinition @"
 using System;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 
 public static class AlookAgentJob {
   [StructLayout(LayoutKind.Sequential)]
@@ -93,6 +95,36 @@ public static class AlookAgentJob {
     public UIntPtr PeakJobMemoryUsed;
   }
 
+  [StructLayout(LayoutKind.Sequential)]
+  private struct StartupInfo {
+    public uint Size;
+    public IntPtr Reserved;
+    public IntPtr Desktop;
+    public IntPtr Title;
+    public uint X;
+    public uint Y;
+    public uint XSize;
+    public uint YSize;
+    public uint XCountChars;
+    public uint YCountChars;
+    public uint FillAttribute;
+    public uint Flags;
+    public ushort ShowWindow;
+    public ushort Reserved2Size;
+    public IntPtr Reserved2;
+    public IntPtr StdInput;
+    public IntPtr StdOutput;
+    public IntPtr StdError;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct ProcessInformation {
+    public IntPtr Process;
+    public IntPtr Thread;
+    public uint ProcessId;
+    public uint ThreadId;
+  }
+
   [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
   private static extern IntPtr CreateJobObject(IntPtr attributes, string name);
 
@@ -107,26 +139,132 @@ public static class AlookAgentJob {
   [DllImport("kernel32.dll", SetLastError = true)]
   private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
 
-  public static IntPtr AttachCurrentProcess() {
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  private static extern bool CreateProcessW(
+    string applicationName,
+    StringBuilder commandLine,
+    IntPtr processAttributes,
+    IntPtr threadAttributes,
+    bool inheritHandles,
+    uint creationFlags,
+    IntPtr environment,
+    string currentDirectory,
+    ref StartupInfo startupInfo,
+    out ProcessInformation processInformation
+  );
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern IntPtr GetStdHandle(int standardHandle);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern uint ResumeThread(IntPtr thread);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern bool TerminateProcess(IntPtr process, uint exitCode);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern bool CloseHandle(IntPtr handle);
+
+  private static IntPtr CreateKillOnCloseJob() {
     const uint KillOnJobClose = 0x00002000;
     const int ExtendedLimitInformation = 9;
     IntPtr job = CreateJobObject(IntPtr.Zero, null);
     if (job == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateJobObject failed");
     var limits = new ExtendedLimits();
     limits.BasicLimitInformation.LimitFlags = KillOnJobClose;
-    if (!SetInformationJobObject(job, ExtendedLimitInformation, ref limits, (uint)Marshal.SizeOf(limits)))
-      throw new Win32Exception(Marshal.GetLastWin32Error(), "SetInformationJobObject failed");
-    if (!AssignProcessToJobObject(job, Process.GetCurrentProcess().Handle))
-      throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject failed");
+    if (!SetInformationJobObject(job, ExtendedLimitInformation, ref limits, (uint)Marshal.SizeOf(limits))) {
+      int error = Marshal.GetLastWin32Error();
+      CloseHandle(job);
+      throw new Win32Exception(error, "SetInformationJobObject failed");
+    }
     return job;
+  }
+
+  private static string QuoteArgument(string value) {
+    if (value.Length == 0) return "\"\"";
+    if (value.IndexOfAny(new[] { ' ', '\t', '\n', '\v', '"' }) < 0) return value;
+    var quoted = new StringBuilder("\"");
+    int backslashes = 0;
+    foreach (char character in value) {
+      if (character == '\\') {
+        backslashes++;
+      } else if (character == '"') {
+        quoted.Append('\\', backslashes * 2 + 1);
+        quoted.Append('"');
+        backslashes = 0;
+      } else {
+        quoted.Append('\\', backslashes);
+        quoted.Append(character);
+        backslashes = 0;
+      }
+    }
+    quoted.Append('\\', backslashes * 2);
+    quoted.Append('"');
+    return quoted.ToString();
+  }
+
+  public static int RunNode(string nodePath, string runner) {
+    const uint CreateSuspended = 0x00000004;
+    const uint StartfUseStdHandles = 0x00000100;
+    const uint Infinite = 0xffffffff;
+    const uint WaitFailed = 0xffffffff;
+    IntPtr job = CreateKillOnCloseJob();
+    var startup = new StartupInfo();
+    startup.Size = (uint)Marshal.SizeOf(startup);
+    startup.Flags = StartfUseStdHandles;
+    startup.StdInput = GetStdHandle(-10);
+    startup.StdOutput = GetStdHandle(-11);
+    startup.StdError = GetStdHandle(-12);
+    var commandLine = new StringBuilder(
+      QuoteArgument(nodePath) + " -e " + QuoteArgument(runner)
+    );
+    ProcessInformation child;
+    try {
+      if (!CreateProcessW(
+        nodePath,
+        commandLine,
+        IntPtr.Zero,
+        IntPtr.Zero,
+        true,
+        CreateSuspended,
+        IntPtr.Zero,
+        null,
+        ref startup,
+        out child
+      )) throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateProcessW failed");
+      bool assigned = false;
+      try {
+        if (!AssignProcessToJobObject(job, child.Process))
+          throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject failed");
+        assigned = true;
+        if (ResumeThread(child.Thread) == uint.MaxValue)
+          throw new Win32Exception(Marshal.GetLastWin32Error(), "ResumeThread failed");
+        if (WaitForSingleObject(child.Process, Infinite) == WaitFailed)
+          throw new Win32Exception(Marshal.GetLastWin32Error(), "WaitForSingleObject failed");
+        uint exitCode;
+        if (!GetExitCodeProcess(child.Process, out exitCode))
+          throw new Win32Exception(Marshal.GetLastWin32Error(), "GetExitCodeProcess failed");
+        return unchecked((int)exitCode);
+      } catch {
+        if (!assigned) TerminateProcess(child.Process, 1);
+        throw;
+      } finally {
+        CloseHandle(child.Thread);
+        CloseHandle(child.Process);
+      }
+    } finally {
+      CloseHandle(job);
+    }
   }
 }
 "@
-$jobHandle = [AlookAgentJob]::AttachCurrentProcess()
-$child = Start-Process -FilePath $env:ALOOK_WINDOWS_JOB_NODE -ArgumentList @("-e", $env:${WINDOWS_JOB_RUNNER_ENV}) -NoNewWindow -PassThru
-$child.WaitForExit()
-$exitCode = $child.ExitCode
-[GC]::KeepAlive($jobHandle)
+$exitCode = [AlookAgentJob]::RunNode($env:ALOOK_WINDOWS_JOB_NODE, $env:ALOOK_WINDOWS_JOB_RUNNER)
 exit $exitCode
 `;
 

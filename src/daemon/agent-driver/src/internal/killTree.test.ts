@@ -266,4 +266,46 @@ describe("spawnAgentProcess", () => {
     expect(proc.stdout).not.toBeNull();
     expect(proc.stderr).not.toBeNull();
   });
+
+  it("preserves Windows stdin/stdout, cwd/env, and the exact inner exit code", async () => {
+    if (process.platform !== "win32") return;
+    const cwd = mkdtempSync(join(tmpdir(), "agent-driver-job-stdio-"));
+    tempDirs.push(cwd);
+    const runtimeModule = join(cwd, "runtime.mjs");
+    const command = join(cwd, "runtime.cmd");
+    writeFileSync(runtimeModule, `
+      import { createInterface } from "node:readline";
+      const lines = createInterface({ input: process.stdin });
+      lines.once("line", (line) => {
+        const result = { line, cwd: process.cwd(), env: process.env.ALOOK_JOB_FIXTURE };
+        process.stdout.write(JSON.stringify(result) + "\\n", () => process.exit(37));
+      });
+    `);
+    writeFileSync(command, `@node "%~dp0\\runtime.mjs"\r\n`);
+    const proc = spawnAgentProcess(command, [], {
+      cwd,
+      env: { ...process.env, ALOOK_JOB_FIXTURE: "job-env-ok" },
+      shell: true,
+    });
+    spawned.push(proc);
+    const exited = new Promise<[number | null, NodeJS.Signals | null]>((resolve, reject) => {
+      proc.once("error", reject);
+      proc.once("exit", (code, signal) => resolve([code, signal]));
+    });
+    const lines = createInterface({ input: proc.stdout! });
+    const response = new Promise<string>((resolve, reject) => {
+      lines.once("line", resolve);
+      proc.once("exit", () => reject(new Error("supervisor exited before the stdin roundtrip completed")));
+    });
+
+    proc.stdin!.end("stdio-roundtrip\n");
+
+    expect(JSON.parse(await response)).toEqual({
+      line: "stdio-roundtrip",
+      cwd,
+      env: "job-env-ok",
+    });
+    lines.close();
+    await expect(exited).resolves.toEqual([37, null]);
+  });
 });
