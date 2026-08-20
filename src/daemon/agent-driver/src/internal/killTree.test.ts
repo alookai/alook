@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { spawn, type ChildProcess } from "child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -274,10 +274,12 @@ describe("spawnAgentProcess", () => {
 
   it("preserves persistent Windows stdin/stdout, cwd/env, and the exact inner exit code", async () => {
     if (process.platform !== "win32") return;
-    const cwd = mkdtempSync(join(tmpdir(), "agent-driver-job-stdio-"));
-    tempDirs.push(cwd);
-    const runtimeModule = join(cwd, "runtime.mjs");
-    const command = join(cwd, "runtime.cmd");
+    const base = mkdtempSync(join(tmpdir(), "agent-driver-job-stdio-"));
+    tempDirs.push(base);
+    const cwd = join(base, "daemon", "agent-fresh");
+    mkdirSync(cwd, { recursive: true });
+    const runtimeModule = join(base, "runtime.mjs");
+    const command = join(base, "runtime.cmd");
     writeFileSync(runtimeModule, `
       import { createInterface } from "node:readline";
       const lines = createInterface({ input: process.stdin });
@@ -291,7 +293,7 @@ describe("spawnAgentProcess", () => {
       });
     `);
     writeFileSync(command, `@node "%~dp0\\runtime.mjs"\r\n`);
-    const proc = spawnAgentProcess(command, [], {
+    const proc = spawnAgentProcess(command, ["app-server", "--listen", "stdio://"], {
       cwd,
       env: { ...process.env, ALOOK_JOB_FIXTURE: "job-env-ok" },
       shell: true,

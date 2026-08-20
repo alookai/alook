@@ -362,11 +362,17 @@ for await (const line of createInterface({ input: process.stdin })) {
       ctx,
       runtimeConfig,
     });
+    const events: AgentEvent<BuiltinBackendSpecs, "codex">[] = [];
+    const collectEvents = (async () => {
+      for await (const event of session.events) events.push(event);
+    })();
     try {
       const started = session.start({ id: "first", kind: "user", text: "hello" });
       const admission = await new Promise<Awaited<typeof started>>((resolve, reject) => {
         const timer = setTimeout(() => {
-          reject(new Error(`fresh Codex admission timed out; raw stdout: ${JSON.stringify(rawLines)}`));
+          reject(new Error(
+            `fresh Codex admission timed out; raw stdout: ${JSON.stringify(rawLines)}; events: ${JSON.stringify(events)}`,
+          ));
         }, 15_000);
         void started.then(
           (result) => {
@@ -385,6 +391,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     } finally {
       await session.stop({ reason: "shutdown", forceAfterMs: 10 });
       await session.closed;
+      await collectEvents;
       // `session.closed` is a teardown ownership boundary: the spawned shell and
       // every runtime descendant must have released the workspace by this point.
       rmSync(base, { recursive: true, force: true });
