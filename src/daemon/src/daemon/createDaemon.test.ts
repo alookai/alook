@@ -307,17 +307,14 @@ describe("createDaemon", () => {
     const base = mkdtempSync(join(tmpdir(), "daemon-fresh-workspace-"));
     startupSweepDirs.push(base);
     const rawLines: string[] = [];
-    const debugFile = join(base, "windows-job-debug.log");
     const workingDirectory = join(base, "daemon", "agent-fresh");
     const fakeRuntime = join(base, process.platform === "win32" ? "fake-codex.cmd" : "fake-codex");
     const fakeModule = join(base, "fake-codex.mjs");
     writeFileSync(fakeModule, `
 import { createInterface } from "node:readline";
 const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
-process.stdout.write("TRACE boot " + JSON.stringify(process.argv.slice(2)) + "\\n");
 for await (const line of createInterface({ input: process.stdin })) {
   const message = JSON.parse(line);
-  process.stdout.write("TRACE recv " + String(message.method) + "\\n");
   if (message.method === "initialize") {
     send({ jsonrpc: "2.0", id: message.id, result: {} });
   } else if (message.method === "thread/start") {
@@ -356,7 +353,6 @@ for await (const line of createInterface({ input: process.stdin })) {
       model: { kind: "default" as const },
       mode: { kind: "default" as const },
       command: fakeRuntime,
-      envVars: { ALOOK_WINDOWS_JOB_DEBUG_FILE: debugFile },
     };
 
     const session = await createBuiltinDaemonSessionFactory((_, line) => rawLines.push(line))({
@@ -373,7 +369,7 @@ for await (const line of createInterface({ input: process.stdin })) {
       const admission = await new Promise<Awaited<typeof started>>((resolve, reject) => {
         const timer = setTimeout(() => {
           reject(new Error(
-            `fresh Codex admission timed out; job phases: ${existsSync(debugFile) ? JSON.stringify(readFileSync(debugFile, "utf8")) : "missing"}; raw stdout: ${JSON.stringify(rawLines)}; events: ${JSON.stringify(events)}`,
+            `fresh Codex admission timed out; raw stdout: ${JSON.stringify(rawLines)}; events: ${JSON.stringify(events)}`,
           ));
         }, 15_000);
         void started.then(

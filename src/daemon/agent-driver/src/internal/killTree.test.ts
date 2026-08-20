@@ -318,6 +318,7 @@ describe("spawnAgentProcess", () => {
     // Codex/Claude/ACP all require a long-lived bidirectional transport.
     proc.stdin!.write("stdio-roundtrip-1\n");
     await new Promise((resolve) => setTimeout(resolve, 100));
+    const exitStartedAt = Date.now();
     proc.stdin!.write("stdio-roundtrip-2\n");
 
     expect((await response).map((line) => JSON.parse(line))).toEqual([
@@ -336,5 +337,8 @@ describe("spawnAgentProcess", () => {
     ]);
     lines.close();
     await expect(exited).resolves.toEqual([37, null]);
+    // Releasing the supervisor's own child handle must happen before job
+    // accounting drain; otherwise even this naturally exited tree waits 5s.
+    expect(Date.now() - exitStartedAt).toBeLessThan(4_000);
   });
 });

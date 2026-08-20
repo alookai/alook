@@ -19,7 +19,9 @@
  * against that supervisor and the kernel job closes over any remaining child.
  */
 import { spawn, type ChildProcess } from "child_process";
-import { appendFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { createServer, type Socket } from "node:net";
+import { PassThrough } from "node:stream";
 
 const POLL_MS = 100;
 const FORCE_EXIT_WAIT_MS = 2_000;
@@ -44,19 +46,19 @@ const isPosix = process.platform !== "win32";
 const WINDOWS_JOB_NODE_ENV = "ALOOK_WINDOWS_JOB_NODE";
 const WINDOWS_JOB_PAYLOAD_ENV = "ALOOK_WINDOWS_JOB_PAYLOAD";
 const WINDOWS_JOB_RUNNER_ENV = "ALOOK_WINDOWS_JOB_RUNNER";
+const WINDOWS_JOB_STDIN_PIPE_ENV = "ALOOK_WINDOWS_JOB_STDIN_PIPE";
 
 // The tracked Windows child is a PowerShell supervisor that owns a kill-on-close
 // Job Object. It creates the inner Node process suspended, gives it the
-// supervisor's raw standard handles, assigns it to the job, and only then
+// supervisor's raw output handles, assigns it to the job, and only then
 // resumes it. Every descendant inherits the job, so the kernel retains tree
-// authority after a `.cmd` shell or runtime root exits. The inner Node process
-// preserves Node's normal argv, shell, environment, and inherited-stdio
-// behavior without asking PowerShell to proxy the protocol streams.
-const WINDOWS_JOB_RUNNER = "const{spawn}=require('node:child_process');if(process.env.ALOOK_WINDOWS_JOB_DEBUG_FILE)require('node:fs').appendFileSync(process.env.ALOOK_WINDOWS_JOB_DEBUG_FILE,'runner-start\\n');const p=JSON.parse(Buffer.from(process.env.ALOOK_WINDOWS_JOB_PAYLOAD,'base64').toString('utf8'));delete process.env.ALOOK_WINDOWS_JOB_NODE;delete process.env.ALOOK_WINDOWS_JOB_PAYLOAD;delete process.env.ALOOK_WINDOWS_JOB_RUNNER;const c=spawn(p.command,p.args,{cwd:p.cwd,env:process.env,shell:p.shell,stdio:'inherit',windowsHide:true});c.once('error',e=>{console.error(e);process.exitCode=1});c.once('exit',(code,signal)=>{process.exitCode=signal?1:(code??1)})";
+// authority after a `.cmd` shell or runtime root exits. Persistent protocol
+// stdin uses a dedicated named pipe: PowerShell must not own that pipe because
+// its host can block while probing stdin before it runs the encoded bootstrap.
+const WINDOWS_JOB_RUNNER = "const{spawn}=require('node:child_process');const{connect}=require('node:net');const p=JSON.parse(Buffer.from(process.env.ALOOK_WINDOWS_JOB_PAYLOAD,'base64').toString('utf8'));const pipe=process.env.ALOOK_WINDOWS_JOB_STDIN_PIPE;delete process.env.ALOOK_WINDOWS_JOB_NODE;delete process.env.ALOOK_WINDOWS_JOB_PAYLOAD;delete process.env.ALOOK_WINDOWS_JOB_RUNNER;delete process.env.ALOOK_WINDOWS_JOB_STDIN_PIPE;const run=stdin=>{const c=spawn(p.command,p.args,{cwd:p.cwd,env:process.env,shell:p.shell,stdio:[stdin,'inherit','inherit'],windowsHide:true});c.once('spawn',()=>{if(stdin!=='ignore')stdin.unref()});c.once('error',e=>{console.error(e);process.exitCode=1});c.once('exit',(code,signal)=>{process.exitCode=signal?1:(code??1)})};if(pipe){const input=connect(pipe);input.once('connect',()=>run(input));input.once('error',e=>{console.error(e);process.exitCode=1})}else run('ignore')";
 
 const WINDOWS_JOB_BOOTSTRAP = String.raw`
 $ErrorActionPreference = "Stop"
-if ($env:ALOOK_WINDOWS_JOB_DEBUG_FILE) { Add-Content -LiteralPath $env:ALOOK_WINDOWS_JOB_DEBUG_FILE -Value "bootstrap-start" }
 Add-Type -TypeDefinition @"
 using System;
 using System.ComponentModel;
@@ -337,14 +339,20 @@ public static class AlookAgentJob {
         uint exitCode;
         if (!GetExitCodeProcess(child.Process, out exitCode))
           throw new Win32Exception(Marshal.GetLastWin32Error(), "GetExitCodeProcess failed");
+        if (!CloseHandle(child.Thread))
+          throw new Win32Exception(Marshal.GetLastWin32Error(), "CloseHandle child thread failed");
+        child.Thread = IntPtr.Zero;
+        if (!CloseHandle(child.Process))
+          throw new Win32Exception(Marshal.GetLastWin32Error(), "CloseHandle child process failed");
+        child.Process = IntPtr.Zero;
         TerminateAndDrainJob(job);
         return unchecked((int)exitCode);
       } catch {
-        if (!assigned) TerminateProcess(child.Process, 1);
+        if (!assigned && child.Process != IntPtr.Zero) TerminateProcess(child.Process, 1);
         throw;
       } finally {
-        CloseHandle(child.Thread);
-        CloseHandle(child.Process);
+        if (child.Thread != IntPtr.Zero) CloseHandle(child.Thread);
+        if (child.Process != IntPtr.Zero) CloseHandle(child.Process);
       }
     } finally {
       if (job != IntPtr.Zero) CloseHandle(job);
@@ -355,7 +363,6 @@ public static class AlookAgentJob {
   }
 }
 "@
-if ($env:ALOOK_WINDOWS_JOB_DEBUG_FILE) { Add-Content -LiteralPath $env:ALOOK_WINDOWS_JOB_DEBUG_FILE -Value "add-type-complete" }
 $exitCode = [AlookAgentJob]::RunNode($env:ALOOK_WINDOWS_JOB_NODE, $env:ALOOK_WINDOWS_JOB_RUNNER)
 exit $exitCode
 `;
@@ -385,25 +392,56 @@ interface AgentSpawnOptions {
  */
 export function spawnAgentProcess(command: string, args: string[], opts: AgentSpawnOptions): ChildProcess {
   if (!isPosix) {
+    const stdin = opts.stdin ?? "pipe";
+    const stdinProxy = stdin === "pipe" ? new PassThrough() : undefined;
+    const stdinPipe = stdinProxy
+      ? `\\\\.\\pipe\\alook-agent-${process.pid}-${randomUUID()}`
+      : undefined;
+    let stdinSocket: Socket | undefined;
+    const stdinServer = stdinProxy
+      ? createServer((socket) => {
+          stdinSocket = socket;
+          stdinServer?.close();
+          socket.once("close", () => {
+            if (stdinSocket === socket) stdinSocket = undefined;
+          });
+          socket.once("error", () => stdinProxy.destroy());
+          stdinProxy.pipe(socket);
+        })
+      : undefined;
+    stdinProxy?.once("close", () => stdinSocket?.destroy());
+    stdinServer?.once("error", () => stdinProxy?.destroy());
+    if (stdinPipe) stdinServer?.listen(stdinPipe);
     const env: NodeJS.ProcessEnv = {
       ...opts.env,
       [WINDOWS_JOB_NODE_ENV]: process.execPath,
       [WINDOWS_JOB_PAYLOAD_ENV]: Buffer.from(JSON.stringify({ command, args, cwd: opts.cwd, shell: opts.shell ?? false })).toString("base64"),
       [WINDOWS_JOB_RUNNER_ENV]: WINDOWS_JOB_RUNNER,
+      ...(stdinPipe ? { [WINDOWS_JOB_STDIN_PIPE_ENV]: stdinPipe } : {}),
     };
-    const debugFile = env.ALOOK_WINDOWS_JOB_DEBUG_FILE;
-    if (debugFile) appendFileSync(debugFile, "spawn-called\n");
-    const proc = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", WINDOWS_JOB_ENCODED_COMMAND], {
-      cwd: opts.cwd,
-      stdio: [opts.stdin ?? "pipe", "pipe", "pipe"],
-      env,
-      windowsHide: true,
-    });
-    if (debugFile) {
-      proc.once("spawn", () => appendFileSync(debugFile, "powershell-spawn\n"));
-      proc.once("error", (error) => appendFileSync(debugFile, `powershell-error ${error.message}\n`));
-      proc.once("exit", (code, signal) => appendFileSync(debugFile, `powershell-exit ${String(code)} ${String(signal)}\n`));
+    let proc: ChildProcess;
+    try {
+      proc = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", WINDOWS_JOB_ENCODED_COMMAND], {
+        cwd: opts.cwd,
+        // PowerShell receives NUL for stdin so its host cannot consume or
+        // block the persistent protocol pipe before running the bootstrap.
+        stdio: ["ignore", "pipe", "pipe"],
+        env,
+        windowsHide: true,
+      });
+    } catch (error) {
+      stdinServer?.close();
+      stdinProxy?.destroy();
+      throw error;
     }
+    if (stdinProxy) Object.defineProperty(proc, "stdin", { value: stdinProxy });
+    const closeStdinBridge = () => {
+      if (stdinServer?.listening) stdinServer.close();
+      stdinSocket?.destroy();
+      stdinProxy?.destroy();
+    };
+    proc.once("error", closeStdinBridge);
+    proc.once("exit", closeStdinBridge);
     return proc;
   }
   return spawn(command, args, {
