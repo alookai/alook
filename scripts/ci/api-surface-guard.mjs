@@ -199,7 +199,7 @@ export function evaluateApiSurfaceGuard(input) {
   return { ok: true, reason: "approved", approver: approver.login, changedApiPaths, changedMechanismPaths };
 }
 
-async function githubJson(url, token, allowNotFound = false) {
+export async function githubJson(url, token, allowNotFound = false) {
   const response = await fetch(url, {
     headers: {
       Accept: "application/vnd.github+json",
@@ -212,7 +212,7 @@ async function githubJson(url, token, allowNotFound = false) {
   return response.json();
 }
 
-async function fetchAllPages(repository, pullNumber, resource, token) {
+export async function fetchAllPages(repository, pullNumber, resource, token) {
   const values = [];
   for (let page = 1; ; page += 1) {
     const pageValues = await githubJson(
@@ -225,7 +225,7 @@ async function fetchAllPages(repository, pullNumber, resource, token) {
   return values;
 }
 
-async function fetchAllReviews(repository, pullNumber, token) {
+export async function fetchAllReviews(repository, pullNumber, token) {
   const reviews = await fetchAllPages(repository, pullNumber, "reviews", token);
   return reviews.filter((review) => review.user?.login).map((review) => ({
     id: review.id,
@@ -235,7 +235,7 @@ async function fetchAllReviews(repository, pullNumber, token) {
   }));
 }
 
-async function contractVersionAt(repository, sha, token) {
+export async function contractVersionAt(repository, sha, token) {
   const path = "src/daemon/agent-driver/src/adapter-author.ts";
   const value = await githubJson(
     `https://api.github.com/repos/${repository}/contents/${path}?ref=${sha}`,
@@ -247,7 +247,7 @@ async function contractVersionAt(repository, sha, token) {
   return parseAdapterAuthorContractVersion(source);
 }
 
-async function main() {
+export async function main() {
   const required = ["API_BASE_SHA", "API_HEAD_SHA", "API_PR_AUTHOR", "API_PR_NUMBER", "API_REPOSITORY", "API_GITHUB_TOKEN"];
   for (const name of required) {
     if (!process.env[name]) throw new Error(`Missing ${name}`);
