@@ -1,7 +1,17 @@
 import { spawn, spawnSync, type ChildProcess } from "child_process"
-import { closeSync, cpSync, existsSync, mkdirSync, openSync, rmSync } from "fs"
+import {
+  closeSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "fs"
 import { resolve } from "path"
-import { REPO_ROOT, SERVICE_LOG_DIR, WEB_URL, WS_URL } from "./paths"
+import { MANIFEST_PATH, REPO_ROOT, SERVICE_LOG_DIR, WEB_URL, WS_URL } from "./paths"
 
 export interface ManagedService {
   name: string
@@ -15,10 +25,51 @@ export interface ServiceDefinition {
   healthUrl: string
 }
 
-// Reuse a server the developer already has running (local iteration). CI
-// always starts fresh, so REUSE is off there.
-export const REUSE_EXISTING = !process.env.CI
-export const SINGLE_RUNTIME = !!process.env.CI
+export type RestorePolicy = "none" | "restore-backup" | "remove-created-state"
+
+export interface PriorServiceManifest {
+  servicePids: number[]
+  restoreState: boolean
+  restorePolicy: RestorePolicy
+}
+
+export interface ServiceLifecycleDecision {
+  mode: "reuse" | "fresh"
+  ci: boolean
+  singleRuntime: boolean
+  restoreState: boolean
+  restorePolicy: RestorePolicy
+}
+
+export interface StatePaths {
+  stateDir: string
+  backupDir: string
+  absentMarker: string
+  manifestPath?: string | null
+}
+
+type RecoveryArtifact = "none" | "backup" | "absent"
+
+export interface LifecycleDependencies {
+  probeHealth: (url: string) => Promise<boolean>
+  hasRecoveryArtifact: () => boolean
+  recoveryArtifact: () => RecoveryArtifact
+  stopOwnedAndWait: (pids: number[]) => Promise<void>
+  assertPortsFree: (ports: number[]) => void
+  restoreState: () => void
+  backupState: () => Exclude<RestorePolicy, "none">
+  resetDb: () => void
+}
+
+export interface StartServicesDependencies {
+  clearLogs: () => void
+  definitions: (singleRuntime: boolean) => ServiceDefinition[]
+  startService: (definition: ServiceDefinition) => ManagedService
+  waitForHealth: (url: string, name: string) => Promise<void>
+  warmUpRoutes: () => Promise<void>
+}
+
+const SINGLE_RUNTIME = !!process.env.CI
 
 // Local D1/DO state that `db:reset` wipes. Backing it up to a sibling path
 // (outside `.wrangler/state`, so `rm -rf .wrangler/state` can't touch it)
@@ -26,20 +77,113 @@ export const SINGLE_RUNTIME = !!process.env.CI
 // prior state, so backup/restore is a no-op there.
 const STATE_DIR = resolve(REPO_ROOT, "src/web/.wrangler/state")
 const STATE_BACKUP_DIR = resolve(REPO_ROOT, "src/web/.wrangler/state.e2e-backup")
+const STATE_ABSENT_MARKER = resolve(REPO_ROOT, "src/web/.wrangler/state.e2e-absent")
 
-// Returns true if a backup was taken (i.e. there was existing state to save).
-export function backupState(): boolean {
-  if (process.env.CI || !existsSync(STATE_DIR)) return false
-  rmSync(STATE_BACKUP_DIR, { recursive: true, force: true })
-  cpSync(STATE_DIR, STATE_BACKUP_DIR, { recursive: true })
-  return true
+const DEFAULT_STATE_PATHS: StatePaths = {
+  stateDir: STATE_DIR,
+  backupDir: STATE_BACKUP_DIR,
+  absentMarker: STATE_ABSENT_MARKER,
+  manifestPath: MANIFEST_PATH,
 }
 
-export function restoreState(): void {
-  if (!existsSync(STATE_BACKUP_DIR)) return
-  rmSync(STATE_DIR, { recursive: true, force: true })
-  cpSync(STATE_BACKUP_DIR, STATE_DIR, { recursive: true })
-  rmSync(STATE_BACKUP_DIR, { recursive: true, force: true })
+function pendingPath(path: string): string {
+  return `${path}.pending-${process.pid}`
+}
+
+export function recoveryArtifact(paths: StatePaths = DEFAULT_STATE_PATHS): RecoveryArtifact {
+  const hasBackup = existsSync(paths.backupDir)
+  const hasMarker = existsSync(paths.absentMarker)
+  if (hasBackup && hasMarker) {
+    throw new Error("E2E state recovery is ambiguous: backup and absence marker both exist")
+  }
+  if (hasBackup) return "backup"
+  if (hasMarker) return "absent"
+  return "none"
+}
+
+export function hasRecoveryArtifact(paths: StatePaths = DEFAULT_STATE_PATHS): boolean {
+  return existsSync(paths.backupDir) || existsSync(paths.absentMarker)
+}
+
+function markManifestRestored(paths: StatePaths): void {
+  const manifestPath = paths.manifestPath
+  if (!manifestPath || !existsSync(manifestPath)) return
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Record<string, unknown>
+  manifest.restoreState = false
+  manifest.restorePolicy = "none"
+  manifest.servicePids = []
+  const stagingPath = pendingPath(manifestPath)
+  writeFileSync(stagingPath, JSON.stringify(manifest, null, 2))
+  renameSync(stagingPath, manifestPath)
+}
+
+// Publish exactly one durable recovery artifact before reset. A staging path
+// keeps a failed copy/write from looking like a valid snapshot on the next run.
+export function backupState(
+  paths: StatePaths = DEFAULT_STATE_PATHS,
+): Exclude<RestorePolicy, "none"> {
+  if (recoveryArtifact(paths) !== "none") {
+    throw new Error("E2E state recovery artifact already exists")
+  }
+
+  const backupStaging = pendingPath(paths.backupDir)
+  const markerStaging = pendingPath(paths.absentMarker)
+  rmSync(backupStaging, { recursive: true, force: true })
+  rmSync(markerStaging, { force: true })
+
+  if (existsSync(paths.stateDir)) {
+    cpSync(paths.stateDir, backupStaging, { recursive: true })
+    renameSync(backupStaging, paths.backupDir)
+    return "restore-backup"
+  }
+
+  mkdirSync(resolve(paths.absentMarker, ".."), { recursive: true })
+  writeFileSync(markerStaging, "state-was-absent\n")
+  renameSync(markerStaging, paths.absentMarker)
+  return "remove-created-state"
+}
+
+export function restoreState(paths: StatePaths = DEFAULT_STATE_PATHS): void {
+  const artifact = recoveryArtifact(paths)
+  if (artifact === "none") {
+    throw new Error("E2E state restore was requested but no recovery artifact exists")
+  }
+
+  const manifest = paths.manifestPath && existsSync(paths.manifestPath)
+    ? JSON.parse(readFileSync(paths.manifestPath, "utf8")) as Record<string, unknown>
+    : null
+  if (manifest?.restoreState === true) {
+    const policy = manifest.restorePolicy
+    let expectedArtifact: Exclude<RecoveryArtifact, "none">
+    if (policy === undefined || policy === "restore-backup") {
+      // The pre-policy runner only created a backup when restoreState was true.
+      expectedArtifact = "backup"
+    } else if (policy === "remove-created-state") {
+      expectedArtifact = "absent"
+    } else {
+      throw new Error(`Invalid E2E restore policy: ${String(policy)}`)
+    }
+    if (expectedArtifact !== artifact) {
+      throw new Error(
+        `E2E restore policy ${String(policy)} contradicts ${artifact} recovery artifact`,
+      )
+    }
+  }
+
+  if (artifact === "backup") {
+    const restoreStaging = pendingPath(paths.stateDir)
+    rmSync(restoreStaging, { recursive: true, force: true })
+    cpSync(paths.backupDir, restoreStaging, { recursive: true })
+    rmSync(paths.stateDir, { recursive: true, force: true })
+    renameSync(restoreStaging, paths.stateDir)
+    markManifestRestored(paths)
+    rmSync(paths.backupDir, { recursive: true, force: true })
+    return
+  }
+
+  rmSync(paths.stateDir, { recursive: true, force: true })
+  markManifestRestored(paths)
+  rmSync(paths.absentMarker, { force: true })
 }
 
 async function isUp(url: string): Promise<boolean> {
@@ -60,6 +204,46 @@ async function waitForHealth(url: string, name: string, timeoutMs = 90_000): Pro
     await new Promise((r) => setTimeout(r, 2000))
   }
   throw new Error(`${name} not ready after ${timeoutMs}ms (${url})`)
+}
+
+function parseOwnedPids(value: unknown): number[] {
+  if (value == null) return []
+  if (!Array.isArray(value) || value.some((pid) => !Number.isInteger(pid) || pid <= 0)) {
+    throw new Error("Invalid servicePids in prior E2E manifest")
+  }
+  return [...new Set(value as number[])]
+}
+
+export function readPriorServiceManifest(path = MANIFEST_PATH): PriorServiceManifest | null {
+  if (!existsSync(path)) return null
+  const value = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>
+  const restoreStateRequested = value.restoreState === true
+  const rawPolicy = value.restorePolicy
+  let restorePolicy: RestorePolicy = "none"
+  if (
+    rawPolicy === "none"
+    || rawPolicy === "restore-backup"
+    || rawPolicy === "remove-created-state"
+  ) {
+    restorePolicy = rawPolicy
+  } else if (rawPolicy === undefined && restoreStateRequested) {
+    // Older manifests only carried the boolean. The durable artifact remains
+    // authoritative about whether prior state was present or absent.
+    restorePolicy = "restore-backup"
+  } else if (rawPolicy !== undefined) {
+    throw new Error(`Invalid restorePolicy in prior E2E manifest: ${String(rawPolicy)}`)
+  }
+  if (restoreStateRequested && restorePolicy === "none") {
+    throw new Error("Prior E2E manifest requests restore with restorePolicy=none")
+  }
+  if (!restoreStateRequested && restorePolicy !== "none") {
+    throw new Error("Prior E2E manifest has a restore policy while restoreState=false")
+  }
+  return {
+    servicePids: parseOwnedPids(value.servicePids),
+    restoreState: restoreStateRequested,
+    restorePolicy,
+  }
 }
 
 export function prepareServices(): void {
@@ -106,27 +290,167 @@ function portOf(url: string): number | null {
   return Number.isFinite(p) && p > 0 ? p : null
 }
 
-// Best-effort: kill whatever is listening on the given TCP ports. Clears
-// orphaned dev servers left by a prior run that crashed before teardown (e.g.
-// global-setup failing after startServices). No-op on Windows / if lsof is
-// absent. Only called when we're about to start fresh servers, never when
-// reusing a healthy one.
-function killPortOrphans(ports: number[]): void {
+function processGroupAlive(pid: number): boolean {
+  try {
+    process.kill(-pid, 0)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return false
+    throw error
+  }
+}
+
+export async function stopOwnedProcessGroups(pids: number[], timeoutMs = 10_000): Promise<void> {
+  if (process.platform === "win32" && pids.length > 0) {
+    throw new Error("Stopping detached E2E process groups is unsupported on Windows")
+  }
+  for (const pid of [...new Set(pids)]) {
+    try {
+      process.kill(-pid, "SIGTERM")
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error
+    }
+  }
+
+  const deadline = Date.now() + timeoutMs
+  while (pids.some(processGroupAlive)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`Owned E2E process groups did not stop: ${pids.join(",")}`)
+    }
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 50))
+  }
+}
+
+export function assertPortsFree(ports: number[]): void {
   if (process.platform === "win32") return
   for (const port of ports) {
-    const res = spawnSync("lsof", ["-ti", `tcp:${port}`], { encoding: "utf8" })
+    const res = spawnSync(
+      "lsof",
+      ["-nP", "-t", `-iTCP:${port}`, "-sTCP:LISTEN"],
+      { encoding: "utf8" },
+    )
+    if (res.error) throw res.error
     const pids = (res.stdout ?? "")
       .split("\n")
       .map((s) => Number(s.trim()))
       .filter((n) => Number.isInteger(n) && n > 0)
-    for (const pid of pids) {
-      try {
-        process.kill(pid, "SIGTERM")
-      } catch {
-        // already gone
-      }
+    if (pids.length > 0) {
+      throw new Error(`Runner port ${port} is occupied by an unowned process (${pids.join(",")})`)
     }
   }
+}
+
+function runnerPorts(singleRuntime: boolean): number[] {
+  return (singleRuntime ? [portOf(WEB_URL)] : [portOf(WEB_URL), portOf(WS_URL)])
+    .filter((port): port is number => port != null)
+}
+
+const DEFAULT_LIFECYCLE_DEPENDENCIES: LifecycleDependencies = {
+  probeHealth: isUp,
+  hasRecoveryArtifact: () => hasRecoveryArtifact(),
+  recoveryArtifact: () => recoveryArtifact(),
+  stopOwnedAndWait: stopOwnedProcessGroups,
+  assertPortsFree,
+  restoreState: () => restoreState(),
+  backupState: () => backupState(),
+  resetDb,
+}
+
+function restoreAfterFailure(dependencies: LifecycleDependencies, error: unknown): never {
+  try {
+    dependencies.restoreState()
+  } catch (restoreError) {
+    throw new AggregateError([error, restoreError], "E2E setup failed and state restore also failed")
+  }
+  throw error
+}
+
+export async function prepareServiceLifecycle(
+  priorManifest: PriorServiceManifest | null,
+  options: { ci?: boolean; singleRuntime?: boolean } = {},
+  dependencies: LifecycleDependencies = DEFAULT_LIFECYCLE_DEPENDENCIES,
+): Promise<ServiceLifecycleDecision> {
+  const ci = options.ci ?? !!process.env.CI
+  const singleRuntime = options.singleRuntime ?? ci
+  if (ci) {
+    dependencies.resetDb()
+    return {
+      mode: "fresh",
+      ci: true,
+      singleRuntime,
+      restoreState: false,
+      restorePolicy: "none",
+    }
+  }
+
+  const [webHealthy, wsHealthy] = await Promise.all([
+    dependencies.probeHealth(`${WEB_URL}/api/health`),
+    dependencies.probeHealth(`${WS_URL}/health`),
+  ])
+  const recoveryPending = priorManifest?.restoreState === true
+    || dependencies.hasRecoveryArtifact()
+  if (webHealthy && wsHealthy && !recoveryPending) {
+    return {
+      mode: "reuse",
+      ci: false,
+      singleRuntime,
+      restoreState: false,
+      restorePolicy: "none",
+    }
+  }
+
+  await dependencies.stopOwnedAndWait(priorManifest?.servicePids ?? [])
+  dependencies.assertPortsFree(runnerPorts(singleRuntime))
+
+  const artifact = dependencies.recoveryArtifact()
+  if (priorManifest?.restoreState && artifact === "none") {
+    throw new Error("Prior E2E manifest requires restore but its recovery artifact is missing")
+  }
+  if (priorManifest?.restoreState) {
+    const expectedArtifact = priorManifest.restorePolicy === "restore-backup"
+      ? "backup"
+      : priorManifest.restorePolicy === "remove-created-state"
+        ? "absent"
+        : null
+    if (!expectedArtifact) {
+      throw new Error("Prior E2E manifest requires restore but has no restore policy")
+    }
+    if (expectedArtifact !== artifact) {
+      throw new Error(
+        `Prior E2E restore policy ${priorManifest.restorePolicy} contradicts ${artifact} artifact`,
+      )
+    }
+  }
+  if (artifact !== "none") dependencies.restoreState()
+
+  const restorePolicy = dependencies.backupState()
+  try {
+    dependencies.resetDb()
+  } catch (error) {
+    restoreAfterFailure(dependencies, error)
+  }
+  return {
+    mode: "fresh",
+    ci: false,
+    singleRuntime,
+    restoreState: true,
+    restorePolicy,
+  }
+}
+
+export async function cleanupFailedSetup(
+  decision: ServiceLifecycleDecision,
+  ownedPids: number[],
+  dependencies: Pick<
+    LifecycleDependencies,
+    "stopOwnedAndWait" | "assertPortsFree" | "restoreState"
+  > = DEFAULT_LIFECYCLE_DEPENDENCIES,
+): Promise<void> {
+  if (ownedPids.length > 0 || decision.restoreState) {
+    await dependencies.stopOwnedAndWait(ownedPids)
+    dependencies.assertPortsFree(runnerPorts(decision.singleRuntime))
+  }
+  if (decision.restoreState) dependencies.restoreState()
 }
 
 export function serviceDefinitions(singleRuntime: boolean): ServiceDefinition[] {
@@ -198,28 +522,37 @@ async function warmUpRoutes(): Promise<void> {
   }))
 }
 
-export async function startServices(): Promise<ManagedService[]> {
-  const webHealth = `${WEB_URL}/api/health`
-  const wsHealth = `${WS_URL}/health`
+const DEFAULT_START_DEPENDENCIES: StartServicesDependencies = {
+  clearLogs: () => {
+    rmSync(SERVICE_LOG_DIR, { recursive: true, force: true })
+    mkdirSync(SERVICE_LOG_DIR, { recursive: true })
+  },
+  definitions: serviceDefinitions,
+  startService,
+  waitForHealth,
+  warmUpRoutes,
+}
 
-  if (REUSE_EXISTING && (await isUp(webHealth)) && (await isUp(wsHealth))) {
-    await warmUpRoutes()
+export async function startServices(
+  decision: ServiceLifecycleDecision,
+  onOwnershipChanged: (services: ManagedService[]) => void = () => undefined,
+  dependencies: StartServicesDependencies = DEFAULT_START_DEPENDENCIES,
+): Promise<ManagedService[]> {
+  if (decision.mode === "reuse") {
+    await dependencies.warmUpRoutes()
     return []
   }
 
-  // Starting fresh — clear any orphaned dev servers on our ports first so a
-  // prior crashed run doesn't leave 3000/8789 occupied (or get reused).
-  const ports = (SINGLE_RUNTIME ? [portOf(WEB_URL)] : [portOf(WEB_URL), portOf(WS_URL)])
-    .filter((p): p is number => p != null)
-  killPortOrphans(ports)
-  // Give the OS a moment to release the sockets before we bind them.
-  await new Promise((r) => setTimeout(r, 1000))
-  rmSync(SERVICE_LOG_DIR, { recursive: true, force: true })
-  mkdirSync(SERVICE_LOG_DIR, { recursive: true })
+  dependencies.clearLogs()
+  const services: ManagedService[] = []
+  for (const definition of dependencies.definitions(decision.singleRuntime)) {
+    services.push(dependencies.startService(definition))
+    onOwnershipChanged([...services])
+  }
 
-  const services = serviceDefinitions(SINGLE_RUNTIME).map(startService)
-
-  await Promise.all(services.map((s) => waitForHealth(s.healthUrl, s.name)))
-  await warmUpRoutes()
+  await Promise.all(
+    services.map((service) => dependencies.waitForHealth(service.healthUrl, service.name)),
+  )
+  await dependencies.warmUpRoutes()
   return services
 }

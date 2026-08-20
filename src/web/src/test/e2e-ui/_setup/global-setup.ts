@@ -1,45 +1,102 @@
-import { mkdirSync, writeFileSync, rmSync } from "fs"
+import { mkdirSync, renameSync, rmSync, writeFileSync } from "fs"
 import { resolve } from "path"
 import { chromium } from "@playwright/test"
 import { AUTH_DIR, MANIFEST_PATH } from "./paths"
 import { loginAndSaveState } from "./auth"
-import { prepareServices, resetDb, startServices, backupState, REUSE_EXISTING } from "./services"
-import { USER_KEYS, type RunManifest, type SeededUser, type UserKey } from "./users"
+import {
+  cleanupFailedSetup,
+  prepareServiceLifecycle,
+  prepareServices,
+  readPriorServiceManifest,
+  startServices,
+  type RestorePolicy,
+  type ServiceLifecycleDecision,
+} from "./services"
+import { USER_KEYS, type SeededUser, type UserKey } from "./users"
+
+type LifecycleManifest = {
+  stamp: string
+  users: Partial<Record<UserKey, SeededUser>>
+  servicePids: number[]
+  restoreState: boolean
+  restorePolicy: RestorePolicy
+}
+
+function writeManifest(manifest: LifecycleManifest): void {
+  const stagingPath = `${MANIFEST_PATH}.pending-${process.pid}`
+  writeFileSync(stagingPath, JSON.stringify(manifest, null, 2))
+  renameSync(stagingPath, MANIFEST_PATH)
+}
+
+function ownedPids(services: Array<{ proc: { pid?: number } }>): number[] {
+  const pids = services.map((service) => service.proc.pid)
+  if (pids.some((pid) => !pid)) {
+    throw new Error("Started E2E service did not expose an owned PID")
+  }
+  return pids as number[]
+}
 
 export default async function globalSetup(): Promise<void> {
-  rmSync(AUTH_DIR, { recursive: true, force: true })
-  mkdirSync(AUTH_DIR, { recursive: true })
-
+  const priorManifest = readPriorServiceManifest()
   prepareServices()
 
-  // Local runs: back up the developer's D1/DO state, wipe to a clean DB, and
-  // restore it on teardown (see global-teardown). CI has no prior state.
-  let backedUp = false
-  if (!REUSE_EXISTING) {
-    backedUp = backupState()
-    resetDb()
-  }
-  const services = await startServices()
-
-  // Unique-per-run stamp so re-runs against a non-reset DB don't collide.
-  const stamp = `${process.pid.toString(36)}${Math.floor(process.hrtime()[1] / 1e3).toString(36)}`
-
-  const users = {} as Record<UserKey, SeededUser>
-  const browser = await chromium.launch()
+  let decision: ServiceLifecycleDecision | null = null
+  let ownedServicePids: number[] = []
   try {
-    for (const key of USER_KEYS) {
-      const statePath = resolve(AUTH_DIR, `${key}.json`)
-      users[key] = await loginAndSaveState(browser, key, stamp, statePath)
-    }
-  } finally {
-    await browser.close()
-  }
+    decision = await prepareServiceLifecycle(priorManifest)
 
-  const manifest: RunManifest & { servicePids: number[]; restoreState: boolean } = {
-    stamp,
-    users,
-    servicePids: services.map((s) => s.proc.pid).filter((p): p is number => !!p),
-    restoreState: backedUp,
+    rmSync(AUTH_DIR, { recursive: true, force: true })
+    mkdirSync(AUTH_DIR, { recursive: true })
+
+    // Unique-per-run stamp so re-runs against a non-reset DB don't collide.
+    const stamp = `${process.pid.toString(36)}${Math.floor(process.hrtime()[1] / 1e3).toString(36)}`
+    const lifecycleManifest = (): LifecycleManifest => ({
+      stamp,
+      users: {},
+      servicePids: ownedServicePids,
+      restoreState: decision!.restoreState,
+      restorePolicy: decision!.restorePolicy,
+    })
+
+    const services = await startServices(decision, (ownedServices) => {
+      ownedServicePids = ownedPids(ownedServices)
+      // Publish ownership immediately after every detached spawn so a hard
+      // interruption remains recoverable by the next run.
+      writeManifest(lifecycleManifest())
+    })
+    ownedServicePids = ownedPids(services)
+    writeManifest(lifecycleManifest())
+
+    const users = {} as Record<UserKey, SeededUser>
+    const browser = await chromium.launch()
+    try {
+      for (const key of USER_KEYS) {
+        const statePath = resolve(AUTH_DIR, `${key}.json`)
+        users[key] = await loginAndSaveState(browser, key, stamp, statePath)
+      }
+    } finally {
+      await browser.close()
+    }
+
+    writeManifest({
+      stamp,
+      users,
+      servicePids: ownedServicePids,
+      restoreState: decision.restoreState,
+      restorePolicy: decision.restorePolicy,
+    })
+  } catch (error) {
+    if (decision) {
+      try {
+        await cleanupFailedSetup(decision, ownedServicePids)
+        if (decision.restoreState) rmSync(AUTH_DIR, { recursive: true, force: true })
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          "E2E global setup failed and lifecycle cleanup also failed",
+        )
+      }
+    }
+    throw error
   }
-  writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2))
 }
