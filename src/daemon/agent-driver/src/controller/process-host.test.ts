@@ -79,6 +79,7 @@ function controllableDriver(
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   for (const p of spawned.splice(0)) {
     try { p.kill("SIGKILL"); } catch { /* already dead */ }
   }
@@ -202,6 +203,85 @@ describe("ProcessLane prompt admission ownership", () => {
       receipt: "owner-authoritative",
     });
     expect(observed).toEqual([{ kind: "turn_owner", receipt: "owner-authoritative" }]);
+  });
+
+  it.each(["missing", "destroyed"] as const)(
+    "rejects start when persistent runtime stdin is %s",
+    async (state) => {
+      const { driver, process: proc } = controllableDriver(() => []);
+      Object.assign(driver, {
+        execution: {
+          lifetime: "session",
+          transport: { kind: "stdio_stream", protocol: "test.stream.v1" },
+          wakeStart: "immediate",
+          terminalOwnership: "vendor_message",
+        },
+      });
+      if (state === "missing") Object.assign(proc, { stdin: null });
+      else proc.stdin?.destroy();
+
+      const session = new ProcessLane(driver, minimalCtx());
+      await expect(session.start({ text: "go", terminalOwner: "owner-prebound" })).resolves.toEqual({
+        ok: false,
+        reason: "stdin_unavailable",
+        error: "runtime stdin is not writable",
+      });
+    },
+  );
+
+  it.each(["missing", "destroyed"] as const)(
+    "rejects idle prompts and busy steers when persistent runtime stdin becomes %s",
+    async (state) => {
+      const { driver, process: proc } = controllableDriver(() => []);
+      Object.assign(driver, {
+        execution: {
+          lifetime: "session",
+          transport: { kind: "stdio_stream", protocol: "test.stream.v1" },
+          wakeStart: "immediate",
+          terminalOwnership: "vendor_message",
+        },
+      });
+      const session = new ProcessLane(driver, minimalCtx());
+      await expect(session.start({ text: "go", terminalOwner: "owner-start" })).resolves.toMatchObject({ ok: true });
+      if (state === "missing") Object.assign(proc, { stdin: null });
+      else proc.stdin?.destroy();
+
+      await expect(session.send({ text: "next", mode: "idle", terminalOwner: "owner-next" })).resolves.toEqual({
+        ok: false,
+        reason: "stdin_unavailable",
+        error: "runtime stdin is not writable",
+      });
+      await expect(session.send({ text: "steer", mode: "busy", terminalOwner: "owner-start" })).resolves.toEqual({
+        ok: false,
+        reason: "stdin_unavailable",
+        error: "runtime stdin is not writable",
+      });
+    },
+  );
+
+  it("times out a silent transport authority and stops the lane", async () => {
+    vi.useFakeTimers();
+    const { driver, kill } = controllableDriver(() => []);
+    Object.assign(driver, {
+      execution: {
+        lifetime: "session",
+        transport: { kind: "stdio_rpc", protocol: "test.rpc.v1" },
+        wakeStart: "immediate",
+        terminalOwnership: "transport_request",
+      },
+    });
+    const session = new ProcessLane(driver, minimalCtx(), { promptAdmissionTimeoutMs: 25 });
+    const starting = session.start({ text: "go" });
+    await Promise.resolve();
+
+    await vi.advanceTimersByTimeAsync(25);
+    await expect(starting).resolves.toEqual({
+      ok: false,
+      reason: "admission_timeout",
+      error: "runtime did not acknowledge command admission before the deadline",
+    });
+    expect(kill).toHaveBeenCalledOnce();
+    expect(kill).toHaveBeenCalledWith("SIGTERM");
   });
 });
 

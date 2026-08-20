@@ -26,11 +26,15 @@ import type {
 import type { BuiltinBackendId } from "../contract.js";
 import { killProcessTree, SESSION_STOP_GRACE_MS } from "../internal/killTree.js";
 
+const DEFAULT_PROMPT_ADMISSION_TIMEOUT_MS = 60_000;
+
 interface ProcessLaneOptions {
   /** Observability-only tap for each complete non-empty stdout line, before parsing. */
   onRawStdoutLine?: (line: string) => void;
   /** One-shot adapters that do not exit promptly after terminal output. */
   stopAfterTurn?: boolean;
+  /** Maximum time to wait for a vendor/transport-owned turn receipt. */
+  promptAdmissionTimeoutMs?: number;
 }
 
 export interface ProcessAdapterPrimitives<Id extends string, Config> {
@@ -54,8 +58,10 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
   private requestedStopReason?: string;
   private admissionSequence = 0;
   private activeTerminalReceipt?: string;
+  private stopPromise?: Promise<void>;
   private pendingPromptAdmission?: {
     resolve(admission: LaneAdmission): void;
+    timer?: ReturnType<typeof setTimeout>;
   };
 
   constructor(
@@ -111,6 +117,12 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
     const { process: proc } = spawned;
     this.process = proc;
     this.attachProcess(proc);
+    this.armPendingPromptTimeout();
+    if (this.driver.execution.lifetime === "session" && !this.writableStdin(proc)) {
+      const rejection = this.stdinUnavailableAdmission();
+      this.settlePendingPrompt(rejection);
+      return pendingAuthority ?? rejection;
+    }
     return pendingAuthority
       ?? this.admitPrompt(input.terminalOwner, `${this.driver.id}:process:${proc.pid ?? this.ctx.launchId}`);
   }
@@ -119,6 +131,8 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
   async send(input: LaneSendInput): Promise<LaneAdmission> {
     const proc = this.process;
     if (!proc || this.closed) return { ok: false, reason: "closed" };
+    const stdin = this.writableStdin(proc);
+    if (!stdin) return this.stdinUnavailableAdmission();
     if (input.mode === "idle" && this.pendingPromptAdmission) {
       return { ok: false, reason: "runtime_busy", error: "prompt admission is already pending" };
     }
@@ -127,7 +141,7 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
     if (input.mode === "idle") {
       const admission = this.admitPrompt(input.terminalOwner, `${this.driver.id}:send:${++this.admissionSequence}`);
       try {
-        proc.stdin?.write(encoded + "\n");
+        stdin.write(encoded + "\n");
       } catch (error) {
         this.activeTerminalReceipt = undefined;
         this.settlePendingPrompt({ ok: false, reason: "runtime_error", error: String(error) });
@@ -135,7 +149,7 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
       }
       return admission;
     }
-    proc.stdin?.write(encoded + "\n");
+    stdin.write(encoded + "\n");
     const receipt = input.terminalOwner ?? `${this.driver.id}:send:${++this.admissionSequence}`;
     return {
       ok: true,
@@ -155,7 +169,36 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
     }
     return new Promise<LaneAdmission>((resolve) => {
       this.pendingPromptAdmission = { resolve };
+      this.armPendingPromptTimeout();
     });
+  }
+
+  private armPendingPromptTimeout(): void {
+    const pending = this.pendingPromptAdmission;
+    if (!this.process || !pending || pending.timer) return;
+    pending.timer = setTimeout(() => {
+      if (this.pendingPromptAdmission !== pending) return;
+      this.settlePendingPrompt({
+        ok: false,
+        reason: "admission_timeout",
+        error: "runtime did not acknowledge command admission before the deadline",
+      });
+      void this.stop({ reason: "admission_timeout", forceAfterMs: 0 }).catch(() => {});
+    }, this.opts.promptAdmissionTimeoutMs ?? DEFAULT_PROMPT_ADMISSION_TIMEOUT_MS);
+    pending.timer.unref?.();
+  }
+
+  private writableStdin(proc: SpawnedProcessHandle): NonNullable<SpawnedProcessHandle["stdin"]> | null {
+    const stdin = proc.stdin;
+    return stdin && !stdin.destroyed ? stdin : null;
+  }
+
+  private stdinUnavailableAdmission(): LaneAdmission {
+    return {
+      ok: false,
+      reason: "stdin_unavailable",
+      error: "runtime stdin is not writable",
+    };
   }
 
   private requiresAuthoritativeOwner(): boolean {
@@ -167,12 +210,19 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
     const pending = this.pendingPromptAdmission;
     if (!pending) return;
     this.pendingPromptAdmission = undefined;
+    if (pending.timer) clearTimeout(pending.timer);
     if (admission.ok) this.activeTerminalReceipt = admission.receipt;
     pending.resolve(admission);
   }
 
-  async stop(opts: LaneStopInput = {}): Promise<void> {
+  stop(opts: LaneStopInput = {}): Promise<void> {
     this.settlePendingPrompt({ ok: false, reason: "closed", error: "runtime lane stopped before command admission" });
+    if (!this.process || this.closed) return Promise.resolve();
+    this.stopPromise ??= this.stopProcess(opts);
+    return this.stopPromise;
+  }
+
+  private async stopProcess(opts: LaneStopInput): Promise<void> {
     const proc = this.process;
     if (!proc || this.closed) return;
     this.requestedStopReason = opts?.reason;

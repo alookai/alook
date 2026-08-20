@@ -54,6 +54,11 @@ class FakeDriver implements BackendAdapter {
   spawnGate?: Promise<void>;
   sdkOpenGate?: Promise<void>;
   laneOverride?: RuntimeLane;
+  promptAdmissionTimeoutMs?: number;
+  beginTurn: (() => string) | undefined = () => {
+    this.currentTerminalOwner = `${this.id}:test:${++this.terminalSequence}`;
+    return this.currentTerminalOwner;
+  };
   private terminalSequence = 0;
   currentTerminalOwner?: string;
 
@@ -65,6 +70,7 @@ class FakeDriver implements BackendAdapter {
     return createProcessLane(this, ctx, {
       onRawStdoutLine: options?.onRawStdoutLine,
       stopAfterTurn: this.id === "opencode",
+      promptAdmissionTimeoutMs: this.promptAdmissionTimeoutMs,
     });
   }
   async spawn(ctx: AdapterLaunchContext) {
@@ -107,10 +113,6 @@ class FakeDriver implements BackendAdapter {
   encodeMessage(text: string): string {
     this.writes.push(text);
     return this.rejectWrites ? "" : text;
-  }
-  beginTurn(): string {
-    this.currentTerminalOwner = `${this.id}:test:${++this.terminalSequence}`;
-    return this.currentTerminalOwner;
   }
 }
 
@@ -183,10 +185,14 @@ function makeSession<Id extends BuiltinBackendId>(
     instructions?: string;
     execution?: BackendExecution;
     lane?: RuntimeLane;
+    authoritativeOwner?: boolean;
+    promptAdmissionTimeoutMs?: number;
   } = {},
 ) {
   const driver = new FakeDriver(backend, options.execution ?? executionFor(backend));
   driver.laneOverride = options.lane;
+  driver.promptAdmissionTimeoutMs = options.promptAdmissionTimeoutMs;
+  if (options.authoritativeOwner) driver.beginTurn = undefined;
   const host = createFakeAgentDriverHost(options.prepared);
   const prepared: PreparedExecutionResource = {
     environmentLayers: {
@@ -302,6 +308,41 @@ describe("runtime-lane admission state machine", () => {
     });
     expect(lane.stop).toHaveBeenCalledOnce();
     expect(host.releases).toHaveLength(1);
+  });
+
+  it("fails a silent authoritative admission without publishing acceptance and stops its process", async () => {
+    vi.useFakeTimers();
+    try {
+      const { session, driver, host } = makeSession("codex", {
+        authoritativeOwner: true,
+        promptAdmissionTimeoutMs: 25,
+      });
+      const iterator = session.events[Symbol.asyncIterator]();
+      const starting = session.start({ id: "one", kind: "user", text: "start" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(driver.processes).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(25);
+      await expect(starting).resolves.toMatchObject({
+        status: "rejected",
+        reason: "runtime_unavailable",
+      });
+      await expect(session.closed).resolves.toMatchObject({ outcome: "failed_to_start" });
+      const events = await take(iterator as never, 99);
+      expect(events.some((event) => event.type === "command_accepted" || event.type === "turn_started")).toBe(false);
+      expect(events.find((event) => event.type === "command_failed")).toMatchObject({
+        commandId: "one",
+        error: { code: "failed_to_start" },
+      });
+      expect(events.find((event) => event.type === "session_failed")).toMatchObject({
+        error: { code: "failed_to_start" },
+      });
+      expect(driver.processes[0]!.kill).toHaveBeenCalledOnce();
+      expect(driver.processes[0]!.kill).toHaveBeenCalledWith("SIGTERM");
+      expect(host.releases).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("orders a synchronous matching terminal after acceptance and settles the turn", async () => {
