@@ -18,6 +18,7 @@ import {
 } from "@/lib/community/community-route"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { ChannelSidebar } from "@/components/community/channels/channel-sidebar"
+import { ChannelRoute } from "@/components/community/channels/channel-route"
 import { ServerSettings } from "@/components/community/settings/server-settings"
 import { ImageCropDialog } from "@/components/community/image-crop-dialog"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
@@ -79,6 +80,9 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     : params.channelId
       ? decodeURIComponent(params.channelId)
       : null
+  const routeParentChannelId = params.childChannelId && params.channelId
+    ? decodeURIComponent(params.channelId)
+    : undefined
   const hasChannel = !!routeChannelId
   const breakpoint = useBreakpoint()
 
@@ -576,6 +580,17 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     />
   )
 
+  const content = routeChannelId
+    ? (
+        <ChannelRoute
+          key={`${serverId}/${routeChannelId}`}
+          serverParam={params.serverId}
+          parentChannelId={routeParentChannelId}
+          channelId={routeChannelId}
+        />
+      )
+    : children
+
   return (
     <ShellFrame
       view="server"
@@ -585,7 +600,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       onOpenActiveServerSettings={onSidebarOpenSettings}
       onOpenActiveServerInvite={onRailOpenActiveInvite}
     >
-      {children}
+      {content}
     </ShellFrame>
   )
 }
