@@ -560,7 +560,7 @@ export type ModelSelection = {
 };
 
 // @public (undocumented)
-export type OpenCodeCapabilities = FixedCapabilities<false, false, false, false, true, "next_turn_queue", "per_turn">;
+export type OpenCodeCapabilities = FixedCapabilities<false, false, false, false, true, "steer", "persistent">;
 
 // @public (undocumented)
 export type OpenCodeConfig = ModelBackendConfig;

@@ -14,7 +14,7 @@ const EXPECTED: Record<BuiltinBackendId, BackendCapabilities> = {
   claude: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: true, disallowedTools: true, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true },
   codex: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: true, fastMode: true, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "safe_boundary_queue", interrupt: true },
   cursor: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "next_turn_queue", interrupt: true },
-  opencode: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "per_turn", midTurnDelivery: "next_turn_queue", interrupt: true },
+  opencode: { modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false, disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
   pi: { modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: false, disallowedTools: false, commandOverride: false, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true },
 };
 
@@ -45,10 +45,10 @@ describe("driver.capabilities", () => {
         terminalOwnership: "transport_request",
       },
       opencode: {
-        lifetime: "turn",
-        transport: { kind: "one_shot_cli", protocol: "opencode.run.json.v1" },
-        wakeStart: "deferred",
-        terminalOwnership: "lane_generation",
+        lifetime: "session",
+        transport: { kind: "http_sse", protocol: "opencode.v2.service.1.17.20" },
+        wakeStart: "immediate",
+        terminalOwnership: "transport_request",
       },
       pi: {
         lifetime: "session",

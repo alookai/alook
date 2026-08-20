@@ -72,19 +72,15 @@ describe("builtin adapter protocol conformance", () => {
     expect("normalizeLine" in adapter).toBe(false);
   });
 
-  it("runs the real OpenCode adapter through the shared normalized-event contract", () => {
-    runAgentBackendAdapterConformance(registry.get("opencode"), {
-      exercise(adapter) {
-        return [
-          ...adapter.normalizeLine(line({ type: "step_start", sessionID: "opencode-root" })),
-          ...adapter.normalizeLine(line({ type: "tool_use", sessionID: "opencode-root", part: { tool: "read", state: { input: {} } } })),
-          ...adapter.normalizeLine(line({ type: "step_finish", sessionID: "opencode-root", part: { reason: "tool-calls" } })),
-          ...adapter.normalizeLine(line({ type: "text", sessionID: "opencode-root", part: { text: "done" } })),
-          ...adapter.normalizeLine(line({ type: "step_finish", sessionID: "opencode-root", part: { reason: "stop" } })),
-        ];
-      },
-      expectedEventKinds: ["session_init", "thinking", "tool_call", "text", "turn_end"],
+  it("declares the real OpenCode adapter as a lane-owned persistent v2 service", () => {
+    const adapter = registry.get("opencode").createAdapter();
+    expect(adapter.execution).toEqual({
+      lifetime: "session",
+      transport: { kind: "http_sse", protocol: "opencode.v2.service.1.17.20" },
+      wakeStart: "immediate",
+      terminalOwnership: "transport_request",
     });
+    expect("normalizeLine" in adapter).toBe(false);
   });
 
   it("runs the real Pi adapter registration and SDK mapper through the shared normalized-event contract", () => {

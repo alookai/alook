@@ -45,8 +45,8 @@ describe("resolveSpawnSpec", () => {
   });
 
   it("falls back to the bare command name when PATH resolution fails, without a shell on POSIX", () => {
-    const spec = resolveSpawnSpec("opencode", ["run"], undefined, { which: () => null }, "linux");
-    expect(spec).toEqual({ command: "opencode", args: ["run"], shell: false });
+    const spec = resolveSpawnSpec("opencode", ["serve"], undefined, { which: () => null }, "linux");
+    expect(spec).toEqual({ command: "opencode", args: ["serve"], shell: false });
   });
 
   it("honors an absolute-path override without re-resolving via PATH", () => {

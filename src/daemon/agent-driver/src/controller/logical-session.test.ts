@@ -154,10 +154,10 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 function executionFor(backend: BuiltinBackendId): BackendExecution {
   if (backend === "opencode") {
     return {
-      lifetime: "turn",
-      transport: { kind: "one_shot_cli", protocol: "opencode.test.v1" },
-      wakeStart: "deferred",
-      terminalOwnership: "lane_generation",
+      lifetime: "session",
+      transport: { kind: "http_sse", protocol: "opencode.test.v2" },
+      wakeStart: "immediate",
+      terminalOwnership: "transport_request",
     };
   }
   if (backend === "cursor") {
@@ -663,18 +663,17 @@ describe("backend-owned delivery behavior", () => {
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
-  it("admits a deferred OpenCode system prefix in exact FIFO order", async () => {
-    const { session } = makeSession("opencode");
+  it("starts OpenCode immediately and admits later system/user input as FIFO steers", async () => {
+    const { session, driver } = makeSession("opencode");
     const iterator = session.events[Symbol.asyncIterator]();
-    expect(await session.start({ id: "system-a", kind: "system", text: "a" })).toMatchObject({ status: "queued" });
-    expect(await session.send({ id: "system-b", kind: "system", text: "b" })).toMatchObject({ status: "queued" });
-    expect(await session.send({ id: "user", kind: "user", text: "go" })).toMatchObject({ status: "accepted" });
-    const events = await take(iterator as never, 6);
+    expect(await session.start({ id: "system-a", kind: "system", text: "a" })).toMatchObject({ status: "accepted", delivery: "prompt" });
+    expect(await session.send({ id: "system-b", kind: "system", text: "b" })).toMatchObject({ status: "accepted", delivery: "steer" });
+    expect(await session.send({ id: "user", kind: "user", text: "go" })).toMatchObject({ status: "accepted", delivery: "steer" });
+    const events = await take(iterator as never, 4);
     expect(events.filter((event) => event.type === "command_accepted").map((event) => event.commandId))
       .toEqual(["system-a", "system-b", "user"]);
-    expect(events.find((event) => event.type === "turn_started")).toMatchObject({
-      commandIds: ["system-a", "system-b", "user"],
-    });
+    expect(session.snapshot().activeTurn).toMatchObject({ commandIds: ["system-a", "system-b", "user"] });
+    expect(driver.writes).toEqual(["b", "go"]);
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
@@ -1013,21 +1012,21 @@ describe("backend-owned delivery behavior", () => {
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
-  it("opencode queues for a new physical turn and never creates two lanes concurrently", async () => {
-    const backend = "opencode" as const;
-    const { session, driver } = makeSession(backend);
-    if (backend === "opencode") {
-      expect(await session.start({ id: "system", kind: "system", text: "standing" })).toEqual({ status: "queued", reason: "waiting_for_message", commandId: "system" });
-      await session.send({ id: "one", kind: "user", text: "start" });
-    } else {
-      await session.start({ id: "one", kind: "user", text: "start" });
-    }
-    expect(await session.send({ id: "two", kind: "user", text: "next" })).toEqual({ status: "queued", reason: "runtime_busy", commandId: "two" });
+  it("opencode keeps one persistent lane and admits busy input as steer", async () => {
+    const { session, driver } = makeSession("opencode");
+    await session.start({ id: "one", kind: "user", text: "start" });
+    expect(await session.send({ id: "two", kind: "user", text: "steer" })).toMatchObject({
+      status: "accepted",
+      delivery: "steer",
+      commandId: "two",
+    });
     expect(driver.processes).toHaveLength(1);
     await emit(driver, { kind: "turn_end", sessionId: "s1" });
-    driver.processes[0].emit("exit", 0, null);
-    await Promise.resolve();
-    await vi.waitFor(() => expect(driver.processes).toHaveLength(2));
+    await expect(session.send({ id: "three", kind: "user", text: "next" })).resolves.toMatchObject({
+      status: "accepted",
+      delivery: "prompt",
+    });
+    expect(driver.processes).toHaveLength(1);
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 

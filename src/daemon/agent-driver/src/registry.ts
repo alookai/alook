@@ -179,7 +179,7 @@ const capabilities = {
   },
   opencode: {
     modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false,
-    disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "per_turn", midTurnDelivery: "next_turn_queue", interrupt: true,
+    disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true,
   },
   pi: {
     modelSelection: "launchable", providerConfiguration: true, reasoningEffort: true, fastMode: false,

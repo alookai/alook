@@ -1,5 +1,8 @@
 import { EventEmitter } from "node:events";
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeLaunchContext } from "../../testing/adapter-fixture.js";
 import { OpenCodeDriver } from "./index.js";
 
@@ -9,58 +12,64 @@ vi.mock("../../internal/killTree.js", async () => ({
   spawnAgentProcess,
 }));
 
-describe("OpenCodeDriver.normalizeLine — step_finish turn-end timing", () => {
+const directories: string[] = [];
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
+});
+
+describe("OpenCodeDriver persistent v2 service", () => {
   let driver: OpenCodeDriver;
 
   beforeEach(() => {
     driver = new OpenCodeDriver();
   });
 
-  function line(obj: unknown): string {
-    return JSON.stringify(obj);
-  }
-
-  it("spawns one deferred turn and exposes its no-stdin continuation contract", async () => {
-    const end = vi.fn();
-    spawnAgentProcess.mockReturnValue(Object.assign(new EventEmitter(), { stdin: { end } }));
-    const spawned = await driver.spawn(fakeLaunchContext("opencode", process.cwd(), { prompt: "hello" }));
-    expect(spawned.process).toBeDefined();
-    expect(end).toHaveBeenCalledOnce();
-    expect(driver.encodeMessage()).toBeNull();
+  it("declares persistent HTTP/SSE steering with transport-owned terminal receipts", () => {
+    expect(driver.execution).toEqual({
+      lifetime: "session",
+      transport: { kind: "http_sse", protocol: "opencode.v2.service.1.17.20" },
+      wakeStart: "immediate",
+      terminalOwnership: "transport_request",
+    });
+    expect("normalizeLine" in driver).toBe(false);
   });
 
-  it("does NOT end the turn on an intermediate step_finish (reason: tool-calls)", () => {
-    const events = driver.normalizeLine(
-      line({ type: "step_finish", sessionID: "ses_1", part: { type: "step-finish", reason: "tool-calls" } }),
-    );
-    expect(events.some((e) => e.kind === "turn_end")).toBe(false);
+  it("creates opaque caller message ids for root ownership", () => {
+    const first = driver.beginTurn();
+    const second = driver.beginTurn();
+    expect(first).toMatch(/^msg_[a-f0-9]{32}$/);
+    expect(second).toMatch(/^msg_[a-f0-9]{32}$/);
+    expect(second).not.toBe(first);
   });
 
-  it("ends the turn on the final step_finish (reason: stop)", () => {
-    const events = driver.normalizeLine(
-      line({ type: "step_finish", sessionID: "ses_1", part: { type: "step-finish", reason: "stop" } }),
-    );
-    expect(events.some((e) => e.kind === "turn_end")).toBe(true);
-  });
+  it("spawns one loopback service without putting its password in argv", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "opencode-driver-"));
+    directories.push(directory);
+    const process = Object.assign(new EventEmitter(), {
+      pid: 1234,
+      stdout: null,
+      stderr: null,
+      stdin: null,
+      exitCode: null,
+      signalCode: null,
+      kill: vi.fn(() => true),
+    });
+    spawnAgentProcess.mockReturnValue(process);
 
-  it("a multi-step turn (tool-calls step, then a stop step) emits turn_end exactly once, after the final step", () => {
-    const afterToolCallStep = driver.normalizeLine(
-      line({ type: "step_finish", sessionID: "ses_1", part: { type: "step-finish", reason: "tool-calls" } }),
-    );
-    const afterFinalStep = driver.normalizeLine(
-      line({ type: "step_finish", sessionID: "ses_1", part: { type: "step-finish", reason: "stop" } }),
-    );
+    await driver.spawnService(fakeLaunchContext("opencode", directory, {
+      config: { runtimeConfig: { model: { kind: "default" }, command: "opencode-custom" } },
+    }), 43123, "session-secret");
 
-    expect(afterToolCallStep.filter((e) => e.kind === "turn_end")).toHaveLength(0);
-    expect(afterFinalStep.filter((e) => e.kind === "turn_end")).toHaveLength(1);
-  });
-
-  it("does not throw on a step_finish with no part (defensive)", () => {
-    expect(() => driver.normalizeLine(line({ type: "step_finish", sessionID: "ses_1" }))).not.toThrow();
-    // Missing `part.reason` is treated as "not tool-calls" -> turn ends, which
-    // is the safe default (never getting stuck waiting for a turn_end that
-    // never comes).
-    const events = driver.normalizeLine(line({ type: "step_finish", sessionID: "ses_1" }));
-    expect(events.some((e) => e.kind === "turn_end")).toBe(true);
+    expect(spawnAgentProcess).toHaveBeenCalledOnce();
+    const [command, args, options] = spawnAgentProcess.mock.calls[0]!;
+    expect(command).toBe("opencode-custom");
+    expect(args).toEqual(["serve", "--pure", "--hostname", "127.0.0.1", "--port", "43123"]);
+    expect(JSON.stringify(args)).not.toContain("session-secret");
+    expect(options).toMatchObject({
+      cwd: directory,
+      env: { OPENCODE_SERVER_PASSWORD: "session-secret" },
+    });
   });
 });

@@ -10,7 +10,19 @@ import type {
   BuiltinBackendSpecs,
   ConfigOf,
 } from "../contract.js";
-import type { AdapterLaunchContext, SpawnedProcessHandle, VendorSessionHandle } from "../internal/adapter.js";
+import type {
+  AdapterEvent,
+  AdapterLaunchContext,
+  LaneAdmission,
+  LaneInterruptInput,
+  LaneSendInput,
+  LaneStartInput,
+  LaneStopInput,
+  RuntimeLane,
+  RuntimeLaneEventMap,
+  SpawnedProcessHandle,
+  VendorSessionHandle,
+} from "../internal/adapter.js";
 import { ClaudeDriver } from "../adapters/claude/index.js";
 import { CodexDriver } from "../adapters/codex/index.js";
 import { CursorDriver } from "../adapters/cursor/index.js";
@@ -42,6 +54,7 @@ interface VendorHarness {
   readonly contexts: AdapterLaunchContext[];
   readonly processes: HarnessProcess[];
   readonly lanes: SdkLane[];
+  readonly openCodeLanes: HarnessRuntimeLane[];
   readonly handles: Array<VendorSessionHandle & { isStreaming: boolean }>;
   readonly claudeInputUuids: readonly string[];
   readonly stdinMessages: readonly Record<string, unknown>[];
@@ -52,6 +65,46 @@ interface VendorHarness {
   emitProvider(event: unknown): void;
   replayClaudeInput(index: number): void;
   resultForClaudeInput(index: number, overrides?: Record<string, unknown>): void;
+}
+
+class HarnessRuntimeLane implements RuntimeLane {
+  private readonly events = new EventEmitter();
+  currentSessionId: string | null = "opencode-resumed";
+  rootReceipt: string | undefined;
+
+  on<K extends keyof RuntimeLaneEventMap>(event: K, listener: (value: RuntimeLaneEventMap[K]) => void): void {
+    this.events.on(event, listener);
+  }
+
+  start(input: LaneStartInput): Promise<LaneAdmission> {
+    this.rootReceipt = input.terminalOwner ?? "msg_opencode_root";
+    return Promise.resolve({ ok: true, acceptedAs: "prompt", receipt: this.rootReceipt });
+  }
+
+  send(input: LaneSendInput): Promise<LaneAdmission> {
+    if (input.mode === "idle") this.rootReceipt = input.terminalOwner ?? "msg_opencode_idle";
+    return Promise.resolve({
+      ok: true,
+      acceptedAs: input.mode === "busy" ? "steer" : "prompt",
+      receipt: input.mode === "busy" ? "msg_opencode_steer" : this.rootReceipt!,
+    });
+  }
+
+  interrupt(_input: LaneInterruptInput): Promise<boolean> {
+    return Promise.resolve(true);
+  }
+
+  stop(_input: LaneStopInput): Promise<void> {
+    return Promise.resolve();
+  }
+
+  emit(event: AdapterEvent): void {
+    this.events.emit("runtime_event", event);
+  }
+
+  reportUnexpectedExit(code = 17, signal: string | null = null): void {
+    this.events.emit("exit", { code, signal, reason: "runtime_exit" } satisfies RuntimeLaneEventMap["exit"]);
+  }
 }
 
 const workingDirectories: string[] = [];
@@ -82,6 +135,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
   const contexts: AdapterLaunchContext[] = [];
   const processes: HarnessProcess[] = [];
   const lanes: SdkLane[] = [];
+  const openCodeLanes: HarnessRuntimeLane[] = [];
   const handles: Array<VendorSessionHandle & { isStreaming: boolean }> = [];
   const piPromptResolutions: Array<() => void> = [];
   const claudeTurnUuids: string[] = [];
@@ -103,8 +157,15 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
       lanes.push(lane);
       return lane;
     });
+  } else if (backend === "opencode") {
+    vi.spyOn(OpenCodeDriver.prototype, "openLane").mockImplementation(async (ctx) => {
+      contexts.push(ctx);
+      const lane = new HarnessRuntimeLane();
+      openCodeLanes.push(lane);
+      return lane;
+    });
   } else {
-    const classes = { claude: ClaudeDriver, codex: CodexDriver, cursor: CursorDriver, opencode: OpenCodeDriver };
+    const classes = { claude: ClaudeDriver, codex: CodexDriver, cursor: CursorDriver };
     if (backend === "claude") {
       const beginTurn = ClaudeDriver.prototype.beginTurn;
       vi.spyOn(ClaudeDriver.prototype, "beginTurn").mockImplementation(function (this: ClaudeDriver) {
@@ -192,6 +253,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
     contexts,
     processes,
     lanes,
+    openCodeLanes,
     handles,
     claudeInputUuids,
     stdinMessages,
@@ -209,7 +271,7 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
         case "cursor":
           break;
         case "opencode":
-          write({ type: "step_start", sessionID: "opencode-resumed" });
+          openCodeLanes[0]!.emit({ kind: "thinking", text: `turn-${turn}` });
           break;
         case "pi":
           handles[0]!.isStreaming = true;
@@ -236,7 +298,11 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
           }
           break;
         case "opencode":
-          write({ type: "step_finish", sessionID: "opencode-resumed", part: { reason: "stop" } });
+          openCodeLanes[0]!.emit({
+            kind: "turn_end",
+            sessionId: "opencode-resumed",
+            turnOwner: openCodeLanes[0]!.rootReceipt,
+          });
           break;
         case "pi":
           handles[0]!.isStreaming = false;
@@ -261,7 +327,12 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
           break;
         }
         case "opencode":
-          throw new Error("opencode has a process-per-turn lane instead of a persistent terminal fence");
+          openCodeLanes[0]!.emit({
+            kind: "turn_end",
+            sessionId: "opencode-resumed",
+            turnOwner: openCodeLanes[0]!.rootReceipt,
+          });
+          break;
         case "pi":
           throw new Error("pi terminals are owned by prompt promise settlement, not vendor event payloads");
       }
@@ -364,11 +435,10 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
   });
 
   const busy = await session.send({ id: "busy", kind: "user", text: "busy" });
-  expect(busy.status).toBe(backend === "pi" ? "accepted" : "queued");
+  expect(busy.status).toBe(backend === "pi" || backend === "opencode" ? "accepted" : "queued");
   const interrupted = await session.interrupt({ requestId: "interrupt-1", reason: "conformance" });
   expect(interrupted.status).toBe("accepted");
   harness.completeTurn(1);
-  if (backend === "opencode") harness.processes[0]!.finish();
   await settle();
 
   if (backend === "cursor") {
@@ -382,7 +452,7 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
     harness.sessionReady(3);
     await settle();
     harness.completeTurn(3);
-  } else if (backend === "pi" || backend === "claude" || backend === "codex") {
+  } else if (backend === "pi" || backend === "claude" || backend === "codex" || backend === "opencode") {
     const reuse = session.send({ id: "reuse", kind: "user", text: "reuse" });
     expect(await settlePromptAdmission(backend, harness, 2, reuse)).toMatchObject({ status: "accepted" });
     if (backend === "pi") harness.handles[0]!.isStreaming = true;
@@ -391,7 +461,6 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
     if (backend !== "codex") harness.sessionReady(2);
     await settle();
     harness.completeTurn(2);
-    if (backend === "opencode") harness.processes[1]!.finish();
     await settle();
   }
 
@@ -418,9 +487,12 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
       const harness = installVendorHarness(backend);
       let releaseOpen!: () => void;
       const openGate = new Promise<void>((resolve) => { releaseOpen = resolve; });
-      const method = backend === "pi" ? "openLane" : "spawn";
+      const laneOwned = backend === "pi" || backend === "opencode";
+      const method = laneOwned ? "openLane" : "spawn";
       const prototype = backend === "pi"
         ? PiDriver.prototype
+        : backend === "opencode"
+          ? OpenCodeDriver.prototype
         : ({ claude: ClaudeDriver, codex: CodexDriver, cursor: CursorDriver, opencode: OpenCodeDriver } as const)[backend].prototype;
       const existing = (prototype as unknown as Record<string, ReturnType<typeof vi.fn>>)[method]!;
       existing.mockImplementationOnce(async (...args: unknown[]) => {
@@ -429,6 +501,7 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
           isStreaming: false,
           prompt: async () => {}, steer: async () => {}, abort: async () => {}, dispose: async () => {},
         }, "late-pi");
+        if (backend === "opencode") return harness.openCodeLanes[0] ?? new HarnessRuntimeLane();
         const process = fakeProcess();
         harness.processes.push(process);
         return { process };
@@ -465,10 +538,13 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
 
     it("scrubs and releases a registered-adapter failed start", async () => {
       installVendorHarness(backend);
-      const method = backend === "pi" ? "openLane" : "spawn";
+      const laneOwned = backend === "pi" || backend === "opencode";
+      const method = laneOwned ? "openLane" : "spawn";
       const prototype = backend === "pi"
         ? PiDriver.prototype
-        : ({ claude: ClaudeDriver, codex: CodexDriver, cursor: CursorDriver, opencode: OpenCodeDriver } as const)[backend].prototype;
+        : backend === "opencode"
+          ? OpenCodeDriver.prototype
+          : ({ claude: ClaudeDriver, codex: CodexDriver, cursor: CursorDriver } as const)[backend].prototype;
       (prototype as unknown as Record<string, ReturnType<typeof vi.fn>>)[method]!.mockRejectedValueOnce(
         new Error("apiKey=supersecret failed at /Users/Alice Smith/private key.json"),
       );
@@ -517,6 +593,8 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
         ? vi.spyOn(SdkLane.prototype, "stop")
         : backend === "cursor"
           ? vi.spyOn(CursorAcpLane.prototype, "stop")
+          : backend === "opencode"
+            ? vi.spyOn(HarnessRuntimeLane.prototype, "stop")
           : vi.spyOn(ProcessLane.prototype, "stop");
       laneStop.mockRejectedValueOnce(new Error("dispose rejected at /Users/Alice/private"));
       const host = createFakeAgentDriverHost();
@@ -548,6 +626,8 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
         ? vi.spyOn(SdkLane.prototype, "stop")
         : backend === "cursor"
           ? vi.spyOn(CursorAcpLane.prototype, "stop")
+          : backend === "opencode"
+            ? vi.spyOn(HarnessRuntimeLane.prototype, "stop")
           : vi.spyOn(ProcessLane.prototype, "stop");
       laneStop.mockImplementationOnce(() => new Promise<void>(() => {}));
       const host = createFakeAgentDriverHost();
@@ -594,6 +674,7 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
         opened.session.start({ id: "crash", kind: "user", text: "crash" }),
       )).toMatchObject({ status: "accepted" });
       if (backend === "pi") harness.lanes[0]!.reportUnexpectedExit();
+      else if (backend === "opencode") harness.openCodeLanes[0]!.reportUnexpectedExit();
       else harness.processes[0]!.finish(17, null);
       expect((await opened.session.closed).outcome).toBe("crashed");
       await collecting;
