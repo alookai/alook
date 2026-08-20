@@ -304,24 +304,31 @@ describe("spawnAgentProcess", () => {
       proc.once("exit", (code, signal) => resolve([code, signal]));
     });
     const lines = createInterface({ input: proc.stdout! });
-    const responses: string[] = [];
-    const response = new Promise<string[]>((resolve, reject) => {
-      lines.on("line", (line) => {
-        responses.push(line);
-        if (responses.length === 2) resolve(responses);
-      });
-      proc.once("exit", () => reject(new Error("supervisor exited before the stdin roundtrip completed")));
+    const readResponse = () => new Promise<string>((resolve, reject) => {
+      const onExit = () => {
+        lines.off("line", onLine);
+        reject(new Error("supervisor exited before the stdin roundtrip completed"));
+      };
+      const onLine = (line: string) => {
+        proc.off("exit", onExit);
+        resolve(line);
+      };
+      lines.once("line", onLine);
+      proc.once("exit", onExit);
     });
 
     // Keep stdin open across multiple request/response exchanges. Calling
     // `end()` here would only prove that EOF flushes a buffered pipe, while
     // Codex/Claude/ACP all require a long-lived bidirectional transport.
+    const firstResponse = readResponse();
     proc.stdin!.write("stdio-roundtrip-1\n");
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    const first = await firstResponse;
     const exitStartedAt = Date.now();
+    const secondResponse = readResponse();
     proc.stdin!.write("stdio-roundtrip-2\n");
+    const second = await secondResponse;
 
-    expect((await response).map((line) => JSON.parse(line))).toEqual([
+    expect([first, second].map((line) => JSON.parse(line))).toEqual([
       {
         line: "stdio-roundtrip-1",
         request: 1,
