@@ -4,6 +4,14 @@ import { ClaudeTurnProtocol } from "./turnProtocol.js";
 const uuidOf = (receipt: string) => receipt.slice("claude:".length);
 
 describe("ClaudeTurnProtocol", () => {
+  it("does not admit provider work for a new turn before its root replay acknowledgement", () => {
+    const protocol = new ClaudeTurnProtocol();
+    const root = uuidOf(protocol.beginTurn());
+    expect(protocol.acceptsTurnWork()).toBe(false);
+    protocol.acknowledge(root);
+    expect(protocol.acceptsTurnWork()).toBe(true);
+  });
+
   it("claims a root result after its provider acknowledgement", () => {
     const protocol = new ClaudeTurnProtocol();
     const receipt = protocol.beginTurn();

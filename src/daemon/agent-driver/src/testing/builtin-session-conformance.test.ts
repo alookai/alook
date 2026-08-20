@@ -685,6 +685,66 @@ describe("claude persistent transport ownership", () => {
     await collecting;
   });
 
+  it("fences a prior-turn stdout tail until the next root replay acknowledgement", async () => {
+    const harness = installVendorHarness("claude");
+    const sdk = createAgentDriverSdkWithRegistry({
+      host: createFakeAgentDriverHost(),
+      registry: createBuiltinAgentDriverRegistry(),
+    });
+    const workingDirectory = mkdtempSync(join(tmpdir(), "agent-driver-cross-turn-tail-claude-"));
+    workingDirectories.push(workingDirectory);
+    const opened = await sdk.open({
+      backend: "claude",
+      config: configs.claude,
+      launch: { workingDirectory, instructions: { format: "markdown", content: "" }, launchId: "cross-turn-tail-claude" },
+    });
+    if (!opened.ok) throw new Error(opened.error.message);
+    const events: Array<AgentEvent<BuiltinBackendSpecs, "claude">> = [];
+    const collecting = (async () => { for await (const event of opened.session.events) events.push(event); })();
+
+    await opened.session.start({ id: "first", kind: "user", text: "first" });
+    harness.sessionReady(1);
+    harness.completeTurn(1);
+    await settle();
+    expect(await opened.session.send({ id: "second", kind: "user", text: "second" }))
+      .toMatchObject({ status: "accepted" });
+
+    harness.emitProvider({ type: "assistant", message: { content: [{ type: "text", text: "LATE_A" }] } });
+    harness.emitProvider({
+      type: "assistant",
+      message: { content: [{ type: "tool_use", id: "late-tool", name: "LateTool", input: {} }] },
+    });
+    harness.emitProvider({ type: "system", subtype: "status", status: "late-progress" });
+    await settle();
+    expect(events.filter((event) => event.type === "text_delta")).toHaveLength(0);
+    expect(events.filter((event) => event.type === "tool_started")).toHaveLength(0);
+    expect(events.filter((event) => event.type === "internal_progress")).toHaveLength(0);
+
+    harness.sessionReady(2);
+    harness.replayClaudeInput(1);
+    harness.emitProvider({ type: "assistant", message: { content: [{ type: "text", text: "B_TEXT" }] } });
+    harness.emitProvider({
+      type: "assistant",
+      message: { content: [{ type: "tool_use", id: "b-tool", name: "CurrentTool", input: {} }] },
+    });
+    harness.emitProvider({
+      type: "user",
+      message: { content: [{ type: "tool_result", tool_use_id: "b-tool", content: "done" }] },
+    });
+    harness.resultForClaudeInput(1);
+    await vi.waitFor(() => {
+      expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(2);
+    });
+    expect(events.filter((event) => event.type === "text_delta")).toMatchObject([{ text: "B_TEXT" }]);
+    expect(events.filter((event) => event.type === "tool_started")).toMatchObject([{ name: "CurrentTool" }]);
+    expect(harness.processes).toHaveLength(1);
+
+    const stopping = opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    harness.processes[0]!.finish();
+    await stopping;
+    await collecting;
+  });
+
   it.each([true, false] as const)(
     "drops provider work after a final result (%s chunk) and starts B on the same process",
     async (sameChunk) => {
@@ -750,6 +810,7 @@ describe("claude persistent transport ownership", () => {
 
     await opened.session.start({ id: "root", kind: "user", text: "root" });
     harness.sessionReady(1);
+    harness.replayClaudeInput(0);
     harness.emitProvider({
       type: "assistant",
       message: { content: [{ type: "tool_use", id: "tool-1", name: "Read", input: {} }] },
@@ -795,7 +856,6 @@ describe("claude persistent transport ownership", () => {
       }
     });
 
-    harness.replayClaudeInput(0);
     harness.resultForClaudeInput(0);
     await settle();
     expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(0);

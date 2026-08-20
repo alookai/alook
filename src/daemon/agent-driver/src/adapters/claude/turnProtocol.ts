@@ -50,7 +50,8 @@ export class ClaudeTurnProtocol {
   }
 
   acceptsTurnWork(): boolean {
-    return this.rootUuid !== null && !this.finalized;
+    if (!this.rootUuid || this.finalized) return false;
+    return this.delivered.get(this.rootUuid)?.acknowledged === true;
   }
 
   /** Returns the logical root receipt only when this is the final provider segment. */
