@@ -6,7 +6,9 @@ describe("websocketUrl", () => {
     const options = { local: true, port: 3000 } as const
 
     expect(websocketUrl("user", options)).toBe("ws://localhost:3000/api/ws/user")
-    expect(websocketUrl("community-daemon", options)).toBe("ws://localhost:3000/api/ws/community-daemon")
+    expect(websocketUrl("community-daemon", options)).toBe(
+      "ws://localhost:3000/api/ws/community-daemon",
+    )
   })
 
   it("uses the public secure websocket origin in production", () => {

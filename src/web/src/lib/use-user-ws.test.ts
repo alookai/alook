@@ -84,6 +84,17 @@ function depsEqual(left: unknown[], right: unknown[]) {
 }
 
 vi.mock("react", () => ({
+  useState: (initial: unknown) => {
+    const id = `ref-${refCounter++}`
+    if (!refs.has(id)) {
+      refs.set(id, {
+        current: typeof initial === "function"
+          ? (initial as () => unknown)()
+          : initial,
+      })
+    }
+    return [refs.get(id)!.current, vi.fn()]
+  },
   useRef: (initial: unknown) => {
     const id = `ref-${refCounter++}`
     if (!refs.has(id)) {
@@ -340,7 +351,7 @@ describe("useUserWs", () => {
     setupTokenFetch()
 
     const cb1 = vi.fn()
-    await mountHook(cb1)
+    const mod = await mountHook(cb1)
     await flushPromises()
 
     const ws = MockWebSocket.instances[0]
@@ -351,13 +362,13 @@ describe("useUserWs", () => {
     ws.simulateMessage({ type: "test", data: "hello" })
     expect(cb1).toHaveBeenCalledWith({ type: "test", data: "hello" })
 
-    // Now simulate a re-render with a new callback by updating the ref directly
-    // In real React, the hook body runs `onMessageRef.current = onMessage` on each render
-    const onMessageRef = Array.from(refs.values()).find(r =>
-      typeof r.current === "function"
-    )
+    // Simulate a real re-render. The raw transport retains its instance while
+    // its options effect publishes the latest compatibility callback.
     const cb2 = vi.fn()
-    if (onMessageRef) onMessageRef.current = cb2
+    refCounter = 0
+    callbackCounter = 0
+    effectCounter = 0
+    mod.useUserWs(cb2)
 
     ws.simulateMessage({ type: "test", data: "world" })
     expect(cb2).toHaveBeenCalledWith({ type: "test", data: "world" })

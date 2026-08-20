@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { tid } from "@/lib/community/testids"
 import { isLocalMode, WS_DO_PORT_DEFAULT } from "@/lib/utils"
-import { websocketUrl } from "@/lib/websocket-url"
+import { websocketUrl } from "@/platform/client"
 
 // Production daemons use their built-in endpoints. Local development appends
 // the browser origin and local ws-do address so the command stays on the dev stack.
