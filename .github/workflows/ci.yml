@@ -226,14 +226,12 @@ jobs:
         if: needs.scope.outputs.full == 'true'
         env:
           VITEST_MAX_WORKERS: 1
-        run: pnpm turbo run test --filter=@alook/daemon
+        run: pnpm --filter @alook/daemon test
       - name: Run affected daemon tests in isolation
         if: needs.scope.outputs.full != 'true'
         env:
           VITEST_MAX_WORKERS: 1
-          TURBO_SCM_BASE: ${{ needs.scope.outputs.base_sha }}
-          TURBO_SCM_HEAD: ${{ needs.scope.outputs.head_sha }}
-        run: pnpm turbo run test --affected --filter=@alook/daemon
+        run: pnpm --filter @alook/daemon test
       - name: Run remaining workspace tests
         if: needs.scope.outputs.full == 'true'
         run: pnpm turbo run test --filter='!@alook/daemon'

@@ -124,9 +124,13 @@ describe("CI test budgets", () => {
     const processAuthority = windows.indexOf(
       "pnpm --filter @alook/agent-driver exec vitest run src/internal/killTree.test.ts",
     )
-    const daemon = windows.indexOf("pnpm turbo run test --filter=@alook/daemon")
+    const focusedAdmission = windows.indexOf(
+      "pnpm --filter @alook/daemon exec vitest run src/daemon/createDaemon.test.ts",
+    )
+    const daemon = windows.indexOf("pnpm --filter @alook/daemon test")
     expect(processAuthority).toBeGreaterThan(0)
-    expect(daemon).toBeGreaterThan(processAuthority)
+    expect(focusedAdmission).toBeGreaterThan(processAuthority)
+    expect(daemon).toBeGreaterThan(focusedAdmission)
   })
 })
 
@@ -194,9 +198,11 @@ describe("Turbo CI execution", () => {
     expect(ciJob("quality")).toContain("run: pnpm typecheck")
     expect(ciJob("quality")).toContain("run: pnpm lint")
     expect(ciJob("knip")).toContain("run: pnpm knip")
-    for (const job of ["test-linux", "test-windows"]) {
-      const definition = ciJob(job)
-      expect(definition).toContain("run: pnpm turbo run test --filter=@alook/daemon")
+    const linux = ciJob("test-linux")
+    expect(linux).toContain("run: pnpm turbo run test --filter=@alook/daemon")
+    const windows = ciJob("test-windows")
+    expect(windows).toContain("run: pnpm --filter @alook/daemon test")
+    for (const definition of [linux, windows]) {
       expect(definition).toContain("run: pnpm turbo run test --filter='!@alook/daemon'")
       expect(definition.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(2)
     }
