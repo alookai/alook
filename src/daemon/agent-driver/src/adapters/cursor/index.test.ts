@@ -431,7 +431,7 @@ describe("CursorDriver persistent ACP transport", () => {
       method: "session/request_permission",
       params: {
         sessionId: "cursor-acp-session",
-        options: [{ optionId: "allow-once", kind: "allow_once", name: "Allow once" }],
+        options: [{ optionId: "vendor-choice-7", kind: "allow_once", name: "Allow once" }],
       },
     })}\n`);
     process.stdout.write(`${JSON.stringify({
@@ -448,7 +448,7 @@ describe("CursorDriver persistent ACP transport", () => {
     expect(server.messages).toContainEqual({
       jsonrpc: "2.0",
       id: "permission-1",
-      result: { outcome: { outcome: "selected", optionId: "allow-once" } },
+      result: { outcome: { outcome: "selected", optionId: "vendor-choice-7" } },
     });
     expect(server.messages).toContainEqual({
       jsonrpc: "2.0",
@@ -461,6 +461,7 @@ describe("CursorDriver persistent ACP transport", () => {
       params: { sessionId: "cursor-acp-session" },
     });
     expect(process.kill).not.toHaveBeenCalled();
+    expect(JSON.stringify(events)).not.toContain("vendor-choice-7");
     completePrompt(process, server.prompts[0]!, "cancelled");
     await settle();
     expect(events).toContainEqual(expect.objectContaining({ kind: "turn_end" }));
@@ -544,6 +545,42 @@ describe("CursorDriver persistent ACP transport", () => {
       });
     }
     expect(events.filter((event) => event.kind === "turn_end")).toHaveLength(1);
+  });
+
+  it("rejects malformed allow_once option ids while a root prompt is active", async () => {
+    const server = installServer();
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const events = eventsFrom(lane);
+    await lane.start({ text: "malformed permission ids" });
+    const process = spawned[0]!;
+    const malformed = [
+      { id: "permission-missing-id", option: { kind: "allow_once" } },
+      { id: "permission-empty-id", option: { optionId: "", kind: "allow_once" } },
+      { id: "permission-whitespace-id", option: { optionId: "   ", kind: "allow_once" } },
+      { id: "permission-non-string-id", option: { optionId: 7, kind: "allow_once" } },
+    ];
+    for (const entry of malformed) {
+      process.stdout.write(`${JSON.stringify({
+        jsonrpc: "2.0",
+        id: entry.id,
+        method: "session/request_permission",
+        params: { sessionId: "cursor-acp-session", options: [entry.option] },
+      })}\n`);
+    }
+
+    for (const entry of malformed) {
+      expect(server.messages).toContainEqual({
+        jsonrpc: "2.0",
+        id: entry.id,
+        result: { outcome: { outcome: "cancelled" } },
+      });
+    }
+    expect(events).toHaveLength(malformed.length + 1);
+    expect(events.slice(1)).toEqual(malformed.map(() => expect.objectContaining({
+      kind: "runtime_diagnostic",
+      severity: "error",
+      message: "Cursor ACP permission request was not allowed for the active prompt",
+    })));
   });
 
   it("fences a stop racing the final handshake response before ready or prompt admission", async () => {

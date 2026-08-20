@@ -552,7 +552,11 @@ export class CursorAcpLane implements RuntimeLane {
     const payload = record(params);
     const sameSession = payload?.sessionId === this.sessionId;
     const options = Array.isArray(payload?.options) ? payload.options.map(record).filter(Boolean) as JsonRecord[] : [];
-    const allowOnce = options.find((option) => option.optionId === "allow-once" && option.kind === "allow_once");
+    const allowOnce = options.find((option) => (
+      option.kind === "allow_once"
+      && typeof option.optionId === "string"
+      && option.optionId.trim().length > 0
+    ));
     if (!this.ready || !this.activePrompt || !sameSession || !allowOnce) {
       this.write({ jsonrpc: "2.0", id, result: { outcome: { outcome: "cancelled" } } });
       this.diagnostic("error", "Cursor ACP permission request was not allowed for the active prompt");
@@ -561,7 +565,7 @@ export class CursorAcpLane implements RuntimeLane {
     this.write({
       jsonrpc: "2.0",
       id,
-      result: { outcome: { outcome: "selected", optionId: "allow-once" } },
+      result: { outcome: { outcome: "selected", optionId: allowOnce.optionId } },
     });
   }
 
