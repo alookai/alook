@@ -141,8 +141,8 @@ implements AgentSession<Specs, Id> {
   private compacting = false;
   private reviewing = false;
   private readonly steeringDeliveries = new Set<SteeringDelivery>();
-  private steeringTail: Promise<void> = Promise.resolve();
-  private steeringPhysicalPending = 0;
+  private laneAdmissionTail: Promise<void> = Promise.resolve();
+  private laneAdmissionPending = 0;
   private toolBoundaryFlushDisabled = false;
   private safeBoundaryFlush?: Promise<void>;
   private safeBoundaryDelivery?: SafeBoundaryDelivery;
@@ -437,56 +437,56 @@ implements AgentSession<Specs, Id> {
       commandId: current.id,
       turnId,
     };
-    try {
-      let laneAdmission: LaneAdmission;
-      if (this.adapter.execution.lifetime === "session" && this.lane) {
-        if (this.steeringPhysicalPending > 0) {
-          await this.steeringTail;
-          if (!this.isStartCurrent(generation, turnId)) return { status: "rejected", reason: "closed" };
+    const admit = async (reuseExistingLane: boolean): Promise<DeliveryReceipt> => {
+      try {
+        let laneAdmission: LaneAdmission;
+        if (reuseExistingLane) {
+          laneAdmission = await this.sendLane(text, "idle");
+        } else {
+          const opened = await this.openLane(text, generation);
+          if (!opened) {
+            // A racing stop owns terminal settlement. Preserve the historical
+            // contract that session_closed is observable before start resolves.
+            if (this.finishPromise) await this.finishPromise;
+            return { status: "rejected", reason: "closed" };
+          }
+          laneAdmission = opened;
         }
-        laneAdmission = await this.sendLane(text, "idle");
-      } else {
-        const opened = await this.openLane(text, generation);
-        if (!opened) {
-          // A racing stop owns terminal settlement. Preserve the historical
-          // contract that session_closed is observable before start resolves.
-          if (this.finishPromise) await this.finishPromise;
+        if (!this.isStartCurrent(generation, turnId)) {
           return { status: "rejected", reason: "closed" };
         }
-        laneAdmission = opened;
+        this.acceptTurnAdmission(admission, laneAdmission);
+        void this.flushSafeBoundaryQueue();
+        return acceptedReceipt;
+      } catch (error) {
+        if (!this.isStartCurrent(generation, turnId) || admission.finalized) {
+          return admission.accepted ? acceptedReceipt : { status: "rejected", reason: "closed" };
+        }
+        const failure = error instanceof StructuredLaneAdmissionError
+          ? driverError("configuration", error.code, error.message, false)
+          : driverError("process", "failed_to_start", String(error), true);
+        if (this.launch.resumeSessionId && this.resumeOutcome === "pending") {
+          this.resumeOutcome = error instanceof StructuredLaneAdmissionError && error.code === "reset_required"
+            ? "reset_required"
+            : "failed";
+        }
+        this.failTurnAdmissionWithError(failure);
+        this.activeTurn = undefined;
+        const failedLane = this.lane;
+        if (failedLane) {
+          this.lane = null;
+          await this.stopLaneInstanceBounded(failedLane, "failed_start", this.hostReleaseTimeoutMs);
+        }
+        this.emit({ type: "session_failed", error: failure });
+        await this.finish(
+          (cleanup) => ({ outcome: "failed_to_start", requested: false, error: failure, cleanup }),
+          "failed_start",
+        );
+        return { status: "rejected", reason: "runtime_unavailable", error: failure };
       }
-      if (!this.isStartCurrent(generation, turnId)) {
-        return { status: "rejected", reason: "closed" };
-      }
-      this.acceptTurnAdmission(admission, laneAdmission);
-      void this.flushSafeBoundaryQueue();
-      return acceptedReceipt;
-    } catch (error) {
-      if (!this.isStartCurrent(generation, turnId) || admission.finalized) {
-        return admission.accepted ? acceptedReceipt : { status: "rejected", reason: "closed" };
-      }
-      const failure = error instanceof StructuredLaneAdmissionError
-        ? driverError("configuration", error.code, error.message, false)
-        : driverError("process", "failed_to_start", String(error), true);
-      if (this.launch.resumeSessionId && this.resumeOutcome === "pending") {
-        this.resumeOutcome = error instanceof StructuredLaneAdmissionError && error.code === "reset_required"
-          ? "reset_required"
-          : "failed";
-      }
-      this.failTurnAdmissionWithError(failure);
-      this.activeTurn = undefined;
-      const failedLane = this.lane;
-      if (failedLane) {
-        this.lane = null;
-        await this.stopLaneInstanceBounded(failedLane, "failed_start", this.hostReleaseTimeoutMs);
-      }
-      this.emit({ type: "session_failed", error: failure });
-      await this.finish(
-        (cleanup) => ({ outcome: "failed_to_start", requested: false, error: failure, cleanup }),
-        "failed_start",
-      );
-      return { status: "rejected", reason: "runtime_unavailable", error: failure };
-    }
+    };
+    const reuseExistingLane = this.adapter.execution.lifetime === "session" && this.lane !== null;
+    return this.enqueueLaneAdmission(() => admit(reuseExistingLane));
   }
 
   private internalContext(prompt: string): AdapterLaunchContext<Id, ConfigOf<Specs, Id>> {
@@ -1031,6 +1031,29 @@ implements AgentSession<Specs, Id> {
     this.queueDwellTotalMs += Math.max(0, this.metricNow() - item.queuedAt);
   }
 
+  private enqueueLaneAdmission<T>(operation: () => Promise<T>): Promise<T> {
+    // Reserve the lane-wide FIFO slot synchronously. Preserve the historical
+    // immediate first admission while every later root/steer waits on its tail.
+    const startsImmediately = this.laneAdmissionPending === 0;
+    this.laneAdmissionPending += 1;
+    let reserved: Promise<T>;
+    if (startsImmediately) {
+      try {
+        reserved = operation();
+      } catch (error) {
+        reserved = Promise.reject(error);
+      }
+    } else {
+      reserved = this.laneAdmissionTail.then(operation);
+    }
+    const tail = reserved.then(() => {}, () => {});
+    this.laneAdmissionTail = tail;
+    void tail.then(() => {
+      this.laneAdmissionPending = Math.max(0, this.laneAdmissionPending - 1);
+    });
+    return reserved;
+  }
+
   private async deliverSteer(message: AgentMessage, activeTurn: ActiveTurn): Promise<DeliveryReceipt> {
     let rejectCancellation!: (error: AgentDriverError) => void;
     const cancellation = new Promise<never>((_resolve, reject) => { rejectCancellation = reject; });
@@ -1044,31 +1067,40 @@ implements AgentSession<Specs, Id> {
       },
     };
     this.steeringDeliveries.add(delivery);
-    this.steeringPhysicalPending += 1;
-    const physical = this.steeringTail.then(async () => {
-      if (delivery.finalized || this.activeTurn !== activeTurn) {
-        throw delivery.failure ?? driverError(
-          "cancelled",
-          "turn_closed_before_command_acceptance",
-          "Turn closed before command acceptance",
-        );
+    const physical = this.enqueueLaneAdmission(async (): Promise<DeliveryReceipt> => {
+      try {
+        if (delivery.finalized || this.activeTurn !== activeTurn) {
+          throw delivery.failure ?? driverError(
+            "cancelled",
+            "turn_closed_before_command_acceptance",
+            "Turn closed before command acceptance",
+          );
+        }
+        await this.sendLane(message.text, "busy");
+        if (delivery.finalized || this.activeTurn !== activeTurn) {
+          throw delivery.failure ?? driverError(
+            "cancelled",
+            "turn_closed_before_command_acceptance",
+            "Turn closed before command acceptance",
+          );
+        }
+        delivery.finalized = true;
+        activeTurn.commandIds.push(message.id);
+        this.emit({ type: "command_accepted", commandId: message.id, turnId: activeTurn.turnId, delivery: "steer" });
+        return { status: "accepted", delivery: "steer", commandId: message.id, turnId: activeTurn.turnId };
+      } catch (error) {
+        const failure = delivery.failure ?? (typeof error === "object" && error !== null && "category" in error
+          ? error as AgentDriverError
+          : driverError("process", "delivery_failed", String(error), true));
+        if (!delivery.finalized) {
+          delivery.finalized = true;
+          this.emit({ type: "command_failed", commandId: message.id, turnId: activeTurn.turnId, error: failure });
+        }
+        return { status: "rejected", reason: "runtime_unavailable", error: failure };
       }
-      await this.sendLane(message.text, "busy");
-    }).finally(() => { this.steeringPhysicalPending = Math.max(0, this.steeringPhysicalPending - 1); });
-    this.steeringTail = physical.then(() => {}, () => {});
+    });
     try {
-      await Promise.race([physical, cancellation]);
-      if (delivery.finalized || this.activeTurn !== activeTurn) {
-        throw delivery.failure ?? driverError(
-          "cancelled",
-          "turn_closed_before_command_acceptance",
-          "Turn closed before command acceptance",
-        );
-      }
-      delivery.finalized = true;
-      activeTurn.commandIds.push(message.id);
-      this.emit({ type: "command_accepted", commandId: message.id, turnId: activeTurn.turnId, delivery: "steer" });
-      return { status: "accepted", delivery: "steer", commandId: message.id, turnId: activeTurn.turnId };
+      return await Promise.race([physical, cancellation]);
     } catch (error) {
       const failure = delivery.failure ?? (typeof error === "object" && error !== null && "category" in error
         ? error as AgentDriverError

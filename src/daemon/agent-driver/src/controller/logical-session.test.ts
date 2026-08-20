@@ -123,6 +123,7 @@ class ControlledRuntimeLane implements RuntimeLane {
   sendAdmission: LaneAdmission = { ok: true, acceptedAs: "prompt", receipt: "claude:test:2" };
   startPromise?: Promise<LaneAdmission>;
   sendPromise?: Promise<LaneAdmission>;
+  sendImpl?: (input: LaneSendInput) => Promise<LaneAdmission>;
   onStart?: (input: LaneStartInput) => void;
   onSend?: (input: LaneSendInput) => void;
   readonly stop = vi.fn(async () => {});
@@ -140,6 +141,7 @@ class ControlledRuntimeLane implements RuntimeLane {
   }
   send(input: LaneSendInput): Promise<LaneAdmission> {
     this.onSend?.(input);
+    if (this.sendImpl) return this.sendImpl(input);
     return this.sendPromise ?? Promise.resolve(this.sendAdmission);
   }
   emit(event: AdapterEvent): void {
@@ -585,6 +587,60 @@ describe("logical delivery diagnostics", () => {
     await expect(second).resolves.toMatchObject({ status: "rejected" });
     await expect(third).resolves.toMatchObject({ status: "rejected" });
     await expect(fourth).resolves.toMatchObject({ status: "accepted", commandId: "four" });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    await collecting;
+    const finals = events.filter((event) => event.type === "command_accepted" || event.type === "command_failed");
+    expect(finals.map((event) => event.commandId)).toEqual(["one", "two", "three", "four"]);
+    for (const id of ["one", "two", "three", "four"]) {
+      expect(finals.filter((event) => event.commandId === id)).toHaveLength(1);
+    }
+  });
+
+  it("reserves a new idle root ahead of busy steer on the session-wide admission FIFO", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "opencode:test:1" };
+    const oldSteerGate = deferredValue<LaneAdmission>();
+    const newRootGate = deferredValue<LaneAdmission>();
+    const newSteerGate = deferredValue<LaneAdmission>();
+    const physical: Array<Pick<LaneSendInput, "mode" | "text">> = [];
+    lane.sendImpl = (input) => {
+      physical.push({ mode: input.mode, text: input.text });
+      if (input.text === "two") return oldSteerGate.promise;
+      if (input.text === "three") return newRootGate.promise;
+      if (input.text === "four") return newSteerGate.promise;
+      throw new Error(`unexpected lane send: ${input.text}`);
+    };
+    const { session } = makeSession("opencode", { lane });
+    const events: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
+    const collecting = (async () => { for await (const event of session.events) events.push(event as never); })();
+    await session.start({ id: "one", kind: "user", text: "one" });
+
+    const second = session.send({ id: "two", kind: "user", text: "two" });
+    await vi.waitFor(() => expect(physical).toEqual([{ mode: "busy", text: "two" }]));
+    lane.emit({ kind: "turn_end", sessionId: "root", turnOwner: "opencode:test:1" });
+    const third = session.send({ id: "three", kind: "user", text: "three" });
+    const fourth = session.send({ id: "four", kind: "user", text: "four" });
+    await expect(second).resolves.toMatchObject({ status: "rejected" });
+    expect(session.snapshot().diagnostics.deliveryPhase).toBe("admission_wait");
+    expect(physical).toEqual([{ mode: "busy", text: "two" }]);
+
+    oldSteerGate.resolve({ ok: true, acceptedAs: "steer", receipt: "opencode:test:2" });
+    await vi.waitFor(() => expect(physical).toEqual([
+      { mode: "busy", text: "two" },
+      { mode: "idle", text: "three" },
+    ]));
+    expect(physical.some((input) => input.text === "four")).toBe(false);
+
+    newRootGate.resolve({ ok: true, acceptedAs: "prompt", receipt: "opencode:test:2" });
+    await expect(third).resolves.toMatchObject({ status: "accepted", commandId: "three" });
+    await vi.waitFor(() => expect(physical).toEqual([
+      { mode: "busy", text: "two" },
+      { mode: "idle", text: "three" },
+      { mode: "busy", text: "four" },
+    ]));
+    newSteerGate.resolve({ ok: true, acceptedAs: "steer", receipt: "opencode:test:3" });
+    await expect(fourth).resolves.toMatchObject({ status: "accepted", commandId: "four" });
+
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
     await collecting;
     const finals = events.filter((event) => event.type === "command_accepted" || event.type === "command_failed");
@@ -1161,7 +1217,7 @@ describe("backend-owned delivery behavior", () => {
     await emit(driver, { kind: "tool_output", name: "one" });
     expect(driver.writes).toEqual([]);
     await emit(driver, { kind: "turn_end", sessionId: "s1" });
-    expect(driver.writes).toEqual(["follow"]);
+    await vi.waitFor(() => expect(driver.writes).toEqual(["follow"]));
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 

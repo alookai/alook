@@ -67,6 +67,38 @@ There is no per-turn built-in fallback.
 | OpenCode | session | `http_sse` / `opencode.v2.service.1.17.20` | `steer` | `transport_request` |
 | Pi | session | `in_process_sdk` / `pi_sdk` | `steer` | `prompt_invocation` |
 
+Pi's runtime behavior did not change in this migration. It already kept one
+SDK session and used prompt/steer/abort/dispose on that session; contract v1
+formalizes that existing persistent behavior as an `in_process_sdk`
+`RuntimeLane`.
+
+## Adapter-author contract v1 migration
+
+Adapter authors must import `ADAPTER_AUTHOR_CONTRACT_VERSION` from
+`@alook/agent-driver/adapter-author` and set every
+`AgentBackendRegistration.contractVersion` to that value (currently the numeric
+literal `1`). Missing, older, and unknown newer versions fail closed before host
+preparation or adapter open.
+
+For contract v1:
+
+- declare `BackendAdapter.execution` with `lifetime`, an opaque
+  `transport.kind`/`transport.protocol`, `wakeStart`, and `terminalOwnership`;
+- make registration capabilities agree with it: `sessionLifetime` maps to
+  `execution.lifetime`, and `midTurnDelivery` describes the lane's real busy
+  delivery behavior;
+- replace one-shot spawn or SDK entry points with `openLane()`, returning one
+  `RuntimeLane` that implements `start`, `send`, `interrupt`, `stop`, and the
+  typed `RuntimeLaneEventMap` listener surface;
+- return a non-empty authoritative receipt from every successful lane
+  admission and emit terminal events with the matching owner identity; do not
+  derive completion from output text or a generic idle/exit signal;
+- report an unavailable required protocol/capability as incompatible or
+  unhealthy. Do not silently fall back to a one-shot runtime.
+
+Package semver and the numeric adapter-author contract version are independent.
+Only an incompatible `/adapter-author` change increments the latter.
+
 ## Diagnostics
 
 `session.snapshot().diagnostics` is the public, read-only diagnostic surface.
@@ -97,8 +129,24 @@ callbacks that do not own the current terminal receipt. Each command settles
 exactly once through `command_accepted` or `command_failed`; a queued receipt is
 not final.
 
+Cursor moved from one-shot `--print` execution to one persistent ACP session,
+and OpenCode moved from one-shot `run` execution to one authenticated loopback
+v2 service. Pi remains the same persistent SDK session; only its contract shape
+was formalized.
+
 The old daemon trace field `apmPhase` has been removed. Trace consumers should
 read `deliveryPhase` and the allowlisted cumulative metrics projected from the
 session snapshot. The daemon's pending-delivery mode is used only during the
 narrow interval before the driver has observed an admission; after that, the
 snapshot is authoritative.
+
+## Rollback
+
+Cursor and OpenCode migrations are isolated backend commit stacks and can be
+reverted independently without reverting the shared `RuntimeLane` contract:
+revert Cursor's `94b864c8`, `9e9f1697`, then `3ca4ff65`, or OpenCode's
+`c2d98fb4`, then `ba2b2121`, in newest-first order. A rollback must disable the
+affected backend or leave it incompatible/unhealthy if ACP or v2 is unavailable;
+it must not ship, retain, or automatically select the restored one-shot path.
+Do not fall back to `cursor-agent --print` or `opencode run`. Verify the
+unaffected backends and the capability probe before resuming rollout.
