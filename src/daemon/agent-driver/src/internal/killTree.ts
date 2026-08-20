@@ -156,6 +156,20 @@ public static class AlookAgentJob {
   [DllImport("kernel32.dll", SetLastError = true)]
   private static extern IntPtr GetStdHandle(int standardHandle);
 
+  [DllImport("kernel32.dll")]
+  private static extern IntPtr GetCurrentProcess();
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  private static extern bool DuplicateHandle(
+    IntPtr sourceProcess,
+    IntPtr sourceHandle,
+    IntPtr targetProcess,
+    out IntPtr targetHandle,
+    uint desiredAccess,
+    bool inheritHandle,
+    uint options
+  );
+
   [DllImport("kernel32.dll", SetLastError = true)]
   private static extern uint ResumeThread(IntPtr thread);
 
@@ -209,23 +223,48 @@ public static class AlookAgentJob {
     return quoted.ToString();
   }
 
+  private static IntPtr DuplicateStandardHandle(int standardHandle) {
+    const uint DuplicateSameAccess = 0x00000002;
+    IntPtr source = GetStdHandle(standardHandle);
+    if (source == IntPtr.Zero || source == new IntPtr(-1))
+      throw new Win32Exception(Marshal.GetLastWin32Error(), "GetStdHandle failed");
+    IntPtr current = GetCurrentProcess();
+    IntPtr duplicate;
+    if (!DuplicateHandle(
+      current,
+      source,
+      current,
+      out duplicate,
+      0,
+      true,
+      DuplicateSameAccess
+    )) throw new Win32Exception(Marshal.GetLastWin32Error(), "DuplicateHandle failed");
+    return duplicate;
+  }
+
   public static int RunNode(string nodePath, string runner) {
     const uint CreateSuspended = 0x00000004;
     const uint StartfUseStdHandles = 0x00000100;
     const uint Infinite = 0xffffffff;
     const uint WaitFailed = 0xffffffff;
-    IntPtr job = CreateKillOnCloseJob();
+    IntPtr stdInput = DuplicateStandardHandle(-10);
+    IntPtr stdOutput = IntPtr.Zero;
+    IntPtr stdError = IntPtr.Zero;
+    IntPtr job = IntPtr.Zero;
     var startup = new StartupInfo();
     startup.Size = (uint)Marshal.SizeOf(startup);
     startup.Flags = StartfUseStdHandles;
-    startup.StdInput = GetStdHandle(-10);
-    startup.StdOutput = GetStdHandle(-11);
-    startup.StdError = GetStdHandle(-12);
     var commandLine = new StringBuilder(
       QuoteArgument(nodePath) + " -e " + QuoteArgument(runner)
     );
     ProcessInformation child;
     try {
+      stdOutput = DuplicateStandardHandle(-11);
+      stdError = DuplicateStandardHandle(-12);
+      startup.StdInput = stdInput;
+      startup.StdOutput = stdOutput;
+      startup.StdError = stdError;
+      job = CreateKillOnCloseJob();
       if (!CreateProcessW(
         nodePath,
         commandLine,
@@ -259,7 +298,10 @@ public static class AlookAgentJob {
         CloseHandle(child.Process);
       }
     } finally {
-      CloseHandle(job);
+      if (job != IntPtr.Zero) CloseHandle(job);
+      if (stdError != IntPtr.Zero) CloseHandle(stdError);
+      if (stdOutput != IntPtr.Zero) CloseHandle(stdOutput);
+      CloseHandle(stdInput);
     }
   }
 }
