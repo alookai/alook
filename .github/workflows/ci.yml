@@ -218,6 +218,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Run Windows process authority fixtures
         run: pnpm --filter @alook/agent-driver exec vitest run src/internal/killTree.test.ts
+      - name: Run agent-driver tests in isolation
+        run: pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism
       - name: Run Windows daemon admission fixture
         run: |
           pnpm --filter @alook/agent-driver build
@@ -234,13 +236,13 @@ jobs:
         run: pnpm --filter @alook/daemon test
       - name: Run remaining workspace tests
         if: needs.scope.outputs.full == 'true'
-        run: pnpm turbo run test --filter='!@alook/daemon'
+        run: pnpm turbo run test --filter='!@alook/daemon' --filter='!@alook/agent-driver'
       - name: Run affected workspace tests
         if: needs.scope.outputs.full != 'true'
         env:
           TURBO_SCM_BASE: ${{ needs.scope.outputs.base_sha }}
           TURBO_SCM_HEAD: ${{ needs.scope.outputs.head_sha }}
-        run: pnpm turbo run test --affected --filter='!@alook/daemon'
+        run: pnpm turbo run test --affected --filter='!@alook/daemon' --filter='!@alook/agent-driver'
       - name: Run CI script tests
         run: pnpm vitest run --project ci-scripts
 

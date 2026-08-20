@@ -119,18 +119,32 @@ describe("CI test budgets", () => {
     expect(ciJob("test-windows")).toContain("timeout-minutes: 15")
   })
 
-  it("runs Windows process-authority fixtures before the daemon suite", () => {
+  it("runs Windows process-authority and full driver fixtures in isolation before the daemon suite", () => {
     const windows = ciJob("test-windows")
     const processAuthority = windows.indexOf(
       "pnpm --filter @alook/agent-driver exec vitest run src/internal/killTree.test.ts",
+    )
+    const driver = windows.indexOf(
+      "pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism",
     )
     const focusedAdmission = windows.indexOf(
       "pnpm --filter @alook/daemon exec vitest run src/daemon/createDaemon.test.ts",
     )
     const daemon = windows.indexOf("pnpm --filter @alook/daemon test")
     expect(processAuthority).toBeGreaterThan(0)
-    expect(focusedAdmission).toBeGreaterThan(processAuthority)
+    expect(driver).toBeGreaterThan(processAuthority)
+    expect(focusedAdmission).toBeGreaterThan(driver)
     expect(daemon).toBeGreaterThan(focusedAdmission)
+  })
+
+  it("does not rerun Windows process-bearing packages inside the Turbo workspace step", () => {
+    const windows = ciJob("test-windows")
+    expect(windows).toContain(
+      "run: pnpm turbo run test --filter='!@alook/daemon' --filter='!@alook/agent-driver'",
+    )
+    expect(windows).toContain(
+      "run: pnpm turbo run test --affected --filter='!@alook/daemon' --filter='!@alook/agent-driver'",
+    )
   })
 })
 
@@ -202,10 +216,12 @@ describe("Turbo CI execution", () => {
     expect(linux).toContain("run: pnpm turbo run test --filter=@alook/daemon")
     const windows = ciJob("test-windows")
     expect(windows).toContain("run: pnpm --filter @alook/daemon test")
-    for (const definition of [linux, windows]) {
-      expect(definition).toContain("run: pnpm turbo run test --filter='!@alook/daemon'")
+    expect(linux).toContain("run: pnpm turbo run test --filter='!@alook/daemon'")
+    expect(windows).toContain(
+      "run: pnpm turbo run test --filter='!@alook/daemon' --filter='!@alook/agent-driver'",
+    )
+    for (const definition of [linux, windows])
       expect(definition.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(2)
-    }
     expect(ciJob("build")).toContain(
       "run: pnpm build --filter=@alook/shared --filter=@alook/web --filter=@alook/cli --filter=@alook/email-worker --filter=@alook/ws-do --filter=@alook/wake-worker",
     )
