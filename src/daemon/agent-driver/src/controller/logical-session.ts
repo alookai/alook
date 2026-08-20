@@ -20,7 +20,13 @@ import type {
   StopReceipt,
 } from "../contract.js";
 import type { AgentDriverHost } from "../contract.js";
-import type { BackendAdapter, AdapterLaunchContext, AdapterEvent, RuntimeLane } from "../internal/adapter.js";
+import type {
+  BackendAdapter,
+  AdapterLaunchContext,
+  AdapterEvent,
+  LaneAdmission,
+  RuntimeLane,
+} from "../internal/adapter.js";
 import { BufferedEventQueue } from "./event-queue.js";
 import { writeAgentFile } from "../internal/agentFile.js";
 import { scrubDriverErrorMessage } from "../internal/errors.js";
@@ -50,6 +56,11 @@ interface TurnAdmission {
   delivery: "prompt" | "steer";
   finalized: boolean;
   accepted: boolean;
+  pendingEvents: Array<{
+    event: AdapterEvent;
+    physicalOwner: RuntimeLane;
+    generation: number;
+  }>;
 }
 
 interface ActiveTurn {
@@ -366,7 +377,14 @@ implements AgentSession<Specs, Id> {
     this.state = "starting";
     const generation = this.lifecycleGeneration;
     const text = messages.map((message) => message.text).join("\n\n");
-    const admission: TurnAdmission = { messages, turnId, delivery, finalized: false, accepted: false };
+    const admission: TurnAdmission = {
+      messages,
+      turnId,
+      delivery,
+      finalized: false,
+      accepted: false,
+      pendingEvents: [],
+    };
     this.turnAdmission = admission;
     const current = messages.at(-1)!;
     const acceptedReceipt: DeliveryReceipt = {
@@ -376,50 +394,37 @@ implements AgentSession<Specs, Id> {
       turnId,
     };
     try {
-      const emitAdmission = () => {
-        if (admission.finalized) return;
-        admission.finalized = true;
-        admission.accepted = true;
-        if (this.turnAdmission === admission) this.turnAdmission = undefined;
-        for (const message of messages) {
-          this.emit({ type: "command_accepted", commandId: message.id, turnId, delivery });
-        }
-        this.emit({ type: "turn_started", turnId, commandIds });
-      };
+      let laneAdmission: LaneAdmission;
       if (this.adapter.execution.lifetime === "session" && this.lane) {
-        if (this.adapter.execution.terminalOwnership === "prompt_invocation") emitAdmission();
-        await this.sendLane(text, "idle");
+        laneAdmission = await this.sendLane(text, "idle");
       } else {
-        const opened = await this.openLane(
-          text,
-          generation,
-          this.adapter.execution.terminalOwnership === "prompt_invocation" ? emitAdmission : undefined,
-        );
+        const opened = await this.openLane(text, generation);
         if (!opened) {
           // A racing stop owns terminal settlement. Preserve the historical
           // contract that session_closed is observable before start resolves.
           if (this.finishPromise) await this.finishPromise;
-          return admission.accepted ? acceptedReceipt : { status: "rejected", reason: "closed" };
+          return { status: "rejected", reason: "closed" };
         }
+        laneAdmission = opened;
       }
       if (!this.isStartCurrent(generation, turnId)) {
-        return admission.accepted ? acceptedReceipt : { status: "rejected", reason: "closed" };
+        return { status: "rejected", reason: "closed" };
       }
-      emitAdmission();
-      if (!this.isStartCurrent(generation, turnId)) {
-        return acceptedReceipt;
-      }
-      this.state = "working";
+      this.acceptTurnAdmission(admission, laneAdmission);
       void this.flushSafeBoundaryQueue();
       return acceptedReceipt;
     } catch (error) {
-      if (admission.accepted) return acceptedReceipt;
       if (!this.isStartCurrent(generation, turnId) || admission.finalized) {
-        return { status: "rejected", reason: "closed" };
+        return admission.accepted ? acceptedReceipt : { status: "rejected", reason: "closed" };
       }
       const failure = driverError("process", "failed_to_start", String(error), true);
       this.failTurnAdmissionWithError(failure);
       this.activeTurn = undefined;
+      const failedLane = this.lane;
+      if (failedLane) {
+        this.lane = null;
+        await this.stopLaneInstanceBounded(failedLane, "failed_start", this.hostReleaseTimeoutMs);
+      }
       this.emit({ type: "session_failed", error: failure });
       await this.finish(
         (cleanup) => ({ outcome: "failed_to_start", requested: false, error: failure, cleanup }),
@@ -448,8 +453,7 @@ implements AgentSession<Specs, Id> {
   private async openLane(
     prompt: string,
     generation: number,
-    beforeStart?: () => void,
-  ): Promise<boolean> {
+  ): Promise<LaneAdmission | null> {
     if (!this.instructionsMaterialized) {
       const strategy = this.adapter.instructionDelivery;
       if (strategy.kind === "workspace_file" && this.launch.instructions) {
@@ -471,9 +475,8 @@ implements AgentSession<Specs, Id> {
     if (!this.isOpenCurrent(generation)) {
       await this.stopLaneInstanceBounded(lane, "stale_open", this.hostReleaseTimeoutMs);
       if (this.lane === lane) this.lane = null;
-      return false;
+      return null;
     }
-    beforeStart?.();
     const admission = await lane.start({
       text: prompt,
       sessionId: ctx.config.sessionId,
@@ -483,15 +486,21 @@ implements AgentSession<Specs, Id> {
     if (!this.isOpenCurrent(generation)) {
       await this.stopLaneInstanceBounded(lane, "stale_open", this.hostReleaseTimeoutMs);
       if (this.lane === lane) this.lane = null;
-      return false;
+      return null;
     }
-    return true;
+    return admission;
   }
 
   private attachLane(lane: RuntimeLane, generation: number): void {
     const current = () => this.lane === lane && this.lifecycleGeneration === generation;
     lane.on("runtime_event", (event: unknown) => {
-      if (current()) this.onAdapterEvent(event as AdapterEvent, lane, generation);
+      if (!current()) return;
+      const admission = this.turnAdmission;
+      if (admission && !admission.finalized && admission.turnId === this.activeTurn?.turnId) {
+        admission.pendingEvents.push({ event: event as AdapterEvent, physicalOwner: lane, generation });
+        return;
+      }
+      this.onAdapterEvent(event as AdapterEvent, lane, generation);
     });
     lane.on("stderr", (value: unknown) => {
       if (!current()) return;
@@ -533,7 +542,23 @@ implements AgentSession<Specs, Id> {
         }
         return;
       case "turn_owner":
-        if (this.activeTurn) this.activeTurn.terminalOwner = event.receipt;
+        if (!this.activeTurn || !event.receipt.trim()) return;
+        if (this.activeTurn.terminalOwner && this.activeTurn.terminalOwner !== event.receipt) {
+          this.turnError = driverError(
+            "process",
+            "terminal_owner_mismatch",
+            "Runtime acknowledged a terminal owner that did not match command admission",
+          );
+          this.emit({
+            type: "diagnostic",
+            turnId: this.activeTurn.turnId,
+            severity: "error",
+            source: this.backend,
+            message: "Runtime terminal ownership did not match command admission",
+          });
+          return;
+        }
+        this.activeTurn.terminalOwner = event.receipt;
         return;
       case "thinking":
         if (turnId) this.emit({ type: "thinking_delta", turnId, text: event.text });
@@ -659,17 +684,7 @@ implements AgentSession<Specs, Id> {
     if (!active) {
       return;
     }
-    if (active.terminalOwner && terminalOwner !== active.terminalOwner) return;
-    if (!active.terminalOwner && terminalOwner) {
-      const previous = this.closedLaneTombstone;
-      if (
-        previous?.terminalOwner === terminalOwner
-        && previous.localTurnId !== active.turnId
-        && previous.physicalOwner === physicalOwner
-        && previous.generation === generation
-      ) return;
-      active.terminalOwner = terminalOwner;
-    }
+    if (!active.terminalOwner || terminalOwner !== active.terminalOwner) return;
     this.failTurnAdmission(
       "cancelled",
       "turn_completed_before_command_acceptance",
@@ -805,9 +820,44 @@ implements AgentSession<Specs, Id> {
     const admission = this.turnAdmission;
     if (!admission || admission.finalized) return;
     admission.finalized = true;
+    admission.pendingEvents.length = 0;
     if (this.turnAdmission === admission) this.turnAdmission = undefined;
     for (const message of admission.messages) {
       this.emit({ type: "command_failed", commandId: message.id, turnId: admission.turnId, error });
+    }
+  }
+
+  private acceptTurnAdmission(admission: TurnAdmission, laneAdmission: LaneAdmission): void {
+    if (!laneAdmission.ok) throw new Error(laneAdmission.error ?? laneAdmission.reason);
+    const receipt = laneAdmission.receipt.trim();
+    if (!receipt) throw new Error("runtime admitted a command without a terminal receipt");
+    const active = this.activeTurn;
+    if (!active || active.turnId !== admission.turnId) {
+      throw new Error("runtime admitted a command for a stale turn");
+    }
+    if (active.terminalOwner && active.terminalOwner !== receipt) {
+      throw new Error("runtime admission receipt did not match the prepared terminal owner");
+    }
+    active.terminalOwner = receipt;
+    admission.finalized = true;
+    admission.accepted = true;
+    if (this.turnAdmission === admission) this.turnAdmission = undefined;
+    this.state = "working";
+    for (const message of admission.messages) {
+      this.emit({
+        type: "command_accepted",
+        commandId: message.id,
+        turnId: admission.turnId,
+        delivery: admission.delivery,
+      });
+    }
+    this.emit({
+      type: "turn_started",
+      turnId: admission.turnId,
+      commandIds: admission.messages.map((message) => message.id),
+    });
+    for (const pending of admission.pendingEvents.splice(0)) {
+      this.onAdapterEvent(pending.event, pending.physicalOwner, pending.generation);
     }
   }
 
@@ -995,7 +1045,7 @@ implements AgentSession<Specs, Id> {
     await this.stopWithRelease({ reason: "shutdown", forceAfterMs: 5_000 }, "consumer_closed");
   }
 
-  private sendLane(text: string, mode: "busy" | "idle"): Promise<unknown> {
+  private sendLane(text: string, mode: "busy" | "idle"): Promise<LaneAdmission> {
     if (!this.lane) return Promise.reject(new Error("runtime lane is not open"));
     return this.lane.send({
       text,

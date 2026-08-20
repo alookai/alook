@@ -9,7 +9,7 @@ import type { AgentDriverHost } from "./host.js";
 import { ClaudeDriver } from "./adapters/claude/index.js";
 import { createFakeAgentDriverHost } from "./testing/fake-host.js";
 import { createAgentDriverSdk, createAgentDriverSdkWithRegistry } from "./sdk.js";
-import { createAgentDriverRegistry } from "./registry.js";
+import { createAgentDriverRegistry, type AgentDriverRegistry } from "./registry.js";
 import { createAgentDriverSdk as createPublicAgentDriverSdk } from "./public-sdk.js";
 
 const claudeInput = {
@@ -193,6 +193,37 @@ describe("createAgentDriverSdk", () => {
       ok: false,
       error: { code: "adapter_contract_invalid", retryable: false },
     });
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["old", 0],
+    ["unknown", 2],
+  ] as const)("fails a %s contract version from an untrusted custom registry before side effects", async (_name, version) => {
+    const host = createFakeAgentDriverHost();
+    const prepare = vi.spyOn(host, "prepareExecution");
+    const createAdapter = vi.fn(() => new ClaudeDriver());
+    const registry = {
+      backendIds: ["claude"],
+      get: () => ({
+        id: "claude",
+        contractVersion: version,
+        capabilities: claudeCapabilities,
+        createAdapter,
+      }),
+    } as unknown as AgentDriverRegistry<BuiltinBackendSpecs>;
+    const sdk = createAgentDriverSdkWithRegistry({ registry, host });
+
+    await expect(sdk.probe({ backend: "claude" })).resolves.toMatchObject({
+      status: "unhealthy",
+      error: { code: "adapter_contract_invalid", retryable: false },
+    });
+    await expect(sdk.open(claudeInput)).resolves.toMatchObject({
+      ok: false,
+      error: { code: "adapter_contract_invalid", retryable: false },
+    });
+    expect(createAdapter).not.toHaveBeenCalled();
     expect(prepare).not.toHaveBeenCalled();
   });
 

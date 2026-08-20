@@ -186,7 +186,7 @@ describe("SdkLane.send", () => {
     expect(received).toEqual([
       { kind: "session_init", sessionId: "s1" },
       { kind: "error", message: "boom" },
-      { kind: "turn_end", sessionId: "s1" },
+      { kind: "turn_end", sessionId: "s1", turnOwner: "s1:sdk:1" },
     ]);
   });
 

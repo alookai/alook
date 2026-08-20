@@ -12,6 +12,7 @@ import type {
 import { createDefaultAgentDriverHost } from "./host/default-host.js";
 import {
   assertAdapterCompatibility,
+  assertRegistrationShape,
   createBuiltinAgentDriverRegistry,
   type AgentDriverRegistry,
 } from "./registry.js";
@@ -38,6 +39,7 @@ export function createAgentDriverSdkWithRegistry<Specs>(
       const registration = registry.get(input.backend);
       const capabilities = registration.capabilities;
       try {
+        assertRegistrationShape(registration);
         const adapter = registration.createAdapter();
         assertAdapterCompatibility(String(registration.id), registration.capabilities, adapter);
         const command = (capabilities as { readonly commandOverride: boolean }).commandOverride
@@ -56,7 +58,10 @@ export function createAgentDriverSdkWithRegistry<Specs>(
           capabilities,
         };
       } catch (error) {
-        const contractInvalid = error instanceof Error && error.message.startsWith("Adapter ");
+        const contractInvalid = error instanceof Error && (
+          error.message.startsWith("Adapter ")
+          || error.message.startsWith("Agent backend registration ")
+        );
         return {
           status: "unhealthy",
           error: {
@@ -77,6 +82,7 @@ export function createAgentDriverSdkWithRegistry<Specs>(
       const registration = registry.get(input.backend);
       let adapter;
       try {
+        assertRegistrationShape(registration);
         adapter = registration.createAdapter();
         assertAdapterCompatibility(String(registration.id), registration.capabilities, adapter);
       } catch {

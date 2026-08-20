@@ -13,7 +13,8 @@ import type {
   PreparedExecutionResource,
 } from "../contract.js";
 import type {
-  BackendAdapter, BackendExecution, AdapterLaunchContext, AdapterEvent, RuntimeLane, RuntimeLaneOpenOptions,
+  BackendAdapter, BackendExecution, AdapterLaunchContext, AdapterEvent, LaneAdmission, LaneSendInput,
+  LaneStartInput, RuntimeLane, RuntimeLaneEventMap, RuntimeLaneOpenOptions,
 } from "../internal/adapter.js";
 import { createFakeAgentDriverHost } from "../testing/fake-host.js";
 import { runAgentDriverConformance } from "../testing/conformance.js";
@@ -52,10 +53,14 @@ class FakeDriver implements BackendAdapter {
   hangDispose = false;
   spawnGate?: Promise<void>;
   sdkOpenGate?: Promise<void>;
+  laneOverride?: RuntimeLane;
+  private terminalSequence = 0;
+  currentTerminalOwner?: string;
 
   constructor(readonly id: BuiltinBackendId, readonly execution: BackendExecution) {}
   probe() { return { status: "healthy" as const }; }
   async openLane(ctx: AdapterLaunchContext, options?: RuntimeLaneOpenOptions): Promise<RuntimeLane> {
+    if (this.laneOverride) return this.laneOverride;
     if (this.execution.transport.kind === "in_process_sdk") return this.createSdkLane(ctx);
     return createProcessLane(this, ctx, {
       onRawStdoutLine: options?.onRawStdoutLine,
@@ -103,6 +108,39 @@ class FakeDriver implements BackendAdapter {
     this.writes.push(text);
     return this.rejectWrites ? "" : text;
   }
+  beginTurn(): string {
+    this.currentTerminalOwner = `${this.id}:test:${++this.terminalSequence}`;
+    return this.currentTerminalOwner;
+  }
+}
+
+class ControlledRuntimeLane implements RuntimeLane {
+  readonly currentSessionId = null;
+  readonly events = new EventEmitter();
+  startAdmission: LaneAdmission = { ok: true, acceptedAs: "prompt", receipt: "claude:test:1" };
+  sendAdmission: LaneAdmission = { ok: true, acceptedAs: "prompt", receipt: "claude:test:2" };
+  onStart?: (input: LaneStartInput) => void;
+  onSend?: (input: LaneSendInput) => void;
+  readonly stop = vi.fn(async () => {});
+  readonly interrupt = vi.fn(async () => false);
+
+  on<K extends keyof RuntimeLaneEventMap>(
+    event: K,
+    listener: (value: RuntimeLaneEventMap[K]) => void,
+  ): void {
+    this.events.on(event, listener);
+  }
+  start(input: LaneStartInput): Promise<LaneAdmission> {
+    this.onStart?.(input);
+    return Promise.resolve(this.startAdmission);
+  }
+  send(input: LaneSendInput): Promise<LaneAdmission> {
+    this.onSend?.(input);
+    return Promise.resolve(this.sendAdmission);
+  }
+  emit(event: AdapterEvent): void {
+    this.events.emit("runtime_event", event);
+  }
 }
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -144,9 +182,11 @@ function makeSession<Id extends BuiltinBackendId>(
     workingDirectory?: string;
     instructions?: string;
     execution?: BackendExecution;
+    lane?: RuntimeLane;
   } = {},
 ) {
   const driver = new FakeDriver(backend, options.execution ?? executionFor(backend));
+  driver.laneOverride = options.lane;
   const host = createFakeAgentDriverHost(options.prepared);
   const prepared: PreparedExecutionResource = {
     environmentLayers: {
@@ -180,8 +220,11 @@ async function emit(driver: FakeDriver, event: AdapterEvent): Promise<void> {
 }
 
 function emitNow(driver: FakeDriver, event: AdapterEvent): void {
-  if (driver.id === "pi") driver.lane!.emitEvents([event]);
-  else driver.processes.at(-1)!.stdout.write(`${JSON.stringify(event)}\n`);
+  const ownedEvent = event.kind === "turn_end" && !event.turnOwner && driver.currentTerminalOwner
+    ? { ...event, turnOwner: driver.currentTerminalOwner }
+    : event;
+  if (driver.id === "pi") driver.lane!.emitEvents([ownedEvent]);
+  else driver.processes.at(-1)!.stdout.write(`${JSON.stringify(ownedEvent)}\n`);
 }
 
 async function take(
@@ -236,6 +279,93 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)("%s logi
       "command_accepted", "turn_started", "session_started", "thinking_delta", "text_delta",
     ]);
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+});
+
+describe("runtime-lane admission state machine", () => {
+  it("rejects a lane start without ever publishing command acceptance", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: false, reason: "vendor_rejected" };
+    const { session, host } = makeSession("claude", { lane });
+    const iterator = session.events[Symbol.asyncIterator]();
+
+    await expect(session.start({ id: "one", kind: "user", text: "start" })).resolves.toMatchObject({
+      status: "rejected",
+      reason: "runtime_unavailable",
+    });
+    await expect(session.closed).resolves.toMatchObject({ outcome: "failed_to_start" });
+    const events = await take(iterator as never, 99);
+    expect(events.some((event) => event.type === "command_accepted" || event.type === "turn_started")).toBe(false);
+    expect(events.find((event) => event.type === "command_failed")).toMatchObject({
+      commandId: "one",
+      error: { code: "failed_to_start" },
+    });
+    expect(lane.stop).toHaveBeenCalledOnce();
+    expect(host.releases).toHaveLength(1);
+  });
+
+  it("orders a synchronous matching terminal after acceptance and settles the turn", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.onStart = (input) => {
+      lane.emit({ kind: "session_init", sessionId: "vendor-session" });
+      lane.emit({ kind: "turn_end", sessionId: "vendor-session", turnOwner: input.terminalOwner });
+    };
+    const { session } = makeSession("claude", { lane });
+    const iterator = session.events[Symbol.asyncIterator]();
+
+    await expect(session.start({ id: "one", kind: "user", text: "start" })).resolves.toMatchObject({
+      status: "accepted",
+      commandId: "one",
+    });
+    expect(session.snapshot()).toMatchObject({ state: "idle", activeTurn: undefined });
+    const events = await take(iterator as never, 4);
+    expect(events.map((event) => event.type)).toEqual([
+      "command_accepted",
+      "turn_started",
+      "session_started",
+      "turn_completed",
+    ]);
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("ignores a forged terminal owner and completes only for the admission receipt", async () => {
+    const lane = new ControlledRuntimeLane();
+    const { session } = makeSession("claude", { lane });
+    const iterator = session.events[Symbol.asyncIterator]();
+    const started = await session.start({ id: "one", kind: "user", text: "start" });
+    expect(started).toMatchObject({ status: "accepted" });
+
+    lane.emit({ kind: "turn_end", sessionId: "vendor-session", turnOwner: "owner-wrong" });
+    await Promise.resolve();
+    expect(session.snapshot().activeTurn).toBeDefined();
+    lane.emit({ kind: "turn_end", sessionId: "vendor-session", turnOwner: "claude:test:1" });
+    await Promise.resolve();
+    expect(session.snapshot()).toMatchObject({ state: "idle", activeTurn: undefined });
+    const events = await take(iterator as never, 4);
+    expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(1);
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("rejects an idle send on an existing lane without publishing acceptance", async () => {
+    const lane = new ControlledRuntimeLane();
+    const { session } = makeSession("claude", { lane });
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    lane.emit({ kind: "turn_end", turnOwner: "claude:test:1" });
+    await Promise.resolve();
+    lane.sendAdmission = { ok: false, reason: "vendor_rejected" };
+
+    await expect(session.send({ id: "two", kind: "user", text: "next" })).resolves.toMatchObject({
+      status: "rejected",
+      reason: "runtime_unavailable",
+    });
+    await expect(session.closed).resolves.toMatchObject({ outcome: "failed_to_start" });
+    const events = await take(iterator as never, 99);
+    expect(events.filter((event) => event.type === "command_accepted" && event.commandId === "two")).toHaveLength(0);
+    expect(events.find((event) => event.type === "command_failed" && event.commandId === "two")).toMatchObject({
+      error: { code: "failed_to_start" },
+    });
+    expect(lane.stop).toHaveBeenCalledOnce();
   });
 });
 
@@ -336,12 +466,13 @@ describe("closed physical-lane tombstone", () => {
   it("rejects a prior receipt after the next turn starts and accepts only the new terminal owner", async () => {
     const { session, driver } = makeSession("claude");
     const first = await session.start({ id: "one", kind: "user", text: "first" });
-    await emit(driver, { kind: "turn_owner", receipt: "owner-a" });
-    await emit(driver, { kind: "turn_end", sessionId: "root", turnOwner: "owner-a" });
+    const firstOwner = driver.currentTerminalOwner!;
+    await emit(driver, { kind: "turn_end", sessionId: "root", turnOwner: firstOwner });
     const second = await session.send({ id: "two", kind: "user", text: "second" });
-    await emit(driver, { kind: "turn_end", sessionId: "root", turnOwner: "owner-a" });
+    const secondOwner = driver.currentTerminalOwner!;
+    await emit(driver, { kind: "turn_end", sessionId: "root", turnOwner: firstOwner });
     expect(session.snapshot().activeTurn?.turnId).toBe(second.status === "accepted" ? second.turnId : "unreachable");
-    await emit(driver, { kind: "turn_end", sessionId: "root", turnOwner: "owner-b" });
+    await emit(driver, { kind: "turn_end", sessionId: "root", turnOwner: secondOwner });
     expect(session.snapshot().activeTurn).toBeUndefined();
     expect(first.status).toBe("accepted");
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
@@ -919,7 +1050,11 @@ describe("logical-session terminal facts", () => {
     expect(started).toMatchObject({ status: "accepted" });
     driver.sdkHandle!.isStreaming = true;
     driver.sdkHandle!.abort.mockImplementation(async () => {
-      driver.lane!.emitEvents([{ kind: "turn_end", sessionId: "sdk-session" }]);
+      driver.lane!.emitEvents([{
+        kind: "turn_end",
+        sessionId: "sdk-session",
+        turnOwner: driver.currentTerminalOwner,
+      }]);
     });
 
     await expect(session.interrupt({ requestId: "interrupt-one", reason: "test" })).resolves.toEqual({
@@ -960,7 +1095,11 @@ describe("logical-session terminal facts", () => {
     const abortGate = deferred();
     driver.sdkHandle!.isStreaming = true;
     driver.sdkHandle!.abort.mockImplementation(() => {
-      driver.lane!.emitEvents([{ kind: "turn_end", sessionId: "sdk-session" }]);
+      driver.lane!.emitEvents([{
+        kind: "turn_end",
+        sessionId: "sdk-session",
+        turnOwner: driver.currentTerminalOwner,
+      }]);
       return abortGate.promise;
     });
 

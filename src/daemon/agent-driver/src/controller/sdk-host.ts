@@ -63,11 +63,12 @@ export class SdkLane implements RuntimeLane {
 
   /** Delivers immediately; failures return through normalized events. */
   send(input: LaneSendInput): Promise<LaneAdmission> {
-    void this.deliver(input.text, input.mode, input.terminalOwner);
+    const receipt = input.terminalOwner ?? `${this.sessionId}:sdk:${++this.admissionSequence}`;
+    void this.deliver(input.text, input.mode, receipt);
     return Promise.resolve({
       ok: true,
       acceptedAs: input.mode === "busy" ? "steer" : "prompt",
-      receipt: input.terminalOwner ?? `${this.sessionId}:sdk:${++this.admissionSequence}`,
+      receipt,
     });
   }
 

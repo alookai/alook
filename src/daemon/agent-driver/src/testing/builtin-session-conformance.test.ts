@@ -280,6 +280,19 @@ async function settle(): Promise<void> {
   await Promise.resolve();
 }
 
+async function settlePromptAdmission<T>(
+  backend: BuiltinBackendId,
+  harness: VendorHarness,
+  turn: number,
+  pending: Promise<T>,
+): Promise<T> {
+  if (backend === "codex") {
+    await vi.waitFor(() => expect(harness.processes).toHaveLength(1));
+    harness.sessionReady(turn);
+  }
+  return pending;
+}
+
 async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<void> {
   const harness = installVendorHarness(backend);
   const host = createFakeAgentDriverHost({
@@ -309,8 +322,9 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
   const collecting = (async () => { for await (const event of session.events) events.push(event as never); })();
 
   expect(await session.send({ id: "early", kind: "user", text: "early" })).toMatchObject({ status: "rejected", reason: "not_started" });
-  expect(await session.start({ id: "first", kind: "user", text: "first" })).toMatchObject({ status: "accepted" });
-  harness.sessionReady(1);
+  const first = session.start({ id: "first", kind: "user", text: "first" });
+  expect(await settlePromptAdmission(backend, harness, 1, first)).toMatchObject({ status: "accepted" });
+  if (backend !== "codex") harness.sessionReady(1);
   await settle();
   expect(harness.contexts[0]!.config.sessionId).toBe(`${backend}-resume-input`);
   expect(harness.contexts[0]!.prepared.environmentLayers).toMatchObject({
@@ -327,10 +341,11 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
   await settle();
 
   if (backend === "pi" || backend === "claude" || backend === "codex") {
-    expect(await session.send({ id: "reuse", kind: "user", text: "reuse" })).toMatchObject({ status: "accepted" });
+    const reuse = session.send({ id: "reuse", kind: "user", text: "reuse" });
+    expect(await settlePromptAdmission(backend, harness, 2, reuse)).toMatchObject({ status: "accepted" });
     if (backend === "pi") harness.handles[0]!.isStreaming = true;
   }
-  harness.sessionReady(2);
+  if (backend !== "codex") harness.sessionReady(2);
   await settle();
   harness.completeTurn(2);
   if (backend === "cursor" || backend === "opencode") harness.processes[1]!.finish();
@@ -453,7 +468,7 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
     });
 
     it("settles a physical stop rejection as forced and still releases exactly once", async () => {
-      installVendorHarness(backend);
+      const harness = installVendorHarness(backend);
       const laneStop = backend === "pi"
         ? vi.spyOn(SdkLane.prototype, "stop")
         : vi.spyOn(ProcessLane.prototype, "stop");
@@ -468,7 +483,12 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
         launch: { workingDirectory, instructions: { format: "markdown", content: "" }, launchId: `reject-stop-${backend}` },
       });
       if (!opened.ok) throw new Error(opened.error.message);
-      await opened.session.start({ id: "reject-stop", kind: "user", text: "start" });
+      await settlePromptAdmission(
+        backend,
+        harness,
+        1,
+        opened.session.start({ id: "reject-stop", kind: "user", text: "start" }),
+      );
       const receipt = await opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
       expect(receipt.status).toBe("failed");
       expect(JSON.stringify(receipt)).not.toContain("/Users/Alice");
@@ -477,7 +497,7 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
     });
 
     it("forces a bounded stop and releases the registered adapter when its physical lane hangs", async () => {
-      installVendorHarness(backend);
+      const harness = installVendorHarness(backend);
       const laneStop = backend === "pi"
         ? vi.spyOn(SdkLane.prototype, "stop")
         : vi.spyOn(ProcessLane.prototype, "stop");
@@ -492,7 +512,12 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
         launch: { workingDirectory, instructions: { format: "markdown", content: "" }, launchId: `force-${backend}` },
       });
       if (!opened.ok) throw new Error(opened.error.message);
-      await opened.session.start({ id: "force", kind: "user", text: "force" });
+      await settlePromptAdmission(
+        backend,
+        harness,
+        1,
+        opened.session.start({ id: "force", kind: "user", text: "force" }),
+      );
       expect(await opened.session.stop({ reason: "stalled", forceAfterMs: 1 })).toMatchObject({ status: "accepted" });
       const closed = await opened.session.closed;
       expect(closed.outcome).toBe("forced");
@@ -514,7 +539,12 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
       if (!opened.ok) throw new Error(opened.error.message);
       const events: string[] = [];
       const collecting = (async () => { for await (const event of opened.session.events) events.push(event.type); })();
-      expect(await opened.session.start({ id: "crash", kind: "user", text: "crash" })).toMatchObject({ status: "accepted" });
+      expect(await settlePromptAdmission(
+        backend,
+        harness,
+        1,
+        opened.session.start({ id: "crash", kind: "user", text: "crash" }),
+      )).toMatchObject({ status: "accepted" });
       if (backend === "pi") harness.lanes[0]!.reportUnexpectedExit();
       else harness.processes[0]!.finish(17, null);
       expect((await opened.session.closed).outcome).toBe("crashed");
@@ -573,14 +603,14 @@ describe("codex persistent terminal ownership", () => {
     const events: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
     const collecting = (async () => { for await (const event of opened.session.events) events.push(event as never); })();
 
-    const first = await opened.session.start({ id: "first", kind: "user", text: "first" });
+    const firstPending = opened.session.start({ id: "first", kind: "user", text: "first" });
+    const first = await settlePromptAdmission(backend, harness, 1, firstPending);
     expect(first.status).toBe("accepted");
-    harness.sessionReady(1);
     harness.completeTurn(1);
     await settle();
-    const second = await opened.session.send({ id: "second", kind: "user", text: "second" });
+    const secondPending = opened.session.send({ id: "second", kind: "user", text: "second" });
+    const second = await settlePromptAdmission(backend, harness, 2, secondPending);
     expect(second.status).toBe("accepted");
-    harness.sessionReady(2);
     await settle();
     harness.duplicateTurn(1);
     await settle();

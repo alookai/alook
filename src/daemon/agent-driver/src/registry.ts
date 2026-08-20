@@ -49,7 +49,7 @@ export function createAgentDriverRegistry<Specs>(
   });
 }
 
-function assertRegistrationShape(registration: unknown): void {
+export function assertRegistrationShape(registration: unknown): void {
   if (!registration || typeof registration !== "object") throw new Error("Invalid agent backend registration");
   const candidate = registration as Record<string, unknown>;
   if (typeof candidate.id !== "string" || candidate.id.length === 0) {

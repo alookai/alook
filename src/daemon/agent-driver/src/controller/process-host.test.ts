@@ -24,6 +24,12 @@ const spawned: ChildProcess[] = [];
 function realSpawnDriver(): ProcessAdapterPrimitives<string, BackendConfig> {
   return {
     id: "test-real",
+    execution: {
+      lifetime: "turn",
+      transport: { kind: "one_shot_cli", protocol: "test.real.v1" },
+      wakeStart: "immediate",
+      terminalOwnership: "lane_generation",
+    },
     currentSessionId: null,
     spawn: async () => {
       const proc = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
@@ -164,6 +170,38 @@ describe("ProcessLane — raw stdout tap (P0-1)", () => {
     expect(() => stdout.write('{"type":"message"}\n')).not.toThrow();
     expect(normalizeLine).toHaveBeenCalledWith('{"type":"message"}');
     expect(events).toEqual([parsedEvent]);
+  });
+});
+
+describe("ProcessLane prompt admission ownership", () => {
+  it("waits for a transport-owned turn receipt and returns that exact acknowledgement", async () => {
+    const { driver, stdout } = controllableDriver((line) => [JSON.parse(line)]);
+    Object.assign(driver, {
+      execution: {
+        lifetime: "session",
+        transport: { kind: "stdio_rpc", protocol: "test.rpc.v1" },
+        wakeStart: "immediate",
+        terminalOwnership: "transport_request",
+      },
+    });
+    const session = new ProcessLane(driver, minimalCtx());
+    const observed: unknown[] = [];
+    session.on("runtime_event", (event) => observed.push(event));
+    let settled = false;
+    const starting = session.start({ text: "go" }).then((admission) => {
+      settled = true;
+      return admission;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    stdout.write(`${JSON.stringify({ kind: "turn_owner", receipt: "owner-authoritative" })}\n`);
+    await expect(starting).resolves.toEqual({
+      ok: true,
+      acceptedAs: "prompt",
+      receipt: "owner-authoritative",
+    });
+    expect(observed).toEqual([{ kind: "turn_owner", receipt: "owner-authoritative" }]);
   });
 });
 
