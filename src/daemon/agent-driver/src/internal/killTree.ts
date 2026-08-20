@@ -19,6 +19,7 @@
  * against that supervisor and the kernel job closes over any remaining child.
  */
 import { spawn, type ChildProcess } from "child_process";
+import { appendFileSync } from "node:fs";
 
 const POLL_MS = 100;
 const FORCE_EXIT_WAIT_MS = 2_000;
@@ -384,18 +385,26 @@ interface AgentSpawnOptions {
  */
 export function spawnAgentProcess(command: string, args: string[], opts: AgentSpawnOptions): ChildProcess {
   if (!isPosix) {
-    const env = {
+    const env: NodeJS.ProcessEnv = {
       ...opts.env,
       [WINDOWS_JOB_NODE_ENV]: process.execPath,
       [WINDOWS_JOB_PAYLOAD_ENV]: Buffer.from(JSON.stringify({ command, args, cwd: opts.cwd, shell: opts.shell ?? false })).toString("base64"),
       [WINDOWS_JOB_RUNNER_ENV]: WINDOWS_JOB_RUNNER,
     };
-    return spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", WINDOWS_JOB_ENCODED_COMMAND], {
+    const debugFile = env.ALOOK_WINDOWS_JOB_DEBUG_FILE;
+    if (debugFile) appendFileSync(debugFile, "spawn-called\n");
+    const proc = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", WINDOWS_JOB_ENCODED_COMMAND], {
       cwd: opts.cwd,
       stdio: [opts.stdin ?? "pipe", "pipe", "pipe"],
       env,
       windowsHide: true,
     });
+    if (debugFile) {
+      proc.once("spawn", () => appendFileSync(debugFile, "powershell-spawn\n"));
+      proc.once("error", (error) => appendFileSync(debugFile, `powershell-error ${error.message}\n`));
+      proc.once("exit", (code, signal) => appendFileSync(debugFile, `powershell-exit ${String(code)} ${String(signal)}\n`));
+    }
+    return proc;
   }
   return spawn(command, args, {
     cwd: opts.cwd,
