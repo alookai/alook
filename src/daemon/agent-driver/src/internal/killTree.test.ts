@@ -272,7 +272,7 @@ describe("spawnAgentProcess", () => {
     expect(proc.stderr).not.toBeNull();
   });
 
-  it("preserves Windows stdin/stdout, cwd/env, and the exact inner exit code", async () => {
+  it("preserves persistent Windows stdin/stdout, cwd/env, and the exact inner exit code", async () => {
     if (process.platform !== "win32") return;
     const cwd = mkdtempSync(join(tmpdir(), "agent-driver-job-stdio-"));
     tempDirs.push(cwd);
@@ -281,9 +281,13 @@ describe("spawnAgentProcess", () => {
     writeFileSync(runtimeModule, `
       import { createInterface } from "node:readline";
       const lines = createInterface({ input: process.stdin });
-      lines.once("line", (line) => {
-        const result = { line, cwd: process.cwd(), env: process.env.ALOOK_JOB_FIXTURE };
-        process.stdout.write(JSON.stringify(result) + "\\n", () => process.exit(37));
+      let request = 0;
+      lines.on("line", (line) => {
+        request += 1;
+        const result = { line, request, cwd: process.cwd(), env: process.env.ALOOK_JOB_FIXTURE };
+        process.stdout.write(JSON.stringify(result) + "\\n", () => {
+          if (request === 2) process.exit(37);
+        });
       });
     `);
     writeFileSync(command, `@node "%~dp0\\runtime.mjs"\r\n`);
@@ -298,18 +302,36 @@ describe("spawnAgentProcess", () => {
       proc.once("exit", (code, signal) => resolve([code, signal]));
     });
     const lines = createInterface({ input: proc.stdout! });
-    const response = new Promise<string>((resolve, reject) => {
-      lines.once("line", resolve);
+    const responses: string[] = [];
+    const response = new Promise<string[]>((resolve, reject) => {
+      lines.on("line", (line) => {
+        responses.push(line);
+        if (responses.length === 2) resolve(responses);
+      });
       proc.once("exit", () => reject(new Error("supervisor exited before the stdin roundtrip completed")));
     });
 
-    proc.stdin!.end("stdio-roundtrip\n");
+    // Keep stdin open across multiple request/response exchanges. Calling
+    // `end()` here would only prove that EOF flushes a buffered pipe, while
+    // Codex/Claude/ACP all require a long-lived bidirectional transport.
+    proc.stdin!.write("stdio-roundtrip-1\n");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    proc.stdin!.write("stdio-roundtrip-2\n");
 
-    expect(JSON.parse(await response)).toEqual({
-      line: "stdio-roundtrip",
-      cwd,
-      env: "job-env-ok",
-    });
+    expect((await response).map((line) => JSON.parse(line))).toEqual([
+      {
+        line: "stdio-roundtrip-1",
+        request: 1,
+        cwd,
+        env: "job-env-ok",
+      },
+      {
+        line: "stdio-roundtrip-2",
+        request: 2,
+        cwd,
+        env: "job-env-ok",
+      },
+    ]);
     lines.close();
     await expect(exited).resolves.toEqual([37, null]);
   });
