@@ -975,6 +975,8 @@ export interface SpawnedProcessHandle {
     // (undocumented)
     readonly stdin?: {
         readonly destroyed?: boolean;
+        readonly writable?: boolean;
+        readonly writableEnded?: boolean;
         write(chunk: string): unknown;
     } | null;
     // (undocumented)

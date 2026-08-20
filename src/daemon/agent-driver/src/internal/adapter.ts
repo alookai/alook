@@ -147,7 +147,12 @@ export interface AdapterLaunchContext<Id extends string = BuiltinBackendId, Conf
 export interface SpawnedProcessHandle {
   readonly stdout?: { on(event: "data", listener: (chunk: { toString(): string }) => void): unknown } | null;
   readonly stderr?: { on(event: "data", listener: (chunk: { toString(): string }) => void): unknown } | null;
-  readonly stdin?: { readonly destroyed?: boolean; write(chunk: string): unknown } | null;
+  readonly stdin?: {
+    readonly destroyed?: boolean;
+    readonly writable?: boolean;
+    readonly writableEnded?: boolean;
+    write(chunk: string): unknown;
+  } | null;
   readonly pid?: number;
   readonly exitCode: number | null;
   readonly signalCode: string | null;

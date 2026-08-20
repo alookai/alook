@@ -190,7 +190,7 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
 
   private writableStdin(proc: SpawnedProcessHandle): NonNullable<SpawnedProcessHandle["stdin"]> | null {
     const stdin = proc.stdin;
-    return stdin && !stdin.destroyed ? stdin : null;
+    return stdin && !stdin.destroyed && !stdin.writableEnded && stdin.writable !== false ? stdin : null;
   }
 
   private stdinUnavailableAdmission(): LaneAdmission {

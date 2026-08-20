@@ -205,7 +205,7 @@ describe("ProcessLane prompt admission ownership", () => {
     expect(observed).toEqual([{ kind: "turn_owner", receipt: "owner-authoritative" }]);
   });
 
-  it.each(["missing", "destroyed"] as const)(
+  it.each(["missing", "destroyed", "ended"] as const)(
     "rejects start when persistent runtime stdin is %s",
     async (state) => {
       const { driver, process: proc } = controllableDriver(() => []);
@@ -218,7 +218,8 @@ describe("ProcessLane prompt admission ownership", () => {
         },
       });
       if (state === "missing") Object.assign(proc, { stdin: null });
-      else proc.stdin?.destroy();
+      else if (state === "destroyed") proc.stdin?.destroy();
+      else proc.stdin?.end();
 
       const session = new ProcessLane(driver, minimalCtx());
       await expect(session.start({ text: "go", terminalOwner: "owner-prebound" })).resolves.toEqual({
@@ -229,7 +230,7 @@ describe("ProcessLane prompt admission ownership", () => {
     },
   );
 
-  it.each(["missing", "destroyed"] as const)(
+  it.each(["missing", "destroyed", "ended"] as const)(
     "rejects idle prompts and busy steers when persistent runtime stdin becomes %s",
     async (state) => {
       const { driver, process: proc } = controllableDriver(() => []);
@@ -244,7 +245,8 @@ describe("ProcessLane prompt admission ownership", () => {
       const session = new ProcessLane(driver, minimalCtx());
       await expect(session.start({ text: "go", terminalOwner: "owner-start" })).resolves.toMatchObject({ ok: true });
       if (state === "missing") Object.assign(proc, { stdin: null });
-      else proc.stdin?.destroy();
+      else if (state === "destroyed") proc.stdin?.destroy();
+      else proc.stdin?.end();
 
       await expect(session.send({ text: "next", mode: "idle", terminalOwner: "owner-next" })).resolves.toEqual({
         ok: false,
