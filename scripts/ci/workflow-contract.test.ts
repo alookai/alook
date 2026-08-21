@@ -3,6 +3,7 @@ import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
 const workflowRoot = resolve(import.meta.dirname, "../../.github/workflows")
+const repositoryRoot = resolve(import.meta.dirname, "../..")
 function normalizeWorkflow(text: string): string {
   return text.replace(/\r\n/g, "\n")
 }
@@ -36,14 +37,18 @@ const desktopUpdateRoute = readFileSync(
   resolve(import.meta.dirname, "../../src/web/src/app/api/desktop/update/[target]/[arch]/[current_version]/route.ts"),
   "utf8",
 )
-const publishWorkflows = ["publish-app.yml", "publish-cli.yml", "publish-daemon.yml", "publish-agent-driver.yml"]
+const publishWorkflows = ["publish-app.yml", "publish-cli.yml", "publish-daemon.yml"]
   .map((name) => normalizeWorkflow(readFileSync(resolve(workflowRoot, name), "utf8")))
-const publishAgentDriverWorkflow = normalizeWorkflow(
-  readFileSync(resolve(workflowRoot, "publish-agent-driver.yml"), "utf8"),
-)
 const publishDaemonWorkflow = normalizeWorkflow(
   readFileSync(resolve(workflowRoot, "publish-daemon.yml"), "utf8"),
 )
+const agentDriverPackage = JSON.parse(
+  readFileSync(resolve(repositoryRoot, "src/daemon/agent-driver/package.json"), "utf8"),
+) as { private?: boolean; publishConfig?: unknown }
+const daemonPackage = JSON.parse(
+  readFileSync(resolve(repositoryRoot, "src/daemon/package.json"), "utf8"),
+) as { devDependencies?: Record<string, string> }
+const workspaceManifest = readFileSync(resolve(repositoryRoot, "pnpm-workspace.yaml"), "utf8")
 
 function ciJob(name: string): string {
   const start = ciWorkflow.indexOf(`\n  ${name}:\n`)
@@ -97,13 +102,16 @@ describe("Bun workflow setup", () => {
   })
 })
 
-describe("Agent driver publishing", () => {
-  it("publishes independently when its unified version changes", () => {
-    expect(publishAgentDriverWorkflow).toContain("paths: [src/daemon/agent-driver/package.json]")
-    expect(publishAgentDriverWorkflow).toContain("Publish @alook/agent-driver to npm")
-    expect(publishAgentDriverWorkflow).toContain("pnpm -C src/daemon/agent-driver run build")
-    expect(publishAgentDriverWorkflow).toContain("npm publish --access public")
-    expect(publishAgentDriverWorkflow).toContain("id-token: write")
+describe("Private agent driver package", () => {
+  it("remains an independent private workspace dependency of the daemon", () => {
+    expect(agentDriverPackage.private).toBe(true)
+    expect(agentDriverPackage).not.toHaveProperty("publishConfig")
+    expect(workspaceManifest).toContain('"src/daemon/agent-driver"')
+    expect(daemonPackage.devDependencies?.["@alook/agent-driver"]).toBe("workspace:*")
+  })
+
+  it("cannot be published by a repository workflow", () => {
+    expect(existsSync(resolve(workflowRoot, "publish-agent-driver.yml"))).toBe(false)
   })
 
   it("builds the workspace driver before a clean daemon publish build", () => {
