@@ -30,11 +30,12 @@ export interface PendingAdmission {
 export type RootLease =
   | { state: "detached" }
   | { state: "none"; lastTerminal: RootTerminal | null }
-  | { state: "active"; identity: TurnIdentity; lastWorkAt: number }
+  | { state: "active"; identity: TurnIdentity; lastWorkAt: number; outstandingToolUses?: number }
   | {
       state: "suspect_active";
       identity: TurnIdentity;
       lastWorkAt: number;
+      outstandingToolUses?: number;
       reason: "work_after_terminal";
     };
 
@@ -110,6 +111,8 @@ export type ManagerEvent =
       nowMs: number;
     }
   | { type: "turn_work"; agentId: string; sessionInstanceId: string; turnId: string; nowMs: number }
+  | { type: "turn_tool_started"; agentId: string; sessionInstanceId: string; turnId: string; nowMs: number }
+  | { type: "turn_tool_finished"; agentId: string; sessionInstanceId: string; turnId: string; nowMs: number }
   | {
       type: "turn_completed";
       agentId: string;
@@ -268,6 +271,12 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
       return mutate(state, event.agentId, (a) => {
         a.resetting = true;
         a.resettingSince = event.nowMs;
+        const lease = a.execution.lease;
+        if ((lease.state === "active" || lease.state === "suspect_active") && lease.outstandingToolUses !== undefined) {
+          const unblockedLease = { ...lease };
+          delete unblockedLease.outstandingToolUses;
+          a.execution.lease = unblockedLease;
+        }
       });
 
     case "rewake_after_reset":
@@ -332,6 +341,12 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
         syncExecutionProjection(a);
       });
     }
+
+    case "turn_tool_started":
+      return onTurnToolLifecycle(state, event, "started");
+
+    case "turn_tool_finished":
+      return onTurnToolLifecycle(state, event, "finished");
 
     case "turn_completed":
       return onTurnCompleted(state, event.agentId, event.sessionInstanceId, event.nowMs, event.turnId);
@@ -431,6 +446,58 @@ function onTurnCompleted(
   return commit(state, agent, []);
 }
 
+function onTurnToolLifecycle(
+  state: ManagerState,
+  event: Extract<ManagerEvent, { type: "turn_tool_started" | "turn_tool_finished" }>,
+  lifecycle: "started" | "finished",
+): ReduceResult {
+  const existing = state.agents[event.agentId];
+  if (
+    !existing
+    || existing.resetting
+    || existing.execution.sessionInstanceId !== event.sessionInstanceId
+  ) return { state, effects: [] };
+  const current = existing.execution.lease;
+  const identity = identityOf(event);
+  const matchesActive = (current.state === "active" || current.state === "suspect_active")
+    && sameIdentity(current.identity, identity);
+  const matchesTerminal = lifecycle === "started"
+    && current.state === "none"
+    && current.lastTerminal !== null
+    && sameIdentity(current.lastTerminal.identity, identity);
+  if (!matchesActive && !matchesTerminal) return { state, effects: [] };
+  if (lifecycle === "finished" && matchesActive && (current.outstandingToolUses ?? 0) === 0) {
+    return { state, effects: [] };
+  }
+  return mutate(state, event.agentId, (agent) => {
+    if (!matchesSession(agent, event.sessionInstanceId)) return;
+    const lease = agent.execution.lease;
+    if ((lease.state === "active" || lease.state === "suspect_active") && sameIdentity(lease.identity, identity)) {
+      const outstandingToolUses = (lease.outstandingToolUses ?? 0) + (lifecycle === "started" ? 1 : -1);
+      if (outstandingToolUses > 0) {
+        agent.execution.lease = { ...lease, lastWorkAt: event.nowMs, outstandingToolUses };
+      } else {
+        const unblockedLease = { ...lease };
+        delete unblockedLease.outstandingToolUses;
+        agent.execution.lease = { ...unblockedLease, lastWorkAt: event.nowMs };
+      }
+    } else {
+      const terminal = lease.state === "none" ? lease.lastTerminal : null;
+      if (lifecycle !== "started" || !terminal || !sameIdentity(terminal.identity, identity)) return;
+      agent.execution.lease = {
+        state: "suspect_active",
+        identity,
+        lastWorkAt: event.nowMs,
+        outstandingToolUses: 1,
+        reason: "work_after_terminal",
+      };
+    }
+    agent.lastProgressAt = event.nowMs;
+    agent.idleSince = null;
+    syncExecutionProjection(agent);
+  });
+}
+
 function onExit(state: ManagerState, agentId: string): ReduceResult {
   const existing = state.agents[agentId];
   if (!existing) return { state, effects: [] };
@@ -462,6 +529,7 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
     const lease = a.execution.lease;
     const stalled = a.status === "running"
       && (lease.state === "active" || lease.state === "suspect_active")
+      && (lease.outstandingToolUses ?? 0) === 0
       && nowMs - lease.lastWorkAt >= state.staleThresholdMs;
     if (stalled) {
       agents[id] = { ...a, status: "stopping", idleSince: null, stoppingSince: nowMs };

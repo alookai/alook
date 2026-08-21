@@ -1535,7 +1535,9 @@ export class AgentProcessManager {
         case "text_delta":
           return event.text.length > 0 ? { type: "turn_work" as const, turnId: event.turnId } : null;
         case "tool_started":
+          return { type: "turn_tool_started" as const, turnId: event.turnId };
         case "tool_finished":
+          return { type: "turn_tool_finished" as const, turnId: event.turnId };
         case "compaction_started":
         case "compaction_finished":
         case "review_started":
