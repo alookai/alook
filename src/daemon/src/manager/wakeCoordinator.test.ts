@@ -109,6 +109,41 @@ describe("WakeCoordinator", () => {
     ]);
   });
 
+  it("re-arms an unseen channel when a multi-channel admission pull observes only its sibling", async () => {
+    const coordinator = new WakeCoordinator();
+    let releaseInitial!: () => void;
+    const initialBlocked = new Promise<void>((resolve) => { releaseInitial = resolve; });
+    const dispatch = vi.fn(async (command: Wake) => {
+      coordinator.recordDeliveryAck(command.agentId, command.launchId, "ok");
+      if (command.launchId === "initial") await initialBlocked;
+    });
+
+    const initial = coordinator.run(wake("a1", "/s/root", 1, "initial"), dispatch);
+    await tick();
+    await coordinator.run(wake("a1", "/s/c1", 2, "c1"), dispatch);
+    await coordinator.run(wake("a1", "/s/c2", 7, "c2"), dispatch);
+    coordinator.recordModelSeen("a1", [{ channel: "/s/root", seq: "#1" }], 0);
+    releaseInitial();
+    await initial;
+
+    expect(dispatch.mock.calls.map(([command]) => command.unreadNotice.channel)).toEqual([
+      "/s/root",
+      "/s/c2",
+    ]);
+
+    coordinator.recordModelSeen("a1", [{ channel: "/s/c1", seq: "#2" }], 0);
+    await tick();
+    expect(dispatch.mock.calls.map(([command]) => command.unreadNotice.channel)).toEqual([
+      "/s/root",
+      "/s/c2",
+      "/s/c2",
+    ]);
+
+    coordinator.recordModelSeen("a1", [{ channel: "/s/c2", seq: "#7" }], 0);
+    await tick();
+    expect(dispatch).toHaveBeenCalledTimes(3);
+  });
+
   it("replaces a failed working delivery without dropping the runtime-active lane", async () => {
     const coordinator = new WakeCoordinator();
     const dispatch = vi.fn(async (command: Wake) => {
@@ -159,6 +194,51 @@ describe("WakeCoordinator", () => {
     coordinator.recordAgentActivity("a1", "idle");
     await tick();
     expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not strand an acknowledged but unobserved admission across idle", async () => {
+    const coordinator = new WakeCoordinator();
+    const dispatch = vi.fn(async (command: Wake) => {
+      coordinator.recordDeliveryAck(command.agentId, command.launchId, "ok");
+    });
+
+    await coordinator.run(wake("a1", "/s/c", 5, "initial"), dispatch);
+    coordinator.recordAgentActivity("a1", "idle");
+    await tick();
+    await coordinator.run(wake("a1", "/s/c", 5, "durable_retry"), dispatch);
+    await tick();
+
+    expect(dispatch).toHaveBeenCalledTimes(2);
+
+    coordinator.recordModelSeen("a1", [{ channel: "/s/c", seq: "#5" }], 0);
+    coordinator.recordAgentActivity("a1", "idle");
+    await tick();
+    expect(dispatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not strand an unobserved admission when idle precedes its delivery ack", async () => {
+    const coordinator = new WakeCoordinator();
+    let releaseInitial!: () => void;
+    const initialBlocked = new Promise<void>((resolve) => { releaseInitial = resolve; });
+    const dispatch = vi.fn(async (command: Wake) => {
+      if (command.launchId === "initial") await initialBlocked;
+      coordinator.recordDeliveryAck(command.agentId, command.launchId, "ok");
+    });
+
+    const initial = coordinator.run(wake("a1", "/s/c", 5, "initial"), dispatch);
+    await tick();
+    coordinator.recordAgentActivity("a1", "idle");
+    releaseInitial();
+    await initial;
+    await coordinator.run(wake("a1", "/s/c", 5, "durable_retry"), dispatch);
+    await tick();
+
+    expect(dispatch).toHaveBeenCalledTimes(2);
+
+    coordinator.recordModelSeen("a1", [{ channel: "/s/c", seq: "#5" }], 0);
+    coordinator.recordAgentActivity("a1", "idle");
+    await tick();
+    expect(dispatch).toHaveBeenCalledTimes(2);
   });
 
   it("suppresses an old wake when inbox pull arrived first", async () => {
