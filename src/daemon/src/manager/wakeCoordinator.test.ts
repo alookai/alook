@@ -241,6 +241,28 @@ describe("WakeCoordinator", () => {
     expect(dispatch).toHaveBeenCalledTimes(2);
   });
 
+  it("promotes a same-watermark replacement already coalesced before idle", async () => {
+    const coordinator = new WakeCoordinator();
+    const dispatch = vi.fn(async (command: Wake) => {
+      coordinator.recordDeliveryAck(command.agentId, command.launchId, "ok");
+    });
+
+    await coordinator.run(wake("a1", "/s/c", 5, "initial"), dispatch);
+    await coordinator.run(wake("a1", "/s/c", 5, "durable_retry"), dispatch);
+    coordinator.recordAgentActivity("a1", "idle");
+    await tick();
+
+    expect(dispatch.mock.calls.map(([command]) => command.launchId)).toEqual([
+      "initial",
+      "durable_retry",
+    ]);
+
+    coordinator.recordModelSeen("a1", [{ channel: "/s/c", seq: "#5" }], 0);
+    coordinator.recordAgentActivity("a1", "idle");
+    await tick();
+    expect(dispatch).toHaveBeenCalledTimes(2);
+  });
+
   it("suppresses an old wake when inbox pull arrived first", async () => {
     const coordinator = new WakeCoordinator();
     const dispatch = vi.fn(async () => {});
