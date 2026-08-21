@@ -31,15 +31,131 @@ describe("WakeCoordinator", () => {
     await expect(first).resolves.toEqual({ state: "accepted" });
   });
 
-  it("coalesces seq 5 to 6 during active work and pull coverage prevents an idle rewake", async () => {
+  it("delivers the first higher watermark into an active agent after the prior wake was seen", async () => {
+    const coordinator = new WakeCoordinator();
+    const dispatch = vi.fn(async (command: Wake) => {
+      coordinator.recordDeliveryAck(command.agentId, command.launchId, "ok");
+    });
+
+    await coordinator.run(wake("a1", "/s/c", 1), dispatch);
+    coordinator.recordAgentActivity("a1", "running");
+    coordinator.recordModelSeen("a1", [{ channel: "/s/c", seq: "#1" }], 0);
+
+    await expect(coordinator.run(wake("a1", "/s/c", 2), dispatch)).resolves.toEqual({ state: "accepted" });
+    expect(dispatch.mock.calls.map(([command]) => command.unreadNotice.latestSeq)).toEqual([1, 2]);
+  });
+
+  it("coalesces a five-message busy burst into one active-agent delivery until the pull covers it", async () => {
+    const coordinator = new WakeCoordinator();
+    const dispatch = vi.fn(async (command: Wake) => {
+      coordinator.recordDeliveryAck(command.agentId, command.launchId, "ok");
+    });
+
+    await coordinator.run(wake("a1", "/s/c", 1), dispatch);
+    coordinator.recordAgentActivity("a1", "running");
+    coordinator.recordModelSeen("a1", [{ channel: "/s/c", seq: "#1" }], 0);
+
+    await expect(coordinator.run(wake("a1", "/s/c", 2), dispatch)).resolves.toEqual({ state: "accepted" });
+    for (let seq = 3; seq <= 6; seq++) {
+      await expect(coordinator.run(wake("a1", "/s/c", seq), dispatch)).resolves.toMatchObject({
+        state: "suppressed",
+      });
+    }
+    expect(dispatch.mock.calls.map(([command]) => command.unreadNotice.latestSeq)).toEqual([1, 2]);
+
+    coordinator.recordModelSeen("a1", [{ channel: "/s/c", seq: "#6" }], 0);
+    await tick();
+    expect(dispatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-arms one active delivery when a pull covers the admitted wake but not a newer desired watermark", async () => {
+    const coordinator = new WakeCoordinator();
+    const dispatch = vi.fn(async (command: Wake) => {
+      coordinator.recordDeliveryAck(command.agentId, command.launchId, "ok");
+    });
+
+    await coordinator.run(wake("a1", "/s/c", 1), dispatch);
+    coordinator.recordAgentActivity("a1", "running");
+    coordinator.recordModelSeen("a1", [{ channel: "/s/c", seq: "#1" }], 0);
+    await coordinator.run(wake("a1", "/s/c", 2), dispatch);
+    await coordinator.run(wake("a1", "/s/c", 3), dispatch);
+    expect(dispatch.mock.calls.map(([command]) => command.unreadNotice.latestSeq)).toEqual([1, 2]);
+
+    coordinator.recordModelSeen("a1", [{ channel: "/s/c", seq: "#2" }], 0);
+    await tick();
+    expect(dispatch.mock.calls.map(([command]) => command.unreadNotice.latestSeq)).toEqual([1, 2, 3]);
+  });
+
+  it("keeps a later channel covered when the active reminder pull observes only an earlier channel", async () => {
+    const coordinator = new WakeCoordinator();
+    const dispatch = vi.fn(async (command: Wake) => {
+      coordinator.recordDeliveryAck(command.agentId, command.launchId, "ok");
+    });
+
+    await coordinator.run(wake("a1", "/s/root", 1), dispatch);
+    coordinator.recordAgentActivity("a1", "running");
+    coordinator.recordModelSeen("a1", [{ channel: "/s/root", seq: "#1" }], 0);
+
+    await coordinator.run(wake("a1", "/s/c1", 2), dispatch);
+    await coordinator.run(wake("a1", "/s/c2", 7), dispatch);
+    expect(dispatch.mock.calls.map(([command]) => command.unreadNotice.channel)).toEqual(["/s/root", "/s/c1"]);
+
+    coordinator.recordModelSeen("a1", [{ channel: "/s/c1", seq: "#2" }], 0);
+    await tick();
+    expect(dispatch.mock.calls.map(([command]) => command.unreadNotice.channel)).toEqual([
+      "/s/root",
+      "/s/c1",
+      "/s/c2",
+    ]);
+  });
+
+  it("replaces a failed working delivery without dropping the runtime-active lane", async () => {
+    const coordinator = new WakeCoordinator();
+    const dispatch = vi.fn(async (command: Wake) => {
+      if (command.launchId === "initial") coordinator.recordDeliveryAck("a1", "initial", "ok");
+    });
+
+    await coordinator.run(wake("a1", "/s/c", 1, "initial"), dispatch);
+    coordinator.recordAgentActivity("a1", "running");
+    coordinator.recordModelSeen("a1", [{ channel: "/s/c", seq: "#1" }], 0);
+
+    await coordinator.run(wake("a1", "/s/c", 2, "working_failed"), dispatch);
+    await coordinator.run(wake("a1", "/s/c", 3, "working_replacement"), dispatch);
+    coordinator.recordDeliveryAck("a1", "working_failed", "error");
+    await tick();
+
+    expect(dispatch.mock.calls.map(([command]) => command.launchId)).toEqual([
+      "initial",
+      "working_failed",
+      "working_replacement",
+    ]);
+  });
+
+  it("reconciles a pending active wake when model-seen beats the delivery ack", async () => {
     const coordinator = new WakeCoordinator();
     const dispatch = vi.fn(async () => {});
-    await coordinator.run(wake("a1", "/s/c", 5), dispatch);
+
+    await coordinator.run(wake("a1", "/s/c", 1, "launch_1"), dispatch);
+    coordinator.recordAgentActivity("a1", "running");
+    coordinator.recordModelSeen("a1", [{ channel: "/s/c", seq: "#1" }], 0);
+    await coordinator.run(wake("a1", "/s/c", 2, "launch_2"), dispatch);
+    expect(dispatch.mock.calls.map(([command]) => command.launchId)).toEqual(["launch_1"]);
+
+    coordinator.recordDeliveryAck("a1", "launch_1", "ok");
+    await tick();
+    expect(dispatch.mock.calls.map(([command]) => command.launchId)).toEqual(["launch_1", "launch_2"]);
+  });
+
+  it("lets the first reminder pull cover a higher pre-observation burst even when its ack is delayed", async () => {
+    const coordinator = new WakeCoordinator();
+    const dispatch = vi.fn(async () => {});
+    await coordinator.run(wake("a1", "/s/c", 5, "initial"), dispatch);
     await coordinator.run(wake("a1", "/s/c", 6), dispatch);
     expect(dispatch).toHaveBeenCalledTimes(1);
 
     const generation = coordinator.modelSeenGeneration("a1");
     expect(coordinator.recordModelSeen("a1", [{ channel: "/s/c", seq: "#6" }], generation)).toBe(true);
+    coordinator.recordDeliveryAck("a1", "initial", "ok");
     coordinator.recordAgentActivity("a1", "idle");
     await tick();
     expect(dispatch).toHaveBeenCalledTimes(1);

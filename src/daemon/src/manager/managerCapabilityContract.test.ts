@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -55,6 +55,28 @@ describe("daemon/package capability boundary", () => {
     });
     manager.register("agent");
     expect(manager.deliver("agent", { text: "hello" })).toBe(true);
+  });
+
+  it.each(BUILTIN_BACKEND_IDS)("%s sends a working wake through the shared session boundary", async (id) => {
+    const session = fakeSession();
+    const send = vi.spyOn(session, "send");
+    const manager = new AgentProcessManager({
+      driverFor: () => ({
+        id,
+        capabilities: {} as never,
+        probe: async () => ({ status: "unhealthy" as const, error: {} as never, capabilities: {} as never }),
+      }),
+      baseContextFor: (agentId) => ({ agentId, workingDirectory: "/tmp" }),
+      sessionFactory: () => session,
+    });
+
+    manager.register("agent");
+    expect(manager.deliver("agent", { id: "initial", text: "initial" })).toBe(true);
+    await vi.waitFor(() => expect(manager.snapshot().agents.agent?.status).toBe("running"));
+
+    expect(manager.deliver("agent", { id: "working", text: "working" })).toBe(true);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ id: "working", text: expect.stringContaining("working") }));
   });
 
   it("manager and createDaemon contain no backend lifecycle or transport branch", () => {

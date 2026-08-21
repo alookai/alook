@@ -47,6 +47,10 @@ const timelineSweepHarness = vi.hoisted(() => {
 });
 
 const credentialProxyHarness = vi.hoisted(() => ({
+  onInboxPullStart: undefined as ((agentId: string) => unknown) | undefined,
+  onInboxPullResponse: undefined as (
+    ((agentId: string, messages: unknown[], observationToken?: unknown) => void) | undefined
+  ),
   onInboxPullObservationError: undefined as ((failure: Record<string, unknown>) => void) | undefined,
 }));
 
@@ -65,6 +69,10 @@ vi.mock("../credentials/index.js", async (importOriginal) => {
     startCredentialProxy: (
       ...args: Parameters<typeof actual.startCredentialProxy>
     ): ReturnType<typeof actual.startCredentialProxy> => {
+      credentialProxyHarness.onInboxPullStart = args[1]?.onInboxPullStart;
+      credentialProxyHarness.onInboxPullResponse = args[1]?.onInboxPullResponse as
+        | ((agentId: string, messages: unknown[], observationToken?: unknown) => void)
+        | undefined;
       credentialProxyHarness.onInboxPullObservationError = args[1]?.onInboxPullObservationError as
         | ((failure: Record<string, unknown>) => void)
         | undefined;
@@ -78,6 +86,8 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   timelineSweepHarness.reset();
+  credentialProxyHarness.onInboxPullStart = undefined;
+  credentialProxyHarness.onInboxPullResponse = undefined;
   credentialProxyHarness.onInboxPullObservationError = undefined;
   for (const dir of startupSweepDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
@@ -170,6 +180,7 @@ interface DaemonFakeSession extends DaemonTestSession {
 
 function daemonFakeSession(options: {
   onStart?: (input: { id: string; text: string }) => void;
+  onSend?: (input: { id: string; text: string; sequence?: number }) => void;
   establish?: boolean;
 } = {}): DaemonFakeSession {
   type Event = AgentEvent<BuiltinBackendSpecs, "codex">;
@@ -210,6 +221,7 @@ function daemonFakeSession(options: {
       return { status: "accepted", delivery: "prompt", commandId: input.id, turnId: "daemon-test-turn" };
     },
     async send(input) {
+      options.onSend?.(input);
       emit({ type: "command_accepted", commandId: input.id, turnId: "daemon-test-turn", delivery: "steer" } as never);
       return { status: "accepted", delivery: "steer", commandId: input.id, turnId: "daemon-test-turn" };
     },
@@ -1035,6 +1047,92 @@ describe("createDaemon — logging", () => {
     expect(spawnedPrompt).not.toContain("message send");
 
     await daemon.stop();
+  });
+
+  it("keeps every working unread covered while coalescing wake bursts into one real session delivery", async () => {
+    global.fetch = vi.fn(async (url: string | URL) => {
+      const href = String(url);
+      if (href.includes("/enroll-agent")) {
+        return new Response(JSON.stringify({ runnerKey: "rk_working_coverage" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ bots: [] }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const channel = "/demo#1234/general";
+    const starts: Array<{ id: string; text: string }> = [];
+    const sends: Array<{ id: string; text: string; sequence?: number }> = [];
+    const sockets: FakeSocket[] = [];
+    const daemon = await createDaemon({
+      machineKey: "cmk_working_coverage",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [{ id: "codex" }],
+      driverFor: () => fullFakeDriver("codex"),
+      sessionFactory: daemonSessionFactory({
+        onStart: (input) => starts.push(input),
+        onSend: (input) => sends.push(input),
+      }),
+      capabilities: [],
+    });
+    const wake = (seq: number) => sockets[0].emit("message", JSON.stringify({
+      type: "agent:wake",
+      agentId: "bot_working",
+      config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
+      launchId: `launch_${seq}`,
+      unreadNotice: { kind: "unread_notice", channel, latestSeq: seq },
+    }));
+    const wakeAcked = (seq: number) => sockets[0].sent.map((frame) => JSON.parse(frame)).some(
+      (frame) => frame.type === "agent_wake_ack" && frame.launchId === `launch_${seq}` && frame.status === "ok",
+    );
+    const observePull = (seq: number) => {
+      const observationToken = credentialProxyHarness.onInboxPullStart?.("bot_working");
+      credentialProxyHarness.onInboxPullResponse?.(
+        "bot_working",
+        [{ channel, seq: `#${seq}` }],
+        observationToken,
+      );
+    };
+
+    try {
+      sockets[0].emit("open");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      sockets[0].emit(
+        "message",
+        JSON.stringify({
+          type: "bot:added",
+          botId: "bot_working",
+          name: "Working Bot",
+          discriminator: "0001",
+        }),
+      );
+
+      wake(1);
+      await vi.waitFor(() => expect(starts).toHaveLength(1));
+      await vi.waitFor(() => expect(wakeAcked(1)).toBe(true));
+      observePull(1);
+
+      for (let seq = 2; seq <= 6; seq++) wake(seq);
+      await vi.waitFor(() => expect(wakeAcked(6)).toBe(true));
+      expect(sends).toHaveLength(1);
+      expect(sends[0]).toMatchObject({ sequence: 2 });
+
+      observePull(6);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(sends).toHaveLength(1);
+
+      wake(7);
+      wake(8);
+      await vi.waitFor(() => expect(wakeAcked(8)).toBe(true));
+      expect(sends).toHaveLength(2);
+      expect(sends[1]).toMatchObject({ sequence: 7 });
+
+      observePull(7);
+      await vi.waitFor(() => expect(sends).toHaveLength(3));
+      expect(sends[2]).toMatchObject({ sequence: 8 });
+    } finally {
+      await daemon.stop();
+    }
   });
 
   it("retries a later wake after handshake_timeout instead of globally disabling the runtime", async () => {
