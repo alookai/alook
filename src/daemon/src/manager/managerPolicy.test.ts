@@ -251,6 +251,93 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
     expect(reduceManager(s, { type: "tick", nowMs: 50 }).effects).toEqual([]);
   });
 
+  it("fences tool blockers to the current root, clears them on reset, and restores a full stale window", () => {
+    let s = createInitialManagerState(100);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "root" }, nowMs: 0 }).state;
+    s = spawnRoot(s, 0, "root-turn");
+    s = reduceManager(s, {
+      type: "turn_tool_started",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      turnId: "root-turn",
+      nowMs: 10,
+    }).state;
+    expect(s.agents.a.execution.lease).toMatchObject({
+      state: "active",
+      lastWorkAt: 10,
+      outstandingToolUses: 1,
+    });
+
+    const blocked = s;
+    s = reduceManager(s, {
+      type: "turn_tool_finished",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      turnId: "child-turn",
+      nowMs: 20,
+    }).state;
+    expect(s).toBe(blocked);
+    s = reduceManager(s, {
+      type: "turn_tool_finished",
+      agentId: "a",
+      sessionInstanceId: "stale-session",
+      turnId: "root-turn",
+      nowMs: 30,
+    }).state;
+    expect(s).toBe(blocked);
+    expect(reduceManager(s, { type: "tick", nowMs: 200 }).effects).toEqual([]);
+
+    s = reduceManager(s, { type: "begin_reset", agentId: "a", nowMs: 210 }).state;
+    expect(s.agents.a.execution.lease).toEqual({
+      state: "active",
+      identity: { sessionInstanceId: SESSION_INSTANCE, turnId: "root-turn" },
+      lastWorkAt: 10,
+    });
+    const resetting = s;
+    s = reduceManager(s, {
+      type: "turn_tool_started",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      turnId: "root-turn",
+      nowMs: 220,
+    }).state;
+    expect(s).toBe(resetting);
+
+    let finished = createInitialManagerState(100);
+    finished = register(finished, "a", PERSISTENT_GATED);
+    finished = reduceManager(finished, {
+      type: "wake",
+      agentId: "a",
+      message: { text: "root" },
+      nowMs: 0,
+    }).state;
+    finished = spawnRoot(finished, 0, "root-turn");
+    finished = reduceManager(finished, {
+      type: "turn_tool_started",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      turnId: "root-turn",
+      nowMs: 10,
+    }).state;
+    finished = reduceManager(finished, {
+      type: "turn_tool_finished",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      turnId: "root-turn",
+      nowMs: 60,
+    }).state;
+    expect(finished.agents.a.execution.lease).toEqual({
+      state: "active",
+      identity: { sessionInstanceId: SESSION_INSTANCE, turnId: "root-turn" },
+      lastWorkAt: 60,
+    });
+    expect(reduceManager(finished, { type: "tick", nowMs: 159 }).effects).toEqual([]);
+    expect(reduceManager(finished, { type: "tick", nowMs: 160 }).effects).toEqual([
+      { type: "terminate_stalled", agentId: "a" },
+    ]);
+  });
+
   it("stops a persistent agent that sat idle past the idle timeout (sessionId preserved)", () => {
     let s = createInitialManagerState(100_000, 100); // idleTimeoutMs = 100
     s = register(s, "a", PERSISTENT_GATED);
