@@ -4,14 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import {
-  Sheet,
-  SheetBody,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
+  CommunitySheet,
+  CommunitySheetBody,
+  CommunitySheetDescription,
+  CommunitySheetFooter,
+  CommunitySheetHeader,
+  CommunitySheetTitle,
+} from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -172,20 +171,16 @@ export function EditBotSheet({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} disablePointerDismissal>
-      <SheetContent
-        side="right"
-        showOverlay={false}
-        className="data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border data-[side=right]:sm:overflow-hidden"
-      >
-        <SheetHeader>
-          <SheetTitle>Edit {bot?.name ?? "bot"}</SheetTitle>
-          <SheetDescription>
+    <>
+      <CommunitySheet open={open} onOpenChange={onOpenChange} mode="task" width="md">
+        <CommunitySheetHeader>
+          <CommunitySheetTitle>Edit {bot?.name ?? "bot"}</CommunitySheetTitle>
+          <CommunitySheetDescription>
             Name and description edits take effect on the next wake. Provider and model switches require the bot to be online.
-          </SheetDescription>
-        </SheetHeader>
+          </CommunitySheetDescription>
+        </CommunitySheetHeader>
 
-        <SheetBody className="flex flex-col gap-6">
+        <CommunitySheetBody className="flex flex-col gap-6">
           <BotFormFields
             avatarDraft={avatarDraft}
             onAvatarChange={setAvatarDraft}
@@ -205,17 +200,17 @@ export function EditBotSheet({
               onModelChange={setModel}
             />
           )}
-        </SheetBody>
+        </CommunitySheetBody>
 
-        <SheetFooter>
+        <CommunitySheetFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button onClick={submit} disabled={update.isPending || !bot}>
             {update.isPending ? "Saving…" : "Save"}
           </Button>
-        </SheetFooter>
-      </SheetContent>
+        </CommunitySheetFooter>
+      </CommunitySheet>
       <AlertDialog open={confirmProviderSwitch} onOpenChange={setConfirmProviderSwitch}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -237,6 +232,6 @@ export function EditBotSheet({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Sheet>
+    </>
   )
 }

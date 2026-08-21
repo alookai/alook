@@ -115,18 +115,17 @@ vi.mock("@/hooks/community/use-bots", () => ({
   useUploadBotAvatar: () => ({ mutateAsync: vi.fn() }),
 }))
 
-vi.mock("@/components/ui/sheet", () => {
+vi.mock("@/components/community/shell/community-sheet", () => {
   const pass = (name: string) =>
     function Passthrough({ children }: { children?: React.ReactNode }) {
       return React.createElement("div", { "data-mock": name }, children)
     }
   return {
-    Sheet: pass("sheet"),
-    SheetBody: pass("body"),
-    SheetContent: pass("content"),
-    SheetFooter: pass("footer"),
-    SheetHeader: pass("header"),
-    SheetTitle: pass("title"),
+    CommunitySheet: pass("sheet"),
+    CommunitySheetBody: pass("body"),
+    CommunitySheetFooter: pass("footer"),
+    CommunitySheetHeader: pass("header"),
+    CommunitySheetTitle: pass("title"),
   }
 })
 

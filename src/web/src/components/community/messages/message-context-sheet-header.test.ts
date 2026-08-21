@@ -6,10 +6,10 @@ describe("MessageContextSheet header", () => {
     const source = readFileSync(new URL("./message-context-sheet.tsx", import.meta.url), "utf8")
 
     expect(source).toContain(
-      '<SheetHeader className="gap-0 border-b-0 py-3 pr-14 sm:pr-14">',
+      '<CommunitySheetHeader className="gap-0 border-b-0 py-3 pr-14 sm:pr-14">',
     )
     expect(source).toContain(
-      '<SheetTitle className="flex w-full min-w-0 items-center gap-1.5 text-lg font-semibold tracking-tight">',
+      '<CommunitySheetTitle className="flex w-full min-w-0 items-center gap-1.5 text-lg font-semibold tracking-tight">',
     )
     expect(source).toContain('<span className="min-w-0 truncate">{channelLabel}</span>')
     expect(source).toContain(

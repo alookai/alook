@@ -1,17 +1,15 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { ArrowLeft, Download, Loader2, X } from "lucide-react"
+import { Download, Loader2 } from "lucide-react"
 import { buttonVariants } from "@/components/ui/button"
 import {
-  Sheet,
-  SheetBody,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
-import { SheetResizeHandle, useSheetResize } from "@/components/ui/sheet-resize-handle"
+  CommunitySheet,
+  CommunitySheetBody,
+  CommunitySheetDescription,
+  CommunitySheetHeader,
+  CommunitySheetTitle,
+} from "@/components/community/shell/community-sheet"
 import { cn } from "@/lib/utils"
 import { MessageBody } from "./message-body"
 import { CodePreview } from "./code-preview"
@@ -79,12 +77,6 @@ export function AttachmentPreviewSheet({
 }) {
   const [selected, setSelected] = useState<FileAttachment | null>(attachment)
   const [preview, setPreview] = useState<PreviewState>(IDLE_STATE)
-  const { width, onPointerDown, onPointerMove, onPointerUp } = useSheetResize({
-    defaultWidth: 520,
-    minWidth: 320,
-    maxWidthRatio: 0.8,
-  })
-
   useEffect(() => {
     if (attachment) setSelected(attachment)
   }, [attachment])
@@ -134,34 +126,22 @@ export function AttachmentPreviewSheet({
     : ""
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        data-testid={tid.attachmentPreviewSheet}
-        side="right"
-        showCloseButton={false}
-        style={{ width: `min(${width}px, 100vw)`, maxWidth: "none" }}
-        className="data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border"
-      >
-        <SheetResizeHandle
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-        />
-        <SheetHeader className="pr-4 sm:pr-6">
+    <CommunitySheet
+      open={open}
+      onOpenChange={onOpenChange}
+      mode="preview"
+      width="lg"
+      resizable
+      closeLabel="Close attachment preview"
+      contentTestId={tid.attachmentPreviewSheet}
+    >
+        <CommunitySheetHeader className="pr-14 sm:pr-14">
           <div className="flex min-w-0 items-center gap-2">
-            <button
-              type="button"
-              className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), "size-11 shrink-0 sm:hidden")}
-              onClick={() => onOpenChange(false)}
-              aria-label="Close attachment preview"
-            >
-              <ArrowLeft className="size-4" />
-            </button>
             <div className="min-w-0 flex-1">
-              <SheetTitle className="truncate">{selected?.name ?? "Attachment"}</SheetTitle>
-              <SheetDescription className="truncate">
+              <CommunitySheetTitle className="truncate">{selected?.name ?? "Attachment"}</CommunitySheetTitle>
+              <CommunitySheetDescription className="truncate">
                 {[selected?.contentType || presentation?.category, size].filter(Boolean).join(" · ")}
-              </SheetDescription>
+              </CommunitySheetDescription>
             </div>
             {selected && (
               <a
@@ -174,17 +154,9 @@ export function AttachmentPreviewSheet({
                 Download
               </a>
             )}
-            <button
-              type="button"
-              className={buttonVariants({ variant: "ghost", size: "icon-sm", className: "size-11 sm:size-7" })}
-              onClick={() => onOpenChange(false)}
-              aria-label="Close attachment preview"
-            >
-              <X className="size-4" />
-            </button>
           </div>
-        </SheetHeader>
-        <SheetBody
+        </CommunitySheetHeader>
+        <CommunitySheetBody
           data-testid={tid.attachmentPreviewContent}
           className={cn(
             "flex min-h-0 flex-col",
@@ -209,8 +181,7 @@ export function AttachmentPreviewSheet({
           {preview.status === "ready" && presentation?.previewKind !== "markdown" && (
             <CodePreview content={preview.content} language={presentation?.shikiLanguage ?? null} />
           )}
-        </SheetBody>
-      </SheetContent>
-    </Sheet>
+        </CommunitySheetBody>
+    </CommunitySheet>
   )
 }

@@ -36,15 +36,14 @@ vi.mock("@/components/ui/button", () => ({
     React.createElement("button", props, children),
 }))
 
-vi.mock("@/components/ui/sheet", () => ({
-  Sheet: ({ children }: React.PropsWithChildren) => React.createElement("div", {}, children),
-  SheetContent: ({ children }: React.PropsWithChildren) => React.createElement("div", {}, children),
-  SheetHeader: ({ children }: React.PropsWithChildren) => React.createElement("header", {}, children),
-  SheetTitle: ({ children }: React.PropsWithChildren) => React.createElement("h2", {}, children),
-  SheetDescription: ({ children }: React.PropsWithChildren) => React.createElement("p", {}, children),
-  SheetBody: ({ children }: React.PropsWithChildren) => React.createElement("main", {}, children),
-  SheetFooter: ({ children }: React.PropsWithChildren) => React.createElement("footer", {}, children),
-  SheetClose: () => null,
+vi.mock("@/components/community/shell/community-sheet", () => ({
+  CommunitySheet: ({ children }: React.PropsWithChildren) => React.createElement("div", {}, children),
+  CommunitySheetHeader: ({ children }: React.PropsWithChildren) => React.createElement("header", {}, children),
+  CommunitySheetTitle: ({ children }: React.PropsWithChildren) => React.createElement("h2", {}, children),
+  CommunitySheetDescription: ({ children }: React.PropsWithChildren) => React.createElement("p", {}, children),
+  CommunitySheetBody: ({ children }: React.PropsWithChildren) => React.createElement("main", {}, children),
+  CommunitySheetFooter: ({ children }: React.PropsWithChildren) => React.createElement("footer", {}, children),
+  CommunitySheetClose: () => null,
 }))
 
 import { PairMachineSheet, PairMachineSteps } from "./pair-machine-sheet"

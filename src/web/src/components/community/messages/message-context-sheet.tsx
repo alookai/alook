@@ -5,8 +5,11 @@ import { useRouter, useParams } from "next/navigation"
 import { toast } from "sonner"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { deriveThreadName } from "@alook/shared"
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { useSheetResize, SheetResizeHandle } from "@/components/ui/sheet-resize-handle"
+import {
+  CommunitySheet,
+  CommunitySheetHeader,
+  CommunitySheetTitle,
+} from "@/components/community/shell/community-sheet"
 import { MessageRow } from "./message-row"
 import { MessageShareDialog } from "./message-share-dialog"
 import { ChannelIcon } from "../channels/channel-icon"
@@ -162,12 +165,6 @@ export function MessageContextSheet({
   onReply?: (target: ReplyTarget) => void
   type?: ScopeType
 }) {
-  const { width, onPointerDown, onPointerMove, onPointerUp } = useSheetResize({
-    defaultWidth: 420,
-    minWidth: 320,
-    maxWidthRatio: 0.6,
-  })
-
   const currentUser = useCurrentUser()
   const uiHandlers = useUiHandlers()
   const queryClient = useQueryClient()
@@ -395,14 +392,13 @@ export function MessageContextSheet({
   }, [open, anchorId, targetSeq])
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} modal={false} disablePointerDismissal>
-      <SheetContent
-        side="right"
-        showOverlay={false}
-        style={{ width: `min(${width}px, 100vw)`, maxWidth: "none" }}
-        className="flex flex-col p-0 data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border data-[side=right]:sm:overflow-hidden"
-      >
-        <SheetResizeHandle onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} />
+    <CommunitySheet
+      open={open}
+      onOpenChange={onOpenChange}
+      mode="sidecar"
+      width="md"
+      resizable
+    >
         {/* Header names WHICH channel's context this is (Gus #417/#423, Alli
             #420): channel icon + name as the primary line, the seq as weaker
             secondary info — the intent here is "reading a channel's context",
@@ -410,8 +406,8 @@ export function MessageContextSheet({
             channel) for one message-side-sheet mental model. Frameless (no
             border) matches the existing quiet header. Falls back to just `#N`
             if no label was passed (older callers). */}
-        <SheetHeader className="gap-0 border-b-0 py-3 pr-14 sm:pr-14">
-          <SheetTitle className="flex w-full min-w-0 items-center gap-1.5 text-lg font-semibold tracking-tight">
+        <CommunitySheetHeader className="gap-0 border-b-0 py-3 pr-14 sm:pr-14">
+          <CommunitySheetTitle className="flex w-full min-w-0 items-center gap-1.5 text-lg font-semibold tracking-tight">
             {channelLabel ? (
               <>
                 <ChannelIcon className="shrink-0 text-muted-foreground" />
@@ -423,8 +419,8 @@ export function MessageContextSheet({
                 <span className="text-muted-foreground">#</span>{targetSeq ?? ""}
               </span>
             )}
-          </SheetTitle>
-        </SheetHeader>
+          </CommunitySheetTitle>
+        </CommunitySheetHeader>
 
         <div ref={bodyRef} className="flex-1 overflow-y-auto thin-scrollbar px-4 py-3">
           {query.isLoading && <ContextSkeleton />}
@@ -463,8 +459,7 @@ export function MessageContextSheet({
             />
           )}
         </div>
-      </SheetContent>
-    </Sheet>
+    </CommunitySheet>
   )
 }
 

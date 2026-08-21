@@ -4,13 +4,12 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { AttachmentPreviewSheet, readAttachmentText } from "./attachment-preview-sheet"
 import type { FileAttachment } from "@/lib/community/models/message"
 
-vi.mock("@/components/ui/sheet", () => ({
-  Sheet: ({ children }: { children: React.ReactNode }) => React.createElement("div", null, children),
-  SheetContent: ({ children, ...props }: React.ComponentProps<"section">) => React.createElement("section", props, children),
-  SheetHeader: ({ children, ...props }: React.ComponentProps<"header">) => React.createElement("header", props, children),
-  SheetTitle: ({ children, ...props }: React.ComponentProps<"h2">) => React.createElement("h2", props, children),
-  SheetDescription: ({ children, ...props }: React.ComponentProps<"p">) => React.createElement("p", props, children),
-  SheetBody: ({ children, ...props }: React.ComponentProps<"main">) => React.createElement("main", props, children),
+vi.mock("@/components/community/shell/community-sheet", () => ({
+  CommunitySheet: ({ children }: { children: React.ReactNode }) => React.createElement("div", null, children),
+  CommunitySheetHeader: ({ children, ...props }: React.ComponentProps<"header">) => React.createElement("header", props, children),
+  CommunitySheetTitle: ({ children, ...props }: React.ComponentProps<"h2">) => React.createElement("h2", props, children),
+  CommunitySheetDescription: ({ children, ...props }: React.ComponentProps<"p">) => React.createElement("p", props, children),
+  CommunitySheetBody: ({ children, ...props }: React.ComponentProps<"main">) => React.createElement("main", props, children),
 }))
 
 vi.mock("@/components/ui/sheet-resize-handle", () => ({

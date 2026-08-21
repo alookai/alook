@@ -1,7 +1,9 @@
 "use client"
 
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
-import { useSheetResize, SheetResizeHandle } from "@/components/ui/sheet-resize-handle"
+import {
+  CommunitySheet,
+  CommunitySheetTitle,
+} from "@/components/community/shell/community-sheet"
 import { RightPanelContent } from "./right-panel"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 import type { Member } from "@/lib/community/models/people"
@@ -67,22 +69,15 @@ export function CommunityPanelSheet({
   onSearch?: (query: string) => void
   viewerUserId?: string
 }) {
-  const { width, onPointerDown, onPointerMove, onPointerUp } = useSheetResize({
-    defaultWidth: 380,
-    minWidth: 280,
-    maxWidthRatio: 0.6,
-  })
-
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} modal={false} disablePointerDismissal>
-      <SheetContent
-        side="right"
-        showOverlay={false}
-        style={{ width: `min(${width}px, 100vw)`, maxWidth: "none" }}
-        className="data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border data-[side=right]:sm:overflow-hidden"
-      >
-        <SheetTitle className="sr-only">{panelTitle(kind)}</SheetTitle>
-        <SheetResizeHandle onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} />
+    <CommunitySheet
+      open={open}
+      onOpenChange={onOpenChange}
+      mode="sidecar"
+      width="sm"
+      resizable
+    >
+        <CommunitySheetTitle className="sr-only">{panelTitle(kind)}</CommunitySheetTitle>
         <RightPanelContent
           kind={kind}
           members={members}
@@ -109,8 +104,7 @@ export function CommunityPanelSheet({
           onSearch={onSearch}
           viewerUserId={viewerUserId}
         />
-      </SheetContent>
-    </Sheet>
+    </CommunitySheet>
   )
 }
 

@@ -5,15 +5,14 @@ import { toast } from "sonner"
 import { Copy, Loader2 } from "lucide-react"
 import { isDesktop, isTauri, tauriInvoke } from "@alook/shared"
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetBody,
-  SheetFooter,
-  SheetClose,
-} from "@/components/ui/sheet"
+  CommunitySheet,
+  CommunitySheetBody,
+  CommunitySheetClose,
+  CommunitySheetDescription,
+  CommunitySheetFooter,
+  CommunitySheetHeader,
+  CommunitySheetTitle,
+} from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { tid } from "@/lib/community/testids"
@@ -201,22 +200,18 @@ export function PairMachineSheet({
   }, [pendingTokenId, runtimeCapability?.available, isReconnect, mode])
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border"
-      >
-        <SheetHeader>
-          <SheetTitle>
+    <CommunitySheet open={open} onOpenChange={onOpenChange} mode="task" width="md">
+        <CommunitySheetHeader>
+          <CommunitySheetTitle>
             {isReconnect ? `Reconnect ${mode.hostname || "machine"}` : "Connect a machine"}
-          </SheetTitle>
-          <SheetDescription>
+          </CommunitySheetTitle>
+          <CommunitySheetDescription>
             {isReconnect
               ? "Run this command before it expires. It safely replaces the running daemon, then rotates its key."
               : "Run this on the computer you want to connect. The key is good for 15 minutes."}
-          </SheetDescription>
-        </SheetHeader>
-        <SheetBody className="flex flex-col gap-6">
+          </CommunitySheetDescription>
+        </CommunitySheetHeader>
+        <CommunitySheetBody className="flex flex-col gap-6">
           <PairMachineSteps
             command={command}
             generating={generating || !command}
@@ -230,12 +225,11 @@ export function PairMachineSheet({
             onConnectDesktop={connectDesktop}
             connectedHostname={connectedHostname}
           />
-        </SheetBody>
-        <SheetFooter>
-          <SheetClose render={<Button variant="secondary">Done</Button>} />
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+        </CommunitySheetBody>
+        <CommunitySheetFooter>
+          <CommunitySheetClose render={<Button variant="secondary">Done</Button>} />
+        </CommunitySheetFooter>
+    </CommunitySheet>
   )
 }
 

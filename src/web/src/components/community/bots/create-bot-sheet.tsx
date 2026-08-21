@@ -6,13 +6,12 @@ import { toastApiError } from "@/lib/api/client"
 import { isPresenceOnline, type CommunityMachineSummary } from "@alook/shared"
 import { machineName } from "@/lib/community/machine-name"
 import {
-  Sheet,
-  SheetBody,
-  SheetContent,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
+  CommunitySheet,
+  CommunitySheetBody,
+  CommunitySheetFooter,
+  CommunitySheetHeader,
+  CommunitySheetTitle,
+} from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { type AvatarDraft } from "@/components/avatar"
@@ -209,17 +208,12 @@ export function CreateBotSheet({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} disablePointerDismissal>
-      <SheetContent
-        side="right"
-        showOverlay={false}
-        className="data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border data-[side=right]:sm:overflow-hidden"
-      >
-        <SheetHeader>
-          <SheetTitle>Create a bot</SheetTitle>
-        </SheetHeader>
+    <CommunitySheet open={open} onOpenChange={onOpenChange} mode="task" width="md">
+        <CommunitySheetHeader>
+          <CommunitySheetTitle>Create a bot</CommunitySheetTitle>
+        </CommunitySheetHeader>
 
-        <SheetBody className="flex flex-col gap-6">
+        <CommunitySheetBody className="flex flex-col gap-6">
           <BotFormFields
             avatarDraft={avatarDraft}
             onAvatarChange={setAvatarDraft}
@@ -312,17 +306,16 @@ export function CreateBotSheet({
           )}
           </>
           )}
-        </SheetBody>
+        </CommunitySheetBody>
 
-        <SheetFooter>
+        <CommunitySheetFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button onClick={submit} disabled={create.isPending}>
             {create.isPending ? "Creating…" : "Create bot"}
           </Button>
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+        </CommunitySheetFooter>
+    </CommunitySheet>
   )
 }
