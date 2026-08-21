@@ -111,6 +111,15 @@ Two stages, not three. The split lives at **`640px`** — Tailwind's default `sm
 | **Mobile** | `< 640px` | Single column with pathname-owned list/detail routing. Back button in detail headers. Popovers may promote to sheets when they'd overflow. |
 | **Desktop** | `≥ 640px` | Multi-column shells — server rail + channel/DM sidebar + main (in community), or app sidebar + workspace (elsewhere). Hover surfaces reveal actions. No back button in headers. |
 
+For Community server routes, the URL owns selection and the checkpoint owns composition:
+
+| Route | Meaning | Mobile `< 640px` | Desktop `≥ 640px` |
+| --- | --- | --- | --- |
+| `/c/channels/{serverId}` | Server list/landing | Server rail + that server's channel list; no channel detail. | Server rail + channel sidebar + main landing. Replace to the remembered channel, otherwise the first top-level channel; an empty server stays on the root. |
+| `/c/channels/{serverId}/{channelId}` | Exact channel detail | Channel detail only, with Header Back to the semantic parent route. | Server rail + channel sidebar + channel detail in one frame. |
+
+Both checkpoints share the same server-scoped data model. A detail route adds channel-scoped content queries; changing checkpoint never changes the route's business meaning or creates a device-specific query contract. Header Back uses replace-style semantic navigation, while browser Back/Forward remains browser-history owned.
+
 Rules:
 - **Read the breakpoint, don't guess.** Use `useBreakpoint()` (string) or `useIsMobile()` (boolean) for any behavior that must branch by stage. Don't sprinkle raw `window.innerWidth` checks or ad-hoc `matchMedia` calls — they drift away from the shared boundary and re-mount without SSR safety.
 - **JS and CSS boundaries are the same 640px.** Use the hook for behavior (which zone to render, whether to show a back button); use Tailwind's `sm:` prefix for pure layout fit at the mobile ↔ desktop split. Both share the same 640px pivot so a mobile page never renders desktop CSS at the same width.

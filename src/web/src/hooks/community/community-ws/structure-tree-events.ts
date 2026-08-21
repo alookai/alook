@@ -271,6 +271,7 @@ export function handleServerUpdate(
               ? {
                 ...s,
                 ...(event.changes.name ? { name: event.changes.name, initial: avatarInitial(event.changes.name) } : {}),
+                ...(event.changes.description !== undefined ? { description: event.changes.description } : {}),
                 ...(event.changes.icon !== undefined ? { icon: event.changes.icon ?? null } : {}),
               }
               : s,

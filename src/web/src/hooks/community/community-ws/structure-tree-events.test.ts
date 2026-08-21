@@ -24,7 +24,7 @@ beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
 
 describe("useCommunityWs — server.update patches server + list caches", () => {
-  it("applies name change to server(id) and servers()", async () => {
+  it("applies name and description changes to server(id) and servers()", async () => {
     await mountHook()
     capturedQueryClient.setQueryData(communityKeys.server("srv_1"), {
       id: "srv_1",
@@ -39,6 +39,7 @@ describe("useCommunityWs — server.update patches server + list caches", () => 
         {
           id: "srv_1",
           name: "old",
+          description: "old description",
           initial: "O",
           active: false,
           unread: false,
@@ -49,17 +50,22 @@ describe("useCommunityWs — server.update patches server + list caches", () => 
     const event: CommunityServerUpdate = {
       type: "community:server.update",
       serverId: "srv_1",
-      changes: { name: "new" },
+      changes: { name: "new", description: "new description" },
     }
     capturedOnMessage!(event)
-    expect(capturedQueryClient.getQueryData<{ name: string }>(communityKeys.server("srv_1"))).toMatchObject({
+    expect(capturedQueryClient.getQueryData<{ name: string; description: string }>(
+      communityKeys.server("srv_1"),
+    )).toMatchObject({
       name: "new",
+      description: "new description",
     })
     expect(
-      capturedQueryClient.getQueryData<{ servers: { name: string; initial: string }[] }>(
+      capturedQueryClient.getQueryData<{
+        servers: { name: string; description: string; initial: string }[]
+      }>(
         communityKeys.servers(),
       )?.servers[0],
-    ).toMatchObject({ name: "new", initial: "N" })
+    ).toMatchObject({ name: "new", description: "new description", initial: "N" })
   })
 })
 describe("useCommunityWs — child channel events", () => {

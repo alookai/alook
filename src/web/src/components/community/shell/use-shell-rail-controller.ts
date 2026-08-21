@@ -84,7 +84,7 @@ export function useShellRailController({
     try {
       await queryClient.fetchQuery({
         queryKey: communityKeys.server(id),
-        queryFn: serverQueryFn(id),
+        queryFn: serverQueryFn(queryClient, id),
         staleTime: Infinity,
       })
     } catch {

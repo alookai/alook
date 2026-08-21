@@ -139,7 +139,15 @@ describe("useUpdateServer — rollback on both caches", () => {
     })
     capturedQc.setQueryData(communityKeys.servers(), {
       servers: [
-        { id: "srv_1", name: "old", initial: "O", active: false, unread: false, mentions: 0 },
+        {
+          id: "srv_1",
+          name: "old",
+          description: "d",
+          initial: "O",
+          active: false,
+          unread: false,
+          mentions: 0,
+        },
       ],
     })
     apiFetchMock.mockRejectedValueOnce(new Error("boom"))
@@ -148,8 +156,51 @@ describe("useUpdateServer — rollback on both caches", () => {
     await runMutation({ serverId: "srv_1", name: "new", description: "d2" }).catch(() => {})
     const detail = capturedQc.getQueryData<{ name: string }>(communityKeys.server("srv_1"))
     expect(detail?.name).toBe("old")
-    const list = capturedQc.getQueryData<{ servers: { name: string }[] }>(communityKeys.servers())
-    expect(list?.servers[0].name).toBe("old")
+    const list = capturedQc.getQueryData<{ servers: { name: string; description: string }[] }>(
+      communityKeys.servers(),
+    )
+    expect(list?.servers[0]).toMatchObject({ name: "old", description: "d" })
+  })
+
+  it("keeps the canonical list metadata aligned with an optimistic detail update", async () => {
+    capturedQc.setQueryData(communityKeys.server("srv_1"), {
+      id: "srv_1",
+      name: "old",
+      description: "old description",
+      icon: null,
+      ownerId: "u_1",
+      categories: [],
+    })
+    capturedQc.setQueryData(communityKeys.servers(), {
+      servers: [{
+        id: "srv_1",
+        name: "old",
+        description: "old description",
+        initial: "O",
+        active: false,
+        mentions: 0,
+      }],
+    })
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    const mod = await load()
+    mod.useUpdateServer()
+
+    await runMutation({
+      serverId: "srv_1",
+      name: "new",
+      description: "new description",
+    })
+
+    expect(capturedQc.getQueryData(communityKeys.server("srv_1"))).toMatchObject({
+      name: "new",
+      description: "new description",
+    })
+    expect(capturedQc.getQueryData<{ servers: Array<{ name: string; description: string }> }>(
+      communityKeys.servers(),
+    )?.servers[0]).toMatchObject({
+      name: "new",
+      description: "new description",
+    })
   })
 
   it("invalidates the channel-ref directory after settling", async () => {
