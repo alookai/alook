@@ -915,7 +915,13 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
     const laneEvents = collectEvents(lane);
     await lane.start({ text: "root", terminalOwner: "msg_root" });
     const service = factories.at(-1)!.service!;
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    const laneState = lane as unknown as {
+      durableGap: boolean;
+      historyTail: Promise<void>;
+      catchUpHistory(project: boolean): Promise<void>;
+    };
+    await vi.waitFor(() => expect(laneState.durableGap).toBe(false));
+    await laneState.historyTail;
     service.holdHistoryResponses = true;
     service.appendHistoryOnly("session.next.step.ended", {
       assistantMessageID: "msg_assistant",
@@ -923,8 +929,7 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
       cost: 0,
       tokens: { input: 1, output: 1, reasoning: 0, cache: { read: 0, write: 0 } },
     });
-    const catchingUp = (lane as unknown as { catchUpHistory(project: boolean): Promise<void> })
-      .catchUpHistory(true);
+    const catchingUp = laneState.catchUpHistory(true);
     await vi.waitFor(() => expect(service.pendingHistoryResponses).toHaveLength(1));
     service.replayDurable({
       id: "evt_higher_first",
