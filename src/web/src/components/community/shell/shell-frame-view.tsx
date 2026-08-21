@@ -46,7 +46,10 @@ export function ShellFrameView({
   profile,
   inbox,
 }: Props) {
-  const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "community-shell" })
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
+    id: "community-shell",
+    onlySaveAfterUserInteractions: true,
+  })
   const sidebarPanelRef = useRef<HTMLDivElement>(null)
   const [sidebarWidth, setSidebarWidth] = useState(240)
   useEffect(() => {
@@ -66,6 +69,9 @@ export function ShellFrameView({
     avatar: profile.currentUser.avatar,
   }
 
+  const isDesktop = breakpoint === "desktop"
+  const isMobileList = breakpoint === "mobile" && surface === "list"
+  const isMobileDetail = breakpoint === "mobile" && surface === "detail"
   if (breakpoint === "unknown") {
     return (
       <Shell onNavigationIntent={cancelPendingNavigation}>
@@ -75,10 +81,6 @@ export function ShellFrameView({
       </Shell>
     )
   }
-
-  const isDesktop = breakpoint === "desktop"
-  const isMobileList = breakpoint === "mobile" && surface === "list"
-  const isMobileDetail = breakpoint === "mobile" && surface === "detail"
 
   return (
     <Shell onNavigationIntent={cancelPendingNavigation}>
@@ -98,7 +100,11 @@ export function ShellFrameView({
           <ResizablePanelGroup
             id="community-shell"
             orientation="horizontal"
-            className="min-h-0 flex-1"
+            disabled={!isDesktop}
+            className={cn(
+              "min-h-0 flex-1",
+              !isDesktop && "*:data-[mobile-active=true]:flex-1!",
+            )}
             defaultLayout={defaultLayout}
             onLayoutChanged={onLayoutChanged}
           >
@@ -107,10 +113,11 @@ export function ShellFrameView({
               defaultSize="24%"
               minSize={160}
               maxSize={360}
+              hidden={isMobileDetail}
+              data-mobile-active={isMobileList || undefined}
               className={cn(
                 "flex flex-col bg-sidebar",
                 isDesktop && "pb-15",
-                isMobileDetail && "hidden",
               )}
             >
               <div ref={sidebarPanelRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -132,9 +139,10 @@ export function ShellFrameView({
             <ResizablePanel
               id="main"
               defaultSize="76%"
+              hidden={isMobileList}
+              data-mobile-active={isMobileDetail || undefined}
               className={cn(
                 "flex min-w-0 flex-col bg-background",
-                isMobileList && "hidden",
               )}
             >
               {navigationPending && !isMobileList ? <ChannelLoadingFrame /> : children}

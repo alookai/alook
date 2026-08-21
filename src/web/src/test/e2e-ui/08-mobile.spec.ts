@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test"
 import { test, expect, userId } from "./_fixtures/community-fixture"
 import { tid } from "./_fixtures/testids"
 import {
@@ -13,6 +14,22 @@ import {
 // lists and leaf paths render detail. Header Back replaces with the parent.
 test.use({ viewport: { width: 390, height: 844 } })
 
+const shellGroup = (page: Page) => page.locator('[data-slot="resizable-panel-group"]')
+const shellPanel = (page: Page, id: "sidebar" | "main") => (
+  page.locator(`[data-slot="resizable-panel"][data-testid="${id}"]`)
+)
+
+async function expectPanelToFillGroup(page: Page, id: "sidebar" | "main"): Promise<void> {
+  const [groupRect, panelRect] = await Promise.all([
+    shellGroup(page).boundingBox(),
+    shellPanel(page, id).boundingBox(),
+  ])
+  expect(groupRect).not.toBeNull()
+  expect(panelRect).not.toBeNull()
+  expect(Math.abs(panelRect!.x - groupRect!.x)).toBeLessThanOrEqual(1)
+  expect(Math.abs(panelRect!.width - groupRect!.width)).toBeLessThanOrEqual(1)
+}
+
 test.describe.serial("mobile layout", () => {
   let serverId: string
   let channelId: string
@@ -27,6 +44,52 @@ test.describe.serial("mobile layout", () => {
     const childMessageId = await seedMessage("alice", childChannelId, "mobile child seq target")
     await seedMark("alice", childChannelId, childMessageId)
     dmId = await seedDm("alice", userId("bob"))
+  })
+
+  test("whole-page panels fill mobile routes and keep detail identity across 640px", async ({ asUser }) => {
+    const { page } = await asUser("alice")
+
+    for (const width of [375, 639]) {
+      await page.setViewportSize({ width, height: 844 })
+      await page.goto(`/c/channels/${serverId}`)
+      await expect(page.getByTestId(tid.channelRow(channelId))).toBeVisible()
+      await expect(shellPanel(page, "main")).toBeHidden()
+      await expectPanelToFillGroup(page, "sidebar")
+
+      await page.goto(`/c/channels/${serverId}/${channelId}`)
+      await expect(page.getByTestId(tid.composerInput)).toBeVisible()
+      await expect(shellPanel(page, "sidebar")).toBeHidden()
+      await expectPanelToFillGroup(page, "main")
+    }
+
+    const mainPanel = shellPanel(page, "main")
+    await mainPanel.evaluate((element) => { element.dataset.e2eShellIdentity = "stable" })
+    await page.getByRole("button", { name: "Member list" }).click()
+    const membersDialog = page.getByRole("dialog")
+    await expect(membersDialog).toBeVisible()
+    await membersDialog.evaluate((element) => { element.dataset.e2eSheetIdentity = "stable" })
+
+    for (const width of [640, 1280]) {
+      await page.setViewportSize({ width, height: 844 })
+      await expect(shellPanel(page, "sidebar")).toBeVisible()
+      await expect(mainPanel).toBeVisible()
+      await expect(mainPanel).toHaveAttribute("data-e2e-shell-identity", "stable")
+      await expect(membersDialog).toHaveAttribute("data-e2e-sheet-identity", "stable")
+
+      const [groupRect, sidebarRect, mainRect] = await Promise.all([
+        shellGroup(page).boundingBox(),
+        shellPanel(page, "sidebar").boundingBox(),
+        mainPanel.boundingBox(),
+      ])
+      expect(groupRect).not.toBeNull()
+      expect(sidebarRect).not.toBeNull()
+      expect(mainRect).not.toBeNull()
+      expect(sidebarRect!.width).toBeGreaterThanOrEqual(160)
+      expect(mainRect!.width).toBeGreaterThan(0)
+      expect(sidebarRect!.width).toBeLessThan(groupRect!.width)
+      expect(mainRect!.width).toBeLessThan(groupRect!.width)
+      expect(Math.abs(sidebarRect!.width + mainRect!.width - groupRect!.width)).toBeLessThanOrEqual(2)
+    }
   })
 
   test("a direct channel opens detail and Header Back replaces it with the server root", async ({ asUser }) => {
