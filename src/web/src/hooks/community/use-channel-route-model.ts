@@ -87,10 +87,7 @@ export function useChannelRouteModel(serverId: string, serverParam: string, chan
       removeForumSidebarUnreadChild(queryClient, serverId, channelId)
       removeForumSidebarThreadExact(queryClient, serverId, channelId)
       const lastChannel = getLastChannel(serverId)
-      if (
-        lastChannel === channelId ||
-        lastChannel?.endsWith(`/${channelId}`)
-      ) {
+      if (lastChannel === channelId) {
         clearLastChannel(serverId)
       }
       router.replace(`/c/channels/${serverParam}`)

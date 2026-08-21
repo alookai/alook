@@ -81,9 +81,8 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     try {
       await page.goto(`/c/channels/${serverId}/${threadId}`)
       await expect.poll(() => anchorRouteRequests, { timeout: 20_000 }).toBeGreaterThan(0)
-      await page.waitForURL(
-        new RegExp(`/c/channels/${serverId}/${forumId}/${threadId}(?:\\?|$)`),
-        { timeout: 20_000, waitUntil: "commit" },
+      await expect.poll(() => new URL(page.url()).pathname).toBe(
+        `/c/channels/${serverId}/${threadId}`,
       )
       await page.waitForTimeout(500)
       expect(anchorRouteRequests).toBe(1)
@@ -91,7 +90,9 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
       releaseFirstAnchor()
     }
     await Promise.all([initialCombined, initialNewest, initialAnchored])
-    await page.waitForURL(new RegExp(threadId), { timeout: 20_000, waitUntil: "commit" })
+    await expect.poll(() => new URL(page.url()).pathname).toBe(
+      `/c/channels/${serverId}/${threadId}`,
+    )
     await expect(page.getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
     await expect(page.getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
     await expect(page.locator('[data-slot="skeleton"]')).toHaveCount(0)
@@ -121,6 +122,9 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     )
     await page.reload({ waitUntil: "commit" })
     await refreshCombined
+    await expect.poll(() => new URL(page.url()).pathname).toBe(
+      `/c/channels/${serverId}/${threadId}`,
+    )
     await expect(page.getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
     await expect(page.getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
     await expect(page.locator('[data-slot="skeleton"]')).toHaveCount(0)
@@ -148,7 +152,7 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
       .toBe(refreshSuccessfulMessageResponses.length)
   })
 
-  test("natural flat-route canonicalization preserves one settled message load", async ({ asUser }) => {
+  test("a flat child route preserves one settled message load", async ({ asUser }) => {
     const { page } = await asUser("alice")
     const successfulResponses: string[] = []
     page.on("response", (response) => {
@@ -158,9 +162,8 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     })
 
     await page.goto(`/c/channels/${serverId}/${threadId}`)
-    await page.waitForURL(
-      new RegExp(`/c/channels/${serverId}/${forumId}/${threadId}(?:\\?|$)`),
-      { timeout: 20_000, waitUntil: "commit" },
+    await expect.poll(() => new URL(page.url()).pathname).toBe(
+      `/c/channels/${serverId}/${threadId}`,
     )
     await expect(page.getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
     await expect(page.getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
@@ -176,7 +179,7 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
       .toBeLessThanOrEqual(1)
   })
 
-  test("switching between top-level channels reuses the warm canonical base", async ({ asUser }) => {
+  test("sidebar top-level and child navigation reuse the warm flat base", async ({ asUser }) => {
     const { page } = await asUser("alice")
     const requests: string[] = []
     page.on("request", (request) => {
@@ -189,6 +192,7 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     await page.goto(`/c/channels/${serverId}/${textAId}`)
     await initialCombined
     await expect(page.getByTestId(tid.channelRow(textBId))).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId(tid.forumSidebarThread(threadId))).toBeVisible({ timeout: 20_000 })
 
     requests.length = 0
     await page.getByTestId(tid.channelRow(textBId)).click()
@@ -197,5 +201,22 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     await page.waitForTimeout(300)
 
     expect(requests.filter((url) => isSidebarRequest(url, serverId))).toHaveLength(0)
+
+    requests.length = 0
+    await page.getByTestId(tid.forumSidebarThread(threadId)).click()
+    await expect.poll(() => new URL(page.url()).pathname).toBe(
+      `/c/channels/${serverId}/${threadId}`,
+    )
+    await expect(page.getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
+    expect(requests.filter((url) => isSidebarRequest(url, serverId))).toHaveLength(0)
+
+    await page.goBack()
+    await expect.poll(() => new URL(page.url()).pathname).toBe(
+      `/c/channels/${serverId}/${textBId}`,
+    )
+    await page.goForward()
+    await expect.poll(() => new URL(page.url()).pathname).toBe(
+      `/c/channels/${serverId}/${threadId}`,
+    )
   })
 })

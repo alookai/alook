@@ -27,8 +27,8 @@ export default function ServerDefaultPage() {
   useEffect(() => {
     if (breakpoint !== "desktop" || !currentServer) return
     const allChannels = currentServer.categories.flatMap((cat) => cat.channels)
-    // Restore the remembered route leaf, including canonical parent/child
-    // leaves, or use the first top-level channel when there is no memory.
+    // Restore one remembered channel id, or use the first top-level channel
+    // when there is no valid memory.
     const target = pickServerLandingChannel(
       allChannels.map((c) => c.id),
       getLastChannel(serverId),

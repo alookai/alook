@@ -115,7 +115,7 @@ describe("useShellInboxController", () => {
     expect(hook.order).toEqual(["watch", "read", "cancel", "push"])
     expect(mocks.watch).toHaveBeenCalledWith("channel:child")
     expect(mocks.readForum).toHaveBeenCalledWith({ parentChannelId: "forum", openerMessageId: "opener" })
-    expect(hook.pushed.at(-1)).toBe("/c/channels/s1/forum/child")
+    expect(hook.pushed.at(-1)).toBe("/c/channels/s1/child")
 
     hook.order.length = 0
     await act(async () => hook.current.popoverProps.onOpenMention?.({ id: "m1" } as never))
@@ -144,7 +144,7 @@ describe("useShellInboxController", () => {
       m: { seq: 8 },
     } as never))
     expect(mocks.watch).toHaveBeenLastCalledWith("marked:mk-child")
-    expect(hook.pushed.at(-1)).toBe("/c/channels/s1/parent1/child1?seq=8")
+    expect(hook.pushed.at(-1)).toBe("/c/channels/s1/child1?seq=8")
 
     await act(async () => hook.current.popoverProps.onOpenMarked?.({
       id: "mk2",
