@@ -3229,6 +3229,41 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     });
   }
 
+  it("shutdown joins a session cleanup that was already stopping", async () => {
+    const session = b1Session([]);
+    let finishCleanup!: (result: AgentSessionResult) => void;
+    const cleanupFinished = new Promise<AgentSessionResult>((resolve) => {
+      finishCleanup = resolve;
+    });
+    Object.defineProperty(session, "closed", { value: cleanupFinished });
+    session.stop = vi.fn(async () => ({
+      status: "already_stopping" as const,
+      requestId: "cleanup-in-flight",
+    }));
+    const { mgr } = b1Manager({ sessions: [session] });
+    mgr.deliver("a1", { seq: 1, text: "active Cursor turn" });
+    await Promise.resolve();
+
+    let shutdownSettled = false;
+    const shutdown = mgr.stopAll().then(() => {
+      shutdownSettled = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(session.stop).toHaveBeenCalledWith({ reason: "shutdown", forceAfterMs: 2_000 });
+    expect(shutdownSettled).toBe(false);
+
+    finishCleanup({
+      outcome: "stopped",
+      requested: true,
+      exitCode: null,
+      signal: null,
+      cleanup: { status: "released" },
+    });
+    await shutdown;
+    expect(shutdownSettled).toBe(true);
+  });
+
   it("physical exit aborts once and its duplicate late exit cannot close again", async () => {
     const rows: B1TraceRow[] = [];
     const session = b1Session([]);
