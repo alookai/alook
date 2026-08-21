@@ -202,4 +202,24 @@ describe("useCommunityWs — operation bundles", () => {
       useCommunityWsStore.setState({ setPresence: original })
     }
   })
+
+  it("reports a rejected authoritative reconciliation after a digest conflict", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    reconcileCommunityWsReconnect.mockRejectedValueOnce(new Error("reconcile unavailable"))
+    await mountHook({ viewerUserId: "viewer-1" })
+    const first = await batchFor("message-reconcile-reject", mentionEvents)
+    const conflicting = await batchFor("message-reconcile-reject", [
+      { ...message, message: { ...message.message, content: "different" } },
+    ])
+
+    capturedOnMessage!(first)
+    capturedOnMessage!(conflicting)
+
+    await vi.waitFor(() => {
+      expect(warn).toHaveBeenCalledWith(
+        "[ws] batch reconciliation failed",
+        expect.objectContaining({ reason: "digest-conflict" }),
+      )
+    })
+  })
 })

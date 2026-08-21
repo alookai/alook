@@ -62,6 +62,20 @@ describe("community delivery receipt conservation", () => {
         persistedNextFrameIndex: 1,
       }],
     }, expected)).toBe(false)
+    expect(isExactCommunityDeliveryReceipt({
+      ...receipt,
+      partial: 1,
+      enqueued: 0,
+      results: [{
+        ...receipt.results[0],
+        outcome: "partial",
+        persistedNextFrameIndex: 0,
+      }, receipt.results[1]],
+    }, expected)).toBe(false)
+    expect(isExactCommunityDeliveryReceipt({
+      ...receipt,
+      alreadyEnqueued: 0,
+    }, expected)).toBe(false)
   })
 
   it("does not accept incomplete or ambiguous receipts as router success", async () => {

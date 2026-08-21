@@ -77,6 +77,13 @@ describe("community delivery connection attachment state", () => {
         ...base.communityDeliveryProgress!,
       ],
     })).toMatchObject({ ok: false, reason: "invalid-progress" })
+    expect(readCommunityDeliveryProgress({
+      ...base,
+      communityDeliveryProgress: Array.from(
+        { length: COMMUNITY_DELIVERY_PROGRESS_LIMIT + 1 },
+        () => base.communityDeliveryProgress![0],
+      ),
+    })).toEqual({ ok: false })
     expect(preflightCommunityConnectionState({
       ...base,
       name: "x".repeat(COMMUNITY_CONNECTION_STATE_JSON_MAX_BYTES),

@@ -8,6 +8,7 @@ import { createMockWebSocket } from "../__mocks__/cf"
 import { handleUpgrade } from "../routes/upgrade"
 import { INTERNAL_USER_TARGET_HEADER } from "../internal-user-broadcast"
 import type { CommunityDeliveryReceipt } from "../community-delivery-receipt"
+import { COMMUNITY_CONNECTION_STATE_JSON_MAX_BYTES } from "./internal"
 import {
   CFResponse,
   cleanupHarness,
@@ -166,6 +167,21 @@ describe("WebSocketDurableObject", () => {
         }),
       })
     }
+
+    it("rejects an invalid internal target before decoding the bundle", async () => {
+      const { durable } = createDO()
+      const response = await durable.fetch(new Request(
+        "http://internal/community-broadcast-bundle",
+        { method: "POST", body: "{}" },
+      ))
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toMatchObject({
+        status: "invalid",
+        operationId: null,
+        code: "invalid_request",
+      })
+    })
 
     it("sends one batch to a capable tab and ordered legacy frames to an old tab", async () => {
       const { durable, ctx } = createDO()
@@ -455,6 +471,72 @@ describe("WebSocketDurableObject", () => {
       })
       expect(ready.send).not.toHaveBeenCalled()
       expect(malformed.send).not.toHaveBeenCalled()
+    })
+
+    it("fails phase A when stored representation metadata conflicts with the socket mode", async () => {
+      const { durable, ctx } = createDO()
+      const ws = createMockWebSocket()
+      const operationId = await deriveCommunityDeliveryOperationId("m-1")
+      const prepared = await prepareCommunityDeliveryEvents(events)
+      if (!prepared.ok) throw new Error("fixture must prepare")
+      ws.serializeAttachment({
+        type: "user",
+        userId: "user-42",
+        authenticated: true,
+        communityEventsBatchV1: true,
+        communityDeliveryProgress: [[operationId, prepared.prepared.digest, 1, 0, 3]],
+      })
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([ws])
+
+      const response = await durable.fetch(await requestFor())
+
+      expect(response.status).toBe(503)
+      await expect(response.json()).resolves.toMatchObject({
+        preflightFailed: 1,
+        results: [{ mode: "batch", outcome: "preflightFailed" }],
+      })
+      expect(ws.send).not.toHaveBeenCalled()
+    })
+
+    it("fails phase A when progress state becomes malformed during candidate construction", async () => {
+      const { durable, ctx } = createDO()
+      const ws = createMockWebSocket()
+      let progressReads = 0
+      const state = {
+        type: "user" as const,
+        userId: "user-42",
+        authenticated: true,
+        get communityDeliveryProgress() {
+          progressReads += 1
+          return progressReads === 1 ? undefined : [["invalid"]]
+        },
+      }
+      ws.deserializeAttachment.mockReturnValue(state)
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([ws])
+
+      const response = await durable.fetch(await requestFor())
+
+      expect(response.status).toBe(503)
+      await expect(response.json()).resolves.toMatchObject({ preflightFailed: 1 })
+      expect(ws.send).not.toHaveBeenCalled()
+    })
+
+    it("fails phase A when the next persisted cursor would exceed the attachment budget", async () => {
+      const { durable, ctx } = createDO()
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "user",
+        userId: "user-42",
+        authenticated: true,
+        name: "x".repeat(COMMUNITY_CONNECTION_STATE_JSON_MAX_BYTES),
+      })
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([ws])
+
+      const response = await durable.fetch(await requestFor())
+
+      expect(response.status).toBe(503)
+      await expect(response.json()).resolves.toMatchObject({ preflightFailed: 1 })
+      expect(ws.send).not.toHaveBeenCalled()
     })
 
     it("treats a capable encoder invariant fault as all-socket zero-send", async () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   COMMUNITY_BROWSER_EVENT_BATCH_CONTRACT_VERSION,
   COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
@@ -11,6 +11,7 @@ import {
   deriveCommunityDeliveryOperationId,
   encodeCommunityBrowserEvent,
   encodeCommunityBrowserEventBatch,
+  encodePreparedCommunityBrowserEventBatch,
   isCommunityBrowserEventBatchCandidate,
   isCommunityDeliveryDigest,
   isCommunityDeliveryOperationId,
@@ -58,13 +59,25 @@ describe("community WS batch transport contract", () => {
     await expect(deriveCommunityDeliveryOperationId("é-message")).resolves.toBe(
       "message:tg9ymYSdoZdumzg9P_Hu-TJVaZJSHEtJ6Iib_JRy71w",
     )
+    await expect(deriveCommunityDeliveryOperationId("emoji-😀")).resolves.toMatch(/^message:/)
     await expect(deriveCommunityDeliveryOperationId("")).rejects.toThrow("invalid community delivery message id")
     await expect(deriveCommunityDeliveryOperationId("\ud800")).rejects.toThrow("invalid community delivery message id")
+    await expect(deriveCommunityDeliveryOperationId("\udc00")).rejects.toThrow("invalid community delivery message id")
     const operationId = await deriveCommunityDeliveryOperationId("message-1")
     expect(utf8ByteLength(operationId)).toBe(COMMUNITY_DELIVERY_OPERATION_ID_BYTES)
     expect(isCommunityDeliveryOperationId(operationId)).toBe(true)
     expect(isCommunityDeliveryOperationId(`${operationId}x`)).toBe(false)
     expect(isCommunityDeliveryOperationId(`Message:${operationId.slice(8)}`)).toBe(false)
+  })
+
+  it("fails closed if the SHA-256 runtime violates the fixed operation-ID invariant", async () => {
+    const digest = vi.spyOn(crypto.subtle, "digest").mockResolvedValueOnce(new ArrayBuffer(1))
+    try {
+      await expect(deriveCommunityDeliveryOperationId("message-runtime-fault"))
+        .rejects.toThrow("invalid derived community delivery operation id")
+    } finally {
+      digest.mockRestore()
+    }
   })
 
   it("locks the length-prefixed canonical digest vector", async () => {
@@ -124,6 +137,10 @@ describe("community WS batch transport contract", () => {
       operationDigest: prepared.prepared.digest,
       events: [...children, { type: "community:future" }],
     })).resolves.toMatchObject({ ok: false, reason: "invalid-child", eventIndex: 3 })
+    await expect(prepareCommunityDeliveryEvents([{
+      ...communityWsEventFixtures["community:bot.audit_event"],
+      payload: { padding: "x".repeat(COMMUNITY_BROWSER_EVENT_MAX_BYTES) },
+    }])).resolves.toMatchObject({ ok: false, reason: "oversized-child", eventIndex: 0 })
     await expect(encodeCommunityBrowserEventBatch({
       operationId: "message:short",
       operationDigest: prepared.prepared.digest,
@@ -139,6 +156,24 @@ describe("community WS batch transport contract", () => {
       operationDigest: "0".repeat(64),
       events: children,
     })).resolves.toMatchObject({ ok: false, reason: "digest-mismatch" })
+    expect(encodePreparedCommunityBrowserEventBatch({
+      operationId: "message:short",
+      operationDigest: prepared.prepared.digest,
+      prepared: prepared.prepared,
+    })).toMatchObject({ ok: false, reason: "invalid-operation-id" })
+    expect(encodePreparedCommunityBrowserEventBatch({
+      operationId,
+      operationDigest: "A".repeat(64),
+      prepared: prepared.prepared,
+    })).toMatchObject({ ok: false, reason: "invalid-operation-digest" })
+    expect(encodePreparedCommunityBrowserEventBatch({
+      operationId,
+      operationDigest: prepared.prepared.digest,
+      prepared: {
+        ...prepared.prepared,
+        bodies: [`"${"x".repeat(COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES)}"`],
+      },
+    })).toMatchObject({ ok: false, reason: "batch-invariant-oversized" })
 
     const encoded = await encodeCommunityBrowserEventBatch({
       operationId,
@@ -150,6 +185,12 @@ describe("community WS batch transport contract", () => {
       ok: false,
       reason: "invalid-payload",
     })
+    expect(decodeCommunityBrowserEventBatch(null)).toMatchObject({ ok: false, reason: "non-object" })
+    expect(decodeCommunityBrowserEventBatch({})).toMatchObject({ ok: false, reason: "missing-type" })
+    expect(decodeCommunityBrowserEventBatch({ type: "community:message.create" })).toMatchObject({
+      ok: false,
+      reason: "wrong-type",
+    })
     expect(decodeCommunityBrowserEventBatch({ ...encoded.batch, contractVersion: 2 })).toMatchObject({
       ok: false,
       reason: "unsupported-version",
@@ -159,6 +200,14 @@ describe("community WS batch transport contract", () => {
       ok: false,
       reason: "invalid-event-count",
     })
+    expect(decodeCommunityBrowserEventBatch({
+      ...encoded.batch,
+      operationId: "message:short",
+    })).toMatchObject({ ok: false, reason: "invalid-operation-id" })
+    expect(decodeCommunityBrowserEventBatch({
+      ...encoded.batch,
+      operationDigest: "A".repeat(64),
+    })).toMatchObject({ ok: false, reason: "invalid-operation-digest" })
     expect(decodeCommunityBrowserEventBatch({
       ...encoded.batch,
       events: [{ ...encoded.batch.events[0], contractVersion: undefined }],

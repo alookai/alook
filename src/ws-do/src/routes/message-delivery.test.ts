@@ -204,6 +204,28 @@ describe("message delivery route", () => {
     expect(doMock.stubFetch).not.toHaveBeenCalled()
   })
 
+  it("rejects a committed message ID that cannot produce an operation ID", async () => {
+    const invalidMessageId = "\ud800"
+    const response = await handler.fetch(new Request(
+      "http://localhost/broadcast/community/message-delivery",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...batch,
+          messageId: invalidMessageId,
+          messageEvent: {
+            ...batch.messageEvent,
+            message: { ...batch.messageEvent.message, id: invalidMessageId },
+          },
+        }),
+      },
+    ), env as never)
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({ reason: "invalid-message-id" })
+    expect(doMock.stubFetch).not.toHaveBeenCalled()
+  })
+
   it.each([
     ["throws", () => Promise.reject(new Error("DO unavailable"))],
     ["returns invalid JSON", () => Promise.resolve(new Response("not-json"))],

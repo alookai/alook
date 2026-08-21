@@ -116,6 +116,14 @@ describe("sendMessageDeliveryBatch", () => {
     expect(requestOperationId(0)).toBe(await deriveCommunityDeliveryOperationId("message-1"))
   })
 
+  it("rejects a caller-supplied operation ID that does not match the committed message", async () => {
+    await expect(sendMessageDeliveryBatch(
+      batch(),
+      await deriveCommunityDeliveryOperationId("different-message"),
+    )).rejects.toThrow("operation ID does not match message")
+    expect(bindingFetch).not.toHaveBeenCalled()
+  })
+
   it("chunks 1,000 targets without dropping or duplicating a target", async () => {
     const ids = Array.from({ length: 1_000 }, (_, index) => `user-${index}`)
     await sendMessageDeliveryBatch(batch({

@@ -12,6 +12,10 @@ const ciWorkflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "ci.yml"
 const wsDoPackage = JSON.parse(
   readFileSync(resolve(import.meta.dirname, "../../src/ws-do/package.json"), "utf8"),
 ) as { scripts: Record<string, string> }
+const rootVitestConfig = readFileSync(
+  resolve(import.meta.dirname, "../../vitest.config.ts"),
+  "utf8",
+)
 const autoTagReleaseWorkflow = normalizeWorkflow(
   readFileSync(resolve(workflowRoot, "auto-tag-release.yml"), "utf8"),
 )
@@ -181,6 +185,14 @@ describe("Turbo CI execution", () => {
     expect(wsDoPackage.scripts["test:workers"]).toContain("--max-workers=1")
     expect(wsDoPackage.scripts["test:workers"]).toContain("--no-isolate")
     expect(ciJob("test-linux")).toContain("pnpm turbo run test --filter='!@alook/daemon'")
+  })
+
+  it("excludes only the Wrangler test entry from Node coverage, not ws-do product source", () => {
+    expect(rootVitestConfig).toContain(
+      '"src/ws-do/src/test-integration/community-delivery-attachment-worker.ts"',
+    )
+    expect(rootVitestConfig).not.toContain('"src/ws-do/src/**"')
+    expect(rootVitestConfig).not.toContain('"src/ws-do/src/**/*.ts"')
   })
 })
 
