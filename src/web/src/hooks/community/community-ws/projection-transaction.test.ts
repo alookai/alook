@@ -7,6 +7,11 @@ import {
 import { invalidateInbox } from "./invalidation-projections"
 
 describe("community WS projection transaction", () => {
+  it("has no flush error metadata for primitive or null errors", () => {
+    expect(getCommunityWsProjectionFlushError(null)).toBeUndefined()
+    expect(getCommunityWsProjectionFlushError("project failed")).toBeUndefined()
+  })
+
   it("executes projections synchronously inside one notification batch", () => {
     const queryClient = new QueryClient()
     const batch = vi.spyOn(notifyManager, "batch")

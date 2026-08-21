@@ -599,6 +599,37 @@ describe("useCommunityWs — reactions", () => {
       { emoji: "👍", count: 1, me: true, userIds: ["u_me"] },
     ])
   })
+
+  it("refreshes a focused channel row that exists only in the overlay", async () => {
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
+    await mountHook({ viewerUserId: "u_me" })
+    const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
+    useMessageStreamStore.getState().dispatch(scope, {
+      type: "wsMessage",
+      message: {
+        id: "m_channel",
+        seq: 4,
+        type: "chat",
+        authorId: "u_other",
+        authorName: "Other",
+        content: "hi",
+        reactions: [],
+      },
+    })
+
+    capturedOnMessage!({
+      type: "community:reaction.add",
+      channelId: "ch_1",
+      messageId: "m_channel",
+      userId: "u_me",
+      emoji: "👍",
+    })
+
+    expect(getMessageOverlay(scope).liveById.get("m_channel")?.reactions).toEqual([
+      { emoji: "👍", count: 1, me: true, userIds: ["u_me"] },
+    ])
+  })
 })
 
 describe("useCommunityWs — message.updated", () => {
@@ -630,6 +661,34 @@ describe("useCommunityWs — message.updated", () => {
     })
 
     expect(getMessageOverlay({ kind: "dm", id: "dm_1" }).liveById.get("m_dm")?.approval).toEqual(approval)
+  })
+
+  it("refreshes approval fields on a focused channel row that exists only in the overlay", async () => {
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
+    await mountHook()
+    const scope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
+    useMessageStreamStore.getState().dispatch(scope, {
+      type: "wsMessage",
+      message: { id: "m_channel", seq: 4, type: "chat", content: "approval" },
+    })
+    const profile = { id: "u_other", name: "Other", discriminator: "0001", image: null }
+    const approval = {
+      friendshipId: "friendship_1",
+      status: "approved" as const,
+      waitingOn: null,
+      otherProfile: profile,
+      botProfile: { ...profile, id: "bot_1", name: "Bot" },
+    }
+
+    capturedOnMessage!({
+      type: "community:message.updated",
+      channelId: "ch_1",
+      messageId: "m_channel",
+      approval,
+    })
+
+    expect(getMessageOverlay(scope).liveById.get("m_channel")?.approval).toEqual(approval)
   })
 })
 
@@ -789,6 +848,43 @@ describe("useCommunityWs — message edit refreshes forum opener summary", () =>
       content: "edited reply",
     } satisfies CommunityMessageEdited)
     expect(invalidateSpy).not.toHaveBeenCalled()
+  })
+
+  it("patches loaded ordinary channel copies and only the matching stream scope", async () => {
+    await mountHook()
+    const matchingScope = { kind: "channel" as const, id: "ch_1", serverId: "s1" }
+    const otherScope = { kind: "channel" as const, id: "ch_2", serverId: "s1" }
+    const message = {
+      id: "m_1",
+      seq: 4,
+      type: "chat" as const,
+      content: "old",
+    }
+    capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_1"), {
+      pages: [{ messages: [message], hasMore: false }],
+      pageParams: [null],
+    })
+    useMessageStreamStore.getState().dispatch(matchingScope, {
+      type: "wsMessage",
+      message,
+    })
+    useMessageStreamStore.getState().dispatch(otherScope, {
+      type: "wsMessage",
+      message,
+    })
+
+    capturedOnMessage!({
+      type: "community:message.edited",
+      channelId: "ch_1",
+      messageId: "m_1",
+      content: "new",
+    } satisfies CommunityMessageEdited)
+
+    expect(capturedQueryClient.getQueryData<{
+      pages: { messages: { content: string }[] }[]
+    }>(communityKeys.channelMessages("ch_1"))?.pages[0].messages[0].content).toBe("new")
+    expect(getMessageOverlay(matchingScope).liveById.get("m_1")?.content).toBe("new")
+    expect(getMessageOverlay(otherScope).liveById.get("m_1")?.content).toBe("old")
   })
 })
 

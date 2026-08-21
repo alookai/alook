@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type {
+  CommunityCategoryCreate,
   CommunityChannelCreate,
   CommunityChannelDelete,
   CommunityChildChannelCreate,
@@ -112,6 +113,33 @@ describe("useCommunityWs — channel.* invalidates server(id)", () => {
         return Array.isArray(key) && key.includes("srv_1")
       }),
     ).toBe(true)
+  })
+})
+
+describe("useCommunityWs — category.* invalidates tree projections", () => {
+  it("category.create invalidates the channel directory and matching server", async () => {
+    await mountHook()
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+
+    capturedOnMessage!({
+      type: "community:category.create",
+      serverId: "srv_1",
+      category: {
+        id: "cat_new",
+        name: "Category",
+        position: 0,
+        private: false,
+      },
+    } satisfies CommunityCategoryCreate)
+
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: communityKeys.channelRefDirectory(),
+      exact: true,
+    })
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: communityKeys.server("srv_1"),
+      exact: true,
+    })
   })
 })
 
