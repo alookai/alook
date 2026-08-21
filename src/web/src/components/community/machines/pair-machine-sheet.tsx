@@ -201,7 +201,7 @@ export function PairMachineSheet({
         : "Run this on the computer you want to connect. The key is good for 15 minutes."}
       bodyClassName="flex flex-col gap-6"
       footer={(requestClose) => (
-        <Button variant="secondary" onClick={requestClose}>
+        <Button variant="secondary" className="min-h-11!" onClick={requestClose}>
           Done
         </Button>
       )}

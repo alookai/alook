@@ -61,6 +61,7 @@ export function CommunityPanel(props: CommunityPanelProps) {
           <span className="truncate">{label}</span>
         </span>
       )}
+      desktopWidth={kind === "members" ? 380 : undefined}
       bodyClassName={kind === "members" ? "p-0 sm:p-0" : undefined}
     >
       {renderCommunityPanelBody(props)}

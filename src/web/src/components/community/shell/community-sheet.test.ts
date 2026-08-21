@@ -69,7 +69,7 @@ describe("CommunitySheet contracts", () => {
     const content = renderer.root.findByType("sheet-content")
     expect(content.props.showOverlay).toBe(true)
     expect(content.props.style["--community-sheet-width"]).toBe("480px")
-    expect(content.props.style["--community-sheet-max-width"]).toBe("100vw")
+    expect(content.props.style["--community-sheet-max-width"]).toBe("80vw")
     expect(resizeHook).not.toHaveBeenCalled()
     expect(resizeHandle).not.toHaveBeenCalled()
   })
@@ -79,8 +79,16 @@ describe("CommunitySheet contracts", () => {
     const content = renderer.root.findByType("sheet-content")
     expect(content.props.style["--community-sheet-width"]).toBe("480px")
     expect(content.props.style["--community-sheet-max-width"]).toBe("80vw")
-    expect(resizeHook).toHaveBeenCalledWith()
+    expect(resizeHook).toHaveBeenCalledWith({ defaultWidth: 480 })
     expect(resizeHandle).toHaveBeenCalledOnce()
+  })
+
+  it("accepts a compact desktop width while keeping the internal 320px floor", () => {
+    const compact = renderSheet({ desktopWidth: 380 }).renderer.root.findByType("sheet-content")
+    expect(compact.props.style["--community-sheet-width"]).toBe("380px")
+
+    const clamped = renderSheet({ desktopWidth: 200 }).renderer.root.findByType("sheet-content")
+    expect(clamped.props.style["--community-sheet-width"]).toBe("320px")
   })
 
   it("uses one CSS-only 640px geometry checkpoint and a 44px mobile close", () => {
@@ -90,7 +98,7 @@ describe("CommunitySheet contracts", () => {
     expect(content.props.className).toContain("data-[side=right]:w-screen")
     expect(content.props.className).toContain("data-[side=right]:sm:inset-y-2")
     expect(content.props.className).toContain(
-      "data-[side=right]:sm:w-[min(var(--community-sheet-width),var(--community-sheet-max-width),calc(100vw-1rem))]",
+      "data-[side=right]:sm:w-[clamp(20rem,var(--community-sheet-width),min(var(--community-sheet-max-width),calc(100vw-1rem)))]",
     )
     expect(renderer.root.findByProps({ "aria-label": "Close" }).props.className).toContain("size-11")
   })

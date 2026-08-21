@@ -20,6 +20,7 @@ import {
 import { cn } from "@/lib/utils"
 
 const COMMUNITY_SHEET_WIDTH = 480
+const COMMUNITY_SHEET_MIN_WIDTH = 320
 
 type CommunitySheetProps = {
   open: boolean
@@ -31,6 +32,7 @@ type CommunitySheetProps = {
   children: React.ReactNode
   bodyClassName?: string
   bodyRef?: React.Ref<HTMLDivElement>
+  desktopWidth?: number
   resizable?: boolean
   closeLabel?: string
   contentTestId?: string
@@ -55,6 +57,7 @@ export function CommunitySheet({
   children,
   bodyClassName,
   bodyRef,
+  desktopWidth = COMMUNITY_SHEET_WIDTH,
   resizable = false,
   closeLabel = "Close",
   contentTestId,
@@ -79,6 +82,7 @@ export function CommunitySheet({
           footer={footer}
           bodyClassName={bodyClassName}
           bodyRef={bodyRef}
+          desktopWidth={desktopWidth}
           closeLabel={closeLabel}
           contentTestId={contentTestId}
           bodyTestId={bodyTestId}
@@ -88,8 +92,8 @@ export function CommunitySheet({
         </ResizableCommunitySheetContent>
       ) : (
         <CommunitySheetContent
-          width={COMMUNITY_SHEET_WIDTH}
-          maxWidth="100vw"
+          width={clampDesktopWidth(desktopWidth)}
+          maxWidth="80vw"
           title={title}
           description={description}
           headerActions={headerActions}
@@ -158,7 +162,7 @@ function CommunitySheetContent({
       } as React.CSSProperties}
       className={cn(
         "data-[side=right]:h-dvh data-[side=right]:w-screen data-[side=right]:max-w-none data-[side=right]:overflow-hidden",
-        "data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:w-[min(var(--community-sheet-width),var(--community-sheet-max-width),calc(100vw-1rem))] data-[side=right]:sm:rounded-xl data-[side=right]:sm:border",
+        "data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:w-[clamp(20rem,var(--community-sheet-width),min(var(--community-sheet-max-width),calc(100vw-1rem)))] data-[side=right]:sm:rounded-xl data-[side=right]:sm:border",
       )}
     >
       {resize && <SheetResizeHandle {...resize} />}
@@ -197,12 +201,21 @@ function CommunitySheetContent({
 type ResizableCommunitySheetContentProps = Omit<
   CommunitySheetContentProps,
   "width" | "maxWidth" | "resize"
->
+> & { desktopWidth: number }
 
-function ResizableCommunitySheetContent(props: ResizableCommunitySheetContentProps) {
-  const resize = useSheetResize()
+function ResizableCommunitySheetContent({
+  desktopWidth,
+  ...props
+}: ResizableCommunitySheetContentProps) {
+  const resize = useSheetResize({ defaultWidth: clampDesktopWidth(desktopWidth) })
 
   return (
     <CommunitySheetContent {...props} width={resize.width} maxWidth="80vw" resize={resize} />
   )
+}
+
+function clampDesktopWidth(width: number): number {
+  return Number.isFinite(width)
+    ? Math.max(COMMUNITY_SHEET_MIN_WIDTH, width)
+    : COMMUNITY_SHEET_WIDTH
 }

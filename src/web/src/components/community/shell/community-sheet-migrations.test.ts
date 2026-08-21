@@ -32,6 +32,17 @@ describe("CommunitySheet migrations", () => {
     }
   })
 
+  it("keeps only Members on the compact desktop width", () => {
+    for (const path of migrations) {
+      const source = readFileSync(new URL(path, import.meta.url), "utf8")
+      if (path === "./community-panel.tsx") {
+        expect(source).toContain('desktopWidth={kind === "members" ? 380 : undefined}')
+      } else {
+        expect(source).not.toContain("desktopWidth=")
+      }
+    }
+  })
+
   it("collapses the community panel to one business layer", () => {
     const panel = readFileSync(new URL("./community-panel.tsx", import.meta.url), "utf8")
     expect(panel).toContain("export function CommunityPanel")
@@ -59,6 +70,7 @@ describe("CommunitySheet migrations", () => {
     )
     expect(source).toContain("footer={(requestClose)")
     expect(source).toContain("onClick={requestClose}")
+    expect(source).toContain('className="min-h-11!"')
     expect(source).not.toContain("CommunitySheetClose")
   })
 })
