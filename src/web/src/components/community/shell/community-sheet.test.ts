@@ -20,7 +20,6 @@ vi.mock("@/components/ui/sheet", () => {
   return {
     Sheet: pass("sheet-root"),
     SheetBody: pass("sheet-body"),
-    SheetClose: pass("sheet-close"),
     SheetContent: pass("sheet-content"),
     SheetDescription: pass("sheet-description"),
     SheetFooter: pass("sheet-footer"),
@@ -39,23 +38,23 @@ vi.mock("@/components/ui/sheet-resize-handle", () => ({
   SheetResizeHandle: (props: Record<string, unknown>) => resizeHandle(props),
 }))
 
-import { CommunitySheet, CommunitySheetFooter } from "./community-sheet"
+import { CommunitySheet } from "./community-sheet"
 
 function renderSheet(
-  props: Partial<React.ComponentProps<typeof CommunitySheet>> &
-    Pick<React.ComponentProps<typeof CommunitySheet>, "mode">,
+  props: Partial<React.ComponentProps<typeof CommunitySheet>> = {},
 ) {
+  const onOpenChange = props.onOpenChange ?? vi.fn()
   let renderer!: TestRenderer.ReactTestRenderer
   act(() => {
     renderer = TestRenderer.create(
       React.createElement(
         CommunitySheet,
-        { open: true, onOpenChange: vi.fn(), ...props } as React.ComponentProps<typeof CommunitySheet>,
+        { open: true, onOpenChange, title: "Sheet title", ...props },
         React.createElement("div", null, "content"),
       ),
     )
   })
-  return renderer
+  return { renderer, onOpenChange }
 }
 
 describe("CommunitySheet contracts", () => {
@@ -64,71 +63,66 @@ describe("CommunitySheet contracts", () => {
     resizeHook.mockClear()
   })
 
-  it("keeps sidecars non-modal, overlay-free, and resistant to outside dismissal", () => {
-    const renderer = renderSheet({ mode: "sidecar" })
-    expect(renderer.root.findByType("sheet-root").props).toMatchObject({
-      modal: false,
-      disablePointerDismissal: true,
-    })
-    expect(renderer.root.findByType("sheet-content").props.showOverlay).toBe(false)
-    expect(resizeHook).toHaveBeenCalledWith()
-    expect(resizeHandle).toHaveBeenCalledOnce()
-  })
-
-  it.each(["task", "preview"] as const)(
-    "keeps %s surfaces modal with the shared overlay and dismissal defaults",
-    (mode) => {
-      const renderer = renderSheet({ mode })
-      expect(renderer.root.findByType("sheet-root").props).toMatchObject({
-        modal: true,
-        disablePointerDismissal: false,
-      })
-      expect(renderer.root.findByType("sheet-content").props.showOverlay).toBe(true)
-      if (mode === "task") {
-        expect(resizeHook).not.toHaveBeenCalled()
-        expect(resizeHandle).not.toHaveBeenCalled()
-      } else {
-        expect(resizeHook).toHaveBeenCalledWith()
-        expect(resizeHandle).toHaveBeenCalledOnce()
-      }
-    },
-  )
-
-  it("uses one CSS-only 640px geometry checkpoint and a 44px mobile close target", () => {
-    const renderer = renderSheet({ mode: "preview" })
+  it("makes every community surface modal, overlay-backed, and 480px on desktop", () => {
+    const { renderer } = renderSheet()
+    expect(renderer.root.findByType("sheet-root").props.modal).toBe(true)
     const content = renderer.root.findByType("sheet-content")
-    expect(content.props.className).toContain("data-[side=right]:h-dvh")
-    expect(content.props.className).toContain("data-[side=right]:w-screen")
-    expect(content.props.className).toContain("data-[side=right]:sm:inset-y-2")
-    expect(content.props.className).toContain("data-[side=right]:sm:w-[min(var(--community-sheet-width),var(--community-sheet-max-width),calc(100vw-1rem))]")
+    expect(content.props.showOverlay).toBe(true)
     expect(content.props.style["--community-sheet-width"]).toBe("480px")
-    expect(content.props.style["--community-sheet-max-width"]).toBe("80vw")
-    expect(renderer.root.findByType("sheet-close").props.render.props.className).toContain("size-11")
-    expect(resizeHandle).toHaveBeenCalledOnce()
-  })
-
-  it("keeps task width fixed without resize policy state", () => {
-    const renderer = renderSheet({ mode: "task" })
-    const content = renderer.root.findByType("sheet-content")
-    expect(content.props.style["--community-sheet-width"]).toBe("448px")
     expect(content.props.style["--community-sheet-max-width"]).toBe("100vw")
     expect(resizeHook).not.toHaveBeenCalled()
     expect(resizeHandle).not.toHaveBeenCalled()
   })
 
-  it("enforces 44px mobile footer targets without changing desktop button sizing", () => {
-    let renderer!: TestRenderer.ReactTestRenderer
-    act(() => {
-      renderer = TestRenderer.create(
-        React.createElement(
-          CommunitySheetFooter,
-          null,
-          React.createElement("button", null, "Save"),
-        ),
-      )
+  it("uses the primitive resize policy only when Attachment opts in", () => {
+    const { renderer } = renderSheet({ resizable: true })
+    const content = renderer.root.findByType("sheet-content")
+    expect(content.props.style["--community-sheet-width"]).toBe("480px")
+    expect(content.props.style["--community-sheet-max-width"]).toBe("80vw")
+    expect(resizeHook).toHaveBeenCalledWith()
+    expect(resizeHandle).toHaveBeenCalledOnce()
+  })
+
+  it("uses one CSS-only 640px geometry checkpoint and a 44px mobile close", () => {
+    const { renderer } = renderSheet()
+    const content = renderer.root.findByType("sheet-content")
+    expect(content.props.className).toContain("data-[side=right]:h-dvh")
+    expect(content.props.className).toContain("data-[side=right]:w-screen")
+    expect(content.props.className).toContain("data-[side=right]:sm:inset-y-2")
+    expect(content.props.className).toContain(
+      "data-[side=right]:sm:w-[min(var(--community-sheet-width),var(--community-sheet-max-width),calc(100vw-1rem))]",
+    )
+    expect(renderer.root.findByProps({ "aria-label": "Close" }).props.className).toContain("size-11")
+  })
+
+  it("owns header, body, footer, and routes every close entry through one request", () => {
+    const onOpenChange = vi.fn()
+    const { renderer } = renderSheet({
+      onOpenChange,
+      title: "Structured title",
+      description: "Structured description",
+      headerActions: React.createElement("a", { "data-action": true }, "Download"),
+      bodyClassName: "body-policy",
+      footer: (requestClose) => React.createElement(
+        "button",
+        { "data-footer-close": true, onClick: requestClose },
+        "Done",
+      ),
     })
-    const footer = renderer.root.findByType("sheet-footer")
-    expect(footer.props.className).toContain("**:data-[slot=button]:min-h-11")
-    expect(footer.props.className).toContain("sm:**:data-[slot=button]:min-h-0")
+
+    expect(renderer.root.findByType("sheet-title").children).toEqual(["Structured title"])
+    expect(renderer.root.findByType("sheet-description").children).toEqual(["Structured description"])
+    expect(renderer.root.findByProps({ "data-action": true })).toBeTruthy()
+    expect(renderer.root.findByType("sheet-body").props.className).toBe("body-policy")
+    expect(renderer.root.findByType("sheet-footer").props.className).toContain(
+      "**:data-[slot=button]:min-h-11",
+    )
+
+    act(() => renderer.root.findByType("sheet-root").props.onOpenChange(false))
+    act(() => renderer.root.findByProps({ "aria-label": "Close" }).props.onClick())
+    act(() => renderer.root.findByProps({ "data-footer-close": true }).props.onClick())
+    expect(onOpenChange).toHaveBeenNthCalledWith(1, false)
+    expect(onOpenChange).toHaveBeenNthCalledWith(2, false)
+    expect(onOpenChange).toHaveBeenNthCalledWith(3, false)
   })
 })

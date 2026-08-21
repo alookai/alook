@@ -3,13 +3,7 @@
 import { useEffect, useState } from "react"
 import { Download, Loader2 } from "lucide-react"
 import { buttonVariants } from "@/components/ui/button"
-import {
-  CommunitySheet,
-  CommunitySheetBody,
-  CommunitySheetDescription,
-  CommunitySheetHeader,
-  CommunitySheetTitle,
-} from "@/components/community/shell/community-sheet"
+import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { cn } from "@/lib/utils"
 import { MessageBody } from "./message-body"
 import { CodePreview } from "./code-preview"
@@ -129,57 +123,46 @@ export function AttachmentPreviewSheet({
     <CommunitySheet
       open={open}
       onOpenChange={onOpenChange}
-      mode="preview"
+      title={selected?.name ?? "Attachment"}
+      description={[selected?.contentType || presentation?.category, size].filter(Boolean).join(" · ")}
+      headerActions={selected && (
+        <a
+          data-testid={tid.attachmentPreviewDownload}
+          href={selected.url}
+          download={selected.name}
+          className={buttonVariants({ variant: "outline", size: "sm", className: "h-11 sm:h-7" })}
+        >
+          <Download className="size-3.5" />
+          Download
+        </a>
+      )}
+      resizable
       closeLabel="Close attachment preview"
       contentTestId={tid.attachmentPreviewSheet}
+      bodyTestId={tid.attachmentPreviewContent}
+      bodyClassName={cn(
+        "flex min-h-0 flex-col",
+        (presentation?.previewKind === "code" || presentation?.previewKind === "text") && "p-0 sm:p-0",
+      )}
     >
-        <CommunitySheetHeader className="pr-14 sm:pr-14">
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="min-w-0 flex-1">
-              <CommunitySheetTitle className="truncate">{selected?.name ?? "Attachment"}</CommunitySheetTitle>
-              <CommunitySheetDescription className="truncate">
-                {[selected?.contentType || presentation?.category, size].filter(Boolean).join(" · ")}
-              </CommunitySheetDescription>
-            </div>
-            {selected && (
-              <a
-                data-testid={tid.attachmentPreviewDownload}
-                href={selected.url}
-                download={selected.name}
-                className={buttonVariants({ variant: "outline", size: "sm", className: "h-11 sm:h-7" })}
-              >
-                <Download className="size-3.5" />
-                Download
-              </a>
-            )}
-          </div>
-        </CommunitySheetHeader>
-        <CommunitySheetBody
-          data-testid={tid.attachmentPreviewContent}
-          className={cn(
-            "flex min-h-0 flex-col",
-            (presentation?.previewKind === "code" || presentation?.previewKind === "text") && "p-0 sm:p-0",
-          )}
-        >
-          {preview.status === "loading" && (
-            <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
-              Loading preview…
-            </div>
-          )}
-          {preview.status === "error" && (
-            <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-center">
-              <p className="text-sm font-medium">Preview unavailable</p>
-              <p className="max-w-72 text-sm text-muted-foreground">{preview.error}</p>
-            </div>
-          )}
-          {preview.status === "ready" && presentation?.previewKind === "markdown" && (
-            <MessageBody text={preview.content} />
-          )}
-          {preview.status === "ready" && presentation?.previewKind !== "markdown" && (
-            <CodePreview content={preview.content} language={presentation?.shikiLanguage ?? null} />
-          )}
-        </CommunitySheetBody>
+      {preview.status === "loading" && (
+        <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          Loading preview…
+        </div>
+      )}
+      {preview.status === "error" && (
+        <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-center">
+          <p className="text-sm font-medium">Preview unavailable</p>
+          <p className="max-w-72 text-sm text-muted-foreground">{preview.error}</p>
+        </div>
+      )}
+      {preview.status === "ready" && presentation?.previewKind === "markdown" && (
+        <MessageBody text={preview.content} />
+      )}
+      {preview.status === "ready" && presentation?.previewKind !== "markdown" && (
+        <CodePreview content={preview.content} language={presentation?.shikiLanguage ?? null} />
+      )}
     </CommunitySheet>
   )
 }

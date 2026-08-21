@@ -66,8 +66,8 @@ vi.mock("@/stores/community/ws", () => ({
 vi.mock("@/components/community/members/add-members-dialog", () => ({
   AddMembersDialog: vi.fn(() => null),
 }))
-vi.mock("@/components/community/shell/community-panel-sheet", () => ({
-  CommunityPanelSheet: () => null,
+vi.mock("@/components/community/shell/community-panel", () => ({
+  CommunityPanel: () => null,
 }))
 
 const mockedAddMembersDialog = vi.mocked(AddMembersDialog)

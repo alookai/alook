@@ -35,8 +35,6 @@ vi.mock("@tanstack/react-query", () => ({
 }))
 vi.mock("@/components/community/shell/community-sheet", () => ({
   CommunitySheet: ({ children }: { children: React.ReactNode }) => children,
-  CommunitySheetHeader: ({ children }: { children: React.ReactNode }) => children,
-  CommunitySheetTitle: ({ children }: { children: React.ReactNode }) => children,
 }))
 vi.mock("@/components/ui/sheet-resize-handle", () => ({
   useSheetResize: () => ({

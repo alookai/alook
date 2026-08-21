@@ -8,7 +8,7 @@ import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-fee
 import { useEditMessage } from "@/hooks/community/mutations"
 import { ChannelHeader, ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
 import { ChannelShell } from "@/components/community/channels/channel-shell"
-import { CommunityPanelSheet } from "@/components/community/shell/community-panel-sheet"
+import { CommunityPanel } from "@/components/community/shell/community-panel"
 import { Composer, ComposerSkeleton } from "@/components/community/messages/composer"
 import { MessageChannelController } from "@/components/community/messages/message-channel-controller"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
@@ -255,7 +255,7 @@ export function ThreadChannelSurface({
             </main>
           )}
           panels={rightPanel && (
-            <CommunityPanelSheet
+            <CommunityPanel
               open
               onOpenChange={(open) => { if (!open) setRightPanel(null) }}
               kind={rightPanel}

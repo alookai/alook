@@ -3,14 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
-import {
-  CommunitySheet,
-  CommunitySheetBody,
-  CommunitySheetDescription,
-  CommunitySheetFooter,
-  CommunitySheetHeader,
-  CommunitySheetTitle,
-} from "@/components/community/shell/community-sheet"
+import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -172,15 +165,23 @@ export function EditBotSheet({
 
   return (
     <>
-      <CommunitySheet open={open} onOpenChange={onOpenChange} mode="task">
-        <CommunitySheetHeader>
-          <CommunitySheetTitle>Edit {bot?.name ?? "bot"}</CommunitySheetTitle>
-          <CommunitySheetDescription>
-            Name and description edits take effect on the next wake. Provider and model switches require the bot to be online.
-          </CommunitySheetDescription>
-        </CommunitySheetHeader>
-
-        <CommunitySheetBody className="flex flex-col gap-6">
+      <CommunitySheet
+        open={open}
+        onOpenChange={onOpenChange}
+        title={`Edit ${bot?.name ?? "bot"}`}
+        description="Name and description edits take effect on the next wake. Provider and model switches require the bot to be online."
+        bodyClassName="flex flex-col gap-6"
+        footer={(requestClose) => (
+          <>
+            <Button variant="outline" onClick={requestClose}>
+              Cancel
+            </Button>
+            <Button onClick={submit} disabled={update.isPending || !bot}>
+              {update.isPending ? "Saving…" : "Save"}
+            </Button>
+          </>
+        )}
+      >
           <BotFormFields
             avatarDraft={avatarDraft}
             onAvatarChange={setAvatarDraft}
@@ -200,16 +201,6 @@ export function EditBotSheet({
               onModelChange={setModel}
             />
           )}
-        </CommunitySheetBody>
-
-        <CommunitySheetFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={update.isPending || !bot}>
-            {update.isPending ? "Saving…" : "Save"}
-          </Button>
-        </CommunitySheetFooter>
       </CommunitySheet>
       <AlertDialog open={confirmProviderSwitch} onOpenChange={setConfirmProviderSwitch}>
         <AlertDialogContent>

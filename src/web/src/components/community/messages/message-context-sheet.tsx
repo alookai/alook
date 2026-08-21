@@ -5,11 +5,7 @@ import { useRouter, useParams } from "next/navigation"
 import { toast } from "sonner"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { deriveThreadName } from "@alook/shared"
-import {
-  CommunitySheet,
-  CommunitySheetHeader,
-  CommunitySheetTitle,
-} from "@/components/community/shell/community-sheet"
+import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { MessageRow } from "./message-row"
 import { MessageShareDialog } from "./message-share-dialog"
 import { ChannelIcon } from "../channels/channel-icon"
@@ -395,68 +391,55 @@ export function MessageContextSheet({
     <CommunitySheet
       open={open}
       onOpenChange={onOpenChange}
-      mode="sidecar"
+      title={channelLabel ? (
+        <span className="flex w-full min-w-0 items-center gap-1.5">
+          <ChannelIcon className="shrink-0 text-muted-foreground" />
+          <span className="min-w-0 truncate">{channelLabel}</span>
+          <span className="shrink-0 font-mono text-base font-normal text-muted-foreground">#{targetSeq ?? ""}</span>
+        </span>
+      ) : (
+        <span className="font-mono text-2xl">
+          <span className="text-muted-foreground">#</span>{targetSeq ?? ""}
+        </span>
+      )}
+      bodyRef={bodyRef}
+      bodyClassName="px-4 py-3"
     >
-        {/* Header names WHICH channel's context this is (Gus #417/#423, Alli
-            #420): channel icon + name as the primary line, the seq as weaker
-            secondary info — the intent here is "reading a channel's context",
-            the seq is just the locator. Shown consistently (same- or cross-
-            channel) for one message-side-sheet mental model. Frameless (no
-            border) matches the existing quiet header. Falls back to just `#N`
-            if no label was passed (older callers). */}
-        <CommunitySheetHeader className="gap-0 border-b-0 py-3 pr-14 sm:pr-14">
-          <CommunitySheetTitle className="flex w-full min-w-0 items-center gap-1.5 text-lg font-semibold tracking-tight">
-            {channelLabel ? (
-              <>
-                <ChannelIcon className="shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate">{channelLabel}</span>
-                <span className="shrink-0 font-mono text-base font-normal text-muted-foreground">#{targetSeq ?? ""}</span>
-              </>
-            ) : (
-              <span className="font-mono text-2xl">
-                <span className="text-muted-foreground">#</span>{targetSeq ?? ""}
-              </span>
-            )}
-          </CommunitySheetTitle>
-        </CommunitySheetHeader>
+      {query.isLoading && <ContextSkeleton />}
 
-        <div ref={bodyRef} className="flex-1 overflow-y-auto thin-scrollbar px-4 py-3">
-          {query.isLoading && <ContextSkeleton />}
+      {query.isError && (
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          Couldn&rsquo;t load the message. Check your connection and retry.
+        </p>
+      )}
 
-          {query.isError && (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              Couldn&rsquo;t load the message. Check your connection and retry.
-            </p>
-          )}
+      {query.data?.notFound && (
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          Message not found — it may have been deleted.
+        </p>
+      )}
 
-          {query.data?.notFound && (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              Message not found — it may have been deleted.
-            </p>
-          )}
-
-          {!query.isLoading && !query.isError && query.data && !query.data.notFound && (
-            <ContextRows
-              rows={renderRows}
-              viewerUserId={currentUser.id}
-              anchorId={anchorId}
-              pinnedIds={pinnedIds}
-              onOpenProfile={onOpenProfile}
-              onOpenThread={type === "channel" ? onOpenThreadId : undefined}
-              resolveUserName={resolveUserName}
-              onToggleReaction={toggleReaction}
-              onReact={toggleReaction}
-              onReply={onReply ? onReplyId : undefined}
-              onCopy={onCopyId}
-              onPin={type === "channel" ? onPinId : undefined}
-              onMark={onMarkId}
-              onCreateThread={type === "channel" ? onCreateThreadId : undefined}
-              onPreviewImage={onPreviewImage}
-              onPreviewAttachment={onPreviewAttachment}
-              onDownloadFile={onDownloadFile}
-            />
-          )}
-        </div>
+      {!query.isLoading && !query.isError && query.data && !query.data.notFound && (
+        <ContextRows
+          rows={renderRows}
+          viewerUserId={currentUser.id}
+          anchorId={anchorId}
+          pinnedIds={pinnedIds}
+          onOpenProfile={onOpenProfile}
+          onOpenThread={type === "channel" ? onOpenThreadId : undefined}
+          resolveUserName={resolveUserName}
+          onToggleReaction={toggleReaction}
+          onReact={toggleReaction}
+          onReply={onReply ? onReplyId : undefined}
+          onCopy={onCopyId}
+          onPin={type === "channel" ? onPinId : undefined}
+          onMark={onMarkId}
+          onCreateThread={type === "channel" ? onCreateThreadId : undefined}
+          onPreviewImage={onPreviewImage}
+          onPreviewAttachment={onPreviewAttachment}
+          onDownloadFile={onDownloadFile}
+        />
+      )}
     </CommunitySheet>
   )
 }

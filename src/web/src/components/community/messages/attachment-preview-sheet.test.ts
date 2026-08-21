@@ -5,11 +5,28 @@ import { AttachmentPreviewSheet, readAttachmentText } from "./attachment-preview
 import type { FileAttachment } from "@/lib/community/models/message"
 
 vi.mock("@/components/community/shell/community-sheet", () => ({
-  CommunitySheet: ({ children }: { children: React.ReactNode }) => React.createElement("div", null, children),
-  CommunitySheetHeader: ({ children, ...props }: React.ComponentProps<"header">) => React.createElement("header", props, children),
-  CommunitySheetTitle: ({ children, ...props }: React.ComponentProps<"h2">) => React.createElement("h2", props, children),
-  CommunitySheetDescription: ({ children, ...props }: React.ComponentProps<"p">) => React.createElement("p", props, children),
-  CommunitySheetBody: ({ children, ...props }: React.ComponentProps<"main">) => React.createElement("main", props, children),
+  CommunitySheet: ({
+    title,
+    description,
+    headerActions,
+    children,
+    bodyTestId,
+    bodyClassName,
+  }: {
+    title: React.ReactNode
+    description?: React.ReactNode
+    headerActions?: React.ReactNode
+    children: React.ReactNode
+    bodyTestId?: string
+    bodyClassName?: string
+  }) => React.createElement(
+    "div",
+    null,
+    React.createElement("h2", null, title),
+    description != null && React.createElement("p", null, description),
+    headerActions,
+    React.createElement("main", { "data-testid": bodyTestId, className: bodyClassName }, children),
+  ),
 }))
 
 vi.mock("@/components/ui/sheet-resize-handle", () => ({

@@ -5,13 +5,7 @@ import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { isPresenceOnline, type CommunityMachineSummary } from "@alook/shared"
 import { machineName } from "@/lib/community/machine-name"
-import {
-  CommunitySheet,
-  CommunitySheetBody,
-  CommunitySheetFooter,
-  CommunitySheetHeader,
-  CommunitySheetTitle,
-} from "@/components/community/shell/community-sheet"
+import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { type AvatarDraft } from "@/components/avatar"
@@ -208,12 +202,22 @@ export function CreateBotSheet({
   }
 
   return (
-    <CommunitySheet open={open} onOpenChange={onOpenChange} mode="task">
-        <CommunitySheetHeader>
-          <CommunitySheetTitle>Create a bot</CommunitySheetTitle>
-        </CommunitySheetHeader>
-
-        <CommunitySheetBody className="flex flex-col gap-6">
+    <CommunitySheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Create a bot"
+      bodyClassName="flex flex-col gap-6"
+      footer={(requestClose) => (
+        <>
+          <Button variant="outline" onClick={requestClose}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={create.isPending}>
+            {create.isPending ? "Creating…" : "Create bot"}
+          </Button>
+        </>
+      )}
+    >
           <BotFormFields
             avatarDraft={avatarDraft}
             onAvatarChange={setAvatarDraft}
@@ -306,16 +310,6 @@ export function CreateBotSheet({
           )}
           </>
           )}
-        </CommunitySheetBody>
-
-        <CommunitySheetFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={create.isPending}>
-            {create.isPending ? "Creating…" : "Create bot"}
-          </Button>
-        </CommunitySheetFooter>
     </CommunitySheet>
   )
 }

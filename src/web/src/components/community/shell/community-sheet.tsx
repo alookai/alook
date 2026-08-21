@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button"
 import {
   Sheet,
   SheetBody,
-  SheetClose,
   SheetContent,
   SheetDescription,
   SheetFooter,
@@ -20,93 +19,137 @@ import {
 } from "@/components/ui/sheet-resize-handle"
 import { cn } from "@/lib/utils"
 
-const TASK_WIDTH = 448
+const COMMUNITY_SHEET_WIDTH = 480
 
-type CommunitySheetBaseProps = {
+type CommunitySheetProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
+  title: React.ReactNode
+  description?: React.ReactNode
+  headerActions?: React.ReactNode
+  footer?: React.ReactNode | ((requestClose: () => void) => React.ReactNode)
   children: React.ReactNode
+  bodyClassName?: string
+  bodyRef?: React.Ref<HTMLDivElement>
+  resizable?: boolean
   closeLabel?: string
   contentTestId?: string
-}
-
-type CommunitySheetProps = CommunitySheetBaseProps & {
-  mode: "sidecar" | "task" | "preview"
+  bodyTestId?: string
 }
 
 /**
- * Controlled shell for the community's right-hand surfaces.
+ * Controlled modal shell for every community right-hand surface.
  *
- * The mode owns interaction semantics; callers cannot independently combine
- * modal, overlay, dismissal, or checkpoint behavior. The 640px checkpoint is
- * CSS-only so an open sheet and its children stay mounted while the viewport
- * crosses it.
+ * The shell owns structure, dismissal, width, and the CSS-only 640px
+ * checkpoint. Callers supply business content through the title, actions,
+ * body, and optional footer slots. Attachment preview is the only caller that
+ * opts into the fixed internal resize policy.
  */
 export function CommunitySheet({
   open,
   onOpenChange,
-  mode,
+  title,
+  description,
+  headerActions,
+  footer,
   children,
+  bodyClassName,
+  bodyRef,
+  resizable = false,
   closeLabel = "Close",
   contentTestId,
+  bodyTestId,
 }: CommunitySheetProps) {
-  const modal = mode !== "sidecar"
+  const requestClose = React.useCallback(() => onOpenChange(false), [onOpenChange])
+  const handleOpenChange = React.useCallback(
+    (nextOpen: boolean) => {
+      if (nextOpen) onOpenChange(true)
+      else requestClose()
+    },
+    [onOpenChange, requestClose],
+  )
 
   return (
-    <Sheet
-      open={open}
-      onOpenChange={onOpenChange}
-      modal={modal}
-      disablePointerDismissal={!modal}
-    >
-      {mode === "task" ? (
-        <CommunitySheetContent
-          mode={mode}
-          width={TASK_WIDTH}
-          maxWidth="100vw"
-          closeLabel={closeLabel}
-          contentTestId={contentTestId}
-        >
-          {children}
-        </CommunitySheetContent>
-      ) : (
+    <Sheet open={open} onOpenChange={handleOpenChange} modal>
+      {resizable ? (
         <ResizableCommunitySheetContent
-          mode={mode}
+          title={title}
+          description={description}
+          headerActions={headerActions}
+          footer={footer}
+          bodyClassName={bodyClassName}
+          bodyRef={bodyRef}
           closeLabel={closeLabel}
           contentTestId={contentTestId}
+          bodyTestId={bodyTestId}
+          requestClose={requestClose}
         >
           {children}
         </ResizableCommunitySheetContent>
+      ) : (
+        <CommunitySheetContent
+          width={COMMUNITY_SHEET_WIDTH}
+          maxWidth="100vw"
+          title={title}
+          description={description}
+          headerActions={headerActions}
+          footer={footer}
+          bodyClassName={bodyClassName}
+          bodyRef={bodyRef}
+          closeLabel={closeLabel}
+          contentTestId={contentTestId}
+          bodyTestId={bodyTestId}
+          requestClose={requestClose}
+        >
+          {children}
+        </CommunitySheetContent>
       )}
     </Sheet>
   )
 }
 
 type CommunitySheetContentProps = Pick<
-  CommunitySheetBaseProps,
-  "children" | "closeLabel" | "contentTestId"
+  CommunitySheetProps,
+  | "title"
+  | "description"
+  | "headerActions"
+  | "footer"
+  | "children"
+  | "bodyClassName"
+  | "bodyRef"
+  | "closeLabel"
+  | "contentTestId"
+  | "bodyTestId"
 > & {
-  mode: "sidecar" | "task" | "preview"
   width: number
   maxWidth: string
+  requestClose: () => void
   resize?: React.ComponentProps<typeof SheetResizeHandle>
 }
 
 function CommunitySheetContent({
-  mode,
   width,
   maxWidth,
   resize,
+  title,
+  description,
+  headerActions,
+  footer,
   children,
+  bodyClassName,
+  bodyRef,
   closeLabel,
   contentTestId,
+  bodyTestId,
+  requestClose,
 }: CommunitySheetContentProps) {
+  const footerContent = typeof footer === "function" ? footer(requestClose) : footer
+
   return (
     <SheetContent
       data-testid={contentTestId}
-      data-community-sheet-mode={mode}
       side="right"
-      showOverlay={mode !== "sidecar"}
+      showOverlay
       showCloseButton={false}
       style={{
         "--community-sheet-width": `${width}px`,
@@ -119,30 +162,42 @@ function CommunitySheetContent({
       )}
     >
       {resize && <SheetResizeHandle {...resize} />}
-      {children}
-      <SheetClose
-        render={
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="absolute top-0.5 right-0.5 z-20 size-11 sm:top-3 sm:right-3 sm:size-7"
-            aria-label={closeLabel}
-          />
-        }
+      <SheetHeader className="pr-14 sm:pr-14">
+        <div className="flex min-w-0 items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <SheetTitle className="truncate">{title}</SheetTitle>
+            {description != null && <SheetDescription>{description}</SheetDescription>}
+          </div>
+          {headerActions != null && <div className="shrink-0">{headerActions}</div>}
+        </div>
+      </SheetHeader>
+      <SheetBody ref={bodyRef} data-testid={bodyTestId} className={bodyClassName}>
+        {children}
+      </SheetBody>
+      {footerContent != null && (
+        <SheetFooter className="**:data-[slot=button]:min-h-11 sm:**:data-[slot=button]:min-h-0">
+          {footerContent}
+        </SheetFooter>
+      )}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        className="absolute top-0.5 right-0.5 z-20 size-11 sm:top-3 sm:right-3 sm:size-7"
+        aria-label={closeLabel}
+        onClick={requestClose}
       >
         <XIcon />
         <span className="sr-only">{closeLabel}</span>
-      </SheetClose>
+      </Button>
     </SheetContent>
   )
 }
 
 type ResizableCommunitySheetContentProps = Omit<
   CommunitySheetContentProps,
-  "width" | "maxWidth" | "resize" | "mode"
-> & {
-  mode: "sidecar" | "preview"
-}
+  "width" | "maxWidth" | "resize"
+>
 
 function ResizableCommunitySheetContent(props: ResizableCommunitySheetContentProps) {
   const resize = useSheetResize()
@@ -151,36 +206,3 @@ function ResizableCommunitySheetContent(props: ResizableCommunitySheetContentPro
     <CommunitySheetContent {...props} width={resize.width} maxWidth="80vw" resize={resize} />
   )
 }
-
-export function CommunitySheetHeader({
-  className,
-  ...props
-}: React.ComponentProps<typeof SheetHeader>) {
-  return <SheetHeader className={className} {...props} />
-}
-
-export function CommunitySheetBody({
-  className,
-  ...props
-}: React.ComponentProps<typeof SheetBody>) {
-  return <SheetBody className={className} {...props} />
-}
-
-export function CommunitySheetFooter({
-  className,
-  ...props
-}: React.ComponentProps<typeof SheetFooter>) {
-  return (
-    <SheetFooter
-      className={cn(
-        "**:data-[slot=button]:min-h-11 sm:**:data-[slot=button]:min-h-0",
-        className,
-      )}
-      {...props}
-    />
-  )
-}
-
-export const CommunitySheetTitle = SheetTitle
-export const CommunitySheetDescription = SheetDescription
-export const CommunitySheetClose = SheetClose
