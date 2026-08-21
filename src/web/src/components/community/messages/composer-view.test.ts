@@ -1,4 +1,5 @@
 import { createElement } from "react"
+import { readFileSync } from "node:fs"
 import TestRenderer, { act } from "react-test-renderer"
 import { describe, expect, it, vi } from "vitest"
 
@@ -85,6 +86,26 @@ function baseProps(
 }
 
 describe("ComposerView", () => {
+  it("scopes single-line placeholder containment to chat composers", () => {
+    const css = readFileSync(
+      new URL("../../../app/globals.css", import.meta.url),
+      "utf8",
+    )
+    const globalRule = css.match(
+      /\.tiptap p\.is-editor-empty:first-child::before\s*\{([^}]*)\}/,
+    )?.[1]
+    const chatRule = css.match(
+      /\.chat-composer \.tiptap p\.is-editor-empty:first-child::before\s*\{([^}]*)\}/,
+    )?.[1]
+    expect(globalRule).toBeDefined()
+    expect(globalRule).not.toContain("text-overflow")
+    expect(globalRule).not.toContain("white-space")
+    expect(chatRule).toContain("position: absolute")
+    expect(chatRule).toContain("overflow: hidden")
+    expect(chatRule).toContain("text-overflow: ellipsis")
+    expect(chatRule).toContain("white-space: nowrap")
+  })
+
   it("keeps popup, reply, icon-only pending, drag, editor, and control order", async () => {
     const removePendingFile = vi.fn()
     const onCancelReply = vi.fn()

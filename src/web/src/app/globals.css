@@ -1886,6 +1886,24 @@ body.community-onboarding-active.driver-active :is(
   line-height: 24px;
 }
 
+.chat-composer .tiptap p.is-editor-empty:first-child {
+  position: relative;
+  min-width: 0;
+}
+
+.chat-composer .tiptap p.is-editor-empty:first-child::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: block;
+  float: none;
+  height: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chat-composer .tiptap>p:first-child {
   margin-top: 0;
 }

@@ -31,6 +31,7 @@ export const SPEC_SECONDS = {
   "21-mobile-message-layout.spec.ts": 20,
   "22-committed-message-delivery.spec.ts": 85,
   "23-message-selection-context-menu.spec.ts": 10,
+  "24-composer-overflow.spec.ts": 35,
 }
 
 function walk(directory) {

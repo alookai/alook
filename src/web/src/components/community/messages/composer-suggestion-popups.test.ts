@@ -166,6 +166,52 @@ describe("Composer suggestion popups", () => {
     const selected = renderer.root.find(
       (node) => node.type === "button" && node.props["aria-selected"] === true,
     )
+    expect(selected.props.className).toContain("min-w-0")
+    expect(selected.props.title).toBe("Ada#0001")
+    expect(
+      selected.findAll(
+        (node) =>
+          node.type === "span" &&
+          node.props["data-suggestion-icon"] === true,
+      ),
+    ).toHaveLength(1)
+    expect(
+      selected.find(
+        (node) =>
+          node.type === "span" &&
+          node.props.className?.includes("flex-1"),
+      ).props.className,
+    ).toContain("min-w-0")
+    expect(
+      selected.find(
+        (node) =>
+          node.type === "span" &&
+          node.props["data-suggestion-label"] === true,
+      ).props.className,
+    ).toContain("truncate")
+    expect(
+      selected.find(
+        (node) =>
+          node.type === "span" &&
+          node.props["data-suggestion-discriminator"] === true,
+      ).props.className,
+    ).toContain("shrink-0")
+    const virtual = renderer.root.findAllByType("button")[0]
+    expect(virtual.props.title).toBe("@everyone")
+    expect(
+      virtual.find(
+        (node) =>
+          node.type === "span" &&
+          node.props.className?.includes("bg-primary/15"),
+      ).props.className,
+    ).toContain("shrink-0")
+    expect(
+      virtual.find(
+        (node) =>
+          node.type === "span" &&
+          node.children.includes("Notify everyone"),
+      ).props.className,
+    ).toContain("shrink-0")
     const preventDefault = vi.fn()
     await act(async () => selected.props.onMouseDown({ preventDefault }))
     expect(preventDefault).toHaveBeenCalledOnce()
@@ -216,6 +262,29 @@ describe("Composer suggestion popups", () => {
 
     const first = renderer.root.findAllByType("button")[0]
     expect(first.props["data-testid"]).toBe("community-channel-ref-option-channel-1")
+    expect(first.props.className).toContain("min-w-0")
+    expect(first.props.title).toBe("One / general")
+    expect(
+      first.find(
+        (node) =>
+          node.type === "span" &&
+          node.props["data-suggestion-icon"] === true,
+      ).props.className,
+    ).toContain("shrink-0")
+    expect(
+      first.find(
+        (node) =>
+          node.type === "span" &&
+          node.props["data-suggestion-label"] === true,
+      ).props.className,
+    ).toContain("min-w-0")
+    expect(
+      first.find(
+        (node) =>
+          node.type === "span" &&
+          node.props["data-suggestion-label"] === true,
+      ).props.className,
+    ).toContain("truncate")
     const preventDefault = vi.fn()
     await act(async () => first.props.onMouseDown({ preventDefault }))
     expect(preventDefault).toHaveBeenCalledOnce()
