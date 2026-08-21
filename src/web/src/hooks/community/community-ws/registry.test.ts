@@ -1,10 +1,16 @@
 import { describe, expect, it, vi } from "vitest"
+import { notifyManager, QueryClient } from "@tanstack/react-query"
 import { WS_EVENTS } from "@alook/shared"
 import { communityWsEventFixtures } from "../../../../../shared/test/community-ws-events.fixtures"
+import type {
+  CommunityWsDispatchContext,
+  CommunityWsHandlerContext,
+} from "./handler-context"
 import {
   communityWsReconnectPolicies,
   communityWsRegistry,
   dispatchCommunityWsEvent,
+  dispatchCommunityWsEvents,
 } from "./registry"
 
 const handlers = vi.hoisted(() => new Proxy({} as Record<string, ReturnType<typeof vi.fn>>, {
@@ -55,6 +61,18 @@ vi.mock("./presence-machine-events", () => ({
   handleStatusUpdate: handlers.handleStatusUpdate,
 }))
 
+function dispatchContext(queryClient = new QueryClient()): CommunityWsDispatchContext {
+  return {
+    queryClient,
+    communityStore: {} as CommunityWsDispatchContext["communityStore"],
+    wsStore: {} as CommunityWsDispatchContext["wsStore"],
+    sub: {},
+    viewerUserIdRef: { current: null },
+    matchesFocus: () => false,
+    scheduleInboxInvalidate: vi.fn(),
+  }
+}
+
 describe("community WebSocket registry", () => {
   it("has exactly one entry for each of the 41 runtime event types", () => {
     const eventTypes = Object.values(WS_EVENTS).sort()
@@ -98,8 +116,60 @@ describe("community WebSocket registry", () => {
     ["community:machine.created", "handleMachineCreated"],
     ["community:bot.audit_event", "handleBotAuditEvent"],
   ] as const)("dispatches %s through its existing handler group", (type, handlerName) => {
-    const context = { marker: "context" } as never
+    const context = dispatchContext()
     dispatchCommunityWsEvent(communityWsEventFixtures[type], context)
     expect(handlers[handlerName]).toHaveBeenCalled()
+  })
+
+  it("provides projection transactions to context-owning handlers", () => {
+    dispatchCommunityWsEvent(
+      communityWsEventFixtures["community:message.create"],
+      dispatchContext(),
+    )
+
+    expect(handlers.handleMessageCreate).toHaveBeenCalledWith(
+      communityWsEventFixtures["community:message.create"],
+      expect.objectContaining({
+        projection: expect.objectContaining({
+          project: expect.any(Function),
+          invalidate: expect.any(Function),
+        }),
+      }),
+    )
+  })
+
+  it("wraps public single-event dispatch in one projection batch", () => {
+    const batch = vi.spyOn(notifyManager, "batch")
+
+    try {
+      dispatchCommunityWsEvent(
+        communityWsEventFixtures["community:typing.stop"],
+        dispatchContext(),
+      )
+      expect(batch).toHaveBeenCalledTimes(1)
+    } finally {
+      batch.mockRestore()
+    }
+  })
+
+  it("lets later events observe synchronous projections from earlier events", () => {
+    const queryClient = new QueryClient()
+    const observed: number[] = []
+    handlers.handleMessageCreate.mockImplementationOnce((
+      _event: unknown,
+      context: CommunityWsHandlerContext,
+    ) => {
+      context.projection.project(() => queryClient.setQueryData(["ordered"], 1))
+    })
+    handlers.handleTypingStart.mockImplementationOnce(() => {
+      observed.push(queryClient.getQueryData<number>(["ordered"]) ?? 0)
+    })
+
+    dispatchCommunityWsEvents([
+      communityWsEventFixtures["community:message.create"],
+      communityWsEventFixtures["community:typing.start"],
+    ], dispatchContext(queryClient))
+
+    expect(observed).toEqual([1])
   })
 })

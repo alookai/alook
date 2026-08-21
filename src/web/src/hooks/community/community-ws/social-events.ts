@@ -18,6 +18,11 @@ import {
   setForumSidebarParentUnreadBase,
 } from "@/hooks/community/use-forum-sidebar-threads"
 import type { SocialEventContext } from "@/hooks/community/community-ws/handler-context"
+import {
+  invalidateFriends,
+  invalidateInbox,
+  invalidateServersList,
+} from "./invalidation-projections"
 
 type CommunityUnreadBump = Extract<
   CommunityWsEvent,
@@ -124,16 +129,16 @@ type FriendEvent =
 
 export function handleFriendEvent(
   _event: FriendEvent,
-  { queryClient }: SocialEventContext,
+  { projection }: SocialEventContext,
 ) {
-  void queryClient.invalidateQueries({ queryKey: communityKeys.friends() })
+  invalidateFriends(projection)
 }
 
 export function handleMentionCreate(
   _event: CommunityMentionCreate,
-  { queryClient }: SocialEventContext,
+  { projection }: SocialEventContext,
 ) {
-  void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
+  invalidateInbox(projection)
   // The server rail badge counts unread mentions per server; refresh
   // it on every new mention. `exact: true` is essential: the mention
   // count lives in the `servers()` LIST query, but members/presence/
@@ -142,5 +147,5 @@ export function handleMentionCreate(
   // force-refetches that whole subtree (and invalidate overrides the
   // staleTime: Infinity those carry). With an active bot in the server,
   // every mention.create would otherwise storm-refetch all of them.
-  void queryClient.invalidateQueries({ queryKey: communityKeys.servers(), exact: true })
+  invalidateServersList(projection)
 }

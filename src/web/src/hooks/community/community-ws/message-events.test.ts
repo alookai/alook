@@ -767,6 +767,9 @@ describe("useCommunityWs — message edit refreshes forum opener summary", () =>
       threads: [{ id: "post_1", name: "old title", openerMessageId: "opener-post_1" }],
     })
     capturedOnMessage!(opener)
+    expect(capturedQueryClient.getQueryData<{ content: string }>(
+      communityKeys.message("opener-post_1"),
+    )?.content).toBe("old title")
     await vi.waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: communityKeys.threads("forum_1"), exact: true,
     }))

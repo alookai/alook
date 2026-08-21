@@ -338,6 +338,27 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
     ).toBe(true)
   })
 
+  it("does not evict channel scope when another user is removed", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const messagesKey = communityKeys.channelMessages("ch_1")
+    const pinsKey = communityKeys.pins("ch_1")
+    const threadsKey = communityKeys.threads("ch_1")
+    capturedQueryClient.setQueryData(messagesKey, { pages: [], pageParams: [] })
+    capturedQueryClient.setQueryData(pinsKey, { pins: [] })
+    capturedQueryClient.setQueryData(threadsKey, { threads: [] })
+
+    capturedOnMessage!({
+      type: "community:channel.member_remove",
+      serverId: "srv_1",
+      channelId: "ch_1",
+      userId: "u_other",
+    })
+
+    expect(capturedQueryClient.getQueryState(messagesKey)).toBeDefined()
+    expect(capturedQueryClient.getQueryState(pinsKey)).toBeDefined()
+    expect(capturedQueryClient.getQueryState(threadsKey)).toBeDefined()
+  })
+
   it("adds/removes the viewer's participating child in the forum sidebar", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const { useCommunityStore } = await import("@/stores/community")

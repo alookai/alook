@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query"
 import type { useCommunityStore } from "@/stores/community"
 import type { useCommunityWsStore } from "@/stores/community/ws"
+import type { CommunityWsProjectionTransaction } from "@/hooks/community/community-ws/projection-transaction"
 
 export type Subscription = {
   // The focused regular channel/thread.
@@ -20,7 +21,7 @@ export type UseCommunityWsOptions = {
   viewerUserId?: string | null
 }
 
-export type CommunityWsHandlerContext = {
+export type CommunityWsDispatchContext = {
   queryClient: QueryClient
   communityStore: ReturnType<typeof useCommunityStore.getState>
   wsStore: ReturnType<typeof useCommunityWsStore.getState>
@@ -30,6 +31,10 @@ export type CommunityWsHandlerContext = {
   scheduleInboxInvalidate: () => void
 }
 
+export type CommunityWsHandlerContext = CommunityWsDispatchContext & {
+  projection: CommunityWsProjectionTransaction
+}
+
 export type MessageEventContext = CommunityWsHandlerContext
 export type TypingEventContext = Pick<
   CommunityWsHandlerContext,
@@ -37,15 +42,15 @@ export type TypingEventContext = Pick<
 >
 export type StructureTreeEventContext = Pick<
   CommunityWsHandlerContext,
-  "queryClient"
+  "queryClient" | "projection"
 >
 export type MembershipEventContext = Pick<
   CommunityWsHandlerContext,
-  "queryClient" | "viewerUserIdRef"
+  "queryClient" | "viewerUserIdRef" | "projection"
 >
 export type SocialEventContext = Pick<
   CommunityWsHandlerContext,
-  "queryClient" | "sub" | "viewerUserIdRef"
+  "queryClient" | "sub" | "viewerUserIdRef" | "projection"
 >
 export type PresenceMachineEventContext = Pick<
   CommunityWsHandlerContext,
