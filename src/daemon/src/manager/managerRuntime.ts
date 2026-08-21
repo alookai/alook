@@ -905,6 +905,16 @@ export class AgentProcessManager {
     const pending = owner.pendingDeliverySpans.get(commandId);
     if (pending) pending.driverObserved = true;
   }
+  private acknowledgePendingDelivery(owner: ActiveSpawnState, commandId: string): void {
+    const pending = owner.pendingDeliverySpans.get(commandId);
+    if (!pending) return;
+    this.dispatch({
+      type: "admission_acknowledged",
+      agentId: owner.agentId,
+      sessionInstanceId: pending.sessionInstanceId,
+      commandId,
+    }, owner);
+  }
   private settlePendingDelivery(
     owner: ActiveSpawnState,
     commandId: string,
@@ -1507,6 +1517,7 @@ export class AgentProcessManager {
     if (event.type === "text_delta" && event.text.length > 0) {
       this.opts.timeline?.appendResponseToLatest(agentId, event.text);
     }
+    if (event.type === "command_queued") this.acknowledgePendingDelivery(owner, event.commandId);
     if (event.type === "command_accepted") this.settlePendingDelivery(owner, event.commandId, "accepted");
     if (event.type === "command_failed") {
       const pending = this.settlePendingDelivery(owner, event.commandId);

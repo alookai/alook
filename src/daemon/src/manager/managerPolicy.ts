@@ -22,6 +22,7 @@ export interface PendingAdmission {
   commandId: string;
   exactAgentMsg: AgentMsg;
   admittedAt: number;
+  driverAcknowledged: boolean;
   mode: "busy" | "idle";
   requeueOnFailure: boolean;
 }
@@ -93,6 +94,12 @@ export type ManagerEvent =
       sessionInstanceId: string;
       commandId: string;
       outcome: "accepted" | "failed";
+    }
+  | {
+      type: "admission_acknowledged";
+      agentId: string;
+      sessionInstanceId: string;
+      commandId: string;
     }
   | {
       type: "turn_started";
@@ -209,6 +216,7 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
           commandId: event.commandId,
           exactAgentMsg: event.exactAgentMsg,
           admittedAt: event.nowMs,
+          driverAcknowledged: false,
           mode: event.mode,
           requeueOnFailure: event.requeueOnFailure,
         }];
@@ -232,6 +240,21 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
         agent,
         event.outcome === "failed" ? recoveryEffects(agent, [record]) : [],
       );
+    }
+
+    case "admission_acknowledged": {
+      const existing = state.agents[event.agentId];
+      if (!existing || existing.execution.sessionInstanceId !== event.sessionInstanceId) return { state, effects: [] };
+      if (!existing.pendingAdmissions.some((entry) =>
+        entry.sessionInstanceId === event.sessionInstanceId && entry.commandId === event.commandId)) {
+        return { state, effects: [] };
+      }
+      return mutate(state, event.agentId, (a) => {
+        a.pendingAdmissions = a.pendingAdmissions.map((entry) =>
+          entry.sessionInstanceId === event.sessionInstanceId && entry.commandId === event.commandId
+            ? { ...entry, driverAcknowledged: true }
+            : entry);
+      });
     }
 
     case "reset_session":
@@ -447,7 +470,8 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
     }
 
     const expiredAdmission = a.status === "running"
-      && a.pendingAdmissions.filter((entry) => nowMs - entry.admittedAt >= state.staleThresholdMs);
+      && a.pendingAdmissions.filter((entry) =>
+        !entry.driverAcknowledged && nowMs - entry.admittedAt >= state.staleThresholdMs);
     if (expiredAdmission && expiredAdmission.length > 0 && a.execution.sessionInstanceId !== null) {
       agents[id] = {
         ...a,
