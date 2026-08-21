@@ -596,9 +596,10 @@ export class AgentProcessManager {
     }
     const entries = [...this.sessions.entries()];
     for (const [agentId] of entries) this.abortCurrentTurn(agentId, "shutdown");
-    await Promise.all(entries.map(([, session]) =>
-      Promise.resolve(session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS })),
-    ));
+    await Promise.all(entries.map(async ([, session]) => {
+      const receipt = await session.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS });
+      if (receipt.status === "already_stopping") await session.closed;
+    }));
     this.sessions.clear();
   }
   snapshot(): ManagerState {

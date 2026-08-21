@@ -4,10 +4,10 @@
  * These two live together on purpose: they're opposite ends of the SAME
  * contract. `spawnAgentProcess` is the ONLY way a driver may start an agent
  * CLI — it always spawns `detached` on POSIX, making the child the leader of
- * its own process group (pgid = pid). That's what lets `killProcessTree`
- * signal the negative pid to reach the whole group — the CLI plus any MCP
- * servers / tool subprocesses it spawns — instead of just the leader, which
- * would otherwise leave grandchildren orphaned.
+ * its own process group (pgid = pid). `killProcessTree` snapshots that exact
+ * root's descendants before signaling, then retains authority over the root
+ * group plus any captured subprocess groups that detached from it. This keeps
+ * independently-grouped MCP servers / tools from becoming orphans.
  *
  * BackendAdapter files must NOT call `child_process.spawn` directly for the agent CLI
  * — always go through `spawnAgentProcess` here, so the detached contract
@@ -18,7 +18,7 @@
  * tree even after a `.cmd`/runtime root exits; explicit stop uses `taskkill`
  * against that supervisor and the kernel job closes over any remaining child.
  */
-import { spawn, type ChildProcess } from "child_process";
+import { execFileSync, spawn, type ChildProcess } from "child_process";
 import { randomUUID } from "node:crypto";
 import { createServer, type Socket } from "node:net";
 import { PassThrough } from "node:stream";
@@ -26,6 +26,9 @@ import { PassThrough } from "node:stream";
 const POLL_MS = 100;
 const FORCE_EXIT_WAIT_MS = 2_000;
 const TASKKILL_WAIT_MS = 2_000;
+const POSIX_TREE_CAPTURE_TIMEOUT_MS = 1_000;
+const POSIX_TREE_CAPTURE_MAX_BUFFER = 1_048_576;
+
 /**
  * Standard grace before SIGKILL when the manager stops a running session.
  * Every session-level stop path (logical stop, forced stop,
@@ -476,30 +479,88 @@ function isProcessGroupAlive(pid: number): boolean {
   }
 }
 
-/**
- * Best-effort group signal, ALWAYS followed by a direct pid signal —
- * regardless of whether the group signal succeeded, threw `ESRCH` (no such
- * process group — e.g. the child wasn't spawned detached), or threw anything
- * else. A group signal failure must never be mistaken for "the pid is dead":
- * that conflates two unrelated failure semantics and was the root cause of a
- * bug where stopped agents kept running forever (see
- * plans/fix-daemon-agent-process-kill.md). Signaling an already-dead pid is
- * safe — it just throws ESRCH too, caught and ignored below.
- */
-function signalTree(pid: number, signal: NodeJS.Signals): void {
-  if (isPosix) {
-    try {
-      process.kill(-pid, signal);
-    } catch {
-      // Most commonly ESRCH (no such process group — not detached, or
-      // already gone), but any failure here falls through the same way:
-      // never treat it as proof the pid itself is dead.
+interface PosixTreeTargets {
+  readonly pids: readonly number[];
+  readonly processGroups: readonly number[];
+}
+
+/** Capture one exact-root subtree before any signal can break its PPID links. */
+function capturePosixTreeTargets(rootPid: number, rootOwnsProcessGroup: boolean): PosixTreeTargets {
+  const fallback = (): PosixTreeTargets => ({
+    pids: [rootPid],
+    processGroups: rootOwnsProcessGroup ? [rootPid] : [],
+  });
+  let output: string;
+  try {
+    output = execFileSync("ps", ["-axo", "pid=,ppid=,pgid="], {
+      encoding: "utf8",
+      timeout: POSIX_TREE_CAPTURE_TIMEOUT_MS,
+      maxBuffer: POSIX_TREE_CAPTURE_MAX_BUFFER,
+    });
+  } catch {
+    return fallback();
+  }
+
+  const processGroupsByPid = new Map<number, number>();
+  const children = new Map<number, number[]>();
+  for (const line of output.split("\n")) {
+    const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)$/);
+    if (!match) continue;
+    const pid = Number(match[1]);
+    const ppid = Number(match[2]);
+    const pgid = Number(match[3]);
+    if (!Number.isSafeInteger(pid) || pid < 1 || !Number.isSafeInteger(ppid) || !Number.isSafeInteger(pgid)) {
+      continue;
+    }
+    processGroupsByPid.set(pid, pgid);
+    const siblings = children.get(ppid);
+    if (siblings) siblings.push(pid);
+    else children.set(ppid, [pid]);
+  }
+
+  const pids = new Set<number>([rootPid]);
+  const pending = [rootPid];
+  for (let index = 0; index < pending.length; index += 1) {
+    const parent = pending[index]!;
+    for (const child of children.get(parent) ?? []) {
+      if (pids.has(child)) continue;
+      pids.add(child);
+      pending.push(child);
     }
   }
-  try {
-    process.kill(pid, signal);
-  } catch {
-    // already dead
+
+  // Signal a captured PGID only when its group leader is itself in the exact
+  // root subtree. Every captured PID is also signalled directly, preserving
+  // authority without ever broadening termination to an unrelated group.
+  const processGroups = new Set<number>();
+  if (rootOwnsProcessGroup) processGroups.add(rootPid);
+  for (const targetPid of pids) {
+    const pgid = processGroupsByPid.get(targetPid);
+    if (pgid && pids.has(pgid)) processGroups.add(pgid);
+  }
+  return { pids: [...pids], processGroups: [...processGroups] };
+}
+
+function posixTargetsAreAlive(targets: PosixTreeTargets): boolean {
+  return targets.processGroups.some(isProcessGroupAlive) || targets.pids.some(isAlive);
+}
+
+/** Best-effort group signals followed by direct signals to every captured PID. */
+function signalPosixTargets(targets: PosixTreeTargets, signal: NodeJS.Signals): void {
+  for (const pgid of targets.processGroups) {
+    try {
+      process.kill(-pgid, signal);
+    } catch {
+      // An already-dead group is safe to ignore. Direct PID signals below are
+      // still required because group-signal failure is not proof of PID exit.
+    }
+  }
+  for (const pid of targets.pids) {
+    try {
+      process.kill(pid, signal);
+    } catch {
+      // already dead
+    }
   }
 }
 
@@ -574,19 +635,17 @@ export async function killProcessTree(
     return;
   }
 
-  // A detached CLI owns a process group whose lifetime can outlast its root:
-  // after TERM, the shell/runtime may exit while an MCP or tool descendant
-  // ignores the signal. Once a group exists, it—not the root pid—is the stop
-  // authority. Non-detached processes have no group at `-pid` and retain the
-  // direct-pid fallback.
-  const ownsProcessGroup = isProcessGroupAlive(pid);
-  const targetIsAlive = ownsProcessGroup
-    ? () => isProcessGroupAlive(pid)
-    : () => isAlive(pid);
-  if (!targetIsAlive()) return;
+  const rootOwnsProcessGroup = isProcessGroupAlive(pid);
+  if (!rootOwnsProcessGroup && !isAlive(pid)) return;
+
+  // Capture descendants before TERM can make the root exit and reparent an
+  // escaped MCP subgroup. The snapshot remains the sole termination authority
+  // through force escalation; no later global process-table scan is used.
+  const targets = capturePosixTreeTargets(pid, rootOwnsProcessGroup);
+  const targetIsAlive = () => posixTargetsAreAlive(targets);
 
   const graceMs = opts?.graceMs ?? DEFAULT_GRACE_MS;
-  signalTree(pid, "SIGTERM");
+  signalPosixTargets(targets, "SIGTERM");
 
   const deadline = Date.now() + graceMs;
   while (Date.now() < deadline) {
@@ -595,7 +654,7 @@ export async function killProcessTree(
   }
 
   if (targetIsAlive()) {
-    signalTree(pid, "SIGKILL");
+    signalPosixTargets(targets, "SIGKILL");
     const forceDeadline = Date.now() + FORCE_EXIT_WAIT_MS;
     while (targetIsAlive() && Date.now() < forceDeadline) {
       await new Promise((resolve) => setTimeout(resolve, POLL_MS));
