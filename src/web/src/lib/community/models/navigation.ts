@@ -7,6 +7,8 @@ export type Server = {
   id: string // nanoid
   name: string
   discriminator?: string
+  description?: string
+  ownerId?: string
   initial: string
   active: boolean
   mentions: number

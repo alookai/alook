@@ -141,6 +141,30 @@ describe("ShellFrameView", () => {
     expect(mocks.disconnect).toHaveBeenCalledTimes(1)
   })
 
+  it("composes the server-root list surface with desktop rail, sidebar, and landing content", async () => {
+    const sidebar = vi.fn(() => createElement("sidebar-content"))
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ShellFrameView, {
+        breakpoint: "desktop",
+        surface: "list",
+        navigationPending: false,
+        sidebar,
+        cancelPendingNavigation: vi.fn(),
+        rail,
+        profile,
+        inbox,
+      }, createElement("main-content")), { createNodeMock: () => ({ offsetWidth: 240 }) })
+    })
+
+    expect(renderer.root.findAllByType("server-rail")).toHaveLength(1)
+    expect(renderer.root.findAllByType("sidebar-content")).toHaveLength(1)
+    expect(renderer.root.findAllByType("main-content")).toHaveLength(1)
+    expect(sidebar).toHaveBeenCalledWith()
+
+    await act(async () => renderer.unmount())
+  })
+
   it("keeps mobile nav and messages branches distinct and omits status seeds", async () => {
     const sidebar = vi.fn(() => createElement("sidebar-content"))
     let renderer!: TestRenderer.ReactTestRenderer

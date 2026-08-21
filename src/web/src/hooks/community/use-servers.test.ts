@@ -7,15 +7,44 @@ vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
 }))
 
+type CapturedQueryConfig = {
+  enabled?: boolean
+  queryFn?: () => unknown
+}
+let capturedQueryConfig: CapturedQueryConfig | null = null
+let capturedHookQueryClient: QueryClient
+vi.mock("@tanstack/react-query", async () => {
+  const actual = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query")
+  return {
+    ...actual,
+    useQueryClient: () => capturedHookQueryClient,
+    useQuery: (config: CapturedQueryConfig) => {
+      capturedQueryConfig = config
+      return { data: undefined }
+    },
+  }
+})
+
 beforeEach(() => {
   apiFetchMock.mockReset()
+  capturedQueryConfig = null
+  capturedHookQueryClient = new QueryClient()
 })
 
 describe("useServers / serversQueryFn", () => {
   it("materialises raw server rows into render-ready Server shape", async () => {
     apiFetchMock.mockResolvedValueOnce({
       servers: [
-        { id: "srv_1", name: "Alook", discriminator: "0042", icon: null, role: "owner", mentions: 3 },
+        {
+          id: "srv_1",
+          name: "Alook",
+          discriminator: "0042",
+          description: "Build together",
+          icon: null,
+          ownerId: "u_1",
+          role: "owner",
+          mentions: 3,
+        },
         { id: "srv_2", name: "Beta", discriminator: "12345", icon: null, role: "member" },
       ],
     })
@@ -27,6 +56,8 @@ describe("useServers / serversQueryFn", () => {
     expect(data.servers[0].mentions).toBe(3)
     expect(data.servers[0].active).toBe(false)
     expect(data.servers[0].discriminator).toBe("0042")
+    expect(data.servers[0].description).toBe("Build together")
+    expect(data.servers[0].ownerId).toBe("u_1")
     // `unread` has been removed from the Server type — the mapper must not
     // project it. Pin the invariant so a future revival gets caught.
     expect((data.servers[0] as { unread?: boolean }).unread).toBeUndefined()
@@ -59,6 +90,18 @@ describe("useServers / serversQueryFn", () => {
 })
 
 describe("useServer / serverQueryFn", () => {
+  it("keeps the null-server query disabled without issuing API requests", async () => {
+    const { useServer } = await import("./use-servers")
+
+    useServer(null)
+
+    expect(capturedQueryConfig?.enabled).toBe(false)
+    const disabledQueryFn = capturedQueryConfig?.queryFn
+    expect(disabledQueryFn).toBeTypeOf("function")
+    await expect(disabledQueryFn?.()).rejects.toThrow("disabled")
+    expect(apiFetchMock).not.toHaveBeenCalled()
+  })
+
   it("composes a single server detail from canonical resources", async () => {
     const detail = { id: "srv_1", name: "Alook", description: "", icon: null, ownerId: "u_1" }
     apiFetchMock.mockImplementation(async (url: string) => {
@@ -72,7 +115,7 @@ describe("useServer / serverQueryFn", () => {
       throw new Error(`unexpected ${url}`)
     })
     const { serverQueryFn } = await import("./use-servers")
-    const data = await serverQueryFn("srv_1")()
+    const data = await serverQueryFn(new QueryClient(), "srv_1")()
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers")
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/categories")
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/channels")
@@ -81,6 +124,77 @@ describe("useServer / serverQueryFn", () => {
       { id: "cat_1", name: "Main", private: 0, channels: [{ id: "ch_1", name: "general", categoryId: "cat_1", active: false, unread: true }] },
       { id: "__uncategorized__", name: "", private: 0, channels: [{ id: "ch_2", name: "loose", categoryId: null, active: false, unread: false }] },
     ], forumUnreadState: {} })
+  })
+
+  it("joins the canonical servers request on cold concurrency and reuses warm caches", async () => {
+    let releaseServers!: (value: {
+      servers: Array<{
+        id: string
+        name: string
+        discriminator: string
+        description: string
+        icon: null
+        ownerId: string
+      }>
+    }) => void
+    const pendingServers = new Promise<Parameters<typeof releaseServers>[0]>((resolve) => {
+      releaseServers = resolve
+    })
+    apiFetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/community/servers") return pendingServers
+      if (url.endsWith("/categories")) return { categories: [] }
+      if (url.endsWith("/channels")) return { channels: [] }
+      if (url.endsWith("/unreads")) return { channelIds: [] }
+      throw new Error(`unexpected ${url}`)
+    })
+    const { serverQueryFn, serversQueryFn } = await import("./use-servers")
+    const qc = new QueryClient()
+    const list = qc.fetchQuery({
+      queryKey: communityKeys.servers(),
+      queryFn: serversQueryFn,
+      staleTime: Infinity,
+    })
+    const detail = qc.fetchQuery({
+      queryKey: communityKeys.server("srv_1"),
+      queryFn: serverQueryFn(qc, "srv_1"),
+      staleTime: Infinity,
+    })
+
+    await vi.waitFor(() => {
+      expect(apiFetchMock.mock.calls.filter(([url]) => url === "/api/community/servers")).toHaveLength(1)
+    })
+    releaseServers({
+      servers: [{
+        id: "srv_1",
+        name: "Alook",
+        discriminator: "0001",
+        description: "Build together",
+        icon: null,
+        ownerId: "u_1",
+      }],
+    })
+    await Promise.all([list, detail])
+    expect(apiFetchMock).toHaveBeenCalledTimes(4)
+    for (const resource of ["categories", "channels", "unreads"]) {
+      expect(apiFetchMock.mock.calls.filter(
+        ([url]) => url === `/api/community/servers/srv_1/${resource}`,
+      )).toHaveLength(1)
+    }
+
+    apiFetchMock.mockClear()
+    await Promise.all([
+      qc.fetchQuery({
+        queryKey: communityKeys.servers(),
+        queryFn: serversQueryFn,
+        staleTime: Infinity,
+      }),
+      qc.fetchQuery({
+        queryKey: communityKeys.server("srv_1"),
+        queryFn: serverQueryFn(qc, "srv_1"),
+        staleTime: Infinity,
+      }),
+    ])
+    expect(apiFetchMock).not.toHaveBeenCalled()
   })
 
   it("cold-boots a forum fallback from a canonical unread child outside the sidebar projection", async () => {
@@ -100,7 +214,7 @@ describe("useServer / serverQueryFn", () => {
     })
 
     const { serverQueryFn } = await import("./use-servers")
-    const data = await serverQueryFn("srv_1")()
+    const data = await serverQueryFn(new QueryClient(), "srv_1")()
 
     expect(data.categories[0]?.channels[0]?.unread).toBe(true)
     expect(data.forumUnreadState).toEqual({
@@ -120,11 +234,20 @@ describe("useServer / serverQueryFn", () => {
     const { serverQueryFn } = await import("./use-servers")
     const qc = new QueryClient()
     const key = communityKeys.server("srv_1")
-    await qc.fetchQuery({ queryKey: key, queryFn: serverQueryFn("srv_1") })
+    await qc.fetchQuery({ queryKey: key, queryFn: serverQueryFn(qc, "srv_1") })
     expect(qc.getQueryData(key)).toBeDefined()
     // Invalidating the servers() prefix invalidates the detail entry too.
     await qc.invalidateQueries({ queryKey: communityKeys.servers() })
     expect(qc.getQueryState(key)?.isInvalidated).toBe(true)
+
+    apiFetchMock.mockClear()
+    await qc.fetchQuery({
+      queryKey: key,
+      queryFn: serverQueryFn(qc, "srv_1"),
+      staleTime: Infinity,
+    })
+    expect(apiFetchMock.mock.calls.filter(([url]) => url === "/api/community/servers")).toHaveLength(1)
+    expect(apiFetchMock).toHaveBeenCalledTimes(4)
   })
 
   it("rejects a stale raw unread read instead of caching false read badges", async () => {
@@ -137,6 +260,6 @@ describe("useServer / serverQueryFn", () => {
     })
 
     const { serverQueryFn } = await import("./use-servers")
-    await expect(serverQueryFn("srv_1")()).rejects.toThrow("stale D1 read")
+    await expect(serverQueryFn(new QueryClient(), "srv_1")()).rejects.toThrow("stale D1 read")
   })
 })

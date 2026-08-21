@@ -1,6 +1,11 @@
 "use client"
 
-import { useQuery, type UseQueryResult } from "@tanstack/react-query"
+import {
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
@@ -40,6 +45,8 @@ export const serversQueryFn = async (): Promise<ServersResponse> => {
     id: s.id,
     name: s.name,
     discriminator: s.discriminator,
+    description: s.description ?? "",
+    ownerId: s.ownerId,
     initial: avatarInitial(s.name),
     active: false,
     // Defensive fallback: the API always projects `mentions` now, but during
@@ -52,12 +59,19 @@ export const serversQueryFn = async (): Promise<ServersResponse> => {
   return { servers }
 }
 
+function serversQueryOptions() {
+  return {
+    queryKey: communityKeys.servers(),
+    queryFn: serversQueryFn,
+    staleTime: Infinity,
+  } as const
+}
+
 export function useServers(): UseQueryResult<ServersResponse> & {
   servers: Server[]
 } {
   const query = useQuery({
-    queryKey: communityKeys.servers(),
-    queryFn: serversQueryFn,
+    ...serversQueryOptions(),
     // WS-maintained like the other server-scoped queries: server.update
     // live-patches this list (name/icon) and mention/member events invalidate
     // it to refresh counts. So a remount doesn't need to refetch — this is a
@@ -104,9 +118,12 @@ type UnreadResponse = {
   childChannels?: Array<{ id: string; parentChannelId: string }>
 }
 
-export const serverQueryFn = (serverId: string) => async (): Promise<ServerDetail> => {
+export const serverQueryFn = (
+  queryClient: QueryClient,
+  serverId: string,
+) => async (): Promise<ServerDetail> => {
   const [serverData, categoryData, channelData, unreadData] = await Promise.all([
-    apiFetch<{ servers: RawServerRow[] }>("/api/community/servers"),
+    queryClient.fetchQuery(serversQueryOptions()),
     apiFetch<{ categories: Array<Omit<Category, "channels"> & { serverId?: string }> }>(`/api/community/servers/${serverId}/categories`),
     apiFetch<{ channels: RawChannel[] }>(`/api/community/servers/${serverId}/channels`),
     apiFetch<UnreadResponse>(`/api/community/servers/${serverId}/unreads`),
@@ -150,10 +167,10 @@ export const serverQueryFn = (serverId: string) => async (): Promise<ServerDetai
   return {
     id: server.id,
     name: server.name,
-    discriminator: server.discriminator,
+    discriminator: server.discriminator ?? "",
     description: server.description ?? "",
-    icon: server.icon,
-    ownerId: server.ownerId,
+    icon: server.icon ?? null,
+    ownerId: server.ownerId ?? "",
     categories,
     forumUnreadState,
   }
@@ -167,10 +184,13 @@ export const serverQueryFn = (serverId: string) => async (): Promise<ServerDetai
 export function useServer(
   serverId: string | null,
 ): UseQueryResult<ServerDetail> & { server: ServerDetail | null } {
+  const queryClient = useQueryClient()
   const enabled = !!serverId
   const query = useQuery({
     queryKey: enabled ? communityKeys.server(serverId!) : communityKeys.server("__none__"),
-    queryFn: enabled ? serverQueryFn(serverId!) : (() => Promise.reject(new Error("disabled"))),
+    queryFn: enabled
+      ? serverQueryFn(queryClient, serverId!)
+      : (() => Promise.reject(new Error("disabled"))),
     enabled,
     // WS events (member.*, channel/category changes) live-patch this
     // ServerDetail cache, so a remount doesn't need to refetch — this is a

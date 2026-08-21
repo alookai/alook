@@ -177,7 +177,14 @@ export function useUpdateServer() {
           ? {
             ...prev,
             servers: prev.servers.map((s) =>
-              s.id === args.serverId ? { ...s, name: args.name, initial: avatarInitial(args.name) } : s,
+              s.id === args.serverId
+                ? {
+                  ...s,
+                  name: args.name,
+                  description: args.description,
+                  initial: avatarInitial(args.name),
+                }
+                : s,
             ),
           }
           : prev,
