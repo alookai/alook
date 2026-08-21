@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import type { ServerDetail } from "@/hooks/community/use-servers"
 import { useCommunityStore } from "@/stores/community"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 import {
@@ -28,6 +29,20 @@ export function projectChannelScopeEviction(
         exact: true,
       })
     }
+    queryClient.setQueryData<ServerDetail | undefined>(
+      communityKeys.server(serverId),
+      (server) => {
+        if (!server) return server
+        let changed = false
+        const categories = server.categories.map((category) => {
+          const channels = category.channels.filter((channel) => channel.id !== channelId)
+          if (channels.length === category.channels.length) return category
+          changed = true
+          return { ...category, channels }
+        })
+        return changed ? { ...server, categories } : server
+      },
+    )
     if (useCommunityStore.getState().currentChannelId === channelId) {
       useCommunityStore.getState().setCurrentChannelMeta(null)
     }
