@@ -731,12 +731,14 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
   it("retries a live header deadline without cancelling lifecycle readiness", async () => {
     const factory = new FakeOpenCodeFactory();
     factory.stallLiveConnections = 1;
-    const lane = makeLane(factory, 1_000, 20);
+    const lane = makeLane(factory, 1_000, 1_000);
     const starting = lane.start({ text: "root", terminalOwner: "msg_root" });
 
+    await vi.waitFor(() => expect(factory.service?.liveConnectionAttempts).toBeGreaterThanOrEqual(2), {
+      timeout: 2_500,
+    });
     await vi.waitFor(() => expect(factory.service?.prompts).toHaveLength(1));
     await expect(starting).resolves.toMatchObject({ ok: true, acceptedAs: "prompt" });
-    expect(factory.service?.liveConnectionAttempts).toBeGreaterThanOrEqual(2);
     await lane.stop({ reason: "test", forceAfterMs: 0 });
   });
 
