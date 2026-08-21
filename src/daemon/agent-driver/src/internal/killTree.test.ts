@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { spawn, type ChildProcess } from "child_process";
+import { execFileSync, spawn, type ChildProcess } from "child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -173,6 +173,73 @@ describe("killProcessTree", () => {
     tempDirs.splice(tempDirs.indexOf(cwd), 1);
   });
 
+  it("kills a Cursor-like MCP subtree that detached into its own process group", async () => {
+    if (process.platform === "win32") return;
+    const cwd = mkdtempSync(join(tmpdir(), "agent-driver-cursor-mcp-tree-"));
+    tempDirs.push(cwd);
+    const leafModule = join(cwd, "context7.mjs");
+    const mcpModule = join(cwd, "mcp.mjs");
+    const cursorModule = join(cwd, "cursor.mjs");
+    writeFileSync(
+      leafModule,
+      "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);\n",
+    );
+    writeFileSync(mcpModule, `
+      import { spawn } from "node:child_process";
+      const child = spawn(process.execPath, [${JSON.stringify(leafModule)}], {
+        cwd: process.cwd(),
+        stdio: "ignore",
+      });
+      child.once("spawn", () => process.stdout.write(String(process.pid) + " " + String(child.pid) + "\\n"));
+      process.on("SIGTERM", () => {});
+      setInterval(() => {}, 1000);
+    `);
+    writeFileSync(cursorModule, `
+      import { spawn } from "node:child_process";
+      const mcp = spawn(process.execPath, [${JSON.stringify(mcpModule)}], {
+        cwd: process.cwd(),
+        detached: true,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      mcp.stdout.once("data", (chunk) => process.stdout.write(String(chunk)));
+      process.on("SIGTERM", () => {});
+      setInterval(() => {}, 1000);
+    `);
+
+    const cursor = spawnAgentProcess(process.execPath, [cursorModule], {
+      cwd,
+      env: process.env,
+    });
+    spawned.push(cursor);
+    await new Promise((resolve) => cursor.once("spawn", resolve));
+    const lines = createInterface({ input: cursor.stdout! });
+    const [mcpPid, context7Pid] = await new Promise<[number, number]>((resolve, reject) => {
+      lines.once("line", (line) => {
+        const [mcp, context7] = line.split(" ").map(Number);
+        resolve([mcp, context7]);
+      });
+      cursor.once("exit", () => reject(new Error("Cursor fixture exited before reporting its MCP subtree")));
+    });
+    lines.close();
+    spawnedDescendantPids.push(mcpPid, context7Pid);
+    const mcpPgid = Number(execFileSync(
+      "ps",
+      ["-o", "pgid=", "-p", String(mcpPid)],
+      { encoding: "utf8" },
+    ).trim());
+    expect(mcpPgid).toBe(mcpPid);
+    expect(mcpPgid).not.toBe(cursor.pid);
+    expect(isAlive(cursor.pid!)).toBe(true);
+    expect(isAlive(mcpPid)).toBe(true);
+    expect(isAlive(context7Pid)).toBe(true);
+
+    await killProcessTree(cursor.pid!, { graceMs: 300 });
+
+    expect(isAlive(cursor.pid!)).toBe(false);
+    expect(isAlive(mcpPid)).toBe(false);
+    expect(isAlive(context7Pid)).toBe(false);
+  });
+
   it("keeps Windows tree authority when the CLI root exits before its descendant", async () => {
     if (process.platform !== "win32") return;
     const cwd = mkdtempSync(join(tmpdir(), "agent-driver-terminal-root-"));
@@ -253,7 +320,6 @@ describe("spawnAgentProcess", () => {
     await new Promise((r) => proc.once("spawn", r));
 
     // A detached child is its own process-group leader: pgid === pid.
-    const { execFileSync } = await import("child_process");
     const out = execFileSync("ps", ["-o", "pgid=", "-p", String(proc.pid)], { encoding: "utf8" }).trim();
     expect(Number(out)).toBe(proc.pid);
 
