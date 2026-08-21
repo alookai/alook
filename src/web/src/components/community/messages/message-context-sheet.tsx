@@ -21,7 +21,7 @@ import { usePinMessage, useUnpinMessage, useCreateThread, useToggleMark } from "
 import type { FileAttachment, ImagePreview, MessagesPage, Msg, Reaction, RenderMsg } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
-import { childChannelHref } from "@/lib/community/community-route"
+import { channelHref } from "@/lib/community/community-route"
 
 export type ReplyTarget = { id: string; authorName: string; text: string }
 
@@ -31,6 +31,25 @@ export type ReplyTarget = { id: string; authorName: string; text: string }
 const CONTEXT_LIMIT = 11
 
 type ScopeType = "channel" | "dm"
+
+export function openMessageContextThread({
+  type,
+  serverId,
+  threadId,
+  push,
+  close,
+}: {
+  type: ScopeType
+  serverId?: string
+  threadId: string
+  push: (href: string) => void
+  close: () => void
+}): boolean {
+  if (type === "dm" || !serverId) return false
+  push(channelHref(serverId, threadId))
+  close()
+  return true
+}
 
 // A DM (type=dm) and a thread are channel rows in the same id-space, so both
 // resolve through the one canonical door — no per-type URL fork. `type` is kept
@@ -311,12 +330,14 @@ export function MessageContextSheet({
     // Sheet's Reply-style handoff: navigate the main window to the thread and
     // close the sheet in the same gesture. Falls back to a no-op in the DM
     // case (threads live inside channels, not DMs).
-    if (type === "dm") return
-    const serverId = routeParams?.serverId
-    if (!serverId) return
-    router.push(childChannelHref(serverId, channelId, threadId))
-    onOpenChange(false)
-  }, [type, router, routeParams, channelId, onOpenChange])
+    openMessageContextThread({
+      type,
+      serverId: routeParams?.serverId,
+      threadId,
+      push: router.push,
+      close: () => onOpenChange(false),
+    })
+  }, [type, router, routeParams, onOpenChange])
 
   const onPreviewImage = useCallback((image: ImagePreview) => {
     uiHandlers.previewImage?.(image)

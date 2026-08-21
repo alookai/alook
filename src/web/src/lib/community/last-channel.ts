@@ -3,8 +3,8 @@
 // were; this remembers, per browser, the last channel/post opened in each
 // server so the server-landing page can restore to it.
 //
-// Deliberately narrow: it stores ONLY the route leaf (a serverId -> channelId or
-// parentId/channelId map), never scroll position or read-to-seq — those are
+// Deliberately narrow: it stores ONLY one channel id per server, never scroll
+// position or read-to-seq — those are
 // server read-state, a separate concern this must not touch. localStorage-only
 // (no backend, no daemon, no cross-device sync). Pure guarded wrappers (SSR +
 // privacy-mode safe) mirroring `composer-draft.ts` — any failure degrades to
@@ -23,11 +23,22 @@ export function lastChannelKey(serverId: string): string {
 }
 
 export function getLastChannel(serverId: string): string | null {
-  return readNavigationMemory(lastChannelKey(serverId))
+  const key = lastChannelKey(serverId)
+  const channelId = readNavigationMemory(key)
+  if (channelId?.includes("/")) {
+    clearNavigationMemory(key)
+    return null
+  }
+  return channelId
 }
 
 export function setLastChannel(serverId: string, channelId: string): void {
-  writeNavigationMemory(lastChannelKey(serverId), channelId)
+  const key = lastChannelKey(serverId)
+  if (channelId.includes("/")) {
+    clearNavigationMemory(key)
+    return
+  }
+  writeNavigationMemory(key, channelId)
 }
 
 /**
@@ -65,7 +76,7 @@ export function pickServerLandingChannel(
   channelIds: readonly string[],
   last: string | null,
 ): string | undefined {
-  if (last !== null) return last
+  if (last !== null && !last.includes("/")) return last
   return channelIds[0]
 }
 

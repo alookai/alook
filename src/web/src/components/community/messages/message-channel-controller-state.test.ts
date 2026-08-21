@@ -341,7 +341,7 @@ describe("useMessageChannelController", () => {
   })
 
   it("consumes seq on the current canonical child route and preserves other query state", () => {
-    mocks.pathname = "/c/channels/server_1/parent_1/channel_1"
+    mocks.pathname = "/c/channels/server_1/channel_1"
     mocks.seq = "7"
     act(() => {
       TestRenderer.create(React.createElement(Probe, { value: props() }))
@@ -351,7 +351,7 @@ describe("useMessageChannelController", () => {
       serverId: "server_1", channelId: "channel_1", label: "general", seq: 7,
     })
     expect(mocks.router.replace).toHaveBeenCalledWith(
-      "/c/channels/server_1/parent_1/channel_1?keep=1",
+      "/c/channels/server_1/channel_1?keep=1",
       { scroll: false },
     )
   })

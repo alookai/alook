@@ -47,6 +47,19 @@ describe("last-channel", () => {
     expect(getLastChannel("srv_1")).toBe("ch_2")
   })
 
+  it("clears a deployed parent/child value on read", () => {
+    storage[lastChannelKey("srv_1")] = "parent_1/child_1"
+    expect(getLastChannel("srv_1")).toBeNull()
+    expect(storage[lastChannelKey("srv_1")]).toBeUndefined()
+  })
+
+  it("rejects a future slash write and clears the prior valid value", () => {
+    setLastChannel("srv_1", "child_1")
+    setLastChannel("srv_1", "parent_1/child_1")
+    expect(getLastChannel("srv_1")).toBeNull()
+    expect(storage[lastChannelKey("srv_1")]).toBeUndefined()
+  })
+
   it("returns null (never throws) when localStorage.getItem throws", () => {
     vi.stubGlobal("localStorage", {
       getItem: vi.fn(() => {
@@ -127,9 +140,9 @@ describe("pickServerLandingChannel", () => {
 })
 
 describe("pickServerLandingHref", () => {
-  it("restores a canonical parent/child leaf", () => {
+  it("rejects a superseded parent/child leaf and falls back safely", () => {
     expect(pickServerLandingHref("srv_1", ["ch_1"], "forum_1/post_1")).toBe(
-      "/c/channels/srv_1/forum_1/post_1",
+      "/c/channels/srv_1/ch_1",
     )
   })
 
