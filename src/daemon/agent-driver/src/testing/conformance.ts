@@ -78,7 +78,8 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 /**
- * Reusable black-box receipt/idempotency suite for third-party adapter authors.
+ * Reusable black-box receipt/idempotency suite for repository adapter
+ * implementations.
  * The fixture supplies only a public session and a deterministic way to finish
  * its first turn; the suite does not reach into adapter internals.
  */

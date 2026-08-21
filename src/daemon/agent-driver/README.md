@@ -1,19 +1,20 @@
 # @alook/agent-driver
 
-Standalone logical-session drivers for Claude, Codex, Cursor, OpenCode, and Pi.
+Repository-private logical-session drivers for Claude, Codex, Cursor, OpenCode,
+and Pi.
 
-The public API owns backend lifecycle, message admission, buffering, queueing,
-interrupts, stop deadlines, and normalized events. Consumers select a backend
-and interact with one `AgentSession`; process and SDK implementation details are
-internal.
+The package's exported contract owns backend lifecycle, message admission,
+buffering, queueing, interrupts, stop deadlines, and normalized events. The
+daemon selects a backend and interacts with one `AgentSession`; process and SDK
+implementation details are internal.
 
 The package root exposes only the logical SDK/session/event/result contract.
-`@alook/agent-driver/testing` contains black-box public-session fixtures.
-Adapter authors use the separately versioned `@alook/agent-driver/adapter-author`
-extension boundary; process and vendor-SDK declarations are intentionally absent
-from both the root and `/testing` declarations.
-Daemon embedders use the narrow `@alook/agent-driver/host` boundary for host
-resource preparation and the host-enabled built-in SDK factory.
+`@alook/agent-driver/testing` contains black-box exported-session fixtures.
+Repository adapters use the separately versioned
+`@alook/agent-driver/adapter-author` extension boundary; process and vendor-SDK
+declarations are intentionally absent from both the root and `/testing`
+declarations. The daemon uses the narrow `@alook/agent-driver/host` boundary for
+host resource preparation and the host-enabled built-in SDK factory.
 
 ```ts
 import { createAgentDriverSdk } from "@alook/agent-driver";
@@ -72,9 +73,9 @@ SDK session and used prompt/steer/abort/dispose on that session; contract v1
 formalizes that existing persistent behavior as an `in_process_sdk`
 `RuntimeLane`.
 
-## Adapter-author contract v1 migration
+## Repository adapter contract v1 migration
 
-Adapter authors must import `ADAPTER_AUTHOR_CONTRACT_VERSION` from
+Repository adapters must import `ADAPTER_AUTHOR_CONTRACT_VERSION` from
 `@alook/agent-driver/adapter-author` and set every
 `AgentBackendRegistration.contractVersion` to that value (currently the numeric
 literal `1`). Missing, older, and unknown newer versions fail closed before host
@@ -101,7 +102,7 @@ Only an incompatible `/adapter-author` change increments the latter.
 
 ## Diagnostics
 
-`session.snapshot().diagnostics` is the public, read-only diagnostic surface.
+`session.snapshot().diagnostics` is the exported, read-only diagnostic surface.
 `deliveryPhase` comes from the same logical-session facts that own admission and
 FIFO delivery. Its fixed precedence is admission wait, in-flight steering,
 next-turn queue, compaction, review, tool wait, generic work, then idle. This
@@ -122,12 +123,12 @@ Every numeric metric is finite and non-negative. A latency or dwell value is a
 
 ## Migration from daemon-owned runtimes
 
-Consumers should create one `AgentSession`, attach its event iterator before
-`start`, and keep that session until `closed` settles. Do not spawn a backend per
-turn or infer completion from text, idle notifications, process exit, or SDK
-callbacks that do not own the current terminal receipt. Each command settles
-exactly once through `command_accepted` or `command_failed`; a queued receipt is
-not final.
+Daemon integrations should create one `AgentSession`, attach its event iterator
+before `start`, and keep that session until `closed` settles. Do not spawn a
+backend per turn or infer completion from text, idle notifications, process
+exit, or SDK callbacks that do not own the current terminal receipt. Each
+command settles exactly once through `command_accepted` or `command_failed`; a
+queued receipt is not final.
 
 Cursor moved from one-shot `--print` execution to one persistent ACP session,
 and OpenCode moved from one-shot `run` execution to one authenticated loopback

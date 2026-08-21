@@ -22,7 +22,8 @@
 ### Compatibility
 
 `AgentSessionSnapshot` gains one readonly structured field, `diagnostics`. This
-is an additive public API change. There is no `apmPhase` compatibility alias.
+is an additive change to the private workspace API. There is no `apmPhase`
+compatibility alias.
 Code that constructs snapshot test doubles must add `diagnostics`; code that
 only reads existing snapshot fields remains source compatible.
 
@@ -32,7 +33,7 @@ allowlisted metric event and is not public telemetry.
 
 ### Adapter-author contract v1
 
-Third-party registrations must use the exported
+Repository adapter registrations must use the exported
 `ADAPTER_AUTHOR_CONTRACT_VERSION` and set `contractVersion: 1`. Adapters must
 declare execution lifetime, opaque transport/protocol, wake behavior, and
 terminal ownership; registration capabilities must match those declarations.
@@ -47,6 +48,6 @@ must report incompatible/unhealthy and must not select a one-shot fallback.
 The Cursor and OpenCode migrations can be reverted independently. Revert the
 Cursor stack (`94b864c8`, `9e9f1697`, `3ca4ff65`) or OpenCode stack
 (`c2d98fb4`, `ba2b2121`) newest first, without reverting the shared contract.
-Do not release a rollback that restores or auto-selects `cursor-agent --print`
+Do not ship a rollback that restores or auto-selects `cursor-agent --print`
 or `opencode run`; disable the affected backend or surface it as
 incompatible/unhealthy until its required ACP/v2 capability is available.

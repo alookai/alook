@@ -1,7 +1,8 @@
 {
   "name": "@alook/agent-driver",
   "version": "0.1.14",
-  "description": "Standalone logical-session drivers for supported AI coding agents.",
+  "private": true,
+  "description": "Private workspace logical-session drivers for supported AI coding agents.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -37,9 +38,6 @@
     "type": "git",
     "url": "git+https://github.com/alookai/alook.git",
     "directory": "src/daemon/agent-driver"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/prune-dist.mjs && node scripts/prepare-dist.mjs",
