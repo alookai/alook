@@ -587,7 +587,7 @@ export class AgentProcessManager {
     if (!session) return;
     this.abortCurrentTurn(agentId, "requested_stop");
     await session.stop({ reason: "owner_request", forceAfterMs: SESSION_STOP_GRACE_MS });
-    this.sessions.delete(agentId);
+    if (this.sessions.get(agentId) === session) this.sessions.delete(agentId);
   }
   async stopAll(): Promise<void> {
     if (this.tickTimer) {

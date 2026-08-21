@@ -205,9 +205,12 @@ function daemonFakeSession(options: {
       if (options.establish !== false) {
         await session.fire("runtime_event", { kind: "session_init", sessionId: "test-session" });
       }
+      emit({ type: "command_accepted", commandId: input.id, turnId: "daemon-test-turn", delivery: "prompt" } as never);
+      emit({ type: "turn_started", turnId: "daemon-test-turn", commandIds: [input.id] } as never);
       return { status: "accepted", delivery: "prompt", commandId: input.id, turnId: "daemon-test-turn" };
     },
     async send(input) {
+      emit({ type: "command_accepted", commandId: input.id, turnId: "daemon-test-turn", delivery: "steer" } as never);
       return { status: "accepted", delivery: "steer", commandId: input.id, turnId: "daemon-test-turn" };
     },
     async interrupt() { return { status: "not_running" }; },

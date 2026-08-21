@@ -91,7 +91,7 @@ interface FakeSession extends TestAgentSession {
   startRejector?: (err: unknown) => void;
 }
 
-function fakeSession(): FakeSession {
+function fakeSession(sessionInstanceId = "test-instance"): FakeSession {
   type Event = AgentEvent<BuiltinBackendSpecs, "codex">;
   const queued: Event[] = [];
   const waiters: Array<(value: IteratorResult<Event>) => void> = [];
@@ -102,7 +102,7 @@ function fakeSession(): FakeSession {
     const event = {
       ...payload,
       sequence: ++sequence,
-      sessionInstanceId: "test-instance",
+      sessionInstanceId,
       at: Date.now(),
     } as Event;
     const waiter = waiters.shift();
@@ -112,7 +112,7 @@ function fakeSession(): FakeSession {
   const s = {
     backend: "codex",
     capabilities: {} as TestAgentSession["capabilities"],
-    sessionInstanceId: "test-instance",
+    sessionInstanceId,
     events: {
       maxBufferedBytes: 4_194_304 as const,
       [Symbol.asyncIterator]() {
@@ -153,7 +153,7 @@ function fakeSession(): FakeSession {
     async stop() { return { status: "accepted" as const, requestId: "test-stop" }; },
     snapshot() {
       return {
-        sessionInstanceId: "test-instance",
+        sessionInstanceId,
         state: "working" as const,
         queuedCommands: [],
         lastEventSequence: sequence,
@@ -624,6 +624,78 @@ describe("AgentProcessManager — session race conditions", () => {
     const spawnLogs = logger.calls.info.filter(([m]) => m === "spawning agent");
     expect(spawnLogs).toHaveLength(2);
   });
+
+  it.each(["reset", "model_switch"] as const)(
+    "%s keeps an exit-driven replacement session when the old stop resolves late",
+    async (restartKind) => {
+      let now = 0;
+      const oldSession = fakeSession("restart-race-old");
+      const replacementSession = fakeSession("restart-race-new");
+      const created: FakeSession[] = [];
+      const factory: SessionFactory = () => {
+        const session = created.length === 0 ? oldSession : replacementSession;
+        created.push(session);
+        return session;
+      };
+      let releaseOldStop!: () => void;
+      vi.spyOn(oldSession, "stop").mockImplementation(() => new Promise((resolve) => {
+        releaseOldStop = () => resolve({ status: "accepted", requestId: "restart-race-stop" });
+      }));
+      const mgr = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"),
+        baseContextFor: () => ({
+          workingDirectory: "/tmp",
+          agentId: "a1",
+          standingPrompt: "",
+          config: {} as LaunchContext["config"],
+          credentialProxy: {} as LaunchContext["credentialProxy"],
+        }),
+        sessionFactory: factory,
+        now: () => now,
+        resetStuckThresholdMs: 100,
+      });
+      const runtimeConfig: RuntimeConfig = {
+        version: 1,
+        runtime: "codex",
+        model: { kind: "default" },
+        mode: { kind: "default" },
+      };
+      const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+      mgr.register("a1", { runtimeConfig, launchId: "wake-launch" });
+      mgr.deliver("a1", { seq: 1, text: "before restart" });
+      oldSession.startResolver?.();
+      await flush();
+      expect(mgr.snapshot().agents.a1).toMatchObject({ status: "running", resetting: false });
+
+      const restart = restartKind === "reset"
+        ? mgr.resetSession("a1", { runtimeConfig, launchId: "restart-launch", rewakePrompt: "rewake" })
+        : mgr.switchModel("a1", { runtimeConfig, launchId: "restart-launch", rewakePrompt: "rewake" });
+
+      await oldSession.fire("exit", { reason: "requested", code: 0, signal: null });
+      await flush();
+      expect(created).toEqual([oldSession, replacementSession]);
+
+      releaseOldStop();
+      await restart;
+      replacementSession.startResolver?.();
+      await flush();
+      expect(mgr.snapshot().agents.a1).toMatchObject({ status: "running", resetting: false });
+
+      const send = vi.spyOn(replacementSession, "send");
+      mgr.deliver("a1", { seq: 2, text: "after restart" });
+      expect(send).toHaveBeenCalledTimes(1);
+      await replacementSession.fire("runtime_event", { kind: "turn_end" });
+
+      now = 1_000;
+      const effects = (mgr as unknown as {
+        dispatch(event: { type: "tick"; nowMs: number }): Array<{ type: string }>;
+      }).dispatch({ type: "tick", nowMs: now });
+      expect(effects.map((effect) => effect.type)).not.toContain("terminate_stalled");
+      expect(effects.map((effect) => effect.type)).not.toContain("force_exit");
+      expect(mgr.snapshot().agents.a1).toMatchObject({ status: "running", resetting: false });
+    },
+  );
 
   it("does NOT double-log session-ended when the process exit follows an explicit stop/terminate_stalled", async () => {
     vi.useFakeTimers();
