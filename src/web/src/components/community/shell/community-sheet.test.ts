@@ -2,7 +2,15 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const resizeHandle = vi.fn(() => null)
+const { resizeHandle, resizeHook } = vi.hoisted(() => ({
+  resizeHandle: vi.fn(() => null),
+  resizeHook: vi.fn(() => ({
+    width: 480,
+    onPointerDown: vi.fn(),
+    onPointerMove: vi.fn(),
+    onPointerUp: vi.fn(),
+  })),
+}))
 
 vi.mock("@/components/ui/sheet", () => {
   const pass = (type: string) =>
@@ -27,12 +35,7 @@ vi.mock("@/components/ui/button", () => ({
 }))
 
 vi.mock("@/components/ui/sheet-resize-handle", () => ({
-  useSheetResize: ({ defaultWidth }: { defaultWidth: number }) => ({
-    width: defaultWidth,
-    onPointerDown: vi.fn(),
-    onPointerMove: vi.fn(),
-    onPointerUp: vi.fn(),
-  }),
+  useSheetResize: resizeHook,
   SheetResizeHandle: (props: Record<string, unknown>) => resizeHandle(props),
 }))
 
@@ -56,7 +59,10 @@ function renderSheet(
 }
 
 describe("CommunitySheet contracts", () => {
-  beforeEach(() => resizeHandle.mockClear())
+  beforeEach(() => {
+    resizeHandle.mockClear()
+    resizeHook.mockClear()
+  })
 
   it("keeps sidecars non-modal, overlay-free, and resistant to outside dismissal", () => {
     const renderer = renderSheet({ mode: "sidecar" })
@@ -65,14 +71,8 @@ describe("CommunitySheet contracts", () => {
       disablePointerDismissal: true,
     })
     expect(renderer.root.findByType("sheet-content").props.showOverlay).toBe(false)
+    expect(resizeHook).toHaveBeenCalledWith()
     expect(resizeHandle).toHaveBeenCalledOnce()
-  })
-
-  it("preserves the message-context sidecar's 420px desktop width", () => {
-    const renderer = renderSheet({ mode: "sidecar", initialWidth: 420 })
-    expect(
-      renderer.root.findByType("sheet-content").props.style["--community-sheet-width"],
-    ).toBe("420px")
   })
 
   it.each(["task", "preview"] as const)(
@@ -84,8 +84,13 @@ describe("CommunitySheet contracts", () => {
         disablePointerDismissal: false,
       })
       expect(renderer.root.findByType("sheet-content").props.showOverlay).toBe(true)
-      if (mode === "task") expect(resizeHandle).not.toHaveBeenCalled()
-      else expect(resizeHandle).toHaveBeenCalledOnce()
+      if (mode === "task") {
+        expect(resizeHook).not.toHaveBeenCalled()
+        expect(resizeHandle).not.toHaveBeenCalled()
+      } else {
+        expect(resizeHook).toHaveBeenCalledWith()
+        expect(resizeHandle).toHaveBeenCalledOnce()
+      }
     },
   )
 
@@ -96,9 +101,19 @@ describe("CommunitySheet contracts", () => {
     expect(content.props.className).toContain("data-[side=right]:w-screen")
     expect(content.props.className).toContain("data-[side=right]:sm:inset-y-2")
     expect(content.props.className).toContain("data-[side=right]:sm:w-[min(var(--community-sheet-width),var(--community-sheet-max-width),calc(100vw-1rem))]")
-    expect(content.props.style["--community-sheet-width"]).toBe("520px")
+    expect(content.props.style["--community-sheet-width"]).toBe("480px")
+    expect(content.props.style["--community-sheet-max-width"]).toBe("80vw")
     expect(renderer.root.findByType("sheet-close").props.render.props.className).toContain("size-11")
     expect(resizeHandle).toHaveBeenCalledOnce()
+  })
+
+  it("keeps task width fixed without resize policy state", () => {
+    const renderer = renderSheet({ mode: "task" })
+    const content = renderer.root.findByType("sheet-content")
+    expect(content.props.style["--community-sheet-width"]).toBe("448px")
+    expect(content.props.style["--community-sheet-max-width"]).toBe("100vw")
+    expect(resizeHook).not.toHaveBeenCalled()
+    expect(resizeHandle).not.toHaveBeenCalled()
   })
 
   it("enforces 44px mobile footer targets without changing desktop button sizing", () => {

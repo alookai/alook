@@ -20,18 +20,7 @@ import {
 } from "@/components/ui/sheet-resize-handle"
 import { cn } from "@/lib/utils"
 
-type WidthConfig = {
-  defaultWidth: number
-  minWidth: number
-  maxWidthRatio: number
-  resizable: boolean
-}
-
-const MODE_CONFIG: Record<"sidecar" | "task" | "preview", WidthConfig> = {
-  sidecar: { defaultWidth: 380, minWidth: 280, maxWidthRatio: 0.6, resizable: true },
-  task: { defaultWidth: 448, minWidth: 320, maxWidthRatio: 1, resizable: false },
-  preview: { defaultWidth: 520, minWidth: 320, maxWidthRatio: 0.8, resizable: true },
-}
+const TASK_WIDTH = 448
 
 type CommunitySheetBaseProps = {
   open: boolean
@@ -41,10 +30,9 @@ type CommunitySheetBaseProps = {
   contentTestId?: string
 }
 
-type CommunitySheetProps = CommunitySheetBaseProps & (
-  | { mode: "sidecar" | "preview"; initialWidth?: number }
-  | { mode: "task"; initialWidth?: never }
-)
+type CommunitySheetProps = CommunitySheetBaseProps & {
+  mode: "sidecar" | "task" | "preview"
+}
 
 /**
  * Controlled shell for the community's right-hand surfaces.
@@ -58,17 +46,10 @@ export function CommunitySheet({
   open,
   onOpenChange,
   mode,
-  initialWidth,
   children,
   closeLabel = "Close",
   contentTestId,
 }: CommunitySheetProps) {
-  const config = MODE_CONFIG[mode]
-  const resize = useSheetResize({
-    defaultWidth: Math.max(config.minWidth, initialWidth ?? config.defaultWidth),
-    minWidth: config.minWidth,
-    maxWidthRatio: config.maxWidthRatio,
-  })
   const modal = mode !== "sidecar"
 
   return (
@@ -78,45 +59,96 @@ export function CommunitySheet({
       modal={modal}
       disablePointerDismissal={!modal}
     >
-      <SheetContent
-        data-testid={contentTestId}
-        data-community-sheet-mode={mode}
-        side="right"
-        showOverlay={modal}
-        showCloseButton={false}
-        style={{
-          "--community-sheet-width": `${resize.width}px`,
-          "--community-sheet-max-width": `${config.maxWidthRatio * 100}vw`,
-          maxWidth: "none",
-        } as React.CSSProperties}
-        className={cn(
-          "data-[side=right]:h-dvh data-[side=right]:w-screen data-[side=right]:max-w-none data-[side=right]:overflow-hidden",
-          "data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:w-[min(var(--community-sheet-width),var(--community-sheet-max-width),calc(100vw-1rem))] data-[side=right]:sm:rounded-xl data-[side=right]:sm:border",
-        )}
-      >
-        {config.resizable && (
-          <SheetResizeHandle
-            onPointerDown={resize.onPointerDown}
-            onPointerMove={resize.onPointerMove}
-            onPointerUp={resize.onPointerUp}
-          />
-        )}
-        {children}
-        <SheetClose
-          render={
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="absolute top-0.5 right-0.5 z-20 size-11 sm:top-3 sm:right-3 sm:size-7"
-              aria-label={closeLabel}
-            />
-          }
+      {mode === "task" ? (
+        <CommunitySheetContent
+          mode={mode}
+          width={TASK_WIDTH}
+          maxWidth="100vw"
+          closeLabel={closeLabel}
+          contentTestId={contentTestId}
         >
-          <XIcon />
-          <span className="sr-only">{closeLabel}</span>
-        </SheetClose>
-      </SheetContent>
+          {children}
+        </CommunitySheetContent>
+      ) : (
+        <ResizableCommunitySheetContent
+          mode={mode}
+          closeLabel={closeLabel}
+          contentTestId={contentTestId}
+        >
+          {children}
+        </ResizableCommunitySheetContent>
+      )}
     </Sheet>
+  )
+}
+
+type CommunitySheetContentProps = Pick<
+  CommunitySheetBaseProps,
+  "children" | "closeLabel" | "contentTestId"
+> & {
+  mode: "sidecar" | "task" | "preview"
+  width: number
+  maxWidth: string
+  resize?: React.ComponentProps<typeof SheetResizeHandle>
+}
+
+function CommunitySheetContent({
+  mode,
+  width,
+  maxWidth,
+  resize,
+  children,
+  closeLabel,
+  contentTestId,
+}: CommunitySheetContentProps) {
+  return (
+    <SheetContent
+      data-testid={contentTestId}
+      data-community-sheet-mode={mode}
+      side="right"
+      showOverlay={mode !== "sidecar"}
+      showCloseButton={false}
+      style={{
+        "--community-sheet-width": `${width}px`,
+        "--community-sheet-max-width": maxWidth,
+        maxWidth: "none",
+      } as React.CSSProperties}
+      className={cn(
+        "data-[side=right]:h-dvh data-[side=right]:w-screen data-[side=right]:max-w-none data-[side=right]:overflow-hidden",
+        "data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:w-[min(var(--community-sheet-width),var(--community-sheet-max-width),calc(100vw-1rem))] data-[side=right]:sm:rounded-xl data-[side=right]:sm:border",
+      )}
+    >
+      {resize && <SheetResizeHandle {...resize} />}
+      {children}
+      <SheetClose
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="absolute top-0.5 right-0.5 z-20 size-11 sm:top-3 sm:right-3 sm:size-7"
+            aria-label={closeLabel}
+          />
+        }
+      >
+        <XIcon />
+        <span className="sr-only">{closeLabel}</span>
+      </SheetClose>
+    </SheetContent>
+  )
+}
+
+type ResizableCommunitySheetContentProps = Omit<
+  CommunitySheetContentProps,
+  "width" | "maxWidth" | "resize" | "mode"
+> & {
+  mode: "sidecar" | "preview"
+}
+
+function ResizableCommunitySheetContent(props: ResizableCommunitySheetContentProps) {
+  const resize = useSheetResize()
+
+  return (
+    <CommunitySheetContent {...props} width={resize.width} maxWidth="80vw" resize={resize} />
   )
 }
 

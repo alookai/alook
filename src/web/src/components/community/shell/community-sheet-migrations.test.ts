@@ -22,14 +22,8 @@ describe("CommunitySheet migrations", () => {
     expect(source).not.toContain("resizable")
   })
 
-  it("allows only MessageContext to override the sidecar initial width", () => {
-    const context = readFileSync(
-      new URL("../messages/message-context-sheet.tsx", import.meta.url),
-      "utf8",
-    )
-    expect(context).toContain("initialWidth={420}")
-
-    for (const [path] of migrations.filter(([path]) => !path.includes("message-context"))) {
+  it("does not expose per-feature width overrides", () => {
+    for (const [path] of migrations) {
       const source = readFileSync(new URL(path, import.meta.url), "utf8")
       expect(source).not.toContain("initialWidth=")
     }
