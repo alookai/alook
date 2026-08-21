@@ -103,7 +103,7 @@ function fakeChannel() {
 }
 
 describe("AgentRouter — agent:wake", () => {
-  it("registers the runtime config, delivers the notice text, and acks the wake", async () => {
+  it("registers the runtime config, delivers a generic notice, and acks the wake", async () => {
     const { mgr, delivers, registers } = fakeManager();
     const { ch, wakeAcks, fire } = fakeChannel();
     const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "mock" }] });
@@ -118,7 +118,7 @@ describe("AgentRouter — agent:wake", () => {
     });
 
     expect(registers).toEqual([{ agentId: "a1", sessionId: undefined, launchId: "l1" }]);
-    expect(delivers).toEqual([{ agentId: "a1", text: "You have unread messages in channel /demo#1234/general.", seq: 7 }]);
+    expect(delivers).toEqual([{ agentId: "a1", text: "You have unread messages.", seq: 7 }]);
     expect(wakeAcks).toEqual([{ agentId: "a1", launchId: "l1", status: "ok" }]);
   });
 

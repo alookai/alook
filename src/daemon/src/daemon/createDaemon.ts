@@ -38,7 +38,7 @@ import { createLogger, type Logger } from "../logger.js";
 import type { AgentBackend } from "../drivers/index.js";
 import type { HostLaunchContext } from "../manager/hostContext.js";
 import type { RuntimeConfig } from "../runtimeConfig.js";
-import type { UnreadNotice, HostCommand } from "../server/contract.js";
+import type { HostCommand } from "../server/contract.js";
 import { formatHandle } from "@alook/shared/lib/discriminator";
 import type { DiagnosticCollectCommand } from "@alook/shared";
 import { createBuiltinAgentDriverSdk } from "@alook/agent-driver/host";
@@ -952,8 +952,6 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       }
       await enrollAgent(agentId);
     },
-    formatUnreadNoticeText: (notice: UnreadNotice) =>
-      `You have unread messages in channel ${notice.channel}.`,
   });
 
   // Machine lifecycle commands are claimed before diagnostics, bot observers,

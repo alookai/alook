@@ -999,7 +999,7 @@ describe("createDaemon — logging", () => {
     global.fetch = originalFetch;
   });
 
-  it("asks a woken agent to read unread messages without requiring a reply", async () => {
+  it("asks a woken agent to pull unread messages without exposing the selected channel", async () => {
     global.fetch = vi.fn(async (url: string | URL) => {
       const href = String(url);
       if (href.includes("/enroll-agent")) {
@@ -1043,7 +1043,9 @@ describe("createDaemon — logging", () => {
     );
     await new Promise((r) => setTimeout(r, 20));
 
+    expect(spawnedPrompt).toContain("You have unread messages.");
     expect(spawnedPrompt).toContain("Use `alook inbox pull` to read your messages.");
+    expect(spawnedPrompt).not.toContain("/demo#1234/general");
     expect(spawnedPrompt).not.toContain("message send");
 
     await daemon.stop();
