@@ -22,6 +22,7 @@ export type UseCommunityWsOptions = {
 }
 
 export type CommunityWsDispatchContext = {
+  deliveryMode: "legacy" | "batch"
   queryClient: QueryClient
   communityStore: ReturnType<typeof useCommunityStore.getState>
   wsStore: ReturnType<typeof useCommunityWsStore.getState>
@@ -50,7 +51,7 @@ export type MembershipEventContext = Pick<
 >
 export type SocialEventContext = Pick<
   CommunityWsHandlerContext,
-  "queryClient" | "sub" | "viewerUserIdRef" | "projection"
+  "deliveryMode" | "queryClient" | "sub" | "viewerUserIdRef" | "projection"
 >
 export type PresenceMachineEventContext = Pick<
   CommunityWsHandlerContext,

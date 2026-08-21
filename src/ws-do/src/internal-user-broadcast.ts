@@ -43,6 +43,8 @@ export function createInternalCommunityUserBroadcastRequest(
 
 export function createInternalCommunityUserBundleRequest(
   targetUserId: string,
+  operationId: string,
+  operationDigest: string,
   events: readonly unknown[],
 ): Request {
   const headers = new Headers({
@@ -52,7 +54,7 @@ export function createInternalCommunityUserBundleRequest(
   return new Request("http://internal/community-broadcast-bundle", {
     method: "POST",
     headers,
-    body: JSON.stringify({ events }),
+    body: JSON.stringify({ operationId, operationDigest, events }),
   })
 }
 

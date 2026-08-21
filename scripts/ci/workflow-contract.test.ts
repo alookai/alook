@@ -9,6 +9,9 @@ function normalizeWorkflow(text: string): string {
 
 const workflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "e2e-ui.yml"), "utf8"))
 const ciWorkflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "ci.yml"), "utf8"))
+const wsDoPackage = JSON.parse(
+  readFileSync(resolve(import.meta.dirname, "../../src/ws-do/package.json"), "utf8"),
+) as { scripts: Record<string, string> }
 const autoTagReleaseWorkflow = normalizeWorkflow(
   readFileSync(resolve(workflowRoot, "auto-tag-release.yml"), "utf8"),
 )
@@ -170,6 +173,14 @@ describe("Turbo CI execution", () => {
     expect(ciJob("build")).toContain(
       "run: pnpm build --filter=@alook/shared --filter=@alook/web --filter=@alook/cli --filter=@alook/email-worker --filter=@alook/ws-do --filter=@alook/wake-worker",
     )
+  })
+
+  it("runs the real Workers attachment gate through the standard ws-do test task", () => {
+    expect(wsDoPackage.scripts.test).toContain("pnpm run test:workers")
+    expect(wsDoPackage.scripts["test:workers"]).toContain("vitest.workers.config.mts")
+    expect(wsDoPackage.scripts["test:workers"]).toContain("--max-workers=1")
+    expect(wsDoPackage.scripts["test:workers"]).toContain("--no-isolate")
+    expect(ciJob("test-linux")).toContain("pnpm turbo run test --filter='!@alook/daemon'")
   })
 })
 

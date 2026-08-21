@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import type { WsMessage } from "@alook/shared"
+import {
+  COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
+  COMMUNITY_EVENTS_BATCH_CAPABILITY,
+  type WsMessage,
+} from "@alook/shared"
 import type { UseUserWsOptions } from "./use-user-ws"
 
 // --- Mock WebSocket ---
@@ -245,6 +249,52 @@ describe("useUserWs", () => {
       JSON.stringify({ type: "auth", token: "tok-123" }),
     ])
     expect(onMsg).not.toHaveBeenCalled()
+  })
+
+  it("advertises only an explicit community capability while the default auth bytes stay unchanged", async () => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), {
+      requestDaemonStatusOnAuth: false,
+      capabilities: [COMMUNITY_EVENTS_BATCH_CAPABILITY],
+    })
+
+    const ws = MockWebSocket.instances[0]
+    ws.simulateOpen()
+    expect(ws.sent).toEqual([JSON.stringify({
+      type: "auth",
+      token: "tok-123",
+      capabilities: [COMMUNITY_EVENTS_BATCH_CAPABILITY],
+    })])
+  })
+
+  it("keeps capability state isolated between same-page consumer sockets", async () => {
+    setupTokenFetch()
+    const mod = await import("./use-user-ws")
+    mod.useUserWs(vi.fn(), { requestDaemonStatusOnAuth: false })
+    await flushPromises()
+    const legacy = MockWebSocket.instances[0]
+
+    refs = new Map()
+    refCounter = 0
+    callbackMemo = new Map()
+    callbackCounter = 0
+    effectMemo = new Map()
+    effectCounter = 0
+    mod.useUserWs(vi.fn(), {
+      requestDaemonStatusOnAuth: false,
+      capabilities: [COMMUNITY_EVENTS_BATCH_CAPABILITY],
+    })
+    await flushPromises()
+    const capable = MockWebSocket.instances[1]
+
+    legacy.simulateOpen()
+    capable.simulateOpen()
+    expect(legacy.sent).toEqual([JSON.stringify({ type: "auth", token: "tok-123" })])
+    expect(capable.sent).toEqual([JSON.stringify({
+      type: "auth",
+      token: "tok-123",
+      capabilities: [COMMUNITY_EVENTS_BATCH_CAPABILITY],
+    })])
   })
 
   it("uses the web websocket route with the token response's local port", async () => {
@@ -851,6 +901,20 @@ describe("useUserWs", () => {
       payload: "x".repeat(65_536),
     })
     ws.simulateRawMessage(oversizedCommunity)
+    expect(onMessage).not.toHaveBeenCalled()
+
+    const legalLargeBatch = {
+      type: "community:events.batch",
+      payload: "x".repeat(70_000),
+    }
+    ws.simulateMessage(legalLargeBatch)
+    expect(onMessage).toHaveBeenCalledWith(legalLargeBatch)
+
+    onMessage.mockClear()
+    ws.simulateRawMessage(JSON.stringify({
+      type: "community:events.batch",
+      payload: "x".repeat(COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES),
+    }))
     expect(onMessage).not.toHaveBeenCalled()
 
     const generic = { type: "task.updated", payload: "x".repeat(65_536) }

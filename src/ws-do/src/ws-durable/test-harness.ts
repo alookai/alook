@@ -7,6 +7,11 @@ const loggerMocks = vi.hoisted(() => ({
   mockLogWarn: vi.fn(),
   mockLogError: vi.fn(),
 }))
+const deliveryTransportMocks = vi.hoisted(() => ({
+  encodePreparedCommunityBrowserEventBatch: vi.fn(),
+}))
+export const mockEncodePreparedCommunityBrowserEventBatch =
+  deliveryTransportMocks.encodePreparedCommunityBrowserEventBatch
 export const mockLogDebug = loggerMocks.mockLogDebug
 const mockLogInfo = loggerMocks.mockLogInfo
 export const mockLogWarn = loggerMocks.mockLogWarn
@@ -149,6 +154,10 @@ export const mockToSummary = vi.fn((row: any) => ({
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
+  mockEncodePreparedCommunityBrowserEventBatch.mockImplementation(
+    (input: Parameters<typeof actual.encodePreparedCommunityBrowserEventBatch>[0]) =>
+      actual.encodePreparedCommunityBrowserEventBatch(input),
+  )
   const noopLogger = {
     debug: mockLogDebug,
     info: mockLogInfo,
@@ -299,6 +308,9 @@ vi.mock("@alook/shared", async () => {
   }
   return {
     ...actual,
+    encodePreparedCommunityBrowserEventBatch: (
+      input: Parameters<typeof actual.encodePreparedCommunityBrowserEventBatch>[0],
+    ) => mockEncodePreparedCommunityBrowserEventBatch(input),
     // Real WS event-type strings the DO reads at runtime (#5 T2 — ws-do
     // broadcasts now use WS_EVENTS.* instead of raw literals). Values match
     // @alook/shared so the event assertions still hold.

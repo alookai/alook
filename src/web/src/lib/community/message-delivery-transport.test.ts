@@ -1,6 +1,8 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  COMMUNITY_DELIVERY_OPERATION_ID_HEADER,
   MESSAGE_DELIVERY_BODY_MAX_BYTES,
+  deriveCommunityDeliveryOperationId,
   type MessageDeliveryBatch,
 } from "@alook/shared"
 
@@ -87,6 +89,11 @@ function requestBatch(callIndex: number): MessageDeliveryBatch {
   return JSON.parse(init.body as string) as MessageDeliveryBatch
 }
 
+function requestOperationId(callIndex: number): string | null {
+  const init = bindingFetch.mock.calls[callIndex]?.[1] as RequestInit
+  return new Headers(init.headers).get(COMMUNITY_DELIVERY_OPERATION_ID_HEADER)
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   globalThis.fetch = globalFetch as unknown as typeof fetch
@@ -106,6 +113,7 @@ describe("sendMessageDeliveryBatch", () => {
       "http://internal/broadcast/community/message-delivery",
     )
     expect(requestBatch(0)).toEqual(batch())
+    expect(requestOperationId(0)).toBe(await deriveCommunityDeliveryOperationId("message-1"))
   })
 
   it("chunks 1,000 targets without dropping or duplicating a target", async () => {
@@ -148,6 +156,8 @@ describe("sendMessageDeliveryBatch", () => {
       expect(new TextEncoder().encode(init.body as string).byteLength)
         .toBeLessThanOrEqual(MESSAGE_DELIVERY_BODY_MAX_BYTES)
     }
+    expect(new Set(bindingFetch.mock.calls.map((_, index) => requestOperationId(index))))
+      .toEqual(new Set([await deriveCommunityDeliveryOperationId("message-1")]))
   })
 
   it("fails closed when even a single-target batch is oversized", async () => {
@@ -188,6 +198,7 @@ describe("sendMessageDeliveryBatch", () => {
     })
     expect(requestBatch(1).memberAdded).toBeUndefined()
     expect(requestBatch(1).parentProjection).toBeUndefined()
+    expect(requestOperationId(1)).toBe(requestOperationId(0))
     expect(globalFetch).not.toHaveBeenCalled()
     expect(broadcastToUsers).not.toHaveBeenCalled()
   })
@@ -201,6 +212,8 @@ describe("sendMessageDeliveryBatch", () => {
     expect(bindingFetch).toHaveBeenCalledTimes(3)
     expect(requestBatch(1).contentUserIds).toEqual(["u2"])
     expect(requestBatch(2).contentUserIds).toEqual(["u2"])
+    expect(requestOperationId(1)).toBe(requestOperationId(0))
+    expect(requestOperationId(2)).toBe(requestOperationId(0))
   })
 
   it.each([

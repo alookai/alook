@@ -37,7 +37,7 @@ type CommunityUnreadBump = Extract<
 // defensively).
 export function handleUnreadBump(
   event: CommunityUnreadBump,
-  { queryClient, viewerUserIdRef, sub }: SocialEventContext,
+  { deliveryMode, projection, queryClient, viewerUserIdRef, sub }: SocialEventContext,
 ) {
   const viewerId = viewerUserIdRef.current
   // `railChannelId` is the always-locatable fallback. A participating
@@ -46,6 +46,9 @@ export function handleUnreadBump(
   const railChannelId = event.railChannelId ?? event.channelId
   const targetServerId =
     event.serverId ?? useCommunityStore.getState().currentServerId
+  if (deliveryMode === "batch" && event.isMention && event.serverId) {
+    invalidateServersList(projection)
+  }
   const hasChildSidebarRow = !!targetServerId && event.channelId !== railChannelId &&
     hasProjectedForumSidebarThread(
       queryClient,
@@ -102,20 +105,22 @@ export function handleUnreadBump(
     // locate a rail row, so skip (the tree dot / inbox still reflect it).
     if (event.isMention && event.serverId) {
       const bumpServerId = event.serverId
-      queryClient.setQueryData<ServersResponse | undefined>(
-        communityKeys.servers(),
-        (prev) =>
-          prev
-            ? {
-              ...prev,
-              servers: prev.servers.map((s) =>
-                s.id === bumpServerId
-                  ? { ...s, mentions: s.mentions + 1 }
-                  : s,
-              ),
-            }
-            : prev,
-      )
+      if (deliveryMode === "legacy") {
+        queryClient.setQueryData<ServersResponse | undefined>(
+          communityKeys.servers(),
+          (prev) =>
+            prev
+              ? {
+                ...prev,
+                servers: prev.servers.map((s) =>
+                  s.id === bumpServerId
+                    ? { ...s, mentions: s.mentions + 1 }
+                    : s,
+                ),
+              }
+              : prev,
+        )
+      }
     }
   }
 }

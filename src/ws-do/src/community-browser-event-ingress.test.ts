@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from "vitest"
 import {
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
   COMMUNITY_BULK_BODY_MAX_BYTES,
+  deriveCommunityDeliveryOperationId,
   encodeCommunityBrowserEvent,
   encodeCommunityUserTargetPathSegment,
+  prepareCommunityDeliveryEvents,
   utf8ByteLength,
   type CommunityBotAuditEvent,
   type CommunityMessageCreate,
@@ -18,6 +20,7 @@ import {
   logCommunityBrowserEventRejected,
   normalizeCommunityBrowserEvent,
   readBoundedJsonRequest,
+  readCommunityBrowserEventBundleRequest,
   readCommunityBrowserEventRequest,
 } from "./community-browser-event-ingress"
 
@@ -148,6 +151,38 @@ describe("community browser event ingress", () => {
       .resolves.toMatchObject({ ok: true, byteCount: COMMUNITY_BROWSER_EVENT_MAX_BYTES })
     await expect(readCommunityBrowserEventRequest(requestFromBytes(`${message.body} `)))
       .resolves.toMatchObject({ ok: false, reason: "oversized" })
+  })
+
+  it("strictly validates bundle operation metadata and independently recomputes its digest", async () => {
+    const events = [
+      communityWsEventFixtures["community:message.create"],
+      communityWsEventFixtures["community:unread.bump"],
+    ]
+    const prepared = await prepareCommunityDeliveryEvents(events)
+    if (!prepared.ok) throw new Error("bundle fixture must prepare")
+    const operationId = await deriveCommunityDeliveryOperationId("message-1")
+    const body = {
+      operationId,
+      operationDigest: prepared.prepared.digest,
+      events: prepared.prepared.envelopes,
+    }
+    await expect(readCommunityBrowserEventBundleRequest(requestFromBytes(JSON.stringify(body))))
+      .resolves.toMatchObject({
+        ok: true,
+        operationId,
+        operationDigest: prepared.prepared.digest,
+        eventCount: 2,
+      })
+    for (const invalid of [
+      { ...body, operationId: "message:short" },
+      { ...body, operationDigest: "A".repeat(64) },
+      { ...body, operationDigest: "0".repeat(64) },
+      { ...body, events: [...body.events, { type: "community:future", contractVersion: 1 }] },
+      { ...body, extra: true },
+    ]) {
+      await expect(readCommunityBrowserEventBundleRequest(requestFromBytes(JSON.stringify(invalid))))
+        .resolves.toMatchObject({ ok: false, reason: "invalid-payload" })
+    }
   })
 
   it("locks target decoding and the exact worst-case strict bulk boundary", async () => {

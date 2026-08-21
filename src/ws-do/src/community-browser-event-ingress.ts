@@ -5,9 +5,15 @@ import {
   COMMUNITY_USER_TARGET_PATH_PREFIX,
   decodeCommunityBrowserEvent,
   encodeCommunityBrowserEvent,
+  isCommunityDeliveryDigest,
+  isCommunityDeliveryOperationId,
   isValidCommunityUserTarget,
+  prepareCommunityDeliveryEvents,
   type CommunityBrowserEventFailureReason,
   type CommunityBrowserEventEnvelopeV1,
+  type CommunityDeliveryOperationId,
+  type CommunityDeliveryDigest,
+  type PreparedCommunityDeliveryEvents,
   type CommunityWsEvent,
 } from "@alook/shared"
 
@@ -124,7 +130,13 @@ export async function readCommunityBrowserEventRequest(
 export async function readCommunityBrowserEventBundleRequest(
   request: Request,
 ): Promise<
-  | { ok: true; bodies: string[]; eventCount: number }
+  | {
+      ok: true
+      operationId: CommunityDeliveryOperationId
+      operationDigest: CommunityDeliveryDigest
+      prepared: PreparedCommunityDeliveryEvents
+      eventCount: number
+    }
   | CommunityBrowserEventIngressFailure
 > {
   const parsed = await readBoundedJsonRequest(request, MESSAGE_DELIVERY_BODY_MAX_BYTES)
@@ -133,12 +145,25 @@ export async function readCommunityBrowserEventBundleRequest(
     typeof parsed.value !== "object"
     || parsed.value === null
     || Array.isArray(parsed.value)
-    || Object.keys(parsed.value).length !== 1
+    || Object.keys(parsed.value).length !== 3
+    || !Object.prototype.hasOwnProperty.call(parsed.value, "operationId")
+    || !Object.prototype.hasOwnProperty.call(parsed.value, "operationDigest")
     || !Object.prototype.hasOwnProperty.call(parsed.value, "events")
   ) {
     return { ok: false, reason: "invalid-payload", type: "unknown", byteCount: parsed.byteCount }
   }
-  const events = (parsed.value as { events?: unknown }).events
+  const input = parsed.value as {
+    operationId?: unknown
+    operationDigest?: unknown
+    events?: unknown
+  }
+  if (
+    !isCommunityDeliveryOperationId(input.operationId)
+    || !isCommunityDeliveryDigest(input.operationDigest)
+  ) {
+    return { ok: false, reason: "invalid-payload", type: "unknown", byteCount: parsed.byteCount }
+  }
+  const events = input.events
   if (
     !Array.isArray(events)
     || events.length === 0
@@ -146,13 +171,16 @@ export async function readCommunityBrowserEventBundleRequest(
   ) {
     return { ok: false, reason: "invalid-payload", type: "unknown", byteCount: parsed.byteCount }
   }
-  const normalized = events.map((event) => normalizeCommunityBrowserEvent(event))
-  const failure = normalized.find((event) => !event.ok)
-  if (failure && !failure.ok) return failure
+  const prepared = await prepareCommunityDeliveryEvents(events)
+  if (!prepared.ok || prepared.prepared.digest !== input.operationDigest) {
+    return { ok: false, reason: "invalid-payload", type: "unknown", byteCount: parsed.byteCount }
+  }
   return {
     ok: true,
-    bodies: normalized.map((event) => (event as CommunityBrowserEventIngressSuccess).body),
-    eventCount: normalized.length,
+    operationId: input.operationId,
+    operationDigest: input.operationDigest,
+    prepared: prepared.prepared,
+    eventCount: events.length,
   }
 }
 

@@ -1,12 +1,15 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import {
+  COMMUNITY_DELIVERY_OPERATION_ID_HEADER,
   DEV_WS_DO_URL,
   MESSAGE_DELIVERY_MAX_USERS,
   createLogger,
+  deriveCommunityDeliveryOperationId,
   isValidCommunityUserTarget,
   parseStrictFailedSubset,
   serializeMessageDeliveryBatch,
   type MessageDeliveryBatch,
+  type CommunityDeliveryOperationId,
 } from "@alook/shared"
 import { fetchViaBindingOrDevFallback } from "../dev-binding-fetch"
 import { broadcastToUsers } from "../broadcast"
@@ -63,7 +66,11 @@ function parseFailedUserIds(value: unknown, requested: readonly string[]): strin
   )
 }
 
-async function sendAttempt(env: Env, batch: MessageDeliveryBatch): Promise<string[]> {
+async function sendAttempt(
+  env: Env,
+  batch: MessageDeliveryBatch,
+  operationId: CommunityDeliveryOperationId,
+): Promise<string[]> {
   const requested = allTargetUserIds(batch)
   const response = await fetchViaBindingOrDevFallback(
     env.WS_DO_WORKER,
@@ -71,7 +78,10 @@ async function sendAttempt(env: Env, batch: MessageDeliveryBatch): Promise<strin
     "/broadcast/community/message-delivery",
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        [COMMUNITY_DELIVERY_OPERATION_ID_HEADER]: operationId,
+      },
       body: serializeMessageDeliveryBatch(batch),
     },
     { logPrefix: "message_delivery", log, label: batch.messageId },
@@ -175,11 +185,15 @@ async function settleLegacyTargets(
   await Promise.all(workers)
 }
 
-async function sendChunk(env: Env, initial: MessageDeliveryBatch): Promise<void> {
+async function sendChunk(
+  env: Env,
+  initial: MessageDeliveryBatch,
+  operationId: CommunityDeliveryOperationId,
+): Promise<void> {
   let pending = initial
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const startedAt = Date.now()
-    const failed = await sendAttempt(env, pending)
+    const failed = await sendAttempt(env, pending, operationId)
     log.info("message_delivery_attempt_complete", {
       messageId: initial.messageId,
       attempt,
@@ -195,14 +209,18 @@ async function sendChunk(env: Env, initial: MessageDeliveryBatch): Promise<void>
   }
 }
 
-async function settleChunks(env: Env, chunks: MessageDeliveryBatch[]): Promise<void> {
+async function settleChunks(
+  env: Env,
+  chunks: MessageDeliveryBatch[],
+  operationId: CommunityDeliveryOperationId,
+): Promise<void> {
   let next = 0
   const results: PromiseSettledResult<void>[] = new Array(chunks.length)
   const workers = Array.from({ length: Math.min(maxActiveChunks, chunks.length) }, async () => {
     while (next < chunks.length) {
       const index = next++
       try {
-        await sendChunk(env, chunks[index]!)
+        await sendChunk(env, chunks[index]!, operationId)
         results[index] = { status: "fulfilled", value: undefined }
       } catch (reason) {
         results[index] = { status: "rejected", reason }
@@ -216,7 +234,15 @@ async function settleChunks(env: Env, chunks: MessageDeliveryBatch[]): Promise<v
   }
 }
 
-export async function sendMessageDeliveryBatch(batch: MessageDeliveryBatch): Promise<void> {
+export async function sendMessageDeliveryBatch(
+  batch: MessageDeliveryBatch,
+  plannedOperationId?: CommunityDeliveryOperationId,
+): Promise<void> {
+  const derivedOperationId = await deriveCommunityDeliveryOperationId(batch.messageId)
+  if (plannedOperationId !== undefined && plannedOperationId !== derivedOperationId) {
+    throw new Error("message delivery: operation ID does not match message")
+  }
+  const operationId = plannedOperationId ?? derivedOperationId
   const { env } = getCloudflareContext()
   const targets = allTargetUserIds(batch)
   const chunks: MessageDeliveryBatch[] = []
@@ -247,5 +273,5 @@ export async function sendMessageDeliveryBatch(batch: MessageDeliveryBatch): Pro
     chunks.push(accepted)
     index = acceptedEnd
   }
-  await settleChunks(env as Env, chunks)
+  await settleChunks(env as Env, chunks, operationId)
 }

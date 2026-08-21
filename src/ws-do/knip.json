@@ -1,7 +1,10 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "project": ["src/**/*.ts"],
-  "ignore": ["src/__mocks__/**"],
+  "ignore": [
+    "src/__mocks__/**",
+    "src/test-integration/community-delivery-attachment-worker.ts"
+  ],
   "includeEntryExports": true,
   "ignoreDependencies": [
     "cloudflare"

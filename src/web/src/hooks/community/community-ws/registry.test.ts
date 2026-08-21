@@ -63,6 +63,7 @@ vi.mock("./presence-machine-events", () => ({
 
 function dispatchContext(queryClient = new QueryClient()): CommunityWsDispatchContext {
   return {
+    deliveryMode: "legacy",
     queryClient,
     communityStore: {} as CommunityWsDispatchContext["communityStore"],
     wsStore: {} as CommunityWsDispatchContext["wsStore"],
@@ -146,6 +147,19 @@ describe("community WebSocket registry", () => {
         communityWsEventFixtures["community:typing.stop"],
         dispatchContext(),
       )
+      expect(batch).toHaveBeenCalledTimes(1)
+    } finally {
+      batch.mockRestore()
+    }
+  })
+
+  it("wraps a multi-event delivery in exactly one projection batch", () => {
+    const batch = vi.spyOn(notifyManager, "batch")
+    try {
+      dispatchCommunityWsEvents([
+        communityWsEventFixtures["community:typing.start"],
+        communityWsEventFixtures["community:typing.stop"],
+      ], dispatchContext())
       expect(batch).toHaveBeenCalledTimes(1)
     } finally {
       batch.mockRestore()

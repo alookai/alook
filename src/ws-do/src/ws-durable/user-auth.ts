@@ -1,10 +1,17 @@
 import {
+  COMMUNITY_EVENTS_BATCH_CAPABILITY,
   createDb,
+  encodePreparedCommunityBrowserEventBatch,
   isValidCommunityUserTarget,
   queries,
   readOrStale,
   withD1Retry,
 } from "@alook/shared"
+import {
+  createCommunityDeliveryReceipt,
+  type CommunityDeliveryMode,
+  type CommunityDeliverySocketResult,
+} from "../community-delivery-receipt"
 import type {
   CommunityMachineConnectionState,
   ConnectionState,
@@ -26,6 +33,12 @@ import {
   readCommunityBrowserEventBundleRequest,
   readCommunityBrowserEventRequest,
 } from "../community-browser-event-ingress"
+import {
+  preflightCommunityConnectionState,
+  readCommunityDeliveryProgress,
+  withCommunityDeliveryProgress,
+  type CommunityDeliveryProgress,
+} from "./community-delivery-state"
 
 export async function handleUserFetch(
   context: WsDurableContext,
@@ -37,17 +50,14 @@ export async function handleUserFetch(
     if (!isValidCommunityUserTarget(targetUserId)) {
       const failure = { ok: false, reason: "invalid-target", type: "unknown" } as const
       logCommunityBrowserEventRejected(context.log, "target-do-bundle", failure)
-      return invalidCommunityBrowserEventResponse(failure)
+      return deliveryErrorResponse(400, { operationId: null, code: "invalid_request" })
     }
     const bundle = await readCommunityBrowserEventBundleRequest(request)
     if (!bundle.ok) {
       logCommunityBrowserEventRejected(context.log, "target-do-bundle", bundle)
-      return invalidCommunityBrowserEventResponse(bundle)
+      return deliveryErrorResponse(400, { operationId: null, code: "invalid_request" })
     }
-    broadcastBundle(context, bundle.bodies, targetUserId)
-    return new Response(JSON.stringify({ accepted: bundle.eventCount }), {
-      headers: { "Content-Type": "application/json" },
-    })
+    return deliverCommunityBundle(context, bundle, targetUserId)
   }
 
   if (url.pathname === "/community-broadcast" && request.method === "POST") {
@@ -177,7 +187,13 @@ export async function handleWebSocketMessage(
     return
   }
 
-  const msg = parsed as { type: string; token?: string; machineToken?: string; daemonId?: string }
+  const msg = parsed as {
+    type: string
+    token?: string
+    machineToken?: string
+    daemonId?: string
+    capabilities?: unknown
+  }
 
   if (msg.type === "auth") {
     if (msg.machineToken && msg.daemonId) {
@@ -230,6 +246,10 @@ export async function handleWebSocketMessage(
       return
     }
     const wasOnline = countAuthenticatedUserConnections(context, userId) > 0
+    const communityEventsBatchV1 = Array.isArray(msg.capabilities)
+      && msg.capabilities.length <= 8
+      && msg.capabilities.every((capability) => typeof capability === "string")
+      && msg.capabilities.includes(COMMUNITY_EVENTS_BATCH_CAPABILITY)
     ws.serializeAttachment({
       type: "user",
       userId,
@@ -237,6 +257,10 @@ export async function handleWebSocketMessage(
       authenticated: true,
       name,
       discriminator,
+      ...(communityEventsBatchV1 ? { communityEventsBatchV1: true } : {}),
+      ...(state?.type === "user" && state.communityDeliveryProgress
+        ? { communityDeliveryProgress: state.communityDeliveryProgress }
+        : {}),
     } as ConnectionState)
     context.log.info("websocket authenticated", { userId })
     ws.send(JSON.stringify({ type: "auth.ok" }))
@@ -328,11 +352,76 @@ function broadcast(
   return sent
 }
 
-function broadcastBundle(
+type ValidCommunityBundle = Extract<
+  Awaited<ReturnType<typeof readCommunityBrowserEventBundleRequest>>,
+  { ok: true }
+>
+
+type DeliveryPlan = {
+  socketIndex: number
+  ws: WebSocket
+  state: Extract<ConnectionState, { type: "user" }>
+  mode: CommunityDeliveryMode
+  frames: string[]
+  progress: CommunityDeliveryProgress | null
+  outcome?: "alreadyEnqueued" | "preflightFailed"
+}
+
+function jsonResponse(value: unknown, status = 200): Response {
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  })
+}
+
+function deliveryErrorResponse(
+  status: 400 | 409,
+  value:
+    | { operationId: string | null; code: "invalid_request" }
+    | { operationId: string; operationDigest: string; code: "operation_digest_conflict" },
+): Response {
+  return jsonResponse({
+    contractVersion: 1,
+    status: status === 400 ? "invalid" : "conflict",
+    validated: status !== 400,
+    ...value,
+  }, status)
+}
+
+function socketResult(
+  plan: DeliveryPlan,
+  outcome: CommunityDeliverySocketResult["outcome"],
+  persistedNextFrameIndex: number,
+  ambiguousClosed = false,
+): CommunityDeliverySocketResult {
+  return {
+    socketIndex: plan.socketIndex,
+    mode: plan.mode,
+    outcome,
+    frameCount: plan.frames.length,
+    persistedNextFrameIndex,
+    ambiguousClosed,
+  }
+}
+
+function safeCloseAmbiguousSocket(ws: WebSocket): void {
+  try { ws.close(1011, "Delivery state unavailable") } catch { }
+}
+
+function deliverCommunityBundle(
   context: WsDurableContext,
-  messages: readonly string[],
+  bundle: ValidCommunityBundle,
   targetUserId: string,
-): void {
+): Response {
+  const encodedBatch = encodePreparedCommunityBrowserEventBatch({
+    operationId: bundle.operationId,
+    operationDigest: bundle.operationDigest,
+    prepared: bundle.prepared,
+  })
+  const targetSockets: Array<{
+    ws: WebSocket
+    state: Extract<ConnectionState, { type: "user" }>
+  }> = []
   for (const ws of context.ctx.getWebSockets()) {
     const state = ws.deserializeAttachment() as ConnectionState
     if (!state?.authenticated) continue
@@ -342,10 +431,161 @@ function broadcastBundle(
       }
       continue
     }
-    for (const message of messages) {
-      try { ws.send(message) } catch { }
+    targetSockets.push({ ws, state })
+  }
+
+  const plans: DeliveryPlan[] = targetSockets.map(({ ws, state }, socketIndex) => {
+    const mode: CommunityDeliveryMode = state.communityEventsBatchV1 === true ? "batch" : "legacy"
+    const frames = mode === "batch" && encodedBatch.ok
+      ? [encodedBatch.body]
+      : bundle.prepared.bodies
+    return { socketIndex, ws, state, mode, frames, progress: null }
+  })
+
+  if (!encodedBatch.ok && plans.some((plan) => plan.mode === "batch")) {
+    context.log.error("community_delivery_batch_encoder_invariant_failed", {
+      operationId: bundle.operationId,
+      reason: encodedBatch.reason,
+      ...(encodedBatch.byteLength === undefined ? {} : { byteLength: encodedBatch.byteLength }),
+      eventCount: bundle.eventCount,
+      matched: plans.length,
+    })
+    const results = plans.map((plan) => socketResult(
+      plan,
+      plan.mode === "batch" ? "preflightFailed" : "notAttempted",
+      0,
+    ))
+    return jsonResponse(createCommunityDeliveryReceipt({
+      status: "incomplete",
+      operationId: bundle.operationId,
+      operationDigest: bundle.operationDigest,
+      eventCount: bundle.eventCount,
+      results,
+    }), 503)
+  }
+
+  let hasConflict = false
+  for (const plan of plans) {
+    const decoded = readCommunityDeliveryProgress(plan.state)
+    if (!decoded.ok) {
+      plan.outcome = "preflightFailed"
+      continue
+    }
+    const progress = decoded.entries.find((entry) => entry.operationId === bundle.operationId) ?? null
+    plan.progress = progress
+    if (progress?.operationDigest !== undefined && progress.operationDigest !== bundle.operationDigest) {
+      hasConflict = true
+      continue
+    }
+    if (progress && (progress.mode !== plan.mode || progress.frameCount !== plan.frames.length)) {
+      plan.outcome = "preflightFailed"
+      continue
+    }
+    if (progress?.nextFrameIndex === plan.frames.length) {
+      plan.outcome = "alreadyEnqueued"
+      continue
+    }
+    let candidateState = plan.state
+    const startIndex = progress?.nextFrameIndex ?? 0
+    for (let nextFrameIndex = startIndex + 1; nextFrameIndex <= plan.frames.length; nextFrameIndex += 1) {
+      try {
+        candidateState = withCommunityDeliveryProgress(candidateState, {
+          operationId: bundle.operationId,
+          operationDigest: bundle.operationDigest,
+          mode: plan.mode,
+          nextFrameIndex,
+          frameCount: plan.frames.length,
+        })
+      } catch {
+        plan.outcome = "preflightFailed"
+        break
+      }
+      if (!preflightCommunityConnectionState(candidateState).ok) {
+        plan.outcome = "preflightFailed"
+        break
+      }
     }
   }
+
+  if (hasConflict) {
+    context.log.warn("community_delivery_operation_digest_conflict", {
+      operationId: bundle.operationId,
+      eventCount: bundle.eventCount,
+      matched: plans.length,
+    })
+    return deliveryErrorResponse(409, {
+      operationId: bundle.operationId,
+      operationDigest: bundle.operationDigest,
+      code: "operation_digest_conflict",
+    })
+  }
+
+  if (plans.some((plan) => plan.outcome === "preflightFailed")) {
+    const results = plans.map((plan) => {
+      const persisted = plan.progress?.nextFrameIndex ?? 0
+      if (plan.outcome === "alreadyEnqueued") return socketResult(plan, "alreadyEnqueued", persisted)
+      return socketResult(
+        plan,
+        plan.outcome === "preflightFailed" ? "preflightFailed" : "notAttempted",
+        persisted,
+      )
+    })
+    return jsonResponse(createCommunityDeliveryReceipt({
+      status: "incomplete",
+      operationId: bundle.operationId,
+      operationDigest: bundle.operationDigest,
+      eventCount: bundle.eventCount,
+      results,
+    }), 503)
+  }
+
+  const results: CommunityDeliverySocketResult[] = []
+  for (const plan of plans) {
+    let persisted = plan.progress?.nextFrameIndex ?? 0
+    if (plan.outcome === "alreadyEnqueued") {
+      results.push(socketResult(plan, "alreadyEnqueued", persisted))
+      continue
+    }
+    let state = plan.state
+    let terminal: CommunityDeliverySocketResult | null = null
+    for (let frameIndex = persisted; frameIndex < plan.frames.length; frameIndex += 1) {
+      try {
+        plan.ws.send(plan.frames[frameIndex])
+      } catch {
+        terminal = socketResult(plan, persisted > 0 ? "partial" : "failed", persisted)
+        break
+      }
+      const nextFrameIndex = frameIndex + 1
+      let nextState: typeof state
+      try {
+        nextState = withCommunityDeliveryProgress(state, {
+          operationId: bundle.operationId,
+          operationDigest: bundle.operationDigest,
+          mode: plan.mode,
+          nextFrameIndex,
+          frameCount: plan.frames.length,
+        })
+        plan.ws.serializeAttachment(nextState)
+      } catch {
+        safeCloseAmbiguousSocket(plan.ws)
+        terminal = socketResult(plan, persisted > 0 ? "partial" : "failed", persisted, true)
+        break
+      }
+      state = nextState
+      persisted = nextFrameIndex
+    }
+    results.push(terminal ?? socketResult(plan, "enqueued", persisted))
+  }
+
+  const complete = results.every((result) =>
+    result.outcome === "enqueued" || result.outcome === "alreadyEnqueued")
+  return jsonResponse(createCommunityDeliveryReceipt({
+    status: complete ? "complete" : "incomplete",
+    operationId: bundle.operationId,
+    operationDigest: bundle.operationDigest,
+    eventCount: bundle.eventCount,
+    results,
+  }), complete ? 200 : 503)
 }
 
 function invalidateMismatchedUserSocket(

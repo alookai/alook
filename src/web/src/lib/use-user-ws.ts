@@ -1,7 +1,10 @@
 "use client"
 import { useEffect, useRef, useCallback } from "react"
 import {
+  COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
+  COMMUNITY_EVENTS_BATCH_CAPABILITY,
+  isCommunityBrowserEventBatchCandidate,
   isCommunityEventCandidate,
   isCommunityEventType,
   type WsMessage,
@@ -35,11 +38,21 @@ function isPageHidden(): boolean {
  */
 export type WsMessageIncoming = WsMessage & { [key: string]: unknown }
 
+type UseUserWsCapability = typeof COMMUNITY_EVENTS_BATCH_CAPABILITY
+
 export type UseUserWsOptions = {
   onReconnect?: (info: { reconnectDurationMs: number }) => void | Promise<void>
   onDisconnect?: () => void | Promise<void>
   onAuthenticated?: () => void | Promise<void>
   requestDaemonStatusOnAuth?: boolean
+  capabilities?: readonly UseUserWsCapability[]
+}
+
+function normalizeCapabilities(value: readonly UseUserWsCapability[] | undefined): UseUserWsCapability[] {
+  if (!Array.isArray(value)) return []
+  return value.includes(COMMUNITY_EVENTS_BATCH_CAPABILITY)
+    ? [COMMUNITY_EVENTS_BATCH_CAPABILITY]
+    : []
 }
 
 function runLifecycleCallback(
@@ -91,6 +104,7 @@ export function useUserWs(
   const onDisconnectRef = useRef(options?.onDisconnect)
   const onAuthenticatedRef = useRef(options?.onAuthenticated)
   const requestDaemonStatusOnAuthRef = useRef(options?.requestDaemonStatusOnAuth ?? true)
+  const capabilitiesRef = useRef(normalizeCapabilities(options?.capabilities))
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tokenAbortRef = useRef<AbortController | null>(null)
   const tokenTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -119,7 +133,8 @@ export function useUserWs(
 
   useEffect(() => {
     requestDaemonStatusOnAuthRef.current = options?.requestDaemonStatusOnAuth ?? true
-  }, [options?.requestDaemonStatusOnAuth])
+    capabilitiesRef.current = normalizeCapabilities(options?.capabilities)
+  }, [options?.capabilities, options?.requestDaemonStatusOnAuth])
 
   const connectRef = useRef<(() => Promise<void>) | null>(null)
 
@@ -226,7 +241,10 @@ export function useUserWs(
     ws.onopen = () => {
       if (ws !== wsRef.current || generation !== connectionGenerationRef.current) return
       reconnectDelay.current = WS_RECONNECT_INIT
-      ws.send(JSON.stringify({ type: "auth", token: authToken }))
+      const capabilities = capabilitiesRef.current
+      ws.send(JSON.stringify(capabilities.length > 0
+        ? { type: "auth", token: authToken, capabilities }
+        : { type: "auth", token: authToken }))
 
       lastMessageAtRef.current = Date.now()
       pingIntervalRef.current = setInterval(() => {
@@ -295,9 +313,13 @@ export function useUserWs(
         reportDroppedFrame("pre-auth-frame", msg)
         return
       }
-      if (isCommunityEventCandidate(msg)) {
+      const isCommunityBatch = isCommunityBrowserEventBatchCandidate(msg)
+      if (isCommunityEventCandidate(msg) || isCommunityBatch) {
         const byteCount = new TextEncoder().encode(e.data).byteLength
-        if (byteCount > COMMUNITY_BROWSER_EVENT_MAX_BYTES) {
+        const maxBytes = isCommunityBatch
+          ? COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES
+          : COMMUNITY_BROWSER_EVENT_MAX_BYTES
+        if (byteCount > maxBytes) {
           reportDroppedFrame("oversized", msg, byteCount)
           return
         }

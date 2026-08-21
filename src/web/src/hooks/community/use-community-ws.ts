@@ -6,7 +6,10 @@ import { useUserWs } from "@/lib/use-user-ws"
 import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { reconcileCommunityWsReconnect } from "@/hooks/community/community-ws/reconnect"
-import { dispatchCommunityWsEvent } from "@/hooks/community/community-ws/registry"
+import {
+  dispatchCommunityWsEvent,
+  dispatchCommunityWsEvents,
+} from "@/hooks/community/community-ws/registry"
 import { runCommunityWsProjectionTransaction } from "@/hooks/community/community-ws/projection-transaction"
 import {
   invalidateDms,
@@ -18,7 +21,10 @@ import type {
   UseCommunityWsOptions,
 } from "@/hooks/community/community-ws/handler-context"
 import {
+  COMMUNITY_EVENTS_BATCH_CAPABILITY,
   decodeCommunityBrowserEvent,
+  decodeCommunityBrowserEventBatch,
+  isCommunityBrowserEventBatchCandidate,
   isCommunityEventType,
   TYPING_INDICATOR_THROTTLE_MS,
 } from "@alook/shared"
@@ -151,6 +157,90 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   const handleMessage = useCallback(
     (msg: { type: string;[key: string]: unknown }) => {
       if (!msg.type.startsWith("community:")) return
+      const communityStore = useCommunityStore.getState()
+      const sub = communityStore.subscription
+      const wsStore = useCommunityWsStore.getState()
+      // A DM is a channel now — every message/typing/reaction event carries a
+      // single `channelId`. The subscription still tracks two slots so the
+      // handler can route a DM channel's events into the `dmMessages` cache vs
+      // a regular channel's into `channelMessages` (`sub.dmConversationId`
+      // holds the focused DM's channel id). An event is "focused" if its
+      // channelId matches either slot.
+      const matchesFocus = (e: { channelId?: string }): boolean => {
+        if (!e.channelId) return false
+        return e.channelId === sub.channelId || e.channelId === sub.dmConversationId
+      }
+      const context = (deliveryMode: "legacy" | "batch"): CommunityWsDispatchContext => ({
+        deliveryMode,
+        queryClient,
+        communityStore,
+        wsStore,
+        sub,
+        viewerUserIdRef,
+        matchesFocus,
+        scheduleInboxInvalidate,
+      })
+      const reconcileAfterBatchFailure = (reason: "digest-conflict" | "projection-failed") => {
+        void reconcileCommunityWsReconnect(queryClient, 0).catch(() => {
+          console.warn("[ws] batch reconciliation failed", {
+            event: "community_ws_batch_reconciliation_failed",
+            reason,
+          })
+        })
+      }
+
+      if (isCommunityBrowserEventBatchCandidate(msg)) {
+        const decoded = decodeCommunityBrowserEventBatch(msg)
+        if (!decoded.ok) {
+          const reason = decoded.reason === "oversized"
+            ? "oversized"
+            : decoded.reason === "unsupported-version"
+              ? "unsupported-version"
+              : "invalid-payload"
+          const metadata = {
+            reason,
+            type: msg.type,
+            ...(decoded.contractVersion === undefined
+              ? {}
+              : { contractVersion: decoded.contractVersion }),
+            ...(decoded.byteLength === undefined ? {} : { byteCount: decoded.byteLength }),
+          } as const
+          console.warn("[ws] frame dropped", {
+            event: "community_ws_frame_dropped",
+            ...metadata,
+          })
+          trackCommunityWsFrameDropped(metadata)
+          return
+        }
+        const record = wsStore.recordDeliveryOperation(
+          decoded.batch.operationId,
+          decoded.batch.operationDigest,
+        )
+        if (record === "duplicate") return
+        if (record === "conflict") {
+          console.warn("[ws] delivery operation digest conflict", {
+            event: "community_ws_delivery_operation_conflict",
+            operationId: decoded.batch.operationId,
+            operationDigest: decoded.batch.operationDigest,
+            eventCount: decoded.events.length,
+          })
+          reconcileAfterBatchFailure("digest-conflict")
+          return
+        }
+        try {
+          dispatchCommunityWsEvents(decoded.events, context("batch"))
+        } catch {
+          console.warn("[ws] delivery operation projection failed", {
+            event: "community_ws_delivery_operation_projection_failed",
+            operationId: decoded.batch.operationId,
+            operationDigest: decoded.batch.operationDigest,
+            eventCount: decoded.events.length,
+          })
+          reconcileAfterBatchFailure("projection-failed")
+        }
+        return
+      }
+
       const decoded = decodeCommunityBrowserEvent(msg)
       if (!decoded.ok) {
         const metadata = {
@@ -168,31 +258,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         trackCommunityWsFrameDropped(metadata)
         return
       }
-      const event = decoded.event
-      const communityStore = useCommunityStore.getState()
-      const sub = communityStore.subscription
-      const wsStore = useCommunityWsStore.getState()
-      // A DM is a channel now — every message/typing/reaction event carries a
-      // single `channelId`. The subscription still tracks two slots so the
-      // handler can route a DM channel's events into the `dmMessages` cache vs
-      // a regular channel's into `channelMessages` (`sub.dmConversationId`
-      // holds the focused DM's channel id). An event is "focused" if its
-      // channelId matches either slot.
-      const matchesFocus = (e: { channelId?: string }): boolean => {
-        if (!e.channelId) return false
-        return e.channelId === sub.channelId || e.channelId === sub.dmConversationId
-      }
-      const context: CommunityWsDispatchContext = {
-        queryClient,
-        communityStore,
-        wsStore,
-        sub,
-        viewerUserIdRef,
-        matchesFocus,
-        scheduleInboxInvalidate,
-      }
-
-      dispatchCommunityWsEvent(event, context)
+      dispatchCommunityWsEvent(decoded.event, context("legacy"))
     },
     [queryClient, scheduleInboxInvalidate],
   )
@@ -205,6 +271,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     onDisconnect: useCommunityWsStore.getState().markAccessDisconnected,
     onAuthenticated: useCommunityWsStore.getState().markAccessConnected,
     requestDaemonStatusOnAuth: false,
+    capabilities: [COMMUNITY_EVENTS_BATCH_CAPABILITY],
   })
 
   // Publish the send binding so free helpers (`communityWsSendTyping`) can

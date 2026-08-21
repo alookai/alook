@@ -26,6 +26,10 @@ import { create } from "zustand"
 // 400). Extracted as constants so the tests can assert the boundary directly.
 export const SEEN_MESSAGE_MAX = 500
 export const SEEN_MESSAGE_TRIM_TO = 400
+export const SEEN_DELIVERY_OPERATION_MAX = 500
+export const SEEN_DELIVERY_OPERATION_TRIM_TO = 400
+
+type DeliveryOperationRecordResult = "recorded" | "duplicate" | "conflict"
 
 /**
  * Bounded ring for live bot-audit events, PER bot. The modal reads from here
@@ -60,6 +64,7 @@ export type CommunityWsStoreState = {
    */
   onlineUserIds: Set<string>
   seenMessageIds: Set<string>
+  seenDeliveryOperations: Map<string, string>
   /**
    * Live status deltas learned via `community:status.update` after the
    * initial member/friend fetch — see plans/profile-card.md's "overlay
@@ -98,6 +103,7 @@ export type CommunityWsStoreState = {
   resetPresence: () => void
   hasSeenMessage: (id: string) => boolean
   markSeenMessage: (id: string) => void
+  recordDeliveryOperation: (operationId: string, operationDigest: string) => DeliveryOperationRecordResult
   setUserStatus: (userId: string, emoji: string | null, text: string | null) => void
   resetUserStatuses: () => void
   markAccessDisconnected: () => void
@@ -108,13 +114,14 @@ export type CommunityWsStoreState = {
 
 const initialState = (): Pick<
   CommunityWsStoreState,
-  "onlineUserIds" | "seenMessageIds" | "userStatuses" | "botAuditEvents"
+  "onlineUserIds" | "seenMessageIds" | "seenDeliveryOperations" | "userStatuses" | "botAuditEvents"
   | "accessEpoch" | "accessConnected"
 > => ({
   accessEpoch: 0,
   accessConnected: false,
   onlineUserIds: new Set(),
   seenMessageIds: new Set(),
+  seenDeliveryOperations: new Map(),
   userStatuses: new Map(),
   botAuditEvents: new Map(),
 })
@@ -168,6 +175,26 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => (
       return
     }
     set({ seenMessageIds: next })
+  },
+
+  recordDeliveryOperation: (operationId, operationDigest) => {
+    const current = get().seenDeliveryOperations
+    const recordedDigest = current.get(operationId)
+    if (recordedDigest !== undefined) {
+      return recordedDigest === operationDigest ? "duplicate" : "conflict"
+    }
+    const next = new Map(current)
+    next.set(operationId, operationDigest)
+    if (next.size > SEEN_DELIVERY_OPERATION_MAX) {
+      set({
+        seenDeliveryOperations: new Map(
+          [...next].slice(-SEEN_DELIVERY_OPERATION_TRIM_TO),
+        ),
+      })
+      return "recorded"
+    }
+    set({ seenDeliveryOperations: next })
+    return "recorded"
   },
 
   setUserStatus: (userId, emoji, text) => {

@@ -1,10 +1,12 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import {
+  deriveCommunityDeliveryOperationId,
   WS_EVENTS,
   createLogger,
   queries,
   withD1Retry,
   type CommunityMessageCreate,
+  type CommunityDeliveryOperationId,
   type Database,
   type MessageDeliveryBatch,
   type WakePayload,
@@ -24,6 +26,7 @@ export type CommittedMessageStructuralOutcome = {
 }
 
 export type MessageDeliveryPlan = MessageDeliveryBatch & {
+  operationId: CommunityDeliveryOperationId
   wakeBotUserIds: string[]
 }
 
@@ -201,6 +204,7 @@ export async function planCommittedMessage(
   }
 
   return {
+    operationId: await deriveCommunityDeliveryOperationId(message.id),
     messageId: message.id,
     messageEvent,
     contentUserIds,
@@ -250,7 +254,7 @@ async function runCommittedMessageDispatch(
     botUserId,
   }))
   const [browser, wake] = await Promise.allSettled([
-    sendMessageDeliveryBatch(browserBatch),
+    sendMessageDeliveryBatch(browserBatch, plan.operationId),
     enqueueBotWakePayloads(wakePayloads),
   ])
   if (browser.status === "rejected") {

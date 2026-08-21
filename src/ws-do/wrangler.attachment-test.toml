@@ -1,0 +1,11 @@
+name = "alook-ws-do-attachment-test"
+main = "src/test-integration/community-delivery-attachment-worker.ts"
+compatibility_date = "2025-04-01"
+
+[[durable_objects.bindings]]
+name = "ATTACHMENT_PROBE"
+class_name = "CommunityDeliveryAttachmentProbe"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CommunityDeliveryAttachmentProbe"]
