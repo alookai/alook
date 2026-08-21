@@ -4,16 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Copy, Loader2 } from "lucide-react"
 import { isDesktop, isTauri, tauriInvoke } from "@alook/shared"
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetBody,
-  SheetFooter,
-  SheetClose,
-} from "@/components/ui/sheet"
+import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { tid } from "@/lib/community/testids"
@@ -201,22 +192,20 @@ export function PairMachineSheet({
   }, [pendingTokenId, runtimeCapability?.available, isReconnect, mode])
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border"
-      >
-        <SheetHeader>
-          <SheetTitle>
-            {isReconnect ? `Reconnect ${mode.hostname || "machine"}` : "Connect a machine"}
-          </SheetTitle>
-          <SheetDescription>
-            {isReconnect
-              ? "Run this command before it expires. It safely replaces the running daemon, then rotates its key."
-              : "Run this on the computer you want to connect. The key is good for 15 minutes."}
-          </SheetDescription>
-        </SheetHeader>
-        <SheetBody className="flex flex-col gap-6">
+    <CommunitySheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title={isReconnect ? `Reconnect ${mode.hostname || "machine"}` : "Connect a machine"}
+      description={isReconnect
+        ? "Run this command before it expires. It safely replaces the running daemon, then rotates its key."
+        : "Run this on the computer you want to connect. The key is good for 15 minutes."}
+      bodyClassName="flex flex-col gap-6"
+      footer={(requestClose) => (
+        <Button variant="secondary" className="min-h-11!" onClick={requestClose}>
+          Done
+        </Button>
+      )}
+    >
           <PairMachineSteps
             command={command}
             generating={generating || !command}
@@ -230,12 +219,7 @@ export function PairMachineSheet({
             onConnectDesktop={connectDesktop}
             connectedHostname={connectedHostname}
           />
-        </SheetBody>
-        <SheetFooter>
-          <SheetClose render={<Button variant="secondary">Done</Button>} />
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+    </CommunitySheet>
   )
 }
 

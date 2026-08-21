@@ -34,6 +34,7 @@ describe("ChannelHeader — forum title dialog", () => {
   it("gates the title edit affordance to the creator and keeps normal threads on Rename", () => {
     let renderer: TestRenderer.ReactTestRenderer
     act(() => { renderer = renderHeader() })
+    expect(renderer!.root.findByType("header").props.role).toBe("banner")
     expect(renderer!.root.findAllByProps({ "aria-label": "Edit post title" })).toHaveLength(0)
     act(() => renderer!.unmount())
 

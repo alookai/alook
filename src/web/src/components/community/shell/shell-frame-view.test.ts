@@ -1,4 +1,4 @@
-import { createElement } from "react"
+import { createElement, useState } from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ShellFrameView } from "./shell-frame-view"
@@ -118,6 +118,7 @@ describe("ShellFrameView", () => {
     const group = renderer.root.findByType("panel-group")
     expect(group.props.id).toBe("community-shell")
     expect(group.props.orientation).toBe("horizontal")
+    expect(group.props.disabled).toBe(false)
     const [sidebarPanel, mainPanel] = renderer.root.findAllByType("panel")
     expect(sidebarPanel.props).toMatchObject({ id: "sidebar", defaultSize: "24%", minSize: 160, maxSize: 360 })
     expect(sidebarPanel.props.className).toContain("pb-15")
@@ -165,7 +166,7 @@ describe("ShellFrameView", () => {
     await act(async () => renderer.unmount())
   })
 
-  it("keeps mobile nav and messages branches distinct and omits status seeds", async () => {
+  it("keeps one responsive skeleton while mobile nav and detail geometry stay distinct", async () => {
     const sidebar = vi.fn(() => createElement("sidebar-content"))
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
@@ -186,7 +187,13 @@ describe("ShellFrameView", () => {
     expect(mobileSurface.props.className).toContain("rounded-tl-xl")
     expect(mobileSurface.props.className).toContain("border-l")
     expect(mobileSurface.props.className).toContain("border-t")
-    expect(renderer.root.findAllByType("main-content")).toHaveLength(0)
+    expect(renderer.root.findAllByType("main-content")).toHaveLength(1)
+    expect(renderer.root.findAllByType("panel")[0]?.props.hidden).toBe(false)
+    expect(renderer.root.findAllByType("panel")[1]?.props.hidden).toBe(true)
+    expect(renderer.root.findAllByType("panel")[0]?.props["data-mobile-active"]).toBe(true)
+    expect(renderer.root.findAllByType("panel")[1]?.props["data-mobile-active"]).toBeUndefined()
+    expect(renderer.root.findByType("panel-group").props.disabled).toBe(true)
+    expect(renderer.root.findByType("panel-group").props.className).toContain("*:data-[mobile-active=true]:flex-1!")
     expect(renderer.root.findAllByType("shell-overlays")).toHaveLength(1)
     expect("profileStatusSeeds" in renderer.root.findByType("shell-overlays").props).toBe(false)
     expect(sidebar).toHaveBeenCalledWith({ noHeader: false })
@@ -205,9 +212,53 @@ describe("ShellFrameView", () => {
     })
     expect(renderer.root.findAllByType("server-rail")).toHaveLength(0)
     expect(renderer.root.findAllByType("user-bar")).toHaveLength(0)
-    expect(renderer.root.findAllByType("app-surface")).toHaveLength(0)
+    expect(renderer.root.findAllByType("app-surface")).toHaveLength(1)
+    expect(renderer.root.findByType("app-surface").props.className).toContain("rounded-none")
     expect(renderer.root.findAllByType("main-content")).toHaveLength(1)
+    expect(renderer.root.findAllByType("panel")[0]?.props.hidden).toBe(true)
+    expect(renderer.root.findAllByType("panel")[1]?.props.hidden).toBe(false)
+    expect(renderer.root.findAllByType("panel")[0]?.props["data-mobile-active"]).toBeUndefined()
+    expect(renderer.root.findAllByType("panel")[1]?.props["data-mobile-active"]).toBe(true)
     expect(renderer.root.findAllByType("shell-overlays")).toHaveLength(1)
+  })
+
+  it("preserves child component identity across the 639 to 640 breakpoint", async () => {
+    let mounts = 0
+    function StatefulMain() {
+      const [identity] = useState(() => ++mounts)
+      return createElement("stateful-main", { identity })
+    }
+    const common = {
+      surface: "detail" as const,
+      navigationPending: false,
+      sidebar: () => createElement("sidebar-content"),
+      cancelPendingNavigation: vi.fn(),
+      rail,
+      profile,
+      inbox,
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(
+        createElement(
+          ShellFrameView,
+          { ...common, breakpoint: "mobile" },
+          createElement(StatefulMain),
+        ),
+        { createNodeMock: () => ({ offsetWidth: 240 }) },
+      )
+    })
+    expect(renderer.root.findByType("stateful-main").props.identity).toBe(1)
+
+    await act(async () => {
+      renderer.update(createElement(
+        ShellFrameView,
+        { ...common, breakpoint: "desktop" },
+        createElement(StatefulMain),
+      ))
+    })
+    expect(renderer.root.findByType("stateful-main").props.identity).toBe(1)
+    expect(mounts).toBe(1)
   })
 
   it("disconnects and re-subscribes sidebar observation across breakpoint changes", async () => {

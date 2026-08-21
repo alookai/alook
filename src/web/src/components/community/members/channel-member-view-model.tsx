@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } fro
 import { toast } from "sonner"
 import { isForum, type CommunityRole as Role } from "@alook/shared"
 import { AddMembersDialog } from "@/components/community/members/add-members-dialog"
-import type { CommunityPanelSheet } from "@/components/community/shell/community-panel-sheet"
+import type { CommunityPanel } from "@/components/community/shell/community-panel"
 import type { Member } from "@/lib/community/models/people"
 import { toastApiError } from "@/lib/api/client"
 import { makeUserNameResolver } from "@/lib/community/display-name"
@@ -23,7 +23,7 @@ import {
 import { useKickMember, useSetMemberRole } from "@/hooks/community/mutations"
 import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
 
-type PanelProps = ComponentProps<typeof CommunityPanelSheet>
+type PanelProps = ComponentProps<typeof CommunityPanel>
 
 export type ChannelMemberPanelProps = Pick<
   PanelProps,

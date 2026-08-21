@@ -2,7 +2,7 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ChannelHeader } from "./channel-header"
-import { CommunityPanelSheet } from "../shell/community-panel-sheet"
+import { CommunityPanel } from "../shell/community-panel"
 import { ForumChannelSurface } from "./forum-channel-surface"
 import { ForumSurface } from "./forum-surface"
 
@@ -53,15 +53,15 @@ vi.mock("@/components/community/channels/channel-shell", () => ({
     dialogs?: React.ReactNode
   }) => React.createElement(React.Fragment, null, header, body, panels, dialogs),
 }))
-vi.mock("@/components/community/shell/community-panel-sheet", () => ({
-  CommunityPanelSheet: vi.fn(() => null),
+vi.mock("@/components/community/shell/community-panel", () => ({
+  CommunityPanel: vi.fn(() => null),
 }))
 vi.mock("@/components/community/channels/forum-surface", () => ({
   ForumSurface: vi.fn(() => null),
 }))
 
 const mockedChannelHeader = vi.mocked(ChannelHeader)
-const mockedCommunityPanelSheet = vi.mocked(CommunityPanelSheet)
+const mockedCommunityPanel = vi.mocked(CommunityPanel)
 const mockedForumSurface = vi.mocked(ForumSurface)
 
 function surfaceProps(overrides: Record<string, unknown> = {}) {
@@ -217,7 +217,7 @@ describe("ForumChannelSurface ownership", () => {
     act(() => {
       mockedChannelHeader.mock.calls.at(-1)![0].onToggle("members")
     })
-    expect(mockedCommunityPanelSheet.mock.calls.at(-1)![0]).toEqual(expect.objectContaining({ kind: "members" }))
+    expect(mockedCommunityPanel.mock.calls.at(-1)![0]).toEqual(expect.objectContaining({ kind: "members" }))
 
     act(() => {
       renderer!.update(React.createElement(
@@ -227,6 +227,6 @@ describe("ForumChannelSurface ownership", () => {
     })
 
     expect(mockedChannelHeader.mock.calls.at(-1)![0].rightPanel).toBeNull()
-    expect(renderer!.root.findAllByType(CommunityPanelSheet)).toHaveLength(0)
+    expect(renderer!.root.findAllByType(CommunityPanel)).toHaveLength(0)
   })
 })

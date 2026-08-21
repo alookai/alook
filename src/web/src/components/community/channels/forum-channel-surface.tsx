@@ -8,7 +8,7 @@ import type { RightPanel } from "@/components/community/shell/panel-types"
 import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
 import { ChannelShell } from "@/components/community/channels/channel-shell"
 import type { ChannelMemberPanelProps } from "@/components/community/members/channel-member-view-model"
-import { CommunityPanelSheet } from "@/components/community/shell/community-panel-sheet"
+import { CommunityPanel } from "@/components/community/shell/community-panel"
 import type { NewForumThread } from "@/components/community/messages/create-forum-thread"
 import { ForumSurface } from "@/components/community/channels/forum-surface"
 import type { Member } from "@/lib/community/models/people"
@@ -140,7 +140,7 @@ export function ForumChannelSurface({
         </main>
       )}
       panels={rightPanel && (
-        <CommunityPanelSheet
+        <CommunityPanel
           open
           onOpenChange={(open) => { if (!open) setPanelState({ channelId, panel: null }) }}
           kind={rightPanel}

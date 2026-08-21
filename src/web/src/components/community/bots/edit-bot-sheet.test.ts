@@ -44,20 +44,18 @@ const HEALTHY_MACHINES = {
   ],
 }
 
-vi.mock("@/components/ui/sheet", () => {
+vi.mock("@/components/community/shell/community-sheet", () => {
   const React = require("react")
-  const pass = (name: string) =>
-    function P({ children }: { children?: React.ReactNode }) {
-      return React.createElement("div", { "data-mock": name }, children)
-    }
   return {
-    Sheet: pass("sheet"),
-    SheetBody: pass("body"),
-    SheetContent: pass("content"),
-    SheetDescription: pass("desc"),
-    SheetFooter: pass("footer"),
-    SheetHeader: pass("header"),
-    SheetTitle: pass("title"),
+    CommunitySheet: ({ children, footer }: {
+      children?: React.ReactNode
+      footer?: React.ReactNode | ((requestClose: () => void) => React.ReactNode)
+    }) => React.createElement(
+      "div",
+      { "data-mock": "sheet" },
+      children,
+      typeof footer === "function" ? footer(vi.fn()) : footer,
+    ),
   }
 })
 

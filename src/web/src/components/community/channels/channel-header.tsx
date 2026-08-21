@@ -24,7 +24,7 @@ import { CreateDialogShell } from "../settings/create-dialog-shell"
 // doesn't shift when the real header lands.
 export function ChannelHeaderSkeleton({ onBack }: { onBack?: () => void }) {
   return (
-    <header className="flex h-12 shrink-0 items-center gap-1 border-b border-border/40 px-3">
+    <header role="banner" className="flex h-12 shrink-0 items-center gap-1 border-b border-border/40 px-3">
       {onBack && (
         <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
       )}
@@ -77,7 +77,7 @@ export function ChannelHeader({
     </Button>
   )
   return (
-    <header className="flex h-12 shrink-0 items-center gap-1 border-b border-border/40 px-3">
+    <header role="banner" className="flex h-12 shrink-0 items-center gap-1 border-b border-border/40 px-3">
       {onBack && (
         <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
       )}

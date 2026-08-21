@@ -10,6 +10,7 @@ import { ServerRail } from "./server-rail"
 import { UserBar } from "./user-bar"
 import { InboxPopover } from "./community-inbox-popover"
 import { ShellFrameOverlays } from "./shell-frame-overlays"
+import { cn } from "@/lib/utils"
 import {
   COMMUNITY_RAIL_WIDTH,
   desktopUserBarOverlayWidth,
@@ -45,10 +46,14 @@ export function ShellFrameView({
   profile,
   inbox,
 }: Props) {
-  const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "community-shell" })
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
+    id: "community-shell",
+    onlySaveAfterUserInteractions: true,
+  })
   const sidebarPanelRef = useRef<HTMLDivElement>(null)
   const [sidebarWidth, setSidebarWidth] = useState(240)
   useEffect(() => {
+    if (breakpoint !== "desktop") return
     const element = sidebarPanelRef.current
     if (!element) return
     setSidebarWidth(element.offsetWidth)
@@ -64,6 +69,9 @@ export function ShellFrameView({
     avatar: profile.currentUser.avatar,
   }
 
+  const isDesktop = breakpoint === "desktop"
+  const isMobileList = breakpoint === "mobile" && surface === "list"
+  const isMobileDetail = breakpoint === "mobile" && surface === "detail"
   if (breakpoint === "unknown") {
     return (
       <Shell onNavigationIntent={cancelPendingNavigation}>
@@ -74,40 +82,75 @@ export function ShellFrameView({
     )
   }
 
-  if (breakpoint === "desktop") {
-    return (
-      <Shell onNavigationIntent={cancelPendingNavigation}>
-        <ServerRail {...rail.railProps} bottomInset={60} />
-        <div className="relative flex-1 flex flex-col min-w-0 pt-2">
-          <AppSurface className={SHELL_SURFACE_CLASS}>
-            <ResizablePanelGroup
-              id="community-shell"
-              orientation="horizontal"
-              className="min-h-0 flex-1"
-              defaultLayout={defaultLayout}
-              onLayoutChanged={onLayoutChanged}
+  return (
+    <Shell onNavigationIntent={cancelPendingNavigation}>
+      {!isMobileDetail && <ServerRail {...rail.railProps} bottomInset={60} />}
+      <div
+        className={cn(
+          "relative flex min-h-0 min-w-0 flex-1 flex-col",
+          !isMobileDetail && "pt-2",
+        )}
+      >
+        <AppSurface
+          className={cn(
+            SHELL_SURFACE_CLASS,
+            isMobileDetail && "rounded-none border-0 bg-background shadow-none ring-0",
+          )}
+        >
+          <ResizablePanelGroup
+            id="community-shell"
+            orientation="horizontal"
+            disabled={!isDesktop}
+            className={cn(
+              "min-h-0 flex-1",
+              !isDesktop && "*:data-[mobile-active=true]:flex-1!",
+            )}
+            defaultLayout={defaultLayout}
+            onLayoutChanged={onLayoutChanged}
+          >
+            <ResizablePanel
+              id="sidebar"
+              defaultSize="24%"
+              minSize={160}
+              maxSize={360}
+              hidden={isMobileDetail}
+              data-mobile-active={isMobileList || undefined}
+              className={cn(
+                "flex flex-col bg-sidebar",
+                isDesktop && "pb-15",
+              )}
             >
-              <ResizablePanel
-                id="sidebar"
-                defaultSize="24%"
-                minSize={160}
-                maxSize={360}
-                className="flex flex-col bg-sidebar pb-15"
-              >
-                <div ref={sidebarPanelRef} className="flex min-h-0 flex-1 flex-col">
-                  {sidebar()}
-                </div>
-              </ResizablePanel>
-              <ResizableHandle className="bg-transparent" />
-              <ResizablePanel
-                id="main"
-                defaultSize="76%"
-                className="flex min-w-0 flex-col bg-background"
-              >
-                {navigationPending ? <ChannelLoadingFrame /> : children}
-              </ResizablePanel>
-            </ResizablePanelGroup>
-          </AppSurface>
+              <div ref={sidebarPanelRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
+                {!isMobileDetail && (isDesktop ? sidebar() : sidebar({ noHeader: false }))}
+                {isMobileList && (
+                  <UserBar
+                    user={user}
+                    onOpenProfile={profile.openProfile}
+                    onEditProfile={profile.openUserSettings}
+                    inbox={inboxElement}
+                    hasUnread={inbox.hasUnread}
+                    inboxOpen={inbox.open}
+                    onInboxOpenChange={inbox.onOpenChange}
+                  />
+                )}
+              </div>
+            </ResizablePanel>
+            <ResizableHandle className={cn("bg-transparent", !isDesktop && "hidden")} />
+            <ResizablePanel
+              id="main"
+              defaultSize="76%"
+              hidden={isMobileList}
+              data-mobile-active={isMobileDetail || undefined}
+              className={cn(
+                "flex min-w-0 flex-col bg-background",
+              )}
+            >
+              {navigationPending && !isMobileList ? <ChannelLoadingFrame /> : children}
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        </AppSurface>
+
+        {isDesktop && (
           <div
             className="absolute bottom-0 left-0 z-10"
             style={{
@@ -125,58 +168,23 @@ export function ShellFrameView({
               onInboxOpenChange={inbox.onOpenChange}
             />
           </div>
-        </div>
-        <ShellFrameOverlays
-          controller={profile}
-          breakpoint={breakpoint}
-          profileStatusSeeds={profile.profile ? {
-            initialStatusEmoji: profile.profile.initialStatusEmoji,
-            initialStatusText: profile.profile.initialStatusText,
-          } : undefined}
-          extraDialogs={extraDialogs}
-        />
-      </Shell>
-    )
-  }
+        )}
 
-  return (
-    <Shell onNavigationIntent={cancelPendingNavigation}>
-      {surface === "list" && (
-        <>
-          <ServerRail {...rail.railProps} bottomInset={60} />
-          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col pt-2">
-            <AppSurface className={SHELL_SURFACE_CLASS}>
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-sidebar">
-                <div className="flex min-h-0 min-w-0 flex-1">
-                  {sidebar({ noHeader: false })}
-                </div>
-                <UserBar
-                  user={user}
-                  onOpenProfile={profile.openProfile}
-                  onEditProfile={profile.openUserSettings}
-                  inbox={inboxElement}
-                  hasUnread={inbox.hasUnread}
-                  inboxOpen={inbox.open}
-                  onInboxOpenChange={inbox.onOpenChange}
-                />
-              </div>
-            </AppSurface>
+        {isMobileList && navigationPending && (
+          <div className="absolute inset-0 z-20 flex bg-background">
+            <ChannelLoadingFrame />
           </div>
-        </>
-      )}
-      {surface === "detail" && (
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-          {navigationPending ? <ChannelLoadingFrame /> : children}
-        </div>
-      )}
-      {surface === "list" && navigationPending && (
-        <div className="absolute inset-0 z-20 flex bg-background">
-          <ChannelLoadingFrame />
-        </div>
-      )}
+        )}
+      </div>
       <ShellFrameOverlays
         controller={profile}
         breakpoint={breakpoint}
+        {...(isDesktop && profile.profile ? {
+          profileStatusSeeds: {
+            initialStatusEmoji: profile.profile.initialStatusEmoji,
+            initialStatusText: profile.profile.initialStatusText,
+          },
+        } : {})}
         extraDialogs={extraDialogs}
       />
     </Shell>

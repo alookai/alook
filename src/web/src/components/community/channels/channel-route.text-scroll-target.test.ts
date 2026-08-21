@@ -82,7 +82,7 @@ vi.mock("@/components/community/channels/channel-shell", () => ({
   ChannelShell: ({ header, body }: { header: React.ReactNode; body: React.ReactNode }) =>
     React.createElement(React.Fragment, null, header, body),
 }))
-vi.mock("@/components/community/shell/community-panel-sheet", () => ({ CommunityPanelSheet: () => null }))
+vi.mock("@/components/community/shell/community-panel", () => ({ CommunityPanel: () => null }))
 vi.mock("@/components/community/messages/message-context-sheet", () => ({ MessageContextSheet: () => null }))
 vi.mock("@/components/community/messages/thread-opener", () => ({ ThreadOpener: () => null }))
 vi.mock("@/components/community/members/add-members-dialog", () => ({ AddMembersDialog: () => null }))

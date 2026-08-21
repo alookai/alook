@@ -5,8 +5,7 @@ import { useRouter, useParams } from "next/navigation"
 import { toast } from "sonner"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { deriveThreadName } from "@alook/shared"
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { useSheetResize, SheetResizeHandle } from "@/components/ui/sheet-resize-handle"
+import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { MessageRow } from "./message-row"
 import { MessageShareDialog } from "./message-share-dialog"
 import { ChannelIcon } from "../channels/channel-icon"
@@ -162,12 +161,6 @@ export function MessageContextSheet({
   onReply?: (target: ReplyTarget) => void
   type?: ScopeType
 }) {
-  const { width, onPointerDown, onPointerMove, onPointerUp } = useSheetResize({
-    defaultWidth: 420,
-    minWidth: 320,
-    maxWidthRatio: 0.6,
-  })
-
   const currentUser = useCurrentUser()
   const uiHandlers = useUiHandlers()
   const queryClient = useQueryClient()
@@ -395,76 +388,59 @@ export function MessageContextSheet({
   }, [open, anchorId, targetSeq])
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} modal={false} disablePointerDismissal>
-      <SheetContent
-        side="right"
-        showOverlay={false}
-        style={{ width: `min(${width}px, 100vw)`, maxWidth: "none" }}
-        className="flex flex-col p-0 data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border data-[side=right]:sm:overflow-hidden"
-      >
-        <SheetResizeHandle onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} />
-        {/* Header names WHICH channel's context this is (Gus #417/#423, Alli
-            #420): channel icon + name as the primary line, the seq as weaker
-            secondary info — the intent here is "reading a channel's context",
-            the seq is just the locator. Shown consistently (same- or cross-
-            channel) for one message-side-sheet mental model. Frameless (no
-            border) matches the existing quiet header. Falls back to just `#N`
-            if no label was passed (older callers). */}
-        <SheetHeader className="gap-0 border-b-0 py-3 pr-14 sm:pr-14">
-          <SheetTitle className="flex w-full min-w-0 items-center gap-1.5 text-lg font-semibold tracking-tight">
-            {channelLabel ? (
-              <>
-                <ChannelIcon className="shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate">{channelLabel}</span>
-                <span className="shrink-0 font-mono text-base font-normal text-muted-foreground">#{targetSeq ?? ""}</span>
-              </>
-            ) : (
-              <span className="font-mono text-2xl">
-                <span className="text-muted-foreground">#</span>{targetSeq ?? ""}
-              </span>
-            )}
-          </SheetTitle>
-        </SheetHeader>
+    <CommunitySheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title={channelLabel ? (
+        <span className="flex w-full min-w-0 items-center gap-1.5">
+          <ChannelIcon className="shrink-0 text-muted-foreground" />
+          <span className="min-w-0 truncate">{channelLabel}</span>
+          <span className="shrink-0 font-mono text-base font-normal text-muted-foreground">#{targetSeq ?? ""}</span>
+        </span>
+      ) : (
+        <span className="font-mono text-2xl">
+          <span className="text-muted-foreground">#</span>{targetSeq ?? ""}
+        </span>
+      )}
+      bodyRef={bodyRef}
+      bodyClassName="px-4 py-3"
+    >
+      {query.isLoading && <ContextSkeleton />}
 
-        <div ref={bodyRef} className="flex-1 overflow-y-auto thin-scrollbar px-4 py-3">
-          {query.isLoading && <ContextSkeleton />}
+      {query.isError && (
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          Couldn&rsquo;t load the message. Check your connection and retry.
+        </p>
+      )}
 
-          {query.isError && (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              Couldn&rsquo;t load the message. Check your connection and retry.
-            </p>
-          )}
+      {query.data?.notFound && (
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          Message not found — it may have been deleted.
+        </p>
+      )}
 
-          {query.data?.notFound && (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              Message not found — it may have been deleted.
-            </p>
-          )}
-
-          {!query.isLoading && !query.isError && query.data && !query.data.notFound && (
-            <ContextRows
-              rows={renderRows}
-              viewerUserId={currentUser.id}
-              anchorId={anchorId}
-              pinnedIds={pinnedIds}
-              onOpenProfile={onOpenProfile}
-              onOpenThread={type === "channel" ? onOpenThreadId : undefined}
-              resolveUserName={resolveUserName}
-              onToggleReaction={toggleReaction}
-              onReact={toggleReaction}
-              onReply={onReply ? onReplyId : undefined}
-              onCopy={onCopyId}
-              onPin={type === "channel" ? onPinId : undefined}
-              onMark={onMarkId}
-              onCreateThread={type === "channel" ? onCreateThreadId : undefined}
-              onPreviewImage={onPreviewImage}
-              onPreviewAttachment={onPreviewAttachment}
-              onDownloadFile={onDownloadFile}
-            />
-          )}
-        </div>
-      </SheetContent>
-    </Sheet>
+      {!query.isLoading && !query.isError && query.data && !query.data.notFound && (
+        <ContextRows
+          rows={renderRows}
+          viewerUserId={currentUser.id}
+          anchorId={anchorId}
+          pinnedIds={pinnedIds}
+          onOpenProfile={onOpenProfile}
+          onOpenThread={type === "channel" ? onOpenThreadId : undefined}
+          resolveUserName={resolveUserName}
+          onToggleReaction={toggleReaction}
+          onReact={toggleReaction}
+          onReply={onReply ? onReplyId : undefined}
+          onCopy={onCopyId}
+          onPin={type === "channel" ? onPinId : undefined}
+          onMark={onMarkId}
+          onCreateThread={type === "channel" ? onCreateThreadId : undefined}
+          onPreviewImage={onPreviewImage}
+          onPreviewAttachment={onPreviewAttachment}
+          onDownloadFile={onDownloadFile}
+        />
+      )}
+    </CommunitySheet>
   )
 }
 

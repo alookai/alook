@@ -3,7 +3,7 @@ import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ThreadChannelSurface } from "./thread-channel-surface"
 import { ChannelHeader, ChannelHeaderSkeleton } from "./channel-header"
-import { CommunityPanelSheet } from "../shell/community-panel-sheet"
+import { CommunityPanel } from "../shell/community-panel"
 import { Composer } from "../messages/composer"
 import { MessageContextSheet } from "../messages/message-context-sheet"
 import { MessageList } from "../messages/message-list"
@@ -53,8 +53,8 @@ vi.mock("@/components/community/channels/channel-shell", () => ({
     dialogs?: React.ReactNode
   }) => React.createElement(React.Fragment, null, header, body, panels, dialogs),
 }))
-vi.mock("@/components/community/shell/community-panel-sheet", () => ({
-  CommunityPanelSheet: vi.fn(() => null),
+vi.mock("@/components/community/shell/community-panel", () => ({
+  CommunityPanel: vi.fn(() => null),
 }))
 vi.mock("@/components/community/messages/composer", () => ({
   Composer: vi.fn(() => null),
@@ -126,7 +126,7 @@ vi.mock("@/components/community/messages/message-channel-controller", () => ({
 
 const mockedChannelHeader = vi.mocked(ChannelHeader)
 const mockedChannelHeaderSkeleton = vi.mocked(ChannelHeaderSkeleton)
-const mockedCommunityPanelSheet = vi.mocked(CommunityPanelSheet)
+const mockedCommunityPanel = vi.mocked(CommunityPanel)
 const mockedComposer = vi.mocked(Composer)
 const mockedMessageContextSheet = vi.mocked(MessageContextSheet)
 const mockedMessageList = vi.mocked(MessageList)
@@ -322,7 +322,7 @@ describe("ThreadChannelSurface ownership", () => {
     expect(mocks.router.replace).toHaveBeenCalledWith("/c/channels/server_1/parent_1")
 
     act(() => headerProps.onToggle("pinned"))
-    const panelProps = mockedCommunityPanelSheet.mock.calls.at(-1)![0]
+    const panelProps = mockedCommunityPanel.mock.calls.at(-1)![0]
     expect(panelProps).toEqual(expect.objectContaining({
       kind: "pinned",
       pinned: expect.arrayContaining([expect.objectContaining({ id: "pinned_1" })]),

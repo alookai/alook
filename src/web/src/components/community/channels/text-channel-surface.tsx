@@ -5,7 +5,7 @@ import { useBreakpoint } from "@/hooks/use-mobile"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
 import { ChannelShell } from "@/components/community/channels/channel-shell"
-import { CommunityPanelSheet } from "@/components/community/shell/community-panel-sheet"
+import { CommunityPanel } from "@/components/community/shell/community-panel"
 import type { ChannelMemberPanelProps } from "@/components/community/members/channel-member-view-model"
 import { Composer } from "@/components/community/messages/composer"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
@@ -154,7 +154,7 @@ export function TextChannelSurface({
             </main>
           )}
           panels={rightPanel && (
-            <CommunityPanelSheet
+            <CommunityPanel
               open
               onOpenChange={(open) => { if (!open) setRightPanel(null) }}
               kind={rightPanel}

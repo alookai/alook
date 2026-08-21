@@ -5,14 +5,7 @@ import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { isPresenceOnline, type CommunityMachineSummary } from "@alook/shared"
 import { machineName } from "@/lib/community/machine-name"
-import {
-  Sheet,
-  SheetBody,
-  SheetContent,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
+import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { type AvatarDraft } from "@/components/avatar"
@@ -209,17 +202,22 @@ export function CreateBotSheet({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} disablePointerDismissal>
-      <SheetContent
-        side="right"
-        showOverlay={false}
-        className="data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border data-[side=right]:sm:overflow-hidden"
-      >
-        <SheetHeader>
-          <SheetTitle>Create a bot</SheetTitle>
-        </SheetHeader>
-
-        <SheetBody className="flex flex-col gap-6">
+    <CommunitySheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Create a bot"
+      bodyClassName="flex flex-col gap-6"
+      footer={(requestClose) => (
+        <>
+          <Button variant="outline" onClick={requestClose}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={create.isPending}>
+            {create.isPending ? "Creating…" : "Create bot"}
+          </Button>
+        </>
+      )}
+    >
           <BotFormFields
             avatarDraft={avatarDraft}
             onAvatarChange={setAvatarDraft}
@@ -312,17 +310,6 @@ export function CreateBotSheet({
           )}
           </>
           )}
-        </SheetBody>
-
-        <SheetFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={create.isPending}>
-            {create.isPending ? "Creating…" : "Create bot"}
-          </Button>
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+    </CommunitySheet>
   )
 }

@@ -4,13 +4,29 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { AttachmentPreviewSheet, readAttachmentText } from "./attachment-preview-sheet"
 import type { FileAttachment } from "@/lib/community/models/message"
 
-vi.mock("@/components/ui/sheet", () => ({
-  Sheet: ({ children }: { children: React.ReactNode }) => React.createElement("div", null, children),
-  SheetContent: ({ children, ...props }: React.ComponentProps<"section">) => React.createElement("section", props, children),
-  SheetHeader: ({ children, ...props }: React.ComponentProps<"header">) => React.createElement("header", props, children),
-  SheetTitle: ({ children, ...props }: React.ComponentProps<"h2">) => React.createElement("h2", props, children),
-  SheetDescription: ({ children, ...props }: React.ComponentProps<"p">) => React.createElement("p", props, children),
-  SheetBody: ({ children, ...props }: React.ComponentProps<"main">) => React.createElement("main", props, children),
+vi.mock("@/components/community/shell/community-sheet", () => ({
+  CommunitySheet: ({
+    title,
+    description,
+    headerActions,
+    children,
+    bodyTestId,
+    bodyClassName,
+  }: {
+    title: React.ReactNode
+    description?: React.ReactNode
+    headerActions?: React.ReactNode
+    children: React.ReactNode
+    bodyTestId?: string
+    bodyClassName?: string
+  }) => React.createElement(
+    "div",
+    null,
+    React.createElement("h2", null, title),
+    description != null && React.createElement("p", null, description),
+    headerActions,
+    React.createElement("main", { "data-testid": bodyTestId, className: bodyClassName }, children),
+  ),
 }))
 
 vi.mock("@/components/ui/sheet-resize-handle", () => ({
