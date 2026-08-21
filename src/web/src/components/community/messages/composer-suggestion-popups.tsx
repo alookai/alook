@@ -147,8 +147,9 @@ function ChannelRefRow({
       role="option"
       data-testid={tid.channelRefOption(item.id)}
       aria-selected={selected}
+      title={showServerPrefix ? `${item.serverName} / ${item.name}` : item.name}
       className={[
-        "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",
+        "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",
         selected ? "bg-accent" : "hover:bg-accent/50",
       ].join(" ")}
       onMouseDown={(event) => {
@@ -156,8 +157,13 @@ function ChannelRefRow({
         onSelect()
       }}
     >
-      <ChannelIcon className="size-3.5 text-muted-foreground" />
-      <span className="font-medium">
+      <span data-suggestion-icon className="inline-flex shrink-0">
+        <ChannelIcon className="size-3.5 text-muted-foreground" />
+      </span>
+      <span
+        data-suggestion-label
+        className="min-w-0 flex-1 truncate font-medium"
+      >
         {showServerPrefix && (
           <span className="text-muted-foreground">{item.serverName} / </span>
         )}
@@ -190,8 +196,9 @@ function MentionRow({
         role="option"
         data-testid={tid.mentionOption(item.id)}
         aria-selected={selected}
+        title={item.kind === "member" ? `${item.name}#${item.discriminator}` : `@${item.label}`}
         className={[
-          "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",
+          "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",
           selected ? "bg-accent" : "hover:bg-accent/50",
         ].join(" ")}
         onMouseDown={(event) => {
@@ -200,32 +207,45 @@ function MentionRow({
         }}
       >
         {item.kind === "member" ? (
-          <Avatar
-            label={item.avatar}
-            seed={item.userId}
-            size={24}
-            presence={item.status}
-            ringColor="var(--popover)"
-          />
+          <span data-suggestion-icon className="shrink-0">
+            <Avatar
+              label={item.avatar}
+              seed={item.userId}
+              size={24}
+              presence={item.status}
+              ringColor="var(--popover)"
+            />
+          </span>
         ) : (
-          <span className="grid size-6 place-items-center rounded-full bg-primary/15 text-primary">
+          <span
+            data-suggestion-icon
+            className="grid size-6 shrink-0 place-items-center rounded-full bg-primary/15 text-primary"
+          >
             <Users className="size-3.5" />
           </span>
         )}
-        <span className="font-medium">
-          {item.kind === "member" ? (
-            <>
+        {item.kind === "member" ? (
+          <span className="flex min-w-0 flex-1 items-baseline font-medium">
+            <span data-suggestion-label className="min-w-0 truncate">
               {item.name}
-              <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">
-                #{item.discriminator}
-              </span>
-            </>
-          ) : (
-            `@${item.label}`
-          )}
-        </span>
+            </span>
+            <span
+              data-suggestion-discriminator
+              className="ml-1 shrink-0 text-xs font-normal tracking-wide text-muted-foreground"
+            >
+              #{item.discriminator}
+            </span>
+          </span>
+        ) : (
+          <span
+            data-suggestion-label
+            className="min-w-0 flex-1 truncate font-medium"
+          >
+            @{item.label}
+          </span>
+        )}
         {item.kind !== "member" && (
-          <span className="ml-auto text-xs text-muted-foreground">
+          <span className="ml-auto shrink-0 text-xs text-muted-foreground">
             Notify everyone
           </span>
         )}
