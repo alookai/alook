@@ -3503,6 +3503,65 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     expect(session.stop).toHaveBeenCalledTimes(1);
   });
 
+  it("does not expire a driver-acknowledged next-turn queue while the active root keeps making progress", async () => {
+    vi.useFakeTimers();
+    try {
+      let now = 0;
+      const rows: B1TraceRow[] = [];
+      const session = b1Session([], "cursor", "root-turn");
+      const { mgr } = b1Manager({
+        sessions: [session],
+        driver: fakeDriver("cursor"),
+        trace: (row) => rows.push(row),
+        now: () => now,
+        tickIntervalMs: 5,
+        staleThresholdMs: 50,
+      });
+      mgr.start();
+      mgr.deliver("a1", { id: "root", seq: 1, text: "root" });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      session.send = vi.fn(async (input: { id: string }) => {
+        void session.pushAgentEvent({
+          type: "command_queued",
+          commandId: input.id,
+          reason: "runtime_busy",
+        });
+        return { status: "queued" as const, reason: "runtime_busy" as const, commandId: input.id };
+      });
+
+      now = 10;
+      mgr.deliver("a1", { id: "next", seq: 2, text: "next" });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(mgr.snapshot().agents.a1.pendingAdmissions).toHaveLength(1);
+
+      // The queued command is waiting for Cursor's next-turn boundary, while
+      // the original root is demonstrably healthy. Its queue dwell may exceed
+      // the generic admission watchdog without turning into a send stall.
+      now = 55;
+      await session.pushAgentEvent({
+        type: "internal_progress",
+        turnId: "root-turn",
+        source: "cursor",
+      });
+      now = 70;
+      await vi.advanceTimersByTimeAsync(10);
+
+      expect(mgr.snapshot().agents.a1.status).toBe("running");
+      expect(mgr.snapshot().agents.a1.pendingAdmissions).toHaveLength(1);
+      expect(session.stop).not.toHaveBeenCalled();
+      expect(rows.some((row) =>
+        Array.isArray(row.effects) && (row.effects as string[]).includes("expire_admission")
+      )).toBe(false);
+
+      await mgr.stopAll();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   for (const mode of ["idle", "busy"] as const) {
     it(`${mode} send synchronous throw aborts once and rethrows without another send`, async () => {
       const rows: B1TraceRow[] = [];
