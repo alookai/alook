@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   subscribe: vi.fn(),
   unsubscribe: vi.fn(),
   replace: vi.fn(),
+  clearLastChannel: vi.fn(),
+  lastChannel: null as string | null,
   metaQuery: {
     data: undefined as undefined | Record<string, unknown>,
     error: null as unknown,
@@ -43,6 +45,10 @@ vi.mock("./use-community-ws", () => ({
   communityWsUnsubscribe: (...args: unknown[]) => mocks.unsubscribe(...args),
 }))
 vi.mock("@/lib/api/client", () => ({ toastApiError: vi.fn() }))
+vi.mock("@/lib/community/last-channel", () => ({
+  getLastChannel: () => mocks.lastChannel,
+  clearLastChannel: (...args: unknown[]) => mocks.clearLastChannel(...args),
+}))
 
 import { useChannelRouteModel } from "./use-channel-route-model"
 
@@ -56,6 +62,8 @@ beforeEach(() => {
   mocks.subscribe.mockClear()
   mocks.unsubscribe.mockClear()
   mocks.replace.mockClear()
+  mocks.clearLastChannel.mockClear()
+  mocks.lastChannel = null
   mocks.metaQuery = { data: undefined, error: null, isVerified: false }
 })
 
@@ -98,6 +106,39 @@ describe("useChannelRouteModel subscription ownership", () => {
       parentChannelId: "forum-1",
       parentMessageId: "opener-1",
     })
+
+    act(() => renderer!.unmount())
+    expect(mocks.unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it("clears an exact flat last-channel value when verified metadata is archived", () => {
+    mocks.lastChannel = "post-1"
+    mocks.metaQuery = {
+      data: {
+        id: "post-1",
+        serverId: "server-1",
+        name: "Post",
+        type: "thread",
+        parentChannelId: "forum-1",
+        parentMessageId: "opener-1",
+        creatorId: "user-1",
+        archived: true,
+        activityAt: "2026-08-09T00:00:00.000Z",
+        verifiedEpoch: 0,
+      },
+      error: null,
+      isVerified: true,
+    }
+    let renderer: TestRenderer.ReactTestRenderer
+
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(Harness))
+    })
+
+    expect(mocks.clearLastChannel).toHaveBeenCalledWith("server-1")
+    expect(mocks.replace).toHaveBeenCalledWith("/c/channels/server-1")
+    expect(mocks.subscribe).toHaveBeenCalledTimes(1)
+    expect(mocks.unsubscribe).not.toHaveBeenCalled()
 
     act(() => renderer!.unmount())
     expect(mocks.unsubscribe).toHaveBeenCalledTimes(1)
