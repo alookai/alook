@@ -2,14 +2,12 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ThreadChannelSurface } from "./thread-channel-surface"
-import { ChannelHeader, ChannelHeaderSkeleton } from "./channel-header"
+import { ChannelHeader, ChannelHeaderSkeleton } from "@/modules/community/client/channel"
 import { CommunityPanelSheet } from "../shell/community-panel-sheet"
-import { Composer } from "../messages/composer"
+import { Composer, MessageList, type MessageChannelControllerValue } from "@/modules/community/client/messaging"
 import { MessageContextSheet } from "../messages/message-context-sheet"
-import { MessageList } from "../messages/message-list"
 import { ThreadOpener } from "../messages/thread-opener"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
-import type { MessageChannelControllerValue } from "../messages/message-channel-controller"
 
 const mocks = vi.hoisted(() => ({
   router: { push: vi.fn(), replace: vi.fn(), back: vi.fn() },
@@ -36,11 +34,9 @@ vi.mock("@/hooks/community/use-channel-message-feed", () => ({
 vi.mock("@/hooks/community/mutations", () => ({
   useEditMessage: () => ({ mutateAsync: mocks.editMessage }),
 }))
-vi.mock("@/components/community/channels/channel-header", () => ({
+vi.mock("@/modules/community/client/channel", () => ({
   ChannelHeader: vi.fn(() => null),
   ChannelHeaderSkeleton: vi.fn(() => null),
-}))
-vi.mock("@/components/community/channels/channel-shell", () => ({
   ChannelShell: ({
     header,
     body,
@@ -56,20 +52,10 @@ vi.mock("@/components/community/channels/channel-shell", () => ({
 vi.mock("@/components/community/shell/community-panel-sheet", () => ({
   CommunityPanelSheet: vi.fn(() => null),
 }))
-vi.mock("@/components/community/messages/composer", () => ({
+vi.mock("@/modules/community/client/messaging", () => ({
   Composer: vi.fn(() => null),
   ComposerSkeleton: vi.fn(() => null),
-}))
-vi.mock("@/components/community/messages/message-context-sheet", () => ({
-  MessageContextSheet: vi.fn(() => null),
-}))
-vi.mock("@/components/community/messages/message-list", () => ({
   MessageList: vi.fn(() => null),
-}))
-vi.mock("@/components/community/messages/thread-opener", () => ({
-  ThreadOpener: vi.fn(() => null),
-}))
-vi.mock("@/components/community/messages/message-channel-controller", () => ({
   MessageChannelController: ({
     feed: messageFeed,
     children,
@@ -93,37 +79,26 @@ vi.mock("@/components/community/messages/message-channel-controller", () => ({
     onSheetReply: vi.fn(),
     jumpToSeq: mocks.jumpToSeq,
     messageActions: {
-      onToggleReaction: vi.fn(),
-      onReact: vi.fn(),
-      onReply: vi.fn(),
-      onPin: vi.fn(),
-      onMark: vi.fn(),
-      onCreateThread: vi.fn(),
-      onCopy: vi.fn(),
-      onEdit: vi.fn(),
-      onRetry: vi.fn(),
-      onPreviewImage: vi.fn(),
-      onDownloadFile: vi.fn(),
+      onToggleReaction: vi.fn(), onReact: vi.fn(), onReply: vi.fn(), onPin: vi.fn(), onMark: vi.fn(),
+      onCreateThread: vi.fn(), onCopy: vi.fn(), onEdit: vi.fn(), onRetry: vi.fn(), onDismiss: vi.fn(),
+      onPreviewImage: vi.fn(), onPreviewAttachment: vi.fn(), onDownloadFile: vi.fn(),
     },
     threadActions: {
-      onToggleReaction: vi.fn(),
-      onReact: vi.fn(),
-      onReply: vi.fn(),
-      onPin: vi.fn(),
-      onMark: vi.fn(),
-      onCreateThread: undefined,
-      onCopy: vi.fn(),
-      onEdit: vi.fn(),
-      onRetry: vi.fn(),
-      onPreviewImage: vi.fn(),
-      onDownloadFile: vi.fn(),
+      onToggleReaction: vi.fn(), onReact: vi.fn(), onReply: vi.fn(), onPin: vi.fn(), onMark: vi.fn(),
+      onCreateThread: undefined, onCopy: vi.fn(), onEdit: vi.fn(), onRetry: vi.fn(), onDismiss: vi.fn(),
+      onPreviewImage: vi.fn(), onPreviewAttachment: vi.fn(), onDownloadFile: vi.fn(),
     },
     acceptMessage: mocks.acceptMessage,
     handleTyping: mocks.handleTyping,
     typingUsers: ["Alice"],
   }),
 }))
-
+vi.mock("@/components/community/messages/message-context-sheet", () => ({
+  MessageContextSheet: vi.fn(() => null),
+}))
+vi.mock("@/components/community/messages/thread-opener", () => ({
+  ThreadOpener: vi.fn(() => null),
+}))
 const mockedChannelHeader = vi.mocked(ChannelHeader)
 const mockedChannelHeaderSkeleton = vi.mocked(ChannelHeaderSkeleton)
 const mockedCommunityPanelSheet = vi.mocked(CommunityPanelSheet)

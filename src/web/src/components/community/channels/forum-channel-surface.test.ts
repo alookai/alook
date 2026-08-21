@@ -1,7 +1,7 @@
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { ChannelHeader } from "./channel-header"
+import { ChannelHeader } from "@/modules/community/client/channel"
 import { CommunityPanelSheet } from "../shell/community-panel-sheet"
 import { ForumChannelSurface } from "./forum-channel-surface"
 import { ForumSurface } from "./forum-surface"
@@ -42,10 +42,8 @@ vi.mock("@alook/shared", async (importOriginal) => {
   const original = await importOriginal<typeof import("@alook/shared")>()
   return { ...original, canManageServer: (role: string | undefined) => role === "owner" || role === "admin" }
 })
-vi.mock("@/components/community/channels/channel-header", () => ({
+vi.mock("@/modules/community/client/channel", () => ({
   ChannelHeader: vi.fn(() => null),
-}))
-vi.mock("@/components/community/channels/channel-shell", () => ({
   ChannelShell: ({ header, body, panels, dialogs }: {
     header: React.ReactNode
     body: React.ReactNode

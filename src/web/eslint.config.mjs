@@ -81,6 +81,42 @@ const eslintConfig = defineConfig([
     },
   },
   {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: [
+      "src/modules/community/client/channel/**",
+      "src/modules/community/client/messaging/**",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/modules/community/client/**/internal/**"],
+              message: "Community module internals are private; use a public entry.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/modules/community/client/channel/internal/*-view.tsx"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["next/navigation", "@tanstack/react-query", "@/hooks/community/**", "@/stores/community/**", "@/lib/api/**"],
+              message: "Channel Views are prop-only; client capabilities belong in Controllers.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: [
       "**/*.test.ts",
       "**/*.test.tsx",

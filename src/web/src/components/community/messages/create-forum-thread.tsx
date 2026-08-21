@@ -13,7 +13,7 @@ import {
 import { onEnterSubmit } from "@/lib/ime"
 import { toastApiError } from "@/lib/api/client"
 import { MAX_CHANNEL_NAME_LENGTH, type MentionType } from "@alook/shared"
-import { Composer, type ComposerHandle, type SendAttachment } from "./composer"
+import { Composer, type ComposerHandle, type SendAttachment } from "@/modules/community/client/messaging"
 import type { Member } from "@/lib/community/models/people"
 import {
   useUploadFile,

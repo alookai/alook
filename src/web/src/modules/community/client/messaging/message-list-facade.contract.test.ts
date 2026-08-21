@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { ComponentProps, ComponentRef, ReactNode } from "react"
@@ -75,24 +75,20 @@ describe("MessageList facade contract", () => {
     expect(text).not.toMatch(/forwardRef|useImperativeHandle/)
   })
 
-  it("keeps the legacy file as a re-export-only facade", () => {
-    const text = source("src/components/community/messages/message-list.tsx")
-    expect(text.trim()).toBe(
-      'export { MessageList } from "@/modules/community/client/messaging/message-list"',
-    )
+  it("removes the legacy facade after every consumer reaches the public entry", () => {
+    expect(existsSync(resolve(webRoot, "src/components/community/messages/message-list.tsx"))).toBe(false)
   })
 
-  it("keeps all production consumers on the original path", () => {
+  it("keeps all production consumers on the stable messaging entry", () => {
     const importers = [
-      "src/app/c/channels/[serverId]/page.tsx",
       "src/app/c/me/[dmId]/page.tsx",
       "src/components/community/channels/thread-channel-surface.tsx",
-      "src/components/community/channels/channel-route.tsx",
-      "src/components/community/channels/text-channel-surface.tsx",
+      "src/modules/community/client/channel/channel-screen-skeleton.tsx",
+      "src/modules/community/client/channel/internal/text-channel-view.tsx",
     ]
     for (const path of importers) {
       const text = source(path)
-      expect(text).toMatch(/messages\/message-list["']/)
+      expect(text).toMatch(/(?:modules\/community\/client\/messaging|\.\.\/messaging|\.\.\/\.\.\/messaging)["']/)
       expect(text).not.toMatch(/message-list-(types|controller|view|row)/)
     }
   })

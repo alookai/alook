@@ -23,11 +23,11 @@ describe("adaptive navigation cutover contracts", () => {
 
   it("autofocuses message composers only after desktop is known", () => {
     const dmPage = readSource("../../../app/c/me/[dmId]/page.tsx")
-    const textSurface = readSource("./text-channel-surface.tsx")
+    const textController = readSource("../../../modules/community/client/channel/internal/text-channel-controller.tsx")
     const threadSurface = readSource("./thread-channel-surface.tsx")
 
     expect(dmPage).toContain('autoFocus={bp === "desktop"}')
-    expect(textSurface).toContain('autoFocus={breakpoint === "desktop"}')
+    expect(textController).toContain('autoFocus={breakpoint === "desktop"}')
     expect(threadSurface).toContain('autoFocus={breakpoint === "desktop"}')
   })
 })

@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "../avatar"
 import { PanelShell } from "./panel-shell"
 import { MemberList } from "../members/member-list"
-import { Message } from "../messages/message"
+import { MessageRow } from "@/modules/community/client/messaging"
 import { formatRelativeTime } from "@/lib/community/format-time"
 import { stripInlineMarkup, type CommunityRole as Role } from "@alook/shared"
 import type { RightPanel } from "@/components/community/shell/panel-types"
@@ -217,12 +217,13 @@ function SearchPanel({
       )}
       <div className="mb-2 text-xs text-muted-foreground">{searchResults.length} results</div>
       {searchResults.map((m) => {
-        const renderMsg: RenderMsg = { ...m, grouped: false }
+        const { thread: _thread, ...compactMessage } = m
+        const renderMsg: RenderMsg = { ...compactMessage, grouped: false }
         return (
-          <Message
+          <MessageRow
             key={m.id}
             m={renderMsg}
-            compact
+            hoverCapable
             viewerUserId={viewerUserId}
             onOpenThread={() => {}}
             onOpenProfile={onOpenProfile}

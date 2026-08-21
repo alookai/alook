@@ -6,17 +6,6 @@ import { describe, expect, expectTypeOf, it } from "vitest"
 import * as facade from "./composer"
 import { Composer } from "./composer"
 import type { ComposerHandle, ComposerProps } from "./composer"
-import {
-  Composer as LegacyComposer,
-  clipboardFiles as legacyClipboardFiles,
-  pendingFilesToSendAttachments as legacyPendingFilesToSendAttachments,
-} from "@/components/community/messages/composer"
-import type {
-  ComposerHandle as LegacyComposerHandle,
-  ComposerProps as LegacyComposerProps,
-  SendAttachment as LegacySendAttachment,
-} from "@/components/community/messages/composer"
-import type { SendAttachment } from "@/lib/community/models/message"
 
 const messagesDirectory = dirname(fileURLToPath(import.meta.url))
 const webRoot = resolve(messagesDirectory, "../../../../..")
@@ -27,14 +16,6 @@ describe("Composer public facade", () => {
   it("keeps the exact props and five-method forwarded handle", () => {
     expectTypeOf<ComponentProps<typeof Composer>>().toEqualTypeOf<ComposerProps>()
     expectTypeOf<ComponentRef<typeof Composer>>().toEqualTypeOf<ComposerHandle>()
-    expectTypeOf<typeof LegacyComposer>().toEqualTypeOf<typeof Composer>()
-    expectTypeOf<LegacyComposerProps>().toEqualTypeOf<ComposerProps>()
-    expectTypeOf<LegacyComposerHandle>().toEqualTypeOf<ComposerHandle>()
-    expectTypeOf<LegacySendAttachment>().toEqualTypeOf<SendAttachment>()
-    expect(legacyClipboardFiles).toBe(facade.clipboardFiles)
-    expect(legacyPendingFilesToSendAttachments).toBe(
-      facade.pendingFilesToSendAttachments,
-    )
     expectTypeOf<keyof ComposerHandle>().toEqualTypeOf<
       | "focusEditor"
       | "submitNow"
@@ -84,29 +65,22 @@ describe("Composer public facade", () => {
     expect(source).not.toContain("useFileAttachments(")
   })
 
-  it("keeps the legacy file as a re-export-only compatibility facade", () => {
-    const source = readWeb("src/components/community/messages/composer.tsx")
-    expect(source).toContain(
-      'from "@/modules/community/client/messaging/composer"',
-    )
-    expect(source).toMatch(/^export\s+\{/)
-    expect(source).not.toMatch(/\b(import|function|const|let|class|use[A-Z]\w*)\b/)
-    expect(source).not.toMatch(/<\w|=>/)
+  it("removes the legacy compatibility facade", () => {
+    expect(existsSync(resolve(webRoot, "src/components/community/messages/composer.tsx"))).toBe(false)
   })
 
-  it("keeps every direct importer on the facade and out of internals", () => {
+  it("keeps every direct importer on the stable entry and out of internals", () => {
     const importers = [
       "src/app/c/me/[dmId]/page.tsx",
       "src/components/community/channels/thread-channel-surface.tsx",
-      "src/components/community/channels/channel-route.tsx",
-      "src/components/community/channels/text-channel-surface.tsx",
       "src/components/community/messages/create-forum-thread.tsx",
-      "src/modules/community/client/messaging/message-channel-controller.tsx",
       "src/components/community/channels/thread-channel-surface.test.ts",
+      "src/modules/community/client/channel/internal/text-channel-controller.tsx",
+      "src/modules/community/client/channel/internal/text-channel-view.tsx",
     ]
     for (const importer of importers) {
       const source = readWeb(importer)
-      expect(source).toMatch(/(?:from|import\()\s*["'][^"']*\/composer["']/)
+      expect(source).toMatch(/(?:modules\/community\/client\/messaging|\.\.\/messaging|\.\.\/\.\.\/messaging)["']/)
       expect(source).not.toMatch(
         /composer-(?:types|file-utils|view|suggestion-popups)|use-composer-(?:controller|suggestions)/,
       )

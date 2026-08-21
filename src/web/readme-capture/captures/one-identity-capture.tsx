@@ -1,7 +1,6 @@
 "use client"
 
-import { ChannelHeader } from "@/components/community/channels/channel-header"
-import { Message } from "@/components/community/messages/message"
+import { ChannelPreview } from "@/modules/community/client"
 import { ProfileCard } from "@/components/community/social/profile-card"
 import type { RenderMsg } from "@/lib/community/models/message"
 
@@ -82,20 +81,16 @@ const IDENTITY_FRAMES: IdentityFrameData[] = [
 function IdentityFrame({ frame }: { frame: IdentityFrameData }) {
   return (
     <div className="flex size-full flex-col bg-background">
-      <ChannelHeader
+      <ChannelPreview
         channel={frame.serverName}
-        breadcrumb={{ label: frame.activeChannel }}
-        rightPanel={null}
-        onToggle={() => undefined}
-        tools={{ members: false, threads: false, pinned: false }}
+        headerProps={{
+          breadcrumb: { label: frame.activeChannel },
+          tools: { members: false, threads: false, pinned: false },
+        }}
+        messages={frame.messages.map((message) => ({ message }))}
+        contentClassName="identity-message-pane flex-1 overflow-hidden px-5 py-5"
+        messageListClassName="identity-message-content"
       />
-      <div className="identity-message-pane flex-1 overflow-hidden px-5 py-5">
-        <div className="identity-message-content">
-          {frame.messages.map((entry) => (
-            <Message key={entry.id} m={entry} onOpenThread={() => undefined} />
-          ))}
-        </div>
-      </div>
     </div>
   )
 }

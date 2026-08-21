@@ -48,7 +48,7 @@ vi.mock("@/components/ui/sheet-resize-handle", () => ({
   }),
   SheetResizeHandle: () => null,
 }))
-vi.mock("./message-row", () => ({
+vi.mock("@/modules/community/client/messaging", () => ({
   MessageRow: ({ onOpenThread }: { onOpenThread: (threadId: string) => void }) => {
     mocks.openThread = onOpenThread
     return null

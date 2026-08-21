@@ -2,8 +2,7 @@
 
 import { useEffect } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
-import { MessageList } from "@/components/community/messages/message-list"
-import { Skeleton } from "@/components/ui/skeleton"
+import { ChannelScreenSkeleton } from "@/modules/community/client"
 import { useServer } from "@/hooks/community/use-servers"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { getLastChannel, pickServerLandingChannel } from "@/lib/community/last-channel"
@@ -51,23 +50,5 @@ export default function ServerDefaultPage() {
     )
   }
 
-  return (
-    <>
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-3">
-        <Skeleton className="size-4 rounded" />
-        <Skeleton className="h-4 w-40 rounded" />
-        <div className="ml-auto flex items-center gap-2">
-          <Skeleton className="size-7 rounded-md" />
-          <Skeleton className="size-7 rounded-md" />
-          <Skeleton className="size-7 rounded-md" />
-        </div>
-      </header>
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <MessageList channel="" messages={[]} loading onOpenThread={() => {}} />
-        <div className="px-3 pb-3 pt-0">
-          <Skeleton className="h-12 w-full rounded-xl" />
-        </div>
-      </main>
-    </>
-  )
+  return <ChannelScreenSkeleton />
 }

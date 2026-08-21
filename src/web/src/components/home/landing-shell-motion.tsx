@@ -34,10 +34,8 @@ import { ServerRail } from "@/components/community/shell/server-rail"
 import { ChannelSidebar } from "@/components/community/channels/channel-sidebar"
 import { DmSidebar } from "@/components/community/channels/dm-sidebar"
 import { DmHeader } from "@/components/community/channels/dm-header"
-import { ChannelHeader } from "@/components/community/channels/channel-header"
+import { ChannelPreview } from "@/modules/community/client"
 import { Avatar } from "@/components/community/avatar"
-import { Message } from "@/components/community/messages/message"
-import { TypingIndicator } from "@/components/community/messages/typing-indicator"
 import { InboxPopover } from "@/components/community/shell/community-inbox-popover"
 import { MachineCard } from "@/components/community/machines/machine-card"
 import { PairMachineSteps } from "@/components/community/machines/pair-machine-sheet"
@@ -767,36 +765,26 @@ export function LandingMobileChatMotion({ beat }: { beat: number }) {
         </div>
         <QueryClientProvider client={queryClient}>
           <div className={styles.mobileSurface}>
-            <ChannelHeader
+            <ChannelPreview
               channel="general"
-              rightPanel={null}
-              onToggle={() => {}}
-              onBack={() => {}}
               server={{ id: "gus", name: "Gus", icon: null }}
-              tools={{ threads: false, pinned: false, members: false }}
-            />
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div className={`${styles.mobileMessages} flex-1 overflow-hidden px-2 py-2`}>
-                {MESSAGES.map((message, index) => (
-                  <div
-                    key={message.id}
-                    data-visible={index < snapshot.visibleMessages}
-                    className={styles.messageSlot}
-                  >
-                    <div
-                      className={targetClass(snapshot, `message-${message.authorId}`)}
-                    >
-                      <Message m={message} onOpenThread={() => {}} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <PrototypeComposer
+              onBack={() => {}}
+              headerProps={{
+                tools: { threads: false, pinned: false, members: false },
+              }}
+              messages={MESSAGES.map((message) => ({
+                message,
+                targetClassName: targetClass(snapshot, `message-${message.authorId}`),
+              }))}
+              visibleMessages={snapshot.visibleMessages}
+              contentClassName={`${styles.mobileMessages} flex-1 overflow-hidden px-2 py-2`}
+              messageSlotClassName={styles.messageSlot}
+              footer={<PrototypeComposer
                 snapshot={snapshot}
                 target="composer"
                 placeholder="Message /general"
-              />
-            </div>
+              />}
+            />
           </div>
         </QueryClientProvider>
       </div>
@@ -1124,38 +1112,23 @@ function ServerScene({
   showTypingPill: boolean
 }) {
   return (
-    <>
-      <ChannelHeader
-        channel="general"
-        rightPanel={null}
-        onToggle={() => {}}
-        server={{ id: "gus", name: "Gus", icon: null }}
-      />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="relative flex-1 overflow-hidden px-4 py-3">
-          {MESSAGES.map((message, index) => (
-            <div
-              key={message.id}
-              data-visible={index < snapshot.visibleMessages}
-              className={styles.messageSlot}
-            >
-              <div
-                data-motion-target={`message-${message.authorId}`}
-                className={targetClass(snapshot, `message-${message.authorId}`)}
-              >
-                <Message m={message} onOpenThread={() => {}} />
-              </div>
-            </div>
-          ))}
-          {showTypingPill && <TypingIndicator names={[DMS[0].name]} />}
-        </div>
-        <PrototypeComposer
+    <ChannelPreview
+      channel="general"
+      server={{ id: "gus", name: "Gus", icon: null }}
+      messages={MESSAGES.map((message) => ({
+        message,
+        target: `message-${message.authorId}`,
+        targetClassName: targetClass(snapshot, `message-${message.authorId}`),
+      }))}
+      visibleMessages={snapshot.visibleMessages}
+      messageSlotClassName={styles.messageSlot}
+      typingNames={showTypingPill ? [DMS[0].name] : []}
+      footer={<PrototypeComposer
           snapshot={snapshot}
           target="composer"
           placeholder="Message /general"
-        />
-      </div>
-    </>
+        />}
+    />
   )
 }
 
@@ -1167,38 +1140,22 @@ function SpacesScene({ snapshot }: { snapshot: SceneSnapshot }) {
 
   return (
     <>
-      <ChannelHeader
+      <ChannelPreview
         channel={channel?.name ?? "general"}
-        rightPanel={null}
-        onToggle={() => {}}
         server={{ id: server.id, name: server.name, icon: server.icon ?? null }}
-      />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="flex-1 overflow-hidden px-4 py-3">
-          {messages.map((message, index) => {
-            const target = `space-message-${message.authorId}`
-            return (
-              <div
-                key={message.id}
-                data-visible={index < snapshot.visibleMessages}
-                className={styles.messageSlot}
-              >
-                <div
-                  data-motion-target={target}
-                  className={targetClass(snapshot, target)}
-                >
-                  <Message m={message} onOpenThread={() => {}} />
-                </div>
-              </div>
-            )
-          })}
-        </div>
-        <PrototypeComposer
+        messages={messages.map((message) => {
+          const target = `space-message-${message.authorId}`
+          return { message, target, targetClassName: targetClass(snapshot, target) }
+        })}
+        visibleMessages={snapshot.visibleMessages}
+        contentClassName="flex-1 overflow-hidden px-4 py-3"
+        messageSlotClassName={styles.messageSlot}
+        footer={<PrototypeComposer
           snapshot={snapshot}
           target="spaces-composer"
           placeholder={`Message /${channel?.name ?? "general"}`}
-        />
-      </div>
+        />}
+      />
       <PrototypeInviteSurface snapshot={snapshot} />
     </>
   )
@@ -1210,69 +1167,45 @@ function IdentityScene({ snapshot }: { snapshot: SceneSnapshot }) {
   const channel = SPACE_CHANNELS[room][0]?.channels[0]
 
   return (
-    <>
-      <ChannelHeader
-        channel={channel?.name ?? "general"}
-        rightPanel={null}
-        onToggle={() => {}}
-        server={{ id: server.id, name: server.name, icon: server.icon ?? null }}
-      />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="flex-1 overflow-hidden px-4 py-3">
-          {IDENTITY_MESSAGES[room].map((message, index) => (
-            <div
-              key={message.id}
-              data-visible={index < snapshot.visibleMessages}
-              className={styles.messageSlot}
-            >
-              <div
-                data-motion-target="identity-message-maya"
-                className={targetClass(snapshot, "identity-message-maya")}
-              >
-                <Message m={message} onOpenThread={() => {}} />
-              </div>
-            </div>
-          ))}
-        </div>
-        <PrototypeComposer
+    <ChannelPreview
+      channel={channel?.name ?? "general"}
+      server={{ id: server.id, name: server.name, icon: server.icon ?? null }}
+      messages={IDENTITY_MESSAGES[room].map((message) => ({
+        message,
+        target: "identity-message-maya",
+        targetClassName: targetClass(snapshot, "identity-message-maya"),
+      }))}
+      visibleMessages={snapshot.visibleMessages}
+      contentClassName="flex-1 overflow-hidden px-4 py-3"
+      messageSlotClassName={styles.messageSlot}
+      footer={<PrototypeComposer
           snapshot={snapshot}
           target="identity-composer"
           placeholder={`Message /${channel?.name ?? "general"}`}
-        />
-      </div>
-    </>
+        />}
+    />
   )
 }
 
 function ContinuityScene({ snapshot }: { snapshot: SceneSnapshot }) {
   if (snapshot.beat < 7) {
     return (
-      <>
-        <DmHeader dm={DMS[0]} titleAs="div" />
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="flex-1 overflow-hidden px-4 py-3">
-            {CONTINUITY_DM_MESSAGES.map((message, index) => (
-              <div
-                key={message.id}
-                data-visible={index < snapshot.visibleMessages}
-                className={styles.messageSlot}
-              >
-                <div
-                  data-motion-target={message.id}
-                  className={targetClass(snapshot, message.id)}
-                >
-                  <Message m={message} onOpenThread={() => {}} />
-                </div>
-              </div>
-            ))}
-          </div>
-          <PrototypeComposer
+      <ChannelPreview
+        header={<DmHeader dm={DMS[0]} titleAs="div" />}
+        messages={CONTINUITY_DM_MESSAGES.map((message) => ({
+          message,
+          target: message.id,
+          targetClassName: targetClass(snapshot, message.id),
+        }))}
+        visibleMessages={snapshot.visibleMessages}
+        contentClassName="flex-1 overflow-hidden px-4 py-3"
+        messageSlotClassName={styles.messageSlot}
+        footer={<PrototypeComposer
             snapshot={snapshot}
             target="continuity-dm-composer"
             placeholder="Message @Alli"
-          />
-        </div>
-      </>
+          />}
+      />
     )
   }
 
@@ -1284,32 +1217,18 @@ function ContinuityScene({ snapshot }: { snapshot: SceneSnapshot }) {
     : CONTINUITY_WORK_MESSAGES
 
   return (
-    <>
-      <ChannelHeader
-        channel={channel?.name ?? "general"}
-        rightPanel={null}
-        onToggle={() => {}}
-        server={{ id: server.id, name: server.name, icon: server.icon ?? null }}
-      />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="flex-1 overflow-hidden px-4 py-3">
-          {messages.map((message, index) => (
-            <div
-              key={message.id}
-              data-visible={index < snapshot.visibleMessages}
-              className={styles.messageSlot}
-            >
-              <div
-                data-motion-target={message.id}
-                className={targetClass(snapshot, message.id)}
-              >
-                <Message m={message} onOpenThread={() => {}} />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </>
+    <ChannelPreview
+      channel={channel?.name ?? "general"}
+      server={{ id: server.id, name: server.name, icon: server.icon ?? null }}
+      messages={messages.map((message) => ({
+        message,
+        target: message.id,
+        targetClassName: targetClass(snapshot, message.id),
+      }))}
+      visibleMessages={snapshot.visibleMessages}
+      contentClassName="flex-1 overflow-hidden px-4 py-3"
+      messageSlotClassName={styles.messageSlot}
+    />
   )
 }
 
@@ -1607,30 +1526,22 @@ function ProviderScene({ snapshot }: { snapshot: SceneSnapshot }) {
           data-visible={dmOpen}
           className={`${styles.stateLayer} flex min-w-0 flex-col overflow-hidden`}
         >
-          <DmHeader dm={DMS[0]} titleAs="div" />
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="flex-1 overflow-hidden px-4 py-3">
-              {DM_MESSAGES.map((message, index) => (
-                <div
-                  key={message.id}
-                  data-visible={index < snapshot.visibleMessages}
-                  className={styles.messageSlot}
-                >
-                  <div
-                    data-motion-target={`dm-message-${message.authorId}`}
-                    className={targetClass(snapshot, `dm-message-${message.authorId}`)}
-                  >
-                    <Message m={message} onOpenThread={() => {}} />
-                  </div>
-                </div>
-              ))}
-            </div>
-            <PrototypeComposer
+          <ChannelPreview
+            header={<DmHeader dm={DMS[0]} titleAs="div" />}
+            messages={DM_MESSAGES.map((message) => ({
+              message,
+              target: `dm-message-${message.authorId}`,
+              targetClassName: targetClass(snapshot, `dm-message-${message.authorId}`),
+            }))}
+            visibleMessages={snapshot.visibleMessages}
+            contentClassName="flex-1 overflow-hidden px-4 py-3"
+            messageSlotClassName={styles.messageSlot}
+            footer={<PrototypeComposer
               snapshot={snapshot}
               target="dm-composer"
               placeholder="Message @Alli"
-            />
-          </div>
+            />}
+          />
         </div>
       </div>
 

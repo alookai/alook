@@ -4,17 +4,17 @@ import { useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { isForum as isForumType } from "@alook/shared"
-import { useServer } from "./use-servers"
+import { useServer } from "@/hooks/community/use-servers"
 import { useCommunityStore, useCurrentChannelMeta } from "@/stores/community"
 import { toastApiError } from "@/lib/api/client"
 import { isDefinitiveChildMetaFailure } from "@/lib/community/eject-server"
 import { clearLastChannel, getLastChannel } from "@/lib/community/last-channel"
-import { communityWsSubscribe, communityWsUnsubscribe } from "./use-community-ws"
-import { useChildChannelMeta } from "./use-child-channel-meta"
+import { communityWsSubscribe, communityWsUnsubscribe } from "@/hooks/community/use-community-ws"
+import { useChildChannelMeta } from "@/hooks/community/use-child-channel-meta"
 import {
   removeForumSidebarThreadExact,
   removeForumSidebarUnreadChild,
-} from "./use-forum-sidebar-threads"
+} from "@/hooks/community/use-forum-sidebar-threads"
 
 type Server = ReturnType<typeof useServer>["server"]
 type ChannelMeta = ReturnType<typeof useCurrentChannelMeta>

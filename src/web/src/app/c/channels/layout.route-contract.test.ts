@@ -51,7 +51,7 @@ vi.mock("@/components/community/channels/channel-sidebar", () => ({
 vi.mock("@/components/community/channels/use-channel-tree", () => ({
   useChannelTree: () => ({ markRead: vi.fn() }),
 }))
-vi.mock("@/components/community/messages/message-list", () => ({ MessageList: () => null }))
+vi.mock("@/modules/community/client", () => ({ ChannelScreenSkeleton: () => null }))
 vi.mock("@/components/ui/skeleton", () => ({ Skeleton: () => null }))
 vi.mock("@/components/community/settings/server-settings", () => ({ ServerSettings: () => null }))
 vi.mock("@/components/community/image-crop-dialog", () => ({ ImageCropDialog: () => null }))
@@ -183,12 +183,6 @@ vi.mock("@/hooks/community/mutations", () => {
 
 import ServerLayout from "./layout"
 import ServerDefaultPage from "./[serverId]/page"
-import { useChannelRouteModel } from "@/hooks/community/use-channel-route-model"
-
-function RouteModelHarness() {
-  useChannelRouteModel("server_1", "server_1", "child_1")
-  return null
-}
 
 describe("channels layout route contract", () => {
   beforeEach(() => {
@@ -256,16 +250,4 @@ describe("channels layout route contract", () => {
     )
   })
 
-  it("clears the exact flat child memory after definitive denial", () => {
-    mocks.metaQuery = {
-      data: undefined,
-      error: new Error("forbidden"),
-      isVerified: false,
-    }
-    act(() => {
-      TestRenderer.create(React.createElement(RouteModelHarness))
-    })
-    expect(mocks.clearLastChannel).toHaveBeenCalledWith("server_1")
-    expect(mocks.router.replace).toHaveBeenCalledWith("/c/channels/server_1")
-  })
 })

@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { extname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
@@ -33,7 +33,7 @@ describe("Community messaging boundaries", () => {
     )
   })
 
-  it("keeps all six legacy files as re-export-only facades", () => {
+  it("removes all six legacy messaging facades", () => {
     const files = [
       "composer.tsx",
       "message-channel-controller.tsx",
@@ -43,10 +43,7 @@ describe("Community messaging boundaries", () => {
       "typing-indicator.tsx",
     ]
     for (const file of files) {
-      const source = readFileSync(join(SRC_ROOT, "components/community/messages", file), "utf8")
-      expect(source).toMatch(/^export\s+\{/)
-      expect(source).not.toMatch(/\b(import|function|const|let|class|use[A-Z]\w*)\b/)
-      expect(source).not.toMatch(/<\w|=>/)
+      expect(existsSync(join(SRC_ROOT, "components/community/messages", file))).toBe(false)
     }
   })
 
@@ -77,5 +74,15 @@ describe("Community messaging boundaries", () => {
       if (path.startsWith(MESSAGING_ROOT)) continue
       expect(readFileSync(path, "utf8"), path).not.toMatch(forbiddenInternal)
     }
+  })
+
+  it("keeps compact search results free of dead thread controls", () => {
+    const source = readFileSync(
+      join(SRC_ROOT, "components/community/shell/right-panel.tsx"),
+      "utf8",
+    )
+    expect(source).toContain("const { thread: _thread, ...compactMessage } = m")
+    expect(source).toContain("const renderMsg: RenderMsg = { ...compactMessage, grouped: false }")
+    expect(source).toContain("m={renderMsg}")
   })
 })

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { ComponentProps, ComponentRef, ReactNode } from "react"
@@ -127,26 +127,19 @@ describe("MessageChannelController facade contract", () => {
     expect(mocks.renderController).toHaveBeenCalledWith(children, value)
   })
 
-  it("keeps the legacy file as a re-export-only compatibility facade", () => {
-    const text = source("src/components/community/messages/message-channel-controller.tsx")
-    expect(text).toContain(
-      'from "@/modules/community/client/messaging/message-channel-controller"',
-    )
-    expect(text).toMatch(/^export\s+\{/)
-    expect(text).not.toMatch(/\b(import|function|const|let|class|use[A-Z]\w*)\b/)
-    expect(text).not.toMatch(/<\w|=>/)
+  it("removes the legacy compatibility facade", () => {
+    expect(existsSync(resolve(webRoot, "src/components/community/messages/message-channel-controller.tsx"))).toBe(false)
   })
 
-  it("keeps production and test consumers on the original path", () => {
+  it("keeps production and test consumers on the stable messaging entry", () => {
     const importers = [
       "src/components/community/channels/thread-channel-surface.tsx",
-      "src/components/community/channels/text-channel-surface.tsx",
       "src/components/community/channels/thread-channel-surface.test.ts",
-      "src/components/community/channels/text-channel-surface.test.ts",
+      "src/modules/community/client/channel/internal/text-channel-controller.tsx",
     ]
     for (const path of importers) {
       const text = source(path)
-      expect(text).toMatch(/message-channel-controller["']/)
+      expect(text).toMatch(/(?:modules\/community\/client\/messaging|\.\.\/\.\.\/messaging)["']/)
       expect(text).not.toMatch(/message-channel-controller-(types|state|actions|send|view)/)
     }
   })

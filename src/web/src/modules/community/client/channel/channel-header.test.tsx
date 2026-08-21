@@ -1,8 +1,20 @@
 import { describe, expect, it, vi } from "vitest"
+import { createRequire } from "node:module"
 import React from "react"
-import TestRenderer, { act } from "react-test-renderer"
 
-vi.mock("../settings/create-dialog-shell", async () => {
+type ReactTestInstance = {
+  props: Record<string, any>
+  findAllByProps: (props: Record<string, unknown>) => ReactTestInstance[]
+  findByProps: (props: Record<string, unknown>) => ReactTestInstance
+}
+type ReactTestRenderer = { root: ReactTestInstance; unmount: () => void }
+const TestRenderer = createRequire(import.meta.url)("react-test-renderer") as {
+  act: (callback: () => void | Promise<void>) => void | Promise<void>
+  create: (element: React.ReactElement) => ReactTestRenderer
+}
+const { act } = TestRenderer
+
+vi.mock("@/components/community/settings/create-dialog-shell", async () => {
   const ReactModule = await import("react")
   return {
     CreateDialogShell: ({ title, footer, children }: { title: React.ReactNode; footer?: React.ReactNode; children: React.ReactNode }) => (
@@ -32,7 +44,7 @@ function renderHeader(onRename?: (name: string) => void | Promise<void>, titleRe
 
 describe("ChannelHeader — forum title dialog", () => {
   it("gates the title edit affordance to the creator and keeps normal threads on Rename", () => {
-    let renderer: TestRenderer.ReactTestRenderer
+    let renderer: ReactTestRenderer
     act(() => { renderer = renderHeader() })
     expect(renderer!.root.findAllByProps({ "aria-label": "Edit post title" })).toHaveLength(0)
     act(() => renderer!.unmount())
@@ -49,7 +61,7 @@ describe("ChannelHeader — forum title dialog", () => {
   })
 
   it("uses the shared create-dialog shell and hero input for post titles", () => {
-    let renderer: TestRenderer.ReactTestRenderer
+    let renderer: ReactTestRenderer
     act(() => { renderer = renderHeader(vi.fn()) })
     act(() => renderer!.root.findByProps({ "aria-label": "Edit post title" }).props.onClick())
 
@@ -67,7 +79,7 @@ describe("ChannelHeader — forum title dialog", () => {
       resolveRename = resolve
       rejectRename = reject
     }))
-    let renderer: TestRenderer.ReactTestRenderer
+    let renderer: ReactTestRenderer
     act(() => { renderer = renderHeader(onRename) })
     act(() => renderer!.root.findByProps({ "aria-label": "Edit post title" }).props.onClick())
     act(() => renderer!.root.findByProps({ "aria-label": "Post title" }).props.onChange({ target: { value: "New title" } }))

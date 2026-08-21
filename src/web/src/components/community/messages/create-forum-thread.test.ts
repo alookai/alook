@@ -10,7 +10,7 @@ import TestRenderer, { act } from "react-test-renderer"
 
 const uploadMock = vi.hoisted(() => vi.fn())
 
-vi.mock("./composer", () => ({
+vi.mock("@/modules/community/client/messaging", () => ({
   Composer: (props: Record<string, unknown>) =>
     createElement("div", {
       "data-testid": "mock-composer",
