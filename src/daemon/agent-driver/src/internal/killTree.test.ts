@@ -109,6 +109,55 @@ describe("killProcessTree", () => {
     await expect(killProcessTree(-1)).resolves.toBeUndefined();
   });
 
+  it("retains root process-group authority when the POSIX process-table capture fails", async () => {
+    if (process.platform === "win32") return;
+    const proc = spawnAgentProcess(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+      cwd: process.cwd(),
+      env: process.env,
+    });
+    spawned.push(proc);
+    await new Promise((resolve) => proc.once("spawn", resolve));
+    const emptyPath = mkdtempSync(join(tmpdir(), "agent-driver-empty-path-"));
+    tempDirs.push(emptyPath);
+    const originalPath = process.env.PATH;
+    process.env.PATH = emptyPath;
+    try {
+      await killProcessTree(proc.pid!, { graceMs: 300 });
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH;
+      else process.env.PATH = originalPath;
+    }
+
+    expect(isAlive(proc.pid!)).toBe(false);
+  });
+
+  it("ignores unsafe numeric rows in a POSIX process-table capture", async () => {
+    if (process.platform === "win32") return;
+    const proc = spawnAgentProcess(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+      cwd: process.cwd(),
+      env: process.env,
+    });
+    spawned.push(proc);
+    await new Promise((resolve) => proc.once("spawn", resolve));
+    const fakeBin = mkdtempSync(join(tmpdir(), "agent-driver-fake-ps-"));
+    tempDirs.push(fakeBin);
+    writeFileSync(
+      join(fakeBin, "ps"),
+      `#!/bin/sh\nprintf '%s\\n' '${String(proc.pid)} ${String(process.pid)} ${String(proc.pid)}' '9007199254740993 ${String(proc.pid)} ${String(proc.pid)}'\n`,
+      { mode: 0o755 },
+    );
+    const originalPath = process.env.PATH;
+    process.env.PATH = fakeBin;
+    try {
+      await killProcessTree(proc.pid!, { graceMs: 300 });
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH;
+      else process.env.PATH = originalPath;
+    }
+
+    expect(isAlive(proc.pid!)).toBe(false);
+  });
+
   it("escalates to SIGKILL after graceMs when the child ignores SIGTERM", async () => {
     const proc = spawnSigtermImmuneChild({ detached: false });
     await new Promise((r) => proc.once("spawn", r));
