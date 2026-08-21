@@ -163,6 +163,14 @@ describe("useUpdateServer — rollback on both caches", () => {
   })
 
   it("keeps the canonical list metadata aligned with an optimistic detail update", async () => {
+    const untouchedServer = {
+      id: "srv_2",
+      name: "untouched",
+      description: "unchanged description",
+      initial: "U",
+      active: false,
+      mentions: 4,
+    }
     capturedQc.setQueryData(communityKeys.server("srv_1"), {
       id: "srv_1",
       name: "old",
@@ -172,14 +180,17 @@ describe("useUpdateServer — rollback on both caches", () => {
       categories: [],
     })
     capturedQc.setQueryData(communityKeys.servers(), {
-      servers: [{
-        id: "srv_1",
-        name: "old",
-        description: "old description",
-        initial: "O",
-        active: false,
-        mentions: 0,
-      }],
+      servers: [
+        {
+          id: "srv_1",
+          name: "old",
+          description: "old description",
+          initial: "O",
+          active: false,
+          mentions: 0,
+        },
+        untouchedServer,
+      ],
     })
     apiFetchMock.mockResolvedValueOnce(undefined)
     const mod = await load()
@@ -195,11 +206,20 @@ describe("useUpdateServer — rollback on both caches", () => {
       name: "new",
       description: "new description",
     })
-    expect(capturedQc.getQueryData<{ servers: Array<{ name: string; description: string }> }>(
-      communityKeys.servers(),
-    )?.servers[0]).toMatchObject({
+    const list = capturedQc.getQueryData<{
+      servers: Array<{ name: string; description: string; initial: string; mentions: number }>
+    }>(communityKeys.servers())?.servers
+    expect(list?.[0]).toMatchObject({
       name: "new",
       description: "new description",
+      initial: "N",
+    })
+    expect(list?.[1]).toBe(untouchedServer)
+    expect(list?.[1]).toMatchObject({
+      name: "untouched",
+      description: "unchanged description",
+      initial: "U",
+      mentions: 4,
     })
   })
 

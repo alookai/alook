@@ -7,8 +7,28 @@ vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
 }))
 
+type CapturedQueryConfig = {
+  enabled?: boolean
+  queryFn?: () => unknown
+}
+let capturedQueryConfig: CapturedQueryConfig | null = null
+let capturedHookQueryClient: QueryClient
+vi.mock("@tanstack/react-query", async () => {
+  const actual = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query")
+  return {
+    ...actual,
+    useQueryClient: () => capturedHookQueryClient,
+    useQuery: (config: CapturedQueryConfig) => {
+      capturedQueryConfig = config
+      return { data: undefined }
+    },
+  }
+})
+
 beforeEach(() => {
   apiFetchMock.mockReset()
+  capturedQueryConfig = null
+  capturedHookQueryClient = new QueryClient()
 })
 
 describe("useServers / serversQueryFn", () => {
@@ -70,6 +90,18 @@ describe("useServers / serversQueryFn", () => {
 })
 
 describe("useServer / serverQueryFn", () => {
+  it("keeps the null-server query disabled without issuing API requests", async () => {
+    const { useServer } = await import("./use-servers")
+
+    useServer(null)
+
+    expect(capturedQueryConfig?.enabled).toBe(false)
+    const disabledQueryFn = capturedQueryConfig?.queryFn
+    expect(disabledQueryFn).toBeTypeOf("function")
+    await expect(disabledQueryFn?.()).rejects.toThrow("disabled")
+    expect(apiFetchMock).not.toHaveBeenCalled()
+  })
+
   it("composes a single server detail from canonical resources", async () => {
     const detail = { id: "srv_1", name: "Alook", description: "", icon: null, ownerId: "u_1" }
     apiFetchMock.mockImplementation(async (url: string) => {
