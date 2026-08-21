@@ -793,7 +793,7 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
     await expect(historyLane.start({ text: "root", terminalOwner: "msg_history" }))
       .rejects.toThrow("OpenCode session history response timed out");
 
-    const promptLane = makeLane(new FakeOpenCodeFactory(), 1_000, 20);
+    const promptLane = makeLane(new FakeOpenCodeFactory(), 1_000, 1_000);
     const promptEvents = collectEvents(promptLane);
     await promptLane.start({ text: "root", terminalOwner: "msg_prompt" });
     const promptService = factories.at(-1)!.service!;
@@ -804,13 +804,21 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
       new Error("OpenCode prompt admission did not produce a valid durable receipt"),
     );
 
-    const activeLane = makeLane(new FakeOpenCodeFactory(), 1_000, 20);
+    const activeLane = makeLane(new FakeOpenCodeFactory(), 1_000, 1_000);
     const activeEvents = collectEvents(activeLane);
     await activeLane.start({ text: "root", terminalOwner: "msg_active" });
     const activeService = factories.at(-1)!.service!;
     activeService.stallJsonBodies.add("active");
     activeService.finishSuccess();
-    await vi.waitFor(() => expect(activeService.activeCount).toBeGreaterThanOrEqual(2));
+    await vi.waitFor(() => expect(activeService.stalledJsonResponses.size).toBe(1));
+    const stalledActiveResponse = [...activeService.stalledJsonResponses][0]!;
+    const activeCountAtStall = activeService.activeCount;
+    await vi.waitFor(() => expect(activeService.stalledJsonResponses.has(stalledActiveResponse)).toBe(false), {
+      timeout: 2_500,
+    });
+    await vi.waitFor(() => expect(activeService.activeCount).toBeGreaterThan(activeCountAtStall), {
+      timeout: 2_500,
+    });
     expect(activeEvents.runtime.some((event) => event.kind === "turn_end")).toBe(false);
     await activeLane.stop({ reason: "test", forceAfterMs: 0 });
   });
