@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
+  COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
   deriveCommunityDeliveryOperationId,
   encodeCommunityBrowserEventBatch,
   prepareCommunityDeliveryEvents,
@@ -136,6 +138,37 @@ describe("useCommunityWs — operation bundles", () => {
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     expect(useCommunityWsStore.getState().seenDeliveryOperations.size).toBe(0)
     expect(reconcileCommunityWsReconnect).not.toHaveBeenCalled()
+  })
+
+  it("reports bounded metadata for oversized, unsupported, and invalid legacy frames", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await mountHook({ viewerUserId: "viewer-1" })
+
+    capturedOnMessage!({
+      type: COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
+      padding: "x".repeat(COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES),
+    })
+    capturedOnMessage!({
+      type: COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
+      contractVersion: 2,
+    })
+    capturedOnMessage!({
+      type: "community:message.create",
+      contractVersion: 2,
+    })
+
+    expect(warn).toHaveBeenCalledWith(
+      "[ws] frame dropped",
+      expect.objectContaining({ reason: "oversized" }),
+    )
+    expect(warn).toHaveBeenCalledWith(
+      "[ws] frame dropped",
+      expect.objectContaining({ reason: "unsupported-version", contractVersion: 2 }),
+    )
+    expect(warn).toHaveBeenCalledWith(
+      "[ws] frame dropped",
+      expect.objectContaining({ type: "community:message.create", contractVersion: 2 }),
+    )
   })
 
   it("rejects same-ID/different-digest before projection and reconciles once", async () => {

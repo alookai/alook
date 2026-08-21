@@ -196,6 +196,10 @@ describe("community WS batch transport contract", () => {
       reason: "unsupported-version",
       contractVersion: 2,
     })
+    expect(decodeCommunityBrowserEventBatch({ ...encoded.batch, contractVersion: "2" })).toEqual({
+      ok: false,
+      reason: "unsupported-version",
+    })
     expect(decodeCommunityBrowserEventBatch({ ...encoded.batch, events: [] })).toMatchObject({
       ok: false,
       reason: "invalid-event-count",

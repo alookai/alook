@@ -343,6 +343,20 @@ describe("useCommunityWs — message.create patches channel unread in the open s
     expect(servers?.servers[0].mentions).toBe(3)
   })
 
+  it("leaves an absent or unrelated server rail cache unchanged on a legacy mention bump", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+
+    capturedOnMessage!(unreadBump("ch_a", "u_me", { serverId: "srv_x", isMention: true }))
+    expect(capturedQueryClient.getQueryData(communityKeys.servers())).toBeUndefined()
+
+    const unrelated = {
+      servers: [{ id: "srv_other", name: "Other", initial: "O", active: false, mentions: 4, icon: null }],
+    }
+    capturedQueryClient.setQueryData(communityKeys.servers(), unrelated)
+    capturedOnMessage!(unreadBump("ch_a", "u_me", { serverId: "srv_x", isMention: true }))
+    expect(capturedQueryClient.getQueryData(communityKeys.servers())).toEqual(unrelated)
+  })
+
   it("existing focused-channel message patch and debounced inbox invalidation still fire on message.create", async () => {
     vi.useFakeTimers()
     try {

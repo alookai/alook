@@ -731,6 +731,30 @@ describe("WebSocketDurableObject", () => {
       expect(malformed.deserializeAttachment()).not.toHaveProperty("communityEventsBatchV1")
     })
 
+    it("preserves delivery progress when an existing user socket reauthenticates", async () => {
+      const { durable } = createDO()
+      mockGetValidSessionWithIdentity.mockResolvedValue({ userId: "user-42", name: "Ana", discriminator: "0012" })
+      const operationId = await deriveCommunityDeliveryOperationId("message-reauth")
+      const progress = [[operationId, "a".repeat(64), 1, 1, 1]]
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "user",
+        userId: "user-42",
+        targetUserId: "user-42",
+        authenticated: true,
+        communityDeliveryProgress: progress,
+      })
+
+      await durable.webSocketMessage(ws as any, JSON.stringify({ type: "auth", token: "valid-token" }))
+
+      expect(ws.deserializeAttachment()).toMatchObject({
+        type: "user",
+        userId: "user-42",
+        authenticated: true,
+        communityDeliveryProgress: progress,
+      })
+    })
+
     it("retries a transient session lookup before authenticating", async () => {
       const { durable } = createDO()
       mockGetValidSessionWithIdentity

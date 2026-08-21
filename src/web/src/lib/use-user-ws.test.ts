@@ -267,6 +267,18 @@ describe("useUserWs", () => {
     })])
   })
 
+  it("omits the capability field when an explicit capability list is empty", async () => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), {
+      requestDaemonStatusOnAuth: false,
+      capabilities: [],
+    })
+
+    const ws = MockWebSocket.instances[0]
+    ws.simulateOpen()
+    expect(ws.sent).toEqual([JSON.stringify({ type: "auth", token: "tok-123" })])
+  })
+
   it("keeps capability state isolated between same-page consumer sockets", async () => {
     setupTokenFetch()
     const mod = await import("./use-user-ws")

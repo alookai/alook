@@ -75,6 +75,16 @@ describe("community delivery receipt conservation", () => {
     expect(isExactCommunityDeliveryReceipt({
       ...receipt,
       alreadyEnqueued: 0,
+      partial: 1,
+      results: [receipt.results[0], {
+        ...receipt.results[1],
+        outcome: "partial",
+        persistedNextFrameIndex: receipt.results[1].frameCount,
+      }],
+    }, expected)).toBe(false)
+    expect(isExactCommunityDeliveryReceipt({
+      ...receipt,
+      alreadyEnqueued: 0,
     }, expected)).toBe(false)
   })
 
