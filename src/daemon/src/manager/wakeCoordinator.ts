@@ -22,6 +22,7 @@ interface ActiveAdmission {
   launchId: string;
   coverage: Map<string, AdmissionCoverage>;
   acknowledged: boolean;
+  observed: boolean;
   whileActive: boolean;
 }
 
@@ -99,6 +100,9 @@ export class WakeCoordinator {
     for (const message of messages) {
       const seq = Number(message.seq.startsWith("#") ? message.seq.slice(1) : message.seq);
       if (!Number.isSafeInteger(seq) || seq <= 0) continue;
+      if (state.activeAdmission?.coverage.has(message.channel)) {
+        state.activeAdmission.observed = true;
+      }
       const scope = state.scopes.get(message.channel);
       if (scope) {
         scope.modelSeenSeq = Math.max(scope.modelSeenSeq, seq);
@@ -129,7 +133,21 @@ export class WakeCoordinator {
     }
     if (activity !== "idle") return;
     state.active = false;
+    const admission = state.activeAdmission;
+    if (admission) {
+      this.releaseUnobservedCoverage(state, admission);
+      // The logical turn ended before this coverage was observed. Fence the
+      // old launch so reconciliation cannot spin the same provisional command;
+      // a newer coalesced command or durable replay may take responsibility.
+      state.failedAdmissionLaunchId = admission.launchId;
+      state.retryAfterFailure = state.coalescedReplacement;
+      state.coalescedReplacement = null;
+    }
     state.activeAdmission = null;
+    if (!state.admitting && state.retryAfterFailure) {
+      void this.retryFailedAdmission(agentId, state).catch(() => {});
+      return;
+    }
     const next = this.nextPending(state);
     if (next && state.dispatch) void this.admit(agentId, next);
   }
@@ -244,6 +262,7 @@ export class WakeCoordinator {
       launchId: command.launchId,
       coverage,
       acknowledged: false,
+      observed: false,
       whileActive: wasActive,
     };
     let dispatchError: unknown;
@@ -299,13 +318,22 @@ export class WakeCoordinator {
 
   private finishObservedAdmission(state: AgentState): boolean {
     const admission = state.activeAdmission;
-    if (!admission?.acknowledged) return false;
-    for (const [channel, coverage] of admission.coverage) {
-      const scope = state.scopes.get(channel);
-      if (!scope || scope.modelSeenSeq < coverage.admittedSeq) return false;
-    }
+    if (!admission?.acknowledged || !admission.observed) return false;
+    this.releaseUnobservedCoverage(state, admission);
     state.activeAdmission = null;
     return true;
+  }
+
+  private releaseUnobservedCoverage(state: AgentState, admission: ActiveAdmission): void {
+    for (const [channel, coverage] of admission.coverage) {
+      const scope = state.scopes.get(channel);
+      if (
+        scope?.admittedSeq === coverage.admittedSeq
+        && scope.modelSeenSeq < coverage.admittedSeq
+      ) {
+        scope.admittedSeq = Math.max(coverage.previousSeq, scope.modelSeenSeq);
+      }
+    }
   }
 
   private async reconcile(agentId: string, state: AgentState): Promise<void> {
