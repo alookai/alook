@@ -7,17 +7,12 @@ export async function createChannel(
   db: Database,
   data: { workspaceId: string; name: string }
 ) {
-  const [maxRow] = await db
-    .select({ maxPos: sql<number>`COALESCE(MAX(${channel.position}), -1)` })
-    .from(channel)
-    .where(eq(channel.workspaceId, data.workspaceId));
-  const nextPos = (maxRow?.maxPos ?? -1) + 1;
   const rows = await db
     .insert(channel)
     .values({
       workspaceId: data.workspaceId,
       name: data.name,
-      position: nextPos,
+      position: sql<number>`COALESCE((SELECT MAX(${channel.position}) FROM ${channel} WHERE ${channel.workspaceId} = ${data.workspaceId}), -1) + 1`,
     })
     .returning();
   return rows[0]!;
