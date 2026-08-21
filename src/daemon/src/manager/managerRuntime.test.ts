@@ -3562,6 +3562,109 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     }
   });
 
+  it("does not terminate a long tool wait hidden by a next-turn queue, but resumes ordinary stall detection", async () => {
+    vi.useFakeTimers();
+    try {
+      let now = 0;
+      let deliveryPhase: "working" | "tool_wait" | "next_turn_queued" = "working";
+      const rows: B1TraceRow[] = [];
+      const session = b1Session([], "cursor", "root-turn");
+      const baseSnapshot = session.snapshot.bind(session);
+      session.snapshot = () => ({
+        ...baseSnapshot(),
+        diagnostics: {
+          deliveryPhase,
+          metrics: {
+            physicalOpenCount: 1,
+            turnCount: 1,
+            commandAdmissionCount: 1,
+            commandAdmissionLatencyTotalMs: 0,
+            queueDwellCount: 0,
+            queueDwellTotalMs: 0,
+            sseReconnectCount: 0,
+            resumeOutcome: "fresh",
+            terminalOwnerKind: "transport_request",
+          },
+        },
+      });
+      const { mgr } = b1Manager({
+        sessions: [session],
+        driver: fakeDriver("cursor"),
+        trace: (row) => rows.push(row),
+        now: () => now,
+        tickIntervalMs: 5,
+        staleThresholdMs: 50,
+      });
+      mgr.start();
+      mgr.deliver("a1", { id: "root", seq: 1, text: "run a long command" });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(mgr.snapshot().agents.a1).toMatchObject({ status: "running", turnActive: true });
+
+      await session.pushAgentEvent({
+        type: "tool_started",
+        turnId: "root-turn",
+        callId: "long-call",
+        name: "Shell",
+        input: { command: "long-running" },
+      });
+      deliveryPhase = "tool_wait";
+      session.send = vi.fn(async (input: { id: string }) => {
+        deliveryPhase = "next_turn_queued";
+        void session.pushAgentEvent({
+          type: "command_queued",
+          commandId: input.id,
+          reason: "runtime_busy",
+        });
+        return { status: "queued" as const, reason: "runtime_busy" as const, commandId: input.id };
+      });
+      now = 10;
+      mgr.deliver("a1", { id: "next", seq: 2, text: "handle this next" });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(mgr.snapshot().agents.a1.pendingAdmissions).toMatchObject([
+        { commandId: "next", driverAcknowledged: true },
+      ]);
+
+      // The single diagnostics phase is now the queue overlay, not tool_wait.
+      // The independently fenced tool lifecycle must keep the legitimate long
+      // command alive beyond the generic root-silence threshold.
+      now = 60;
+      await vi.advanceTimersByTimeAsync(10);
+      expect(mgr.snapshot().agents.a1.status).toBe("running");
+      expect(mgr.snapshot().agents.a1.pendingAdmissions).toHaveLength(1);
+      expect(session.stop).not.toHaveBeenCalled();
+      expect(rows.some((row) =>
+        row.deliveryPhase === "next_turn_queued"
+        && Array.isArray(row.effects)
+        && (row.effects as string[]).includes("terminate_stalled")
+      )).toBe(false);
+
+      // Finishing the tool removes the blocker and counts as root work. Do not
+      // turn this into a global watchdog bypass: ordinary silence after that
+      // point must still hit the existing threshold exactly once.
+      now = 65;
+      await session.pushAgentEvent({
+        type: "tool_finished",
+        turnId: "root-turn",
+        callId: "long-call",
+        name: "Shell",
+      });
+      deliveryPhase = "working";
+      now = 120;
+      await vi.advanceTimersByTimeAsync(10);
+      expect(mgr.snapshot().agents.a1.status).toBe("stopping");
+      expect(session.stop).toHaveBeenCalledWith({ reason: "stalled", forceAfterMs: 2_000 });
+      expect(rows.filter((row) =>
+        Array.isArray(row.effects) && (row.effects as string[]).includes("terminate_stalled")
+      )).toHaveLength(1);
+
+      await mgr.stopAll();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   for (const mode of ["idle", "busy"] as const) {
     it(`${mode} send synchronous throw aborts once and rethrows without another send`, async () => {
       const rows: B1TraceRow[] = [];
