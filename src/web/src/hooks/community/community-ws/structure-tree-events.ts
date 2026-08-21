@@ -22,9 +22,7 @@ import type { ServersResponse, ServerDetail } from "@/hooks/community/use-server
 import {
   grantForumSidebarChild,
   isForumSidebarParent,
-  isKnownNonForumSidebarChannel,
   patchForumSidebarActivityExact,
-  removeForumSidebarChildrenForParent,
   removeForumSidebarThreadExact,
   removeForumSidebarUnreadChild,
 } from "@/hooks/community/use-forum-sidebar-threads"
@@ -34,27 +32,25 @@ import {
   type PageCache,
 } from "@/hooks/community/community-ws/cache"
 import type { StructureTreeEventContext } from "@/hooks/community/community-ws/handler-context"
-
-function invalidateChannelRefDirectory(
-  queryClient: StructureTreeEventContext["queryClient"],
-) {
-  void queryClient.invalidateQueries({
-    queryKey: communityKeys.channelRefDirectory(),
-    exact: true,
-  })
-}
+import { projectChannelScopeEviction } from "./channel-scope-projection"
+import {
+  invalidateChannelMessages,
+  invalidateChannelRefDirectory,
+  invalidateInvites,
+  invalidateServerDetail,
+  invalidateServersList,
+  invalidateThreads,
+} from "./invalidation-projections"
 
 export function handleChildChannelCreate(
   event: CommunityChildChannelCreate,
-  { queryClient }: StructureTreeEventContext,
+  { queryClient, projection }: StructureTreeEventContext,
 ) {
   // Cheap invalidate for the child-thread lists. The parent
   // messages list also needs an update because the parent message's
   // thread indicator (`msg.thread`) changes — do a targeted
   // setQueryData patch when we know parentMessageId.
-  void queryClient.invalidateQueries({
-    queryKey: communityKeys.threads(event.parentChannelId),
-  })
+  invalidateThreads(projection, event.parentChannelId)
   const parentMessagesKey = communityKeys.channelMessages(event.parentChannelId)
   const parentMessages = queryClient.getQueryData<PageCache>(parentMessagesKey)
   const openerCached = !!event.parentMessageId && parentMessages?.pages.some((page) =>
@@ -115,21 +111,19 @@ export function handleChildChannelCreate(
     }
   }
   if (event.parentMessageId && !openerCached) {
-    void queryClient.invalidateQueries({ queryKey: parentMessagesKey })
+    invalidateChannelMessages(projection, event.parentChannelId)
   }
 }
 
 export function handleChildChannelUpdate(
   event: CommunityChildChannelUpdate,
-  { queryClient }: StructureTreeEventContext,
+  { queryClient, projection }: StructureTreeEventContext,
 ) {
   // Cheap invalidate for the child-thread lists. The parent
   // messages list also needs an update because the parent message's
   // thread indicator (`msg.thread`) changes — do a targeted
   // setQueryData patch when we know parentMessageId.
-  void queryClient.invalidateQueries({
-    queryKey: communityKeys.threads(event.parentChannelId),
-  })
+  invalidateThreads(projection, event.parentChannelId)
   // child_update — sync counts/name on the parent message's thread
   // indicator if the update carries them.
   const changes = event.changes
@@ -239,9 +233,9 @@ export function handleChildChannelUpdate(
 
 export function handleServerUpdate(
   event: CommunityServerUpdate,
-  { queryClient }: StructureTreeEventContext,
+  { queryClient, projection }: StructureTreeEventContext,
 ) {
-  invalidateChannelRefDirectory(queryClient)
+  invalidateChannelRefDirectory(projection)
   queryClient.setQueryData<ServerDetail | undefined>(
     communityKeys.server(event.serverId),
     (prev) =>
@@ -283,14 +277,14 @@ export function handleServerUpdate(
 
 export function handleServerDelete(
   event: CommunityServerDelete,
-  { queryClient }: StructureTreeEventContext,
+  { queryClient, projection }: StructureTreeEventContext,
 ) {
-  invalidateChannelRefDirectory(queryClient)
+  invalidateChannelRefDirectory(projection)
   // Refresh the rail LIST only (drop the deleted server). `exact`
   // so this doesn't cascade-refetch every other server's nested
   // detail subtree; the deleted server's own subtree is cleared by
   // the removeQueries below.
-  void queryClient.invalidateQueries({ queryKey: communityKeys.servers(), exact: true })
+  invalidateServersList(projection)
   queryClient.removeQueries({ queryKey: communityKeys.server(event.serverId) })
   // #10: if the deleted server is the one the viewer is looking at,
   // the store pointers now dangle — reset them so the UI drops back
@@ -312,47 +306,21 @@ type ChannelEvent =
 
 export function handleChannelEvent(
   event: ChannelEvent,
-  { queryClient }: StructureTreeEventContext,
+  { queryClient, projection }: StructureTreeEventContext,
 ) {
-  invalidateChannelRefDirectory(queryClient)
+  invalidateChannelRefDirectory(projection)
   // #3: on channel.delete, evict every channel-scoped cache before
   // invalidating the server. Without this the messages/pins/threads/
   // child-thread caches for the dead channel linger forever — a
   // subsequent same-id revive (rare, but the server can reuse ids)
   // would surface stale rows.
   if (event.type === "community:channel.delete") {
-    const nonForum = isKnownNonForumSidebarChannel(
+    projectChannelScopeEviction(
+      projection,
       queryClient,
       event.serverId,
       event.channelId,
     )
-    if (!nonForum) {
-      removeForumSidebarUnreadChild(queryClient, event.serverId, event.channelId)
-      removeForumSidebarChildrenForParent(queryClient, event.serverId, event.channelId)
-      removeForumSidebarThreadExact(queryClient, event.serverId, event.channelId)
-    } else {
-      queryClient.removeQueries({
-        queryKey: communityKeys.channelMeta(event.serverId, event.channelId),
-        exact: true,
-      })
-    }
-    if (useCommunityStore.getState().currentChannelId === event.channelId) {
-      useCommunityStore.getState().setCurrentChannelMeta(null)
-    }
-    useMessageStreamStore.getState().removeScope({
-      kind: "channel",
-      id: event.channelId,
-      serverId: event.serverId,
-    })
-    queryClient.removeQueries({
-      queryKey: communityKeys.channelMessages(event.channelId),
-    })
-    queryClient.removeQueries({
-      queryKey: communityKeys.pins(event.channelId),
-    })
-    queryClient.removeQueries({
-      queryKey: communityKeys.threads(event.channelId),
-    })
     // When a child thread is deleted, refresh the
     // PARENT's list so the deleted card disappears from the feed on
     // every client. Absent on older events / top-level channels.
@@ -361,18 +329,11 @@ export function handleChannelEvent(
         { queryKey: communityKeys.channelMessages(event.parentChannelId) },
         (cache) => removeThreadFromCache(cache, event.channelId),
       )
-      void queryClient.invalidateQueries({
-        queryKey: communityKeys.channelMessages(event.parentChannelId),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: communityKeys.threads(event.parentChannelId),
-      })
+      invalidateChannelMessages(projection, event.parentChannelId)
+      invalidateThreads(projection, event.parentChannelId)
     }
   }
-  void queryClient.invalidateQueries({
-    queryKey: communityKeys.server(event.serverId),
-    exact: true,
-  })
+  invalidateServerDetail(projection, event.serverId)
 }
 
 type CategoryEvent =
@@ -383,21 +344,15 @@ type CategoryEvent =
 
 export function handleCategoryEvent(
   event: CategoryEvent,
-  { queryClient }: StructureTreeEventContext,
+  { projection }: StructureTreeEventContext,
 ) {
-  invalidateChannelRefDirectory(queryClient)
-  void queryClient.invalidateQueries({
-    queryKey: communityKeys.server(event.serverId),
-    exact: true,
-  })
+  invalidateChannelRefDirectory(projection)
+  invalidateServerDetail(projection, event.serverId)
 }
 
 export function handleInviteCreate(
   event: CommunityInviteCreate,
-  { queryClient }: StructureTreeEventContext,
+  { projection }: StructureTreeEventContext,
 ) {
-  void queryClient.invalidateQueries({
-    queryKey: communityKeys.invites(event.serverId),
-    exact: true,
-  })
+  invalidateInvites(projection, event.serverId)
 }

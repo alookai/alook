@@ -5,11 +5,15 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useUserWs } from "@/lib/use-user-ws"
 import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore } from "@/stores/community/ws"
-import { communityKeys } from "@/lib/query-keys"
 import { reconcileCommunityWsReconnect } from "@/hooks/community/community-ws/reconnect"
 import { dispatchCommunityWsEvent } from "@/hooks/community/community-ws/registry"
+import { runCommunityWsProjectionTransaction } from "@/hooks/community/community-ws/projection-transaction"
+import {
+  invalidateDms,
+  invalidateInbox,
+} from "@/hooks/community/community-ws/invalidation-projections"
 import type {
-  CommunityWsHandlerContext,
+  CommunityWsDispatchContext,
   Subscription,
   UseCommunityWsOptions,
 } from "@/hooks/community/community-ws/handler-context"
@@ -130,15 +134,17 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     if (inboxDebounce.current) return
     inboxDebounce.current = setTimeout(() => {
       inboxDebounce.current = null
-      void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
-      // A DM is a channel now, so a DM message arrives as `message.create`
-      // with no discriminator distinguishing it from a channel message. Fold
-      // the old `dm.new_message` DM-sidebar refresh in here: invalidate the
-      // DM list too so an unread DM's preview/unread flag updates live. Cheap
-      // — `communityKeys.dms()` is only observed under the `/c/me` layout, so
-      // this is a no-op (marks stale, no refetch) while viewing a server
-      // channel where the DM sidebar isn't mounted.
-      void queryClient.invalidateQueries({ queryKey: communityKeys.dms() })
+      runCommunityWsProjectionTransaction(queryClient, (projection) => {
+        invalidateInbox(projection)
+        // A DM is a channel now, so a DM message arrives as `message.create`
+        // with no discriminator distinguishing it from a channel message. Fold
+        // the old `dm.new_message` DM-sidebar refresh in here: invalidate the
+        // DM list too so an unread DM's preview/unread flag updates live. Cheap
+        // — `communityKeys.dms()` is only observed under the `/c/me` layout, so
+        // this is a no-op (marks stale, no refetch) while viewing a server
+        // channel where the DM sidebar isn't mounted.
+        invalidateDms(projection)
+      })
     }, INBOX_INVALIDATE_DEBOUNCE_MS)
   }, [queryClient])
 
@@ -176,7 +182,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         if (!e.channelId) return false
         return e.channelId === sub.channelId || e.channelId === sub.dmConversationId
       }
-      const context: CommunityWsHandlerContext = {
+      const context: CommunityWsDispatchContext = {
         queryClient,
         communityStore,
         wsStore,

@@ -1,6 +1,10 @@
 import type { CommunityWsEvent } from "@alook/shared"
 import type { CommunityWsReconcilePolicy } from "@/lib/analytics"
-import type { CommunityWsHandlerContext } from "@/hooks/community/community-ws/handler-context"
+import type {
+  CommunityWsDispatchContext,
+  CommunityWsHandlerContext,
+} from "@/hooks/community/community-ws/handler-context"
+import { runCommunityWsProjectionTransaction } from "@/hooks/community/community-ws/projection-transaction"
 import {
   handleMessageCreate,
   handleMessageEdited,
@@ -93,10 +97,22 @@ export const communityWsRegistry = {
 
 export function dispatchCommunityWsEvent(
   event: CommunityWsEvent,
-  context: CommunityWsHandlerContext,
+  context: CommunityWsDispatchContext,
 ) {
-  const entry = communityWsRegistry[event.type] as RegistryEntry<typeof event.type>
-  entry.handler(event, context)
+  dispatchCommunityWsEvents([event], context)
+}
+
+export function dispatchCommunityWsEvents(
+  events: readonly CommunityWsEvent[],
+  context: CommunityWsDispatchContext,
+) {
+  runCommunityWsProjectionTransaction(context.queryClient, (projection) => {
+    const handlerContext: CommunityWsHandlerContext = { ...context, projection }
+    for (const event of events) {
+      const entry = communityWsRegistry[event.type] as RegistryEntry<typeof event.type>
+      entry.handler(event, handlerContext)
+    }
+  })
 }
 
 export const communityWsReconnectPolicies = Array.from(new Set(

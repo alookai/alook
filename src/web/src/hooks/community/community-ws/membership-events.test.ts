@@ -338,6 +338,55 @@ describe("useCommunityWs — channel.member_add/remove → invalidate rosters", 
     ).toBe(true)
   })
 
+  it("does not evict channel scope when another user is removed", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const serverKey = communityKeys.server("srv_1")
+    const messagesKey = communityKeys.channelMessages("ch_1")
+    const pinsKey = communityKeys.pins("ch_1")
+    const threadsKey = communityKeys.threads("ch_1")
+    capturedQueryClient.setQueryData(messagesKey, { pages: [], pageParams: [] })
+    capturedQueryClient.setQueryData(pinsKey, { pins: [] })
+    capturedQueryClient.setQueryData(threadsKey, { threads: [] })
+    capturedQueryClient.setQueryData(serverKey, {
+      id: "srv_1",
+      categories: [{ id: "cat_1", channels: [{ id: "ch_1", type: "text" }] }],
+    })
+
+    capturedOnMessage!({
+      type: "community:channel.member_remove",
+      serverId: "srv_1",
+      channelId: "ch_1",
+      userId: "u_other",
+    })
+
+    expect(capturedQueryClient.getQueryState(messagesKey)).toBeDefined()
+    expect(capturedQueryClient.getQueryState(pinsKey)).toBeDefined()
+    expect(capturedQueryClient.getQueryState(threadsKey)).toBeDefined()
+    expect(capturedQueryClient.getQueryData<{
+      categories: { channels: { id: string }[] }[]
+    }>(serverKey)?.categories[0].channels).toEqual([{ id: "ch_1", type: "text" }])
+  })
+
+  it("removes a private channel from the viewer's server tree on access loss", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const serverKey = communityKeys.server("srv_1")
+    capturedQueryClient.setQueryData(serverKey, {
+      id: "srv_1",
+      categories: [{ id: "cat_1", channels: [{ id: "ch_1", type: "text" }] }],
+    })
+
+    capturedOnMessage!({
+      type: "community:channel.member_remove",
+      serverId: "srv_1",
+      channelId: "ch_1",
+      userId: "u_me",
+    })
+
+    expect(capturedQueryClient.getQueryData<{
+      categories: { channels: { id: string }[] }[]
+    }>(serverKey)?.categories[0].channels).toEqual([])
+  })
+
   it("adds/removes the viewer's participating child in the forum sidebar", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const { useCommunityStore } = await import("@/stores/community")

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { QueryObserver } from "@tanstack/react-query"
 import type {
+  CommunityCategoryCreate,
   CommunityChannelCreate,
   CommunityChannelDelete,
   CommunityChildChannelCreate,
@@ -115,6 +117,33 @@ describe("useCommunityWs — channel.* invalidates server(id)", () => {
   })
 })
 
+describe("useCommunityWs — category.* invalidates tree projections", () => {
+  it("category.create invalidates the channel directory and matching server", async () => {
+    await mountHook()
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+
+    capturedOnMessage!({
+      type: "community:category.create",
+      serverId: "srv_1",
+      category: {
+        id: "cat_new",
+        name: "Category",
+        position: 0,
+        private: false,
+      },
+    } satisfies CommunityCategoryCreate)
+
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: communityKeys.channelRefDirectory(),
+      exact: true,
+    })
+    expect(spy).toHaveBeenCalledWith({
+      queryKey: communityKeys.server("srv_1"),
+      exact: true,
+    })
+  })
+})
+
 describe("useCommunityWs — invite.create", () => {
   it("invalidates only the matching server invite query", async () => {
     await mountHook()
@@ -162,6 +191,61 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
     expect(capturedQueryClient.getQueryData(communityKeys.pins("ch_dead"))).toBeUndefined()
     expect(capturedQueryClient.getQueryData(communityKeys.threads("ch_dead"))).toBeUndefined()
     expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(sidebarKey)?.threads).toEqual([])
+  })
+
+  it("evicts the deleted row while an active server-tree refetch is pending", async () => {
+    await mountHook()
+    const serverKey = communityKeys.server("srv_1")
+    const deletedChannel = {
+      id: "ch_dead",
+      name: "Deleted",
+      type: "text" as const,
+      position: 0,
+      createdAt: "2026-07-03T00:00:00.000Z",
+    }
+    const freshServer = {
+      id: "srv_1",
+      name: "Server",
+      discriminator: "0001",
+      description: "",
+      icon: null,
+      ownerId: "u_owner",
+      categories: [{ id: "cat_1", name: "Category", private: 0, channels: [] }],
+    }
+    capturedQueryClient.setQueryData(serverKey, {
+      ...freshServer,
+      categories: [{
+        ...freshServer.categories[0],
+        channels: [deletedChannel],
+      }],
+    })
+    let resolveServer!: (server: typeof freshServer) => void
+    const fetchServer = vi.fn(() => new Promise<typeof freshServer>((resolve) => {
+      resolveServer = resolve
+    }))
+    const observer = new QueryObserver(capturedQueryClient, {
+      queryKey: serverKey,
+      queryFn: fetchServer,
+      staleTime: Infinity,
+    })
+    const unsubscribe = observer.subscribe(() => {})
+
+    try {
+      capturedOnMessage!({
+        type: "community:channel.delete",
+        serverId: "srv_1",
+        channelId: "ch_dead",
+      } satisfies CommunityChannelDelete)
+
+      expect(fetchServer).toHaveBeenCalledTimes(1)
+      expect(
+        capturedQueryClient.getQueryData<typeof freshServer>(serverKey)?.categories[0].channels,
+      ).toEqual([])
+      resolveServer(freshServer)
+      await vi.waitFor(() => expect(observer.getCurrentResult().isFetching).toBe(false))
+    } finally {
+      unsubscribe()
+    }
   })
 })
 
