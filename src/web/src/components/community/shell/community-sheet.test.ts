@@ -59,7 +59,7 @@ describe("CommunitySheet contracts", () => {
   beforeEach(() => resizeHandle.mockClear())
 
   it("keeps sidecars non-modal, overlay-free, and resistant to outside dismissal", () => {
-    const renderer = renderSheet({ mode: "sidecar", resizable: true })
+    const renderer = renderSheet({ mode: "sidecar" })
     expect(renderer.root.findByType("sheet-root").props).toMatchObject({
       modal: false,
       disablePointerDismissal: true,
@@ -69,7 +69,7 @@ describe("CommunitySheet contracts", () => {
   })
 
   it("preserves the message-context sidecar's 420px desktop width", () => {
-    const renderer = renderSheet({ mode: "sidecar", width: "md", resizable: true })
+    const renderer = renderSheet({ mode: "sidecar", initialWidth: 420 })
     expect(
       renderer.root.findByType("sheet-content").props.style["--community-sheet-width"],
     ).toBe("420px")
@@ -84,16 +84,18 @@ describe("CommunitySheet contracts", () => {
         disablePointerDismissal: false,
       })
       expect(renderer.root.findByType("sheet-content").props.showOverlay).toBe(true)
+      if (mode === "task") expect(resizeHandle).not.toHaveBeenCalled()
+      else expect(resizeHandle).toHaveBeenCalledOnce()
     },
   )
 
   it("uses one CSS-only 640px geometry checkpoint and a 44px mobile close target", () => {
-    const renderer = renderSheet({ mode: "preview", width: "lg", resizable: true })
+    const renderer = renderSheet({ mode: "preview" })
     const content = renderer.root.findByType("sheet-content")
     expect(content.props.className).toContain("data-[side=right]:h-dvh")
     expect(content.props.className).toContain("data-[side=right]:w-screen")
     expect(content.props.className).toContain("data-[side=right]:sm:inset-y-2")
-    expect(content.props.className).toContain("data-[side=right]:sm:w-[min(var(--community-sheet-width),calc(100vw-1rem))]")
+    expect(content.props.className).toContain("data-[side=right]:sm:w-[min(var(--community-sheet-width),var(--community-sheet-max-width),calc(100vw-1rem))]")
     expect(content.props.style["--community-sheet-width"]).toBe("520px")
     expect(renderer.root.findByType("sheet-close").props.render.props.className).toContain("size-11")
     expect(resizeHandle).toHaveBeenCalledOnce()

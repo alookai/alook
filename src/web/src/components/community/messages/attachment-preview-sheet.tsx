@@ -130,8 +130,6 @@ export function AttachmentPreviewSheet({
       open={open}
       onOpenChange={onOpenChange}
       mode="preview"
-      width="lg"
-      resizable
       closeLabel="Close attachment preview"
       contentTestId={tid.attachmentPreviewSheet}
     >

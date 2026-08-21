@@ -396,8 +396,7 @@ export function MessageContextSheet({
       open={open}
       onOpenChange={onOpenChange}
       mode="sidecar"
-      width="md"
-      resizable
+      initialWidth={420}
     >
         {/* Header names WHICH channel's context this is (Gus #417/#423, Alli
             #420): channel icon + name as the primary line, the seq as weaker

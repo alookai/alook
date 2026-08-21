@@ -20,39 +20,30 @@ import {
 } from "@/components/ui/sheet-resize-handle"
 import { cn } from "@/lib/utils"
 
-type CommunitySheetMode = "sidecar" | "task" | "preview"
-type CommunitySheetWidth = "sm" | "md" | "lg"
-
 type WidthConfig = {
   defaultWidth: number
   minWidth: number
   maxWidthRatio: number
+  resizable: boolean
 }
 
-const WIDTH_CONFIG: Record<CommunitySheetWidth, WidthConfig> = {
-  sm: { defaultWidth: 380, minWidth: 280, maxWidthRatio: 0.6 },
-  md: { defaultWidth: 448, minWidth: 320, maxWidthRatio: 0.7 },
-  lg: { defaultWidth: 520, minWidth: 320, maxWidthRatio: 0.8 },
-}
-
-const CONTEXT_WIDTH_CONFIG: WidthConfig = {
-  defaultWidth: 420,
-  minWidth: 320,
-  maxWidthRatio: 0.6,
+const MODE_CONFIG: Record<"sidecar" | "task" | "preview", WidthConfig> = {
+  sidecar: { defaultWidth: 380, minWidth: 280, maxWidthRatio: 0.6, resizable: true },
+  task: { defaultWidth: 448, minWidth: 320, maxWidthRatio: 1, resizable: false },
+  preview: { defaultWidth: 520, minWidth: 320, maxWidthRatio: 0.8, resizable: true },
 }
 
 type CommunitySheetBaseProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  width?: CommunitySheetWidth
   children: React.ReactNode
   closeLabel?: string
   contentTestId?: string
 }
 
 type CommunitySheetProps = CommunitySheetBaseProps & (
-  | { mode: Exclude<CommunitySheetMode, "task">; resizable?: boolean }
-  | { mode: "task"; resizable?: never }
+  | { mode: "sidecar" | "preview"; initialWidth?: number }
+  | { mode: "task"; initialWidth?: never }
 )
 
 /**
@@ -67,18 +58,17 @@ export function CommunitySheet({
   open,
   onOpenChange,
   mode,
-  width = mode === "preview" ? "lg" : mode === "sidecar" ? "sm" : "md",
-  resizable = false,
+  initialWidth,
   children,
   closeLabel = "Close",
   contentTestId,
 }: CommunitySheetProps) {
-  // Preserve the context preview's quieter 420px sidecar width while task
-  // sheets retain the existing 448px `max-w-md` geometry.
-  const config = mode === "sidecar" && width === "md"
-    ? CONTEXT_WIDTH_CONFIG
-    : WIDTH_CONFIG[width]
-  const resize = useSheetResize(config)
+  const config = MODE_CONFIG[mode]
+  const resize = useSheetResize({
+    defaultWidth: Math.max(config.minWidth, initialWidth ?? config.defaultWidth),
+    minWidth: config.minWidth,
+    maxWidthRatio: config.maxWidthRatio,
+  })
   const modal = mode !== "sidecar"
 
   return (
@@ -96,14 +86,15 @@ export function CommunitySheet({
         showCloseButton={false}
         style={{
           "--community-sheet-width": `${resize.width}px`,
+          "--community-sheet-max-width": `${config.maxWidthRatio * 100}vw`,
           maxWidth: "none",
         } as React.CSSProperties}
         className={cn(
           "data-[side=right]:h-dvh data-[side=right]:w-screen data-[side=right]:max-w-none data-[side=right]:overflow-hidden",
-          "data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:w-[min(var(--community-sheet-width),calc(100vw-1rem))] data-[side=right]:sm:rounded-xl data-[side=right]:sm:border",
+          "data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:w-[min(var(--community-sheet-width),var(--community-sheet-max-width),calc(100vw-1rem))] data-[side=right]:sm:rounded-xl data-[side=right]:sm:border",
         )}
       >
-        {resizable && (
+        {config.resizable && (
           <SheetResizeHandle
             onPointerDown={resize.onPointerDown}
             onPointerMove={resize.onPointerMove}

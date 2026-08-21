@@ -172,7 +172,7 @@ export function EditBotSheet({
 
   return (
     <>
-      <CommunitySheet open={open} onOpenChange={onOpenChange} mode="task" width="md">
+      <CommunitySheet open={open} onOpenChange={onOpenChange} mode="task">
         <CommunitySheetHeader>
           <CommunitySheetTitle>Edit {bot?.name ?? "bot"}</CommunitySheetTitle>
           <CommunitySheetDescription>

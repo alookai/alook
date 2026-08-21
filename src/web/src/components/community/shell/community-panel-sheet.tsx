@@ -74,8 +74,6 @@ export function CommunityPanelSheet({
       open={open}
       onOpenChange={onOpenChange}
       mode="sidecar"
-      width="sm"
-      resizable
     >
         <CommunitySheetTitle className="sr-only">{panelTitle(kind)}</CommunitySheetTitle>
         <RightPanelContent

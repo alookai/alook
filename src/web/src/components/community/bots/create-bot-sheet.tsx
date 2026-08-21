@@ -208,7 +208,7 @@ export function CreateBotSheet({
   }
 
   return (
-    <CommunitySheet open={open} onOpenChange={onOpenChange} mode="task" width="md">
+    <CommunitySheet open={open} onOpenChange={onOpenChange} mode="task">
         <CommunitySheetHeader>
           <CommunitySheetTitle>Create a bot</CommunitySheetTitle>
         </CommunitySheetHeader>

@@ -200,7 +200,7 @@ export function PairMachineSheet({
   }, [pendingTokenId, runtimeCapability?.available, isReconnect, mode])
 
   return (
-    <CommunitySheet open={open} onOpenChange={onOpenChange} mode="task" width="md">
+    <CommunitySheet open={open} onOpenChange={onOpenChange} mode="task">
         <CommunitySheetHeader>
           <CommunitySheetTitle>
             {isReconnect ? `Reconnect ${mode.hostname || "machine"}` : "Connect a machine"}

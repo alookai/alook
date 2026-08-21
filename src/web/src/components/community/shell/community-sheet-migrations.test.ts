@@ -18,6 +18,21 @@ describe("CommunitySheet migrations", () => {
     expect(source).toContain(`mode="${mode}"`)
     expect(source).not.toContain("@/components/ui/sheet")
     expect(source).not.toContain("@/components/ui/sheet-resize-handle")
+    expect(source).not.toContain('width="')
+    expect(source).not.toContain("resizable")
+  })
+
+  it("allows only MessageContext to override the sidecar initial width", () => {
+    const context = readFileSync(
+      new URL("../messages/message-context-sheet.tsx", import.meta.url),
+      "utf8",
+    )
+    expect(context).toContain("initialWidth={420}")
+
+    for (const [path] of migrations.filter(([path]) => !path.includes("message-context"))) {
+      const source = readFileSync(new URL(path, import.meta.url), "utf8")
+      expect(source).not.toContain("initialWidth=")
+    }
   })
 
   it("leaves AttachmentPreview with one wrapper-owned close entry", () => {
