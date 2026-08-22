@@ -287,6 +287,10 @@ describe("broadcastToUser", () => {
       type: "community:future",
       payload: "private",
     } as any)).rejects.toThrow("invalid community event")
+    await expect(broadcastToUser("u1", {
+      ...communityEvent,
+      contractVersion: 1,
+    } as any)).rejects.toThrow("invalid community event: invalid-payload")
     expect(bindingFetch).not.toHaveBeenCalled()
   })
 

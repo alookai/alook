@@ -103,6 +103,8 @@ describe("Community browser event runtime contract", () => {
     expect(decodeCommunityBrowserEvent({ type: "community:future" })).toMatchObject({ reason: "unknown-community-type" })
     expect(decodeCommunityBrowserEvent({ ...fixtures[0], contractVersion: 1 }))
       .toMatchObject({ reason: "invalid-payload" })
+    expect(encodeCommunityBrowserEvent({ ...fixtures[0], contractVersion: 1 }))
+      .toMatchObject({ ok: false, reason: "invalid-payload" })
     expect(decodeCommunityBrowserEvent({ ...fixtures[0], contractVersion: 2 }))
       .toMatchObject({ reason: "invalid-payload" })
     expect(decodeCommunityBrowserEvent({ ...fixtures[0], extra: true })).toMatchObject({ reason: "invalid-payload" })
