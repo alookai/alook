@@ -56,7 +56,7 @@
     "turbo": "^2.10.9",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10",
-    "wrangler": "^4.122.0"
+    "wrangler": "^4.125.0"
   },
   "pnpm": {
     "patchedDependencies": {

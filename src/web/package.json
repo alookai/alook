@@ -132,6 +132,6 @@
     "typescript": "^6.0.3",
     "unified": "^11.0.5",
     "vitest": "^4.1.10",
-    "wrangler": "^4.122.0"
+    "wrangler": "^4.125.0"
   }
 }
