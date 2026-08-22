@@ -1,13 +1,8 @@
-// Typing indicator — soft opacity pulse + "{names} is/are typing…".
-// Uses the `typing-dot` keyframe in globals.css so we stay on the house easing
-// curve and inherit the `prefers-reduced-motion` rules already wired there.
-// Rendered as a floating pill (same visual family as `ScrollDownButton`) so
-// new activity doesn't shift the message list layout when someone starts
-// typing.
 import { tid } from "@/lib/community/testids"
+import { cn } from "@/lib/utils"
 
-export function TypingIndicator({ names }: { names: string[] }) {
-  const visible = names.length > 0
+export function TypingIndicator({ names, className }: { names: string[]; className?: string }) {
+  if (names.length === 0) return null
   const label = names.length === 0
     ? null
     : names.length === 1
@@ -17,23 +12,18 @@ export function TypingIndicator({ names }: { names: string[] }) {
         : <><span className="font-medium text-foreground">{names.length} people</span> are typing…</>
   return (
     <div
-      data-testid={visible ? tid.typingIndicator : undefined}
-      className={`pointer-events-none absolute bottom-3 left-3 z-10 transition-all duration-200 ease-out ${
-        visible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
-      }`}
+      data-testid={tid.typingIndicator}
+      className={cn(
+        "pointer-events-none flex h-8 min-w-0 max-w-full items-center gap-2 rounded-full border border-border bg-background/90 px-3 text-xs text-muted-foreground shadow-(--e1) backdrop-blur-sm",
+        className,
+      )}
     >
-      <div className="flex h-8 items-center gap-2 rounded-full border border-border bg-background/90 px-3 text-xs text-muted-foreground shadow-(--e1) backdrop-blur-sm">
-        <span className="flex gap-1">
-          {[0, 1, 2].map((i) => (
-            <span
-              key={i}
-              className="size-1.5 rounded-full bg-muted-foreground"
-              style={{ animation: "typing-dot 1.4s ease-in-out infinite", animationDelay: `${i * 160}ms` }}
-            />
-          ))}
-        </span>
-        <span>{label}</span>
-      </div>
+      <span className="flex shrink-0 gap-1">
+        <span className="size-1.5 rounded-full bg-muted-foreground motion-safe:animate-[typing-dot_1.4s_ease-in-out_infinite]" />
+        <span className="size-1.5 rounded-full bg-muted-foreground motion-safe:animate-[typing-dot_1.4s_ease-in-out_160ms_infinite]" />
+        <span className="size-1.5 rounded-full bg-muted-foreground motion-safe:animate-[typing-dot_1.4s_ease-in-out_320ms_infinite]" />
+      </span>
+      <span className="min-w-0 truncate">{label}</span>
     </div>
   )
 }

@@ -40,6 +40,7 @@
   --color-status-online: var(--status-online);
   --color-status-offline: var(--status-offline);
   --color-destructive: var(--destructive);
+  --color-warning: var(--warning);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -349,6 +350,7 @@ body.community-onboarding-active.driver-active :is(
   --accent: oklch(0.94 0.008 80);
   --accent-foreground: oklch(0.22 0.03 230);
   --destructive: oklch(0.577 0.245 27.325);
+  --warning: oklch(0.62 0.11 75);
   --border: oklch(0.86 0.01 80);
   --input: oklch(0.86 0.01 80);
   --ring: oklch(0.55 0.03 230);
@@ -402,6 +404,7 @@ body.community-onboarding-active.driver-active :is(
   --accent: oklch(0.27 0.008 60);
   --accent-foreground: oklch(0.93 0.006 80);
   --destructive: oklch(0.704 0.191 22.216);
+  --warning: oklch(0.76 0.1 75);
   --border: oklch(1 0.005 80 / 10%);
   --input: oklch(1 0.005 80 / 15%);
   --ring: oklch(0.55 0.01 60);

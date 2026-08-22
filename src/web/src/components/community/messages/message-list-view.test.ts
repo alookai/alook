@@ -2,21 +2,20 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { renderMessageListView } from "./message-list-view"
-import { TypingIndicator } from "./typing-indicator"
+import { ComposerAccessoryRail } from "./composer-accessory-rail"
 import { MessageShareDialog } from "./message-share-dialog"
-import { Button } from "@/components/ui/button"
 import type { MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
 
-vi.mock("./typing-indicator", () => ({
-  TypingIndicator: vi.fn(({ names }: { names: string[] }) => React.createElement("typing", { names })),
+vi.mock("./composer-accessory-rail", () => ({
+  ComposerAccessoryRail: vi.fn((props: Record<string, unknown>) => React.createElement("accessory-rail", props)),
 }))
 vi.mock("./message-share-dialog", () => ({ MessageShareDialog: vi.fn(() => null) }))
 vi.mock("@/components/ui/number-ticker", () => ({
   NumberTicker: ({ value }: { value: number }) => React.createElement("ticker", { value }),
 }))
 
-const mockedTyping = vi.mocked(TypingIndicator)
+const mockedRail = vi.mocked(ComposerAccessoryRail)
 const mockedShareDialog = vi.mocked(MessageShareDialog)
 
 function props(overrides: Partial<ResolvedMessageListProps> = {}): ResolvedMessageListProps {
@@ -77,9 +76,12 @@ describe("renderMessageListView", () => {
     act(() => {
       renderer = TestRenderer.create(renderMessageListView(listProps, state, renderRows))
     })
-    expect(mockedTyping).toHaveBeenCalledWith({ names: ["Alice"] }, undefined)
+    expect(mockedRail).toHaveBeenCalledWith(expect.objectContaining({
+      typingNames: ["Alice"],
+      scrollCount: 3,
+      selectMode: false,
+    }), undefined)
     expect(renderRows).toHaveBeenCalledOnce()
-    expect(renderer!.root.findByProps({ "aria-label": "Jump to present, 3 unread below" })).toBeTruthy()
     expect(renderer!.root.findAllByType("virtual-rows")).toHaveLength(1)
     expect(renderer!.root.findAll((node) => node.props.className === "mb-6")).toHaveLength(1)
   })
@@ -93,10 +95,11 @@ describe("renderMessageListView", () => {
       renderer = TestRenderer.create(renderMessageListView(listProps, state, renderRows))
     })
     expect(renderer!.root.findByType("div").props.className).toBe("relative flex min-h-0 flex-1 flex-col")
-    expect(mockedTyping).toHaveBeenCalledWith({ names: [] }, undefined)
+    expect(mockedRail).toHaveBeenCalledWith(expect.objectContaining({
+      typingNames: [],
+      scrollCount: 0,
+    }), undefined)
     expect(renderRows).not.toHaveBeenCalled()
-    expect(renderer!.root.findByProps({ "aria-label": "Jump to present, 0 unread below" }).props.className)
-      .toContain("pointer-events-none")
     expect(renderer!.root.findAll((node) => node.props.className === "mb-6")).toHaveLength(1)
   })
 
@@ -121,10 +124,15 @@ describe("renderMessageListView", () => {
         () => React.createElement("virtual-rows"),
       ))
     })
-    const [cancel, share] = renderer!.root.findAllByType(Button)
-    act(() => cancel.props.onClick())
+    const rail = renderer!.root.findByType("accessory-rail")
+    expect(rail.props).toMatchObject({
+      selectMode: true,
+      selectedCount: 1,
+      typingNames: ["Alice"],
+    })
+    act(() => rail.props.onCancelSelection())
     expect(exitSelect).toHaveBeenCalledOnce()
-    act(() => share.props.onClick())
+    act(() => rail.props.onShareSelection())
     expect(setShareOpen).toHaveBeenCalledWith(true)
     expect(mockedShareDialog).toHaveBeenCalledWith(expect.objectContaining({
       m: state.selectedMessages,
@@ -133,12 +141,7 @@ describe("renderMessageListView", () => {
     }), undefined)
     act(() => mockedShareDialog.mock.calls.at(-1)![0].onClose())
     expect(closeShare).toHaveBeenCalledOnce()
-
-    const outerChildren = renderer!.root.findByType("div").children
-    expect(outerChildren.findIndex((child) => typeof child !== "string"
-      && child.props?.className?.includes("bottom-3 z-20")))
-      .toBeLessThan(outerChildren.findIndex((child) => typeof child !== "string"
-        && child.type === TypingIndicator))
+    expect(renderer!.root.findAllByType("accessory-rail")).toHaveLength(1)
   })
 
   it("keeps both sentinels and the direct rows callback in the exact loaded DOM positions", () => {

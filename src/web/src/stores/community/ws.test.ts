@@ -13,6 +13,24 @@ beforeEach(() => {
 })
 
 describe("useCommunityWsStore", () => {
+  it("publishes connection status, binds retry, and resets both safely", () => {
+    const calls: string[] = []
+    const reconnectNow = () => calls.push("retry")
+    expect(useCommunityWsStore.getState().connectionStatus).toBe("connected")
+
+    useCommunityWsStore.getState().setConnectionStatus("reconnecting")
+    useCommunityWsStore.getState().bindReconnectNow(reconnectNow)
+    expect(useCommunityWsStore.getState().connectionStatus).toBe("reconnecting")
+    useCommunityWsStore.getState().reconnectNow()
+    expect(calls).toEqual(["retry"])
+
+    useCommunityWsStore.getState().setConnectionStatus("failed")
+    useCommunityWsStore.getState().reset()
+    expect(useCommunityWsStore.getState().connectionStatus).toBe("connected")
+    useCommunityWsStore.getState().reconnectNow()
+    expect(calls).toEqual(["retry"])
+  })
+
   it("fails closed until the websocket is authenticated and advances epochs on disconnect", () => {
     expect(useCommunityWsStore.getState()).toMatchObject({
       accessConnected: false,

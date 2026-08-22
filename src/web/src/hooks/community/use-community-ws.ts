@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { useUserWs } from "@/lib/use-user-ws"
+import {
+  useUserWs,
+  type UserWsConnectionPhase,
+} from "@/lib/use-user-ws"
 import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { reconcileCommunityWsReconnect } from "@/hooks/community/community-ws/reconnect"
@@ -28,6 +31,10 @@ import {
   TYPING_INDICATOR_THROTTLE_MS,
 } from "@alook/shared"
 import { trackCommunityWsFrameDropped } from "@/lib/analytics"
+import {
+  createCommunityWsConnectionStatusController,
+  type CommunityWsConnectionStatusController,
+} from "@/hooks/community/community-ws/connection-status"
 
 export type {
   Subscription,
@@ -120,6 +127,20 @@ export function communityWsResetTypingThrottle(target: { channelId: string }) {
 
 export function useCommunityWs(options?: UseCommunityWsOptions): void {
   const queryClient = useQueryClient()
+  const reconnectTransportRef = useRef<() => void>(() => undefined)
+  const connectionControllerRef = useRef<CommunityWsConnectionStatusController | null>(null)
+  const getConnectionController = useCallback(() => {
+    if (connectionControllerRef.current === null) {
+      connectionControllerRef.current = createCommunityWsConnectionStatusController({
+        publish: useCommunityWsStore.getState().setConnectionStatus,
+        reconnectTransport: () => reconnectTransportRef.current(),
+      })
+    }
+    return connectionControllerRef.current
+  }, [])
+  const handleConnectionStateChange = useCallback((phase: UserWsConnectionPhase) => {
+    getConnectionController().handlePhase(phase)
+  }, [getConnectionController])
   const viewerUserIdRef = useRef<string | null>(options?.viewerUserId ?? null)
   useEffect(() => {
     viewerUserIdRef.current = options?.viewerUserId ?? null
@@ -268,12 +289,16 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   const handleReconnect = useCallback(async ({ reconnectDurationMs }: { reconnectDurationMs: number }) => {
     await reconcileCommunityWsReconnect(queryClient, reconnectDurationMs)
   }, [queryClient])
-  const { send } = useUserWs(handleMessage, {
+  const { send, reconnectNow } = useUserWs(handleMessage, {
     onReconnect: handleReconnect,
     onDisconnect: useCommunityWsStore.getState().markAccessDisconnected,
     onAuthenticated: useCommunityWsStore.getState().markAccessConnected,
+    onConnectionStateChange: handleConnectionStateChange,
     requestDaemonStatusOnAuth: false,
   })
+  useEffect(() => {
+    reconnectTransportRef.current = reconnectNow
+  }, [reconnectNow])
 
   // Publish the send binding so free helpers (`communityWsSendTyping`) can
   // dispatch without holding a hook reference. Single-instance assumption
@@ -296,6 +321,23 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       if (activeSend === send) activeSend = null
     }
   }, [send])
+
+  useEffect(() => {
+    const controller = getConnectionController()
+    const retry = () => controller.reconnectNow()
+    useCommunityWsStore.getState().bindReconnectNow(retry)
+    return () => {
+      controller.dispose()
+      if (connectionControllerRef.current === controller) {
+        connectionControllerRef.current = null
+      }
+      const store = useCommunityWsStore.getState()
+      if (store.reconnectNow === retry) {
+        store.bindReconnectNow(() => undefined)
+        store.setConnectionStatus("connected")
+      }
+    }
+  }, [getConnectionController])
 
   // Cleanup: flush the inbox debounce if the hook unmounts mid-window so the
   // parent surface doesn't leave a scheduled fetch dangling.

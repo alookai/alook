@@ -37,15 +37,18 @@ function isPageHidden(): boolean {
  */
 export type WsMessageIncoming = WsMessage & { [key: string]: unknown }
 
+export type UserWsConnectionPhase = "authenticated" | "reconnecting" | "suspended"
+
 export type UseUserWsOptions = {
   onReconnect?: (info: { reconnectDurationMs: number }) => void | Promise<void>
   onDisconnect?: () => void | Promise<void>
   onAuthenticated?: () => void | Promise<void>
+  onConnectionStateChange?: (phase: UserWsConnectionPhase) => void | Promise<void>
   requestDaemonStatusOnAuth?: boolean
 }
 
 function runLifecycleCallback(
-  name: "authenticated" | "disconnect" | "reconnect",
+  name: "authenticated" | "connection-state" | "disconnect" | "reconnect",
   callback: (() => void | Promise<void>) | undefined,
 ) {
   if (!callback) return
@@ -80,13 +83,14 @@ function reportDroppedFrame(
 export function useUserWs(
   onMessage: (msg: WsMessageIncoming) => void,
   options?: UseUserWsOptions,
-): { send: (msg: object) => void } {
+): { send: (msg: object) => void; reconnectNow: () => void } {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectDelay = useRef(WS_RECONNECT_INIT)
   const onMessageRef = useRef(onMessage)
   const onReconnectRef = useRef(options?.onReconnect)
   const onDisconnectRef = useRef(options?.onDisconnect)
   const onAuthenticatedRef = useRef(options?.onAuthenticated)
+  const onConnectionStateChangeRef = useRef(options?.onConnectionStateChange)
   const requestDaemonStatusOnAuthRef = useRef(options?.requestDaemonStatusOnAuth ?? true)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tokenAbortRef = useRef<AbortController | null>(null)
@@ -112,7 +116,12 @@ export function useUserWs(
   useEffect(() => {
     onDisconnectRef.current = options?.onDisconnect
     onAuthenticatedRef.current = options?.onAuthenticated
-  }, [options?.onAuthenticated, options?.onDisconnect])
+    onConnectionStateChangeRef.current = options?.onConnectionStateChange
+  }, [
+    options?.onAuthenticated,
+    options?.onConnectionStateChange,
+    options?.onDisconnect,
+  ])
 
   useEffect(() => {
     requestDaemonStatusOnAuthRef.current = options?.requestDaemonStatusOnAuth ?? true
@@ -150,7 +159,13 @@ export function useUserWs(
   }, [])
 
   const connect = useCallback(async () => {
-    if (isPageHidden()) return
+    if (isPageHidden()) {
+      runLifecycleCallback("connection-state", () =>
+        onConnectionStateChangeRef.current?.("suspended"))
+      return
+    }
+    runLifecycleCallback("connection-state", () =>
+      onConnectionStateChangeRef.current?.("reconnecting"))
     const generation = connectionGenerationRef.current + 1
     connectionGenerationRef.current = generation
     if (reconnectTimerRef.current !== null) {
@@ -278,6 +293,8 @@ export function useUserWs(
           ? 0
           : Math.max(0, Date.now() - disconnectedAtRef.current)
         disconnectedAtRef.current = null
+        runLifecycleCallback("connection-state", () =>
+          onConnectionStateChangeRef.current?.("authenticated"))
         runLifecycleCallback("authenticated", onAuthenticatedRef.current)
         if (isReconnect) {
           runLifecycleCallback("reconnect", () =>
@@ -325,6 +342,8 @@ export function useUserWs(
       if (pingIntervalRef.current) { clearInterval(pingIntervalRef.current); pingIntervalRef.current = null }
       if (livenessIntervalRef.current) { clearInterval(livenessIntervalRef.current); livenessIntervalRef.current = null }
       if (connectTimeoutRef.current !== null) { clearTimeout(connectTimeoutRef.current); connectTimeoutRef.current = null }
+      runLifecycleCallback("connection-state", () =>
+        onConnectionStateChangeRef.current?.(isPageHidden() ? "suspended" : "reconnecting"))
       scheduleReconnect(generation)
     }
   }, [retireSocket, scheduleReconnect])
@@ -337,6 +356,11 @@ export function useUserWs(
     void connect()
     const resumeConnection = () => {
       if (isPageHidden()) {
+        const generation = connectionGenerationRef.current
+        if (authenticatedGenerationRef.current !== generation) {
+          runLifecycleCallback("connection-state", () =>
+            onConnectionStateChangeRef.current?.("suspended"))
+        }
         if (reconnectTimerRef.current !== null) {
           clearTimeout(reconnectTimerRef.current)
           reconnectTimerRef.current = null
@@ -414,5 +438,27 @@ export function useUserWs(
     }
   }, [])
 
-  return { send }
+  const reconnectNow = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+    tokenAbortRef.current?.abort()
+    tokenAbortRef.current = null
+    if (tokenTimeoutRef.current !== null) {
+      clearTimeout(tokenTimeoutRef.current)
+      tokenTimeoutRef.current = null
+    }
+    reconnectDelay.current = WS_RECONNECT_INIT
+    retireSocket()
+    if (isPageHidden()) {
+      connectionGenerationRef.current += 1
+      runLifecycleCallback("connection-state", () =>
+        onConnectionStateChangeRef.current?.("suspended"))
+      return
+    }
+    void connectRef.current?.()
+  }, [retireSocket])
+
+  return { send, reconnectNow }
 }

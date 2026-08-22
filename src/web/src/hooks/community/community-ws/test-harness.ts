@@ -1,7 +1,7 @@
 import { QueryClient } from "@tanstack/react-query"
 import type { CommunityMessageCreate } from "@alook/shared"
 import { vi } from "vitest"
-import type { UseUserWsOptions } from "@/lib/use-user-ws"
+import type { UseUserWsOptions, UserWsConnectionPhase } from "@/lib/use-user-ws"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 
 type ShimCallback = (...args: unknown[]) => unknown
@@ -54,16 +54,19 @@ vi.mock("@tanstack/react-query", async () => {
 
 export let capturedOnMessage: ((msg: unknown) => void) | null = null
 export let capturedOnReconnect: ((info: { reconnectDurationMs: number }) => void | Promise<void>) | null = null
+export let capturedConnectionStateChange: ((phase: UserWsConnectionPhase) => void | Promise<void>) | null = null
 export let capturedUseUserWsOptions: UseUserWsOptions | undefined
 let stableSend: ReturnType<typeof vi.fn> = vi.fn()
+let stableReconnectNow: ReturnType<typeof vi.fn> = vi.fn()
 export let useUserWsCallCount = 0
 vi.mock("@/lib/use-user-ws", () => ({
   useUserWs: (onMessage: (msg: unknown) => void, options?: UseUserWsOptions) => {
     useUserWsCallCount += 1
     capturedOnMessage = onMessage
     capturedOnReconnect = options?.onReconnect ?? null
+    capturedConnectionStateChange = options?.onConnectionStateChange ?? null
     capturedUseUserWsOptions = options
-    return { send: stableSend }
+    return { send: stableSend, reconnectNow: stableReconnectNow }
   },
 }))
 
@@ -92,15 +95,21 @@ export function getStableSend() {
   return stableSend
 }
 
+export function getStableReconnectNow() {
+  return stableReconnectNow
+}
+
 function resetHarnessState() {
   resetHookInstance()
   pendingEffects = []
   effectCleanups = []
   capturedOnMessage = null
   capturedOnReconnect = null
+  capturedConnectionStateChange = null
   capturedUseUserWsOptions = undefined
   capturedQueryClient = new QueryClient()
   stableSend = vi.fn()
+  stableReconnectNow = vi.fn()
   useUserWsCallCount = 0
   markReadMutate.mockClear()
 }

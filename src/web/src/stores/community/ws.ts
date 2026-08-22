@@ -55,10 +55,15 @@ export type BotAuditEventEntry = {
 }
 
 type UserStatus = { emoji: string | null; text: string | null }
+export type CommunityWsConnectionStatus = "connected" | "reconnecting" | "failed"
+
+const NOOP_RECONNECT = () => undefined
 
 export type CommunityWsStoreState = {
   accessEpoch: number
   accessConnected: boolean
+  connectionStatus: CommunityWsConnectionStatus
+  reconnectNow: () => void
   /**
    * Everyone online right now — human or bot. The server pushes
    * `community:presence.update` identically for both (see
@@ -116,6 +121,8 @@ export type CommunityWsStoreState = {
   resetUserStatuses: () => void
   markAccessDisconnected: () => void
   markAccessConnected: () => void
+  setConnectionStatus: (status: CommunityWsConnectionStatus) => void
+  bindReconnectNow: (reconnectNow: () => void) => void
   pushBotAuditEvent: (event: BotAuditEventEntry) => void
   reset: () => void
 }
@@ -124,9 +131,12 @@ const initialState = (): Pick<
   CommunityWsStoreState,
   "onlineUserIds" | "seenMessageIds" | "seenDeliveryOperations" | "userStatuses" | "botAuditEvents"
   | "accessEpoch" | "accessConnected"
+  | "connectionStatus" | "reconnectNow"
 > => ({
   accessEpoch: 0,
   accessConnected: false,
+  connectionStatus: "connected",
+  reconnectNow: NOOP_RECONNECT,
   onlineUserIds: new Set(),
   seenMessageIds: new Set(),
   seenDeliveryOperations: new Map(),
@@ -234,6 +244,13 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => (
   })),
 
   markAccessConnected: () => set({ accessConnected: true }),
+
+  setConnectionStatus: (connectionStatus) => {
+    if (get().connectionStatus === connectionStatus) return
+    set({ connectionStatus })
+  },
+
+  bindReconnectNow: (reconnectNow) => set({ reconnectNow }),
 
   pushBotAuditEvent: (event) => {
     const current = get().botAuditEvents
