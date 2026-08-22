@@ -17,7 +17,6 @@ describe("community delivery receipt conservation", () => {
       results: [
         {
           socketIndex: 0,
-          mode: "batch",
           outcome: "enqueued",
           frameCount: 1,
           persistedNextFrameIndex: 1,
@@ -25,10 +24,9 @@ describe("community delivery receipt conservation", () => {
         },
         {
           socketIndex: 1,
-          mode: "legacy",
           outcome: "alreadyEnqueued",
-          frameCount: 3,
-          persistedNextFrameIndex: 3,
+          frameCount: 1,
+          persistedNextFrameIndex: 1,
           ambiguousClosed: false,
         },
       ],
@@ -53,14 +51,6 @@ describe("community delivery receipt conservation", () => {
         frameCount: 2,
         persistedNextFrameIndex: 2,
       }, receipt.results[1]],
-    }, expected)).toBe(false)
-    expect(isExactCommunityDeliveryReceipt({
-      ...receipt,
-      results: [receipt.results[0], {
-        ...receipt.results[1],
-        frameCount: 1,
-        persistedNextFrameIndex: 1,
-      }],
     }, expected)).toBe(false)
     expect(isExactCommunityDeliveryReceipt({
       ...receipt,
@@ -98,7 +88,6 @@ describe("community delivery receipt conservation", () => {
       eventCount: 1,
       results: [{
         socketIndex: 0,
-        mode: "batch",
         outcome: "failed",
         frameCount: 1,
         persistedNextFrameIndex: 0,

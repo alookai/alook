@@ -21,7 +21,6 @@ import type {
   UseCommunityWsOptions,
 } from "@/hooks/community/community-ws/handler-context"
 import {
-  COMMUNITY_EVENTS_BATCH_CAPABILITY,
   decodeCommunityBrowserEvent,
   decodeCommunityBrowserEventBatch,
   isCommunityBrowserEventBatchCandidate,
@@ -170,7 +169,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         if (!e.channelId) return false
         return e.channelId === sub.channelId || e.channelId === sub.dmConversationId
       }
-      const context = (deliveryMode: "legacy" | "batch"): CommunityWsDispatchContext => ({
+      const context = (deliveryMode: "single" | "batch"): CommunityWsDispatchContext => ({
         deliveryMode,
         queryClient,
         communityStore,
@@ -192,17 +191,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       if (isCommunityBrowserEventBatchCandidate(msg)) {
         const decoded = decodeCommunityBrowserEventBatch(msg)
         if (!decoded.ok) {
-          const reason = decoded.reason === "oversized"
-            ? "oversized"
-            : decoded.reason === "unsupported-version"
-              ? "unsupported-version"
-              : "invalid-payload"
+          const reason = decoded.reason === "oversized" ? "oversized" : "invalid-payload"
           const metadata = {
             reason,
             type: msg.type,
-            ...(decoded.contractVersion === undefined
-              ? {}
-              : { contractVersion: decoded.contractVersion }),
             ...(decoded.byteLength === undefined ? {} : { byteCount: decoded.byteLength }),
           } as const
           console.warn("[ws] frame dropped", {
@@ -258,7 +250,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         trackCommunityWsFrameDropped(metadata)
         return
       }
-      dispatchCommunityWsEvent(decoded.event, context("legacy"))
+      dispatchCommunityWsEvent(decoded.event, context("single"))
     },
     [queryClient, scheduleInboxInvalidate],
   )
@@ -271,7 +263,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     onDisconnect: useCommunityWsStore.getState().markAccessDisconnected,
     onAuthenticated: useCommunityWsStore.getState().markAccessConnected,
     requestDaemonStatusOnAuth: false,
-    capabilities: [COMMUNITY_EVENTS_BATCH_CAPABILITY],
   })
 
   // Publish the send binding so free helpers (`communityWsSendTyping`) can

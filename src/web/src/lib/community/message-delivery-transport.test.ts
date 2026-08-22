@@ -8,15 +8,11 @@ import {
 
 const {
   bindingFetch,
-  broadcastToUsers,
   logInfo,
-  logWarn,
   logError,
 } = vi.hoisted(() => ({
   bindingFetch: vi.fn<(...args: unknown[]) => Promise<Response>>(),
-  broadcastToUsers: vi.fn<(...args: unknown[]) => Promise<void>>(async () => {}),
   logInfo: vi.fn(),
-  logWarn: vi.fn(),
   logError: vi.fn(),
 }))
 
@@ -30,15 +26,13 @@ vi.mock("@opennextjs/cloudflare", () => ({
   }),
 }))
 
-vi.mock("../broadcast", () => ({ broadcastToUsers }))
-
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return {
     ...actual,
     createLogger: () => ({
       info: (...args: unknown[]) => logInfo(...args),
-      warn: (...args: unknown[]) => logWarn(...args),
+      warn: vi.fn(),
       error: (...args: unknown[]) => logError(...args),
       debug: vi.fn(),
     }),
@@ -208,7 +202,6 @@ describe("sendMessageDeliveryBatch", () => {
     expect(requestBatch(1).parentProjection).toBeUndefined()
     expect(requestOperationId(1)).toBe(requestOperationId(0))
     expect(globalFetch).not.toHaveBeenCalled()
-    expect(broadcastToUsers).not.toHaveBeenCalled()
   })
 
   it("stops after the initial attempt plus two failed-only retries", async () => {
@@ -236,35 +229,16 @@ describe("sendMessageDeliveryBatch", () => {
     await expect(sendMessageDeliveryBatch(batch())).rejects.toThrow(/failed for 1 chunk/)
     expect(bindingFetch).toHaveBeenCalledTimes(1)
     expect(globalFetch).not.toHaveBeenCalled()
-    expect(broadcastToUsers).not.toHaveBeenCalled()
   })
 
-  it.each([404, 405])("uses ordered plan-projected legacy delivery only for %i", async (status) => {
-    bindingFetch.mockResolvedValue(new Response("old worker", { status }))
-
-    await sendMessageDeliveryBatch(batch())
-
-    expect(broadcastToUsers.mock.calls.map((call) =>
-      (call[1] as { type: string }).type,
-    )).toEqual([
-      "community:message.create",
-      "community:unread.bump",
-      "community:unread.bump",
-      "community:mention.create",
-      "community:channel.member_add",
-      "community:channel.child_update",
-    ])
-    expect((broadcastToUsers.mock.calls[1]?.[1] as { userId: string }).userId).toBe("u2")
-    expect((broadcastToUsers.mock.calls[2]?.[1] as { userId: string }).userId).toBe("u3")
-    expect((broadcastToUsers.mock.calls[3]?.[1] as { userId: string }).userId).toBe("u3")
-    expect(logWarn).toHaveBeenCalledWith(
-      "message_delivery_legacy_compat",
-      expect.objectContaining({ messageId: "message-1", status, targetCount: 4 }),
-    )
+  it.each([404, 405])("fails closed when ws-do lacks the batch route (%i)", async (status) => {
+    bindingFetch.mockResolvedValue(new Response("route unavailable", { status }))
+    await expect(sendMessageDeliveryBatch(batch())).rejects.toThrow(/failed for 1 chunk/)
+    expect(bindingFetch).toHaveBeenCalledTimes(1)
     expect(globalFetch).not.toHaveBeenCalled()
   })
 
-  it("does not enter legacy mode after a binding 5xx or throw", async () => {
+  it("uses only the binding/dev fallback transport after a binding 5xx or throw", async () => {
     bindingFetch.mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
     globalFetch.mockResolvedValueOnce(Response.json({ failedUserIds: [] }))
     await sendMessageDeliveryBatch(batch())
@@ -273,17 +247,11 @@ describe("sendMessageDeliveryBatch", () => {
     globalFetch.mockResolvedValueOnce(Response.json({ failedUserIds: [] }))
     await sendMessageDeliveryBatch(batch())
 
-    expect(broadcastToUsers).not.toHaveBeenCalled()
-    expect(logWarn).not.toHaveBeenCalledWith(
-      "message_delivery_legacy_compat",
-      expect.anything(),
-    )
   })
 
   it("does not enter legacy mode for an invalid successful response", async () => {
     bindingFetch.mockResolvedValue(new Response("not json", { status: 200 }))
 
     await expect(sendMessageDeliveryBatch(batch())).rejects.toThrow(/failed for 1 chunk/)
-    expect(broadcastToUsers).not.toHaveBeenCalled()
   })
 })

@@ -1,5 +1,4 @@
 import {
-  COMMUNITY_EVENTS_BATCH_CAPABILITY,
   createDb,
   encodePreparedCommunityBrowserEventBatch,
   isValidCommunityUserTarget,
@@ -9,7 +8,6 @@ import {
 } from "@alook/shared"
 import {
   createCommunityDeliveryReceipt,
-  type CommunityDeliveryMode,
   type CommunityDeliverySocketResult,
 } from "../community-delivery-receipt"
 import type {
@@ -192,7 +190,6 @@ export async function handleWebSocketMessage(
     token?: string
     machineToken?: string
     daemonId?: string
-    capabilities?: unknown
   }
 
   if (msg.type === "auth") {
@@ -246,10 +243,6 @@ export async function handleWebSocketMessage(
       return
     }
     const wasOnline = countAuthenticatedUserConnections(context, userId) > 0
-    const communityEventsBatchV1 = Array.isArray(msg.capabilities)
-      && msg.capabilities.length <= 8
-      && msg.capabilities.every((capability) => typeof capability === "string")
-      && msg.capabilities.includes(COMMUNITY_EVENTS_BATCH_CAPABILITY)
     ws.serializeAttachment({
       type: "user",
       userId,
@@ -257,7 +250,6 @@ export async function handleWebSocketMessage(
       authenticated: true,
       name,
       discriminator,
-      ...(communityEventsBatchV1 ? { communityEventsBatchV1: true } : {}),
       ...(state?.type === "user" && state.communityDeliveryProgress
         ? { communityDeliveryProgress: state.communityDeliveryProgress }
         : {}),
@@ -361,7 +353,6 @@ type DeliveryPlan = {
   socketIndex: number
   ws: WebSocket
   state: Extract<ConnectionState, { type: "user" }>
-  mode: CommunityDeliveryMode
   frames: string[]
   progress: CommunityDeliveryProgress | null
   outcome?: "alreadyEnqueued" | "preflightFailed"
@@ -381,7 +372,6 @@ function deliveryErrorResponse(
     | { operationId: string; operationDigest: string; code: "operation_digest_conflict" },
 ): Response {
   return jsonResponse({
-    contractVersion: 1,
     status: status === 400 ? "invalid" : "conflict",
     validated: status !== 400,
     ...value,
@@ -396,9 +386,8 @@ function socketResult(
 ): CommunityDeliverySocketResult {
   return {
     socketIndex: plan.socketIndex,
-    mode: plan.mode,
     outcome,
-    frameCount: plan.frames.length,
+    frameCount: 1,
     persistedNextFrameIndex,
     ambiguousClosed,
   }
@@ -434,15 +423,15 @@ function deliverCommunityBundle(
     targetSockets.push({ ws, state })
   }
 
-  const plans: DeliveryPlan[] = targetSockets.map(({ ws, state }, socketIndex) => {
-    const mode: CommunityDeliveryMode = state.communityEventsBatchV1 === true ? "batch" : "legacy"
-    const frames = mode === "batch" && encodedBatch.ok
-      ? [encodedBatch.body]
-      : bundle.prepared.bodies
-    return { socketIndex, ws, state, mode, frames, progress: null }
-  })
+  const plans: DeliveryPlan[] = targetSockets.map(({ ws, state }, socketIndex) => ({
+    socketIndex,
+    ws,
+    state,
+    frames: encodedBatch.ok ? [encodedBatch.body] : [],
+    progress: null,
+  }))
 
-  if (!encodedBatch.ok && plans.some((plan) => plan.mode === "batch")) {
+  if (!encodedBatch.ok) {
     context.log.error("community_delivery_batch_encoder_invariant_failed", {
       operationId: bundle.operationId,
       reason: encodedBatch.reason,
@@ -450,11 +439,7 @@ function deliverCommunityBundle(
       eventCount: bundle.eventCount,
       matched: plans.length,
     })
-    const results = plans.map((plan) => socketResult(
-      plan,
-      plan.mode === "batch" ? "preflightFailed" : "notAttempted",
-      0,
-    ))
+    const results = plans.map((plan) => socketResult(plan, "preflightFailed", 0))
     return jsonResponse(createCommunityDeliveryReceipt({
       status: "incomplete",
       operationId: bundle.operationId,
@@ -477,7 +462,7 @@ function deliverCommunityBundle(
       hasConflict = true
       continue
     }
-    if (progress && (progress.mode !== plan.mode || progress.frameCount !== plan.frames.length)) {
+    if (progress && progress.frameCount !== plan.frames.length) {
       plan.outcome = "preflightFailed"
       continue
     }
@@ -492,7 +477,6 @@ function deliverCommunityBundle(
         candidateState = withCommunityDeliveryProgress(candidateState, {
           operationId: bundle.operationId,
           operationDigest: bundle.operationDigest,
-          mode: plan.mode,
           nextFrameIndex,
           frameCount: plan.frames.length,
         })
@@ -561,7 +545,6 @@ function deliverCommunityBundle(
         nextState = withCommunityDeliveryProgress(state, {
           operationId: bundle.operationId,
           operationDigest: bundle.operationDigest,
-          mode: plan.mode,
           nextFrameIndex,
           frameCount: plan.frames.length,
         })

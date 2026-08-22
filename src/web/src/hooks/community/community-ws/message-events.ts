@@ -131,7 +131,7 @@ export function handleMessageCreate(
   // 2) Every message.create — regardless of focus — schedules a
   //    debounced inbox invalidation. Skip messages authored by the
   //    viewer since they never affect their own unreads.
-  if (deliveryMode === "legacy" && event.message.authorId !== viewerId) {
+  if (deliveryMode === "single" && event.message.authorId !== viewerId) {
     scheduleInboxInvalidate()
   }
 

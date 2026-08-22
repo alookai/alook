@@ -1,11 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
 import {
-  COMMUNITY_BROWSER_EVENT_BATCH_CONTRACT_VERSION,
   COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
   COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
   COMMUNITY_DELIVERY_OPERATION_ID_BYTES,
-  COMMUNITY_EVENTS_BATCH_CAPABILITY,
   computeCommunityDeliveryDigestFromBodies,
   decodeCommunityBrowserEventBatch,
   deriveCommunityDeliveryOperationId,
@@ -104,7 +102,12 @@ describe("community WS batch transport contract", () => {
     if (!encoded.ok) return
     expect(encoded.batch).toEqual(JSON.parse(encoded.body))
     expect(encoded.batch.type).toBe(COMMUNITY_BROWSER_EVENT_BATCH_TYPE)
-    expect(encoded.batch.contractVersion).toBe(COMMUNITY_BROWSER_EVENT_BATCH_CONTRACT_VERSION)
+    expect(Object.keys(encoded.batch).sort()).toEqual([
+      "events",
+      "operationDigest",
+      "operationId",
+      "type",
+    ])
     expect(encoded.batch.events.map((event) => event.type)).toEqual(children.map((event) => event.type))
     expect(decodeCommunityBrowserEventBatch(encoded.batch, encoded.byteLength)).toEqual({
       ok: true,
@@ -114,7 +117,6 @@ describe("community WS batch transport contract", () => {
     expect(isCommunityBrowserEventBatchCandidate(encoded.batch)).toBe(true)
     expect(Object.values(WS_EVENTS)).not.toContain(COMMUNITY_BROWSER_EVENT_BATCH_TYPE)
     expect(Object.values(WS_EVENTS)).toHaveLength(41)
-    expect(COMMUNITY_EVENTS_BATCH_CAPABILITY).toBe("community-events-batch-v1")
   })
 
   it("rejects invalid count, child, operation metadata, digest mismatch, and strict outer keys", async () => {
@@ -190,15 +192,6 @@ describe("community WS batch transport contract", () => {
     expect(decodeCommunityBrowserEventBatch({ type: "community:message.create" })).toMatchObject({
       ok: false,
       reason: "wrong-type",
-    })
-    expect(decodeCommunityBrowserEventBatch({ ...encoded.batch, contractVersion: 2 })).toMatchObject({
-      ok: false,
-      reason: "unsupported-version",
-      contractVersion: 2,
-    })
-    expect(decodeCommunityBrowserEventBatch({ ...encoded.batch, contractVersion: "2" })).toEqual({
-      ok: false,
-      reason: "unsupported-version",
     })
     expect(decodeCommunityBrowserEventBatch({ ...encoded.batch, events: [] })).toMatchObject({
       ok: false,

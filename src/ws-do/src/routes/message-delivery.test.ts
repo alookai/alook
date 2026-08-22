@@ -62,6 +62,16 @@ async function successfulReceipt(request: Request): Promise<Response> {
   }))
 }
 
+async function deliveryRequest(value: typeof batch = batch): Promise<Request> {
+  return new Request("http://localhost/broadcast/community/message-delivery", {
+    method: "POST",
+    headers: {
+      [COMMUNITY_DELIVERY_OPERATION_ID_HEADER]: await deriveCommunityDeliveryOperationId(value.messageId),
+    },
+    body: JSON.stringify(value),
+  })
+}
+
 describe("message delivery route", () => {
   let handler: RouterHandler
   let doMock: RouterTestContext["doMock"]
@@ -84,10 +94,7 @@ describe("message delivery route", () => {
   it("inverts buckets into one ordered bundle per user", async () => {
     doMock.stubFetch.mockImplementation(successfulReceipt)
 
-    const response = await handler.fetch(new Request(
-      "http://localhost/broadcast/community/message-delivery",
-      { method: "POST", body: JSON.stringify(batch) },
-    ), env as never)
+    const response = await handler.fetch(await deliveryRequest(), env as never)
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ failedUserIds: [] })
@@ -129,10 +136,7 @@ describe("message delivery route", () => {
       return successfulReceipt(request)
     })
 
-    const response = await handler.fetch(new Request(
-      "http://localhost/broadcast/community/message-delivery",
-      { method: "POST", body: JSON.stringify(batch) },
-    ), env as never)
+    const response = await handler.fetch(await deliveryRequest(), env as never)
 
     expect(response.status).toBe(207)
     await expect(response.json()).resolves.toEqual({ failedUserIds: ["overlap"] })
@@ -152,10 +156,7 @@ describe("message delivery route", () => {
       return successfulReceipt(request)
     })
 
-    const first = await handler.fetch(new Request(
-      "http://localhost/broadcast/community/message-delivery",
-      { method: "POST", body: JSON.stringify(batch) },
-    ), env as never)
+    const first = await handler.fetch(await deliveryRequest(), env as never)
     expect(first.status).toBe(207)
     await expect(first.json()).resolves.toEqual({ failedUserIds: ["overlap"] })
 
@@ -167,10 +168,7 @@ describe("message delivery route", () => {
       memberAdded: undefined,
       parentProjectionUserIds: ["overlap"],
     }
-    const retry = await handler.fetch(new Request(
-      "http://localhost/broadcast/community/message-delivery",
-      { method: "POST", body: JSON.stringify(retryBatch) },
-    ), env as never)
+    const retry = await handler.fetch(await deliveryRequest(retryBatch), env as never)
     expect(retry.status).toBe(200)
     expect(overlapBodies).toHaveLength(2)
     expect(overlapBodies[1]).toEqual(overlapBodies[0])
@@ -202,6 +200,13 @@ describe("message delivery route", () => {
     ), env as never)
     expect(mismatch.status).toBe(400)
     expect(doMock.stubFetch).not.toHaveBeenCalled()
+
+    const missing = await handler.fetch(new Request(
+      "http://localhost/broadcast/community/message-delivery",
+      { method: "POST", body: JSON.stringify(batch) },
+    ), env as never)
+    expect(missing.status).toBe(400)
+    await expect(missing.json()).resolves.toMatchObject({ reason: "operation-id-mismatch" })
   })
 
   it("rejects a committed message ID that cannot produce an operation ID", async () => {
@@ -237,24 +242,15 @@ describe("message delivery route", () => {
       return successfulReceipt(request)
     })
 
-    const response = await handler.fetch(new Request(
-      "http://localhost/broadcast/community/message-delivery",
-      { method: "POST", body: JSON.stringify(batch) },
-    ), env as never)
+    const response = await handler.fetch(await deliveryRequest(), env as never)
 
     expect(response.status).toBe(207)
     await expect(response.json()).resolves.toEqual({ failedUserIds: ["overlap"] })
     expect(doMock.stubFetch).toHaveBeenCalledTimes(4)
   })
 
-  it.each([
-    ["batch frameCount=2", "batch", 2],
-    ["legacy frameCount differs from eventCount", "legacy", 1],
-  ] as const)("classifies a complete receipt with %s as invalid and returns the target in 207", async (
-    _label,
-    mode,
-    frameCount,
-  ) => {
+  it("classifies a complete receipt with frameCount=2 as invalid and returns the target in 207", async () => {
+    const frameCount = 2
     doMock.stubFetch.mockImplementation(async (request: Request) => {
       const userId = decodeURIComponent(request.headers.get(INTERNAL_USER_TARGET_HEADER)!)
       if (userId !== "overlap") return successfulReceipt(request)
@@ -266,7 +262,6 @@ describe("message delivery route", () => {
         eventCount: body.events.length,
         results: [{
           socketIndex: 0,
-          mode,
           outcome: "enqueued",
           frameCount,
           persistedNextFrameIndex: frameCount,
@@ -275,10 +270,7 @@ describe("message delivery route", () => {
       }))
     })
 
-    const response = await handler.fetch(new Request(
-      "http://localhost/broadcast/community/message-delivery",
-      { method: "POST", body: JSON.stringify(batch) },
-    ), env as never)
+    const response = await handler.fetch(await deliveryRequest(), env as never)
     expect(response.status).toBe(207)
     await expect(response.json()).resolves.toEqual({ failedUserIds: ["overlap"] })
   })
@@ -286,22 +278,16 @@ describe("message delivery route", () => {
   it("delivers the maximum 1,000 distinct targets exactly once", async () => {
     const userIds = Array.from({ length: 1_000 }, (_, index) => `user-${index}`)
     doMock.stubFetch.mockImplementation(successfulReceipt)
-    const response = await handler.fetch(new Request(
-      "http://localhost/broadcast/community/message-delivery",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          ...batch,
-          contentUserIds: userIds,
-          unreadPlainUserIds: [],
-          unreadMentionUserIds: [],
-          mentionUserIds: [],
-          memberAdded: undefined,
-          parentProjection: undefined,
-          parentProjectionUserIds: undefined,
-        }),
-      },
-    ), env as never)
+    const response = await handler.fetch(await deliveryRequest({
+      ...batch,
+      contentUserIds: userIds,
+      unreadPlainUserIds: [],
+      unreadMentionUserIds: [],
+      mentionUserIds: [],
+      memberAdded: undefined,
+      parentProjection: undefined,
+      parentProjectionUserIds: undefined,
+    }), env as never)
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ failedUserIds: [] })

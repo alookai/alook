@@ -2,7 +2,6 @@
  * Root Community WebSocket boundary and transport-ownership tests.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { COMMUNITY_EVENTS_BATCH_CAPABILITY } from "@alook/shared"
 import {
   capturedOnMessage,
   capturedOnReconnect,
@@ -87,9 +86,7 @@ describe("useCommunityWs — double-mount detection", () => {
     expect(capturedOnMessage).not.toBeNull()
     expect(capturedOnReconnect).not.toBeNull()
     expect(capturedUseUserWsOptions?.requestDaemonStatusOnAuth).toBe(false)
-    expect(capturedUseUserWsOptions?.capabilities).toEqual([
-      COMMUNITY_EVENTS_BATCH_CAPABILITY,
-    ])
+    expect(capturedUseUserWsOptions).not.toHaveProperty("capabilities")
   })
 
   it("emits console.warn when a second instance mounts with a different send", async () => {

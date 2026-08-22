@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
-  COMMUNITY_EVENTS_BATCH_CAPABILITY,
   deriveCommunityDeliveryOperationId,
   prepareCommunityDeliveryEvents,
 } from "@alook/shared"
@@ -183,7 +182,7 @@ describe("WebSocketDurableObject", () => {
       })
     })
 
-    it("sends one batch to a capable tab and ordered legacy frames to an old tab", async () => {
+    it("sends one batch frame to every authenticated tab", async () => {
       const { durable, ctx } = createDO()
       const first = createMockWebSocket()
       const second = createMockWebSocket()
@@ -191,7 +190,6 @@ describe("WebSocketDurableObject", () => {
         type: "user",
         userId: "user-42",
         authenticated: true,
-        communityEventsBatchV1: true,
       })
       second.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
       ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([first, second])
@@ -206,23 +204,22 @@ describe("WebSocketDurableObject", () => {
         matched: 2,
         attempted: 2,
         enqueued: 2,
-        modes: { batch: 1, legacy: 1 },
       })
       expect(first.send).toHaveBeenCalledTimes(1)
       expect(JSON.parse(first.send.mock.calls[0][0] as string)).toMatchObject({
         type: "community:events.batch",
         events: expect.any(Array),
       })
-      expect(second.send.mock.calls.map(([body]) => JSON.parse(body as string).type)).toEqual([
-        "community:message.create",
-        "community:unread.bump",
-        "community:mention.create",
-      ])
+      expect(second.send).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(second.send.mock.calls[0][0] as string)).toMatchObject({
+        type: "community:events.batch",
+        events: expect.any(Array),
+      })
       expect(first.deserializeAttachment()).toMatchObject({
-        communityDeliveryProgress: [[expect.any(String), expect.any(String), 0, 1, 1]],
+        communityDeliveryProgress: [[expect.any(String), expect.any(String), 1, 1]],
       })
       expect(second.deserializeAttachment()).toMatchObject({
-        communityDeliveryProgress: [[expect.any(String), expect.any(String), 1, 3, 3]],
+        communityDeliveryProgress: [[expect.any(String), expect.any(String), 1, 1]],
       })
     })
 
@@ -254,7 +251,6 @@ describe("WebSocketDurableObject", () => {
         type: "user",
         userId: "user-42",
         authenticated: true,
-        communityEventsBatchV1: true,
       })
       ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([ws])
 
@@ -274,167 +270,37 @@ describe("WebSocketDurableObject", () => {
       expect(ws.send).toHaveBeenCalledTimes(1)
     })
 
-    it("records a capable socket, returns 503 for a later legacy partial send, then resumes only legacy", async () => {
+    it("records a successful tab, reports a sibling batch send failure, and retries only the sibling", async () => {
       const { durable, ctx } = createDO()
-      const capable = createMockWebSocket()
-      capable.serializeAttachment({
-        type: "user",
-        userId: "user-42",
-        authenticated: true,
-        communityEventsBatchV1: true,
-      })
-      const legacy = createMockWebSocket()
-      legacy.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
-      legacy.send.mockImplementationOnce(() => undefined).mockImplementationOnce(() => {
-        throw new Error("send failed")
-      })
-      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([capable, legacy])
+      const first = createMockWebSocket()
+      first.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
+      const second = createMockWebSocket()
+      second.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
+      second.send.mockImplementationOnce(() => { throw new Error("send failed") })
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([first, second])
 
-      const first = await durable.fetch(await requestFor())
-      expect(first.status).toBe(503)
-      await expect(first.json()).resolves.toMatchObject({
-        status: "incomplete",
+      const response = await durable.fetch(await requestFor())
+      expect(response.status).toBe(503)
+      await expect(response.json()).resolves.toMatchObject({
         attempted: 2,
         enqueued: 1,
-        partial: 1,
-        failed: 0,
+        failed: 1,
+        partial: 0,
         results: [
           { socketIndex: 0, outcome: "enqueued", persistedNextFrameIndex: 1, frameCount: 1 },
-          { socketIndex: 1, outcome: "partial", persistedNextFrameIndex: 1, frameCount: 3 },
+          { socketIndex: 1, outcome: "failed", persistedNextFrameIndex: 0, frameCount: 1 },
         ],
       })
-      expect(capable.send).toHaveBeenCalledTimes(1)
-      expect(legacy.deserializeAttachment()).toMatchObject({
-        communityDeliveryProgress: [[expect.any(String), expect.any(String), 1, 1, 3]],
-      })
 
-      capable.send.mockClear()
-      legacy.send.mockReset()
+      first.send.mockClear()
+      second.send.mockReset()
       const retry = await durable.fetch(await requestFor())
       expect(retry.status).toBe(200)
-      await expect(retry.json()).resolves.toMatchObject({
-        attempted: 1,
-        enqueued: 1,
-        alreadyEnqueued: 1,
-      })
-      expect(capable.send).not.toHaveBeenCalled()
-      expect(legacy.send).toHaveBeenCalledTimes(2)
-      expect(legacy.send.mock.calls.map(([body]) => JSON.parse(body as string).type)).toEqual([
-        "community:unread.bump",
-        "community:mention.create",
-      ])
+      await expect(retry.json()).resolves.toMatchObject({ attempted: 1, enqueued: 1, alreadyEnqueued: 1 })
+      expect(first.send).not.toHaveBeenCalled()
+      expect(second.send).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(second.send.mock.calls[0][0] as string).type).toBe("community:events.batch")
     })
-
-    it.each([0, 1, 2])(
-      "records socket 0, exposes a legacy send throw at child index %i, and resumes from that child",
-      async (throwIndex) => {
-        const { durable, ctx } = createDO()
-        const capable = createMockWebSocket()
-        capable.serializeAttachment({
-          type: "user",
-          userId: "user-42",
-          authenticated: true,
-          communityEventsBatchV1: true,
-        })
-        const legacy = createMockWebSocket()
-        legacy.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
-        legacy.send.mockImplementation((_body: string) => {
-          if (legacy.send.mock.calls.length - 1 === throwIndex) throw new Error("send fault")
-        })
-        ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([capable, legacy])
-
-        const response = await durable.fetch(await requestFor())
-        expect(response.status).toBe(503)
-        await expect(response.json()).resolves.toMatchObject({
-          attempted: 2,
-          enqueued: 1,
-          partial: throwIndex === 0 ? 0 : 1,
-          failed: throwIndex === 0 ? 1 : 0,
-          ambiguousClosed: 0,
-          results: [
-            { socketIndex: 0, outcome: "enqueued", persistedNextFrameIndex: 1 },
-            {
-              socketIndex: 1,
-              outcome: throwIndex === 0 ? "failed" : "partial",
-              persistedNextFrameIndex: throwIndex,
-              ambiguousClosed: false,
-            },
-          ],
-        })
-        expect(capable.send).toHaveBeenCalledTimes(1)
-        expect(legacy.send).toHaveBeenCalledTimes(throwIndex + 1)
-
-        capable.send.mockClear()
-        legacy.send.mockReset()
-        const retry = await durable.fetch(await requestFor())
-        expect(retry.status).toBe(200)
-        expect(capable.send).not.toHaveBeenCalled()
-        expect(legacy.send.mock.calls.map(([body]) => JSON.parse(body as string).type)).toEqual([
-          "community:message.create",
-          "community:unread.bump",
-          "community:mention.create",
-        ].slice(throwIndex))
-      },
-    )
-
-    it.each([0, 1, 2])(
-      "closes a legacy socket when serialization fails after child index %i and resumes from the last persisted child",
-      async (throwIndex) => {
-        const { durable, ctx } = createDO()
-        const capable = createMockWebSocket()
-        capable.serializeAttachment({
-          type: "user",
-          userId: "user-42",
-          authenticated: true,
-          communityEventsBatchV1: true,
-        })
-        const legacy = createMockWebSocket()
-        legacy.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
-        const persist = legacy.serializeAttachment.getMockImplementation()!
-        let serializeIndex = 0
-        legacy.serializeAttachment.mockImplementation((state: unknown) => {
-          const currentIndex = serializeIndex
-          serializeIndex += 1
-          if (currentIndex === throwIndex) throw new Error("serialize fault")
-          return persist(state)
-        })
-        ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([capable, legacy])
-
-        const response = await durable.fetch(await requestFor())
-        expect(response.status).toBe(503)
-        await expect(response.json()).resolves.toMatchObject({
-          attempted: 2,
-          enqueued: 1,
-          partial: throwIndex === 0 ? 0 : 1,
-          failed: throwIndex === 0 ? 1 : 0,
-          ambiguousClosed: 1,
-          results: [
-            { socketIndex: 0, outcome: "enqueued", persistedNextFrameIndex: 1 },
-            {
-              socketIndex: 1,
-              outcome: throwIndex === 0 ? "failed" : "partial",
-              persistedNextFrameIndex: throwIndex,
-              ambiguousClosed: true,
-            },
-          ],
-        })
-        expect(legacy.send).toHaveBeenCalledTimes(throwIndex + 1)
-        expect(legacy.close).toHaveBeenCalledWith(1011, "Delivery state unavailable")
-
-        capable.send.mockClear()
-        legacy.send.mockReset()
-        legacy.serializeAttachment.mockReset()
-        legacy.serializeAttachment.mockImplementation(persist)
-        const retry = await durable.fetch(await requestFor())
-        expect(retry.status).toBe(200)
-        expect(capable.send).not.toHaveBeenCalled()
-        expect(legacy.send.mock.calls.map(([body]) => JSON.parse(body as string).type)).toEqual([
-          "community:message.create",
-          "community:unread.bump",
-          "community:mention.create",
-        ].slice(throwIndex))
-      },
-    )
 
     it("aborts phase A for every socket when one attachment preflight fails", async () => {
       const { durable, ctx } = createDO()
@@ -443,14 +309,13 @@ describe("WebSocketDurableObject", () => {
         type: "user",
         userId: "user-42",
         authenticated: true,
-        communityEventsBatchV1: true,
       })
       const malformed = createMockWebSocket()
       malformed.serializeAttachment({
         type: "user",
         userId: "user-42",
         authenticated: true,
-        communityDeliveryProgress: [["not-an-operation-id", "a".repeat(64), 1, 0, 3]],
+        communityDeliveryProgress: [["not-an-operation-id", "a".repeat(64), 0, 1]],
       })
       ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([ready, malformed])
 
@@ -473,7 +338,7 @@ describe("WebSocketDurableObject", () => {
       expect(malformed.send).not.toHaveBeenCalled()
     })
 
-    it("fails phase A when stored representation metadata conflicts with the socket mode", async () => {
+    it("fails phase A when stored frame metadata conflicts with the fixed batch frame", async () => {
       const { durable, ctx } = createDO()
       const ws = createMockWebSocket()
       const operationId = await deriveCommunityDeliveryOperationId("m-1")
@@ -483,8 +348,7 @@ describe("WebSocketDurableObject", () => {
         type: "user",
         userId: "user-42",
         authenticated: true,
-        communityEventsBatchV1: true,
-        communityDeliveryProgress: [[operationId, prepared.prepared.digest, 1, 0, 3]],
+        communityDeliveryProgress: [[operationId, prepared.prepared.digest, 0, 3]],
       })
       ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([ws])
 
@@ -493,7 +357,7 @@ describe("WebSocketDurableObject", () => {
       expect(response.status).toBe(503)
       await expect(response.json()).resolves.toMatchObject({
         preflightFailed: 1,
-        results: [{ mode: "batch", outcome: "preflightFailed" }],
+        results: [{ outcome: "preflightFailed" }],
       })
       expect(ws.send).not.toHaveBeenCalled()
     })
@@ -539,18 +403,17 @@ describe("WebSocketDurableObject", () => {
       expect(ws.send).not.toHaveBeenCalled()
     })
 
-    it("treats a capable encoder invariant fault as all-socket zero-send", async () => {
+    it("treats a batch encoder invariant fault as all-socket zero-send", async () => {
       const { durable, ctx } = createDO()
-      const capable = createMockWebSocket()
-      capable.serializeAttachment({
+      const first = createMockWebSocket()
+      first.serializeAttachment({
         type: "user",
         userId: "user-42",
         authenticated: true,
-        communityEventsBatchV1: true,
       })
-      const legacy = createMockWebSocket()
-      legacy.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
-      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([capable, legacy])
+      const second = createMockWebSocket()
+      second.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([first, second])
       mockEncodePreparedCommunityBrowserEventBatch.mockReturnValueOnce({
         ok: false,
         reason: "batch-invariant-oversized",
@@ -561,15 +424,15 @@ describe("WebSocketDurableObject", () => {
       expect(response.status).toBe(503)
       await expect(response.json()).resolves.toMatchObject({
         attempted: 0,
-        preflightFailed: 1,
-        notAttempted: 1,
+        preflightFailed: 2,
+        notAttempted: 0,
         results: [
-          { socketIndex: 0, mode: "batch", outcome: "preflightFailed" },
-          { socketIndex: 1, mode: "legacy", outcome: "notAttempted" },
+          { socketIndex: 0, outcome: "preflightFailed", frameCount: 1 },
+          { socketIndex: 1, outcome: "preflightFailed", frameCount: 1 },
         ],
       })
-      expect(capable.send).not.toHaveBeenCalled()
-      expect(legacy.send).not.toHaveBeenCalled()
+      expect(first.send).not.toHaveBeenCalled()
+      expect(second.send).not.toHaveBeenCalled()
     })
 
     it("returns an exact complete zero-socket receipt", async () => {
@@ -590,7 +453,6 @@ describe("WebSocketDurableObject", () => {
         partial: 0,
         failed: 0,
         ambiguousClosed: 0,
-        modes: { batch: 0, legacy: 0 },
         results: [],
       })
     })
@@ -602,7 +464,6 @@ describe("WebSocketDurableObject", () => {
         type: "user",
         userId: "user-42",
         authenticated: true,
-        communityEventsBatchV1: true,
       })
       ws.serializeAttachment.mockImplementationOnce(() => {
         throw new Error("attachment failed")
@@ -692,50 +553,11 @@ describe("WebSocketDurableObject", () => {
       })
     })
 
-    it("records only an explicitly advertised recognized community capability", async () => {
-      const { durable } = createDO()
-      mockGetValidSessionWithIdentity.mockResolvedValue({ userId: "user-42", name: "Ana", discriminator: "0012" })
-      const capable = createMockWebSocket()
-      capable.serializeAttachment({
-        type: "user",
-        userId: "",
-        targetUserId: "user-42",
-        authenticated: false,
-      })
-
-      await durable.webSocketMessage(capable as any, JSON.stringify({
-        type: "auth",
-        token: "valid-token",
-        capabilities: [COMMUNITY_EVENTS_BATCH_CAPABILITY],
-      }))
-
-      expect(capable.deserializeAttachment()).toMatchObject({
-        type: "user",
-        userId: "user-42",
-        authenticated: true,
-        communityEventsBatchV1: true,
-      })
-
-      const malformed = createMockWebSocket()
-      malformed.serializeAttachment({
-        type: "user",
-        userId: "",
-        targetUserId: "user-42",
-        authenticated: false,
-      })
-      await durable.webSocketMessage(malformed as any, JSON.stringify({
-        type: "auth",
-        token: "valid-token",
-        capabilities: [COMMUNITY_EVENTS_BATCH_CAPABILITY, 42],
-      }))
-      expect(malformed.deserializeAttachment()).not.toHaveProperty("communityEventsBatchV1")
-    })
-
     it("preserves delivery progress when an existing user socket reauthenticates", async () => {
       const { durable } = createDO()
       mockGetValidSessionWithIdentity.mockResolvedValue({ userId: "user-42", name: "Ana", discriminator: "0012" })
       const operationId = await deriveCommunityDeliveryOperationId("message-reauth")
-      const progress = [[operationId, "a".repeat(64), 1, 1, 1]]
+      const progress = [[operationId, "a".repeat(64), 1, 1]]
       const ws = createMockWebSocket()
       ws.serializeAttachment({
         type: "user",

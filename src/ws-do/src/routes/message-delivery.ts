@@ -92,16 +92,12 @@ export async function handleMessageDelivery(
   }
   const headerOperationId = request.headers.get(COMMUNITY_DELIVERY_OPERATION_ID_HEADER)?.trim()
   if (
-    headerOperationId !== undefined
-    && headerOperationId !== null
-    && (
-      !isCommunityDeliveryOperationId(headerOperationId)
-      || headerOperationId !== derivedOperationId
-    )
+    !isCommunityDeliveryOperationId(headerOperationId)
+    || headerOperationId !== derivedOperationId
   ) {
     return Response.json({ error: "invalid message delivery", reason: "operation-id-mismatch" }, { status: 400 })
   }
-  const operationId = headerOperationId || derivedOperationId
+  const operationId = headerOperationId
   const bundles = new Map<string, CommunityWsEvent[]>()
 
   for (const userId of batch.contentUserIds) addEvent(bundles, userId, batch.messageEvent)

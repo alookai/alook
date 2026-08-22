@@ -12,7 +12,6 @@ import {
   type CommunityDeliveryOperationId,
 } from "@alook/shared"
 import { fetchViaBindingOrDevFallback } from "../dev-binding-fetch"
-import { broadcastToUsers } from "../broadcast"
 
 const log = createLogger({ service: "message-delivery-transport" })
 const maxAttempts = 3
@@ -86,20 +85,6 @@ async function sendAttempt(
     },
     { logPrefix: "message_delivery", log, label: batch.messageId },
   )
-  if (response.status === 404 || response.status === 405) {
-    log.warn("message_delivery_legacy_compat", {
-      messageId: batch.messageId,
-      status: response.status,
-      targetCount: requested.length,
-      contentCount: batch.contentUserIds.length,
-      unreadCount: batch.unreadPlainUserIds.length + batch.unreadMentionUserIds.length,
-      mentionCount: batch.mentionUserIds.length,
-      memberCount: batch.memberAdded ? 1 : 0,
-      parentCount: batch.parentProjectionUserIds?.length ?? 0,
-    })
-    await deliverWithLegacyCommunityBroadcast(batch)
-    return []
-  }
   let body: unknown
   try {
     body = await response.json()
@@ -123,66 +108,6 @@ async function sendAttempt(
   const failed = parseFailedUserIds(body, requested)
   if (!failed) throw new Error("message delivery: invalid partial response")
   return failed
-}
-
-async function deliverWithLegacyCommunityBroadcast(batch: MessageDeliveryBatch): Promise<void> {
-  const message = batch.messageEvent
-  if (batch.contentUserIds.length > 0) {
-    await broadcastToUsers(batch.contentUserIds, message)
-  }
-  await settleLegacyTargets(batch.unreadPlainUserIds, (userId) =>
-    broadcastToUsers([userId], {
-      type: "community:unread.bump",
-      userId,
-      channelId: message.channelId,
-      ...(message.serverId ? { serverId: message.serverId } : {}),
-      ...(message.serverId
-        ? { railChannelId: message.parentChannelId ?? message.channelId }
-        : {}),
-      isMention: false,
-    }),
-  )
-  await settleLegacyTargets(batch.unreadMentionUserIds, (userId) =>
-    broadcastToUsers([userId], {
-      type: "community:unread.bump",
-      userId,
-      channelId: message.channelId,
-      ...(message.serverId ? { serverId: message.serverId } : {}),
-      ...(message.serverId
-        ? { railChannelId: message.parentChannelId ?? message.channelId }
-        : {}),
-      isMention: true,
-    }),
-  )
-  await settleLegacyTargets(batch.mentionUserIds, (userId) =>
-    broadcastToUsers([userId], {
-      type: "community:mention.create",
-      userId,
-      messageId: batch.messageId,
-      channelId: message.channelId,
-      authorName: message.message.authorName,
-    }),
-  )
-  if (batch.memberAdded) {
-    await broadcastToUsers([batch.memberAdded.userId], {
-      type: "community:channel.member_add",
-      ...batch.memberAdded,
-    })
-  }
-  if (batch.parentProjection && batch.parentProjectionUserIds?.length) {
-    await broadcastToUsers(batch.parentProjectionUserIds, batch.parentProjection)
-  }
-}
-
-async function settleLegacyTargets(
-  userIds: readonly string[],
-  send: (userId: string) => Promise<void>,
-): Promise<void> {
-  let next = 0
-  const workers = Array.from({ length: Math.min(maxActiveChunks, userIds.length) }, async () => {
-    while (next < userIds.length) await send(userIds[next++]!)
-  })
-  await Promise.all(workers)
 }
 
 async function sendChunk(

@@ -32,7 +32,6 @@ export type CommunityWsProxy = {
 
 export type CommunityWsProxyOptions = {
   decide?: FrameDecision
-  stripCommunityBatchCapability?: boolean
 }
 
 function parseCommunityFrame(message: string | Buffer): CapturedCommunityFrame | null {
@@ -62,23 +61,6 @@ export async function proxyCommunityWebSockets(
   await context.routeWebSocket(/.*/, (client: WebSocketRoute) => {
     activeClient = client
     const server = client.connectToServer()
-    if (options.stripCommunityBatchCapability) {
-      client.onMessage((message) => {
-        try {
-          const value = JSON.parse(message.toString()) as Record<string, unknown>
-          if (value.type === "auth" && Array.isArray(value.capabilities)) {
-            const capabilities = value.capabilities.filter(
-              (capability) => capability !== "community-events-batch-v1",
-            )
-            const forwarded: Record<string, unknown> = { ...value, capabilities }
-            if (capabilities.length === 0) delete forwarded.capabilities
-            server.send(JSON.stringify(forwarded))
-            return
-          }
-        } catch {}
-        server.send(message)
-      })
-    }
     server.onMessage((message) => {
       const frame = parseCommunityFrame(message)
       if (frame) {
@@ -126,44 +108,4 @@ export function communityFrameEvents(frame: CapturedCommunityFrame): CapturedCom
   return frame.type === "community:events.batch" && Array.isArray(frame.events)
     ? frame.events
     : [frame]
-}
-
-// Frozen compatibility surface from the pre-change browser at f1090ebe. The
-// dispatcher may change internal batching, but these exact browser-v1 shapes
-// must remain consumable without a new wire event.
-const F1090EBE_TYPES = new Set([
-  "community:message.create",
-  "community:unread.bump",
-  "community:mention.create",
-  "community:channel.member_add",
-  "community:channel.child_update",
-])
-
-export function frozenF1090ebeDecoderAccepts(frame: CapturedCommunityFrame): boolean {
-  if (frame.contractVersion !== 1 || !F1090EBE_TYPES.has(frame.type)) return false
-  if (frame.type === "community:message.create") {
-    return typeof frame.channelId === "string"
-      && typeof frame.message?.id === "string"
-      && typeof frame.message.seq === "number"
-      && typeof frame.message.content === "string"
-  }
-  if (frame.type === "community:unread.bump") {
-    return typeof frame.channelId === "string"
-      && typeof frame.userId === "string"
-      && typeof frame.isMention === "boolean"
-  }
-  if (frame.type === "community:mention.create") {
-    return typeof frame.channelId === "string"
-      && typeof frame.messageId === "string"
-      && typeof frame.userId === "string"
-  }
-  if (frame.type === "community:channel.member_add") {
-    return typeof frame.channelId === "string"
-      && typeof frame.serverId === "string"
-      && typeof frame.userId === "string"
-  }
-  return typeof frame.channelId === "string"
-    && typeof frame.parentChannelId === "string"
-    && typeof frame.changes === "object"
-    && frame.changes !== null
 }

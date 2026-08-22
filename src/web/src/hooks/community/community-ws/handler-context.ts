@@ -22,7 +22,7 @@ export type UseCommunityWsOptions = {
 }
 
 export type CommunityWsDispatchContext = {
-  deliveryMode: "legacy" | "batch"
+  deliveryMode: "single" | "batch"
   queryClient: QueryClient
   communityStore: ReturnType<typeof useCommunityStore.getState>
   wsStore: ReturnType<typeof useCommunityWsStore.getState>

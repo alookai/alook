@@ -12,7 +12,6 @@ import {
 } from "./_fixtures/seed"
 import {
   communityFrameEvents,
-  frozenF1090ebeDecoderAccepts,
   proxyCommunityWebSockets,
   type CapturedCommunityFrame,
 } from "./_fixtures/community-ws-proxy"
@@ -235,77 +234,58 @@ test.describe.serial("committed message delivery QA", () => {
     await expect(bob.page.getByTestId(`community-message-${messageId}`)).toHaveCount(1)
   })
 
-  test("Q9: capable and frozen receivers converge through batch and legacy frames", async ({ asUser }) => {
-    const serverId = await seedServer("alice", `Old decoder ${Date.now()}`)
-    const channelId = await seedChannel("alice", serverId, "old-decoder")
+  test("Q9: every receiver gets the same batch-only channel and DM delivery", async ({ asUser }) => {
+    const serverId = await seedServer("alice", `Batch receivers ${Date.now()}`)
+    const channelId = await seedChannel("alice", serverId, "batch-receivers")
     await seedJoinServer("alice", "bob", serverId)
     const dmId = await seedDm("alice", userId("bob"))
     const bobInfo = await memberInfo("alice", serverId, userId("bob"))
 
-    const capableBob = await asUser("bob")
-    const frozenBob = await asUser("bob")
-    const droppedDiagnostics: string[] = []
-    frozenBob.page.on("console", (message) => {
-      if (message.text().includes("community_ws_frame_dropped")) droppedDiagnostics.push(message.text())
-    })
-    const capableProxy = await proxyCommunityWebSockets(capableBob.context)
-    const frozenProxy = await proxyCommunityWebSockets(frozenBob.context, {
-      stripCommunityBatchCapability: true,
-    })
-    await gotoAfterUserWsAuth(capableBob.page, `/c/channels/${serverId}/${channelId}`)
-    await gotoAfterUserWsAuth(frozenBob.page, `/c/channels/${serverId}/${channelId}`)
-    await expect(composerEditable(capableBob.page)).toBeVisible()
-    await expect(composerEditable(frozenBob.page)).toBeVisible()
+    const firstBob = await asUser("bob")
+    const secondBob = await asUser("bob")
+    const firstProxy = await proxyCommunityWebSockets(firstBob.context)
+    const secondProxy = await proxyCommunityWebSockets(secondBob.context)
+    await gotoAfterUserWsAuth(firstBob.page, `/c/channels/${serverId}/${channelId}`)
+    await gotoAfterUserWsAuth(secondBob.page, `/c/channels/${serverId}/${channelId}`)
+    await expect(composerEditable(firstBob.page)).toBeVisible()
+    await expect(composerEditable(secondBob.page)).toBeVisible()
 
     const alice = await asUser("alice")
     await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}`)
-    const capableChannelStart = capableProxy.frames.length
-    const frozenChannelStart = frozenProxy.frames.length
+    const firstChannelStart = firstProxy.frames.length
+    const secondChannelStart = secondProxy.frames.length
     const editable = composerEditable(alice.page)
     await editable.click()
     await editable.pressSequentially(`@${bobInfo.name.slice(0, 3)}`)
     await alice.page.getByTestId(`community-mention-option-${bobInfo.id}`).click()
-    await editable.pressSequentially(" compatibility channel")
+    await editable.pressSequentially(" batch channel")
     await alice.page.keyboard.press("Enter")
-    await expect.poll(() => capableProxy.frames.slice(capableChannelStart).some((frame) =>
+    await expect.poll(() => firstProxy.frames.slice(firstChannelStart).some((frame) =>
       frame.type === "community:events.batch"
       && communityFrameEvents(frame).some((event) => event.type === "community:mention.create")), {
       timeout: 20_000,
     }).toBe(true)
-    await expect.poll(() => frozenProxy.frames.slice(frozenChannelStart).some((frame) =>
-      frame.type === "community:mention.create"), {
+    await expect.poll(() => secondProxy.frames.slice(secondChannelStart).some((frame) =>
+      frame.type === "community:events.batch"
+      && communityFrameEvents(frame).some((event) => event.type === "community:mention.create")), {
       timeout: 20_000,
     }).toBe(true)
-    await expectMessageVisible(capableBob.page, "compatibility channel")
-    await expectMessageVisible(frozenBob.page, "compatibility channel")
+    await expectMessageVisible(firstBob.page, "batch channel")
+    await expectMessageVisible(secondBob.page, "batch channel")
 
-    await gotoAfterUserWsAuth(capableBob.page, `/c/me/${dmId}`)
-    await gotoAfterUserWsAuth(frozenBob.page, `/c/me/${dmId}`)
+    await gotoAfterUserWsAuth(firstBob.page, `/c/me/${dmId}`)
+    await gotoAfterUserWsAuth(secondBob.page, `/c/me/${dmId}`)
     await gotoAfterUserWsAuth(alice.page, `/c/me/${dmId}`)
-    const capableDmStart = capableProxy.frames.length
-    const frozenDmStart = frozenProxy.frames.length
-    const dmBody = `compatibility dm ${Date.now()}`
+    const firstDmStart = firstProxy.frames.length
+    const secondDmStart = secondProxy.frames.length
+    const dmBody = `batch dm ${Date.now()}`
     await sendMessage(alice.page, dmBody)
-    await expectMessageVisible(capableBob.page, dmBody)
-    await expectMessageVisible(frozenBob.page, dmBody)
+    await expectMessageVisible(firstBob.page, dmBody)
+    await expectMessageVisible(secondBob.page, dmBody)
 
-    expect(capableProxy.frames.slice(capableDmStart).filter((frame) =>
+    expect(firstProxy.frames.slice(firstDmStart).filter((frame) =>
       frame.type === "community:events.batch" && messageFrame(frame, dmId, dmBody))).toHaveLength(1)
-    expect(frozenProxy.frames.slice(frozenDmStart).filter((frame) =>
-      messageFrame(frame, dmId, dmBody))).toHaveLength(1)
-
-    const relevant = frozenProxy.frames.filter((frame) => [
-      "community:message.create",
-      "community:unread.bump",
-      "community:mention.create",
-      "community:channel.member_add",
-      "community:channel.child_update",
-    ].includes(frame.type))
-    expect(relevant.some((frame) => frame.type === "community:message.create" && frame.channelId === channelId)).toBe(true)
-    expect(relevant.some((frame) => frame.type === "community:mention.create" && frame.channelId === channelId)).toBe(true)
-    expect(relevant.some((frame) => frame.type === "community:message.create" && frame.channelId === dmId)).toBe(true)
-    expect(relevant.every(frozenF1090ebeDecoderAccepts)).toBe(true)
-    expect(frozenProxy.frames.some((frame) => frame.type === "community:events.batch")).toBe(false)
-    expect(droppedDiagnostics).toEqual([])
+    expect(secondProxy.frames.slice(secondDmStart).filter((frame) =>
+      frame.type === "community:events.batch" && messageFrame(frame, dmId, dmBody))).toHaveLength(1)
   })
 })

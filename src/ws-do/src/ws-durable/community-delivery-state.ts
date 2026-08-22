@@ -9,12 +9,9 @@ import {
   type CompactCommunityDeliveryProgress,
   type UserConnectionState,
 } from "./internal"
-import type { CommunityDeliveryMode } from "../community-delivery-receipt"
-
 export type CommunityDeliveryProgress = {
   operationId: string
   operationDigest: string
-  mode: CommunityDeliveryMode
   nextFrameIndex: number
   frameCount: number
 }
@@ -28,12 +25,11 @@ function isSafeIndex(value: unknown): value is number {
 }
 
 function decodeProgressEntry(value: unknown): CommunityDeliveryProgress | null {
-  if (!Array.isArray(value) || value.length !== 5) return null
-  const [operationId, operationDigest, mode, nextFrameIndex, frameCount] = value
+  if (!Array.isArray(value) || value.length !== 4) return null
+  const [operationId, operationDigest, nextFrameIndex, frameCount] = value
   if (
     !isCommunityDeliveryOperationId(operationId)
     || !isCommunityDeliveryDigest(operationDigest)
-    || (mode !== 0 && mode !== 1)
     || !isSafeIndex(nextFrameIndex)
     || !isSafeIndex(frameCount)
     || frameCount < 1
@@ -42,7 +38,6 @@ function decodeProgressEntry(value: unknown): CommunityDeliveryProgress | null {
   return {
     operationId,
     operationDigest,
-    mode: mode === 0 ? "batch" : "legacy",
     nextFrameIndex,
     frameCount,
   }
@@ -52,7 +47,6 @@ function encodeProgressEntry(value: CommunityDeliveryProgress): CompactCommunity
   return [
     value.operationId,
     value.operationDigest,
-    value.mode === "batch" ? 0 : 1,
     value.nextFrameIndex,
     value.frameCount,
   ]

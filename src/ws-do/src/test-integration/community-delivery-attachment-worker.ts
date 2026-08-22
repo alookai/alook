@@ -28,13 +28,11 @@ export function buildMaxCommunityConnectionState(): UserConnectionState {
     authenticated: true,
     name: "n".repeat(128),
     discriminator: "1234",
-    communityEventsBatchV1: true,
   }
   for (let index = 0; index < COMMUNITY_DELIVERY_PROGRESS_LIMIT; index += 1) {
     state = withCommunityDeliveryProgress(state, {
       operationId: operationId(index),
       operationDigest: operationDigest(index),
-      mode: index % 2 === 0 ? "batch" : "legacy",
       nextFrameIndex: 1,
       frameCount: 1,
     })
@@ -48,7 +46,6 @@ export function appendSixtyFifthOperation(state: UserConnectionState): UserConne
   const next = withCommunityDeliveryProgress(state, {
     operationId: operationId(COMMUNITY_DELIVERY_PROGRESS_LIMIT),
     operationDigest: operationDigest(COMMUNITY_DELIVERY_PROGRESS_LIMIT),
-    mode: "batch",
     nextFrameIndex: 1,
     frameCount: 1,
   })

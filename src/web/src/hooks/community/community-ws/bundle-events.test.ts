@@ -140,7 +140,7 @@ describe("useCommunityWs — operation bundles", () => {
     expect(reconcileCommunityWsReconnect).not.toHaveBeenCalled()
   })
 
-  it("reports bounded metadata for oversized, unsupported, and invalid legacy frames", async () => {
+  it("reports bounded metadata for oversized and invalid batch or single frames", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     await mountHook({ viewerUserId: "viewer-1" })
 
@@ -150,7 +150,7 @@ describe("useCommunityWs — operation bundles", () => {
     })
     capturedOnMessage!({
       type: COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
-      contractVersion: 2,
+      extra: true,
     })
     capturedOnMessage!({
       type: "community:message.create",
@@ -163,7 +163,7 @@ describe("useCommunityWs — operation bundles", () => {
     )
     expect(warn).toHaveBeenCalledWith(
       "[ws] frame dropped",
-      expect.objectContaining({ reason: "unsupported-version", contractVersion: 2 }),
+      expect.objectContaining({ reason: "invalid-payload", type: COMMUNITY_BROWSER_EVENT_BATCH_TYPE }),
     )
     expect(warn).toHaveBeenCalledWith(
       "[ws] frame dropped",

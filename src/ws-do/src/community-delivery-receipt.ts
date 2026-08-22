@@ -3,7 +3,6 @@ import {
   isCommunityDeliveryOperationId,
 } from "@alook/shared"
 
-export type CommunityDeliveryMode = "batch" | "legacy"
 type CommunityDeliveryOutcome =
   | "enqueued"
   | "alreadyEnqueued"
@@ -14,7 +13,6 @@ type CommunityDeliveryOutcome =
 
 export type CommunityDeliverySocketResult = {
   socketIndex: number
-  mode: CommunityDeliveryMode
   outcome: CommunityDeliveryOutcome
   frameCount: number
   persistedNextFrameIndex: number
@@ -22,7 +20,6 @@ export type CommunityDeliverySocketResult = {
 }
 
 export type CommunityDeliveryReceipt = {
-  contractVersion: 1
   status: "complete" | "incomplete"
   validated: true
   operationId: string
@@ -37,12 +34,10 @@ export type CommunityDeliveryReceipt = {
   partial: number
   failed: number
   ambiguousClosed: number
-  modes: { batch: number; legacy: number }
   results: CommunityDeliverySocketResult[]
 }
 
 const RECEIPT_KEYS = [
-  "contractVersion",
   "status",
   "validated",
   "operationId",
@@ -57,13 +52,11 @@ const RECEIPT_KEYS = [
   "partial",
   "failed",
   "ambiguousClosed",
-  "modes",
   "results",
 ] as const
 
 const RESULT_KEYS = [
   "socketIndex",
-  "mode",
   "outcome",
   "frameCount",
   "persistedNextFrameIndex",
@@ -105,7 +98,6 @@ export function createCommunityDeliveryReceipt(input: {
   const partial = count("partial")
   const failed = count("failed")
   return {
-    contractVersion: 1,
     status: input.status,
     validated: true,
     operationId: input.operationId,
@@ -120,10 +112,6 @@ export function createCommunityDeliveryReceipt(input: {
     partial,
     failed,
     ambiguousClosed: input.results.filter((result) => result.ambiguousClosed).length,
-    modes: {
-      batch: input.results.filter((result) => result.mode === "batch").length,
-      legacy: input.results.filter((result) => result.mode === "legacy").length,
-    },
     results: input.results,
   }
 }
@@ -134,8 +122,7 @@ export function isExactCommunityDeliveryReceipt(
 ): value is CommunityDeliveryReceipt {
   if (!isRecord(value) || !hasExactKeys(value, RECEIPT_KEYS)) return false
   if (
-    value.contractVersion !== 1
-    || value.status !== "complete"
+    value.status !== "complete"
     || value.validated !== true
     || value.operationId !== expected.operationId
     || value.operationDigest !== expected.operationDigest
@@ -155,8 +142,6 @@ export function isExactCommunityDeliveryReceipt(
     "ambiguousClosed",
   ] as const
   if (numericKeys.some((key) => !isNonNegativeInteger(value[key]))) return false
-  if (!isRecord(value.modes) || !hasExactKeys(value.modes, ["batch", "legacy"])) return false
-  if (!isNonNegativeInteger(value.modes.batch) || !isNonNegativeInteger(value.modes.legacy)) return false
   if (!Array.isArray(value.results) || value.results.length !== value.matched) return false
 
   const projected = {
@@ -167,20 +152,16 @@ export function isExactCommunityDeliveryReceipt(
     partial: 0,
     failed: 0,
     ambiguousClosed: 0,
-    batch: 0,
-    legacy: 0,
   }
   for (let index = 0; index < value.results.length; index += 1) {
     const result = value.results[index]
     if (!isRecord(result) || !hasExactKeys(result, RESULT_KEYS)) return false
     if (
       result.socketIndex !== index
-      || (result.mode !== "batch" && result.mode !== "legacy")
       || typeof result.outcome !== "string"
       || !OUTCOMES.has(result.outcome)
       || !isNonNegativeInteger(result.frameCount)
-      || result.frameCount < 1
-      || result.frameCount !== (result.mode === "batch" ? 1 : expected.eventCount)
+      || result.frameCount !== 1
       || !isNonNegativeInteger(result.persistedNextFrameIndex)
       || result.persistedNextFrameIndex > result.frameCount
       || typeof result.ambiguousClosed !== "boolean"
@@ -199,7 +180,6 @@ export function isExactCommunityDeliveryReceipt(
       && result.outcome !== "failed"
     ) return false
     projected[result.outcome as CommunityDeliveryOutcome] += 1
-    projected[result.mode] += 1
     if (result.ambiguousClosed) projected.ambiguousClosed += 1
   }
   if (
@@ -210,8 +190,6 @@ export function isExactCommunityDeliveryReceipt(
     || projected.partial !== value.partial
     || projected.failed !== value.failed
     || projected.ambiguousClosed !== value.ambiguousClosed
-    || projected.batch !== value.modes.batch
-    || projected.legacy !== value.modes.legacy
   ) return false
   return value.matched === value.enqueued
       + value.alreadyEnqueued
@@ -220,7 +198,6 @@ export function isExactCommunityDeliveryReceipt(
       + value.partial
       + value.failed
     && value.attempted === value.enqueued + value.partial + value.failed
-    && value.modes.batch + value.modes.legacy === value.matched
     && value.ambiguousClosed <= value.partial + value.failed
     && value.preflightFailed === 0
     && value.notAttempted === 0

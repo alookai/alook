@@ -9,9 +9,7 @@ import {
 } from "./community-ws-events"
 import { MESSAGE_DELIVERY_MAX_EVENTS_PER_USER } from "./community-message-delivery"
 
-export const COMMUNITY_EVENTS_BATCH_CAPABILITY = "community-events-batch-v1" as const
 export const COMMUNITY_BROWSER_EVENT_BATCH_TYPE = "community:events.batch" as const
-export const COMMUNITY_BROWSER_EVENT_BATCH_CONTRACT_VERSION = 1 as const
 export const COMMUNITY_DELIVERY_OPERATION_ID_PREFIX = "message:" as const
 export const COMMUNITY_DELIVERY_OPERATION_ID_HEADER = "x-alook-community-operation-id" as const
 export const COMMUNITY_DELIVERY_OPERATION_ID_BYTES = 51
@@ -27,9 +25,8 @@ const DIGEST_RE = /^[0-9a-f]{64}$/
 export type CommunityDeliveryOperationId = `${typeof COMMUNITY_DELIVERY_OPERATION_ID_PREFIX}${string}`
 export type CommunityDeliveryDigest = string
 
-export type CommunityBrowserEventBatchV1 = {
+export type CommunityBrowserEventBatch = {
   type: typeof COMMUNITY_BROWSER_EVENT_BATCH_TYPE
-  contractVersion: typeof COMMUNITY_BROWSER_EVENT_BATCH_CONTRACT_VERSION
   operationId: CommunityDeliveryOperationId
   operationDigest: CommunityDeliveryDigest
   events: CommunityBrowserEventEnvelopeV1[]
@@ -59,7 +56,7 @@ export type CommunityDeliveryPrepareResult =
 export type CommunityBrowserEventBatchEncodeResult =
   | {
       ok: true
-      batch: CommunityBrowserEventBatchV1
+      batch: CommunityBrowserEventBatch
       body: string
       byteLength: number
       childBodies: string[]
@@ -78,7 +75,7 @@ export type CommunityBrowserEventBatchEncodeResult =
     }
 
 export type CommunityBrowserEventBatchDecodeResult =
-  | { ok: true; batch: CommunityBrowserEventBatchV1; events: CommunityWsEvent[] }
+  | { ok: true; batch: CommunityBrowserEventBatch; events: CommunityWsEvent[] }
   | {
       ok: false
       reason:
@@ -86,7 +83,6 @@ export type CommunityBrowserEventBatchDecodeResult =
         | "non-object"
         | "missing-type"
         | "wrong-type"
-        | "unsupported-version"
         | "invalid-operation-id"
         | "invalid-operation-digest"
         | "invalid-payload"
@@ -94,7 +90,6 @@ export type CommunityBrowserEventBatchDecodeResult =
         | "invalid-child"
       eventIndex?: number
       byteLength?: number
-      contractVersion?: number
     }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -266,7 +261,6 @@ export function encodePreparedCommunityBrowserEventBatch(input: {
   }
   const prefix = JSON.stringify({
     type: COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
-    contractVersion: COMMUNITY_BROWSER_EVENT_BATCH_CONTRACT_VERSION,
     operationId: input.operationId,
     operationDigest: input.operationDigest,
   }).slice(0, -1)
@@ -275,9 +269,8 @@ export function encodePreparedCommunityBrowserEventBatch(input: {
   if (byteLength > COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES) {
     return { ok: false, reason: "batch-invariant-oversized", byteLength }
   }
-  const batch: CommunityBrowserEventBatchV1 = {
+  const batch: CommunityBrowserEventBatch = {
     type: COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
-    contractVersion: COMMUNITY_BROWSER_EVENT_BATCH_CONTRACT_VERSION,
     operationId: input.operationId,
     operationDigest: input.operationDigest,
     events: input.prepared.envelopes,
@@ -306,15 +299,6 @@ export function decodeCommunityBrowserEventBatch(
   if (value.type !== COMMUNITY_BROWSER_EVENT_BATCH_TYPE) {
     return { ok: false, reason: "wrong-type" }
   }
-  if (value.contractVersion !== COMMUNITY_BROWSER_EVENT_BATCH_CONTRACT_VERSION) {
-    return {
-      ok: false,
-      reason: "unsupported-version",
-      ...(typeof value.contractVersion === "number" && Number.isSafeInteger(value.contractVersion)
-        ? { contractVersion: value.contractVersion }
-        : {}),
-    }
-  }
   if (!isCommunityDeliveryOperationId(value.operationId)) {
     return { ok: false, reason: "invalid-operation-id" }
   }
@@ -322,9 +306,8 @@ export function decodeCommunityBrowserEventBatch(
     return { ok: false, reason: "invalid-operation-digest" }
   }
   if (
-    Object.keys(value).length !== 5
+    Object.keys(value).length !== 4
     || !Object.hasOwn(value, "type")
-    || !Object.hasOwn(value, "contractVersion")
     || !Object.hasOwn(value, "operationId")
     || !Object.hasOwn(value, "operationDigest")
     || !Object.hasOwn(value, "events")
@@ -352,7 +335,6 @@ export function decodeCommunityBrowserEventBatch(
     ok: true,
     batch: {
       type: COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
-      contractVersion: COMMUNITY_BROWSER_EVENT_BATCH_CONTRACT_VERSION,
       operationId: value.operationId,
       operationDigest: value.operationDigest,
       events: envelopes,

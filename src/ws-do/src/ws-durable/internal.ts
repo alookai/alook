@@ -6,7 +6,6 @@ export const COMMUNITY_CONNECTION_STATE_JSON_MAX_BYTES = 12 * 1024
 export type CompactCommunityDeliveryProgress = [
   operationId: string,
   operationDigest: string,
-  mode: 0 | 1,
   nextFrameIndex: number,
   frameCount: number,
 ]
@@ -19,7 +18,6 @@ export type ConnectionState =
     authenticated: boolean
     name?: string
     discriminator?: string
-    communityEventsBatchV1?: true
     communityDeliveryProgress?: CompactCommunityDeliveryProgress[]
   }
   | { type: "daemon"; daemonId: string; userId: string; authenticated: boolean }

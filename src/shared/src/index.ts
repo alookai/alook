@@ -609,7 +609,7 @@ export {
 export type {
   CommunityDeliveryOperationId,
   CommunityDeliveryDigest,
-  CommunityBrowserEventBatchV1,
+  CommunityBrowserEventBatch,
   PreparedCommunityDeliveryEvents,
   CommunityDeliveryPrepareFailureReason,
   CommunityDeliveryPrepareResult,
@@ -617,9 +617,7 @@ export type {
   CommunityBrowserEventBatchDecodeResult,
 } from "./community-ws-bundle";
 export {
-  COMMUNITY_EVENTS_BATCH_CAPABILITY,
   COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
-  COMMUNITY_BROWSER_EVENT_BATCH_CONTRACT_VERSION,
   COMMUNITY_DELIVERY_OPERATION_ID_PREFIX,
   COMMUNITY_DELIVERY_OPERATION_ID_HEADER,
   COMMUNITY_DELIVERY_OPERATION_ID_BYTES,

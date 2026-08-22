@@ -63,7 +63,7 @@ vi.mock("./presence-machine-events", () => ({
 
 function dispatchContext(queryClient = new QueryClient()): CommunityWsDispatchContext {
   return {
-    deliveryMode: "legacy",
+    deliveryMode: "single",
     queryClient,
     communityStore: {} as CommunityWsDispatchContext["communityStore"],
     wsStore: {} as CommunityWsDispatchContext["wsStore"],

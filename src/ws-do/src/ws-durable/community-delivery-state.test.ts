@@ -20,7 +20,6 @@ describe("community delivery connection attachment state", () => {
       authenticated: true,
       name: "n".repeat(128),
       discriminator: "1234",
-      communityEventsBatchV1: true,
     }
     const operationIds: string[] = []
     for (let index = 0; index < COMMUNITY_DELIVERY_PROGRESS_LIMIT; index += 1) {
@@ -29,7 +28,6 @@ describe("community delivery connection attachment state", () => {
       state = withCommunityDeliveryProgress(state, {
         operationId,
         operationDigest: index.toString(16).padStart(64, "0"),
-        mode: index % 2 === 0 ? "batch" : "legacy",
         nextFrameIndex: 1,
         frameCount: 1,
       })
@@ -49,7 +47,6 @@ describe("community delivery connection attachment state", () => {
     state = withCommunityDeliveryProgress(state, {
       operationId: sixtyFifth,
       operationDigest: "f".repeat(64),
-      mode: "batch",
       nextFrameIndex: 1,
       frameCount: 1,
     })
@@ -68,7 +65,7 @@ describe("community delivery connection attachment state", () => {
       type: "user",
       userId: "user-1",
       authenticated: true,
-      communityDeliveryProgress: [[operationId, "a".repeat(64), 0, 1, 1]],
+      communityDeliveryProgress: [[operationId, "a".repeat(64), 1, 1]],
     }
     expect(preflightCommunityConnectionState({
       ...base,

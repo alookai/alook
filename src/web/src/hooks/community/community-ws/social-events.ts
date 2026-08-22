@@ -105,7 +105,7 @@ export function handleUnreadBump(
     // locate a rail row, so skip (the tree dot / inbox still reflect it).
     if (event.isMention && event.serverId) {
       const bumpServerId = event.serverId
-      if (deliveryMode === "legacy") {
+      if (deliveryMode === "single") {
         queryClient.setQueryData<ServersResponse | undefined>(
           communityKeys.servers(),
           (prev) =>
