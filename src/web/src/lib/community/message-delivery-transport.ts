@@ -1,15 +1,17 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import {
+  COMMUNITY_DELIVERY_OPERATION_ID_HEADER,
   DEV_WS_DO_URL,
   MESSAGE_DELIVERY_MAX_USERS,
   createLogger,
+  deriveCommunityDeliveryOperationId,
   isValidCommunityUserTarget,
   parseStrictFailedSubset,
   serializeMessageDeliveryBatch,
   type MessageDeliveryBatch,
+  type CommunityDeliveryOperationId,
 } from "@alook/shared"
 import { fetchViaBindingOrDevFallback } from "../dev-binding-fetch"
-import { broadcastToUsers } from "../broadcast"
 
 const log = createLogger({ service: "message-delivery-transport" })
 const maxAttempts = 3
@@ -63,7 +65,11 @@ function parseFailedUserIds(value: unknown, requested: readonly string[]): strin
   )
 }
 
-async function sendAttempt(env: Env, batch: MessageDeliveryBatch): Promise<string[]> {
+async function sendAttempt(
+  env: Env,
+  batch: MessageDeliveryBatch,
+  operationId: CommunityDeliveryOperationId,
+): Promise<string[]> {
   const requested = allTargetUserIds(batch)
   const response = await fetchViaBindingOrDevFallback(
     env.WS_DO_WORKER,
@@ -71,25 +77,14 @@ async function sendAttempt(env: Env, batch: MessageDeliveryBatch): Promise<strin
     "/broadcast/community/message-delivery",
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        [COMMUNITY_DELIVERY_OPERATION_ID_HEADER]: operationId,
+      },
       body: serializeMessageDeliveryBatch(batch),
     },
     { logPrefix: "message_delivery", log, label: batch.messageId },
   )
-  if (response.status === 404 || response.status === 405) {
-    log.warn("message_delivery_legacy_compat", {
-      messageId: batch.messageId,
-      status: response.status,
-      targetCount: requested.length,
-      contentCount: batch.contentUserIds.length,
-      unreadCount: batch.unreadPlainUserIds.length + batch.unreadMentionUserIds.length,
-      mentionCount: batch.mentionUserIds.length,
-      memberCount: batch.memberAdded ? 1 : 0,
-      parentCount: batch.parentProjectionUserIds?.length ?? 0,
-    })
-    await deliverWithLegacyCommunityBroadcast(batch)
-    return []
-  }
   let body: unknown
   try {
     body = await response.json()
@@ -115,71 +110,15 @@ async function sendAttempt(env: Env, batch: MessageDeliveryBatch): Promise<strin
   return failed
 }
 
-async function deliverWithLegacyCommunityBroadcast(batch: MessageDeliveryBatch): Promise<void> {
-  const message = batch.messageEvent
-  if (batch.contentUserIds.length > 0) {
-    await broadcastToUsers(batch.contentUserIds, message)
-  }
-  await settleLegacyTargets(batch.unreadPlainUserIds, (userId) =>
-    broadcastToUsers([userId], {
-      type: "community:unread.bump",
-      userId,
-      channelId: message.channelId,
-      ...(message.serverId ? { serverId: message.serverId } : {}),
-      ...(message.serverId
-        ? { railChannelId: message.parentChannelId ?? message.channelId }
-        : {}),
-      isMention: false,
-    }),
-  )
-  await settleLegacyTargets(batch.unreadMentionUserIds, (userId) =>
-    broadcastToUsers([userId], {
-      type: "community:unread.bump",
-      userId,
-      channelId: message.channelId,
-      ...(message.serverId ? { serverId: message.serverId } : {}),
-      ...(message.serverId
-        ? { railChannelId: message.parentChannelId ?? message.channelId }
-        : {}),
-      isMention: true,
-    }),
-  )
-  await settleLegacyTargets(batch.mentionUserIds, (userId) =>
-    broadcastToUsers([userId], {
-      type: "community:mention.create",
-      userId,
-      messageId: batch.messageId,
-      channelId: message.channelId,
-      authorName: message.message.authorName,
-    }),
-  )
-  if (batch.memberAdded) {
-    await broadcastToUsers([batch.memberAdded.userId], {
-      type: "community:channel.member_add",
-      ...batch.memberAdded,
-    })
-  }
-  if (batch.parentProjection && batch.parentProjectionUserIds?.length) {
-    await broadcastToUsers(batch.parentProjectionUserIds, batch.parentProjection)
-  }
-}
-
-async function settleLegacyTargets(
-  userIds: readonly string[],
-  send: (userId: string) => Promise<void>,
+async function sendChunk(
+  env: Env,
+  initial: MessageDeliveryBatch,
+  operationId: CommunityDeliveryOperationId,
 ): Promise<void> {
-  let next = 0
-  const workers = Array.from({ length: Math.min(maxActiveChunks, userIds.length) }, async () => {
-    while (next < userIds.length) await send(userIds[next++]!)
-  })
-  await Promise.all(workers)
-}
-
-async function sendChunk(env: Env, initial: MessageDeliveryBatch): Promise<void> {
   let pending = initial
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const startedAt = Date.now()
-    const failed = await sendAttempt(env, pending)
+    const failed = await sendAttempt(env, pending, operationId)
     log.info("message_delivery_attempt_complete", {
       messageId: initial.messageId,
       attempt,
@@ -195,14 +134,18 @@ async function sendChunk(env: Env, initial: MessageDeliveryBatch): Promise<void>
   }
 }
 
-async function settleChunks(env: Env, chunks: MessageDeliveryBatch[]): Promise<void> {
+async function settleChunks(
+  env: Env,
+  chunks: MessageDeliveryBatch[],
+  operationId: CommunityDeliveryOperationId,
+): Promise<void> {
   let next = 0
   const results: PromiseSettledResult<void>[] = new Array(chunks.length)
   const workers = Array.from({ length: Math.min(maxActiveChunks, chunks.length) }, async () => {
     while (next < chunks.length) {
       const index = next++
       try {
-        await sendChunk(env, chunks[index]!)
+        await sendChunk(env, chunks[index]!, operationId)
         results[index] = { status: "fulfilled", value: undefined }
       } catch (reason) {
         results[index] = { status: "rejected", reason }
@@ -216,7 +159,15 @@ async function settleChunks(env: Env, chunks: MessageDeliveryBatch[]): Promise<v
   }
 }
 
-export async function sendMessageDeliveryBatch(batch: MessageDeliveryBatch): Promise<void> {
+export async function sendMessageDeliveryBatch(
+  batch: MessageDeliveryBatch,
+  plannedOperationId?: CommunityDeliveryOperationId,
+): Promise<void> {
+  const derivedOperationId = await deriveCommunityDeliveryOperationId(batch.messageId)
+  if (plannedOperationId !== undefined && plannedOperationId !== derivedOperationId) {
+    throw new Error("message delivery: operation ID does not match message")
+  }
+  const operationId = plannedOperationId ?? derivedOperationId
   const { env } = getCloudflareContext()
   const targets = allTargetUserIds(batch)
   const chunks: MessageDeliveryBatch[] = []
@@ -247,5 +198,5 @@ export async function sendMessageDeliveryBatch(batch: MessageDeliveryBatch): Pro
     chunks.push(accepted)
     index = acceptedEnd
   }
-  await settleChunks(env as Env, chunks)
+  await settleChunks(env as Env, chunks, operationId)
 }

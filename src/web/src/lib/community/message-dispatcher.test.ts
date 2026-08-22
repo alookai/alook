@@ -62,6 +62,7 @@ vi.mock("./wake-producer", () => ({
 }))
 
 import { dispatchCommittedMessage, planCommittedMessage } from "./message-dispatcher"
+import { deriveCommunityDeliveryOperationId } from "@alook/shared"
 
 const message = {
   id: "msg_1",
@@ -347,6 +348,7 @@ describe("planCommittedMessage", () => {
     const first = await planCommittedMessage({} as never, "msg_1")
     const second = await planCommittedMessage({} as never, "msg_1")
     expect(second).toEqual(first)
+    expect(first.operationId).toBe(await deriveCommunityDeliveryOperationId("msg_1"))
   })
 })
 
@@ -370,6 +372,10 @@ describe("dispatchCommittedMessage", () => {
     expect(mockWaitUntil).toHaveBeenCalledWith(work)
     await expect(work).resolves.toBeUndefined()
     expect(mockSendMessageDeliveryBatch).toHaveBeenCalledTimes(1)
+    expect(mockSendMessageDeliveryBatch).toHaveBeenCalledWith(
+      expect.objectContaining({ messageId: "msg_1" }),
+      await deriveCommunityDeliveryOperationId("msg_1"),
+    )
     expect(mockEnqueueBotWakePayloads).toHaveBeenCalledWith([])
   })
 

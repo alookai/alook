@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest"
 import {
   BOT_AUDIT_RING_MAX,
+  SEEN_DELIVERY_OPERATION_MAX,
+  SEEN_DELIVERY_OPERATION_TRIM_TO,
   SEEN_MESSAGE_MAX,
   SEEN_MESSAGE_TRIM_TO,
   useCommunityWsStore,
@@ -29,6 +31,7 @@ describe("useCommunityWsStore", () => {
     const s = useCommunityWsStore.getState()
     expect(s.onlineUserIds.size).toBe(0)
     expect(s.seenMessageIds.size).toBe(0)
+    expect(s.seenDeliveryOperations.size).toBe(0)
   })
 
   it("setPresence adds and removes user ids", () => {
@@ -144,14 +147,82 @@ describe("useCommunityWsStore", () => {
     expect(after.has("m0")).toBe(false)
   })
 
+  it("locks a delivery digest before completion and keeps same-digest failures retryable", () => {
+    const store = useCommunityWsStore.getState()
+    expect(store.observeDeliveryOperation("operation-1", "a".repeat(64))).toBe("new")
+    const observed = useCommunityWsStore.getState().seenDeliveryOperations
+    expect(observed.get("operation-1")).toEqual({
+      digest: "a".repeat(64),
+      completed: false,
+    })
+    expect(useCommunityWsStore.getState().observeDeliveryOperation("operation-1", "a".repeat(64)))
+      .toBe("retryable")
+    expect(useCommunityWsStore.getState().observeDeliveryOperation("operation-1", "b".repeat(64)))
+      .toBe("conflict")
+    expect(useCommunityWsStore.getState().seenDeliveryOperations).toBe(observed)
+    expect(useCommunityWsStore.getState().completeDeliveryOperation("operation-1", "b".repeat(64)))
+      .toBe(false)
+    expect(useCommunityWsStore.getState().completeDeliveryOperation("operation-1", "a".repeat(64)))
+      .toBe(true)
+    expect(useCommunityWsStore.getState().seenDeliveryOperations.get("operation-1"))
+      .toEqual({ digest: "a".repeat(64), completed: true })
+    expect(useCommunityWsStore.getState().observeDeliveryOperation("operation-1", "a".repeat(64)))
+      .toBe("duplicate")
+    expect(useCommunityWsStore.getState().observeDeliveryOperation("operation-1", "b".repeat(64)))
+      .toBe("conflict")
+  })
+
+  it("trims retryable/completed delivery operations together and retains them across reconnect", () => {
+    for (let index = 0; index <= SEEN_DELIVERY_OPERATION_MAX; index += 1) {
+      useCommunityWsStore.getState().observeDeliveryOperation(
+        `operation-${index}`,
+        index.toString(16).padStart(64, "0"),
+      )
+      if (index % 2 === 0) {
+        useCommunityWsStore.getState().completeDeliveryOperation(
+          `operation-${index}`,
+          index.toString(16).padStart(64, "0"),
+        )
+      }
+    }
+    const operations = useCommunityWsStore.getState().seenDeliveryOperations
+    expect(operations.size).toBe(SEEN_DELIVERY_OPERATION_TRIM_TO)
+    expect(operations.has("operation-0")).toBe(false)
+    expect(operations.has(`operation-${SEEN_DELIVERY_OPERATION_MAX}`)).toBe(true)
+    expect(operations.get(`operation-${SEEN_DELIVERY_OPERATION_MAX}`)?.completed).toBe(true)
+    expect(operations.get(`operation-${SEEN_DELIVERY_OPERATION_MAX - 1}`)?.completed).toBe(false)
+
+    useCommunityWsStore.getState().markAccessDisconnected()
+    useCommunityWsStore.getState().markAccessConnected()
+    expect(useCommunityWsStore.getState().seenDeliveryOperations).toBe(operations)
+  })
+
   it("reset clears both online and seen sets", () => {
     useCommunityWsStore.getState().setPresence("u1", true)
     useCommunityWsStore.getState().markSeenMessage("m1")
+    useCommunityWsStore.getState().observeDeliveryOperation(
+      "retryable-operation",
+      "a".repeat(64),
+    )
+    useCommunityWsStore.getState().observeDeliveryOperation(
+      "completed-operation",
+      "b".repeat(64),
+    )
+    useCommunityWsStore.getState().completeDeliveryOperation(
+      "completed-operation",
+      "b".repeat(64),
+    )
+
+    expect(useCommunityWsStore.getState().seenDeliveryOperations.get("retryable-operation"))
+      .toEqual({ digest: "a".repeat(64), completed: false })
+    expect(useCommunityWsStore.getState().seenDeliveryOperations.get("completed-operation"))
+      .toEqual({ digest: "b".repeat(64), completed: true })
 
     useCommunityWsStore.getState().reset()
 
     expect(useCommunityWsStore.getState().onlineUserIds.size).toBe(0)
     expect(useCommunityWsStore.getState().seenMessageIds.size).toBe(0)
+    expect(useCommunityWsStore.getState().seenDeliveryOperations.size).toBe(0)
   })
 
   it("starts with an empty userStatuses map", () => {

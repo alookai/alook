@@ -28,7 +28,9 @@ import {
 } from "@/hooks/community/community-ws/message-projections"
 import {
   invalidateChannelMembers,
+  invalidateDms,
   invalidateFriends,
+  invalidateInbox,
   invalidatePins,
 } from "@/hooks/community/community-ws/invalidation-projections"
 
@@ -45,6 +47,7 @@ export function handleMessageCreate(
     wsStore,
     sub,
     viewerUserIdRef,
+    deliveryMode,
     scheduleInboxInvalidate,
     projection,
   }: MessageEventContext,
@@ -74,6 +77,11 @@ export function handleMessageCreate(
       { kind: "dm", id: event.channelId },
       { type: "wsMessage", message: projected },
     )
+  }
+  const viewerId = viewerUserIdRef.current
+  if (deliveryMode === "batch" && event.message.authorId !== viewerId) {
+    invalidateInbox(projection)
+    invalidateDms(projection)
   }
   if (wsStore.hasSeenMessage(event.message.id)) return
   wsStore.markSeenMessage(event.message.id)
@@ -123,8 +131,7 @@ export function handleMessageCreate(
   // 2) Every message.create — regardless of focus — schedules a
   //    debounced inbox invalidation. Skip messages authored by the
   //    viewer since they never affect their own unreads.
-  const viewerId = viewerUserIdRef.current
-  if (event.message.authorId !== viewerId) {
+  if (deliveryMode === "single" && event.message.authorId !== viewerId) {
     scheduleInboxInvalidate()
   }
 

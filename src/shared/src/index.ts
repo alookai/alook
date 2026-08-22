@@ -606,6 +606,34 @@ export {
   encodeCommunityBrowserEvent,
   WS_EVENTS,
 } from "./community-ws-events";
+export type {
+  CommunityDeliveryOperationId,
+  CommunityDeliveryDigest,
+  CommunityBrowserEventBatch,
+  PreparedCommunityDeliveryEvents,
+  CommunityDeliveryPrepareFailureReason,
+  CommunityDeliveryPrepareResult,
+  CommunityBrowserEventBatchEncodeResult,
+  CommunityBrowserEventBatchDecodeResult,
+} from "./community-ws-bundle";
+export {
+  COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
+  COMMUNITY_DELIVERY_OPERATION_ID_PREFIX,
+  COMMUNITY_DELIVERY_OPERATION_ID_HEADER,
+  COMMUNITY_DELIVERY_OPERATION_ID_BYTES,
+  COMMUNITY_DELIVERY_DIGEST_HEX_LENGTH,
+  COMMUNITY_BROWSER_EVENT_BATCH_ENVELOPE_BYTES,
+  COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
+  isCommunityDeliveryOperationId,
+  isCommunityDeliveryDigest,
+  deriveCommunityDeliveryOperationId,
+  computeCommunityDeliveryDigestFromBodies,
+  prepareCommunityDeliveryEvents,
+  encodeCommunityBrowserEventBatch,
+  encodePreparedCommunityBrowserEventBatch,
+  isCommunityBrowserEventBatchCandidate,
+  decodeCommunityBrowserEventBatch,
+} from "./community-ws-bundle";
 
 // Database
 export { createDb } from "./db/index";

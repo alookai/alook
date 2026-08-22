@@ -9,6 +9,13 @@ function normalizeWorkflow(text: string): string {
 
 const workflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "e2e-ui.yml"), "utf8"))
 const ciWorkflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "ci.yml"), "utf8"))
+const wsDoPackage = JSON.parse(
+  readFileSync(resolve(import.meta.dirname, "../../src/ws-do/package.json"), "utf8"),
+) as { scripts: Record<string, string> }
+const rootVitestConfig = readFileSync(
+  resolve(import.meta.dirname, "../../vitest.config.ts"),
+  "utf8",
+)
 const autoTagReleaseWorkflow = normalizeWorkflow(
   readFileSync(resolve(workflowRoot, "auto-tag-release.yml"), "utf8"),
 )
@@ -170,6 +177,17 @@ describe("Turbo CI execution", () => {
     expect(ciJob("build")).toContain(
       "run: pnpm build --filter=@alook/shared --filter=@alook/web --filter=@alook/cli --filter=@alook/email-worker --filter=@alook/ws-do --filter=@alook/wake-worker",
     )
+  })
+
+  it("runs the ordinary ws-do Vitest suite through the standard test task", () => {
+    expect(wsDoPackage.scripts.test).toBe("vitest run --passWithNoTests")
+    expect(wsDoPackage.scripts).not.toHaveProperty("test:workers")
+    expect(ciJob("test-linux")).toContain("pnpm turbo run test --filter='!@alook/daemon'")
+  })
+
+  it("does not exclude ws-do product source from Node coverage", () => {
+    expect(rootVitestConfig).not.toContain('"src/ws-do/src/**"')
+    expect(rootVitestConfig).not.toContain('"src/ws-do/src/**/*.ts"')
   })
 })
 

@@ -1,4 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  COMMUNITY_DELIVERY_OPERATION_ID_HEADER,
+  deriveCommunityDeliveryOperationId,
+} from "@alook/shared"
+import { createCommunityDeliveryReceipt } from "../community-delivery-receipt"
 import { INTERNAL_USER_TARGET_HEADER } from "../internal-user-broadcast"
 import {
   createRouterTestContext,
@@ -40,6 +45,33 @@ const batch = {
   parentProjectionUserIds: ["overlap", "parent-only"],
 }
 
+type InternalBundleBody = {
+  operationId: string
+  operationDigest: string
+  events: Array<{ type: string }>
+}
+
+async function successfulReceipt(request: Request): Promise<Response> {
+  const body = await request.clone().json() as InternalBundleBody
+  return Response.json(createCommunityDeliveryReceipt({
+    status: "complete",
+    operationId: body.operationId,
+    operationDigest: body.operationDigest,
+    eventCount: body.events.length,
+    results: [],
+  }))
+}
+
+async function deliveryRequest(value: typeof batch = batch): Promise<Request> {
+  return new Request("http://localhost/broadcast/community/message-delivery", {
+    method: "POST",
+    headers: {
+      [COMMUNITY_DELIVERY_OPERATION_ID_HEADER]: await deriveCommunityDeliveryOperationId(value.messageId),
+    },
+    body: JSON.stringify(value),
+  })
+}
+
 describe("message delivery route", () => {
   let handler: RouterHandler
   let doMock: RouterTestContext["doMock"]
@@ -60,15 +92,9 @@ describe("message delivery route", () => {
   })
 
   it("inverts buckets into one ordered bundle per user", async () => {
-    doMock.stubFetch.mockImplementation(async (request: Request) => {
-      const body = await request.clone().json() as { events: unknown[] }
-      return Response.json({ accepted: body.events.length })
-    })
+    doMock.stubFetch.mockImplementation(successfulReceipt)
 
-    const response = await handler.fetch(new Request(
-      "http://localhost/broadcast/community/message-delivery",
-      { method: "POST", body: JSON.stringify(batch) },
-    ), env as never)
+    const response = await handler.fetch(await deliveryRequest(), env as never)
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ failedUserIds: [] })
@@ -77,38 +103,132 @@ describe("message delivery route", () => {
       const req = request as Request
       return {
         userId: decodeURIComponent(req.headers.get(INTERNAL_USER_TARGET_HEADER)!),
-        types: ((await req.clone().json()) as { events: Array<{ type: string }> }).events.map((event) => event.type),
+        body: await req.clone().json() as InternalBundleBody,
       }
     }))
     expect(calls).toContainEqual({
       userId: "overlap",
-      types: [
-        "community:message.create",
-        "community:unread.bump",
-        "community:mention.create",
-        "community:channel.child_update",
-      ],
+      body: expect.objectContaining({
+        operationId: await deriveCommunityDeliveryOperationId("message-1"),
+        operationDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+        events: expect.arrayContaining([]),
+      }),
     })
-    expect(calls).toContainEqual({ userId: "mention-only", types: ["community:mention.create"] })
-    expect(calls).toContainEqual({ userId: "parent-only", types: ["community:channel.child_update"] })
+    const byUser = new Map(calls.map((call) => [call.userId, call.body]))
+    expect(byUser.get("overlap")?.events.map((event) => event.type)).toEqual([
+      "community:message.create",
+      "community:unread.bump",
+      "community:mention.create",
+      "community:channel.child_update",
+    ])
+    expect(byUser.get("mention-only")?.events.map((event) => event.type)).toEqual(["community:mention.create"])
+    expect(byUser.get("parent-only")?.events.map((event) => event.type)).toEqual(["community:channel.child_update"])
+    expect(new Set(calls.map((call) => call.body.operationId))).toEqual(new Set([
+      await deriveCommunityDeliveryOperationId("message-1"),
+    ]))
+    expect(byUser.get("author")?.operationDigest).not.toBe(byUser.get("overlap")?.operationDigest)
   })
 
   it("returns an exact failed subset while healthy siblings complete", async () => {
     doMock.stubFetch.mockImplementation(async (request: Request) => {
       const userId = decodeURIComponent(request.headers.get(INTERNAL_USER_TARGET_HEADER)!)
       if (userId === "overlap") return new Response("bad", { status: 502 })
-      const body = await request.clone().json() as { events: unknown[] }
-      return Response.json({ accepted: body.events.length })
+      return successfulReceipt(request)
     })
 
-    const response = await handler.fetch(new Request(
-      "http://localhost/broadcast/community/message-delivery",
-      { method: "POST", body: JSON.stringify(batch) },
-    ), env as never)
+    const response = await handler.fetch(await deliveryRequest(), env as never)
 
     expect(response.status).toBe(207)
     await expect(response.json()).resolves.toEqual({ failedUserIds: ["overlap"] })
     expect(doMock.stubFetch).toHaveBeenCalledTimes(4)
+  })
+
+  it("keeps the operation ID and per-user digest stable after an accepted enqueue response is lost", async () => {
+    const overlapBodies: InternalBundleBody[] = []
+    let overlapAttempts = 0
+    doMock.stubFetch.mockImplementation(async (request: Request) => {
+      const userId = decodeURIComponent(request.headers.get(INTERNAL_USER_TARGET_HEADER)!)
+      if (userId !== "overlap") return successfulReceipt(request)
+      const body = await request.clone().json() as InternalBundleBody
+      overlapBodies.push(body)
+      overlapAttempts += 1
+      if (overlapAttempts === 1) return new Response("")
+      return successfulReceipt(request)
+    })
+
+    const first = await handler.fetch(await deliveryRequest(), env as never)
+    expect(first.status).toBe(207)
+    await expect(first.json()).resolves.toEqual({ failedUserIds: ["overlap"] })
+
+    const retryBatch = {
+      ...batch,
+      contentUserIds: ["overlap"],
+      unreadMentionUserIds: ["overlap"],
+      mentionUserIds: ["overlap"],
+      memberAdded: undefined,
+      parentProjectionUserIds: ["overlap"],
+    }
+    const retry = await handler.fetch(await deliveryRequest(retryBatch), env as never)
+    expect(retry.status).toBe(200)
+    expect(overlapBodies).toHaveLength(2)
+    expect(overlapBodies[1]).toEqual(overlapBodies[0])
+  })
+
+  it("accepts only the operation ID derived from the committed message", async () => {
+    doMock.stubFetch.mockImplementation(successfulReceipt)
+    const expected = await deriveCommunityDeliveryOperationId(batch.messageId)
+    const accepted = await handler.fetch(new Request(
+      "http://localhost/broadcast/community/message-delivery",
+      {
+        method: "POST",
+        headers: { [COMMUNITY_DELIVERY_OPERATION_ID_HEADER]: expected },
+        body: JSON.stringify(batch),
+      },
+    ), env as never)
+    expect(accepted.status).toBe(200)
+
+    doMock.stubFetch.mockClear()
+    const mismatch = await handler.fetch(new Request(
+      "http://localhost/broadcast/community/message-delivery",
+      {
+        method: "POST",
+        headers: {
+          [COMMUNITY_DELIVERY_OPERATION_ID_HEADER]: await deriveCommunityDeliveryOperationId("other-message"),
+        },
+        body: JSON.stringify(batch),
+      },
+    ), env as never)
+    expect(mismatch.status).toBe(400)
+    expect(doMock.stubFetch).not.toHaveBeenCalled()
+
+    const missing = await handler.fetch(new Request(
+      "http://localhost/broadcast/community/message-delivery",
+      { method: "POST", body: JSON.stringify(batch) },
+    ), env as never)
+    expect(missing.status).toBe(400)
+    await expect(missing.json()).resolves.toMatchObject({ reason: "operation-id-mismatch" })
+  })
+
+  it("rejects a committed message ID that cannot produce an operation ID", async () => {
+    const invalidMessageId = "\ud800"
+    const response = await handler.fetch(new Request(
+      "http://localhost/broadcast/community/message-delivery",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...batch,
+          messageId: invalidMessageId,
+          messageEvent: {
+            ...batch.messageEvent,
+            message: { ...batch.messageEvent.message, id: invalidMessageId },
+          },
+        }),
+      },
+    ), env as never)
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({ reason: "invalid-message-id" })
+    expect(doMock.stubFetch).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -119,39 +239,55 @@ describe("message delivery route", () => {
     doMock.stubFetch.mockImplementation(async (request: Request) => {
       const userId = decodeURIComponent(request.headers.get(INTERNAL_USER_TARGET_HEADER)!)
       if (userId === "overlap") return failedResponse()
-      const body = await request.clone().json() as { events: unknown[] }
-      return Response.json({ accepted: body.events.length })
+      return successfulReceipt(request)
     })
 
-    const response = await handler.fetch(new Request(
-      "http://localhost/broadcast/community/message-delivery",
-      { method: "POST", body: JSON.stringify(batch) },
-    ), env as never)
+    const response = await handler.fetch(await deliveryRequest(), env as never)
 
     expect(response.status).toBe(207)
     await expect(response.json()).resolves.toEqual({ failedUserIds: ["overlap"] })
     expect(doMock.stubFetch).toHaveBeenCalledTimes(4)
   })
 
+  it("classifies a complete receipt with frameCount=2 as invalid and returns the target in 207", async () => {
+    const frameCount = 2
+    doMock.stubFetch.mockImplementation(async (request: Request) => {
+      const userId = decodeURIComponent(request.headers.get(INTERNAL_USER_TARGET_HEADER)!)
+      if (userId !== "overlap") return successfulReceipt(request)
+      const body = await request.clone().json() as InternalBundleBody
+      return Response.json(createCommunityDeliveryReceipt({
+        status: "complete",
+        operationId: body.operationId,
+        operationDigest: body.operationDigest,
+        eventCount: body.events.length,
+        results: [{
+          socketIndex: 0,
+          outcome: "enqueued",
+          frameCount,
+          persistedNextFrameIndex: frameCount,
+          ambiguousClosed: false,
+        }],
+      }))
+    })
+
+    const response = await handler.fetch(await deliveryRequest(), env as never)
+    expect(response.status).toBe(207)
+    await expect(response.json()).resolves.toEqual({ failedUserIds: ["overlap"] })
+  })
+
   it("delivers the maximum 1,000 distinct targets exactly once", async () => {
     const userIds = Array.from({ length: 1_000 }, (_, index) => `user-${index}`)
-    doMock.stubFetch.mockImplementation(async () => Response.json({ accepted: 1 }))
-    const response = await handler.fetch(new Request(
-      "http://localhost/broadcast/community/message-delivery",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          ...batch,
-          contentUserIds: userIds,
-          unreadPlainUserIds: [],
-          unreadMentionUserIds: [],
-          mentionUserIds: [],
-          memberAdded: undefined,
-          parentProjection: undefined,
-          parentProjectionUserIds: undefined,
-        }),
-      },
-    ), env as never)
+    doMock.stubFetch.mockImplementation(successfulReceipt)
+    const response = await handler.fetch(await deliveryRequest({
+      ...batch,
+      contentUserIds: userIds,
+      unreadPlainUserIds: [],
+      unreadMentionUserIds: [],
+      mentionUserIds: [],
+      memberAdded: undefined,
+      parentProjection: undefined,
+      parentProjectionUserIds: undefined,
+    }), env as never)
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ failedUserIds: [] })

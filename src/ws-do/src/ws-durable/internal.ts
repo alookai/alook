@@ -1,5 +1,15 @@
 import type { Logger } from "@alook/shared"
 
+export const COMMUNITY_DELIVERY_PROGRESS_LIMIT = 64
+export const COMMUNITY_CONNECTION_STATE_JSON_MAX_BYTES = 12 * 1024
+
+export type CompactCommunityDeliveryProgress = [
+  operationId: string,
+  operationDigest: string,
+  nextFrameIndex: number,
+  frameCount: number,
+]
+
 export type ConnectionState =
   | {
     type: "user"
@@ -8,6 +18,7 @@ export type ConnectionState =
     authenticated: boolean
     name?: string
     discriminator?: string
+    communityDeliveryProgress?: CompactCommunityDeliveryProgress[]
   }
   | { type: "daemon"; daemonId: string; userId: string; authenticated: boolean }
   | {

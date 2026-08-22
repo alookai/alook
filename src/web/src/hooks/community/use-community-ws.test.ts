@@ -86,6 +86,7 @@ describe("useCommunityWs — double-mount detection", () => {
     expect(capturedOnMessage).not.toBeNull()
     expect(capturedOnReconnect).not.toBeNull()
     expect(capturedUseUserWsOptions?.requestDaemonStatusOnAuth).toBe(false)
+    expect(capturedUseUserWsOptions).not.toHaveProperty("capabilities")
   })
 
   it("emits console.warn when a second instance mounts with a different send", async () => {

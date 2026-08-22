@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import type { WsMessage } from "@alook/shared"
+import {
+  COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
+  type WsMessage,
+} from "@alook/shared"
 import type { UseUserWsOptions } from "./use-user-ws"
 
 // --- Mock WebSocket ---
@@ -851,6 +854,20 @@ describe("useUserWs", () => {
       payload: "x".repeat(65_536),
     })
     ws.simulateRawMessage(oversizedCommunity)
+    expect(onMessage).not.toHaveBeenCalled()
+
+    const legalLargeBatch = {
+      type: "community:events.batch",
+      payload: "x".repeat(70_000),
+    }
+    ws.simulateMessage(legalLargeBatch)
+    expect(onMessage).toHaveBeenCalledWith(legalLargeBatch)
+
+    onMessage.mockClear()
+    ws.simulateRawMessage(JSON.stringify({
+      type: "community:events.batch",
+      payload: "x".repeat(COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES),
+    }))
     expect(onMessage).not.toHaveBeenCalled()
 
     const generic = { type: "task.updated", payload: "x".repeat(65_536) }

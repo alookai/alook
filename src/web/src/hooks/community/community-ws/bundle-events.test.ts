@@ -1,0 +1,431 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
+  COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
+  deriveCommunityDeliveryOperationId,
+  encodeCommunityBrowserEventBatch,
+  prepareCommunityDeliveryEvents,
+  type CommunityWsEvent,
+} from "@alook/shared"
+import { communityKeys } from "@/lib/query-keys"
+
+const reconcileCommunityWsReconnect = vi.hoisted(() => vi.fn(async () => ({
+  policyCount: 13,
+  successCount: 13,
+  failureCount: 0,
+})))
+
+vi.mock("./reconnect", () => ({ reconcileCommunityWsReconnect }))
+
+import {
+  capturedOnMessage,
+  capturedQueryClient,
+  cleanupCommunityWsHarness,
+  forumSidebarFixture,
+  mountHook,
+  resetCommunityWsHarness,
+} from "./test-harness"
+import { useCommunityStore } from "@/stores/community"
+import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
+
+beforeEach(async () => {
+  reconcileCommunityWsReconnect.mockClear()
+  await resetCommunityWsHarness()
+})
+afterEach(cleanupCommunityWsHarness)
+
+const message = {
+  type: "community:message.create" as const,
+  channelId: "ch-1",
+  serverId: "server-1",
+  message: {
+    id: "message-1",
+    seq: 1,
+    authorId: "author-1",
+    authorName: "Alice",
+    content: "hello",
+    type: "chat" as const,
+    createdAt: "2026-08-21T00:00:00.000Z",
+  },
+}
+const mentionEvents: CommunityWsEvent[] = [
+  message,
+  {
+    type: "community:unread.bump",
+    userId: "viewer-1",
+    channelId: "ch-1",
+    serverId: "server-1",
+    railChannelId: "ch-1",
+    isMention: true,
+  },
+  {
+    type: "community:mention.create",
+    userId: "viewer-1",
+    messageId: "message-1",
+    channelId: "ch-1",
+    authorName: "Alice",
+  },
+]
+
+async function batchFor(messageId: string, events: readonly CommunityWsEvent[]) {
+  const operationId = await deriveCommunityDeliveryOperationId(messageId)
+  const prepared = await prepareCommunityDeliveryEvents(events)
+  if (!prepared.ok) throw new Error("bundle fixture must prepare")
+  const encoded = await encodeCommunityBrowserEventBatch({
+    operationId,
+    operationDigest: prepared.prepared.digest,
+    events,
+  })
+  if (!encoded.ok) throw new Error("bundle fixture must encode")
+  return encoded.batch
+}
+
+function invalidationCount(queryKey: readonly unknown[]): number {
+  return vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.filter(([filters]) =>
+    JSON.stringify(filters.queryKey) === JSON.stringify(queryKey)).length
+}
+
+describe("useCommunityWs — operation bundles", () => {
+  it("decodes all children before one dispatch, deduplicates invalidations, and suppresses same-digest replay", async () => {
+    await mountHook({ viewerUserId: "viewer-1" })
+    capturedQueryClient.setQueryData(communityKeys.servers(), {
+      servers: [{ id: "server-1", mentions: 5 }],
+    })
+    vi.spyOn(capturedQueryClient, "invalidateQueries")
+    const frame = await batchFor("message-1", mentionEvents)
+
+    capturedOnMessage!(frame)
+    expect(capturedQueryClient.getQueryData<{ servers: Array<{ id: string; mentions: number }> }>(
+      communityKeys.servers(),
+    )?.servers[0]?.mentions).toBe(5)
+    expect(invalidationCount(communityKeys.inbox())).toBe(1)
+    expect(invalidationCount(communityKeys.dms())).toBe(1)
+    expect(invalidationCount(communityKeys.servers())).toBe(1)
+
+    const callsAfterFirst = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
+    capturedOnMessage!(frame)
+    expect(vi.mocked(capturedQueryClient.invalidateQueries)).toHaveBeenCalledTimes(callsAfterFirst)
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
+      .toEqual({ digest: frame.operationDigest, completed: true })
+  })
+
+  it("treats repair-then-late-bundle mention state as authoritative invalidation, never arithmetic", async () => {
+    await mountHook({ viewerUserId: "viewer-1" })
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    useCommunityWsStore.getState().markSeenMessage(message.message.id)
+    capturedQueryClient.setQueryData(communityKeys.servers(), {
+      servers: [{ id: "server-1", mentions: 9 }],
+    })
+    vi.spyOn(capturedQueryClient, "invalidateQueries")
+
+    capturedOnMessage!(await batchFor("message-late", mentionEvents))
+    expect(capturedQueryClient.getQueryData<{ servers: Array<{ mentions: number }> }>(
+      communityKeys.servers(),
+    )?.servers[0]?.mentions).toBe(9)
+    expect(invalidationCount(communityKeys.inbox())).toBe(1)
+    expect(invalidationCount(communityKeys.dms())).toBe(1)
+    expect(invalidationCount(communityKeys.servers())).toBe(1)
+  })
+
+  it("rejects malformed children without poisoning the operation map", async () => {
+    await mountHook({ viewerUserId: "viewer-1" })
+    const frame = await batchFor("message-malformed", mentionEvents)
+    capturedOnMessage!({
+      ...frame,
+      events: [...frame.events, { type: "community:future", contractVersion: 1 }],
+    })
+
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    expect(useCommunityWsStore.getState().seenDeliveryOperations.size).toBe(0)
+    expect(reconcileCommunityWsReconnect).not.toHaveBeenCalled()
+  })
+
+  it("reports bounded metadata for oversized and invalid batch or single frames", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await mountHook({ viewerUserId: "viewer-1" })
+
+    capturedOnMessage!({
+      type: COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
+      padding: "x".repeat(COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES),
+    })
+    capturedOnMessage!({
+      type: COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
+      extra: true,
+    })
+    capturedOnMessage!({
+      type: "community:message.create",
+      contractVersion: 2,
+    })
+
+    expect(warn).toHaveBeenCalledWith(
+      "[ws] frame dropped",
+      expect.objectContaining({ reason: "oversized" }),
+    )
+    expect(warn).toHaveBeenCalledWith(
+      "[ws] frame dropped",
+      expect.objectContaining({ reason: "invalid-payload", type: COMMUNITY_BROWSER_EVENT_BATCH_TYPE }),
+    )
+    expect(warn).toHaveBeenCalledWith(
+      "[ws] frame dropped",
+      expect.objectContaining({ type: "community:message.create", contractVersion: 2 }),
+    )
+  })
+
+  it("rejects same-ID/different-digest before projection and reconciles once", async () => {
+    await mountHook({ viewerUserId: "viewer-1" })
+    useCommunityStore.getState().subscribe({ channelId: "ch-1" })
+    vi.spyOn(capturedQueryClient, "invalidateQueries")
+    const first = await batchFor("message-conflict", mentionEvents)
+    const conflicting = await batchFor("message-conflict", [
+      { ...message, message: { ...message.message, content: "different" } },
+    ])
+    capturedOnMessage!(first)
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    const seenMessages = useCommunityWsStore.getState().seenMessageIds.size
+    const overlayBeforeConflict = getMessageOverlay({
+      kind: "channel",
+      id: "ch-1",
+      serverId: "s1",
+    })
+    const invalidationsBeforeConflict = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
+
+    capturedOnMessage!(conflicting)
+    expect(useCommunityWsStore.getState().seenMessageIds.size).toBe(seenMessages)
+    expect(getMessageOverlay({ kind: "channel", id: "ch-1", serverId: "s1" }))
+      .toBe(overlayBeforeConflict)
+    expect(vi.mocked(capturedQueryClient.invalidateQueries))
+      .toHaveBeenCalledTimes(invalidationsBeforeConflict)
+    expect(useCommunityWsStore.getState().seenDeliveryOperations.get(first.operationId))
+      .toEqual({ digest: first.operationDigest, completed: true })
+    expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
+  })
+
+  it("locks the digest across a second-child fault, rejects conflict, then completes replay", async () => {
+    await mountHook({ viewerUserId: "viewer-1" })
+    useCommunityStore.getState().subscribe({ channelId: "ch-1" })
+    capturedQueryClient.setQueryData(communityKeys.server("s1"), {
+      id: "s1",
+      categories: [{
+        id: "category-1",
+        channels: [{ id: "text-parent", type: "text", unread: false }],
+      }],
+    })
+    const setQueryData = vi.spyOn(capturedQueryClient, "setQueryData")
+      .mockImplementationOnce(() => { throw new Error("second-child fault") })
+    vi.spyOn(capturedQueryClient, "invalidateQueries")
+    const events: CommunityWsEvent[] = [
+      {
+        ...message,
+        serverId: "s1",
+        parentChannelId: "text-parent",
+        message: { ...message.message, id: "message-before-second-child-fault" },
+      },
+      {
+        type: "community:unread.bump",
+        userId: "viewer-1",
+        channelId: "ch-1",
+        serverId: "s1",
+        railChannelId: "text-parent",
+        isMention: false,
+      },
+    ]
+    const frame = await batchFor("message-second-child-fault", events)
+    const conflicting = await batchFor("message-second-child-fault", [
+      {
+        ...events[0]!,
+        message: { ...message.message, id: "message-before-second-child-fault", content: "tampered" },
+      } as CommunityWsEvent,
+      events[1]!,
+    ])
+
+    capturedOnMessage!(frame)
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
+    expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
+      .toEqual({ digest: frame.operationDigest, completed: false })
+    expect(getMessageOverlay({ kind: "channel", id: "ch-1", serverId: "s1" })
+      .liveById.has("message-before-second-child-fault")).toBe(true)
+
+    setQueryData.mockRestore()
+    const invalidationsAfterFailure = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
+    capturedOnMessage!(conflicting)
+    expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(2)
+    expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
+      .toEqual({ digest: frame.operationDigest, completed: false })
+    expect(getMessageOverlay({ kind: "channel", id: "ch-1", serverId: "s1" })
+      .liveById.get("message-before-second-child-fault")?.content).toBe("hello")
+    expect(vi.mocked(capturedQueryClient.invalidateQueries))
+      .toHaveBeenCalledTimes(invalidationsAfterFailure)
+
+    capturedOnMessage!(frame)
+    expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(2)
+    expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
+      .toEqual({ digest: frame.operationDigest, completed: true })
+    expect(useCommunityWsStore.getState().seenMessageIds.size).toBe(1)
+    expect(getMessageOverlay({ kind: "channel", id: "ch-1", serverId: "s1" }).liveById.size)
+      .toBe(1)
+    expect(capturedQueryClient.getQueryData<{
+      categories: Array<{ channels: Array<{ id: string; unread: boolean }> }>
+    }>(communityKeys.server("s1"))?.categories[0]?.channels[0]?.unread).toBe(true)
+
+    const invalidationsAfterCompletion = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
+    capturedOnMessage!(frame)
+    expect(vi.mocked(capturedQueryClient.invalidateQueries))
+      .toHaveBeenCalledTimes(invalidationsAfterCompletion)
+  })
+
+  it("replays every legal committed-message child idempotently after a partial parent projection", async () => {
+    await mountHook({ viewerUserId: "viewer-1" })
+    useCommunityStore.getState().subscribe({ channelId: "other-channel" })
+    capturedQueryClient.setQueryData(communityKeys.server("s1"), {
+      id: "s1",
+      categories: [{
+        id: "category-1",
+        channels: [{ id: "forum_1", type: "forum", unread: false }],
+      }],
+    })
+    capturedQueryClient.setQueryData(
+      communityKeys.forumSidebarThreads("s1"),
+      forumSidebarFixture(["ch-1"]),
+    )
+    capturedQueryClient.setQueryData(communityKeys.servers(), {
+      servers: [{ id: "s1", mentions: 5 }],
+    })
+    capturedQueryClient.setQueryData(communityKeys.channelMessages("forum_1"), {
+      pages: [{
+        messages: [{
+          id: "opener-1",
+          thread: { id: "ch-1", name: "thread", messageCount: 1 },
+        }],
+        hasMore: false,
+      }],
+      pageParams: [null],
+    })
+    const parentScope = { kind: "channel" as const, id: "forum_1", serverId: "s1" }
+    useMessageStreamStore.getState().dispatch(parentScope, {
+      type: "wsMessage",
+      message: {
+        id: "opener-1",
+        seq: 1,
+        type: "chat",
+        authorId: "author-1",
+        authorName: "Alice",
+        content: "opener",
+        createdAt: "2026-08-20T00:00:00.000Z",
+        thread: { id: "ch-1", name: "thread", messageCount: 1 },
+      },
+    })
+    vi.spyOn(capturedQueryClient, "invalidateQueries")
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    const originalDispatch = useMessageStreamStore.getState().dispatch
+    useMessageStreamStore.setState({
+      dispatch: (scope, event) => {
+        originalDispatch(scope, event)
+        throw new Error("partial parent projection fault")
+      },
+    })
+    const frame = await batchFor("message-projection-fault", [
+      {
+        ...message,
+        serverId: "s1",
+        parentChannelId: "forum_1",
+        message: { ...message.message, id: "message-before-fault" },
+      },
+      {
+        type: "community:unread.bump",
+        userId: "viewer-1",
+        channelId: "ch-1",
+        serverId: "s1",
+        railChannelId: "forum_1",
+        isMention: true,
+      },
+      {
+        type: "community:mention.create",
+        userId: "viewer-1",
+        messageId: "message-before-fault",
+        channelId: "ch-1",
+        authorName: "Alice",
+      },
+      {
+        type: "community:channel.member_add",
+        userId: "viewer-1",
+        serverId: "s1",
+        channelId: "ch-1",
+      },
+      {
+        type: "community:channel.child_update",
+        parentChannelId: "forum_1",
+        channelId: "ch-1",
+        changes: { messageCount: 2, lastMessageAt: "2026-08-21T00:00:00.000Z" },
+      },
+    ])
+
+    try {
+      capturedOnMessage!(frame)
+      expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
+      expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
+        .toEqual({ digest: frame.operationDigest, completed: false })
+      // All preceding children are legal committed-message projections. Their
+      // writes remain visible when the final parent projection throws.
+      expect(useCommunityWsStore.getState().seenMessageIds.has("message-before-fault")).toBe(true)
+      expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(
+        communityKeys.forumSidebarThreads("s1"),
+      )?.threads).toMatchObject([{ id: "ch-1", unread: true }])
+      expect(capturedQueryClient.getQueryData<{
+        servers: Array<{ id: string; mentions: number }>
+      }>(communityKeys.servers())?.servers[0]?.mentions).toBe(5)
+      expect(capturedQueryClient.getQueryData<{
+        pages: Array<{ messages: Array<{ thread: { messageCount: number } }> }>
+      }>(communityKeys.channelMessages("forum_1"))?.pages[0]?.messages[0]?.thread.messageCount)
+        .toBe(2)
+      expect(getMessageOverlay(parentScope).liveById.get("opener-1")?.thread?.messageCount)
+        .toBe(2)
+    } finally {
+      useMessageStreamStore.setState({ dispatch: originalDispatch })
+    }
+
+    capturedOnMessage!(frame)
+    expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
+    expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
+      .toEqual({ digest: frame.operationDigest, completed: true })
+    expect(useCommunityWsStore.getState().seenMessageIds.size).toBe(1)
+    expect(capturedQueryClient.getQueryData<{
+      servers: Array<{ id: string; mentions: number }>
+    }>(communityKeys.servers())?.servers[0]?.mentions).toBe(5)
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(
+      communityKeys.forumSidebarThreads("s1"),
+    )?.threads).toMatchObject([{ id: "ch-1", unread: true }])
+    expect(capturedQueryClient.getQueryData<{
+      pages: Array<{ messages: Array<{ thread: { messageCount: number } }> }>
+    }>(communityKeys.channelMessages("forum_1"))?.pages[0]?.messages[0]?.thread.messageCount)
+      .toBe(2)
+    expect(getMessageOverlay(parentScope).liveById.get("opener-1")?.thread?.messageCount)
+      .toBe(2)
+
+    const invalidationsAfterSuccess = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
+    capturedOnMessage!(frame)
+    expect(vi.mocked(capturedQueryClient.invalidateQueries))
+      .toHaveBeenCalledTimes(invalidationsAfterSuccess)
+  })
+
+  it("reports a rejected authoritative reconciliation after a digest conflict", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    reconcileCommunityWsReconnect.mockRejectedValueOnce(new Error("reconcile unavailable"))
+    await mountHook({ viewerUserId: "viewer-1" })
+    const first = await batchFor("message-reconcile-reject", mentionEvents)
+    const conflicting = await batchFor("message-reconcile-reject", [
+      { ...message, message: { ...message.message, content: "different" } },
+    ])
+
+    capturedOnMessage!(first)
+    capturedOnMessage!(conflicting)
+
+    await vi.waitFor(() => {
+      expect(warn).toHaveBeenCalledWith(
+        "[ws] batch reconciliation failed",
+        expect.objectContaining({ reason: "digest-conflict" }),
+      )
+    })
+  })
+})

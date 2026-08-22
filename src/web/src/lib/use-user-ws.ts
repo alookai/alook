@@ -1,7 +1,9 @@
 "use client"
 import { useEffect, useRef, useCallback } from "react"
 import {
+  COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES,
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
+  isCommunityBrowserEventBatchCandidate,
   isCommunityEventCandidate,
   isCommunityEventType,
   type WsMessage,
@@ -295,9 +297,13 @@ export function useUserWs(
         reportDroppedFrame("pre-auth-frame", msg)
         return
       }
-      if (isCommunityEventCandidate(msg)) {
+      const isCommunityBatch = isCommunityBrowserEventBatchCandidate(msg)
+      if (isCommunityEventCandidate(msg) || isCommunityBatch) {
         const byteCount = new TextEncoder().encode(e.data).byteLength
-        if (byteCount > COMMUNITY_BROWSER_EVENT_MAX_BYTES) {
+        const maxBytes = isCommunityBatch
+          ? COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES
+          : COMMUNITY_BROWSER_EVENT_MAX_BYTES
+        if (byteCount > maxBytes) {
           reportDroppedFrame("oversized", msg, byteCount)
           return
         }

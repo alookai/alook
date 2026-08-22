@@ -1,11 +1,16 @@
 import {
+  COMMUNITY_DELIVERY_OPERATION_ID_HEADER,
   MESSAGE_DELIVERY_BODY_MAX_BYTES,
   WS_EVENTS,
-  encodeCommunityBrowserEvent,
+  deriveCommunityDeliveryOperationId,
+  isCommunityDeliveryOperationId,
   parseMessageDeliveryBatch,
+  prepareCommunityDeliveryEvents,
+  type CommunityDeliveryOperationId,
   type CommunityWsEvent,
 } from "@alook/shared"
 import { readBoundedJsonRequest } from "../community-browser-event-ingress"
+import { isExactCommunityDeliveryReceipt } from "../community-delivery-receipt"
 import { createInternalCommunityUserBundleRequest } from "../internal-user-broadcast"
 import type { RouterContext } from "../router-context"
 import { settleInBatches } from "../settle-in-batches"
@@ -15,10 +20,6 @@ const targetBatchSize = 40
 type TargetResult =
   | { ok: true }
   | { ok: false; kind: "throw" | "non-ok" | "invalid-json" | "invalid-receipt" }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
 
 function addEvent(
   bundles: Map<string, CommunityWsEvent[]>,
@@ -34,17 +35,19 @@ async function deliverTarget(
   env: Env,
   userId: string,
   events: CommunityWsEvent[],
+  operationId: CommunityDeliveryOperationId,
 ): Promise<TargetResult> {
-  const envelopes: unknown[] = []
-  for (const event of events) {
-    const encoded = encodeCommunityBrowserEvent(event)
-    if (!encoded.ok) return { ok: false, kind: "invalid-receipt" }
-    envelopes.push(encoded.event)
-  }
+  const prepared = await prepareCommunityDeliveryEvents(events)
+  if (!prepared.ok) return { ok: false, kind: "invalid-receipt" }
   try {
     const id = env.WS_DO.idFromName(`user:${userId}`)
     const response = await env.WS_DO.get(id).fetch(
-      createInternalCommunityUserBundleRequest(userId, envelopes),
+      createInternalCommunityUserBundleRequest(
+        userId,
+        operationId,
+        prepared.prepared.digest,
+        prepared.prepared.envelopes,
+      ),
     )
     if (!response.ok) return { ok: false, kind: "non-ok" }
     let receipt: unknown
@@ -53,11 +56,11 @@ async function deliverTarget(
     } catch {
       return { ok: false, kind: "invalid-json" }
     }
-    if (
-      !isRecord(receipt)
-      || Object.keys(receipt).length !== 1
-      || receipt.accepted !== events.length
-    ) {
+    if (!isExactCommunityDeliveryReceipt(receipt, {
+      operationId,
+      operationDigest: prepared.prepared.digest,
+      eventCount: events.length,
+    })) {
       return { ok: false, kind: "invalid-receipt" }
     }
     return { ok: true }
@@ -81,6 +84,20 @@ export async function handleMessageDelivery(
     return Response.json({ error: "invalid message delivery", reason: parsed.reason }, { status: 400 })
   }
   const batch = parsed.batch
+  let derivedOperationId: CommunityDeliveryOperationId
+  try {
+    derivedOperationId = await deriveCommunityDeliveryOperationId(batch.messageId)
+  } catch {
+    return Response.json({ error: "invalid message delivery", reason: "invalid-message-id" }, { status: 400 })
+  }
+  const headerOperationId = request.headers.get(COMMUNITY_DELIVERY_OPERATION_ID_HEADER)?.trim()
+  if (
+    !isCommunityDeliveryOperationId(headerOperationId)
+    || headerOperationId !== derivedOperationId
+  ) {
+    return Response.json({ error: "invalid message delivery", reason: "operation-id-mismatch" }, { status: 400 })
+  }
+  const operationId = headerOperationId
   const bundles = new Map<string, CommunityWsEvent[]>()
 
   for (const userId of batch.contentUserIds) addEvent(bundles, userId, batch.messageEvent)
@@ -133,7 +150,7 @@ export async function handleMessageDelivery(
   const startedAt = Date.now()
   const results = await settleInBatches(
     entries,
-    ([userId, events]) => deliverTarget(env, userId, events),
+    ([userId, events]) => deliverTarget(env, userId, events, operationId),
     targetBatchSize,
   )
   const failedUserIds: string[] = []
@@ -151,6 +168,7 @@ export async function handleMessageDelivery(
   log.info("message_delivery_complete", {
     traceId,
     messageId: batch.messageId,
+    operationId,
     targetCount: entries.length,
     failedCount: failedUserIds.length,
     failureCounts,
