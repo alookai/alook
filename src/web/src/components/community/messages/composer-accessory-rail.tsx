@@ -166,24 +166,35 @@ function WsStatusControl({
   const label = failed
     ? "WebSocket connection failed. Retry now"
     : "WebSocket reconnecting"
+  const triggerClassName = cn(
+    "pointer-events-auto relative grid size-11 place-items-center rounded-full outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 sm:size-10",
+    failed
+      ? "text-destructive hover:bg-destructive/10"
+      : "cursor-default text-warning",
+  )
   return (
     <Tooltip>
       <TooltipTrigger
-        render={
+        render={failed ? (
           <button
             type="button"
-            data-testid={failed ? tid.wsRetry : tid.wsStatus}
+            data-testid={tid.wsRetry}
             data-ws-status={status}
             aria-label={label}
-            onClick={failed ? onRetry : undefined}
-            className={cn(
-              "pointer-events-auto relative grid size-11 place-items-center rounded-full outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 sm:size-10",
-              failed
-                ? "text-destructive hover:bg-destructive/10"
-                : "cursor-default text-warning",
-            )}
+            onClick={onRetry}
+            className={triggerClassName}
           />
-        }
+        ) : (
+          <span
+            role="status"
+            aria-live="polite"
+            tabIndex={0}
+            data-testid={tid.wsStatus}
+            data-ws-status={status}
+            aria-label={label}
+            className={triggerClassName}
+          />
+        )}
       >
         {!failed && (
           <span className="absolute size-8 rounded-full bg-warning/10 motion-safe:animate-pulse" />

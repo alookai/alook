@@ -76,8 +76,11 @@ describe("ComposerAccessoryRail", () => {
     expect(status.props).toMatchObject({
       "data-ws-status": "reconnecting",
       "aria-label": "WebSocket reconnecting",
-      type: "button",
+      "aria-live": "polite",
+      role: "status",
+      tabIndex: 0,
     })
+    expect(status.type).toBe("span")
     expect(status.props.className).toContain("text-warning")
     expect(status.props.className).toContain("focus-visible:ring-3")
     expect(renderer.root.findByType("tooltip-content").children).toContain("Reconnecting…")
@@ -90,6 +93,7 @@ describe("ComposerAccessoryRail", () => {
     useCommunityWsStore.getState().setConnectionStatus("failed")
     const renderer = render({ scrollCount: 0, typingNames: [] })
     const retry = renderer.root.findByProps({ "data-testid": tid.wsRetry })
+    expect(retry.type).toBe("button")
     expect(retry.props["aria-label"]).toBe("WebSocket connection failed. Retry now")
     expect(retry.props.className).toContain("text-destructive")
     expect(retry.props.className).toContain("sm:size-10")
