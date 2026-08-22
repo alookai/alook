@@ -411,6 +411,29 @@ describe("useUserWs", () => {
     expect(onConnectionStateChange).toHaveBeenLastCalledWith("suspended")
   })
 
+  it("publishes suspended without fetching during a hidden cold start and resumes once visible", async () => {
+    setupTokenFetch()
+    mockDocument.visibilityState = "hidden"
+    const onConnectionStateChange = vi.fn()
+
+    await mountHook(vi.fn(), {
+      onConnectionStateChange,
+      requestDaemonStatusOnAuth: false,
+    })
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("suspended")
+    expect(mockFetch).not.toHaveBeenCalled()
+
+    mockDocument.dispatch("visibilitychange")
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("suspended")
+    expect(mockFetch).not.toHaveBeenCalled()
+
+    mockDocument.visibilityState = "visible"
+    mockDocument.dispatch("visibilitychange")
+    await flushPromises()
+    expect(mockFetch).toHaveBeenCalledOnce()
+    expect(MockWebSocket.instances).toHaveLength(1)
+  })
+
   it("manual reconnect retires the current socket and starts exactly one fresh generation", async () => {
     setupTokenFetch()
     const onAuthenticated = vi.fn()
@@ -470,6 +493,44 @@ describe("useUserWs", () => {
     await flushPromises()
     expect(MockWebSocket.instances).toHaveLength(1)
     expect(MockWebSocket.instances[0]?.url).toContain("latest-user")
+  })
+
+  it("manual reconnect clears a scheduled automatic retry before opening one replacement", async () => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateClose()
+
+    latestHookResult!.reconnectNow()
+    await flushPromises()
+    expect(MockWebSocket.instances).toHaveLength(2)
+
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it("manual reconnect while hidden invalidates the generation and remains suspended", async () => {
+    setupTokenFetch()
+    const onConnectionStateChange = vi.fn()
+    await mountHook(vi.fn(), {
+      onConnectionStateChange,
+      requestDaemonStatusOnAuth: false,
+    })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+    const fetchCount = mockFetch.mock.calls.length
+
+    mockDocument.visibilityState = "hidden"
+    onConnectionStateChange.mockClear()
+    latestHookResult!.reconnectNow()
+
+    expect(first.closed).toBe(true)
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("suspended")
+    expect(mockFetch).toHaveBeenCalledTimes(fetchCount)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(MockWebSocket.instances).toEqual([first])
   })
 
   it("passes an AbortSignal to the token fetch and aborts it at the hard timeout", async () => {
