@@ -147,36 +147,50 @@ describe("useCommunityWsStore", () => {
     expect(after.has("m0")).toBe(false)
   })
 
-  it("atomically records delivery operation digests and rejects conflicting reuse", () => {
+  it("locks a delivery digest before completion and keeps same-digest failures retryable", () => {
     const store = useCommunityWsStore.getState()
-    expect(store.checkDeliveryOperation("operation-1", "a".repeat(64))).toBe("new")
-    expect(store.recordDeliveryOperation("operation-1", "a".repeat(64))).toBe("recorded")
-    const recorded = useCommunityWsStore.getState().seenDeliveryOperations
-    expect(useCommunityWsStore.getState().checkDeliveryOperation("operation-1", "a".repeat(64)))
-      .toBe("duplicate")
-    expect(useCommunityWsStore.getState().checkDeliveryOperation("operation-1", "b".repeat(64)))
+    expect(store.observeDeliveryOperation("operation-1", "a".repeat(64))).toBe("new")
+    const observed = useCommunityWsStore.getState().seenDeliveryOperations
+    expect(observed.get("operation-1")).toEqual({
+      digest: "a".repeat(64),
+      completed: false,
+    })
+    expect(useCommunityWsStore.getState().observeDeliveryOperation("operation-1", "a".repeat(64)))
+      .toBe("retryable")
+    expect(useCommunityWsStore.getState().observeDeliveryOperation("operation-1", "b".repeat(64)))
       .toBe("conflict")
-    expect(useCommunityWsStore.getState().seenDeliveryOperations).toBe(recorded)
-    expect(useCommunityWsStore.getState().recordDeliveryOperation("operation-1", "a".repeat(64)))
-      .toBe("duplicate")
-    expect(useCommunityWsStore.getState().seenDeliveryOperations).toBe(recorded)
-    expect(useCommunityWsStore.getState().recordDeliveryOperation("operation-1", "b".repeat(64)))
-      .toBe("conflict")
+    expect(useCommunityWsStore.getState().seenDeliveryOperations).toBe(observed)
+    expect(useCommunityWsStore.getState().completeDeliveryOperation("operation-1", "b".repeat(64)))
+      .toBe(false)
+    expect(useCommunityWsStore.getState().completeDeliveryOperation("operation-1", "a".repeat(64)))
+      .toBe(true)
     expect(useCommunityWsStore.getState().seenDeliveryOperations.get("operation-1"))
-      .toBe("a".repeat(64))
+      .toEqual({ digest: "a".repeat(64), completed: true })
+    expect(useCommunityWsStore.getState().observeDeliveryOperation("operation-1", "a".repeat(64)))
+      .toBe("duplicate")
+    expect(useCommunityWsStore.getState().observeDeliveryOperation("operation-1", "b".repeat(64)))
+      .toBe("conflict")
   })
 
-  it("trims delivery operations from 501 to the newest 400 and retains them across reconnect", () => {
+  it("trims retryable/completed delivery operations together and retains them across reconnect", () => {
     for (let index = 0; index <= SEEN_DELIVERY_OPERATION_MAX; index += 1) {
-      useCommunityWsStore.getState().recordDeliveryOperation(
+      useCommunityWsStore.getState().observeDeliveryOperation(
         `operation-${index}`,
         index.toString(16).padStart(64, "0"),
       )
+      if (index % 2 === 0) {
+        useCommunityWsStore.getState().completeDeliveryOperation(
+          `operation-${index}`,
+          index.toString(16).padStart(64, "0"),
+        )
+      }
     }
     const operations = useCommunityWsStore.getState().seenDeliveryOperations
     expect(operations.size).toBe(SEEN_DELIVERY_OPERATION_TRIM_TO)
     expect(operations.has("operation-0")).toBe(false)
     expect(operations.has(`operation-${SEEN_DELIVERY_OPERATION_MAX}`)).toBe(true)
+    expect(operations.get(`operation-${SEEN_DELIVERY_OPERATION_MAX}`)?.completed).toBe(true)
+    expect(operations.get(`operation-${SEEN_DELIVERY_OPERATION_MAX - 1}`)?.completed).toBe(false)
 
     useCommunityWsStore.getState().markAccessDisconnected()
     useCommunityWsStore.getState().markAccessConnected()

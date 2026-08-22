@@ -204,7 +204,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
           trackCommunityWsFrameDropped(metadata)
           return
         }
-        const operationStatus = wsStore.checkDeliveryOperation(
+        const operationStatus = wsStore.observeDeliveryOperation(
           decoded.batch.operationId,
           decoded.batch.operationDigest,
         )
@@ -231,13 +231,16 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
           reconcileAfterBatchFailure("projection-failed")
           return
         }
-        // Commit dedup only after every child projected successfully. Browser
-        // projections are not rollback-capable: a later child can throw after
-        // an earlier child already updated a Zustand/query-cache overlay.
-        // Leaving a failed operation unseen makes the identical bundle
-        // retryable, so idempotent child projections can finish converging
-        // even when the authoritative reconnect reconciliation is unavailable.
-        wsStore.recordDeliveryOperation(
+        // Complete dedup only after every child projected successfully. The
+        // first valid frame already locked operationId -> digest above, so a
+        // conflicting digest fails closed even while this operation remains
+        // observed but incomplete/retryable after a projection failure.
+        // Browser projections are not rollback-capable: a later child can
+        // throw after an earlier child updated a Zustand/query-cache overlay.
+        // Keeping the failed operation locked but incomplete lets the
+        // identical bundle retry, so idempotent child projections can finish
+        // converging even when authoritative reconnect reconciliation fails.
+        wsStore.completeDeliveryOperation(
           decoded.batch.operationId,
           decoded.batch.operationDigest,
         )

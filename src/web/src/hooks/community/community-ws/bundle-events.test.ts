@@ -107,7 +107,7 @@ describe("useCommunityWs — operation bundles", () => {
     expect(vi.mocked(capturedQueryClient.invalidateQueries)).toHaveBeenCalledTimes(callsAfterFirst)
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
-      .toBe(frame.operationDigest)
+      .toEqual({ digest: frame.operationDigest, completed: true })
   })
 
   it("treats repair-then-late-bundle mention state as authoritative invalidation, never arithmetic", async () => {
@@ -197,11 +197,11 @@ describe("useCommunityWs — operation bundles", () => {
     expect(vi.mocked(capturedQueryClient.invalidateQueries))
       .toHaveBeenCalledTimes(invalidationsBeforeConflict)
     expect(useCommunityWsStore.getState().seenDeliveryOperations.get(first.operationId))
-      .toBe(first.operationDigest)
+      .toEqual({ digest: first.operationDigest, completed: true })
     expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
   })
 
-  it("leaves a second-child projection failure unseen and replayable", async () => {
+  it("locks the digest across a second-child fault, rejects conflict, then completes replay", async () => {
     await mountHook({ viewerUserId: "viewer-1" })
     useCommunityStore.getState().subscribe({ channelId: "ch-1" })
     capturedQueryClient.setQueryData(communityKeys.server("s1"), {
@@ -213,7 +213,8 @@ describe("useCommunityWs — operation bundles", () => {
     })
     const setQueryData = vi.spyOn(capturedQueryClient, "setQueryData")
       .mockImplementationOnce(() => { throw new Error("second-child fault") })
-    const frame = await batchFor("message-second-child-fault", [
+    vi.spyOn(capturedQueryClient, "invalidateQueries")
+    const events: CommunityWsEvent[] = [
       {
         ...message,
         serverId: "s1",
@@ -228,27 +229,50 @@ describe("useCommunityWs — operation bundles", () => {
         railChannelId: "text-parent",
         isMention: false,
       },
+    ]
+    const frame = await batchFor("message-second-child-fault", events)
+    const conflicting = await batchFor("message-second-child-fault", [
+      {
+        ...events[0]!,
+        message: { ...message.message, id: "message-before-second-child-fault", content: "tampered" },
+      } as CommunityWsEvent,
+      events[1]!,
     ])
 
     capturedOnMessage!(frame)
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
-    expect(useCommunityWsStore.getState().seenDeliveryOperations.has(frame.operationId))
-      .toBe(false)
+    expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
+      .toEqual({ digest: frame.operationDigest, completed: false })
     expect(getMessageOverlay({ kind: "channel", id: "ch-1", serverId: "s1" })
       .liveById.has("message-before-second-child-fault")).toBe(true)
 
     setQueryData.mockRestore()
-    capturedOnMessage!(frame)
-    expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
+    const invalidationsAfterFailure = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
+    capturedOnMessage!(conflicting)
+    expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(2)
     expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
-      .toBe(frame.operationDigest)
+      .toEqual({ digest: frame.operationDigest, completed: false })
+    expect(getMessageOverlay({ kind: "channel", id: "ch-1", serverId: "s1" })
+      .liveById.get("message-before-second-child-fault")?.content).toBe("hello")
+    expect(vi.mocked(capturedQueryClient.invalidateQueries))
+      .toHaveBeenCalledTimes(invalidationsAfterFailure)
+
+    capturedOnMessage!(frame)
+    expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(2)
+    expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
+      .toEqual({ digest: frame.operationDigest, completed: true })
     expect(useCommunityWsStore.getState().seenMessageIds.size).toBe(1)
     expect(getMessageOverlay({ kind: "channel", id: "ch-1", serverId: "s1" }).liveById.size)
       .toBe(1)
     expect(capturedQueryClient.getQueryData<{
       categories: Array<{ channels: Array<{ id: string; unread: boolean }> }>
     }>(communityKeys.server("s1"))?.categories[0]?.channels[0]?.unread).toBe(true)
+
+    const invalidationsAfterCompletion = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
+    capturedOnMessage!(frame)
+    expect(vi.mocked(capturedQueryClient.invalidateQueries))
+      .toHaveBeenCalledTimes(invalidationsAfterCompletion)
   })
 
   it("replays every legal committed-message child idempotently after a partial parent projection", async () => {
@@ -340,8 +364,8 @@ describe("useCommunityWs — operation bundles", () => {
     try {
       capturedOnMessage!(frame)
       expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
-      expect(useCommunityWsStore.getState().seenDeliveryOperations.has(frame.operationId))
-        .toBe(false)
+      expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
+        .toEqual({ digest: frame.operationDigest, completed: false })
       // All preceding children are legal committed-message projections. Their
       // writes remain visible when the final parent projection throws.
       expect(useCommunityWsStore.getState().seenMessageIds.has("message-before-fault")).toBe(true)
@@ -364,7 +388,7 @@ describe("useCommunityWs — operation bundles", () => {
     capturedOnMessage!(frame)
     expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
     expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
-      .toBe(frame.operationDigest)
+      .toEqual({ digest: frame.operationDigest, completed: true })
     expect(useCommunityWsStore.getState().seenMessageIds.size).toBe(1)
     expect(capturedQueryClient.getQueryData<{
       servers: Array<{ id: string; mentions: number }>

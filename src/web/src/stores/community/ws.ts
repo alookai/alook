@@ -29,8 +29,11 @@ export const SEEN_MESSAGE_TRIM_TO = 400
 export const SEEN_DELIVERY_OPERATION_MAX = 500
 export const SEEN_DELIVERY_OPERATION_TRIM_TO = 400
 
-type DeliveryOperationCheckResult = "new" | "duplicate" | "conflict"
-type DeliveryOperationRecordResult = "recorded" | "duplicate" | "conflict"
+type DeliveryOperationObservationResult = "new" | "retryable" | "duplicate" | "conflict"
+type DeliveryOperationState = {
+  digest: string
+  completed: boolean
+}
 
 /**
  * Bounded ring for live bot-audit events, PER bot. The modal reads from here
@@ -65,7 +68,7 @@ export type CommunityWsStoreState = {
    */
   onlineUserIds: Set<string>
   seenMessageIds: Set<string>
-  seenDeliveryOperations: Map<string, string>
+  seenDeliveryOperations: Map<string, DeliveryOperationState>
   /**
    * Live status deltas learned via `community:status.update` after the
    * initial member/friend fetch — see plans/profile-card.md's "overlay
@@ -104,8 +107,11 @@ export type CommunityWsStoreState = {
   resetPresence: () => void
   hasSeenMessage: (id: string) => boolean
   markSeenMessage: (id: string) => void
-  checkDeliveryOperation: (operationId: string, operationDigest: string) => DeliveryOperationCheckResult
-  recordDeliveryOperation: (operationId: string, operationDigest: string) => DeliveryOperationRecordResult
+  observeDeliveryOperation: (
+    operationId: string,
+    operationDigest: string,
+  ) => DeliveryOperationObservationResult
+  completeDeliveryOperation: (operationId: string, operationDigest: string) => boolean
   setUserStatus: (userId: string, emoji: string | null, text: string | null) => void
   resetUserStatuses: () => void
   markAccessDisconnected: () => void
@@ -179,30 +185,36 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => (
     set({ seenMessageIds: next })
   },
 
-  checkDeliveryOperation: (operationId, operationDigest) => {
-    const recordedDigest = get().seenDeliveryOperations.get(operationId)
-    if (recordedDigest === undefined) return "new"
-    return recordedDigest === operationDigest ? "duplicate" : "conflict"
-  },
-
-  recordDeliveryOperation: (operationId, operationDigest) => {
+  observeDeliveryOperation: (operationId, operationDigest) => {
     const current = get().seenDeliveryOperations
-    const recordedDigest = current.get(operationId)
-    if (recordedDigest !== undefined) {
-      return recordedDigest === operationDigest ? "duplicate" : "conflict"
+    const observed = current.get(operationId)
+    if (observed !== undefined) {
+      if (observed.digest !== operationDigest) return "conflict"
+      return observed.completed ? "duplicate" : "retryable"
     }
     const next = new Map(current)
-    next.set(operationId, operationDigest)
+    next.set(operationId, { digest: operationDigest, completed: false })
     if (next.size > SEEN_DELIVERY_OPERATION_MAX) {
       set({
         seenDeliveryOperations: new Map(
           [...next].slice(-SEEN_DELIVERY_OPERATION_TRIM_TO),
         ),
       })
-      return "recorded"
+      return "new"
     }
     set({ seenDeliveryOperations: next })
-    return "recorded"
+    return "new"
+  },
+
+  completeDeliveryOperation: (operationId, operationDigest) => {
+    const current = get().seenDeliveryOperations
+    const observed = current.get(operationId)
+    if (!observed || observed.digest !== operationDigest) return false
+    if (observed.completed) return true
+    const next = new Map(current)
+    next.set(operationId, { ...observed, completed: true })
+    set({ seenDeliveryOperations: next })
+    return true
   },
 
   setUserStatus: (userId, emoji, text) => {
