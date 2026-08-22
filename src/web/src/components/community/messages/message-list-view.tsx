@@ -1,11 +1,8 @@
 import type { ReactNode } from "react"
-import { ArrowDown, ImageIcon, X } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { NumberTicker } from "@/components/ui/number-ticker"
 import { ChannelIcon } from "../channels/channel-icon"
+import { ComposerAccessoryRail } from "./composer-accessory-rail"
 import { MessageShareDialog } from "./message-share-dialog"
-import { TypingIndicator } from "./typing-indicator"
 import type { MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
 
@@ -16,30 +13,16 @@ export function renderMessageListView(
 ) {
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <ScrollDownButton
-        count={controller.isLoading ? 0 : controller.pillCount}
-        mode={controller.pillMode}
-        onClick={controller.pillOnClick}
+      <ComposerAccessoryRail
+        typingNames={controller.isLoading ? [] : props.typingUsers ?? []}
+        scrollCount={controller.isLoading ? 0 : controller.pillCount}
+        scrollMode={controller.pillMode}
+        onScroll={controller.pillOnClick}
+        selectMode={controller.selectMode}
+        selectedCount={controller.selectedIds.size}
+        onCancelSelection={controller.exitSelect}
+        onShareSelection={() => controller.setShareOpen(true)}
       />
-      {controller.selectMode && (
-        <div className="absolute inset-x-0 bottom-3 z-20 flex justify-center px-4">
-          <div className="flex items-center gap-2 rounded-full border border-border/60 bg-card px-2 py-1.5 shadow-(--e2)">
-            <span className="px-2 text-sm text-muted-foreground">
-              {controller.selectedIds.size} selected
-            </span>
-            <Button size="sm" variant="ghost" onClick={controller.exitSelect}>
-              <X /> Cancel
-            </Button>
-            <Button
-              size="sm"
-              disabled={controller.selectedIds.size === 0}
-              onClick={() => controller.setShareOpen(true)}
-            >
-              <ImageIcon /> Share {controller.selectedIds.size} as image
-            </Button>
-          </div>
-        </div>
-      )}
       {controller.shareOpen && controller.selectedMessages.length > 0 && (
         <MessageShareDialog
           m={controller.selectedMessages}
@@ -47,7 +30,6 @@ export function renderMessageListView(
           onClose={controller.closeShare}
         />
       )}
-      <TypingIndicator names={controller.isLoading ? [] : props.typingUsers ?? []} />
       <div
         ref={controller.scrollRef}
         className="flex-1 overflow-x-clip overflow-y-auto thin-scrollbar"
@@ -94,40 +76,6 @@ export function renderMessageListView(
           )}
         </div>
       </div>
-    </div>
-  )
-}
-
-function ScrollDownButton({
-  count,
-  mode = "scroll",
-  onClick,
-}: {
-  count: number
-  mode?: "scroll" | "jump"
-  onClick: () => void
-}) {
-  const visible = count > 0
-  const aria = mode === "jump"
-    ? `Jump to present, ${count} unread below`
-    : `Scroll to bottom, ${count} more below`
-  return (
-    <div
-      className={`pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 transition-all duration-200 ease-out ${
-        visible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
-      }`}
-    >
-      <button
-        type="button"
-        onClick={onClick}
-        aria-label={aria}
-        className={`pointer-events-auto flex h-8 items-center gap-1.5 rounded-full border border-border bg-background/90 pl-2 pr-3 text-xs font-medium text-foreground shadow-(--e1) backdrop-blur-sm transition-colors hover:bg-accent ${
-          visible ? "" : "pointer-events-none"
-        }`}
-      >
-        <ArrowDown className="size-3.5 text-muted-foreground" />
-        <NumberTicker value={count} />
-      </button>
     </div>
   )
 }

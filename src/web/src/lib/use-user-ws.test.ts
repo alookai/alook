@@ -81,6 +81,7 @@ let effectMemo: Map<string, {
   cleanup?: () => void
 }> = new Map()
 let effectCounter = 0
+let latestHookResult: ReturnType<typeof import("./use-user-ws")["useUserWs"]> | null = null
 
 function depsEqual(left: unknown[], right: unknown[]) {
   return left.length === right.length && left.every((value, index) => Object.is(value, right[index]))
@@ -155,6 +156,7 @@ function resetMockState() {
   callbackCounter = 0
   effectMemo = new Map()
   effectCounter = 0
+  latestHookResult = null
   mockDocument.visibilityState = "visible"
   mockDocument.reset()
   mockWindow.reset()
@@ -176,7 +178,7 @@ describe("useUserWs", () => {
   ) {
     // Re-import to get fresh module with fresh mocks
     const mod = await import("./use-user-ws")
-    mod.useUserWs(onMessage, options)
+    latestHookResult = mod.useUserWs(onMessage, options)
     // Wait for async connect to complete
     await flushPromises()
     return mod
@@ -388,6 +390,147 @@ describe("useUserWs", () => {
 
     // A new connection should have been attempted
     expect(MockWebSocket.instances.length).toBeGreaterThan(instancesBefore)
+  })
+
+  it("publishes reconnecting, authenticated, and suspended lifecycle phases", async () => {
+    setupTokenFetch()
+    const onConnectionStateChange = vi.fn()
+    await mountHook(vi.fn(), {
+      onConnectionStateChange,
+      requestDaemonStatusOnAuth: false,
+    })
+    const ws = MockWebSocket.instances[0]!
+
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("reconnecting")
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("authenticated")
+
+    mockDocument.visibilityState = "hidden"
+    ws.simulateClose()
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("suspended")
+  })
+
+  it("publishes suspended without fetching during a hidden cold start and resumes once visible", async () => {
+    setupTokenFetch()
+    mockDocument.visibilityState = "hidden"
+    const onConnectionStateChange = vi.fn()
+
+    await mountHook(vi.fn(), {
+      onConnectionStateChange,
+      requestDaemonStatusOnAuth: false,
+    })
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("suspended")
+    expect(mockFetch).not.toHaveBeenCalled()
+
+    mockDocument.dispatch("visibilitychange")
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("suspended")
+    expect(mockFetch).not.toHaveBeenCalled()
+
+    mockDocument.visibilityState = "visible"
+    mockDocument.dispatch("visibilitychange")
+    await flushPromises()
+    expect(mockFetch).toHaveBeenCalledOnce()
+    expect(MockWebSocket.instances).toHaveLength(1)
+  })
+
+  it("manual reconnect retires the current socket and starts exactly one fresh generation", async () => {
+    setupTokenFetch()
+    const onAuthenticated = vi.fn()
+    await mountHook(vi.fn(), {
+      onAuthenticated,
+      requestDaemonStatusOnAuth: false,
+    })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+    expect(onAuthenticated).toHaveBeenCalledOnce()
+
+    latestHookResult!.reconnectNow()
+    await flushPromises()
+
+    expect(first.closed).toBe(true)
+    expect(MockWebSocket.instances).toHaveLength(2)
+    const replacement = MockWebSocket.instances[1]!
+    first.simulateMessage({ type: "auth.ok" })
+    expect(onAuthenticated).toHaveBeenCalledOnce()
+
+    replacement.simulateOpen()
+    replacement.simulateMessage({ type: "auth.ok" })
+    expect(onAuthenticated).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it("manual reconnect invalidates an older pending token before it can create a socket", async () => {
+    const firstTokenResponse = deferred<{
+      ok: boolean
+      json: () => Promise<{ userId: string; token: string }>
+    }>()
+    const secondTokenResponse = deferred<{
+      ok: boolean
+      json: () => Promise<{ userId: string; token: string }>
+    }>()
+    mockFetch
+      .mockReturnValueOnce(firstTokenResponse.promise)
+      .mockReturnValueOnce(secondTokenResponse.promise)
+
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    latestHookResult!.reconnectNow()
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+
+    firstTokenResponse.resolve({
+      ok: true,
+      json: () => Promise.resolve({ userId: "stale-user", token: "stale-token" }),
+    })
+    await flushPromises()
+    expect(MockWebSocket.instances).toHaveLength(0)
+
+    secondTokenResponse.resolve({
+      ok: true,
+      json: () => Promise.resolve({ userId: "latest-user", token: "latest-token" }),
+    })
+    await flushPromises()
+    expect(MockWebSocket.instances).toHaveLength(1)
+    expect(MockWebSocket.instances[0]?.url).toContain("latest-user")
+  })
+
+  it("manual reconnect clears a scheduled automatic retry before opening one replacement", async () => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateClose()
+
+    latestHookResult!.reconnectNow()
+    await flushPromises()
+    expect(MockWebSocket.instances).toHaveLength(2)
+
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it("manual reconnect while hidden invalidates the generation and remains suspended", async () => {
+    setupTokenFetch()
+    const onConnectionStateChange = vi.fn()
+    await mountHook(vi.fn(), {
+      onConnectionStateChange,
+      requestDaemonStatusOnAuth: false,
+    })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+    const fetchCount = mockFetch.mock.calls.length
+
+    mockDocument.visibilityState = "hidden"
+    onConnectionStateChange.mockClear()
+    latestHookResult!.reconnectNow()
+
+    expect(first.closed).toBe(true)
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("suspended")
+    expect(mockFetch).toHaveBeenCalledTimes(fetchCount)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(MockWebSocket.instances).toEqual([first])
   })
 
   it("passes an AbortSignal to the token fetch and aborts it at the hard timeout", async () => {

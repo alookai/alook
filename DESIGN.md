@@ -69,6 +69,7 @@ Inspired by vintage Macintosh product photography — a warm cream object on a d
 | `border` / `input` / `ring` | Dividers, field outlines, and the focus ring. |
 | `destructive` | Errors and irreversible actions only. Warm red — never repurpose it for emphasis. |
 | `status-online` / `status-offline` | Presence dots only (green / red). Reserved — do not use as UI accents. |
+| `warning` | Recoverable degraded states that need attention without implying failure. Muted amber. |
 | `sidebar-*` | Sidebar-scoped variants of the above, so the rail can read distinctly from content. |
 
 Rules:

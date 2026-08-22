@@ -3,12 +3,14 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  capturedConnectionStateChange,
   capturedOnMessage,
   capturedOnReconnect,
   capturedQueryClient,
   capturedUseUserWsOptions,
   cleanupCommunityWsHarness,
   flushEffects,
+  getStableReconnectNow,
   getStableSend,
   mountHook,
   resetCommunityWsHarness,
@@ -16,6 +18,10 @@ import {
   setStableSend,
   useUserWsCallCount,
 } from "./community-ws/test-harness"
+import {
+  COMMUNITY_WS_FAILED_AFTER_MS,
+  COMMUNITY_WS_RECONNECTING_GRACE_MS,
+} from "./community-ws/connection-status"
 
 beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
@@ -75,6 +81,49 @@ describe("useCommunityWs — public helper contracts", () => {
       type: "community:typing.start",
       channelId: "ch_typing_contract",
     })
+  })
+})
+
+describe("useCommunityWs — connection status publication", () => {
+  it("publishes the grace, failed, authenticated, and manual retry states from the root", async () => {
+    vi.useFakeTimers()
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    await mountHook()
+    flushEffects()
+
+    capturedConnectionStateChange!("reconnecting")
+    expect(useCommunityWsStore.getState().connectionStatus).toBe("connected")
+    vi.advanceTimersByTime(COMMUNITY_WS_RECONNECTING_GRACE_MS)
+    expect(useCommunityWsStore.getState().connectionStatus).toBe("reconnecting")
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS - COMMUNITY_WS_RECONNECTING_GRACE_MS)
+    expect(useCommunityWsStore.getState().connectionStatus).toBe("failed")
+
+    useCommunityWsStore.getState().reconnectNow()
+    expect(useCommunityWsStore.getState().connectionStatus).toBe("reconnecting")
+    expect(getStableReconnectNow()).toHaveBeenCalledOnce()
+
+    capturedConnectionStateChange!("authenticated")
+    expect(useCommunityWsStore.getState().connectionStatus).toBe("connected")
+
+    capturedConnectionStateChange!("reconnecting")
+    expect(useCommunityWsStore.getState().connectionStatus).toBe("reconnecting")
+  })
+
+  it("suspends threshold timers and re-arms on the next visible reconnect", async () => {
+    vi.useFakeTimers()
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    await mountHook()
+    flushEffects()
+
+    capturedConnectionStateChange!("reconnecting")
+    vi.advanceTimersByTime(COMMUNITY_WS_RECONNECTING_GRACE_MS)
+    capturedConnectionStateChange!("suspended")
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS)
+    expect(useCommunityWsStore.getState().connectionStatus).toBe("connected")
+
+    capturedConnectionStateChange!("reconnecting")
+    vi.advanceTimersByTime(COMMUNITY_WS_RECONNECTING_GRACE_MS)
+    expect(useCommunityWsStore.getState().connectionStatus).toBe("reconnecting")
   })
 })
 
