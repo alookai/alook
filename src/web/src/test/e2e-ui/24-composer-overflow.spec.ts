@@ -210,6 +210,7 @@ test.describe.serial("community composer text containment", () => {
   let longMemberId: string
   let longMemberDiscriminator: string
   let secondaryServerName: string
+  let secondaryChannelSearchToken: string
   let secondaryChannelName: string
   let secondaryChannelId: string
 
@@ -226,7 +227,9 @@ test.describe.serial("community composer text containment", () => {
     longMemberDiscriminator = longMember.discriminator
 
     secondaryServerName = `secondary-${"s".repeat(90)}`
-    secondaryChannelName = `channel-${"c".repeat(92)}`
+    secondaryChannelSearchToken = `overflow-ref-${Date.now()}`
+    await seedChannel("alice", serverId, `${secondaryChannelSearchToken}-anchor`)
+    secondaryChannelName = `${secondaryChannelSearchToken}-${"c".repeat(72)}`
     const secondaryServerId = await seedServer("alice", secondaryServerName)
     secondaryChannelId = await seedChannel(
       "alice",
@@ -342,7 +345,7 @@ test.describe.serial("community composer text containment", () => {
     await ignoreNextDevToolsPointerCapture(page)
     const editable = composerEditable(page)
     await editable.click()
-    await editable.pressSequentially("/")
+    await editable.pressSequentially(`/${secondaryChannelSearchToken}`)
     const option = page.getByTestId(tid.channelRefOption(secondaryChannelId))
     await expect(option).toHaveAttribute(
       "title",
