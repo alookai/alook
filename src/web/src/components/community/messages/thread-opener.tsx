@@ -122,7 +122,13 @@ export function ThreadOpener({
                 if (a.kind === "image") return (
                   <button
                     key={i}
-                    onClick={() => onPreviewImage?.({ originalUrl: a.url, thumbnailUrl: a.thumbnailUrl, name: a.name })}
+                    onClick={() => onPreviewImage?.({
+                      originalUrl: a.url,
+                      thumbnailUrl: a.thumbnailUrl,
+                      name: a.name,
+                      width: a.width,
+                      height: a.height,
+                    })}
                     className="block w-fit max-w-full overflow-hidden rounded-lg border border-border transition-colors hover:border-primary/40"
                   >
                     <img

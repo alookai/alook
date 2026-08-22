@@ -67,7 +67,10 @@ describe("ThreadOpener image attachment layout", () => {
       message: {
         id: "opener_1", type: "chat", authorId: "u1", authorName: "Alice",
         content: "Photo", createdAt: "2026-08-08T00:00:00.000Z",
-        attachments: [{ kind: "image", name: "photo.png", url: "/original", thumbnailUrl: "/thumbnail" }],
+        attachments: [{
+          kind: "image", name: "photo.png", url: "/original", thumbnailUrl: "/thumbnail",
+          width: 640, height: 480,
+        }],
       },
     })
     let renderer: TestRenderer.ReactTestRenderer
@@ -82,6 +85,7 @@ describe("ThreadOpener image attachment layout", () => {
     act(() => image.parent!.props.onClick())
     expect(onPreviewImage).toHaveBeenCalledWith({
       originalUrl: "/original", thumbnailUrl: "/thumbnail", name: "photo.png",
+      width: 640, height: 480,
     })
   })
 
