@@ -422,6 +422,7 @@ describe("Message image attachment layout", () => {
     act(() => image.parent!.props.onClick())
     expect(onPreviewImage).toHaveBeenCalledWith({
       originalUrl: "/original", thumbnailUrl: "/thumbnail", name: "photo.png",
+      width: 640, height: 480,
     })
   })
 })

@@ -14,7 +14,13 @@ export type Attachment =
   | (AttachmentMetadata & { kind: "image"; thumbnailUrl?: string; width?: number; height?: number })
   | FileAttachment
 
-export type ImagePreview = { originalUrl: string; thumbnailUrl?: string; name: string }
+export type ImagePreview = {
+  originalUrl: string
+  thumbnailUrl?: string
+  name: string
+  width?: number
+  height?: number
+}
 
 type Embed = {
   provider?: string
