@@ -1,0 +1,98 @@
+/// <reference types="@cloudflare/vitest-plugin/types" />
+
+import { runInDurableObject } from "cloudflare:test"
+import { env, exports } from "cloudflare:workers"
+import { describe, expect, it } from "vitest"
+
+const runtimeEnv = env as unknown as {
+  DB: D1Database
+  EMAIL_BUCKET: R2Bucket
+  IMAP_POLLER: DurableObjectNamespace
+}
+
+const worker = (exports as unknown as {
+  default: { fetch(request: Request): Promise<Response> }
+}).default
+
+describe("email-worker workerd runtime", () => {
+  it("loads production migrations and serves the production entrypoint", async () => {
+    const schema = await runtimeEnv.DB.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+    ).bind("agent_email_account").first<{ name: string }>()
+    expect(schema?.name).toBe("agent_email_account")
+
+    const response = await worker.fetch(new Request("https://worker.test/health"))
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ status: "ok" })
+  })
+
+  it("reads and writes through the real email R2 binding", async () => {
+    const key = `runtime/${crypto.randomUUID()}`
+    await runtimeEnv.EMAIL_BUCKET.put(key, "runtime email")
+
+    const stored = await runtimeEnv.EMAIL_BUCKET.get(key)
+    expect(stored).not.toBeNull()
+    await expect(stored!.text()).resolves.toBe("runtime email")
+
+    await runtimeEnv.EMAIL_BUCKET.delete(key)
+    await expect(runtimeEnv.EMAIL_BUCKET.get(key)).resolves.toBeNull()
+  })
+
+  it("rejects unsupported methods, paths, and missing IMAP account ids", async () => {
+    const unknown = await worker.fetch(new Request("https://worker.test/unknown", {
+      method: "POST",
+    }))
+    expect(unknown.status).toBe(404)
+
+    const method = await worker.fetch(new Request("https://worker.test/send/otp"))
+    expect(method.status).toBe(405)
+
+    const missingAccount = await worker.fetch(new Request("https://worker.test/imap/start", {
+      method: "POST",
+    }))
+    expect(missingAccount.status).toBe(400)
+  })
+
+  it("forwards status and sync routes to the real IMAP Durable Object", async () => {
+    const accountId = `runtime-${crypto.randomUUID()}`
+    const status = await worker.fetch(new Request(
+      `https://worker.test/imap/status?accountId=${encodeURIComponent(accountId)}`,
+    ))
+    expect(status.status).toBe(200)
+    await expect(status.json()).resolves.toEqual({ status: "stopped" })
+
+    const sync = await worker.fetch(new Request(
+      `https://worker.test/imap/sync?accountId=${encodeURIComponent(accountId)}`,
+      { method: "POST" },
+    ))
+    expect(sync.status).toBe(200)
+    await expect(sync.json()).resolves.toEqual({ ok: true })
+  })
+
+  it("persists and clears state through the real IMAP Durable Object", async () => {
+    const accountId = `runtime-${crypto.randomUUID()}`
+    const start = await worker.fetch(new Request(
+      `https://worker.test/imap/start?accountId=${encodeURIComponent(accountId)}`,
+      { method: "POST" },
+    ))
+    expect(start.status).toBe(200)
+
+    const id = runtimeEnv.IMAP_POLLER.idFromName(accountId)
+    const stub = runtimeEnv.IMAP_POLLER.get(id)
+    await runInDurableObject(stub, async (_instance, state) => {
+      await expect(state.storage.get("accountId")).resolves.toBe(accountId)
+      await expect(state.storage.getAlarm()).resolves.not.toBeNull()
+    })
+
+    const stop = await worker.fetch(new Request(
+      `https://worker.test/imap/stop?accountId=${encodeURIComponent(accountId)}`,
+      { method: "POST" },
+    ))
+    expect(stop.status).toBe(200)
+
+    await runInDurableObject(stub, async (_instance, state) => {
+      await expect(state.storage.get("accountId")).resolves.toBeUndefined()
+      await expect(state.storage.getAlarm()).resolves.toBeNull()
+    })
+  })
+})

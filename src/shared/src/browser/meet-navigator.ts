@@ -25,6 +25,7 @@ async function dismissDialogs(page: BrowserPage): Promise<void> {
 }
 
 async function detectBlocked(page: BrowserPage): Promise<void> {
+  /* istanbul ignore next -- this callback is serialized into the browser */
   const blocked = await page.evaluate(() => {
     const text = document.body?.innerText || ""
     if (text.includes("can't join") || text.includes("unable to join") || text.includes("无法加入")) {
@@ -59,6 +60,7 @@ export async function joinMeeting(page: BrowserPage, meetingUrl: string, botName
   }
 
   // Mute mic and camera — try both pre-join (data-is-muted) and in-meeting (aria-label) patterns
+  /* istanbul ignore next -- this callback is serialized into the browser */
   await page.evaluate(() => {
     const btns = document.querySelectorAll('button');
     for (const btn of btns) {
@@ -77,6 +79,7 @@ export async function joinMeeting(page: BrowserPage, meetingUrl: string, botName
   })
 
   // "Ask to join" / "Join now" — find by text content, language-independent via evaluate
+  /* istanbul ignore next -- this callback is serialized into the browser */
   const joined = await page.evaluate(() => {
     const deadline = Date.now() + 15_000;
     return new Promise((resolve) => {
@@ -106,6 +109,7 @@ export async function joinMeeting(page: BrowserPage, meetingUrl: string, botName
 export async function enableCaptions(page: BrowserPage): Promise<void> {
   // Click the captions button to open the transcript side panel.
   // The button contains a "closed_caption" icon text — find it by that.
+  /* istanbul ignore next -- this callback is serialized into the browser */
   const clicked = await page.evaluate(() => {
     const btns = document.querySelectorAll('button');
     for (const btn of btns) {
@@ -127,6 +131,7 @@ export async function enableCaptions(page: BrowserPage): Promise<void> {
 export async function waitForMeetingReady(page: BrowserPage, timeoutMs = 60_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
+    /* istanbul ignore next -- this callback is serialized into the browser */
     const state = await page.evaluate(() => {
       const text = document.body?.innerText || ""
       if (text.includes("Please wait") || text.includes("请等待")) return "waiting"
@@ -175,6 +180,7 @@ export function buildAloneDetectorScript(): string {
 
 export async function isMeetingActive(page: BrowserPage): Promise<boolean> {
   try {
+    /* istanbul ignore next -- this callback is serialized into the browser */
     return await page.evaluate(() => {
       const leaveBtn = document.querySelector('button[aria-label="Leave call" i], button[aria-label*="hang up" i]')
       if (!leaveBtn) return false

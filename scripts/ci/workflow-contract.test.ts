@@ -10,13 +10,39 @@ function normalizeWorkflow(text: string): string {
 
 const workflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "e2e-ui.yml"), "utf8"))
 const ciWorkflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "ci.yml"), "utf8"))
-const wsDoPackage = JSON.parse(
-  readFileSync(resolve(import.meta.dirname, "../../src/ws-do/package.json"), "utf8"),
-) as { scripts: Record<string, string> }
+type WorkerModuleContract = {
+  name: string
+  packageJson: {
+    scripts: Record<string, string>
+    devDependencies: Record<string, string>
+  }
+  nodeConfig: string
+  runtimeConfig: string
+  workspaceConfig: string
+  wranglerConfig: string
+}
+
+const directWorkerModules = ["ws-do", "email-worker", "wake-worker", "web"].map((name): WorkerModuleContract => {
+  const moduleRoot = resolve(import.meta.dirname, `../../src/${name}`)
+  return {
+    name,
+    packageJson: JSON.parse(readFileSync(resolve(moduleRoot, "package.json"), "utf8")),
+    nodeConfig: readFileSync(resolve(moduleRoot, "vitest.config.ts"), "utf8"),
+    runtimeConfig: readFileSync(resolve(moduleRoot, "vitest.runtime.config.mts"), "utf8"),
+    workspaceConfig: readFileSync(resolve(moduleRoot, "vitest.workspace.config.ts"), "utf8"),
+    wranglerConfig: readFileSync(resolve(moduleRoot, "wrangler.toml"), "utf8"),
+  }
+})
 const rootVitestConfig = readFileSync(
   resolve(import.meta.dirname, "../../vitest.config.ts"),
   "utf8",
 )
+const rootPackageJson = JSON.parse(
+  readFileSync(resolve(import.meta.dirname, "../../package.json"), "utf8"),
+) as {
+  scripts: Record<string, string>
+  devDependencies: Record<string, string>
+}
 const autoTagReleaseWorkflow = normalizeWorkflow(
   readFileSync(resolve(workflowRoot, "auto-tag-release.yml"), "utf8"),
 )
@@ -251,15 +277,90 @@ describe("Turbo CI execution", () => {
     )
   })
 
-  it("runs the ordinary ws-do Vitest suite through the standard test task", () => {
-    expect(wsDoPackage.scripts.test).toBe("vitest run --passWithNoTests")
-    expect(wsDoPackage.scripts).not.toHaveProperty("test:workers")
+  it("runs each direct Worker Node and runtime project once through its standard test task", () => {
+    const projectNames: string[] = []
+    for (const module of directWorkerModules) {
+      expect(module.packageJson.scripts.test).toBe("vitest run --config vitest.workspace.config.ts")
+      expect(module.packageJson.scripts).not.toHaveProperty("test:workers")
+      expect(module.packageJson.devDependencies["@cloudflare/vitest-plugin"]).toBe("1.0.0")
+      expect(module.workspaceConfig.match(/vitest\.config\.ts/g)).toHaveLength(1)
+      expect(module.workspaceConfig.match(/vitest\.runtime\.config\.mts/g)).toHaveLength(1)
+
+      const nodeProject = `${module.name}-node`
+      const runtimeProject = `${module.name}-runtime`
+      expect(module.nodeConfig).toContain(`name: "${nodeProject}"`)
+      expect(module.runtimeConfig).toContain(`name: "${runtimeProject}"`)
+      expect(module.runtimeConfig).toContain("cloudflareTest({")
+      expect(module.runtimeConfig).toContain('wrangler: { configPath: "./wrangler.toml" }')
+      expect(module.wranglerConfig).not.toContain("service_binding_extra_handlers")
+      projectNames.push(nodeProject, runtimeProject)
+    }
+    expect(new Set(projectNames).size).toBe(projectNames.length)
     expect(ciJob("test-linux")).toContain("pnpm turbo run test --filter='!@alook/daemon'")
   })
 
-  it("does not exclude ws-do product source from Node coverage", () => {
-    expect(rootVitestConfig).not.toContain('"src/ws-do/src/**"')
-    expect(rootVitestConfig).not.toContain('"src/ws-do/src/**/*.ts"')
+  it("collects Node and workerd projects in one Istanbul report", () => {
+    expect(rootPackageJson.devDependencies["@vitest/coverage-istanbul"]).toBe("4.1.10")
+    expect(rootPackageJson.devDependencies).not.toHaveProperty("@vitest/coverage-v8")
+    expect(rootVitestConfig).toContain('provider: "istanbul"')
+    expect(rootVitestConfig).toContain('"src/**/*.{ts,tsx,js,jsx}"')
+    expect(rootVitestConfig).toContain('"**/test-runtime/**"')
+    expect(rootVitestConfig).toContain('"**/test-harness.ts"')
+    for (const [index, module] of directWorkerModules.entries()) {
+      expect(rootVitestConfig).toContain(`"src/${module.name}"`)
+      expect(
+        rootVitestConfig.match(
+          new RegExp(`src/${module.name}/vitest\\.runtime\\.config\\.mts`, "g"),
+        ),
+      ).toHaveLength(1)
+      expect(module.runtimeConfig).toContain(`sequence: { groupOrder: ${index + 10} }`)
+    }
+    expect(directWorkerModules[3].runtimeConfig).toContain('main: "./custom-worker.ts"')
+    expect(directWorkerModules[3].runtimeConfig).toContain(
+      '"test-runtime/open-next-worker-stub.ts"',
+    )
+  })
+
+  it("uploads the single Istanbul report through the existing Codecov step", () => {
+    const coverageJob = ciJob("coverage")
+    expect(coverageJob.match(/pnpm vitest run --coverage/g)).toHaveLength(1)
+    expect(coverageJob.match(/codecov\/codecov-action/g)).toHaveLength(1)
+    expect(coverageJob).toContain("files: ./coverage/coverage-final.json")
+    expect(coverageJob).not.toContain("coverage:workers")
+    expect(coverageJob).not.toContain("workers-runtime")
+    expect(rootPackageJson.scripts).not.toHaveProperty("coverage:workers")
+  })
+
+  it("replaces platform mocks only after stronger workerd coverage exists", () => {
+    const readRepo = (path: string) => readFileSync(
+      resolve(import.meta.dirname, `../../${path}`),
+      "utf8",
+    )
+    const wsRuntime = readRepo("src/ws-do/test-runtime/worker.runtime.test.ts")
+    const webRuntime = readRepo("src/web/test-runtime/worker.runtime.test.ts")
+    const emailNode = readRepo("src/email-worker/src/index.test.ts")
+    const emailRuntime = readRepo("src/email-worker/test-runtime/worker.runtime.test.ts")
+    const wakeNode = readRepo("src/wake-worker/src/index.test.ts")
+    const wakeRuntime = readRepo("src/wake-worker/test-runtime/worker.runtime.test.ts")
+
+    expect(existsSync(resolve(import.meta.dirname, "../../src/ws-do/src/rate-limit-do.test.ts"))).toBe(false)
+    expect(wsRuntime).toContain("persists the counter across stubs for the same Durable Object id")
+    expect(wsRuntime).toContain("resets expired storage and rejects invalid Durable Object requests")
+
+    expect(existsSync(resolve(import.meta.dirname, "../../src/web/src/lib/worker-runtime.test.ts"))).toBe(false)
+    expect(webRuntime).toContain("adds browser and CDN revalidation headers to public route %s")
+    expect(webRuntime).toContain("forwards WebSocket upgrade %s through the configured service binding")
+
+    expect(emailNode).not.toContain('describe("fetch() routing"')
+    expect(emailNode).not.toContain('describe("IMAP management routes"')
+    expect(emailRuntime).toContain("forwards status and sync routes to the real IMAP Durable Object")
+    expect(emailRuntime).toContain("rejects unsupported methods, paths, and missing IMAP account ids")
+
+    expect(wakeNode).not.toContain("returns 400 on invalid JSON body")
+    expect(wakeNode).not.toContain("returns 405 for non-POST methods")
+    expect(wakeNode).not.toContain("returns 200 { status: ok } for GET /health")
+    expect(wakeRuntime).toContain("rejects invalid JSON and non-POST dev requests at the real entrypoint")
+    expect(wakeRuntime).toContain("loads production migrations and serves the production entrypoint")
   })
 })
 

@@ -7,12 +7,15 @@
     "src/app/**/error.tsx",
     "src/app/**/not-found.tsx",
     "src/app/globals.css",
+    "src/test-runtime/open-next-node-stub.ts",
+    "test-runtime/open-next-worker-stub.ts",
     "open-next.config.ts",
     "scripts/**/*.{ts,mjs}"
   ],
-  "project": ["src/**/*.{ts,tsx}", "scripts/**/*.{ts,mjs}"],
+  "project": ["src/**/*.{ts,tsx}", "scripts/**/*.{ts,mjs}", "test-runtime/**/*.ts"],
   "ignoreDependencies": [
-    "@tailwindcss/node"
+    "@tailwindcss/node",
+    "cloudflare"
   ],
   "ignoreBinaries": [
     "lsof"
@@ -22,7 +25,7 @@
     "src/app/(app)/workspaces/client.tsx"
   ],
   "vitest": {
-    "entry": ["src/**/*.test.{ts,tsx}", "src/test/**/*.{ts,tsx}"]
+    "entry": ["src/**/*.test.{ts,tsx}", "src/test/**/*.{ts,tsx}", "test-runtime/**/*.test.ts"]
   },
   "eslint": {
     "entry": ["eslint.config.mjs"]

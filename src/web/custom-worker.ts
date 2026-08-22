@@ -2,42 +2,9 @@
 // exist at typecheck time. The build step creates it before wrangler bundles.
 // @ts-ignore — generated at build time, may not exist yet
 import openNextHandler from "./.open-next/worker.js"
+import { createWebWorkerHandler } from "./src/lib/worker-runtime"
 
 // @ts-ignore — generated at build time, may not exist yet
 export { DOQueueHandler } from "./.open-next/worker.js"
 
-const PRIVATE_PREFIXES = ["/w/", "/workspaces", "/dashboard", "/invite/", "/api/", "/_next/"]
-
-function isPublicRoute(pathname: string): boolean {
-  return !PRIVATE_PREFIXES.some((p) => pathname.startsWith(p))
-}
-
-const handler: ExportedHandler<CloudflareEnv> = {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url)
-    const isWsUpgrade = request.headers.get("Upgrade")?.toLowerCase() === "websocket"
-    const isWsPath = url.pathname === "/api/ws" || url.pathname.startsWith("/api/ws/")
-
-    // Forward WebSocket upgrades on /api/ws/* directly to the ws-do worker.
-    // OpenNext drops Response.webSocket when wrapping Next.js route handlers
-    // (opennextjs-cloudflare#784), so we intercept before Next.js sees it.
-    // /api/ws/token is a plain HTTP endpoint — it has no Upgrade header and
-    // falls through to OpenNext.
-    if (isWsUpgrade && isWsPath) {
-      return env.WS_DO_WORKER.fetch(request)
-    }
-
-    const response = await (openNextHandler as ExportedHandler<CloudflareEnv>).fetch!(request, env, ctx)
-
-    if (isPublicRoute(url.pathname) && response.status === 200) {
-      const res = new Response(response.body, response)
-      res.headers.set("Cache-Control", "public, max-age=0, must-revalidate")
-      res.headers.set("CDN-Cache-Control", "public, s-maxage=3600, stale-while-revalidate=86400")
-      return res
-    }
-
-    return response
-  },
-}
-
-export default handler
+export default createWebWorkerHandler(openNextHandler as ExportedHandler<CloudflareEnv>)

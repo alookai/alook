@@ -13,7 +13,7 @@
     "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv ./cloudflare-env.d.ts",
-    "test": "vitest run",
+    "test": "vitest run --config vitest.workspace.config.ts",
     "test:watch": "vitest",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:e2e-ui": "playwright test",
@@ -108,6 +108,7 @@
   },
   "devDependencies": {
     "@alook/test-utils": "workspace:*",
+    "@cloudflare/vitest-plugin": "1.0.0",
     "@lhci/cli": "^0.15.1",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/node": "^4.3.3",
@@ -131,6 +132,6 @@
     "typescript": "^6.0.3",
     "unified": "^11.0.5",
     "vitest": "^4.1.10",
-    "wrangler": "^4.122.0"
+    "wrangler": "^4.125.0"
   }
 }
