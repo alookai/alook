@@ -22,7 +22,7 @@ type WorkerModuleContract = {
   wranglerConfig: string
 }
 
-const directWorkerModules = ["ws-do", "email-worker", "wake-worker"].map((name): WorkerModuleContract => {
+const directWorkerModules = ["ws-do", "email-worker", "wake-worker", "web"].map((name): WorkerModuleContract => {
   const moduleRoot = resolve(import.meta.dirname, `../../src/${name}`)
   return {
     name,

@@ -1,7 +1,8 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "project": [
-    "src/**/*.ts"
+    "src/**/*.ts",
+    "test-runtime/**/*.ts"
   ],
   "includeEntryExports": true,
   "ignoreDependencies": [
@@ -9,7 +10,8 @@
   ],
   "vitest": {
     "entry": [
-      "src/**/*.test.ts"
+      "src/**/*.test.ts",
+      "test-runtime/**/*.test.ts"
     ]
   }
 }

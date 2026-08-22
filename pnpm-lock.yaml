@@ -527,6 +527,9 @@ importers:
       '@alook/test-utils':
         specifier: workspace:*
         version: link:../../tests/utils
+      '@cloudflare/vitest-plugin':
+        specifier: 1.0.0
+        version: 1.0.0(@cloudflare/workers-types@4.20260702.1)(@vitest/runner@4.1.10)(@vitest/snapshot@4.1.10)(vitest@4.1.10)
       '@lhci/cli':
         specifier: ^0.15.1
         version: 0.15.1

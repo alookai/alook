@@ -1,11 +1,11 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "project": ["src/**/*.ts"],
+  "project": ["src/**/*.ts", "test-runtime/**/*.ts"],
   "includeEntryExports": true,
   "ignoreDependencies": [
     "cloudflare"
   ],
   "vitest": {
-    "entry": ["src/**/*.test.ts"]
+    "entry": ["src/**/*.test.ts", "test-runtime/**/*.test.ts"]
   }
 }

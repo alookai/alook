@@ -6,9 +6,11 @@ export default mergeConfig(shared, defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
+      "./.open-next/worker.js": path.resolve(__dirname, "src/test-runtime/open-next-node-stub.ts"),
     },
   },
   test: {
+    name: "web-node",
     testTimeout: 30_000,
     hookTimeout: 30_000,
     include: ["src/**/*.test.ts", "scripts/**/*.test.ts", "readme-capture/**/*.test.ts"],

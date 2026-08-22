@@ -15,8 +15,8 @@ export default defineProject({
   ],
   test: {
     name: "ws-do-runtime",
-    include: ["src/test-runtime/**/*.runtime.test.ts"],
-    setupFiles: ["src/test-runtime/apply-migrations.ts"],
+    include: ["test-runtime/**/*.runtime.test.ts"],
+    setupFiles: ["test-runtime/apply-migrations.ts"],
     fileParallelism: false,
     isolate: false,
     maxWorkers: 1,

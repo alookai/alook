@@ -19,7 +19,7 @@ export default defineProject({
   ],
   test: {
     name: "wake-worker-runtime",
-    include: ["src/test-runtime/**/*.runtime.test.ts"],
-    setupFiles: ["src/test-runtime/apply-migrations.ts"],
+    include: ["test-runtime/**/*.runtime.test.ts"],
+    setupFiles: ["test-runtime/apply-migrations.ts"],
   },
 })
