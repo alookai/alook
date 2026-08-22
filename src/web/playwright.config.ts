@@ -11,7 +11,7 @@ export default defineConfig({
   // single-worker and zero-retry; parallelism or retries would reuse state.
   retries: 0,
   workers: 1,
-  reporter: process.env.CI ? [["blob"], ["list"]] : "list",
+  reporter: process.env.CI ? [["blob"], ["github"], ["list"]] : "list",
   globalSetup: "./src/test/e2e-ui/_setup/global-setup.ts",
   globalTeardown: "./src/test/e2e-ui/_setup/global-teardown.ts",
   timeout: 60_000,

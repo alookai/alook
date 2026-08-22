@@ -41,8 +41,6 @@
     "bump": "node scripts/bump-version.mjs",
     "typegrep:ws": "node scripts/lint-ws-events.mjs",
     "typegrep:agent-driver": "node scripts/check-agent-driver-boundaries.mjs",
-    "api:check": "pnpm --filter @alook/agent-driver api:check",
-    "api:update": "pnpm --filter @alook/agent-driver api:update",
     "logo:generate": "node scripts/generate-logo-assets.mjs",
     "readme:capture": "node src/web/readme-capture/capture.mjs",
     "prepare": "simple-git-hooks"

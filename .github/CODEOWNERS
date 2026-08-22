@@ -4,8 +4,7 @@
 # CI/CD workflows require review
 .github/ @alookai/core-dev
 
-# Private workspace agent-driver API entry points and their golden reports
-/src/daemon/agent-driver/etc/api/ @alookai/core-dev
+# Private workspace agent-driver API entry points
 /src/daemon/agent-driver/src/index.ts @alookai/core-dev
 /src/daemon/agent-driver/src/host.ts @alookai/core-dev
 /src/daemon/agent-driver/src/adapter-author.ts @alookai/core-dev
