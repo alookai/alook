@@ -1,6 +1,6 @@
 {
   "name": "@alook/agent-driver",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "private": true,
   "description": "Private workspace logical-session drivers for supported AI coding agents.",
   "license": "Apache-2.0",
