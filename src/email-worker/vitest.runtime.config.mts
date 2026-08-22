@@ -23,5 +23,6 @@ export default defineProject({
     name: "email-worker-runtime",
     include: ["test-runtime/**/*.runtime.test.ts"],
     setupFiles: ["test-runtime/apply-migrations.ts"],
+    sequence: { groupOrder: 11 },
   },
 })

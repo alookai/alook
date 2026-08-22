@@ -2,9 +2,25 @@ import { defineConfig } from "vitest/config"
 
 export default defineConfig({
   test: {
-    projects: ["src/shared", "src/web", "src/cli", "src/daemon", "src/daemon/agent-driver", "src/email-worker", "src/ws-do", "src/wake-worker", "src/app", "tests/utils", "scripts/ci"],
+    projects: [
+      "src/shared",
+      "src/web",
+      "src/cli",
+      "src/daemon",
+      "src/daemon/agent-driver",
+      "src/email-worker",
+      "src/ws-do",
+      "src/wake-worker",
+      "src/app",
+      "tests/utils",
+      "scripts/ci",
+      "src/ws-do/vitest.runtime.config.mts",
+      "src/email-worker/vitest.runtime.config.mts",
+      "src/wake-worker/vitest.runtime.config.mts",
+      "src/web/vitest.runtime.config.mts",
+    ],
     coverage: {
-      provider: "v8",
+      provider: "istanbul",
       include: ["src/**/*.{ts,tsx,js,jsx}", "scripts/ci/**/*.mjs"],
       exclude: [
         "**/*.test.*",
@@ -16,11 +32,9 @@ export default defineConfig({
         "**/dist/**",
         "**/bundled/**",
         "**/__mocks__/**",
+        "**/test-harness.ts",
         "**/*.d.ts",
-        // Workerd-only setup/entry files are executed by the Cloudflare plugin,
-        // whose runtime does not support V8 coverage. Production Worker sources
-        // remain included through the repository-level src/**/* pattern above.
-        "src/*/test-runtime/**",
+        "**/test-runtime/**",
         "src/cli/src/index.ts",
         "src/web/scripts/**",
         "src/web/readme-capture/**",

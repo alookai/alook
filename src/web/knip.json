@@ -8,7 +8,7 @@
     "src/app/**/not-found.tsx",
     "src/app/globals.css",
     "src/test-runtime/open-next-node-stub.ts",
-    "test-runtime/entry.ts",
+    "test-runtime/open-next-worker-stub.ts",
     "open-next.config.ts",
     "scripts/**/*.{ts,mjs}"
   ],

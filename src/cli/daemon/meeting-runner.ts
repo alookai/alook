@@ -87,7 +87,7 @@ async function tryJoinAndRecord(input: MeetingRunnerInput, chromePath: string): 
   const browser = await launchBrowser(chromePath)
   const context = browser.contexts()[0]
   if (context) {
-    await context.addInitScript(() => {
+    await context.addInitScript(/* istanbul ignore next */ () => {
       Object.defineProperty(navigator, "webdriver", { get: () => false })
     })
   }
@@ -102,7 +102,7 @@ async function tryJoinAndRecord(input: MeetingRunnerInput, chromePath: string): 
     log.info("joined meeting, waiting for UI ready...", { meeting: input.meetingId })
     await waitForMeetingReady(page)
 
-    await page.evaluate(() => {
+    await page.evaluate(/* istanbul ignore next */ () => {
       for (const btn of document.querySelectorAll('button')) {
         const label = (btn.getAttribute('aria-label') || '').toLowerCase()
         if (label.startsWith('turn off') && (label.includes('microphone') || label.includes('camera'))) {

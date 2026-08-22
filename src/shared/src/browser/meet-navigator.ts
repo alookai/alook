@@ -25,7 +25,7 @@ async function dismissDialogs(page: BrowserPage): Promise<void> {
 }
 
 async function detectBlocked(page: BrowserPage): Promise<void> {
-  const blocked = await page.evaluate(() => {
+  const blocked = await page.evaluate(/* istanbul ignore next */ () => {
     const text = document.body?.innerText || ""
     if (text.includes("can't join") || text.includes("unable to join") || text.includes("无法加入")) {
       return text.slice(0, 200)
@@ -59,7 +59,7 @@ export async function joinMeeting(page: BrowserPage, meetingUrl: string, botName
   }
 
   // Mute mic and camera — try both pre-join (data-is-muted) and in-meeting (aria-label) patterns
-  await page.evaluate(() => {
+  await page.evaluate(/* istanbul ignore next */ () => {
     const btns = document.querySelectorAll('button');
     for (const btn of btns) {
       const label = (btn.getAttribute('aria-label') || '').toLowerCase();
@@ -77,7 +77,7 @@ export async function joinMeeting(page: BrowserPage, meetingUrl: string, botName
   })
 
   // "Ask to join" / "Join now" — find by text content, language-independent via evaluate
-  const joined = await page.evaluate(() => {
+  const joined = await page.evaluate(/* istanbul ignore next */ () => {
     const deadline = Date.now() + 15_000;
     return new Promise((resolve) => {
       const check = () => {
@@ -106,7 +106,7 @@ export async function joinMeeting(page: BrowserPage, meetingUrl: string, botName
 export async function enableCaptions(page: BrowserPage): Promise<void> {
   // Click the captions button to open the transcript side panel.
   // The button contains a "closed_caption" icon text — find it by that.
-  const clicked = await page.evaluate(() => {
+  const clicked = await page.evaluate(/* istanbul ignore next */ () => {
     const btns = document.querySelectorAll('button');
     for (const btn of btns) {
       const label = (btn.getAttribute('aria-label') || '').toLowerCase();
@@ -127,7 +127,7 @@ export async function enableCaptions(page: BrowserPage): Promise<void> {
 export async function waitForMeetingReady(page: BrowserPage, timeoutMs = 60_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    const state = await page.evaluate(() => {
+    const state = await page.evaluate(/* istanbul ignore next */ () => {
       const text = document.body?.innerText || ""
       if (text.includes("Please wait") || text.includes("请等待")) return "waiting"
       if (text.includes("can't join") || text.includes("无法加入")) return "blocked"
@@ -175,7 +175,7 @@ export function buildAloneDetectorScript(): string {
 
 export async function isMeetingActive(page: BrowserPage): Promise<boolean> {
   try {
-    return await page.evaluate(() => {
+    return await page.evaluate(/* istanbul ignore next */ () => {
       const leaveBtn = document.querySelector('button[aria-label="Leave call" i], button[aria-label*="hang up" i]')
       if (!leaveBtn) return false
       if ((window as any).__alookAlone) return false

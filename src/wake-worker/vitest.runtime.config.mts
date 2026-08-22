@@ -21,5 +21,6 @@ export default defineProject({
     name: "wake-worker-runtime",
     include: ["test-runtime/**/*.runtime.test.ts"],
     setupFiles: ["test-runtime/apply-migrations.ts"],
+    sequence: { groupOrder: 12 },
   },
 })

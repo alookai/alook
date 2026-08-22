@@ -20,6 +20,6 @@ export default defineProject({
     fileParallelism: false,
     isolate: false,
     maxWorkers: 1,
-    sequence: { groupOrder: 0 },
+    sequence: { groupOrder: 10 },
   },
 })

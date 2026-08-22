@@ -37,6 +37,12 @@ const rootVitestConfig = readFileSync(
   resolve(import.meta.dirname, "../../vitest.config.ts"),
   "utf8",
 )
+const rootPackageJson = JSON.parse(
+  readFileSync(resolve(import.meta.dirname, "../../package.json"), "utf8"),
+) as {
+  scripts: Record<string, string>
+  devDependencies: Record<string, string>
+}
 const autoTagReleaseWorkflow = normalizeWorkflow(
   readFileSync(resolve(workflowRoot, "auto-tag-release.yml"), "utf8"),
 )
@@ -293,14 +299,36 @@ describe("Turbo CI execution", () => {
     expect(ciJob("test-linux")).toContain("pnpm turbo run test --filter='!@alook/daemon'")
   })
 
-  it("keeps every direct Worker source in Node V8 coverage", () => {
+  it("collects Node and workerd projects in one Istanbul report", () => {
+    expect(rootPackageJson.devDependencies["@vitest/coverage-istanbul"]).toBe("4.1.10")
+    expect(rootPackageJson.devDependencies).not.toHaveProperty("@vitest/coverage-v8")
+    expect(rootVitestConfig).toContain('provider: "istanbul"')
     expect(rootVitestConfig).toContain('"src/**/*.{ts,tsx,js,jsx}"')
-    expect(rootVitestConfig).toContain('"src/*/test-runtime/**"')
-    for (const module of directWorkerModules) {
+    expect(rootVitestConfig).toContain('"**/test-runtime/**"')
+    expect(rootVitestConfig).toContain('"**/test-harness.ts"')
+    for (const [index, module] of directWorkerModules.entries()) {
       expect(rootVitestConfig).toContain(`"src/${module.name}"`)
-      expect(rootVitestConfig).not.toContain(`"src/${module.name}/src/**"`)
-      expect(rootVitestConfig).not.toContain(`"src/${module.name}/src/**/*.ts"`)
+      expect(
+        rootVitestConfig.match(
+          new RegExp(`src/${module.name}/vitest\\.runtime\\.config\\.mts`, "g"),
+        ),
+      ).toHaveLength(1)
+      expect(module.runtimeConfig).toContain(`sequence: { groupOrder: ${index + 10} }`)
     }
+    expect(directWorkerModules[3].runtimeConfig).toContain('main: "./custom-worker.ts"')
+    expect(directWorkerModules[3].runtimeConfig).toContain(
+      '"test-runtime/open-next-worker-stub.ts"',
+    )
+  })
+
+  it("uploads the single Istanbul report through the existing Codecov step", () => {
+    const coverageJob = ciJob("coverage")
+    expect(coverageJob.match(/pnpm vitest run --coverage/g)).toHaveLength(1)
+    expect(coverageJob.match(/codecov\/codecov-action/g)).toHaveLength(1)
+    expect(coverageJob).toContain("files: ./coverage/coverage-final.json")
+    expect(coverageJob).not.toContain("coverage:workers")
+    expect(coverageJob).not.toContain("workers-runtime")
+    expect(rootPackageJson.scripts).not.toHaveProperty("coverage:workers")
   })
 })
 

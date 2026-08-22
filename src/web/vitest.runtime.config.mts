@@ -5,9 +5,17 @@ import { defineProject } from "vitest/config"
 const migrations = await readD1Migrations(path.resolve(import.meta.dirname, "migrations"))
 
 export default defineProject({
+  resolve: {
+    alias: {
+      "./.open-next/worker.js": path.resolve(
+        import.meta.dirname,
+        "test-runtime/open-next-worker-stub.ts",
+      ),
+    },
+  },
   plugins: [
     cloudflareTest({
-      main: "./test-runtime/entry.ts",
+      main: "./custom-worker.ts",
       wrangler: { configPath: "./wrangler.toml" },
       miniflare: {
         assets: {
@@ -46,5 +54,6 @@ export default defineProject({
     name: "web-runtime",
     include: ["test-runtime/**/*.runtime.test.ts"],
     setupFiles: ["test-runtime/apply-migrations.ts"],
+    sequence: { groupOrder: 13 },
   },
 })
