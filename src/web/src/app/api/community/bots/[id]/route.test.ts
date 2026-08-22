@@ -191,6 +191,31 @@ describe("PATCH /api/community/bots/[id]", () => {
     expect(mockPushAgentModelSwitchToMachine).not.toHaveBeenCalled()
   })
 
+  it("switches a stored removed runtime to a supported runtime without rewriting the row first", async () => {
+    mockGetBotOwnedBy.mockResolvedValue({
+      id: "b1", name: "Old", description: "old desc", machineId: "mac1", ownerUserId: "u1",
+      runtime: "gemini", modelName: "legacy-model",
+    })
+    mockUpdateBot.mockResolvedValue({
+      id: "b1", name: "Old", discriminator: "0001", description: "old desc", image: null,
+    })
+
+    const res = await PATCH(patchReq({ runtime: "codex" }), ctx)
+
+    expect(res.status).toBe(200)
+    expect(mockPushAgentProviderSwitchToMachine).toHaveBeenCalledWith(
+      expect.anything(),
+      "mac1",
+      expect.objectContaining({
+        agentId: "b1",
+        from: "gemini",
+        to: "codex",
+        config: expect.objectContaining({ runtime: "codex", model: { kind: "default" } }),
+      }),
+    )
+    expect(mockUpdateBotRuntime).toHaveBeenCalledWith(expect.anything(), "b1", "u1", "codex", null)
+  })
+
   it("changed model, daemon offline (isBotOnline false): 409, no column write, no push", async () => {
     mockIsBotOnline.mockResolvedValue(false)
     const res = await PATCH(patchReq({ model: "claude-sonnet-4-6" }), ctx)
@@ -315,15 +340,8 @@ describe("PATCH /api/community/bots/[id]", () => {
     expect(mockPushAgentModelSwitchToMachine).toHaveBeenCalled()
   })
 
-  it("model on an antigravity bot → 400", async () => {
-    mockGetBotOwnedBy.mockResolvedValue({ id: "b1", name: "Old", description: "d", machineId: "mac1", ownerUserId: "u1", runtime: "antigravity", modelName: null })
-    const res = await PATCH(patchReq({ model: "whatever" }), ctx)
-    expect(res.status).toBe(400)
-    expect(mockUpdateBotModel).not.toHaveBeenCalled()
-  })
-
   it("runtime not on machine → 400", async () => {
-    const res = await PATCH(patchReq({ runtime: "gemini" }), ctx)
+    const res = await PATCH(patchReq({ runtime: "unknown-runtime" }), ctx)
     expect(res.status).toBe(400)
     expect(mockUpdateBotRuntime).not.toHaveBeenCalled()
     expect(mockPushAgentProviderSwitchToMachine).not.toHaveBeenCalled()

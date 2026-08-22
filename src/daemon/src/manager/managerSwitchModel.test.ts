@@ -1,8 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { AgentProcessManager, type ManagedSession, type SessionFactory, type TimelineRecorder } from "./managerRuntime.js";
-import type { Driver, LaunchContext } from "../types.js";
+import { AgentProcessManager, type DaemonAgentSession, type SessionFactory, type TimelineRecorder } from "./managerRuntime.js";
+import type { AgentBackend as Driver } from "../drivers/index.js";
+import type { HostLaunchContext as LaunchContext } from "./hostContext.js";
 import type { RuntimeConfig } from "../runtimeConfig.js";
 import type { Logger } from "../logger.js";
+import type { AgentEvent, AgentSessionResult, BuiltinBackendSpecs } from "@alook/agent-driver";
 
 function stubLogger(): Logger & { calls: Record<"debug" | "info" | "warn" | "error", Array<[string, unknown[]]>> } {
   const calls: Record<"debug" | "info" | "warn" | "error", Array<[string, unknown[]]>> = { debug: [], info: [], warn: [], error: [] };
@@ -31,22 +33,79 @@ function fakeDriver(id: string): Driver {
   } as unknown as Driver;
 }
 
-interface FakeSession extends ManagedSession {
-  fire(evt: string, ...args: unknown[]): void;
+interface FakeSession extends DaemonAgentSession {
+  fire(evt: string, ...args: unknown[]): Promise<void>;
 }
 function fakeSession(): FakeSession {
-  const listeners = new Map<string, Array<(...a: unknown[]) => void>>();
+  type Event = AgentEvent<BuiltinBackendSpecs, "codex">;
+  const queued: Event[] = [];
+  const waiters: Array<(value: IteratorResult<Event>) => void> = [];
+  const publish = (event: Event) => {
+    const waiter = waiters.shift();
+    if (waiter) waiter({ done: false, value: event });
+    else queued.push(event);
+  };
+  let sequence = 0;
+  let resolveClosed!: (result: AgentSessionResult) => void;
+  const closed = new Promise<AgentSessionResult>((resolve) => { resolveClosed = resolve; });
   const s: FakeSession = {
-    on(event, cb) {
-      const arr = listeners.get(event) ?? [];
-      arr.push(cb);
-      listeners.set(event, arr);
+    backend: "codex",
+    capabilities: {} as FakeSession["capabilities"],
+    sessionInstanceId: "switch-model-test",
+    events: {
+      maxBufferedBytes: 4_194_304,
+      [Symbol.asyncIterator]() {
+        return {
+          next: () => queued.length > 0
+            ? Promise.resolve({ done: false as const, value: queued.shift()! })
+            : new Promise<IteratorResult<Event>>((resolve) => waiters.push(resolve)),
+        };
+      },
     },
-    start() { return Promise.resolve(); },
-    send() {},
-    stop() {},
-    get currentSessionId() { return null; },
-    fire(evt, ...args) { for (const cb of listeners.get(evt) ?? []) cb(...args); },
+    closed,
+    async start(message) {
+      return { status: "accepted", delivery: "prompt", commandId: message.id, turnId: "test-turn" };
+    },
+    async send(message) {
+      return { status: "accepted", delivery: "steer", commandId: message.id, turnId: "test-turn" };
+    },
+    async interrupt() { return { status: "not_running" }; },
+    async stop() { return { status: "accepted", requestId: "test-stop" }; },
+    snapshot() {
+      return { sessionInstanceId: "switch-model-test", state: "working", queuedCommands: [], lastEventSequence: sequence };
+    },
+    async invokeExtension() {
+      return { ok: false, error: { category: "internal", code: "unsupported", message: "unsupported", retryable: false } };
+    },
+    async fire(evt, ...args) {
+      if (evt === "runtime_event") {
+        const event = args[0] as { kind: string; sessionId?: string };
+        if (event.kind === "session_init") {
+          publish({
+            type: "session_started",
+            backendSessionId: event.sessionId ?? "test-session",
+            sequence: ++sequence,
+            sessionInstanceId: "switch-model-test",
+            at: Date.now(),
+          });
+        }
+        await Promise.resolve();
+        await Promise.resolve();
+        return;
+      }
+      if (evt === "exit") {
+        const result: AgentSessionResult = {
+          outcome: "stopped",
+          requested: true,
+          exitCode: 0,
+          signal: null,
+          cleanup: { status: "released" },
+        };
+        resolveClosed(result);
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+    },
   };
   return s;
 }
@@ -67,7 +126,7 @@ function makeManager(
   const spawns: Array<{ ctx: LaunchContext; prompt: string }> = [];
   let session = fakeSession();
   const sessions: FakeSession[] = [];
-  const factory: SessionFactory = ({ ctx }: { ctx: LaunchContext }) => {
+  const factory: SessionFactory = ({ ctx }) => {
     spawns.push({ ctx, prompt: ctx.prompt });
     session = fakeSession();
     sessions.push(session);
@@ -117,11 +176,11 @@ describe("AgentProcessManager.switchModel", () => {
     // First spawn + establish a session id.
     mgr.deliver("a1", { seq: 1, text: "hi" });
     expect(spawns).toHaveLength(1);
-    getSession().fire("runtime_event", { kind: "session_init", sessionId: "sess-123" });
+    await getSession().fire("runtime_event", { kind: "session_init", sessionId: "sess-123" });
 
     // Switch while live. stop() → onExit drain → single respawn.
     await mgr.switchModel("a1", { runtimeConfig: NAMED_CFG, launchId: "l2", rewakePrompt: REWAKE });
-    getSession().fire("exit");
+    await getSession().fire("exit");
 
     // Exactly two spawns total (initial + one respawn).
     expect(spawns).toHaveLength(2);
@@ -137,7 +196,8 @@ describe("AgentProcessManager.switchModel", () => {
     const { mgr, spawns, getSession } = makeManager();
     mgr.register("a1");
     mgr.deliver("a1", { seq: 1, text: "hi" });
-    getSession().fire("runtime_event", { kind: "session_init", sessionId: "sess-1" });
+    await Promise.resolve();
+    await getSession().fire("runtime_event", { kind: "session_init", sessionId: "sess-1" });
     expect(spawns).toHaveLength(1);
 
     await mgr.switchModel("a1", { runtimeConfig: NAMED_CFG, launchId: "l2", rewakePrompt: REWAKE });
@@ -145,11 +205,11 @@ describe("AgentProcessManager.switchModel", () => {
     mgr.deliver("a1", { seq: 2, text: "new unread" });
     expect(spawns).toHaveLength(1);
     // The exit drain produces exactly one respawn for the queued rewake + unread.
-    getSession().fire("exit");
+    await getSession().fire("exit");
     expect(spawns).toHaveLength(2);
   });
 
-  it("idle-branch synchronous spawn throw dispatches exit and clears the resetting gate", () => {
+  it("idle-branch synchronous spawn throw dispatches exit and clears the resetting gate", async () => {
     const logger = stubLogger();
     let firstSpawn = true;
     const factory: SessionFactory = () => {
@@ -174,7 +234,7 @@ describe("AgentProcessManager.switchModel", () => {
       logger,
     });
     mgr.register("a1");
-    expect(() =>
+    await expect(
       mgr.switchModel("a1", { runtimeConfig: NAMED_CFG, launchId: "l1", rewakePrompt: REWAKE }),
     ).rejects.toThrow(/spawn boom/);
     // The gate must have cleared (exit dispatched) — a subsequent wake spawns.
@@ -209,7 +269,10 @@ describe("AgentProcessManager.switchModel", () => {
       forgetSession: (a) => timelineCalls.push(`forget:${a}`),
     };
     let session = fakeSession();
-    const factory: SessionFactory = () => (session = fakeSession());
+    const factory: SessionFactory = () => {
+      session = fakeSession();
+      return session;
+    };
     const mgr = new AgentProcessManager({
       driverFor: () => fakeDriver("codex"),
       baseContextFor: () => ({
@@ -226,9 +289,9 @@ describe("AgentProcessManager.switchModel", () => {
     });
     mgr.register("a1");
     mgr.deliver("a1", { seq: 1, text: "hi" });
-    session.fire("runtime_event", { kind: "session_init", sessionId: "sess-live" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "sess-live" });
     await mgr.switchModel("a1", { runtimeConfig: NAMED_CFG, launchId: "l2", rewakePrompt: REWAKE });
-    session.fire("exit");
+    await session.fire("exit");
     // forgetSession — the writer of the reset_session barrier — must never run.
     expect(timelineCalls.some((c) => c.startsWith("forget:"))).toBe(false);
   });
@@ -238,7 +301,7 @@ describe("AgentProcessManager.switchModel", () => {
   // respawn still emits session_init AND threads the switch's launchId into
   // onAgentSession. Driver-side: resume already yields session_init
   // (codex.test "delivers the prompt on resume too"; cursor system/init;
-  // SdkRuntimeSession.emitEvents first-event). This pins the manager half.
+  // the SDK lane's first typed event). This pins the manager half.
   it("after switchModel respawn, session_init emits onAgentSession with the switch launchId (not the prior wake's)", async () => {
     const sessionsSeen: Array<{ agentId: string; sessionId: string; launchId: string }> = [];
     const { mgr, getSession } = makeManager({
@@ -246,15 +309,15 @@ describe("AgentProcessManager.switchModel", () => {
     });
     mgr.register("a1", { launchId: "wake-l1" });
     mgr.deliver("a1", { seq: 1, text: "hi" });
-    getSession().fire("runtime_event", { kind: "session_init", sessionId: "sess-123" });
+    await getSession().fire("runtime_event", { kind: "session_init", sessionId: "sess-123" });
     expect(sessionsSeen).toEqual([
       { agentId: "a1", sessionId: "sess-123", launchId: "wake-l1" },
     ]);
 
     await mgr.switchModel("a1", { runtimeConfig: NAMED_CFG, launchId: "switch-l2", rewakePrompt: REWAKE });
-    getSession().fire("exit");
+    await getSession().fire("exit");
     // Respawn is live; driver resume path emits session_init again (same or new id).
-    getSession().fire("runtime_event", { kind: "session_init", sessionId: "sess-123" });
+    await getSession().fire("runtime_event", { kind: "session_init", sessionId: "sess-123" });
 
     expect(sessionsSeen).toHaveLength(2);
     expect(sessionsSeen[1]).toEqual({
@@ -270,7 +333,7 @@ describe("AgentProcessManager.switchModel", () => {
       onAgentSession: (info) => sessionsSeen.push(info),
     });
     await mgr.switchModel("a1", { runtimeConfig: NAMED_CFG, launchId: "switch-l1", rewakePrompt: REWAKE });
-    getSession().fire("runtime_event", { kind: "session_init", sessionId: "sess-new" });
+    await getSession().fire("runtime_event", { kind: "session_init", sessionId: "sess-new" });
     expect(sessionsSeen).toEqual([
       { agentId: "a1", sessionId: "sess-new", launchId: "switch-l1" },
     ]);

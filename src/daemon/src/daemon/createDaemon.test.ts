@@ -1,19 +1,29 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { EventEmitter } from "events";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createDaemon,
+  createBuiltinDaemonSessionFactory,
   createRuntimeRawLineTap,
   deriveAuditLogSubcommand,
   emitImplicitTypingStopOnSend,
   parseRuntimeRawTraceAgentIds,
 } from "./createDaemon";
-import { AgentProcessManager } from "../manager/managerRuntime";
+import {
+  AgentProcessManager,
+  type SessionFactory,
+} from "../manager/managerRuntime";
+import type {
+  AgentEvent,
+  AgentSession,
+  AgentSessionResult,
+  BuiltinBackendSpecs,
+} from "@alook/agent-driver";
 import { AgentRouter } from "../manager/agentRouter";
 import { CredentialBroker } from "../credentials/credentialProxy";
-import type { Driver } from "../types";
+import type { AgentBackend as Driver } from "../drivers/index.js";
 import type { Logger } from "../logger";
 
 const timelineSweepHarness = vi.hoisted(() => {
@@ -37,6 +47,10 @@ const timelineSweepHarness = vi.hoisted(() => {
 });
 
 const credentialProxyHarness = vi.hoisted(() => ({
+  onInboxPullStart: undefined as ((agentId: string) => unknown) | undefined,
+  onInboxPullResponse: undefined as (
+    ((agentId: string, messages: unknown[], observationToken?: unknown) => void) | undefined
+  ),
   onInboxPullObservationError: undefined as ((failure: Record<string, unknown>) => void) | undefined,
 }));
 
@@ -55,6 +69,10 @@ vi.mock("../credentials/index.js", async (importOriginal) => {
     startCredentialProxy: (
       ...args: Parameters<typeof actual.startCredentialProxy>
     ): ReturnType<typeof actual.startCredentialProxy> => {
+      credentialProxyHarness.onInboxPullStart = args[1]?.onInboxPullStart;
+      credentialProxyHarness.onInboxPullResponse = args[1]?.onInboxPullResponse as
+        | ((agentId: string, messages: unknown[], observationToken?: unknown) => void)
+        | undefined;
       credentialProxyHarness.onInboxPullObservationError = args[1]?.onInboxPullObservationError as
         | ((failure: Record<string, unknown>) => void)
         | undefined;
@@ -68,6 +86,8 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   timelineSweepHarness.reset();
+  credentialProxyHarness.onInboxPullStart = undefined;
+  credentialProxyHarness.onInboxPullResponse = undefined;
   credentialProxyHarness.onInboxPullObservationError = undefined;
   for (const dir of startupSweepDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
@@ -152,6 +172,105 @@ function fullFakeDriver(id: string): Driver {
   } as unknown as Driver;
 }
 
+type DaemonTestSession = AgentSession<BuiltinBackendSpecs, "codex">;
+
+interface DaemonFakeSession extends DaemonTestSession {
+  fire(event: string, ...args: unknown[]): Promise<void>;
+}
+
+function daemonFakeSession(options: {
+  onStart?: (input: { id: string; text: string }) => void;
+  onSend?: (input: { id: string; text: string; sequence?: number }) => void;
+  establish?: boolean;
+} = {}): DaemonFakeSession {
+  type Event = AgentEvent<BuiltinBackendSpecs, "codex">;
+  let sequence = 0;
+  const queued: Event[] = [];
+  const waiters: Array<(value: IteratorResult<Event>) => void> = [];
+  let ended = false;
+  let resolveClosed!: (result: AgentSessionResult) => void;
+  const closed = new Promise<AgentSessionResult>((resolve) => { resolveClosed = resolve; });
+  const emit = (payload: Omit<Event, "sequence" | "sessionInstanceId" | "at">) => {
+    const event = { ...payload, sequence: ++sequence, sessionInstanceId: "daemon-test", at: Date.now() } as Event;
+    const waiter = waiters.shift();
+    if (waiter) waiter({ done: false, value: event });
+    else queued.push(event);
+  };
+  const session: DaemonFakeSession = {
+    backend: "codex",
+    capabilities: {} as DaemonTestSession["capabilities"],
+    sessionInstanceId: "daemon-test",
+    events: {
+      maxBufferedBytes: 4_194_304,
+      [Symbol.asyncIterator]() {
+        return {
+          next: () => queued.length > 0
+            ? Promise.resolve({ done: false as const, value: queued.shift()! })
+            : new Promise<IteratorResult<Event>>((resolve) => waiters.push(resolve)),
+        };
+      },
+    },
+    closed,
+    async start(input) {
+      options.onStart?.(input);
+      if (options.establish !== false) {
+        await session.fire("runtime_event", { kind: "session_init", sessionId: "test-session" });
+      }
+      emit({ type: "command_accepted", commandId: input.id, turnId: "daemon-test-turn", delivery: "prompt" } as never);
+      emit({ type: "turn_started", turnId: "daemon-test-turn", commandIds: [input.id] } as never);
+      return { status: "accepted", delivery: "prompt", commandId: input.id, turnId: "daemon-test-turn" };
+    },
+    async send(input) {
+      options.onSend?.(input);
+      emit({ type: "command_accepted", commandId: input.id, turnId: "daemon-test-turn", delivery: "steer" } as never);
+      return { status: "accepted", delivery: "steer", commandId: input.id, turnId: "daemon-test-turn" };
+    },
+    async interrupt() { return { status: "not_running" }; },
+    async stop() {
+      if (!ended) {
+        ended = true;
+        const result: AgentSessionResult = { outcome: "stopped", requested: true, exitCode: null, signal: null, cleanup: { status: "released" } };
+        resolveClosed(result);
+      }
+      return { status: "accepted", requestId: "daemon-test-stop" };
+    },
+    snapshot() {
+      return { sessionInstanceId: "daemon-test", state: "working", queuedCommands: [], lastEventSequence: sequence };
+    },
+    async invokeExtension() {
+      return { ok: false, error: { category: "internal", code: "unsupported", message: "unsupported", retryable: false } };
+    },
+    async fire(event, ...args) {
+      if (event === "runtime_event") {
+        const runtime = args[0] as { kind: string; sessionId?: string; text?: string };
+        if (runtime.kind === "session_init") {
+          emit({ type: "session_started", backendSessionId: runtime.sessionId ?? "test-session" } as never);
+        } else if (runtime.kind === "turn_end") {
+          emit({ type: "turn_completed", turnId: "daemon-test-turn", commandIds: [], result: { outcome: "success", backendSessionId: runtime.sessionId } } as never);
+        } else if (runtime.kind === "text") {
+          emit({ type: "text_delta", turnId: "daemon-test-turn", text: runtime.text ?? "" } as never);
+        }
+      } else if (event === "exit") {
+        const result: AgentSessionResult = { outcome: "stopped", requested: true, exitCode: null, signal: null, cleanup: { status: "released" } };
+        ended = true;
+        resolveClosed(result);
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+    },
+  } as DaemonFakeSession;
+  return session;
+}
+
+function daemonSessionFactory(
+  options: Parameters<typeof daemonFakeSession>[0] = {},
+): SessionFactory {
+  return () => {
+    const session = daemonFakeSession(options);
+    return session;
+  };
+}
+
 function factory(sockets: FakeSocket[]) {
   return (url: string, headers: Record<string, string>) => {
     const s = new FakeSocket(url, headers);
@@ -161,6 +280,137 @@ function factory(sockets: FakeSocket[]) {
 }
 
 describe("createDaemon", () => {
+  it("opens the builtin session factory and reports host preparation failures", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "daemon-builtin-session-"));
+    try {
+      const broker = new CredentialBroker({ upstreamBaseUrl: "https://upstream.test", voucherDir: dir });
+      const ctx = {
+        workingDirectory: dir,
+        agentId: "a1",
+        standingPrompt: "",
+        prompt: "",
+        agentCliPath: process.execPath,
+        launchId: "launch-1",
+        credentialProxy: {
+          broker,
+          proxyUrl: "http://127.0.0.1:9/proxy",
+          runnerKey: "runner-test",
+          capabilities: ["send"],
+        },
+        config: {},
+      };
+      const runtimeConfig = {
+        version: 1 as const,
+        runtime: "codex" as const,
+        model: { kind: "default" as const },
+        mode: { kind: "default" as const },
+      };
+      const session = await createBuiltinDaemonSessionFactory(vi.fn())({ agentId: "a1", ctx, runtimeConfig });
+      expect(session.backend).toBe("codex");
+      await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+      await expect(createBuiltinDaemonSessionFactory()({
+        agentId: "a1",
+        ctx: { ...ctx, credentialProxy: undefined },
+        runtimeConfig,
+      })).rejects.toMatchObject({ code: "credential_proxy_required" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("starts the builtin Codex lane from a fresh nested daemon workspace", async () => {
+    const base = mkdtempSync(join(tmpdir(), "daemon-fresh-workspace-"));
+    startupSweepDirs.push(base);
+    const rawLines: string[] = [];
+    const workingDirectory = join(base, "daemon", "agent-fresh");
+    const fakeRuntime = join(base, process.platform === "win32" ? "fake-codex.cmd" : "fake-codex");
+    const fakeModule = join(base, "fake-codex.mjs");
+    writeFileSync(fakeModule, `
+import { createInterface } from "node:readline";
+const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
+for await (const line of createInterface({ input: process.stdin })) {
+  const message = JSON.parse(line);
+  if (message.method === "initialize") {
+    send({ jsonrpc: "2.0", id: message.id, result: {} });
+  } else if (message.method === "thread/start") {
+    send({ jsonrpc: "2.0", id: message.id, result: { thread: { id: "fresh-thread" } } });
+  } else if (message.method === "turn/start") {
+    send({ jsonrpc: "2.0", method: "turn/started", params: { threadId: "fresh-thread", turn: { id: "fresh-turn" } } });
+  }
+}
+`);
+    if (process.platform === "win32") {
+      writeFileSync(fakeRuntime, `@node "%~dp0\\fake-codex.mjs" %*\r\n`);
+    } else {
+      writeFileSync(fakeRuntime, `#!/usr/bin/env node\nawait import(${JSON.stringify(fakeModule)});\n`);
+      chmodSync(fakeRuntime, 0o755);
+    }
+
+    const broker = new CredentialBroker({ upstreamBaseUrl: "https://upstream.test", voucherDir: base });
+    const ctx = {
+      workingDirectory,
+      agentId: "agent-fresh",
+      standingPrompt: "Fresh daemon instructions.",
+      prompt: "",
+      agentCliPath: process.execPath,
+      launchId: "fresh-launch",
+      credentialProxy: {
+        broker,
+        proxyUrl: "http://127.0.0.1:9/proxy",
+        runnerKey: "runner-fresh",
+        capabilities: ["send"],
+      },
+      config: {},
+    };
+    const runtimeConfig = {
+      version: 1 as const,
+      runtime: "codex" as const,
+      model: { kind: "default" as const },
+      mode: { kind: "default" as const },
+      command: fakeRuntime,
+    };
+
+    const session = await createBuiltinDaemonSessionFactory((_, line) => rawLines.push(line))({
+      agentId: "agent-fresh",
+      ctx,
+      runtimeConfig,
+    });
+    const events: AgentEvent<BuiltinBackendSpecs, "codex">[] = [];
+    const collectEvents = (async () => {
+      for await (const event of session.events) events.push(event);
+    })();
+    try {
+      const started = session.start({ id: "first", kind: "user", text: "hello" });
+      const admission = await new Promise<Awaited<typeof started>>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error(
+            `fresh Codex admission timed out; raw stdout: ${JSON.stringify(rawLines)}; events: ${JSON.stringify(events)}`,
+          ));
+        }, 15_000);
+        void started.then(
+          (result) => {
+            clearTimeout(timer);
+            resolve(result);
+          },
+          (error: unknown) => {
+            clearTimeout(timer);
+            reject(error);
+          },
+        );
+      });
+      expect(admission).toMatchObject({ status: "accepted" });
+      expect(readFileSync(join(workingDirectory, "AGENTS.md"), "utf8")).toBe("Fresh daemon instructions.");
+      expect(readFileSync(join(workingDirectory, "CLAUDE.md"), "utf8")).toBe("Fresh daemon instructions.");
+    } finally {
+      await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+      await session.closed;
+      await collectEvents;
+      // `session.closed` is a teardown ownership boundary: the spawned shell and
+      // every runtime descendant must have released the workspace by this point.
+      rmSync(base, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it("routes local reminder expiry through the manager and cancels on exact-scope wake/stop/removal/daemon stop", async () => {
     const realFetch = globalThis.fetch;
     const sockets: FakeSocket[] = [];
@@ -194,6 +444,7 @@ describe("createDaemon", () => {
       webSocketFactory: factory(sockets) as never,
       runtimeReport: [{ id: "mock" }],
       driverFor: () => fullFakeDriver("mock"),
+      sessionFactory: daemonSessionFactory(),
       capabilities: ["send"],
       messageReminderClock: {
         now: () => now,
@@ -748,7 +999,7 @@ describe("createDaemon — logging", () => {
     global.fetch = originalFetch;
   });
 
-  it("asks a woken agent to read unread messages without requiring a reply", async () => {
+  it("asks a woken agent to pull unread messages without exposing the selected channel", async () => {
     global.fetch = vi.fn(async (url: string | URL) => {
       const href = String(url);
       if (href.includes("/enroll-agent")) {
@@ -758,15 +1009,7 @@ describe("createDaemon — logging", () => {
     }) as unknown as typeof fetch;
 
     let spawnedPrompt = "";
-    const driver: Driver = {
-      ...fullFakeDriver("codex"),
-      spawn: async (ctx) => {
-        spawnedPrompt = ctx.prompt;
-        const proc = new EventEmitter() as unknown as { kill: () => void };
-        proc.kill = () => { };
-        return { process: proc as never };
-      },
-    } as unknown as Driver;
+    const driver = fullFakeDriver("codex");
 
     const sockets: FakeSocket[] = [];
     const daemon = await createDaemon({
@@ -776,6 +1019,9 @@ describe("createDaemon — logging", () => {
       webSocketFactory: factory(sockets) as any,
       runtimeReport: [{ id: "codex" }],
       driverFor: () => driver,
+      sessionFactory: daemonSessionFactory({
+        onStart: ({ text }) => { spawnedPrompt = text; },
+      }),
       capabilities: [],
     });
     sockets[0].emit("open");
@@ -797,10 +1043,98 @@ describe("createDaemon — logging", () => {
     );
     await new Promise((r) => setTimeout(r, 20));
 
+    expect(spawnedPrompt).toContain("You have unread messages.");
     expect(spawnedPrompt).toContain("Use `alook inbox pull` to read your messages.");
+    expect(spawnedPrompt).not.toContain("/demo#1234/general");
     expect(spawnedPrompt).not.toContain("message send");
 
     await daemon.stop();
+  });
+
+  it("keeps every working unread covered while coalescing wake bursts into one real session delivery", async () => {
+    global.fetch = vi.fn(async (url: string | URL) => {
+      const href = String(url);
+      if (href.includes("/enroll-agent")) {
+        return new Response(JSON.stringify({ runnerKey: "rk_working_coverage" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ bots: [] }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const channel = "/demo#1234/general";
+    const starts: Array<{ id: string; text: string }> = [];
+    const sends: Array<{ id: string; text: string; sequence?: number }> = [];
+    const sockets: FakeSocket[] = [];
+    const daemon = await createDaemon({
+      machineKey: "cmk_working_coverage",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [{ id: "codex" }],
+      driverFor: () => fullFakeDriver("codex"),
+      sessionFactory: daemonSessionFactory({
+        onStart: (input) => starts.push(input),
+        onSend: (input) => sends.push(input),
+      }),
+      capabilities: [],
+    });
+    const wake = (seq: number) => sockets[0].emit("message", JSON.stringify({
+      type: "agent:wake",
+      agentId: "bot_working",
+      config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
+      launchId: `launch_${seq}`,
+      unreadNotice: { kind: "unread_notice", channel, latestSeq: seq },
+    }));
+    const wakeAcked = (seq: number) => sockets[0].sent.map((frame) => JSON.parse(frame)).some(
+      (frame) => frame.type === "agent_wake_ack" && frame.launchId === `launch_${seq}` && frame.status === "ok",
+    );
+    const observePull = (seq: number) => {
+      const observationToken = credentialProxyHarness.onInboxPullStart?.("bot_working");
+      credentialProxyHarness.onInboxPullResponse?.(
+        "bot_working",
+        [{ channel, seq: `#${seq}` }],
+        observationToken,
+      );
+    };
+
+    try {
+      sockets[0].emit("open");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      sockets[0].emit(
+        "message",
+        JSON.stringify({
+          type: "bot:added",
+          botId: "bot_working",
+          name: "Working Bot",
+          discriminator: "0001",
+        }),
+      );
+
+      wake(1);
+      await vi.waitFor(() => expect(starts).toHaveLength(1));
+      await vi.waitFor(() => expect(wakeAcked(1)).toBe(true));
+      observePull(1);
+
+      for (let seq = 2; seq <= 6; seq++) wake(seq);
+      await vi.waitFor(() => expect(wakeAcked(6)).toBe(true));
+      expect(sends).toHaveLength(1);
+      expect(sends[0]).toMatchObject({ sequence: 2 });
+
+      observePull(6);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(sends).toHaveLength(1);
+
+      wake(7);
+      wake(8);
+      await vi.waitFor(() => expect(wakeAcked(8)).toBe(true));
+      expect(sends).toHaveLength(2);
+      expect(sends[1]).toMatchObject({ sequence: 7 });
+
+      observePull(7);
+      await vi.waitFor(() => expect(sends).toHaveLength(3));
+      expect(sends[2]).toMatchObject({ sequence: 8 });
+    } finally {
+      await daemon.stop();
+    }
   });
 
   it("retries a later wake after handshake_timeout instead of globally disabling the runtime", async () => {
@@ -812,15 +1146,12 @@ describe("createDaemon — logging", () => {
       return new Response(JSON.stringify({ bots: [] }), { status: 200 });
     }) as unknown as typeof fetch;
 
-    const spawn = vi.fn(async () => {
-      const proc = new EventEmitter() as unknown as { kill: () => void };
-      proc.kill = () => {};
-      return { process: proc as never };
-    });
-    const driver = {
-      ...fullFakeDriver("cursor"),
-      spawn,
-    } as unknown as Driver;
+    const spawn = vi.fn();
+    const driver = fullFakeDriver("cursor");
+    const sessionFactory: SessionFactory = () => {
+      spawn();
+      return daemonFakeSession({ establish: false });
+    };
     const sockets: FakeSocket[] = [];
     const logger = stubLogger();
     const daemon = await createDaemon({
@@ -830,6 +1161,7 @@ describe("createDaemon — logging", () => {
       webSocketFactory: factory(sockets) as any,
       runtimeReport: [{ id: "cursor" }],
       driverFor: () => driver,
+      sessionFactory,
       capabilities: [],
       handshakeTimeoutMs: 10,
       logger,
@@ -946,13 +1278,7 @@ describe("createDaemon — logging", () => {
     }) as unknown as typeof fetch;
 
     const seenConfigs: Array<{ agentName?: string; agentHandle?: string }> = [];
-    const driver: Driver = {
-      ...fullFakeDriver("codex"),
-      buildSystemPrompt: (config: { agentName?: string; agentHandle?: string }) => {
-        seenConfigs.push(config);
-        return "";
-      },
-    } as unknown as Driver;
+    const driver = fullFakeDriver("codex");
 
     const sockets: FakeSocket[] = [];
     const daemon = await createDaemon({
@@ -962,6 +1288,11 @@ describe("createDaemon — logging", () => {
       webSocketFactory: factory(sockets) as any,
       runtimeReport: [{ id: "codex" }],
       driverFor: () => driver,
+      sessionFactory: (hooks) => {
+        const { ctx } = hooks;
+        seenConfigs.push(ctx.config);
+        return daemonFakeSession();
+      },
       capabilities: [],
     });
     sockets[0].emit("open");
@@ -1206,7 +1537,7 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
     // A persistent, stdin-capable driver stays `running` after session_init
     // without emitting turn_end — so the agent sits in a STEADY working state,
     // which is exactly the window 2b exercises.
-    const emitters: Array<EventEmitter> = [];
+    const emitters: DaemonFakeSession[] = [];
     const persistentDriver = {
       id: "codex",
       lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
@@ -1234,6 +1565,11 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
       webSocketFactory: factory(sockets) as any,
       runtimeReport: [{ id: "codex" }],
       driverFor: () => persistentDriver,
+      sessionFactory: () => {
+        const session = daemonFakeSession({ establish: false });
+        emitters.push(session);
+        return session;
+      },
       capabilities: [],
       tickIntervalMs: 1_000_000, // park the stall/hibernation loop out of the way
     });
@@ -1253,7 +1589,7 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
     // reaches `running` (turnActive) — a steady working state.
     await vi.advanceTimersByTimeAsync(50);
     expect(emitters.length).toBeGreaterThan(0);
-    emitters[0].emit("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await emitters[0].fire("runtime_event", { kind: "session_init", sessionId: "s1" });
     await vi.advanceTimersByTimeAsync(1);
 
     const activityFrames = () =>
@@ -1420,18 +1756,7 @@ describe("AgentProcessManager.auditContext", () => {
 
   it("reports launchId once register() has stashed one, and sessionId once a runtime session_init has landed", async () => {
     const { AgentProcessManager } = await import("../manager/managerRuntime");
-    const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
-    const session = {
-      on: (event: string, cb: (...args: unknown[]) => void) => {
-        const arr = listeners.get(event) ?? [];
-        arr.push(cb);
-        listeners.set(event, arr);
-      },
-      start: () => new Promise<void>(() => { }),
-      send: () => { },
-      stop: () => { },
-      get currentSessionId() { return null; },
-    };
+    const session = daemonFakeSession({ establish: false });
     const mgr = new AgentProcessManager({
       driverFor: () => ({
         id: "codex",
@@ -1440,13 +1765,13 @@ describe("AgentProcessManager.auditContext", () => {
         busyDeliveryMode: "none",
       } as never),
       baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", config: {} }) as never,
-      sessionFactory: () => session as never,
+      sessionFactory: () => session,
     });
     mgr.register("a1", { launchId: "l_XYZ" });
     expect(mgr.auditContext("a1")).toEqual({ sessionId: null, launchId: "l_XYZ" });
 
     mgr.deliver("a1", { seq: 1, text: "hi" } as never);
-    for (const cb of listeners.get("runtime_event") ?? []) cb({ kind: "session_init", sessionId: "s_ABC" });
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "s_ABC" });
     expect(mgr.auditContext("a1")).toEqual({ sessionId: "s_ABC", launchId: "l_XYZ" });
   });
 });

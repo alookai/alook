@@ -70,7 +70,7 @@ describe("WebSocketDurableObject", () => {
           })
           store.set("community-machine-handle", { userId: "u_1", machineId: "cm_1" })
           store.set("community-machine-runtime-error", {
-            requested: "gemini",
+            requested: "unknown-runtime",
             available: [],
             at: "2026-07-06T00:00:00.000Z",
           })

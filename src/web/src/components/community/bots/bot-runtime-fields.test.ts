@@ -25,7 +25,7 @@ import { BotRuntimeFields } from "./bot-runtime-fields"
 const OPTIONS = [
   { id: "claude", unhealthy: true },
   { id: "codex", unhealthy: false },
-  { id: "gemini", unhealthy: true },
+  { id: "cursor", unhealthy: true },
 ]
 
 function renderFields(overrides: Partial<React.ComponentProps<typeof BotRuntimeFields>> = {}) {
@@ -58,7 +58,7 @@ describe("BotRuntimeFields", () => {
     const { renderer } = renderFields()
     expect(radio(renderer, "claude").props.disabled).toBe(false)
     expect(radio(renderer, "codex").props.disabled).toBe(false)
-    expect(radio(renderer, "gemini").props.disabled).toBe(true)
+    expect(radio(renderer, "cursor").props.disabled).toBe(true)
   })
 
   it("changes runtime and clears the previous provider model together", () => {

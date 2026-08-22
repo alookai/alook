@@ -110,11 +110,11 @@ describe("MachineRuntimes", () => {
         { id: "codex", status: "unhealthy" as const },
         { id: "claude" },
         { id: "pi", status: "unhealthy" as const },
-        { id: "gemini" },
+        { id: "cursor" },
       ],
     })
     const chips = collectChips(tree)
-    expect(chips.map((c) => c.key)).toEqual([".$claude", ".$gemini", ".$codex", ".$pi"])
+    expect(chips.map((c) => c.key)).toEqual([".$claude", ".$cursor", ".$codex", ".$pi"])
   })
 
   it("unhealthy without lastError falls back to a generic 'Unavailable — check daemon logs' tooltip", () => {

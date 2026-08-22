@@ -69,7 +69,7 @@ describe("CommunityMachineRuntimeSchema", () => {
   });
 
   it("rejects an id with a disallowed character (colon)", () => {
-    expect(() => CommunityMachineRuntimeSchema.parse({ id: "kimi:sdk" })).toThrow();
+    expect(() => CommunityMachineRuntimeSchema.parse({ id: "invalid:runtime" })).toThrow();
   });
 
   it("accepts the full charset — alnum + `._@/-`", () => {

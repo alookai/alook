@@ -3,6 +3,7 @@ import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
 const workflowRoot = resolve(import.meta.dirname, "../../.github/workflows")
+const repositoryRoot = resolve(import.meta.dirname, "../..")
 function normalizeWorkflow(text: string): string {
   return text.replace(/\r\n/g, "\n")
 }
@@ -45,6 +46,16 @@ const desktopUpdateRoute = readFileSync(
 )
 const publishWorkflows = ["publish-app.yml", "publish-cli.yml", "publish-daemon.yml"]
   .map((name) => normalizeWorkflow(readFileSync(resolve(workflowRoot, name), "utf8")))
+const publishDaemonWorkflow = normalizeWorkflow(
+  readFileSync(resolve(workflowRoot, "publish-daemon.yml"), "utf8"),
+)
+const agentDriverPackage = JSON.parse(
+  readFileSync(resolve(repositoryRoot, "src/daemon/agent-driver/package.json"), "utf8"),
+) as { private?: boolean; publishConfig?: unknown }
+const daemonPackage = JSON.parse(
+  readFileSync(resolve(repositoryRoot, "src/daemon/package.json"), "utf8"),
+) as { devDependencies?: Record<string, string> }
+const workspaceManifest = readFileSync(resolve(repositoryRoot, "pnpm-workspace.yaml"), "utf8")
 
 function ciJob(name: string): string {
   const start = ciWorkflow.indexOf(`\n  ${name}:\n`)
@@ -98,9 +109,66 @@ describe("Bun workflow setup", () => {
   })
 })
 
+describe("Private agent driver package", () => {
+  it("remains an independent private workspace dependency of the daemon", () => {
+    expect(agentDriverPackage.private).toBe(true)
+    expect(agentDriverPackage).not.toHaveProperty("publishConfig")
+    expect(workspaceManifest).toContain('"src/daemon/agent-driver"')
+    expect(daemonPackage.devDependencies?.["@alook/agent-driver"]).toBe("workspace:*")
+  })
+
+  it("cannot be published by a repository workflow", () => {
+    expect(existsSync(resolve(workflowRoot, "publish-agent-driver.yml"))).toBe(false)
+  })
+
+  it("builds the workspace driver before a clean daemon publish build", () => {
+    const driverBuild = publishDaemonWorkflow.indexOf("pnpm -C src/daemon/agent-driver run build")
+    const daemonBuild = publishDaemonWorkflow.indexOf("pnpm -C src/daemon run build")
+    expect(driverBuild).toBeGreaterThan(0)
+    expect(daemonBuild).toBeGreaterThan(driverBuild)
+  })
+})
+
 describe("CI test budgets", () => {
   it("gives the slower Windows workspace suite enough job time", () => {
     expect(ciJob("test-windows")).toContain("timeout-minutes: 15")
+  })
+
+  it("runs Windows process-authority and full driver fixtures in isolation before the daemon suite", () => {
+    const windows = ciJob("test-windows")
+    const processAuthority = windows.indexOf(
+      "pnpm --filter @alook/agent-driver exec vitest run src/internal/killTree.test.ts",
+    )
+    const driver = windows.indexOf(
+      "pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism --coverage --coverage.reporter=json --coverage.reporter=text",
+    )
+    const coverageUpload = windows.indexOf("files: ./src/daemon/agent-driver/coverage/coverage-final.json")
+    const focusedAdmission = windows.indexOf(
+      "pnpm --filter @alook/daemon exec vitest run src/daemon/createDaemon.test.ts",
+    )
+    const daemon = windows.indexOf("pnpm --filter @alook/daemon test")
+    expect(processAuthority).toBeGreaterThan(0)
+    expect(driver).toBeGreaterThan(processAuthority)
+    expect(coverageUpload).toBeGreaterThan(driver)
+    expect(focusedAdmission).toBeGreaterThan(coverageUpload)
+    expect(daemon).toBeGreaterThan(focusedAdmission)
+  })
+
+  it("uploads the Windows driver report without accidentally discovering unrelated files", () => {
+    const windows = ciJob("test-windows")
+    expect(windows).toContain("disable_search: true")
+    expect(windows).toContain("name: windows-agent-driver")
+    expect(windows).toContain("fail_ci_if_error: true")
+  })
+
+  it("does not rerun Windows process-bearing packages inside the Turbo workspace step", () => {
+    const windows = ciJob("test-windows")
+    expect(windows).toContain(
+      "run: pnpm turbo run test --filter='!@alook/daemon' --filter='!@alook/agent-driver'",
+    )
+    expect(windows).toContain(
+      "run: pnpm turbo run test --affected --filter='!@alook/daemon' --filter='!@alook/agent-driver'",
+    )
   })
 })
 
@@ -168,12 +236,16 @@ describe("Turbo CI execution", () => {
     expect(ciJob("quality")).toContain("run: pnpm typecheck")
     expect(ciJob("quality")).toContain("run: pnpm lint")
     expect(ciJob("knip")).toContain("run: pnpm knip")
-    for (const job of ["test-linux", "test-windows"]) {
-      const definition = ciJob(job)
-      expect(definition).toContain("run: pnpm turbo run test --filter=@alook/daemon")
-      expect(definition).toContain("run: pnpm turbo run test --filter='!@alook/daemon'")
+    const linux = ciJob("test-linux")
+    expect(linux).toContain("run: pnpm turbo run test --filter=@alook/daemon")
+    const windows = ciJob("test-windows")
+    expect(windows).toContain("run: pnpm --filter @alook/daemon test")
+    expect(linux).toContain("run: pnpm turbo run test --filter='!@alook/daemon'")
+    expect(windows).toContain(
+      "run: pnpm turbo run test --filter='!@alook/daemon' --filter='!@alook/agent-driver'",
+    )
+    for (const definition of [linux, windows])
       expect(definition.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(2)
-    }
     expect(ciJob("build")).toContain(
       "run: pnpm build --filter=@alook/shared --filter=@alook/web --filter=@alook/cli --filter=@alook/email-worker --filter=@alook/ws-do --filter=@alook/wake-worker",
     )

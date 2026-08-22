@@ -30,17 +30,18 @@ import { writeStatusFile } from "../util/statusFile.js";
 import { WsControlChannel } from "../server/wsControlChannel.js";
 import { CredentialBroker, startCredentialProxy } from "../credentials/index.js";
 import { AgentProcessManager, AgentRouter, createTypingScopeTracker } from "../manager/index.js";
-import type { ManagerTraceRecord, TypingScopeTracker } from "../manager/index.js";
+import type { ManagerTraceRecord, SessionFactory, TypingScopeTracker } from "../manager/index.js";
 import { UnknownBotError, BotEnrollFailedError, UnknownRuntimeError } from "../manager/agentRouter.js";
 import { createTimelineRecorder, sweepTimelineHistory } from "../timeline/index.js";
 import { resolveAlookCliPathWithFallback } from "../discovery.js";
-import { createPiSdkDriverDeps } from "../drivers/piSdkDeps.js";
 import { createLogger, type Logger } from "../logger.js";
-import type { Driver, LaunchContext } from "../types.js";
+import type { AgentBackend } from "../drivers/index.js";
+import type { HostLaunchContext } from "../manager/hostContext.js";
 import type { RuntimeConfig } from "../runtimeConfig.js";
-import type { UnreadNotice, HostCommand } from "../server/contract.js";
+import type { HostCommand } from "../server/contract.js";
 import { formatHandle } from "@alook/shared/lib/discriminator";
 import type { DiagnosticCollectCommand } from "@alook/shared";
+import { createBuiltinAgentDriverSdk } from "@alook/agent-driver/host";
 import {
   createDiagnosticsCommandListener,
   type DiagnosticFailureReport,
@@ -50,6 +51,8 @@ import {
   MessageReminderScheduler,
   type MessageReminderSchedulerOptions,
 } from "./messageReminderScheduler.js";
+import { createDaemonAgentDriverHost } from "../manager/agentDriverHost.js";
+import { toAgentBackendSelection } from "../runtimeConfig.js";
 
 // Cold-start warmup backoff schedule (ms).
 const WARMUP_BACKOFF_MS = [250, 500, 1000, 2000, 4000] as const;
@@ -261,7 +264,9 @@ export interface CreateDaemonOptions {
    * `agent:wake`) is passed so callers can dispatch on the actual runtime
    * the agent asked for; tests may omit it and hand back a stub driver.
    */
-  driverFor: (agentId: string, runtimeConfig?: RuntimeConfig) => Driver;
+  driverFor: (agentId: string, runtimeConfig?: RuntimeConfig) => AgentBackend;
+  /** Public-session construction seam used by deterministic daemon tests. */
+  sessionFactory?: SessionFactory;
   /** Default capability set granted to each agent's voucher. */
   capabilities: string[];
   /** Working directory base for agent launch contexts. */
@@ -339,6 +344,32 @@ export interface RunningDaemon {
   onOpen(hook: () => void): void;
   proxyUrl: string;
   stop(): Promise<void>;
+}
+
+export function createBuiltinDaemonSessionFactory(
+  onRuntimeRawLine?: (agentId: string, line: string) => void,
+): SessionFactory {
+  return async ({ ctx, runtimeConfig }) => {
+    const selected = toAgentBackendSelection(runtimeConfig);
+    const sdk = createBuiltinAgentDriverSdk({
+      host: createDaemonAgentDriverHost(
+        ctx,
+        onRuntimeRawLine?.bind(null, ctx.agentId),
+      ),
+    });
+    const opened = await sdk.open({
+      backend: selected.backend,
+      launch: {
+        workingDirectory: ctx.workingDirectory,
+        instructions: { format: "markdown", content: ctx.standingPrompt },
+        resumeSessionId: ctx.config.sessionId,
+        launchId: ctx.launchId ?? ctx.agentId,
+      },
+      config: selected.config as never,
+    });
+    if (!opened.ok) throw Object.assign(new Error(opened.error.message), { code: opened.error.code });
+    return opened.session;
+  };
 }
 
 /**
@@ -772,6 +803,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       }
       return opts.driverFor(agentId, runtimeConfig);
     },
+    sessionFactory: opts.sessionFactory ?? createBuiltinDaemonSessionFactory(onRuntimeRawLine),
     onRuntimeSpawnFailed: (runtimeId, reason) => {
       router?.recordRuntimeSpawnFailure(runtimeId, reason);
     },
@@ -800,8 +832,8 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
           ...(botMeta?.ownerName && botMeta?.ownerDiscriminator
             ? { ownerHandle: `@${formatHandle(botMeta.ownerName, botMeta.ownerDiscriminator)}` }
             : {}),
-        } as LaunchContext["config"],
-      } as Omit<LaunchContext, "prompt" | "standingPrompt"> & { config?: LaunchContext["config"] };
+        } as HostLaunchContext["config"],
+      } as Omit<HostLaunchContext, "prompt" | "standingPrompt"> & { config?: HostLaunchContext["config"] };
     },
     ...(opts.handshakeTimeoutMs !== undefined
       ? { handshakeTimeoutMs: opts.handshakeTimeoutMs }
@@ -848,9 +880,6 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     ...(diagnosticTrace.onFsmTransition
       ? { onFsmTransition: diagnosticTrace.onFsmTransition }
       : {}),
-    // Only the "pi" runtime declares `Driver.createSession` today (in-process
-    // SDK, no child process) — this is only ever consulted for that case.
-    sdkDriverDepsFor: (ctx) => createPiSdkDriverDeps(ctx),
     timeline,
     wakePromptFooter: "Use `alook inbox pull` to read your messages.",
     stampWakePromptTime: true,
@@ -923,8 +952,6 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       }
       await enrollAgent(agentId);
     },
-    formatUnreadNoticeText: (notice: UnreadNotice) =>
-      `You have unread messages in channel ${notice.channel}.`,
   });
 
   // Machine lifecycle commands are claimed before diagnostics, bot observers,

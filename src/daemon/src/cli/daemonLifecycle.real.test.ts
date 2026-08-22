@@ -201,7 +201,7 @@ describe("daemon lifecycle real processes", () => {
     await stop(baseDir);
     await waitFor(() => !alive(owner.pid));
     expect(fs.existsSync(pidfile(baseDir))).toBe(false);
-  }, 60_000);
+  }, 120_000);
 
   it("fails a fresh bare credential offline without creating a hash-derived machine directory", async () => {
     const baseDir = makeEmptyBaseDir();

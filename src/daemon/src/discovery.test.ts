@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -10,11 +10,9 @@ import {
   detectRuntimes,
   getAvailableRuntimes,
 } from "./discovery";
-import { listRuntimeIds, getDriver } from "./drivers/index";
+import * as drivers from "./drivers/index";
 
-// The advertised (selectable) set — kept as a policy in discovery.ts, so assert
-// against the literal expectation here rather than importing a private const.
-const EXPECTED_SELECTABLE = ["claude", "codex", "opencode", "pi", "cursor"];
+const EXPECTED_RUNTIMES = ["claude", "codex", "cursor", "opencode", "pi"];
 
 const tmpDirs: string[] = [];
 function mkTmp(): string {
@@ -23,6 +21,7 @@ function mkTmp(): string {
   return d;
 }
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const d of tmpDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
 });
 
@@ -139,7 +138,7 @@ describe("resolveAlookCliPathWithFallback", () => {
 
 // `detectRuntimes()` probes every registered runtime by resolving its binary
 // on PATH (a spawned subprocess per runtime — `which` on POSIX, `where` on
-// Windows). Even a fast per-spawn cost adds up across ~9 runtimes probed
+// Windows). Even a fast per-spawn cost adds up across the runtimes probed
 // sequentially, so share ONE probe across all assertions in this describe
 // block (via `beforeAll`) instead of re-running it per `it()`.
 describe("detectRuntimes", () => {
@@ -176,28 +175,38 @@ describe("detectRuntimes", () => {
     }
   });
 
-  it("advertises ONLY the selectable runtimes — hidden ones are not offered", () => {
+  it("advertises exactly the five supported runtimes", () => {
     const advertised = runtimes.map((r) => r.id).sort();
-    expect(advertised).toEqual([...EXPECTED_SELECTABLE].sort());
-    // The hidden drivers exist in the registry but must not be advertised.
-    for (const hidden of ["antigravity", "copilot", "gemini", "kimi"]) {
-      expect(advertised).not.toContain(hidden);
-    }
+    expect(advertised).toEqual([...EXPECTED_RUNTIMES].sort());
+  });
+
+  it("reports an explicit unhealthy probe result", async () => {
+    vi.spyOn(drivers, "getDriver").mockReturnValue({
+      probe: async () => ({ status: "unhealthy", error: { code: "missing_binary", message: "missing" } }),
+    } as never);
+    const result = await detectRuntimes();
+    expect(result).toHaveLength(EXPECTED_RUNTIMES.length);
+    expect(result[0]).toMatchObject({ status: "unhealthy", lastError: "missing_binary" });
+  });
+
+  it("reports an explicit healthy probe result with its version", async () => {
+    vi.spyOn(drivers, "getDriver").mockReturnValue({
+      probe: async () => ({ status: "healthy", version: "9.8.7" }),
+    } as never);
+    const result = await detectRuntimes();
+    expect(result).toHaveLength(EXPECTED_RUNTIMES.length);
+    expect(result[0]).toEqual({ id: EXPECTED_RUNTIMES[0], status: "healthy", version: "9.8.7" });
   });
 });
 
-describe("driver allowlist (hide, not delete)", () => {
-  it("the advertised set is a strict subset of the full registry", () => {
-    const all = listRuntimeIds();
-    for (const id of EXPECTED_SELECTABLE) expect(all).toContain(id);
-    expect(EXPECTED_SELECTABLE.length).toBeLessThan(all.length);
+describe("driver registry", () => {
+  it("contains exactly the five supported runtimes", () => {
+    expect(drivers.listRuntimeIds().slice().sort()).toEqual([...EXPECTED_RUNTIMES].sort());
   });
 
-  it("getDriver STILL resolves a hidden runtime — existing bots on it keep working on resume", () => {
-    // The whole point of hide-not-delete: a bot created on gemini/kimi/etc.
-    // before the shrink must still get a driver when it wakes.
-    for (const hidden of ["antigravity", "copilot", "gemini", "kimi"]) {
-      expect(() => getDriver(hidden)).not.toThrow();
+  it("rejects removed and unknown runtimes", () => {
+    for (const removed of ["antigravity", "copilot", "gemini", "kimi", "unknown-runtime"]) {
+      expect(() => drivers.getDriver(removed)).toThrow(/Unknown runtime/);
     }
   });
 });

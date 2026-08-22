@@ -1,4 +1,5 @@
 import type { LogLevel } from "../logger.js";
+import { scrubAgentDriverDiagnosticText } from "@alook/agent-driver/host";
 
 type FieldRule =
   | { type: "string"; maxChars: number; values?: readonly string[]; scrub?: true; nullable?: true }
@@ -102,13 +103,7 @@ function boundedString(value: unknown, maxChars: number): value is string {
 }
 
 export function scrubDiagnosticText(value: string): string {
-  let scrubbed = value
-    .replace(/\b(?:cmk|cmt|crk)_[A-Za-z0-9_-]+\b/g, "[redacted-token]")
-    .replace(/Authorization\s*:\s*Bearer\s+[^\s]+/gi, "Authorization: Bearer [redacted]")
-    .replace(/\bvoucher\s*=\s*[^\s]+/gi, "voucher=[redacted]")
-    .replace(/\\\\[^\\\s]+\\[^\s]+/g, "[redacted-path]")
-    .replace(/\b[A-Za-z]:\\(?:[^\\\s]+\\)*[^\s]*/g, "[redacted-path]")
-    .replace(/(?<![A-Za-z0-9:/])\/(?:Users|home|tmp|var|etc|opt|private|usr|Library|Volumes|Applications|root|run|srv|mnt)(?:\/[^\s]*)?/g, "[redacted-path]");
+  let scrubbed = scrubAgentDriverDiagnosticText(value);
   const encoded = Buffer.from(scrubbed, "utf8");
   if (encoded.byteLength > 65_536) {
     let bytes = 0;
@@ -169,10 +164,12 @@ export function projectDaemonLogRow(value: unknown, targetAgentId: string): Reco
   };
 }
 
-const MANAGER_EVENTS = ["register", "wake", "spawned", "session", "progress", "turn_end", "exit", "tick", "reset_session", "begin_reset", "rewake_after_reset", "runtime_signal"] as const;
+const MANAGER_EVENTS = ["register", "wake", "spawned", "session", "root_work", "turn_end", "exit", "tick", "reset_session", "begin_reset", "rewake_after_reset", "runtime_signal", "admission_started", "admission_settled"] as const;
 const MANAGER_EFFECTS = ["spawn", "send", "stop", "terminate_stalled", "force_exit", "gated_hold"] as const;
 const AGENT_STATUSES = ["idle", "starting", "running", "stopping"] as const;
-const APM_PHASES = ["idle", "tool_wait", "tool_boundary", "assistant_continuation", "compacting", "reviewing", "error"] as const;
+const DELIVERY_PHASES = ["idle", "admission_wait", "steering", "next_turn_queued", "compacting", "reviewing", "tool_wait", "working"] as const;
+const RESUME_OUTCOMES = ["not_requested", "pending", "resumed", "reset_required", "failed"] as const;
+const TERMINAL_OWNER_KINDS = ["transport_request", "vendor_message", "prompt_invocation", "lane_generation"] as const;
 const TERMINATION_CAUSES = ["runtime_error", "killed_stalled", "other"] as const;
 const SPAWN_FAILURE_REASONS = ["ENOENT", "handshake_timeout", "pre_handshake_exit", "spawn_threw", "other"] as const;
 const TERMINATION_SEMANTICS = ["killed_stalled", "idle_stop", "force_exit", "other"] as const;
@@ -189,6 +186,13 @@ function copyInteger(row: Record<string, unknown>, output: Record<string, unknow
   if (row[key] === null && options.nullable) { output[key] = null; return true; }
   if (!safeInteger(row[key], options.min ?? 0)) return false;
   output[key] = row[key];
+  return true;
+}
+
+function copyFiniteNumber(row: Record<string, unknown>, output: Record<string, unknown>, key: string): boolean {
+  const value = row[key];
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return false;
+  output[key] = value;
   return true;
 }
 
@@ -222,8 +226,8 @@ function projectFsm(row: Record<string, unknown>, targetAgentId: string): Record
   if (!output) return null;
   const event = enumValue(row.event, MANAGER_EVENTS);
   const status = enumValue(row.status, AGENT_STATUSES);
-  const apmPhase = enumValue(row.apmPhase, APM_PHASES);
-  if (!event || !status || !apmPhase || typeof row.turnActive !== "boolean" || typeof row.resetting !== "boolean") return null;
+  const deliveryPhase = enumValue(row.deliveryPhase, DELIVERY_PHASES);
+  if (!event || !status || !deliveryPhase || typeof row.turnActive !== "boolean" || typeof row.resetting !== "boolean") return null;
   Object.assign(output, { event, status, turnActive: row.turnActive });
   if (!copyInteger(row, output, "inbox")
     || !copyInteger(row, output, "lastDeliverAt", { nullable: true })
@@ -232,11 +236,32 @@ function projectFsm(row: Record<string, unknown>, targetAgentId: string): Record
   output.resetting = row.resetting;
   if (!copyInteger(row, output, "resettingSince", { nullable: true })
     || !copyInteger(row, output, "stoppingSince", { nullable: true })) return null;
-  output.apmPhase = apmPhase;
+  output.deliveryPhase = deliveryPhase;
   if (!copyInteger(row, output, "sinceProgressMs")
     || !copyInteger(row, output, "sinceDeliverMs", { nullable: true })
     || !copyInteger(row, output, "sinceStoppingMs", { nullable: true })
     || !projectOptionalSpanMetadata(row, output)) return null;
+
+  const metricKeys = [
+    "physicalOpenCount",
+    "turnCount",
+    "commandAdmissionCount",
+    "commandAdmissionLatencyTotalMs",
+    "queueDwellCount",
+    "queueDwellTotalMs",
+    "sseReconnectCount",
+  ] as const;
+  const hasMetrics = metricKeys.some((key) => key in row || row[key] !== undefined)
+    || "resumeOutcome" in row
+    || "terminalOwnerKind" in row;
+  if (hasMetrics) {
+    if (!metricKeys.every((key) => copyFiniteNumber(row, output, key))) return null;
+    const resumeOutcome = enumValue(row.resumeOutcome, RESUME_OUTCOMES);
+    const terminalOwnerKind = enumValue(row.terminalOwnerKind, TERMINAL_OWNER_KINDS);
+    if (!resumeOutcome || !terminalOwnerKind) return null;
+    output.resumeOutcome = resumeOutcome;
+    output.terminalOwnerKind = terminalOwnerKind;
+  }
 
   if ("endReason" in row && row.endReason !== undefined) {
     if (event !== "turn_end" || row.endReason !== "errored") return null;

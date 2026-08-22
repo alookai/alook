@@ -10,6 +10,7 @@
  *   4. Fallback: `RuntimeError`.
  */
 import { createHash } from "crypto";
+import { scrubAgentDriverDiagnosticText } from "@alook/agent-driver/host";
 
 /** Excerpt cap for the runtime-error diagnostic envelope's `runtime_error_message_excerpt`. */
 const ERROR_EXCERPT_MAX_BYTES = 4000;
@@ -134,12 +135,7 @@ export function classifyRuntimeErrorAction(
 
 /** Redact tokens, keys, emails, URL creds and filesystem paths for telemetry. */
 export function scrubRuntimeErrorDiagnosticText(value: string): string {
-  return value
-    .replace(/Bearer\s+[A-Za-z0-9._\-]+/g, "Bearer [redacted]")
-    .replace(/\b(?:sk|sk-ant|sk-proj|xox[abprs])-[A-Za-z0-9._\-]+/g, "[redacted-token]")
-    .replace(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g, "[redacted-email]")
-    .replace(/(\?|&)([^=\s]+)=([^&\s]+)/g, "$1$2=[redacted]")
-    .replace(/(\/[^\s]*){2,}/g, "[redacted-path]");
+  return scrubAgentDriverDiagnosticText(value);
 }
 
 function messageLengthBucket(len: number): string {

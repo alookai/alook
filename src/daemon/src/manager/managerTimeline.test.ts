@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { AgentProcessManager, type TimelineRecorder } from "./managerRuntime";
-import type { LaunchContext } from "../types";
+import type { HostLaunchContext as LaunchContext } from "./hostContext.js";
+import type { AgentEvent, AgentSessionResult, BuiltinBackendSpecs } from "@alook/agent-driver";
 
 /** A recorder that records calls + can supply a resume session id. */
 function fakeRecorder(resume: Record<string, string> = {}) {
@@ -15,7 +16,17 @@ function fakeRecorder(resume: Record<string, string> = {}) {
 }
 
 function manager(rec: TimelineRecorder, capture: { ctx?: LaunchContext }) {
-  const handlers: Record<string, ((arg?: unknown) => void)[]> = {};
+  type Event = AgentEvent<BuiltinBackendSpecs, "codex">;
+  const queued: Event[] = [];
+  const waiters: Array<(value: IteratorResult<Event>) => void> = [];
+  let resolveClosed!: (result: AgentSessionResult) => void;
+  const closed = new Promise<AgentSessionResult>((resolve) => { resolveClosed = resolve; });
+  let sequence = 0;
+  const publish = (event: Event) => {
+    const waiter = waiters.shift();
+    if (waiter) waiter({ done: false, value: event });
+    else queued.push(event);
+  };
   const mgr = new AgentProcessManager({
     driverFor: () =>
       ({ lifecycle: { kind: "persistent", stdin: "gated", inFlightWake: "queue" } }) as never,
@@ -23,37 +34,70 @@ function manager(rec: TimelineRecorder, capture: { ctx?: LaunchContext }) {
     sessionFactory: ({ ctx }) => {
       capture.ctx = ctx;
       return {
-        on: (ev: string, cb: (arg?: unknown) => void) => ((handlers[ev] ??= []).push(cb)),
-        get currentSessionId() {
-          return null;
+        backend: "codex" as const,
+        capabilities: {} as never,
+        sessionInstanceId: "timeline-test",
+        events: {
+          maxBufferedBytes: 4_194_304 as const,
+          [Symbol.asyncIterator]() {
+            return {
+              next: () => queued.length > 0
+                ? Promise.resolve({ done: false as const, value: queued.shift()! })
+                : new Promise<IteratorResult<Event>>((resolve) => waiters.push(resolve)),
+            };
+          },
         },
-        async start() {},
-        send() {
-          return { ok: true };
+        closed,
+        async start(message: { id: string }) {
+          return { status: "accepted" as const, delivery: "prompt" as const, commandId: message.id, turnId: "test-turn" };
         },
-        async stop() {},
+        async send(message: { id: string }) {
+          return { status: "accepted" as const, delivery: "steer" as const, commandId: message.id, turnId: "test-turn" };
+        },
+        async interrupt() { return { status: "not_running" as const }; },
+        async stop() { return { status: "accepted" as const, requestId: "test-stop" }; },
+        snapshot() {
+          return { sessionInstanceId: "timeline-test", state: "working" as const, queuedCommands: [], lastEventSequence: sequence };
+        },
+        async invokeExtension() {
+          return { ok: false as const, error: { category: "internal" as const, code: "unsupported", message: "unsupported", retryable: false } };
+        },
       };
     },
     timeline: rec,
     tickIntervalMs: 10_000,
   });
-  const emit = (ev: string, arg?: unknown) => (handlers[ev] ?? []).forEach((h) => h(arg));
+  const emit = async (ev: string, arg?: unknown) => {
+    if (ev === "runtime_event") {
+      const event = arg as { kind: string; sessionId?: string; text?: string };
+      const base = { sequence: ++sequence, sessionInstanceId: "timeline-test", at: Date.now() };
+      if (event.kind === "session_init") {
+        publish({ ...base, type: "session_started", backendSessionId: event.sessionId ?? "test-session" });
+      } else if (event.kind === "text") {
+        publish({ ...base, type: "text_delta", turnId: "test-turn", text: event.text ?? "" });
+      }
+    } else if (ev === "exit") {
+      resolveClosed({ outcome: "crashed", requested: false, exitCode: 0, signal: null, cleanup: { status: "released" } });
+    }
+    await Promise.resolve();
+    await Promise.resolve();
+  };
   return { mgr, emit };
 }
 
 describe("manager ↔ timeline (daily log + resume)", () => {
-  it("annotates the latest entry on session_init / text / exit (by agent, not task id)", () => {
+  it("annotates the latest entry on session_init / text / exit (by agent, not task id)", async () => {
     const { rec, calls } = fakeRecorder();
     const cap: { ctx?: LaunchContext } = {};
     const { mgr, emit } = manager(rec, cap);
     mgr.register("agent_1");
     mgr.deliver("agent_1", { seq: 1, text: "hi" });
 
-    emit("runtime_event", { kind: "session_init", sessionId: "sess-7" });
-    emit("runtime_event", { kind: "text", text: "part 1" });
-    emit("runtime_event", { kind: "text", text: "part 2" });
-    emit("runtime_event", { kind: "text", text: "" }); // empty text ignored
-    emit("exit");
+    await emit("runtime_event", { kind: "session_init", sessionId: "sess-7" });
+    await emit("runtime_event", { kind: "text", text: "part 1" });
+    await emit("runtime_event", { kind: "text", text: "part 2" });
+    await emit("runtime_event", { kind: "text", text: "" }); // empty text ignored
+    await emit("exit");
 
     // The manager does NOT open the entry (that's the data plane / inbox pull)
     // and there's no status close — it records the session id and accumulates the
@@ -134,7 +178,7 @@ describe("manager.resetSession", () => {
     // Track handlers/sends per session; a new session is created on each spawn.
     const sessionsCreated: Array<{
       ctx: LaunchContext;
-      handlers: Record<string, ((arg?: unknown) => void)[]>;
+      finish: (result: AgentSessionResult) => void;
       stopCalled: boolean;
       sends: Array<{ text: string; mode: string }>;
     }> = [];
@@ -143,20 +187,36 @@ describe("manager.resetSession", () => {
         ({ lifecycle: { kind: "persistent", stdin: "direct", inFlightWake: "steer" } }) as never,
       baseContextFor: (agentId) => ({ agentId, workingDirectory: "/tmp/x", standingPrompt: "", config: {} }),
       sessionFactory: ({ ctx }) => {
-        const entry: (typeof sessionsCreated)[number] = { ctx, handlers: {}, stopCalled: false, sends: [] };
+        let finish!: (result: AgentSessionResult) => void;
+        const closed = new Promise<AgentSessionResult>((resolve) => { finish = resolve; });
+        const entry: (typeof sessionsCreated)[number] = { ctx, finish: (result) => finish(result), stopCalled: false, sends: [] };
         sessionsCreated.push(entry);
         return {
-          on: (ev: string, cb: (arg?: unknown) => void) => ((entry.handlers[ev] ??= []).push(cb)),
-          get currentSessionId() {
-            return null;
+          backend: "codex" as const,
+          capabilities: {} as never,
+          sessionInstanceId: `reset-test-${sessionsCreated.length}`,
+          events: {
+            maxBufferedBytes: 4_194_304 as const,
+            async *[Symbol.asyncIterator]() { await new Promise(() => {}); },
           },
-          async start() {},
-          send(m: { text: string; mode: "busy" | "idle" }) {
+          closed,
+          async start(m: { id: string }) {
+            return { status: "accepted" as const, delivery: "prompt" as const, commandId: m.id, turnId: "test-turn" };
+          },
+          async send(m: { id: string; text: string }) {
             entry.sends.push({ text: m.text, mode: m.mode });
-            return { ok: true };
+            return { status: "accepted" as const, delivery: "steer" as const, commandId: m.id, turnId: "test-turn" };
           },
+          async interrupt() { return { status: "not_running" as const }; },
           async stop() {
             entry.stopCalled = true;
+            return { status: "accepted" as const, requestId: "test-stop" };
+          },
+          snapshot() {
+            return { sessionInstanceId: "reset-test", state: "working" as const, queuedCommands: [], lastEventSequence: 0 };
+          },
+          async invokeExtension() {
+            return { ok: false as const, error: { category: "internal" as const, code: "unsupported", message: "unsupported", retryable: false } };
           },
         };
       },
@@ -192,7 +252,8 @@ describe("manager.resetSession", () => {
     expect(mgr.snapshot().agents.agent_run.inbox.map((m) => m.text)).toEqual(["REWAKE"]);
 
     // Fire the session exit → onExit drains rewake into a fresh spawn.
-    first.handlers["exit"]!.forEach((h) => h());
+    first.finish({ outcome: "stopped", requested: true, exitCode: 0, signal: null, cleanup: { status: "released" } });
+    await Promise.resolve();
     await Promise.resolve();
 
     expect(sessionsCreated).toHaveLength(2);

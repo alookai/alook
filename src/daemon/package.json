@@ -36,6 +36,7 @@
     "access": "public"
   },
   "scripts": {
+    "prebuild": "pnpm -C agent-driver run build",
     "build": "bun build src/index.ts --outdir dist --target node --format esm --external commander --external ws --external sharp && bun build src/cli/index.ts --outdir dist/cli --target node --format esm --external commander --external ws --external sharp && node scripts/prepare-dist.mjs",
     "prepack": "pnpm run build",
     "typecheck": "tsc --noEmit",
@@ -51,6 +52,7 @@
     "ws": "^8.21.3"
   },
   "devDependencies": {
+    "@alook/agent-driver": "workspace:*",
     "@alook/shared": "workspace:*",
     "@types/node": "^20.0.0",
     "@types/ws": "^8.18.1",

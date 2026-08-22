@@ -21,6 +21,9 @@ interface AdmissionCoverage {
 interface ActiveAdmission {
   launchId: string;
   coverage: Map<string, AdmissionCoverage>;
+  acknowledged: boolean;
+  observed: boolean;
+  whileActive: boolean;
 }
 
 interface AgentState {
@@ -36,8 +39,9 @@ interface AgentState {
 }
 
 /**
- * One active wake/turn admission per agent. Channels carry only desired and
- * model-seen watermarks; they never become independent steer lanes.
+ * One outstanding unread-notification admission per agent. Channels carry
+ * desired and model-seen watermarks; they never become independent steer
+ * lanes.
  */
 export class WakeCoordinator {
   private readonly agents = new Map<string, AgentState>();
@@ -69,10 +73,11 @@ export class WakeCoordinator {
     if (desiredAdvanced) onDesiredAdvance?.(command);
     state.dispatch = dispatch;
 
-    // The active agent will pull the global inbox. Higher watermarks only
-    // advance desired state; idle reconciliation decides whether one rewake is
-    // needed after observing what the turn actually pulled.
-    if (state.active || state.admitting) {
+    // One unread notification may be outstanding at a time. An active runtime
+    // still needs the first higher watermark delivered into its current
+    // logical session; later watermarks coalesce behind that admission until
+    // the resulting inbox pull proves what the model actually saw.
+    if (state.admitting || state.activeAdmission) {
       this.rememberReplacement(state, command);
       return { state: "suppressed", coveredSeq: seq };
     }
@@ -95,6 +100,9 @@ export class WakeCoordinator {
     for (const message of messages) {
       const seq = Number(message.seq.startsWith("#") ? message.seq.slice(1) : message.seq);
       if (!Number.isSafeInteger(seq) || seq <= 0) continue;
+      if (state.activeAdmission?.coverage.has(message.channel)) {
+        state.activeAdmission.observed = true;
+      }
       const scope = state.scopes.get(message.channel);
       if (scope) {
         scope.modelSeenSeq = Math.max(scope.modelSeenSeq, seq);
@@ -109,6 +117,9 @@ export class WakeCoordinator {
         });
       }
     }
+    if (this.finishObservedAdmission(state)) {
+      void this.reconcile(agentId, state).catch(() => {});
+    }
     return true;
   }
 
@@ -117,11 +128,26 @@ export class WakeCoordinator {
     const state = this.agent(agentId);
     if (activity === "starting" || activity === "running") {
       state.active = true;
+      void this.reconcile(agentId, state).catch(() => {});
       return;
     }
     if (activity !== "idle") return;
     state.active = false;
+    const admission = state.activeAdmission;
+    if (admission) {
+      this.releaseUnobservedCoverage(state, admission);
+      // The logical turn ended before this coverage was observed. Fence the
+      // old launch so reconciliation cannot spin the same provisional command;
+      // a newer coalesced command or durable replay may take responsibility.
+      state.failedAdmissionLaunchId = admission.launchId;
+      state.retryAfterFailure = state.coalescedReplacement;
+      state.coalescedReplacement = null;
+    }
     state.activeAdmission = null;
+    if (!state.admitting && state.retryAfterFailure) {
+      void this.retryFailedAdmission(agentId, state).catch(() => {});
+      return;
+    }
     const next = this.nextPending(state);
     if (next && state.dispatch) void this.admit(agentId, next);
   }
@@ -130,7 +156,13 @@ export class WakeCoordinator {
     const state = this.agents.get(agentId);
     const admission = state?.activeAdmission;
     if (!state || !admission || admission.launchId !== launchId) return;
-    if (status === "ok") return;
+    if (status === "ok") {
+      admission.acknowledged = true;
+      if (this.finishObservedAdmission(state)) {
+        void this.reconcile(agentId, state).catch(() => {});
+      }
+      return;
+    }
     // A failed delivery never occupies admission coverage. Desired watermarks
     // remain, so a later transport retry or idle reconciliation can re-arm.
     for (const [channel, coverage] of admission.coverage) {
@@ -139,7 +171,7 @@ export class WakeCoordinator {
         scope.admittedSeq = coverage.previousSeq;
       }
     }
-    state.active = false;
+    state.active = admission.whileActive && state.active;
     state.failedAdmissionLaunchId = launchId;
     state.retryAfterFailure = state.coalescedReplacement;
     state.coalescedReplacement = null;
@@ -202,8 +234,9 @@ export class WakeCoordinator {
 
   private async admit(agentId: string, preferred?: WakeCommand): Promise<void> {
     const state = this.agent(agentId);
-    if (state.active || state.admitting || !state.dispatch) return;
+    if (state.admitting || state.activeAdmission || !state.dispatch) return;
     const admissionGeneration = state.observationGeneration;
+    const wasActive = state.active;
     const command = preferred ?? this.nextPending(state);
     if (!command) return;
     const commandScope = state.scopes.get(command.unreadNotice.channel);
@@ -225,7 +258,13 @@ export class WakeCoordinator {
     state.active = true;
     state.failedAdmissionLaunchId = null;
     state.coalescedReplacement = null;
-    state.activeAdmission = { launchId: command.launchId, coverage };
+    state.activeAdmission = {
+      launchId: command.launchId,
+      coverage,
+      acknowledged: false,
+      observed: false,
+      whileActive: wasActive,
+    };
     let dispatchError: unknown;
     try {
       await state.dispatch(command);
@@ -237,7 +276,7 @@ export class WakeCoordinator {
             scope.admittedSeq = admitted.previousSeq;
           }
         }
-        state.active = false;
+        state.active = wasActive && state.active;
         state.failedAdmissionLaunchId = command.launchId;
         state.retryAfterFailure = state.coalescedReplacement;
         state.coalescedReplacement = null;
@@ -251,10 +290,7 @@ export class WakeCoordinator {
     }
     if (state.observationGeneration === admissionGeneration) {
       await this.retryFailedAdmission(agentId, state);
-      if (!state.active && !state.admitting) {
-        const next = this.nextPending(state);
-        if (next) await this.admit(agentId, next);
-      }
+      await this.reconcile(agentId, state);
     }
     if (dispatchError) throw dispatchError;
   }
@@ -272,11 +308,37 @@ export class WakeCoordinator {
   }
 
   private async retryFailedAdmission(agentId: string, state: AgentState): Promise<void> {
-    if (state.active || state.admitting) return;
+    if (state.admitting || state.activeAdmission) return;
     const replacement = state.retryAfterFailure;
     state.retryAfterFailure = null;
     if (!replacement) return;
     state.failedAdmissionLaunchId = null;
     await this.admit(agentId, replacement);
+  }
+
+  private finishObservedAdmission(state: AgentState): boolean {
+    const admission = state.activeAdmission;
+    if (!admission?.acknowledged || !admission.observed) return false;
+    this.releaseUnobservedCoverage(state, admission);
+    state.activeAdmission = null;
+    return true;
+  }
+
+  private releaseUnobservedCoverage(state: AgentState, admission: ActiveAdmission): void {
+    for (const [channel, coverage] of admission.coverage) {
+      const scope = state.scopes.get(channel);
+      if (
+        scope?.admittedSeq === coverage.admittedSeq
+        && scope.modelSeenSeq < coverage.admittedSeq
+      ) {
+        scope.admittedSeq = Math.max(coverage.previousSeq, scope.modelSeenSeq);
+      }
+    }
+  }
+
+  private async reconcile(agentId: string, state: AgentState): Promise<void> {
+    if (state.admitting || state.activeAdmission || !state.dispatch) return;
+    const next = this.nextPending(state);
+    if (next) await this.admit(agentId, next);
   }
 }

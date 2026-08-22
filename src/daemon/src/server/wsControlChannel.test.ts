@@ -485,6 +485,42 @@ describe("WsControlChannel — downlink HostCommand validation (convergence #6)"
     await stopping;
   });
 
+  it("routes one active-session delivery for a five-wake burst until model-seen covers the watermark", async () => {
+    const { ch } = makeChannel();
+    const received: Array<Extract<HostCommand, { type: "agent:wake" }>> = [];
+    ch.onCommand(async (command) => {
+      if (command.type !== "agent:wake") return;
+      received.push(command);
+      await ch.reportWakeAck({
+        agentId: command.agentId,
+        launchId: command.launchId,
+        status: "ok",
+      });
+    });
+    const command = (seq: number): Extract<HostCommand, { type: "agent:wake" }> => ({
+      type: "agent:wake",
+      agentId: "bot_1",
+      config: { runtime: "codex" } as never,
+      launchId: `launch_${seq}`,
+      unreadNotice: {
+        kind: "unread_notice",
+        channel: "/demo#1234/general",
+        latestSeq: seq,
+      },
+    });
+
+    await ch.ingestCommand(command(1));
+    await ch.reportAgentActivity({ agentId: "bot_1", state: "running" });
+    ch.recordModelSeen("bot_1", [{ channel: "/demo#1234/general", seq: "#1" }]);
+
+    for (let seq = 2; seq <= 6; seq++) await ch.ingestCommand(command(seq));
+    expect(received.map((wake) => wake.unreadNotice.latestSeq)).toEqual([1, 2]);
+
+    ch.recordModelSeen("bot_1", [{ channel: "/demo#1234/general", seq: "#6" }]);
+    await Promise.resolve();
+    expect(received.map((wake) => wake.unreadNotice.latestSeq)).toEqual([1, 2]);
+  });
+
   it("dispatches each valid arm unchanged (happy path — the transparent gate)", () => {
     for (const frame of [realWake, realReset, realNap, realModelSwitch, realStop]) {
       const { sockets, received } = driven();

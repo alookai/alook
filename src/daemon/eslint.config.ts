@@ -3,7 +3,7 @@ import tseslint from "typescript-eslint";
 
 const eslintConfig = defineConfig([
   ...tseslint.configs.recommended,
-  globalIgnores(["dist/**", "coverage/**"]),
+  globalIgnores(["dist/**", "coverage/**", "agent-driver/**"]),
   {
     files: ["src/drivers/**/*.ts", "src/cli/proxyServerApi.ts", "src/server/contract.ts", "src/server/wsControlServer.ts"],
     rules: {

@@ -8,18 +8,6 @@ import * as path from "path";
 import * as fs from "fs";
 import { fileURLToPath } from "url";
 import { getDriver, listRuntimeIds, type RuntimeId } from "./drivers/index.js";
-import type { ProbeResult } from "./types.js";
-
-/**
- * Runtimes offered for NEW bot creation. A registered driver NOT in this set
- * stays fully functional (getDriver resolves it, existing bots keep running) —
- * it's just not advertised, so it can't be picked in the create-bot UI/API.
- * This is a POLICY (what's open to selection), deliberately kept separate from
- * the driver registry (what exists) in drivers/index.ts. Filtering happens at
- * the single advertise point, `detectRuntimes`.
- * Hidden 2026-08-05 (Gus): antigravity/copilot/gemini/kimi unverified.
- */
-const SELECTABLE_RUNTIMES: ReadonlySet<RuntimeId> = new Set(["claude", "codex", "opencode", "pi", "cursor"]);
 
 /* ------------------------------------------------------------------ */
 /* Agent CLI path resolution                                           */
@@ -121,25 +109,24 @@ export interface RuntimeInfo {
  * plans/community-machine-presence-fix.md.
  */
 export async function detectRuntimes(): Promise<RuntimeInfo[]> {
-  // Advertise only the selectable subset (SELECTABLE_RUNTIMES). Hidden runtimes
-  // stay registered (getDriver resolves them for existing bots on resume) but
-  // are never advertised, so the create-bot UI + API won't offer/accept them.
-  const ids = listRuntimeIds().filter((id) => SELECTABLE_RUNTIMES.has(id));
+  const ids = listRuntimeIds();
   const results: RuntimeInfo[] = [];
   const nowIso = new Date().toISOString();
 
   for (const id of ids) {
     try {
       const driver = getDriver(id);
-      const probe: ProbeResult = await driver.probe();
-      const healthy = probe.status === "healthy";
-      results.push({
-        id,
-        status: healthy ? "healthy" : "unhealthy",
-        version: probe.version,
-        lastError: healthy ? undefined : probe.lastError ?? "probe_failed",
-        lastErrorAt: healthy ? undefined : nowIso,
-      });
+      const probe = await driver.probe();
+      if (probe.status === "healthy") {
+        results.push({ id, status: "healthy", version: probe.version });
+      } else {
+        results.push({
+          id,
+          status: "unhealthy",
+          lastError: probe.error.code ?? "probe_failed",
+          lastErrorAt: nowIso,
+        });
+      }
     } catch (err) {
       results.push({
         id,

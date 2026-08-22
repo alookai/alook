@@ -1,0 +1,61 @@
+{
+  "name": "@alook/agent-driver",
+  "version": "0.1.14",
+  "private": true,
+  "description": "Private workspace logical-session drivers for supported AI coding agents.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
+    },
+    "./host": {
+      "types": "./dist/host.d.ts",
+      "import": "./dist/host.js"
+    },
+    "./adapter-author": {
+      "types": "./dist/adapter-author.d.ts",
+      "import": "./dist/adapter-author.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "RELEASE_NOTES.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.9"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alookai/alook.git",
+    "directory": "src/daemon/agent-driver"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/prune-dist.mjs && node scripts/prepare-dist.mjs",
+    "prepack": "pnpm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "knip": "knip",
+    "api:check": "pnpm run build && node scripts/api-reports.mjs check",
+    "api:update": "pnpm run build && node scripts/api-reports.mjs update"
+  },
+  "devDependencies": {
+    "@microsoft/api-extractor": "^7.58.13",
+    "@types/node": "^20.0.0",
+    "eslint": "^9.39.5",
+    "knip": "^5.85.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^4.1.10"
+  }
+}

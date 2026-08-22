@@ -484,7 +484,6 @@ export type { RuntimeModelCatalogEntry } from "./constants/runtime-models";
 export {
   RUNTIME_MODEL_CATALOG,
   getRuntimeModelCatalog,
-  runtimeSupportsModel,
 } from "./constants/runtime-models";
 
 export {

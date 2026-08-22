@@ -103,7 +103,7 @@ function fakeChannel() {
 }
 
 describe("AgentRouter — agent:wake", () => {
-  it("registers the runtime config, delivers the notice text, and acks the wake", async () => {
+  it("registers the runtime config, delivers a generic notice, and acks the wake", async () => {
     const { mgr, delivers, registers } = fakeManager();
     const { ch, wakeAcks, fire } = fakeChannel();
     const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "mock" }] });
@@ -118,7 +118,7 @@ describe("AgentRouter — agent:wake", () => {
     });
 
     expect(registers).toEqual([{ agentId: "a1", sessionId: undefined, launchId: "l1" }]);
-    expect(delivers).toEqual([{ agentId: "a1", text: "You have unread messages in channel /demo#1234/general.", seq: 7 }]);
+    expect(delivers).toEqual([{ agentId: "a1", text: "You have unread messages.", seq: 7 }]);
     expect(wakeAcks).toEqual([{ agentId: "a1", launchId: "l1", status: "ok" }]);
   });
 
@@ -274,7 +274,7 @@ describe("AgentRouter — agent:reset", () => {
   });
 
   it("UnknownRuntimeError from resetSession → forwards session.error{runtime_not_available}, running set untouched", async () => {
-    const throwing = new UnknownRuntimeError("gemini", ["claude", "codex"]);
+    const throwing = new UnknownRuntimeError("unknown-runtime", ["claude", "codex"]);
     const mgr = {
       resetSession: async () => { throw throwing; },
       liveSessionReports: () => [],
@@ -286,7 +286,7 @@ describe("AgentRouter — agent:reset", () => {
     await fire({
       type: "agent:reset",
       agentId: "a1",
-      config: { ...CFG, runtime: "gemini" },
+      config: { ...CFG, runtime: "unknown-runtime" },
       launchId: "l1",
     });
     expect(sessionErrors).toHaveLength(1);
@@ -294,7 +294,7 @@ describe("AgentRouter — agent:reset", () => {
       type: "session.error",
       code: "runtime_not_available",
       agentId: "a1",
-      payload: { requested: "gemini", available: ["claude", "codex"] },
+      payload: { requested: "unknown-runtime", available: ["claude", "codex"] },
     });
     expect(router.buildReady().runningAgents).not.toContain("a1");
   });
@@ -439,7 +439,7 @@ describe("AgentRouter — agent:model_switch", () => {
   });
 
   it("UnknownRuntimeError → session.error{runtime_not_available}; generic error → warn, running set untouched", async () => {
-    const throwing = new UnknownRuntimeError("gemini", ["claude", "codex"]);
+    const throwing = new UnknownRuntimeError("unknown-runtime", ["claude", "codex"]);
     const mgrUnknown = {
       switchModel: async () => { throw throwing; },
       liveSessionReports: () => [],
@@ -447,7 +447,7 @@ describe("AgentRouter — agent:model_switch", () => {
     const { ch, sessionErrors, fire } = fakeChannel();
     const router = new AgentRouter({ manager: mgrUnknown, channel: ch, runtimeReport: [{ id: "claude" }, { id: "codex" }] });
     await router.start();
-    await fire({ type: "agent:model_switch", agentId: "a1", config: { ...CFG, runtime: "gemini" }, launchId: "l1" });
+    await fire({ type: "agent:model_switch", agentId: "a1", config: { ...CFG, runtime: "unknown-runtime" }, launchId: "l1" });
     expect(sessionErrors).toHaveLength(1);
     expect(sessionErrors[0]).toMatchObject({ type: "session.error", code: "runtime_not_available", agentId: "a1" });
     expect(router.buildReady().runningAgents).not.toContain("a1");
@@ -514,7 +514,7 @@ describe("AgentRouter — unknown runtime → session.error", () => {
   it("catches UnknownRuntimeError from driverFor and forwards session.error{runtime_not_available}", async () => {
     // Manager whose register() re-throws whatever driverFor throws — mimics
     // the real AgentProcessManager which calls opts.driverFor eagerly.
-    const throwing: UnknownRuntimeError = new UnknownRuntimeError("gemini", ["claude", "codex"]);
+    const throwing: UnknownRuntimeError = new UnknownRuntimeError("unknown-runtime", ["claude", "codex"]);
     const mgr = {
       register() {
         throw throwing;
@@ -530,7 +530,7 @@ describe("AgentRouter — unknown runtime → session.error", () => {
     await fire({
       type: "agent:wake",
       agentId: "a1",
-      config: { version: 1, runtime: "gemini", model: { kind: "default" }, mode: { kind: "default" } },
+      config: { version: 1, runtime: "unknown-runtime", model: { kind: "default" }, mode: { kind: "default" } },
       launchId: "l1",
       unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
     });
@@ -540,7 +540,7 @@ describe("AgentRouter — unknown runtime → session.error", () => {
       type: "session.error",
       code: "runtime_not_available",
       agentId: "a1",
-      payload: { requested: "gemini", available: ["claude", "codex"] },
+      payload: { requested: "unknown-runtime", available: ["claude", "codex"] },
     });
   });
 });
@@ -721,10 +721,10 @@ describe("AgentRouter — runtime health map", () => {
     const router = new AgentRouter({
       manager: mgr,
       channel: ch,
-      runtimeReport: [{ id: "codex" }, { id: "claude" }, { id: "gemini" }],
+      runtimeReport: [{ id: "codex" }, { id: "claude" }, { id: "cursor" }],
       scheduleReadyResend: (fn) => fn(),
     });
-    router.markRuntimeUnhealthy("gemini", "ENOENT");
+    router.markRuntimeUnhealthy("cursor", "ENOENT");
     expect(router.healthyRuntimeIds()).toEqual(["codex", "claude"]);
     // buildReady MUST include all three so the DO/canonical-diff sees the
     // unhealthy transition. A future "clean up the wire" refactor that strips
@@ -733,12 +733,12 @@ describe("AgentRouter — runtime health map", () => {
     expect(ready.runtimeReport.map((r) => r.id)).toEqual([
       "codex",
       "claude",
-      "gemini",
+      "cursor",
     ]);
-    const gemini = ready.runtimeReport.find((r) => r.id === "gemini");
-    expect(gemini?.status).toBe("unhealthy");
-    expect(gemini?.lastError).toBe("ENOENT");
-    expect(typeof gemini?.lastErrorAt).toBe("string");
+    const cursor = ready.runtimeReport.find((r) => r.id === "cursor");
+    expect(cursor?.status).toBe("unhealthy");
+    expect(cursor?.lastError).toBe("ENOENT");
+    expect(typeof cursor?.lastErrorAt).toBe("string");
   });
 
   it("survives a disconnected channel — health mutations don't throw when sendReady is absent", () => {
@@ -786,7 +786,7 @@ describe("AgentRouter — logging", () => {
   });
 
   it("logs info for the ack with error status when the wake fails", async () => {
-    const throwing: UnknownRuntimeError = new UnknownRuntimeError("gemini", ["claude"]);
+    const throwing: UnknownRuntimeError = new UnknownRuntimeError("unknown-runtime", ["claude"]);
     const mgr = {
       register() {
         throw throwing;
@@ -803,7 +803,7 @@ describe("AgentRouter — logging", () => {
     await fire({
       type: "agent:wake",
       agentId: "a1",
-      config: { version: 1, runtime: "gemini", model: { kind: "default" }, mode: { kind: "default" } },
+      config: { version: 1, runtime: "unknown-runtime", model: { kind: "default" }, mode: { kind: "default" } },
       launchId: "l1",
       unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
     });

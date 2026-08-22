@@ -91,10 +91,11 @@ export interface AgentRouterOpts {
   onBeforeAgent?: (agentId: string) => Promise<void>;
   /**
    * Format the bodiless `UnreadNotice` into the prompt text the agent
-   * actually sees. The default is a fixed "you have unread messages in
-   * channel X" line. Deliberately does NOT include the inbox-pull
-   * instruction — that's `wakePromptFooter` on `ManagerRuntimeOpts`, appended
-   * once after coalescing/dedup so a burst of notices doesn't repeat it.
+   * actually sees. The default is a generic unread-message line because one
+   * admission may cover more channels than the selected wake command names.
+   * Deliberately does NOT include the inbox-pull instruction — that's
+   * `wakePromptFooter` on `ManagerRuntimeOpts`, appended once after
+   * coalescing/dedup so a burst of notices doesn't repeat it.
    */
   formatUnreadNoticeText?: (notice: UnreadNotice) => string;
   /**
@@ -114,8 +115,8 @@ export interface AgentRouterOpts {
   logger?: Logger;
 }
 
-function defaultFormatUnreadNoticeText(notice: UnreadNotice): string {
-  return `You have unread messages in channel ${notice.channel}.`;
+function defaultFormatUnreadNoticeText(): string {
+  return "You have unread messages.";
 }
 
 /**
@@ -427,6 +428,7 @@ export class AgentRouter {
           // The manager (not this router) decides spawn vs. in-process notify
           // vs. coalesce — see managerPolicy's `onWake`.
           const producedEffect = this.opts.manager.deliver(cmd.agentId, {
+            id: `${cmd.agentId}:wake:${cmd.unreadNotice.channel}:${cmd.unreadNotice.latestSeq}`,
             seq: cmd.unreadNotice.latestSeq,
             text,
           });

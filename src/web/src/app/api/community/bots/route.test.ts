@@ -88,7 +88,7 @@ describe("POST /api/community/bots — model", () => {
     mockCountLiveBotsForOwner.mockResolvedValue(0)
     mockGetMachineForOwner.mockResolvedValue({
       id: "mac1",
-      availableRuntimes: [{ id: "claude", status: "healthy" }, { id: "antigravity", status: "healthy" }],
+      availableRuntimes: [{ id: "claude", status: "healthy" }, { id: "codex", status: "healthy" }],
     })
     mockCreateBot.mockResolvedValue({ botId: "b1", name: "MyBot", discriminator: "0001", description: "", image: null })
     mockGetUserPublic.mockResolvedValue({ id: "u1", name: "Owner", discriminator: "9999" })
@@ -141,8 +141,8 @@ describe("POST /api/community/bots — model", () => {
     expect(mockPushBotEventToMachine).toHaveBeenCalledOnce()
   })
 
-  it("rejects a model on runtime antigravity with 400", async () => {
-    const res = await POST(postReq(base("some-model", "antigravity")), ctx)
+  it("rejects a removed runtime that is absent from the machine report with 400", async () => {
+    const res = await POST(postReq(base(undefined, "gemini")), ctx)
     expect(res.status).toBe(400)
     expect(mockCreateBot).not.toHaveBeenCalled()
   })
