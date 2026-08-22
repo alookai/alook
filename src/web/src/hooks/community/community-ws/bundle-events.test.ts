@@ -200,7 +200,7 @@ describe("useCommunityWs — operation bundles", () => {
     expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
   })
 
-  it("records a decoded operation before projection failure and reconciles without replaying effects", async () => {
+  it("leaves a partially projected operation retryable and commits dedup only after replay converges", async () => {
     await mountHook({ viewerUserId: "viewer-1" })
     useCommunityStore.getState().subscribe({ channelId: "ch-1" })
     vi.spyOn(capturedQueryClient, "invalidateQueries")
@@ -208,29 +208,38 @@ describe("useCommunityWs — operation bundles", () => {
     const original = useCommunityWsStore.getState().setPresence
     useCommunityWsStore.setState({ setPresence: () => { throw new Error("projection fault") } })
     const frame = await batchFor("message-projection-fault", [
+      { ...message, message: { ...message.message, id: "message-before-fault" } },
       {
         type: "community:presence.update",
         userId: "user-2",
         online: true,
       },
-      { ...message, message: { ...message.message, id: "message-after-fault" } },
     ])
     try {
       capturedOnMessage!(frame)
       expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
-      expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
-        .toBe(frame.operationDigest)
-      expect(useCommunityWsStore.getState().seenMessageIds.has("message-after-fault")).toBe(false)
+      expect(useCommunityWsStore.getState().seenDeliveryOperations.has(frame.operationId))
+        .toBe(false)
+      // The first child proves notifyManager.batch is not a rollback boundary:
+      // its state is already visible when the later presence child throws.
+      expect(useCommunityWsStore.getState().seenMessageIds.has("message-before-fault")).toBe(true)
       expect(getMessageOverlay({
         kind: "channel",
         id: "ch-1",
         serverId: "s1",
-      }).liveById.has("message-after-fault")).toBe(false)
-      expect(capturedQueryClient.invalidateQueries).not.toHaveBeenCalled()
+      }).liveById.has("message-before-fault")).toBe(true)
+
+      useCommunityWsStore.setState({ setPresence: original })
       capturedOnMessage!(frame)
       expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
-      expect(useCommunityWsStore.getState().seenMessageIds.has("message-after-fault")).toBe(false)
-      expect(capturedQueryClient.invalidateQueries).not.toHaveBeenCalled()
+      expect(useCommunityWsStore.getState().onlineUserIds.has("user-2")).toBe(true)
+      expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
+        .toBe(frame.operationDigest)
+
+      const invalidationsAfterSuccess = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
+      capturedOnMessage!(frame)
+      expect(vi.mocked(capturedQueryClient.invalidateQueries))
+        .toHaveBeenCalledTimes(invalidationsAfterSuccess)
     } finally {
       useCommunityWsStore.setState({ setPresence: original })
     }

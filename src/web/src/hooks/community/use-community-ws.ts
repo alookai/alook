@@ -204,12 +204,12 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
           trackCommunityWsFrameDropped(metadata)
           return
         }
-        const record = wsStore.recordDeliveryOperation(
+        const operationStatus = wsStore.checkDeliveryOperation(
           decoded.batch.operationId,
           decoded.batch.operationDigest,
         )
-        if (record === "duplicate") return
-        if (record === "conflict") {
+        if (operationStatus === "duplicate") return
+        if (operationStatus === "conflict") {
           console.warn("[ws] delivery operation digest conflict", {
             event: "community_ws_delivery_operation_conflict",
             operationId: decoded.batch.operationId,
@@ -229,7 +229,18 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
             eventCount: decoded.events.length,
           })
           reconcileAfterBatchFailure("projection-failed")
+          return
         }
+        // Commit dedup only after every child projected successfully. Browser
+        // projections are not rollback-capable: a later child can throw after
+        // an earlier child already updated a Zustand/query-cache overlay.
+        // Leaving a failed operation unseen makes the identical bundle
+        // retryable, so idempotent child projections can finish converging
+        // even when the authoritative reconnect reconciliation is unavailable.
+        wsStore.recordDeliveryOperation(
+          decoded.batch.operationId,
+          decoded.batch.operationDigest,
+        )
         return
       }
 

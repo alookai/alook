@@ -149,8 +149,14 @@ describe("useCommunityWsStore", () => {
 
   it("atomically records delivery operation digests and rejects conflicting reuse", () => {
     const store = useCommunityWsStore.getState()
+    expect(store.checkDeliveryOperation("operation-1", "a".repeat(64))).toBe("new")
     expect(store.recordDeliveryOperation("operation-1", "a".repeat(64))).toBe("recorded")
     const recorded = useCommunityWsStore.getState().seenDeliveryOperations
+    expect(useCommunityWsStore.getState().checkDeliveryOperation("operation-1", "a".repeat(64)))
+      .toBe("duplicate")
+    expect(useCommunityWsStore.getState().checkDeliveryOperation("operation-1", "b".repeat(64)))
+      .toBe("conflict")
+    expect(useCommunityWsStore.getState().seenDeliveryOperations).toBe(recorded)
     expect(useCommunityWsStore.getState().recordDeliveryOperation("operation-1", "a".repeat(64)))
       .toBe("duplicate")
     expect(useCommunityWsStore.getState().seenDeliveryOperations).toBe(recorded)

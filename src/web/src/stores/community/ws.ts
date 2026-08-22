@@ -29,6 +29,7 @@ export const SEEN_MESSAGE_TRIM_TO = 400
 export const SEEN_DELIVERY_OPERATION_MAX = 500
 export const SEEN_DELIVERY_OPERATION_TRIM_TO = 400
 
+type DeliveryOperationCheckResult = "new" | "duplicate" | "conflict"
 type DeliveryOperationRecordResult = "recorded" | "duplicate" | "conflict"
 
 /**
@@ -103,6 +104,7 @@ export type CommunityWsStoreState = {
   resetPresence: () => void
   hasSeenMessage: (id: string) => boolean
   markSeenMessage: (id: string) => void
+  checkDeliveryOperation: (operationId: string, operationDigest: string) => DeliveryOperationCheckResult
   recordDeliveryOperation: (operationId: string, operationDigest: string) => DeliveryOperationRecordResult
   setUserStatus: (userId: string, emoji: string | null, text: string | null) => void
   resetUserStatuses: () => void
@@ -175,6 +177,12 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => (
       return
     }
     set({ seenMessageIds: next })
+  },
+
+  checkDeliveryOperation: (operationId, operationDigest) => {
+    const recordedDigest = get().seenDeliveryOperations.get(operationId)
+    if (recordedDigest === undefined) return "new"
+    return recordedDigest === operationDigest ? "duplicate" : "conflict"
   },
 
   recordDeliveryOperation: (operationId, operationDigest) => {
