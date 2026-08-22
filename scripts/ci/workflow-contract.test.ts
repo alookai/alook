@@ -294,6 +294,8 @@ describe("Turbo CI execution", () => {
   })
 
   it("keeps every direct Worker source in Node V8 coverage", () => {
+    expect(rootVitestConfig).toContain('"src/**/*.{ts,tsx,js,jsx}"')
+    expect(rootVitestConfig).toContain('"src/*/test-runtime/**"')
     for (const module of directWorkerModules) {
       expect(rootVitestConfig).toContain(`"src/${module.name}"`)
       expect(rootVitestConfig).not.toContain(`"src/${module.name}/src/**"`)

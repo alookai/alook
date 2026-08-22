@@ -17,6 +17,10 @@ export default defineConfig({
         "**/bundled/**",
         "**/__mocks__/**",
         "**/*.d.ts",
+        // Workerd-only setup/entry files are executed by the Cloudflare plugin,
+        // whose runtime does not support V8 coverage. Production Worker sources
+        // remain included through the repository-level src/**/* pattern above.
+        "src/*/test-runtime/**",
         "src/cli/src/index.ts",
         "src/web/scripts/**",
         "src/web/readme-capture/**",
