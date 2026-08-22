@@ -200,6 +200,23 @@ describe("useCommunityWsStore", () => {
   it("reset clears both online and seen sets", () => {
     useCommunityWsStore.getState().setPresence("u1", true)
     useCommunityWsStore.getState().markSeenMessage("m1")
+    useCommunityWsStore.getState().observeDeliveryOperation(
+      "retryable-operation",
+      "a".repeat(64),
+    )
+    useCommunityWsStore.getState().observeDeliveryOperation(
+      "completed-operation",
+      "b".repeat(64),
+    )
+    useCommunityWsStore.getState().completeDeliveryOperation(
+      "completed-operation",
+      "b".repeat(64),
+    )
+
+    expect(useCommunityWsStore.getState().seenDeliveryOperations.get("retryable-operation"))
+      .toEqual({ digest: "a".repeat(64), completed: false })
+    expect(useCommunityWsStore.getState().seenDeliveryOperations.get("completed-operation"))
+      .toEqual({ digest: "b".repeat(64), completed: true })
 
     useCommunityWsStore.getState().reset()
 
