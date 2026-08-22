@@ -21,11 +21,12 @@ import {
   capturedOnMessage,
   capturedQueryClient,
   cleanupCommunityWsHarness,
+  forumSidebarFixture,
   mountHook,
   resetCommunityWsHarness,
 } from "./test-harness"
 import { useCommunityStore } from "@/stores/community"
-import { getMessageOverlay } from "@/stores/community/message-stream"
+import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 
 beforeEach(async () => {
   reconcileCommunityWsReconnect.mockClear()
@@ -200,49 +201,188 @@ describe("useCommunityWs — operation bundles", () => {
     expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
   })
 
-  it("leaves a partially projected operation retryable and commits dedup only after replay converges", async () => {
+  it("leaves a second-child projection failure unseen and replayable", async () => {
     await mountHook({ viewerUserId: "viewer-1" })
     useCommunityStore.getState().subscribe({ channelId: "ch-1" })
-    vi.spyOn(capturedQueryClient, "invalidateQueries")
-    const { useCommunityWsStore } = await import("@/stores/community/ws")
-    const original = useCommunityWsStore.getState().setPresence
-    useCommunityWsStore.setState({ setPresence: () => { throw new Error("projection fault") } })
-    const frame = await batchFor("message-projection-fault", [
-      { ...message, message: { ...message.message, id: "message-before-fault" } },
+    capturedQueryClient.setQueryData(communityKeys.server("s1"), {
+      id: "s1",
+      categories: [{
+        id: "category-1",
+        channels: [{ id: "text-parent", type: "text", unread: false }],
+      }],
+    })
+    const setQueryData = vi.spyOn(capturedQueryClient, "setQueryData")
+      .mockImplementationOnce(() => { throw new Error("second-child fault") })
+    const frame = await batchFor("message-second-child-fault", [
       {
-        type: "community:presence.update",
-        userId: "user-2",
-        online: true,
+        ...message,
+        serverId: "s1",
+        parentChannelId: "text-parent",
+        message: { ...message.message, id: "message-before-second-child-fault" },
+      },
+      {
+        type: "community:unread.bump",
+        userId: "viewer-1",
+        channelId: "ch-1",
+        serverId: "s1",
+        railChannelId: "text-parent",
+        isMention: false,
       },
     ])
+
+    capturedOnMessage!(frame)
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
+    expect(useCommunityWsStore.getState().seenDeliveryOperations.has(frame.operationId))
+      .toBe(false)
+    expect(getMessageOverlay({ kind: "channel", id: "ch-1", serverId: "s1" })
+      .liveById.has("message-before-second-child-fault")).toBe(true)
+
+    setQueryData.mockRestore()
+    capturedOnMessage!(frame)
+    expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
+    expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
+      .toBe(frame.operationDigest)
+    expect(useCommunityWsStore.getState().seenMessageIds.size).toBe(1)
+    expect(getMessageOverlay({ kind: "channel", id: "ch-1", serverId: "s1" }).liveById.size)
+      .toBe(1)
+    expect(capturedQueryClient.getQueryData<{
+      categories: Array<{ channels: Array<{ id: string; unread: boolean }> }>
+    }>(communityKeys.server("s1"))?.categories[0]?.channels[0]?.unread).toBe(true)
+  })
+
+  it("replays every legal committed-message child idempotently after a partial parent projection", async () => {
+    await mountHook({ viewerUserId: "viewer-1" })
+    useCommunityStore.getState().subscribe({ channelId: "other-channel" })
+    capturedQueryClient.setQueryData(communityKeys.server("s1"), {
+      id: "s1",
+      categories: [{
+        id: "category-1",
+        channels: [{ id: "forum_1", type: "forum", unread: false }],
+      }],
+    })
+    capturedQueryClient.setQueryData(
+      communityKeys.forumSidebarThreads("s1"),
+      forumSidebarFixture(["ch-1"]),
+    )
+    capturedQueryClient.setQueryData(communityKeys.servers(), {
+      servers: [{ id: "s1", mentions: 5 }],
+    })
+    capturedQueryClient.setQueryData(communityKeys.channelMessages("forum_1"), {
+      pages: [{
+        messages: [{
+          id: "opener-1",
+          thread: { id: "ch-1", name: "thread", messageCount: 1 },
+        }],
+        hasMore: false,
+      }],
+      pageParams: [null],
+    })
+    const parentScope = { kind: "channel" as const, id: "forum_1", serverId: "s1" }
+    useMessageStreamStore.getState().dispatch(parentScope, {
+      type: "wsMessage",
+      message: {
+        id: "opener-1",
+        seq: 1,
+        type: "chat",
+        authorId: "author-1",
+        authorName: "Alice",
+        content: "opener",
+        createdAt: "2026-08-20T00:00:00.000Z",
+        thread: { id: "ch-1", name: "thread", messageCount: 1 },
+      },
+    })
+    vi.spyOn(capturedQueryClient, "invalidateQueries")
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    const originalDispatch = useMessageStreamStore.getState().dispatch
+    useMessageStreamStore.setState({
+      dispatch: (scope, event) => {
+        originalDispatch(scope, event)
+        throw new Error("partial parent projection fault")
+      },
+    })
+    const frame = await batchFor("message-projection-fault", [
+      {
+        ...message,
+        serverId: "s1",
+        parentChannelId: "forum_1",
+        message: { ...message.message, id: "message-before-fault" },
+      },
+      {
+        type: "community:unread.bump",
+        userId: "viewer-1",
+        channelId: "ch-1",
+        serverId: "s1",
+        railChannelId: "forum_1",
+        isMention: true,
+      },
+      {
+        type: "community:mention.create",
+        userId: "viewer-1",
+        messageId: "message-before-fault",
+        channelId: "ch-1",
+        authorName: "Alice",
+      },
+      {
+        type: "community:channel.member_add",
+        userId: "viewer-1",
+        serverId: "s1",
+        channelId: "ch-1",
+      },
+      {
+        type: "community:channel.child_update",
+        parentChannelId: "forum_1",
+        channelId: "ch-1",
+        changes: { messageCount: 2, lastMessageAt: "2026-08-21T00:00:00.000Z" },
+      },
+    ])
+
     try {
       capturedOnMessage!(frame)
       expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
       expect(useCommunityWsStore.getState().seenDeliveryOperations.has(frame.operationId))
         .toBe(false)
-      // The first child proves notifyManager.batch is not a rollback boundary:
-      // its state is already visible when the later presence child throws.
+      // All preceding children are legal committed-message projections. Their
+      // writes remain visible when the final parent projection throws.
       expect(useCommunityWsStore.getState().seenMessageIds.has("message-before-fault")).toBe(true)
-      expect(getMessageOverlay({
-        kind: "channel",
-        id: "ch-1",
-        serverId: "s1",
-      }).liveById.has("message-before-fault")).toBe(true)
-
-      useCommunityWsStore.setState({ setPresence: original })
-      capturedOnMessage!(frame)
-      expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
-      expect(useCommunityWsStore.getState().onlineUserIds.has("user-2")).toBe(true)
-      expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
-        .toBe(frame.operationDigest)
-
-      const invalidationsAfterSuccess = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
-      capturedOnMessage!(frame)
-      expect(vi.mocked(capturedQueryClient.invalidateQueries))
-        .toHaveBeenCalledTimes(invalidationsAfterSuccess)
+      expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(
+        communityKeys.forumSidebarThreads("s1"),
+      )?.threads).toMatchObject([{ id: "ch-1", unread: true }])
+      expect(capturedQueryClient.getQueryData<{
+        servers: Array<{ id: string; mentions: number }>
+      }>(communityKeys.servers())?.servers[0]?.mentions).toBe(5)
+      expect(capturedQueryClient.getQueryData<{
+        pages: Array<{ messages: Array<{ thread: { messageCount: number } }> }>
+      }>(communityKeys.channelMessages("forum_1"))?.pages[0]?.messages[0]?.thread.messageCount)
+        .toBe(2)
+      expect(getMessageOverlay(parentScope).liveById.get("opener-1")?.thread?.messageCount)
+        .toBe(2)
     } finally {
-      useCommunityWsStore.setState({ setPresence: original })
+      useMessageStreamStore.setState({ dispatch: originalDispatch })
     }
+
+    capturedOnMessage!(frame)
+    expect(reconcileCommunityWsReconnect).toHaveBeenCalledTimes(1)
+    expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
+      .toBe(frame.operationDigest)
+    expect(useCommunityWsStore.getState().seenMessageIds.size).toBe(1)
+    expect(capturedQueryClient.getQueryData<{
+      servers: Array<{ id: string; mentions: number }>
+    }>(communityKeys.servers())?.servers[0]?.mentions).toBe(5)
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(
+      communityKeys.forumSidebarThreads("s1"),
+    )?.threads).toMatchObject([{ id: "ch-1", unread: true }])
+    expect(capturedQueryClient.getQueryData<{
+      pages: Array<{ messages: Array<{ thread: { messageCount: number } }> }>
+    }>(communityKeys.channelMessages("forum_1"))?.pages[0]?.messages[0]?.thread.messageCount)
+      .toBe(2)
+    expect(getMessageOverlay(parentScope).liveById.get("opener-1")?.thread?.messageCount)
+      .toBe(2)
+
+    const invalidationsAfterSuccess = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
+    capturedOnMessage!(frame)
+    expect(vi.mocked(capturedQueryClient.invalidateQueries))
+      .toHaveBeenCalledTimes(invalidationsAfterSuccess)
   })
 
   it("reports a rejected authoritative reconciliation after a digest conflict", async () => {
