@@ -252,10 +252,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         const metadata = {
           reason: decoded.reason,
           type: isCommunityEventType(msg.type) ? msg.type : "unknown",
-          ...(typeof msg.contractVersion === "number"
-            && Number.isSafeInteger(msg.contractVersion)
-            ? { contractVersion: msg.contractVersion }
-            : {}),
         } as const
         console.warn("[ws] frame dropped", {
           event: "community_ws_frame_dropped",

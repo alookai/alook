@@ -207,7 +207,7 @@ describe("community WS batch transport contract", () => {
     })).toMatchObject({ ok: false, reason: "invalid-operation-digest" })
     expect(decodeCommunityBrowserEventBatch({
       ...encoded.batch,
-      events: [{ ...encoded.batch.events[0], contractVersion: undefined }],
+      events: [{ ...encoded.batch.events[0], contractVersion: 1 }],
     })).toMatchObject({ ok: false, reason: "invalid-child", eventIndex: 0 })
     expect(decodeCommunityBrowserEventBatch(encoded.batch, COMMUNITY_BROWSER_EVENT_BATCH_MAX_BYTES + 1)).toEqual({
       ok: false,

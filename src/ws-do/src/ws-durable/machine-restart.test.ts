@@ -151,7 +151,6 @@ describe("WebSocketDurableObject", () => {
         expect(call).toBeDefined()
         const body = JSON.parse(await (call!).clone().text()) as Record<string, unknown>
         expect(body).toEqual({
-          contractVersion: 1,
           type: "community:bot.audit_event",
           botId: "bot_1",
           id: "bae_reset",

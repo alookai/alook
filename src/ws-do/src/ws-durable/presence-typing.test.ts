@@ -403,7 +403,7 @@ describe("WebSocketDurableObject", () => {
       await (durable as unknown as PresenceInternals).sendPresenceSnapshot(ws as any, "user-1")
 
       expect(ws.send).toHaveBeenCalledWith(
-        JSON.stringify({ type: "community:presence.update", userId: "friend-c", online: true, contractVersion: 1 }),
+        JSON.stringify({ type: "community:presence.update", userId: "friend-c", online: true }),
       )
     })
 
@@ -442,7 +442,7 @@ describe("WebSocketDurableObject", () => {
 
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "auth.ok" }))
       expect(ws.send).toHaveBeenCalledWith(
-        JSON.stringify({ type: "community:presence.update", userId: "online", online: true, contractVersion: 1 }),
+        JSON.stringify({ type: "community:presence.update", userId: "online", online: true }),
       )
       expect(ws.send).toHaveBeenCalledTimes(2)
     })
@@ -502,7 +502,7 @@ describe("WebSocketDurableObject", () => {
       expect(requests.filter((r) => r.body.includes('"userId":"bot-1"') && r.body.includes('"online":true'))).toHaveLength(1)
       expect(requests.filter((r) => r.body.includes('"userId":"bot-2"') && r.body.includes('"online":true'))).toHaveLength(1)
       expect(requests.every((request) => request.url === "http://internal/community-broadcast")).toBe(true)
-      expect(requests.every((request) => JSON.parse(request.body).contractVersion === 1)).toBe(true)
+      expect(requests.every((request) => !("contractVersion" in JSON.parse(request.body)))).toBe(true)
     })
 
     it("broadcasts online: false for every bound bot on a machine-offline transition", async () => {
@@ -875,7 +875,6 @@ describe("WebSocketDurableObject", () => {
         type: "community:typing.start",
         channelId: "chan-1",
         userId: "sender-1",
-        contractVersion: 1,
       })
     })
 

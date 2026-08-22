@@ -265,10 +265,7 @@ describe("broadcastToUser", () => {
     expect(String(bindingFetch.mock.calls[0]?.[0])).toBe(
       `http://internal/broadcast/community/user/u:${encodeURIComponent(target)}`,
     )
-    expect(JSON.parse(String(bindingFetch.mock.calls[0]?.[1]?.body))).toEqual({
-      ...communityEvent,
-      contractVersion: 1,
-    })
+    expect(JSON.parse(String(bindingFetch.mock.calls[0]?.[1]?.body))).toEqual(communityEvent)
     },
   )
 
@@ -290,6 +287,10 @@ describe("broadcastToUser", () => {
       type: "community:future",
       payload: "private",
     } as any)).rejects.toThrow("invalid community event")
+    await expect(broadcastToUser("u1", {
+      ...communityEvent,
+      contractVersion: 1,
+    } as any)).rejects.toThrow("invalid community event: invalid-payload")
     expect(bindingFetch).not.toHaveBeenCalled()
   })
 

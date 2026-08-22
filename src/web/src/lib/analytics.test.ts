@@ -249,14 +249,12 @@ describe("analytics utility", () => {
       trackCommunityWsFrameDropped({
         reason: "oversized",
         type: "community:message.create",
-        contractVersion: 1,
         byteCount: 65_537,
       })
       expect(mockSendGTMEvent).toHaveBeenCalledWith({
         event: "community_ws_frame_dropped",
         reason: "oversized",
         type: "community:message.create",
-        contractVersion: 1,
         byteCount: 65_537,
       })
     })

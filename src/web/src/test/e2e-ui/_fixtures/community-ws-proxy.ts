@@ -2,7 +2,6 @@ import type { BrowserContext, WebSocketRoute } from "@playwright/test"
 
 export type CapturedCommunityFrame = {
   type: string
-  contractVersion?: number
   operationId?: string
   operationDigest?: string
   events?: CapturedCommunityFrame[]

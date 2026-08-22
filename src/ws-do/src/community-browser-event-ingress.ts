@@ -10,7 +10,6 @@ import {
   isValidCommunityUserTarget,
   prepareCommunityDeliveryEvents,
   type CommunityBrowserEventFailureReason,
-  type CommunityBrowserEventEnvelopeV1,
   type CommunityDeliveryOperationId,
   type CommunityDeliveryDigest,
   type PreparedCommunityDeliveryEvents,
@@ -21,17 +20,15 @@ export type CommunityBrowserEventIngressFailure = {
   ok: false
   reason: CommunityBrowserEventFailureReason
   type: CommunityWsEvent["type"] | "unknown"
-  contractVersion?: number
   byteCount?: number
 }
 
 type CommunityBrowserEventIngressSuccess = {
   ok: true
   event: CommunityWsEvent
-  envelope: CommunityBrowserEventEnvelopeV1
+  envelope: CommunityWsEvent
   body: string
   byteCount: number
-  sourceVersion: 0 | 1
 }
 
 export type CommunityBrowserEventIngressResult =
@@ -115,7 +112,6 @@ export function normalizeCommunityBrowserEvent(
     envelope: encoded.event,
     body: encoded.body,
     byteCount: encoded.byteLength,
-    sourceVersion: decoded.sourceVersion,
   }
 }
 
@@ -224,7 +220,6 @@ export function logCommunityBrowserEventRejected(
     route,
     reason: failure.reason,
     type: failure.type,
-    ...(failure.contractVersion === undefined ? {} : { contractVersion: failure.contractVersion }),
     ...(failure.byteCount === undefined ? {} : { byteCount: failure.byteCount }),
     ...(targetCount === undefined ? {} : { targetCount }),
   })

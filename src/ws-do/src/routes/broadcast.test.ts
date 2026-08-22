@@ -39,7 +39,6 @@ const communityPresenceEvent = {
   type: "community:presence.update",
   userId: "presence-user",
   online: true,
-  contractVersion: 1,
 }
 
 function maximumAuditEnvelope() {
@@ -185,7 +184,8 @@ describe("ws-do router", () => {
     )
 
     it.each([
-      ["unknown event", { type: "community:unknown", contractVersion: 1 }],
+      ["unknown event", { type: "community:unknown" }],
+      ["removed version field", { ...communityPresenceEvent, contractVersion: 1 }],
       ["extra event field", { ...communityPresenceEvent, secret: "nope" }],
     ])("rejects a %s before Durable Object access", async (_label, event) => {
       const res = await handler.fetch(new Request(
@@ -197,12 +197,11 @@ describe("ws-do router", () => {
       expect(doMock.stubFetch).not.toHaveBeenCalled()
     })
 
-    it("normalizes a legacy event to v1 before Durable Object access", async () => {
+    it("canonicalizes a current event before Durable Object access", async () => {
       doMock.stubFetch.mockResolvedValue(Response.json({ sent: 1 }))
-      const { contractVersion: _, ...legacy } = communityPresenceEvent
       const res = await handler.fetch(new Request(
         "http://localhost/broadcast/community/user/u:user-1",
-        { method: "POST", body: JSON.stringify(legacy) },
+        { method: "POST", body: JSON.stringify(communityPresenceEvent) },
       ), env as any)
 
       expect(res.status).toBe(200)

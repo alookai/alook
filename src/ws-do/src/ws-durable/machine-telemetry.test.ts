@@ -100,7 +100,6 @@ describe("WebSocketDurableObject", () => {
           statusText: string
         }
         expect(body).toEqual({
-          contractVersion: 1,
           type: "community:status.update",
           userId: "bot_1",
           statusEmoji: "⚡",
@@ -337,7 +336,6 @@ describe("WebSocketDurableObject", () => {
         // Bot path carries name/discriminator from the binding (getBotBindingWithOwner's
         // existing join) so the client renders the bot's name without a roster lookup.
         expect(body).toEqual({
-          contractVersion: 1,
           type: "community:typing.start",
           userId: "bot_1",
           channelId: "dm_1",
@@ -457,7 +455,6 @@ describe("WebSocketDurableObject", () => {
           channelId: string
         }
         expect(body).toEqual({
-          contractVersion: 1,
           type: "community:typing.stop",
           userId: "bot_1",
           channelId: "dm_1",
@@ -536,7 +533,6 @@ describe("WebSocketDurableObject", () => {
           createdAt: string
         }
         expect(body).toEqual({
-          contractVersion: 1,
           type: "community:bot.audit_event",
           botId: "bot_1",
           id: "bae_abc",

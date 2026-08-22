@@ -583,7 +583,6 @@ export type {
   CommunityMachineRemoved,
   CommunityBotAuditEvent,
   CommunityWsEvent,
-  CommunityBrowserEventEnvelopeV1,
   CommunityBrowserEventFailureReason,
   CommunityBrowserEventDecodeResult,
   CommunityBrowserEventEncodeResult,
@@ -591,7 +590,6 @@ export type {
 export {
   CommunityWsEventSchema,
   FriendApprovalPayloadSchema,
-  COMMUNITY_BROWSER_EVENT_CONTRACT_VERSION,
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
   COMMUNITY_USER_TARGET_MAX_BYTES,
   COMMUNITY_USER_TARGET_PATH_PREFIX,
