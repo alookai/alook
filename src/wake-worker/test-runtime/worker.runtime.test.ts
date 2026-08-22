@@ -37,6 +37,17 @@ describe("wake-worker workerd runtime", () => {
     await expect(response.json()).resolves.toEqual({ status: "ok" })
   })
 
+  it("rejects invalid JSON and non-POST dev requests at the real entrypoint", async () => {
+    const malformed = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      body: "not json",
+    }))
+    expect(malformed.status).toBe(400)
+
+    const method = await worker.fetch(new Request("https://worker.test/"))
+    expect(method.status).toBe(405)
+  })
+
   it("acks a permanent D1 miss through the real queue entrypoint", async () => {
     const id = `runtime-${crypto.randomUUID()}`
     const result = await worker.queue("alook-wake", [{

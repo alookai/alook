@@ -219,27 +219,6 @@ describe("wake-worker dev-only HTTP entrypoint (fetch)", () => {
     ]))
   })
 
-  it("returns 400 on invalid JSON body", async () => {
-    const res = await handler.fetch!(new Request("http://internal/", { method: "POST", body: "not json" }), env)
-
-    expect(res.status).toBe(400)
-    expect(mockDispatchOneUnreadWake).not.toHaveBeenCalled()
-  })
-
-  it("returns 405 for non-POST methods", async () => {
-    const res = await handler.fetch!(makeRequest("GET"), env)
-
-    expect(res.status).toBe(405)
-    expect(mockDispatchOneUnreadWake).not.toHaveBeenCalled()
-  })
-
-  it("returns 200 { status: ok } for GET /health without touching dispatch", async () => {
-    const res = await handler.fetch!(new Request("http://internal/health", { method: "GET" }), env)
-
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ status: "ok" })
-    expect(mockDispatchOneUnreadWake).not.toHaveBeenCalled()
-  })
 })
 
 /**

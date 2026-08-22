@@ -38,6 +38,37 @@ describe("email-worker workerd runtime", () => {
     await expect(runtimeEnv.EMAIL_BUCKET.get(key)).resolves.toBeNull()
   })
 
+  it("rejects unsupported methods, paths, and missing IMAP account ids", async () => {
+    const unknown = await worker.fetch(new Request("https://worker.test/unknown", {
+      method: "POST",
+    }))
+    expect(unknown.status).toBe(404)
+
+    const method = await worker.fetch(new Request("https://worker.test/send/otp"))
+    expect(method.status).toBe(405)
+
+    const missingAccount = await worker.fetch(new Request("https://worker.test/imap/start", {
+      method: "POST",
+    }))
+    expect(missingAccount.status).toBe(400)
+  })
+
+  it("forwards status and sync routes to the real IMAP Durable Object", async () => {
+    const accountId = `runtime-${crypto.randomUUID()}`
+    const status = await worker.fetch(new Request(
+      `https://worker.test/imap/status?accountId=${encodeURIComponent(accountId)}`,
+    ))
+    expect(status.status).toBe(200)
+    await expect(status.json()).resolves.toEqual({ status: "stopped" })
+
+    const sync = await worker.fetch(new Request(
+      `https://worker.test/imap/sync?accountId=${encodeURIComponent(accountId)}`,
+      { method: "POST" },
+    ))
+    expect(sync.status).toBe(200)
+    await expect(sync.json()).resolves.toEqual({ ok: true })
+  })
+
   it("persists and clears state through the real IMAP Durable Object", async () => {
     const accountId = `runtime-${crypto.randomUUID()}`
     const start = await worker.fetch(new Request(

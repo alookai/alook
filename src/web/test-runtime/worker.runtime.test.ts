@@ -27,32 +27,63 @@ describe("Web workerd runtime", () => {
     await runtimeEnv.CACHE_KV.delete(kvKey)
   })
 
-  it("uses the test-only OpenNext entry while preserving production cache behavior", async () => {
-    const publicResponse = await worker.fetch(new Request("https://worker.test/pricing"))
-    expect(await publicResponse.text()).toBe("open-next:/pricing")
-    expect(publicResponse.headers.get("x-open-next")).toBe("test-entry")
-    expect(publicResponse.headers.get("Cache-Control")).toBe("public, max-age=0, must-revalidate")
-    expect(publicResponse.headers.get("CDN-Cache-Control")).toBe(
-      "public, s-maxage=3600, stale-while-revalidate=86400",
-    )
+  it.each(["/", "/pricing", "/apiary"])(
+    "adds browser and CDN revalidation headers to public route %s",
+    async (pathname) => {
+      const publicResponse = await worker.fetch(new Request(`https://worker.test${pathname}`))
+      expect(await publicResponse.text()).toBe(`open-next:${pathname}`)
+      expect(publicResponse.headers.get("x-open-next")).toBe("test-entry")
+      expect(publicResponse.headers.get("Cache-Control")).toBe(
+        "public, max-age=0, must-revalidate",
+      )
+      expect(publicResponse.headers.get("CDN-Cache-Control")).toBe(
+        "public, s-maxage=3600, stale-while-revalidate=86400",
+      )
+    },
+  )
 
-    const privateResponse = await worker.fetch(new Request("https://worker.test/api/private"))
-    expect(await privateResponse.text()).toBe("open-next:/api/private")
-    expect(privateResponse.headers.get("Cache-Control")).toBeNull()
-    expect(privateResponse.headers.get("CDN-Cache-Control")).toBeNull()
+  it.each(["/w/one", "/workspaces", "/dashboard/one", "/invite/one", "/api/one", "/_next/one"])(
+    "does not add public cache headers to private route %s",
+    async (pathname) => {
+      const privateResponse = await worker.fetch(new Request(`https://worker.test${pathname}`))
+      expect(await privateResponse.text()).toBe(`open-next:${pathname}`)
+      expect(privateResponse.headers.get("Cache-Control")).toBeNull()
+      expect(privateResponse.headers.get("CDN-Cache-Control")).toBeNull()
+    },
+  )
+
+  it("returns a non-200 public response unchanged", async () => {
+    const response = await worker.fetch(new Request("https://worker.test/missing"))
+    expect(response.status).toBe(404)
+    expect(await response.text()).toBe("open-next:/missing")
+    expect(response.headers.get("Cache-Control")).toBeNull()
+    expect(response.headers.get("CDN-Cache-Control")).toBeNull()
   })
 
-  it("forwards WebSocket routes through the configured service binding", async () => {
-    const response = await worker.fetch(new Request("https://worker.test/api/ws/runtime", {
-      headers: { Upgrade: "websocket" },
-    }))
+  it.each(["/api/ws", "/api/ws/socket"])(
+    "forwards WebSocket upgrade %s through the configured service binding",
+    async (pathname) => {
+      const response = await worker.fetch(new Request(`https://worker.test${pathname}`, {
+        headers: { Upgrade: "websocket" },
+      }))
 
-    expect(response.status).toBe(101)
-    expect(response.headers.get("x-runtime-pathname")).toBe("/api/ws/runtime")
-    expect(response.headers.get("x-runtime-upgrade")).toBe("websocket")
-    expect(response.webSocket).not.toBeNull()
-    response.webSocket?.accept()
-    response.webSocket?.close(1000, "runtime test complete")
+      expect(response.status).toBe(101)
+      expect(response.headers.get("x-runtime-pathname")).toBe(pathname)
+      expect(response.headers.get("x-runtime-upgrade")).toBe("websocket")
+      expect(response.webSocket).not.toBeNull()
+      response.webSocket?.accept()
+      response.webSocket?.close(1000, "runtime test complete")
+    },
+  )
+
+  it.each([
+    ["plain token request", "/api/ws/token", undefined],
+    ["upgrade outside the ws route", "/socket", { Upgrade: "websocket" }],
+  ])("keeps %s in the OpenNext path", async (_name, pathname, headers) => {
+    const response = await worker.fetch(new Request(`https://worker.test${pathname}`, { headers }))
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe(`open-next:${pathname}`)
+    expect(response.headers.get("x-open-next")).toBe("test-entry")
   })
 
   it("exposes the production asset and Durable Object bindings locally", async () => {

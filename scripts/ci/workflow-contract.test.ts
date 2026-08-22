@@ -330,6 +330,38 @@ describe("Turbo CI execution", () => {
     expect(coverageJob).not.toContain("workers-runtime")
     expect(rootPackageJson.scripts).not.toHaveProperty("coverage:workers")
   })
+
+  it("replaces platform mocks only after stronger workerd coverage exists", () => {
+    const readRepo = (path: string) => readFileSync(
+      resolve(import.meta.dirname, `../../${path}`),
+      "utf8",
+    )
+    const wsRuntime = readRepo("src/ws-do/test-runtime/worker.runtime.test.ts")
+    const webRuntime = readRepo("src/web/test-runtime/worker.runtime.test.ts")
+    const emailNode = readRepo("src/email-worker/src/index.test.ts")
+    const emailRuntime = readRepo("src/email-worker/test-runtime/worker.runtime.test.ts")
+    const wakeNode = readRepo("src/wake-worker/src/index.test.ts")
+    const wakeRuntime = readRepo("src/wake-worker/test-runtime/worker.runtime.test.ts")
+
+    expect(existsSync(resolve(import.meta.dirname, "../../src/ws-do/src/rate-limit-do.test.ts"))).toBe(false)
+    expect(wsRuntime).toContain("persists the counter across stubs for the same Durable Object id")
+    expect(wsRuntime).toContain("resets expired storage and rejects invalid Durable Object requests")
+
+    expect(existsSync(resolve(import.meta.dirname, "../../src/web/src/lib/worker-runtime.test.ts"))).toBe(false)
+    expect(webRuntime).toContain("adds browser and CDN revalidation headers to public route %s")
+    expect(webRuntime).toContain("forwards WebSocket upgrade %s through the configured service binding")
+
+    expect(emailNode).not.toContain('describe("fetch() routing"')
+    expect(emailNode).not.toContain('describe("IMAP management routes"')
+    expect(emailRuntime).toContain("forwards status and sync routes to the real IMAP Durable Object")
+    expect(emailRuntime).toContain("rejects unsupported methods, paths, and missing IMAP account ids")
+
+    expect(wakeNode).not.toContain("returns 400 on invalid JSON body")
+    expect(wakeNode).not.toContain("returns 405 for non-POST methods")
+    expect(wakeNode).not.toContain("returns 200 { status: ok } for GET /health")
+    expect(wakeRuntime).toContain("rejects invalid JSON and non-POST dev requests at the real entrypoint")
+    expect(wakeRuntime).toContain("loads production migrations and serves the production entrypoint")
+  })
 })
 
 describe("Desktop updater release", () => {
