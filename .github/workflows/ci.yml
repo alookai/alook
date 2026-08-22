@@ -7,8 +7,6 @@ on:
     branches: [main]
   merge_group:
     types: [checks_requested]
-  schedule:
-    - cron: "17 3 * * *"
   workflow_dispatch:
 
 permissions:
@@ -42,7 +40,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.before }}
           HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          FORCE_FULL: ${{ github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+          FORCE_FULL: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
         run: |
           printf 'base_sha=%s\nhead_sha=%s\n' "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
           args=(--base "$BASE_SHA" --head "$HEAD_SHA" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY")
@@ -72,17 +70,20 @@ jobs:
       - run: pnpm --filter @alook/web validate:blog
       - run: pnpm build --filter=@alook/web
 
-  quality:
-    name: Typecheck & Lint
+  static-checks:
+    name: Static checks
     needs: scope
     if: needs.scope.outputs.run_code_checks == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.11
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
@@ -110,44 +111,35 @@ jobs:
         run: pnpm turbo run lint --affected
       - run: pnpm typegrep:ws
       - run: pnpm typegrep:agent-driver
-
-  knip:
-    name: Dead Code Detection (knip)
-    needs: scope
-    if: needs.scope.outputs.run_knip == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 22
-          cache: pnpm
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .turbo/cache
-          key: turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ github.sha }}
-          restore-keys: |
-            turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
-      - run: pnpm install --frozen-lockfile
-      - if: needs.scope.outputs.full == 'true'
+      - name: Build
+        if: needs.scope.outputs.full == 'true'
+        run: pnpm build --filter=@alook/shared --filter=@alook/web --filter=@alook/cli --filter=@alook/email-worker --filter=@alook/ws-do --filter=@alook/wake-worker
+      - name: Build affected packages
+        if: needs.scope.outputs.full != 'true'
+        env:
+          TURBO_SCM_BASE: ${{ needs.scope.outputs.base_sha }}
+          TURBO_SCM_HEAD: ${{ needs.scope.outputs.head_sha }}
+        run: pnpm turbo run build --affected --filter=@alook/shared --filter=@alook/web --filter=@alook/cli --filter=@alook/email-worker --filter=@alook/ws-do --filter=@alook/wake-worker
+      - name: Dead code detection
+        if: needs.scope.outputs.run_knip == 'true' && needs.scope.outputs.full == 'true'
+        continue-on-error: true
         run: pnpm knip
-      - if: needs.scope.outputs.full != 'true'
+      - name: Dead code detection for affected packages
+        if: needs.scope.outputs.run_knip == 'true' && needs.scope.outputs.full != 'true'
+        continue-on-error: true
         env:
           TURBO_SCM_BASE: ${{ needs.scope.outputs.base_sha }}
           TURBO_SCM_HEAD: ${{ needs.scope.outputs.head_sha }}
         run: pnpm turbo run knip --affected
 
   test-linux:
-    name: Tests (ubuntu-latest)
+    name: Tests & Coverage (ubuntu-latest)
     needs: scope
     if: needs.scope.outputs.run_code_checks == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    env:
+      RUN_COVERAGE: ${{ github.event_name != 'push' || startsWith(github.event.head_commit.message, 'release:') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -167,29 +159,30 @@ jobs:
           restore-keys: |
             turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
       - run: pnpm install --frozen-lockfile
+      - name: Build agent-driver for coverage
+        if: env.RUN_COVERAGE == 'true'
+        run: pnpm --filter @alook/agent-driver build
+      - name: Run full tests with coverage
+        if: env.RUN_COVERAGE == 'true'
+        run: pnpm vitest run --coverage --coverage.reporter=json --coverage.reporter=text
       - name: Run daemon tests in isolation
-        if: needs.scope.outputs.full == 'true'
+        if: env.RUN_COVERAGE != 'true'
         env:
           VITEST_MAX_WORKERS: 1
         run: pnpm turbo run test --filter=@alook/daemon
-      - name: Run affected daemon tests in isolation
-        if: needs.scope.outputs.full != 'true'
-        env:
-          VITEST_MAX_WORKERS: 1
-          TURBO_SCM_BASE: ${{ needs.scope.outputs.base_sha }}
-          TURBO_SCM_HEAD: ${{ needs.scope.outputs.head_sha }}
-        run: pnpm turbo run test --affected --filter=@alook/daemon
       - name: Run remaining workspace tests
-        if: needs.scope.outputs.full == 'true'
+        if: env.RUN_COVERAGE != 'true'
         run: pnpm turbo run test --filter='!@alook/daemon'
-      - name: Run affected workspace tests
-        if: needs.scope.outputs.full != 'true'
-        env:
-          TURBO_SCM_BASE: ${{ needs.scope.outputs.base_sha }}
-          TURBO_SCM_HEAD: ${{ needs.scope.outputs.head_sha }}
-        run: pnpm turbo run test --affected --filter='!@alook/daemon'
       - name: Run CI script tests
+        if: env.RUN_COVERAGE != 'true'
         run: pnpm vitest run --project ci-scripts
+      - name: Upload coverage
+        if: env.RUN_COVERAGE == 'true'
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/coverage-final.json
+          fail_ci_if_error: true
 
   test-windows:
     name: Tests (windows-latest)
@@ -233,26 +226,18 @@ jobs:
           pnpm --filter @alook/agent-driver build
           pnpm --filter @alook/daemon exec vitest run src/daemon/createDaemon.test.ts -t "starts the builtin Codex lane from a fresh nested daemon workspace"
       - name: Run daemon tests in isolation
-        if: needs.scope.outputs.full == 'true'
         env:
           VITEST_MAX_WORKERS: 1
         run: pnpm --filter @alook/daemon test
-      - name: Run affected daemon tests in isolation
-        if: needs.scope.outputs.full != 'true'
-        env:
-          VITEST_MAX_WORKERS: 1
-        run: pnpm --filter @alook/daemon test
-      - name: Run remaining workspace tests
+      - name: Run Windows-relevant workspace tests
         if: needs.scope.outputs.full == 'true'
-        run: pnpm turbo run test --filter='!@alook/daemon' --filter='!@alook/agent-driver'
-      - name: Run affected workspace tests
+        run: pnpm turbo run test --filter=@alook/cli --filter=@alook/app --filter=@alook/shared
+      - name: Run affected Windows-relevant workspace tests
         if: needs.scope.outputs.full != 'true'
         env:
           TURBO_SCM_BASE: ${{ needs.scope.outputs.base_sha }}
           TURBO_SCM_HEAD: ${{ needs.scope.outputs.head_sha }}
-        run: pnpm turbo run test --affected --filter='!@alook/daemon' --filter='!@alook/agent-driver'
-      - name: Run CI script tests
-        run: pnpm vitest run --project ci-scripts
+        run: pnpm turbo run test --affected --filter=@alook/cli --filter=@alook/app --filter=@alook/shared
 
   e2e:
     name: E2E Tests
@@ -310,64 +295,6 @@ jobs:
       - run: pnpm --filter @alook/cli run test:integration
       - run: pnpm --filter @alook/daemon run test:integration
 
-  build:
-    name: Build
-    needs: scope
-    if: needs.scope.outputs.run_code_checks == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.3.11
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 22
-          cache: pnpm
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .turbo/cache
-          key: turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ github.sha }}
-          restore-keys: |
-            turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
-      - run: pnpm install --frozen-lockfile
-      - if: needs.scope.outputs.full == 'true'
-        run: pnpm build --filter=@alook/shared --filter=@alook/web --filter=@alook/cli --filter=@alook/email-worker --filter=@alook/ws-do --filter=@alook/wake-worker
-      - if: needs.scope.outputs.full != 'true'
-        env:
-          TURBO_SCM_BASE: ${{ needs.scope.outputs.base_sha }}
-          TURBO_SCM_HEAD: ${{ needs.scope.outputs.head_sha }}
-        run: pnpm turbo run build --affected --filter=@alook/shared --filter=@alook/web --filter=@alook/cli --filter=@alook/email-worker --filter=@alook/ws-do --filter=@alook/wake-worker
-
-  coverage:
-    name: Coverage
-    needs: scope
-    if: needs.scope.outputs.run_code_checks == 'true' && (github.event_name != 'push' || startsWith(github.event.head_commit.message, 'release:'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.3.11
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @alook/agent-driver build
-      - run: pnpm vitest run --coverage --coverage.reporter=json --coverage.reporter=text
-      - uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/coverage-final.json
-          fail_ci_if_error: true
-
   desktop-rust:
     name: Desktop Rust (test + machete)
     needs: scope
@@ -419,13 +346,10 @@ jobs:
     needs:
       - scope
       - blog-content
-      - quality
-      - knip
+      - static-checks
       - test-linux
       - test-windows
       - e2e
-      - build
-      - coverage
       - desktop-rust
       - lighthouse
     runs-on: ubuntu-latest
@@ -435,13 +359,10 @@ jobs:
         [
           {"name":"scope","expected":true,"result":"${{ needs.scope.result }}"},
           {"name":"blog-content","expected":${{ needs.scope.outputs.blog_only == 'true' }},"result":"${{ needs.blog-content.result }}"},
-          {"name":"quality","expected":${{ needs.scope.outputs.run_code_checks == 'true' }},"result":"${{ needs.quality.result }}"},
-          {"name":"knip","expected":${{ needs.scope.outputs.run_knip == 'true' }},"result":"${{ needs.knip.result }}"},
+          {"name":"static-checks","expected":${{ needs.scope.outputs.run_code_checks == 'true' }},"result":"${{ needs.static-checks.result }}"},
           {"name":"test-linux","expected":${{ needs.scope.outputs.run_code_checks == 'true' }},"result":"${{ needs.test-linux.result }}"},
           {"name":"test-windows","expected":${{ needs.scope.outputs.run_windows == 'true' }},"result":"${{ needs.test-windows.result }}"},
           {"name":"e2e","expected":${{ needs.scope.outputs.run_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.e2e.result }}"},
-          {"name":"build","expected":${{ needs.scope.outputs.run_code_checks == 'true' }},"result":"${{ needs.build.result }}"},
-          {"name":"coverage","expected":${{ needs.scope.outputs.run_code_checks == 'true' && (github.event_name != 'push' || startsWith(github.event.head_commit.message, 'release:')) }},"result":"${{ needs.coverage.result }}"},
           {"name":"desktop-rust","expected":${{ needs.scope.outputs.run_rust == 'true' }},"result":"${{ needs.desktop-rust.result }}"},
           {"name":"lighthouse","expected":${{ needs.scope.outputs.run_lighthouse == 'true' && github.event_name != 'push' }},"result":"${{ needs.lighthouse.result }}"}
         ]

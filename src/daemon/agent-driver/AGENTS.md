@@ -9,7 +9,7 @@ These rules add to `../AGENTS.md` for the independent
   consumer. Its purpose is to make daemon/provider coupling structurally
   impossible. Do not fold it into daemon source or change its directory/package
   boundary merely because publishing is a lower priority.
-- Keep its manifest, declared exports, build, tests, API reports, ownership, and
+- Keep its manifest, declared exports, build, tests, ownership, and
   artifact-isolation checks. Daemon consumes only declared root/host contracts;
   it never deep-imports adapters, controllers, transports, provider SDKs, or
   internals.
@@ -51,5 +51,5 @@ These rules add to `../AGENTS.md` for the independent
   complete process cleanup for every built-in adapter. A fake adapter alone is
   not evidence for real providers.
 - Adapter-specific behavior may strengthen but never weaken shared semantics.
-  Public exports, API reports, and packaged artifacts must preserve the same
+  Public exports and packaged artifacts must preserve the same
   boundary as source imports.

@@ -5,8 +5,6 @@ on:
     branches: [main]
   merge_group:
     types: [checks_requested]
-  schedule:
-    - cron: "17 3 * * *"
   workflow_dispatch:
 
 permissions:
@@ -32,7 +30,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.before }}
           HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          FORCE_FULL: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+          FORCE_FULL: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           args=(--base "$BASE_SHA" --head "$HEAD_SHA" --output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY")
           if [[ "$FORCE_FULL" == "true" ]]; then args+=(--force-full); fi
@@ -86,23 +84,27 @@ jobs:
       - if: ${{ !cancelled() && matrix.shard == 1 }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: playwright-merge-runtime
+          name: playwright-merge-runtime-${{ github.run_id }}-${{ github.run_attempt }}
           path: src/web/playwright-merge-runtime/
+          if-no-files-found: error
           retention-days: 1
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: blob-report-${{ matrix.shard }}
+          name: blob-report-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           path: src/web/blob-report/
+          if-no-files-found: error
           retention-days: 1
       - if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: playwright-artifacts-${{ matrix.shard }}
+          name: playwright-artifacts-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           path: |
             src/web/test-results/
             src/web/e2e-service-logs/
-          retention-days: 14
+          if-no-files-found: ignore
+          retention-days: 7
 
   merge-reports:
     name: Merge Playwright Reports
@@ -113,17 +115,17 @@ jobs:
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          pattern: blob-report-*
+          pattern: blob-report-${{ github.run_id }}-${{ github.run_attempt }}-*
           path: all-blob-reports
           merge-multiple: true
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: playwright-merge-runtime
+          name: playwright-merge-runtime-${{ github.run_id }}-${{ github.run_attempt }}
           path: playwright-merge-runtime
       - run: node playwright-merge-runtime/node_modules/@playwright/test/cli.js merge-reports --reporter html all-blob-reports
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: playwright-report
+          name: playwright-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: playwright-report/
           retention-days: 14
 

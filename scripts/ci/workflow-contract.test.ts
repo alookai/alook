@@ -10,6 +10,10 @@ function normalizeWorkflow(text: string): string {
 
 const workflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "e2e-ui.yml"), "utf8"))
 const ciWorkflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "ci.yml"), "utf8"))
+const playwrightConfig = readFileSync(
+  resolve(import.meta.dirname, "../../src/web/playwright.config.ts"),
+  "utf8",
+)
 type WorkerModuleContract = {
   name: string
   packageJson: {
@@ -77,7 +81,12 @@ const publishDaemonWorkflow = normalizeWorkflow(
 )
 const agentDriverPackage = JSON.parse(
   readFileSync(resolve(repositoryRoot, "src/daemon/agent-driver/package.json"), "utf8"),
-) as { private?: boolean; publishConfig?: unknown }
+) as {
+  private?: boolean
+  publishConfig?: unknown
+  scripts: Record<string, string>
+  devDependencies: Record<string, string>
+}
 const daemonPackage = JSON.parse(
   readFileSync(resolve(repositoryRoot, "src/daemon/package.json"), "utf8"),
 ) as { devDependencies?: Record<string, string> }
@@ -91,14 +100,34 @@ function ciJob(name: string): string {
 }
 
 describe("E2E UI workflow", () => {
-  it("runs before merge without running on main pushes", () => {
+  it("runs before merge and manually without push or schedule triggers", () => {
     expect(workflow).toMatch(/^  pull_request:/m)
     expect(workflow).toMatch(/^  merge_group:/m)
+    expect(workflow).toMatch(/^  workflow_dispatch:/m)
     expect(workflow).not.toMatch(/^  push:/m)
+    expect(workflow).not.toMatch(/^  schedule:/m)
   })
 
-  it("uploads service logs when a Playwright shard fails", () => {
+  it("keeps failure diagnostics best-effort and merge inputs strict", () => {
     expect(workflow).toContain("src/web/e2e-service-logs/")
+    expect(workflow).toContain("continue-on-error: true")
+    expect(workflow).toContain("if-no-files-found: ignore")
+    expect(workflow).toContain("retention-days: 7")
+    expect(workflow).toContain(
+      "name: blob-report-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
+    )
+    expect(workflow).toContain(
+      "pattern: blob-report-${{ github.run_id }}-${{ github.run_attempt }}-*",
+    )
+    expect(workflow).toContain(
+      "name: playwright-merge-runtime-${{ github.run_id }}-${{ github.run_attempt }}",
+    )
+    expect(workflow.match(/if-no-files-found: error/g)).toHaveLength(2)
+    expect(workflow.match(/continue-on-error: true/g)).toHaveLength(1)
+  })
+
+  it("reports shard failures directly to GitHub Checks", () => {
+    expect(playwrightConfig).toContain('[["blob"], ["github"], ["list"]]')
   })
 
   it("does not install Bun for Node-only browser tests", () => {
@@ -122,7 +151,7 @@ describe("Bun workflow setup", () => {
   })
 
   it("installs pinned Bun in every CI job that builds a daemon package fixture", () => {
-    const bunJobs = ["test-linux", "test-windows", "build", "coverage"]
+    const bunJobs = ["static-checks", "test-linux", "test-windows"]
     expect(ciWorkflow.match(/oven-sh\/setup-bun/g)).toHaveLength(bunJobs.length)
     for (const job of bunJobs) {
       expect(ciJob(job)).toContain("oven-sh/setup-bun")
@@ -131,6 +160,41 @@ describe("Bun workflow setup", () => {
     for (const publishWorkflow of publishWorkflows) {
       expect(publishWorkflow).toContain("oven-sh/setup-bun")
       expect(publishWorkflow).toContain("bun-version: 1.3.11")
+    }
+  })
+})
+
+describe("CI workflow graph", () => {
+  it("keeps approved triggers without a daily schedule", () => {
+    expect(ciWorkflow).toMatch(/^  push:/m)
+    expect(ciWorkflow).toMatch(/^  pull_request:/m)
+    expect(ciWorkflow).toMatch(/^  merge_group:/m)
+    expect(ciWorkflow).toMatch(/^  workflow_dispatch:/m)
+    expect(ciWorkflow).not.toMatch(/^  schedule:/m)
+  })
+
+  it("consolidates static work and preserves non-blocking Knip steps", () => {
+    const staticChecks = ciJob("static-checks")
+    expect(ciWorkflow).not.toMatch(/^  quality:/m)
+    expect(ciWorkflow).not.toMatch(/^  knip:/m)
+    expect(ciWorkflow).not.toMatch(/^  build:/m)
+    expect(staticChecks.match(/pnpm install --frozen-lockfile/g)).toHaveLength(1)
+    expect(staticChecks.match(/continue-on-error: true/g)).toHaveLength(2)
+    expect(staticChecks).toContain("run: pnpm typecheck")
+    expect(staticChecks).toContain("run: pnpm lint")
+    expect(staticChecks).toContain("run: pnpm build")
+    expect(staticChecks).toContain("run: pnpm knip")
+  })
+
+  it("gates the consolidated jobs under the stable CI Gate", () => {
+    const gate = ciJob("ci-gate")
+    for (const job of ["static-checks", "test-linux", "test-windows"]) {
+      expect(gate).toContain(`- ${job}`)
+      expect(gate).toContain(`"name":"${job}"`)
+    }
+    for (const removed of ["quality", "knip", "build", "coverage"]) {
+      expect(gate).not.toContain(`- ${removed}`)
+      expect(gate).not.toContain(`"name":"${removed}"`)
     }
   })
 })
@@ -152,6 +216,27 @@ describe("Private agent driver package", () => {
     const daemonBuild = publishDaemonWorkflow.indexOf("pnpm -C src/daemon run build")
     expect(driverBuild).toBeGreaterThan(0)
     expect(daemonBuild).toBeGreaterThan(driverBuild)
+  })
+
+  it("keeps runtime and artifact contracts without the removed API report mechanism", () => {
+    expect(agentDriverPackage.scripts).not.toHaveProperty("api:check")
+    expect(agentDriverPackage.scripts).not.toHaveProperty("api:update")
+    expect(agentDriverPackage.devDependencies).not.toHaveProperty("@microsoft/api-extractor")
+    expect(rootPackageJson.scripts).not.toHaveProperty("api:check")
+    expect(rootPackageJson.scripts).not.toHaveProperty("api:update")
+    for (const path of [
+      ".github/api-surface-owners.json",
+      ".github/workflows/api-surface-check.yml",
+      ".github/workflows/api-surface-guard.yml",
+      "scripts/ci/api-report-contract.test.ts",
+      "scripts/ci/api-surface-guard.mjs",
+      "scripts/ci/api-surface-guard.test.ts",
+      "src/daemon/agent-driver/scripts/api-reports.mjs",
+      "src/daemon/agent-driver/etc/api/root.api.md",
+      "src/daemon/agent-driver/api-extractor.root.json",
+    ]) {
+      expect(existsSync(resolve(repositoryRoot, path))).toBe(false)
+    }
   })
 })
 
@@ -187,14 +272,18 @@ describe("CI test budgets", () => {
     expect(windows).toContain("fail_ci_if_error: true")
   })
 
-  it("does not rerun Windows process-bearing packages inside the Turbo workspace step", () => {
+  it("runs only Windows-relevant workspace packages after the process-bearing suites", () => {
     const windows = ciJob("test-windows")
     expect(windows).toContain(
-      "run: pnpm turbo run test --filter='!@alook/daemon' --filter='!@alook/agent-driver'",
+      "run: pnpm turbo run test --filter=@alook/cli --filter=@alook/app --filter=@alook/shared",
     )
     expect(windows).toContain(
-      "run: pnpm turbo run test --affected --filter='!@alook/daemon' --filter='!@alook/agent-driver'",
+      "run: pnpm turbo run test --affected --filter=@alook/cli --filter=@alook/app --filter=@alook/shared",
     )
+    for (const packageName of ["web", "email-worker", "ws-do", "wake-worker"]) {
+      expect(windows).not.toContain(`--filter=@alook/${packageName}`)
+    }
+    expect(windows).not.toContain("--project ci-scripts")
   })
 })
 
@@ -223,8 +312,8 @@ describe("CI dependency setup", () => {
 })
 
 describe("Turbo CI execution", () => {
-  const cachedJobs = ["blog-content", "quality", "knip", "test-linux", "test-windows", "build"]
-  const affectedJobs = ["quality", "knip", "test-linux", "test-windows", "build"]
+  const cachedJobs = ["blog-content", "static-checks", "test-linux", "test-windows"]
+  const affectedJobs = ["static-checks", "test-windows"]
 
   it("persists a task cache isolated by operating system, architecture, and job", () => {
     expect(ciWorkflow.match(/actions\/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9/g))
@@ -259,22 +348,25 @@ describe("Turbo CI execution", () => {
   })
 
   it("retains full commands when scope classification fails closed", () => {
-    expect(ciJob("quality")).toContain("run: pnpm typecheck")
-    expect(ciJob("quality")).toContain("run: pnpm lint")
-    expect(ciJob("knip")).toContain("run: pnpm knip")
+    const staticChecks = ciJob("static-checks")
+    expect(staticChecks).toContain("run: pnpm typecheck")
+    expect(staticChecks).toContain("run: pnpm lint")
+    expect(staticChecks).toContain("run: pnpm knip")
+    expect(staticChecks).toContain(
+      "run: pnpm build --filter=@alook/shared --filter=@alook/web --filter=@alook/cli --filter=@alook/email-worker --filter=@alook/ws-do --filter=@alook/wake-worker",
+    )
+    expect(staticChecks.match(/pnpm install --frozen-lockfile/g)).toHaveLength(1)
     const linux = ciJob("test-linux")
     expect(linux).toContain("run: pnpm turbo run test --filter=@alook/daemon")
     const windows = ciJob("test-windows")
     expect(windows).toContain("run: pnpm --filter @alook/daemon test")
     expect(linux).toContain("run: pnpm turbo run test --filter='!@alook/daemon'")
     expect(windows).toContain(
-      "run: pnpm turbo run test --filter='!@alook/daemon' --filter='!@alook/agent-driver'",
+      "run: pnpm turbo run test --filter=@alook/cli --filter=@alook/app --filter=@alook/shared",
     )
-    for (const definition of [linux, windows])
-      expect(definition.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(2)
-    expect(ciJob("build")).toContain(
-      "run: pnpm build --filter=@alook/shared --filter=@alook/web --filter=@alook/cli --filter=@alook/email-worker --filter=@alook/ws-do --filter=@alook/wake-worker",
-    )
+    for (const definition of [linux, windows]) {
+      expect(definition.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(1)
+    }
   })
 
   it("runs each direct Worker Node and runtime project once through its standard test task", () => {
@@ -306,6 +398,21 @@ describe("Turbo CI execution", () => {
     expect(rootVitestConfig).toContain('"src/**/*.{ts,tsx,js,jsx}"')
     expect(rootVitestConfig).toContain('"**/test-runtime/**"')
     expect(rootVitestConfig).toContain('"**/test-harness.ts"')
+    for (const project of [
+      "src/shared",
+      "src/web",
+      "src/cli",
+      "src/daemon",
+      "src/daemon/agent-driver",
+      "src/email-worker",
+      "src/ws-do",
+      "src/wake-worker",
+      "src/app",
+      "tests/utils",
+      "scripts/ci",
+    ]) {
+      expect(rootVitestConfig).toContain(`"${project}"`)
+    }
     for (const [index, module] of directWorkerModules.entries()) {
       expect(rootVitestConfig).toContain(`"src/${module.name}"`)
       expect(
@@ -321,13 +428,19 @@ describe("Turbo CI execution", () => {
     )
   })
 
-  it("uploads the single Istanbul report through the existing Codecov step", () => {
-    const coverageJob = ciJob("coverage")
-    expect(coverageJob.match(/pnpm vitest run --coverage/g)).toHaveLength(1)
-    expect(coverageJob.match(/codecov\/codecov-action/g)).toHaveLength(1)
-    expect(coverageJob).toContain("files: ./coverage/coverage-final.json")
-    expect(coverageJob).not.toContain("coverage:workers")
-    expect(coverageJob).not.toContain("workers-runtime")
+  it("runs tests once and uploads the single Istanbul report only for coverage events", () => {
+    const linux = ciJob("test-linux")
+    expect(linux).toContain(
+      "RUN_COVERAGE: ${{ github.event_name != 'push' || startsWith(github.event.head_commit.message, 'release:') }}",
+    )
+    expect(linux.match(/pnpm vitest run --coverage/g)).toHaveLength(1)
+    expect(linux.match(/codecov\/codecov-action/g)).toHaveLength(1)
+    expect(linux).toContain("if: env.RUN_COVERAGE == 'true'")
+    expect(linux).toContain("if: env.RUN_COVERAGE != 'true'")
+    expect(linux).toContain("files: ./coverage/coverage-final.json")
+    expect(linux).not.toContain("coverage:workers")
+    expect(linux).not.toContain("workers-runtime")
+    expect(ciWorkflow).not.toMatch(/^  coverage:/m)
     expect(rootPackageJson.scripts).not.toHaveProperty("coverage:workers")
   })
 
