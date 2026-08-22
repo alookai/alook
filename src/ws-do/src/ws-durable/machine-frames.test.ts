@@ -351,8 +351,8 @@ describe("WebSocketDurableObject", () => {
         const parsed = bodies.map((b) => JSON.parse(b)).filter((b) => b.type === "community:status.update")
         expect(parsed).toEqual(
           expect.arrayContaining([
-            { contractVersion: 1, type: "community:status.update", userId: "bot_1", statusEmoji: "💤", statusText: "Idle" },
-            { contractVersion: 1, type: "community:status.update", userId: "bot_2", statusEmoji: "💤", statusText: "Idle" },
+            { type: "community:status.update", userId: "bot_1", statusEmoji: "💤", statusText: "Idle" },
+            { type: "community:status.update", userId: "bot_2", statusEmoji: "💤", statusText: "Idle" },
           ])
         )
       })

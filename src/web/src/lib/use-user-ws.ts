@@ -68,14 +68,9 @@ function reportDroppedFrame(
 ) {
   const rawType = value?.type
   const type = isCommunityEventType(rawType) ? rawType : "unknown"
-  const rawVersion = value?.contractVersion
-  const contractVersion = typeof rawVersion === "number" && Number.isSafeInteger(rawVersion)
-    ? rawVersion
-    : undefined
   const metadata = {
     reason,
     type,
-    ...(contractVersion === undefined ? {} : { contractVersion }),
     ...(byteCount === undefined ? {} : { byteCount }),
   }
   console.warn("[ws] frame dropped", { event: "community_ws_frame_dropped", ...metadata })

@@ -609,15 +609,10 @@ void exactCommunityEventTypes
 
 const COMMUNITY_EVENT_TYPES: ReadonlySet<string> = new Set(Object.values(WS_EVENTS))
 
-export const COMMUNITY_BROWSER_EVENT_CONTRACT_VERSION = 1 as const
 export const COMMUNITY_BROWSER_EVENT_MAX_BYTES = 65_536
 export const COMMUNITY_USER_TARGET_MAX_BYTES = 128
 export const COMMUNITY_USER_TARGET_PATH_PREFIX = "u:"
 export const COMMUNITY_BULK_BODY_MAX_BYTES = 837_347
-
-export type CommunityBrowserEventEnvelopeV1 = CommunityWsEvent & {
-  contractVersion: typeof COMMUNITY_BROWSER_EVENT_CONTRACT_VERSION
-}
 
 export type CommunityBrowserEventFailureReason =
   | "oversized"
@@ -626,7 +621,6 @@ export type CommunityBrowserEventFailureReason =
   | "missing-type"
   | "wrong-family"
   | "unknown-community-type"
-  | "unsupported-version"
   | "invalid-payload"
   | "invalid-target"
   | "too-many-targets"
@@ -634,18 +628,17 @@ export type CommunityBrowserEventFailureReason =
   | "duplicate-auth-ok"
 
 export type CommunityBrowserEventDecodeResult =
-  | { ok: true; event: CommunityWsEvent; sourceVersion: 0 | 1 }
+  | { ok: true; event: CommunityWsEvent }
   | {
       ok: false
       reason: CommunityBrowserEventFailureReason
       type: CommunityWsEvent["type"] | "unknown"
-      contractVersion?: number
     }
 
 export type CommunityBrowserEventEncodeResult =
   | {
       ok: true
-      event: CommunityBrowserEventEnvelopeV1
+      event: CommunityWsEvent
       body: string
       byteLength: number
     }
@@ -713,39 +706,16 @@ export function decodeCommunityBrowserEvent(value: unknown): CommunityBrowserEve
     return { ok: false, reason: "unknown-community-type", type: "unknown" }
   }
 
-  const hasVersion = Object.prototype.hasOwnProperty.call(value, "contractVersion")
-  const rawVersion = value.contractVersion
-  if (hasVersion && rawVersion !== COMMUNITY_BROWSER_EVENT_CONTRACT_VERSION) {
-    return {
-      ok: false,
-      reason: "unsupported-version",
-      type: value.type,
-      ...(typeof rawVersion === "number" && Number.isSafeInteger(rawVersion)
-        ? { contractVersion: rawVersion }
-        : {}),
-    }
-  }
-
-  const eventValue = hasVersion
-    ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "contractVersion"))
-    : value
-  const parsed = CommunityWsEventSchema.safeParse(eventValue)
+  const parsed = CommunityWsEventSchema.safeParse(value)
   if (!parsed.success) return { ok: false, reason: "invalid-payload", type: value.type }
-  return {
-    ok: true,
-    event: parsed.data,
-    sourceVersion: hasVersion ? 1 : 0,
-  }
+  return { ok: true, event: parsed.data }
 }
 
 export function encodeCommunityBrowserEvent(value: unknown): CommunityBrowserEventEncodeResult {
   const parsed = CommunityWsEventSchema.safeParse(value)
   const type = isRecord(value) && isCommunityEventType(value.type) ? value.type : "unknown"
   if (!parsed.success) return { ok: false, reason: "invalid-payload", type }
-  const event = {
-    ...parsed.data,
-    contractVersion: COMMUNITY_BROWSER_EVENT_CONTRACT_VERSION,
-  } satisfies CommunityBrowserEventEnvelopeV1
+  const event = parsed.data
   const body = JSON.stringify(event)
   const byteLength = utf8ByteLength(body)
   if (byteLength > COMMUNITY_BROWSER_EVENT_MAX_BYTES) {

@@ -1,10 +1,8 @@
 import {
-  COMMUNITY_BROWSER_EVENT_CONTRACT_VERSION,
   COMMUNITY_BROWSER_EVENT_MAX_BYTES,
   decodeCommunityBrowserEvent,
   encodeCommunityBrowserEvent,
   utf8ByteLength,
-  type CommunityBrowserEventEnvelopeV1,
   type CommunityWsEvent,
 } from "./community-ws-events"
 import { MESSAGE_DELIVERY_MAX_EVENTS_PER_USER } from "./community-message-delivery"
@@ -29,12 +27,12 @@ export type CommunityBrowserEventBatch = {
   type: typeof COMMUNITY_BROWSER_EVENT_BATCH_TYPE
   operationId: CommunityDeliveryOperationId
   operationDigest: CommunityDeliveryDigest
-  events: CommunityBrowserEventEnvelopeV1[]
+  events: CommunityWsEvent[]
 }
 
 export type PreparedCommunityDeliveryEvents = {
   events: CommunityWsEvent[]
-  envelopes: CommunityBrowserEventEnvelopeV1[]
+  envelopes: CommunityWsEvent[]
   bodies: string[]
   digest: CommunityDeliveryDigest
 }
@@ -192,7 +190,7 @@ export async function prepareCommunityDeliveryEvents(
     return { ok: false, reason: "invalid-event-count" }
   }
   const events: CommunityWsEvent[] = []
-  const envelopes: CommunityBrowserEventEnvelopeV1[] = []
+  const envelopes: CommunityWsEvent[] = []
   const bodies: string[] = []
   for (let eventIndex = 0; eventIndex < values.length; eventIndex += 1) {
     const decoded = decodeCommunityBrowserEvent(values[eventIndex])
@@ -322,14 +320,14 @@ export function decodeCommunityBrowserEventBatch(
     return { ok: false, reason: "invalid-event-count" }
   }
   const events: CommunityWsEvent[] = []
-  const envelopes: CommunityBrowserEventEnvelopeV1[] = []
+  const envelopes: CommunityWsEvent[] = []
   for (let eventIndex = 0; eventIndex < value.events.length; eventIndex += 1) {
     const child = decodeCommunityBrowserEvent(value.events[eventIndex])
-    if (!child.ok || child.sourceVersion !== COMMUNITY_BROWSER_EVENT_CONTRACT_VERSION) {
+    if (!child.ok) {
       return { ok: false, reason: "invalid-child", eventIndex }
     }
     events.push(child.event)
-    envelopes.push(value.events[eventIndex] as CommunityBrowserEventEnvelopeV1)
+    envelopes.push(child.event)
   }
   return {
     ok: true,

@@ -71,7 +71,6 @@ describe("WebSocketDurableObject", () => {
       userId: "user-42",
       statusEmoji: null,
       statusText: "ready",
-      contractVersion: 1,
     }
 
     it("delivers a validated self-event to the authenticated target socket", async () => {
@@ -91,7 +90,7 @@ describe("WebSocketDurableObject", () => {
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify(event))
     })
 
-    it("normalizes legacy and rejects invalid or oversized frames before socket delivery", async () => {
+    it("rejects removed-version, invalid, and oversized frames before socket delivery", async () => {
       const { durable, ctx } = createDO()
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
@@ -104,10 +103,8 @@ describe("WebSocketDurableObject", () => {
 
       expect((await durable.fetch(request(JSON.stringify({
         ...event,
-        contractVersion: undefined,
-      })))).status).toBe(200)
-      expect(ws.send).toHaveBeenCalledWith(JSON.stringify(event))
-      ws.send.mockClear()
+        contractVersion: 1,
+      })))).status).toBe(400)
       expect((await durable.fetch(request(JSON.stringify({
         ...event,
         extra: true,
@@ -131,14 +128,12 @@ describe("WebSocketDurableObject", () => {
           type: "chat",
           createdAt: "2026-08-18T00:00:00.000Z",
         },
-        contractVersion: 1,
       },
       {
         type: "community:unread.bump",
         userId: "user-42",
         channelId: "ch-1",
         isMention: false,
-        contractVersion: 1,
       },
       {
         type: "community:mention.create",
@@ -146,7 +141,6 @@ describe("WebSocketDurableObject", () => {
         messageId: "m-1",
         channelId: "ch-1",
         authorName: "Alice",
-        contractVersion: 1,
       },
     ]
 
@@ -236,7 +230,7 @@ describe("WebSocketDurableObject", () => {
         body: JSON.stringify({
           operationId: await deriveCommunityDeliveryOperationId("m-1"),
           operationDigest: prepared.prepared.digest,
-          events: [...prepared.prepared.envelopes, { type: "community:unknown", contractVersion: 1 }],
+          events: [...prepared.prepared.envelopes, { type: "community:unknown" }],
         }),
       }))
 
@@ -771,7 +765,6 @@ describe("WebSocketDurableObject", () => {
         type: "community:presence.update",
         userId: "victim",
         online: false,
-        contractVersion: 1,
       })
     })
 
@@ -1093,7 +1086,6 @@ describe("WebSocketDurableObject", () => {
         type: "community:presence.update",
         userId: "user-1",
         online: false,
-        contractVersion: 1,
       })
     })
 

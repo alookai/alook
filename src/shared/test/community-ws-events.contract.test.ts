@@ -71,20 +71,16 @@ describe("Community browser event runtime contract", () => {
     expect(Object.keys(requiredFixturePaths).sort()).toEqual(names)
   })
 
-  it("decodes all legacy and v1 fixtures and emits flat v1", () => {
+  it("decodes and canonically encodes all 41 current event fixtures", () => {
     for (const fixture of fixtures) {
-      const legacy = decodeCommunityBrowserEvent(fixture)
-      expect(legacy).toEqual({ ok: true, event: fixture, sourceVersion: 0 })
+      expect(decodeCommunityBrowserEvent(fixture)).toEqual({ ok: true, event: fixture })
       const encoded = encodeCommunityBrowserEvent(fixture)
       expect(encoded.ok).toBe(true)
       if (!encoded.ok) continue
-      expect(encoded.event.type).toBe(fixture.type)
-      expect(encoded.event.contractVersion).toBe(1)
-      expect(decodeCommunityBrowserEvent(encoded.event)).toEqual({
-        ok: true,
-        event: fixture,
-        sourceVersion: 1,
-      })
+      expect(encoded.event).toEqual(fixture)
+      expect(encoded.event).not.toHaveProperty("contractVersion")
+      expect(JSON.parse(encoded.body)).toEqual(fixture)
+      expect(decodeCommunityBrowserEvent(encoded.event)).toEqual({ ok: true, event: fixture })
     }
   })
 
@@ -99,16 +95,16 @@ describe("Community browser event runtime contract", () => {
     }
   })
 
-  it("fails closed for family, version, shape, and strict-key errors", () => {
+  it("fails closed for family, removed-version, shape, and strict-key errors", () => {
     expect(decodeCommunityBrowserEvent(null)).toMatchObject({ reason: "non-object" })
     expect(decodeCommunityBrowserEvent([])).toMatchObject({ reason: "non-object" })
     expect(decodeCommunityBrowserEvent({})).toMatchObject({ reason: "missing-type" })
     expect(decodeCommunityBrowserEvent({ type: "task.messages" })).toMatchObject({ reason: "wrong-family" })
     expect(decodeCommunityBrowserEvent({ type: "community:future" })).toMatchObject({ reason: "unknown-community-type" })
-    expect(decodeCommunityBrowserEvent({ ...fixtures[0], contractVersion: 2 })).toMatchObject({
-      reason: "unsupported-version",
-      contractVersion: 2,
-    })
+    expect(decodeCommunityBrowserEvent({ ...fixtures[0], contractVersion: 1 }))
+      .toMatchObject({ reason: "invalid-payload" })
+    expect(decodeCommunityBrowserEvent({ ...fixtures[0], contractVersion: 2 }))
+      .toMatchObject({ reason: "invalid-payload" })
     expect(decodeCommunityBrowserEvent({ ...fixtures[0], extra: true })).toMatchObject({ reason: "invalid-payload" })
     const nestedExtra = clone(communityWsEventFixtures["community:message.create"]) as CommunityMessageCreate & {
       message: CommunityMessageCreate["message"] & { extra: boolean }

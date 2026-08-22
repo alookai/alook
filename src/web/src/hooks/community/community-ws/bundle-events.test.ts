@@ -133,7 +133,7 @@ describe("useCommunityWs — operation bundles", () => {
     const frame = await batchFor("message-malformed", mentionEvents)
     capturedOnMessage!({
       ...frame,
-      events: [...frame.events, { type: "community:future", contractVersion: 1 }],
+      events: [{ ...frame.events[0], contractVersion: 1 }, ...frame.events.slice(1)],
     })
 
     const { useCommunityWsStore } = await import("@/stores/community/ws")
@@ -153,10 +153,7 @@ describe("useCommunityWs — operation bundles", () => {
       type: COMMUNITY_BROWSER_EVENT_BATCH_TYPE,
       extra: true,
     })
-    capturedOnMessage!({
-      type: "community:message.create",
-      contractVersion: 2,
-    })
+    capturedOnMessage!({ ...message, contractVersion: 1 })
 
     expect(warn).toHaveBeenCalledWith(
       "[ws] frame dropped",
@@ -168,7 +165,7 @@ describe("useCommunityWs — operation bundles", () => {
     )
     expect(warn).toHaveBeenCalledWith(
       "[ws] frame dropped",
-      expect.objectContaining({ type: "community:message.create", contractVersion: 2 }),
+      expect.objectContaining({ reason: "invalid-payload", type: "community:message.create" }),
     )
   })
 

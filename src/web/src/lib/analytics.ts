@@ -154,7 +154,6 @@ export type CommunityWsFrameDropReason =
   | "missing-type"
   | "wrong-family"
   | "unknown-community-type"
-  | "unsupported-version"
   | "invalid-payload"
   | "invalid-target"
   | "too-many-targets"
@@ -187,14 +186,12 @@ function sendCommunityWsGTMEvent(payload: Record<string, unknown>) {
 export function trackCommunityWsFrameDropped(params: {
   reason: CommunityWsFrameDropReason
   type: string
-  contractVersion?: number
   byteCount?: number
 }) {
   sendCommunityWsGTMEvent({
     event: "community_ws_frame_dropped",
     reason: params.reason,
     type: params.type,
-    ...(params.contractVersion === undefined ? {} : { contractVersion: params.contractVersion }),
     ...(params.byteCount === undefined ? {} : { byteCount: params.byteCount }),
   });
 }

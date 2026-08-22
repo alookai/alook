@@ -84,7 +84,7 @@ describe("ws-do router", () => {
       expect(body.kind).toBe("wake_trigger")
       expect(body.createdAt).toBe(payload.createdAt)
       expect(body.payload).toEqual(payload.payload)
-      expect(body.contractVersion).toBe(1)
+      expect(body).not.toHaveProperty("contractVersion")
     })
 
     it("400s on invalid JSON", async () => {

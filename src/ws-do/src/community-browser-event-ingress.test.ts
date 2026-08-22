@@ -69,18 +69,15 @@ function worstEscapingTarget(index: number) {
 }
 
 describe("community browser event ingress", () => {
-  it("normalizes all 41 legacy and v1 fixtures", () => {
+  it("normalizes all 41 current fixtures without a version field", () => {
     const fixtures = Object.values(communityWsEventFixtures)
     expect(fixtures).toHaveLength(41)
     for (const fixture of fixtures) {
-      const legacy = normalizeCommunityBrowserEvent(fixture)
-      expect(legacy).toMatchObject({ ok: true, sourceVersion: 0 })
-      if (!legacy.ok) continue
-      expect(legacy.envelope.contractVersion).toBe(1)
-      expect(normalizeCommunityBrowserEvent(legacy.envelope)).toMatchObject({
-        ok: true,
-        sourceVersion: 1,
-      })
+      const normalized = normalizeCommunityBrowserEvent(fixture)
+      expect(normalized).toMatchObject({ ok: true, event: fixture, envelope: fixture })
+      if (!normalized.ok) continue
+      expect(normalized.envelope).not.toHaveProperty("contractVersion")
+      expect(JSON.parse(normalized.body)).toEqual(fixture)
     }
   })
 
@@ -94,8 +91,8 @@ describe("community browser event ingress", () => {
     expect(normalizeCommunityBrowserEvent({ type: "community:future" })).toMatchObject({ reason: "unknown-community-type" })
     expect(normalizeCommunityBrowserEvent({
       ...communityWsEventFixtures["community:presence.update"],
-      contractVersion: 2,
-    })).toMatchObject({ reason: "unsupported-version" })
+      contractVersion: 1,
+    })).toMatchObject({ reason: "invalid-payload" })
   })
 
   it("rejects malformed UTF-8, malformed JSON, lying lengths, and streamed overflow", async () => {
@@ -177,7 +174,8 @@ describe("community browser event ingress", () => {
       { ...body, operationId: "message:short" },
       { ...body, operationDigest: "A".repeat(64) },
       { ...body, operationDigest: "0".repeat(64) },
-      { ...body, events: [...body.events, { type: "community:future", contractVersion: 1 }] },
+      { ...body, events: [{ ...body.events[0], contractVersion: 1 }, ...body.events.slice(1)] },
+      { ...body, events: [...body.events, { type: "community:future" }] },
       { ...body, extra: true },
     ]) {
       await expect(readCommunityBrowserEventBundleRequest(requestFromBytes(JSON.stringify(invalid))))
