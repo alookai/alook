@@ -4,6 +4,9 @@
     "src/**/*.ts"
   ],
   "includeEntryExports": true,
+  "ignoreDependencies": [
+    "cloudflare"
+  ],
   "vitest": {
     "entry": [
       "src/**/*.test.ts"

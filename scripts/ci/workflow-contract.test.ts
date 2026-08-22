@@ -10,9 +10,29 @@ function normalizeWorkflow(text: string): string {
 
 const workflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "e2e-ui.yml"), "utf8"))
 const ciWorkflow = normalizeWorkflow(readFileSync(resolve(workflowRoot, "ci.yml"), "utf8"))
-const wsDoPackage = JSON.parse(
-  readFileSync(resolve(import.meta.dirname, "../../src/ws-do/package.json"), "utf8"),
-) as { scripts: Record<string, string> }
+type WorkerModuleContract = {
+  name: string
+  packageJson: {
+    scripts: Record<string, string>
+    devDependencies: Record<string, string>
+  }
+  nodeConfig: string
+  runtimeConfig: string
+  workspaceConfig: string
+  wranglerConfig: string
+}
+
+const directWorkerModules = ["ws-do", "email-worker", "wake-worker"].map((name): WorkerModuleContract => {
+  const moduleRoot = resolve(import.meta.dirname, `../../src/${name}`)
+  return {
+    name,
+    packageJson: JSON.parse(readFileSync(resolve(moduleRoot, "package.json"), "utf8")),
+    nodeConfig: readFileSync(resolve(moduleRoot, "vitest.config.ts"), "utf8"),
+    runtimeConfig: readFileSync(resolve(moduleRoot, "vitest.runtime.config.mts"), "utf8"),
+    workspaceConfig: readFileSync(resolve(moduleRoot, "vitest.workspace.config.ts"), "utf8"),
+    wranglerConfig: readFileSync(resolve(moduleRoot, "wrangler.toml"), "utf8"),
+  }
+})
 const rootVitestConfig = readFileSync(
   resolve(import.meta.dirname, "../../vitest.config.ts"),
   "utf8",
@@ -251,15 +271,34 @@ describe("Turbo CI execution", () => {
     )
   })
 
-  it("runs the ordinary ws-do Vitest suite through the standard test task", () => {
-    expect(wsDoPackage.scripts.test).toBe("vitest run --passWithNoTests")
-    expect(wsDoPackage.scripts).not.toHaveProperty("test:workers")
+  it("runs each direct Worker Node and runtime project once through its standard test task", () => {
+    const projectNames: string[] = []
+    for (const module of directWorkerModules) {
+      expect(module.packageJson.scripts.test).toBe("vitest run --config vitest.workspace.config.ts")
+      expect(module.packageJson.scripts).not.toHaveProperty("test:workers")
+      expect(module.packageJson.devDependencies["@cloudflare/vitest-plugin"]).toBe("1.0.0")
+      expect(module.workspaceConfig.match(/vitest\.config\.ts/g)).toHaveLength(1)
+      expect(module.workspaceConfig.match(/vitest\.runtime\.config\.mts/g)).toHaveLength(1)
+
+      const nodeProject = `${module.name}-node`
+      const runtimeProject = `${module.name}-runtime`
+      expect(module.nodeConfig).toContain(`name: "${nodeProject}"`)
+      expect(module.runtimeConfig).toContain(`name: "${runtimeProject}"`)
+      expect(module.runtimeConfig).toContain("cloudflareTest({")
+      expect(module.runtimeConfig).toContain('wrangler: { configPath: "./wrangler.toml" }')
+      expect(module.wranglerConfig).not.toContain("service_binding_extra_handlers")
+      projectNames.push(nodeProject, runtimeProject)
+    }
+    expect(new Set(projectNames).size).toBe(projectNames.length)
     expect(ciJob("test-linux")).toContain("pnpm turbo run test --filter='!@alook/daemon'")
   })
 
-  it("does not exclude ws-do product source from Node coverage", () => {
-    expect(rootVitestConfig).not.toContain('"src/ws-do/src/**"')
-    expect(rootVitestConfig).not.toContain('"src/ws-do/src/**/*.ts"')
+  it("keeps every direct Worker source in Node V8 coverage", () => {
+    for (const module of directWorkerModules) {
+      expect(rootVitestConfig).toContain(`"src/${module.name}"`)
+      expect(rootVitestConfig).not.toContain(`"src/${module.name}/src/**"`)
+      expect(rootVitestConfig).not.toContain(`"src/${module.name}/src/**/*.ts"`)
+    }
   })
 })
 

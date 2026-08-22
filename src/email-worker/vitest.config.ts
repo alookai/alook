@@ -3,6 +3,8 @@ import shared from "../../vitest.shared"
 
 export default mergeConfig(shared, defineConfig({
   test: {
-    include: ["src/**/*.test.ts"],
+    name: "email-worker-node",
+    include: ["src/**/!(*.runtime).test.ts"],
+    sequence: { groupOrder: 1 },
   },
 }))

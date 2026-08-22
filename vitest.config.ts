@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config"
 
 export default defineConfig({
   test: {
-    projects: ["src/shared", "src/web", "src/cli", "src/daemon", "src/daemon/agent-driver", "src/email-worker", "src/ws-do", "src/app", "tests/utils", "scripts/ci"],
+    projects: ["src/shared", "src/web", "src/cli", "src/daemon", "src/daemon/agent-driver", "src/email-worker", "src/ws-do", "src/wake-worker", "src/app", "tests/utils", "scripts/ci"],
     coverage: {
       provider: "v8",
       include: ["src/**/*.{ts,tsx,js,jsx}", "scripts/ci/**/*.mjs"],
