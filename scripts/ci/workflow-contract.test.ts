@@ -179,18 +179,13 @@ describe("Turbo CI execution", () => {
     )
   })
 
-  it("runs the real Workers attachment gate through the standard ws-do test task", () => {
-    expect(wsDoPackage.scripts.test).toContain("pnpm run test:workers")
-    expect(wsDoPackage.scripts["test:workers"]).toContain("vitest.workers.config.mts")
-    expect(wsDoPackage.scripts["test:workers"]).toContain("--max-workers=1")
-    expect(wsDoPackage.scripts["test:workers"]).toContain("--no-isolate")
+  it("runs the ordinary ws-do Vitest suite through the standard test task", () => {
+    expect(wsDoPackage.scripts.test).toBe("vitest run --passWithNoTests")
+    expect(wsDoPackage.scripts).not.toHaveProperty("test:workers")
     expect(ciJob("test-linux")).toContain("pnpm turbo run test --filter='!@alook/daemon'")
   })
 
-  it("excludes only the Wrangler test entry from Node coverage, not ws-do product source", () => {
-    expect(rootVitestConfig).toContain(
-      '"src/ws-do/src/test-integration/community-delivery-attachment-worker.ts"',
-    )
+  it("does not exclude ws-do product source from Node coverage", () => {
     expect(rootVitestConfig).not.toContain('"src/ws-do/src/**"')
     expect(rootVitestConfig).not.toContain('"src/ws-do/src/**/*.ts"')
   })

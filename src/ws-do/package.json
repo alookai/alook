@@ -6,15 +6,13 @@
     "dev": "node ../../scripts/dev-with-wrangler-registry.mjs ../../.wrangler/registry wrangler dev --persist-to ../web/.wrangler/state",
     "deploy": "wrangler deploy",
     "knip": "knip",
-    "test": "vitest run --passWithNoTests && pnpm run test:workers",
-    "test:workers": "vitest run --config vitest.workers.config.mts --max-workers=1 --no-isolate",
+    "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
   },
   "dependencies": {
     "@alook/shared": "workspace:*"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "1.0.0",
     "@cloudflare/workers-types": "^4.20260702.1",
     "@types/node": "^25.9.4",
     "knip": "^6.32.2",

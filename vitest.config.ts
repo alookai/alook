@@ -18,9 +18,6 @@ export default defineConfig({
         "**/__mocks__/**",
         "**/*.d.ts",
         "src/cli/src/index.ts",
-        // Wrangler-only test entry: exercised by the real Workers attachment
-        // gate, but never imported by the root Node Vitest coverage process.
-        "src/ws-do/src/test-integration/community-delivery-attachment-worker.ts",
         "src/web/scripts/**",
         "src/web/readme-capture/**",
         "src/web/src/**/*.tsx",
