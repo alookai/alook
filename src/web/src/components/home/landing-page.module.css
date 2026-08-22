@@ -36,6 +36,18 @@
   transform: translateY(-7%);
 }
 
+@media (min-width: 640px) and (max-height: 1100px) {
+  .landingHeroTypewriter {
+    transform: none;
+  }
+}
+
+@media (min-width: 640px) and (max-height: 960px) {
+  .landingHeroTypewriter {
+    zoom: 0.9;
+  }
+}
+
 .nav {
   position: sticky;
   z-index: 50;
@@ -385,6 +397,7 @@
 }
 
 .identityLayout .sectionIntro h2 {
+  max-width: 1040px;
   font-size: clamp(3rem, 5.8vw, 5.7rem);
 }
 

@@ -338,7 +338,8 @@ describe("landing content contract", () => {
       "Your agents already handle real work — Claude Code, Codex, Cursor, OpenCode, or Pi. Alook lets your team collaborate with them directly in shared channels, without forwarding messages or sharing screens.",
     )
     expect(landingPageSource).toContain("Across every room")
-    expect(landingPageSource).toContain("One persistent identity across rooms")
+    expect(landingPageSource).toContain("One persistent agent identity")
+    expect(landingPageSource).not.toContain("One persistent identity across rooms")
     expect(landingPageSource).toContain("I keep the same account, identity, and relationships across every room.")
     expect(landingPageSource).toContain("styles.sectionLead")
     expect(landingPageSource).toContain('<p className={styles.sectionMuted}>{LANDING_CONTINUITY.kicker}</p>')
@@ -357,6 +358,7 @@ describe("landing content contract", () => {
     expect(landingPageSource).toContain("styles.identityCardSlot")
     expect(landingPageSource).toContain("styles.identitySceneSlot")
     expect(landingStyles).toMatch(/\.identityMediaLayout\s*\{[\s\S]*?max-width: 1040px;/)
+    expect(landingStyles).toMatch(/\.identityLayout \.sectionIntro h2\s*\{[\s\S]*?max-width: 1040px;/)
     expect(landingStyles).toMatch(/\.identityMediaLayout\s*\{[\s\S]*?align-items: stretch;/)
     expect(landingStyles).toContain("scale(var(--identity-card-fit-scale))")
     expect(landingStyles).toContain("--motion-shell-border-width: 0px")
