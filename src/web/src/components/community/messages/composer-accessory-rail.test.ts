@@ -57,6 +57,8 @@ describe("ComposerAccessoryRail", () => {
     const renderer = render()
     const rail = renderer.root.findByProps({ "data-testid": tid.composerAccessoryRail })
     expect(rail.props.className).toContain("absolute")
+    expect(rail.props.className).toContain("px-2")
+    expect(rail.props.className).toContain("sm:px-4")
     expect(renderer.root.findByProps({ "data-testid": tid.typingIndicator }).props.className)
       .toContain("min-w-0")
     expect(renderer.root.findByProps({ "data-testid": tid.scrollToPresent }).props["aria-label"])
@@ -110,23 +112,54 @@ describe("ComposerAccessoryRail", () => {
     expect(renderer.root.findByProps({ "data-testid": tid.typingIndicator })).toBeTruthy()
 
     const grid = rail.findAllByType("div").find((node) => node.props.className?.includes("grid w-full"))!
-    expect(grid.props.className).toContain("sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]")
+    expect(grid.props.className).toContain("grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]")
   })
 
-  it("uses the two-column mobile selection priority and hides typing below sm", () => {
+  it("uses a symmetric mobile selection grid with a compact capped toolbar and hides typing below sm", () => {
     useCommunityWsStore.getState().setConnectionStatus("failed")
     const renderer = render({ selectMode: true, selectedCount: 12 })
     const rail = renderer.root.findByProps({ "data-testid": tid.composerAccessoryRail })
     const grid = rail.findAllByType("div").find((node) => node.props.className?.includes("grid w-full"))!
-    expect(grid.props.className).toContain("grid-cols-[minmax(0,1fr)_auto]")
+    expect(grid.props.className).toContain("grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]")
+    expect(grid.props.className).toContain("gap-1")
+    expect(grid.props.className).toContain("sm:gap-2")
 
     const typingParent = renderer.root.findAllByType("div")
       .find((node) => node.props.className?.includes("hidden w-full min-w-0"))!
     expect(typingParent.props.className).toContain("hidden")
     expect(typingParent.props.className).toContain("w-full")
     expect(typingParent.props.className).toContain("sm:block")
-    expect(renderer.root.findByProps({ "data-testid": tid.messageSelectionToolbar }).props.className)
-      .toContain("max-w-full")
-    expect(renderer.root.findByProps({ "data-testid": tid.wsRetry })).toBeTruthy()
+    const toolbar = renderer.root.findByProps({ "data-testid": tid.messageSelectionToolbar })
+    expect(toolbar.props.className).toContain("h-10")
+    expect(toolbar.props.className).toContain("max-w-[calc(100vw-7rem)]")
+    expect(toolbar.props.className).toContain("sm:h-auto")
+    const toolbarSlot = rail.findAllByType("div")
+      .find((node) => node.props.className?.includes("col-start-2"))!
+    expect(toolbarSlot.props.className).toContain("justify-self-center")
+
+    const count = toolbar.findAllByType("span")
+      .find((node) => node.props.className?.includes("flex-1"))!
+    expect(count.children.join("")).toBe("12 selected")
+    expect(count.props.className).toContain("flex-1")
+    expect(count.props.className).toContain("truncate")
+
+    const cancel = renderer.root.findByProps({ "aria-label": "Cancel message selection" })
+    expect(cancel.props.className).toContain("h-8")
+    expect(cancel.props.className).toContain("w-11")
+    expect(cancel.props.className).toContain("after:-inset-y-1.5")
+
+    const share = renderer.root.findByProps({
+      "aria-label": "Share 12 selected messages as image",
+    })
+    expect(share.props.className).toContain("h-8")
+    expect(share.props.className).toContain("px-2")
+    expect(share.props.className).toContain("after:-inset-y-1.5")
+
+    const wsRetry = renderer.root.findByProps({ "data-testid": tid.wsRetry })
+    expect(wsRetry.props.className).toContain("size-11")
+    const wsSlot = rail.findAllByType("div")
+      .find((node) => node.props.className?.includes("col-start-3"))!
+    expect(wsSlot.props.className).toContain("min-w-11")
+    expect(wsSlot.props.className).toContain("justify-self-end")
   })
 })

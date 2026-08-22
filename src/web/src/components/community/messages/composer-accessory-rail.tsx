@@ -35,13 +35,13 @@ export function ComposerAccessoryRail({
     <div
       data-testid={tid.composerAccessoryRail}
       data-selection={selectMode ? "active" : "inactive"}
-      className="pointer-events-none absolute inset-x-0 bottom-3 z-20 px-3 sm:px-4"
+      className="pointer-events-none absolute inset-x-0 bottom-3 z-20 px-2 sm:px-4"
     >
       <div
         className={cn(
-          "grid w-full items-end gap-2",
+          "grid w-full items-end gap-1 sm:gap-2",
           selectMode
-            ? "grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]"
+            ? "grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]"
             : "grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]",
         )}
       >
@@ -50,14 +50,14 @@ export function ComposerAccessoryRail({
             <div className="hidden w-full min-w-0 sm:col-start-1 sm:block">
               <TypingIndicator names={typingNames} className="w-fit" />
             </div>
-            <div className="col-start-1 min-w-0 justify-self-center sm:col-start-2">
+            <div className="col-start-2 min-w-0 justify-self-center">
               <SelectionToolbar
                 selectedCount={selectedCount}
                 onCancel={onCancelSelection}
                 onShare={onShareSelection}
               />
             </div>
-            <div className="col-start-2 justify-self-end sm:col-start-3">
+            <div className="col-start-3 min-w-11 justify-self-end">
               <WsStatusControl status={connectionStatus} onRetry={reconnectNow} />
             </div>
           </>
@@ -91,9 +91,9 @@ function SelectionToolbar({
   return (
     <div
       data-testid={tid.messageSelectionToolbar}
-      className="pointer-events-auto flex min-w-0 max-w-full items-center gap-1 rounded-full border border-border/60 bg-card p-1 shadow-(--e2)"
+      className="pointer-events-auto flex h-10 w-max min-w-0 max-w-[calc(100vw-7rem)] items-center gap-1 rounded-full border border-border/60 bg-card p-1 shadow-(--e2) sm:h-auto sm:max-w-full"
     >
-      <span className="min-w-0 truncate px-2 text-xs text-muted-foreground sm:text-sm">
+      <span className="min-w-0 flex-1 truncate px-1 text-xs text-muted-foreground sm:px-2 sm:text-sm">
         {selectedCount} selected
       </span>
       <Tooltip>
@@ -104,7 +104,7 @@ function SelectionToolbar({
               variant="ghost"
               onClick={onCancel}
               aria-label="Cancel message selection"
-              className="size-11 rounded-full px-0 sm:h-7 sm:w-auto sm:rounded-lg sm:px-2"
+              className="relative h-8 w-11 shrink-0 rounded-lg px-0 after:absolute after:-inset-y-1.5 after:inset-x-0 after:content-[''] sm:h-7 sm:w-auto sm:px-2 sm:after:hidden"
             />
           }
         >
@@ -117,7 +117,7 @@ function SelectionToolbar({
         disabled={selectedCount === 0}
         onClick={onShare}
         aria-label={`Share ${selectedCount} selected messages as image`}
-        className="h-11 rounded-full px-3 sm:h-7 sm:rounded-lg sm:px-2"
+        className="relative h-8 shrink-0 rounded-lg px-2 after:absolute after:-inset-y-1.5 after:inset-x-0 after:content-[''] sm:h-7 sm:after:hidden"
       >
         <ImageIcon />
         <span className="sm:hidden">Share</span>
