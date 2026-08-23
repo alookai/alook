@@ -9,7 +9,7 @@ export interface MessageReminderArmInput {
 
 export type MessageReminderArmResult =
   | { armed: true; dueAt: number }
-  | { armed: false; reason: "newer_message_observed" };
+  | { armed: false; reason: "disabled" | "newer_message_observed" };
 
 interface ReminderRecord extends MessageReminderArmInput {
   sentRef: string;
@@ -49,6 +49,10 @@ export class MessageReminderScheduler {
 
   arm(input: MessageReminderArmInput): MessageReminderArmResult {
     const key = reminderKey(input.agentId, input.channel);
+    if (input.remindAfterMs === 0) {
+      this.clearReminder(key);
+      return { armed: false, reason: "disabled" };
+    }
     const latest = this.latestObservedSeq.get(key);
     if (latest !== undefined && latest > input.sentSeq) {
       return { armed: false, reason: "newer_message_observed" };

@@ -409,7 +409,8 @@ function parseLocalMessageReminderBody(body: Buffer, agentId: string): LocalMess
   if (!Number.isSafeInteger(record.sentSeq) || (record.sentSeq as number) < 1) return null;
   if (
     !Number.isSafeInteger(record.remindAfterMs) ||
-    (record.remindAfterMs as number) < LOCAL_MESSAGE_REMINDER_MIN_MS ||
+    ((record.remindAfterMs as number) !== 0 &&
+      (record.remindAfterMs as number) < LOCAL_MESSAGE_REMINDER_MIN_MS) ||
     (record.remindAfterMs as number) > LOCAL_MESSAGE_REMINDER_MAX_MS
   ) return null;
   return {

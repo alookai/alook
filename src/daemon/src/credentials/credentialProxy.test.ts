@@ -270,6 +270,31 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     expect(onProxyRequest).not.toHaveBeenCalled();
   });
 
+  it("accepts an authenticated zero-duration clear locally", async () => {
+    const upstream = await startUpstream();
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    const onMessageReminderArm = vi.fn(async () => ({ armed: false as const, reason: "disabled" }));
+    proxy = await startCredentialProxy(broker, { onMessageReminderArm });
+    const reg = broker.mint("agent-derived", "l", ["send"], REAL_KEY);
+
+    const response = await fetch(`${proxy.url}${LOCAL_MESSAGE_REMINDER_PATH}`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${reg.voucher}`, "content-type": "application/json" },
+      body: JSON.stringify({ channel: "/s#0042/general", sentSeq: 8, remindAfterMs: 0 }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ armed: false, reason: "disabled" });
+    expect(onMessageReminderArm).toHaveBeenCalledWith({
+      agentId: "agent-derived",
+      channel: "/s#0042/general",
+      sentSeq: 8,
+      remindAfterMs: 0,
+    });
+    expect(upstream.seen).toEqual([]);
+  });
+
   it("requires a valid send-capable voucher for the local reminder endpoint", async () => {
     const upstream = await startUpstream();
     upstreamClose = upstream.close;
@@ -324,6 +349,7 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
       JSON.stringify({ ...valid, channel: "/.dm/no-discriminator" }),
       JSON.stringify({ ...valid, channel: "/s#0042/general/#0" }),
       JSON.stringify({ ...valid, sentSeq: 1.5 }),
+      JSON.stringify({ ...valid, remindAfterMs: -1 }),
       JSON.stringify({ ...valid, remindAfterMs: 59_999 }),
       JSON.stringify({ ...valid, remindAfterMs: 86_400_001 }),
     ]) {

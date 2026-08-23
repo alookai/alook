@@ -19,13 +19,14 @@ function tokenEnv(token = "vch_test_secret"): NodeJS.ProcessEnv {
 
 describe("parseRemindAfter", () => {
   it.each([
+    ["0", 0],
     ["1m", 60_000],
     ["90m", 5_400_000],
     ["1h", 3_600_000],
     ["24h", 86_400_000],
   ])("parses %s", (value, expected) => expect(parseRemindAfter(value)).toBe(expected));
 
-  it.each(["", "0m", "1s", "1.5h", "25h", "1441m", "-1m", " 1m"])("rejects %j", (value) => {
+  it.each(["", "0m", "0h", "00", "1s", "1.5h", "25h", "1441m", "-1m", " 1m"])("rejects %j", (value) => {
     expect(() => parseRemindAfter(value)).toThrow(/--remind-after/);
   });
 });

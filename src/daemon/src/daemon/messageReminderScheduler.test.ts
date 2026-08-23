@@ -24,6 +24,45 @@ describe("MessageReminderScheduler", () => {
     ]);
   });
 
+  it("restarts the countdown when a later send replaces the exact-scope reminder", () => {
+    const deliver = vi.fn();
+    const scheduler = new MessageReminderScheduler({ deliver });
+    scheduler.arm({ agentId: "a1", channel: "/s#0001/a", sentSeq: 1, remindAfterMs: 60_000 });
+
+    vi.advanceTimersByTime(30_000);
+    scheduler.arm({ agentId: "a1", channel: "/s#0001/a", sentSeq: 2, remindAfterMs: 60_000 });
+
+    vi.advanceTimersByTime(30_000);
+    expect(deliver).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(30_000);
+    expect(deliver).toHaveBeenCalledOnce();
+    expect(deliver).toHaveBeenCalledWith("a1", expect.objectContaining({
+      text: expect.stringContaining("/s#0001/a#2"),
+    }));
+  });
+
+  it("zero clears only the exact agent+scope reminder and is idempotent", () => {
+    const deliver = vi.fn();
+    const scheduler = new MessageReminderScheduler({ deliver });
+    scheduler.arm({ agentId: "a1", channel: "/s#0001/a", sentSeq: 1, remindAfterMs: 60_000 });
+    scheduler.arm({ agentId: "a1", channel: "/s#0001/b", sentSeq: 1, remindAfterMs: 60_000 });
+    scheduler.arm({ agentId: "a2", channel: "/s#0001/a", sentSeq: 1, remindAfterMs: 60_000 });
+
+    expect(
+      scheduler.arm({ agentId: "a1", channel: "/s#0001/a", sentSeq: 2, remindAfterMs: 0 }),
+    ).toEqual({ armed: false, reason: "disabled" });
+    expect(
+      scheduler.arm({ agentId: "a1", channel: "/s#0001/a", sentSeq: 2, remindAfterMs: 0 }),
+    ).toEqual({ armed: false, reason: "disabled" });
+
+    vi.advanceTimersByTime(60_000);
+    expect(deliver).toHaveBeenCalledTimes(2);
+    expect(deliver.mock.calls.map((call) => [call[0], call[1].text])).toEqual([
+      ["a1", expect.stringContaining("/s#0001/b#1")],
+      ["a2", expect.stringContaining("/s#0001/a#1")],
+    ]);
+  });
+
   it("only a newer wake in the exact same scope cancels", () => {
     const deliver = vi.fn();
     const scheduler = new MessageReminderScheduler({ deliver });
