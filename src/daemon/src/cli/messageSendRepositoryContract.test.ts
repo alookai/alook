@@ -66,6 +66,10 @@ function hasRequiredReminderFlag(text: string): boolean {
   return text.includes("--remind-after");
 }
 
+function normalizeRepositoryPath(path: string): string {
+  return path.replaceAll("\\", "/");
+}
+
 function repositoryFiles(directory: string): string[] {
   const files: string[] = [];
 
@@ -109,11 +113,17 @@ describe("message send repository contract", () => {
     expect(nonInvocations.map(isMessageSendInvocation)).toEqual([false, false, false]);
   });
 
+  it("normalizes Windows repository paths before exact allowlist matching", () => {
+    expect(normalizeRepositoryPath(String.raw`src\daemon\src\manager\managerRuntime.test.ts`)).toBe(
+      "src/daemon/src/manager/managerRuntime.test.ts",
+    );
+  });
+
   it("requires --remind-after on every runnable repository invocation", () => {
     const invocations: Array<{ path: string; line: number; text: string }> = [];
 
     for (const absolutePath of repositoryFiles(repositoryRoot)) {
-      const path = relative(repositoryRoot, absolutePath);
+      const path = normalizeRepositoryPath(relative(repositoryRoot, absolutePath));
 
       for (const [lineIndex, text] of readFileSync(absolutePath, "utf8").split("\n").entries()) {
         if (isMessageSendInvocation(text)) invocations.push({ path, line: lineIndex + 1, text: text.trim() });
