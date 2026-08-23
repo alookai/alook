@@ -5,6 +5,7 @@ import { withCommunityActor, requireBot, type CommunityActor } from "@/lib/middl
 import { resolveTargetForMember, resolveErrorResponse } from "@/lib/community/resolve-ref"
 import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
 import { handleAttachmentUpload, runAttachmentUpload } from "@/lib/community/upload"
+import { communityMediaCleanupErrorCategory } from "@/lib/community/community-media-cleanup"
 
 const log = createLogger({ service: "community-attachments-upload" })
 
@@ -133,9 +134,9 @@ async function handleBotAttachmentUpload(
       } catch (cleanupErr) {
         log.error("attachment_route_r2_cleanup_failed", {
           route: "channels/[id]/attachments",
-          botUserId,
+          actor: "bot",
           objectCount: r2KeysToCleanUp.length,
-          cleanupErr: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+          errorCategory: communityMediaCleanupErrorCategory(cleanupErr),
         })
       }
     }

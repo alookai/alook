@@ -83,6 +83,42 @@ describe("community/server exports", () => {
   it("exports createServer", () => {
     expect(typeof serverQueries.createServer).toBe("function");
   });
+
+  it("exports the old-value icon CAS", () => {
+    expect(typeof serverQueries.updateServerIconIfCurrent).toBe("function");
+  });
+});
+
+describe("updateServerIconIfCurrent", () => {
+  function updateDb(rows: unknown[]) {
+    const chain: any = {};
+    chain.set = vi.fn(() => chain);
+    chain.where = vi.fn(() => chain);
+    chain.returning = vi.fn(async () => rows);
+    return { db: { update: vi.fn(() => chain) }, chain };
+  }
+
+  it.each([null, "server-icon/s1/old"])("returns the winner row for expected icon %s", async (expectedIcon) => {
+    const winner = { id: "s1", icon: "server-icon/s1/new" };
+    const { db, chain } = updateDb([winner]);
+
+    await expect(serverQueries.updateServerIconIfCurrent(db as any, {
+      serverId: "s1",
+      expectedIcon,
+      nextIcon: "server-icon/s1/new",
+    })).resolves.toEqual(winner);
+    expect(chain.set).toHaveBeenCalledWith({ icon: "server-icon/s1/new" });
+    expect(chain.where).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns null when the old-value predicate loses", async () => {
+    const { db } = updateDb([]);
+    await expect(serverQueries.updateServerIconIfCurrent(db as any, {
+      serverId: "s1",
+      expectedIcon: "server-icon/s1/old",
+      nextIcon: "server-icon/s1/new",
+    })).resolves.toBeNull();
+  });
 });
 
 describe("createServer", () => {

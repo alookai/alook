@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server"
+import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
@@ -12,6 +13,8 @@ import {
 } from "@alook/shared"
 import { fanOutToServerMembers, fanOutToUsers } from "@/lib/community/fanout"
 import { requireServerAdmin } from "@/lib/community/permissions"
+import { scheduleCommunityMediaCleanup } from "@/lib/community/community-media-cleanup"
+import { isOwnedServerIconKey } from "@/lib/community/storage"
 
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
@@ -84,8 +87,34 @@ export const DELETE = withAuth(async (_req, ctx) => {
 
   const recipients = await queries.communityMember.listMemberUserIds(db, serverId)
 
-  const deleted = await queries.communityServer.deleteServer(db, serverId)
-  if (!deleted) return writeError("server not found", 404)
+  let executionContext: ExecutionContext
+  try {
+    ({ ctx: executionContext } = await getCloudflareContext({ async: true }))
+  } catch {
+    return writeError("internal error", 500)
+  }
+
+  const result = await queries.communityDeleteMedia.deleteServerWithMedia(db, {
+    serverId,
+    ownerId: ctx.userId,
+  })
+  if (!result.deleted) return writeError("server not found", 404)
+
+  const mediaKeys = [
+    ...result.mediaKeys,
+    ...(result.iconKey && isOwnedServerIconKey(result.iconKey, serverId)
+      ? [result.iconKey]
+      : []),
+  ]
+  if (mediaKeys.length > 0) {
+    scheduleCommunityMediaCleanup(ctx.env.COMMUNITY_MEDIA, executionContext, {
+      keys: mediaKeys,
+      warning: {
+        event: "community_server_media_cleanup_failed",
+        fields: { serverId },
+      },
+    })
+  }
 
   await fanOutToUsers(recipients, {
     type: WS_EVENTS.SERVER_DELETE,

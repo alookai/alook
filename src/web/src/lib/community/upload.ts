@@ -14,6 +14,7 @@ import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import type { AuthContext } from "@/lib/middleware/auth"
 import { isInlineAttachmentContentType } from "./attachment-content-type"
+import { communityMediaCleanupErrorCategory } from "./community-media-cleanup"
 import {
   buildMediaKey,
   buildAttachmentThumbnailKey,
@@ -214,7 +215,10 @@ export async function handleAttachmentUpload(
       } catch (cleanupErr) {
         log.error("attachment_thumbnail_put_cleanup_failed", {
           uploader: uploaderTag.uploader,
-          cleanupErr: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+          route: "channels/[id]/attachments",
+          phase: "thumbnail_put_original_compensation",
+          objectCount: 1,
+          errorCategory: communityMediaCleanupErrorCategory(cleanupErr),
         })
       }
       throw err
@@ -449,9 +453,9 @@ export async function runAttachmentUpload(
       } catch (cleanupErr) {
         log.error("attachment_upload_r2_cleanup_failed", {
           route: "channels/[id]/attachments",
-          userId: ctx.userId,
+          actor: "human",
           objectCount: r2KeysToCleanUp.length,
-          cleanupErr: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+          errorCategory: communityMediaCleanupErrorCategory(cleanupErr),
         })
       }
     }

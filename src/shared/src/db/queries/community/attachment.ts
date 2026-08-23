@@ -1,7 +1,7 @@
 import { and, asc, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { nanoid } from "nanoid";
-import { communityAttachment } from "../../community-schema";
+import { communityAttachment, communityChannel } from "../../community-schema";
 import type { Database } from "../../index";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 
@@ -26,24 +26,34 @@ export async function createPendingAttachment(
     height?: number | null;
   }
 ) {
+  const id = data.id ?? nanoid();
+  const createdAt = new Date().toISOString();
+  const candidate = db
+    .select({
+      id: sql<string>`${id}`.as("id"),
+      messageId: sql<string | null>`NULL`.as("message_id"),
+      uploaderId: sql<string>`${data.uploaderId}`.as("uploader_id"),
+      targetId: communityChannel.id,
+      r2Key: sql<string>`${data.r2Key}`.as("r2_key"),
+      thumbnailR2Key: sql<string | null>`${data.thumbnailR2Key ?? null}`.as("thumbnail_r2_key"),
+      filename: sql<string>`${data.filename}`.as("filename"),
+      contentType: sql<string | null>`${data.contentType ?? null}`.as("content_type"),
+      size: sql<number | null>`${data.size ?? null}`.as("size"),
+      width: sql<number | null>`${data.width ?? null}`.as("width"),
+      height: sql<number | null>`${data.height ?? null}`.as("height"),
+      position: sql<number | null>`NULL`.as("position"),
+      createdAt: sql<string>`${createdAt}`.as("created_at"),
+    })
+    .from(communityChannel)
+    .where(eq(communityChannel.id, data.targetId))
+    .limit(1);
+
   const [row] = await db
     .insert(communityAttachment)
-    .values({
-      id: data.id ?? nanoid(),
-      messageId: null,
-      uploaderId: data.uploaderId,
-      targetId: data.targetId,
-      r2Key: data.r2Key,
-      thumbnailR2Key: data.thumbnailR2Key ?? null,
-      filename: data.filename,
-      position: null,
-      contentType: data.contentType ?? null,
-      size: data.size ?? null,
-      width: data.width ?? null,
-      height: data.height ?? null,
-    })
+    .select(candidate)
     .returning();
-  return row!;
+  if (!row) throw new Error("attachment target no longer exists");
+  return row;
 }
 
 /**

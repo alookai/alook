@@ -1,18 +1,14 @@
-import { createLogger } from "@alook/shared";
+import {
+  COMMUNITY_MEDIA_DELETE_BATCH_SIZE,
+  scheduleCommunityMediaCleanup,
+} from "./community-media-cleanup"
 
-const log = createLogger({ service: "community-forum-post-delete" });
-export const COMMUNITY_MEDIA_DELETE_BATCH_SIZE = 1000;
+export { COMMUNITY_MEDIA_DELETE_BATCH_SIZE }
 
 export type ForumPostMediaCleanup = {
-  openerId: string;
-  childChannelId: string;
-  keys: string[];
-};
-
-function cleanupErrorCategory(err: unknown): "Error" | "TypeError" | "NonError" {
-  if (err instanceof TypeError) return "TypeError";
-  if (err instanceof Error) return "Error";
-  return "NonError";
+  openerId: string
+  childChannelId: string
+  keys: string[]
 }
 
 /**
@@ -26,21 +22,14 @@ export function scheduleForumPostMediaCleanup(
   executionContext: Pick<ExecutionContext, "waitUntil">,
   input: ForumPostMediaCleanup,
 ): void {
-  const keys = [...new Set(input.keys.filter((key) => key.length > 0))];
-  if (keys.length === 0) return;
-
-  const cleanup = (async () => {
-    for (let offset = 0; offset < keys.length; offset += COMMUNITY_MEDIA_DELETE_BATCH_SIZE) {
-      await bucket.delete(keys.slice(offset, offset + COMMUNITY_MEDIA_DELETE_BATCH_SIZE));
-    }
-  })().catch((err) => {
-    log.warn("forum_post_media_cleanup_failed", {
-      openerId: input.openerId,
-      childChannelId: input.childChannelId,
-      keyCount: keys.length,
-      errorCategory: cleanupErrorCategory(err),
-    });
-  });
-
-  executionContext.waitUntil(cleanup);
+  scheduleCommunityMediaCleanup(bucket, executionContext, {
+    keys: input.keys,
+    warning: {
+      event: "forum_post_media_cleanup_failed",
+      fields: {
+        openerId: input.openerId,
+        childChannelId: input.childChannelId,
+      },
+    },
+  })
 }

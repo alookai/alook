@@ -198,19 +198,39 @@ describe("handleAttachmentUpload", () => {
     expect(put).not.toHaveBeenCalled()
   })
 
-  it("deletes the original when the thumbnail put fails", async () => {
-    const put = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("r2 thumbnail"))
-    const del = vi.fn().mockResolvedValue(undefined)
+  it.each([
+    { uploader: "user" as const, uploaderUserId: "u1" },
+    { uploader: "bot" as const, uploaderUserId: "bot_ada" },
+  ])("sanitizes $uploader original-compensation failures after a thumbnail put rejects", async (uploaderTag) => {
+    const thumbnailFailure = new Error("r2 thumbnail")
+    const put = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(thumbnailFailure)
+    const cleanupSecret = "provider-secret channel/c1/original.png"
+    const del = vi.fn().mockRejectedValueOnce(new TypeError(cleanupSecret))
     const thumbnail = {
       ...fakeFile("thumbnail.jpg", "image/jpeg", 4),
       arrayBuffer: async () => Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]).buffer,
     }
-    await expect(handleAttachmentUpload(
+    const upload = handleAttachmentUpload(
       reqWithUpload(fakeFile("hi.png", "image/png", 10), thumbnail),
-      envWithR2(put, del), "channel", "c1", USER_TAG,
-    )).rejects.toThrow("r2 thumbnail")
-    expect(del).toHaveBeenCalledOnce()
-    expect(del.mock.calls[0]?.[0]).toMatch(/\/hi\.png$/)
+      envWithR2(put, del), "channel", "c1", uploaderTag,
+    )
+
+    await expect(upload).rejects.toBe(thumbnailFailure)
+    const originalKey = put.mock.calls[0]?.[0]
+    expect(originalKey).toMatch(/^channel\/c1\/[0-9a-f-]+\/hi\.png$/)
+    expect(del).toHaveBeenCalledTimes(1)
+    expect(del).toHaveBeenCalledWith(originalKey)
+    expect(mockLogError).toHaveBeenCalledTimes(1)
+    expect(mockLogError).toHaveBeenCalledWith("attachment_thumbnail_put_cleanup_failed", {
+      uploader: uploaderTag.uploader,
+      route: "channels/[id]/attachments",
+      phase: "thumbnail_put_original_compensation",
+      objectCount: 1,
+      errorCategory: "TypeError",
+    })
+    const serializedWarning = JSON.stringify(mockLogError.mock.calls)
+    expect(serializedWarning).not.toContain(cleanupSecret)
+    expect(serializedWarning).not.toContain(String(originalKey))
   })
 
   it("stamps customMetadata.uploader=bot + bot_user_id when the caller is a bot", async () => {
@@ -666,7 +686,7 @@ describe("runAttachmentUpload", () => {
     surfaceChannel("text")
     mockCreatePendingAttachment.mockRejectedValueOnce(new Error("d1"))
     const put = vi.fn().mockResolvedValue(undefined)
-    const del = vi.fn().mockRejectedValueOnce(new Error("cleanup failed"))
+    const del = vi.fn().mockRejectedValueOnce(new TypeError("secret provider detail"))
     const thumbnail = {
       ...fakeFile("thumbnail.jpg", "image/jpeg", 4),
       arrayBuffer: async () => Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]).buffer,
@@ -682,7 +702,13 @@ describe("runAttachmentUpload", () => {
     const cleanupLog = mockLogError.mock.calls.find(
       ([event]) => event === "attachment_upload_r2_cleanup_failed",
     )
-    expect(cleanupLog?.[1]).toEqual(expect.objectContaining({ objectCount: 2 }))
+    expect(cleanupLog?.[1]).toEqual({
+      route: "channels/[id]/attachments",
+      actor: "human",
+      objectCount: 2,
+      errorCategory: "TypeError",
+    })
     for (const key of keys) expect(JSON.stringify(cleanupLog)).not.toContain(key)
+    expect(JSON.stringify(cleanupLog)).not.toContain("secret provider detail")
   })
 })

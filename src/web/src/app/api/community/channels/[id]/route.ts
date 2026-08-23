@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server"
+import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
@@ -15,6 +16,7 @@ import {
 } from "@alook/shared"
 import { fanOutToServerMembers, fanOutToChannel, broadcastToUserSafe } from "@/lib/community/fanout"
 import { requireChannelAccess, requireChannelMember } from "@/lib/community/permissions"
+import { scheduleCommunityMediaCleanup } from "@/lib/community/community-media-cleanup"
 
 /**
  * GET /api/community/channels/[id] — single channel metadata (the
@@ -182,8 +184,28 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
     ? await queries.communityChannel.getPrivateChannelAudienceUserIds(db, channelId)
     : null
 
-  const deleted = await queries.communityChannel.deleteChannel(db, channelId)
-  if (!deleted) return writeError("channel not found", 404)
+  let executionContext: ExecutionContext
+  try {
+    ({ ctx: executionContext } = await getCloudflareContext({ async: true }))
+  } catch {
+    return writeError("internal error", 500)
+  }
+
+  const result = await queries.communityDeleteMedia.deleteChannelWithMedia(db, {
+    channelId,
+    serverId: channel.serverId,
+  })
+  if (!result.deleted) return writeError("channel not found", 404)
+
+  if (result.mediaKeys.length > 0) {
+    scheduleCommunityMediaCleanup(ctx.env.COMMUNITY_MEDIA, executionContext, {
+      keys: result.mediaKeys,
+      warning: {
+        event: "community_channel_media_cleanup_failed",
+        fields: { serverId: channel.serverId, channelId },
+      },
+    })
+  }
 
   const event = {
     type: WS_EVENTS.CHANNEL_DELETE,
