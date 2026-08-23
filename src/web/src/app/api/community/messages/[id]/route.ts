@@ -1,14 +1,25 @@
 import { NextRequest } from "next/server"
+import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, MAX_MESSAGE_CONTENT_LENGTH, WS_EVENTS } from "@alook/shared"
-import { requireChannelMember, requireDMAccess } from "@/lib/community/permissions"
+import { canManageServer, queries, MAX_MESSAGE_CONTENT_LENGTH, WS_EVENTS } from "@alook/shared"
+import {
+  requireChannelMember,
+  requireDMAccess,
+  requireMessageSurfaceAccess,
+  requireServerMember,
+} from "@/lib/community/permissions"
 import { resolveTargetForMember } from "@/lib/community/resolve-ref"
 import { isDmTarget } from "@/lib/community/message-handler"
-import { fanOutToChannel } from "@/lib/community/fanout"
+import {
+  broadcastToUserSafe,
+  fanOutToChannel,
+  fanOutToServerMembers,
+} from "@/lib/community/fanout"
 import { groupAttachments, groupReactions } from "@/lib/community/messages"
 import { mapMessageForApi } from "@/lib/community/message-payload"
+import { scheduleForumPostMediaCleanup } from "@/lib/community/forum-post-media-cleanup"
 
 // A bot addresses by ref-in-query (`?ref=` + `?seq=`, the folded `resolve`
 // verb); the path `[id]` is then the `resolve` placeholder (a ref carries `/`
@@ -107,6 +118,95 @@ export const PATCH = withCommunityActor(async (req: NextRequest, ctx) => {
         : {}),
   })
   return writeJSON({ message: updated })
+})
+
+/**
+ * DELETE /api/community/messages/[id] — delete one canonical forum post.
+ *
+ * The path id is the opener MESSAGE, never the child channel. The server
+ * resolves the unique child from the indexed parent-message relation, gates
+ * the parent forum, then runs one D1 batch. Ordinary messages/DMs/replies and
+ * text-channel thread openers deliberately remain unsupported in this first
+ * version.
+ */
+export const DELETE = withCommunityActor(async (_req: NextRequest, ctx) => {
+  if (ctx.actor.kind !== "human") return writeError("human session required", 401)
+  const openerId = ctx.params?.id
+  if (!openerId || openerId === REF_PLACEHOLDER_ID) return writeError("missing message id", 400)
+
+  const db = getDb(ctx.env.DB)
+  const opener = await queries.communityMessage.getMessage(db, openerId)
+  if (!opener) return writeError("message not found", 404)
+
+  // Scope/visibility before ownership: a real but inaccessible message returns
+  // the established per-surface 403/404 contract before we inspect its shape.
+  const access = await requireMessageSurfaceAccess(db, opener.channelId, ctx.actor.userId)
+  if (!access.ok) return writeError(access.error, access.status)
+  if (access.value.surface !== "channel" || access.value.channel.type !== "forum") {
+    return writeError("forum opener required", 409)
+  }
+
+  const forum = access.value.channel
+  const child = await queries.communityChannel.getThreadChannelByParentMessage(
+    db,
+    forum.id,
+    openerId,
+  )
+  if (
+    !child ||
+    child.type !== "thread" ||
+    child.parentChannelId !== forum.id ||
+    child.parentMessageId !== openerId ||
+    !forum.serverId ||
+    child.serverId !== forum.serverId
+  ) {
+    return writeError("forum opener required", 409)
+  }
+
+  const membership = await requireServerMember(db, forum.serverId, ctx.actor.userId)
+  if (!membership.ok) return writeError(membership.error, membership.status)
+  if (opener.authorId !== ctx.actor.userId && !canManageServer(membership.value?.role)) {
+    return writeError("forbidden", 403)
+  }
+
+  // Resolve the private audience before D1 cascades remove child/access rows.
+  const isPrivate = await queries.communityChannel.isChannelPrivate(db, forum.id)
+  const audience = isPrivate
+    ? await queries.communityChannel.getPrivateChannelAudienceUserIds(db, forum.id)
+    : null
+
+  const result = await queries.communityForumPostDelete.deleteForumPost(db, {
+    openerId,
+    openerSeq: opener.seq,
+    forumChannelId: forum.id,
+    childChannelId: child.id,
+  })
+
+  if (result.deleted) {
+    if (result.mediaKeys.length > 0) {
+      const { ctx: executionContext } = await getCloudflareContext({ async: true })
+      scheduleForumPostMediaCleanup(ctx.env.COMMUNITY_MEDIA, executionContext, {
+        openerId,
+        childChannelId: child.id,
+        keys: result.mediaKeys,
+      })
+    }
+
+    const event = {
+      type: WS_EVENTS.CHANNEL_DELETE,
+      serverId: forum.serverId,
+      channelId: child.id,
+      parentChannelId: forum.id,
+      parentMessageId: openerId,
+    } as const
+    if (audience) {
+      await Promise.all(audience.map((userId) => broadcastToUserSafe(userId, event)))
+    } else {
+      await fanOutToServerMembers(forum.serverId, event)
+    }
+  }
+
+  return new Response(null, { status: 204 })
 })
 
 /**

@@ -55,6 +55,43 @@ export type ForumFeedPage = {
   nextCursor?: string
 }
 
+/** Remove one canonical forum post and every included row owned by its unit. */
+export function removeForumPostFromFeed(
+  data: InfiniteData<ForumFeedPage> | undefined,
+  childChannelId: string,
+  openerMessageId: string,
+): InfiniteData<ForumFeedPage> | undefined {
+  if (!data) return data
+  let touched = false
+  const pages = data.pages.map((page) => {
+    if (!page.threads.some((thread) => (
+      thread.id === childChannelId || thread.parentMessageId === openerMessageId
+    ))) return page
+    touched = true
+    return {
+      ...page,
+      threads: page.threads.filter((thread) => (
+        thread.id !== childChannelId && thread.parentMessageId !== openerMessageId
+      )),
+      included: {
+        parentMessages: page.included.parentMessages.filter(
+          (message) => message.id !== openerMessageId,
+        ),
+        firstMessages: page.included.firstMessages.filter(
+          (message) => message.channelId !== childChannelId,
+        ),
+        tags: page.included.tags.filter(
+          (tag) => tag.messageId !== openerMessageId,
+        ),
+        participants: page.included.participants.filter(
+          (participant) => participant.channelId !== childChannelId,
+        ),
+      },
+    }
+  })
+  return touched ? { ...data, pages } : data
+}
+
 export function forumFeedPageQueryFn(channelId: string, tag: string | null) {
   return ({ pageParam }: { pageParam: string | null }) => {
     const params = new URLSearchParams({

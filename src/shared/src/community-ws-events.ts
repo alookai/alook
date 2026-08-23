@@ -198,7 +198,13 @@ const communityChannelDeleteSchema = z.strictObject({
   serverId: string,
   channelId: string,
   parentChannelId: nullableString.optional(),
-})
+  parentMessageId: string.optional(),
+}).refine(
+  (event) => event.parentMessageId === undefined || (
+    typeof event.parentChannelId === "string" && event.parentChannelId.length > 0
+  ),
+  { message: "parentMessageId requires parentChannelId" },
+)
 
 const positionedIdSchema = z.strictObject({ id: string, position: z.number() })
 

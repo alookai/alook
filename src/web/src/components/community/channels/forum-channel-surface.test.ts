@@ -152,6 +152,7 @@ describe("ForumChannelSurface ownership", () => {
       forumChannelId: "forum_1",
       serverId: "srv_1",
       threadId: "post_1",
+      openerMessageId: "opener_1",
     }, expect.any(Object))
     expect(renderer!.root.findByProps({ "data-manage-dialog": true })).toBeTruthy()
   })

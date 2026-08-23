@@ -660,6 +660,16 @@ export function removeForumSidebarThreadExact(
   }
 }
 
+/** Undo only the in-flight removal tombstone after an optimistic HTTP failure. */
+export function restoreForumSidebarThreadInflight(
+  serverId: string,
+  childId: string,
+) {
+  recordInflightDelta(serverId, (delta) => {
+    delta.removed.delete(childId)
+  })
+}
+
 export function removeForumSidebarChildrenForParent(
   queryClient: QueryClient,
   serverId: string,

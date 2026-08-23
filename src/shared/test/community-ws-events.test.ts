@@ -1,11 +1,55 @@
 import { describe, it, expect } from "vitest";
-import { isCommunityEvent, WS_EVENTS } from "../src/community-ws-events";
+import { CommunityWsEventSchema, isCommunityEvent, WS_EVENTS } from "../src/community-ws-events";
 import type {
+  CommunityChannelDelete,
   CommunityMessageEdited,
   CommunityMachineCreated,
   CommunityMachineUpdated,
   CommunityMachineSummary,
 } from "../src/community-ws-events";
+
+describe("CommunityChannelDelete post-unit address contract", () => {
+  it("accepts canonical post identity while preserving legacy/top-level compatibility", () => {
+    const canonical: CommunityChannelDelete = {
+      type: "community:channel.delete",
+      serverId: "server_1",
+      channelId: "child_1",
+      parentChannelId: "forum_1",
+      parentMessageId: "opener_1",
+    };
+    expect(CommunityWsEventSchema.parse(canonical)).toEqual(canonical);
+    expect(CommunityWsEventSchema.safeParse({
+      type: "community:channel.delete",
+      serverId: "server_1",
+      channelId: "channel_1",
+    }).success).toBe(true);
+  });
+
+  it("keeps the frame strict", () => {
+    expect(CommunityWsEventSchema.safeParse({
+      type: "community:channel.delete",
+      serverId: "server_1",
+      channelId: "child_1",
+      parentChannelId: "forum_1",
+      parentMessageId: 42,
+    }).success).toBe(false);
+    for (const parentChannelId of [undefined, null, ""]) {
+      expect(CommunityWsEventSchema.safeParse({
+        type: "community:channel.delete",
+        serverId: "server_1",
+        channelId: "child_1",
+        ...(parentChannelId !== undefined ? { parentChannelId } : {}),
+        parentMessageId: "opener_1",
+      }).success).toBe(false);
+    }
+    expect(CommunityWsEventSchema.safeParse({
+      type: "community:channel.delete",
+      serverId: "server_1",
+      channelId: "child_1",
+      parentChannelId: "forum_1",
+    }).success).toBe(true);
+  });
+});
 
 describe("CommunityMessageEdited address contract", () => {
   it("supports forum opener, ordinary server, and DM edits", () => {

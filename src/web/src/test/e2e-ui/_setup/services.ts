@@ -16,8 +16,9 @@ export interface ServiceDefinition {
 }
 
 // Reuse a server the developer already has running (local iteration). CI
-// always starts fresh, so REUSE is off there.
-export const REUSE_EXISTING = !process.env.CI
+// always starts fresh. Migration-sensitive focused journeys may opt into the
+// same fresh path locally; backupState/restoreState preserve developer data.
+export const REUSE_EXISTING = !process.env.CI && !process.env.ALOOK_E2E_FORCE_FRESH
 export const SINGLE_RUNTIME = !!process.env.CI
 
 // Local D1/DO state that `db:reset` wipes. Backing it up to a sibling path

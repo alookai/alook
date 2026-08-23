@@ -247,6 +247,101 @@ describe("useCommunityWs — channel.delete evicts channel-scoped caches", () =>
       unsubscribe()
     }
   })
+
+  it("projects a canonical forum-post delete as one unit and ejects the active child", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    const replacePath = vi.fn()
+    useCommunityStore.getState().registerUiHandlers({ replacePath })
+    useCommunityStore.getState().setCurrentServerId("srv_1")
+    useCommunityStore.getState().setCurrentChannelId("post_1")
+    useCommunityStore.getState().setCurrentChannelMeta({
+      name: "Post",
+      parentChannelId: "forum_1",
+      parentMessageId: "opener-post_1",
+    })
+    const feed = {
+      pages: [{
+        messages: [
+          { id: "opener-post_1", thread: { id: "post_1" } },
+          { id: "opener-keep", thread: { id: "post_keep" } },
+        ],
+        hasMore: false,
+      }],
+      pageParams: [null],
+    }
+    capturedQueryClient.setQueryData(communityKeys.channelMessages("forum_1"), feed)
+    const forumFeed = {
+      pages: [{
+        serverId: "srv_1",
+        parentType: "forum",
+        threads: [
+          { id: "post_1", parentMessageId: "opener-post_1" },
+          { id: "post_keep", parentMessageId: "opener-keep" },
+        ],
+        included: {
+          parentMessages: [{ id: "opener-post_1" }, { id: "opener-keep" }],
+          firstMessages: [{ channelId: "post_1" }, { channelId: "post_keep" }],
+          tags: [{ messageId: "opener-post_1" }, { messageId: "opener-keep" }],
+          participants: [{ channelId: "post_1" }, { channelId: "post_keep" }],
+        },
+        hasMore: false,
+      }],
+      pageParams: [null],
+    }
+    capturedQueryClient.setQueryData(communityKeys.forumFeed("forum_1", "bug"), forumFeed)
+    capturedQueryClient.setQueryData(communityKeys.forumTags("forum_1"), { tags: ["bug"] })
+    capturedQueryClient.setQueryData(
+      communityKeys.forumSidebarThreads("srv_1"),
+      forumSidebarFixture(["post_1", "post_keep"]),
+    )
+    capturedQueryClient.setQueryData(
+      communityKeys.forumOpenerHint("srv_1", "opener-post_1"),
+      { id: "opener-post_1", content: "Post" },
+    )
+    useMessageStreamStore.getState().dispatch({
+      kind: "channel",
+      id: "forum_1",
+      serverId: "srv_1",
+    }, {
+      type: "wsMessage",
+      message: {
+        id: "opener-post_1",
+        seq: 1,
+        type: "chat",
+        authorId: "u1",
+        authorName: "Alice",
+        content: "Post",
+        createdAt: "2026-08-23T00:00:00.000Z",
+        thread: { id: "post_1", name: "Post", messageCount: 1 },
+      },
+    })
+
+    capturedOnMessage!({
+      type: "community:channel.delete",
+      serverId: "srv_1",
+      channelId: "post_1",
+      parentChannelId: "forum_1",
+      parentMessageId: "opener-post_1",
+    } satisfies CommunityChannelDelete)
+
+    expect(capturedQueryClient.getQueryData<typeof feed>(communityKeys.channelMessages("forum_1"))
+      ?.pages[0].messages.map((message) => message.id)).toEqual(["opener-keep"])
+    expect(capturedQueryClient.getQueryData<typeof forumFeed>(communityKeys.forumFeed("forum_1", "bug"))
+      ?.pages[0].threads.map((thread) => thread.id)).toEqual(["post_keep"])
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(
+      communityKeys.forumSidebarThreads("srv_1"),
+    )?.threads.map((thread) => thread.id)).toEqual(["post_keep"])
+    expect(capturedQueryClient.getQueryData(
+      communityKeys.forumOpenerHint("srv_1", "opener-post_1"),
+    )).toBeUndefined()
+    expect(getMessageOverlay({ kind: "channel", id: "forum_1", serverId: "srv_1" })
+      .liveById.has("opener-post_1")).toBe(false)
+    expect(useCommunityStore.getState().currentChannelMeta).toBeNull()
+    expect(replacePath).toHaveBeenCalledWith("/c/channels/srv_1/forum_1")
+    expect(capturedQueryClient.getQueryState(communityKeys.forumTags("forum_1"))?.isInvalidated)
+      .toBe(true)
+  })
 })
 
 describe("useCommunityWs — child_create patches parent thread badge with count 0", () => {

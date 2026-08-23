@@ -70,11 +70,17 @@ export function patchMessageContentInCache(cache: PageCache | undefined, message
   return touched ? { ...cache, pages } : cache
 }
 
-export function removeThreadFromCache(cache: PageCache | undefined, threadId: string): PageCache | undefined {
+export function removeThreadFromCache(
+  cache: PageCache | undefined,
+  threadId: string,
+  openerMessageId?: string,
+): PageCache | undefined {
   if (!cache) return cache
   let touched = false
   const pages = cache.pages.map((page) => {
-    const messages = page.messages.filter((message) => message.thread?.id !== threadId)
+    const messages = page.messages.filter((message) => (
+      message.thread?.id !== threadId && message.id !== openerMessageId
+    ))
     if (messages.length === page.messages.length) return page
     touched = true
     return { ...page, messages }
