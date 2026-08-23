@@ -18,6 +18,7 @@ describe("community/bot exports", () => {
   it("exposes read helpers", () => {
     expect(typeof q.listBotsForOwner).toBe("function")
     expect(typeof q.getBotOwnedBy).toBe("function")
+    expect(typeof q.getLiveBotAvatar).toBe("function")
     expect(typeof q.countLiveBotsForOwner).toBe("function")
     expect(typeof q.getBotBinding).toBe("function")
     expect(typeof q.listBotsForMachine).toBe("function")

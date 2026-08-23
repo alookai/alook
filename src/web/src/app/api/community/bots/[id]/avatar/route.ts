@@ -5,6 +5,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { handleBotAvatarUpload } from "@/lib/community/upload"
 import { buildBotAvatarKey, botAvatarUrl } from "@/lib/community/storage"
+import { persistUploadedBotAvatar } from "@/lib/community/bot-avatar-persistence"
 
 // No ownership check — other members/DM peers need to see a bot's avatar.
 //
@@ -14,6 +15,12 @@ import { buildBotAvatarKey, botAvatarUrl } from "@/lib/community/storage"
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const botId = ctx.params?.id
   if (!botId) return writeError("missing bot id", 400)
+
+  const db = getDb(ctx.env.DB)
+  const bot = await queries.communityBot.getLiveBotAvatar(db, botId)
+  if (!bot || bot.image !== botAvatarUrl(botId)) {
+    return writeError("not found", 404)
+  }
 
   const obj = await ctx.env.COMMUNITY_MEDIA.get(buildBotAvatarKey(botId))
   if (!obj) return writeError("not found", 404)
@@ -44,7 +51,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!result.ok) return result.response
 
   const url = botAvatarUrl(botId)
-  await queries.communityBot.updateBot(db, botId, ctx.userId, { image: url })
+  const persisted = await persistUploadedBotAvatar(db, ctx.env.COMMUNITY_MEDIA, {
+    botId,
+    ownerId: ctx.userId,
+  })
+  if (persisted.kind === "not_found") return writeError("bot not found", 404)
+  if (persisted.kind === "failed") return writeError("internal error", 500)
 
   return writeJSON({ url })
 })

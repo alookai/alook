@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 import { NextResponse } from "next/server"
+import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { nanoid } from "nanoid"
 import {
   queries,
@@ -19,6 +20,8 @@ import {
   pushAgentProviderSwitchToMachine,
 } from "@/lib/community/bot-push"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
+import { scheduleCommunityMediaCleanup } from "@/lib/community/community-media-cleanup"
+import { buildBotAvatarKey } from "@/lib/community/storage"
 
 const log = createLogger({ service: "community-bot-update" })
 
@@ -184,8 +187,23 @@ export const DELETE = withAuth(async (_req, ctx) => {
     ctx.userId,
   )
 
+  let executionContext: ExecutionContext
+  try {
+    ({ ctx: executionContext } = await getCloudflareContext({ async: true }))
+  } catch {
+    return writeError("internal error", 500)
+  }
+
   const ok = await queries.communityBot.softDeleteBot(db, id, ctx.userId)
   if (!ok) return writeError("bot not found", 404)
+
+  scheduleCommunityMediaCleanup(ctx.env.COMMUNITY_MEDIA, executionContext, {
+    keys: [buildBotAvatarKey(id)],
+    warning: {
+      event: "community_bot_avatar_cleanup_failed",
+      fields: { botId: id, phase: "bot_delete" },
+    },
+  })
 
   for (const serverId of priorMemberships) {
     fanOutToServerMembers(serverId, {

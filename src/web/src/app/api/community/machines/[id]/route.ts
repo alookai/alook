@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries, WS_EVENTS } from "@alook/shared"
 import type { CommunityWsEvent } from "@alook/shared"
 import { getDb } from "@/lib/db"
@@ -6,6 +7,8 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { broadcastToUserSafe, fanOutToServerMembers } from "@/lib/community/fanout"
 import { forceCloseCommunityMachinesByDoNames } from "@/lib/community/machine-disconnect"
+import { scheduleCommunityMediaCleanup } from "@/lib/community/community-media-cleanup"
+import { buildBotAvatarKey } from "@/lib/community/storage"
 
 export const DELETE = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -31,18 +34,42 @@ export const DELETE = withAuth(async (req: NextRequest, ctx) => {
     return writeJSON({ error: "MACHINE_HAS_BOTS", bots }, 409)
   }
 
+  let executionContext: ExecutionContext | null = null
+  if (bots.length > 0) {
+    try {
+      ({ ctx: executionContext } = await getCloudflareContext({ async: true }))
+    } catch {
+      return writeError("internal error", 500)
+    }
+  }
+
   // Soft-delete every bot bound to this machine (bots page cascade). Snapshot
   // each bot's server memberships BEFORE the delete removes them, so we can
   // fan out MEMBER_LEAVE per (server, botId) after each delete commits.
-  for (const bot of bots) {
-    const priorMemberships =
-      await queries.communityBot.listBotServerMemberships(db, bot.id, ctx.userId)
-    await queries.communityBot.softDeleteBot(db, bot.id, ctx.userId)
-    for (const serverId of priorMemberships) {
-      fanOutToServerMembers(serverId, {
-        type: WS_EVENTS.MEMBER_LEAVE,
-        serverId,
-        userId: bot.id,
+  const avatarKeys: string[] = []
+  try {
+    for (const bot of bots) {
+      const priorMemberships =
+        await queries.communityBot.listBotServerMemberships(db, bot.id, ctx.userId)
+      const deleted = await queries.communityBot.softDeleteBot(db, bot.id, ctx.userId)
+      if (!deleted) continue
+      avatarKeys.push(buildBotAvatarKey(bot.id))
+      for (const serverId of priorMemberships) {
+        fanOutToServerMembers(serverId, {
+          type: WS_EVENTS.MEMBER_LEAVE,
+          serverId,
+          userId: bot.id,
+        })
+      }
+    }
+  } finally {
+    if (executionContext && avatarKeys.length > 0) {
+      scheduleCommunityMediaCleanup(ctx.env.COMMUNITY_MEDIA, executionContext, {
+        keys: avatarKeys,
+        warning: {
+          event: "community_bot_avatar_cleanup_failed",
+          fields: { machineId: id, phase: "machine_cascade" },
+        },
       })
     }
   }
