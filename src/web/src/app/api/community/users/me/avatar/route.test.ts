@@ -3,7 +3,8 @@ import { NextRequest } from "next/server"
 
 const mockHandleUserAvatarUpload = vi.fn()
 const mockHandleBotAvatarUpload = vi.fn()
-const mockUpdateUser = vi.fn()
+const mockGetBotOwnedBy = vi.fn()
+const mockPersistUploadedBotAvatar = vi.fn()
 const mockAuthUpdateUser = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
@@ -23,8 +24,10 @@ vi.mock("@alook/shared", async () => {
   return {
     ...actual,
     queries: {
-      user: {
-        updateUser: (...a: unknown[]) => mockUpdateUser(...a),
+      ...actual.queries,
+      communityBot: {
+        ...actual.queries.communityBot,
+        getBotOwnedBy: (...a: unknown[]) => mockGetBotOwnedBy(...a),
       },
     },
   }
@@ -33,6 +36,10 @@ vi.mock("@alook/shared", async () => {
 vi.mock("@/lib/community/upload", () => ({
   handleUserAvatarUpload: (...a: unknown[]) => mockHandleUserAvatarUpload(...a),
   handleBotAvatarUpload: (...a: unknown[]) => mockHandleBotAvatarUpload(...a),
+}))
+
+vi.mock("@/lib/community/bot-avatar-persistence", () => ({
+  persistUploadedBotAvatar: (...a: unknown[]) => mockPersistUploadedBotAvatar(...a),
 }))
 
 let isAuthed = true
@@ -46,7 +53,7 @@ vi.mock("@/lib/middleware/community-actor", () => ({
     }
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
     return handler(req, {
-      env: { DB: {} },
+      env: { DB: {}, COMMUNITY_MEDIA: { delete: vi.fn() } },
       actor: actorKind === "bot"
         ? { kind: "bot", userId: "b1", ownerUserId: "u1", machineId: "m1" }
         : { kind: "human", userId: "u1", email: "u@t.com" },
@@ -74,7 +81,8 @@ describe("POST /api/community/users/me/avatar", () => {
     vi.clearAllMocks()
     isAuthed = true
     actorKind = "human"
-    mockUpdateUser.mockResolvedValue(undefined)
+    mockGetBotOwnedBy.mockResolvedValue({ id: "b1", ownerUserId: "u1" })
+    mockPersistUploadedBotAvatar.mockResolvedValue({ kind: "persisted" })
     mockAuthUpdateUser.mockResolvedValue({ headers: new Headers() })
   })
 
@@ -94,7 +102,7 @@ describe("POST /api/community/users/me/avatar", () => {
     })
     const res = await POST(postReq(), {} as never)
     expect(res.status).toBe(413)
-    expect(mockUpdateUser).not.toHaveBeenCalled()
+    expect(mockPersistUploadedBotAvatar).not.toHaveBeenCalled()
     expect(mockAuthUpdateUser).not.toHaveBeenCalled()
   })
 
@@ -121,8 +129,26 @@ describe("POST /api/community/users/me/avatar", () => {
       body: { image: "/api/community/users/u1/avatar" },
       returnHeaders: true,
     }))
-    expect(mockUpdateUser).not.toHaveBeenCalled()
+    expect(mockPersistUploadedBotAvatar).not.toHaveBeenCalled()
     expect(res.headers.getSetCookie()).toContain("better-auth.session_data=fresh; Path=/")
+  })
+
+  it("keeps a successful human response when Better Auth emits no replacement cookie", async () => {
+    mockHandleUserAvatarUpload.mockResolvedValue({
+      ok: true,
+      id: "u1",
+      key: "user-avatar/u1",
+      url: "/api/community/media/user-avatar/u1",
+      filename: "me.png",
+      contentType: "image/png",
+      size: 10,
+    })
+
+    const res = await POST(postReq(), {} as never)
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ url: "/api/community/users/u1/avatar" })
+    expect(res.headers.getSetCookie()).toEqual([])
   })
 
   it("uses the bot avatar key and URL for a bot actor", async () => {
@@ -141,7 +167,71 @@ describe("POST /api/community/users/me/avatar", () => {
     expect(await res.json()).toEqual({ url: "/api/community/bots/b1/avatar" })
     expect(mockHandleBotAvatarUpload).toHaveBeenCalledWith(expect.anything(), expect.anything(), "b1")
     expect(mockHandleUserAvatarUpload).not.toHaveBeenCalled()
-    expect(mockUpdateUser).toHaveBeenCalledWith(expect.anything(), "b1", { image: "/api/community/bots/b1/avatar" })
+    expect(mockGetBotOwnedBy).toHaveBeenCalledWith(expect.anything(), "b1", "u1")
+    expect(mockPersistUploadedBotAvatar).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { botId: "b1", ownerId: "u1" },
+    )
     expect(mockAuthUpdateUser).not.toHaveBeenCalled()
+  })
+
+  it("returns 404 before bot R2 PUT when the runner actor no longer owns a live bot", async () => {
+    actorKind = "bot"
+    mockGetBotOwnedBy.mockResolvedValue(null)
+
+    const res = await POST(postReq(), {} as never)
+
+    expect(res.status).toBe(404)
+    expect(mockHandleBotAvatarUpload).not.toHaveBeenCalled()
+    expect(mockPersistUploadedBotAvatar).not.toHaveBeenCalled()
+  })
+
+  it("forwards bot upload failures before attempting D1 persistence", async () => {
+    const { NextResponse } = await import("next/server")
+    actorKind = "bot"
+    mockHandleBotAvatarUpload.mockResolvedValue({
+      ok: false,
+      response: NextResponse.json({ error: "avatar too large (max 8MB)" }, { status: 413 }),
+    })
+
+    const res = await POST(postReq(), {} as never)
+
+    expect(res.status).toBe(413)
+    expect(mockPersistUploadedBotAvatar).not.toHaveBeenCalled()
+  })
+
+  it("returns 404 when bot self-upload loses to delete after R2 PUT", async () => {
+    actorKind = "bot"
+    mockHandleBotAvatarUpload.mockResolvedValue({
+      ok: true,
+      id: "b1",
+      key: "bot-avatar/b1",
+      url: "/api/community/bots/b1/avatar",
+      filename: "bot.png",
+      contentType: "image/png",
+      size: 10,
+    })
+    mockPersistUploadedBotAvatar.mockResolvedValue({ kind: "not_found" })
+
+    const res = await POST(postReq(), {} as never)
+    expect(res.status).toBe(404)
+  })
+
+  it("returns 500 when bot self-upload persistence is ambiguous", async () => {
+    actorKind = "bot"
+    mockHandleBotAvatarUpload.mockResolvedValue({
+      ok: true,
+      id: "b1",
+      key: "bot-avatar/b1",
+      url: "/api/community/bots/b1/avatar",
+      filename: "bot.png",
+      contentType: "image/png",
+      size: 10,
+    })
+    mockPersistUploadedBotAvatar.mockResolvedValue({ kind: "failed" })
+
+    const res = await POST(postReq(), {} as never)
+    expect(res.status).toBe(500)
   })
 })

@@ -12,9 +12,15 @@ const mockPushBotEventToMachine = vi.fn()
 const mockPushAgentModelSwitchToMachine = vi.fn()
 const mockPushAgentProviderSwitchToMachine = vi.fn()
 const mockLogError = vi.fn()
+const mockListBotServerMemberships = vi.fn()
+const mockSoftDeleteBot = vi.fn()
+const mockFanOutToServerMembers = vi.fn()
+const mockGetCloudflareContext = vi.fn()
+const mockWaitUntil = vi.fn()
+const mockMediaDelete = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
-  getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
+  getCloudflareContext: (...args: unknown[]) => mockGetCloudflareContext(...args),
 }))
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
@@ -36,6 +42,8 @@ vi.mock("@alook/shared", async () => {
         updateBotModel: (...a: unknown[]) => mockUpdateBotModel(...a),
         updateBotRuntime: (...a: unknown[]) => mockUpdateBotRuntime(...a),
         getMachineForOwner: (...a: unknown[]) => mockGetMachineForOwner(...a),
+        listBotServerMemberships: (...a: unknown[]) => mockListBotServerMemberships(...a),
+        softDeleteBot: (...a: unknown[]) => mockSoftDeleteBot(...a),
       },
       communityMachine: {
         isBotOnline: (...a: unknown[]) => mockIsBotOnline(...a),
@@ -56,13 +64,18 @@ vi.mock("@/lib/broadcast", () => ({
   broadcastToUser: vi.fn(),
 }))
 vi.mock("@/lib/community/fanout", () => ({
-  fanOutToServerMembers: vi.fn(),
+  fanOutToServerMembers: (...a: unknown[]) => mockFanOutToServerMembers(...a),
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: (handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
+    return handler(req, {
+      env: { DB: {}, COMMUNITY_MEDIA: { delete: (...a: unknown[]) => mockMediaDelete(...a) } },
+      userId: "u1",
+      email: "u@t.com",
+      params,
+    })
   },
 }))
 
@@ -76,7 +89,7 @@ vi.mock("@/lib/middleware/helpers", async () => {
   }
 })
 
-import { PATCH } from "./route"
+import { DELETE, PATCH } from "./route"
 
 function patchReq(body: unknown) {
   return new NextRequest("http://localhost/api/community/bots/b1", {
@@ -345,5 +358,97 @@ describe("PATCH /api/community/bots/[id]", () => {
     expect(res.status).toBe(400)
     expect(mockUpdateBotRuntime).not.toHaveBeenCalled()
     expect(mockPushAgentProviderSwitchToMachine).not.toHaveBeenCalled()
+  })
+})
+
+describe("DELETE /api/community/bots/[id]", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetCloudflareContext.mockResolvedValue({ ctx: { waitUntil: mockWaitUntil } })
+    mockGetBotOwnedBy.mockResolvedValue({
+      id: "b1",
+      ownerUserId: "u1",
+      machineId: "mac1",
+    })
+    mockListBotServerMemberships.mockResolvedValue(["s1", "s2"])
+    mockSoftDeleteBot.mockResolvedValue(true)
+    mockMediaDelete.mockResolvedValue(undefined)
+    mockPushBotEventToMachine.mockResolvedValue(undefined)
+  })
+
+  function deleteReq() {
+    return new NextRequest("http://localhost/api/community/bots/b1", { method: "DELETE" })
+  }
+
+  it("fails before D1 mutation, WS, daemon, and R2 when ExecutionContext is unavailable", async () => {
+    mockGetCloudflareContext.mockRejectedValue(new Error("no context"))
+
+    const res = await DELETE(deleteReq(), ctx)
+
+    expect(res.status).toBe(500)
+    expect(mockSoftDeleteBot).not.toHaveBeenCalled()
+    expect(mockMediaDelete).not.toHaveBeenCalled()
+    expect(mockFanOutToServerMembers).not.toHaveBeenCalled()
+    expect(mockPushBotEventToMachine).not.toHaveBeenCalled()
+  })
+
+  it("registers fixed-key cleanup only for the D1 winner, then preserves existing events", async () => {
+    const res = await DELETE(deleteReq(), ctx)
+
+    expect(res.status).toBe(204)
+    expect(mockSoftDeleteBot).toHaveBeenCalledWith(expect.anything(), "b1", "u1")
+    expect(mockMediaDelete).toHaveBeenCalledWith(["bot-avatar/b1"])
+    expect(mockWaitUntil).toHaveBeenCalledOnce()
+    expect(mockFanOutToServerMembers).toHaveBeenCalledTimes(2)
+    expect(mockFanOutToServerMembers).toHaveBeenCalledWith("s1", {
+      type: "community:member.leave",
+      serverId: "s1",
+      userId: "b1",
+    })
+    expect(mockPushBotEventToMachine).toHaveBeenCalledWith(
+      expect.anything(),
+      "mac1",
+      { type: "bot:removed", botId: "b1" },
+    )
+    expect(mockMediaDelete.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockFanOutToServerMembers.mock.invocationCallOrder[0]!,
+    )
+  })
+
+  it("returns 404 with no cleanup or events for an already-deleted loser", async () => {
+    mockSoftDeleteBot.mockResolvedValue(false)
+
+    const res = await DELETE(deleteReq(), ctx)
+
+    expect(res.status).toBe(404)
+    expect(mockMediaDelete).not.toHaveBeenCalled()
+    expect(mockWaitUntil).not.toHaveBeenCalled()
+    expect(mockFanOutToServerMembers).not.toHaveBeenCalled()
+    expect(mockPushBotEventToMachine).not.toHaveBeenCalled()
+  })
+
+  it("keeps the committed 204 and events when waitUntil throws synchronously", async () => {
+    mockWaitUntil.mockImplementation(() => {
+      throw new Error("sync waitUntil failure")
+    })
+
+    const res = await DELETE(deleteReq(), ctx)
+
+    expect(res.status).toBe(204)
+    expect(mockMediaDelete).toHaveBeenCalledWith(["bot-avatar/b1"])
+    expect(mockFanOutToServerMembers).toHaveBeenCalledTimes(2)
+    expect(mockPushBotEventToMachine).toHaveBeenCalledOnce()
+  })
+
+  it("keeps the committed 204 when background R2 deletion rejects", async () => {
+    mockMediaDelete.mockRejectedValue(new Error("provider secret"))
+
+    const res = await DELETE(deleteReq(), ctx)
+    const cleanup = mockWaitUntil.mock.calls[0]![0] as Promise<void>
+    await expect(cleanup).resolves.toBeUndefined()
+
+    expect(res.status).toBe(204)
+    expect(mockFanOutToServerMembers).toHaveBeenCalledTimes(2)
+    expect(mockPushBotEventToMachine).toHaveBeenCalledOnce()
   })
 })

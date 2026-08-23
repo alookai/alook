@@ -176,6 +176,32 @@ export async function getBotOwnedBy(
   };
 }
 
+/**
+ * Public-read projection for the canonical bot-avatar door.
+ *
+ * This is the deliberate non-owner exception: authenticated server members
+ * and DM peers may render a live bot's avatar. The predicate still fails
+ * closed for missing, human, and tombstoned user rows, and the projection is
+ * intentionally limited to the two fields the door needs.
+ */
+export async function getLiveBotAvatar(
+  db: Database,
+  botId: string
+): Promise<{ id: string; image: string | null } | null> {
+  const rows = await db
+    .select({ id: user.id, image: user.image })
+    .from(user)
+    .where(
+      and(
+        eq(user.id, botId),
+        eq(user.isBot, true),
+        isNull(user.deletedAt)
+      )
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 /** Cheap ownership probe used by ack/error paths. */
 export async function countLiveBotsForOwner(
   db: Database,

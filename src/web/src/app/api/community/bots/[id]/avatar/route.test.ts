@@ -3,8 +3,9 @@ import { NextRequest } from "next/server"
 
 const mediaGet = vi.fn()
 const mockGetBotOwnedBy = vi.fn()
-const mockUpdateBot = vi.fn()
+const mockGetLiveBotAvatar = vi.fn()
 const mockHandleBotAvatarUpload = vi.fn()
+const mockPersistUploadedBotAvatar = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {}, COMMUNITY_MEDIA: { get: (...a: unknown[]) => mediaGet(...a) } } })),
@@ -19,7 +20,7 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityBot: {
         getBotOwnedBy: (...a: unknown[]) => mockGetBotOwnedBy(...a),
-        updateBot: (...a: unknown[]) => mockUpdateBot(...a),
+        getLiveBotAvatar: (...a: unknown[]) => mockGetLiveBotAvatar(...a),
       },
     },
   }
@@ -27,6 +28,10 @@ vi.mock("@alook/shared", async () => {
 
 vi.mock("@/lib/community/upload", () => ({
   handleBotAvatarUpload: (...a: unknown[]) => mockHandleBotAvatarUpload(...a),
+}))
+
+vi.mock("@/lib/community/bot-avatar-persistence", () => ({
+  persistUploadedBotAvatar: (...a: unknown[]) => mockPersistUploadedBotAvatar(...a),
 }))
 
 let isAuthed = true
@@ -71,6 +76,10 @@ describe("GET /api/community/bots/[id]/avatar", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     isAuthed = true
+    mockGetLiveBotAvatar.mockResolvedValue({
+      id: "b1",
+      image: "/api/community/bots/b1/avatar",
+    })
     mediaGet.mockResolvedValue({
       body: new ReadableStream(),
       httpMetadata: { contentType: "image/webp" },
@@ -85,12 +94,27 @@ describe("GET /api/community/bots/[id]/avatar", () => {
     expect(mediaGet).not.toHaveBeenCalled()
   })
 
-  it("serves the avatar by the deterministic bot-avatar/{botId} key with no ownership check (DM peers/members need it)", async () => {
+  it("serves a live canonical avatar by the deterministic key without an owner check", async () => {
     const res = await GET(getReq(), ctx("b1"))
     expect(res.status).toBe(200)
     expect(res.headers.get("Content-Type")).toBe("image/webp")
     expect(mediaGet).toHaveBeenCalledWith("bot-avatar/b1")
     expect(mockGetBotOwnedBy).not.toHaveBeenCalled()
+    expect(mockGetLiveBotAvatar).toHaveBeenCalledWith(expect.anything(), "b1")
+  })
+
+  it("returns 404 before R2 for a missing, tombstoned, or non-bot row", async () => {
+    mockGetLiveBotAvatar.mockResolvedValue(null)
+    const res = await GET(getReq(), ctx("b1"))
+    expect(res.status).toBe(404)
+    expect(mediaGet).not.toHaveBeenCalled()
+  })
+
+  it("returns 404 before R2 for a live bot with a noncanonical image", async () => {
+    mockGetLiveBotAvatar.mockResolvedValue({ id: "b1", image: "avatar:beam-seed" })
+    const res = await GET(getReq(), ctx("b1"))
+    expect(res.status).toBe(404)
+    expect(mediaGet).not.toHaveBeenCalled()
   })
 
   it("returns 400 when the bot id route param is missing", async () => {
@@ -128,7 +152,7 @@ describe("POST /api/community/bots/[id]/avatar", () => {
     vi.clearAllMocks()
     isAuthed = true
     mockGetBotOwnedBy.mockResolvedValue({ id: "b1", ownerId: "u1" })
-    mockUpdateBot.mockResolvedValue(undefined)
+    mockPersistUploadedBotAvatar.mockResolvedValue({ kind: "persisted" })
     mockHandleBotAvatarUpload.mockResolvedValue({
       ok: true,
       id: "b1",
@@ -162,7 +186,7 @@ describe("POST /api/community/bots/[id]/avatar", () => {
     })
     const res = await POST(postReq(), ctx("b1"))
     expect(res.status).toBe(413)
-    expect(mockUpdateBot).not.toHaveBeenCalled()
+    expect(mockPersistUploadedBotAvatar).not.toHaveBeenCalled()
   })
 
   it("uploads and updates the bot's image to the routable avatar URL", async () => {
@@ -170,6 +194,22 @@ describe("POST /api/community/bots/[id]/avatar", () => {
     expect(res.status).toBe(200)
     const body = await res.json() as { url: string }
     expect(body.url).toBe("/api/community/bots/b1/avatar")
-    expect(mockUpdateBot).toHaveBeenCalledWith(expect.anything(), "b1", "u1", { image: "/api/community/bots/b1/avatar" })
+    expect(mockPersistUploadedBotAvatar).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { botId: "b1", ownerId: "u1" },
+    )
+  })
+
+  it("returns 404 when the upload loses to delete after R2 PUT", async () => {
+    mockPersistUploadedBotAvatar.mockResolvedValue({ kind: "not_found" })
+    const res = await POST(postReq(), ctx("b1"))
+    expect(res.status).toBe(404)
+  })
+
+  it("returns 500 for an ambiguous D1 persistence failure", async () => {
+    mockPersistUploadedBotAvatar.mockResolvedValue({ kind: "failed" })
+    const res = await POST(postReq(), ctx("b1"))
+    expect(res.status).toBe(500)
   })
 })
