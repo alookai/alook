@@ -292,12 +292,9 @@ async function sendWithRetry(
 }
 
 async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStream): Promise<unknown> {
-  const remindAfterFlag = opts.remindAfter as string | undefined;
-  if (remindAfterFlag === undefined) {
-    throw new CliError("message send: --remind-after <0|Nm|Nh> is required");
-  }
-  // Validate the full duration before any server mutation. A missing or bad
-  // value must never send a message and then report a local validation failure.
+  // Commander enforces presence via requiredOption. Validate the full duration
+  // before any server mutation so a bad value can never send a message first.
+  const remindAfterFlag = opts.remindAfter as string;
   const remindAfterMs = parseRemindAfter(remindAfterFlag);
   const api = getApi();
   const agent = agentId(opts);
