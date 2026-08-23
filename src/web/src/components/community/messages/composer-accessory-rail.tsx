@@ -7,6 +7,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import {
+  allocateComposerAccessoryRail,
+  type ComposerAccessoryRailLayout,
+} from "./composer-accessory-rail-layout"
 import { TypingIndicator } from "./typing-indicator"
 
 export function ComposerAccessoryRail({
@@ -30,52 +34,87 @@ export function ComposerAccessoryRail({
 }) {
   const connectionStatus = useCommunityWsStore((state) => state.connectionStatus)
   const reconnectNow = useCommunityWsStore((state) => state.reconnectNow)
+  const hasTyping = typingNames.length > 0
+  const hasScroll = scrollCount > 0
+  const hasWsStatus = connectionStatus !== "connected"
+  const layout = allocateComposerAccessoryRail(selectMode
+    ? { mode: "selection", left: hasTyping, right: hasWsStatus }
+    : { mode: "normal", left: hasTyping, center: hasScroll, right: hasWsStatus })
+
+  if (layout === "empty") return null
 
   return (
     <div
       data-testid={tid.composerAccessoryRail}
       data-selection={selectMode ? "active" : "inactive"}
+      data-layout={layout}
       className="pointer-events-none absolute inset-x-0 bottom-3 z-20 px-2 sm:px-4"
     >
       <div
         className={cn(
           "grid w-full items-end gap-1 sm:gap-2",
-          selectMode
-            ? "grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]"
-            : "grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]",
+          layout === "centered" && "grid-cols-[minmax(0,1fr)_minmax(0,max-content)_minmax(0,1fr)]",
+          layout === "left-right" && "grid-cols-[minmax(0,1fr)_auto]",
+          (layout === "left-only" || layout === "right-only") && "grid-cols-[minmax(0,1fr)]",
         )}
       >
         {selectMode ? (
           <>
-            <div className="hidden w-full min-w-0 sm:col-start-1 sm:block">
-              <TypingIndicator names={typingNames} className="w-fit" />
-            </div>
-            <div className="col-start-2 min-w-0 justify-self-center">
+            {hasTyping && (
+              <div key="left" className="hidden min-w-0 max-w-full sm:col-start-1 sm:block">
+                <TypingIndicator names={typingNames} className="w-fit max-w-full" />
+              </div>
+            )}
+            <div key="center" className="col-start-2 min-w-0 max-w-full justify-self-center">
               <SelectionToolbar
                 selectedCount={selectedCount}
                 onCancel={onCancelSelection}
                 onShare={onShareSelection}
               />
             </div>
-            <div className="col-start-3 min-w-11 justify-self-end">
-              <WsStatusControl status={connectionStatus} onRetry={reconnectNow} />
-            </div>
+            {hasWsStatus && (
+              <div key="right" className="col-start-3 min-w-0 max-w-full justify-self-end">
+                <WsStatusControl status={connectionStatus} onRetry={reconnectNow} />
+              </div>
+            )}
           </>
         ) : (
           <>
-            <div className="col-start-1 w-full min-w-0">
-              <TypingIndicator names={typingNames} className="w-fit" />
-            </div>
-            <div className="col-start-2 justify-self-center">
-              <ScrollControl count={scrollCount} mode={scrollMode} onClick={onScroll} />
-            </div>
-            <div className="col-start-3 justify-self-end">
-              <WsStatusControl status={connectionStatus} onRetry={reconnectNow} />
-            </div>
+            {hasTyping && (
+              <div key="left" className={normalSlotClassName(layout, "left")}>
+                <TypingIndicator names={typingNames} className="w-fit max-w-full" />
+              </div>
+            )}
+            {hasScroll && (
+              <div key="center" className="col-start-2 min-w-0 max-w-full justify-self-center">
+                <ScrollControl count={scrollCount} mode={scrollMode} onClick={onScroll} />
+              </div>
+            )}
+            {hasWsStatus && (
+              <div key="right" className={normalSlotClassName(layout, "right")}>
+                <WsStatusControl status={connectionStatus} onRetry={reconnectNow} />
+              </div>
+            )}
           </>
         )}
       </div>
     </div>
+  )
+}
+
+function normalSlotClassName(
+  layout: ComposerAccessoryRailLayout,
+  side: "left" | "right",
+): string {
+  const column = layout === "centered"
+    ? side === "left" ? "col-start-1" : "col-start-3"
+    : layout === "left-right"
+      ? side === "left" ? "col-start-1" : "col-start-2"
+      : "col-start-1"
+  return cn(
+    column,
+    "min-w-0 max-w-full",
+    side === "right" && "justify-self-end",
   )
 }
 
@@ -91,7 +130,7 @@ function SelectionToolbar({
   return (
     <div
       data-testid={tid.messageSelectionToolbar}
-      className="pointer-events-auto flex h-10 w-max min-w-0 max-w-[calc(100vw-7rem)] items-center gap-1 rounded-full border border-border/60 bg-card p-1 shadow-(--e2) sm:h-auto sm:max-w-full"
+      className="pointer-events-auto flex h-10 w-fit min-w-0 max-w-full items-center gap-1 rounded-full border border-border/60 bg-card p-1 shadow-(--e2) sm:h-auto"
     >
       <span className="min-w-0 flex-1 truncate px-1 text-xs text-muted-foreground sm:px-2 sm:text-sm">
         {selectedCount} selected
@@ -197,11 +236,11 @@ function WsStatusControl({
         )}
       >
         {!failed && (
-          <span className="absolute size-8 rounded-full bg-warning/10 motion-safe:animate-pulse" />
+          <span className="absolute size-8 self-end rounded-full bg-warning/10 motion-safe:animate-pulse" />
         )}
         <span
           className={cn(
-            "relative grid size-8 place-items-center rounded-full border bg-background/90 shadow-(--e1) backdrop-blur-sm",
+            "relative grid size-8 self-end place-items-center rounded-full border bg-background/90 shadow-(--e1) backdrop-blur-sm",
             failed ? "border-destructive/30" : "border-warning/30",
           )}
         >
