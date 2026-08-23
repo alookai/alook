@@ -15,14 +15,15 @@ export type LocalMessageReminderResult =
   | { armed: false; reason: string };
 
 export function parseRemindAfter(value: string): number {
+  if (value === "0") return 0;
   const match = /^(\d+)(m|h)$/.exec(value);
   if (!match) {
-    throw new Error("message send: --remind-after must be a positive integer followed by m or h (1m..24h)");
+    throw new Error("message send: --remind-after must be 0 or a positive integer followed by m or h (1m..24h)");
   }
   const amount = Number(match[1]);
   const milliseconds = amount * (match[2] === "h" ? 60 * 60_000 : 60_000);
   if (!Number.isSafeInteger(milliseconds) || milliseconds < MIN_REMINDER_MS || milliseconds > MAX_REMINDER_MS) {
-    throw new Error("message send: --remind-after must be between 1m and 24h");
+    throw new Error("message send: --remind-after must be 0 or between 1m and 24h");
   }
   return milliseconds;
 }

@@ -292,10 +292,10 @@ async function sendWithRetry(
 }
 
 async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStream): Promise<unknown> {
-  const remindAfterFlag = opts.remindAfter as string | undefined;
-  // Validate the full duration before any server mutation. A bad opt-in flag
-  // must never send a message and then report a local validation failure.
-  const remindAfterMs = remindAfterFlag === undefined ? undefined : parseRemindAfter(remindAfterFlag);
+  // Commander enforces presence via requiredOption. Validate the full duration
+  // before any server mutation so a bad value can never send a message first.
+  const remindAfterFlag = opts.remindAfter as string;
+  const remindAfterMs = parseRemindAfter(remindAfterFlag);
   const api = getApi();
   const agent = agentId(opts);
   const channel = opts.target as string;
@@ -361,8 +361,6 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
   // SUCCESS — the message is in the channel; surface its canonical ref exactly
   // like a fresh send, never as an error.
   const sent = `${res.message.channel}${res.message.seq}`;
-  if (remindAfterMs === undefined) return { sent };
-
   const seqText = res.message.seq.replace(/^#/, "");
   const sentSeq = Number(seqText);
   if (!/^\d+$/.test(seqText) || !Number.isSafeInteger(sentSeq) || sentSeq < 1) {
@@ -769,9 +767,9 @@ function buildProgram(stdin: CliInputStream): Command {
       [] as string[],
     )
     .option("--reply <seq>", 'reply to a message by its seq in --target (e.g. "#37" or 37)')
-    .option(
-      "--remind-after <duration>",
-      "optionally arm one local follow-up wake after 1m..24h; a newer same-scope message or daemon restart cancels it",
+    .requiredOption(
+      "--remind-after <0|Nm|Nh>",
+      "required idle follow-up: 0 disables; 1m..24h arms/resets one same-scope timer; a newer message or daemon restart cancels it",
     )
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })

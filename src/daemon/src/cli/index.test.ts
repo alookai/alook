@@ -105,7 +105,10 @@ beforeEach(() => {
     delete process.env[k];
   }
   mockArmMessageReminder.mockReset();
-  mockArmMessageReminder.mockResolvedValue({ armed: true, dueAt: 123456 });
+  mockArmMessageReminder.mockImplementation(async (input: { remindAfterMs: number }) =>
+    input.remindAfterMs === 0
+      ? { armed: false as const, reason: "disabled" }
+      : { armed: true as const, dueAt: 123456 });
 });
 afterEach(() => {
   cap.restore();
@@ -195,10 +198,15 @@ describe("envelope contract", () => {
         }),
       }),
     );
-    const code = await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin"]);
+    const code = await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"]);
     const env = parseEnvelope(cap.lines());
     expect(code).toBe(0);
-    expect(env).toEqual({ success: { sent: "/s#0042/general#7" } });
+    expect(env).toEqual({
+      success: {
+        sent: "/s#0042/general#7",
+        reminder: { armed: false, reason: "disabled" },
+      },
+    });
     expect("error" in env).toBe(false);
     expect("hint" in env).toBe(false); // null fields omitted
   });
@@ -259,7 +267,7 @@ describe("channel alignment (message send)", () => {
     setApiForTesting(
       stubApi({ send: async () => ({ state: "blocked", reason: "unaligned", unreadCount: 3, latestSeq: 12 }) }),
     );
-    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin"]);
+    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"]);
     const env = parseEnvelope(cap.lines());
     expect("success" in env).toBe(false);
     expect(env.error).toContain("not aligned");
@@ -278,14 +286,34 @@ describe("message send --remind-after", () => {
     message: { seq: "#7", channel: "/s#0042/general/#3", sender: "@a", content: { text: "hi" }, time: "" },
   };
 
-  it("keeps the no-flag result shape byte-compatible and makes no local arm call", async () => {
-    setApiForTesting(stubApi({ send: async () => ok }));
+  it("requires the flag before sending or making a local timer call", async () => {
+    const send = vi.fn(async () => ok);
+    setApiForTesting(stubApi({ send }));
     await mainWithStdin(["message", "send", "--target", "/s#0042/general/#3", "--stdin"]);
-    expect(parseEnvelope(cap.lines())).toEqual({ success: { sent: "/s#0042/general/#3#7" } });
+    expect(parseEnvelope(cap.lines()).error).toContain("--remind-after");
+    expect(send).not.toHaveBeenCalled();
     expect(mockArmMessageReminder).not.toHaveBeenCalled();
   });
 
-  it.each(["0m", "25h", "1s", "1.5h"])("rejects invalid duration %s before sending", async (duration) => {
+  it("sends with zero and clears using the server's canonical channel and seq", async () => {
+    setApiForTesting(stubApi({ send: async () => ok }));
+    await mainWithStdin([
+      "message", "send", "--target", "/alias#0042/input", "--stdin", "--remind-after", "0",
+    ]);
+    expect(mockArmMessageReminder).toHaveBeenCalledWith({
+      channel: "/s#0042/general/#3",
+      sentSeq: 7,
+      remindAfterMs: 0,
+    });
+    expect(parseEnvelope(cap.lines())).toEqual({
+      success: {
+        sent: "/s#0042/general/#3#7",
+        reminder: { armed: false, reason: "disabled" },
+      },
+    });
+  });
+
+  it.each(["0m", "0h", "00", "25h", "1s", "1.5h"])("rejects invalid duration %s before sending", async (duration) => {
     const send = vi.fn(async () => ok);
     setApiForTesting(stubApi({ send }));
     await mainWithStdin([
@@ -357,10 +385,12 @@ describe("message send --remind-after", () => {
     expect(JSON.stringify(envelope)).not.toContain("vch_secret");
   });
 
-  it("documents optional one-shot daemon-lifetime behavior in command help", async () => {
+  it("documents required zero-or-duration daemon-lifetime behavior in command help", async () => {
     await main(["message", "send", "-h"]);
     const output = cap.lines().join("");
-    expect(output).toContain("--remind-after <duration>");
+    expect(output).toContain("--remind-after <0|Nm|Nh>");
+    expect(output).toMatch(/required idle follow-up/);
+    expect(output).toMatch(/0 disables/);
     expect(output).toMatch(/daemon\s+restart cancels it/);
   });
 });
@@ -372,7 +402,7 @@ describe("message send --reply", () => {
       message: { seq: "#8", channel: "/s#0042/general", sender: "@a", content: { text: "on it" }, time: "" },
     }));
     setApiForTesting(stubApi({ send: sendSpy }));
-    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--reply", "#37"], "on it");
+    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0", "--reply", "#37"], "on it");
     expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ replyToSeq: 37 }));
   });
 
@@ -382,7 +412,7 @@ describe("message send --reply", () => {
       message: { seq: "#8", channel: "/s#0042/general", sender: "@a", content: { text: "on it" }, time: "" },
     }));
     setApiForTesting(stubApi({ send: sendSpy }));
-    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--reply", "37"], "on it");
+    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0", "--reply", "37"], "on it");
     expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ replyToSeq: 37 }));
   });
 
@@ -392,7 +422,7 @@ describe("message send --reply", () => {
       message: { seq: "#8", channel: "/s#0042/general", sender: "@a", content: { text: "hi" }, time: "" },
     }));
     setApiForTesting(stubApi({ send: sendSpy }));
-    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin"]);
+    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"]);
     expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ replyToSeq: undefined }));
   });
 
@@ -402,7 +432,7 @@ describe("message send --reply", () => {
       message: { seq: "#8", channel: "/s#0042/general", sender: "@a", content: { text: "" }, time: "" },
     }));
     setApiForTesting(stubApi({ send: sendSpy }));
-    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--reply", "x"]);
+    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0", "--reply", "x"]);
     const env = parseEnvelope(cap.lines());
     expect(env.error).toContain("--reply must be a message seq");
     expect(sendSpy).not.toHaveBeenCalled();
@@ -414,7 +444,7 @@ describe("message send --reply", () => {
       message: { seq: "#8", channel: "/s#0042/general", sender: "@a", content: { text: "" }, time: "" },
     }));
     setApiForTesting(stubApi({ send: sendSpy }));
-    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--reply", "0"]);
+    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0", "--reply", "0"]);
     const env = parseEnvelope(cap.lines());
     expect(env.error).toContain("--reply must be a message seq");
     expect(sendSpy).not.toHaveBeenCalled();
@@ -613,7 +643,7 @@ describe("message send — idempotent retry (mutation-idempotency ②)", () => {
   it("attaches a nonce to the send request", async () => {
     const sendSpy = vi.fn(async () => okRes);
     setApiForTesting(stubApi({ send: sendSpy }));
-    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin"]);
+    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"]);
     const arg = sendSpy.mock.calls[0]![0] as { nonce?: string };
     expect(typeof arg.nonce).toBe("string");
     expect((arg.nonce ?? "").length).toBeGreaterThan(0);
@@ -629,7 +659,7 @@ describe("message send — idempotent retry (mutation-idempotency ②)", () => {
       return okRes;
     });
     setApiForTesting(stubApi({ send: sendSpy }));
-    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin"]);
+    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"]);
     const env = parseEnvelope(cap.lines());
     expect(env.success.sent).toBe("/s#0042/general#8"); // succeeded, not an error
     expect(calls).toBe(2); // retried once
@@ -639,7 +669,7 @@ describe("message send — idempotent retry (mutation-idempotency ②)", () => {
   it("treats a `deduped` success (same-nonce retry matched the committed message) as sent, not an error", async () => {
     const sendSpy = vi.fn(async () => ({ ...okRes, deduped: true }));
     setApiForTesting(stubApi({ send: sendSpy }));
-    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin"]);
+    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"]);
     const env = parseEnvelope(cap.lines());
     expect(env.success.sent).toBe("/s#0042/general#8");
     expect(env.error).toBeUndefined();
@@ -648,7 +678,7 @@ describe("message send — idempotent retry (mutation-idempotency ②)", () => {
   it("does NOT retry a blocked/unaligned business outcome (it's a return, not transient)", async () => {
     const sendSpy = vi.fn(async () => ({ state: "blocked" as const, reason: "unaligned" as const, unreadCount: 2, latestSeq: 9 }));
     setApiForTesting(stubApi({ send: sendSpy }));
-    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin"]);
+    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"]);
     const env = parseEnvelope(cap.lines());
     expect(env.error).toContain("channel not aligned");
     expect(sendSpy).toHaveBeenCalledTimes(1); // no retry on a business outcome
@@ -657,7 +687,7 @@ describe("message send — idempotent retry (mutation-idempotency ②)", () => {
   it("does NOT retry a non-transient thrown error (e.g. 4xx), surfaces it once", async () => {
     const sendSpy = vi.fn(async () => { throw new Error("reply target #5 not found in /s#0042/general"); });
     setApiForTesting(stubApi({ send: sendSpy }));
-    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin"]);
+    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"]);
     const env = parseEnvelope(cap.lines());
     expect(env.error).toContain("reply target");
     expect(sendSpy).toHaveBeenCalledTimes(1); // deterministic business error — not retried
@@ -1728,7 +1758,7 @@ describe("message send — literal stdin/file body contract", () => {
       }),
     );
     const literal = `  \`marker\` $(touch ${marker}) \${HOME} ' \\\" \\\\ a\\\\nb\n# markdown\n总部 🎉  \n`;
-    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin"], literal);
+    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"], literal);
     expect(sentText).toBe(literal);
     expect(fs.existsSync(marker)).toBe(false);
   });
@@ -1744,7 +1774,7 @@ describe("message send — literal stdin/file body contract", () => {
         return { state: "sent", message: { seq: "#1", channel: "/s/c", sender: "@a", content: { text: "" }, time: "" } };
       },
     }));
-    await main(["message", "send", "--target", "/s#0042/general", "--stdin"], { stdin: input });
+    await main(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"], { stdin: input });
     expect(sentText).toBe(literal);
   });
 
@@ -1765,7 +1795,7 @@ describe("message send — literal stdin/file body contract", () => {
         },
       }),
     );
-    await main(["message", "send", "--target", "/s#0042/general", "--file", file]);
+    await main(["message", "send", "--target", "/s#0042/general", "--file", file, "--remind-after", "0"]);
     fs.rmSync(dir, { recursive: true, force: true });
     expect(sentText).toBe(literal);
   });
@@ -1773,7 +1803,7 @@ describe("message send — literal stdin/file body contract", () => {
   it("rejects --stdin with --file before sending", async () => {
     const sendSpy = vi.fn();
     setApiForTesting(stubApi({ send: sendSpy }));
-    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--file", "body.md"]);
+    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0", "--file", "body.md"]);
     expect(parseEnvelope(cap.lines()).error).toContain("mutually exclusive");
     expect(sendSpy).not.toHaveBeenCalled();
   });
@@ -1781,7 +1811,7 @@ describe("message send — literal stdin/file body contract", () => {
   it("fails fast when --stdin is attached to a TTY", async () => {
     const sendSpy = vi.fn();
     setApiForTesting(stubApi({ send: sendSpy }));
-    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin"], "", true);
+    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"], "", true);
     expect(parseEnvelope(cap.lines()).error).toContain("requires piped input");
     expect(sendSpy).not.toHaveBeenCalled();
   });
@@ -1792,13 +1822,13 @@ describe("message send — literal stdin/file body contract", () => {
       message: { seq: "#1", channel: "/s/c", sender: "@a", content: { text: "" }, time: "" },
     }));
     setApiForTesting(stubApi({ send: sendSpy }));
-    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin"], "   \n");
+    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"], "   \n");
     expect(parseEnvelope(cap.lines()).error).toContain("--stdin");
     expect(sendSpy).not.toHaveBeenCalled();
 
     cap.lines().length = 0;
     await mainWithStdin(
-      ["message", "send", "--target", "/s#0042/general", "--stdin", "--attachment", "att_1"],
+      ["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0", "--attachment", "att_1"],
       "   \n",
     );
     expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ content: { text: "   \n" } }));
@@ -1810,7 +1840,7 @@ describe("message send — literal stdin/file body contract", () => {
       message: { seq: "#1", channel: "/s/c", sender: "@a", content: { text: "" }, time: "" },
     }));
     setApiForTesting(stubApi({ send: sendSpy }));
-    await main(["message", "send", "--target", "/s#0042/general", "--attachment", "att_1"]);
+    await main(["message", "send", "--target", "/s#0042/general", "--attachment", "att_1", "--remind-after", "0"]);
     expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({
       content: { text: "" },
       attachments: ["att_1"],
@@ -1822,12 +1852,12 @@ describe("message send — literal stdin/file body contract", () => {
     const path = await import("path");
     const sendSpy = vi.fn();
     setApiForTesting(stubApi({ send: sendSpy }));
-    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin"], "");
+    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"], "");
     expect(parseEnvelope(cap.lines()).error).toContain("--stdin");
 
     cap.lines().length = 0;
     const missing = path.join(os.tmpdir(), `alook-missing-${Date.now()}-${Math.random()}.md`);
-    await main(["message", "send", "--target", "/s#0042/general", "--file", missing]);
+    await main(["message", "send", "--target", "/s#0042/general", "--file", missing, "--remind-after", "0"]);
     expect(parseEnvelope(cap.lines()).error).toContain("cannot read file");
     expect(sendSpy).not.toHaveBeenCalled();
   });
@@ -1842,7 +1872,7 @@ describe("message send — literal stdin/file body contract", () => {
   it("removes --text from the public parser", async () => {
     const sendSpy = vi.fn();
     setApiForTesting(stubApi({ send: sendSpy }));
-    await main(["message", "send", "--target", "/s#0042/general", "--text", "legacy"]);
+    await main(["message", "send", "--target", "/s#0042/general", "--text", "legacy", "--remind-after", "0"]);
     expect(parseEnvelope(cap.lines()).error).toContain("unknown option '--text'");
     expect(sendSpy).not.toHaveBeenCalled();
   });
