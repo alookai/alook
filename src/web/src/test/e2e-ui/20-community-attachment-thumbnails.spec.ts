@@ -280,7 +280,7 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   const desktopPortraitLoading = await previewRects(page)
   await attachScreenshot(testInfo, "desktop-portrait-loading", page)
   releasePortraitFailure()
-  await expect(page.getByTestId(tid.imageLightboxError)).toContainText("原图加载失败")
+  await expect(page.getByTestId(tid.imageLightboxError)).toContainText("Failed to load original image")
   await expect(page.getByTestId(tid.imageLightboxThumbnail)).toBeVisible()
   await waitForDialogEntrance(page)
   const desktopPortraitFailed = {
