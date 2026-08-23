@@ -83,8 +83,10 @@ export const communityKeys = {
     [...communityKeys.all, "channel", channelId, "pins"] as const,
   threads: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "threads"] as const,
+  forumFeeds: (channelId: string) =>
+    [...communityKeys.threads(channelId), "feed"] as const,
   forumFeed: (channelId: string, tag: string | null) =>
-    [...communityKeys.threads(channelId), "feed", tag] as const,
+    [...communityKeys.forumFeeds(channelId), tag] as const,
   forumTags: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "forum-tags"] as const,
   // #3: the viewer's `communityReadState` row for a single channel, fetched

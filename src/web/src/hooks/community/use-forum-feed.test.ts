@@ -8,6 +8,7 @@ vi.mock("@/lib/api/client", () => ({
 import {
   forumFeedPageQueryFn,
   mapForumFeedPages,
+  removeForumPostFromFeed,
   type ForumFeedPage,
 } from "./use-forum-feed"
 
@@ -36,6 +37,50 @@ describe("forumFeedPageQueryFn", () => {
 })
 
 describe("mapForumFeedPages", () => {
+  it("removes a post and every included row owned by its opener/child unit", () => {
+    const thread = (id: string, parentMessageId: string) => ({
+      id,
+      name: id,
+      creatorId: "creator",
+      messageCount: 1,
+      parentMessageId,
+      lastMessageAt: null,
+      createdAt: "2026-08-23T00:00:00.000Z",
+      activityAt: "2026-08-23T00:00:00.000Z",
+    })
+    const data = {
+      pages: [{
+        serverId: "server_1",
+        parentType: "forum",
+        threads: [thread("delete", "m_delete"), thread("keep", "m_keep")],
+        included: {
+          parentMessages: [
+            { id: "m_delete", channelId: "forum", seq: 1, content: "delete", authorId: "u", authorName: "U", authorImage: null },
+            { id: "m_keep", channelId: "forum", seq: 2, content: "keep", authorId: "u", authorName: "U", authorImage: null },
+          ],
+          firstMessages: [{ channelId: "delete", content: "delete" }, { channelId: "keep", content: "keep" }],
+          tags: [{ messageId: "m_delete", tag: "delete" }, { messageId: "m_keep", tag: "keep" }],
+          participants: [
+            { channelId: "delete", userId: "u", userName: "U", userImage: null },
+            { channelId: "keep", userId: "u", userName: "U", userImage: null },
+          ],
+        },
+        hasMore: false,
+      }],
+      pageParams: [null],
+    }
+
+    const projected = removeForumPostFromFeed(data, "delete", "m_delete")!
+
+    expect(projected.pages[0].threads.map((row) => row.id)).toEqual(["keep"])
+    expect(projected.pages[0].included).toEqual({
+      parentMessages: [expect.objectContaining({ id: "m_keep" })],
+      firstMessages: [{ channelId: "keep", content: "keep" }],
+      tags: [{ messageId: "m_keep", tag: "keep" }],
+      participants: [expect.objectContaining({ channelId: "keep" })],
+    })
+  })
+
   it("joins included resources, deduplicates pages, and keeps newest-created first", () => {
     const pages: ForumFeedPage[] = [
       {

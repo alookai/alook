@@ -19,6 +19,7 @@ import {
   recordForumSidebarChildUnread,
   removeForumSidebarThread,
   removeForumSidebarUnreadChild,
+  restoreForumSidebarThreadInflight,
   resolveForumSidebarRouteCandidate,
   setForumSidebarParentUnreadBase,
   type ForumSidebarQueryData,
@@ -980,6 +981,33 @@ describe("forum sidebar Stage B resources", () => {
     expect(queryClient.getQueryData(
       communityKeys.forumOpenerHint("server-1", "opener-base-1"),
     )).toBeUndefined()
+    renderer!.unmount()
+  })
+
+  it("allows a failed optimistic removal to accept the restored server row", async () => {
+    let resolveRequest: ((value: SidebarThreadEnvelope) => void) | undefined
+    apiFetchMock.mockImplementation(() => new Promise((resolve) => { resolveRequest = resolve }))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(Capture, { retainId: null, onRender: () => undefined }),
+        ),
+      )
+    })
+    removeForumSidebarThreadExact(queryClient, "server-1", "base-1")
+    restoreForumSidebarThreadInflight("server-1", "base-1")
+    await act(async () => resolveRequest?.(envelope(["base-1"])))
+    await waitFor(() => queryClient.getQueryState(
+      communityKeys.forumSidebarThreads("server-1"),
+    )?.status === "success")
+
+    expect(queryClient.getQueryData<ForumSidebarQueryData>(
+      communityKeys.forumSidebarThreads("server-1"),
+    )?.threads.map((thread) => thread.id)).toEqual(["base-1"])
     renderer!.unmount()
   })
 

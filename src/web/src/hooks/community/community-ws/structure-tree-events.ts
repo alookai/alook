@@ -32,7 +32,10 @@ import {
   type PageCache,
 } from "@/hooks/community/community-ws/cache"
 import type { StructureTreeEventContext } from "@/hooks/community/community-ws/handler-context"
-import { projectChannelScopeEviction } from "./channel-scope-projection"
+import {
+  projectChannelScopeEviction,
+  projectForumPostUnitEviction,
+} from "./channel-scope-projection"
 import {
   invalidateChannelMessages,
   invalidateChannelRefDirectory,
@@ -315,16 +318,31 @@ export function handleChannelEvent(
   // subsequent same-id revive (rare, but the server can reuse ids)
   // would surface stale rows.
   if (event.type === "community:channel.delete") {
-    projectChannelScopeEviction(
-      projection,
-      queryClient,
-      event.serverId,
-      event.channelId,
-    )
+    if (event.parentChannelId && event.parentMessageId) {
+      projectForumPostUnitEviction(projection, queryClient, {
+        serverId: event.serverId,
+        forumChannelId: event.parentChannelId,
+        childChannelId: event.channelId,
+        openerMessageId: event.parentMessageId,
+      })
+      invalidateChannelMessages(projection, event.parentChannelId)
+      invalidateThreads(projection, event.parentChannelId)
+      projection.invalidate("forum-post-delete:tags", {
+        queryKey: communityKeys.forumTags(event.parentChannelId),
+        exact: true,
+      })
+    } else {
+      projectChannelScopeEviction(
+        projection,
+        queryClient,
+        event.serverId,
+        event.channelId,
+      )
+    }
     // When a child thread is deleted, refresh the
     // PARENT's list so the deleted card disappears from the feed on
     // every client. Absent on older events / top-level channels.
-    if (event.parentChannelId) {
+    if (event.parentChannelId && !event.parentMessageId) {
       queryClient.setQueriesData<PageCache>(
         { queryKey: communityKeys.channelMessages(event.parentChannelId) },
         (cache) => removeThreadFromCache(cache, event.channelId),

@@ -1,0 +1,236 @@
+/// <reference types="@cloudflare/vitest-plugin/types" />
+
+import { env } from "cloudflare:workers";
+import { afterEach, describe, expect, it } from "vitest";
+import { createDb, queries } from "@alook/shared";
+
+const runtimeEnv = env as unknown as CloudflareEnv;
+const createdServers: string[] = [];
+const createdUsers: string[] = [];
+
+async function run(statement: string, ...bindings: unknown[]): Promise<void> {
+  await runtimeEnv.DB.prepare(statement).bind(...bindings).run();
+}
+
+async function first<T>(statement: string, ...bindings: unknown[]): Promise<T | null> {
+  return runtimeEnv.DB.prepare(statement).bind(...bindings).first<T>();
+}
+
+function ids() {
+  const stamp = crypto.randomUUID().replaceAll("-", "");
+  return {
+    owner: `fpd_owner_${stamp}`,
+    reader: `fpd_reader_${stamp}`,
+    server: `fpd_server_${stamp}`,
+    forum: `fpd_forum_${stamp}`,
+    opener: `fpd_opener_${stamp}`,
+    prior: `fpd_prior_${stamp}`,
+    siblingOpener: `fpd_sibling_opener_${stamp}`,
+    child: `fpd_child_${stamp}`,
+    siblingChild: `fpd_sibling_child_${stamp}`,
+    reply: `fpd_reply_${stamp}`,
+  };
+}
+
+async function seedCanonicalPost() {
+  const id = ids();
+  createdServers.push(id.server);
+  createdUsers.push(id.owner, id.reader);
+  const t1 = "2026-08-23T01:00:00.000Z";
+  const t2 = "2026-08-23T01:01:00.000Z";
+  const t3 = "2026-08-23T01:02:00.000Z";
+  const childTime = "2026-08-23T01:03:00.000Z";
+
+  await run("INSERT INTO user (id, email, name, discriminator) VALUES (?, ?, 'Owner', ?)", id.owner, `${id.owner}@example.com`, stamp4(id.owner));
+  await run("INSERT INTO user (id, email, name, discriminator) VALUES (?, ?, 'Reader', ?)", id.reader, `${id.reader}@example.com`, stamp4(id.reader));
+  await run(
+    "INSERT INTO community_server (id, name, description, owner_id, created_at, discriminator) VALUES (?, ?, '', ?, ?, ?)",
+    id.server,
+    id.server,
+    id.owner,
+    t1,
+    stamp4(id.server),
+  );
+  await run(
+    `INSERT INTO community_channel
+      (id, server_id, name, type, message_count, last_message_at, created_at)
+     VALUES (?, ?, 'forum-delete', 'forum', 3, ?, ?)`,
+    id.forum,
+    id.server,
+    t3,
+    t1,
+  );
+  await run(
+    `INSERT INTO community_message
+      (id, author_id, content, created_at, channel_id, seq)
+     VALUES (?, ?, 'prior', ?, ?, 1), (?, ?, 'sibling', ?, ?, 2), (?, ?, 'delete me', ?, ?, 3)`,
+    id.prior, id.owner, t1, id.forum,
+    id.siblingOpener, id.owner, t2, id.forum,
+    id.opener, id.owner, t3, id.forum,
+  );
+  await run(
+    `INSERT INTO community_channel
+      (id, server_id, name, type, parent_channel_id, creator_id, message_count,
+       parent_message_id, last_message_at, created_at)
+     VALUES (?, ?, 'delete child', 'thread', ?, ?, 1, ?, ?, ?),
+            (?, ?, 'sibling child', 'thread', ?, ?, 0, ?, NULL, ?)`,
+    id.child, id.server, id.forum, id.owner, id.opener, childTime, childTime,
+    id.siblingChild, id.server, id.forum, id.owner, id.siblingOpener, childTime,
+  );
+  await run(
+    `INSERT INTO community_message
+      (id, author_id, content, created_at, channel_id, seq)
+     VALUES (?, ?, 'reply', ?, ?, 1)`,
+    id.reply,
+    id.reader,
+    childTime,
+    id.child,
+  );
+  await run(
+    `INSERT INTO community_read_state
+      (id, user_id, channel_id, last_read_at, last_read_message_id, last_read_seq)
+     VALUES (?, ?, ?, ?, ?, 3), (?, ?, ?, ?, ?, 3)`,
+    `rs_owner_${id.opener}`, id.owner, id.forum, t3, id.opener,
+    `rs_reader_${id.opener}`, id.reader, id.forum, t3, id.opener,
+  );
+  await run(
+    `INSERT INTO community_attachment
+      (id, message_id, uploader_id, target_id, r2_key, thumbnail_r2_key, filename, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'opener.png', ?),
+            (?, ?, ?, ?, ?, ?, 'reply.png', ?),
+            (?, NULL, ?, ?, ?, ?, 'pending.png', ?)`,
+    `att_opener_${id.opener}`, id.opener, id.owner, id.child, `${id.opener}/original`, `${id.opener}/thumb`, t3,
+    `att_reply_${id.opener}`, id.reply, id.reader, id.child, `${id.reply}/original`, `${id.reply}/thumb`, childTime,
+    `att_pending_${id.opener}`, id.owner, id.child, `${id.child}/pending-original`, `${id.child}/pending-thumb`, childTime,
+  );
+  await run(
+    `INSERT INTO community_channel_member
+      (id, channel_id, user_id, relation, source, added_at)
+     VALUES (?, ?, ?, 'notify', 'spoke', ?)`,
+    `participant_${id.opener}`, id.child, id.reader, childTime,
+  );
+  await run(
+    `INSERT INTO community_read_state
+      (id, user_id, channel_id, last_read_at, last_read_message_id, last_read_seq)
+     VALUES (?, ?, ?, ?, ?, 1)`,
+    `rs_child_${id.opener}`, id.reader, id.child, childTime, id.reply,
+  );
+  await run(
+    `INSERT INTO community_pin (id, channel_id, message_id, pinned_by, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    `pin_${id.opener}`, id.child, id.reply, id.owner, childTime,
+  );
+  await run(
+    `INSERT INTO community_mention (id, message_id, user_id, kind, read)
+     VALUES (?, ?, ?, 'mention', 0)`,
+    `mention_${id.opener}`, id.reply, id.owner,
+  );
+  await run(
+    `INSERT INTO community_message_mark (id, user_id, channel_id, message_id, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    `mark_${id.opener}`, id.reader, id.child, id.reply, childTime,
+  );
+  await run(
+    `INSERT INTO community_message_tag (id, message_id, tag)
+     VALUES (?, ?, 'delete-me')`,
+    `tag_${id.opener}`, id.opener,
+  );
+  await run(
+    `INSERT INTO community_reaction (id, message_id, user_id, emoji, created_at)
+     VALUES (?, ?, ?, 'x', ?)`,
+    `reaction_${id.opener}`, id.reply, id.owner, childTime,
+  );
+  return { id, t2 };
+}
+
+function stamp4(value: string): string {
+  let hash = 0;
+  for (const char of value) hash = (hash * 31 + char.charCodeAt(0)) % 10_000;
+  return String(hash).padStart(4, "0");
+}
+
+afterEach(async () => {
+  for (const serverId of createdServers.splice(0)) {
+    await runtimeEnv.DB.prepare("DELETE FROM community_server WHERE id = ?").bind(serverId).run();
+  }
+  for (const userId of createdUsers.splice(0)) {
+    await runtimeEnv.DB.prepare("DELETE FROM user WHERE id = ?").bind(userId).run();
+  }
+});
+
+describe("deleteForumPost real D1 batch", () => {
+  it("captures all media keys, repairs parent truth, and cascades only the selected post", async () => {
+    const { id, t2 } = await seedCanonicalPost();
+    const db = createDb(runtimeEnv.DB);
+
+    const result = await queries.communityForumPostDelete.deleteForumPost(db, {
+      openerId: id.opener,
+      openerSeq: 3,
+      forumChannelId: id.forum,
+      childChannelId: id.child,
+    });
+
+    expect(result.deleted).toBe(true);
+    expect(new Set(result.mediaKeys)).toEqual(new Set([
+      `${id.opener}/original`,
+      `${id.opener}/thumb`,
+      `${id.reply}/original`,
+      `${id.reply}/thumb`,
+      `${id.child}/pending-original`,
+      `${id.child}/pending-thumb`,
+    ]));
+    expect(await first<{ message_count: number; last_message_at: string }>(
+      "SELECT message_count, last_message_at FROM community_channel WHERE id = ?",
+      id.forum,
+    )).toEqual({ message_count: 2, last_message_at: t2 });
+    expect(await first("SELECT id FROM community_channel WHERE id = ?", id.child)).toBeNull();
+    expect(await first("SELECT id FROM community_message WHERE id IN (?, ?)", id.opener, id.reply)).toBeNull();
+    expect(await first("SELECT id FROM community_attachment WHERE target_id = ?", id.child)).toBeNull();
+    for (const [table, rowId] of [
+      ["community_channel_member", `participant_${id.opener}`],
+      ["community_read_state", `rs_child_${id.opener}`],
+      ["community_pin", `pin_${id.opener}`],
+      ["community_mention", `mention_${id.opener}`],
+      ["community_message_mark", `mark_${id.opener}`],
+      ["community_message_tag", `tag_${id.opener}`],
+      ["community_reaction", `reaction_${id.opener}`],
+    ] as const) {
+      expect(await first(`SELECT id FROM ${table} WHERE id = ?`, rowId), table).toBeNull();
+    }
+    expect(await first<{ last_read_message_id: string; last_read_seq: number; last_read_at: string }>(
+      "SELECT last_read_message_id, last_read_seq, last_read_at FROM community_read_state WHERE user_id = ? AND channel_id = ?",
+      id.reader,
+      id.forum,
+    )).toEqual({
+      last_read_message_id: id.siblingOpener,
+      last_read_seq: 2,
+      last_read_at: t2,
+    });
+    expect(await first("SELECT id FROM community_channel WHERE id = ?", id.siblingChild)).not.toBeNull();
+    expect(await first("SELECT id FROM community_message WHERE id = ?", id.siblingOpener)).not.toBeNull();
+  });
+
+  it("serializes concurrent winners without double-decrementing or returning duplicate cleanup keys", async () => {
+    const { id, t2 } = await seedCanonicalPost();
+    const db = createDb(runtimeEnv.DB);
+    const input = {
+      openerId: id.opener,
+      openerSeq: 3,
+      forumChannelId: id.forum,
+      childChannelId: id.child,
+    };
+
+    const results = await Promise.all([
+      queries.communityForumPostDelete.deleteForumPost(db, input),
+      queries.communityForumPostDelete.deleteForumPost(db, input),
+    ]);
+
+    expect(results.filter((result) => result.deleted)).toHaveLength(1);
+    expect(results.filter((result) => result.mediaKeys.length > 0)).toHaveLength(1);
+    expect(await first<{ message_count: number; last_message_at: string }>(
+      "SELECT message_count, last_message_at FROM community_channel WHERE id = ?",
+      id.forum,
+    )).toEqual({ message_count: 2, last_message_at: t2 });
+    expect(await first("SELECT id FROM community_channel WHERE id = ?", id.child)).toBeNull();
+  });
+});

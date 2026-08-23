@@ -7,6 +7,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 
+const { clearLastChannelMock } = vi.hoisted(() => ({
+  clearLastChannelMock: vi.fn(),
+}))
+vi.mock("@/lib/community/last-channel", () => ({
+  clearLastChannel: (...args: unknown[]) => clearLastChannelMock(...args),
+}))
+
 vi.mock("react", () => ({
   useRef: (initial: unknown) => ({ current: initial }),
   useCallback: (fn: unknown) => fn,
@@ -21,8 +28,10 @@ vi.mock("@/lib/api/client", () => ({
 
 type MutConfig<Args> = {
   mutationFn?: (args: Args) => unknown
-  onSuccess?: (data: unknown, args: Args) => unknown
-  onError?: (err: unknown, args: Args) => unknown
+  onMutate?: (args: Args) => unknown
+  onSuccess?: (data: unknown, args: Args, context?: unknown) => unknown
+  onError?: (err: unknown, args: Args, context?: unknown) => unknown
+  onSettled?: (data: unknown, err: unknown, args: Args, context?: unknown) => unknown
 }
 let capturedConfig: MutConfig<unknown> | null = null
 let capturedQc: QueryClient
@@ -40,19 +49,24 @@ vi.mock("@tanstack/react-query", async () => {
 
 async function runMutation<Args>(args: Args) {
   const cfg = capturedConfig as MutConfig<Args>
+  const context = cfg.onMutate ? await cfg.onMutate(args) : undefined
   const data = cfg.mutationFn ? await cfg.mutationFn(args) : undefined
-  cfg.onSuccess?.(data, args)
+  cfg.onSuccess?.(data, args, context)
+  cfg.onSettled?.(data, null, args, context)
   return data
 }
 
 async function runMutationExpectError<Args>(args: Args) {
   const cfg = capturedConfig as MutConfig<Args>
+  const context = cfg.onMutate ? await cfg.onMutate(args) : undefined
   try {
     const data = cfg.mutationFn ? await cfg.mutationFn(args) : undefined
-    cfg.onSuccess?.(data, args)
+    cfg.onSuccess?.(data, args, context)
+    cfg.onSettled?.(data, null, args, context)
     throw new Error("expected mutationFn to reject")
   } catch (err) {
-    cfg.onError?.(err, args)
+    cfg.onError?.(err, args, context)
+    cfg.onSettled?.(undefined, err, args, context)
     return err
   }
 }
@@ -66,6 +80,7 @@ beforeEach(() => {
   apiFetchMock.mockReset()
   capturedConfig = null
   capturedQc = new QueryClient()
+  clearLastChannelMock.mockClear()
 })
 
 describe("useCreateForumThread", () => {
@@ -197,12 +212,97 @@ describe("useUpdatePostTags", () => {
 })
 
 describe("useDeleteForumThread", () => {
-  it("DELETEs the post channel and invalidates the canonical feed on success", async () => {
+  it("applies full local success effects without self-WS and remains idempotent when it arrives", async () => {
+    const { useDeleteForumThread } = await load()
+    const { useCommunityStore } = await import("@/stores/community")
+    const { getMessageOverlay, useMessageStreamStore } = await import("@/stores/community/message-stream")
+    const { applyForumPostUnitClientEffects } = await import("@/hooks/community/community-ws/channel-scope-projection")
+    useCommunityStore.getState().reset()
+    useMessageStreamStore.getState().resetAll()
+    const replacePath = vi.fn()
+    useCommunityStore.getState().registerUiHandlers({ replacePath })
+    useCommunityStore.getState().setCurrentServerId("server_1")
+    useCommunityStore.getState().setCurrentChannelId("p2")
+    useCommunityStore.getState().setCurrentChannelMeta({
+      name: "Post",
+      parentChannelId: "forum_1",
+      parentMessageId: "m_p2",
+    })
+    const opener = {
+      id: "m_p2",
+      seq: 1,
+      type: "chat" as const,
+      authorId: "u1",
+      authorName: "Alice",
+      content: "Post",
+      createdAt: "2026-08-23T00:00:00.000Z",
+    }
+    useMessageStreamStore.getState().dispatch(
+      { kind: "channel", id: "forum_1", serverId: "server_1" },
+      { type: "wsMessage", message: opener },
+    )
+    useMessageStreamStore.getState().dispatch(
+      { kind: "channel", id: "p2", serverId: "server_1" },
+      { type: "wsMessage", message: { ...opener, id: "reply_1" } },
+    )
+    useDeleteForumThread()
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    const args = {
+      serverId: "server_1",
+      forumChannelId: "forum_1",
+      threadId: "p2",
+      openerMessageId: "m_p2",
+    }
+
+    await runMutation(args)
+
+    expect(useMessageStreamStore.getState().entries.has("channel:p2")).toBe(false)
+    expect(getMessageOverlay({ kind: "channel", id: "forum_1", serverId: "server_1" })
+      .liveById.has("m_p2")).toBe(false)
+    expect(useCommunityStore.getState().currentChannelId).toBe("forum_1")
+    expect(useCommunityStore.getState().currentChannelMeta).toBeNull()
+    expect(clearLastChannelMock).toHaveBeenCalledOnce()
+    expect(replacePath).toHaveBeenCalledOnce()
+    expect(replacePath).toHaveBeenCalledWith("/c/channels/server_1/forum_1")
+
+    applyForumPostUnitClientEffects(capturedQc, {
+      serverId: "server_1",
+      forumChannelId: "forum_1",
+      childChannelId: "p2",
+      openerMessageId: "m_p2",
+    })
+    expect(clearLastChannelMock).toHaveBeenCalledOnce()
+    expect(replacePath).toHaveBeenCalledOnce()
+  })
+
+  it("optimistically evicts the post unit and DELETEs the canonical opener", async () => {
     const { useDeleteForumThread } = await load()
     useDeleteForumThread()
 
-    capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), { pages: [], pageParams: [] })
-    capturedQc.setQueryData(communityKeys.forumFeed("forum_1", null), { pages: [], pageParams: [] })
+    const feed = {
+      pages: [{ messages: [{ id: "m_p2", thread: { id: "p2" } }, { id: "m_keep", thread: { id: "keep" } }] }],
+      pageParams: [null],
+    }
+    capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), feed)
+    const forumFeed = {
+      pages: [{
+        serverId: "server_1",
+        parentType: "forum",
+        threads: [
+          { id: "p2", parentMessageId: "m_p2" },
+          { id: "keep", parentMessageId: "m_keep" },
+        ],
+        included: {
+          parentMessages: [{ id: "m_p2" }, { id: "m_keep" }],
+          firstMessages: [{ channelId: "p2" }, { channelId: "keep" }],
+          tags: [{ messageId: "m_p2" }, { messageId: "m_keep" }],
+          participants: [{ channelId: "p2" }, { channelId: "keep" }],
+        },
+        hasMore: false,
+      }],
+      pageParams: [null],
+    }
+    capturedQc.setQueryData(communityKeys.forumFeed("forum_1", null), forumFeed)
     const sidebarKey = communityKeys.forumSidebarThreads("server_1")
     capturedQc.setQueryData(sidebarKey, {
       channels: [], included: { parentMessages: [] }, serverNow: "2026-08-08T00:00:00.000Z",
@@ -211,26 +311,72 @@ describe("useDeleteForumThread", () => {
     })
     apiFetchMock.mockResolvedValueOnce(undefined)
 
-    await runMutation({ serverId: "server_1", forumChannelId: "forum_1", threadId: "p2" })
+    await runMutation({
+      serverId: "server_1",
+      forumChannelId: "forum_1",
+      threadId: "p2",
+      openerMessageId: "m_p2",
+    })
 
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/p2", { method: "DELETE" })
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/messages/m_p2", { method: "DELETE" })
+    expect(capturedQc.getQueryData<typeof feed>(communityKeys.channelMessages("forum_1"))
+      ?.pages[0].messages.map((message) => message.id)).toEqual(["m_keep"])
+    const projectedFeed = capturedQc.getQueryData<typeof forumFeed>(communityKeys.forumFeed("forum_1", null))
+    expect(projectedFeed?.pages[0].threads.map((thread) => thread.id)).toEqual(["keep"])
+    expect(projectedFeed?.pages[0].included).toEqual({
+      parentMessages: [{ id: "m_keep" }],
+      firstMessages: [{ channelId: "keep" }],
+      tags: [{ messageId: "m_keep" }],
+      participants: [{ channelId: "keep" }],
+    })
     expect(capturedQc.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(true)
     expect(capturedQc.getQueryState(communityKeys.forumFeed("forum_1", null))?.isInvalidated).toBe(true)
     expect(capturedQc.getQueryData<{ threads: unknown[] }>(sidebarKey)?.threads).toEqual([])
   })
 
-  it("leaves the cache untouched when the DELETE fails", async () => {
+  it("restores exact feed/sidebar/meta snapshots when the DELETE fails", async () => {
     const { useDeleteForumThread } = await load()
     useDeleteForumThread()
 
     const before = { pages: [{ messages: [{ id: "m_p2" }] }], pageParams: [null] }
+    const feedBefore = {
+      pages: [{
+        serverId: "server_1",
+        parentType: "forum",
+        threads: [{ id: "p2", parentMessageId: "m_p2" }],
+        included: {
+          parentMessages: [{ id: "m_p2" }],
+          firstMessages: [{ channelId: "p2" }],
+          tags: [{ messageId: "m_p2" }],
+          participants: [{ channelId: "p2" }],
+        },
+        hasMore: false,
+      }],
+      pageParams: [null],
+    }
     capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), before)
-    capturedQc.setQueryData(communityKeys.forumFeed("forum_1", null), before)
+    capturedQc.setQueryData(communityKeys.forumFeed("forum_1", null), feedBefore)
+    const sidebarKey = communityKeys.forumSidebarThreads("server_1")
+    const sidebarBefore = {
+      channels: [], included: { parentMessages: [] }, serverNow: "2026-08-08T00:00:00.000Z",
+      serverClockOffsetMs: 0,
+      threads: [{ id: "p2", parentChannelId: "forum_1", parentMessageId: "m_p2" }],
+    }
+    const metaKey = communityKeys.channelMeta("server_1", "p2")
+    capturedQc.setQueryData(sidebarKey, sidebarBefore)
+    capturedQc.setQueryData(metaKey, { id: "p2", parentMessageId: "m_p2" })
     apiFetchMock.mockRejectedValueOnce(new Error("500"))
 
-    await runMutationExpectError({ serverId: "server_1", forumChannelId: "forum_1", threadId: "p2" })
+    await runMutationExpectError({
+      serverId: "server_1",
+      forumChannelId: "forum_1",
+      threadId: "p2",
+      openerMessageId: "m_p2",
+    })
 
     expect(capturedQc.getQueryData(communityKeys.channelMessages("forum_1"))).toEqual(before)
-    expect(capturedQc.getQueryData(communityKeys.forumFeed("forum_1", null))).toEqual(before)
+    expect(capturedQc.getQueryData(communityKeys.forumFeed("forum_1", null))).toEqual(feedBefore)
+    expect(capturedQc.getQueryData(sidebarKey)).toEqual(sidebarBefore)
+    expect(capturedQc.getQueryData(metaKey)).toEqual({ id: "p2", parentMessageId: "m_p2" })
   })
 })

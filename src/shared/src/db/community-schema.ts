@@ -85,7 +85,9 @@ export const communityChannel: SQLiteTableWithColumns<any> = sqliteTable(
     creatorId: text("creator_id").references(() => user.id, { onDelete: "set null" }),
     messageCount: integer("message_count").default(0),
     archived: integer("archived").default(0),
-    parentMessageId: text("parent_message_id"),
+    parentMessageId: text("parent_message_id").references(() => communityMessage.id, {
+      onDelete: "cascade",
+    }),
     lastMessageAt: text("last_message_at"),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },

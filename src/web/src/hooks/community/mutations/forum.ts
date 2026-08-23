@@ -1,14 +1,24 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import {
+  hashKey,
+  useMutation,
+  useQueryClient,
+  type Query,
+  type QueryKey,
+} from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { UploadedAttachment } from "@/hooks/community/mutations/uploads"
 import type { MentionType } from "@alook/shared"
 import {
-  removeForumSidebarThreadExact,
-  removeForumSidebarUnreadChild,
+  restoreForumSidebarThreadInflight,
 } from "@/hooks/community/use-forum-sidebar-threads"
+import {
+  applyForumPostUnitClientEffects,
+  evictForumPostUnitQueryCaches,
+  type ForumPostUnitIdentity,
+} from "@/hooks/community/community-ws/channel-scope-projection"
 
 export type CreateForumThreadArgs = {
   nonce: string
@@ -98,25 +108,96 @@ export type DeleteForumThreadArgs = {
   forumChannelId: string
   // The post channel being deleted.
   threadId: string
+  // Canonical post identity addressed by the server DELETE route.
+  openerMessageId: string
+}
+
+type DeleteForumThreadContext = {
+  snapshot: Array<readonly [QueryKey, unknown]>
+}
+
+function toPostUnit(args: DeleteForumThreadArgs): ForumPostUnitIdentity {
+  return {
+    serverId: args.serverId,
+    forumChannelId: args.forumChannelId,
+    childChannelId: args.threadId,
+    openerMessageId: args.openerMessageId,
+  }
+}
+
+function startsWithQueryKey(queryKey: QueryKey, prefix: QueryKey) {
+  return prefix.length <= queryKey.length
+    && hashKey(queryKey.slice(0, prefix.length)) === hashKey(prefix)
+}
+
+function isForumPostUnitQuery(query: Query, unit: ForumPostUnitIdentity) {
+  const key = query.queryKey
+  const exactKeys: QueryKey[] = [
+    communityKeys.server(unit.serverId),
+    communityKeys.forumSidebarThreads(unit.serverId),
+    communityKeys.forumSidebarUnreadFallbacks(unit.serverId),
+    communityKeys.forumSidebarRetained(unit.serverId, unit.childChannelId),
+    communityKeys.channelMeta(unit.serverId, unit.childChannelId),
+    communityKeys.forumOpenerHint(unit.serverId, unit.openerMessageId),
+    communityKeys.message(unit.openerMessageId),
+  ]
+  return exactKeys.some((candidate) => hashKey(candidate) === hashKey(key)) || [
+    communityKeys.channelMessages(unit.forumChannelId),
+    communityKeys.forumFeeds(unit.forumChannelId),
+    communityKeys.channelMessages(unit.childChannelId),
+    communityKeys.pins(unit.childChannelId),
+    communityKeys.threads(unit.childChannelId),
+  ].some((prefix) => startsWithQueryKey(key, prefix))
+}
+
+function snapshotForumPostUnit(queryClient: ReturnType<typeof useQueryClient>, unit: ForumPostUnitIdentity) {
+  return queryClient.getQueryCache().findAll({
+    predicate: (query) => isForumPostUnitQuery(query, unit),
+  }).map((query) => [query.queryKey, query.state.data] as const)
+}
+
+function restoreForumPostUnit(
+  queryClient: ReturnType<typeof useQueryClient>,
+  unit: ForumPostUnitIdentity,
+  snapshot: DeleteForumThreadContext["snapshot"],
+) {
+  queryClient.removeQueries({ predicate: (query) => isForumPostUnitQuery(query, unit) })
+  for (const [queryKey, data] of snapshot) queryClient.setQueryData(queryKey, data)
+  restoreForumSidebarThreadInflight(unit.serverId, unit.childChannelId)
 }
 
 /**
- * Delete a single forum thread through the canonical child-channel resource.
- * On success (204) the post is filtered out of
- * the forum's cached list so the card disappears without a refetch; the
- * server-side WS `channel.delete` also invalidates for other clients.
+ * Delete a canonical forum post through its opener-message resource. Every
+ * touched query family is snapshotted before synchronous post-unit eviction;
+ * an HTTP failure restores those exact snapshots. The canonical WS event
+ * applies the same eviction for other clients and active-route ejection.
  */
 export function useDeleteForumThread() {
   const queryClient = useQueryClient()
-  return useMutation<void, Error, DeleteForumThreadArgs>({
-    mutationFn: async ({ threadId }) => {
-      await apiFetch(`/api/community/channels/${threadId}`, { method: "DELETE" })
+  return useMutation<void, Error, DeleteForumThreadArgs, DeleteForumThreadContext>({
+    mutationFn: async ({ openerMessageId }) => {
+      await apiFetch(`/api/community/messages/${openerMessageId}`, { method: "DELETE" })
+    },
+    onMutate: async (args) => {
+      const unit = toPostUnit(args)
+      await queryClient.cancelQueries({
+        predicate: (query) => isForumPostUnitQuery(query, unit),
+      })
+      const snapshot = snapshotForumPostUnit(queryClient, unit)
+      evictForumPostUnitQueryCaches(queryClient, unit)
+      return { snapshot }
+    },
+    onError: (_error, args, context) => {
+      if (context) restoreForumPostUnit(queryClient, toPostUnit(args), context.snapshot)
     },
     onSuccess: (_data, args) => {
+      applyForumPostUnitClientEffects(queryClient, toPostUnit(args))
+    },
+    onSettled: (_data, _error, args) => {
       void queryClient.invalidateQueries({ queryKey: communityKeys.channelMessages(args.forumChannelId) })
       void queryClient.invalidateQueries({ queryKey: communityKeys.threads(args.forumChannelId) })
-      removeForumSidebarUnreadChild(queryClient, args.serverId, args.threadId)
-      removeForumSidebarThreadExact(queryClient, args.serverId, args.threadId)
+      void queryClient.invalidateQueries({ queryKey: communityKeys.forumTags(args.forumChannelId) })
+      void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId), exact: true })
     },
   })
 }

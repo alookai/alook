@@ -163,24 +163,16 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   const access = await requireChannelAccess(db, channelId, ctx.userId)
   if (!access.ok) return writeError(access.error, access.status)
   const channel = access.value.channel
-  // A post's OWN creator may delete their own post — this carve-out predates
-  // forum_post's collapse into thread; a post is now a thread rooted under a
-  // forum, so its shape is `isThread(channel.type) && parent is a forum`.
-  // ⚠ MUST NOT widen to "any thread's creator" (Aigneis's catch): the
-  // carve-out is a session-authed HTTP DELETE, not a UI-gated action — anyone
-  // who replies to a message in an ordinary channel incidentally becomes a
-  // thread's creator, and that person must NOT gain the power to delete the
-  // whole thread (cascading every reply in it) just because they happened to
-  // trigger it. Only a thread whose PARENT is a forum carries the deliberate,
-  // intentional-creation semantics the old forum_post carve-out was actually
-  // scoped to. `access.value.isCreator` is the ACCESS creator (the parent's
-  // creator), so derive the unit-own-creator directly from `channel.creatorId`.
-  let canDeletePost = false
-  if (isThread(channel.type) && channel.creatorId === ctx.userId && channel.parentChannelId) {
+  if (isThread(channel.type) && channel.parentChannelId) {
     const parentType = await queries.communityChannel.getChannelType(db, channel.parentChannelId)
-    canDeletePost = isForum(parentType)
+    if (isForum(parentType)) {
+      return writeError("delete the forum opener message instead", 409)
+    }
   }
-  if (!access.value.canManage && !canDeletePost) return writeError("forbidden", 403)
+  // Forum posts are deleted only through DELETE /messages/{openerId}. The
+  // remaining channel route is manager-only; never widen ordinary thread
+  // creators into whole-thread deletion authority.
+  if (!access.value.canManage) return writeError("forbidden", 403)
 
   // Resolve the private-channel audience BEFORE deleting (the member rows
   // cascade away with the channel row), so the delete event still reaches

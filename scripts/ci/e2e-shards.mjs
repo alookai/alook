@@ -34,6 +34,7 @@ export const SPEC_SECONDS = {
   "24-composer-overflow.spec.ts": 35,
   "25-composer-accessory-rail-occupancy.spec.ts": 60,
   "26-mobile-forum-post-actions.spec.ts": 45,
+  "27-canonical-forum-post-delete.spec.ts": 30,
 }
 
 function walk(directory) {

@@ -77,6 +77,41 @@ function ack(nonce = "n1", id = "m1", seq = 11, extra: Partial<Msg> = {}): Messa
 }
 
 describe("message stream monotonic visibility", () => {
+  it("removes a canonical live row after a post-unit delete", () => {
+    let state = apply(emptyMessageOverlay(), {
+      type: "wsMessage",
+      message: canonical("m_delete", 11, "delete"),
+    }).state
+
+    state = apply(state, { type: "messageRemoved", messageId: "m_delete" }).state
+
+    expect(state.liveById.has("m_delete")).toBe(false)
+    expect(ids([], state)).toEqual([])
+  })
+
+  it("revokes preview URLs when a removed server message still has an outbox intent", () => {
+    let state = submit(emptyMessageOverlay(), intent("delete", 1, {
+      localUploads: [{
+        file: {} as File,
+        previewObjectUrl: "blob:delete-preview",
+      }],
+    }))
+    const outboxByNonce = new Map(state.outboxByNonce)
+    outboxByNonce.set("delete", {
+      ...outboxByNonce.get("delete")!,
+      serverMessageId: "m_delete",
+    })
+    state = { ...state, outboxByNonce }
+
+    const transition = apply(state, { type: "messageRemoved", messageId: "m_delete" })
+
+    expect(transition.state.outboxByNonce.has("delete")).toBe(false)
+    expect(transition.effects).toEqual([{
+      type: "revokeObjectUrl",
+      url: "blob:delete-preview",
+    }])
+  })
+
   it("keeps a pending row when an anchor snapshot started first and resolves without it", () => {
     let state = submit(emptyMessageOverlay())
     state = apply(state, {

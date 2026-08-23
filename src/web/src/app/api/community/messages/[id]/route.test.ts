@@ -1,8 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
+const cloudflareMocks = vi.hoisted(() => ({
+  mediaDelete: vi.fn(),
+  waitUntil: vi.fn<(promise: Promise<unknown>) => void>(),
+}))
 vi.mock("@opennextjs/cloudflare", () => ({
-  getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
+  getCloudflareContext: vi.fn(async () => ({
+    env: {
+      DB: {},
+      COMMUNITY_MEDIA: { delete: (...args: unknown[]) => cloudflareMocks.mediaDelete(...args) },
+    },
+    ctx: { waitUntil: (promise: Promise<unknown>) => cloudflareMocks.waitUntil(promise) },
+  })),
 }))
 
 const mockGetMessage = vi.fn()
@@ -12,6 +22,10 @@ const mockGetChannelForMember = vi.fn()
 const mockGetChannelType = vi.fn()
 const mockGetChannel = vi.fn()
 const mockGetThreadChannelByParentMessage = vi.fn()
+const mockDeleteForumPost = vi.fn()
+const mockGetMember = vi.fn()
+const mockIsChannelPrivate = vi.fn()
+const mockGetPrivateChannelAudienceUserIds = vi.fn()
 const mockGetDM = vi.fn()
 const mockGetDMPeer = vi.fn()
 const mockIsBlocked = vi.fn()
@@ -21,6 +35,8 @@ const mockGetMessageByChannelAndSeq = vi.fn()
 const mockToAgentMessage = vi.fn()
 const mockResolveTargetForMember = vi.fn()
 const mockFanOutToChannel = vi.fn()
+const mockFanOutToServerMembers = vi.fn()
+const mockBroadcastToUserSafe = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -29,6 +45,8 @@ vi.mock("@/lib/community/resolve-ref", () => ({
 }))
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
+  fanOutToServerMembers: (...a: unknown[]) => mockFanOutToServerMembers(...a),
+  broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
 
 vi.mock("@alook/shared", async () => {
@@ -41,6 +59,8 @@ vi.mock("@alook/shared", async () => {
         getChannelType: (...a: unknown[]) => mockGetChannelType(...a),
         getChannel: (...a: unknown[]) => mockGetChannel(...a),
         getThreadChannelByParentMessage: (...a: unknown[]) => mockGetThreadChannelByParentMessage(...a),
+        isChannelPrivate: (...a: unknown[]) => mockIsChannelPrivate(...a),
+        getPrivateChannelAudienceUserIds: (...a: unknown[]) => mockGetPrivateChannelAudienceUserIds(...a),
       },
       communityMessage: {
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
@@ -56,6 +76,12 @@ vi.mock("@alook/shared", async () => {
       },
       communityReaction: {
         listReactionsByMessageIds: (...a: unknown[]) => mockListReactionsByMessageIds(...a),
+      },
+      communityMember: {
+        getMember: (...a: unknown[]) => mockGetMember(...a),
+      },
+      communityForumPostDelete: {
+        deleteForumPost: (...a: unknown[]) => mockDeleteForumPost(...a),
       },
       communityDm: {
         getDM: (...a: unknown[]) => mockGetDM(...a),
@@ -77,7 +103,14 @@ vi.mock("@/lib/middleware/community-actor", () => ({
     const actor = authz.startsWith("Bearer crk_")
       ? { kind: "bot", userId: "bot_1", ownerUserId: "o_1", machineId: "m_1" }
       : { kind: "human", userId: "u1", email: "u@t.com" }
-    return handler(req, { env: { DB: {} }, actor, params })
+    return handler(req, {
+      env: {
+        DB: {},
+        COMMUNITY_MEDIA: { delete: (...a: unknown[]) => cloudflareMocks.mediaDelete(...a) },
+      },
+      actor,
+      params,
+    })
   },
 }))
 
@@ -89,7 +122,7 @@ vi.mock("@/lib/middleware/helpers", () => {
   }
 })
 
-import { GET, PATCH } from "./route"
+import { DELETE, GET, PATCH } from "./route"
 
 function req() {
   return new NextRequest("http://localhost/api/community/messages/m1", { method: "GET" })
@@ -451,5 +484,145 @@ describe("PATCH /api/community/messages/[id]", () => {
   it("rejects bot credentials and empty content", async () => {
     expect((await PATCH(editReq("new", true), { params: { id: "m1" } } as any)).status).toBe(401)
     expect((await PATCH(editReq("  "), { params: { id: "m1" } } as any)).status).toBe(400)
+  })
+})
+
+describe("DELETE /api/community/messages/[id]", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    cloudflareMocks.mediaDelete.mockResolvedValue(undefined)
+    mockGetMessage.mockResolvedValue({
+      id: "opener_1",
+      channelId: "forum_1",
+      authorId: "u1",
+      seq: 3,
+    })
+    mockGetChannel.mockResolvedValue({ id: "forum_1", serverId: "server_1", type: "forum" })
+    mockGetChannelForMember.mockResolvedValue({ id: "forum_1", serverId: "server_1", type: "forum" })
+    mockGetThreadChannelByParentMessage.mockResolvedValue({
+      id: "child_1",
+      serverId: "server_1",
+      type: "thread",
+      parentChannelId: "forum_1",
+      parentMessageId: "opener_1",
+    })
+    mockGetMember.mockResolvedValue({ userId: "u1", serverId: "server_1", role: "member" })
+    mockIsChannelPrivate.mockResolvedValue(false)
+    mockGetPrivateChannelAudienceUserIds.mockResolvedValue([])
+    mockDeleteForumPost.mockResolvedValue({
+      deleted: true,
+      mediaKeys: ["opener/original", "opener/thumb"],
+    })
+    mockFanOutToServerMembers.mockResolvedValue(undefined)
+    mockBroadcastToUserSafe.mockResolvedValue(undefined)
+  })
+
+  function deleteReq(bot = false) {
+    return new NextRequest("http://localhost/api/community/messages/opener_1", {
+      method: "DELETE",
+      headers: bot ? { Authorization: "Bearer crk_x" } : undefined,
+    })
+  }
+
+  it("lets the author delete the canonical opener, then schedules media and broadcasts the post unit", async () => {
+    const res = await DELETE(deleteReq(), { params: { id: "opener_1" } } as any)
+
+    expect(res.status).toBe(204)
+    expect(mockDeleteForumPost).toHaveBeenCalledWith(expect.anything(), {
+      openerId: "opener_1",
+      openerSeq: 3,
+      forumChannelId: "forum_1",
+      childChannelId: "child_1",
+    })
+    expect(cloudflareMocks.waitUntil).toHaveBeenCalledTimes(1)
+    await cloudflareMocks.waitUntil.mock.calls[0]![0]
+    expect(cloudflareMocks.mediaDelete).toHaveBeenCalledWith(["opener/original", "opener/thumb"])
+    expect(mockFanOutToServerMembers).toHaveBeenCalledWith("server_1", {
+      type: "community:channel.delete",
+      serverId: "server_1",
+      channelId: "child_1",
+      parentChannelId: "forum_1",
+      parentMessageId: "opener_1",
+    })
+  })
+
+  it("lets an accessible owner/admin delete another author's post", async () => {
+    mockGetMessage.mockResolvedValue({ id: "opener_1", channelId: "forum_1", authorId: "u2", seq: 3 })
+    mockGetMember.mockResolvedValue({ userId: "u1", serverId: "server_1", role: "admin" })
+
+    const res = await DELETE(deleteReq(), { params: { id: "opener_1" } } as any)
+
+    expect(res.status).toBe(204)
+    expect(mockDeleteForumPost).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects an ordinary member deleting another author's post before D1/R2", async () => {
+    mockGetMessage.mockResolvedValue({ id: "opener_1", channelId: "forum_1", authorId: "u2", seq: 3 })
+
+    const res = await DELETE(deleteReq(), { params: { id: "opener_1" } } as any)
+
+    expect(res.status).toBe(403)
+    expect(mockDeleteForumPost).not.toHaveBeenCalled()
+    expect(cloudflareMocks.waitUntil).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["ordinary message", { id: "text_1", serverId: "server_1", type: "text" }],
+    ["reply/child message", { id: "child_1", serverId: "server_1", type: "thread" }],
+  ])("returns 409 for an accessible %s", async (_label, channel) => {
+    mockGetMessage.mockResolvedValue({ id: "opener_1", channelId: channel.id, authorId: "u1", seq: 3 })
+    mockGetChannel.mockResolvedValue(channel)
+    mockGetChannelForMember.mockResolvedValue(channel)
+
+    const res = await DELETE(deleteReq(), { params: { id: "opener_1" } } as any)
+
+    expect(res.status).toBe(409)
+    expect(mockGetThreadChannelByParentMessage).not.toHaveBeenCalled()
+    expect(mockDeleteForumPost).not.toHaveBeenCalled()
+  })
+
+  it("rejects bot credentials before resolving the message", async () => {
+    const res = await DELETE(deleteReq(true), { params: { id: "opener_1" } } as any)
+
+    expect(res.status).toBe(401)
+    expect(mockGetMessage).not.toHaveBeenCalled()
+  })
+
+  it("fans a private forum delete only to the captured pre-delete audience", async () => {
+    mockIsChannelPrivate.mockResolvedValue(true)
+    mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["u1", "u2"])
+
+    const res = await DELETE(deleteReq(), { params: { id: "opener_1" } } as any)
+
+    expect(res.status).toBe(204)
+    expect(mockBroadcastToUserSafe).toHaveBeenCalledTimes(2)
+    expect(mockBroadcastToUserSafe.mock.calls.map((call) => call[0])).toEqual(["u1", "u2"])
+    expect(mockBroadcastToUserSafe.mock.calls[0]![1]).toMatchObject({
+      channelId: "child_1",
+      parentChannelId: "forum_1",
+      parentMessageId: "opener_1",
+    })
+    expect(mockFanOutToServerMembers).not.toHaveBeenCalled()
+  })
+
+  it("treats a concurrently-resolved losing batch as idempotent without duplicate side effects", async () => {
+    mockDeleteForumPost.mockResolvedValue({ deleted: false, mediaKeys: [] })
+
+    const res = await DELETE(deleteReq(), { params: { id: "opener_1" } } as any)
+
+    expect(res.status).toBe(204)
+    expect(cloudflareMocks.waitUntil).not.toHaveBeenCalled()
+    expect(mockFanOutToServerMembers).not.toHaveBeenCalled()
+    expect(mockBroadcastToUserSafe).not.toHaveBeenCalled()
+  })
+
+  it("returns 404 for a missing opener and 409 for a forum message without a unique child", async () => {
+    mockGetMessage.mockResolvedValueOnce(null)
+    expect((await DELETE(deleteReq(), { params: { id: "missing" } } as any)).status).toBe(404)
+
+    mockGetMessage.mockResolvedValue({ id: "opener_1", channelId: "forum_1", authorId: "u1", seq: 3 })
+    mockGetThreadChannelByParentMessage.mockResolvedValueOnce(null)
+    expect((await DELETE(deleteReq(), { params: { id: "opener_1" } } as any)).status).toBe(409)
+    expect(mockDeleteForumPost).not.toHaveBeenCalled()
   })
 })

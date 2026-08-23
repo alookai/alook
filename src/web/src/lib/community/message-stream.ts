@@ -72,6 +72,7 @@ export type MessageOverlayEvent =
   | { type: "wsMessage"; message: CanonicalMessage }
   | { type: "liveRefreshed"; message: CanonicalMessage }
   | { type: "messageEdited"; messageId: string; content: string }
+  | { type: "messageRemoved"; messageId: string }
   | { type: "baseChanged"; messages: CanonicalMessage[]; latestSeq?: number }
   | { type: "dismissFailed"; nonce: string }
   | { type: "clear" }
@@ -450,6 +451,23 @@ export function reduceMessageOverlay(
       }
       return changed
         ? { state: { ...state, liveById, outboxByNonce }, effects: [] }
+        : unchanged(state)
+    }
+
+    case "messageRemoved": {
+      let changed = false
+      const liveById = new Map(state.liveById)
+      if (liveById.delete(event.messageId)) changed = true
+      const outboxByNonce = new Map(state.outboxByNonce)
+      const effects: MessageOverlayEffect[] = []
+      for (const [nonce, intent] of outboxByNonce) {
+        if ((intent.serverMessageId ?? intent.tempId) !== event.messageId) continue
+        outboxByNonce.delete(nonce)
+        effects.push(...revokeEffects(intent))
+        changed = true
+      }
+      return changed
+        ? { state: { liveById, outboxByNonce }, effects }
         : unchanged(state)
     }
 
