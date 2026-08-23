@@ -86,7 +86,9 @@ describe("ImageLightbox", () => {
 
     expect(renderer.root.findAllByProps({ "data-testid": tid.imageLightboxOriginal })).toHaveLength(0)
     expect(renderer.root.findByProps({ "data-testid": tid.imageLightboxThumbnail }).props.src).toBe("/thumbnail")
-    expect(renderer.root.findByProps({ "data-testid": tid.imageLightboxError })).toBeDefined()
+    expect(renderer.root.findByProps({ "data-testid": tid.imageLightboxError }).findByType("span").children)
+      .toEqual(["Failed to load original image"])
+    expect(renderer.root.findByProps({ "data-testid": tid.imageLightboxRetry }).children).toEqual(["Retry"])
 
     act(() => renderer.root.findByProps({ "data-testid": tid.imageLightboxRetry }).props.onClick())
     const retriedOriginal = renderer.root.findByProps({ "data-testid": tid.imageLightboxOriginal })
@@ -184,7 +186,7 @@ describe("ImageLightbox", () => {
 
   it("shows an explicit original-loading fallback when no thumbnail exists", () => {
     const { renderer } = renderLightbox({ originalUrl: "/original", name: "legacy" })
-    expect(renderer.root.findByProps({ "data-testid": tid.imageLightboxLoading }).children).toEqual(["正在加载原图"])
+    expect(renderer.root.findByProps({ "data-testid": tid.imageLightboxLoading }).children).toEqual(["Loading original image…"])
     expect(renderer.root.findByProps({ "data-testid": tid.imageLightbox }).props.style).toEqual({
       width: "min(200px, 90vw, 85vh)",
       aspectRatio: "1 / 1",

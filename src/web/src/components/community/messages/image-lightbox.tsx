@@ -128,7 +128,7 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
             role="status"
             className="absolute inset-0 flex items-center justify-center px-4 text-sm text-muted-foreground"
           >
-            正在加载原图
+            Loading original image…
           </div>
         )}
         {state.originalStatus !== "failed" && (
@@ -149,14 +149,14 @@ function PreviewFrame({ image }: { image: ImagePreview }) {
           role="status"
           className="absolute bottom-3 left-1/2 z-10 flex min-h-11 w-max max-w-[min(90vw,24rem)] -translate-x-1/2 items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm shadow-sm"
         >
-          <span>原图加载失败</span>
+          <span>Failed to load original image</span>
           <button
             type="button"
             data-testid={tid.imageLightboxRetry}
             onClick={retryOriginal}
             className="h-12 min-w-12 rounded-md px-3 font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-9 sm:min-w-0"
           >
-            重试
+            Retry
           </button>
         </div>
       )}
