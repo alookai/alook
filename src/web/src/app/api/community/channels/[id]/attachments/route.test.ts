@@ -217,7 +217,7 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
       size: 10,
     })
     mockCreatePendingAttachment.mockRejectedValueOnce(new Error("d1"))
-    mockR2Delete.mockRejectedValueOnce(new Error("cleanup failed"))
+    mockR2Delete.mockRejectedValueOnce(new Error("secret provider detail"))
 
     const response = await POST(
       botReq("/studio#0042/general", { Authorization: "Bearer crk_abc" }),
@@ -228,9 +228,15 @@ describe("POST /api/community/channels/[id]/attachments — bot arm (folds attac
     const cleanupLog = mockLogError.mock.calls.find(
       ([event]) => event === "attachment_route_r2_cleanup_failed",
     )
-    expect(cleanupLog?.[1]).toEqual(expect.objectContaining({ objectCount: 2 }))
+    expect(cleanupLog?.[1]).toEqual({
+      route: "channels/[id]/attachments",
+      actor: "bot",
+      objectCount: 2,
+      errorCategory: "Error",
+    })
     expect(JSON.stringify(cleanupLog)).not.toContain("secret-original-key")
     expect(JSON.stringify(cleanupLog)).not.toContain("secret-thumbnail-key")
+    expect(JSON.stringify(cleanupLog)).not.toContain("secret provider detail")
   })
 
   it("pre-R2 throw (resolveTargetForMember errors) → 500 JSON, R2 delete NOT called", async () => {

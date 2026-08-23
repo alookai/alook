@@ -4,12 +4,15 @@ import { NextRequest } from "next/server"
 const mockGetMember = vi.fn()
 const mockListMemberUserIds = vi.fn()
 const mockUpdateServer = vi.fn()
-const mockDeleteServer = vi.fn()
+const mockDeleteServerWithMedia = vi.fn()
 const mockFanOut = vi.fn()
 const mockFanOutToUsers = vi.fn()
+const mockScheduleMediaCleanup = vi.fn()
+const mockWaitUntil = vi.fn()
+const mockGetCloudflareContext = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
-  getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
+  getCloudflareContext: (...a: unknown[]) => mockGetCloudflareContext(...a),
 }))
 
 vi.mock("@/lib/db", () => ({
@@ -27,7 +30,9 @@ vi.mock("@alook/shared", async () => {
       },
       communityServer: {
         updateServer: (...a: unknown[]) => mockUpdateServer(...a),
-        deleteServer: (...a: unknown[]) => mockDeleteServer(...a),
+      },
+      communityDeleteMedia: {
+        deleteServerWithMedia: (...a: unknown[]) => mockDeleteServerWithMedia(...a),
       },
     },
   }
@@ -38,10 +43,28 @@ vi.mock("@/lib/community/fanout", () => ({
   fanOutToUsers: (...a: unknown[]) => mockFanOutToUsers(...a),
 }))
 
+vi.mock("@/lib/community/community-media-cleanup", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/community/community-media-cleanup")>(
+    "@/lib/community/community-media-cleanup",
+  )
+  return {
+    ...actual,
+    scheduleCommunityMediaCleanup: (...a: Parameters<typeof actual.scheduleCommunityMediaCleanup>) => {
+      mockScheduleMediaCleanup(...a)
+      return actual.scheduleCommunityMediaCleanup(...a)
+    },
+  }
+})
+
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
+    return handler(req, {
+      env: { DB: {}, COMMUNITY_MEDIA: { delete: vi.fn() } },
+      userId: "u1",
+      email: "u@t.com",
+      params,
+    })
   }),
 }))
 
@@ -103,9 +126,16 @@ describe("PATCH /api/community/servers/[id]", () => {
 describe("DELETE /api/community/servers/[id]", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockWaitUntil.mockReset()
+    mockScheduleMediaCleanup.mockReset()
+    mockGetCloudflareContext.mockReset()
+    mockGetCloudflareContext.mockResolvedValue({
+      env: { DB: {}, COMMUNITY_MEDIA: { delete: vi.fn() } },
+      ctx: { waitUntil: mockWaitUntil },
+    })
     mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", role: "owner" })
     mockListMemberUserIds.mockResolvedValue(["u1", "u2"])
-    mockDeleteServer.mockResolvedValue({ id: "s1" })
+    mockDeleteServerWithMedia.mockResolvedValue({ deleted: true, mediaKeys: [], iconKey: null })
     mockFanOutToUsers.mockResolvedValue(undefined)
   })
 
@@ -115,9 +145,9 @@ describe("DELETE /api/community/servers/[id]", () => {
       order.push("recipients")
       return ["u1", "u2"]
     })
-    mockDeleteServer.mockImplementation(async () => {
+    mockDeleteServerWithMedia.mockImplementation(async () => {
       order.push("delete")
-      return { id: "s1" }
+      return { deleted: true, mediaKeys: [], iconKey: null }
     })
     mockFanOutToUsers.mockImplementation(async () => {
       order.push("fanout")
@@ -131,5 +161,93 @@ describe("DELETE /api/community/servers/[id]", () => {
       type: "community:server.delete",
       serverId: "s1",
     })
+  })
+
+  it("returns 500 without mutating D1 when execution context acquisition fails", async () => {
+    mockGetCloudflareContext.mockRejectedValueOnce(new Error("context unavailable"))
+
+    const res = await DELETE(deleteReq(), ctx)
+
+    expect(res.status).toBe(500)
+    expect(mockDeleteServerWithMedia).not.toHaveBeenCalled()
+    expect(mockFanOutToUsers).not.toHaveBeenCalled()
+  })
+
+  it("keeps the winner 204 and fanout when waitUntil throws synchronously", async () => {
+    mockDeleteServerWithMedia.mockResolvedValue({
+      deleted: true,
+      mediaKeys: ["channel/s1/a"],
+      iconKey: null,
+    })
+    mockWaitUntil.mockImplementationOnce(() => {
+      throw new TypeError("secret registration detail")
+    })
+
+    const res = await DELETE(deleteReq(), ctx)
+
+    expect(res.status).toBe(204)
+    expect(mockDeleteServerWithMedia).toHaveBeenCalledOnce()
+    expect(mockFanOutToUsers).toHaveBeenCalledOnce()
+  })
+
+  it("schedules attachment and strictly-owned icon cleanup after the winner and before fanout", async () => {
+    const order: string[] = []
+    mockDeleteServerWithMedia.mockImplementation(async () => {
+      order.push("delete")
+      return {
+        deleted: true,
+        mediaKeys: ["channel/s1/a", "channel/s1/a.thumbnail.jpg"],
+        iconKey: "server-icon/s1/icon-a",
+      }
+    })
+    mockScheduleMediaCleanup.mockImplementation(() => order.push("cleanup"))
+    mockFanOutToUsers.mockImplementation(async () => order.push("fanout"))
+
+    const res = await DELETE(deleteReq(), ctx)
+
+    expect(res.status).toBe(204)
+    expect(order).toEqual(["delete", "cleanup", "fanout"])
+    expect(mockDeleteServerWithMedia).toHaveBeenCalledWith(expect.anything(), {
+      serverId: "s1",
+      ownerId: "u1",
+    })
+    expect(mockScheduleMediaCleanup).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ waitUntil: mockWaitUntil }),
+      {
+        keys: ["channel/s1/a", "channel/s1/a.thumbnail.jpg", "server-icon/s1/icon-a"],
+        warning: {
+          event: "community_server_media_cleanup_failed",
+          fields: { serverId: "s1" },
+        },
+      },
+    )
+  })
+
+  it("does not enqueue a legacy or cross-server icon key", async () => {
+    mockDeleteServerWithMedia.mockResolvedValue({
+      deleted: true,
+      mediaKeys: ["channel/s1/a"],
+      iconKey: "server-icon/other/icon-a",
+    })
+
+    const res = await DELETE(deleteReq(), ctx)
+
+    expect(res.status).toBe(204)
+    expect(mockScheduleMediaCleanup).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ keys: ["channel/s1/a"] }),
+    )
+  })
+
+  it("returns 404 without cleanup or fanout when the owner-scoped delete loses", async () => {
+    mockDeleteServerWithMedia.mockResolvedValue({ deleted: false, mediaKeys: [], iconKey: null })
+
+    const res = await DELETE(deleteReq(), ctx)
+
+    expect(res.status).toBe(404)
+    expect(mockScheduleMediaCleanup).not.toHaveBeenCalled()
+    expect(mockFanOutToUsers).not.toHaveBeenCalled()
   })
 })

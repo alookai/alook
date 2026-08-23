@@ -6,7 +6,12 @@ import { getDb } from "@/lib/db"
 import { queries, CACHE_SHORT, createLogger } from "@alook/shared"
 import { requireServerAdmin } from "@/lib/community/permissions"
 import { handleServerIconUpload } from "@/lib/community/upload"
-import { serverIconUrl } from "@/lib/community/storage"
+import { isOwnedServerIconKey, serverIconUrl } from "@/lib/community/storage"
+import {
+  communityMediaCleanupErrorCategory,
+  deleteCommunityMediaObjects,
+  scheduleCommunityMediaCleanup,
+} from "@/lib/community/community-media-cleanup"
 
 const log = createLogger({ service: "community-server-icon" })
 
@@ -37,32 +42,93 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const auth = await requireServerAdmin(db, serverId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
-  // Snapshot the previous key BEFORE upload so we can sweep it after the
-  // update commits. The `startsWith` guard on cleanup skips legacy URL-shaped
-  // rows that predate the migration.
+  // This pre-upload value is the CAS expectation and the only old object a
+  // successful winner may later clean.
   const previousKey = (await queries.communityServer.getServer(db, serverId))?.icon ?? null
+
+  let executionContext: ExecutionContext
+  try {
+    ({ ctx: executionContext } = await getCloudflareContext({ async: true }))
+  } catch {
+    return writeError("internal error", 500)
+  }
 
   const result = await handleServerIconUpload(req, ctx.env, serverId)
   if (!result.ok) return result.response
 
   const iconKey = result.key
-  const updated = await queries.communityServer.updateServer(db, serverId, { icon: iconKey })
-  if (!updated) return writeError("server not found", 404)
-
-  if (previousKey && previousKey !== iconKey && previousKey.startsWith("server-icon/")) {
-    // Wrap in waitUntil so the CF runtime explicitly extends the worker
-    // lifetime past the response for the R2 delete to complete.
-    const deletePromise = ctx.env.COMMUNITY_MEDIA.delete(previousKey).catch((err) =>
-      log.warn("server_icon_delete_failed", { err, serverId, previousKey }),
-    )
+  let updated
+  try {
+    updated = await queries.communityServer.updateServerIconIfCurrent(db, {
+      serverId,
+      expectedIcon: previousKey,
+      nextIcon: iconKey,
+    })
+  } catch (error) {
+    let live
     try {
-      const { ctx: cfCtx } = await getCloudflareContext({ async: true })
-      cfCtx.waitUntil(deletePromise)
-    } catch {
-      // Not in a CF context (tests / non-worker runtime) — the promise still
-      // runs on its own; the fire-and-forget behaviour matches the prior code.
+      live = await queries.communityServer.getServer(db, serverId)
+    } catch (verificationError) {
+      log.warn("community_server_icon_cas_state_verification_failed", {
+        serverId,
+        phase: "cas_error_verification",
+        objectState: "retained_unverified",
+        errorCategory: communityMediaCleanupErrorCategory(verificationError),
+      })
+      throw error
     }
+    if (live?.icon !== iconKey) {
+      await compensateServerIcon(ctx.env.COMMUNITY_MEDIA, serverId, iconKey)
+    }
+    throw error
+  }
+
+  if (!updated) {
+    let live
+    try {
+      live = await queries.communityServer.getServer(db, serverId)
+    } catch (error) {
+      log.warn("community_server_icon_cas_state_verification_failed", {
+        serverId,
+        phase: "cas_zero_verification",
+        objectState: "retained_unverified",
+        errorCategory: communityMediaCleanupErrorCategory(error),
+      })
+      return writeError("internal error", 500)
+    }
+    if (live?.icon !== iconKey) {
+      await compensateServerIcon(ctx.env.COMMUNITY_MEDIA, serverId, iconKey)
+    }
+    if (!live) return writeError("server not found", 404)
+    return writeError("server icon changed; retry", 409)
+  }
+
+  if (previousKey && previousKey !== iconKey && isOwnedServerIconKey(previousKey, serverId)) {
+    scheduleCommunityMediaCleanup(ctx.env.COMMUNITY_MEDIA, executionContext, {
+      keys: [previousKey],
+      warning: {
+        event: "community_server_icon_cleanup_failed",
+        fields: { serverId, phase: "old_key_cleanup" },
+      },
+    })
   }
 
   return writeJSON({ url: serverIconUrl({ id: serverId, icon: iconKey }) })
 })
+
+async function compensateServerIcon(
+  bucket: Pick<R2Bucket, "delete">,
+  serverId: string,
+  iconKey: string,
+): Promise<void> {
+  try {
+    await deleteCommunityMediaObjects(bucket, [iconKey])
+  } catch (error) {
+    log.warn("community_server_icon_cleanup_failed", {
+      serverId,
+      phase: "cas_compensation",
+      keyCount: 1,
+      errorCategory: communityMediaCleanupErrorCategory(error),
+    })
+  }
+}

@@ -48,6 +48,13 @@ export function buildServerIconKey(serverId: string, fileId: string): string {
   return `server-icon/${serverId}/${fileId}`
 }
 
+export function isOwnedServerIconKey(key: string, serverId: string): boolean {
+  const prefix = `server-icon/${serverId}/`
+  if (!key.startsWith(prefix)) return false
+  const suffix = key.slice(prefix.length)
+  return suffix.length > 0 && !suffix.includes("/")
+}
+
 // Deterministic keys — unlike server icons (random `fileId`, old key deleted
 // on replace), user/bot avatars overwrite the same R2 object in place, so the
 // routable URL stored on the DB row never changes across re-uploads.

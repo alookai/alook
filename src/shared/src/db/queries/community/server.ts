@@ -1,4 +1,4 @@
-import { eq, and, asc, inArray, sql, count } from "drizzle-orm";
+import { eq, and, asc, inArray, isNull, sql, count } from "drizzle-orm";
 import {
   communityServer,
   communityCategory,
@@ -165,6 +165,27 @@ export async function updateServer(
     .update(communityServer)
     .set(data)
     .where(eq(communityServer.id, serverId))
+    .returning();
+  return rows[0] ?? null;
+}
+
+export async function updateServerIconIfCurrent(
+  db: Database,
+  input: {
+    serverId: string;
+    expectedIcon: string | null;
+    nextIcon: string;
+  }
+) {
+  const rows = await db
+    .update(communityServer)
+    .set({ icon: input.nextIcon })
+    .where(and(
+      eq(communityServer.id, input.serverId),
+      input.expectedIcon === null
+        ? isNull(communityServer.icon)
+        : eq(communityServer.icon, input.expectedIcon)
+    ))
     .returning();
   return rows[0] ?? null;
 }

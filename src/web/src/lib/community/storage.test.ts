@@ -10,6 +10,7 @@ import {
   sanitizeAttachmentFilename,
   userAvatarUrl,
   botAvatarUrl,
+  isOwnedServerIconKey,
 } from "./storage"
 
 describe("buildUserAvatarKey", () => {
@@ -83,6 +84,22 @@ describe("buildMediaKey", () => {
     const key = buildMediaKey("channel", "c1", "uuid", "../evil.png")
     expect(key.startsWith("/")).toBe(false)
     expect(key).toBe("channel/c1/uuid/__evil.png")
+  })
+})
+
+describe("isOwnedServerIconKey", () => {
+  it("accepts exactly one non-empty suffix under the expected server", () => {
+    expect(isOwnedServerIconKey("server-icon/s1/icon-a", "s1")).toBe(true)
+  })
+
+  it.each([
+    "server-icon/s1/",
+    "server-icon/s1/nested/icon-a",
+    "server-icon/other/icon-a",
+    "/api/community/servers/s1/icon",
+    "server-icon/s1",
+  ])("rejects non-owned or non-canonical key %s", (key) => {
+    expect(isOwnedServerIconKey(key, "s1")).toBe(false)
   })
 })
 
