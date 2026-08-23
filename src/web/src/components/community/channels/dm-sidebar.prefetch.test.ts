@@ -7,6 +7,33 @@ import { DmSidebar } from "./dm-sidebar"
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 describe("DmSidebar navigation intent", () => {
+  it("keeps shortcuts outside the independently scrolling DM list", async () => {
+    let renderer!: ReactTestRenderer
+
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(DmSidebar, {
+        dms: [],
+        activeDm: null,
+        onPickDm: vi.fn(),
+        onShowFriends: vi.fn(),
+        onShowMachines: vi.fn(),
+        onShowBots: vi.fn(),
+      }))
+    })
+
+    const aside = renderer.root.findByType("aside")
+    expect(aside.props.className).toContain("min-h-0")
+    const shortcuts = renderer.root.findByProps({ "data-slot": "dm-sidebar-shortcuts" })
+    const dmList = renderer.root.findByProps({ "data-slot": "dm-sidebar-list" })
+    expect(shortcuts.props.className).toContain("shrink-0")
+    expect(shortcuts.props.className).not.toContain("overflow-y-auto")
+    expect(dmList.props.className).toContain("min-h-0")
+    expect(dmList.props.className).toContain("flex-1")
+    expect(dmList.props.className).toContain("overflow-y-auto")
+
+    act(() => renderer.unmount())
+  })
+
   it("prefetches the fixed destinations on pointer and keyboard intent", async () => {
     const onPrefetchFriends = vi.fn()
     const onPrefetchMachines = vi.fn()

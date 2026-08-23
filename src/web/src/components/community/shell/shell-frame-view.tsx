@@ -117,22 +117,11 @@ export function ShellFrameView({
               data-mobile-active={isMobileList || undefined}
               className={cn(
                 "flex flex-col bg-sidebar",
-                isDesktop && "pb-15",
+                (isDesktop || isMobileList) && "pb-15",
               )}
             >
               <div ref={sidebarPanelRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
                 {!isMobileDetail && (isDesktop ? sidebar() : sidebar({ noHeader: false }))}
-                {isMobileList && (
-                  <UserBar
-                    user={user}
-                    onOpenProfile={profile.openProfile}
-                    onEditProfile={profile.openUserSettings}
-                    inbox={inboxElement}
-                    hasUnread={inbox.hasUnread}
-                    inboxOpen={inbox.open}
-                    onInboxOpenChange={inbox.onOpenChange}
-                  />
-                )}
               </div>
             </ResizablePanel>
             <ResizableHandle className={cn("bg-transparent", !isDesktop && "hidden")} />
@@ -150,13 +139,19 @@ export function ShellFrameView({
           </ResizablePanelGroup>
         </AppSurface>
 
-        {isDesktop && (
+        {(isDesktop || isMobileList) && (
           <div
+            data-slot="community-user-bar-overlay"
             className="absolute bottom-0 left-0 z-10"
-            style={{
-              width: desktopUserBarOverlayWidth(sidebarWidth),
-              marginLeft: -COMMUNITY_RAIL_WIDTH,
-            }}
+            style={isDesktop
+              ? {
+                  width: desktopUserBarOverlayWidth(sidebarWidth),
+                  marginLeft: -COMMUNITY_RAIL_WIDTH,
+                }
+              : {
+                  width: `calc(100% + ${COMMUNITY_RAIL_WIDTH}px)`,
+                  marginLeft: -COMMUNITY_RAIL_WIDTH,
+                }}
           >
             <UserBar
               user={user}

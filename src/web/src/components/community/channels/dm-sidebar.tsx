@@ -30,8 +30,8 @@ export const DmSidebar = memo(function DmSidebar({
 }) {
   const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive && !botsActive)
   return (
-    <aside className="flex min-w-0 flex-1 flex-col">
-      <div className="flex-1 overflow-y-auto thin-scrollbar px-2 py-4">
+    <aside className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div data-slot="dm-sidebar-shortcuts" className="shrink-0 px-2 pt-4">
         <button
           onClick={onShowFriends}
           onPointerEnter={onPrefetchFriends}
@@ -70,6 +70,8 @@ export const DmSidebar = memo(function DmSidebar({
           </button>
         )}
         <div className="my-2 h-px bg-border" />
+      </div>
+      <div data-slot="dm-sidebar-list" className="min-h-0 flex-1 overflow-y-auto thin-scrollbar px-2 pb-4">
         <div className="mb-2 px-2 text-xs font-semibold text-muted-foreground">
           Direct Messages
         </div>

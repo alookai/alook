@@ -183,6 +183,15 @@ describe("ShellFrameView", () => {
     })
     expect(renderer.root.findAllByType("server-rail")).toHaveLength(1)
     expect(renderer.root.findAllByType("user-bar")).toHaveLength(1)
+    const mobileSidebarPanel = renderer.root.findAllByType("panel")[0]!
+    expect(mobileSidebarPanel.props.className).toContain("pb-15")
+    const mobileUserBarOverlay = renderer.root.findByProps({
+      "data-slot": "community-user-bar-overlay",
+    })
+    expect(mobileUserBarOverlay.props.style).toEqual({
+      width: "calc(100% + 56px)",
+      marginLeft: -56,
+    })
     const mobileSurface = renderer.root.findByType("app-surface")
     expect(mobileSurface.props.className).toContain("rounded-tl-xl")
     expect(mobileSurface.props.className).toContain("border-l")
@@ -212,6 +221,7 @@ describe("ShellFrameView", () => {
     })
     expect(renderer.root.findAllByType("server-rail")).toHaveLength(0)
     expect(renderer.root.findAllByType("user-bar")).toHaveLength(0)
+    expect(renderer.root.findAllByProps({ "data-slot": "community-user-bar-overlay" })).toHaveLength(0)
     expect(renderer.root.findAllByType("app-surface")).toHaveLength(1)
     expect(renderer.root.findByType("app-surface").props.className).toContain("rounded-none")
     expect(renderer.root.findAllByType("main-content")).toHaveLength(1)
