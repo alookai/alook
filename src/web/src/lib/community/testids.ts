@@ -91,15 +91,26 @@ export const tid = {
   threadIndicator: (msgId: string) => `community-thread-indicator-${msgId}`,
   railUnreadBadge: (serverId: string) => `community-rail-unread-badge-${serverId}`,
   // Forum post feed (ForumView). `forumThreadCard` is the whole clickable card;
-  // `forumThreadTagBtn` is the hover-revealed tag-edit icon; `forumThreadDeleteBtn`
-  // is the hover-revealed delete icon; `forumThreadAvatars` wraps the participant
-  // AvatarGroup; `forumTagChip` is a filter-bar tag chip.
+  // `forumThreadTitle` / `forumThreadTitleText` expose the clamped title cluster
+  // and its visible text; `forumThreadTagBtn` is the responsive tag-edit icon;
+  // `forumThreadDeleteBtn` is the responsive delete icon; `forumThreadAvatars`
+  // wraps the participant AvatarGroup; `forumTagChip` is a filter-bar tag chip.
   forumThreadCard: (id: string) => `community-forum-post-${id}`,
   forumSidebarThread: (id: string) => `community-forum-sidebar-thread-${id}`,
+  forumThreadTitle: (id: string) => `community-forum-post-title-${id}`,
+  forumThreadTitleText: (id: string) => `community-forum-post-title-text-${id}`,
+  forumThreadSeq: (id: string) => `community-forum-post-seq-${id}`,
   forumThreadTagBtn: (id: string) => `community-forum-post-tag-btn-${id}`,
   forumThreadDeleteBtn: (id: string) => `community-forum-post-delete-btn-${id}`,
   forumThreadAvatars: (id: string) => `community-forum-post-avatars-${id}`,
+  forumFilterBar: "community-forum-filter-bar",
+  forumTagScroller: "community-forum-tag-scroller",
+  forumTagFadeLeft: "community-forum-tag-fade-left",
+  forumTagFadeRight: "community-forum-tag-fade-right",
+  forumTagAll: "community-forum-tag-all",
   forumTagChip: (tag: string) => `community-forum-tag-chip-${tag}`,
+  forumNewPost: "community-forum-new-post",
+  forumPostList: "community-forum-post-list",
   inboxUnreadChild: (id: string) => `community-inbox-unread-child-${id}`,
   channelRefPill: (id: string) => `community-channel-ref-pill-${id}`,
 } as const

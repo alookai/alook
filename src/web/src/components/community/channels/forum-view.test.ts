@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { ForumView, shouldActivateForumRow } from "./forum-view"
+import { ForumView, forumTagScrollFades, shouldActivateForumRow } from "./forum-view"
 import { tid } from "@/lib/community/testids"
 import type { ForumThread } from "@/lib/community/models/message"
 
@@ -56,6 +56,26 @@ function renderWithDelete(
       canDeletePost: opts.canDeletePost ?? (() => true),
       deletingPost: opts.deletingPost ?? null,
     })
+  )
+}
+
+function renderWithActions(
+  post: ForumThread,
+  opts: { canEdit?: boolean; canDelete?: boolean } = {},
+): string {
+  return renderToStaticMarkup(
+    createElement(ForumView, {
+      forumChannelId: "cha_forum",
+      members: [],
+      posts: [post],
+      tag: "All",
+      onTagChange: () => {},
+      onOpenPost: () => {},
+      onEditPostTags: () => {},
+      canEditPostTags: () => opts.canEdit ?? true,
+      onDeletePost: () => {},
+      canDeletePost: () => opts.canDelete ?? true,
+    }),
   )
 }
 
@@ -184,7 +204,53 @@ describe("ForumView post delete button", () => {
   })
 })
 
+describe("ForumView responsive post actions", () => {
+  it("keeps authorized actions visible and touch-safe on mobile, then progressive on desktop", () => {
+    const html = renderWithActions(makePost({ parentSeq: 3 }))
+    const tagIndex = html.indexOf(tid.forumThreadTagBtn("p1"))
+    const deleteIndex = html.indexOf(tid.forumThreadDeleteBtn("p1"))
+    const tagButton = html.slice(Math.max(0, tagIndex - 500), tagIndex + 500)
+    const deleteButton = html.slice(Math.max(0, deleteIndex - 500), deleteIndex + 500)
+
+    for (const button of [tagButton, deleteButton]) {
+      expect(button).toContain("size-8")
+      expect(button).toContain("opacity-100")
+      expect(button).toContain("sm:size-6")
+      expect(button).toContain("sm:opacity-0")
+      expect(button).toContain("sm:focus-visible:opacity-100")
+      expect(button).toContain("sm:group-hover/card:opacity-100")
+    }
+    expect(tagButton).toContain("sm:data-popup-open:opacity-100")
+    expect(deleteButton).toContain("disabled:opacity-50")
+    expect(html).toContain("min-h-8 pr-16 sm:min-h-0")
+    expect(html).toContain("relative line-clamp-2 w-full min-w-0 max-w-full wrap-break-word")
+    expect(html).toContain(tid.forumThreadTitle("p1"))
+    expect(html).toContain(tid.forumThreadTitleText("p1"))
+    expect(html).toContain(tid.forumThreadSeq("p1"))
+  })
+
+  it("does not render actions or reserve mobile header space without permission", () => {
+    const html = renderWithActions(makePost(), { canEdit: false, canDelete: false })
+
+    expect(html).not.toContain(tid.forumThreadTagBtn("p1"))
+    expect(html).not.toContain(tid.forumThreadDeleteBtn("p1"))
+    expect(html).not.toContain("min-h-8 pr-16 sm:min-h-0")
+    expect(html).toContain("sm:pr-14 pr-0")
+  })
+})
+
 describe("ForumView filter bar / composer swap", () => {
+  it("derives conditional edge fades from rail scroll geometry", () => {
+    expect(forumTagScrollFades({ scrollLeft: 0, clientWidth: 200, scrollWidth: 200 }))
+      .toEqual({ left: false, right: false })
+    expect(forumTagScrollFades({ scrollLeft: 0, clientWidth: 200, scrollWidth: 420 }))
+      .toEqual({ left: false, right: true })
+    expect(forumTagScrollFades({ scrollLeft: 110, clientWidth: 200, scrollWidth: 420 }))
+      .toEqual({ left: true, right: true })
+    expect(forumTagScrollFades({ scrollLeft: 220, clientWidth: 200, scrollWidth: 420 }))
+      .toEqual({ left: true, right: false })
+  })
+
   it("shows the New Post trigger by default (not the composer)", () => {
     const html = render([makePost()])
     // The trigger button renders on first paint, in the filter bar slot.
@@ -197,6 +263,29 @@ describe("ForumView filter bar / composer swap", () => {
     const html = render([makePost({ tags: ["bug", "help"] })])
     expect(html).toContain("#bug")
     expect(html).toContain("#help")
+  })
+
+  it("keeps mobile filter tags in their own single-line scroller beside the fixed action", () => {
+    const html = render([makePost({ tags: ["alpha", "beta", "gamma", "delta"] })])
+    const railIndex = html.indexOf(tid.forumTagScroller)
+    const listIndex = html.indexOf(tid.forumPostList)
+    const railMarkup = html.slice(Math.max(0, railIndex - 400), railIndex + 900)
+    const listMarkup = html.slice(Math.max(0, listIndex - 300), listIndex + 300)
+
+    expect(html).toContain(tid.forumFilterBar)
+    expect(html).toContain(tid.forumTagAll)
+    expect(html).toContain(tid.forumNewPost)
+    expect(railMarkup).toContain("min-w-0")
+    expect(railMarkup).toContain("flex-nowrap")
+    expect(railMarkup).toContain("overflow-x-auto")
+    expect(railMarkup).toContain("thin-scrollbar")
+    expect(railMarkup).toContain("sm:flex-wrap")
+    expect(railMarkup).toContain("sm:overflow-x-visible")
+    expect(railMarkup).toContain('tabindex="0"')
+    expect(html).not.toContain(tid.forumTagFadeLeft)
+    expect(html).not.toContain(tid.forumTagFadeRight)
+    expect(listMarkup).toContain("px-0")
+    expect(listMarkup).toContain("sm:px-4")
   })
 })
 

@@ -33,6 +33,7 @@ export const SPEC_SECONDS = {
   "23-message-selection-context-menu.spec.ts": 10,
   "24-composer-overflow.spec.ts": 35,
   "25-composer-accessory-rail-occupancy.spec.ts": 60,
+  "26-mobile-forum-post-actions.spec.ts": 45,
 }
 
 function walk(directory) {

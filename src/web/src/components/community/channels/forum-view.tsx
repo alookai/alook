@@ -1,6 +1,6 @@
 "use client"
 
-import { useLayoutEffect, useRef, useState } from "react"
+import { useCallback, useLayoutEffect, useRef, useState } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
 import { MessagesSquare, ListChevronsUpDown, Plus, Tag, Trash2 } from "lucide-react"
@@ -31,6 +31,23 @@ export function shouldActivateForumRow(event: {
   currentTarget: EventTarget | null
 }) {
   return event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")
+}
+
+export function forumTagScrollFades({
+  scrollLeft,
+  scrollWidth,
+  clientWidth,
+}: {
+  scrollLeft: number
+  scrollWidth: number
+  clientWidth: number
+}) {
+  const maxScrollLeft = Math.max(0, scrollWidth - clientWidth)
+  if (maxScrollLeft <= 1) return { left: false, right: false }
+  return {
+    left: scrollLeft > 1,
+    right: scrollLeft < maxScrollLeft - 1,
+  }
 }
 
 function ForumTagSummary({ tags }: { tags: string[] }) {
@@ -72,6 +89,89 @@ function ForumTagSummary({ tags }: { tags: string[] }) {
         </Popover>
       )}
     </div>
+  )
+}
+
+function ForumPostTitle({ name, postId, seq }: { name: string; postId: string; seq?: number }) {
+  const hostRef = useRef<HTMLHeadingElement>(null)
+  const measureRef = useRef<HTMLSpanElement>(null)
+  const measureNameRef = useRef<HTMLSpanElement>(null)
+  const [rendered, setRendered] = useState({ name, truncated: false })
+
+  useLayoutEffect(() => {
+    const host = hostRef.current
+    const measure = measureRef.current
+    const measureName = measureNameRef.current
+    if (!host || !measure || !measureName) return
+
+    const characters = Array.from(name)
+    const commit = (nextName: string, truncated: boolean) => {
+      setRendered((current) => current.name === nextName && current.truncated === truncated
+        ? current
+        : { name: nextName, truncated })
+    }
+    const recompute = () => {
+      if (host.clientWidth === 0) return
+      const view = measure.ownerDocument?.defaultView
+      if (!view) return
+      const lineHeight = Number.parseFloat(view.getComputedStyle(measure).lineHeight)
+      if (!Number.isFinite(lineHeight)) return
+      const fits = (count: number, truncated: boolean) => {
+        measureName.textContent = `${characters.slice(0, count).join("")}${truncated ? "…" : ""}`
+        return measure.getBoundingClientRect().height <= lineHeight * 2 + 0.5
+      }
+
+      if (fits(characters.length, false)) {
+        commit(name, false)
+        return
+      }
+
+      let low = 0
+      let high = characters.length
+      while (low < high) {
+        const midpoint = Math.ceil((low + high) / 2)
+        if (fits(midpoint, true)) low = midpoint
+        else high = midpoint - 1
+      }
+      commit(characters.slice(0, low).join(""), true)
+    }
+
+    recompute()
+    if (typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(recompute)
+    observer.observe(host)
+    return () => observer.disconnect()
+  }, [name, seq])
+
+  const renderSequence = (measurement = false) => seq === undefined ? null : (
+    <span
+      data-testid={measurement ? undefined : tid.forumThreadSeq(postId)}
+      className="ml-1.5 whitespace-nowrap font-mono text-[13px] font-medium text-muted-foreground"
+    >
+      <span className="opacity-60">#</span>{seq}
+    </span>
+  )
+
+  return (
+    <h3
+      ref={hostRef}
+      data-testid={tid.forumThreadTitle(postId)}
+      data-truncated={rendered.truncated ? "true" : "false"}
+      aria-label={rendered.truncated ? `${name}${seq === undefined ? "" : ` #${seq}`}` : undefined}
+      title={rendered.truncated ? name : undefined}
+      className="relative line-clamp-2 w-full min-w-0 max-w-full wrap-break-word text-[15px] font-semibold leading-tight"
+    >
+      <span data-testid={tid.forumThreadTitleText(postId)}>{rendered.name}{rendered.truncated ? "…" : ""}</span>
+      {renderSequence()}
+      <span
+        ref={measureRef}
+        aria-hidden
+        className="invisible absolute left-0 top-0 block w-full whitespace-normal wrap-break-word text-[15px] font-semibold leading-tight"
+      >
+        <span ref={measureNameRef}>{name}</span>
+        {renderSequence(true)}
+      </span>
+    </h3>
   )
 }
 
@@ -119,7 +219,10 @@ export function ForumView({
 }) {
   const [composing, setComposing] = useState(false)
   const [deletingFor, setDeletingFor] = useState<ForumThread | null>(null)
+  const [tagFades, setTagFades] = useState({ left: false, right: false })
   const newPostTriggerRef = useRef<HTMLButtonElement>(null)
+  const activeFilterRef = useRef<HTMLButtonElement>(null)
+  const tagScrollerRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const alignedTagRef = useRef<string | null>(null)
   // eslint-disable-next-line react-hooks/incompatible-library -- library limitation, same as member-list.tsx
@@ -135,11 +238,40 @@ export function ForumView({
   const filterTags = availableTags.length > 0
     ? availableTags
     : [...new Set(posts.flatMap((post) => post.tags))]
+  const filterTagKey = filterTags.join("\0")
+  const syncTagFades = useCallback(() => {
+    const scroller = tagScrollerRef.current
+    if (!scroller) return
+    const next = forumTagScrollFades(scroller)
+    setTagFades((current) => current.left === next.left && current.right === next.right ? current : next)
+  }, [])
   useLayoutEffect(() => {
     if (posts.length === 0 || alignedTagRef.current === tag) return
     alignedTagRef.current = tag
     virtualizer.scrollToIndex(0, { align: "start" })
   }, [posts.length, tag, virtualizer])
+  useLayoutEffect(() => {
+    const scroller = tagScrollerRef.current
+    const active = activeFilterRef.current
+    if (!scroller || !active) return
+    const scrollerRect = scroller.getBoundingClientRect()
+    const activeRect = active.getBoundingClientRect()
+    if (activeRect.left < scrollerRect.left) {
+      scroller.scrollLeft -= scrollerRect.left - activeRect.left
+    } else if (activeRect.right > scrollerRect.right) {
+      scroller.scrollLeft += activeRect.right - scrollerRect.right
+    }
+    syncTagFades()
+  }, [filterTagKey, syncTagFades, tag])
+  useLayoutEffect(() => {
+    const scroller = tagScrollerRef.current
+    if (!scroller) return
+    syncTagFades()
+    if (typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(syncTagFades)
+    observer.observe(scroller)
+    return () => observer.disconnect()
+  }, [filterTagKey, syncTagFades])
   const olderSentinelRef = useVirtualCursorSentinel({
     scrollRef,
     hasMore,
@@ -173,46 +305,94 @@ export function ForumView({
           }}
         />
       ) : (
-        <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-            {filterTags.length > 0 && (
-              <>
-                <button
-                  type="button"
-                  className={cn(
-                    "shrink-0 rounded-lg px-2.75 py-1 text-[13px] leading-5 transition-colors",
-                    tag === "All" ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-                  )}
-                  onClick={() => onTagChange("All")}
-                >
-                  All
-                </button>
-                {filterTags.map((t) => (
+        <div
+          data-testid={tid.forumFilterBar}
+          className="flex min-w-0 shrink-0 items-center gap-2 overflow-hidden border-b border-border px-4 py-2"
+        >
+          <div className="relative min-w-0 flex-1">
+            <div
+              ref={tagScrollerRef}
+              data-testid={tid.forumTagScroller}
+              role="region"
+              aria-label="Forum tag filters"
+              tabIndex={0}
+              onScroll={syncTagFades}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+                  event.preventDefault()
+                  event.currentTarget.scrollLeft += event.key === "ArrowLeft" ? -48 : 48
+                  syncTagFades()
+                } else if (event.key === "Home" || event.key === "End") {
+                  event.preventDefault()
+                  event.currentTarget.scrollLeft = event.key === "Home"
+                    ? 0
+                    : event.currentTarget.scrollWidth - event.currentTarget.clientWidth
+                  syncTagFades()
+                }
+              }}
+              className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar sm:flex-wrap sm:overflow-x-visible"
+            >
+              {filterTags.length > 0 && (
+                <>
                   <button
-                    key={t}
+                    ref={tag === "All" ? activeFilterRef : undefined}
                     type="button"
-                    style={tagColorStyle(t)}
+                    data-testid={tid.forumTagAll}
                     className={cn(
-                      "shrink-0 rounded-lg px-2.75 py-1 text-[13px] leading-5 transition-opacity",
-                      tagColorClassName,
-                      tag === t ? "opacity-100 ring-1 ring-current/20" : "opacity-70 hover:opacity-100",
+                      "shrink-0 rounded-lg px-2.75 py-1 text-[13px] leading-5 transition-colors",
+                      tag === "All" ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                     )}
-                    data-testid={tid.forumTagChip(t)}
-                    onClick={() => onTagChange(t)}
+                    onClick={() => onTagChange("All")}
                   >
-                    {`#${t}`}
+                    All
                   </button>
-                ))}
-              </>
+                  {filterTags.map((t) => (
+                    <button
+                      key={t}
+                      ref={tag === t ? activeFilterRef : undefined}
+                      type="button"
+                      style={tagColorStyle(t)}
+                      className={cn(
+                        "shrink-0 rounded-lg px-2.75 py-1 text-[13px] leading-5 transition-opacity",
+                        tagColorClassName,
+                        tag === t ? "opacity-100 ring-1 ring-current/20" : "opacity-70 hover:opacity-100",
+                      )}
+                      data-testid={tid.forumTagChip(t)}
+                      onClick={() => onTagChange(t)}
+                    >
+                      {`#${t}`}
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
+            {tagFades.left && (
+              <span
+                aria-hidden
+                data-testid={tid.forumTagFadeLeft}
+                className="pointer-events-none absolute inset-y-0 left-0 z-10 w-3.5 bg-linear-to-r from-background to-transparent sm:hidden"
+              />
+            )}
+            {tagFades.right && (
+              <span
+                aria-hidden
+                data-testid={tid.forumTagFadeRight}
+                className="pointer-events-none absolute inset-y-0 right-0 z-10 w-3.5 bg-linear-to-l from-background to-transparent sm:hidden"
+              />
             )}
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <Button size="sm" ref={newPostTriggerRef} onClick={() => setComposing(true)}><Plus className="size-4" /> New Post</Button>
+            <Button data-testid={tid.forumNewPost} size="sm" ref={newPostTriggerRef} onClick={() => setComposing(true)}><Plus className="size-4" /> New Post</Button>
           </div>
         </div>
       )}
 
-      <div ref={scrollRef} role="main" className="flex-1 overflow-y-auto thin-scrollbar px-4 py-2">
+      <div
+        ref={scrollRef}
+        role="main"
+        data-testid={tid.forumPostList}
+        className="flex-1 overflow-y-auto thin-scrollbar px-0 py-2 sm:px-4"
+      >
         {loading && posts.length === 0 ? (
           <ForumListSkeleton />
         ) : posts.length === 0 ? (
@@ -260,7 +440,7 @@ export function ForumView({
                               type="button"
                               data-testid={tid.forumThreadTagBtn(p.id)}
                               onClick={(event) => event.stopPropagation()}
-                              className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 data-popup-open:opacity-100 group-hover/card:opacity-100"
+                              className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground opacity-100 transition-opacity hover:bg-accent hover:text-foreground sm:size-6 sm:opacity-0 sm:focus-visible:opacity-100 sm:data-popup-open:opacity-100 sm:group-hover/card:opacity-100"
                               aria-label="Edit tags"
                             >
                               <Tag className="size-4" />
@@ -279,7 +459,7 @@ export function ForumView({
                         data-testid={tid.forumThreadDeleteBtn(p.id)}
                         disabled={deletingPost === p.id}
                         onClick={(e) => { e.stopPropagation(); setDeletingFor(p) }}
-                        className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-destructive focus-visible:opacity-100 group-hover/card:opacity-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground opacity-100 transition-opacity hover:bg-accent hover:text-destructive sm:size-6 sm:opacity-0 sm:focus-visible:opacity-100 sm:group-hover/card:opacity-100 disabled:cursor-not-allowed disabled:opacity-50"
                         aria-label="Delete post"
                       >
                         <Trash2 className="size-4" />
@@ -288,13 +468,11 @@ export function ForumView({
                     </div>
                   )}
 
-                  <div className="flex flex-wrap items-baseline gap-1.75 pr-14">
-                    <h3 className="max-w-full text-[15px] font-semibold leading-tight">{p.name}</h3>
-                    {p.parentSeq !== undefined && (
-                      <span className="shrink-0 font-mono text-[13px] font-medium text-muted-foreground">
-                        <span className="opacity-60">#</span>{p.parentSeq}
-                      </span>
-                    )}
+                  <div className={cn(
+                    "sm:pr-14",
+                    canEdit || canDelete ? "min-h-8 pr-16 sm:min-h-0" : "pr-0",
+                  )}>
+                    <ForumPostTitle name={p.name} postId={p.id} seq={p.parentSeq} />
                   </div>
                   <p className="mb-2.25 mt-0.75 line-clamp-2 text-[13.5px] text-muted-foreground">{p.preview}</p>
                   <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted-foreground">
