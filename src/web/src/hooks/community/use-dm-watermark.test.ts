@@ -5,7 +5,7 @@
  * channel-side coverage so a divergence between the two hooks would
  * surface here immediately.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // ── React shim ────────────────────────────────────────────────────────────
 let refs: Map<string, { current: unknown }> = new Map()
@@ -84,6 +84,8 @@ type MutationObserverInstance = {
   disconnected: boolean
 }
 let mutationObservers: MutationObserverInstance[] = []
+let documentVisibility: DocumentVisibilityState = "visible"
+let visibilityListeners = new Set<() => void>()
 
 class MockMutationObserver {
   private inst: MutationObserverInstance
@@ -136,6 +138,11 @@ function fireIntersections(
   }
 }
 
+function fireDocumentVisibility(state: DocumentVisibilityState) {
+  documentVisibility = state
+  for (const listener of visibilityListeners) listener()
+}
+
 // ── Mocks for the hook's imports ─────────────────────────────────────────
 const advanceSpy = vi.fn()
 const flushSpy = vi.fn()
@@ -158,6 +165,8 @@ function resetHarness() {
   effectCleanups = []
   observers = []
   mutationObservers = []
+  documentVisibility = "visible"
+  visibilityListeners = new Set()
   advanceSpy.mockClear()
   flushSpy.mockClear()
 }
@@ -188,11 +197,22 @@ function attachRows(root: HTMLElement, rows: Element[]) {
 
 beforeEach(() => {
   resetHarness()
-  ;(globalThis as unknown as { IntersectionObserver: unknown }).IntersectionObserver =
-    MockIntersectionObserver
-  ;(globalThis as unknown as { MutationObserver: unknown }).MutationObserver =
-    MockMutationObserver
+  vi.stubGlobal("IntersectionObserver", MockIntersectionObserver)
+  vi.stubGlobal("MutationObserver", MockMutationObserver)
+  vi.stubGlobal("document", {
+    get visibilityState() {
+      return documentVisibility
+    },
+    addEventListener: (type: string, listener: () => void) => {
+      if (type === "visibilitychange") visibilityListeners.add(listener)
+    },
+    removeEventListener: (type: string, listener: () => void) => {
+      if (type === "visibilitychange") visibilityListeners.delete(listener)
+    },
+  })
 })
+
+afterEach(() => vi.unstubAllGlobals())
 
 describe("useDmWatermark — virtualized rows (mounted on scroll, no messages change)", () => {
   it("observes a row the virtualizer mounts AFTER the initial seed, so scrolling clears unreads", async () => {
@@ -254,6 +274,29 @@ describe("useDmWatermark — visibility gate", () => {
     flushEffects()
     fireIntersections([{ target: row, isIntersecting: true, intersectionRatio: 0.1 }])
     expect(advanceSpy).not.toHaveBeenCalled()
+  })
+
+  it("does not advance while hidden and re-samples the same row after becoming visible", async () => {
+    const useHook = await loadHook()
+    const root = makeRoot()
+    const row = makeRow("m_1")
+    attachRows(root, [row])
+    useHook({
+      dmId: "dm_1",
+      messages: [
+        { id: "m_1", createdAt: "2026-07-01T00:00:00.000Z", authorId: "u_other" },
+      ],
+      scrollRootEl: root,
+    })
+    flushEffects()
+
+    fireDocumentVisibility("hidden")
+    fireIntersections([{ target: row, isIntersecting: true, intersectionRatio: 0.9 }])
+    expect(advanceSpy).not.toHaveBeenCalled()
+
+    fireDocumentVisibility("visible")
+    fireIntersections([{ target: row, isIntersecting: true, intersectionRatio: 0.9 }])
+    expect(advanceSpy).toHaveBeenCalledWith("dm_1", "m_1")
   })
 })
 

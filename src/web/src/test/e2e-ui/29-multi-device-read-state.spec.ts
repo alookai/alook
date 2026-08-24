@@ -251,6 +251,67 @@ test("a visible live tail clears both devices while an unseen tail stays unread"
   }).toBeGreaterThan(0)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
 
+  const setDeviceAVisibility = async (state: "hidden" | "visible") => {
+    await deviceA.page.evaluate((nextState) => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => nextState,
+      })
+      document.dispatchEvent(new Event("visibilitychange"))
+    }, state)
+    await expect.poll(() => deviceA.page.evaluate(() => document.visibilityState))
+      .toBe(state)
+  }
+  const beforeHidden = await (await deviceA.page.request.get(
+    "/api/community/users/me/read-state",
+  )).json() as {
+    revision: number
+    readStates: Array<{ channelId: string; lastReadSeq: number }>
+  }
+  const beforeHiddenSeq = beforeHidden.readStates
+    .find((row) => row.channelId === channelId)?.lastReadSeq
+  expect(beforeHiddenSeq).toBeGreaterThan(0)
+
+  const hiddenReadResponses: number[] = []
+  const trackHiddenReads = (response: { request: () => { method: () => string }; url: () => string; status: () => number }) => {
+    if (
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname === `/api/community/channels/${channelId}/read`
+    ) hiddenReadResponses.push(response.status())
+  }
+  deviceA.page.on("response", trackHiddenReads)
+  await setDeviceAVisibility("hidden")
+  const hiddenStarts = [proxyA.frames.length, proxyB.frames.length]
+  const hiddenBody = `hidden live tail ${stamp}`
+  await seedMessage("alice", channelId, hiddenBody)
+  await expect(deviceA.page.getByText(hiddenBody, { exact: true })).toBeVisible()
+  for (const [proxy, start] of [[proxyA, hiddenStarts[0]], [proxyB, hiddenStarts[1]]] as const) {
+    await expect.poll(() => unreadBumpsSince(proxy.frames, start!, channelId).length, {
+      timeout: 20_000,
+    }).toBeGreaterThan(0)
+  }
+  await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible()
+  await deviceA.page.waitForTimeout(1_000)
+  expect(hiddenReadResponses).toEqual([])
+  const afterHidden = await (await deviceA.page.request.get(
+    "/api/community/users/me/read-state",
+  )).json() as {
+    revision: number
+    readStates: Array<{ channelId: string; lastReadSeq: number }>
+  }
+  expect(afterHidden.revision).toBe(beforeHidden.revision)
+  expect(afterHidden.readStates.find((row) => row.channelId === channelId)?.lastReadSeq)
+    .toBe(beforeHiddenSeq)
+
+  const foregroundRead = deviceA.page.waitForResponse((response) =>
+    response.request().method() === "PUT"
+    && new URL(response.url()).pathname === `/api/community/channels/${channelId}/read`,
+  )
+  await setDeviceAVisibility("visible")
+  expect((await foregroundRead).status()).toBe(200)
+  await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
+  deviceA.page.off("response", trackHiddenReads)
+
   const beforeUnseen = await (await deviceA.page.request.get(
     "/api/community/users/me/read-state",
   )).json() as {

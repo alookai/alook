@@ -64,6 +64,13 @@ export function useDmWatermark({
 
     const observer = new IntersectionObserver(
       (entries) => {
+        // Intersection is only geometric. A hidden/background tab can retain
+        // the same layout at the tail and must not clear another device's DM
+        // unread state until the document is genuinely visible again.
+        if (
+          typeof document !== "undefined"
+          && document.visibilityState !== "visible"
+        ) return
         for (const entry of entries) {
           if (!entry.isIntersecting) continue
           if (entry.intersectionRatio < READ_VISIBILITY_THRESHOLD) continue
@@ -99,6 +106,21 @@ export function useDmWatermark({
     const nodes = scrollRootEl.querySelectorAll<HTMLElement>("[data-msg-id]")
     nodes.forEach((n) => observer.observe(n))
 
+    // Hidden → visible may not produce an IntersectionObserver edge. Mirror
+    // the channel hook and re-observe current rows so a still-visible row is
+    // sampled and advanced only after foreground restoration.
+    const handleDocumentVisibility = () => {
+      if (document.visibilityState !== "visible") return
+      const visibleNodes = scrollRootEl.querySelectorAll<HTMLElement>("[data-msg-id]")
+      visibleNodes.forEach((node) => {
+        observer.unobserve(node)
+        observer.observe(node)
+      })
+    }
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleDocumentVisibility)
+    }
+
     // The message list is virtualized — rows mount/unmount as the user
     // scrolls, WITHOUT any `messages` array change to re-run this effect.
     // Mirrors the channel hook: watch the scroll root for added
@@ -123,6 +145,9 @@ export function useDmWatermark({
     }
 
     return () => {
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleDocumentVisibility)
+      }
       observer.disconnect()
       mutationObserver?.disconnect()
     }

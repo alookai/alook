@@ -5,7 +5,7 @@
  * lightweight IO polyfill on `globalThis` that records the callback and
  * exposes a `trigger()` helper so tests can simulate intersections.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // ── React shim ────────────────────────────────────────────────────────────
 // Positional hooks, React-faithful: `useRef`/`useEffect` are keyed by call
@@ -120,6 +120,8 @@ type MutationObserverInstance = {
   disconnected: boolean
 }
 let mutationObservers: MutationObserverInstance[] = []
+let documentVisibility: DocumentVisibilityState = "visible"
+let visibilityListeners = new Set<() => void>()
 
 class MockMutationObserver {
   private inst: MutationObserverInstance
@@ -175,6 +177,11 @@ function fireIntersections(
   }
 }
 
+function fireDocumentVisibility(state: DocumentVisibilityState) {
+  documentVisibility = state
+  for (const listener of visibilityListeners) listener()
+}
+
 // ── Mocks for the hook's imports ─────────────────────────────────────────
 const advanceSpy = vi.fn()
 const flushSpy = vi.fn()
@@ -200,6 +207,8 @@ function resetHarness() {
   effectCleanups = []
   observers = []
   mutationObservers = []
+  documentVisibility = "visible"
+  visibilityListeners = new Set()
   advanceSpy.mockClear()
   flushSpy.mockClear()
 }
@@ -242,11 +251,22 @@ beforeEach(() => {
   resetHarness()
   // Install IO polyfill on globalThis so `typeof IntersectionObserver` is
   // "function" inside the hook.
-  ;(globalThis as unknown as { IntersectionObserver: unknown }).IntersectionObserver =
-    MockIntersectionObserver
-  ;(globalThis as unknown as { MutationObserver: unknown }).MutationObserver =
-    MockMutationObserver
+  vi.stubGlobal("IntersectionObserver", MockIntersectionObserver)
+  vi.stubGlobal("MutationObserver", MockMutationObserver)
+  vi.stubGlobal("document", {
+    get visibilityState() {
+      return documentVisibility
+    },
+    addEventListener: (type: string, listener: () => void) => {
+      if (type === "visibilitychange") visibilityListeners.add(listener)
+    },
+    removeEventListener: (type: string, listener: () => void) => {
+      if (type === "visibilitychange") visibilityListeners.delete(listener)
+    },
+  })
 })
+
+afterEach(() => vi.unstubAllGlobals())
 
 // A message NEWER than everything in the mount window — used to exercise the
 // watermark's advance path under the read-dedupe seed (the mount window is
@@ -326,6 +346,29 @@ describe("useChannelWatermark — visibility gate", () => {
     flushEffects()
     fireIntersections([{ target: row, isIntersecting: false, intersectionRatio: 0.9 }])
     expect(advanceSpy).not.toHaveBeenCalled()
+  })
+
+  it("does not advance while hidden and re-samples the same row after becoming visible", async () => {
+    const useHook = await loadHook()
+    const root = makeRoot()
+    const rows = mountThenArrive(useHook, root, [NEWER])
+    attachRows(root, [rows[NEWER.id]!])
+
+    fireDocumentVisibility("hidden")
+    fireIntersections([{
+      target: rows[NEWER.id]!,
+      isIntersecting: true,
+      intersectionRatio: 0.9,
+    }])
+    expect(advanceSpy).not.toHaveBeenCalled()
+
+    fireDocumentVisibility("visible")
+    fireIntersections([{
+      target: rows[NEWER.id]!,
+      isIntersecting: true,
+      intersectionRatio: 0.9,
+    }])
+    expect(advanceSpy).toHaveBeenCalledWith("ch_1", NEWER.id)
   })
 })
 

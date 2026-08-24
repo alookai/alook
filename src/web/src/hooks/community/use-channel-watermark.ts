@@ -118,6 +118,13 @@ export function useChannelWatermark({
 
     const observer = new IntersectionObserver(
       (entries) => {
+        // IntersectionObserver reports geometry, not whether the document is
+        // actually in the foreground. A background tab can remain intersecting
+        // at the tail; advancing there would incorrectly clear another device.
+        if (
+          typeof document !== "undefined"
+          && document.visibilityState !== "visible"
+        ) return
         for (const entry of entries) {
           if (!entry.isIntersecting) continue
           if (entry.intersectionRatio < READ_VISIBILITY_THRESHOLD) continue
@@ -151,6 +158,22 @@ export function useChannelWatermark({
     const nodes = scrollRootEl.querySelectorAll<HTMLElement>("[data-msg-id]")
     nodes.forEach((n) => observer.observe(n))
 
+    // Geometry may not change while a tab is hidden, so IntersectionObserver
+    // is not required to emit another entry when the document becomes visible.
+    // Re-observe the currently-rendered rows on foreground restoration to
+    // request a fresh visibility sample without advancing while hidden.
+    const handleDocumentVisibility = () => {
+      if (document.visibilityState !== "visible") return
+      const visibleNodes = scrollRootEl.querySelectorAll<HTMLElement>("[data-msg-id]")
+      visibleNodes.forEach((node) => {
+        observer.unobserve(node)
+        observer.observe(node)
+      })
+    }
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleDocumentVisibility)
+    }
+
     // The message list is virtualized — rows mount/unmount as the user
     // scrolls, WITHOUT any `messages` array change to re-run this effect.
     // A one-time `querySelectorAll` seed above therefore only ever covers
@@ -176,6 +199,9 @@ export function useChannelWatermark({
     }
 
     return () => {
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleDocumentVisibility)
+      }
       observer.disconnect()
       mutationObserver?.disconnect()
     }
