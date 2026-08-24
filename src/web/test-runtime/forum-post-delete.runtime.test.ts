@@ -216,6 +216,33 @@ afterEach(async () => {
 });
 
 describe("deleteForumPost real D1 batch", () => {
+  it("deletes without a revision statement when no human read-state effect exists", async () => {
+    const { id } = await seedCanonicalPost();
+    await run(
+      "DELETE FROM community_mention WHERE message_id IN (?, ?)",
+      id.opener,
+      id.reply,
+    );
+    await run(
+      "DELETE FROM community_read_state WHERE channel_id IN (?, ?)",
+      id.forum,
+      id.child,
+    );
+
+    const db = createDb(runtimeEnv.DB);
+    const result = await queries.communityForumPostDelete.deleteForumPost(db, {
+      openerId: id.opener,
+      openerSeq: 3,
+      forumChannelId: id.forum,
+      childChannelId: id.child,
+    });
+
+    expect(result.deleted).toBe(true);
+    expect(result.readStateRevisions).toEqual([]);
+    expect(await first("SELECT id FROM community_message WHERE id = ?", id.opener)).toBeNull();
+    expect(await first("SELECT id FROM community_channel WHERE id = ?", id.child)).toBeNull();
+  });
+
   it("versions mention-only owners and repairs every ordinary pointer in one delete batch", async () => {
     const { id, t2 } = await seedCanonicalPost();
     const mentionOnly = `fpd_mention_${crypto.randomUUID().replaceAll("-", "")}`;

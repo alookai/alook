@@ -200,6 +200,23 @@ describe("account read-state reconciliation", () => {
     })
   })
 
+  it("immediately refetches when a successful snapshot remains below the live target", async () => {
+    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+      revision: 4,
+      readStates: [],
+    })
+    apiFetch
+      .mockResolvedValueOnce({ revision: 4, readStates: [] })
+      .mockResolvedValueOnce({ revision: 5, readStates: [] })
+
+    await expect(reconcileAccountReadState(queryClient, {
+      invalidateSurfaces: false,
+      targetRevision: 5,
+    })).resolves.toEqual({ revision: 5, readStates: [] })
+
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+  })
+
   it("retains a live target after a transient snapshot failure and lets a later caller take over", async () => {
     queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
       revision: 4,

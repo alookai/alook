@@ -176,6 +176,19 @@ describe("useTimelineReadObserver", () => {
     })
   })
 
+  it("keeps observing visible rows when MutationObserver is unavailable", () => {
+    vi.stubGlobal("MutationObserver", undefined)
+    const { row } = useTestRender()
+    const cleanups = runEffects()
+
+    expect(observers).toHaveLength(1)
+    trigger(observers[0]!, row)
+    expect(coordinator.submit).toHaveBeenCalledOnce()
+
+    for (const cleanup of cleanups) cleanup()
+    expect(observers[0]!.disconnected).toBe(true)
+  })
+
   it("submits only the visible forum-card prefix candidate and preserves unseen newer siblings", () => {
     const rows = [makeRow("opener-a"), makeRow("opener-b"), makeRow("opener-c")]
     const root = makeRoot(rows)
