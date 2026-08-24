@@ -563,6 +563,11 @@ for await (const line of createInterface({ input: process.stdin })) {
   it("resets self-sleep only for newer wakes and suspends it while an agent works", async () => {
     const sockets: FakeSocket[] = [];
     const sessions: DaemonFakeSession[] = [];
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "daemon-self-sleep-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    // The real driver SDK prepares the agent directory before session_started.
+    // This test uses a fake session, so reproduce that precondition explicitly.
+    mkdirSync(join(workingDirectoryBase, "bot_1"));
     const timers: Array<{
       callback: () => void;
       delayMs: number;
@@ -603,6 +608,7 @@ for await (const line of createInterface({ input: process.stdin })) {
         return session;
       },
       capabilities: [],
+      workingDirectoryBase,
       onSelfSleep,
       selfSleepClock: clock,
     });
