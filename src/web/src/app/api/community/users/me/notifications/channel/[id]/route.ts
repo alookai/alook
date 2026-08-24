@@ -10,7 +10,6 @@ async function broadcastSnapshot(userId: string, snapshot: queries.communityRead
   await broadcastToUserSafe(userId, {
     type: WS_EVENTS.READ_STATE_ADVANCED,
     revision: snapshot.revision,
-    readStates: snapshot.readStates,
     inboxChanged: true,
   })
 }

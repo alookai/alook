@@ -27,7 +27,6 @@ async function hardDeleteMessageAndBroadcastReadState(db: Database, messageId: s
     await broadcastToUserSafe(snapshot.userId, {
       type: WS_EVENTS.READ_STATE_ADVANCED,
       revision: snapshot.revision,
-      readStates: snapshot.readStates,
       inboxChanged: true,
     })
   }
@@ -713,7 +712,6 @@ export async function createCommunityMessage(params: {
       deliveries.push(broadcastToUserSafe(authorId, {
         type: WS_EVENTS.READ_STATE_ADVANCED,
         revision: readStateSnapshot.revision,
-        readStates: readStateSnapshot.readStates,
         inboxChanged: true,
       }))
     }

@@ -63,7 +63,8 @@ describe("human account read-state writer contract", () => {
     expect(cascadeDelete).toContain("deleteServerWithMediaAttempt(db, input, attempt + 1)")
 
     const event = source("src/shared/src/community-ws-events.ts")
-    expect(event).toContain("readStates:")
+    expect(event).toContain("bounded dirty hint")
+    expect(event).not.toContain("readStates: z.array")
     expect(event).not.toContain("advances:")
   })
 

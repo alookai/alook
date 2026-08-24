@@ -35,7 +35,6 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     await broadcastToUserSafe(ctx.userId, {
       type: WS_EVENTS.READ_STATE_ADVANCED,
       revision: result.readStateSnapshot.revision,
-      readStates: result.readStateSnapshot.readStates,
       inboxChanged: true,
     })
   }

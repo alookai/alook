@@ -416,7 +416,6 @@ describe("createCommunityMessage — committed delivery handoff", () => {
     await vi.waitFor(() => expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("author_1", {
       type: "community:read_state.advanced",
       revision: 12,
-      readStates,
       inboxChanged: true,
     }))
   })

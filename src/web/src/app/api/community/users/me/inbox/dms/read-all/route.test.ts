@@ -57,7 +57,6 @@ describe("POST /api/community/users/me/inbox/dms/read-all", () => {
     expect(mocks.broadcast).toHaveBeenCalledWith("u1", {
       type: "community:inbox.changed",
       revision: 8,
-      readStates,
       inboxChanged: true,
       reason: "read_all",
     })

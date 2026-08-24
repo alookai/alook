@@ -356,21 +356,12 @@ const communityUnreadBumpSchema = z.strictObject({
   isMention: z.boolean().optional(),
 })
 
-const communityReadStateAdvanceSchema = z.strictObject({
-  channelId: string,
-  lastReadMessageId: nullableString,
-  lastReadAt: string,
-  lastReadSeq: z.number().int().nonnegative(),
-})
-
 const readStateEnvelopeFields = {
   revision: z.number().int().positive(),
-  // Exact-next frames carry a complete replacement, not a monotone delta.
-  // Destructive writers (forum/channel/server delete) can regress or remove a
-  // row, so a delta-only envelope cannot preserve the revision=snapshot
-  // invariant. Empty is valid when the mutation removed the account's final
-  // read-state row.
-  readStates: z.array(communityReadStateAdvanceSchema),
+  // This is deliberately a bounded dirty hint rather than an account-sized
+  // snapshot. The receiver fetches the authoritative replacement at (at
+  // least) this revision, which preserves destructive regression/removal
+  // semantics without ever exceeding the single-frame byte limit.
   inboxChanged: z.literal(true),
 }
 

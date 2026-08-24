@@ -30,30 +30,6 @@ import {
   reconcileAccountReadState,
 } from "./read-state-reconciliation"
 
-function invalidateReadStateDerived({ projection, queryClient }: SocialEventContext) {
-  projection.invalidate("read-state-inbox", {
-    queryKey: communityKeys.inbox(),
-  })
-  projection.invalidate("read-state-dms", {
-    queryKey: communityKeys.dms(),
-  })
-  invalidateServersList(projection)
-  for (const query of queryClient.getQueryCache().getAll()) {
-    const key = query.queryKey
-    if (
-      key[0] === "community"
-      && key[1] === "servers"
-      && typeof key[2] === "string"
-      && key.length === 3
-    ) {
-      projection.invalidate(`read-state-server-${key[2]}`, {
-        queryKey: communityKeys.server(key[2]),
-        exact: true,
-      })
-    }
-  }
-}
-
 export function handleReadStateAdvanced(
   event: CommunityReadStateAdvanced,
   context: SocialEventContext,
@@ -67,10 +43,10 @@ function applyReadStateEnvelope(
 ) {
   const outcome = projectReadStateEnvelope(context.queryClient, event)
   if (outcome === "gap") {
-    void reconcileAccountReadState(context.queryClient).catch(() => undefined)
-    return
+    void reconcileAccountReadState(context.queryClient, {
+      targetRevision: event.revision,
+    }).catch(() => undefined)
   }
-  if (outcome === "applied") invalidateReadStateDerived(context)
 }
 
 export function handleInboxChanged(

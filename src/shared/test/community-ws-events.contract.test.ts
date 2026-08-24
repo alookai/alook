@@ -95,25 +95,41 @@ describe("Community browser event runtime contract", () => {
     }
   })
 
-  it("requires one complete read-state effects envelope per revision", () => {
+  it("uses a bounded read-state dirty hint instead of an account-sized frame", () => {
     expect(decodeCommunityBrowserEvent({
       type: "community:read_state.advanced",
       revision: 4,
       inboxChanged: true,
-    })).toMatchObject({ reason: "invalid-payload" })
+    })).toMatchObject({ ok: true })
     expect(decodeCommunityBrowserEvent({
       type: "community:inbox.changed",
       revision: 5,
-      inboxChanged: true,
-      reason: "read_all",
-    })).toMatchObject({ reason: "invalid-payload" })
-    expect(decodeCommunityBrowserEvent({
-      type: "community:inbox.changed",
-      revision: 5,
-      readStates: [],
       inboxChanged: true,
       reason: "read_all",
     })).toMatchObject({ ok: true })
+
+    const accountSizedFrame = {
+      type: "community:read_state.advanced",
+      revision: 4,
+      readStates: Array.from({ length: 500 }, (_, index) => ({
+        channelId: `channel-${index}-${"c".repeat(72)}`,
+        lastReadMessageId: `message-${index}-${"m".repeat(72)}`,
+        lastReadAt: "2026-08-24T00:00:00.000Z",
+        lastReadSeq: index,
+      })),
+      inboxChanged: true,
+    }
+    expect(utf8ByteLength(JSON.stringify(accountSizedFrame)))
+      .toBeGreaterThan(COMMUNITY_BROWSER_EVENT_MAX_BYTES)
+    expect(decodeCommunityBrowserEvent(accountSizedFrame))
+      .toMatchObject({ ok: false, reason: "invalid-payload" })
+    const encodedHint = encodeCommunityBrowserEvent({
+      type: "community:read_state.advanced",
+      revision: 4,
+      inboxChanged: true,
+    })
+    expect(encodedHint).toMatchObject({ ok: true })
+    if (encodedHint.ok) expect(encodedHint.byteLength).toBeLessThan(128)
   })
 
   it("fails closed for family, removed-version, shape, and strict-key errors", () => {

@@ -83,7 +83,6 @@ describe("POST /api/community/users/me/inbox/unreads/read-all", () => {
     expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("u1", {
       type: "community:inbox.changed",
       revision: 3,
-      readStates,
       inboxChanged: true,
       reason: "read_all",
     })

@@ -21,130 +21,48 @@ describe("account read-state reconciliation", () => {
     apiFetch.mockReset()
   })
 
-  it("applies an exact-next complete replacement, including a legitimate regression", () => {
-    const snapshot: AccountReadStateSnapshot = {
-      revision: 4,
-      readStates: [{
-        channelId: "c1",
-        lastReadMessageId: "m9",
-        lastReadAt: "2026-08-24T00:00:09.000Z",
-        lastReadSeq: 9,
-      }],
-    }
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), snapshot)
-    queryClient.setQueryData(communityKeys.channelReadStateSnapshot("c1"), {
-      lastReadMessageId: "m9",
-      lastReadAt: "2026-08-24T00:00:09.000Z",
-      lastReadSeq: 9,
-    })
-
-    expect(projectReadStateEnvelope(queryClient, {
-      revision: 5,
-      readStates: [{
-        channelId: "c1",
-        lastReadMessageId: "m7",
-        lastReadAt: "2026-08-24T00:00:07.000Z",
-        lastReadSeq: 7,
-      }],
-      inboxChanged: true,
-    })).toBe("applied")
-    expect(queryClient.getQueryData<AccountReadStateSnapshot>(
-      communityKeys.accountReadStateSnapshot(),
-    )).toEqual({
-      revision: 5,
-      readStates: [{
-        channelId: "c1",
-        lastReadMessageId: "m7",
-        lastReadAt: "2026-08-24T00:00:07.000Z",
-        lastReadSeq: 7,
-      }],
-    })
-    expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("c1"))).toMatchObject({
-      lastReadMessageId: "m7",
-      lastReadSeq: 7,
-    })
-  })
-
-  it("ignores stale revisions and reports unknown or skipped revisions as gaps", () => {
+  it("treats every newer bounded hint as an authoritative-snapshot gap", () => {
     queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
       revision: 6,
       readStates: [],
     })
-    const advance = {
-      channelId: "c1",
-      lastReadMessageId: "m1",
-      lastReadAt: "2026-08-24T00:00:01.000Z",
-      lastReadSeq: 1,
-    }
     expect(projectReadStateEnvelope(queryClient, {
       revision: 6,
-      readStates: [advance],
       inboxChanged: true,
     })).toBe("stale")
     expect(projectReadStateEnvelope(queryClient, {
+      revision: 7,
+      inboxChanged: true,
+    })).toBe("gap")
+    expect(projectReadStateEnvelope(queryClient, {
       revision: 8,
-      readStates: [advance],
       inboxChanged: true,
     })).toBe("gap")
     queryClient.removeQueries({ queryKey: communityKeys.accountReadStateSnapshot() })
     expect(projectReadStateEnvelope(queryClient, {
       revision: 1,
-      readStates: [advance],
       inboxChanged: true,
     })).toBe("gap")
   })
 
-  it("applies every advance in one exact-next read-all envelope", () => {
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 2,
-      readStates: [],
-    })
-    queryClient.setQueryData(communityKeys.channelReadStateSnapshot("c1"), { lastReadSeq: 0 })
-    queryClient.setQueryData(communityKeys.dmReadStateSnapshot("dm1"), { lastReadSeq: 0 })
-
-    expect(projectReadStateEnvelope(queryClient, {
-      revision: 3,
-      readStates: [{
-        channelId: "c1",
-        lastReadMessageId: "m4",
-        lastReadAt: "2026-08-24T00:00:04.000Z",
-        lastReadSeq: 4,
-      }, {
-        channelId: "dm1",
-        lastReadMessageId: "m8",
-        lastReadAt: "2026-08-24T00:00:08.000Z",
-        lastReadSeq: 8,
-      }],
-      inboxChanged: true,
-    })).toBe("applied")
-    expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("c1"))).toMatchObject({
-      lastReadMessageId: "m4",
-      lastReadSeq: 4,
-    })
-    expect(queryClient.getQueryData(communityKeys.dmReadStateSnapshot("dm1"))).toMatchObject({
-      lastReadMessageId: "m8",
-      lastReadSeq: 8,
-    })
-  })
-
-  it("loads the authoritative snapshot and projects cached channel and DM rows", async () => {
+  it("loads the authoritative full replacement, including regression and removal", async () => {
     queryClient.setQueryData(communityKeys.channelReadStateSnapshot("c1"), { lastReadSeq: 1 })
     queryClient.setQueryData(communityKeys.dmReadStateSnapshot("dm1"), { lastReadSeq: 2 })
     apiFetch.mockResolvedValue({
       revision: 10,
       readStates: [{
         channelId: "c1",
-        lastReadMessageId: "m5",
-        lastReadAt: "2026-08-24T00:00:05.000Z",
-        lastReadSeq: 5,
+        lastReadMessageId: "m0",
+        lastReadAt: "2026-08-24T00:00:00.000Z",
+        lastReadSeq: 0,
       }],
     })
 
     await reconcileAccountReadState(queryClient, { invalidateSurfaces: false })
     expect(apiFetch).toHaveBeenCalledWith("/api/community/users/me/read-state", expect.objectContaining({ signal: expect.any(AbortSignal) }))
     expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("c1"))).toMatchObject({
-      lastReadMessageId: "m5",
-      lastReadSeq: 5,
+      lastReadMessageId: "m0",
+      lastReadSeq: 0,
     })
     expect(queryClient.getQueryData(communityKeys.dmReadStateSnapshot("dm1"))).toEqual({
       lastReadMessageId: null,
@@ -170,42 +88,62 @@ describe("account read-state reconciliation", () => {
     ])
   })
 
-  it("drops a delayed snapshot after a newer exact-next event is applied", async () => {
-    let release!: (snapshot: AccountReadStateSnapshot) => void
-    apiFetch.mockReturnValue(new Promise<AccountReadStateSnapshot>((resolve) => {
-      release = resolve
-    }))
-    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
-      revision: 6,
-      readStates: [],
-    })
+  it("does not lose a live revision behind a cold auth snapshot in flight", async () => {
+    let releaseAuth!: (snapshot: AccountReadStateSnapshot) => void
+    let releaseFresh!: (snapshot: AccountReadStateSnapshot) => void
+    apiFetch
+      .mockReturnValueOnce(new Promise<AccountReadStateSnapshot>((resolve) => {
+        releaseAuth = resolve
+      }))
+      .mockReturnValueOnce(new Promise<AccountReadStateSnapshot>((resolve) => {
+        releaseFresh = resolve
+      }))
     queryClient.setQueryData(communityKeys.channelReadStateSnapshot("c1"), { lastReadSeq: 0 })
+    queryClient.setQueryData(communityKeys.dmReadStateSnapshot("removed"), { lastReadSeq: 4 })
 
-    const reconciliation = reconcileAccountReadState(queryClient, { invalidateSurfaces: false })
+    const auth = reconcileAccountReadState(queryClient, { invalidateSurfaces: false })
     expect(projectReadStateEnvelope(queryClient, {
-      revision: 7,
-      readStates: [{
-        channelId: "c1",
-        lastReadMessageId: "m7",
-        lastReadAt: "2026-08-24T00:00:07.000Z",
-        lastReadSeq: 7,
-      }],
+      revision: 5,
       inboxChanged: true,
-    })).toBe("applied")
-    release({
-      revision: 6,
+    })).toBe("gap")
+    const live = reconcileAccountReadState(queryClient, {
+      invalidateSurfaces: false,
+      targetRevision: 5,
+    })
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+
+    releaseAuth({ revision: 4, readStates: [] })
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
+    releaseFresh({
+      revision: 5,
       readStates: [{
         channelId: "c1",
-        lastReadMessageId: "m3",
-        lastReadAt: "2026-08-24T00:00:03.000Z",
-        lastReadSeq: 3,
+        lastReadMessageId: "m5",
+        lastReadAt: "2026-08-24T00:00:05.000Z",
+        lastReadSeq: 5,
       }],
     })
 
-    await expect(reconciliation).resolves.toMatchObject({ revision: 7 })
+    await expect(Promise.all([auth, live])).resolves.toEqual([
+      { revision: 4, readStates: [] },
+      {
+        revision: 5,
+        readStates: [{
+          channelId: "c1",
+          lastReadMessageId: "m5",
+          lastReadAt: "2026-08-24T00:00:05.000Z",
+          lastReadSeq: 5,
+        }],
+      },
+    ])
     expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("c1"))).toMatchObject({
-      lastReadMessageId: "m7",
-      lastReadSeq: 7,
+      lastReadMessageId: "m5",
+      lastReadSeq: 5,
+    })
+    expect(queryClient.getQueryData(communityKeys.dmReadStateSnapshot("removed"))).toEqual({
+      lastReadMessageId: null,
+      lastReadAt: null,
+      lastReadSeq: 0,
     })
   })
 })

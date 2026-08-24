@@ -31,7 +31,7 @@ describe("same-account read-state WS events", () => {
     apiFetch.mockReset()
   })
 
-  it("projects an exact next read revision into cached read-state", () => {
+  it("pulls and projects the authoritative replacement for an exact-next hint", async () => {
     queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
       revision: 2,
       readStates: [],
@@ -42,8 +42,7 @@ describe("same-account read-state WS events", () => {
       lastReadSeq: 0,
     })
 
-    dispatchCommunityWsEvent({
-      type: "community:read_state.advanced",
+    apiFetch.mockResolvedValue({
       revision: 3,
       readStates: [{
         channelId: "dm1",
@@ -51,14 +50,20 @@ describe("same-account read-state WS events", () => {
         lastReadAt: "2026-08-24T00:00:04.000Z",
         lastReadSeq: 4,
       }],
+    })
+    dispatchCommunityWsEvent({
+      type: "community:read_state.advanced",
+      revision: 3,
       inboxChanged: true,
     }, context(queryClient))
 
-    expect(queryClient.getQueryData(communityKeys.dmReadStateSnapshot("dm1"))).toMatchObject({
+    await vi.waitFor(() => expect(queryClient.getQueryData(
+      communityKeys.dmReadStateSnapshot("dm1"),
+    )).toMatchObject({
       lastReadMessageId: "m4",
       lastReadSeq: 4,
-    })
-    expect(apiFetch).not.toHaveBeenCalled()
+    }))
+    expect(apiFetch).toHaveBeenCalledTimes(1)
   })
 
   it("repairs a revision gap from the authoritative snapshot", async () => {
@@ -79,12 +84,6 @@ describe("same-account read-state WS events", () => {
     dispatchCommunityWsEvent({
       type: "community:read_state.advanced",
       revision: 5,
-      readStates: [{
-        channelId: "c1",
-        lastReadMessageId: "m5",
-        lastReadAt: "2026-08-24T00:00:05.000Z",
-        lastReadSeq: 5,
-      }],
       inboxChanged: true,
     }, context(queryClient))
 
@@ -94,15 +93,14 @@ describe("same-account read-state WS events", () => {
     expect(apiFetch).toHaveBeenCalledTimes(1)
   })
 
-  it("applies a complete read-all envelope and ignores its stale replay", async () => {
+  it("pulls one full read-all replacement and ignores its stale replay", async () => {
     queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
       revision: 7,
       readStates: [],
     })
     queryClient.setQueryData(communityKeys.channelReadStateSnapshot("c1"), { lastReadSeq: 0 })
 
-    const event = {
-      type: "community:inbox.changed",
+    apiFetch.mockResolvedValue({
       revision: 8,
       readStates: [{
         channelId: "c1",
@@ -110,16 +108,23 @@ describe("same-account read-state WS events", () => {
         lastReadAt: "2026-08-24T00:00:08.000Z",
         lastReadSeq: 8,
       }],
+    })
+
+    const event = {
+      type: "community:inbox.changed",
+      revision: 8,
       inboxChanged: true,
       reason: "read_all",
     } as const
     dispatchCommunityWsEvent(event, context(queryClient))
-    expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("c1"))).toMatchObject({
+    await vi.waitFor(() => expect(queryClient.getQueryData(
+      communityKeys.channelReadStateSnapshot("c1"),
+    )).toMatchObject({
       lastReadSeq: 8,
-    })
-    expect(apiFetch).not.toHaveBeenCalled()
+    }))
+    expect(apiFetch).toHaveBeenCalledTimes(1)
 
     dispatchCommunityWsEvent(event, context(queryClient))
-    expect(apiFetch).not.toHaveBeenCalled()
+    expect(apiFetch).toHaveBeenCalledTimes(1)
   })
 })

@@ -55,7 +55,6 @@ describe("human DM notification settings", () => {
     expect(broadcastToUserSafe).toHaveBeenCalledWith("user_1", {
       type: "community:read_state.advanced",
       revision: 2,
-      readStates: [],
       inboxChanged: true,
     })
   })

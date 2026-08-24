@@ -200,7 +200,6 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   await Promise.all((result.readStateSnapshots ?? []).map((snapshot) => broadcastToUserSafe(snapshot.userId, {
     type: WS_EVENTS.READ_STATE_ADVANCED,
     revision: snapshot.revision,
-    readStates: snapshot.readStates,
     inboxChanged: true,
   })))
 

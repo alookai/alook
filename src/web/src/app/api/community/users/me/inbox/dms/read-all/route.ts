@@ -19,7 +19,6 @@ export const POST = withAuth(async (_req, ctx) => {
     await broadcastToUserSafe(ctx.userId, {
       type: WS_EVENTS.INBOX_CHANGED,
       revision: snapshot.revision,
-      readStates: snapshot.readStates,
       inboxChanged: true,
       reason: "read_all",
     })

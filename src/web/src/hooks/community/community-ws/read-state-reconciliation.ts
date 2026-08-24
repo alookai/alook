@@ -16,7 +16,6 @@ export type AccountReadStateSnapshot = {
 
 export type ReadStateEnvelope = {
   revision: number
-  readStates: AccountReadState[]
   inboxChanged: true
 }
 
@@ -62,6 +61,14 @@ function applyAccountReadStateSnapshot(
     communityKeys.accountReadStateSnapshot(),
   )
   if (current && snapshot.revision < current.revision) return "stale" as const
+  if (current?.revision === snapshot.revision) {
+    // Same revision is the same authoritative account snapshot by contract.
+    // Re-project leaf caches in case one mounted after the first application,
+    // but do not trigger a second round of derived-surface refetches when
+    // concurrent auth/live reconciliations joined the same HTTP request.
+    projectReadStateRows(queryClient, snapshot)
+    return "stale" as const
+  }
   notifyManager.batch(() => {
     queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), snapshot)
     projectReadStateRows(queryClient, snapshot)
@@ -98,33 +105,51 @@ async function invalidateReadStateSurfaces(queryClient: QueryClient) {
 
 export async function reconcileAccountReadState(
   queryClient: QueryClient,
-  options: { invalidateSurfaces?: boolean } = {},
+  options: { invalidateSurfaces?: boolean; targetRevision?: number } = {},
 ) {
-  let request = inFlightReconciliations.get(queryClient)
-  if (!request) {
-    const controller = new AbortController()
-    request = apiFetch<AccountReadStateSnapshot>(
-      "/api/community/users/me/read-state",
-      { signal: controller.signal },
-    ).finally(() => inFlightReconciliations.delete(queryClient))
-    inFlightReconciliations.set(queryClient, request)
-  }
-  const snapshot = await request
-  const outcome = applyAccountReadStateSnapshot(queryClient, snapshot)
-  if (outcome === "applied" && options.invalidateSurfaces !== false) {
+  let applied = false
+  let snapshot: AccountReadStateSnapshot
+  do {
+    let request = inFlightReconciliations.get(queryClient)
+    if (!request) request = startAccountReadStateRequest(queryClient)
+    snapshot = await request
+    if (applyAccountReadStateSnapshot(queryClient, snapshot) === "applied") applied = true
+    const currentRevision = queryClient.getQueryData<AccountReadStateSnapshot>(
+      communityKeys.accountReadStateSnapshot(),
+    )?.revision ?? -1
+    if (options.targetRevision === undefined || currentRevision >= options.targetRevision) break
+    // A live hint can arrive while auth/reconnect is fetching an older
+    // revision. The settled request has been removed from the WeakMap, so the
+    // next iteration is a genuinely fresh primary read rather than another
+    // join of the stale in-flight promise.
+  } while (true)
+
+  if (applied && options.invalidateSurfaces !== false) {
     await invalidateReadStateSurfaces(queryClient)
   }
-  return outcome === "applied"
-    ? snapshot
-    : queryClient.getQueryData<AccountReadStateSnapshot>(
-        communityKeys.accountReadStateSnapshot(),
-      ) ?? snapshot
+  return queryClient.getQueryData<AccountReadStateSnapshot>(
+    communityKeys.accountReadStateSnapshot(),
+  ) ?? snapshot
 }
 
 const inFlightReconciliations = new WeakMap<
   QueryClient,
   Promise<AccountReadStateSnapshot>
 >()
+
+function startAccountReadStateRequest(queryClient: QueryClient) {
+  const controller = new AbortController()
+  const request = apiFetch<AccountReadStateSnapshot>(
+    "/api/community/users/me/read-state",
+    { signal: controller.signal },
+  ).finally(() => {
+    if (inFlightReconciliations.get(queryClient) === request) {
+      inFlightReconciliations.delete(queryClient)
+    }
+  })
+  inFlightReconciliations.set(queryClient, request)
+  return request
+}
 
 export function projectReadStateEnvelope(
   queryClient: QueryClient,
@@ -135,12 +160,5 @@ export function projectReadStateEnvelope(
   )
   if (!snapshot) return "gap" as const
   if (envelope.revision <= snapshot.revision) return "stale" as const
-  if (envelope.revision !== snapshot.revision + 1) return "gap" as const
-
-  const next = {
-    revision: envelope.revision,
-    readStates: envelope.readStates,
-  }
-  const outcome = applyAccountReadStateSnapshot(queryClient, next)
-  return outcome === "applied" ? "applied" as const : "stale" as const
+  return "gap" as const
 }

@@ -19,12 +19,6 @@ import {
 type CapturedReadStateEvent = CapturedCommunityFrame & {
   type: "community:read_state.advanced" | "community:inbox.changed"
   revision: number
-  readStates: Array<{
-    channelId: string
-    lastReadMessageId: string | null
-    lastReadAt: string
-    lastReadSeq: number
-  }>
   inboxChanged: boolean
 }
 
@@ -32,19 +26,6 @@ function isCapturedReadStateEvent(event: CapturedCommunityFrame): event is Captu
   return (
     (event.type === "community:read_state.advanced" || event.type === "community:inbox.changed")
     && typeof event.revision === "number"
-    && Array.isArray(event.readStates)
-    && event.readStates.every((state) => (
-      typeof state === "object"
-      && state !== null
-      && "channelId" in state
-      && typeof state.channelId === "string"
-      && "lastReadMessageId" in state
-      && (state.lastReadMessageId === null || typeof state.lastReadMessageId === "string")
-      && "lastReadAt" in state
-      && typeof state.lastReadAt === "string"
-      && "lastReadSeq" in state
-      && typeof state.lastReadSeq === "number"
-    ))
     && typeof event.inboxChanged === "boolean"
   )
 }
@@ -89,14 +70,16 @@ test("one human account converges read state across two browser profiles", async
     response.request().method() === "PUT"
     && new URL(response.url()).pathname === `/api/community/channels/${channelId}/read`,
   )
+  const channelRepair = deviceB.page.waitForResponse((response) =>
+    response.request().method() === "GET"
+    && new URL(response.url()).pathname === "/api/community/users/me/read-state",
+  )
+  const channelFrameStart = proxyB.frames.length
   await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${channelId}`)
   expect((await channelRead).status()).toBe(200)
-  await expect.poll(() => proxyB.frames.some((frame) =>
-    communityFrameEvents(frame).some((event) =>
-      isCapturedReadStateEvent(event)
-      && event.type === "community:read_state.advanced"
-      && event.readStates.some((advance) => advance.channelId === channelId))),
-  { timeout: 20_000 }).toBe(true)
+  await expect.poll(() => readStateEventsSince(proxyB.frames, channelFrameStart).length,
+    { timeout: 20_000 }).toBeGreaterThan(0)
+  expect((await channelRepair).status()).toBe(200)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toBeVisible()
 
@@ -104,14 +87,16 @@ test("one human account converges read state across two browser profiles", async
     response.request().method() === "PUT"
     && new URL(response.url()).pathname === `/api/community/channels/${dmId}/read`,
   )
+  const dmRepair = deviceB.page.waitForResponse((response) =>
+    response.request().method() === "GET"
+    && new URL(response.url()).pathname === "/api/community/users/me/read-state",
+  )
+  const dmFrameStart = proxyB.frames.length
   await gotoAfterUserWsAuth(deviceA.page, `/c/me/${dmId}`)
   expect((await dmRead).status()).toBe(200)
-  await expect.poll(() => proxyB.frames.some((frame) =>
-    communityFrameEvents(frame).some((event) =>
-      isCapturedReadStateEvent(event)
-      && event.type === "community:read_state.advanced"
-      && event.readStates.some((advance) => advance.channelId === dmId))),
-  { timeout: 20_000 }).toBe(true)
+  await expect.poll(() => readStateEventsSince(proxyB.frames, dmFrameStart).length,
+    { timeout: 20_000 }).toBeGreaterThan(0)
+  expect((await dmRepair).status()).toBe(200)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toHaveCount(0)
   await expect(deviceB.page.getByText("Caught up", { exact: true })).toBeVisible()
 
@@ -191,7 +176,7 @@ test("one human account converges read state across two browser profiles", async
     readAllEvents(proxyB.frames, readAllFrameStarts[1]!),
   ]) {
     expect(new Set(events.map((event) => event.revision)).size).toBe(events.length)
-    expect(events.every((event) => event.readStates.length > 0 && event.inboxChanged)).toBe(true)
+    expect(events.every((event) => event.inboxChanged && !("readStates" in event))).toBe(true)
   }
 
   const snapshot = await (await deviceB.page.request.get(
@@ -243,15 +228,13 @@ test("human author-send and notification writers replace both active profiles", 
       timeout: 20_000,
     }).toBe(1)
     const event = readStateEventsSince(proxy.frames, start!)[0]!
-    expect(event.readStates.find((state) => state.channelId === authorChannelId)?.lastReadSeq)
-      .toBeGreaterThan(0)
+    expect("readStates" in event).toBe(false)
   }
   const authorEvents = [
     readStateEventsSince(proxyA.frames, authorStarts[0]!)[0]!,
     readStateEventsSince(proxyB.frames, authorStarts[1]!)[0]!,
   ]
   expect(authorEvents[0].revision).toBe(authorEvents[1].revision)
-  expect(authorEvents[0].readStates).toEqual(authorEvents[1].readStates)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(authorChannelId))).toHaveCount(0)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(notificationChannelId))).toBeVisible()
 
@@ -272,16 +255,22 @@ test("human author-send and notification writers replace both active profiles", 
     }).toBe(1)
     const event = readStateEventsSince(proxy.frames, start!)[0]!
     expect(event.revision).toBeGreaterThan(authorEvents[0].revision)
-    expect(event.readStates.find((state) => state.channelId === notificationChannelId)?.lastReadSeq)
-      .toBeGreaterThan(0)
+    expect("readStates" in event).toBe(false)
   }
   const notificationEvents = [
     readStateEventsSince(proxyA.frames, notificationStarts[0]!)[0]!,
     readStateEventsSince(proxyB.frames, notificationStarts[1]!)[0]!,
   ]
   expect(notificationEvents[0].revision).toBe(notificationEvents[1].revision)
-  expect(notificationEvents[0].readStates).toEqual(notificationEvents[1].readStates)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(notificationChannelId))).toHaveCount(0)
+
+  const writerSnapshot = await (await deviceB.page.request.get(
+    "/api/community/users/me/read-state",
+  )).json() as { readStates: Array<{ channelId: string; lastReadSeq: number }> }
+  expect(writerSnapshot.readStates.find((state) => state.channelId === authorChannelId)?.lastReadSeq)
+    .toBeGreaterThan(0)
+  expect(writerSnapshot.readStates.find((state) => state.channelId === notificationChannelId)?.lastReadSeq)
+    .toBeGreaterThan(0)
 })
 
 test("forum delete broadcasts replacement and removal to both active profiles", async ({ asUser }) => {
@@ -325,15 +314,20 @@ test("forum delete broadcasts replacement and removal to both active profiles", 
       timeout: 20_000,
     }).toBe(1)
     const event = readStateEventsSince(proxy.frames, start!)[0]!
-    expect(event.readStates.some((state) => state.channelId === deletedChildId)).toBe(false)
-    expect(event.readStates.find((state) => state.channelId === forumId)?.lastReadMessageId)
-      .toBe(priorOpenerId)
+    expect("readStates" in event).toBe(false)
   }
   const events = [
     readStateEventsSince(proxyA.frames, starts[0]!)[0]!,
     readStateEventsSince(proxyB.frames, starts[1]!)[0]!,
   ]
   expect(events[0].revision).toBe(events[1].revision)
-  expect(events[0].readStates).toEqual(events[1].readStates)
+  const deletedSnapshot = await (await deviceB.page.request.get(
+    "/api/community/users/me/read-state",
+  )).json() as {
+    readStates: Array<{ channelId: string; lastReadMessageId: string | null }>
+  }
+  expect(deletedSnapshot.readStates.some((state) => state.channelId === deletedChildId)).toBe(false)
+  expect(deletedSnapshot.readStates.find((state) => state.channelId === forumId)?.lastReadMessageId)
+    .toBe(priorOpenerId)
   await expect(deviceB.page.getByTestId(tid.forumThreadCard(deletedChildId))).toHaveCount(0)
 })

@@ -229,23 +229,11 @@ export const communityWsEventFixtures = {
   "community:read_state.advanced": {
     type: "community:read_state.advanced",
     revision: 1,
-    readStates: [{
-      channelId: "channel-1",
-      lastReadMessageId: "message-1",
-      lastReadAt: "2026-01-01T00:00:00.000Z",
-      lastReadSeq: 1,
-    }],
     inboxChanged: true,
   },
   "community:inbox.changed": {
     type: "community:inbox.changed",
     revision: 2,
-    readStates: [{
-      channelId: "channel-1",
-      lastReadMessageId: "message-2",
-      lastReadAt: "2026-01-01T00:00:01.000Z",
-      lastReadSeq: 2,
-    }],
     inboxChanged: true,
     reason: "read_all",
   },

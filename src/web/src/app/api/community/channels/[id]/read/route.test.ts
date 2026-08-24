@@ -127,12 +127,6 @@ describe("PUT /api/community/channels/[id]/read", () => {
     expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("u1", expect.objectContaining({
       type: "community:read_state.advanced",
       revision: 1,
-      readStates: [{
-        channelId: "c1",
-        lastReadMessageId: "m_latest",
-        lastReadAt: "2026-07-05T10:00:00.000Z",
-        lastReadSeq: 9,
-      }],
       inboxChanged: true,
     }))
     expect(mockGetPrimaryDb).toHaveBeenCalledOnce()
