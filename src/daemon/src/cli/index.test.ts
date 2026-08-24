@@ -1763,6 +1763,47 @@ describe("message send — literal stdin/file body contract", () => {
     expect(fs.existsSync(marker)).toBe(false);
   });
 
+  it.each([
+    ["body\nALOOK_MESSAGE_5211_MERGE_POLICY_2'\n", "body\n"],
+    ['body\r\nALOOK_MESSAGE_7F3C"\r\n', "body\r\n"],
+    ["body\n'ALOOK_MESSAGE_7F3C'\n", "body\n"],
+  ])("removes a malformed final Alook heredoc marker from stdin", async (input, expected) => {
+    let sentText: string | undefined;
+    setApiForTesting(stubApi({
+      send: async (request: Parameters<ServerApi["send"]>[0]) => {
+        sentText = request.content.text;
+        return { state: "sent", message: { seq: "#1", channel: "/s/c", sender: "@a", content: { text: "" }, time: "" } };
+      },
+    }));
+
+    await mainWithStdin(
+      ["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"],
+      input,
+    );
+
+    expect(sentText).toBe(expected);
+  });
+
+  it.each([
+    ["body\nALOOK_MESSAGE_7F3C\n"],
+    ["body\nALOOK_MESSAGE_7F3C'\nmore\n"],
+  ])("preserves marker-like stdin outside the malformed terminal boundary", async (input) => {
+    let sentText: string | undefined;
+    setApiForTesting(stubApi({
+      send: async (request: Parameters<ServerApi["send"]>[0]) => {
+        sentText = request.content.text;
+        return { state: "sent", message: { seq: "#1", channel: "/s/c", sender: "@a", content: { text: "" }, time: "" } };
+      },
+    }));
+
+    await mainWithStdin(
+      ["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"],
+      input,
+    );
+
+    expect(sentText).toBe(input);
+  });
+
   it("decodes UTF-8 once after joining split stdin byte chunks", async () => {
     const literal = "中文 🎉";
     const bytes = Buffer.from(literal, "utf8");
@@ -1784,7 +1825,7 @@ describe("message send — literal stdin/file body contract", () => {
     const path = await import("path");
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cli-esc-"));
     const file = path.join(dir, "body.txt");
-    const literal = "  a\\\\nb\n总部 🎉  \n";
+    const literal = "  a\\\\nb\n总部 🎉\nALOOK_MESSAGE_FILE'\n";
     fs.writeFileSync(file, literal);
     let sentText: string | undefined;
     setApiForTesting(
@@ -1832,6 +1873,31 @@ describe("message send — literal stdin/file body contract", () => {
       "   \n",
     );
     expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ content: { text: "   \n" } }));
+  });
+
+  it("validates the repaired body before sending", async () => {
+    const sendSpy = vi.fn(async () => ({
+      state: "sent" as const,
+      message: { seq: "#1", channel: "/s/c", sender: "@a", content: { text: "" }, time: "" },
+    }));
+    setApiForTesting(stubApi({ send: sendSpy }));
+
+    await mainWithStdin(
+      ["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"],
+      "ALOOK_MESSAGE_ONLY'\n",
+    );
+    expect(parseEnvelope(cap.lines()).error).toContain("--stdin");
+    expect(sendSpy).not.toHaveBeenCalled();
+
+    cap.lines().length = 0;
+    await mainWithStdin(
+      [
+        "message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0",
+        "--attachment", "att_1",
+      ],
+      "ALOOK_MESSAGE_ONLY'\n",
+    );
+    expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ content: { text: "" } }));
   });
 
   it("keeps attachment-only sends valid without reading stdin", async () => {
