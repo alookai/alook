@@ -54,16 +54,15 @@ export function pickMeLandingLocation(lastLeaf: string | null): string {
 export function resolveMeLocationStatus({
   pathname,
   dmId,
-  dmsReady,
-  dmIds,
+  dmRouteStatus,
 }: {
   pathname: string
   dmId: string | undefined
-  dmsReady: boolean
-  dmIds: readonly string[]
+  dmRouteStatus: "idle" | "pending" | "present" | "missing"
 }): MeLocationStatus {
   if (!isRememberableMeLocation(pathname)) return "ignore"
   if (!dmId) return "remember"
-  if (!dmsReady) return "wait"
-  return dmIds.includes(dmId) ? "remember" : "stale"
+  if (dmRouteStatus === "present") return "remember"
+  if (dmRouteStatus === "missing") return "stale"
+  return "wait"
 }

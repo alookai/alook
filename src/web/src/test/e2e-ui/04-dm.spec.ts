@@ -1,11 +1,90 @@
-import { test, expect, userId } from "./_fixtures/community-fixture"
+import type { Frame } from "@playwright/test"
+import { test, expect, userId, userName } from "./_fixtures/community-fixture"
 import { tid } from "./_fixtures/testids"
 import { sendMessage } from "./_fixtures/actions"
-import { seedDm, seedBlock } from "./_fixtures/seed"
+import { seedDm, seedBlock, seedDmMessage } from "./_fixtures/seed"
 
 // Journey 4 — DMs. human↔human needs only not-blocked (no friendship). Covers
 // the new-conversation-appears-live path and the blocked-composer regression.
 test.describe.serial("direct messages", () => {
+  test("an Inbox first-DM click commits immediately and stays on the conversation", async ({ asUser }) => {
+    const bob = await asUser("bob")
+    const initialDms = bob.page.waitForResponse((response) =>
+      response.request().method() === "GET"
+      && new URL(response.url()).pathname === "/api/community/users/me/dms",
+    )
+    await bob.page.goto("/c/me")
+    expect((await initialDms).status()).toBe(200)
+
+    let releaseAuthority!: () => void
+    let authorityStarted!: () => void
+    let authorityFinished!: () => void
+    const authorityGate = new Promise<void>((resolve) => { releaseAuthority = resolve })
+    const authorityRequest = new Promise<void>((resolve) => { authorityStarted = resolve })
+    const authoritySettled = new Promise<void>((resolve) => { authorityFinished = resolve })
+    let held = false
+    const dmsPattern = "**/api/community/users/me/dms"
+    await bob.page.route(dmsPattern, async (route) => {
+      if (held || route.request().method() !== "GET") {
+        await route.continue()
+        return
+      }
+      held = true
+      authorityStarted()
+      try {
+        await authorityGate
+        await route.continue()
+      } catch (error) {
+        if (!(error instanceof Error && error.message.includes("already handled"))) throw error
+      } finally {
+        authorityFinished()
+      }
+    })
+
+    const dmId = await seedDm("alice", userId("bob"))
+    const body = `first inbox DM ${Date.now()}`
+    const messageId = await seedDmMessage("alice", dmId, body)
+    const routeHistory: string[] = []
+    const recordRoute = (frame: Frame) => {
+      if (frame === bob.page.mainFrame()) routeHistory.push(new URL(frame.url()).pathname)
+    }
+    bob.page.on("framenavigated", recordRoute)
+
+    try {
+      await bob.page.getByRole("button", { name: "Inbox" }).click()
+      const inboxRow = bob.page.getByTestId(tid.inboxUnreadDm(dmId))
+      await expect(inboxRow).toBeVisible({ timeout: 20_000 })
+      await inboxRow.click()
+      await authorityRequest
+
+      await bob.page.waitForURL(new RegExp(`/c/me/${dmId}$`), {
+        timeout: 20_000,
+        waitUntil: "commit",
+      })
+      await expect(bob.page.getByRole("heading", {
+        level: 1,
+        name: new RegExp(userName("alice")),
+      })).toBeVisible()
+      expect(routeHistory).not.toContain("/c/me")
+
+      const authorityResponse = bob.page.waitForResponse((response) =>
+        response.request().method() === "GET"
+        && new URL(response.url()).pathname === "/api/community/users/me/dms",
+      )
+      releaseAuthority()
+      expect((await authorityResponse).status()).toBe(200)
+      await expect(bob.page.getByTestId(tid.message(messageId))).toHaveCount(1)
+      await expect(bob.page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
+      await expect(bob.page).toHaveURL(new RegExp(`/c/me/${dmId}$`))
+      expect(routeHistory).not.toContain("/c/me")
+    } finally {
+      releaseAuthority()
+      await authoritySettled
+      bob.page.off("framenavigated", recordRoute)
+      await bob.page.unroute(dmsPattern)
+    }
+  })
+
   test("a DM message reaches the peer live and the conversation appears without reload", async ({ asUser }) => {
     // Alice opens a DM to Bob via API (precondition), then both drive the UI.
     const dmId = await seedDm("alice", userId("bob"))

@@ -122,6 +122,8 @@ export const communityKeys = {
   friends: () => [...communityKeys.all, "friends"] as const,
   friendsPresence: () => [...communityKeys.friends(), "presence"] as const,
   dms: () => [...communityKeys.all, "dms"] as const,
+  dmRouteVerification: (dmId: string) =>
+    [...communityKeys.all, "dm-route-verification", dmId] as const,
   folders: () => [...communityKeys.all, "folders"] as const,
 
   // ── Machines / daemons ──────────────────────────────────────────────────

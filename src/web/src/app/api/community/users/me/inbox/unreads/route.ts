@@ -313,6 +313,7 @@ export const GET = withAuth(async (req, ctx) => {
       channelId: d.channelId,
       otherUserId: d.otherUserId,
       otherUserName: d.otherUserName,
+      otherUserDiscriminator: d.otherUserDiscriminator,
       otherUserAvatar: d.otherUserImage ?? avatarInitial(d.otherUserName),
       lastMessageAt: d.lastMessageAt,
     }))

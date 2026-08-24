@@ -81,6 +81,7 @@ export type UnreadDm = {
   channelId: string
   otherUserId: string
   otherUserName: string
+  otherUserDiscriminator: string
   otherUserAvatar: string
   lastMessageAt: string
 }

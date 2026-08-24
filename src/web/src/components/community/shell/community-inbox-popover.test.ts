@@ -2,7 +2,8 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { describe, expect, expectTypeOf, it, vi } from "vitest"
 import { InboxPopover } from "./community-inbox-popover"
-import type { UnreadServer } from "@/lib/community/models/inbox"
+import type { UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
+import { tid } from "@/lib/community/testids"
 
 vi.mock("@/components/ui/tabs", () => ({
   Tabs: ({ children }: { children: React.ReactNode }) => React.createElement("div", null, children),
@@ -99,5 +100,35 @@ describe("InboxPopover forum post rows", () => {
 
     expect(onOpenChannel).toHaveBeenCalledWith("s1", "t1", "f1")
     expect(onOpenForumThread).not.toHaveBeenCalled()
+  })
+})
+
+describe("InboxPopover DM rows", () => {
+  it("passes the complete DM summary to the open callback", async () => {
+    const dm: UnreadDm = {
+      channelId: "dm-new",
+      otherUserId: "user-new",
+      otherUserName: "New peer",
+      otherUserDiscriminator: "2222",
+      otherUserAvatar: "N",
+      lastMessageAt: "2026-08-24T00:00:00.000Z",
+    }
+    const onOpenDm = vi.fn()
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(InboxPopover, {
+        unreads: [],
+        unreadDms: [dm],
+        mentions: [],
+        marked: [],
+        onOpenForumThread: vi.fn(),
+        onOpenDm,
+      }))
+    })
+
+    const row = renderer.root.findByProps({ "data-testid": tid.inboxUnreadDm(dm.channelId) })
+    await act(async () => row.props.onClick())
+
+    expect(onOpenDm).toHaveBeenCalledWith(dm)
   })
 })

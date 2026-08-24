@@ -26,7 +26,7 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenForumThread, o
   loading?: boolean
   onOpenChannel?: (serverId: string, channelId: string, parentChannelId?: string) => void
   onOpenForumThread: (serverId: string, parentChannelId: string, childChannelId: string, openerMessageId: string) => void
-  onOpenDm?: (dmId: string) => void
+  onOpenDm?: (dm: UnreadDm) => void
 }) {
   const nothingUnread = servers.length === 0 && dms.length === 0
   return (
@@ -39,7 +39,8 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenForumThread, o
           {dms.map((d) => (
             <button
               key={d.channelId}
-              onClick={() => onOpenDm?.(d.channelId)}
+              data-testid={tid.inboxUnreadDm(d.channelId)}
+              onClick={() => onOpenDm?.(d)}
               className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
             >
               <Avatar label={d.otherUserAvatar} seed={d.otherUserId} size={24} />
@@ -206,7 +207,7 @@ export function InboxPopover({
   loading?: boolean
   onOpenChannel?: (serverId: string, channelId: string, parentChannelId?: string) => void
   onOpenForumThread: (serverId: string, parentChannelId: string, childChannelId: string, openerMessageId: string) => void
-  onOpenDm?: (dmId: string) => void
+  onOpenDm?: (dm: UnreadDm) => void
   onOpenMention?: (m: Mention) => void
   onOpenMarked?: (m: Marked) => void
   onDeleteMention?: (id: string) => void
