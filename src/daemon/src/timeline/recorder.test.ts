@@ -266,7 +266,9 @@ describe("forgetSession — inline system row", () => {
 
     rec.recordSessionStall("agent_1", "sess-poison");
     const controlPath = path.join(dir, ".resume-control.json");
-    expect(fs.statSync(controlPath).mode & 0o777).toBe(0o600);
+    const controlStat = fs.statSync(controlPath);
+    expect(controlStat.isFile()).toBe(true);
+    if (process.platform !== "win32") expect(controlStat.mode & 0o777).toBe(0o600);
     expect(fs.readdirSync(dir).filter((name) => name.includes("resume-control") && name.endsWith(".tmp"))).toEqual([]);
     expect(rec.resolveResumeSession("agent_1", "codex")).toEqual({
       kind: "session",

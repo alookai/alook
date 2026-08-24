@@ -280,6 +280,29 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)("%s logi
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
+  it("projects adapter recovery as exact-turn public recovery events", async () => {
+    const { session, driver } = makeSession(backend);
+    const iterator = session.events[Symbol.asyncIterator]();
+    const started = await session.start({ id: "recovery-root", kind: "user", text: "start" });
+    expect(started.status).toBe("accepted");
+    const turnId = started.status === "accepted" ? started.turnId : "unreachable";
+
+    await emit(driver, { kind: "runtime_recovery", stage: "retrying", source: `${backend}.retry` });
+    await emit(driver, { kind: "runtime_recovery", stage: "recovered", source: `${backend}.retry` });
+
+    const recoveryEvents: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
+    while (recoveryEvents.length < 2) {
+      const next = await iterator.next();
+      if (next.done) break;
+      if (next.value.type === "recovery") recoveryEvents.push(next.value);
+    }
+    expect(recoveryEvents).toEqual([
+      expect.objectContaining({ type: "recovery", turnId, stage: "retrying", source: `${backend}.retry` }),
+      expect.objectContaining({ type: "recovery", turnId, stage: "recovered", source: `${backend}.retry` }),
+    ]);
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
   it("passes the exported black-box conformance suite", async () => {
     const { session, driver } = makeSession(backend);
     await runAgentDriverConformance(async () => ({

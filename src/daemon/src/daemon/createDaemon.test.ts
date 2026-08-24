@@ -453,9 +453,9 @@ for await (const line of createInterface({ input: process.stdin })) {
       messageReminderClock: {
         now: () => now,
         setTimer: (callback) => {
-          const timer = { callback, cancelled: false };
+          const timer = { callback, cancelled: false, unref() {} };
           timers.push(timer);
-          return { unref() {} } as ReturnType<typeof setTimeout>;
+          return timer as unknown as ReturnType<typeof setTimeout>;
         },
         clearTimer: (handle) => {
           const index = timers.findIndex((timer) => timer === (handle as unknown));
@@ -474,6 +474,13 @@ for await (const line of createInterface({ input: process.stdin })) {
         headers: { authorization: "Bearer vch_test", "content-type": "application/json" },
         body: JSON.stringify({ channel: "/demo#1234/general", sentSeq, remindAfterMs }),
       });
+    const sentFrames = () => sockets[0]!.sent.map((frame) => JSON.parse(frame) as Record<string, unknown>);
+    const wakeAcked = (launchId: string) => sentFrames().some((frame) =>
+      frame.type === "agent_wake_ack" && frame.launchId === launchId && frame.status === "ok");
+    const stopAcked = () => sentFrames().some((frame) =>
+      frame.type === "agent_stopped_ack" && frame.agentId === "bot_1" && frame.status === "ok");
+    const reminderDeliveries = () => deliver.mock.calls.filter(([, message]) =>
+      typeof message.id === "string" && message.id.includes(":reminder:"));
 
     try {
       sockets[0]!.emit("open");
@@ -484,20 +491,20 @@ for await (const line of createInterface({ input: process.stdin })) {
         launchId: "launch_1",
         unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
       }));
-      await vi.waitFor(() => expect(deliver).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(wakeAcked("launch_1")).toBe(true));
 
       now = 2_000;
       expect(await (await arm(7)).json()).toEqual({ armed: true, dueAt: 62_000 });
       runTimer(0);
-      expect(deliver).toHaveBeenCalledTimes(2);
-      expect(deliver).toHaveBeenLastCalledWith("bot_1", expect.objectContaining({
+      expect(reminderDeliveries()).toHaveLength(1);
+      expect(reminderDeliveries().at(-1)).toEqual(["bot_1", expect.objectContaining({
         text: expect.stringContaining("/demo#1234/general#7"),
-      }));
+      })]);
 
       await arm(8);
       expect(await (await arm(9, 0)).json()).toEqual({ armed: false, reason: "disabled" });
       runTimer(1);
-      expect(deliver).toHaveBeenCalledTimes(2);
+      expect(reminderDeliveries()).toHaveLength(1);
 
       await arm(10);
       sockets[0]!.emit("message", JSON.stringify({
@@ -507,9 +514,10 @@ for await (const line of createInterface({ input: process.stdin })) {
         launchId: "launch_2",
         unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 11 },
       }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await vi.waitFor(() => expect(wakeAcked("launch_2")).toBe(true));
+      await vi.waitFor(() => expect(timers[2]?.cancelled).toBe(true));
       runTimer(2);
-      expect(deliver).toHaveBeenCalledTimes(2);
+      expect(reminderDeliveries()).toHaveLength(1);
 
       await arm(12);
       sockets[0]!.emit("message", JSON.stringify({
@@ -519,27 +527,32 @@ for await (const line of createInterface({ input: process.stdin })) {
         launchId: "launch_duplicate",
         unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 11 },
       }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await vi.waitFor(() => expect(wakeAcked("launch_duplicate")).toBe(true));
+      expect(timers[3]?.cancelled).toBe(false);
       runTimer(3);
-      expect(deliver).toHaveBeenCalledTimes(3);
-      expect(deliver).toHaveBeenLastCalledWith("bot_1", expect.objectContaining({
+      expect(reminderDeliveries()).toHaveLength(2);
+      expect(reminderDeliveries().at(-1)).toEqual(["bot_1", expect.objectContaining({
         text: expect.stringContaining("/demo#1234/general#12"),
-      }));
+      })]);
 
       await arm(13);
       sockets[0]!.emit("message", JSON.stringify({ type: "agent:stop", agentId: "bot_1" }));
+      await vi.waitFor(() => expect(stopAcked()).toBe(true));
+      await vi.waitFor(() => expect(timers[4]?.cancelled).toBe(true));
       runTimer(4);
-      expect(deliver).toHaveBeenCalledTimes(3);
+      expect(reminderDeliveries()).toHaveLength(2);
 
       await arm(14);
       sockets[0]!.emit("message", JSON.stringify({ type: "bot:removed", botId: "bot_1" }));
+      await vi.waitFor(() => expect(timers[5]?.cancelled).toBe(true));
       runTimer(5);
-      expect(deliver).toHaveBeenCalledTimes(3);
+      expect(reminderDeliveries()).toHaveLength(2);
 
       await arm(15);
       await daemon.stop();
+      expect(timers[6]?.cancelled).toBe(true);
       runTimer(6);
-      expect(deliver).toHaveBeenCalledTimes(3);
+      expect(reminderDeliveries()).toHaveLength(2);
     } finally {
       // stop is idempotent enough for the failure path and keeps the loopback
       // server from leaking if an assertion above throws early.
@@ -600,6 +613,10 @@ for await (const line of createInterface({ input: process.stdin })) {
       launchId: `launch_${seq}`,
       unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: seq },
     }));
+    const wakeAckCount = (seq: number) => sockets[0]!.sent
+      .map((frame) => JSON.parse(frame) as Record<string, unknown>)
+      .filter((frame) => frame.type === "agent_wake_ack" && frame.launchId === `launch_${seq}` && frame.status === "ok")
+      .length;
 
     try {
       expect(timers).toHaveLength(1);
@@ -607,18 +624,20 @@ for await (const line of createInterface({ input: process.stdin })) {
       sockets[0]!.emit("open");
       wake(1);
       await vi.waitFor(() => expect(sessions).toHaveLength(1));
+      await vi.waitFor(() => expect(wakeAckCount(1)).toBe(1));
       await vi.waitFor(() => expect(timers).toHaveLength(2));
-      expect(timers.every((timer) => timer.cancelled)).toBe(true);
+      await vi.waitFor(() => expect(timers.slice(0, 2).every((timer) => timer.cancelled)).toBe(true));
 
       await sessions[0]!.fire("runtime_event", { kind: "turn_end", sessionId: "test-session" });
       await vi.waitFor(() => expect(timers).toHaveLength(3));
       expect(timers[2]?.cancelled).toBe(false);
 
       wake(1);
-      await new Promise<void>((resolve) => setImmediate(resolve));
+      await vi.waitFor(() => expect(wakeAckCount(1)).toBe(2));
       expect(timers).toHaveLength(3);
 
       wake(2);
+      await vi.waitFor(() => expect(wakeAckCount(2)).toBe(1));
       await vi.waitFor(() => expect(timers.length).toBeGreaterThanOrEqual(4));
       expect(timers[2]?.cancelled).toBe(true);
       timers[2]?.callback();
