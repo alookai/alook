@@ -159,11 +159,6 @@ function cliCommandsSection(): string {
     `2. \`${CLI} friend list\` — list your friends and pending requests ` +
       `(\`accepted\`, \`pendingOutgoing\`, \`pendingIncoming\`).`,
     "",
-    "### Settings",
-    "",
-    `1. \`${CLI} setting profile --set-bio <text> --set-avatar <path>\` — update your public bio ` +
-      `and/or avatar. At least one flag is required; pass \`--set-bio ""\` to clear the bio.`,
-    "",
     "### Context Lifecycle",
     "",
     `1. \`${CLI} nap --handoff <file>\` — reset the current session from a required handoff file.`,
@@ -446,6 +441,11 @@ function workspaceMemorySection(): string {
     "",
     "When context is missing, don't guess. Re-read `memory.md`, the context timeline, the workspace, " +
       "or relevant channel history. That check *is* your remembering.",
+    "",
+    "### Public profile",
+    "",
+    `\`${CLI} setting profile --set-bio <text> --set-avatar <path>\` updates your public bio ` +
+      `and/or avatar. At least one flag is required; pass \`--set-bio ""\` to clear the bio.`,
     "",
     "### Napping",
     "",
