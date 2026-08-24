@@ -617,6 +617,21 @@ describe("DELETE /api/community/messages/[id]", () => {
     expect(mockBroadcastToUserSafe).not.toHaveBeenCalled()
   })
 
+  it.each(["parent statement", "child statement"])(
+    "emits no read-state or channel hint when the %s fails and the D1 batch rolls back",
+    async (failureScope) => {
+      mockDeleteForumPost.mockRejectedValue(new Error(`forced ${failureScope} failure`))
+
+      await expect(DELETE(deleteReq(), { params: { id: "opener_1" } } as any))
+        .rejects.toThrow(`forced ${failureScope} failure`)
+
+      expect(mockBroadcastToUserSafe).not.toHaveBeenCalled()
+      expect(mockFanOutToServerMembers).not.toHaveBeenCalled()
+      expect(cloudflareMocks.waitUntil).not.toHaveBeenCalled()
+      expect(cloudflareMocks.mediaDelete).not.toHaveBeenCalled()
+    },
+  )
+
   it("returns 404 for a missing opener and 409 for a forum message without a unique child", async () => {
     mockGetMessage.mockResolvedValueOnce(null)
     expect((await DELETE(deleteReq(), { params: { id: "missing" } } as any)).status).toBe(404)

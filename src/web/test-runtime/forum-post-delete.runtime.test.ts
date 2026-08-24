@@ -16,6 +16,11 @@ async function first<T>(statement: string, ...bindings: unknown[]): Promise<T | 
   return runtimeEnv.DB.prepare(statement).bind(...bindings).first<T>();
 }
 
+async function all<T>(statement: string, ...bindings: unknown[]): Promise<T[]> {
+  const result = await runtimeEnv.DB.prepare(statement).bind(...bindings).all<T>();
+  return result.results;
+}
+
 function ids() {
   const stamp = crypto.randomUUID().replaceAll("-", "");
   return {
@@ -141,6 +146,58 @@ async function seedCanonicalPost() {
     `reaction_${id.opener}`, id.reply, id.owner, childTime,
   );
   return { id, t2 };
+}
+
+async function snapshotDestructiveAuthority(
+  id: ReturnType<typeof ids>,
+  userIds: string[],
+) {
+  const userPlaceholders = userIds.map(() => "?").join(", ");
+  return {
+    channels: await all(
+      `SELECT id, parent_channel_id, parent_message_id, message_count, last_message_at
+       FROM community_channel
+       WHERE id IN (?, ?)
+       ORDER BY id`,
+      id.forum,
+      id.child,
+    ),
+    messages: await all(
+      `SELECT id, channel_id, seq
+       FROM community_message
+       WHERE id IN (?, ?)
+       ORDER BY id`,
+      id.opener,
+      id.reply,
+    ),
+    readStates: await all(
+      `SELECT user_id, channel_id, last_read_message_id, last_read_seq, last_read_at
+       FROM community_read_state
+       WHERE user_id IN (${userPlaceholders})
+         AND channel_id IN (?, ?)
+       ORDER BY user_id, channel_id`,
+      ...userIds,
+      id.forum,
+      id.child,
+    ),
+    mentions: await all(
+      `SELECT message_id, user_id, read
+       FROM community_mention
+       WHERE user_id IN (${userPlaceholders})
+         AND message_id IN (?, ?)
+       ORDER BY user_id, message_id`,
+      ...userIds,
+      id.opener,
+      id.reply,
+    ),
+    revisions: await all(
+      `SELECT user_id, revision
+       FROM community_read_state_revision
+       WHERE user_id IN (${userPlaceholders})
+       ORDER BY user_id`,
+      ...userIds,
+    ),
+  };
 }
 
 function stamp4(value: string): string {
@@ -275,6 +332,77 @@ describe("deleteForumPost real D1 batch", () => {
     );
     expect(await first("SELECT id FROM community_channel WHERE id = ?", id.siblingChild)).not.toBeNull();
     expect(await first("SELECT id FROM community_message WHERE id = ?", id.siblingOpener)).not.toBeNull();
+  });
+
+  it.each([
+    ["parent repair", "community_read_state"],
+    ["child cascade", "community_channel"],
+  ] as const)("rolls back the whole combined delete when the %s statement fails", async (_label, failureScope) => {
+    const { id } = await seedCanonicalPost();
+    const foreign = `fpd_foreign_${crypto.randomUUID().replaceAll("-", "")}`;
+    createdUsers.push(foreign);
+    await run(
+      "INSERT INTO user (id, email, name, discriminator) VALUES (?, ?, 'Foreign', ?)",
+      foreign,
+      `${foreign}@example.com`,
+      stamp4(foreign),
+    );
+
+    // A owns the parent pointer, child pointer, and mentions on both sides.
+    await run(
+      `INSERT INTO community_read_state
+        (id, user_id, channel_id, last_read_at, last_read_message_id, last_read_seq)
+       VALUES (?, ?, ?, '2026-08-23T01:03:00.000Z', ?, 1)`,
+      `rs_owner_child_${id.opener}`,
+      id.owner,
+      id.child,
+      id.reply,
+    );
+    await run(
+      `INSERT INTO community_mention (id, message_id, user_id, kind, read)
+       VALUES (?, ?, ?, 'mention', 0)`,
+      `mention_parent_${id.opener}`,
+      id.opener,
+      id.owner,
+    );
+    // B is child-only; foreign owns no scoped authority.
+    await run(
+      "DELETE FROM community_read_state WHERE user_id = ? AND channel_id = ?",
+      id.reader,
+      id.forum,
+    );
+
+    const audience = [id.owner, id.reader, foreign];
+    const before = await snapshotDestructiveAuthority(id, audience);
+    const triggerName = `force_fpd_${failureScope}_${crypto.randomUUID().replaceAll("-", "")}`;
+    const triggerSql = failureScope === "community_read_state"
+      ? `CREATE TRIGGER ${triggerName}
+         BEFORE UPDATE ON community_read_state
+         WHEN OLD.channel_id = '${id.forum}'
+           AND OLD.last_read_message_id = '${id.opener}'
+         BEGIN SELECT RAISE(ABORT, 'forced parent statement failure'); END`
+      : `CREATE TRIGGER ${triggerName}
+         BEFORE DELETE ON community_channel
+         WHEN OLD.id = '${id.child}'
+         BEGIN SELECT RAISE(ABORT, 'forced child statement failure'); END`;
+
+    await run(triggerSql);
+    try {
+      const db = createDb(runtimeEnv.DB);
+      await expect(queries.communityForumPostDelete.deleteForumPost(db, {
+        openerId: id.opener,
+        openerSeq: 3,
+        forumChannelId: id.forum,
+        childChannelId: id.child,
+      })).rejects.toThrow(failureScope === "community_read_state"
+        ? "forced parent statement failure"
+        : "forced child statement failure");
+
+      expect(await snapshotDestructiveAuthority(id, audience)).toEqual(before);
+      expect(await all("PRAGMA foreign_key_check")).toEqual([]);
+    } finally {
+      await run(`DROP TRIGGER IF EXISTS ${triggerName}`);
+    }
   });
 
   it("serializes concurrent winners without double-decrementing or returning duplicate cleanup keys", async () => {
