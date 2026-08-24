@@ -186,7 +186,9 @@ export function MemberList({
     return () => observer.disconnect()
   }, [onLoadMore, hasMore, loadingMore])
 
-  if (loading && members.length === 0 && !query) return <MemberListSkeleton />
+  if (loading && members.length === 0 && !query) {
+    return <MemberListSkeleton showSearch={Boolean(onSearch)} showAddMember={Boolean(onAddMember)} />
+  }
 
   return (
     <>
@@ -447,28 +449,42 @@ function MemberRow({
 
 // Loading placeholder for the right-panel Members list — reserves space for
 // two role groups + a body of online members, matching <MemberList>'s grouping.
-function MemberListSkeleton() {
+function MemberListSkeleton({
+  showSearch,
+  showAddMember,
+}: {
+  showSearch: boolean
+  showAddMember: boolean
+}) {
   const groups: { width: number; rows: number }[] = [
     { width: 60, rows: 1 },
     { width: 60, rows: 2 },
     { width: 60, rows: 6 },
   ]
   return (
-    <aside className="flex h-full flex-col overflow-hidden bg-background">
-      <div className="px-4 py-4">
-        {groups.map((g, i) => (
-          <div key={i} className="mb-4">
-            <Skeleton className="mb-2 ml-1 h-3 rounded" style={{ width: g.width }} />
-            <div className="space-y-1">
-              {Array.from({ length: g.rows }).map((_, j) => (
-                <div key={j} className="flex items-center gap-3 rounded-md px-2 py-2">
-                  <Skeleton className="size-8 shrink-0 rounded-full" />
-                  <Skeleton className="h-3.5 w-3/5 rounded" />
-                </div>
-              ))}
+    <aside className="flex h-full flex-col bg-background">
+      {(showSearch || showAddMember) && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
+          {showSearch && <Skeleton className="h-9 flex-1 rounded-md" />}
+          {showAddMember && <Skeleton className="size-9 shrink-0 rounded-md" />}
+        </div>
+      )}
+      <div className="min-h-0 flex-1 overflow-y-auto thin-scrollbar">
+        <div className="px-4 py-4">
+          {groups.map((g, i) => (
+            <div key={i} className="mb-4">
+              <Skeleton className="mb-2 ml-1 h-3 rounded" style={{ width: g.width }} />
+              <div className="space-y-1">
+                {Array.from({ length: g.rows }).map((_, j) => (
+                  <div key={j} className="flex items-center gap-3 rounded-md px-2 py-2">
+                    <Skeleton className="size-8 shrink-0 rounded-full" />
+                    <Skeleton className="h-3.5 w-3/5 rounded" />
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </aside>
   )

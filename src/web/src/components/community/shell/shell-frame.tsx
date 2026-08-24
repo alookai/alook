@@ -31,6 +31,8 @@ export function ShellFrame(props: ShellFrameProps) {
   const replacePath = navigation.replace
   const pathname = navigation.currentHref.split("?")[0]!
   const route = resolveCommunityRoute(pathname)
+  const pendingPathname = navigation.pendingHref?.split("?")[0]
+  const pendingRoute = pendingPathname ? resolveCommunityRoute(pendingPathname) : null
 
   const rail = useShellRailController({
     navigation,
@@ -92,7 +94,8 @@ export function ShellFrame(props: ShellFrameProps) {
   return (
     <ShellFrameView
       breakpoint={breakpoint}
-      surface={route.surface}
+      surface={pendingRoute?.surface ?? route.surface}
+      loadingHref={navigation.pendingHref ?? navigation.currentHref}
       sidebar={sidebar}
       extraDialogs={extraDialogs}
       cancelPendingNavigation={navigation.cancelPendingNavigation}

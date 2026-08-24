@@ -1,10 +1,10 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type CSSProperties } from "react"
 import { useDefaultLayout } from "react-resizable-panels"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { AppSurface } from "@/components/ui/app-surface"
-import { ChannelLoadingFrame } from "@/components/community/channels/channel-loading-frame"
+import { CommunityPendingFrame } from "./community-pending-frame"
 import { Shell } from "./shell"
 import { ServerRail } from "./server-rail"
 import { UserBar } from "./user-bar"
@@ -25,6 +25,7 @@ import type { useShellInboxController } from "./use-shell-inbox-controller"
 type Props = Pick<ShellFrameProps, "sidebar" | "children" | "extraDialogs"> & {
   breakpoint: Breakpoint
   surface: CommunitySurface
+  loadingHref: string
   cancelPendingNavigation: () => void
   navigationPending: boolean
   rail: ReturnType<typeof useShellRailController>
@@ -37,6 +38,7 @@ const SHELL_SURFACE_CLASS = "rounded-tl-xl rounded-tr-none rounded-br-none round
 export function ShellFrameView({
   breakpoint,
   surface,
+  loadingHref,
   sidebar,
   children,
   extraDialogs,
@@ -72,29 +74,33 @@ export function ShellFrameView({
   const isDesktop = breakpoint === "desktop"
   const isMobileList = breakpoint === "mobile" && surface === "list"
   const isMobileDetail = breakpoint === "mobile" && surface === "detail"
-  if (breakpoint === "unknown") {
-    return (
-      <Shell onNavigationIntent={cancelPendingNavigation}>
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-          <ChannelLoadingFrame />
-        </div>
-      </Shell>
-    )
-  }
+  const isInitial = breakpoint === "unknown"
+  const isInitialDetail = isInitial && surface === "detail"
+  const showUserBar = isDesktop || isMobileList || isInitial
+  const initialUserBarStyle = {
+    "--community-desktop-user-bar-width": `${desktopUserBarOverlayWidth(sidebarWidth)}px`,
+    marginLeft: -COMMUNITY_RAIL_WIDTH,
+  } as CSSProperties
 
   return (
     <Shell onNavigationIntent={cancelPendingNavigation}>
-      {!isMobileDetail && <ServerRail {...rail.railProps} bottomInset={60} />}
+      {!isMobileDetail && (
+        <div className={cn(isInitialDetail && "hidden sm:contents")}>
+          <ServerRail {...rail.railProps} bottomInset={60} />
+        </div>
+      )}
       <div
         className={cn(
           "relative flex min-h-0 min-w-0 flex-1 flex-col",
-          !isMobileDetail && "pt-2",
+          !isMobileDetail && !isInitialDetail && "pt-2",
+          isInitialDetail && "pt-0 sm:pt-2",
         )}
       >
         <AppSurface
           className={cn(
             SHELL_SURFACE_CLASS,
             isMobileDetail && "rounded-none border-0 bg-background shadow-none ring-0",
+            isInitialDetail && "max-sm:rounded-none max-sm:border-0 max-sm:bg-background max-sm:shadow-none max-sm:ring-0",
           )}
         >
           <ResizablePanelGroup
@@ -117,7 +123,9 @@ export function ShellFrameView({
               data-mobile-active={isMobileList || undefined}
               className={cn(
                 "flex flex-col bg-sidebar",
-                (isDesktop || isMobileList) && "pb-15",
+                (isDesktop || isMobileList || isInitial) && "pb-15",
+                isInitial && surface === "list" && "max-sm:flex-1!",
+                isInitialDetail && "max-sm:hidden",
               )}
             >
               <div ref={sidebarPanelRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -132,26 +140,49 @@ export function ShellFrameView({
               data-mobile-active={isMobileDetail || undefined}
               className={cn(
                 "flex min-w-0 flex-col bg-background",
+                isInitial && surface === "list" && "max-sm:hidden",
+                isInitialDetail && "max-sm:flex-1!",
               )}
             >
-              {navigationPending && !isMobileList ? <ChannelLoadingFrame /> : children}
+              {navigationPending || isInitial ? (
+                isInitialDetail ? (
+                  <>
+                    <div className="flex min-h-0 flex-1 sm:hidden">
+                      <CommunityPendingFrame href={loadingHref} reserveBackSlot />
+                    </div>
+                    <div className="hidden min-h-0 flex-1 sm:flex">
+                      <CommunityPendingFrame href={loadingHref} />
+                    </div>
+                  </>
+                ) : (
+                  <CommunityPendingFrame
+                    href={loadingHref}
+                    reserveBackSlot={isMobileDetail}
+                  />
+                )
+              ) : children}
             </ResizablePanel>
           </ResizablePanelGroup>
         </AppSurface>
 
-        {(isDesktop || isMobileList) && (
+        {showUserBar && (
           <div
             data-slot="community-user-bar-overlay"
-            className="absolute bottom-0 left-0 z-10"
+            className={cn(
+              "absolute bottom-0 left-0 z-10",
+              isInitial && "w-[calc(100%+3.5rem)] sm:w-(--community-desktop-user-bar-width)",
+              isInitialDetail && "max-sm:hidden",
+            )}
             style={isDesktop
               ? {
                   width: desktopUserBarOverlayWidth(sidebarWidth),
                   marginLeft: -COMMUNITY_RAIL_WIDTH,
                 }
-              : {
+              : isMobileList ? {
                   width: `calc(100% + ${COMMUNITY_RAIL_WIDTH}px)`,
                   marginLeft: -COMMUNITY_RAIL_WIDTH,
-                }}
+                }
+              : initialUserBarStyle}
           >
             <UserBar
               user={user}
@@ -165,23 +196,20 @@ export function ShellFrameView({
           </div>
         )}
 
-        {isMobileList && navigationPending && (
-          <div className="absolute inset-0 z-20 flex bg-background">
-            <ChannelLoadingFrame />
-          </div>
-        )}
       </div>
-      <ShellFrameOverlays
-        controller={profile}
-        breakpoint={breakpoint}
-        {...(isDesktop && profile.profile ? {
-          profileStatusSeeds: {
-            initialStatusEmoji: profile.profile.initialStatusEmoji,
-            initialStatusText: profile.profile.initialStatusText,
-          },
-        } : {})}
-        extraDialogs={extraDialogs}
-      />
+      {!isInitial && (
+        <ShellFrameOverlays
+          controller={profile}
+          breakpoint={breakpoint}
+          {...(isDesktop && profile.profile ? {
+            profileStatusSeeds: {
+              initialStatusEmoji: profile.profile.initialStatusEmoji,
+              initialStatusText: profile.profile.initialStatusText,
+            },
+          } : {})}
+          extraDialogs={extraDialogs}
+        />
+      )}
     </Shell>
   )
 }

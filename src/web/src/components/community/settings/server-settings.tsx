@@ -253,7 +253,9 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
     return () => observer.disconnect()
   }, [onLoadMore, hasMore, loadingMore])
 
-  if (loading && members.length === 0 && !query) return <SettingsMembersSkeleton />
+  if (loading && members.length === 0 && !query) {
+    return <SettingsMembersSkeleton showSearch={Boolean(onSearch)} />
+  }
 
   // Prefer the paginated envelope's total when present — otherwise fall back
   // to the loaded slice size. When searching, `total` still reflects the
@@ -430,21 +432,26 @@ export function SettingsNotifications({ serverId, level, onSetLevel }: { serverI
 
 // Loading placeholders for the settings panels — match the real row heights
 // so the body doesn't shift when data lands.
-function SettingsMembersSkeleton() {
+function SettingsMembersSkeleton({ showSearch }: { showSearch: boolean }) {
   return (
-    <div className="mx-auto max-w-xl space-y-2">
-      <Skeleton className="mb-3 h-4 w-24 rounded" />
-      {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2">
-          <Skeleton className="size-8 shrink-0 rounded-full" />
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <Skeleton className="h-4 w-2/5 rounded" />
-            <Skeleton className="h-3 w-16 rounded" />
-          </div>
-          <Skeleton className="h-6 w-16 rounded-full" />
-          <Skeleton className="size-7 shrink-0 rounded-md" />
+    <div className="mx-auto flex h-full min-h-0 max-w-xl flex-col">
+      {showSearch && <Skeleton className="mb-3 h-9 shrink-0 rounded-md" />}
+      <Skeleton className="mb-3 h-4 w-24 shrink-0 rounded" />
+      <div className="min-h-0 flex-1 overflow-y-auto thin-scrollbar">
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2">
+              <Skeleton className="size-8 shrink-0 rounded-full" />
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <Skeleton className="h-4 w-2/5 rounded" />
+                <Skeleton className="h-3 w-16 rounded" />
+              </div>
+              <Skeleton className="h-6 w-16 rounded-full" />
+              <Skeleton className="size-7 shrink-0 rounded-md" />
+            </div>
+          ))}
         </div>
-      ))}
+      </div>
     </div>
   )
 }

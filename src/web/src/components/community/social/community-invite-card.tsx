@@ -92,8 +92,9 @@ export function CommunityInviteCard({
         data-perspective={perspective}
       >
         <Skeleton className="size-12 shrink-0 rounded-lg" />
-        <div className="min-w-0 flex-1 space-y-2">
-          <Skeleton className="h-3 w-24 rounded" />
+        <div className="min-w-0 flex-1 space-y-1">
+          <Skeleton className="h-3 w-32 rounded" />
+          <Skeleton className="h-4 w-24 rounded" />
           <Skeleton className="h-3 w-16 rounded" />
         </div>
         {perspective === "recipient" && <Skeleton className="h-8 w-16 rounded-md" />}

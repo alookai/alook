@@ -77,4 +77,20 @@ describe("member action identity contract", () => {
     expect(source).toContain("onSetRole?.(mem.id, r)")
     expect(source).not.toContain("onSetRole?.(mem.name, r)")
   })
+
+  it("keeps loading inside the real toolbar and scroll ownership", () => {
+    const source = fs.readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), "member-list.tsx"),
+      "utf8",
+    )
+    expect(source).toContain(
+      "<MemberListSkeleton showSearch={Boolean(onSearch)} showAddMember={Boolean(onAddMember)} />",
+    )
+    expect(source).toContain(
+      'className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3"',
+    )
+    expect(source).toContain(
+      'className="min-h-0 flex-1 overflow-y-auto thin-scrollbar"',
+    )
+  })
 })

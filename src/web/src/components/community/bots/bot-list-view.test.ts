@@ -40,7 +40,7 @@ vi.mock("@/components/community/onboarding-tiles/create-tile", () => ({
   CreateTile: () => React.createElement("create-tile"),
 }))
 
-import { renderBotListView } from "./bot-list-view"
+import { BotListSkeleton, renderBotListView } from "./bot-list-view"
 
 function controller(overrides: Partial<BotListController> = {}): BotListController {
   const noop = vi.fn()
@@ -96,7 +96,7 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
 describe("renderBotListView", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("keeps the exact three-card skeleton branch for either loading source", () => {
+  it("keeps the loaded header, group, and scroll geometry for either loading source", () => {
     for (const loading of [{ isLoading: true }, { machinesLoading: true }]) {
       let renderer!: TestRenderer.ReactTestRenderer
       act(() => {
@@ -110,8 +110,22 @@ describe("renderBotListView", () => {
         skeletonFibers[0]!.parent,
         skeletonFibers[0]!.parent,
       ])
-      expect(renderer.root.findAllByProps({ className: "flex flex-col gap-3 p-6" }))
+      expect(renderer.root.findAllByProps({
+        className: "flex flex-1 flex-col gap-6 overflow-y-auto p-6 thin-scrollbar",
+      }))
         .toHaveLength(1)
+      expect(renderer.root.findAllByProps({
+        className: "flex items-center justify-between gap-4",
+      })).toHaveLength(1)
+      expect(renderer.root.findAllByProps({
+        className: "flex min-w-0 flex-1 flex-col gap-1",
+      })).toHaveLength(1)
+      expect(renderer.root.findAllByProps({
+        className: "flex flex-col gap-3 rounded-lg p-1",
+      })).toHaveLength(1)
+      expect(renderer.root.findAllByProps({
+        className: "flex h-7 items-center gap-2 px-1",
+      })).toHaveLength(1)
       expect(renderer.root.findAllByProps({ className: "flex flex-col gap-3 p-4" }))
         .toHaveLength(3)
       expect(renderer.root.findAllByProps({ className: "size-10 shrink-0 rounded-full" }))
@@ -262,8 +276,17 @@ describe("renderBotListView", () => {
 
   it("keeps the same outer/back-bar contract in loading, empty, and populated branches", () => {
     const onBack = vi.fn()
+    let loadingRenderer!: TestRenderer.ReactTestRenderer
+    act(() => {
+      loadingRenderer = TestRenderer.create(React.createElement(BotListSkeleton, { onBack }))
+    })
+    expect(loadingRenderer.root.findAll((node) =>
+      typeof node.type === "string" && node.props["data-slot"] === "loading-back-placeholder"))
+      .toHaveLength(1)
+    expect(loadingRenderer.root.findAllByProps({ "aria-label": "Back" })).toHaveLength(0)
+    act(() => loadingRenderer.unmount())
+
     const states = [
-      controller({ isLoading: true }),
       controller(),
       controller({ bots: [{ id: "b1" }] as BotListController["bots"] }),
     ]
@@ -279,6 +302,6 @@ describe("renderBotListView", () => {
       act(() => back.props.onClick())
       act(() => renderer.unmount())
     }
-    expect(onBack).toHaveBeenCalledTimes(3)
+    expect(onBack).toHaveBeenCalledTimes(2)
   })
 })

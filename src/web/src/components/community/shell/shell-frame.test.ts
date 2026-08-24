@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => {
   }
   return {
     currentHref: { current: "/c/channels/s1" },
+    pendingHref: { current: null as string | null },
     breakpoint: { current: "desktop" },
     onboardingState: { current: null as Record<string, unknown> | null },
     replace: vi.fn(),
@@ -42,6 +43,7 @@ vi.mock("./use-community-navigation-controller", () => ({
   useCommunityNavigationController: () => ({
     currentHref: mocks.currentHref.current,
     navigationPending: false,
+    pendingHref: mocks.pendingHref.current,
     push: mocks.push,
     replace: mocks.replace,
     prefetch: vi.fn(),
@@ -76,6 +78,7 @@ const baseProps = {
 describe("ShellFrame orchestration", () => {
   beforeEach(() => {
     mocks.currentHref.current = "/c/channels/s1"
+    mocks.pendingHref.current = null
     mocks.breakpoint.current = "desktop"
     mocks.onboardingState.current = null
     mocks.registerUiHandlers.mockClear()
@@ -91,12 +94,32 @@ describe("ShellFrame orchestration", () => {
       renderer = TestRenderer.create(createElement(ShellFrame, baseProps))
     })
     expect(renderer.root.findByType("shell-frame-view").props.surface).toBe("list")
+    expect(renderer.root.findByType("shell-frame-view").props.loadingHref).toBe("/c/channels/s1")
 
     mocks.currentHref.current = "/c/channels/s1/c1?keep=1"
     await act(async () => {
       renderer.update(createElement(ShellFrame, baseProps, "next"))
     })
     expect(renderer.root.findByType("shell-frame-view").props.surface).toBe("detail")
+  })
+
+  it("uses the pending destination surface before the committed href changes", async () => {
+    mocks.currentHref.current = "/c/channels/s1/c1"
+    mocks.pendingHref.current = "/c/channels/s1"
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ShellFrame, baseProps))
+    })
+    expect(renderer.root.findByType("shell-frame-view").props.surface).toBe("list")
+    expect(renderer.root.findByType("shell-frame-view").props.loadingHref).toBe("/c/channels/s1")
+
+    mocks.pendingHref.current = "/c/me/dm_1?from=inbox"
+    await act(async () => {
+      renderer.update(createElement(ShellFrame, baseProps, "next"))
+    })
+    expect(renderer.root.findByType("shell-frame-view").props.surface).toBe("detail")
+    expect(renderer.root.findByType("shell-frame-view").props.loadingHref)
+      .toBe("/c/me/dm_1?from=inbox")
   })
 
   it("replaces a mobile detail with its semantic parent", async () => {

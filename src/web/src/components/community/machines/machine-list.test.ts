@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
   fetchLatestDaemonVersion: vi.fn(),
+  machinesLoading: { current: false },
 }))
 
 vi.mock("sonner", () => ({
@@ -52,12 +53,16 @@ vi.mock("@tanstack/react-query", () => ({
 
 vi.mock("@/components/ui/button", () => ({ Button: () => null }))
 vi.mock("@/components/ui/card", () => ({ Card: () => null }))
-vi.mock("@/components/ui/skeleton", () => ({ Skeleton: () => null }))
+vi.mock("@/components/ui/skeleton", () => ({
+  Skeleton: (props: Record<string, unknown>) => React.createElement("skeleton-row", props),
+}))
 vi.mock("@/components/avatar", () => ({ GeneratedAvatar: () => null }))
 vi.mock("./machine-card", () => ({ MachineCard: () => null }))
 vi.mock("./pair-machine-sheet", () => ({ PairMachineSheet: () => null }))
 vi.mock("@/components/community/onboarding-tiles/connect-tile", () => ({ ConnectTile: () => null }))
-vi.mock("@/hooks/community/use-machines", () => ({ useMachines: () => ({ machines: [], isLoading: false }) }))
+vi.mock("@/hooks/community/use-machines", () => ({
+  useMachines: () => ({ machines: [], isLoading: mocks.machinesLoading.current }),
+}))
 vi.mock("@/hooks/community/use-bots", () => ({ useBots: () => ({ bots: [] }) }))
 vi.mock("@/stores/community", () => ({
   usePendingMachineTokenId: () => null,
@@ -79,6 +84,7 @@ import type { CommunityMachineSummary } from "@alook/shared"
 import {
   canUpdateMachine,
   MachineList,
+  MachineListSkeleton,
   MachineUpdateDialog,
   requestMachineUpdate,
 } from "./machine-list"
@@ -104,6 +110,7 @@ describe("machine daemon update UI", () => {
       version: "0.1.8",
       package: "@alook/daemon",
     })
+    mocks.machinesLoading.current = false
   })
 
   it("loads Community update eligibility from the daemon package endpoint", async () => {
@@ -114,6 +121,42 @@ describe("machine daemon update UI", () => {
 
     expect(mocks.fetchLatestDaemonVersion).toHaveBeenCalledOnce()
     act(() => renderer.unmount())
+  })
+
+  it("keeps the loaded page header, action, card group, and scroll owner while loading", async () => {
+    mocks.machinesLoading.current = true
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(MachineList))
+    })
+
+    expect(renderer.root.findAllByProps({
+      className: "flex flex-1 flex-col gap-6 overflow-y-auto p-6 thin-scrollbar",
+    })).toHaveLength(1)
+    expect(renderer.root.findAllByProps({
+      className: "flex items-center justify-between",
+    })).toHaveLength(1)
+    expect(renderer.root.findAllByProps({
+      className: "flex min-w-0 flex-1 flex-col gap-1",
+    })).toHaveLength(1)
+    expect(renderer.root.findAllByProps({ className: "flex flex-col gap-3" }))
+      .toHaveLength(1)
+    expect(renderer.root.findAllByProps({ className: "h-9 w-36 rounded-md" }))
+      .toHaveLength(2)
+  })
+
+  it("turns a loading Back request into an inert skeleton slot", () => {
+    let renderer!: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(MachineListSkeleton, { onBack: vi.fn() }),
+      )
+    })
+
+    expect(renderer.root.findAll((node) =>
+      typeof node.type === "string" && node.props["data-slot"] === "loading-back-placeholder"))
+      .toHaveLength(1)
+    expect(renderer.root.findAllByProps({ "aria-label": "Back" })).toHaveLength(0)
   })
 
   it("allows every remote controller mode and hides Update only in dev", () => {

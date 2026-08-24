@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { ForumView, forumTagScrollFades, shouldActivateForumRow } from "./forum-view"
+import {
+  ForumView,
+  ForumViewSkeleton,
+  forumTagScrollFades,
+  shouldActivateForumRow,
+} from "./forum-view"
 import { tid } from "@/lib/community/testids"
 import type { ForumThread } from "@/lib/community/models/message"
 
@@ -286,6 +291,18 @@ describe("ForumView filter bar / composer swap", () => {
     expect(html).not.toContain(tid.forumTagFadeRight)
     expect(listMarkup).toContain("px-0")
     expect(listMarkup).toContain("sm:px-4")
+  })
+
+  it("matches the real responsive filter rail and 28px chip footprints while loading", () => {
+    const html = renderToStaticMarkup(createElement(ForumViewSkeleton))
+    expect(html.match(/h-7/g)).toHaveLength(4)
+    expect(html).not.toContain("h-5 w-10 rounded-full")
+    expect(html).toContain("flex-nowrap")
+    expect(html).toContain("overflow-x-auto")
+    expect(html).toContain("sm:flex-wrap")
+    expect(html).toContain("sm:overflow-x-visible")
+    expect(html).toContain("pointer-events-none")
+    expect(html).toContain("px-0 py-2 sm:px-4")
   })
 })
 

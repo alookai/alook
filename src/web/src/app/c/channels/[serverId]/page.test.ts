@@ -36,8 +36,11 @@ vi.mock("@/lib/community/last-channel", async () => {
 vi.mock("@/components/community/messages/message-list", () => ({
   MessageList: (props: Record<string, unknown>) => createElement("message-list", props),
 }))
-vi.mock("@/components/ui/skeleton", () => ({
-  Skeleton: (props: Record<string, unknown>) => createElement("skeleton-row", props),
+vi.mock("@/components/community/channels/channel-header", () => ({
+  ChannelHeaderSkeleton: (props: Record<string, unknown>) => createElement("channel-header-skeleton", props),
+}))
+vi.mock("@/components/community/messages/composer", () => ({
+  ComposerSkeleton: (props: Record<string, unknown>) => createElement("composer-skeleton", props),
 }))
 
 beforeEach(() => {
@@ -74,6 +77,8 @@ describe("ServerDefaultPage checkpoint route contract", () => {
       "/c/channels/server_1/channel_2?settings=1",
     )
     expect(renderer.root.findAllByType("message-list")).toHaveLength(1)
+    expect(renderer.root.findAllByType("channel-header-skeleton")).toHaveLength(1)
+    expect(renderer.root.findAllByType("composer-skeleton")).toHaveLength(1)
   })
 
   it("falls back to the first top-level channel on desktop", async () => {

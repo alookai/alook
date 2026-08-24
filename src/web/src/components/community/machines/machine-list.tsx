@@ -67,6 +67,49 @@ function MachineCardSkeleton() {
   )
 }
 
+function machineBackBar(onBack?: () => void, reserveBackSlot = false) {
+  return onBack || reserveBackSlot ? (
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6">
+      {onBack ? (
+        <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back">
+          <ChevronLeft className="size-5" />
+        </Button>
+      ) : (
+        <Skeleton data-slot="loading-back-placeholder" aria-hidden className="size-8 shrink-0 rounded-md" />
+      )}
+      <span className="ml-1 truncate text-base font-semibold">Machines</span>
+    </header>
+  ) : null
+}
+
+export function MachineListSkeleton({
+  onBack,
+  reserveBackSlot = false,
+}: {
+  onBack?: () => void
+  reserveBackSlot?: boolean
+} = {}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {machineBackBar(undefined, reserveBackSlot || Boolean(onBack))}
+      <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6 thin-scrollbar">
+        <header className="flex items-center justify-between">
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <Skeleton className="h-6 w-24 rounded" />
+            <Skeleton className="h-4 w-full max-w-56 rounded" />
+          </div>
+          <Skeleton className="h-9 w-36 rounded-md" />
+        </header>
+        <div className="flex flex-col gap-3">
+          <MachineCardSkeleton />
+          <MachineCardSkeleton />
+          <MachineCardSkeleton />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function canUpdateMachine(
   machine: Pick<CommunityMachineSummary, "status" | "daemonVersion">,
   latestVersion: string | null,
@@ -290,26 +333,10 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     ? bots.filter((b) => b.machineId === confirmDelete.id)
     : []
 
-  const backBar = onBack ? (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6">
-      <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back">
-        <ChevronLeft className="size-5" />
-      </Button>
-      <span className="ml-1 truncate text-base font-semibold">Machines</span>
-    </header>
-  ) : null
+  const backBar = machineBackBar(onBack)
 
   if (machinesLoading) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        {backBar}
-        <div className="flex flex-col gap-3 p-6">
-          <MachineCardSkeleton />
-          <MachineCardSkeleton />
-          <MachineCardSkeleton />
-        </div>
-      </div>
-    )
+    return <MachineListSkeleton onBack={onBack} />
   }
 
   if (machines.length === 0) {
@@ -373,7 +400,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {backBar}
-      <div className="flex flex-1 flex-col gap-6 p-6 overflow-y-auto thin-scrollbar">
+      <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6 thin-scrollbar">
         <header className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-medium text-foreground">Machines</h1>
