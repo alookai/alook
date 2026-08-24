@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { QueryClient } from "@tanstack/react-query"
+import { QueryClient, QueryObserver } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 
 const apiFetch = vi.hoisted(() => vi.fn())
@@ -8,6 +8,7 @@ vi.mock("@/lib/api/client", () => ({
 }))
 
 import {
+  disposeAccountReadStateReconciliation,
   projectReadStateEnvelope,
   reconcileAccountReadState,
   type AccountReadStateSnapshot,
@@ -216,7 +217,76 @@ describe("account read-state reconciliation", () => {
     vi.useRealTimers()
   })
 
-  it("retries dirty derived surfaces on a same-revision hint without another snapshot request", async () => {
+  it("cancels retained retry work on exit without another GET or projection", async () => {
+    vi.useFakeTimers()
+    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+      revision: 4,
+      readStates: [],
+    })
+    queryClient.setQueryData(communityKeys.channelReadStateSnapshot("c1"), {
+      lastReadMessageId: null,
+      lastReadAt: null,
+      lastReadSeq: 0,
+    })
+    apiFetch
+      .mockRejectedValueOnce(new Error("temporary primary failure"))
+      .mockResolvedValueOnce({
+        revision: 5,
+        readStates: [{
+          channelId: "c1",
+          lastReadMessageId: "m5",
+          lastReadAt: "2026-08-24T00:00:05.000Z",
+          lastReadSeq: 5,
+        }],
+      })
+
+    await expect(reconcileAccountReadState(queryClient, {
+      invalidateSurfaces: false,
+      targetRevision: 5,
+    })).rejects.toThrow("temporary primary failure")
+    disposeAccountReadStateReconciliation(queryClient)
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(queryClient.getQueryData(communityKeys.accountReadStateSnapshot()))
+      .toMatchObject({ revision: 4 })
+    expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("c1")))
+      .toMatchObject({ lastReadSeq: 0 })
+    await expect(reconcileAccountReadState(queryClient, {
+      targetRevision: 5,
+    })).rejects.toThrow("account read-state reconciliation disposed")
+    vi.useRealTimers()
+  })
+
+  it("aborts and fences an active primary request on exit", async () => {
+    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+      revision: 4,
+      readStates: [],
+    })
+    let release!: (snapshot: AccountReadStateSnapshot) => void
+    let requestSignal: AbortSignal | undefined
+    apiFetch.mockImplementationOnce((_path: string, options: { signal?: AbortSignal }) => {
+      requestSignal = options.signal
+      return new Promise<AccountReadStateSnapshot>((resolve) => {
+        release = resolve
+      })
+    })
+
+    const worker = reconcileAccountReadState(queryClient, {
+      invalidateSurfaces: false,
+      targetRevision: 5,
+    })
+    expect(requestSignal?.aborted).toBe(false)
+    disposeAccountReadStateReconciliation(queryClient)
+    expect(requestSignal?.aborted).toBe(true)
+    release({ revision: 5, readStates: [] })
+
+    await expect(worker).rejects.toThrow("account read-state reconciliation disposed")
+    expect(queryClient.getQueryData(communityKeys.accountReadStateSnapshot()))
+      .toMatchObject({ revision: 4 })
+  })
+
+  it("retains a real active-query refetch failure until same-revision takeover succeeds", async () => {
     queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
       revision: 4,
       readStates: [],
@@ -225,10 +295,17 @@ describe("account read-state reconciliation", () => {
       revision: 5,
       readStates: [],
     })
-    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
-    invalidate
-      .mockRejectedValueOnce(new Error("temporary inbox failure"))
-      .mockResolvedValue(undefined)
+    let inboxFetches = 0
+    const inboxObserver = new QueryObserver(queryClient, {
+      queryKey: communityKeys.inbox(),
+      queryFn: async () => {
+        inboxFetches += 1
+        if (inboxFetches === 2) throw new Error("temporary inbox failure")
+        return []
+      },
+    })
+    const unsubscribe = inboxObserver.subscribe(() => undefined)
+    await vi.waitFor(() => expect(inboxObserver.getCurrentResult().status).toBe("success"))
 
     await expect(reconcileAccountReadState(queryClient, {
       targetRevision: 5,
@@ -244,11 +321,16 @@ describe("account read-state reconciliation", () => {
       targetRevision: 5,
     })).resolves.toMatchObject({ revision: 5 })
     expect(apiFetch).toHaveBeenCalledTimes(1)
-    expect(invalidate).toHaveBeenCalledTimes(6)
+    expect(inboxFetches).toBe(3)
+    expect(inboxObserver.getCurrentResult()).toMatchObject({
+      status: "success",
+      data: [],
+    })
     expect(projectReadStateEnvelope(queryClient, {
       revision: 5,
       inboxChanged: true,
     })).toBe("stale")
+    unsubscribe()
   })
 
   it("coalesces repeated live hints into one retry worker without a request storm", async () => {

@@ -43,6 +43,17 @@ function readStateEventsSince(
     ))
 }
 
+function unreadBumpsSince(
+  frames: CapturedCommunityFrame[],
+  start: number,
+  channelId: string,
+) {
+  return frames
+    .slice(start)
+    .flatMap((frame) => communityFrameEvents(frame))
+    .filter((event) => event.type === "community:unread.bump" && event.channelId === channelId)
+}
+
 test("one human account converges read state across two browser profiles", async ({ asUser }) => {
   test.setTimeout(180_000)
   const stamp = Date.now()
@@ -190,6 +201,107 @@ test("one human account converges read state across two browser profiles", async
   expect(scoped).toHaveLength(2)
   expect(new Set(scoped.map((row) => row.channelId)).size).toBe(2)
   expect(scoped.every((row) => row.lastReadSeq > 0)).toBe(true)
+})
+
+test("a visible live tail clears both devices while an unseen tail stays unread", async ({ asUser }) => {
+  test.setTimeout(180_000)
+  const stamp = Date.now()
+  const serverId = await seedServer("alice", `Visible read sync ${stamp}`)
+  const channelId = await seedChannel("alice", serverId, `visible-sync-${stamp}`)
+  const siblingId = await seedChannel("alice", serverId, `visible-sibling-${stamp}`)
+  await seedJoinServer("alice", "bob", serverId)
+  for (let index = 0; index < 28; index += 1) {
+    await seedMessage("alice", channelId, `visible baseline ${index} ${stamp}`)
+  }
+
+  const deviceA = await asUser("bob")
+  const deviceB = await asUser("bob")
+  const proxyA = await proxyCommunityWebSockets(deviceA.context)
+  const proxyB = await proxyCommunityWebSockets(deviceB.context)
+  await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${channelId}`)
+  await gotoAfterUserWsAuth(deviceB.page, `/c/channels/${serverId}/${siblingId}`)
+  await deviceB.page.getByRole("button", { name: "Inbox" }).click()
+  await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
+
+  const scroller = deviceA.page
+    .locator("[data-onboarding-target='channel-composer']")
+    .locator("xpath=ancestor::main[1]")
+    .locator(".thin-scrollbar")
+    .first()
+  await expect(deviceA.page.getByTestId(tid.scrollToPresent)).toBeVisible()
+  await deviceA.page.getByTestId(tid.scrollToPresent).click()
+  await expect(deviceA.page.getByTestId(tid.scrollToPresent)).toHaveCount(0)
+
+  const visibleStarts = [proxyA.frames.length, proxyB.frames.length]
+  const visibleRead = deviceA.page.waitForResponse((response) =>
+    response.request().method() === "PUT"
+    && new URL(response.url()).pathname === `/api/community/channels/${channelId}/read`,
+  )
+  const visibleBody = `visible live tail ${stamp}`
+  await seedMessage("alice", channelId, visibleBody)
+  await expect(deviceA.page.getByText(visibleBody, { exact: true })).toBeVisible()
+  for (const [proxy, start] of [[proxyA, visibleStarts[0]], [proxyB, visibleStarts[1]]] as const) {
+    await expect.poll(() => unreadBumpsSince(proxy.frames, start!, channelId).length, {
+      timeout: 20_000,
+    }).toBeGreaterThan(0)
+  }
+  expect((await visibleRead).status()).toBe(200)
+  await expect.poll(() => readStateEventsSince(proxyB.frames, visibleStarts[1]!).length, {
+    timeout: 20_000,
+  }).toBeGreaterThan(0)
+  await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
+
+  const beforeUnseen = await (await deviceA.page.request.get(
+    "/api/community/users/me/read-state",
+  )).json() as {
+    revision: number
+    readStates: Array<{ channelId: string; lastReadSeq: number }>
+  }
+  const beforeUnseenSeq = beforeUnseen.readStates.find((row) => row.channelId === channelId)?.lastReadSeq
+  expect(beforeUnseenSeq).toBeGreaterThan(0)
+
+  await scroller.evaluate((element) => {
+    element.scrollTop = 0
+    element.dispatchEvent(new Event("scroll"))
+  })
+  await expect(deviceA.page.getByTestId(tid.scrollToPresent)).toBeVisible()
+  const unseenReadResponses: number[] = []
+  const trackUnseenReads = (response: { request: () => { method: () => string }; url: () => string; status: () => number }) => {
+    if (
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname === `/api/community/channels/${channelId}/read`
+    ) unseenReadResponses.push(response.status())
+  }
+  deviceA.page.on("response", trackUnseenReads)
+  const unseenStarts = [proxyA.frames.length, proxyB.frames.length]
+  const unseenBody = `unseen live tail ${stamp}`
+  await seedMessage("alice", channelId, unseenBody)
+  for (const [proxy, start] of [[proxyA, unseenStarts[0]], [proxyB, unseenStarts[1]]] as const) {
+    await expect.poll(() => unreadBumpsSince(proxy.frames, start!, channelId).length, {
+      timeout: 20_000,
+    }).toBeGreaterThan(0)
+  }
+  await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible()
+  await deviceA.page.waitForTimeout(1_000)
+  expect(unseenReadResponses).toEqual([])
+  const afterUnseen = await (await deviceA.page.request.get(
+    "/api/community/users/me/read-state",
+  )).json() as {
+    revision: number
+    readStates: Array<{ channelId: string; lastReadSeq: number }>
+  }
+  expect(afterUnseen.revision).toBe(beforeUnseen.revision)
+  expect(afterUnseen.readStates.find((row) => row.channelId === channelId)?.lastReadSeq)
+    .toBe(beforeUnseenSeq)
+
+  const catchUpRead = deviceA.page.waitForResponse((response) =>
+    response.request().method() === "PUT"
+    && new URL(response.url()).pathname === `/api/community/channels/${channelId}/read`,
+  )
+  await deviceA.page.getByTestId(tid.scrollToPresent).click()
+  expect((await catchUpRead).status()).toBe(200)
+  await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
+  deviceA.page.off("response", trackUnseenReads)
 })
 
 test("human author-send and notification writers replace both active profiles", async ({ asUser }) => {

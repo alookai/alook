@@ -43,10 +43,16 @@ describe("community read-state lifecycle reconciliation", () => {
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: communityKeys.inbox(),
       refetchType: "active",
+    }, {
+      cancelRefetch: true,
+      throwOnError: true,
     })
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: communityKeys.dms(),
       refetchType: "active",
+    }, {
+      cancelRefetch: true,
+      throwOnError: true,
     })
   })
 

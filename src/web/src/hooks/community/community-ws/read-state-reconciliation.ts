@@ -28,11 +28,15 @@ type ReconciliationState = {
   worker: Promise<AccountReadStateSnapshot> | null
   retryTimer: ReturnType<typeof setTimeout> | null
   retryDelayMs: number
+  requestController: AbortController | null
+  epoch: number
+  disposed: boolean
 }
 
 const INITIAL_RETRY_DELAY_MS = 100
 const MAX_RETRY_DELAY_MS = 5_000
 const reconciliationStates = new WeakMap<QueryClient, ReconciliationState>()
+const disposedReconciliationClients = new WeakSet<QueryClient>()
 
 const emptyReadState = {
   lastReadMessageId: null,
@@ -103,15 +107,25 @@ async function invalidateReadStateSurfaces(queryClient: QueryClient) {
       && key.length === 3
     ) serverIds.add(key[2])
   }
+  const refetchOptions = { throwOnError: true, cancelRefetch: true }
   const settled = await Promise.allSettled([
-    queryClient.invalidateQueries({ queryKey: communityKeys.inbox(), refetchType: "active" }),
-    queryClient.invalidateQueries({ queryKey: communityKeys.dms(), refetchType: "active" }),
-    queryClient.invalidateQueries({ queryKey: communityKeys.servers(), exact: true, refetchType: "active" }),
+    queryClient.invalidateQueries(
+      { queryKey: communityKeys.inbox(), refetchType: "active" },
+      refetchOptions,
+    ),
+    queryClient.invalidateQueries(
+      { queryKey: communityKeys.dms(), refetchType: "active" },
+      refetchOptions,
+    ),
+    queryClient.invalidateQueries(
+      { queryKey: communityKeys.servers(), exact: true, refetchType: "active" },
+      refetchOptions,
+    ),
     ...[...serverIds].map((serverId) => queryClient.invalidateQueries({
       queryKey: communityKeys.server(serverId),
       exact: true,
       refetchType: "active",
-    })),
+    }, refetchOptions)),
   ])
   if (settled.some((result) => result.status === "rejected")) {
     throw new Error("read-state surface reconciliation failed")
@@ -122,6 +136,9 @@ export async function reconcileAccountReadState(
   queryClient: QueryClient,
   options: { invalidateSurfaces?: boolean; targetRevision?: number } = {},
 ) {
+  if (disposedReconciliationClients.has(queryClient)) {
+    throw new Error("account read-state reconciliation disposed")
+  }
   const state = getReconciliationState(queryClient)
   const currentRevision = cachedAccountRevision(queryClient)
   const targetRevision = options.targetRevision
@@ -171,6 +188,9 @@ function getReconciliationState(queryClient: QueryClient) {
     worker: null,
     retryTimer: null,
     retryDelayMs: INITIAL_RETRY_DELAY_MS,
+    requestController: null,
+    epoch: 0,
+    disposed: false,
   }
   reconciliationStates.set(queryClient, created)
   return created
@@ -199,7 +219,11 @@ function hasReconciliationWork(queryClient: QueryClient, state: ReconciliationSt
 }
 
 function scheduleReconciliationRetry(queryClient: QueryClient, state: ReconciliationState) {
-  if (state.retryTimer !== null || !hasReconciliationWork(queryClient, state)) return
+  if (
+    state.disposed
+    || state.retryTimer !== null
+    || !hasReconciliationWork(queryClient, state)
+  ) return
   const delay = state.retryDelayMs
   state.retryDelayMs = Math.min(delay * 2, MAX_RETRY_DELAY_MS)
   state.retryTimer = setTimeout(() => {
@@ -209,6 +233,7 @@ function scheduleReconciliationRetry(queryClient: QueryClient, state: Reconcilia
 }
 
 function ensureReconciliationWorker(queryClient: QueryClient, state: ReconciliationState) {
+  if (state.disposed) return Promise.reject(new Error("account read-state reconciliation disposed"))
   if (state.worker) return state.worker
   const worker = runReconciliationWorker(queryClient, state).finally(() => {
     if (state.worker === worker) state.worker = null
@@ -224,17 +249,20 @@ async function runReconciliationWorker(
   queryClient: QueryClient,
   state: ReconciliationState,
 ): Promise<AccountReadStateSnapshot> {
+  const epoch = state.epoch
   while (true) {
+    assertReconciliationActive(queryClient, state, epoch)
     const currentRevision = cachedAccountRevision(queryClient)
     if (hasSnapshotWork(state, currentRevision)) {
       const requestGeneration = state.snapshotRequestedGeneration
       let snapshot: AccountReadStateSnapshot
       try {
-        snapshot = await startAccountReadStateRequest()
+        snapshot = await startAccountReadStateRequest(state)
       } catch (error) {
         scheduleReconciliationRetry(queryClient, state)
         throw error
       }
+      assertReconciliationActive(queryClient, state, epoch)
       applyAccountReadStateSnapshot(queryClient, snapshot)
       state.snapshotCompletedGeneration = Math.max(
         state.snapshotCompletedGeneration,
@@ -261,6 +289,7 @@ async function runReconciliationWorker(
         scheduleReconciliationRetry(queryClient, state)
         throw error
       }
+      assertReconciliationActive(queryClient, state, epoch)
       state.surfaceCompletedGeneration = Math.max(
         state.surfaceCompletedGeneration,
         surfaceGeneration,
@@ -277,12 +306,44 @@ async function runReconciliationWorker(
   }
 }
 
-function startAccountReadStateRequest() {
+function assertReconciliationActive(
+  queryClient: QueryClient,
+  state: ReconciliationState,
+  epoch: number,
+) {
+  if (
+    state.disposed
+    || state.epoch !== epoch
+    || reconciliationStates.get(queryClient) !== state
+  ) throw new Error("account read-state reconciliation disposed")
+}
+
+function startAccountReadStateRequest(state: ReconciliationState) {
   const controller = new AbortController()
+  state.requestController = controller
   return apiFetch<AccountReadStateSnapshot>(
     "/api/community/users/me/read-state",
     { signal: controller.signal },
-  )
+  ).finally(() => {
+    if (state.requestController === controller) state.requestController = null
+  })
+}
+
+export function disposeAccountReadStateReconciliation(queryClient: QueryClient) {
+  disposedReconciliationClients.add(queryClient)
+  const state = reconciliationStates.get(queryClient)
+  if (!state || state.disposed) return
+  state.disposed = true
+  state.epoch += 1
+  state.highestPendingTargetRevision = null
+  state.snapshotCompletedGeneration = state.snapshotRequestedGeneration
+  state.surfaceCompletedGeneration = state.surfaceRequestedGeneration
+  if (state.retryTimer !== null) {
+    clearTimeout(state.retryTimer)
+    state.retryTimer = null
+  }
+  state.requestController?.abort()
+  state.requestController = null
 }
 
 export function projectReadStateEnvelope(

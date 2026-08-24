@@ -461,13 +461,15 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(started).not.toContain(JSON.stringify([...communityKeys.all, "bot"]))
 
     gates.get(JSON.stringify(communityKeys.friends()))!.resolve()
-    await flushMicrotasks()
-    expect(started).toContain(JSON.stringify(communityKeys.machines()))
+    await vi.waitFor(() => {
+      expect(started).toContain(JSON.stringify(communityKeys.machines()))
+    })
     expect(started).not.toContain(JSON.stringify([...communityKeys.all, "bot"]))
 
     gates.get(JSON.stringify(communityKeys.machines()))!.resolve()
-    await flushMicrotasks()
-    expect(started).toContain(JSON.stringify([...communityKeys.all, "bot"]))
+    await vi.waitFor(() => {
+      expect(started).toContain(JSON.stringify([...communityKeys.all, "bot"]))
+    })
 
     for (const gate of gates.values()) gate.resolve()
     await work

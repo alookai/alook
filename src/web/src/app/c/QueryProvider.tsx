@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client"
 import { createQueryClient } from "@/lib/query-client"
@@ -10,6 +10,7 @@ import {
   PERSIST_MAX_AGE_MS,
   shouldPersistQuery,
 } from "@/lib/query-persister"
+import { disposeAccountReadStateReconciliation } from "@/hooks/community/community-ws/read-state-reconciliation"
 
 /**
  * Owns the TanStack QueryClient for the community subtree.
@@ -38,6 +39,20 @@ export function QueryProvider({
   // id, so we don't need to reactively rebuild the persister mid-session.
   const [persister] = useState(() => createIdbPersister(userId))
   const isDev = process.env.NODE_ENV !== "production"
+  const disposeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (disposeTimer.current !== null) {
+      clearTimeout(disposeTimer.current)
+      disposeTimer.current = null
+    }
+    return () => {
+      disposeTimer.current = setTimeout(() => {
+        disposeTimer.current = null
+        disposeAccountReadStateReconciliation(queryClient)
+      }, 0)
+    }
+  }, [queryClient])
 
   return (
     <PersistQueryClientProvider
