@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import * as fs from "fs";
+import nodeFs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import * as os from "os";
 import * as path from "path";
 import { createTimelineRecorder } from "./recorder";
@@ -146,6 +148,274 @@ describe("createTimelineRecorder (append-only, 4-field schema)", () => {
 });
 
 describe("forgetSession — inline system row", () => {
+  it("keeps resume resolution at a fixed open-file bound with 1,000 historical day files", () => {
+    const dir = mkDir();
+    const emptyTurn = `${JSON.stringify(createTimelineEntry({ messages: [] }))}\n`;
+    const historicalStart = new Date("2000-01-01T12:00:00Z");
+    for (let index = 0; index < 1_000; index++) {
+      const day = new Date(historicalStart);
+      day.setUTCDate(day.getUTCDate() + index);
+      fs.writeFileSync(path.join(dir, filenameForDate(day)), emptyTurn);
+    }
+    for (let index = 0; index < 7; index++) {
+      const day = new Date(NOW());
+      day.setDate(day.getDate() - index);
+      fs.writeFileSync(path.join(dir, filenameForDate(day)), emptyTurn);
+    }
+    fs.writeFileSync(path.join(dir, ".resume-control.json"), JSON.stringify({
+      version: 1,
+      attemptedSessionId: null,
+      fencedSessionId: null,
+      fullBarrier: null,
+    }) + "\n");
+
+    const originalOpenSync = nodeFs.openSync;
+    const open = vi.fn(originalOpenSync);
+    nodeFs.openSync = open as typeof nodeFs.openSync;
+    syncBuiltinESMExports();
+    try {
+      const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
+      expect(rec.resolveResumeSession("agent_1", "codex")).toEqual({
+        kind: "none",
+        stalledSessionId: null,
+        fencedSessionId: null,
+      });
+      expect(open).toHaveBeenCalledTimes(8);
+    } finally {
+      nodeFs.openSync = originalOpenSync;
+      syncBuiltinESMExports();
+    }
+  });
+
+  it("uses recent history only when control state is missing and fails closed for corrupt control inputs", () => {
+    const makeSessionHistory = (): { dir: string; controlPath: string } => {
+      const dir = mkDir();
+      const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
+      rec.setSession("agent_1", "sess-existing");
+      rec.appendEntryForAgent("agent_1", [msg("#1", "existing")]);
+      return { dir, controlPath: path.join(dir, ".resume-control.json") };
+    };
+    const resolve = (dir: string) => createTimelineRecorder({
+      timelineDirFor: () => dir,
+      providerFor: () => "codex",
+      now: NOW,
+    }).resolveResumeSession("agent_1", "codex");
+
+    const missing = makeSessionHistory();
+    fs.unlinkSync(missing.controlPath);
+    expect(resolve(missing.dir)).toEqual({
+      kind: "session",
+      sessionId: "sess-existing",
+      stalledSessionId: null,
+      fencedSessionId: null,
+    });
+
+    const corrupt = makeSessionHistory();
+    fs.writeFileSync(corrupt.controlPath, "{not-json}\n");
+    expect(resolve(corrupt.dir)).toEqual({
+      kind: "barrier",
+      type: "reset_session",
+      forgottenSessionId: null,
+      fencedSessionId: null,
+    });
+
+    const oversized = makeSessionHistory();
+    fs.writeFileSync(oversized.controlPath, "x".repeat(4_097));
+    expect(resolve(oversized.dir)).toEqual({
+      kind: "barrier",
+      type: "reset_session",
+      forgottenSessionId: null,
+      fencedSessionId: null,
+    });
+
+    const nonRegular = makeSessionHistory();
+    fs.unlinkSync(nonRegular.controlPath);
+    fs.mkdirSync(nonRegular.controlPath);
+    expect(resolve(nonRegular.dir)).toEqual({
+      kind: "barrier",
+      type: "reset_session",
+      forgottenSessionId: null,
+      fencedSessionId: null,
+    });
+
+    if (process.platform !== "win32") {
+      const linked = makeSessionHistory();
+      const outside = path.join(mkDir(), "outside-control.json");
+      fs.writeFileSync(outside, JSON.stringify({
+        version: 1,
+        attemptedSessionId: null,
+        fencedSessionId: null,
+        fullBarrier: null,
+      }));
+      fs.unlinkSync(linked.controlPath);
+      fs.symlinkSync(outside, linked.controlPath);
+      expect(resolve(linked.dir)).toEqual({
+        kind: "barrier",
+        type: "reset_session",
+        forgottenSessionId: null,
+        fencedSessionId: null,
+      });
+    }
+  });
+
+  it("persists and clears the one-stall recovery allowance", () => {
+    const dir = mkDir();
+    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
+    rec.setSession("agent_1", "sess-poison");
+    rec.appendEntryForAgent("agent_1", [msg("#1", "before stall")]);
+
+    rec.recordSessionStall("agent_1", "sess-poison");
+    const controlPath = path.join(dir, ".resume-control.json");
+    expect(fs.statSync(controlPath).mode & 0o777).toBe(0o600);
+    expect(fs.readdirSync(dir).filter((name) => name.includes("resume-control") && name.endsWith(".tmp"))).toEqual([]);
+    expect(rec.resolveResumeSession("agent_1", "codex")).toEqual({
+      kind: "session",
+      sessionId: "sess-poison",
+      stalledSessionId: "sess-poison",
+      fencedSessionId: null,
+    });
+
+    rec.clearSessionStall("agent_1", "sess-poison");
+    expect(rec.resolveResumeSession("agent_1", "codex")).toEqual({
+      kind: "session",
+      sessionId: "sess-poison",
+      stalledSessionId: null,
+      fencedSessionId: null,
+    });
+  });
+
+  for (const failureMode of ["lock", "rename"] as const) {
+    for (const transition of ["attempt", "fence", "reset_session", "nap", "clear"] as const) {
+      it(`does not append a ${transition} forensic row when the control ${failureMode} transition fails`, () => {
+        const dir = mkDir();
+        const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
+        expect(rec.setSession("agent_1", "sess-poison")).toBe(true);
+        rec.appendEntryForAgent("agent_1", [msg("#1", "before transition")]);
+        if (transition === "fence" || transition === "clear") {
+          expect(rec.recordSessionStall("agent_1", "sess-poison")).toBe(true);
+        }
+
+        const controlPath = path.join(dir, ".resume-control.json");
+        const beforeControl = fs.readFileSync(controlPath, "utf8");
+        const beforeSystemRows = readRecentEntries(dir, { now: NOW() })
+          .filter((row) => row.system)
+          .map((row) => row.system);
+        const lockPath = lockPathFor(dir, ".resume-control.json");
+        const originalRenameSync = nodeFs.renameSync;
+        if (failureMode === "lock") expect(acquireLock(lockPath)).toBe(true);
+        else {
+          nodeFs.renameSync = ((oldPath: fs.PathLike, newPath: fs.PathLike) => {
+            if (String(newPath) === controlPath) throw new Error("injected control rename failure");
+            return originalRenameSync(oldPath, newPath);
+          }) as typeof nodeFs.renameSync;
+          syncBuiltinESMExports();
+        }
+
+        try {
+          const result = transition === "attempt"
+            ? rec.recordSessionStall("agent_1", "sess-poison")
+            : transition === "fence"
+              ? rec.forgetSession("agent_1", "stall_recovery", "sess-poison")
+              : transition === "clear"
+                ? rec.clearSessionStall("agent_1", "sess-poison")
+                : rec.forgetSession("agent_1", transition);
+          expect(result).toBe(false);
+        } finally {
+          if (failureMode === "lock") releaseLock(lockPath);
+          else {
+            nodeFs.renameSync = originalRenameSync;
+            syncBuiltinESMExports();
+          }
+        }
+
+        expect(fs.readFileSync(controlPath, "utf8")).toBe(beforeControl);
+        expect(readRecentEntries(dir, { now: NOW() })
+          .filter((row) => row.system)
+          .map((row) => row.system)).toEqual(beforeSystemRows);
+        const rebuilt = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
+        expect(rebuilt.resolveResumeSession("agent_1", "codex")).toEqual({
+          kind: "session",
+          sessionId: "sess-poison",
+          stalledSessionId: transition === "fence" || transition === "clear" ? "sess-poison" : null,
+          fencedSessionId: null,
+        });
+      });
+    }
+
+    it(`keeps the prior in-memory session when setSession hits a control ${failureMode} failure`, () => {
+      const dir = mkDir();
+      const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
+      expect(rec.setSession("agent_1", "sess-old")).toBe(true);
+      const controlPath = path.join(dir, ".resume-control.json");
+      const beforeControl = fs.readFileSync(controlPath, "utf8");
+      const lockPath = lockPathFor(dir, ".resume-control.json");
+      const originalRenameSync = nodeFs.renameSync;
+      if (failureMode === "lock") expect(acquireLock(lockPath)).toBe(true);
+      else {
+        nodeFs.renameSync = ((oldPath: fs.PathLike, newPath: fs.PathLike) => {
+          if (String(newPath) === controlPath) throw new Error("injected control rename failure");
+          return originalRenameSync(oldPath, newPath);
+        }) as typeof nodeFs.renameSync;
+        syncBuiltinESMExports();
+      }
+      try {
+        expect(rec.setSession("agent_1", "sess-new")).toBe(false);
+      } finally {
+        if (failureMode === "lock") releaseLock(lockPath);
+        else {
+          nodeFs.renameSync = originalRenameSync;
+          syncBuiltinESMExports();
+        }
+      }
+      expect(fs.readFileSync(controlPath, "utf8")).toBe(beforeControl);
+      rec.appendEntryForAgent("agent_1", [msg("#1", "after failed set")]);
+      expect(readRecentEntries(dir, { now: NOW() }).at(-1)?.session_id).toBe("sess-old");
+    });
+  }
+
+  it("resolves an attempt marker outside the seven-day turn-history window", () => {
+    const dir = mkDir();
+    const oldRecorder = createTimelineRecorder({
+      timelineDirFor: () => dir,
+      providerFor: () => "codex",
+      now: () => new Date("2026-06-01T12:00:00Z"),
+    });
+    oldRecorder.recordSessionStall("agent_1", "sess-poison");
+
+    const rebuiltRecorder = createTimelineRecorder({
+      timelineDirFor: () => dir,
+      providerFor: () => "codex",
+      now: () => new Date("2026-06-25T12:00:00Z"),
+    });
+    expect(rebuiltRecorder.resolveResumeSession("agent_1", "codex")).toEqual({
+      kind: "none",
+      stalledSessionId: "sess-poison",
+      fencedSessionId: null,
+    });
+  });
+
+  it("persists the exact repeatedly stalled session in a stall_recovery barrier", () => {
+    const dir = mkDir();
+    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
+    rec.setSession("agent_1", "sess-poison");
+
+    rec.forgetSession("agent_1", "stall_recovery", "sess-poison");
+
+    const rows = readRecentEntries(dir, { now: NOW() });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].system).toEqual({
+      type: "stall_recovery",
+      time: NOW().toISOString(),
+      backend_session_id: "sess-poison",
+    });
+    expect(rec.resolveResumeSession("agent_1", "codex")).toEqual({
+      kind: "barrier",
+      type: "stall_recovery",
+      forgottenSessionId: "sess-poison",
+      fencedSessionId: "sess-poison",
+    });
+  });
+
   it("appends a bare reset_session system row (no forgot_session_id) and clears the map", () => {
     const dir = mkDir();
     const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });

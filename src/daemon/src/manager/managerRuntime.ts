@@ -8,6 +8,8 @@ import {
   type AgentMsg,
   type AgentState,
   type AgentStatus,
+  type NativeActivityKind,
+  type RuntimePhase,
   isActivelyWorking,
 } from "./managerPolicy.js";
 import type {
@@ -25,6 +27,8 @@ import { scrubRuntimeErrorDiagnosticText } from "../runtime/errorDiagnostics.js"
 import { buildCliSystemPrompt } from "../drivers/systemPrompt.js";
 import { createLogger, type Logger } from "../logger.js";
 import { nowLocalISO } from "../util/localTime.js";
+import type { ResumeSessionResolution } from "../timeline/timeline.js";
+import type { SystemEntryType } from "../timeline/types.js";
 import { randomUUID } from "node:crypto";
 const SESSION_STOP_GRACE_MS = 2_000;
 export type AgentActivityState = "idle" | "starting" | "running" | "stopping";
@@ -71,6 +75,8 @@ interface ActiveSpawnState {
   handshakeTimer: ReturnType<typeof setTimeout> | null;
   torndown: boolean;
   superseded: boolean;
+  discardEvents: boolean;
+  stalledSessionIdAtLaunch: string | null;
   spawnFailureReason: string | null;
   terminationSemantics: string | null;
   spawnOrdinal: number;
@@ -101,6 +107,13 @@ interface FsmTraceRecord extends TraceRecordBase, Partial<TraceSpanMetadata> {
   inbox: number;
   lastDeliverAt: number | null;
   lastProgressAt: number;
+  lastNativeActivityAt: number;
+  lastNativeActivityKind: NativeActivityKind | null;
+  runtimePhase: RuntimePhase;
+  backendTurnId: string | null;
+  turnSilenceBudgetMs: number;
+  nativeDeadlineAt: number | null;
+  recoveryExtensionsUsed: number;
   idleSince: number | null;
   resetting: boolean;
   resettingSince: number | null;
@@ -116,6 +129,7 @@ interface FsmTraceRecord extends TraceRecordBase, Partial<TraceSpanMetadata> {
   resumeOutcome?: "not_requested" | "pending" | "resumed" | "reset_required" | "failed";
   terminalOwnerKind?: "transport_request" | "vendor_message" | "prompt_invocation" | "lane_generation";
   sinceProgressMs: number;
+  sinceNativeActivityMs: number;
   sinceDeliverMs: number | null;
   sinceStoppingMs: number | null;
   endReason?: "errored";
@@ -232,10 +246,13 @@ export interface ManagerRuntimeOpts {
   logger?: Logger;
 }
 export interface TimelineRecorder {
-  setSession(agentId: string, sessionId: string): void;
+  setSession(agentId: string, sessionId: string): boolean;
   appendResponseToLatest(agentId: string, text: string): void;
   resumeSessionId(agentId: string, provider: string | null): string | null;
-  forgetSession(agentId: string, barrierType?: "reset_session" | "nap"): void;
+  resolveResumeSession?(agentId: string, provider: string | null): ResumeSessionResolution;
+  recordSessionStall?(agentId: string, sessionId: string): boolean;
+  clearSessionStall?(agentId: string, sessionId: string): boolean;
+  forgetSession(agentId: string, barrierType?: SystemEntryType, forgottenSessionId?: string): boolean;
 }
 const THINKING_MAX_BYTES = 4096;
 const AUDIT_ERROR_MESSAGE_MAX_LEN = 2000;
@@ -492,11 +509,21 @@ export class AgentProcessManager {
     const effects = this.dispatch({ type: "wake", agentId, message: normalized, nowMs: this.now() });
     return effects.length > 0;
   }
-  forgetSession(agentId: string, barrierType: "reset_session" | "nap" = "reset_session"): void {
+  forgetSession(agentId: string, barrierType: "reset_session" | "nap" = "reset_session"): boolean {
+    if (!this.forgetSessionSources(agentId, barrierType)) return false;
+    this.dispatch({ type: "reset_session", agentId });
+    return true;
+  }
+  private forgetSessionSources(
+    agentId: string,
+    barrierType: SystemEntryType,
+    forgottenSessionId?: string,
+  ): boolean {
+    const persisted = this.opts.timeline?.forgetSession(agentId, barrierType, forgottenSessionId);
+    if (persisted === false) return false;
     this.resumeSessions.delete(agentId);
     this.liveSessions.delete(agentId);
-    this.dispatch({ type: "reset_session", agentId });
-    this.opts.timeline?.forgetSession(agentId, barrierType);
+    return true;
   }
   enqueueRewake(agentId: string, message: AgentMsg): void {
     this.dispatch({ type: "rewake_after_reset", agentId, message });
@@ -537,8 +564,12 @@ export class AgentProcessManager {
       opName: string;
     },
   ): Promise<void> {
+    if (opts.forgetSession && !this.forgetSession(agentId, opts.barrierType ?? "reset_session")) {
+      this.log.error("resume control transition failed; reset aborted", { agentId, barrierType: opts.barrierType });
+      this.emitErrorAudit(agentId, "reset", "resume_control_update_failed", "Reset aborted because resume control could not be persisted");
+      throw new Error("Reset aborted because resume control could not be persisted");
+    }
     this.register(agentId, { runtimeConfig: opts.runtimeConfig, launchId: opts.launchId });
-    if (opts.forgetSession) this.forgetSession(agentId, opts.barrierType ?? "reset_session");
     this.abortCurrentTurn(agentId, opts.abortCause);
     this.markResetting(agentId);
     const status = this.state.agents[agentId]?.status;
@@ -753,6 +784,19 @@ export class AgentProcessManager {
           inbox: a.inbox.length,
           lastDeliverAt: a.lastDeliverAt,
           lastProgressAt: a.lastProgressAt,
+          lastNativeActivityAt: a.lastNativeActivityAt,
+          lastNativeActivityKind: a.lastNativeActivityKind,
+          runtimePhase: a.runtimePhase,
+          backendTurnId: a.backendTurnId,
+          turnSilenceBudgetMs: a.turnSilence.normalBudgetMs,
+          nativeDeadlineAt:
+            a.execution.lease.state === "active" || a.execution.lease.state === "suspect_active"
+              ? a.execution.lease.nativeDeadlineAt
+              : null,
+          recoveryExtensionsUsed:
+            a.execution.lease.state === "active" || a.execution.lease.state === "suspect_active"
+              ? a.execution.lease.recoveryExtensionsUsed
+              : 0,
           idleSince: a.idleSince,
           resetting: a.resetting,
           resettingSince: a.resettingSince,
@@ -763,6 +807,7 @@ export class AgentProcessManager {
           timeIso: new Date(nowMs).toISOString(),
           ...(activeSpan ? activeSpan : {}),
           sinceProgressMs: nowMs - a.lastProgressAt,
+          sinceNativeActivityMs: nowMs - a.lastNativeActivityAt,
           sinceDeliverMs: a.lastDeliverAt === null ? null : nowMs - a.lastDeliverAt,
           sinceStoppingMs: a.stoppingSince === null ? null : nowMs - a.stoppingSince,
           ...(event.type === "turn_completed" && (event as { endReason?: "errored" }).endReason === "errored"
@@ -1022,6 +1067,56 @@ export class AgentProcessManager {
       case "terminate_stalled": {
         const session = this.sessions.get(effect.agentId);
         const spawnState = this.activeSpawnState.get(effect.agentId);
+        const endedSessionId = this.liveSessions.get(effect.agentId) ?? "";
+        if (effect.type === "terminate_stalled" && effect.recordSessionId) {
+          const persisted = this.opts.timeline?.recordSessionStall?.(effect.agentId, effect.recordSessionId);
+          if (persisted === false) {
+            this.dispatch({
+              type: "stall_control_failed",
+              agentId: effect.agentId,
+              sessionId: effect.recordSessionId,
+              transition: "attempt",
+            });
+            this.log.error("stall recovery attempt was not persisted; termination deferred", {
+              agentId: effect.agentId,
+              sessionId: effect.recordSessionId,
+            });
+            this.emitErrorAudit(
+              effect.agentId,
+              "runtime",
+              "resume_control_update_failed",
+              "Stall termination deferred because the recovery attempt could not be persisted",
+            );
+            break;
+          }
+        }
+        if (effect.type === "terminate_stalled" && effect.forgetSessionId) {
+          const persisted = this.forgetSessionSources(effect.agentId, "stall_recovery", effect.forgetSessionId);
+          if (!persisted) {
+            this.dispatch({
+              type: "stall_control_failed",
+              agentId: effect.agentId,
+              sessionId: effect.forgetSessionId,
+              transition: "fence",
+            });
+            this.log.error("repeated-session fence was not persisted; termination deferred", {
+              agentId: effect.agentId,
+              sessionId: effect.forgetSessionId,
+            });
+            this.emitErrorAudit(
+              effect.agentId,
+              "runtime",
+              "resume_control_update_failed",
+              "Stall termination deferred because the exact session fence could not be persisted",
+            );
+            break;
+          }
+          if (spawnState) spawnState.discardEvents = true;
+          this.log.warn("repeatedly stalled backend session fenced", {
+            agentId: effect.agentId,
+            sessionId: effect.forgetSessionId,
+          });
+        }
         if (effect.type === "terminate_stalled" && spawnState) {
           this.closeTurn(spawnState, spawnState.activeSpan, {
             event: "turn_abort",
@@ -1039,8 +1134,34 @@ export class AgentProcessManager {
         if (spawnState) {
           spawnState.terminationSemantics = effect.type === "terminate_stalled" ? "killed_stalled" : "idle_stop";
         }
-        this.logSessionEnded(effect.agentId, effect.type === "stop" ? "stopped" : "terminate_stalled");
+        this.logSessionEnded(
+          effect.agentId,
+          effect.type === "stop" ? "stopped" : "terminate_stalled",
+          endedSessionId,
+        );
         this.opts.onAgentLocallyStopped?.({ agentId: effect.agentId, reason: effect.type });
+        break;
+      }
+      case "clear_stall_recovery": {
+        const persisted = this.opts.timeline?.clearSessionStall?.(effect.agentId, effect.sessionId);
+        if (persisted === false) {
+          this.dispatch({
+            type: "stall_control_failed",
+            agentId: effect.agentId,
+            sessionId: effect.sessionId,
+            transition: "clear",
+          });
+          this.log.error("stall recovery clear was not persisted; allowance remains consumed", {
+            agentId: effect.agentId,
+            sessionId: effect.sessionId,
+          });
+          this.emitErrorAudit(
+            effect.agentId,
+            "runtime",
+            "resume_control_update_failed",
+            "Stall recovery allowance remains consumed because its clear could not be persisted",
+          );
+        }
         break;
       }
       case "expire_admission": {
@@ -1095,8 +1216,12 @@ export class AgentProcessManager {
       }
     }
   }
-  private logSessionEnded(agentId: string, reason: "turn_end" | "stopped" | "terminate_stalled" | "exit"): void {
-    this.log.info("agent session ended", { agentId, sessionId: this.liveSessions.get(agentId) ?? "", reason });
+  private logSessionEnded(
+    agentId: string,
+    reason: "turn_end" | "stopped" | "terminate_stalled" | "exit",
+    sessionId = this.liveSessions.get(agentId) ?? "",
+  ): void {
+    this.log.info("agent session ended", { agentId, sessionId, reason });
   }
   private doSpawn(agentId: string, messages: AgentMsg[], resumeSessionId: string | null): void {
     const [first, ...pending] = messages;
@@ -1120,11 +1245,31 @@ export class AgentProcessManager {
       mode: { kind: "default" },
     } as RuntimeConfig);
     const provider = runtimeConfig.runtime;
-    const sessionId =
+    const timelineResolution = this.opts.timeline?.resolveResumeSession?.(agentId, provider);
+    const timelineSessionId = timelineResolution?.kind === "session"
+      ? timelineResolution.sessionId
+      : timelineResolution === undefined
+        ? this.opts.timeline?.resumeSessionId(agentId, provider)
+        : null;
+    const candidateSessionId =
       resumeSessionId ??
       this.resumeSessions.get(agentId) ??
-      this.opts.timeline?.resumeSessionId(agentId, provider) ??
+      timelineSessionId ??
       base.config?.sessionId;
+    const blockedByBarrier = timelineResolution?.kind === "barrier"
+      && (
+        timelineResolution.type !== "stall_recovery"
+        || timelineResolution.forgottenSessionId === null
+        || timelineResolution.forgottenSessionId === candidateSessionId
+      );
+    const blockedByExactFence = candidateSessionId !== undefined
+      && timelineResolution?.fencedSessionId === candidateSessionId;
+    const sessionId = blockedByBarrier || blockedByExactFence ? undefined : candidateSessionId;
+    const stalledSessionIdAtLaunch = timelineResolution !== undefined
+      && (timelineResolution.kind === "session" || timelineResolution.kind === "none")
+      && timelineResolution.stalledSessionId === sessionId
+      ? timelineResolution.stalledSessionId
+      : null;
     const description = runtimeConfig.instruction ?? base.config?.description ?? runtimeConfig.agentName;
     const agentName = runtimeConfig.agentName ?? base.config?.agentName;
     const agentHandle = runtimeConfig.agentHandle ?? base.config?.agentHandle;
@@ -1155,6 +1300,8 @@ export class AgentProcessManager {
       handshakeTimer: null,
       torndown: false,
       superseded: false,
+      discardEvents: false,
+      stalledSessionIdAtLaunch,
       spawnFailureReason: null,
       terminationSemantics: null,
       spawnOrdinal: this.nextSpawnOrdinal++,
@@ -1237,10 +1384,23 @@ export class AgentProcessManager {
     };
     const onEvent = (event: ManagedEvent) => {
       if (state.torndown) return;
+      if (state.discardEvents) {
+        this.log.warn("ignored event from discarded backend session owner", { agentId, event: event.type });
+        return;
+      }
       if (event.type === "session_failed" && !state.hasEstablished) {
         reportSpawnFailure(event.error.code || "failed_to_start", { message: event.error.message });
       }
       if (event.type === "session_started") {
+        const persisted = this.opts.timeline?.setSession(agentId, event.backendSessionId);
+        if (persisted === false) {
+          state.discardEvents = true;
+          reportSpawnFailure("resume_control_update_failed", {
+            message: "Backend session rejected because resume control could not be persisted",
+          });
+          void state.session?.stop({ reason: "shutdown", forceAfterMs: SESSION_STOP_GRACE_MS });
+          return;
+        }
         state.hasEstablished = true;
         clearHandshakeTimer();
         this.opts.onRuntimeSessionEstablished?.(driver.id);
@@ -1260,6 +1420,7 @@ export class AgentProcessManager {
         agentId,
         sessionInstanceId: session.sessionInstanceId,
         nowMs: this.now(),
+        turnSilence: session.snapshot().diagnostics?.turnSilence,
       }, state);
       previousOwner?.pendingDeliverySpans.clear();
       void (async () => {
@@ -1501,9 +1662,13 @@ export class AgentProcessManager {
       }
     }
     if (event.type === "session_started") {
-      this.dispatch({ type: "backend_session", agentId, sessionId: event.backendSessionId }, owner);
+      this.dispatch({
+        type: "backend_session",
+        agentId,
+        sessionId: event.backendSessionId,
+        stalledBefore: owner.stalledSessionIdAtLaunch === event.backendSessionId,
+      }, owner);
       this.liveSessions.set(agentId, event.backendSessionId);
-      this.opts.timeline?.setSession(agentId, event.backendSessionId);
       this.opts.onAgentSession?.({
         agentId,
         sessionId: event.backendSessionId,
@@ -1560,26 +1725,59 @@ export class AgentProcessManager {
       }, owner);
       if (!wasActive && this.state.agents[agentId]?.turnActive && !owner.activeSpan) this.openTurn(owner);
     }
-    const signalKind = (() => {
+    const nativeSignal = (() => {
       switch (event.type) {
-        case "session_started": return "session_init";
-        case "thinking_delta": return "thinking";
-        case "text_delta": return "text";
-        case "tool_started": return "tool_call";
-        case "tool_finished": return "tool_output";
-        case "diagnostic": return "runtime_diagnostic";
-        case "token_usage":
-        case "rate_limits": return "telemetry";
-        case "turn_completed": return "turn_end";
-        case "session_failed": return "error";
-        case "command_queued":
-        case "command_accepted":
-        case "command_failed":
-        case "turn_started": return "internal_progress";
-        default: return event.type;
+        case "turn_started":
+          return { kind: "turn_started" as const, phase: "inference" as const, turnId: event.turnId };
+        case "backend_turn_started":
+          return {
+            kind: "backend_turn_started" as const,
+            phase: "inference" as const,
+            turnId: event.turnId,
+            backendTurnId: event.backendTurnId,
+          };
+        case "thinking_delta":
+          return { kind: "thinking" as const, phase: "inference" as const, turnId: event.turnId };
+        case "text_delta":
+          return event.text.length > 0
+            ? { kind: "text" as const, phase: "inference" as const, turnId: event.turnId }
+            : null;
+        case "tool_started":
+          return { kind: "tool_call" as const, phase: "tool" as const, turnId: event.turnId };
+        case "tool_finished":
+          return { kind: "tool_output" as const, phase: "inference" as const, turnId: event.turnId };
+        case "compaction_started":
+        case "compaction_finished":
+        case "review_started":
+        case "review_finished":
+        case "internal_progress":
+          return event.turnId
+            ? { kind: "internal_progress" as const, phase: "inference" as const, turnId: event.turnId }
+            : null;
+        case "recovery":
+          return event.turnId
+            ? {
+                kind: "recovery" as const,
+                phase: event.stage === "retrying" ? "recovery" as const : "inference" as const,
+                recoveryStage: event.stage,
+                turnId: event.turnId,
+              }
+            : null;
+        case "turn_completed":
+          return { kind: "turn_end" as const, phase: "terminal" as const, turnId: event.turnId };
+        default:
+          return null;
       }
     })();
-    this.dispatch({ type: "runtime_signal", agentId, kind: signalKind, nowMs: this.now() }, owner);
+    if (nativeSignal) {
+      this.dispatch({
+        type: "runtime_signal",
+        agentId,
+        sessionInstanceId: event.sessionInstanceId,
+        ...nativeSignal,
+        nowMs: this.now(),
+      }, owner);
+    }
     if (event.type === "turn_completed") {
       this.logSessionEnded(agentId, "turn_end");
       const marker = this.nonCleanEndMarker.get(agentId);

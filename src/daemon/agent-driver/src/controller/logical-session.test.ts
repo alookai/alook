@@ -268,6 +268,18 @@ async function take(
 }
 
 describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)("%s logical-session conformance", (backend) => {
+  it("projects the public bounded turn-silence defaults", async () => {
+    const { session } = makeSession(backend);
+    expect(session.snapshot().diagnostics.turnSilence).toEqual({
+      nativeIdleTimeoutMs: 300_000,
+      daemonGraceMs: 60_000,
+      recoveryGraceMs: 60_000,
+      maxRecoveryExtensions: 1,
+      normalBudgetMs: 360_000,
+    });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
   it("passes the exported black-box conformance suite", async () => {
     const { session, driver } = makeSession(backend);
     await runAgentDriverConformance(async () => ({
@@ -430,6 +442,35 @@ describe("runtime-lane admission state machine", () => {
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
+  it("publishes only bounded opaque native turn ids", async () => {
+    const validLane = new ControlledRuntimeLane();
+    const validSession = makeSession("claude", { lane: validLane }).session;
+    const validIterator = validSession.events[Symbol.asyncIterator]();
+    await validSession.start({ id: "one", kind: "user", text: "start" });
+    validLane.emit({ kind: "turn_owner", receipt: "claude:test:1", nativeTurnId: "native-turn_7" });
+    expect((await take(validIterator as never, 3)).map((event) => event.type)).toEqual([
+      "command_accepted",
+      "turn_started",
+      "backend_turn_started",
+    ]);
+    await validSession.stop({ reason: "shutdown", forceAfterMs: 10 });
+
+    const hostileLane = new ControlledRuntimeLane();
+    const hostileSession = makeSession("claude", { lane: hostileLane }).session;
+    const hostileIterator = hostileSession.events[Symbol.asyncIterator]();
+    await hostileSession.start({ id: "one", kind: "user", text: "start" });
+    hostileLane.emit({
+      kind: "turn_owner",
+      receipt: "claude:test:1",
+      nativeTurnId: "OPENAI_API_KEY=native-secret /Users/private",
+    });
+    hostileLane.emit({ kind: "text", text: "next safe event" });
+    const hostileEvents = await take(hostileIterator as never, 3);
+    expect(hostileEvents.map((event) => event.type)).toEqual(["command_accepted", "turn_started", "text_delta"]);
+    expect(JSON.stringify(hostileEvents)).not.toMatch(/native-secret|\/Users\/private/);
+    await hostileSession.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
   it("ignores a forged terminal owner and completes only for the admission receipt", async () => {
     const lane = new ControlledRuntimeLane();
     const { session } = makeSession("claude", { lane });
@@ -590,6 +631,13 @@ describe("logical delivery diagnostics", () => {
 
     expect(session.snapshot().diagnostics).toEqual({
       deliveryPhase: "idle",
+      turnSilence: {
+        nativeIdleTimeoutMs: 300_000,
+        daemonGraceMs: 60_000,
+        recoveryGraceMs: 60_000,
+        maxRecoveryExtensions: 1,
+        normalBudgetMs: 360_000,
+      },
       metrics: {
         physicalOpenCount: 0,
         turnCount: 0,

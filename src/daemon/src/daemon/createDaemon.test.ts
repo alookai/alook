@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { EventEmitter } from "events";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -1151,6 +1151,11 @@ describe("createDaemon — logging", () => {
     }) as unknown as typeof fetch;
 
     const channel = "/demo#1234/general";
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "working-unread-coverage-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    // The real driver SDK prepares this directory before session_started. This
+    // test uses a fake session, so reproduce that precondition explicitly.
+    mkdirSync(join(workingDirectoryBase, "bot_working"));
     const starts: Array<{ id: string; text: string }> = [];
     const sends: Array<{ id: string; text: string; sequence?: number }> = [];
     const sockets: FakeSocket[] = [];
@@ -1160,6 +1165,7 @@ describe("createDaemon — logging", () => {
       serverWsUrl: "ws://x",
       webSocketFactory: factory(sockets) as any,
       runtimeReport: [{ id: "codex" }],
+      workingDirectoryBase,
       driverFor: () => fullFakeDriver("codex"),
       sessionFactory: daemonSessionFactory({
         onStart: (input) => starts.push(input),

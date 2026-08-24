@@ -24,6 +24,27 @@ export { localISOString };
 export const TIMELINE_MAX_BYTES = 1_048_576;
 export const TIMELINE_READ_CHUNK_BYTES = 65_536;
 const DATE_FILENAME_PATTERN = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
+const RESUME_CONTROL_FILENAME = ".resume-control.json";
+const RESUME_CONTROL_MAX_BYTES = 4_096;
+
+export interface ResumeControlState {
+  version: 1;
+  attemptedSessionId: string | null;
+  fencedSessionId: string | null;
+  fullBarrier: "reset_session" | "nap" | null;
+}
+
+export type ResumeControlReadResult =
+  | { kind: "missing" }
+  | { kind: "invalid" }
+  | { kind: "state"; state: ResumeControlState };
+
+const EMPTY_RESUME_CONTROL: ResumeControlState = {
+  version: 1,
+  attemptedSessionId: null,
+  fencedSessionId: null,
+  fullBarrier: null,
+};
 
 interface TimelineLine {
   text: string;
@@ -33,7 +54,7 @@ interface TimelineLine {
 }
 
 function isBarrier(entry: ContextTimelineEntry): boolean {
-  return entry.system?.type === "reset_session" || entry.system?.type === "nap";
+  return entry.system !== undefined;
 }
 
 function canonicalTimelineEntry(value: unknown): ContextTimelineEntry | null {
@@ -41,10 +62,24 @@ function canonicalTimelineEntry(value: unknown): ContextTimelineEntry | null {
   const entry = value as Partial<ContextTimelineEntry>;
   if (entry.system) {
     if (
-      (entry.system.type !== "reset_session" && entry.system.type !== "nap") ||
-      typeof entry.system.time !== "string"
+      (
+        entry.system.type !== "reset_session"
+        && entry.system.type !== "nap"
+        && entry.system.type !== "stall_recovery_attempt"
+        && entry.system.type !== "stall_recovery_clear"
+        && entry.system.type !== "stall_recovery"
+      )
+      || typeof entry.system.time !== "string"
+      || (
+        entry.system.backend_session_id !== undefined
+        && typeof entry.system.backend_session_id !== "string"
+      )
     ) return null;
-    return createSystemEntry(entry.system.type, entry.system.time);
+    return createSystemEntry(
+      entry.system.type,
+      entry.system.time,
+      entry.system.backend_session_id,
+    );
   }
   if (entry.session_id !== null && typeof entry.session_id !== "string") return null;
   if (entry.provider !== null && typeof entry.provider !== "string") return null;
@@ -60,7 +95,7 @@ function canonicalTimelineEntry(value: unknown): ContextTimelineEntry | null {
 
 function timelineLine(entry: ContextTimelineEntry): TimelineLine | null {
   const boundedEntry = entry.system
-    ? createSystemEntry(entry.system.type, entry.system.time)
+    ? createSystemEntry(entry.system.type, entry.system.time, entry.system.backend_session_id)
     : { ...entry, agent_responses: entry.agent_responses.slice(-5) };
   const text = JSON.stringify(boundedEntry);
   const bytes = Buffer.byteLength(text, "utf8") + 1;
@@ -341,6 +376,114 @@ export function readRecentEntries(timelineDir: string, opts: ReadRecentOptions =
   return entries;
 }
 
+/** Latest durable resume-control row across the complete retained timeline. */
+export function readResumeControlState(timelineDir: string): ResumeControlReadResult {
+  if (timelineDirectoryState(timelineDir) !== "safe") return { kind: "missing" };
+  const filePath = join(timelineDir, RESUME_CONTROL_FILENAME);
+  let source: fs.Stats;
+  try {
+    source = fs.lstatSync(filePath);
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT"
+      ? { kind: "missing" }
+      : { kind: "invalid" };
+  }
+  if (!source.isFile() || source.size <= 0 || source.size > RESUME_CONTROL_MAX_BYTES) {
+    return { kind: "invalid" };
+  }
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(filePath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.size <= 0 || stat.size > RESUME_CONTROL_MAX_BYTES) {
+      return { kind: "invalid" };
+    }
+    const bounded = Buffer.allocUnsafe(stat.size + 1);
+    let bytesRead = 0;
+    while (bytesRead < bounded.length) {
+      const count = fs.readSync(fd, bounded, bytesRead, bounded.length - bytesRead, bytesRead);
+      if (count <= 0) break;
+      bytesRead += count;
+    }
+    if (bytesRead !== stat.size) return { kind: "invalid" };
+    const raw = bounded.subarray(0, bytesRead).toString("utf8");
+    const value = JSON.parse(raw) as Partial<ResumeControlState>;
+    const validSessionId = (candidate: unknown): candidate is string | null =>
+      candidate === null || (typeof candidate === "string" && candidate.length > 0 && candidate.length <= 512);
+    if (
+      value.version !== 1
+      || !validSessionId(value.attemptedSessionId)
+      || !validSessionId(value.fencedSessionId)
+      || (
+        value.fullBarrier !== null
+        && value.fullBarrier !== "reset_session"
+        && value.fullBarrier !== "nap"
+      )
+    ) return { kind: "invalid" };
+    return {
+      kind: "state",
+      state: {
+        version: 1,
+        attemptedSessionId: value.attemptedSessionId,
+        fencedSessionId: value.fencedSessionId,
+        fullBarrier: value.fullBarrier,
+      },
+    };
+  } catch {
+    return { kind: "invalid" };
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch { /* best effort */ }
+    }
+  }
+}
+
+export function updateResumeControlState(
+  timelineDir: string,
+  update: (state: ResumeControlState) => ResumeControlState,
+): boolean {
+  if (timelineDirectoryState(timelineDir) !== "safe") return false;
+  const lockPath = lockPathFor(timelineDir, RESUME_CONTROL_FILENAME);
+  if (!acquireLock(lockPath)) return false;
+  try {
+    const current = readResumeControlState(timelineDir);
+    const base = current.kind === "state" ? current.state : EMPTY_RESUME_CONTROL;
+    const next = update({ ...base });
+    const canonical: ResumeControlState = {
+      version: 1,
+      attemptedSessionId: next.attemptedSessionId,
+      fencedSessionId: next.fencedSessionId,
+      fullBarrier: next.fullBarrier,
+    };
+    const body = JSON.stringify(canonical) + "\n";
+    if (Buffer.byteLength(body, "utf8") > RESUME_CONTROL_MAX_BYTES) return false;
+    const filePath = join(timelineDir, RESUME_CONTROL_FILENAME);
+    const tempPath = join(
+      timelineDir,
+      `.${RESUME_CONTROL_FILENAME}.${process.pid}.${randomBytes(12).toString("hex")}.tmp`,
+    );
+    let fd: number | null = null;
+    try {
+      fd = fs.openSync(tempPath, "wx", 0o600);
+      fs.writeFileSync(fd, body, "utf8");
+      fs.fsyncSync(fd);
+      fs.closeSync(fd);
+      fd = null;
+      fs.renameSync(tempPath, filePath);
+      return true;
+    } finally {
+      if (fd !== null) {
+        try { fs.closeSync(fd); } catch { /* best effort */ }
+      }
+      try { fs.unlinkSync(tempPath); } catch { /* best effort */ }
+    }
+  } catch {
+    return false;
+  } finally {
+    releaseLock(lockPath);
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Write (lock-guarded)                                                */
 /* ------------------------------------------------------------------ */
@@ -588,19 +731,23 @@ export function createTimelineEntry(fields: NewEntryFields): ContextTimelineEntr
 
 /**
  * Build a system entry. System rows are inlined in the JSONL alongside turns
- * so the resume walker and any agent-facing reader see them in place. The
- * first (and only) type today is `reset_session`.
+ * so the resume walker and any agent-facing reader see them in place.
  */
 export function createSystemEntry(
   type: SystemEntryType,
   time: string,
+  backendSessionId?: string,
 ): ContextTimelineEntry {
   return {
     session_id: null,
     messages: [],
     agent_responses: [],
     provider: null,
-    system: { type, time },
+    system: {
+      type,
+      time,
+      ...(backendSessionId ? { backend_session_id: backendSessionId } : {}),
+    },
   };
 }
 
@@ -617,22 +764,85 @@ export function createSystemEntry(
  * a codex launch). One session per agent and each timeline lives in that
  * agent's own workdir, so there's no thread keying.
  *
- * A `system: { type: "reset_session" }` row is a barrier: the walker returns
- * null the moment it hits one going newest→oldest. Every turn at or before
- * the reset becomes invisible to resume without editing those rows. Since
- * kill happens BEFORE the barrier is written (see
- * `AgentProcessManager.resetSession`), no `forgot_session_id` fallback is
- * needed — no turn row can land after the barrier from the old session.
+ * Reset/nap rows are full barriers. A `stall_recovery` row fences only its
+ * exact backend session, while attempt/clear rows carry the bounded retry
+ * state across daemon restarts without disabling healthy persistence.
  */
-export function findResumableSession(rows: ContextTimelineEntry[], provider?: string): string | null {
+export type ResumeSessionResolution =
+  | {
+      kind: "session";
+      sessionId: string;
+      stalledSessionId: string | null;
+      fencedSessionId: string | null;
+    }
+  | {
+      kind: "barrier";
+      type: SystemEntryType;
+      forgottenSessionId: string | null;
+      fencedSessionId: string | null;
+    }
+  | { kind: "none"; stalledSessionId: string | null; fencedSessionId: string | null };
+
+export function resolveResumableSession(
+  rows: ContextTimelineEntry[],
+  provider?: string,
+): ResumeSessionResolution {
+  let candidateSessionId: string | null = null;
+  let recoveryMarkerSeen = false;
+  let stalledSessionId: string | null = null;
+  let fencedSessionId: string | null = null;
   for (let i = rows.length - 1; i >= 0; i--) {
     const e = rows[i];
-    // Both reset_session (owner) and nap (agent self-reset) are resume
-    // barriers — a fresh session was deliberately started at this point.
-    if (e.system?.type === "reset_session" || e.system?.type === "nap") return null;
+    if (e.system) {
+      if (e.system.type === "stall_recovery_attempt") {
+        if (!recoveryMarkerSeen) {
+          recoveryMarkerSeen = true;
+          stalledSessionId = e.system.backend_session_id ?? null;
+        }
+        continue;
+      }
+      if (e.system.type === "stall_recovery_clear") {
+        if (!recoveryMarkerSeen) recoveryMarkerSeen = true;
+        continue;
+      }
+      if (e.system.type === "stall_recovery" && fencedSessionId === null) {
+        fencedSessionId = e.system.backend_session_id ?? null;
+      }
+      if (candidateSessionId !== null) {
+        return {
+          kind: "session",
+          sessionId: candidateSessionId,
+          stalledSessionId: stalledSessionId === candidateSessionId ? stalledSessionId : null,
+          fencedSessionId,
+        };
+      }
+      return {
+        kind: "barrier",
+        type: e.system.type,
+        forgottenSessionId: e.system.backend_session_id ?? null,
+        fencedSessionId,
+      };
+    }
     if (!e.session_id) continue;
     if (provider && e.provider !== provider) continue;
-    return e.session_id;
+    if (candidateSessionId === null) {
+      candidateSessionId = e.session_id;
+      continue;
+    }
+    if (candidateSessionId !== e.session_id) break;
   }
-  return null;
+  if (candidateSessionId !== null) {
+    return {
+      kind: "session",
+      sessionId: candidateSessionId,
+      stalledSessionId: stalledSessionId === candidateSessionId ? stalledSessionId : null,
+      fencedSessionId,
+    };
+  }
+  return { kind: "none", stalledSessionId, fencedSessionId };
+}
+
+export function findResumableSession(rows: ContextTimelineEntry[], provider?: string): string | null {
+  const resolution = resolveResumableSession(rows, provider);
+  return resolution.kind === "session" ? resolution.sessionId : null;
 }

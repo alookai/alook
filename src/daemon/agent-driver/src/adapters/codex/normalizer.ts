@@ -103,7 +103,11 @@ export class CodexEventNormalizer {
         this.turnId = params.turn.id;
         this.terminalTurn = null;
         return [
-          { kind: "turn_owner", receipt: this.turnReceipt(params.threadId, params.turn.id) },
+          {
+            kind: "turn_owner",
+            receipt: this.turnReceipt(params.threadId, params.turn.id),
+            nativeTurnId: params.turn.id,
+          },
           { kind: "thinking", text: "" },
         ];
 
@@ -145,7 +149,10 @@ export class CodexEventNormalizer {
         return [{ kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) }];
 
       case "error":
-        return [{ kind: "error", message: params?.message ?? "Codex error" }];
+        if (params?.willRetry === true) {
+          return [{ kind: "runtime_recovery", stage: "retrying", source: "codex_stream" }];
+        }
+        return [{ kind: "error", message: params?.error?.message ?? params?.message ?? "Codex error" }];
 
       case "thread/tokenUsage/updated":
       case "account/rateLimits/updated":
