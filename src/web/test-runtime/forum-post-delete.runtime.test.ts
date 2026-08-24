@@ -159,6 +159,55 @@ afterEach(async () => {
 });
 
 describe("deleteForumPost real D1 batch", () => {
+  it("versions sparse-only owners and repairs every pointer during hard-delete compensation", async () => {
+    const { id, t2 } = await seedCanonicalPost();
+    const sparseOnly = `fpd_sparse_${crypto.randomUUID().replaceAll("-", "")}`;
+    createdUsers.push(sparseOnly);
+    await run(
+      "INSERT INTO user (id, email, name, discriminator) VALUES (?, ?, 'Sparse', ?)",
+      sparseOnly,
+      `${sparseOnly}@example.com`,
+      stamp4(sparseOnly),
+    );
+    await run(
+      `INSERT INTO community_forum_opener_read
+        (user_id, opener_message_id, read_at)
+       VALUES (?, ?, '2026-08-23T01:02:30.000Z')`,
+      sparseOnly,
+      id.opener,
+    );
+
+    const db = createDb(runtimeEnv.DB);
+    const result = await queries.communityMessage.hardDeleteMessage(db, id.opener);
+
+    expect(new Set(result?.readStateRevisions.map((row) => row.userId))).toEqual(
+      new Set([id.owner, id.reader, sparseOnly]),
+    );
+    for (const userId of [id.owner, id.reader]) {
+      expect(await first<{ lastReadMessageId: string; lastReadSeq: number }>(
+        `SELECT last_read_message_id AS lastReadMessageId,
+                last_read_seq AS lastReadSeq
+         FROM community_read_state
+         WHERE user_id = ? AND channel_id = ?`,
+        userId,
+        id.forum,
+      )).toEqual({ lastReadMessageId: id.siblingOpener, lastReadSeq: 2 });
+    }
+    await expect(queries.communityReadState.getAccountReadStateSnapshot(
+      db,
+      sparseOnly,
+    )).resolves.toEqual({
+      revision: 1,
+      readStates: [],
+      forumOpenerReads: [],
+    });
+    expect(await first("SELECT id FROM community_message WHERE id = ?", id.opener)).toBeNull();
+    expect(await first<{ message_count: number; last_message_at: string }>(
+      "SELECT message_count, last_message_at FROM community_channel WHERE id = ?",
+      id.forum,
+    )).toEqual({ message_count: 2, last_message_at: t2 });
+  });
+
   it("captures all media keys, repairs parent truth, and cascades only the selected post", async () => {
     const { id, t2 } = await seedCanonicalPost();
     const db = createDb(runtimeEnv.DB);
@@ -220,6 +269,7 @@ describe("deleteForumPost real D1 batch", () => {
           lastReadSeq: 2,
           lastReadAt: t2,
         }],
+        forumOpenerReads: [],
       });
     }
     expect(new Set(result.readStateRevisions.map((revision) => revision.userId))).toEqual(
@@ -281,6 +331,13 @@ describe("deleteForumPost real D1 batch", () => {
                 id.forum,
                 id.opener,
               );
+              expect(await first<{ isBot: number; lastReadMessageId: string }>(
+                `SELECT u."isBot" AS isBot, rs.last_read_message_id AS lastReadMessageId
+                 FROM user AS u
+                 INNER JOIN community_read_state AS rs ON rs.user_id = u.id
+                 WHERE u.id = ?`,
+                lateReader,
+              )).toEqual({ isBot: 0, lastReadMessageId: id.opener });
             }
             return target.batch(statements as never[]);
           };
@@ -314,6 +371,7 @@ describe("deleteForumPost real D1 batch", () => {
         lastReadAt: t2,
         lastReadSeq: 2,
       }],
+      forumOpenerReads: [],
     });
   });
 

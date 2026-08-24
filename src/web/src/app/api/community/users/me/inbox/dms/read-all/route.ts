@@ -14,8 +14,8 @@ import { broadcastToUserSafe } from "@/lib/community/fanout"
  */
 export const POST = withAuth(async (_req, ctx) => {
   const db = getPrimaryDb(ctx.env.DB)
-  const { count, revision } = await queries.communityReadState.markAllDmsRead(db, ctx.userId)
-  if (revision !== null) {
+  const { count, changed, revision } = await queries.communityReadState.markAllDmsRead(db, ctx.userId)
+  if (changed) {
     await broadcastToUserSafe(ctx.userId, {
       type: WS_EVENTS.INBOX_CHANGED,
       revision,
@@ -23,5 +23,5 @@ export const POST = withAuth(async (_req, ctx) => {
       reason: "read_all",
     })
   }
-  return writeJSON({ ok: true, count, revision })
+  return writeJSON({ ok: true, count, changed, revision })
 })

@@ -101,6 +101,7 @@ export async function proxyCommunityWebSockets(
       if (!message || !activeClient) throw new Error("community frame is not replayable")
       activeClient.send(message)
     },
+    /* istanbul ignore next -- retained offline/reconnect Chromium journey */
     disconnect: async () => {
       if (!activeClient) return
       const client = activeClient

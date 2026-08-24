@@ -413,6 +413,26 @@ describe("createCommunityMessage — committed delivery handoff", () => {
       inboxChanged: true,
     }))
   })
+
+  it("routes a human forum opener to exact sparse self-read ownership", async () => {
+    mockCreateMessage.mockResolvedValue({ id: "msg_forum", readStateRevision: 13 })
+    mockGetMessage.mockResolvedValue(messageRow({ id: "msg_forum", channelId: "forum_1" }))
+
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      authorKind: "human",
+      target: { kind: "forum", channelId: "forum_1", serverId: "srv_1" },
+      body: { content: "new forum opener" },
+    })
+
+    expect(mockCreateMessage).toHaveBeenCalledWith({}, expect.objectContaining({
+      authorId: "author_1",
+      authorKind: "human",
+      channelId: "forum_1",
+      humanReadTarget: "forum-opener",
+    }))
+  })
 })
 
 describe("createCommunityMessage — @Name#0042 mention disambiguation", () => {

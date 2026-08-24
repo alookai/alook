@@ -3,6 +3,7 @@ import { NextRequest } from "next/server"
 
 const requireMessageSurfaceAccess = vi.fn()
 const setChannelLevel = vi.fn()
+const removeChannelOverride = vi.fn()
 const broadcastToUserSafe = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getPrimaryDb: () => ({}) }))
@@ -18,7 +19,7 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     queries: { communityNotificationSetting: {
       setChannelLevel: (...args: unknown[]) => setChannelLevel(...args),
-      removeChannelOverride: vi.fn(),
+      removeChannelOverride: (...args: unknown[]) => removeChannelOverride(...args),
     } },
   }
 })
@@ -28,7 +29,7 @@ vi.mock("@/lib/middleware/auth", () => ({
   }),
 }))
 
-import { PUT } from "./route"
+import { DELETE, PUT } from "./route"
 
 describe("human DM notification settings", () => {
   beforeEach(() => {
@@ -39,6 +40,10 @@ describe("human DM notification settings", () => {
       readStateRevision: 2,
     })
     broadcastToUserSafe.mockResolvedValue(undefined)
+    removeChannelOverride.mockResolvedValue({
+      setting: null,
+      readStateRevision: 3,
+    })
   })
 
   it("uses the unified message-surface gate so DM block and participant checks apply", async () => {
@@ -55,6 +60,25 @@ describe("human DM notification settings", () => {
     expect(broadcastToUserSafe).toHaveBeenCalledWith("user_1", {
       type: "community:read_state.advanced",
       revision: 2,
+      inboxChanged: true,
+    })
+  })
+
+  it("removes a human override through the same gate and broadcasts its revision", async () => {
+    const response = await DELETE(
+      new NextRequest("http://local", { method: "DELETE" }),
+      { params: { id: "dm_1" } } as any,
+    )
+
+    expect(response.status).toBe(204)
+    expect(removeChannelOverride).toHaveBeenCalledWith({}, {
+      userId: "user_1",
+      channelId: "dm_1",
+      actorKind: "human",
+    })
+    expect(broadcastToUserSafe).toHaveBeenCalledWith("user_1", {
+      type: "community:read_state.advanced",
+      revision: 3,
       inboxChanged: true,
     })
   })

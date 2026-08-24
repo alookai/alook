@@ -12,7 +12,6 @@ import {
   useMarkAllInboxRead,
   useDeleteMention,
   useUnmarkMessage,
-  useReadForumThreadFromInbox,
 } from "@/hooks/community/mutations"
 import type { InboxPopover } from "./community-inbox-popover"
 import type { QueryClient } from "@tanstack/react-query"
@@ -40,7 +39,6 @@ export function useShellInboxController({
   const { mutate: unmarkMessageMutate } = useUnmarkMessage()
   const markAllInboxRead = useMarkAllInboxRead()
   const deleteMention = useDeleteMention()
-  const { mutate: readForumThreadFromInbox } = useReadForumThreadFromInbox()
   const inbox = useInboxAutoCollapse({ unreads: unreadFeed, unreadDms, mentions })
   const watchInboxItem = inbox.watchItem
 
@@ -59,13 +57,12 @@ export function useShellInboxController({
     serverId: string,
     parentChannelId: string,
     childChannelId: string,
-    openerMessageId: string,
+    _openerMessageId: string,
   ) => {
     watchInboxItem(`channel:${childChannelId}`)
-    readForumThreadFromInbox({ parentChannelId, openerMessageId })
     cancelPendingNavigation()
     router.push(channelHref(serverId, childChannelId))
-  }, [cancelPendingNavigation, readForumThreadFromInbox, router, watchInboxItem])
+  }, [cancelPendingNavigation, router, watchInboxItem])
 
   const openMarked = useCallback((marked: Marked) => {
     watchInboxItem(`marked:${marked.id}`)

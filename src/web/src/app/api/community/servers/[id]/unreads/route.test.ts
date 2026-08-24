@@ -4,6 +4,7 @@ import { NextRequest } from "next/server"
 const mockGetMember = vi.fn()
 const mockListVisibleChannelIds = vi.fn()
 const mockListEligibleUnreadChannels = vi.fn()
+const mockListUnreadForumOpeners = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 vi.mock("@alook/shared", async () => {
@@ -20,6 +21,7 @@ vi.mock("@alook/shared", async () => {
       communityInbox: {
         ...actual.queries.communityInbox,
         listEligibleUnreadChannels: (...args: unknown[]) => mockListEligibleUnreadChannels(...args),
+        listUnreadForumOpeners: (...args: unknown[]) => mockListUnreadForumOpeners(...args),
       },
     },
   }
@@ -44,6 +46,7 @@ describe("GET /api/community/servers/[id]/unreads", () => {
       { serverId: "server_1", channelId: "channel_2", parentChannelId: "channel_1" },
       { serverId: "server_2", channelId: "other_1" },
     ])
+    mockListUnreadForumOpeners.mockResolvedValue([])
   })
 
   it("returns the complete viewer-visible unread id set scoped to the server", async () => {
@@ -69,6 +72,25 @@ describe("GET /api/community/servers/[id]/unreads", () => {
 
     expect(await response.json()).toMatchObject({ channelIds: ["channel_1", "channel_2"] })
     expect(mockListEligibleUnreadChannels).toHaveBeenCalledOnce()
+  })
+
+  it("keeps a forum parent only while its hybrid projection has an unread opener", async () => {
+    mockListEligibleUnreadChannels.mockResolvedValue([
+      { serverId: "server_1", channelId: "forum_1", parentChannelId: null, type: "forum" },
+    ])
+    mockListUnreadForumOpeners.mockResolvedValue([{ forumChannelId: "forum_1" }])
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/community/servers/server_1/unreads"),
+      { params: { id: "server_1" } } as never,
+    )
+
+    expect(await response.json()).toMatchObject({ channelIds: ["forum_1"] })
+    expect(mockListUnreadForumOpeners).toHaveBeenCalledWith(
+      expect.anything(),
+      "user_1",
+      ["forum_1"],
+    )
   })
 
   it("fails closed when the viewer is not a server member", async () => {

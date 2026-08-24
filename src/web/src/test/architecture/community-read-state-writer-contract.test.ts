@@ -40,25 +40,34 @@ describe("human account read-state writer contract", () => {
   it("requires every human-capable writer and FK cascade to mint only bounded revisions", () => {
     const message = source("src/shared/src/db/queries/community/message.ts")
     expect(message).toContain('authorKind?: "human" | "bot"')
+    expect(message).toContain('humanReadTarget?: "timeline" | "forum-opener"')
     expect(message).toContain("communityReadStateRevision")
-    expect(message).toContain("readStateRevision: { userId: msg.authorId")
+    expect(message).toContain("db.insert(communityForumOpenerRead).values")
+    expect(message).toContain("return { ...msg, readStateRevision: revision }")
+    expect(message).toContain("impactedSparse")
+    expect(message).toContain("impactedMentions")
     expect(message).not.toContain("humanSnapshot")
 
     const notification = source("src/shared/src/db/queries/community/notification-setting.ts")
     expect(notification).toContain('actorKind: "human" | "bot"')
-    expect(notification).toContain("advanceReadStateRevisionBuilder")
+    expect(notification).toContain("advanceReadStateRevisionWhenBuilder")
+    expect(notification).toContain("delete(communityForumOpenerRead)")
     expect(notification).not.toContain("accountReadStateRowsBuilder")
 
     const forumDelete = source("src/shared/src/db/queries/community/forum-post-delete.ts")
     expect(forumDelete).toContain("advanceReadStateRevisionsForUsersBuilder")
     expect(forumDelete).not.toContain("accountReadStateRowsForUsersBuilder")
     expect(forumDelete).toContain("impactedHumansStable")
+    expect(forumDelete).toContain("impactedSparse")
+    expect(forumDelete).toContain("impactedMentions")
     expect(forumDelete).toContain("deleteForumPostAttempt(db, input, attempt + 1)")
 
     const cascadeDelete = source("src/shared/src/db/queries/community/delete-media.ts")
     expect(cascadeDelete).toContain("advanceReadStateRevisionsForUsersBuilder")
     expect(cascadeDelete).not.toContain("accountReadStateRowsForUsersBuilder")
     expect(cascadeDelete.match(/impactedHumansStable/g)?.length).toBeGreaterThanOrEqual(6)
+    expect(cascadeDelete.match(/impactedSparse/g)?.length).toBeGreaterThanOrEqual(4)
+    expect(cascadeDelete.match(/impactedMentions/g)?.length).toBeGreaterThanOrEqual(4)
     expect(cascadeDelete).toContain("deleteChannelWithMediaAttempt(db, input, attempt + 1)")
     expect(cascadeDelete).toContain("deleteServerWithMediaAttempt(db, input, attempt + 1)")
 
@@ -71,6 +80,19 @@ describe("human account read-state writer contract", () => {
     expect(readState).toContain("getAccountReadStateSnapshot")
     expect(readState).toContain("accountReadStateRowsBuilder(db, userId)")
     expect(readState).not.toContain("accountReadStateRowsForUsersBuilder")
+  })
+
+  it("keeps browser timeline and opener read transports in the account coordinator only", () => {
+    const webSourceRoot = resolve(repositoryRoot, "src/web/src")
+    const transportPattern = /\/api\/community\/(?:channels|messages)\/\$\{[^}]+\}\/read(?!-)/
+    const owners = walkTypeScript(webSourceRoot)
+      .filter((path) => !path.includes("/test/") && !path.endsWith(".test.ts"))
+      .filter((path) => transportPattern.test(readFileSync(path, "utf8")))
+      .map((path) => relative(repositoryRoot, path).replaceAll("\\", "/"))
+
+    expect(owners).toEqual([
+      "src/web/src/hooks/community/read-coordinator.ts",
+    ])
   })
 
   it("makes every production message door state the author kind explicitly", () => {

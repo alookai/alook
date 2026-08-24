@@ -30,6 +30,7 @@ export const communityServer = sqliteTable(
       .references(() => user.id, { onDelete: "restrict" }),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
+  /* istanbul ignore next -- exercised by real D1 migration/runtime */
   (t) => [
     // Unique server handle `name#discriminator` — the server-segment address
     // anchor, so a ref `/name#disc/...` resolves to exactly one server. Mirrors
@@ -375,9 +376,29 @@ export const communityReadState = sqliteTable(
 export const communityReadStateRevision = sqliteTable("community_read_state_revision", {
   userId: text("user_id")
     .primaryKey()
-    .references(() => user.id, { onDelete: "cascade" }),
+    .references(/* istanbul ignore next -- exercised by real D1 migration/runtime */ () => user.id, { onDelete: "cascade" }),
   revision: integer("revision").notNull().default(0),
 });
+
+export const communityForumOpenerRead = sqliteTable(
+  "community_forum_opener_read",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(/* istanbul ignore next -- exercised by real D1 migration/runtime */ () => user.id, { onDelete: "cascade" }),
+    openerMessageId: text("opener_message_id")
+      .notNull()
+      .references(/* istanbul ignore next -- exercised by real D1 migration/runtime */ () => communityMessage.id, { onDelete: "cascade" }),
+    readAt: text("read_at").notNull().$defaultFn(
+      /* istanbul ignore next -- exercised by real D1 migration/runtime */
+      () => new Date().toISOString(),
+    ),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.openerMessageId] }),
+    index("idx_forum_opener_read_message").on(t.openerMessageId),
+  ],
+);
 
 // 13. community_reaction
 export const communityReaction = sqliteTable(

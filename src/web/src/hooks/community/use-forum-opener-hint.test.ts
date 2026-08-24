@@ -32,8 +32,14 @@ describe("useForumOpenerHint", () => {
     expect(apiFetchMock).not.toHaveBeenCalled()
   })
 
-  it("reuses a seeded lightweight hint without a full opener request", async () => {
+  it("refetches a legacy seeded hint that lacks the opener seq", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    apiFetchMock.mockResolvedValue({
+      id: "opener-1",
+      content: "Seeded",
+      seq: 7,
+      channelId: "forum-1",
+    })
     queryClient.setQueryData(
       communityKeys.forumOpenerHint("server-1", "opener-1"),
       { id: "opener-1", content: "Seeded" },
@@ -47,6 +53,14 @@ describe("useForumOpenerHint", () => {
         ),
       )
     })
-    expect(apiFetchMock).not.toHaveBeenCalled()
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/messages/opener-1")
+    expect(queryClient.getQueryData(
+      communityKeys.forumOpenerHint("server-1", "opener-1"),
+    )).toEqual({
+      id: "opener-1",
+      content: "Seeded",
+      seq: 7,
+      channelId: "forum-1",
+    })
   })
 })

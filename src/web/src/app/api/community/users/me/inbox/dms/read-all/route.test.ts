@@ -45,9 +45,9 @@ describe("POST /api/community/users/me/inbox/dms/read-all", () => {
   })
 
   it("broadcasts the committed revision to every same-account socket", async () => {
-    mocks.markAll.mockResolvedValue({ count: 3, revision: 8 })
+    mocks.markAll.mockResolvedValue({ count: 3, changed: true, revision: 8 })
     const response = await POST(new Request("http://localhost", { method: "POST" }) as any)
-    await expect(response.json()).resolves.toEqual({ ok: true, count: 3, revision: 8 })
+    await expect(response.json()).resolves.toEqual({ ok: true, count: 3, changed: true, revision: 8 })
     expect(mocks.broadcast).toHaveBeenCalledWith("u1", {
       type: "community:inbox.changed",
       revision: 8,
@@ -58,9 +58,9 @@ describe("POST /api/community/users/me/inbox/dms/read-all", () => {
   })
 
   it("does not broadcast an empty read-all no-op", async () => {
-    mocks.markAll.mockResolvedValue({ count: 0, revision: null })
+    mocks.markAll.mockResolvedValue({ count: 0, changed: false, revision: 8 })
     const response = await POST(new Request("http://localhost", { method: "POST" }) as any)
-    await expect(response.json()).resolves.toEqual({ ok: true, count: 0, revision: null })
+    await expect(response.json()).resolves.toEqual({ ok: true, count: 0, changed: false, revision: 8 })
     expect(mocks.broadcast).not.toHaveBeenCalled()
   })
 })

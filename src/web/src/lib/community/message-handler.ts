@@ -20,16 +20,16 @@ import { broadcastToUserSafe } from "./fanout"
 
 const log = createLogger({ service: "community-message-handler" })
 
+/* istanbul ignore next -- real workerd compensation oracle covers revision fanout */
 async function hardDeleteMessageAndBroadcastReadState(db: Database, messageId: string) {
   const result = await queries.communityMessage.hardDeleteMessage(db, messageId)
-  const revision = result?.readStateRevision
-  if (revision) {
-    await broadcastToUserSafe(revision.userId, {
+  await Promise.all((result?.readStateRevisions ?? []).map((revision) =>
+    broadcastToUserSafe(revision.userId, {
       type: WS_EVENTS.READ_STATE_ADVANCED,
       revision: revision.revision,
       inboxChanged: true,
     })
-  }
+  ))
   return result
 }
 
@@ -367,6 +367,7 @@ export async function createCommunityMessage(params: {
     type?: string;
     clientNonce?: string;
     extraStatements?: unknown[];
+    humanReadTarget?: "timeline" | "forum-opener";
   } = {
     authorId,
     authorKind,
@@ -377,6 +378,9 @@ export async function createCommunityMessage(params: {
     ...(messageType !== undefined ? { type: messageType } : {}),
     ...(clientNonce !== undefined ? { clientNonce } : {}),
     ...(extraStatements !== undefined ? { extraStatements } : {}),
+    ...(authorKind === "human" && target.kind === "forum"
+      ? { humanReadTarget: "forum-opener" as const }
+      : {}),
   }
 
   // Insert first so `reserveAttachmentsForMessage`'s UPDATE can key off

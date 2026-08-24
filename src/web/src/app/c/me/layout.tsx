@@ -94,8 +94,8 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   // `undefined`, so unread DMs open at the bottom with no NEW divider.
   //
   // Instead: client-only optimistic tint on the DM sidebar row so the badge
-  // fades on click (matches the pre-fix UX). The IntersectionObserver in
-  // `useDmWatermark` is authoritative — it advances the server pointer as the
+  // fades on click (matches the pre-fix UX). The visible-row read observer
+  // advances the server pointer as the
   // viewer actually looks at messages. If the user opens then leaves without
   // scrolling to the new messages, the server watermark stays put and the
   // badge re-appears on the next refetch, which is the correct behavior.

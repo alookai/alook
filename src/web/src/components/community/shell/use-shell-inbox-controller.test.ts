@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => ({
   markAll: vi.fn(),
   deleteMention: vi.fn(),
   unmark: vi.fn(),
-  readForum: vi.fn(),
   verifyDm: vi.fn(),
 }))
 
@@ -42,7 +41,6 @@ vi.mock("@/hooks/community/mutations", () => ({
   useMarkAllInboxRead: () => ({ mutate: mocks.markAll }),
   useDeleteMention: () => ({ mutate: mocks.deleteMention }),
   useUnmarkMessage: () => ({ mutate: mocks.unmark }),
-  useReadForumThreadFromInbox: () => ({ mutate: mocks.readForum }),
 }))
 vi.mock("@/hooks/community/use-dm-route-verification", () => ({
   startDmRouteVerification: (...args: unknown[]) => mocks.verifyDm(...args),
@@ -84,7 +82,6 @@ async function renderController(initialDmCache: DmCache = { conversations: [{
   }
   const cancelPendingNavigation = vi.fn(() => { order.push("cancel") })
   mocks.watch.mockImplementation(() => { order.push("watch") })
-  mocks.readForum.mockImplementation(() => { order.push("read") })
   mocks.verifyDm.mockImplementation(() => {
     order.push("verify")
     return Promise.resolve("present")
@@ -110,7 +107,7 @@ async function renderController(initialDmCache: DmCache = { conversations: [{
 describe("useShellInboxController", () => {
   beforeEach(() => {
     mocks.markedEnabled.length = 0
-    for (const mock of [mocks.watch, mocks.markAll, mocks.deleteMention, mocks.unmark, mocks.readForum, mocks.verifyDm]) {
+    for (const mock of [mocks.watch, mocks.markAll, mocks.deleteMention, mocks.unmark, mocks.verifyDm]) {
       mock.mockReset()
     }
   })
@@ -171,9 +168,8 @@ describe("useShellInboxController", () => {
     const hook = await renderController()
     hook.order.length = 0
     await act(async () => hook.current.popoverProps.onOpenForumThread("s1", "forum", "child", "opener"))
-    expect(hook.order).toEqual(["watch", "read", "cancel", "push"])
+    expect(hook.order).toEqual(["watch", "cancel", "push"])
     expect(mocks.watch).toHaveBeenCalledWith("channel:child")
-    expect(mocks.readForum).toHaveBeenCalledWith({ parentChannelId: "forum", openerMessageId: "opener" })
     expect(hook.pushed.at(-1)).toBe("/c/channels/s1/child")
 
     hook.order.length = 0

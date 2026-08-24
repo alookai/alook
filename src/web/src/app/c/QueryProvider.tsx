@@ -11,6 +11,7 @@ import {
   shouldPersistQuery,
 } from "@/lib/query-persister"
 import { disposeAccountReadStateReconciliation } from "@/hooks/community/community-ws/read-state-reconciliation"
+import { disposeReadCoordinator } from "@/hooks/community/read-coordinator"
 
 /**
  * Owns the TanStack QueryClient for the community subtree.
@@ -49,6 +50,7 @@ export function QueryProvider({
     return () => {
       disposeTimer.current = setTimeout(() => {
         disposeTimer.current = null
+        disposeReadCoordinator(queryClient)
         disposeAccountReadStateReconciliation(queryClient)
       }, 0)
     }

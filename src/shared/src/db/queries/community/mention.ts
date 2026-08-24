@@ -1,9 +1,13 @@
-import { eq, and, inArray, desc } from "drizzle-orm";
+import { eq, and, inArray, desc, exists, lte, sql, type SQL } from "drizzle-orm";
 import { communityMention, communityMessage } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { chunk, maxRowsPerInsert, D1_MAX_IN_PARAMS } from "../_chunk";
 import { MENTION_KIND, type MentionKind } from "../../../constants/community";
+import {
+  accountReadStateRevisionBuilder,
+  advanceReadStateRevisionWhenBuilder,
+} from "./read-state";
 
 // communityMention emits 5 bind params/row (id $defaultFn, message_id, user_id,
 // kind default, read default), so a single INSERT caps at floor(100/5)=20 rows.
@@ -149,6 +153,41 @@ export async function markAllMentionsRead(db: Database, userId: string) {
     .where(and(eq(communityMention.userId, userId), eq(communityMention.read, 0)));
 }
 
+export async function markAllMentionsReadWithRevision(
+  db: Database,
+  userId: string
+) {
+  const unreadExists = exists(
+    db
+      .select({ one: sql<number>`1` })
+      .from(communityMention)
+      .where(
+        and(
+          eq(communityMention.userId, userId),
+          eq(communityMention.read, 0)
+        )
+      )
+  );
+  const mutation = db
+    .update(communityMention)
+    .set({ read: 1 })
+    .where(
+      and(
+        eq(communityMention.userId, userId),
+        eq(communityMention.read, 0)
+      )
+    );
+  const results = await db.batch([
+    advanceReadStateRevisionWhenBuilder(db, userId, unreadExists),
+    mutation,
+    accountReadStateRevisionBuilder(db, userId),
+  ] as any) as unknown[];
+  return {
+    changed: (results[0] as Array<{ revision: number }>).length > 0,
+    revision: (results[2] as Array<{ revision: number }>)[0]?.revision ?? 0,
+  };
+}
+
 export async function markChannelMentionsRead(db: Database, userId: string, channelId: string) {
   const mentionIds = await db
     .select({ id: communityMention.id })
@@ -177,7 +216,8 @@ export async function markChannelMentionsRead(db: Database, userId: string, chan
 export function markChannelMentionsReadBuilder(
   db: Database,
   userId: string,
-  channelId: string
+  channelId: string,
+  targetSeq?: number
 ) {
   const matchingMentionIds = db
     .select({ id: communityMention.id })
@@ -187,7 +227,8 @@ export function markChannelMentionsReadBuilder(
       and(
         eq(communityMention.userId, userId),
         eq(communityMention.read, 0),
-        eq(communityMessage.channelId, channelId)
+        eq(communityMessage.channelId, channelId),
+        ...(targetSeq === undefined ? [] : [lte(communityMessage.seq, targetSeq)])
       )
     );
 
@@ -195,6 +236,67 @@ export function markChannelMentionsReadBuilder(
     .update(communityMention)
     .set({ read: 1 })
     .where(inArray(communityMention.id, matchingMentionIds));
+}
+
+export function unreadChannelMentionThroughSeqCondition(
+  db: Database,
+  userId: string,
+  channelId: string,
+  targetSeq: number
+): SQL<unknown> {
+  return exists(
+    db
+      .select({ one: sql<number>`1` })
+      .from(communityMention)
+      .innerJoin(
+        communityMessage,
+        eq(communityMention.messageId, communityMessage.id)
+      )
+      .where(
+        and(
+          eq(communityMention.userId, userId),
+          eq(communityMention.read, 0),
+          eq(communityMessage.channelId, channelId),
+          lte(communityMessage.seq, targetSeq)
+        )
+      )
+  );
+}
+
+export function unreadMessageMentionCondition(
+  db: Database,
+  userId: string,
+  messageId: string
+): SQL<unknown> {
+  return exists(
+    db
+      .select({ one: sql<number>`1` })
+      .from(communityMention)
+      .where(
+        and(
+          eq(communityMention.userId, userId),
+          eq(communityMention.messageId, messageId),
+          eq(communityMention.read, 0)
+        )
+      )
+  );
+}
+
+export function markMessageMentionsReadBuilder(
+  db: Database,
+  userId: string,
+  messageId: string
+) {
+  return db
+    .update(communityMention)
+    .set({ read: 1 })
+    .where(
+      and(
+        eq(communityMention.userId, userId),
+        eq(communityMention.messageId, messageId),
+        eq(communityMention.read, 0)
+      )
+    );
 }
 
 /**
@@ -229,4 +331,41 @@ export async function deleteMention(db: Database, userId: string, mentionId: str
     )
     .returning({ id: communityMention.id });
   return rows.length;
+}
+
+export async function dismissMentionWithRevision(
+  db: Database,
+  userId: string,
+  mentionId: string
+) {
+  const unreadExists = exists(
+    db
+      .select({ one: sql<number>`1` })
+      .from(communityMention)
+      .where(
+        and(
+          eq(communityMention.id, mentionId),
+          eq(communityMention.userId, userId),
+          eq(communityMention.read, 0)
+        )
+      )
+  );
+  const mutation = db
+    .delete(communityMention)
+    .where(
+      and(
+        eq(communityMention.id, mentionId),
+        eq(communityMention.userId, userId),
+        eq(communityMention.read, 0)
+      )
+    );
+  const results = await db.batch([
+    advanceReadStateRevisionWhenBuilder(db, userId, unreadExists),
+    mutation,
+    accountReadStateRevisionBuilder(db, userId),
+  ] as any) as unknown[];
+  return {
+    changed: (results[0] as Array<{ revision: number }>).length > 0,
+    revision: (results[2] as Array<{ revision: number }>)[0]?.revision ?? 0,
+  };
 }

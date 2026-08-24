@@ -127,4 +127,23 @@ describe("same-account read-state WS events", () => {
     dispatchCommunityWsEvent(event, context(queryClient))
     expect(apiFetch).toHaveBeenCalledTimes(1)
   })
+
+  it("absorbs an authoritative repair failure after receiving a newer hint", async () => {
+    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+      revision: 2,
+      readStates: [],
+    })
+    apiFetch.mockRejectedValue(new Error("temporary snapshot failure"))
+
+    dispatchCommunityWsEvent({
+      type: "community:read_state.advanced",
+      revision: 3,
+      inboxChanged: true,
+    }, context(queryClient))
+
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledOnce())
+    await Promise.resolve()
+    expect(queryClient.getQueryData(communityKeys.accountReadStateSnapshot()))
+      .toMatchObject({ revision: 2 })
+  })
 })

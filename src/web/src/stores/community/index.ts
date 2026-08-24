@@ -4,7 +4,6 @@ import { create } from "zustand"
 import { useShallow } from "zustand/react/shallow"
 import type React from "react"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
-import { flushPendingReads } from "@/lib/community/pending-reads"
 
 /**
  * Zustand store for community client-only state.
@@ -245,9 +244,6 @@ export const useCommunityStore = create<CommunityStoreState>((set, get) => ({
     set({ uiHandlers: { ...get().uiHandlers, ...handlers } }),
 
   reset: () => {
-    flushPendingReads()
-    // Fire-and-forget: clear every outstanding timer so nothing lingers past
-    // sign-out or a hard-reset.
     const { typingTimers, reactionTimers } = get()
     typingTimers.forEach((t) => clearTimeout(t))
     reactionTimers.forEach(({ timer }) => clearTimeout(timer))

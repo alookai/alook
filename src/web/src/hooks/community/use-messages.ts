@@ -15,7 +15,6 @@ import type {
   MessagesPageParam,
   Msg,
 } from "@/lib/community/models/message"
-import { flushPendingReads } from "@/lib/community/pending-reads"
 import {
   materializeMessageStream,
   type CanonicalMessage,
@@ -363,16 +362,6 @@ function useMessagesInner(
       opts?.waitForAnchor === false,
     ) ? Infinity : 0,
   })
-
-  // Flush any pending mark-read on scope switch / unmount so the 500ms
-  // debounce doesn't strand the last-read pointer when the user hops
-  // scopes mid-window. Same as the pre-A2 behaviour.
-  useEffect(() => {
-    if (!scopeId) return
-    return () => {
-      flushPendingReads()
-    }
-  }, [scopeId])
 
   useEffect(() => {
     setPresentOverride((current) => current?.viewKey === viewKey ? current : null)

@@ -2,6 +2,8 @@ import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import {
   communityAttachment,
   communityChannel,
+  communityForumOpenerRead,
+  communityMention,
   communityMessage,
   communityReadState,
 } from "../../community-schema";
@@ -37,10 +39,12 @@ export type DeleteForumPostResult = {
  *
  * Batch order matters:
  *   1. snapshot every linked/pending Community-media key;
- *   2. repair or remove parent-forum read cursors that point at the opener;
- *   3. remove child-scoped pending attachment rows (linked rows cascade);
- *   4. update parent forum count/activity once;
- *   5. delete the opener, whose FK cascades the child channel and its rows.
+ *   2. mint account revisions while every destructive read-state effect is
+ *      still observable;
+ *   3. repair or remove parent-forum read cursors that point at the opener;
+ *   4. remove child-scoped pending attachment rows (linked rows cascade);
+ *   5. update parent forum count/activity once;
+ *   6. delete the opener, whose FK cascades the child channel and its rows.
  *
  * Every mutating statement is guarded by the opener still existing in the
  * resolved forum. D1 serializes each batch transaction, so when two requests
@@ -96,21 +100,46 @@ async function deleteForumPostAttempt(
     .from(communityMessage)
     .where(eq(communityMessage.channelId, input.childChannelId));
 
-  const impactedHumans = await db
-    .selectDistinct({ userId: communityReadState.userId })
-    .from(communityReadState)
-    .innerJoin(user, eq(user.id, communityReadState.userId))
-    .where(and(
-      eq(user.isBot, false),
-      or(
-        and(
-          eq(communityReadState.channelId, input.forumChannelId),
-          eq(communityReadState.lastReadMessageId, input.openerId),
+  const [impactedPointers, impactedSparse, impactedMentions] = await Promise.all([
+    db
+      .selectDistinct({ userId: communityReadState.userId })
+      .from(communityReadState)
+      .innerJoin(user, eq(user.id, communityReadState.userId))
+      .where(and(
+        eq(user.isBot, false),
+        or(
+          and(
+            eq(communityReadState.channelId, input.forumChannelId),
+            eq(communityReadState.lastReadMessageId, input.openerId),
+          ),
+          eq(communityReadState.channelId, input.childChannelId),
         ),
-        eq(communityReadState.channelId, input.childChannelId),
-      ),
-    ));
-  const impactedUserIds = impactedHumans.map((row) => row.userId);
+      )),
+    db
+      .selectDistinct({ userId: communityForumOpenerRead.userId })
+      .from(communityForumOpenerRead)
+      .innerJoin(user, eq(user.id, communityForumOpenerRead.userId))
+      .where(and(
+        eq(user.isBot, false),
+        eq(communityForumOpenerRead.openerMessageId, input.openerId),
+      )),
+    db
+      .selectDistinct({ userId: communityMention.userId })
+      .from(communityMention)
+      .innerJoin(user, eq(user.id, communityMention.userId))
+      .where(and(
+        eq(user.isBot, false),
+        or(
+          eq(communityMention.messageId, input.openerId),
+          inArray(communityMention.messageId, childMessageIds),
+        ),
+      )),
+  ]);
+  const impactedUserIds = [...new Set([
+    ...impactedPointers,
+    ...impactedSparse,
+    ...impactedMentions,
+  ].map((row) => row.userId))];
   const impactedIdsJson = JSON.stringify(impactedUserIds);
   // The affected-human set is discovered before batch() because D1 cannot
   // pipe one statement's RETURNING rows into later statements. Close that
@@ -121,17 +150,67 @@ async function deleteForumPostAttempt(
   // and clients pull the bounded account snapshot from the primary endpoint.
   // Bot rows remain outside this account contract.
   const impactedHumansStable = sql<boolean>`NOT EXISTS (
-    SELECT 1
-    FROM ${communityReadState} AS current_state
-    INNER JOIN ${user} AS current_user ON current_user.id = current_state.user_id
+    SELECT 1 FROM ${user} AS current_user
     WHERE current_user."isBot" = 0
-      AND (
-        (current_state.channel_id = ${input.forumChannelId}
-          AND current_state.last_read_message_id = ${input.openerId})
-        OR current_state.channel_id = ${input.childChannelId}
-      )
-      AND current_state.user_id NOT IN (
+      AND current_user.id NOT IN (
         SELECT CAST(value AS TEXT) FROM json_each(${impactedIdsJson})
+      )
+      AND (
+        EXISTS (
+          SELECT 1 FROM ${communityReadState} AS current_state
+          WHERE current_state.user_id = current_user.id
+            AND (
+              (current_state.channel_id = ${input.forumChannelId}
+                AND current_state.last_read_message_id = ${input.openerId})
+              OR current_state.channel_id = ${input.childChannelId}
+            )
+        )
+        OR EXISTS (
+          SELECT 1 FROM ${communityForumOpenerRead} AS current_sparse
+          WHERE current_sparse.user_id = current_user.id
+            AND current_sparse.opener_message_id = ${input.openerId}
+        )
+        OR EXISTS (
+          SELECT 1 FROM ${communityMention} AS current_mention
+          INNER JOIN ${communityMessage} AS mentioned_message
+            ON mentioned_message.id = current_mention.message_id
+          WHERE current_mention.user_id = current_user.id
+            AND (
+              current_mention.message_id = ${input.openerId}
+              OR mentioned_message.channel_id = ${input.childChannelId}
+            )
+        )
+      )
+  )`;
+  const enumeratedUserHasEffect = sql<boolean>`EXISTS (
+    SELECT 1 FROM ${user} AS enumerated_user
+    WHERE enumerated_user.id = CAST(value AS TEXT)
+      AND enumerated_user."isBot" = 0
+      AND (
+        EXISTS (
+          SELECT 1 FROM ${communityReadState} AS current_state
+          WHERE current_state.user_id = enumerated_user.id
+            AND (
+              (current_state.channel_id = ${input.forumChannelId}
+                AND current_state.last_read_message_id = ${input.openerId})
+              OR current_state.channel_id = ${input.childChannelId}
+            )
+        )
+        OR EXISTS (
+          SELECT 1 FROM ${communityForumOpenerRead} AS current_sparse
+          WHERE current_sparse.user_id = enumerated_user.id
+            AND current_sparse.opener_message_id = ${input.openerId}
+        )
+        OR EXISTS (
+          SELECT 1 FROM ${communityMention} AS current_mention
+          INNER JOIN ${communityMessage} AS mentioned_message
+            ON mentioned_message.id = current_mention.message_id
+          WHERE current_mention.user_id = enumerated_user.id
+            AND (
+              current_mention.message_id = ${input.openerId}
+              OR mentioned_message.channel_id = ${input.childChannelId}
+            )
+        )
       )
   )`;
   const rowBelongsToKnownHumanOrBot = sql<boolean>`(
@@ -226,21 +305,21 @@ async function deleteForumPostAttempt(
     ))
     .returning({ id: communityMessage.id });
 
-  const revisionIndex = 5;
+  const revisionIndex = 1;
   const deleteIndex = impactedUserIds.length > 0 ? 6 : 5;
   const results = (await db.batch([
     mediaSnapshot,
-    repairReadStates,
-    removeEmptyReadStates,
-    removePendingAttachments,
-    updateForum,
     ...(impactedUserIds.length > 0
       ? [advanceReadStateRevisionsForUsersBuilder(
           db,
           impactedUserIds,
-          and(openerStillExists, impactedHumansStable)!,
+          and(openerStillExists, impactedHumansStable, enumeratedUserHasEffect)!,
         )]
       : []),
+    repairReadStates,
+    removeEmptyReadStates,
+    removePendingAttachments,
+    updateForum,
     deleteOpener,
   ] as any)) as unknown[];
   const mediaRows = results[0] as Array<{ r2Key: string; thumbnailR2Key: string | null }>;

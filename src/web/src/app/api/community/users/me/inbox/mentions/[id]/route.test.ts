@@ -1,21 +1,31 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
-const mockDeleteMention = vi.fn()
+const mockDismissMentionWithRevision = vi.fn()
+const mockBroadcastToUserSafe = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
 }))
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+vi.mock("@/lib/db", () => ({ getPrimaryDb: vi.fn(() => ({})) }))
 
-vi.mock("@alook/shared", () => ({
-  createDb: vi.fn(() => ({})),
-  queries: {
-    communityMention: {
-      deleteMention: (...args: unknown[]) => mockDeleteMention(...args),
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
+  return {
+    ...actual,
+    queries: {
+      ...actual.queries,
+      communityMention: {
+        ...actual.queries.communityMention,
+        dismissMentionWithRevision: (...args: unknown[]) => mockDismissMentionWithRevision(...args),
+      },
     },
-  },
+  }
+})
+
+vi.mock("@/lib/community/fanout", () => ({
+  broadcastToUserSafe: (...args: unknown[]) => mockBroadcastToUserSafe(...args),
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
@@ -40,16 +50,21 @@ describe("DELETE /api/community/users/me/inbox/mentions/{id}", () => {
 
   it("deletes the mention scoped to the current user", async () => {
     // The query returns the number of rows affected; a real hit returns 1.
-    mockDeleteMention.mockResolvedValue(1)
+    mockDismissMentionWithRevision.mockResolvedValue({ changed: true, revision: 4 })
     const res = await DELETE(new NextRequest("http://localhost/api/community/users/me/inbox/mentions/mn1", { method: "DELETE" }), {
       params: { id: "mn1" },
     } as never)
     expect(res.status).toBe(200)
-    expect(mockDeleteMention).toHaveBeenCalledWith({}, "u1", "mn1")
+    expect(mockDismissMentionWithRevision).toHaveBeenCalledWith({}, "u1", "mn1")
+    expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("u1", expect.objectContaining({
+      reason: "mention_dismiss",
+      revision: 4,
+    }))
+    await expect(res.json()).resolves.toEqual({ ok: true, changed: true, revision: 4 })
   })
 
   it("404 when the mention does not exist or belongs to another user", async () => {
-    mockDeleteMention.mockResolvedValue(0)
+    mockDismissMentionWithRevision.mockResolvedValue({ changed: false, revision: 4 })
     const res = await DELETE(new NextRequest("http://localhost/api/community/users/me/inbox/mentions/mn1", { method: "DELETE" }), {
       params: { id: "mn1" },
     } as never)
@@ -61,6 +76,6 @@ describe("DELETE /api/community/users/me/inbox/mentions/{id}", () => {
       params: {},
     } as never)
     expect(res.status).toBe(400)
-    expect(mockDeleteMention).not.toHaveBeenCalled()
+    expect(mockDismissMentionWithRevision).not.toHaveBeenCalled()
   })
 })

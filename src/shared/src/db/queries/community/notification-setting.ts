@@ -6,6 +6,7 @@ import {
   isNotNull,
   inArray,
   gt,
+  exists,
   notExists,
   sql,
 } from "drizzle-orm";
@@ -18,12 +19,14 @@ import {
   communityCategory,
   communityChannelMember,
   communityMessage,
+  communityForumOpenerRead,
   communityReadState,
   communityServerMember,
 } from "../../community-schema";
 import type { Database } from "../../index";
 import {
-  advanceReadStateRevisionBuilder,
+  accountReadStateRevisionBuilder,
+  advanceReadStateRevisionWhenBuilder,
 } from "./read-state";
 import type { NotificationLevelValue } from "../../../constants/community";
 import { currentEffectiveLevelSql } from "./notification-eligibility";
@@ -405,6 +408,70 @@ function buildClearAffectedUnreadStatement(
     });
 }
 
+function effectivePolicyChangesCondition(
+  db: Database,
+  userId: string,
+  change: SettingChange,
+) {
+  const scope: MutationScope = change.kind === "set-server"
+    ? { kind: "server", id: change.id }
+    : { kind: "channel", id: change.id };
+  const channelSql = {
+    id: communityChannel.id,
+    serverId: communityChannel.serverId,
+    parentChannelId: communityChannel.parentChannelId,
+  };
+  return exists(db
+    .select({ one: sql<number>`1` })
+    .from(communityChannel)
+    .where(
+      and(
+        affectedChannelWhere(scope),
+        userCanAccessChannelSql(userId),
+        sql`${currentEffectiveLevelSql(userId, channelSql)} <> ${nextEffectiveLevelSql(userId, change)}`,
+      ),
+    ));
+}
+
+function buildPruneAffectedForumOpenerReadsStatement(
+  db: Database,
+  userId: string,
+  change: SettingChange,
+) {
+  const scope: MutationScope = change.kind === "set-server"
+    ? { kind: "server", id: change.id }
+    : { kind: "channel", id: change.id };
+  const channelSql = {
+    id: communityChannel.id,
+    serverId: communityChannel.serverId,
+    parentChannelId: communityChannel.parentChannelId,
+  };
+  const coveredOpeners = db
+    .select({ id: communityMessage.id })
+    .from(communityMessage)
+    .innerJoin(
+      communityChannel,
+      eq(communityChannel.id, communityMessage.channelId),
+    )
+    .where(
+      and(
+        affectedChannelWhere(scope),
+        eq(communityChannel.type, "forum"),
+        isNull(communityChannel.parentChannelId),
+        userCanAccessChannelSql(userId),
+        sql`${currentEffectiveLevelSql(userId, channelSql)} <> ${nextEffectiveLevelSql(userId, change)}`,
+      ),
+    );
+  return db
+    .delete(communityForumOpenerRead)
+    .where(
+      and(
+        eq(communityForumOpenerRead.userId, userId),
+        inArray(communityForumOpenerRead.openerMessageId, coveredOpeners),
+      ),
+    );
+}
+
 async function applySettingMutation(
   db: Database,
   userId: string,
@@ -417,17 +484,21 @@ async function applySettingMutation(
   // observer can see the cursor advance without the setting write (or vice
   // versa), and any failure rolls both statements back.
   const clearUnread = buildClearAffectedUnreadStatement(db, userId, change);
+  if (actorKind === "bot") {
+    await db.batch([clearUnread, mutation] as any);
+    return null;
+  }
+  const effectChanges = effectivePolicyChangesCondition(db, userId, change);
   const results = await db.batch([
+    advanceReadStateRevisionWhenBuilder(db, userId, effectChanges),
     clearUnread,
+    buildPruneAffectedForumOpenerReadsStatement(db, userId, change),
     mutation,
-    ...(actorKind === "human"
-      ? [advanceReadStateRevisionBuilder(db, userId)]
-      : []),
+    accountReadStateRevisionBuilder(db, userId),
   ] as any) as unknown[];
-  if (actorKind === "bot") return null;
-  const revision = (results.at(-1) as Array<{ revision: number }> | undefined)?.[0]?.revision;
-  if (revision === undefined) throw new Error("notification read-state revision missing");
-  return revision;
+  const changed = (results[0] as Array<{ revision: number }>).length > 0;
+  const revision = (results[4] as Array<{ revision: number }>)[0]?.revision ?? 0;
+  return changed ? revision : null;
 }
 
 export async function setServerLevel(

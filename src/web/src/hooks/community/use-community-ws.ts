@@ -147,13 +147,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     viewerUserIdRef.current = options?.viewerUserId ?? null
   })
 
-  // #3: the previous WS-driven auto-mark-read (a `useMarkChannelRead()` call
-  // fired on every foreign-authored message in the focused channel) has
-  // been removed. The IntersectionObserver in `useChannelWatermark` is now
-  // authoritative — if a WS-delivered message actually becomes visible in
-  // the viewport, IO advances the read pointer; if the user is scrolled up
-  // reading history, the pointer stays put (which is the correct behavior).
-
   // Debounced inbox invalidation. Grouping repeated invalidations into one
   // refetch cycle keeps the popover from re-rendering on every message tick.
   const inboxDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)

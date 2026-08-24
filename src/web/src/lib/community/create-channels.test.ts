@@ -179,7 +179,7 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
     expect(mockCreateCommunityMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         authorId: "u1",
-        target: { kind: "channel", channelId: "forum_1", serverId: "s1" },
+        target: { kind: "forum", channelId: "forum_1", serverId: "s1" },
       }),
     )
     expect(mockCreateChannel).toHaveBeenCalledWith(

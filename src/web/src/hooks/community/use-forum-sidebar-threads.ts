@@ -37,7 +37,7 @@ export type SidebarThreadEnvelope = {
   canonicalChannels?: SidebarThreadEnvelope["channels"]
   retainedChannel?: SidebarThreadEnvelope["channels"][number] | null
   included: {
-    parentMessages: Array<{ id: string; content: string }>
+    parentMessages: Array<{ id: string; content: string; seq?: number; channelId?: string }>
   }
   serverNow: string
 }
@@ -62,7 +62,12 @@ export type ChildChannelMeta = {
   verifiedEpoch: number
 }
 
-export type ForumOpenerHint = { id: string; content: string }
+export type ForumOpenerHint = {
+  id: string
+  content: string
+  seq?: number
+  channelId?: string
+}
 
 export type NormalizedForumSidebarEnvelope = {
   base: ForumSidebarQueryData
@@ -421,7 +426,10 @@ export function normalizeForumSidebarEnvelope(
     if (meta) channelMetas[meta.id] = meta
   }
   const openerHints = Object.fromEntries(
-    envelope.included.parentMessages.map(({ id, content }) => [id, { id, content }]),
+    envelope.included.parentMessages.map(({ id, content, seq, channelId }) => [
+      id,
+      { id, content, ...(seq === undefined ? {} : { seq }), ...(channelId ? { channelId } : {}) },
+    ]),
   )
   return { base, retained, channelMetas, openerHints }
 }

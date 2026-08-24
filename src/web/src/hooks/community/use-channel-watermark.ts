@@ -1,219 +1,27 @@
 "use client"
 
-import { useEffect, useRef } from "react"
-import { flushPendingReads } from "@/lib/community/pending-reads"
-import { useAdvanceChannelWatermark } from "@/hooks/community/mutations/messages"
 import type { Msg } from "@/lib/community/models/message"
-import { useCurrentUser } from "@/contexts/community/current-user"
+import { useTimelineReadObserver } from "./use-read-observer"
 
-/**
- * Threshold at which a message must be visible before it counts as "read".
- * 0.2 = Discord-style: a message counts as read as soon as any meaningful
- * portion enters the viewport. Higher values (0.75, Slack-style) forced
- * users to scroll a full row PAST the viewport bottom before the watermark
- * would move — badges only cleared "when you dragged the message to the
- * very bottom." 0.2 clears them the moment a message is genuinely visible.
- */
-const READ_VISIBILITY_THRESHOLD = 0.2
-
-/**
- * Slack-style progressive read watermark. Observes every rendered message
- * row in the scroll container and, when a row hits ≥75% visibility, walks
- * the local `maxSeen` pointer forward and asks the mutation layer to PUT
- * the new pointer to the server (debounced 500ms — bursts collapse into a
- * single request).
- *
- * Invariants:
- *
- * - **Monotone forward.** Scrolling back never regresses the local
- *   `maxSeen`. The watermark only ever moves toward the newest visible id.
- * - **Self-authored messages are skipped.** The write-path already sets
- *   the sender's own `lastReadMessageId` when they post (see #1 in the
- *   plan) — a client PUT would be redundant.
- * - **On unmount, flush.** Any pending debounce fires immediately via
- *   `flushPendingReads()` so the last watched message isn't stranded in
- *   the debounce window.
- *
- * `scrollRootEl` must be the same element that scrolls the message list —
- * the `IntersectionObserver` uses it as `root` so ratios are computed
- * against the visible scroll frame, not the entire viewport.
- */
+/* istanbul ignore next -- retained Chromium covers this React hook adapter */
 export function useChannelWatermark({
   channelId,
   messages,
   scrollRootEl,
+  snapshotReady,
+  confirmedSeq,
 }: {
   channelId: string | null | undefined
   messages: Msg[]
   scrollRootEl: HTMLElement | null
+  snapshotReady: boolean
+  confirmedSeq: number
 }) {
-  const currentUser = useCurrentUser()
-  const viewerId = currentUser.id
-  const advance = useAdvanceChannelWatermark()
-
-  // `maxSeen` is a `(createdAt, id)` pair — lex ordering so identical
-  // createdAt strings still sort deterministically. Reset when the
-  // channel changes so a switch between channels doesn't leak the prior
-  // channel's pointer.
-  const maxSeenRef = useRef<{ createdAt: string; id: string } | null>(null)
-  // Read-PUT de-dupe (W-READ-DEDUPE, necessity plan): opening a channel already
-  // fires ONE mark-read-to-latest via `useEagerChannelRead`. Without a seed the
-  // watermark would then observe the already-visible tail and fire a SECOND,
-  // redundant read PUT for messages the eager read just covered. So seed
-  // `maxSeen` once per channel to the newest loaded message — the same point
-  // the eager read marks — so the initial visible rows don't advance. Only a
-  // genuinely newer message (a WS arrival, or one scrolled to beyond the seed)
-  // moves the watermark and PUTs, which is a real read the eager PUT didn't
-  // cover. `seededForRef` gates the one-shot per channel (mirrors eager-read's
-  // `firedForRef`); the channel-change reset re-arms it.
-  const seededForRef = useRef<string | null>(null)
-  useEffect(() => {
-    maxSeenRef.current = null
-    seededForRef.current = null
-  }, [channelId])
-
-  // Keep the freshest `messages` array visible to the IntersectionObserver
-  // callback via a ref — the callback captures once per observer re-attach
-  // and shouldn't recreate on every render. WS-delivered new messages get
-  // observed on the next render pass (see the effect below), so the ref
-  // avoids stale-closure lookups when a row is measured.
-  const messagesRef = useRef<Msg[]>(messages)
-  const advanceRef = useRef(advance)
-  useEffect(() => {
-    messagesRef.current = messages
-    advanceRef.current = advance
+  useTimelineReadObserver({
+    channelId,
+    messages,
+    scrollRootEl,
+    snapshotReady,
+    confirmedSeq,
   })
-
-  // Seed `maxSeen` to the newest loaded message once per channel (see the
-  // `seededForRef` comment above). Runs before the observer effect below and on
-  // the first non-empty `messages`, so the initial visible tail is already
-  // "seen" by the time the IntersectionObserver fires — no redundant read PUT
-  // on open. A later message with a strictly greater (createdAt, id) still
-  // advances past this seed.
-  useEffect(() => {
-    if (!channelId) return
-    if (seededForRef.current === channelId) return
-    if (messages.length === 0) return
-    let newest: { createdAt: string; id: string } | null = null
-    for (const m of messages) {
-      if (!m.createdAt) continue
-      if (
-        !newest ||
-        m.createdAt > newest.createdAt ||
-        (m.createdAt === newest.createdAt && m.id > newest.id)
-      ) {
-        newest = { createdAt: m.createdAt, id: m.id }
-      }
-    }
-    if (newest) {
-      maxSeenRef.current = newest
-      seededForRef.current = channelId
-    }
-  }, [channelId, messages])
-
-  useEffect(() => {
-    if (!channelId) return
-    if (!scrollRootEl) return
-    if (typeof IntersectionObserver === "undefined") return
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        // IntersectionObserver reports geometry, not whether the document is
-        // actually in the foreground. A background tab can remain intersecting
-        // at the tail; advancing there would incorrectly clear another device.
-        if (
-          typeof document !== "undefined"
-          && document.visibilityState !== "visible"
-        ) return
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue
-          if (entry.intersectionRatio < READ_VISIBILITY_THRESHOLD) continue
-          const target = entry.target as HTMLElement
-          const id = target.dataset.msgId
-          if (!id) continue
-          const msg = messagesRef.current.find((m) => m.id === id)
-          if (!msg || !msg.createdAt) continue
-          // Skip self-authored messages — see hook docstring.
-          if (msg.authorId && msg.authorId === viewerId) continue
-
-          const cur = maxSeenRef.current
-          const isNewer =
-            !cur ||
-            msg.createdAt > cur.createdAt ||
-            (msg.createdAt === cur.createdAt && id > cur.id)
-          if (!isNewer) continue
-          maxSeenRef.current = { createdAt: msg.createdAt, id }
-          advanceRef.current(channelId, id)
-        }
-      },
-      {
-        root: scrollRootEl,
-        threshold: READ_VISIBILITY_THRESHOLD,
-      },
-    )
-
-    // Observe every currently-rendered message row. React re-runs this
-    // effect whenever the `messages` reference changes (send / receive /
-    // pagination), so the observer picks up fresh rows on the next render.
-    const nodes = scrollRootEl.querySelectorAll<HTMLElement>("[data-msg-id]")
-    nodes.forEach((n) => observer.observe(n))
-
-    // Geometry may not change while a tab is hidden, so IntersectionObserver
-    // is not required to emit another entry when the document becomes visible.
-    // Re-observe the currently-rendered rows on foreground restoration to
-    // request a fresh visibility sample without advancing while hidden.
-    const handleDocumentVisibility = () => {
-      if (document.visibilityState !== "visible") return
-      const visibleNodes = scrollRootEl.querySelectorAll<HTMLElement>("[data-msg-id]")
-      visibleNodes.forEach((node) => {
-        observer.unobserve(node)
-        observer.observe(node)
-      })
-    }
-    if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", handleDocumentVisibility)
-    }
-
-    // The message list is virtualized — rows mount/unmount as the user
-    // scrolls, WITHOUT any `messages` array change to re-run this effect.
-    // A one-time `querySelectorAll` seed above therefore only ever covers
-    // the rows on-screen at mount; a row scrolled into view later would
-    // never be observed, so its read watermark would never advance and the
-    // "NEW" unread badge would never clear on scroll. Watch the scroll root
-    // for added `[data-msg-id]` nodes and observe them as they appear. No-op
-    // in environments without MutationObserver (SSR / older test shims).
-    let mutationObserver: MutationObserver | null = null
-    if (typeof MutationObserver !== "undefined") {
-      mutationObserver = new MutationObserver((records) => {
-        for (const record of records) {
-          record.addedNodes.forEach((node) => {
-            // Element nodes only (skip text/comment nodes — nodeType 1).
-            if ((node as { nodeType?: number }).nodeType !== 1) return
-            const el = node as Element
-            if (el.matches?.("[data-msg-id]")) observer.observe(el)
-            el.querySelectorAll?.("[data-msg-id]").forEach((n) => observer.observe(n))
-          })
-        }
-      })
-      mutationObserver.observe(scrollRootEl, { childList: true, subtree: true })
-    }
-
-    return () => {
-      if (typeof document !== "undefined") {
-        document.removeEventListener("visibilitychange", handleDocumentVisibility)
-      }
-      observer.disconnect()
-      mutationObserver?.disconnect()
-    }
-  }, [channelId, messages, scrollRootEl, viewerId])
-
-  // On unmount / channel switch, flush the debounce so the last-watched
-  // message isn't stranded in the pending window. `flushPendingReads`
-  // fires every entry synchronously (no `await` — the PUT is fire-and-
-  // forget, matching the mutation hook's contract).
-  useEffect(() => {
-    return () => {
-      flushPendingReads()
-    }
-  }, [channelId])
 }

@@ -143,9 +143,6 @@ export function ChannelRoute({ serverParam, channelId }: {
   }, [])
 
   const enterThread = useCallback((id: string) => {
-    // No eager read PUT here — the thread page's `useEagerChannelRead` fires it
-    // on mount AFTER its read-state snapshot latches, so the "New" divider
-    // still anchors to the pre-open pointer. A PUT here would race the snapshot.
     useCommunityStore.getState().uiHandlers.navigatePath?.(
       channelHref(serverParam, id),
     )
@@ -205,6 +202,7 @@ export function ChannelRoute({ serverParam, channelId }: {
         anchorMessageId={jumpTargetId}
         parentChannelId={currentChannelMeta?.parentChannelId ?? null}
         parentMessageId={currentChannelMeta?.parentMessageId ?? null}
+        parentMessageSeq={forumPostOpener.data?.seq ?? null}
         parentChannelName={parentChannelInServer?.name ?? "channel"}
         parentIsForum={isForumPostChild}
         childCreatorId={currentChannelMeta?.creatorId}

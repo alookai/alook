@@ -373,7 +373,13 @@ const communityReadStateAdvancedSchema = z.strictObject({
 const communityInboxChangedSchema = z.strictObject({
   type: z.literal("community:inbox.changed"),
   ...readStateEnvelopeFields,
-  reason: z.literal("read_all"),
+  reason: z.enum([
+    "read_all",
+    "forum_opener_read",
+    "mention_read_all",
+    "mention_dismiss",
+    "notification_policy",
+  ]),
 })
 
 const communityPresenceUpdateSchema = z.strictObject({

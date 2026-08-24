@@ -44,6 +44,9 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     { route: "community/channel-read:access" }
   )
   if (!auth.ok) return writeError(auth.error, auth.status)
+  if (auth.value.surface === "channel" && auth.value.channel.type === "forum") {
+    return writeError("forum opener reads require the message read route", 400)
+  }
 
   // Parse the body — best-effort. An empty body is legal (mass mark-read).
   let lastReadMessageId: string | undefined
@@ -84,33 +87,62 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     // Empty channel: no row can be written under the invariant. Nothing to
     // clear either (mentions/for-you require messages to exist first), so
     // short-circuit with a successful no-op.
-    if (!target) return writeJSON({ ok: true })
+    if (!target) {
+      const revisionRows = await withD1Retry(
+        () => queries.communityReadState.accountReadStateRevisionBuilder(db, ctx.userId),
+        { route: "community/channel-read:empty-revision" },
+      )
+      return writeJSON({ changed: false, targetSeq: 0, revision: revisionRows[0]?.revision ?? 0 })
+    }
   }
 
   // Fire both writes in one D1 batch so partial failure can't leave the
   // inbox inconsistent (mark-read succeeded but the mention clear didn't, or
   // vice versa). D1 batches are atomic per SQLite guarantees.
+  const pointerAdvances = queries.communityReadState.readStateAdvancesCondition(db, {
+    userId: ctx.userId,
+    channelId,
+    targetSeq: target.seq,
+  })
+  const eligibleMentionChanges = queries.communityMention.unreadChannelMentionThroughSeqCondition(
+    db,
+    ctx.userId,
+    channelId,
+    target.seq,
+  )
   const results = await withD1Retry(
     () => db.batch([
+      queries.communityReadState.advanceReadStateRevisionWhenAnyBuilder(
+        db,
+        ctx.userId,
+        [pointerAdvances, eligibleMentionChanges],
+      ),
       queries.communityReadState.markReadToMessageBuilder(db, {
         userId: ctx.userId,
         channelId,
         message: target,
       }),
-      queries.communityMention.markChannelMentionsReadBuilder(db, ctx.userId, channelId),
-      queries.communityReadState.advanceReadStateRevisionBuilder(db, ctx.userId),
+      queries.communityMention.markChannelMentionsReadBuilder(
+        db,
+        ctx.userId,
+        channelId,
+        target.seq,
+      ),
+      queries.communityReadState.accountReadStateRevisionBuilder(db, ctx.userId),
     ]),
     { route: "community/channel-read:commit" }
   )
 
-  const revision = (results[2] as Array<{ revision: number }> | undefined)?.[0]?.revision
-  if (revision === undefined) throw new Error("read-state revision missing")
+  const changed = (results[0] as Array<{ revision: number }>).length > 0
+  const revision = (results[3] as Array<{ revision: number }> | undefined)?.[0]?.revision ?? 0
 
-  await broadcastToUserSafe(ctx.userId, {
-    type: WS_EVENTS.READ_STATE_ADVANCED,
-    revision,
-    inboxChanged: true,
-  })
+  if (changed) {
+    await broadcastToUserSafe(ctx.userId, {
+      type: WS_EVENTS.READ_STATE_ADVANCED,
+      revision,
+      inboxChanged: true,
+    })
+  }
 
-  return writeJSON({ ok: true, revision })
+  return writeJSON({ changed, targetSeq: target.seq, revision })
 })

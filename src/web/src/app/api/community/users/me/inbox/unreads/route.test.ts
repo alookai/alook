@@ -269,6 +269,9 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
       row({ channelId: "c1", channelName: "general", type: "text" }),
       row({ channelId: "c2", channelName: "help-forum", type: "forum", lastMessageAt: "2026-06-25T09:00:00Z" }),
     ])
+    mockListUnreadForumOpeners.mockResolvedValue([
+      opener({ forumChannelId: "c2", childChannelId: "p2", openerMessageId: "m2" }),
+    ])
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()
     const byId = Object.fromEntries(
@@ -395,14 +398,14 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
     expect(mockListForumOpenersByChildIds).toHaveBeenCalledWith(expect.anything(), ["post_ok"])
   })
 
-  it("renders no opener children when the eligible opener query returns none", async () => {
+  it("removes a phantom forum parent when no unread opener or child remains", async () => {
     mockListEligibleUnreadChannels.mockResolvedValue([
       row({ channelId: "f1", channelName: "Forum", type: "forum" }),
     ])
     mockListUnreadForumOpeners.mockResolvedValue([])
 
     const body = await (await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))).json()
-    expect(body.servers[0].channels[0].children).toEqual([])
+    expect(body.servers).toEqual([])
   })
 
   it("uses opener seq/id as deterministic tie-breaks before child cap truncation", async () => {

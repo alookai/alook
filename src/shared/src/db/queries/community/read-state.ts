@@ -1,11 +1,20 @@
-import { eq, and, sql, type SQL } from "drizzle-orm";
-import { communityReadState, communityReadStateRevision } from "../../community-schema";
+import { eq, and, gte, notExists, or, sql, type SQL } from "drizzle-orm";
+import {
+  communityForumOpenerRead,
+  communityReadState,
+  communityReadStateRevision,
+} from "../../community-schema";
+import { user } from "../../schema";
 import type { Database } from "../../index";
 import {
   getLatestMessagesByChannelIds,
   getMessageByChannelAndSeq,
 } from "./message";
 import { listDMs } from "./dm";
+import {
+  coveredForumOpenerReadExistsCondition,
+  pruneCoveredForumOpenerReadsBuilder,
+} from "./forum-opener-read";
 
 /**
  * # Community read-state invariant
@@ -37,6 +46,24 @@ function buildTargetFilter(data: { userId: string; channelId: string }) {
     eq(communityReadState.userId, data.userId),
     eq(communityReadState.channelId, data.channelId)
   )!;
+}
+
+export function readStateAdvancesCondition(
+  db: Database,
+  data: { userId: string; channelId: string; targetSeq: number }
+): SQL<unknown> {
+  return notExists(
+    db
+      .select({ one: sql<number>`1` })
+      .from(communityReadState)
+      .where(
+        and(
+          eq(communityReadState.userId, data.userId),
+          eq(communityReadState.channelId, data.channelId),
+          gte(communityReadState.lastReadSeq, data.targetSeq)
+        )
+      )
+  );
 }
 
 /**
@@ -104,6 +131,36 @@ export function advanceReadStateRevisionBuilder(db: Database, userId: string) {
     .returning({ revision: communityReadStateRevision.revision });
 }
 
+export function advanceReadStateRevisionWhenBuilder(
+  db: Database,
+  userId: string,
+  condition: SQL<unknown>
+) {
+  const selected = db
+    .select({
+      userId: sql<string>`${userId}`.as("user_id"),
+      revision: sql<number>`1`.as("revision"),
+    })
+    .from(user)
+    .where(and(eq(user.id, userId), condition));
+  return db
+    .insert(communityReadStateRevision)
+    .select(selected)
+    .onConflictDoUpdate({
+      target: communityReadStateRevision.userId,
+      set: { revision: sql`${communityReadStateRevision.revision} + 1` },
+    })
+    .returning({ revision: communityReadStateRevision.revision });
+}
+
+export function advanceReadStateRevisionWhenAnyBuilder(
+  db: Database,
+  userId: string,
+  conditions: [SQL<unknown>, SQL<unknown>, ...SQL<unknown>[]]
+) {
+  return advanceReadStateRevisionWhenBuilder(db, userId, or(...conditions)!);
+}
+
 /**
  * Bulk sibling used by destructive mutations that may replace/remove rows for
  * several human accounts at once. `condition` is evaluated inside the same D1
@@ -156,6 +213,16 @@ export function accountReadStateRowsBuilder(db: Database, userId: string) {
     .where(eq(communityReadState.userId, userId));
 }
 
+export function accountForumOpenerReadRowsBuilder(db: Database, userId: string) {
+  return db
+    .select({
+      openerMessageId: communityForumOpenerRead.openerMessageId,
+      readAt: communityForumOpenerRead.readAt,
+    })
+    .from(communityForumOpenerRead)
+    .where(eq(communityForumOpenerRead.userId, userId));
+}
+
 export type AccountReadState = {
   channelId: string;
   lastReadMessageId: string | null;
@@ -166,6 +233,12 @@ export type AccountReadState = {
 export type AccountReadStateSnapshot = {
   revision: number;
   readStates: AccountReadState[];
+  forumOpenerReads: AccountForumOpenerRead[];
+};
+
+export type AccountForumOpenerRead = {
+  openerMessageId: string;
+  readAt: string;
 };
 
 export type AccountReadStateRevisionByUser = {
@@ -176,11 +249,17 @@ export type AccountReadStateRevisionByUser = {
 export async function getAccountReadStateSnapshot(db: Database, userId: string) {
   const revisionQuery = accountReadStateRevisionBuilder(db, userId);
   const readStatesQuery = accountReadStateRowsBuilder(db, userId);
-  const [revisionRows, readStates] = await db.batch([
+  const forumOpenerReadsQuery = accountForumOpenerReadRowsBuilder(db, userId);
+  const [revisionRows, readStates, forumOpenerReads] = await db.batch([
     revisionQuery,
     readStatesQuery,
-  ]) as unknown as [Array<{ revision: number }>, AccountReadState[]];
-  return { revision: revisionRows[0]?.revision ?? 0, readStates };
+    forumOpenerReadsQuery,
+  ]) as unknown as [
+    Array<{ revision: number }>,
+    AccountReadState[],
+    AccountForumOpenerRead[],
+  ];
+  return { revision: revisionRows[0]?.revision ?? 0, readStates, forumOpenerReads };
 }
 
 export type ReadStateAdvance = {
@@ -192,8 +271,17 @@ export type ReadStateAdvance = {
 
 export type ReadAllResult = {
   count: number;
-  revision: number | null;
+  changed: boolean;
+  revision: number;
 };
+
+async function getCurrentAccountReadStateRevision(
+  db: Database,
+  userId: string
+): Promise<number> {
+  const rows = await accountReadStateRevisionBuilder(db, userId);
+  return rows[0]?.revision ?? 0;
+}
 
 /**
  * Async sibling of `markReadToMessageBuilder` for the non-batch DM / thread
@@ -245,26 +333,64 @@ export async function markAllServerChannelsRead(
   // id set parent-climbs, so a child under a private parent the viewer can't
   // see is now correctly EXCLUDED — mark-all no longer writes read-state rows
   // for channels behind an invisible private parent.
-  if (visibleChannelIds.length === 0) return { count: 0, revision: null };
+  if (visibleChannelIds.length === 0) {
+    return {
+      count: 0,
+      changed: false,
+      revision: await getCurrentAccountReadStateRevision(db, userId),
+    };
+  }
   const channelIds = visibleChannelIds;
 
   const latest = await getLatestMessagesByChannelIds(db, channelIds);
-  if (latest.length === 0) return { count: 0, revision: null };
+  if (latest.length === 0) {
+    return {
+      count: 0,
+      changed: false,
+      revision: await getCurrentAccountReadStateRevision(db, userId),
+    };
+  }
 
   const statements = latest.map((message) => markReadToMessageBuilder(db, {
     userId,
     channelId: message.channelId,
     message,
   }));
+  const pruneStatements = latest.map((message) =>
+    pruneCoveredForumOpenerReadsBuilder(db, {
+      userId,
+      channelId: message.channelId,
+      targetSeq: message.seq,
+    })
+  );
+  const effectConditions = latest.flatMap((message) => [
+    readStateAdvancesCondition(db, {
+      userId,
+      channelId: message.channelId,
+      targetSeq: message.seq,
+    }),
+    coveredForumOpenerReadExistsCondition(db, {
+      userId,
+      channelId: message.channelId,
+      targetSeq: message.seq,
+    }),
+  ]);
+  const effectCondition = effectConditions.slice(1).reduce(
+    (combined, condition) => or(combined, condition)!,
+    effectConditions[0]!
+  );
   const results = await db.batch([
+    advanceReadStateRevisionWhenBuilder(db, userId, effectCondition),
     ...statements,
-    advanceReadStateRevisionBuilder(db, userId),
+    ...pruneStatements,
+    accountReadStateRevisionBuilder(db, userId),
   ] as any) as unknown as unknown[][];
-  const revision = (results.at(-1) as Array<{ revision: number }> | undefined)?.[0]?.revision;
-  if (revision === undefined) throw new Error("read-state revision missing");
+  const changed = (results[0] as Array<{ revision: number }>).length > 0;
+  const revision = (results.at(-1) as Array<{ revision: number }> | undefined)?.[0]?.revision ?? 0;
 
   return {
     count: latest.length,
+    changed,
     revision,
   };
 }
@@ -282,7 +408,13 @@ export async function markAllDmsRead(
 ): Promise<ReadAllResult> {
   const dms = await listDMs(db, userId);
   const dmChannelIds = dms.map((d) => d.id);
-  if (dmChannelIds.length === 0) return { count: 0, revision: null };
+  if (dmChannelIds.length === 0) {
+    return {
+      count: 0,
+      changed: false,
+      revision: await getCurrentAccountReadStateRevision(db, userId),
+    };
+  }
   return markAllServerChannelsRead(db, userId, dmChannelIds);
 }
 

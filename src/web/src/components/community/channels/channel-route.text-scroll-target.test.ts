@@ -120,6 +120,9 @@ vi.mock("@/hooks/community/use-channel-route-model", () => ({
 vi.mock("@/hooks/community/use-forum-opener-hint", () => ({
   useForumOpenerHint: () => ({ data: null, isLoading: false }),
 }))
+vi.mock("@/hooks/community/use-forum-opener-read-anchor", () => ({
+  useForumOpenerReadAnchor: vi.fn(),
+}))
 vi.mock("@/hooks/community/use-server-members", () => ({
   useServerMembers: () => ({
     members: [],

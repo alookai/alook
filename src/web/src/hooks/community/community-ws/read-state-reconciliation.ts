@@ -1,6 +1,7 @@
 import { notifyManager, type QueryClient, type QueryKey } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
+import { projectReadCoordinatorSnapshot } from "@/hooks/community/read-coordinator-snapshot-projection"
 
 type AccountReadState = {
   channelId: string
@@ -12,6 +13,10 @@ type AccountReadState = {
 export type AccountReadStateSnapshot = {
   revision: number
   readStates: AccountReadState[]
+  forumOpenerReads?: Array<{
+    openerMessageId: string
+    readAt: string
+  }>
 }
 
 export type ReadStateEnvelope = {
@@ -86,11 +91,13 @@ function applyAccountReadStateSnapshot(
     // but do not trigger a second round of derived-surface refetches when
     // concurrent auth/live reconciliations joined the same HTTP request.
     projectReadStateRows(queryClient, snapshot)
+    projectReadCoordinatorSnapshot(queryClient, snapshot)
     return "stale" as const
   }
   notifyManager.batch(() => {
     queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), snapshot)
     projectReadStateRows(queryClient, snapshot)
+    projectReadCoordinatorSnapshot(queryClient, snapshot)
   })
   return "applied" as const
 }

@@ -77,6 +77,26 @@ test("one human account converges read state across two browser profiles", async
   await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toBeVisible({ timeout: 20_000 })
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible({ timeout: 20_000 })
 
+  const accountSnapshot = async () => await (await deviceB.page.request.get(
+    "/api/community/users/me/read-state",
+  )).json() as {
+    revision: number
+    readStates: Array<{ channelId: string; lastReadSeq: number }>
+  }
+  const channelResponses: number[] = []
+  const trackChannelResponse = (response: {
+    request: () => { method: () => string }
+    url: () => string
+    status: () => number
+  }) => {
+    if (
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname === `/api/community/channels/${channelId}/read`
+    ) channelResponses.push(response.status())
+  }
+  const beforeChannelRead = await accountSnapshot()
+  deviceA.page.on("response", trackChannelResponse)
+
   const channelRead = deviceA.page.waitForResponse((response) =>
     response.request().method() === "PUT"
     && new URL(response.url()).pathname === `/api/community/channels/${channelId}/read`,
@@ -93,6 +113,27 @@ test("one human account converges read state across two browser profiles", async
   expect((await channelRepair).status()).toBe(200)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toBeVisible()
+  await deviceA.page.waitForTimeout(1_200)
+  expect(channelResponses).toEqual([200])
+  const afterChannelRead = await accountSnapshot()
+  expect(afterChannelRead.revision).toBe(beforeChannelRead.revision + 1)
+  expect(afterChannelRead.readStates.find((row) => row.channelId === channelId)?.lastReadSeq)
+    .toBeGreaterThan(0)
+  deviceA.page.off("response", trackChannelResponse)
+
+  const dmResponses: number[] = []
+  const trackDmResponse = (response: {
+    request: () => { method: () => string }
+    url: () => string
+    status: () => number
+  }) => {
+    if (
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname === `/api/community/channels/${dmId}/read`
+    ) dmResponses.push(response.status())
+  }
+  const beforeDmRead = await accountSnapshot()
+  deviceA.page.on("response", trackDmResponse)
 
   const dmRead = deviceA.page.waitForResponse((response) =>
     response.request().method() === "PUT"
@@ -110,6 +151,13 @@ test("one human account converges read state across two browser profiles", async
   expect((await dmRepair).status()).toBe(200)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toHaveCount(0)
   await expect(deviceB.page.getByText("Caught up", { exact: true })).toBeVisible()
+  await deviceA.page.waitForTimeout(1_200)
+  expect(dmResponses).toEqual([200])
+  const afterDmRead = await accountSnapshot()
+  expect(afterDmRead.revision).toBe(beforeDmRead.revision + 1)
+  expect(afterDmRead.readStates.find((row) => row.channelId === dmId)?.lastReadSeq)
+    .toBeGreaterThan(0)
+  deviceA.page.off("response", trackDmResponse)
 
   const orderedReadFrames = proxyB.frames.filter((frame) =>
     communityFrameEvents(frame).some((event) => event.type === "community:read_state.advanced"))
@@ -166,7 +214,11 @@ test("one human account converges read state across two browser profiles", async
     deviceA.page.getByRole("button", { name: "Mark all read" }).click(),
     deviceB.page.getByRole("button", { name: "Mark all read" }).click(),
   ])
-  expect((await Promise.all(readAllResponses)).every((response) => response.status() === 200)).toBe(true)
+  const completedReadAllResponses = await Promise.all(readAllResponses)
+  expect(completedReadAllResponses.every((response) => response.status() === 200)).toBe(true)
+  const readAllResults = await Promise.all(completedReadAllResponses.map(async (response) =>
+    await response.json() as { changed: boolean; revision: number }))
+  expect(readAllResults.filter((result) => result.changed)).toHaveLength(1)
   await expect(deviceA.page.getByText("Caught up", { exact: true })).toBeVisible({ timeout: 20_000 })
   await expect(deviceB.page.getByText("Caught up", { exact: true })).toBeVisible({ timeout: 20_000 })
 
@@ -178,15 +230,15 @@ test("one human account converges read state across two browser profiles", async
     ))
   await expect.poll(() => readAllEvents(proxyA.frames, readAllFrameStarts[0]!).length, {
     timeout: 20_000,
-  }).toBe(4)
+  }).toBe(1)
   await expect.poll(() => readAllEvents(proxyB.frames, readAllFrameStarts[1]!).length, {
     timeout: 20_000,
-  }).toBe(4)
+  }).toBe(1)
   for (const events of [
     readAllEvents(proxyA.frames, readAllFrameStarts[0]!),
     readAllEvents(proxyB.frames, readAllFrameStarts[1]!),
   ]) {
-    expect(new Set(events.map((event) => event.revision)).size).toBe(events.length)
+    expect(events[0]?.revision).toBe(readAllResults.find((result) => result.changed)?.revision)
     expect(events.every((event) => event.inboxChanged && !("readStates" in event))).toBe(true)
   }
 
@@ -197,7 +249,7 @@ test("one human account converges read state across two browser profiles", async
     readStates: Array<{ channelId: string; lastReadSeq: number }>
   }
   const scoped = snapshot.readStates.filter((row) => row.channelId === channelId || row.channelId === dmId)
-  expect(snapshot.revision).toBeGreaterThanOrEqual(6)
+  expect(snapshot.revision).toBeGreaterThanOrEqual(5)
   expect(scoped).toHaveLength(2)
   expect(new Set(scoped.map((row) => row.channelId)).size).toBe(2)
   expect(scoped.every((row) => row.lastReadSeq > 0)).toBe(true)
@@ -491,6 +543,137 @@ test("a visible live tail clears both devices while an unseen tail stays unread"
   deviceA.page.off("response", trackUnseenReads)
 })
 
+test("forum opener reads are exact, sparse, idempotent, and pruned by Mark all", async ({ asUser }) => {
+  test.setTimeout(180_000)
+  const stamp = Date.now()
+  const serverId = await seedServer("alice", `Sparse forum sync ${stamp}`)
+  const forumId = await seedChannel("alice", serverId, `sparse-forum-${stamp}`, "forum")
+  await seedJoinServer("alice", "bob", serverId)
+
+  const alice = await asUser("alice")
+  const createEmptyPost = async (label: string) => {
+    const response = await alice.page.request.post(
+      `/api/community/channels/${forumId}/messages`,
+      { data: { content: label, nonce: `e2e:${crypto.randomUUID()}:opener` } },
+    )
+    expect(response.status()).toBe(201)
+    return await response.json() as { threadId: string }
+  }
+  const first = await createEmptyPost(`Sparse first ${stamp}`)
+  const second = await createEmptyPost(`Sparse second ${stamp}`)
+
+  const deviceA = await asUser("bob")
+  const deviceB = await asUser("bob")
+  const proxyA = await proxyCommunityWebSockets(deviceA.context)
+  const proxyB = await proxyCommunityWebSockets(deviceB.context)
+  await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${forumId}`)
+  await gotoAfterUserWsAuth(deviceB.page, `/c/channels/${serverId}/${forumId}`)
+
+  const threadsResponse = await deviceA.page.request.get(
+    `/api/community/channels/${forumId}/threads?order=createdAt&limit=50`,
+  )
+  expect(threadsResponse.status()).toBe(200)
+  const threads = await threadsResponse.json() as {
+    threads: Array<{ id: string; parentMessageId: string | null }>
+  }
+  const firstOpener = threads.threads.find((thread) => thread.id === first.threadId)?.parentMessageId
+  const secondOpener = threads.threads.find((thread) => thread.id === second.threadId)?.parentMessageId
+  expect(firstOpener).toBeTruthy()
+  expect(secondOpener).toBeTruthy()
+
+  const accountSnapshot = async () => await (await deviceA.page.request.get(
+    "/api/community/users/me/read-state",
+  )).json() as {
+    revision: number
+    readStates: Array<{ channelId: string; lastReadSeq: number }>
+    forumOpenerReads: Array<{ openerMessageId: string }>
+  }
+  const openerResponses: Array<{ openerId: string; status: number }> = []
+  const trackOpenerResponse = (response: {
+    request: () => { method: () => string }
+    url: () => string
+    status: () => number
+  }) => {
+    const url = new URL(response.url())
+    const match = url.pathname.match(/^\/api\/community\/messages\/([^/]+)\/read$/)
+    if (response.request().method() === "PUT" && match?.[1]) {
+      openerResponses.push({ openerId: match[1], status: response.status() })
+    }
+  }
+  deviceA.page.on("response", trackOpenerResponse)
+
+  await deviceA.page.waitForTimeout(1_200)
+  expect(openerResponses).toEqual([])
+  const beforeFirst = await accountSnapshot()
+  const firstFrameStarts = [proxyA.frames.length, proxyB.frames.length]
+  await deviceA.page.getByTestId(tid.forumThreadCard(first.threadId)).evaluate((element) => {
+    ;(element as HTMLElement).click()
+  })
+  await expect.poll(() => new URL(deviceA.page.url()).pathname)
+    .toBe(`/c/channels/${serverId}/${first.threadId}`)
+  await expect(deviceA.page.getByTestId("forum-opener-read-anchor")).toBeVisible()
+  await expect.poll(() => openerResponses.filter((row) => row.openerId === firstOpener).length, {
+    timeout: 20_000,
+  }).toBe(1)
+  await deviceA.page.waitForTimeout(1_200)
+  expect(openerResponses.filter((row) => row.openerId === firstOpener)).toEqual([
+    { openerId: firstOpener!, status: 200 },
+  ])
+  const afterFirst = await accountSnapshot()
+  expect(afterFirst.revision).toBe(beforeFirst.revision + 1)
+  expect(afterFirst.forumOpenerReads.map((row) => row.openerMessageId)).toEqual([firstOpener])
+  for (const [proxy, start] of [[proxyA, firstFrameStarts[0]], [proxyB, firstFrameStarts[1]]] as const) {
+    await expect.poll(() => proxy.frames.slice(start!).flatMap(communityFrameEvents)
+      .filter((event) => event.type === "community:inbox.changed"
+        && event.reason === "forum_opener_read").length, { timeout: 20_000 }).toBe(1)
+  }
+
+  await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${forumId}`)
+  await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${first.threadId}`)
+  await deviceA.page.waitForTimeout(1_200)
+  expect(openerResponses.filter((row) => row.openerId === firstOpener)).toHaveLength(1)
+  expect((await accountSnapshot()).revision).toBe(afterFirst.revision)
+
+  const directForumRead = await deviceA.page.request.put(
+    `/api/community/channels/${forumId}/read`,
+    { data: { lastReadMessageId: firstOpener } },
+  )
+  expect(directForumRead.status()).toBe(400)
+
+  await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${second.threadId}`)
+  await expect.poll(() => openerResponses.filter((row) => row.openerId === secondOpener).length, {
+    timeout: 20_000,
+  }).toBe(1)
+  const afterSecond = await accountSnapshot()
+  expect(afterSecond.revision).toBe(afterFirst.revision + 1)
+  expect(new Set(afterSecond.forumOpenerReads.map((row) => row.openerMessageId))).toEqual(
+    new Set([firstOpener, secondOpener]),
+  )
+
+  const snapshotRepair = deviceA.page.waitForResponse((response) =>
+    response.request().method() === "GET"
+    && new URL(response.url()).pathname === "/api/community/users/me/read-state",
+  )
+  const readAll = await deviceA.page.request.post(
+    "/api/community/users/me/inbox/unreads/read-all",
+  )
+  expect(readAll.status()).toBe(200)
+  expect((await readAll.json() as { changed: boolean }).changed).toBe(true)
+  expect((await snapshotRepair).status()).toBe(200)
+  const afterReadAll = await accountSnapshot()
+  expect(afterReadAll.revision).toBe(afterSecond.revision + 1)
+  expect(afterReadAll.forumOpenerReads).toEqual([])
+  expect(afterReadAll.readStates.find((row) => row.channelId === forumId)?.lastReadSeq)
+    .toBeGreaterThanOrEqual(2)
+
+  const beforeCoveredReopenCount = openerResponses.length
+  await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${first.threadId}`)
+  await deviceA.page.waitForTimeout(1_200)
+  expect(openerResponses).toHaveLength(beforeCoveredReopenCount)
+  expect((await accountSnapshot()).revision).toBe(afterReadAll.revision)
+  deviceA.page.off("response", trackOpenerResponse)
+})
+
 test("human author-send and notification writers replace both active profiles", async ({ asUser }) => {
   test.setTimeout(150_000)
   const stamp = Date.now()
@@ -632,6 +815,7 @@ test("forum delete broadcasts replacement and removal to both active profiles", 
   )).json() as {
     revision: number
     readStates: Array<{ channelId: string; lastReadMessageId: string | null }>
+    forumOpenerReads: Array<{ openerMessageId: string }>
   }
   expect(deletedSnapshot.revision).toBeGreaterThan(beforeDeleteSnapshot.revision)
   await expect.poll(() => [proxyA, proxyB].every((proxy, index) =>
@@ -640,7 +824,8 @@ test("forum delete broadcasts replacement and removal to both active profiles", 
     timeout: 20_000,
   }).toBe(true)
   expect(deletedSnapshot.readStates.some((state) => state.channelId === deletedChildId)).toBe(false)
-  expect(deletedSnapshot.readStates.find((state) => state.channelId === forumId)?.lastReadMessageId)
-    .toBe(priorOpenerId)
+  expect(deletedSnapshot.readStates.some((state) => state.channelId === forumId)).toBe(false)
+  expect(deletedSnapshot.forumOpenerReads.some((row) => row.openerMessageId === deletedOpenerId))
+    .toBe(false)
   await expect(deviceB.page.getByTestId(tid.forumThreadCard(deletedChildId))).toHaveCount(0)
 })

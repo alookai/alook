@@ -975,8 +975,9 @@ describe("read-state invariant property — every write path", () => {
   function makePropertyDb() {
     let seqCounter = 0;
     const db: any = {
-      insert: vi.fn((table: unknown) => ({
-        values: vi.fn((v: any) => {
+      insert: vi.fn((table: unknown) => {
+        const insert: any = {
+          values: vi.fn((v: any) => {
           if (table === communityMessageSeq) {
             // `claimNextSeq`'s counter row — not a read-state write, doesn't
             // carry lastReadAt/lastReadMessageId, so it's a no-op for `writes`.
@@ -1005,14 +1006,25 @@ describe("read-state invariant property — every write path", () => {
               });
               return chain;
             });
-          return chain;
-        }),
-      })),
+            return chain;
+          }),
+          select: vi.fn(() => {
+            const chain: any = {};
+            chain.onConflictDoUpdate = vi.fn(() => chain);
+            chain.returning = vi.fn(() => Promise.resolve([]));
+            return chain;
+          }),
+        };
+        return insert;
+      }),
       update: vi.fn(() => ({
         set: vi.fn((s: any) => {
           writes.push({ lastReadAt: s.lastReadAt, lastReadMessageId: s.lastReadMessageId });
           return { where: vi.fn(() => Promise.resolve()) };
         }),
+      })),
+      delete: vi.fn(() => ({
+        where: vi.fn(() => Promise.resolve()),
       })),
       select: vi.fn(() => {
         const chain: any = {};
@@ -1022,7 +1034,9 @@ describe("read-state invariant property — every write path", () => {
         chain.as = vi.fn(() => chain);
         chain.orderBy = vi.fn(() => chain);
         chain.limit = vi.fn(() => Promise.resolve([]));
-        chain.where = vi.fn(() => Promise.resolve([]));
+        chain.where = vi.fn(() => chain);
+        chain.then = (resolve: (value: unknown[]) => unknown) =>
+          Promise.resolve([]).then(resolve);
         return chain;
       }),
       // `createMessage` composes (insert msg, update scope) into a single
@@ -1092,7 +1106,9 @@ describe("read-state invariant property — every write path", () => {
       chain.as = vi.fn(() => chain);
       chain.orderBy = vi.fn(() => chain);
       chain.limit = vi.fn(() => Promise.resolve([]));
-      chain.where = vi.fn(() => Promise.resolve([]));
+      chain.where = vi.fn(() => chain);
+      chain.then = (resolve: (value: unknown[]) => unknown) =>
+        Promise.resolve([]).then(resolve);
       return chain;
     });
     const spy = vi

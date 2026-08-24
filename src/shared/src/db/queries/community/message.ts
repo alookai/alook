@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, gt, lt, or, sql, inArray } from "drizzle-orm";
+import { eq, and, asc, desc, exists, gt, lt, or, sql, inArray, type SQL } from "drizzle-orm";
 import {
   communityMessage,
   communityChannel,
@@ -6,6 +6,8 @@ import {
   communityReadStateRevision,
   communityMessageSeq,
   communityChannelMember,
+  communityForumOpenerRead,
+  communityMention,
   communityMessageTag,
 } from "../../community-schema";
 import { user } from "../../schema";
@@ -77,6 +79,32 @@ const DEFAULT_LIMIT = 50;
 // logger down through 30+ call sites) buys nothing here.
 const log = createLogger({ service: "community-queries" });
 
+function advanceMessageDeletionRevisionsBuilder(
+  db: Database,
+  userIds: string[],
+  condition: SQL<unknown>
+) {
+  const ids = JSON.stringify([...new Set(userIds)]);
+  const selected = db
+    .select({
+      userId: sql<string>`CAST(value AS TEXT)`.as("user_id"),
+      revision: sql<number>`1`.as("revision"),
+    })
+    .from(sql`json_each(${ids})`)
+    .where(condition);
+  return db
+    .insert(communityReadStateRevision)
+    .select(selected)
+    .onConflictDoUpdate({
+      target: communityReadStateRevision.userId,
+      set: { revision: sql`${communityReadStateRevision.revision} + 1` },
+    })
+    .returning({
+      userId: communityReadStateRevision.userId,
+      revision: communityReadStateRevision.revision,
+    });
+}
+
 // TEXT column at rest → JSON at the boundary. Isolating the parse here keeps
 // storage-format concerns out of every route.
 function safeParseEmbeds(raw: string | null, messageId: string): unknown | undefined {
@@ -100,6 +128,7 @@ export type CreateMessageData = {
    * human realtime state.
    */
   authorKind?: "human" | "bot";
+  humanReadTarget?: "timeline" | "forum-opener";
   content: string;
   channelId: string;
   type?: string;
@@ -172,7 +201,7 @@ export async function createMessage(
 }
 
 // Step 1+: everything after the seq claim above — message insert,
-// channel/DM `lastMessageAt` bump, author read-state watermark. Split out of
+// channel/DM `lastMessageAt` bump, and the applicable author read marker. Split out of
 // `createMessage` purely so the two overload signatures above can reference
 // its return type instead of duplicating a hand-written row type; behavior
 // is identical to having this inlined.
@@ -180,10 +209,11 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
   const now = new Date().toISOString();
   const messageId = data.id ?? nanoid();
   const authorIsHuman = data.authorKind === "human";
+  const humanForumOpener = authorIsHuman && data.humanReadTarget === "forum-opener";
 
   // Pass `createdAt: now` explicitly so `msg.createdAt` matches the exact
-  // string we write to `channel.lastMessageAt` and to the author's read-state
-  // watermark below. Without this, the schema `$defaultFn` fires a microsecond
+  // string we write to `channel.lastMessageAt` and to the author's read marker
+  // below. Without this, the schema `$defaultFn` fires a microsecond
   // later and the timestamps diverge — the inbox predicate
   // `lastMessageAt > lastReadAt` would then wrongly fire for the author's own
   // send on a cold read.
@@ -236,14 +266,16 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
       set: { lastReadAt: now, lastReadMessageId: messageId, lastReadSeq: seq },
       setWhere: sql`${communityReadState.lastReadSeq} < ${seq}`,
     });
-  const commonStatements = [
+  const baseStatements = [
     insertMsg,
     scopeUpdate,
     ...(data.extraStatements ?? []),
-    authorWatermark,
   ];
   if (!authorIsHuman) {
-    const results = (await db.batch(commonStatements as any)) as any[];
+    const results = (await db.batch([
+      ...baseStatements,
+      authorWatermark,
+    ] as any)) as any[];
     return (results[0] as InsertedMessage[])[0]!;
   }
 
@@ -255,8 +287,16 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
       set: { revision: sql`${communityReadStateRevision.revision} + 1` },
     })
     .returning({ revision: communityReadStateRevision.revision });
+  const humanReadEffect = humanForumOpener
+    ? db.insert(communityForumOpenerRead).values({
+        userId: data.authorId,
+        openerMessageId: messageId,
+        readAt: now,
+      })
+    : authorWatermark;
   const results = (await db.batch([
-    ...commonStatements,
+    ...baseStatements,
+    humanReadEffect,
     humanRevision,
   ] as any)) as any[];
   const msg = (results[0] as InsertedMessage[])[0]!;
@@ -277,11 +317,11 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
  *   2. Channel/DM lastMessageAt (recomputed via `MAX(createdAt)` subquery so
  *      concurrent inserts keep their timestamps) + `messageCount -= 1` on
  *      channel (DM has no counter).
- *   3. Author's `communityReadState` row: if a prior message in scope exists,
- *      revert the watermark to it (guarded by `lastReadMessageId = messageId`
- *      so a concurrent same-author send that already advanced past our seq
- *      keeps its newer state); if this was the first-ever message in scope,
- *      DELETE the read-state row entirely so the schema's
+ *   3. Every `communityReadState` row still pointing at the message: if a
+ *      prior message in scope exists, revert the pointer to it (guarded by
+ *      `lastReadMessageId = messageId` so a concurrent advance keeps its newer
+ *      state); if this was the first-ever message in scope, DELETE each row so
+ *      the schema's
  *      "materialized ⇒ lastReadMessageId IS NOT NULL" invariant holds — the
  *      next send re-inserts through `.onConflictDoUpdate`, and the DELETE
  *      completes inside the same batch so no partial-UNIQUE-index collision.
@@ -290,6 +330,14 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
  * initial SELECT returns nothing and the whole cascade is skipped.
  */
 export async function hardDeleteMessage(db: Database, messageId: string) {
+  return hardDeleteMessageAttempt(db, messageId, 0);
+}
+
+async function hardDeleteMessageAttempt(
+  db: Database,
+  messageId: string,
+  attempt: number
+) {
   const msgRows = await db
     .select({
       id: communityMessage.id,
@@ -297,7 +345,6 @@ export async function hardDeleteMessage(db: Database, messageId: string) {
       authorId: communityMessage.authorId,
       seq: communityMessage.seq,
       createdAt: communityMessage.createdAt,
-      authorIsBot: sql<boolean>`(SELECT ${user.isBot} FROM ${user} WHERE ${user.id} = ${communityMessage.authorId})`,
     })
     .from(communityMessage)
     .where(eq(communityMessage.id, messageId))
@@ -324,7 +371,77 @@ export async function hardDeleteMessage(db: Database, messageId: string) {
     .limit(1);
   const prior = priorRows[0];
 
-  const deleteMsg = db.delete(communityMessage).where(eq(communityMessage.id, messageId));
+  const [impactedPointers, impactedSparse, impactedMentions] = await Promise.all([
+    db
+      .selectDistinct({ userId: communityReadState.userId })
+      .from(communityReadState)
+      .innerJoin(user, eq(user.id, communityReadState.userId))
+      .where(and(
+        eq(user.isBot, false),
+        eq(communityReadState.channelId, msg.channelId),
+        eq(communityReadState.lastReadMessageId, messageId),
+      )),
+    db
+      .selectDistinct({ userId: communityForumOpenerRead.userId })
+      .from(communityForumOpenerRead)
+      .innerJoin(user, eq(user.id, communityForumOpenerRead.userId))
+      .where(and(
+        eq(user.isBot, false),
+        eq(communityForumOpenerRead.openerMessageId, messageId),
+      )),
+    db
+      .selectDistinct({ userId: communityMention.userId })
+      .from(communityMention)
+      .innerJoin(user, eq(user.id, communityMention.userId))
+      .where(and(
+        eq(user.isBot, false),
+        eq(communityMention.messageId, messageId),
+      )),
+  ]);
+  const impactedUserIds = [...new Set([
+    ...impactedPointers,
+    ...impactedSparse,
+    ...impactedMentions,
+  ].map((row) => row.userId))];
+  const impactedIdsJson = JSON.stringify(impactedUserIds);
+  const rootStillExists = exists(
+    db
+      .select({ one: sql<number>`1` })
+      .from(communityMessage)
+      .where(eq(communityMessage.id, messageId))
+  );
+  const userHasEffect = (userIdSql: ReturnType<typeof sql>) => sql<boolean>`(
+    EXISTS (
+      SELECT 1 FROM ${communityReadState} AS current_state
+      WHERE current_state.user_id = ${userIdSql}
+        AND current_state.channel_id = ${msg.channelId}
+        AND current_state.last_read_message_id = ${messageId}
+    )
+    OR EXISTS (
+      SELECT 1 FROM ${communityForumOpenerRead} AS current_sparse
+      WHERE current_sparse.user_id = ${userIdSql}
+        AND current_sparse.opener_message_id = ${messageId}
+    )
+    OR EXISTS (
+      SELECT 1 FROM ${communityMention} AS current_mention
+      WHERE current_mention.user_id = ${userIdSql}
+        AND current_mention.message_id = ${messageId}
+    )
+  )`;
+  const impactedHumansStable = sql<boolean>`NOT EXISTS (
+    SELECT 1 FROM ${user} AS current_user
+    WHERE current_user."isBot" = 0
+      AND current_user.id NOT IN (
+        SELECT CAST(value AS TEXT) FROM json_each(${impactedIdsJson})
+      )
+      AND ${userHasEffect(sql`current_user.id`)}
+  )`;
+  const enumeratedUserHasEffect = userHasEffect(sql`CAST(value AS TEXT)`);
+
+  const deleteMsg = db
+    .delete(communityMessage)
+    .where(and(eq(communityMessage.id, messageId), impactedHumansStable))
+    .returning({ id: communityMessage.id });
 
   // `lastMessageAt` is an INLINE `MAX(createdAt)` subquery — never pre-fetched.
   // A concurrent writer inserting a newer message between our SELECT above and
@@ -339,12 +456,17 @@ export async function hardDeleteMessage(db: Database, messageId: string) {
         string | null
       >`(SELECT MAX(${communityMessage.createdAt}) FROM ${communityMessage} WHERE ${communityMessage.channelId} = ${msg.channelId} AND ${communityMessage.id} != ${messageId})`,
     })
-    .where(eq(communityChannel.id, msg.channelId));
+    .where(and(
+      eq(communityChannel.id, msg.channelId),
+      rootStillExists,
+      impactedHumansStable,
+    ));
 
   const readStateWhere = and(
-    eq(communityReadState.userId, msg.authorId),
     eq(communityReadState.channelId, msg.channelId),
-    eq(communityReadState.lastReadMessageId, messageId)
+    eq(communityReadState.lastReadMessageId, messageId),
+    rootStillExists,
+    impactedHumansStable,
   );
 
   const readStateStmt = prior
@@ -358,28 +480,40 @@ export async function hardDeleteMessage(db: Database, messageId: string) {
         .where(readStateWhere)
     : db.delete(communityReadState).where(readStateWhere);
 
-  if (msg.authorIsBot !== false) {
-    await db.batch([deleteMsg, scopeUpdate, readStateStmt] as any);
-    return { readStateRevision: null };
-  }
-
-  const humanRevision = db
-    .insert(communityReadStateRevision)
-    .values({ userId: msg.authorId, revision: 1 })
-    .onConflictDoUpdate({
-      target: communityReadStateRevision.userId,
-      set: { revision: sql`${communityReadStateRevision.revision} + 1` },
-    })
-    .returning({ revision: communityReadStateRevision.revision });
+  const revisionStatements = impactedUserIds.length > 0
+    ? [advanceMessageDeletionRevisionsBuilder(
+        db,
+        impactedUserIds,
+        and(rootStillExists, impactedHumansStable, enumeratedUserHasEffect)!,
+      )]
+    : [];
+  const revisionIndex = revisionStatements.length > 0 ? 0 : -1;
+  const deleteIndex = revisionStatements.length + 2;
   const results = await db.batch([
-    deleteMsg,
+    ...revisionStatements,
     scopeUpdate,
     readStateStmt,
-    humanRevision,
+    deleteMsg,
   ] as any) as unknown[];
-  const revision = (results.at(-1) as Array<{ revision: number }> | undefined)?.[0]?.revision;
-  if (revision === undefined) throw new Error("human rollback read-state revision missing");
-  return { readStateRevision: { userId: msg.authorId, revision } };
+  const deleted = (results[deleteIndex] as Array<{ id: string }>).length > 0;
+  if (!deleted) {
+    /* istanbul ignore next -- real workerd stable-guard retry/exhaustion oracle */
+    const roots = await db
+      .select({ id: communityMessage.id })
+      .from(communityMessage)
+      .where(eq(communityMessage.id, messageId))
+      .limit(1);
+    /* istanbul ignore if -- real workerd stable-guard retry/exhaustion oracle */
+    if (roots.length > 0) {
+      if (attempt >= 4) throw new Error("message read-state audience did not stabilize");
+      return hardDeleteMessageAttempt(db, messageId, attempt + 1);
+    }
+    return null;
+  }
+  const readStateRevisions = revisionIndex >= 0
+    ? results[revisionIndex] as Array<{ userId: string; revision: number }>
+    : [];
+  return { readStateRevisions };
 }
 
 // Shared select projection for the three list-messages paths (`listMessages`,

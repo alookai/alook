@@ -10,8 +10,8 @@ export const POST = withAuth(async (_req, ctx) => {
   // parent-climbed) and scope the mark-all to them — a private thread under an
   // invisible parent is excluded.
   const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)
-  const { count, revision } = await queries.communityReadState.markAllServerChannelsRead(db, ctx.userId, visibleChannelIds)
-  if (revision !== null) {
+  const { count, changed, revision } = await queries.communityReadState.markAllServerChannelsRead(db, ctx.userId, visibleChannelIds)
+  if (changed) {
     await broadcastToUserSafe(ctx.userId, {
       type: WS_EVENTS.INBOX_CHANGED,
       revision,
@@ -19,5 +19,5 @@ export const POST = withAuth(async (_req, ctx) => {
       reason: "read_all",
     })
   }
-  return writeJSON({ ok: true, count, revision })
+  return writeJSON({ ok: true, count, changed, revision })
 })

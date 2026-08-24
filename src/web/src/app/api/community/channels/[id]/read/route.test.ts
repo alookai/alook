@@ -10,7 +10,10 @@ const mockGetChannelForMember = vi.fn()
 const mockGetMessage = vi.fn()
 const mockGetLatestMessage = vi.fn()
 const mockMarkReadToMessageBuilder = vi.fn()
-const mockAdvanceReadStateRevisionBuilder = vi.fn()
+const mockReadStateAdvancesCondition = vi.fn()
+const mockAdvanceReadStateRevisionWhenAnyBuilder = vi.fn()
+const mockAccountReadStateRevisionBuilder = vi.fn()
+const mockUnreadChannelMentionThroughSeqCondition = vi.fn()
 const mockMarkChannelMentionsReadBuilder = vi.fn()
 const mockBatch = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
@@ -35,9 +38,15 @@ vi.mock("@alook/shared", async () => {
       },
       communityReadState: {
         markReadToMessageBuilder: (...a: unknown[]) => mockMarkReadToMessageBuilder(...a),
-        advanceReadStateRevisionBuilder: (...a: unknown[]) => mockAdvanceReadStateRevisionBuilder(...a),
+        readStateAdvancesCondition: (...a: unknown[]) => mockReadStateAdvancesCondition(...a),
+        advanceReadStateRevisionWhenAnyBuilder: (...a: unknown[]) =>
+          mockAdvanceReadStateRevisionWhenAnyBuilder(...a),
+        accountReadStateRevisionBuilder: (...a: unknown[]) =>
+          mockAccountReadStateRevisionBuilder(...a),
       },
       communityMention: {
+        unreadChannelMentionThroughSeqCondition: (...a: unknown[]) =>
+          mockUnreadChannelMentionThroughSeqCondition(...a),
         markChannelMentionsReadBuilder: (...a: unknown[]) =>
           mockMarkChannelMentionsReadBuilder(...a),
       },
@@ -83,8 +92,11 @@ describe("PUT /api/community/channels/[id]/read", () => {
     mockMarkChannelMentionsReadBuilder.mockReturnValue({
       __builder: "markChannelMentionsRead",
     })
-    mockAdvanceReadStateRevisionBuilder.mockReturnValue({ __builder: "advanceRevision" })
-    mockBatch.mockResolvedValue([[], [], [{ revision: 1 }]])
+    mockReadStateAdvancesCondition.mockReturnValue({ __condition: "pointer" })
+    mockUnreadChannelMentionThroughSeqCondition.mockReturnValue({ __condition: "mention" })
+    mockAdvanceReadStateRevisionWhenAnyBuilder.mockReturnValue({ __builder: "advanceRevision" })
+    mockAccountReadStateRevisionBuilder.mockReturnValue({ __builder: "currentRevision" })
+    mockBatch.mockResolvedValue([[{ revision: 1 }], [], [], [{ revision: 1 }]])
     mockBroadcastToUserSafe.mockResolvedValue(undefined)
   })
 
@@ -111,17 +123,40 @@ describe("PUT /api/community/channels/[id]/read", () => {
     expect(mockBatch).toHaveBeenCalledTimes(1)
     const batchArg = mockBatch.mock.calls[0]![0]
     expect(Array.isArray(batchArg)).toBe(true)
-    expect(batchArg).toHaveLength(3)
-    expect(batchArg[0]).toEqual({ __builder: "markReadToMessage" })
-    expect(batchArg[1]).toEqual({ __builder: "markChannelMentionsRead" })
-    expect(batchArg[2]).toEqual({ __builder: "advanceRevision" })
+    expect(batchArg).toHaveLength(4)
+    expect(batchArg[0]).toEqual({ __builder: "advanceRevision" })
+    expect(batchArg[1]).toEqual({ __builder: "markReadToMessage" })
+    expect(batchArg[2]).toEqual({ __builder: "markChannelMentionsRead" })
+    expect(batchArg[3]).toEqual({ __builder: "currentRevision" })
+    expect(mockMarkChannelMentionsReadBuilder).toHaveBeenCalledWith(
+      expect.anything(),
+      "u1",
+      "c1",
+      9,
+    )
     expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("u1", expect.objectContaining({
       type: "community:read_state.advanced",
       revision: 1,
       inboxChanged: true,
     }))
     expect(mockGetPrimaryDb).toHaveBeenCalledOnce()
-    await expect(res.json()).resolves.toEqual({ ok: true, revision: 1 })
+    await expect(res.json()).resolves.toEqual({ changed: true, targetSeq: 9, revision: 1 })
+  })
+
+  it("returns the current revision and emits no frame for a duplicate pointer/mention no-op", async () => {
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
+    mockGetLatestMessage.mockResolvedValue({
+      id: "m_latest",
+      createdAt: "2026-07-05T10:00:00.000Z",
+      seq: 9,
+    })
+    mockBatch.mockResolvedValue([[], [], [], [{ revision: 6 }]])
+
+    const res = await PUT(putReq(), { params: { id: "c1" } } as any)
+
+    await expect(res.json()).resolves.toEqual({ changed: false, targetSeq: 9, revision: 6 })
+    expect(mockBroadcastToUserSafe).not.toHaveBeenCalled()
   })
 
   it("no-body call on EMPTY channel: no writes at all, returns 200 { ok: true }", async () => {
@@ -131,10 +166,11 @@ describe("PUT /api/community/channels/[id]/read", () => {
     mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
     mockGetLatestMessage.mockResolvedValue(null)
+    mockAccountReadStateRevisionBuilder.mockResolvedValue([{ revision: 6 }])
 
     const res = await PUT(putReq(), { params: { id: "c1" } } as any)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ ok: true })
+    expect(await res.json()).toEqual({ changed: false, targetSeq: 0, revision: 6 })
 
     expect(mockMarkReadToMessageBuilder).not.toHaveBeenCalled()
     expect(mockMarkChannelMentionsReadBuilder).not.toHaveBeenCalled()
@@ -170,7 +206,7 @@ describe("PUT /api/community/channels/[id]/read", () => {
     })
     mockBatch
       .mockRejectedValueOnce(new Error("SQLITE_BUSY: database is locked"))
-      .mockResolvedValueOnce([[], [], [{ revision: 2 }]])
+      .mockResolvedValueOnce([[{ revision: 2 }], [], [], [{ revision: 2 }]])
 
     const res = await PUT(putReq(), { params: { id: "c1" } } as any)
 
@@ -216,6 +252,19 @@ describe("PUT /api/community/channels/[id]/read", () => {
     expect(res.status).toBe(403)
     expect(mockMarkReadToMessageBuilder).not.toHaveBeenCalled()
     expect(mockMarkChannelMentionsReadBuilder).not.toHaveBeenCalled()
+    expect(mockBatch).not.toHaveBeenCalled()
+  })
+
+  it("rejects both bodyless and explicit reads against a top-level forum", async () => {
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum" })
+    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum" })
+
+    for (const req of [putReq(), putReq({ lastReadMessageId: "opener-1" })]) {
+      const res = await PUT(req, { params: { id: "c1" } } as any)
+      expect(res.status).toBe(400)
+    }
+    expect(mockGetLatestMessage).not.toHaveBeenCalled()
+    expect(mockGetMessage).not.toHaveBeenCalled()
     expect(mockBatch).not.toHaveBeenCalled()
   })
 

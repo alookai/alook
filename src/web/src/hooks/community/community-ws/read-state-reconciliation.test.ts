@@ -73,6 +73,49 @@ describe("account read-state reconciliation", () => {
     })
   })
 
+  it("reprojects leaf caches when a lifecycle read returns the current revision", async () => {
+    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+      revision: 10,
+      readStates: [],
+    })
+    queryClient.setQueryData(communityKeys.channelReadStateSnapshot("late"), {
+      lastReadMessageId: null,
+      lastReadAt: null,
+      lastReadSeq: 0,
+    })
+    apiFetch.mockResolvedValue({
+      revision: 10,
+      readStates: [{
+        channelId: "late",
+        lastReadMessageId: "m3",
+        lastReadAt: "2026-08-24T00:00:03.000Z",
+        lastReadSeq: 3,
+      }],
+    })
+
+    await reconcileAccountReadState(queryClient, { invalidateSurfaces: false })
+
+    expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("late")))
+      .toMatchObject({ lastReadMessageId: "m3", lastReadSeq: 3 })
+  })
+
+  it("invalidates every cached concrete server detail after applying a snapshot", async () => {
+    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+      revision: 1,
+      readStates: [],
+    })
+    queryClient.setQueryData(communityKeys.server("server-1"), { id: "server-1" })
+    apiFetch.mockResolvedValue({ revision: 2, readStates: [] })
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
+
+    await reconcileAccountReadState(queryClient, { targetRevision: 2 })
+
+    expect(invalidate).toHaveBeenCalledWith(
+      { queryKey: communityKeys.server("server-1"), exact: true, refetchType: "active" },
+      { throwOnError: true, cancelRefetch: true },
+    )
+  })
+
   it("deduplicates concurrent lifecycle and gap reconciliations per query client", async () => {
     let release!: (snapshot: AccountReadStateSnapshot) => void
     apiFetch.mockReturnValue(new Promise<AccountReadStateSnapshot>((resolve) => {

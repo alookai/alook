@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import * as readStateQueries from "../../src/db/queries/community/read-state";
 import { communityReadState } from "../../src/db/community-schema";
+import { sql } from "drizzle-orm";
 
 // `markReadToMessageBuilder` is the canonical channel/DM read-state upsert
 // under the invariant unification (plan #4). It's used both stand-alone (DM
@@ -25,11 +26,24 @@ describe("community/read-state exports", () => {
   it("exports markAllServerChannelsRead", () => {
     expect(typeof readStateQueries.markAllServerChannelsRead).toBe("function");
   });
+
+  it("builds one revision guard from multiple canonical effects", () => {
+    const db = makeMassMarkDbMock();
+    expect(readStateQueries.advanceReadStateRevisionWhenAnyBuilder(
+      db,
+      "u_1",
+      [sql`1`, sql`0`],
+    )).toBeDefined();
+  });
 });
 
 describe("getAccountReadStateSnapshot", () => {
   it("keeps revision and rows aligned when a mutation races the snapshot", async () => {
-    const builders = [{ kind: "revision" }, { kind: "rows" }];
+    const builders = [
+      { kind: "revision" },
+      { kind: "rows" },
+      { kind: "forum-opener-rows" },
+    ];
     let selectIndex = 0;
     let state = {
       revision: 4,
@@ -38,6 +52,10 @@ describe("getAccountReadStateSnapshot", () => {
         lastReadMessageId: "m2",
         lastReadAt: "2026-08-24T00:00:02.000Z",
         lastReadSeq: 2,
+      }],
+      forumOpenerReads: [{
+        openerMessageId: "opener-1",
+        readAt: "2026-08-24T00:00:02.000Z",
       }],
     };
     const db: any = {
@@ -56,10 +74,15 @@ describe("getAccountReadStateSnapshot", () => {
             channelId: "c1",
             lastReadMessageId: "m3",
             lastReadAt: "2026-08-24T00:00:03.000Z",
-            lastReadSeq: 3,
-          }],
+          lastReadSeq: 3,
+        }],
+          forumOpenerReads: [],
         };
-        return [[{ revision: captured.revision }], captured.readStates];
+        return [
+          [{ revision: captured.revision }],
+          captured.readStates,
+          captured.forumOpenerReads,
+        ];
       }),
     };
 
@@ -70,6 +93,10 @@ describe("getAccountReadStateSnapshot", () => {
         lastReadMessageId: "m2",
         lastReadAt: "2026-08-24T00:00:02.000Z",
         lastReadSeq: 2,
+      }],
+      forumOpenerReads: [{
+        openerMessageId: "opener-1",
+        readAt: "2026-08-24T00:00:02.000Z",
       }],
     });
     expect(db.batch).toHaveBeenCalledOnce();
@@ -199,6 +226,7 @@ describe("markReadToMessageBuilder — DM is a channel", () => {
 function makeMassMarkDbMock(revision = 7) {
   const inserts: any[] = [];
   const conflicts: any[] = [];
+  const deletes: any[] = [];
   const db: any = {
     insert: vi.fn(() => {
       const chain: any = {};
@@ -210,21 +238,35 @@ function makeMassMarkDbMock(revision = 7) {
         conflicts.push(value);
         return chain;
       });
+      chain.select = vi.fn(() => chain);
       chain.returning = vi.fn(() => chain);
       return chain;
     }),
     select: vi.fn(() => {
       const chain: any = { __snapshot: true };
       chain.from = vi.fn(() => chain);
+      chain.innerJoin = vi.fn(() => chain);
       chain.where = vi.fn(() => chain);
+      chain.limit = vi.fn(() => chain);
+      chain.then = (resolve: (value: unknown) => unknown) => resolve([{ revision }]);
+      return chain;
+    }),
+    delete: vi.fn((table: unknown) => {
+      const chain: any = { __delete: table };
+      chain.where = vi.fn((condition: unknown) => {
+        deletes.push({ table, condition });
+        return chain;
+      });
       return chain;
     }),
     batch: vi.fn(async (statements: any[]) => statements.map((_statement, index) => {
+      if (index === 0) return [{ revision }];
       if (index === statements.length - 1) return [{ revision }];
       return [];
     })),
     __inserts: inserts,
     __conflicts: conflicts,
+    __deletes: deletes,
   };
   return db;
 }
@@ -236,7 +278,7 @@ describe("markAllServerChannelsRead", () => {
     const spy = vi.spyOn(messageModule, "getLatestMessagesByChannelIds").mockResolvedValue([]);
 
     const result = await readStateQueries.markAllServerChannelsRead(db, "u_1", []);
-    expect(result).toEqual({ count: 0, revision: null });
+    expect(result).toEqual({ count: 0, changed: false, revision: 7 });
     expect(db.__inserts).toHaveLength(0);
     expect(db.batch).not.toHaveBeenCalled();
     spy.mockRestore();
@@ -249,7 +291,7 @@ describe("markAllServerChannelsRead", () => {
     const spy = vi.spyOn(messageModule, "getLatestMessagesByChannelIds").mockResolvedValue([]);
 
     const result = await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a", "c_b"]);
-    expect(result).toEqual({ count: 0, revision: null });
+    expect(result).toEqual({ count: 0, changed: false, revision: 7 });
     expect(db.__inserts).toHaveLength(0);
     expect(db.batch).not.toHaveBeenCalled();
     spy.mockRestore();
@@ -267,10 +309,12 @@ describe("markAllServerChannelsRead", () => {
     const result = await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a", "c_b", "c_c_empty"]);
     expect(result).toEqual({
       count: 2,
+      changed: true,
       revision: 11,
     });
     expect(db.batch).toHaveBeenCalledTimes(1);
-    expect(db.batch.mock.calls[0]![0]).toHaveLength(3);
+    expect(db.batch.mock.calls[0]![0]).toHaveLength(6);
+    expect(db.__deletes).toHaveLength(2);
     const rows = db.__inserts.filter((row: any) => row.channelId);
     expect(rows).toHaveLength(2);
     // The invariant per-row: lastReadAt === message.createdAt, lastReadMessageId === message.id.
@@ -301,7 +345,7 @@ describe("markAllServerChannelsRead", () => {
     ]);
 
     const result = await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a", "c_b"]);
-    expect(result).toMatchObject({ count: 2, revision: 7 });
+    expect(result).toMatchObject({ count: 2, changed: true, revision: 7 });
     const sets = db.__conflicts.slice(0, 2).map((conflict: any) => conflict.set);
     const aTuple = sets.find((s) => s.lastReadMessageId === "m_a_new");
     const bTuple = sets.find((s) => s.lastReadMessageId === "m_b_new");
@@ -324,6 +368,19 @@ describe("markAllServerChannelsRead", () => {
     await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a"]);
     expect(db.__conflicts[0].setWhere).toBeDefined();
     expect(db.batch).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  it("returns the current revision when the account has no DMs", async () => {
+    const db = makeMassMarkDbMock(13);
+    const dmModule = await import("../../src/db/queries/community/dm");
+    const spy = vi.spyOn(dmModule, "listDMs").mockResolvedValue([]);
+
+    await expect(readStateQueries.markAllDmsRead(db, "u_1")).resolves.toEqual({
+      count: 0,
+      changed: false,
+      revision: 13,
+    });
     spy.mockRestore();
   });
 });

@@ -128,6 +128,7 @@ describe("existing delete media real D1 batches", () => {
         lastReadAt: "2026-08-23T00:00:00.000Z",
         lastReadSeq: 1,
       }],
+      forumOpenerReads: [],
     })
     expect(results.find((result) => !result.deleted)?.mediaKeys).toEqual([])
     expect(await first("SELECT id FROM community_channel WHERE id = ?", root)).toBeNull()

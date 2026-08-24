@@ -64,7 +64,17 @@ export const GET = withAuth(async (req, ctx) => {
       const forumOpeners = [...new Map(
         [...directForumOpeners, ...childForumOpeners].map((row) => [row.childChannelId, row]),
       ).values()]
-      return { unread, unreadDms, forumOpeners }
+      const forumParentsWithUnread = new Set([
+        ...forumOpeners.map((row) => row.forumChannelId),
+        ...unread.flatMap((row) => row.parentChannelId ? [row.parentChannelId] : []),
+      ])
+      const withoutPhantomForumParents = unread.filter(
+        (row) =>
+          row.parentChannelId ||
+          row.type !== "forum" ||
+          forumParentsWithUnread.has(row.channelId),
+      )
+      return { unread: withoutPhantomForumParents, unreadDms, forumOpeners }
     },
     { unread: [], unreadDms: [], forumOpeners: [] },
     { route: "community/inbox/unreads" },

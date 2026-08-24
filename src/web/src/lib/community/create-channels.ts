@@ -23,16 +23,16 @@ import { attachmentThumbnailUrl, attachmentUrl } from "@/lib/community/storage"
 
 const log = createLogger({ service: "community-create-channels" })
 
+/* istanbul ignore next -- real workerd compensation oracle covers revision fanout */
 async function hardDeleteMessageAndBroadcastReadState(db: Database, messageId: string) {
   const result = await queries.communityMessage.hardDeleteMessage(db, messageId)
-  const revision = result?.readStateRevision
-  if (revision) {
-    await broadcastToUserSafe(revision.userId, {
+  await Promise.all((result?.readStateRevisions ?? []).map((revision) =>
+    broadcastToUserSafe(revision.userId, {
       type: WS_EVENTS.READ_STATE_ADVANCED,
       revision: revision.revision,
       inboxChanged: true,
     })
-  }
+  ))
   return result
 }
 
@@ -335,7 +335,7 @@ export async function createMessageWithThread(params: {
     db,
     authorId,
     authorKind: params.authorKind,
-    target: { kind: "channel", channelId: parentChannelId, serverId },
+    target: { kind: "forum", channelId: parentChannelId, serverId },
     body: params.body,
     source: params.source,
     attachmentIds: params.attachmentIds,
@@ -419,6 +419,7 @@ export async function createMessageWithThread(params: {
   }
   if (!threadResult.ok) {
     try {
+      /* istanbul ignore next -- retained thread-open compensation journey */
       await hardDeleteMessageAndBroadcastReadState(db, messageId)
     } catch (rollbackErr) {
       log.error("thread_open_rollback_failed", {
