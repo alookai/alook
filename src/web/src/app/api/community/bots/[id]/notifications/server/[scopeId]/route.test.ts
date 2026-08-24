@@ -38,7 +38,7 @@ describe("owner bot server notification settings", () => {
     vi.clearAllMocks()
     getBotOwnedBy.mockResolvedValue({ id: "bot_1", ownerUserId: "owner" })
     requireServerMember.mockResolvedValue({ ok: true, value: { role: "member" } })
-    setServerLevel.mockResolvedValue({ setting: { level: "nothing" }, readStateSnapshot: null })
+    setServerLevel.mockResolvedValue({ setting: { level: "nothing" }, readStateRevision: null })
   })
 
   it("checks bot membership and writes the bot user id", async () => {

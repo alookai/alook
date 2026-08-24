@@ -360,7 +360,7 @@ describe("DELETE /channels/[id]", () => {
       env: { DB: {}, COMMUNITY_MEDIA: { delete: vi.fn() } },
       ctx: { waitUntil: mockWaitUntil },
     })
-    mockDeleteChannelWithMedia.mockResolvedValue({ deleted: true, mediaKeys: [] })
+    mockDeleteChannelWithMedia.mockResolvedValue({ deleted: true, mediaKeys: [], readStateRevisions: [] })
     mockIsChannelPrivate.mockResolvedValue(false)
     mockGetChannelType.mockResolvedValue("forum")
   })
@@ -397,7 +397,7 @@ describe("DELETE /channels/[id]", () => {
 
   it("keeps the winner 204 and fanout when waitUntil throws synchronously", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(accessCtx({ role: "admin", canManage: true }))
-    mockDeleteChannelWithMedia.mockResolvedValue({ deleted: true, mediaKeys: ["original"] })
+    mockDeleteChannelWithMedia.mockResolvedValue({ deleted: true, mediaKeys: ["original"], readStateRevisions: [] })
     mockWaitUntil.mockImplementationOnce(() => {
       throw new TypeError("secret registration detail")
     })
@@ -466,7 +466,7 @@ describe("DELETE /channels/[id]", () => {
     mockResolveChannelAccessContext.mockResolvedValue(accessCtx({ role: "admin", canManage: true }))
     mockDeleteChannelWithMedia.mockImplementation(async () => {
       order.push("delete")
-      return { deleted: true, mediaKeys: ["original", "thumbnail"] }
+      return { deleted: true, mediaKeys: ["original", "thumbnail"], readStateRevisions: [] }
     })
     mockScheduleMediaCleanup.mockImplementation(() => order.push("cleanup"))
     mockFanOutToServerMembers.mockImplementation(async () => {
@@ -492,7 +492,7 @@ describe("DELETE /channels/[id]", () => {
 
   it("returns 404 and never schedules or broadcasts when the D1 delete loses", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(accessCtx({ role: "admin", canManage: true }))
-    mockDeleteChannelWithMedia.mockResolvedValue({ deleted: false, mediaKeys: [] })
+    mockDeleteChannelWithMedia.mockResolvedValue({ deleted: false, mediaKeys: [], readStateRevisions: [] })
 
     const res = await DELETE(delReq(), ctx)
 

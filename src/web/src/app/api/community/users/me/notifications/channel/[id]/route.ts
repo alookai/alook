@@ -6,10 +6,10 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 
-async function broadcastSnapshot(userId: string, snapshot: queries.communityReadState.AccountReadStateSnapshot) {
+async function broadcastRevision(userId: string, revision: number) {
   await broadcastToUserSafe(userId, {
     type: WS_EVENTS.READ_STATE_ADVANCED,
-    revision: snapshot.revision,
+    revision,
     inboxChanged: true,
   })
 }
@@ -39,7 +39,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     level: body.level,
     actorKind: "human",
   })
-  if (result.readStateSnapshot) await broadcastSnapshot(ctx.userId, result.readStateSnapshot)
+  if (result.readStateRevision !== null) await broadcastRevision(ctx.userId, result.readStateRevision)
 
   return writeJSON(result.setting)
 })
@@ -57,7 +57,7 @@ export const DELETE = withAuth(async (_req, ctx) => {
     channelId,
     actorKind: "human",
   })
-  if (result.readStateSnapshot) await broadcastSnapshot(ctx.userId, result.readStateSnapshot)
+  if (result.readStateRevision !== null) await broadcastRevision(ctx.userId, result.readStateRevision)
 
   return new Response(null, { status: 204 })
 })

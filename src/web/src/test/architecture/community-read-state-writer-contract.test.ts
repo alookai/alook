@@ -37,27 +37,27 @@ describe("human account read-state writer contract", () => {
     ])
   })
 
-  it("requires every human-capable writer and FK cascade to carry revision plus full replacement", () => {
+  it("requires every human-capable writer and FK cascade to mint only bounded revisions", () => {
     const message = source("src/shared/src/db/queries/community/message.ts")
     expect(message).toContain('authorKind?: "human" | "bot"')
     expect(message).toContain("communityReadStateRevision")
-    expect(message).toContain("humanSnapshot")
-    expect(message).toContain("readStateSnapshot: { userId: msg.authorId")
+    expect(message).toContain("readStateRevision: { userId: msg.authorId")
+    expect(message).not.toContain("humanSnapshot")
 
     const notification = source("src/shared/src/db/queries/community/notification-setting.ts")
     expect(notification).toContain('actorKind: "human" | "bot"')
     expect(notification).toContain("advanceReadStateRevisionBuilder")
-    expect(notification).toContain("accountReadStateRowsBuilder")
+    expect(notification).not.toContain("accountReadStateRowsBuilder")
 
     const forumDelete = source("src/shared/src/db/queries/community/forum-post-delete.ts")
     expect(forumDelete).toContain("advanceReadStateRevisionsForUsersBuilder")
-    expect(forumDelete).toContain("accountReadStateRowsForUsersBuilder")
+    expect(forumDelete).not.toContain("accountReadStateRowsForUsersBuilder")
     expect(forumDelete).toContain("impactedHumansStable")
     expect(forumDelete).toContain("deleteForumPostAttempt(db, input, attempt + 1)")
 
     const cascadeDelete = source("src/shared/src/db/queries/community/delete-media.ts")
     expect(cascadeDelete).toContain("advanceReadStateRevisionsForUsersBuilder")
-    expect(cascadeDelete).toContain("accountReadStateRowsForUsersBuilder")
+    expect(cascadeDelete).not.toContain("accountReadStateRowsForUsersBuilder")
     expect(cascadeDelete.match(/impactedHumansStable/g)?.length).toBeGreaterThanOrEqual(6)
     expect(cascadeDelete).toContain("deleteChannelWithMediaAttempt(db, input, attempt + 1)")
     expect(cascadeDelete).toContain("deleteServerWithMediaAttempt(db, input, attempt + 1)")
@@ -66,6 +66,11 @@ describe("human account read-state writer contract", () => {
     expect(event).toContain("bounded dirty hint")
     expect(event).not.toContain("readStates: z.array")
     expect(event).not.toContain("advances:")
+
+    const readState = source("src/shared/src/db/queries/community/read-state.ts")
+    expect(readState).toContain("getAccountReadStateSnapshot")
+    expect(readState).toContain("accountReadStateRowsBuilder(db, userId)")
+    expect(readState).not.toContain("accountReadStateRowsForUsersBuilder")
   })
 
   it("makes every production message door state the author kind explicitly", () => {

@@ -197,9 +197,9 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   })
   if (!result.deleted) return writeError("channel not found", 404)
 
-  await Promise.all((result.readStateSnapshots ?? []).map((snapshot) => broadcastToUserSafe(snapshot.userId, {
+  await Promise.all(result.readStateRevisions.map((revision) => broadcastToUserSafe(revision.userId, {
     type: WS_EVENTS.READ_STATE_ADVANCED,
-    revision: snapshot.revision,
+    revision: revision.revision,
     inboxChanged: true,
   })))
 

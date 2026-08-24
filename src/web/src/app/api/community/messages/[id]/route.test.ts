@@ -512,6 +512,7 @@ describe("DELETE /api/community/messages/[id]", () => {
     mockDeleteForumPost.mockResolvedValue({
       deleted: true,
       mediaKeys: ["opener/original", "opener/thumb"],
+      readStateRevisions: [],
     })
     mockFanOutToServerMembers.mockResolvedValue(undefined)
     mockBroadcastToUserSafe.mockResolvedValue(undefined)
@@ -606,7 +607,7 @@ describe("DELETE /api/community/messages/[id]", () => {
   })
 
   it("treats a concurrently-resolved losing batch as idempotent without duplicate side effects", async () => {
-    mockDeleteForumPost.mockResolvedValue({ deleted: false, mediaKeys: [] })
+    mockDeleteForumPost.mockResolvedValue({ deleted: false, mediaKeys: [], readStateRevisions: [] })
 
     const res = await DELETE(deleteReq(), { params: { id: "opener_1" } } as any)
 

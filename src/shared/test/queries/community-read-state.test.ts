@@ -196,7 +196,7 @@ describe("markReadToMessageBuilder — DM is a channel", () => {
 // return the count of channels that got a write (not the reachable-channel
 // count).
 
-function makeMassMarkDbMock(revision = 7, snapshotRows: unknown[] = []) {
+function makeMassMarkDbMock(revision = 7) {
   const inserts: any[] = [];
   const conflicts: any[] = [];
   const db: any = {
@@ -219,9 +219,8 @@ function makeMassMarkDbMock(revision = 7, snapshotRows: unknown[] = []) {
       chain.where = vi.fn(() => chain);
       return chain;
     }),
-    batch: vi.fn(async (statements: any[]) => statements.map((statement, index) => {
-      if (index === statements.length - 2) return [{ revision }];
-      if (statement.__snapshot) return snapshotRows;
+    batch: vi.fn(async (statements: any[]) => statements.map((_statement, index) => {
+      if (index === statements.length - 1) return [{ revision }];
       return [];
     })),
     __inserts: inserts,
@@ -237,7 +236,7 @@ describe("markAllServerChannelsRead", () => {
     const spy = vi.spyOn(messageModule, "getLatestMessagesByChannelIds").mockResolvedValue([]);
 
     const result = await readStateQueries.markAllServerChannelsRead(db, "u_1", []);
-    expect(result).toEqual({ count: 0, snapshot: null });
+    expect(result).toEqual({ count: 0, revision: null });
     expect(db.__inserts).toHaveLength(0);
     expect(db.batch).not.toHaveBeenCalled();
     spy.mockRestore();
@@ -250,25 +249,14 @@ describe("markAllServerChannelsRead", () => {
     const spy = vi.spyOn(messageModule, "getLatestMessagesByChannelIds").mockResolvedValue([]);
 
     const result = await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a", "c_b"]);
-    expect(result).toEqual({ count: 0, snapshot: null });
+    expect(result).toEqual({ count: 0, revision: null });
     expect(db.__inserts).toHaveLength(0);
     expect(db.batch).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 
   it("returns the count of non-empty channels; inserts aligned rows for channels with no existing read state", async () => {
-    const snapshotRows = [{
-      channelId: "c_a",
-      lastReadMessageId: "m_a_latest",
-      lastReadAt: "2026-07-05T10:00:00Z",
-      lastReadSeq: 10,
-    }, {
-      channelId: "c_b",
-      lastReadMessageId: "m_b_latest",
-      lastReadAt: "2026-07-05T11:00:00Z",
-      lastReadSeq: 11,
-    }];
-    const db = makeMassMarkDbMock(11, snapshotRows);
+    const db = makeMassMarkDbMock(11);
     const messageModule = await import("../../src/db/queries/community/message");
     // c_a and c_b have messages; c_c_empty has none.
     const spy = vi.spyOn(messageModule, "getLatestMessagesByChannelIds").mockResolvedValue([
@@ -279,10 +267,10 @@ describe("markAllServerChannelsRead", () => {
     const result = await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a", "c_b", "c_c_empty"]);
     expect(result).toEqual({
       count: 2,
-      snapshot: { revision: 11, readStates: snapshotRows },
+      revision: 11,
     });
     expect(db.batch).toHaveBeenCalledTimes(1);
-    expect(db.batch.mock.calls[0]![0]).toHaveLength(4);
+    expect(db.batch.mock.calls[0]![0]).toHaveLength(3);
     const rows = db.__inserts.filter((row: any) => row.channelId);
     expect(rows).toHaveLength(2);
     // The invariant per-row: lastReadAt === message.createdAt, lastReadMessageId === message.id.
@@ -313,7 +301,7 @@ describe("markAllServerChannelsRead", () => {
     ]);
 
     const result = await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a", "c_b"]);
-    expect(result).toMatchObject({ count: 2, snapshot: { revision: 7 } });
+    expect(result).toMatchObject({ count: 2, revision: 7 });
     const sets = db.__conflicts.slice(0, 2).map((conflict: any) => conflict.set);
     const aTuple = sets.find((s) => s.lastReadMessageId === "m_a_new");
     const bTuple = sets.find((s) => s.lastReadMessageId === "m_b_new");

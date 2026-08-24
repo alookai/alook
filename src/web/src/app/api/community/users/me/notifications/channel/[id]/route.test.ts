@@ -36,7 +36,7 @@ describe("human DM notification settings", () => {
     requireMessageSurfaceAccess.mockResolvedValue({ ok: true, value: { surface: "dm" } })
     setChannelLevel.mockResolvedValue({
       setting: { level: "mentions" },
-      readStateSnapshot: { revision: 2, readStates: [] },
+      readStateRevision: 2,
     })
     broadcastToUserSafe.mockResolvedValue(undefined)
   })

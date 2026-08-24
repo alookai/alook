@@ -193,7 +193,7 @@ describe("createMessage — batch composition", () => {
     expect(msg.seq).toBe(7);
   });
 
-  it("human send atomically appends revision and a full account snapshot", async () => {
+  it("human send atomically appends a revision without materializing account rows", async () => {
     const { db, state } = makeMockDb(9);
     const msg = await queries.communityMessage.createMessage(db, {
       authorId: "human_1",
@@ -207,16 +207,7 @@ describe("createMessage — batch composition", () => {
       "update-channel",
       "insert-readstate",
       "insert-revision",
-      "select-readstates",
     ]);
-    expect(msg.readStateSnapshot).toEqual({
-      revision: 3,
-      readStates: [{
-        channelId: "chan_1",
-        lastReadMessageId: msg.id,
-        lastReadAt: "2026-01-01T00:00:00.000Z",
-        lastReadSeq: 9,
-      }],
-    });
+    expect(msg.readStateRevision).toBe(3);
   });
 });

@@ -23,10 +23,7 @@ import {
 } from "../../community-schema";
 import type { Database } from "../../index";
 import {
-  accountReadStateRowsBuilder,
   advanceReadStateRevisionBuilder,
-  type AccountReadState,
-  type AccountReadStateSnapshot,
 } from "./read-state";
 import type { NotificationLevelValue } from "../../../constants/community";
 import { currentEffectiveLevelSql } from "./notification-eligibility";
@@ -414,7 +411,7 @@ async function applySettingMutation(
   change: SettingChange,
   mutation: unknown,
   actorKind: "human" | "bot",
-): Promise<AccountReadStateSnapshot | null> {
+): Promise<number | null> {
   // Clear first while the current projection still represents the "before"
   // level used by the changed-effective predicate. D1 batch is atomic, so no
   // observer can see the cursor advance without the setting write (or vice
@@ -424,14 +421,13 @@ async function applySettingMutation(
     clearUnread,
     mutation,
     ...(actorKind === "human"
-      ? [advanceReadStateRevisionBuilder(db, userId), accountReadStateRowsBuilder(db, userId)]
+      ? [advanceReadStateRevisionBuilder(db, userId)]
       : []),
   ] as any) as unknown[];
   if (actorKind === "bot") return null;
-  const revision = (results.at(-2) as Array<{ revision: number }> | undefined)?.[0]?.revision;
-  const readStates = results.at(-1) as AccountReadState[] | undefined;
-  if (revision === undefined || !readStates) throw new Error("notification read-state snapshot missing");
-  return { revision, readStates };
+  const revision = (results.at(-1) as Array<{ revision: number }> | undefined)?.[0]?.revision;
+  if (revision === undefined) throw new Error("notification read-state revision missing");
+  return revision;
 }
 
 export async function setServerLevel(
@@ -456,7 +452,7 @@ export async function setServerLevel(
       set: { level: data.level },
     });
 
-  const readStateSnapshot = await applySettingMutation(
+  const readStateRevision = await applySettingMutation(
     db,
     data.userId,
     { kind: "set-server", id: data.serverId, level: data.level },
@@ -475,7 +471,7 @@ export async function setServerLevel(
       ),
     )
     .limit(1);
-  return { setting: rows[0]!, readStateSnapshot };
+  return { setting: rows[0]!, readStateRevision };
 }
 
 export async function setChannelLevel(
@@ -500,7 +496,7 @@ export async function setChannelLevel(
       set: { level: data.level },
     });
 
-  const readStateSnapshot = await applySettingMutation(
+  const readStateRevision = await applySettingMutation(
     db,
     data.userId,
     { kind: "set-channel", id: data.channelId, level: data.level },
@@ -519,7 +515,7 @@ export async function setChannelLevel(
       ),
     )
     .limit(1);
-  return { setting: rows[0]!, readStateSnapshot };
+  return { setting: rows[0]!, readStateRevision };
 }
 
 export async function removeChannelOverride(
@@ -548,12 +544,12 @@ export async function removeChannelOverride(
       )
     );
 
-  const readStateSnapshot = await applySettingMutation(
+  const readStateRevision = await applySettingMutation(
     db,
     data.userId,
     { kind: "remove-channel", id: data.channelId },
     mutation,
     data.actorKind,
   );
-  return { setting: existingRows[0] ?? null, readStateSnapshot };
+  return { setting: existingRows[0] ?? null, readStateRevision };
 }

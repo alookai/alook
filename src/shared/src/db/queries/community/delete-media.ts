@@ -9,17 +9,14 @@ import {
 import { user } from "../../schema"
 import type { Database } from "../../index"
 import {
-  accountReadStateRowsForUsersBuilder,
   advanceReadStateRevisionsForUsersBuilder,
-  groupAccountReadStateSnapshots,
-  type AccountReadState,
-  type AccountReadStateSnapshotByUser,
+  type AccountReadStateRevisionByUser,
 } from "./read-state"
 
 export type DeleteCommunityMediaResult = {
   deleted: boolean
   mediaKeys: string[]
-  readStateSnapshots: AccountReadStateSnapshotByUser[]
+  readStateRevisions: AccountReadStateRevisionByUser[]
 }
 
 export type DeleteServerWithMediaResult = DeleteCommunityMediaResult & {
@@ -133,7 +130,6 @@ async function deleteChannelWithMediaAttempt(
 
   const revisionIndex = 2
   const deleteIndex = impactedUserIds.length > 0 ? 3 : 2
-  const snapshotIndex = impactedUserIds.length > 0 ? 4 : -1
   const results = (await db.batch([
     mediaSnapshot,
     removePendingAttachments,
@@ -145,18 +141,12 @@ async function deleteChannelWithMediaAttempt(
         )]
       : []),
     deleteRoot,
-    ...(impactedUserIds.length > 0
-      ? [accountReadStateRowsForUsersBuilder(db, impactedUserIds)]
-      : []),
   ] as any)) as unknown[]
   const mediaRows = results[0] as Array<{ r2Key: string; thumbnailR2Key: string | null }>
   const deletedRows = results[deleteIndex] as Array<{ id: string }>
   const deleted = deletedRows.length > 0
   const revisions = impactedUserIds.length > 0
     ? results[revisionIndex] as Array<{ userId: string; revision: number }>
-    : []
-  const readStateRows = impactedUserIds.length > 0
-    ? results[snapshotIndex] as Array<AccountReadState & { userId: string }>
     : []
 
   if (!deleted) {
@@ -170,9 +160,7 @@ async function deleteChannelWithMediaAttempt(
   return {
     deleted,
     mediaKeys: deleted ? flattenMediaRows(mediaRows) : [],
-    readStateSnapshots: deleted
-      ? groupAccountReadStateSnapshots(revisions, readStateRows)
-      : [],
+    readStateRevisions: deleted ? revisions : [],
   }
 }
 
@@ -266,7 +254,6 @@ async function deleteServerWithMediaAttempt(
 
   const revisionIndex = 2
   const deleteIndex = impactedUserIds.length > 0 ? 3 : 2
-  const snapshotIndex = impactedUserIds.length > 0 ? 4 : -1
   const results = (await db.batch([
     mediaSnapshot,
     removePendingAttachments,
@@ -278,18 +265,12 @@ async function deleteServerWithMediaAttempt(
         )]
       : []),
     deleteServer,
-    ...(impactedUserIds.length > 0
-      ? [accountReadStateRowsForUsersBuilder(db, impactedUserIds)]
-      : []),
   ] as any)) as unknown[]
   const mediaRows = results[0] as Array<{ r2Key: string; thumbnailR2Key: string | null }>
   const deletedRows = results[deleteIndex] as Array<{ id: string; icon: string | null }>
   const deleted = deletedRows.length > 0
   const revisions = impactedUserIds.length > 0
     ? results[revisionIndex] as Array<{ userId: string; revision: number }>
-    : []
-  const readStateRows = impactedUserIds.length > 0
-    ? results[snapshotIndex] as Array<AccountReadState & { userId: string }>
     : []
 
   if (!deleted) {
@@ -304,8 +285,6 @@ async function deleteServerWithMediaAttempt(
     deleted,
     mediaKeys: deleted ? flattenMediaRows(mediaRows) : [],
     iconKey: deleted ? deletedRows[0]!.icon : null,
-    readStateSnapshots: deleted
-      ? groupAccountReadStateSnapshots(revisions, readStateRows)
-      : [],
+    readStateRevisions: deleted ? revisions : [],
   }
 }

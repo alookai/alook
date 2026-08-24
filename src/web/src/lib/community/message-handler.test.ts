@@ -388,16 +388,10 @@ describe("createCommunityMessage — committed delivery handoff", () => {
     expect(mockDispatchCommittedMessage).toHaveBeenCalledWith({}, "msg_1", {})
   })
 
-  it("broadcasts the human author watermark as one full account replacement", async () => {
-    const readStates = [{
-      channelId: "c1",
-      lastReadMessageId: "msg_1",
-      lastReadAt: "2026-01-01T00:00:00.000Z",
-      lastReadSeq: 7,
-    }]
+  it("broadcasts the human author watermark as one bounded revision hint", async () => {
     mockCreateMessage.mockResolvedValue({
       id: "msg_1",
-      readStateSnapshot: { revision: 12, readStates },
+      readStateRevision: 12,
     })
     mockGetMessage.mockResolvedValue(messageRow())
 

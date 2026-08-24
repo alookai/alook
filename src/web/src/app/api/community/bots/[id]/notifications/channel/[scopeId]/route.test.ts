@@ -41,8 +41,8 @@ describe("owner bot channel notification settings", () => {
     vi.clearAllMocks()
     getBotOwnedBy.mockResolvedValue({ id: "bot_1", ownerUserId: "owner" })
     requireMessageSurfaceAccess.mockResolvedValue({ ok: true, value: { surface: "dm" } })
-    setChannelLevel.mockResolvedValue({ setting: { level: "mentions" }, readStateSnapshot: null })
-    removeChannelOverride.mockResolvedValue({ setting: null, readStateSnapshot: null })
+    setChannelLevel.mockResolvedValue({ setting: { level: "mentions" }, readStateRevision: null })
+    removeChannelOverride.mockResolvedValue({ setting: null, readStateRevision: null })
   })
 
   it("writes the owned bot identity after checking the bot's DM access", async () => {

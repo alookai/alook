@@ -206,17 +206,23 @@ describe("deleteForumPost real D1 batch", () => {
       last_read_seq: 2,
       last_read_at: t2,
     });
-    expect(result.readStateSnapshots).toHaveLength(2);
-    for (const snapshot of result.readStateSnapshots) {
-      expect(snapshot.revision).toBe(1);
-      expect(snapshot.readStates).toEqual([{
-        channelId: id.forum,
-        lastReadMessageId: id.siblingOpener,
-        lastReadSeq: 2,
-        lastReadAt: t2,
-      }]);
+    expect(result.readStateRevisions).toHaveLength(2);
+    for (const revision of result.readStateRevisions) {
+      expect(revision.revision).toBe(1);
+      await expect(queries.communityReadState.getAccountReadStateSnapshot(
+        db,
+        revision.userId,
+      )).resolves.toEqual({
+        revision: 1,
+        readStates: [{
+          channelId: id.forum,
+          lastReadMessageId: id.siblingOpener,
+          lastReadSeq: 2,
+          lastReadAt: t2,
+        }],
+      });
     }
-    expect(new Set(result.readStateSnapshots.map((snapshot) => snapshot.userId))).toEqual(
+    expect(new Set(result.readStateRevisions.map((revision) => revision.userId))).toEqual(
       new Set([id.owner, id.reader]),
     );
     expect(await first("SELECT id FROM community_channel WHERE id = ?", id.siblingChild)).not.toBeNull();
@@ -291,11 +297,16 @@ describe("deleteForumPost real D1 batch", () => {
     });
 
     expect(result.deleted).toBe(true);
-    expect(new Set(result.readStateSnapshots.map((snapshot) => snapshot.userId))).toEqual(
+    expect(new Set(result.readStateRevisions.map((revision) => revision.userId))).toEqual(
       new Set([id.owner, id.reader, lateReader]),
     );
-    expect(result.readStateSnapshots.find((snapshot) => snapshot.userId === lateReader)).toEqual({
-      userId: lateReader,
+    expect(result.readStateRevisions.find((revision) => revision.userId === lateReader)).toEqual({
+      userId: lateReader, revision: 1,
+    });
+    await expect(queries.communityReadState.getAccountReadStateSnapshot(
+      baseDb,
+      lateReader,
+    )).resolves.toEqual({
       revision: 1,
       readStates: [{
         channelId: id.forum,
@@ -306,8 +317,8 @@ describe("deleteForumPost real D1 batch", () => {
     });
   });
 
-  it("returns the in-batch revision snapshot even when a later commit wins before result handling", async () => {
-    const { id, t2 } = await seedCanonicalPost();
+  it("returns the in-batch committed revision even when a later commit wins before result handling", async () => {
+    const { id } = await seedCanonicalPost();
     const baseDb = createDb(runtimeEnv.DB);
     const laterMessage = `fpd_later_${crypto.randomUUID().replaceAll("-", "")}`;
     const laterTime = "2026-08-23T01:04:00.000Z";
@@ -350,16 +361,8 @@ describe("deleteForumPost real D1 batch", () => {
       childChannelId: id.child,
     });
 
-    expect(result.readStateSnapshots.find((snapshot) => snapshot.userId === id.owner)).toEqual({
-      userId: id.owner,
-      revision: 1,
-      readStates: [{
-        channelId: id.forum,
-        lastReadMessageId: id.siblingOpener,
-        lastReadAt: t2,
-        lastReadSeq: 2,
-      }],
-    });
+    expect(result.readStateRevisions.find((revision) => revision.userId === id.owner))
+      .toEqual({ userId: id.owner, revision: 1 });
     expect(await first<{ revision: number }>(
       "SELECT revision FROM community_read_state_revision WHERE user_id = ?",
       id.owner,

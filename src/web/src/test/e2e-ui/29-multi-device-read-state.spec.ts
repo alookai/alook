@@ -302,6 +302,10 @@ test("forum delete broadcasts replacement and removal to both active profiles", 
   expect(priorOpenerId).toBeTruthy()
   expect(deletedOpenerId).toBeTruthy()
 
+  const beforeDeleteSnapshot = await (await deviceB.page.request.get(
+    "/api/community/users/me/read-state",
+  )).json() as { revision: number }
+
   const starts = [proxyA.frames.length, proxyB.frames.length]
   const deleteStatus = await deviceA.page.evaluate(async (messageId) => {
     const response = await fetch(`/api/community/messages/${messageId}`, { method: "DELETE" })
@@ -310,22 +314,32 @@ test("forum delete broadcasts replacement and removal to both active profiles", 
   expect(deleteStatus).toBe(204)
 
   for (const [proxy, start] of [[proxyA, starts[0]], [proxyB, starts[1]]] as const) {
-    await expect.poll(() => readStateEventsSince(proxy.frames, start!).length, {
+    await expect.poll(() => readStateEventsSince(proxy.frames, start!)
+      .filter((event) => event.revision > beforeDeleteSnapshot.revision).length, {
       timeout: 20_000,
-    }).toBe(1)
-    const event = readStateEventsSince(proxy.frames, start!)[0]!
-    expect("readStates" in event).toBe(false)
+    }).toBeGreaterThan(0)
   }
-  const events = [
-    readStateEventsSince(proxyA.frames, starts[0]!)[0]!,
-    readStateEventsSince(proxyB.frames, starts[1]!)[0]!,
+  const eventsByProfile = [
+    readStateEventsSince(proxyA.frames, starts[0]!)
+      .filter((event) => event.revision > beforeDeleteSnapshot.revision),
+    readStateEventsSince(proxyB.frames, starts[1]!)
+      .filter((event) => event.revision > beforeDeleteSnapshot.revision),
   ]
-  expect(events[0].revision).toBe(events[1].revision)
+  expect(eventsByProfile.flat().every((event) => !("readStates" in event))).toBe(true)
+  const profileBRevisions = new Set(eventsByProfile[1].map((event) => event.revision))
+  expect(eventsByProfile[0].some((event) => profileBRevisions.has(event.revision))).toBe(true)
   const deletedSnapshot = await (await deviceB.page.request.get(
     "/api/community/users/me/read-state",
   )).json() as {
+    revision: number
     readStates: Array<{ channelId: string; lastReadMessageId: string | null }>
   }
+  expect(deletedSnapshot.revision).toBeGreaterThan(beforeDeleteSnapshot.revision)
+  await expect.poll(() => [proxyA, proxyB].every((proxy, index) =>
+    readStateEventsSince(proxy.frames, starts[index]!)
+      .some((event) => event.revision === deletedSnapshot.revision)), {
+    timeout: 20_000,
+  }).toBe(true)
   expect(deletedSnapshot.readStates.some((state) => state.channelId === deletedChildId)).toBe(false)
   expect(deletedSnapshot.readStates.find((state) => state.channelId === forumId)?.lastReadMessageId)
     .toBe(priorOpenerId)

@@ -255,31 +255,15 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
       set: { revision: sql`${communityReadStateRevision.revision} + 1` },
     })
     .returning({ revision: communityReadStateRevision.revision });
-  const humanSnapshot = db
-    .select({
-      channelId: communityReadState.channelId,
-      lastReadMessageId: communityReadState.lastReadMessageId,
-      lastReadAt: communityReadState.lastReadAt,
-      lastReadSeq: communityReadState.lastReadSeq,
-    })
-    .from(communityReadState)
-    .where(eq(communityReadState.userId, data.authorId));
   const results = (await db.batch([
     ...commonStatements,
     humanRevision,
-    humanSnapshot,
   ] as any)) as any[];
   const msg = (results[0] as InsertedMessage[])[0]!;
-  const revisionRows = results.at(-2) as Array<{ revision: number }> | undefined;
-  const readStates = results.at(-1) as Array<{
-    channelId: string;
-    lastReadMessageId: string | null;
-    lastReadAt: string;
-    lastReadSeq: number;
-  }> | undefined;
+  const revisionRows = results.at(-1) as Array<{ revision: number }> | undefined;
   const revision = revisionRows?.[0]?.revision;
-  if (revision === undefined || !readStates) throw new Error("human author read-state snapshot missing");
-  return { ...msg, readStateSnapshot: { revision, readStates } };
+  if (revision === undefined) throw new Error("human author read-state revision missing");
+  return { ...msg, readStateRevision: revision };
 }
 
 /**
@@ -376,7 +360,7 @@ export async function hardDeleteMessage(db: Database, messageId: string) {
 
   if (msg.authorIsBot !== false) {
     await db.batch([deleteMsg, scopeUpdate, readStateStmt] as any);
-    return { readStateSnapshot: null };
+    return { readStateRevision: null };
   }
 
   const humanRevision = db
@@ -387,31 +371,15 @@ export async function hardDeleteMessage(db: Database, messageId: string) {
       set: { revision: sql`${communityReadStateRevision.revision} + 1` },
     })
     .returning({ revision: communityReadStateRevision.revision });
-  const humanSnapshot = db
-    .select({
-      channelId: communityReadState.channelId,
-      lastReadMessageId: communityReadState.lastReadMessageId,
-      lastReadAt: communityReadState.lastReadAt,
-      lastReadSeq: communityReadState.lastReadSeq,
-    })
-    .from(communityReadState)
-    .where(eq(communityReadState.userId, msg.authorId));
   const results = await db.batch([
     deleteMsg,
     scopeUpdate,
     readStateStmt,
     humanRevision,
-    humanSnapshot,
   ] as any) as unknown[];
-  const revision = (results.at(-2) as Array<{ revision: number }> | undefined)?.[0]?.revision;
-  const readStates = results.at(-1) as Array<{
-    channelId: string;
-    lastReadMessageId: string | null;
-    lastReadAt: string;
-    lastReadSeq: number;
-  }> | undefined;
-  if (revision === undefined || !readStates) throw new Error("human rollback read-state snapshot missing");
-  return { readStateSnapshot: { userId: msg.authorId, revision, readStates } };
+  const revision = (results.at(-1) as Array<{ revision: number }> | undefined)?.[0]?.revision;
+  if (revision === undefined) throw new Error("human rollback read-state revision missing");
+  return { readStateRevision: { userId: msg.authorId, revision } };
 }
 
 // Shared select projection for the three list-messages paths (`listMessages`,

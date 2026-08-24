@@ -156,20 +156,6 @@ export function accountReadStateRowsBuilder(db: Database, userId: string) {
     .where(eq(communityReadState.userId, userId));
 }
 
-export function accountReadStateRowsForUsersBuilder(db: Database, userIds: string[]) {
-  const ids = JSON.stringify([...new Set(userIds)]);
-  return db
-    .select({
-      userId: communityReadState.userId,
-      channelId: communityReadState.channelId,
-      lastReadMessageId: communityReadState.lastReadMessageId,
-      lastReadAt: communityReadState.lastReadAt,
-      lastReadSeq: communityReadState.lastReadSeq,
-    })
-    .from(communityReadState)
-    .where(sql`${communityReadState.userId} IN (SELECT CAST(value AS TEXT) FROM json_each(${ids}))`);
-}
-
 export type AccountReadState = {
   channelId: string;
   lastReadMessageId: string | null;
@@ -182,26 +168,10 @@ export type AccountReadStateSnapshot = {
   readStates: AccountReadState[];
 };
 
-export type AccountReadStateSnapshotByUser = AccountReadStateSnapshot & {
+export type AccountReadStateRevisionByUser = {
   userId: string;
+  revision: number;
 };
-
-export function groupAccountReadStateSnapshots(
-  revisions: Array<{ userId: string; revision: number }>,
-  rows: Array<AccountReadState & { userId: string }>,
-): AccountReadStateSnapshotByUser[] {
-  const rowsByUser = new Map<string, AccountReadState[]>();
-  for (const { userId, ...row } of rows) {
-    const current = rowsByUser.get(userId) ?? [];
-    current.push(row);
-    rowsByUser.set(userId, current);
-  }
-  return revisions.map(({ userId, revision }) => ({
-    userId,
-    revision,
-    readStates: rowsByUser.get(userId) ?? [],
-  }));
-}
 
 export async function getAccountReadStateSnapshot(db: Database, userId: string) {
   const revisionQuery = accountReadStateRevisionBuilder(db, userId);
@@ -222,7 +192,7 @@ export type ReadStateAdvance = {
 
 export type ReadAllResult = {
   count: number;
-  snapshot: AccountReadStateSnapshot | null;
+  revision: number | null;
 };
 
 /**
@@ -275,11 +245,11 @@ export async function markAllServerChannelsRead(
   // id set parent-climbs, so a child under a private parent the viewer can't
   // see is now correctly EXCLUDED — mark-all no longer writes read-state rows
   // for channels behind an invisible private parent.
-  if (visibleChannelIds.length === 0) return { count: 0, snapshot: null };
+  if (visibleChannelIds.length === 0) return { count: 0, revision: null };
   const channelIds = visibleChannelIds;
 
   const latest = await getLatestMessagesByChannelIds(db, channelIds);
-  if (latest.length === 0) return { count: 0, snapshot: null };
+  if (latest.length === 0) return { count: 0, revision: null };
 
   const statements = latest.map((message) => markReadToMessageBuilder(db, {
     userId,
@@ -289,16 +259,13 @@ export async function markAllServerChannelsRead(
   const results = await db.batch([
     ...statements,
     advanceReadStateRevisionBuilder(db, userId),
-    accountReadStateRowsBuilder(db, userId),
   ] as any) as unknown as unknown[][];
-  const revision = (results.at(-2) as Array<{ revision: number }> | undefined)?.[0]?.revision;
+  const revision = (results.at(-1) as Array<{ revision: number }> | undefined)?.[0]?.revision;
   if (revision === undefined) throw new Error("read-state revision missing");
-  const readStates = results.at(-1) as AccountReadState[] | undefined;
-  if (!readStates) throw new Error("read-state snapshot missing");
 
   return {
     count: latest.length,
-    snapshot: { revision, readStates },
+    revision,
   };
 }
 
@@ -315,7 +282,7 @@ export async function markAllDmsRead(
 ): Promise<ReadAllResult> {
   const dms = await listDMs(db, userId);
   const dmChannelIds = dms.map((d) => d.id);
-  if (dmChannelIds.length === 0) return { count: 0, snapshot: null };
+  if (dmChannelIds.length === 0) return { count: 0, revision: null };
   return markAllServerChannelsRead(db, userId, dmChannelIds);
 }
 

@@ -31,10 +31,10 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     level: body.level,
     actorKind: "human",
   })
-  if (result.readStateSnapshot) {
+  if (result.readStateRevision !== null) {
     await broadcastToUserSafe(ctx.userId, {
       type: WS_EVENTS.READ_STATE_ADVANCED,
-      revision: result.readStateSnapshot.revision,
+      revision: result.readStateRevision,
       inboxChanged: true,
     })
   }

@@ -19,6 +19,21 @@ export type ReadStateEnvelope = {
   inboxChanged: true
 }
 
+type ReconciliationState = {
+  highestPendingTargetRevision: number | null
+  snapshotRequestedGeneration: number
+  snapshotCompletedGeneration: number
+  surfaceRequestedGeneration: number
+  surfaceCompletedGeneration: number
+  worker: Promise<AccountReadStateSnapshot> | null
+  retryTimer: ReturnType<typeof setTimeout> | null
+  retryDelayMs: number
+}
+
+const INITIAL_RETRY_DELAY_MS = 100
+const MAX_RETRY_DELAY_MS = 5_000
+const reconciliationStates = new WeakMap<QueryClient, ReconciliationState>()
+
 const emptyReadState = {
   lastReadMessageId: null,
   lastReadAt: null,
@@ -107,48 +122,167 @@ export async function reconcileAccountReadState(
   queryClient: QueryClient,
   options: { invalidateSurfaces?: boolean; targetRevision?: number } = {},
 ) {
-  let applied = false
-  let snapshot: AccountReadStateSnapshot
-  do {
-    let request = inFlightReconciliations.get(queryClient)
-    if (!request) request = startAccountReadStateRequest(queryClient)
-    snapshot = await request
-    if (applyAccountReadStateSnapshot(queryClient, snapshot) === "applied") applied = true
-    const currentRevision = queryClient.getQueryData<AccountReadStateSnapshot>(
-      communityKeys.accountReadStateSnapshot(),
-    )?.revision ?? -1
-    if (options.targetRevision === undefined || currentRevision >= options.targetRevision) break
-    // A live hint can arrive while auth/reconnect is fetching an older
-    // revision. The settled request has been removed from the WeakMap, so the
-    // next iteration is a genuinely fresh primary read rather than another
-    // join of the stale in-flight promise.
-  } while (true)
+  const state = getReconciliationState(queryClient)
+  const currentRevision = cachedAccountRevision(queryClient)
+  const targetRevision = options.targetRevision
+  const hadSnapshotWork = hasSnapshotWork(state, currentRevision)
 
-  if (applied && options.invalidateSurfaces !== false) {
-    await invalidateReadStateSurfaces(queryClient)
+  if (targetRevision === undefined) {
+    // Coalesce concurrent lifecycle callers into the already-pending primary
+    // read, but make a later lifecycle event take ownership of a failed worker
+    // whose target/dirty state is still queued.
+    if (!hadSnapshotWork) state.snapshotRequestedGeneration += 1
+  } else if (
+    targetRevision > currentRevision
+    && (state.highestPendingTargetRevision === null
+      || targetRevision > state.highestPendingTargetRevision)
+  ) {
+    state.highestPendingTargetRevision = targetRevision
+    state.snapshotRequestedGeneration += 1
   }
-  return queryClient.getQueryData<AccountReadStateSnapshot>(
-    communityKeys.accountReadStateSnapshot(),
-  ) ?? snapshot
+
+  if (
+    options.invalidateSurfaces !== false
+    && state.snapshotRequestedGeneration > state.surfaceRequestedGeneration
+  ) {
+    // Bind derived work to the authoritative snapshot generation that caused
+    // it. Callers joining the same primary read coalesce, while a newer hint
+    // arriving during invalidation advances both generations and therefore
+    // receives a second surface pass after its newer snapshot lands.
+    state.surfaceRequestedGeneration = state.snapshotRequestedGeneration
+  }
+
+  if (state.retryTimer !== null) {
+    clearTimeout(state.retryTimer)
+    state.retryTimer = null
+  }
+  return ensureReconciliationWorker(queryClient, state)
 }
 
-const inFlightReconciliations = new WeakMap<
-  QueryClient,
-  Promise<AccountReadStateSnapshot>
->()
+function getReconciliationState(queryClient: QueryClient) {
+  const current = reconciliationStates.get(queryClient)
+  if (current) return current
+  const created: ReconciliationState = {
+    highestPendingTargetRevision: null,
+    snapshotRequestedGeneration: 0,
+    snapshotCompletedGeneration: 0,
+    surfaceRequestedGeneration: 0,
+    surfaceCompletedGeneration: 0,
+    worker: null,
+    retryTimer: null,
+    retryDelayMs: INITIAL_RETRY_DELAY_MS,
+  }
+  reconciliationStates.set(queryClient, created)
+  return created
+}
 
-function startAccountReadStateRequest(queryClient: QueryClient) {
-  const controller = new AbortController()
-  const request = apiFetch<AccountReadStateSnapshot>(
-    "/api/community/users/me/read-state",
-    { signal: controller.signal },
-  ).finally(() => {
-    if (inFlightReconciliations.get(queryClient) === request) {
-      inFlightReconciliations.delete(queryClient)
+function cachedAccountRevision(queryClient: QueryClient) {
+  return queryClient.getQueryData<AccountReadStateSnapshot>(
+    communityKeys.accountReadStateSnapshot(),
+  )?.revision ?? -1
+}
+
+function hasSnapshotWork(state: ReconciliationState, currentRevision: number) {
+  return (
+    state.snapshotCompletedGeneration < state.snapshotRequestedGeneration
+    || (state.highestPendingTargetRevision !== null
+      && currentRevision < state.highestPendingTargetRevision)
+  )
+}
+
+function hasSurfaceWork(state: ReconciliationState) {
+  return state.surfaceCompletedGeneration < state.surfaceRequestedGeneration
+}
+
+function hasReconciliationWork(queryClient: QueryClient, state: ReconciliationState) {
+  return hasSnapshotWork(state, cachedAccountRevision(queryClient)) || hasSurfaceWork(state)
+}
+
+function scheduleReconciliationRetry(queryClient: QueryClient, state: ReconciliationState) {
+  if (state.retryTimer !== null || !hasReconciliationWork(queryClient, state)) return
+  const delay = state.retryDelayMs
+  state.retryDelayMs = Math.min(delay * 2, MAX_RETRY_DELAY_MS)
+  state.retryTimer = setTimeout(() => {
+    state.retryTimer = null
+    void ensureReconciliationWorker(queryClient, state).catch(() => undefined)
+  }, delay)
+}
+
+function ensureReconciliationWorker(queryClient: QueryClient, state: ReconciliationState) {
+  if (state.worker) return state.worker
+  const worker = runReconciliationWorker(queryClient, state).finally(() => {
+    if (state.worker === worker) state.worker = null
+    if (hasReconciliationWork(queryClient, state)) {
+      scheduleReconciliationRetry(queryClient, state)
     }
   })
-  inFlightReconciliations.set(queryClient, request)
-  return request
+  state.worker = worker
+  return worker
+}
+
+async function runReconciliationWorker(
+  queryClient: QueryClient,
+  state: ReconciliationState,
+): Promise<AccountReadStateSnapshot> {
+  while (true) {
+    const currentRevision = cachedAccountRevision(queryClient)
+    if (hasSnapshotWork(state, currentRevision)) {
+      const requestGeneration = state.snapshotRequestedGeneration
+      let snapshot: AccountReadStateSnapshot
+      try {
+        snapshot = await startAccountReadStateRequest()
+      } catch (error) {
+        scheduleReconciliationRetry(queryClient, state)
+        throw error
+      }
+      applyAccountReadStateSnapshot(queryClient, snapshot)
+      state.snapshotCompletedGeneration = Math.max(
+        state.snapshotCompletedGeneration,
+        requestGeneration,
+      )
+      const appliedRevision = cachedAccountRevision(queryClient)
+      if (
+        state.highestPendingTargetRevision !== null
+        && appliedRevision >= state.highestPendingTargetRevision
+      ) {
+        state.highestPendingTargetRevision = null
+      }
+      // If this primary read was older than a live target, or another caller
+      // arrived while it was in flight, loop immediately and issue a genuinely
+      // fresh request. No timer/backoff is needed for a successful stale read.
+      continue
+    }
+
+    if (hasSurfaceWork(state)) {
+      const surfaceGeneration = state.surfaceRequestedGeneration
+      try {
+        await invalidateReadStateSurfaces(queryClient)
+      } catch (error) {
+        scheduleReconciliationRetry(queryClient, state)
+        throw error
+      }
+      state.surfaceCompletedGeneration = Math.max(
+        state.surfaceCompletedGeneration,
+        surfaceGeneration,
+      )
+      continue
+    }
+
+    const snapshot = queryClient.getQueryData<AccountReadStateSnapshot>(
+      communityKeys.accountReadStateSnapshot(),
+    )
+    if (!snapshot) throw new Error("account read-state reconciliation produced no snapshot")
+    state.retryDelayMs = INITIAL_RETRY_DELAY_MS
+    return snapshot
+  }
+}
+
+function startAccountReadStateRequest() {
+  const controller = new AbortController()
+  return apiFetch<AccountReadStateSnapshot>(
+    "/api/community/users/me/read-state",
+    { signal: controller.signal },
+  )
 }
 
 export function projectReadStateEnvelope(
@@ -159,6 +293,10 @@ export function projectReadStateEnvelope(
     communityKeys.accountReadStateSnapshot(),
   )
   if (!snapshot) return "gap" as const
+  const state = reconciliationStates.get(queryClient)
+  if (state && hasSurfaceWork(state) && envelope.revision <= snapshot.revision) {
+    return "gap" as const
+  }
   if (envelope.revision <= snapshot.revision) return "stale" as const
   return "gap" as const
 }

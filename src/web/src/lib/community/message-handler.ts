@@ -22,11 +22,11 @@ const log = createLogger({ service: "community-message-handler" })
 
 async function hardDeleteMessageAndBroadcastReadState(db: Database, messageId: string) {
   const result = await queries.communityMessage.hardDeleteMessage(db, messageId)
-  const snapshot = result?.readStateSnapshot
-  if (snapshot) {
-    await broadcastToUserSafe(snapshot.userId, {
+  const revision = result?.readStateRevision
+  if (revision) {
+    await broadcastToUserSafe(revision.userId, {
       type: WS_EVENTS.READ_STATE_ADVANCED,
-      revision: snapshot.revision,
+      revision: revision.revision,
       inboxChanged: true,
     })
   }
@@ -166,7 +166,7 @@ export type CreateMessageResult = CreateMessageOk | CreateMessageError
 export async function createCommunityMessage(params: {
   db: Database
   authorId: string
-  /** Human writers mint/broadcast a full account read-state revision. */
+  /** Human writers mint/broadcast a bounded account read-state revision hint. */
   authorKind: "human" | "bot"
   target: MessageTarget
   body: IncomingMessageBody
@@ -690,17 +690,9 @@ export async function createCommunityMessage(params: {
 
   // Delivery is planned from committed D1 facts. The handler contributes only
   // structural outcomes that cannot be safely reconstructed later.
-  const readStateSnapshot = (created as typeof created & {
-    readStateSnapshot?: {
-      revision: number
-      readStates: Array<{
-        channelId: string
-        lastReadMessageId: string | null
-        lastReadAt: string
-        lastReadSeq: number
-      }>
-    }
-  }).readStateSnapshot
+  const readStateRevision = (created as typeof created & {
+    readStateRevision?: number
+  }).readStateRevision
   const doBroadcast = async (): Promise<void> => {
     const deliveries: Promise<void>[] = [dispatchCommittedMessage(db, row.id, {
       ...(joinedParticipantUserIds.includes(authorId)
@@ -708,10 +700,10 @@ export async function createCommunityMessage(params: {
         : {}),
       ...(skipChildChannelUpdate ? { suppressParentProjection: true } : {}),
     })]
-    if (readStateSnapshot) {
+    if (readStateRevision !== undefined) {
       deliveries.push(broadcastToUserSafe(authorId, {
         type: WS_EVENTS.READ_STATE_ADVANCED,
-        revision: readStateSnapshot.revision,
+        revision: readStateRevision,
         inboxChanged: true,
       }))
     }

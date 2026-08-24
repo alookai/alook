@@ -17,6 +17,7 @@ describe("account read-state reconciliation", () => {
   let queryClient: QueryClient
 
   beforeEach(() => {
+    vi.useRealTimers()
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     apiFetch.mockReset()
   })
@@ -125,7 +126,15 @@ describe("account read-state reconciliation", () => {
     })
 
     await expect(Promise.all([auth, live])).resolves.toEqual([
-      { revision: 4, readStates: [] },
+      {
+        revision: 5,
+        readStates: [{
+          channelId: "c1",
+          lastReadMessageId: "m5",
+          lastReadAt: "2026-08-24T00:00:05.000Z",
+          lastReadSeq: 5,
+        }],
+      },
       {
         revision: 5,
         readStates: [{
@@ -145,5 +154,149 @@ describe("account read-state reconciliation", () => {
       lastReadAt: null,
       lastReadSeq: 0,
     })
+  })
+
+  it("retains a live target after a transient snapshot failure and lets a later caller take over", async () => {
+    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+      revision: 4,
+      readStates: [],
+    })
+    queryClient.setQueryData(communityKeys.channelReadStateSnapshot("c1"), {
+      lastReadMessageId: null,
+      lastReadAt: null,
+      lastReadSeq: 0,
+    })
+    apiFetch
+      .mockRejectedValueOnce(new Error("temporary primary failure"))
+      .mockResolvedValueOnce({
+        revision: 5,
+        readStates: [{
+          channelId: "c1",
+          lastReadMessageId: "m5",
+          lastReadAt: "2026-08-24T00:00:05.000Z",
+          lastReadSeq: 5,
+        }],
+      })
+
+    await expect(reconcileAccountReadState(queryClient, {
+      invalidateSurfaces: false,
+      targetRevision: 5,
+    })).rejects.toThrow("temporary primary failure")
+
+    await expect(reconcileAccountReadState(queryClient, {
+      invalidateSurfaces: false,
+      targetRevision: 5,
+    })).resolves.toMatchObject({ revision: 5 })
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("c1")))
+      .toMatchObject({ lastReadSeq: 5 })
+  })
+
+  it("automatically retries a retained target after the bounded initial backoff", async () => {
+    vi.useFakeTimers()
+    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+      revision: 4,
+      readStates: [],
+    })
+    apiFetch
+      .mockRejectedValueOnce(new Error("temporary primary failure"))
+      .mockResolvedValueOnce({ revision: 5, readStates: [] })
+
+    await expect(reconcileAccountReadState(queryClient, {
+      invalidateSurfaces: false,
+      targetRevision: 5,
+    })).rejects.toThrow("temporary primary failure")
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(100)
+    await vi.waitFor(() => expect(queryClient.getQueryData(
+      communityKeys.accountReadStateSnapshot(),
+    )).toMatchObject({ revision: 5 }))
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    vi.useRealTimers()
+  })
+
+  it("retries dirty derived surfaces on a same-revision hint without another snapshot request", async () => {
+    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+      revision: 4,
+      readStates: [],
+    })
+    apiFetch.mockResolvedValue({
+      revision: 5,
+      readStates: [],
+    })
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
+    invalidate
+      .mockRejectedValueOnce(new Error("temporary inbox failure"))
+      .mockResolvedValue(undefined)
+
+    await expect(reconcileAccountReadState(queryClient, {
+      targetRevision: 5,
+    })).rejects.toThrow("read-state surface reconciliation failed")
+    expect(queryClient.getQueryData(communityKeys.accountReadStateSnapshot()))
+      .toMatchObject({ revision: 5 })
+    expect(projectReadStateEnvelope(queryClient, {
+      revision: 5,
+      inboxChanged: true,
+    })).toBe("gap")
+
+    await expect(reconcileAccountReadState(queryClient, {
+      targetRevision: 5,
+    })).resolves.toMatchObject({ revision: 5 })
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(invalidate).toHaveBeenCalledTimes(6)
+    expect(projectReadStateEnvelope(queryClient, {
+      revision: 5,
+      inboxChanged: true,
+    })).toBe("stale")
+  })
+
+  it("coalesces repeated live hints into one retry worker without a request storm", async () => {
+    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+      revision: 4,
+      readStates: [],
+    })
+    let release!: (snapshot: AccountReadStateSnapshot) => void
+    apiFetch.mockReturnValue(new Promise<AccountReadStateSnapshot>((resolve) => {
+      release = resolve
+    }))
+
+    const workers = Array.from({ length: 12 }, () => reconcileAccountReadState(queryClient, {
+      invalidateSurfaces: false,
+      targetRevision: 5,
+    }))
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    release({ revision: 5, readStates: [] })
+    await expect(Promise.all(workers)).resolves.toHaveLength(12)
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("runs a second derived pass when a newer hint arrives during invalidation", async () => {
+    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+      revision: 4,
+      readStates: [],
+    })
+    apiFetch
+      .mockResolvedValueOnce({ revision: 5, readStates: [] })
+      .mockResolvedValueOnce({ revision: 6, readStates: [] })
+    let releaseSurface!: () => void
+    const surfaceGate = new Promise<void>((resolve) => {
+      releaseSurface = resolve
+    })
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
+    invalidate.mockReturnValueOnce(surfaceGate).mockResolvedValue(undefined)
+
+    const first = reconcileAccountReadState(queryClient, { targetRevision: 5 })
+    await vi.waitFor(() => expect(invalidate).toHaveBeenCalledTimes(3))
+    const second = reconcileAccountReadState(queryClient, { targetRevision: 6 })
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+
+    releaseSurface()
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { revision: 6, readStates: [] },
+      { revision: 6, readStates: [] },
+    ])
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    expect(invalidate).toHaveBeenCalledTimes(6)
   })
 })

@@ -25,11 +25,11 @@ const log = createLogger({ service: "community-create-channels" })
 
 async function hardDeleteMessageAndBroadcastReadState(db: Database, messageId: string) {
   const result = await queries.communityMessage.hardDeleteMessage(db, messageId)
-  const snapshot = result?.readStateSnapshot
-  if (snapshot) {
-    await broadcastToUserSafe(snapshot.userId, {
+  const revision = result?.readStateRevision
+  if (revision) {
+    await broadcastToUserSafe(revision.userId, {
       type: WS_EVENTS.READ_STATE_ADVANCED,
-      revision: snapshot.revision,
+      revision: revision.revision,
       inboxChanged: true,
     })
   }

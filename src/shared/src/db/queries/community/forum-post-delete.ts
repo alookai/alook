@@ -8,11 +8,8 @@ import {
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import {
-  accountReadStateRowsForUsersBuilder,
   advanceReadStateRevisionsForUsersBuilder,
-  groupAccountReadStateSnapshots,
-  type AccountReadState,
-  type AccountReadStateSnapshotByUser,
+  type AccountReadStateRevisionByUser,
 } from "./read-state";
 
 export type DeleteForumPostInput = {
@@ -27,7 +24,7 @@ export type DeleteForumPostResult = {
   deleted: boolean;
   /** Captured in the same D1 batch before message/channel cascades ran. */
   mediaKeys: string[];
-  readStateSnapshots: AccountReadStateSnapshotByUser[];
+  readStateRevisions: AccountReadStateRevisionByUser[];
 };
 
 /**
@@ -120,8 +117,9 @@ async function deleteForumPostAttempt(
   // window optimistically inside the atomic batch: if a new human row enters
   // either destructive scope, every mutation (including the root delete)
   // becomes a no-op and this function re-enumerates. Rows for already-known
-  // humans may change safely: their account revision and final full snapshot
-  // still cover the result. Bot rows remain outside this account contract.
+  // humans may change safely: their account revision still covers the result,
+  // and clients pull the bounded account snapshot from the primary endpoint.
+  // Bot rows remain outside this account contract.
   const impactedHumansStable = sql<boolean>`NOT EXISTS (
     SELECT 1
     FROM ${communityReadState} AS current_state
@@ -230,7 +228,6 @@ async function deleteForumPostAttempt(
 
   const revisionIndex = 5;
   const deleteIndex = impactedUserIds.length > 0 ? 6 : 5;
-  const snapshotIndex = impactedUserIds.length > 0 ? 7 : -1;
   const results = (await db.batch([
     mediaSnapshot,
     repairReadStates,
@@ -245,17 +242,11 @@ async function deleteForumPostAttempt(
         )]
       : []),
     deleteOpener,
-    ...(impactedUserIds.length > 0
-      ? [accountReadStateRowsForUsersBuilder(db, impactedUserIds)]
-      : []),
   ] as any)) as unknown[];
   const mediaRows = results[0] as Array<{ r2Key: string; thumbnailR2Key: string | null }>;
   const deletedRows = results[deleteIndex] as Array<{ id: string }>;
   const revisions = impactedUserIds.length > 0
     ? results[revisionIndex] as Array<{ userId: string; revision: number }>
-    : [];
-  const readStateRows = impactedUserIds.length > 0
-    ? results[snapshotIndex] as Array<AccountReadState & { userId: string }>
     : [];
 
   const deleted = deletedRows.length > 0;
@@ -279,8 +270,6 @@ async function deleteForumPostAttempt(
     mediaKeys: deleted
       ? mediaRows.flatMap((row) => [row.r2Key, row.thumbnailR2Key].filter((key): key is string => !!key))
       : [],
-    readStateSnapshots: deleted
-      ? groupAccountReadStateSnapshots(revisions, readStateRows)
-      : [],
+    readStateRevisions: deleted ? revisions : [],
   };
 }
