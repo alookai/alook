@@ -17,6 +17,27 @@ export interface RootTerminal {
   at: number;
 }
 
+export type NativeActivityKind =
+  | "turn_started"
+  | "backend_turn_started"
+  | "thinking"
+  | "text"
+  | "tool_call"
+  | "tool_output"
+  | "internal_progress"
+  | "recovery"
+  | "turn_end";
+
+export type RuntimePhase = "idle" | "admission" | "inference" | "tool" | "recovery" | "terminal";
+
+export interface TurnSilencePolicy {
+  nativeIdleTimeoutMs: number;
+  daemonGraceMs: number;
+  recoveryGraceMs: number;
+  maxRecoveryExtensions: number;
+  normalBudgetMs: number;
+}
+
 export interface PendingAdmission {
   sessionInstanceId: string;
   commandId: string;
@@ -30,11 +51,20 @@ export interface PendingAdmission {
 export type RootLease =
   | { state: "detached" }
   | { state: "none"; lastTerminal: RootTerminal | null }
-  | { state: "active"; identity: TurnIdentity; lastWorkAt: number; outstandingToolUses?: number }
+  | {
+      state: "active";
+      identity: TurnIdentity;
+      lastWorkAt: number;
+      nativeDeadlineAt: number;
+      recoveryExtensionsUsed: number;
+      outstandingToolUses?: number;
+    }
   | {
       state: "suspect_active";
       identity: TurnIdentity;
       lastWorkAt: number;
+      nativeDeadlineAt: number;
+      recoveryExtensionsUsed: number;
       outstandingToolUses?: number;
       reason: "work_after_terminal";
     };
@@ -48,11 +78,18 @@ export interface AgentState {
   status: AgentStatus;
   inbox: AgentMsg[];
   sessionId: string | null;
+  /** Backend session that has already consumed its one same-session stall recovery. */
+  stalledSessionId: string | null;
   execution: ExecutionEpoch;
   pendingAdmissions: PendingAdmission[];
   turnId: string | null;
   turnActive: boolean;
   lastProgressAt: number;
+  lastNativeActivityAt: number;
+  lastNativeActivityKind: NativeActivityKind | null;
+  runtimePhase: RuntimePhase;
+  backendTurnId: string | null;
+  turnSilence: TurnSilencePolicy;
   lastDeliverAt: number | null;
   idleSince: number | null;
   stoppingSince: number | null;
@@ -77,8 +114,14 @@ export type ManagerEvent =
   | { type: "register"; agentId: string }
   | { type: "wake"; agentId: string; message: AgentMsg; nowMs: number }
   | { type: "spawned"; agentId: string; nowMs: number }
-  | { type: "backend_session"; agentId: string; sessionId: string }
-  | { type: "attach_session"; agentId: string; sessionInstanceId: string; nowMs: number }
+  | { type: "backend_session"; agentId: string; sessionId: string; stalledBefore?: boolean }
+  | {
+      type: "attach_session";
+      agentId: string;
+      sessionInstanceId: string;
+      nowMs: number;
+      turnSilence?: TurnSilencePolicy;
+    }
   | {
       type: "admission_started";
       agentId: string;
@@ -137,7 +180,23 @@ export type ManagerEvent =
   | { type: "reset_session"; agentId: string }
   | { type: "begin_reset"; agentId: string; nowMs: number }
   | { type: "rewake_after_reset"; agentId: string; message: AgentMsg }
-  | { type: "runtime_signal"; agentId: string; kind: string; nowMs: number }
+  | {
+      type: "runtime_signal";
+      agentId: string;
+      sessionInstanceId: string;
+      turnId: string;
+      kind: NativeActivityKind;
+      phase: RuntimePhase;
+      nowMs: number;
+      backendTurnId?: string;
+      recoveryStage?: "retrying" | "recovered";
+    }
+  | {
+      type: "stall_control_failed";
+      agentId: string;
+      sessionId: string;
+      transition: "attempt" | "fence" | "clear";
+    }
   | {
       type: "delivery_rejected";
       agentId: string;
@@ -149,12 +208,20 @@ export type ManagerEffect =
   | { type: "spawn"; agentId: string; messages: AgentMsg[]; resumeSessionId: string | null }
   | { type: "send"; agentId: string; message: AgentMsg; mode: "busy" | "idle" }
   | { type: "stop"; agentId: string; reason: string }
-  | { type: "terminate_stalled"; agentId: string }
+  | { type: "terminate_stalled"; agentId: string; recordSessionId?: string; forgetSessionId?: string }
+  | { type: "clear_stall_recovery"; agentId: string; sessionId: string }
   | { type: "expire_admission"; agentId: string; sessionInstanceId: string; commandIds: string[] }
   | { type: "requeue_delivery"; agentId: string; message: AgentMsg; mode: "busy" | "idle" }
   | { type: "force_exit"; agentId: string; reason: string };
 
 export const DEFAULT_STALE_THRESHOLD_MS = 120_000;
+export const DEFAULT_TURN_SILENCE_POLICY: TurnSilencePolicy = {
+  nativeIdleTimeoutMs: 300_000,
+  daemonGraceMs: 60_000,
+  recoveryGraceMs: 60_000,
+  maxRecoveryExtensions: 1,
+  normalBudgetMs: 360_000,
+};
 export const DEFAULT_IDLE_TIMEOUT_MS = 300_000;
 export const DEFAULT_RESET_STUCK_THRESHOLD_MS = 120_000;
 export const DEFAULT_STOPPING_STUCK_THRESHOLD_MS = 30_000;
@@ -189,6 +256,11 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
 
     case "backend_session":
       return mutate(state, event.agentId, (a) => {
+        if (event.stalledBefore) {
+          a.stalledSessionId = event.sessionId;
+        } else if (a.stalledSessionId !== null && a.stalledSessionId !== event.sessionId) {
+          a.stalledSessionId = null;
+        }
         a.sessionId = event.sessionId;
       });
 
@@ -201,7 +273,17 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
       {
         const a = agent;
         a.execution = { sessionInstanceId: event.sessionInstanceId, lease: { state: "none", lastTerminal: null } };
+        a.turnSilence = event.turnSilence ?? {
+          ...DEFAULT_TURN_SILENCE_POLICY,
+          nativeIdleTimeoutMs: state.staleThresholdMs,
+          daemonGraceMs: 0,
+          normalBudgetMs: state.staleThresholdMs,
+        };
         a.lastProgressAt = event.nowMs;
+        a.lastNativeActivityAt = event.nowMs;
+        a.lastNativeActivityKind = null;
+        a.runtimePhase = "admission";
+        a.backendTurnId = null;
         a.idleSince = null;
         syncExecutionProjection(a);
       }
@@ -264,6 +346,7 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
       if (!state.agents[event.agentId]) return { state, effects: [] };
       return mutate(state, event.agentId, (a) => {
         a.sessionId = null;
+        a.stalledSessionId = null;
       });
 
     case "begin_reset":
@@ -302,8 +385,18 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
         if ((lease.state === "active" || lease.state === "suspect_active") && !sameIdentity(lease.identity, identity)) return;
         const startedCommands = new Set(event.commandIds);
         a.pendingAdmissions = a.pendingAdmissions.filter((entry) => !startedCommands.has(entry.commandId));
-        a.execution.lease = { state: "active", identity, lastWorkAt: event.nowMs };
+        a.execution.lease = {
+          state: "active",
+          identity,
+          lastWorkAt: event.nowMs,
+          nativeDeadlineAt: event.nowMs + a.turnSilence.normalBudgetMs,
+          recoveryExtensionsUsed: 0,
+        };
         a.lastProgressAt = event.nowMs;
+        a.lastNativeActivityAt = event.nowMs;
+        a.lastNativeActivityKind = "turn_started";
+        a.runtimePhase = "inference";
+        a.backendTurnId = null;
         a.idleSince = null;
         syncExecutionProjection(a);
       });
@@ -325,7 +418,12 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
         const lease = a.execution.lease;
         const identity = identityOf(event);
         if ((lease.state === "active" || lease.state === "suspect_active") && sameIdentity(lease.identity, identity)) {
-          a.execution.lease = { ...lease, lastWorkAt: event.nowMs };
+          a.execution.lease = {
+            ...lease,
+            lastWorkAt: event.nowMs,
+            nativeDeadlineAt: event.nowMs + a.turnSilence.normalBudgetMs,
+            recoveryExtensionsUsed: 0,
+          };
         } else {
           const terminal = lease.state === "none" ? lease.lastTerminal : null;
           if (!terminal || !sameIdentity(terminal.identity, identity)) return;
@@ -333,6 +431,8 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
             state: "suspect_active",
             identity,
             lastWorkAt: event.nowMs,
+            nativeDeadlineAt: event.nowMs + a.turnSilence.normalBudgetMs,
+            recoveryExtensionsUsed: 0,
             reason: "work_after_terminal",
           };
         }
@@ -349,7 +449,14 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
       return onTurnToolLifecycle(state, event, "finished");
 
     case "turn_completed":
-      return onTurnCompleted(state, event.agentId, event.sessionInstanceId, event.nowMs, event.turnId);
+      return onTurnCompleted(
+        state,
+        event.agentId,
+        event.sessionInstanceId,
+        event.nowMs,
+        event.turnId,
+        event.endReason,
+      );
 
     case "session_closed":
       if (state.agents[event.agentId]?.execution.sessionInstanceId !== event.sessionInstanceId) {
@@ -371,8 +478,55 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
     case "tick":
       return onTick(state, event.nowMs);
 
-    case "runtime_signal":
-      return { state, effects: [] };
+    case "runtime_signal": {
+      const existing = state.agents[event.agentId];
+      if (!existing || existing.execution.sessionInstanceId !== event.sessionInstanceId) return { state, effects: [] };
+      const lease = existing.execution.lease;
+      const identity = { sessionInstanceId: event.sessionInstanceId, turnId: event.turnId };
+      if ((lease.state !== "active" && lease.state !== "suspect_active") || !sameIdentity(lease.identity, identity)) {
+        return { state, effects: [] };
+      }
+      return mutate(state, event.agentId, (a) => {
+        const active = a.execution.lease;
+        if ((active.state !== "active" && active.state !== "suspect_active") || !sameIdentity(active.identity, identity)) return;
+        if (event.kind === "recovery" && event.recoveryStage !== "recovered") {
+          if (active.recoveryExtensionsUsed < a.turnSilence.maxRecoveryExtensions) {
+            a.execution.lease = {
+              ...active,
+              nativeDeadlineAt: Math.max(
+                active.nativeDeadlineAt,
+                event.nowMs + a.turnSilence.recoveryGraceMs,
+              ),
+              recoveryExtensionsUsed: active.recoveryExtensionsUsed + 1,
+            };
+          }
+        } else {
+          a.execution.lease = {
+            ...active,
+            nativeDeadlineAt: event.nowMs + a.turnSilence.normalBudgetMs,
+          };
+        }
+        a.lastNativeActivityAt = event.nowMs;
+        a.lastNativeActivityKind = event.kind;
+        a.runtimePhase = event.phase;
+        if (event.backendTurnId) a.backendTurnId = event.backendTurnId;
+      });
+    }
+
+    case "stall_control_failed":
+      return mutate(state, event.agentId, (a) => {
+        if (event.transition === "clear") {
+          if (a.sessionId === event.sessionId) a.stalledSessionId = event.sessionId;
+          return;
+        }
+        if (a.status !== "stopping") return;
+        const lease = a.execution.lease;
+        if (lease.state !== "active" && lease.state !== "suspect_active") return;
+        a.status = "running";
+        a.stoppingSince = null;
+        a.sessionId = event.sessionId;
+        a.stalledSessionId = event.transition === "fence" ? event.sessionId : null;
+      });
 
     case "delivery_rejected":
       return mutate(state, event.agentId, (a) => {
@@ -424,6 +578,7 @@ function onTurnCompleted(
   sessionInstanceId: string,
   nowMs: number,
   turnId: string,
+  endReason: "errored" | undefined,
 ): ReduceResult {
   const existing = state.agents[agentId];
   if (!existing) return { state, effects: [] };
@@ -436,14 +591,25 @@ function onTurnCompleted(
   const lastTerminal = { identity, at: nowMs };
   agent.execution.lease = { state: "none", lastTerminal };
   agent.lastProgressAt = nowMs;
+  agent.lastNativeActivityAt = nowMs;
+  agent.lastNativeActivityKind = "turn_end";
+  agent.runtimePhase = "terminal";
+  const clearedStallSessionId = endReason === undefined ? agent.stalledSessionId : null;
+  if (clearedStallSessionId !== null) agent.stalledSessionId = null;
   syncExecutionProjection(agent);
+  const clearEffects: ManagerEffect[] = clearedStallSessionId === null
+    ? []
+    : [{ type: "clear_stall_recovery", agentId, sessionId: clearedStallSessionId }];
   if (agent.inbox.length > 0) {
     const messages = drainInbox(agent);
-    return commit(state, agent, messages.map((queued) => ({ type: "send", agentId, message: queued, mode: "idle" })));
+    return commit(state, agent, [
+      ...clearEffects,
+      ...messages.map((queued) => ({ type: "send" as const, agentId, message: queued, mode: "idle" as const })),
+    ]);
   }
 
   agent.idleSince = nowMs;
-  return commit(state, agent, []);
+  return commit(state, agent, clearEffects);
 }
 
 function onTurnToolLifecycle(
@@ -475,11 +641,22 @@ function onTurnToolLifecycle(
     if ((lease.state === "active" || lease.state === "suspect_active") && sameIdentity(lease.identity, identity)) {
       const outstandingToolUses = (lease.outstandingToolUses ?? 0) + (lifecycle === "started" ? 1 : -1);
       if (outstandingToolUses > 0) {
-        agent.execution.lease = { ...lease, lastWorkAt: event.nowMs, outstandingToolUses };
+        agent.execution.lease = {
+          ...lease,
+          lastWorkAt: event.nowMs,
+          nativeDeadlineAt: event.nowMs + agent.turnSilence.normalBudgetMs,
+          recoveryExtensionsUsed: 0,
+          outstandingToolUses,
+        };
       } else {
         const unblockedLease = { ...lease };
         delete unblockedLease.outstandingToolUses;
-        agent.execution.lease = { ...unblockedLease, lastWorkAt: event.nowMs };
+        agent.execution.lease = {
+          ...unblockedLease,
+          lastWorkAt: event.nowMs,
+          nativeDeadlineAt: event.nowMs + agent.turnSilence.normalBudgetMs,
+          recoveryExtensionsUsed: 0,
+        };
       }
     } else {
       const terminal = lease.state === "none" ? lease.lastTerminal : null;
@@ -488,11 +665,16 @@ function onTurnToolLifecycle(
         state: "suspect_active",
         identity,
         lastWorkAt: event.nowMs,
+        nativeDeadlineAt: event.nowMs + agent.turnSilence.normalBudgetMs,
+        recoveryExtensionsUsed: 0,
         outstandingToolUses: 1,
         reason: "work_after_terminal",
       };
     }
     agent.lastProgressAt = event.nowMs;
+    agent.lastNativeActivityAt = event.nowMs;
+    agent.lastNativeActivityKind = lifecycle === "started" ? "tool_call" : "tool_output";
+    agent.runtimePhase = lifecycle === "started" ? "tool" : "inference";
     agent.idleSince = null;
     syncExecutionProjection(agent);
   });
@@ -505,6 +687,8 @@ function onExit(state: ManagerState, agentId: string): ReduceResult {
   const effects = recoveryEffects(agent, agent.pendingAdmissions);
   agent.pendingAdmissions = [];
   agent.execution = { sessionInstanceId: null, lease: { state: "detached" } };
+  agent.runtimePhase = "idle";
+  agent.backendTurnId = null;
   agent.stoppingSince = null;
   syncExecutionProjection(agent);
 
@@ -530,10 +714,24 @@ function onTick(state: ManagerState, nowMs: number): ReduceResult {
     const stalled = a.status === "running"
       && (lease.state === "active" || lease.state === "suspect_active")
       && (lease.outstandingToolUses ?? 0) === 0
-      && nowMs - lease.lastWorkAt >= state.staleThresholdMs;
+      && nowMs - lease.lastWorkAt >= a.turnSilence.normalBudgetMs
+      && nowMs >= lease.nativeDeadlineAt;
     if (stalled) {
-      agents[id] = { ...a, status: "stopping", idleSince: null, stoppingSince: nowMs };
-      effects.push({ type: "terminate_stalled", agentId: id });
+      const repeatedSessionStall = a.sessionId !== null && a.stalledSessionId === a.sessionId;
+      const forgetSessionId = repeatedSessionStall ? a.sessionId! : undefined;
+      agents[id] = {
+        ...a,
+        status: "stopping",
+        sessionId: repeatedSessionStall ? null : a.sessionId,
+        stalledSessionId: repeatedSessionStall ? null : a.sessionId,
+        idleSince: null,
+        stoppingSince: nowMs,
+      };
+      effects.push(forgetSessionId
+        ? { type: "terminate_stalled", agentId: id, forgetSessionId }
+        : a.sessionId !== null
+          ? { type: "terminate_stalled", agentId: id, recordSessionId: a.sessionId }
+          : { type: "terminate_stalled", agentId: id });
       continue;
     }
 
@@ -600,11 +798,17 @@ function freshAgent(agentId: string): AgentState {
     status: "idle",
     inbox: [],
     sessionId: null,
+    stalledSessionId: null,
     execution: { sessionInstanceId: null, lease: { state: "detached" } },
     pendingAdmissions: [],
     turnId: null,
     turnActive: false,
     lastProgressAt: 0,
+    lastNativeActivityAt: 0,
+    lastNativeActivityKind: null,
+    runtimePhase: "idle",
+    backendTurnId: null,
+    turnSilence: DEFAULT_TURN_SILENCE_POLICY,
     lastDeliverAt: null,
     idleSince: null,
     stoppingSince: null,

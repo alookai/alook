@@ -291,6 +291,7 @@ export type CoreAgentEventPayload =
       readonly error: AgentDriverError;
     }
   | { readonly type: "turn_started"; readonly turnId: string; readonly commandIds: readonly string[] }
+  | { readonly type: "backend_turn_started"; readonly turnId: string; readonly backendTurnId: string }
   | { readonly type: "thinking_delta"; readonly turnId: string; readonly text: string }
   | { readonly type: "text_delta"; readonly turnId: string; readonly text: string }
   | {
@@ -324,6 +325,12 @@ export type CoreAgentEventPayload =
       readonly severity: "debug" | "info" | "warning" | "error";
       readonly source?: string;
       readonly message: string;
+    }
+  | {
+      readonly type: "recovery";
+      readonly turnId?: string;
+      readonly stage: "retrying" | "recovered";
+      readonly source?: string;
     }
   | {
       readonly type: "token_usage";
@@ -383,6 +390,13 @@ export interface AgentSessionSnapshot {
       | "reviewing"
       | "tool_wait"
       | "working";
+    readonly turnSilence: {
+      readonly nativeIdleTimeoutMs: number;
+      readonly daemonGraceMs: number;
+      readonly recoveryGraceMs: number;
+      readonly maxRecoveryExtensions: number;
+      readonly normalBudgetMs: number;
+    };
     readonly metrics: {
       readonly physicalOpenCount: number;
       readonly turnCount: number;

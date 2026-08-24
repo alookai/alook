@@ -27,6 +27,12 @@ import type {
   LaneAdmission,
   RuntimeLane,
 } from "../internal/adapter.js";
+import {
+  DEFAULT_DAEMON_GRACE_MS,
+  DEFAULT_MAX_RECOVERY_EXTENSIONS,
+  DEFAULT_NATIVE_IDLE_TIMEOUT_MS,
+  DEFAULT_RECOVERY_GRACE_MS,
+} from "../internal/adapter.js";
 import { BufferedEventQueue } from "./event-queue.js";
 import { writeAgentFile } from "../internal/agentFile.js";
 import { scrubDriverErrorMessage } from "../internal/errors.js";
@@ -162,6 +168,7 @@ implements AgentSession<Specs, Id> {
 
   private readonly eventQueue: BufferedEventQueue<AgentEvent<Specs, Id>>;
   private readonly behavior;
+  private readonly turnSilence: AgentSessionSnapshot["diagnostics"]["turnSilence"];
 
   constructor(
     readonly backend: Id,
@@ -180,6 +187,18 @@ implements AgentSession<Specs, Id> {
   ) {
     this.capabilities = capabilities;
     this.behavior = this.capabilities as import("../contract.js").BackendCapabilities;
+    const declaredSilence = adapter.execution.turnSilence;
+    const nativeIdleTimeoutMs = declaredSilence?.nativeIdleTimeoutMs ?? DEFAULT_NATIVE_IDLE_TIMEOUT_MS;
+    const daemonGraceMs = declaredSilence?.daemonGraceMs ?? DEFAULT_DAEMON_GRACE_MS;
+    const recoveryGraceMs = declaredSilence?.recoveryGraceMs ?? DEFAULT_RECOVERY_GRACE_MS;
+    const maxRecoveryExtensions = declaredSilence?.maxRecoveryExtensions ?? DEFAULT_MAX_RECOVERY_EXTENSIONS;
+    this.turnSilence = {
+      nativeIdleTimeoutMs,
+      daemonGraceMs,
+      recoveryGraceMs,
+      maxRecoveryExtensions,
+      normalBudgetMs: nativeIdleTimeoutMs + daemonGraceMs,
+    };
     this.resumeOutcome = launch.resumeSessionId ? "pending" : "not_requested";
     this.sessionInstanceId = host.createId();
     this.closed = new Promise((resolve) => { this.resolveClosed = resolve; });
@@ -296,6 +315,7 @@ implements AgentSession<Specs, Id> {
       lastEventSequence: this.eventSequence,
       diagnostics: {
         deliveryPhase: this.deliveryPhase(),
+        turnSilence: this.turnSilence,
         metrics: {
           physicalOpenCount: this.metricValue(this.physicalOpenCount),
           turnCount: this.metricValue(this.turnCount),
@@ -617,6 +637,14 @@ implements AgentSession<Specs, Id> {
           return;
         }
         this.activeTurn.terminalOwner = event.receipt;
+        const nativeTurnId = event.nativeTurnId?.trim();
+        if (nativeTurnId && nativeTurnId.length <= 512 && /^[A-Za-z0-9._:-]+$/.test(nativeTurnId)) {
+          this.emit({
+            type: "backend_turn_started",
+            turnId: this.activeTurn.turnId,
+            backendTurnId: nativeTurnId,
+          });
+        }
         return;
       case "thinking":
         if (turnId) this.emit({ type: "thinking_delta", turnId, text: event.text });
@@ -658,8 +686,19 @@ implements AgentSession<Specs, Id> {
           message: scrubDriverErrorMessage(event.message, "Runtime diagnostic"),
         });
         return;
+      case "runtime_recovery":
+        this.emit({
+          type: "recovery",
+          turnId,
+          stage: event.stage,
+          source: event.source,
+        });
+        return;
       case "runtime_metric":
-        if (event.name === "sse_reconnect" && event.increment === 1) this.sseReconnectCount += 1;
+        if (event.name === "sse_reconnect" && event.increment === 1) {
+          this.sseReconnectCount += 1;
+          this.emit({ type: "recovery", turnId, stage: "retrying", source: "transport_reconnect" });
+        }
         return;
       case "telemetry": {
         const details = jsonValue(event.attrs) as JsonObject;

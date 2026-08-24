@@ -50,6 +50,15 @@ function fakeDeps() {
 }
 
 describe("PiDriver.openLane — AGENTS.md packing", () => {
+  it("maps SDK retry lifecycle into bounded recovery activity", () => {
+    expect(mapPiSdkEvent({ type: "auto_retry_start" }, "sess_1", { sawTextDelta: false }))
+      .toEqual([{ kind: "runtime_recovery", stage: "retrying", source: "pi_auto_retry" }]);
+    expect(mapPiSdkEvent({ type: "auto_retry_end" }, "sess_1", { sawTextDelta: false }))
+      .toEqual([{ kind: "runtime_recovery", stage: "recovered", source: "pi_auto_retry" }]);
+    expect(PI_IGNORED_EVENT_TYPES).not.toContain("auto_retry_start");
+    expect(PI_IGNORED_EVENT_TYPES).not.toContain("auto_retry_end");
+  });
+
   it("exposes SDK-only parser and encoder no-ops", () => {
     const driver = new PiDriver(() => fakeDeps());
     expect(driver.normalizeLine()).toEqual([]);

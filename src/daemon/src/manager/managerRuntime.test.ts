@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "events";
 import type { ChildProcess } from "child_process";
 import { PassThrough } from "stream";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
   AgentProcessManager,
   truncateThinking,
@@ -24,6 +27,7 @@ import type { AgentBackend as Driver } from "../drivers/index.js";
 import type { HostLaunchContext as LaunchContext } from "./hostContext.js";
 import type { RuntimeConfig } from "../runtimeConfig.js";
 import type { Logger } from "../logger.js";
+import { createTimelineRecorder } from "../timeline/recorder.js";
 
 /** Stub logger — records calls per level for assertions. */
 function stubLogger(): Logger & { calls: Record<"debug" | "info" | "warn" | "error", Array<[string, unknown[]]>> } {
@@ -298,6 +302,681 @@ function makeManager(opts: { logger?: Logger; tickIntervalMs?: number; idleTimeo
   mgr.register("a1");
   return { mgr, session, onRuntimeSpawnFailed, onRuntimeSessionEstablished };
 }
+
+describe("AgentProcessManager — repeated backend-session stall recovery", () => {
+  it("rejects a backend session before publishing it when setSession cannot persist control", async () => {
+    const session = fakeSession("set-session-control-failure");
+    session.stop = vi.fn(session.stop.bind(session));
+    const onAgentSession = vi.fn();
+    const onRuntimeSessionEstablished = vi.fn();
+    const onRuntimeSpawnFailed = vi.fn();
+    const manager = new AgentProcessManager({
+      driverFor: () => fakeDriver("codex"),
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "a1",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      sessionFactory: (hooks) => bindFactorySession(hooks, session),
+      timeline: {
+        setSession: () => false,
+        appendResponseToLatest: vi.fn(),
+        resumeSessionId: () => null,
+        recordSessionStall: () => true,
+        clearSessionStall: () => true,
+        forgetSession: () => true,
+      },
+      onAgentSession,
+      onRuntimeSessionEstablished,
+      onRuntimeSpawnFailed,
+    });
+    manager.register("a1");
+    manager.deliver("a1", { id: "set-failure", text: "hello" });
+    session.startResolver?.();
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "sess-uncommitted" });
+
+    expect(session.stop).toHaveBeenCalledWith({ reason: "shutdown", forceAfterMs: 2_000 });
+    expect(onAgentSession).not.toHaveBeenCalled();
+    expect(onRuntimeSessionEstablished).not.toHaveBeenCalled();
+    expect(onRuntimeSpawnFailed).toHaveBeenCalledWith("codex", "resume_control_update_failed");
+    expect(manager.snapshot().agents.a1.sessionId).toBeNull();
+  });
+
+  it("defers a first stall termination when the durable attempt transition fails", async () => {
+    vi.useFakeTimers();
+    try {
+      let now = 0;
+      const session = fakeSession("attempt-control-failure");
+      session.stop = vi.fn(session.stop.bind(session));
+      const onBotAuditEvent = vi.fn();
+      let controlWritable = false;
+      const recordSessionStall = vi.fn(() => controlWritable);
+      const manager = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"),
+        baseContextFor: () => ({
+          workingDirectory: "/tmp",
+          agentId: "a1",
+          standingPrompt: "",
+          config: {} as LaunchContext["config"],
+          credentialProxy: {} as LaunchContext["credentialProxy"],
+        }),
+        sessionFactory: (hooks) => bindFactorySession(hooks, session),
+        timeline: {
+          setSession: () => true,
+          appendResponseToLatest: vi.fn(),
+          resumeSessionId: () => null,
+          recordSessionStall,
+          clearSessionStall: () => true,
+          forgetSession: () => true,
+        },
+        onBotAuditEvent,
+        now: () => now,
+        tickIntervalMs: 5,
+        staleThresholdMs: 100,
+      });
+      manager.start();
+      manager.register("a1");
+      manager.deliver("a1", { id: "attempt-failure", text: "hello" });
+      session.startResolver?.();
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "sess-poison" });
+
+      now = 100;
+      await vi.advanceTimersByTimeAsync(5);
+      expect(session.stop).not.toHaveBeenCalled();
+      expect(manager.snapshot().agents.a1).toMatchObject({
+        status: "running",
+        sessionId: "sess-poison",
+        stalledSessionId: null,
+        stoppingSince: null,
+      });
+      expect(onBotAuditEvent).toHaveBeenCalledWith(
+        "a1",
+        expect.objectContaining({
+          kind: "error",
+          payload: expect.objectContaining({ code: "resume_control_update_failed" }),
+        }),
+        expect.anything(),
+      );
+
+      controlWritable = true;
+      now = 105;
+      await vi.advanceTimersByTimeAsync(5);
+      expect(recordSessionStall).toHaveBeenCalledTimes(2);
+      expect(session.stop).toHaveBeenCalledWith({ reason: "stalled", forceAfterMs: 2_000 });
+      expect(manager.snapshot().agents.a1).toMatchObject({
+        status: "stopping",
+        stalledSessionId: "sess-poison",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("defers a repeated stall termination and restores the exact session when fencing fails", async () => {
+    vi.useFakeTimers();
+    try {
+      let now = 0;
+      const session = fakeSession("fence-control-failure");
+      session.stop = vi.fn(session.stop.bind(session));
+      let controlWritable = false;
+      const forgetSession = vi.fn(() => controlWritable);
+      const manager = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"),
+        baseContextFor: () => ({
+          workingDirectory: "/tmp",
+          agentId: "a1",
+          standingPrompt: "",
+          config: {} as LaunchContext["config"],
+          credentialProxy: {} as LaunchContext["credentialProxy"],
+        }),
+        sessionFactory: (hooks) => bindFactorySession(hooks, session),
+        timeline: {
+          setSession: () => true,
+          appendResponseToLatest: vi.fn(),
+          resumeSessionId: () => "sess-poison",
+          resolveResumeSession: () => ({
+            kind: "session",
+            sessionId: "sess-poison",
+            stalledSessionId: "sess-poison",
+            fencedSessionId: null,
+          }),
+          recordSessionStall: () => true,
+          clearSessionStall: () => true,
+          forgetSession,
+        },
+        now: () => now,
+        tickIntervalMs: 5,
+        staleThresholdMs: 100,
+      });
+      manager.start();
+      manager.register("a1");
+      manager.deliver("a1", { id: "fence-failure", text: "hello" });
+      session.startResolver?.();
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "sess-poison" });
+
+      now = 100;
+      await vi.advanceTimersByTimeAsync(5);
+      expect(session.stop).not.toHaveBeenCalled();
+      expect(manager.snapshot().agents.a1).toMatchObject({
+        status: "running",
+        sessionId: "sess-poison",
+        stalledSessionId: "sess-poison",
+        stoppingSince: null,
+      });
+
+      controlWritable = true;
+      now = 105;
+      await vi.advanceTimersByTimeAsync(5);
+      expect(forgetSession).toHaveBeenCalledTimes(2);
+      expect(session.stop).toHaveBeenCalledWith({ reason: "stalled", forceAfterMs: 2_000 });
+      expect(manager.snapshot().agents.a1).toMatchObject({
+        status: "stopping",
+        sessionId: null,
+        stalledSessionId: null,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the allowance consumed when its durable clear transition fails", async () => {
+    const session = fakeSession("clear-control-failure");
+    const clearSessionStall = vi.fn(() => false);
+    const manager = new AgentProcessManager({
+      driverFor: () => fakeDriver("codex"),
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "a1",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      sessionFactory: (hooks) => bindFactorySession(hooks, session),
+      timeline: {
+        setSession: () => true,
+        appendResponseToLatest: vi.fn(),
+        resumeSessionId: () => "sess-poison",
+        resolveResumeSession: () => ({
+          kind: "session",
+          sessionId: "sess-poison",
+          stalledSessionId: "sess-poison",
+          fencedSessionId: null,
+        }),
+        recordSessionStall: () => true,
+        clearSessionStall,
+        forgetSession: () => true,
+      },
+    });
+    manager.register("a1");
+    manager.deliver("a1", { id: "clear-failure", text: "hello" });
+    session.startResolver?.();
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "sess-poison" });
+    await session.fire("runtime_event", { kind: "turn_end", sessionId: "sess-poison" });
+
+    expect(clearSessionStall).toHaveBeenCalledWith("a1", "sess-poison");
+    expect(manager.snapshot().agents.a1.stalledSessionId).toBe("sess-poison");
+  });
+
+  for (const barrierType of ["reset_session", "nap"] as const) {
+    it(`aborts ${barrierType} before spawn/stop when its control transition fails`, async () => {
+      const sessionFactory = vi.fn(() => fakeSession());
+      const manager = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"),
+        baseContextFor: () => ({
+          workingDirectory: "/tmp",
+          agentId: "a1",
+          standingPrompt: "",
+          config: {} as LaunchContext["config"],
+          credentialProxy: {} as LaunchContext["credentialProxy"],
+        }),
+        sessionFactory,
+        timeline: {
+          setSession: () => true,
+          appendResponseToLatest: vi.fn(),
+          resumeSessionId: () => null,
+          recordSessionStall: () => true,
+          clearSessionStall: () => true,
+          forgetSession: () => false,
+        },
+      });
+      await expect(manager.resetSession("a1", {
+        runtimeConfig: {
+          version: 1,
+          runtime: "codex",
+          model: { kind: "default" },
+          mode: { kind: "default" },
+        },
+        launchId: "control-failure",
+        rewakePrompt: "rewake",
+        barrierType,
+      })).rejects.toThrow("resume control could not be persisted");
+      expect(sessionFactory).not.toHaveBeenCalled();
+      expect(manager.snapshot().agents.a1).toBeUndefined();
+    });
+  }
+
+  it("allows a genuinely different server session after an exact-session fence", async () => {
+    const timelineDir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "stall-new-session-"));
+    try {
+      const writer = createTimelineRecorder({
+        timelineDirFor: () => timelineDir,
+        providerFor: () => "codex",
+      });
+      writer.forgetSession("a1", "stall_recovery", "sess-poison");
+      const reader = createTimelineRecorder({
+        timelineDirFor: () => timelineDir,
+        providerFor: () => "codex",
+      });
+      let launch: LaunchContext | undefined;
+      const session = fakeSession("different-session");
+      const manager = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"),
+        baseContextFor: () => ({
+          workingDirectory: "/tmp",
+          agentId: "a1",
+          standingPrompt: "",
+          config: { sessionId: "sess-poison" } as LaunchContext["config"],
+          credentialProxy: {} as LaunchContext["credentialProxy"],
+        }),
+        sessionFactory: (hooks) => {
+          launch = hooks.ctx;
+          return bindFactorySession(hooks, session);
+        },
+        timeline: reader,
+      });
+      manager.register("a1", { sessionId: "sess-fresh" });
+      manager.deliver("a1", { id: "fresh-candidate", seq: 1, text: "fresh" });
+      expect(launch?.config.sessionId).toBe("sess-fresh");
+      await manager.stopAll();
+    } finally {
+      fs.rmSync(timelineDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a stale fenced server candidate after a newer healthy timeline session", async () => {
+    const timelineDir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "stall-stale-after-fresh-"));
+    try {
+      const writer = createTimelineRecorder({
+        timelineDirFor: () => timelineDir,
+        providerFor: () => "codex",
+      });
+      writer.forgetSession("a1", "stall_recovery", "sess-poison");
+      writer.setSession("a1", "sess-healthy");
+      writer.appendEntryForAgent("a1", [{
+        seq: "#1",
+        channel: "/test/general",
+        sender: "@tester#0001",
+        content: { text: "healthy" },
+        time: new Date().toISOString(),
+      }]);
+      const reader = createTimelineRecorder({
+        timelineDirFor: () => timelineDir,
+        providerFor: () => "codex",
+      });
+      expect(reader.resolveResumeSession("a1", "codex")).toEqual({
+        kind: "session",
+        sessionId: "sess-healthy",
+        stalledSessionId: null,
+        fencedSessionId: "sess-poison",
+      });
+
+      let launch: LaunchContext | undefined;
+      const session = fakeSession("fresh-after-stale");
+      const manager = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"),
+        baseContextFor: () => ({
+          workingDirectory: "/tmp",
+          agentId: "a1",
+          standingPrompt: "",
+          config: { sessionId: "sess-poison" } as LaunchContext["config"],
+          credentialProxy: {} as LaunchContext["credentialProxy"],
+        }),
+        sessionFactory: (hooks) => {
+          launch = hooks.ctx;
+          return bindFactorySession(hooks, session);
+        },
+        timeline: reader,
+      });
+      manager.register("a1", { sessionId: "sess-poison" });
+      manager.deliver("a1", { id: "stale-candidate", seq: 2, text: "must fresh-start" });
+      expect(launch?.config.sessionId).toBeUndefined();
+      await manager.stopAll();
+    } finally {
+      fs.rmSync(timelineDir, { recursive: true, force: true });
+    }
+  });
+
+  it("a durable clean marker replenishes the allowance after manager reconstruction", async () => {
+    vi.useFakeTimers();
+    const timelineDir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "stall-clean-restart-"));
+    try {
+      let now = 0;
+      const writer = createTimelineRecorder({
+        timelineDirFor: () => timelineDir,
+        providerFor: () => "codex",
+        now: () => new Date(now),
+      });
+      writer.setSession("a1", "sess-healthy");
+      writer.appendEntryForAgent("a1", [{
+        seq: "#1",
+        channel: "/test/general",
+        sender: "@tester#0001",
+        content: { text: "healthy" },
+        time: new Date(now).toISOString(),
+      }]);
+      writer.recordSessionStall("a1", "sess-healthy");
+      writer.clearSessionStall("a1", "sess-healthy");
+
+      const reader = createTimelineRecorder({
+        timelineDirFor: () => timelineDir,
+        providerFor: () => "codex",
+        now: () => new Date(now),
+      });
+      const session = fakeSession("clean-restart");
+      session.stop = vi.fn(session.stop.bind(session));
+      const manager = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"),
+        baseContextFor: () => ({
+          workingDirectory: "/tmp",
+          agentId: "a1",
+          standingPrompt: "",
+          config: {} as LaunchContext["config"],
+          credentialProxy: {} as LaunchContext["credentialProxy"],
+        }),
+        sessionFactory: (hooks) => bindFactorySession(hooks, session),
+        timeline: reader,
+        now: () => now,
+        tickIntervalMs: 5,
+        staleThresholdMs: 100,
+      });
+      manager.start();
+      manager.register("a1", { sessionId: "sess-healthy" });
+      manager.deliver("a1", { id: "healthy-retry", seq: 2, text: "next" });
+      session.startResolver?.();
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "sess-healthy" });
+      expect(manager.snapshot().agents.a1.stalledSessionId).toBeNull();
+
+      now = 100;
+      await vi.advanceTimersByTimeAsync(5);
+      expect(manager.snapshot().agents.a1.sessionId).toBe("sess-healthy");
+      expect(reader.resolveResumeSession("a1", "codex")).toEqual({
+        kind: "session",
+        sessionId: "sess-healthy",
+        stalledSessionId: "sess-healthy",
+        fencedSessionId: null,
+      });
+      await manager.stopAll();
+    } finally {
+      fs.rmSync(timelineDir, { recursive: true, force: true });
+      vi.useRealTimers();
+    }
+  });
+
+  it("restores a marker-only allowance against a stale server/base session candidate", async () => {
+    vi.useFakeTimers();
+    const timelineDir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "stall-marker-only-"));
+    try {
+      let now = 0;
+      const writer = createTimelineRecorder({
+        timelineDirFor: () => timelineDir,
+        providerFor: () => "codex",
+        now: () => new Date(now),
+      });
+      writer.recordSessionStall("a1", "sess-poison");
+
+      // Rebuild the recorder with no in-memory map and no ordinary session row.
+      const reader = createTimelineRecorder({
+        timelineDirFor: () => timelineDir,
+        providerFor: () => "codex",
+        now: () => new Date(now),
+      });
+      expect(reader.resolveResumeSession("a1", "codex")).toEqual({
+        kind: "none",
+        stalledSessionId: "sess-poison",
+        fencedSessionId: null,
+      });
+      const session = fakeSession("marker-only-restart");
+      session.stop = vi.fn(session.stop.bind(session));
+      const manager = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"),
+        baseContextFor: () => ({
+          workingDirectory: "/tmp",
+          agentId: "a1",
+          standingPrompt: "",
+          config: { sessionId: "sess-poison" } as LaunchContext["config"],
+          credentialProxy: {} as LaunchContext["credentialProxy"],
+        }),
+        sessionFactory: (hooks) => bindFactorySession(hooks, session),
+        timeline: reader,
+        now: () => now,
+        tickIntervalMs: 5,
+        staleThresholdMs: 100,
+      });
+      manager.start();
+      manager.register("a1", { sessionId: "sess-poison" });
+      manager.deliver("a1", { id: "marker-only-wake", seq: 1, text: "resume" });
+      session.startResolver?.();
+      await session.fire("runtime_event", { kind: "session_init", sessionId: "sess-poison" });
+      expect(manager.snapshot().agents.a1.stalledSessionId).toBe("sess-poison");
+
+      now = 100;
+      await vi.advanceTimersByTimeAsync(5);
+      expect(manager.snapshot().agents.a1.sessionId).toBeNull();
+      expect(reader.resolveResumeSession("a1", "codex")).toEqual({
+        kind: "barrier",
+        type: "stall_recovery",
+        forgottenSessionId: "sess-poison",
+        fencedSessionId: "sess-poison",
+      });
+      await manager.stopAll();
+    } finally {
+      fs.rmSync(timelineDir, { recursive: true, force: true });
+      vi.useRealTimers();
+    }
+  });
+
+  it("restores the consumed allowance after rebuilding both manager and timeline recorder", async () => {
+    vi.useFakeTimers();
+    const timelineDir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "stall-restart-"));
+    try {
+      let now = 0;
+      const makeRecorder = () => createTimelineRecorder({
+        timelineDirFor: () => timelineDir,
+        providerFor: () => "codex",
+        now: () => new Date(now),
+      });
+      const firstSession = fakeSession("before-daemon-restart");
+      firstSession.stop = vi.fn(firstSession.stop.bind(firstSession));
+      const firstRecorder = makeRecorder();
+      const firstManager = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"),
+        baseContextFor: () => ({
+          workingDirectory: "/tmp",
+          agentId: "a1",
+          standingPrompt: "",
+          config: {} as LaunchContext["config"],
+          credentialProxy: {} as LaunchContext["credentialProxy"],
+        }),
+        sessionFactory: (hooks) => bindFactorySession(hooks, firstSession),
+        timeline: firstRecorder,
+        now: () => now,
+        tickIntervalMs: 5,
+        staleThresholdMs: 100,
+      });
+      firstManager.start();
+      firstManager.register("a1", { sessionId: "sess-poison" });
+      firstManager.deliver("a1", { id: "wake-before-restart", seq: 1, text: "first" });
+      firstSession.startResolver?.();
+      await firstSession.fire("runtime_event", { kind: "session_init", sessionId: "sess-poison" });
+      firstRecorder.appendEntryForAgent("a1", [{
+        seq: "#1",
+        channel: "/test/general",
+        sender: "@tester#0001",
+        content: { text: "first" },
+        time: new Date(now).toISOString(),
+      }]);
+      now = 100;
+      await vi.advanceTimersByTimeAsync(5);
+      expect(firstRecorder.resolveResumeSession("a1", "codex")).toEqual({
+        kind: "session",
+        sessionId: "sess-poison",
+        stalledSessionId: "sess-poison",
+        fencedSessionId: null,
+      });
+      await firstManager.stopAll();
+
+      // New objects model a real daemon process restart: no AgentState or
+      // recorder map survives; only the local timeline directory is reused.
+      const secondSession = fakeSession("after-daemon-restart");
+      secondSession.stop = vi.fn(secondSession.stop.bind(secondSession));
+      const secondRecorder = makeRecorder();
+      const secondManager = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"),
+        baseContextFor: () => ({
+          workingDirectory: "/tmp",
+          agentId: "a1",
+          standingPrompt: "",
+          config: { sessionId: "sess-poison" } as LaunchContext["config"],
+          credentialProxy: {} as LaunchContext["credentialProxy"],
+        }),
+        sessionFactory: (hooks) => bindFactorySession(hooks, secondSession),
+        timeline: secondRecorder,
+        now: () => now,
+        tickIntervalMs: 5,
+        staleThresholdMs: 100,
+      });
+      secondManager.start();
+      secondManager.register("a1", { sessionId: "sess-poison" });
+      secondManager.deliver("a1", { id: "wake-after-restart", seq: 2, text: "second" });
+      secondSession.startResolver?.();
+      await secondSession.fire("runtime_event", { kind: "session_init", sessionId: "sess-poison" });
+      expect(secondManager.snapshot().agents.a1.stalledSessionId).toBe("sess-poison");
+
+      now = 200;
+      await vi.advanceTimersByTimeAsync(5);
+      expect(secondSession.stop).toHaveBeenCalledWith({ reason: "stalled", forceAfterMs: 2_000 });
+      expect(secondManager.snapshot().agents.a1.sessionId).toBeNull();
+      expect(secondRecorder.resolveResumeSession("a1", "codex")).toEqual({
+        kind: "barrier",
+        type: "stall_recovery",
+        forgottenSessionId: "sess-poison",
+        fencedSessionId: "sess-poison",
+      });
+      await secondManager.stopAll();
+    } finally {
+      fs.rmSync(timelineDir, { recursive: true, force: true });
+      vi.useRealTimers();
+    }
+  });
+
+  it("resumes once, then durably fences the poisoned session across every fallback source", async () => {
+    vi.useFakeTimers();
+    try {
+      let now = 0;
+      const sessions: FakeSession[] = [];
+      const launches: LaunchContext[] = [];
+      let resolution = {
+        kind: "session" as const,
+        sessionId: "sess-poison",
+        stalledSessionId: null,
+        fencedSessionId: null,
+      } as
+        | {
+            kind: "session";
+            sessionId: string;
+            stalledSessionId: string | null;
+            fencedSessionId: string | null;
+          }
+        | {
+            kind: "barrier";
+            type: "stall_recovery";
+            forgottenSessionId: string | null;
+            fencedSessionId: string | null;
+          };
+      const setSession = vi.fn();
+      const recordSessionStall = vi.fn((_agentId: string, sessionId: string) => {
+        resolution = { kind: "session", sessionId, stalledSessionId: sessionId, fencedSessionId: null };
+      });
+      const forgetSession = vi.fn((_agentId: string, type?: string, forgottenSessionId?: string) => {
+        resolution = {
+          kind: "barrier",
+          type: "stall_recovery",
+          forgottenSessionId: forgottenSessionId ?? null,
+          fencedSessionId: forgottenSessionId ?? null,
+        };
+      });
+      const mgr = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"),
+        baseContextFor: () => ({
+          workingDirectory: "/tmp",
+          agentId: "a1",
+          standingPrompt: "",
+          config: { sessionId: "sess-poison" } as LaunchContext["config"],
+          credentialProxy: {} as LaunchContext["credentialProxy"],
+        }),
+        sessionFactory: (hooks) => {
+          launches.push(hooks.ctx);
+          const session = fakeSession(`instance-${sessions.length + 1}`);
+          session.stop = vi.fn(session.stop.bind(session));
+          sessions.push(session);
+          return bindFactorySession(hooks, session);
+        },
+        timeline: {
+          setSession,
+          appendResponseToLatest: vi.fn(),
+          resumeSessionId: () => resolution.kind === "session" ? resolution.sessionId : null,
+          resolveResumeSession: () => resolution,
+          recordSessionStall,
+          clearSessionStall: vi.fn(),
+          forgetSession,
+        },
+        now: () => now,
+        tickIntervalMs: 5,
+        staleThresholdMs: 100,
+      });
+      mgr.start();
+      mgr.register("a1", { sessionId: "sess-poison" });
+      mgr.deliver("a1", { id: "wake-1", seq: 1, text: "first" });
+      sessions[0]!.startResolver?.();
+      await sessions[0]!.fire("runtime_event", { kind: "session_init", sessionId: "sess-poison" });
+
+      now = 100;
+      await vi.advanceTimersByTimeAsync(5);
+      expect(sessions[0]!.stop).toHaveBeenCalledWith({ reason: "stalled", forceAfterMs: 2_000 });
+      expect(recordSessionStall).toHaveBeenCalledWith("a1", "sess-poison");
+      expect(forgetSession).not.toHaveBeenCalled();
+
+      await sessions[0]!.fire("runtime_event", { kind: "turn_end" });
+      mgr.deliver("a1", { id: "wake-2", seq: 2, text: "second" });
+      await sessions[0]!.fire("exit", { code: 0, reason: "requested" });
+      expect(launches[1]!.config.sessionId).toBe("sess-poison");
+      sessions[1]!.startResolver?.();
+      await sessions[1]!.fire("runtime_event", { kind: "session_init", sessionId: "sess-poison" });
+
+      now = 200;
+      await vi.advanceTimersByTimeAsync(5);
+      expect(forgetSession).toHaveBeenCalledWith("a1", "stall_recovery", "sess-poison");
+      expect(mgr.snapshot().agents.a1.sessionId).toBeNull();
+
+      // A death-rattle session event from the fenced owner must not repopulate
+      // either the runtime cache or timeline after the barrier was written.
+      await sessions[1]!.fire("runtime_event", { kind: "session_init", sessionId: "sess-poison" });
+      expect(setSession).toHaveBeenCalledTimes(2);
+
+      // Model the next server wake still carrying its stale session id. The
+      // durable barrier must also beat register(), timeline, and base config.
+      mgr.register("a1", { sessionId: "sess-poison" });
+      mgr.deliver("a1", { id: "wake-3", seq: 3, text: "third" });
+      await sessions[1]!.fire("exit", { code: 0, reason: "requested" });
+      expect(launches[2]!.config.sessionId).toBeUndefined();
+      expect(sessions).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe("AgentProcessManager — runtime health callbacks", () => {
   it("ENOENT `error` followed by `exit` reports the failure ONCE with the specific code", async () => {
@@ -751,6 +1430,159 @@ describe("AgentProcessManager — session race conditions", () => {
     }
   });
 
+  it("does not let turn-scoped telemetry or diagnostics refresh the native silence deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      let currentTime = 0;
+      const { mgr, session } = makeManager({ now: () => currentTime, tickIntervalMs: 5 });
+      const baseSnapshot = session.snapshot.bind(session);
+      session.snapshot = () => ({
+        ...baseSnapshot(),
+        diagnostics: {
+          deliveryPhase: "working",
+          turnSilence: {
+            nativeIdleTimeoutMs: 80,
+            daemonGraceMs: 20,
+            recoveryGraceMs: 50,
+            maxRecoveryExtensions: 1,
+            normalBudgetMs: 100,
+          },
+          metrics: {
+            physicalOpenCount: 1,
+            turnCount: 1,
+            commandAdmissionCount: 1,
+            commandAdmissionLatencyTotalMs: 0,
+            queueDwellCount: 0,
+            queueDwellTotalMs: 0,
+            sseReconnectCount: 0,
+            resumeOutcome: "not_requested",
+            terminalOwnerKind: "transport_request",
+          },
+        },
+      });
+      const stop = vi.spyOn(session, "stop");
+      mgr.start();
+      mgr.deliver("a1", { id: "telemetry-stall", seq: 1, text: "hello" });
+      session.startResolver?.();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      currentTime = 90;
+      await session.pushAgentEvent({
+        type: "diagnostic",
+        turnId: "test-turn",
+        severity: "info",
+        source: "heartbeat",
+        message: "still here",
+      } as never);
+      await session.pushAgentEvent({
+        type: "rate_limits",
+        turnId: "test-turn",
+        source: "account",
+        details: { remaining: 1 },
+      } as never);
+      await session.pushAgentEvent({
+        type: "token_usage",
+        turnId: "test-turn",
+        source: "account",
+        usage: {},
+        details: { sampled: true },
+      } as never);
+
+      expect(mgr.snapshot().agents.a1).toMatchObject({
+        lastNativeActivityAt: 0,
+        lastNativeActivityKind: "turn_started",
+      });
+      currentTime = 100;
+      await vi.advanceTimersByTimeAsync(5);
+      expect(stop).toHaveBeenCalledWith({ reason: "stalled", forceAfterMs: 2_000 });
+      expect(mgr.snapshot().agents.a1.status).toBe("stopping");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("maps backend retry activity to one bounded recovery extension", async () => {
+    let currentTime = 0;
+    const { mgr, session } = makeManager({ now: () => currentTime });
+    const baseSnapshot = session.snapshot.bind(session);
+    session.snapshot = () => ({
+      ...baseSnapshot(),
+      diagnostics: {
+        deliveryPhase: "working",
+        turnSilence: {
+          nativeIdleTimeoutMs: 80,
+          daemonGraceMs: 20,
+          recoveryGraceMs: 50,
+          maxRecoveryExtensions: 1,
+          normalBudgetMs: 100,
+        },
+        metrics: {
+          physicalOpenCount: 1,
+          turnCount: 1,
+          commandAdmissionCount: 1,
+          commandAdmissionLatencyTotalMs: 0,
+          queueDwellCount: 0,
+          queueDwellTotalMs: 0,
+          sseReconnectCount: 0,
+          resumeOutcome: "not_requested",
+          terminalOwnerKind: "transport_request",
+        },
+      },
+    });
+    mgr.deliver("a1", { id: "retry", seq: 1, text: "hello" });
+    session.startResolver?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    currentTime = 90;
+    await session.pushAgentEvent({
+      type: "recovery",
+      turnId: "test-turn",
+      stage: "retrying",
+      source: "codex_stream",
+    } as never);
+    expect(mgr.snapshot().agents.a1).toMatchObject({
+      lastNativeActivityAt: 90,
+      lastNativeActivityKind: "recovery",
+      runtimePhase: "recovery",
+    });
+    expect(mgr.snapshot().agents.a1.execution.lease).toMatchObject({
+      nativeDeadlineAt: 140,
+      recoveryExtensionsUsed: 1,
+    });
+
+    currentTime = 135;
+    await session.pushAgentEvent({
+      type: "recovery",
+      turnId: "test-turn",
+      stage: "recovered",
+      source: "pi_auto_retry",
+    } as never);
+    expect(mgr.snapshot().agents.a1).toMatchObject({
+      lastNativeActivityAt: 135,
+      lastNativeActivityKind: "recovery",
+      runtimePhase: "inference",
+    });
+    expect(mgr.snapshot().agents.a1.execution.lease).toMatchObject({
+      nativeDeadlineAt: 235,
+      recoveryExtensionsUsed: 1,
+    });
+
+    currentTime = 200;
+    await session.pushAgentEvent({
+      type: "recovery",
+      turnId: "test-turn",
+      stage: "retrying",
+      source: "codex_stream",
+    } as never);
+    expect(mgr.snapshot().agents.a1.execution.lease).toMatchObject({
+      nativeDeadlineAt: 235,
+      recoveryExtensionsUsed: 1,
+    });
+    await mgr.stopAll();
+  });
+
   it("turn-correlated internal progress renews the execution lease after a false terminal", async () => {
     vi.useFakeTimers();
     try {
@@ -961,6 +1793,63 @@ describe("AgentProcessManager — session race conditions", () => {
 });
 
 describe("AgentProcessManager — onAgentActivity (derived activity reporting)", () => {
+  it.each(["turn-before-spawn", "spawn-before-turn"] as const)(
+    "publishes one running edge without a transient idle when admission order is %s",
+    async (order) => {
+      const session = fakeSession(`activity-${order}`);
+      const onAgentActivity = vi.fn();
+      const mgr = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"),
+        baseContextFor: () => ({
+          workingDirectory: "/tmp",
+          agentId: "a1",
+          standingPrompt: "",
+          config: {} as LaunchContext["config"],
+          credentialProxy: {} as LaunchContext["credentialProxy"],
+        }),
+        sessionFactory: (hooks) => bindFactorySession(hooks, session),
+        onAgentActivity,
+      });
+      const dispatch = (event: Record<string, unknown>) => (
+        mgr as unknown as { dispatch(value: unknown): void }
+      ).dispatch(event);
+
+      mgr.register("a1");
+      mgr.deliver("a1", { id: "root", text: "hello" });
+      expect(onAgentActivity.mock.calls.map((call) => call[0])).toEqual([
+        { agentId: "a1", state: "starting" },
+      ]);
+
+      const turnStarted = {
+        type: "turn_started",
+        agentId: "a1",
+        sessionInstanceId: session.sessionInstanceId,
+        turnId: "root-turn",
+        commandIds: ["root"],
+        nowMs: 1,
+      };
+      if (order === "turn-before-spawn") {
+        dispatch(turnStarted);
+        dispatch({ type: "spawned", agentId: "a1", nowMs: 2 });
+      } else {
+        dispatch({ type: "spawned", agentId: "a1", nowMs: 1 });
+        dispatch({
+          type: "admission_settled",
+          agentId: "a1",
+          sessionInstanceId: session.sessionInstanceId,
+          commandId: "root",
+          outcome: "accepted",
+        });
+        dispatch(turnStarted);
+      }
+
+      expect(onAgentActivity.mock.calls.map((call) => call[0])).toEqual([
+        { agentId: "a1", state: "starting" },
+        { agentId: "a1", state: "running" },
+      ]);
+    },
+  );
+
   it("fires exactly once per real derived transition — the turn_end→idle transition fires once, not re-fired while the FSM stays running until hibernation", async () => {
     vi.useFakeTimers();
     try {
@@ -3434,7 +4323,7 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     expect(closeFailureReported).toHaveBeenCalledWith("codex", "session_closed_rejected");
   });
 
-  it("maps all public session event families into backend-neutral runtime signals", async () => {
+  it("maps only turn activity into runtime signals and excludes telemetry/diagnostics", async () => {
     const rows: B1TraceRow[] = [];
     const session = b1Session([]);
     const { mgr } = b1Manager({ sessions: [session], trace: (row) => rows.push(row) });
@@ -3458,6 +4347,8 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     publish({ type: "diagnostic", severity: "warning", source: "codex", message: "warning" });
     publish({ type: "token_usage", turnId: "test-turn", source: "codex", usage: {}, details: {} });
     publish({ type: "rate_limits", turnId: "test-turn", source: "codex", details: {} });
+    publish({ type: "thinking_delta", turnId: "test-turn", text: "" });
+    publish({ type: "text_delta", turnId: "test-turn", text: "" });
     publish({ type: "command_queued", commandId: "queued", reason: "runtime_busy" });
     publish({ type: "command_accepted", commandId: "accepted", turnId: "test-turn", delivery: "steer" });
     publish({
@@ -3467,7 +4358,7 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     });
     publish({ type: "turn_started", turnId: "test-turn", commandIds: ["accepted"] });
 
-    expect(rows.filter((row) => row.event === "runtime_signal")).toHaveLength(baselineSignals + 9);
+    expect(rows.filter((row) => row.event === "runtime_signal")).toHaveLength(baselineSignals + 4);
   });
 
   it("keeps tail telemetry observational while turn-correlated work can recover a false terminal", async () => {

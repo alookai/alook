@@ -6,6 +6,7 @@ import {
   type ManagerState,
   type AgentState,
   type AgentStatus,
+  type TurnSilencePolicy,
 } from "./managerPolicy.js";
 
 interface LegacyCaps {
@@ -42,6 +43,30 @@ function spawnRoot(state: ManagerState, nowMs: number, turnId = "turn-a"): Manag
     agentId: "a",
     sessionInstanceId: SESSION_INSTANCE,
     nowMs,
+  }).state;
+  next = reduceManager(next, {
+    type: "turn_started",
+    agentId: "a",
+    sessionInstanceId: SESSION_INSTANCE,
+    turnId,
+    commandIds: [],
+    nowMs,
+  }).state;
+  return reduceManager(next, { type: "spawned", agentId: "a", nowMs }).state;
+}
+
+function spawnRootWithSilence(
+  state: ManagerState,
+  nowMs: number,
+  turnSilence: TurnSilencePolicy,
+  turnId = "turn-a",
+): ManagerState {
+  let next = reduceManager(state, {
+    type: "attach_session",
+    agentId: "a",
+    sessionInstanceId: SESSION_INSTANCE,
+    nowMs,
+    turnSilence,
   }).state;
   next = reduceManager(next, {
     type: "turn_started",
@@ -232,6 +257,161 @@ describe("reduceManager — turn_end behavior", () => {
 });
 
 describe("reduceManager — tick: stall + idle hibernation", () => {
+  it("allows one same-session stall recovery, then forgets that backend session on a repeat stall", () => {
+    let s = createInitialManagerState(100);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { id: "m1", text: "m1" }, nowMs: 0 }).state;
+    s = spawnRoot(s, 0, "turn-1");
+    s = reduceManager(s, { type: "backend_session", agentId: "a", sessionId: "sess-poison" }).state;
+
+    const firstStall = reduceManager(s, { type: "tick", nowMs: 100 });
+    expect(firstStall.effects).toEqual([{
+      type: "terminate_stalled",
+      agentId: "a",
+      recordSessionId: "sess-poison",
+    }]);
+    expect(firstStall.state.agents.a).toMatchObject({
+      sessionId: "sess-poison",
+      stalledSessionId: "sess-poison",
+    });
+
+    s = reduceManager(firstStall.state, {
+      type: "turn_completed",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      turnId: "turn-1",
+      nowMs: 101,
+      endReason: "errored",
+      terminationCause: "killed_stalled",
+    }).state;
+    expect(s.agents.a.stalledSessionId).toBe("sess-poison");
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { id: "m2", text: "m2" }, nowMs: 102 }).state;
+    const respawn = reduceManager(s, { type: "exit", agentId: "a" });
+    expect(respawn.effects).toContainEqual({
+      type: "spawn",
+      agentId: "a",
+      messages: [{ id: "m2", text: "m2" }],
+      resumeSessionId: "sess-poison",
+    });
+
+    s = reduceManager(respawn.state, {
+      type: "attach_session",
+      agentId: "a",
+      sessionInstanceId: "session-instance-2",
+      nowMs: 103,
+    }).state;
+    s = reduceManager(s, {
+      type: "turn_started",
+      agentId: "a",
+      sessionInstanceId: "session-instance-2",
+      turnId: "turn-2",
+      commandIds: [],
+      nowMs: 103,
+    }).state;
+    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 103 }).state;
+    s = reduceManager(s, { type: "backend_session", agentId: "a", sessionId: "sess-poison" }).state;
+
+    const secondStall = reduceManager(s, { type: "tick", nowMs: 203 });
+    expect(secondStall.effects).toEqual([{
+      type: "terminate_stalled",
+      agentId: "a",
+      forgetSessionId: "sess-poison",
+    }]);
+    expect(secondStall.state.agents.a.sessionId).toBeNull();
+    expect(secondStall.state.agents.a.stalledSessionId).toBeNull();
+
+    s = reduceManager(secondStall.state, {
+      type: "wake",
+      agentId: "a",
+      message: { id: "m3", text: "m3" },
+      nowMs: 204,
+    }).state;
+    expect(reduceManager(s, { type: "exit", agentId: "a" }).effects).toContainEqual({
+      type: "spawn",
+      agentId: "a",
+      messages: [{ id: "m3", text: "m3" }],
+      resumeSessionId: null,
+    });
+  });
+
+  it("resets the stall breaker after a clean completion or a different backend session", () => {
+    let s = createInitialManagerState(100);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
+    s = spawnRoot(s, 0, "turn-1");
+    s = reduceManager(s, { type: "backend_session", agentId: "a", sessionId: "sess-1" }).state;
+    s = reduceManager(s, { type: "tick", nowMs: 100 }).state;
+    expect(s.agents.a.stalledSessionId).toBe("sess-1");
+
+    const clean = reduceManager(s, {
+      type: "turn_completed",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      turnId: "turn-1",
+      nowMs: 101,
+    });
+    expect(clean.effects).toEqual([{
+      type: "clear_stall_recovery",
+      agentId: "a",
+      sessionId: "sess-1",
+    }]);
+    s = clean.state;
+    expect(s.agents.a.stalledSessionId).toBeNull();
+
+    s = { ...s, agents: { ...s.agents, a: { ...s.agents.a, stalledSessionId: "sess-1" } } };
+    s = reduceManager(s, { type: "backend_session", agentId: "a", sessionId: "sess-2" }).state;
+    expect(s.agents.a.stalledSessionId).toBeNull();
+    expect(s.agents.a.sessionId).toBe("sess-2");
+  });
+
+  it("rolls back attempt/fence transitions and keeps a failed clear fail-closed", () => {
+    let s = createInitialManagerState(100);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
+    s = spawnRoot(s, 0, "turn-1");
+    s = reduceManager(s, { type: "backend_session", agentId: "a", sessionId: "sess-poison" }).state;
+
+    const first = reduceManager(s, { type: "tick", nowMs: 100 }).state;
+    s = reduceManager(first, {
+      type: "stall_control_failed",
+      agentId: "a",
+      sessionId: "sess-poison",
+      transition: "attempt",
+    }).state;
+    expect(s.agents.a).toMatchObject({
+      status: "running",
+      sessionId: "sess-poison",
+      stalledSessionId: null,
+      stoppingSince: null,
+    });
+
+    s = { ...s, agents: { ...s.agents, a: { ...s.agents.a, stalledSessionId: "sess-poison" } } };
+    const repeated = reduceManager(s, { type: "tick", nowMs: 101 }).state;
+    expect(repeated.agents.a).toMatchObject({ status: "stopping", sessionId: null, stalledSessionId: null });
+    s = reduceManager(repeated, {
+      type: "stall_control_failed",
+      agentId: "a",
+      sessionId: "sess-poison",
+      transition: "fence",
+    }).state;
+    expect(s.agents.a).toMatchObject({
+      status: "running",
+      sessionId: "sess-poison",
+      stalledSessionId: "sess-poison",
+      stoppingSince: null,
+    });
+
+    const completed = completeRoot(s, "turn-1", 102).state;
+    expect(completed.agents.a.stalledSessionId).toBeNull();
+    s = reduceManager(completed, {
+      type: "stall_control_failed",
+      agentId: "a",
+      sessionId: "sess-poison",
+      transition: "clear",
+    }).state;
+    expect(s.agents.a.stalledSessionId).toBe("sess-poison");
+  });
+
   it("terminates a stalled per-turn agent past the stale threshold", () => {
     let s = createInitialManagerState(100); // staleThresholdMs = 100
     s = register(s, "a", PER_TURN);
@@ -249,6 +429,91 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
     s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
     s = spawnRoot(s, 0);
     expect(reduceManager(s, { type: "tick", nowMs: 50 }).effects).toEqual([]);
+  });
+
+  it("keeps a high-reasoning turn alive through 112s of semantic silence without consuming the breaker", () => {
+    const silence: TurnSilencePolicy = {
+      nativeIdleTimeoutMs: 300_000,
+      daemonGraceMs: 60_000,
+      recoveryGraceMs: 60_000,
+      maxRecoveryExtensions: 1,
+      normalBudgetMs: 360_000,
+    };
+    let s = register(createInitialManagerState(), "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "reason" }, nowMs: 0 }).state;
+    s = spawnRootWithSilence(s, 0, silence, "reasoning-turn");
+    s = reduceManager(s, { type: "backend_session", agentId: "a", sessionId: "sess-reasoning" }).state;
+
+    expect(reduceManager(s, { type: "tick", nowMs: 112_000 }).effects).toEqual([]);
+    s = reduceManager(s, {
+      type: "runtime_signal",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      turnId: "reasoning-turn",
+      kind: "thinking",
+      phase: "inference",
+      nowMs: 112_000,
+    }).state;
+
+    expect(s.agents.a).toMatchObject({
+      status: "running",
+      stalledSessionId: null,
+      lastProgressAt: 0,
+      lastNativeActivityAt: 112_000,
+      lastNativeActivityKind: "thinking",
+      runtimePhase: "inference",
+    });
+    expect(s.agents.a.execution.lease).toMatchObject({
+      nativeDeadlineAt: 472_000,
+      recoveryExtensionsUsed: 0,
+    });
+    expect(reduceManager(s, { type: "tick", nowMs: 471_999 }).effects).toEqual([]);
+    expect(reduceManager(s, { type: "tick", nowMs: 472_000 }).effects).toEqual([{
+      type: "terminate_stalled",
+      agentId: "a",
+      recordSessionId: "sess-reasoning",
+    }]);
+  });
+
+  it("bounds recovery extensions and replenishes one only after semantic progress", () => {
+    const silence: TurnSilencePolicy = {
+      nativeIdleTimeoutMs: 100,
+      daemonGraceMs: 20,
+      recoveryGraceMs: 50,
+      maxRecoveryExtensions: 1,
+      normalBudgetMs: 120,
+    };
+    let s = register(createInitialManagerState(), "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "retry" }, nowMs: 0 }).state;
+    s = spawnRootWithSilence(s, 0, silence, "retry-turn");
+
+    const recovery = (state: ManagerState, nowMs: number): ManagerState => reduceManager(state, {
+      type: "runtime_signal",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+      turnId: "retry-turn",
+      kind: "recovery",
+      phase: "recovery",
+      nowMs,
+    }).state;
+
+    s = recovery(s, 110);
+    expect(s.agents.a.execution.lease).toMatchObject({ nativeDeadlineAt: 160, recoveryExtensionsUsed: 1 });
+    s = recovery(s, 150);
+    expect(s.agents.a.execution.lease).toMatchObject({ nativeDeadlineAt: 160, recoveryExtensionsUsed: 1 });
+    expect(reduceManager(s, { type: "tick", nowMs: 159 }).effects).toEqual([]);
+
+    s = workRoot(s, "retry-turn", 159);
+    expect(s.agents.a.execution.lease).toMatchObject({ nativeDeadlineAt: 279, recoveryExtensionsUsed: 0 });
+    s = recovery(s, 270);
+    expect(s.agents.a.execution.lease).toMatchObject({ nativeDeadlineAt: 320, recoveryExtensionsUsed: 1 });
+    s = recovery(s, 310);
+    expect(s.agents.a.execution.lease).toMatchObject({ nativeDeadlineAt: 320, recoveryExtensionsUsed: 1 });
+    expect(reduceManager(s, { type: "tick", nowMs: 319 }).effects).toEqual([]);
+    expect(reduceManager(s, { type: "tick", nowMs: 320 }).effects).toEqual([{
+      type: "terminate_stalled",
+      agentId: "a",
+    }]);
   });
 
   it("fences tool blockers to the current root, clears them on reset, and restores a full stale window", () => {
@@ -293,6 +558,8 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
       state: "active",
       identity: { sessionInstanceId: SESSION_INSTANCE, turnId: "root-turn" },
       lastWorkAt: 10,
+      nativeDeadlineAt: 110,
+      recoveryExtensionsUsed: 0,
     });
     const resetting = s;
     s = reduceManager(s, {
@@ -331,6 +598,8 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
       state: "active",
       identity: { sessionInstanceId: SESSION_INSTANCE, turnId: "root-turn" },
       lastWorkAt: 60,
+      nativeDeadlineAt: 160,
+      recoveryExtensionsUsed: 0,
     });
     expect(reduceManager(finished, { type: "tick", nowMs: 159 }).effects).toEqual([]);
     expect(reduceManager(finished, { type: "tick", nowMs: 160 }).effects).toEqual([

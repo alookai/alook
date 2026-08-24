@@ -197,6 +197,7 @@ describe("landing content contract", () => {
     )
     const cargoManifest = readFileSync(path.join(repoRoot, "src/desktop/src-tauri/Cargo.toml"), "utf8")
     const githubPreview = readFileSync(path.join(repoRoot, "assets/social-preview/github-card.html"), "utf8")
+    const readmePreview = readFileSync(path.join(repoRoot, "assets/social-preview/readme-banner.html"), "utf8")
     const twitterPreview = readFileSync(path.join(repoRoot, "assets/social-preview/twitter-banner.html"), "utf8")
 
     expect(rootRoute).toContain("LandingPage")
@@ -254,11 +255,25 @@ describe("landing content contract", () => {
     expect(tauriConfig.bundle.shortDescription).toBe("Share your agents with people you trust")
     expect(tauriConfig.bundle.longDescription).toContain("shared rooms")
     expect(cargoManifest).toContain('description = "Alook — Share your agents with people you trust"')
-    for (const preview of [githubPreview, twitterPreview]) {
+    for (const preview of [githubPreview, readmePreview, twitterPreview]) {
       expect(preview).toContain('<div class="title">Share your agents</div>')
       expect(preview).toContain('<div class="tagline">with people you trust.</div>')
       expect(preview).not.toContain("Your Personal Company")
     }
+    expect(readmePreview).toContain("width: 1280px")
+    expect(twitterPreview).toContain("width: 1500px")
+    expect(twitterPreview).toContain("justify-content: flex-start")
+    for (const preview of [readmePreview, twitterPreview]) {
+      expect(preview).toContain(
+        ".title {\n  color: #356f95;\n  font-family: 'VT323', monospace;",
+      )
+      expect(preview).toContain(
+        ".tagline {\n  color: #1b271f;\n  font-family: 'VT323', monospace;",
+      )
+      expect(preview).not.toContain('class="spec"')
+    }
+    expect(readmePreview).toContain("font-size: 68px")
+    expect(twitterPreview).toContain("font-size: 80px")
     expect(landingPageSource).toContain("export function LandingPage")
     expect(playbackSource).toContain("LANDING_MOTION_VISIBILITY_THRESHOLD = 0.3")
     expect(playbackSource).toContain("IntersectionObserver")

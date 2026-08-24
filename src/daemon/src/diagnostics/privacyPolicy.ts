@@ -164,8 +164,8 @@ export function projectDaemonLogRow(value: unknown, targetAgentId: string): Reco
   };
 }
 
-const MANAGER_EVENTS = ["register", "wake", "spawned", "session", "root_work", "turn_end", "exit", "tick", "reset_session", "begin_reset", "rewake_after_reset", "runtime_signal", "admission_started", "admission_settled"] as const;
-const MANAGER_EFFECTS = ["spawn", "send", "stop", "terminate_stalled", "force_exit", "gated_hold"] as const;
+const MANAGER_EVENTS = ["register", "wake", "spawned", "session", "root_work", "turn_end", "exit", "tick", "reset_session", "begin_reset", "rewake_after_reset", "runtime_signal", "stall_control_failed", "admission_started", "admission_settled"] as const;
+const MANAGER_EFFECTS = ["spawn", "send", "stop", "terminate_stalled", "clear_stall_recovery", "force_exit", "gated_hold"] as const;
 const AGENT_STATUSES = ["idle", "starting", "running", "stopping"] as const;
 const DELIVERY_PHASES = ["idle", "admission_wait", "steering", "next_turn_queued", "compacting", "reviewing", "tool_wait", "working"] as const;
 const RESUME_OUTCOMES = ["not_requested", "pending", "resumed", "reset_required", "failed"] as const;
@@ -174,6 +174,8 @@ const TERMINATION_CAUSES = ["runtime_error", "killed_stalled", "other"] as const
 const SPAWN_FAILURE_REASONS = ["ENOENT", "handshake_timeout", "pre_handshake_exit", "spawn_threw", "other"] as const;
 const TERMINATION_SEMANTICS = ["killed_stalled", "idle_stop", "force_exit", "other"] as const;
 const ABORT_CAUSES = ["start_threw", "start_rejected", "send_threw", "spawn_failure", "handshake_timeout", "reset", "nap", "model_switch", "requested_stop", "shutdown", "physical_exit", "terminate_stalled", "force_exit", "other"] as const;
+const NATIVE_ACTIVITY_KINDS = ["turn_started", "backend_turn_started", "thinking", "text", "tool_call", "tool_output", "internal_progress", "recovery", "turn_end"] as const;
+const RUNTIME_PHASES = ["idle", "admission", "inference", "tool", "recovery", "terminal"] as const;
 const EXIT_SIGNALS = new Set(["SIGABRT", "SIGALRM", "SIGBREAK", "SIGBUS", "SIGCHLD", "SIGCONT", "SIGFPE", "SIGHUP", "SIGILL", "SIGINFO", "SIGINT", "SIGIO", "SIGIOT", "SIGKILL", "SIGLOST", "SIGPIPE", "SIGPOLL", "SIGPROF", "SIGPWR", "SIGQUIT", "SIGSEGV", "SIGSTKFLT", "SIGSTOP", "SIGSYS", "SIGTERM", "SIGTRAP", "SIGTSTP", "SIGTTIN", "SIGTTOU", "SIGURG", "SIGUSR1", "SIGUSR2", "SIGVTALRM", "SIGWINCH", "SIGXCPU", "SIGXFSZ", "other"]);
 
 function enumValue(value: unknown, values: readonly string[], bucket = false, maxChars = 64): string | null {
@@ -201,6 +203,12 @@ function copyString(row: Record<string, unknown>, output: Record<string, unknown
   if (row[key] === null && nullable) { output[key] = null; return true; }
   if (!boundedString(row[key], maxChars)) return false;
   output[key] = row[key];
+  return true;
+}
+
+function copyScrubbedString(row: Record<string, unknown>, output: Record<string, unknown>, key: string, maxChars: number, optional = false, nullable = false): boolean {
+  if (!copyString(row, output, key, maxChars, optional, nullable)) return false;
+  if (typeof output[key] === "string") output[key] = scrubDiagnosticText(output[key] as string);
   return true;
 }
 
@@ -233,11 +241,30 @@ function projectFsm(row: Record<string, unknown>, targetAgentId: string): Record
     || !copyInteger(row, output, "lastDeliverAt", { nullable: true })
     || !copyInteger(row, output, "lastProgressAt")
     || !copyInteger(row, output, "idleSince", { nullable: true })) return null;
+  if (!copyInteger(row, output, "lastNativeActivityAt", { optional: true })
+    || !copyScrubbedString(row, output, "backendTurnId", 512, true, true)
+    || !copyInteger(row, output, "turnSilenceBudgetMs", { optional: true })
+    || !copyInteger(row, output, "nativeDeadlineAt", { optional: true, nullable: true })
+    || !copyInteger(row, output, "recoveryExtensionsUsed", { optional: true })) return null;
+  if ("lastNativeActivityKind" in row && row.lastNativeActivityKind !== undefined) {
+    if (row.lastNativeActivityKind === null) output.lastNativeActivityKind = null;
+    else {
+      const kind = enumValue(row.lastNativeActivityKind, NATIVE_ACTIVITY_KINDS);
+      if (!kind) return null;
+      output.lastNativeActivityKind = kind;
+    }
+  }
+  if ("runtimePhase" in row && row.runtimePhase !== undefined) {
+    const phase = enumValue(row.runtimePhase, RUNTIME_PHASES);
+    if (!phase) return null;
+    output.runtimePhase = phase;
+  }
   output.resetting = row.resetting;
   if (!copyInteger(row, output, "resettingSince", { nullable: true })
     || !copyInteger(row, output, "stoppingSince", { nullable: true })) return null;
   output.deliveryPhase = deliveryPhase;
   if (!copyInteger(row, output, "sinceProgressMs")
+    || !copyInteger(row, output, "sinceNativeActivityMs", { optional: true })
     || !copyInteger(row, output, "sinceDeliverMs", { nullable: true })
     || !copyInteger(row, output, "sinceStoppingMs", { nullable: true })
     || !projectOptionalSpanMetadata(row, output)) return null;

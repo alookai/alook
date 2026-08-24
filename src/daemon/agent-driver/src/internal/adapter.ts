@@ -35,7 +35,18 @@ export interface BackendExecution {
   readonly transport: AdapterTransport;
   readonly wakeStart: "immediate" | "deferred";
   readonly terminalOwnership: TerminalOwnership;
+  readonly turnSilence?: {
+    readonly nativeIdleTimeoutMs: number;
+    readonly daemonGraceMs: number;
+    readonly recoveryGraceMs: number;
+    readonly maxRecoveryExtensions: number;
+  };
 }
+
+export const DEFAULT_NATIVE_IDLE_TIMEOUT_MS = 300_000;
+export const DEFAULT_DAEMON_GRACE_MS = 60_000;
+export const DEFAULT_RECOVERY_GRACE_MS = 60_000;
+export const DEFAULT_MAX_RECOVERY_EXTENSIONS = 1;
 
 export type InputMode = "busy" | "idle";
 export interface EncodeMessageOptions { mode?: InputMode }
@@ -52,8 +63,9 @@ export type AdapterEvent =
   | { kind: "review_finished" }
   | { kind: "internal_progress"; source?: string; itemType?: string; payloadBytes?: number }
   | { kind: "runtime_diagnostic"; severity?: string; source?: string; message: string }
+  | { kind: "runtime_recovery"; stage: "retrying" | "recovered"; source?: string }
   | { kind: "runtime_metric"; name: "sse_reconnect"; increment: 1 }
-  | { kind: "turn_owner"; receipt: string }
+  | { kind: "turn_owner"; receipt: string; nativeTurnId?: string }
   | { kind: "turn_end"; sessionId?: string; turnOwner?: string }
   | { kind: "error"; message: string }
   | { kind: "telemetry"; name: "token_usage" | "rate_limits"; source: string; usageKind?: string; attrs: Record<string, unknown> };
