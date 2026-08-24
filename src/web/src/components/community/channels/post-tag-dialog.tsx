@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactElement } from "react"
 import { X } from "lucide-react"
+import { MAX_FORUM_TAG_LENGTH, MAX_FORUM_TAGS_PER_POST } from "@alook/shared"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Input } from "@/components/ui/input"
 import { onEnterSubmit } from "@/lib/ime"
@@ -33,16 +34,23 @@ export function PostTagDialog({
   }, [current, open])
 
   const toggle = (tag: string) => {
-    setSelected((previous) => previous.includes(tag)
-      ? previous.filter((candidate) => candidate !== tag)
-      : [...previous, tag])
+    setSelected((previous) => {
+      if (previous.includes(tag)) return previous.filter((candidate) => candidate !== tag)
+      if (previous.length >= MAX_FORUM_TAGS_PER_POST || tag.length > MAX_FORUM_TAG_LENGTH) {
+        return previous
+      }
+      return [...previous, tag]
+    })
   }
 
   const addDraft = () => {
     const tag = draft.trim().toLowerCase()
+    if (!tag || tag.length > MAX_FORUM_TAG_LENGTH) return
+    setSelected((previous) => {
+      if (previous.length >= MAX_FORUM_TAGS_PER_POST || previous.includes(tag)) return previous
+      return [...previous, tag]
+    })
     setDraft("")
-    if (!tag || selected.includes(tag)) return
-    setSelected((previous) => [...previous, tag])
   }
 
   const close = () => {
@@ -83,20 +91,28 @@ export function PostTagDialog({
             <p className="text-xs text-muted-foreground">No tags yet</p>
           ) : chips.map((tag) => {
             const active = selected.includes(tag)
+            const additionBlocked = !active && (
+              selected.length >= MAX_FORUM_TAGS_PER_POST
+              || tag.length > MAX_FORUM_TAG_LENGTH
+            )
             return (
               <button
                 key={tag}
                 type="button"
+                data-testid={tid.forumTagDialogChip(tag)}
+                disabled={saving || additionBlocked}
+                aria-label={`${active ? "Remove" : "Add"} tag ${tag}`}
+                title={`#${tag}`}
                 style={tagColorStyle(tag)}
                 className={cn(
-                  "inline-flex items-center rounded-lg px-2 py-1 text-xs transition-opacity",
+                  "inline-flex max-w-full min-w-0 items-center rounded-lg px-2 py-1 text-xs transition-opacity disabled:cursor-not-allowed disabled:opacity-40",
                   tagColorClassName,
                   active ? "opacity-100 ring-1 ring-current/20" : "opacity-55 hover:opacity-80",
                 )}
                 onClick={() => toggle(tag)}
               >
-                #{tag}
-                {active && <X className="ml-1 size-3" />}
+                <span className="min-w-0 truncate">#{tag}</span>
+                {active && <X aria-hidden="true" className="ml-1 size-3 shrink-0" />}
               </button>
             )
           })}
@@ -104,14 +120,15 @@ export function PostTagDialog({
 
         <Input
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => setDraft(event.target.value.slice(0, MAX_FORUM_TAG_LENGTH))}
           onKeyDown={onEnterSubmit(addDraft)}
+          maxLength={MAX_FORUM_TAG_LENGTH}
           placeholder="Add a tag…"
           className="h-8 text-sm"
-          disabled={saving}
+          disabled={saving || selected.length >= MAX_FORUM_TAGS_PER_POST}
         />
 
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-right text-[11px] text-muted-foreground">
           {saving ? "Saving…" : "↵ to add · saves on close"}
         </p>
       </PopoverContent>

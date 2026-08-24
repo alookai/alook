@@ -53,6 +53,7 @@ export const tid = {
   botAvatarPickerTrigger: "community-bot-avatar-picker-trigger",
 
   forumTagDialog: "community-forum-tag-dialog",
+  forumTagDialogChip: (tag: string) => `community-forum-tag-dialog-chip-${tag}`,
   imageLightbox: "community-image-lightbox",
   imageLightboxThumbnail: "community-image-lightbox-thumbnail",
   imageLightboxOriginal: "community-image-lightbox-original",
