@@ -53,6 +53,10 @@ import {
 } from "./messageReminderScheduler.js";
 import { createDaemonAgentDriverHost } from "../manager/agentDriverHost.js";
 import { toAgentBackendSelection } from "../runtimeConfig.js";
+import {
+  DaemonSelfSleepScheduler,
+  type DaemonSelfSleepClock,
+} from "./daemonSelfSleep.js";
 
 // Cold-start warmup backoff schedule (ms).
 const WARMUP_BACKOFF_MS = [250, 500, 1000, 2000, 4000] as const;
@@ -320,6 +324,10 @@ export interface CreateDaemonOptions {
   reportDiagnosticFailure?: (failure: DiagnosticFailureReport) => void | Promise<void>;
   /** Injectable daemon-local reminder clock; tests only, defaults to Node timers. */
   messageReminderClock?: Pick<MessageReminderSchedulerOptions, "now" | "setTimer" | "clearTimer">;
+  /** Called after one continuous 15-day window with no new message and no working agent. */
+  onSelfSleep?: () => void;
+  /** Injectable self-sleep clock; tests only, defaults to Node timers. */
+  selfSleepClock?: DaemonSelfSleepClock;
   /** Supplies only the bounded default FSM snapshot source and status snapshot path. */
   onDiagnosticSources?: (sources: {
     fsmTraceSource: Pick<RotatingFileSink, "openSnapshot"> | null;
@@ -407,6 +415,12 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   // `auditContext(agentId)` off it inside `onProxyRequest`.
   let managerRef: AgentProcessManager | null = null;
   let reminderSchedulerRef: MessageReminderScheduler | null = null;
+  const selfSleepScheduler = opts.onSelfSleep
+    ? new DaemonSelfSleepScheduler({
+      onSleep: opts.onSelfSleep,
+      ...(opts.selfSleepClock ? { clock: opts.selfSleepClock } : {}),
+    })
+    : null;
   const emitBotAuditEvent = (
     agentId: string,
     event:
@@ -841,6 +855,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     tickIntervalMs: opts.tickIntervalMs ?? 2000,
     onAgentSession: (info) => void channel.reportAgentSession(info),
     onAgentActivity: (info) => {
+      selfSleepScheduler?.observeAgentActivity(info.agentId, info.state === "running");
       void channel.reportAgentActivity?.(info);
       // Bot typing indicator (DM-only) — install / tear down the daemon-metered
       // heartbeat off the derived FSM activity, so the pill lifecycle exactly
@@ -966,6 +981,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   // when an active agent coalesces the wake before AgentRouter. Replayed/old
   // wakes do not create a second observation or enter agent routing.
   channel.onWakeDesiredAdvance((cmd) => {
+    selfSleepScheduler?.observeMessage();
     reminderSchedulerRef?.observe(cmd.agentId, cmd.unreadNotice.channel, cmd.unreadNotice.latestSeq);
   });
   channel.onCommand((cmd) => {
@@ -994,6 +1010,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
 
   channel.connect();
   await router!.start();
+  selfSleepScheduler?.start();
 
   return {
     isOpen: () => channel.status === "open",
@@ -1008,6 +1025,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     },
     proxyUrl: proxy.url,
     stop: async () => {
+      selfSleepScheduler?.stop();
       reminderSchedulerRef?.clearAll();
       // Clear all bot-typing heartbeat intervals and emit final stops for
       // any outstanding scopes so no pill is left dangling.

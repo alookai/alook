@@ -481,6 +481,57 @@ describe("daemon runner logger", () => {
     }
   });
 
+  it("routes self-sleep through the existing ordered successful shutdown", async () => {
+    resetDiagnosticHarness();
+    vi.useFakeTimers();
+    const listenersBefore = processListenerSnapshot();
+    const events: string[] = [];
+    const daemonHarness = installDaemonHarness(dir, events);
+    runnerDiagnosticHarness.shutdown.mockImplementation(async () => { events.push("coordinator-shutdown"); });
+    const releaseOwnership = vi.fn(() => { events.push("ownership-release"); });
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      events.push("process-exit");
+      return undefined;
+    }) as never);
+    exit.mockClear();
+    let ready!: () => void;
+    const readyPromise = new Promise<void>((resolve) => { ready = resolve; });
+
+    try {
+      void runPreparedDaemon(preparedDaemon(dir), {
+        foreground: false,
+        releaseOwnership,
+        onReady: ready,
+      });
+      await readyPromise;
+
+      const onSelfSleep = daemonHarness.state.options?.onSelfSleep as (() => void) | undefined;
+      expect(onSelfSleep).toEqual(expect.any(Function));
+      onSelfSleep!();
+      await vi.waitFor(() => {
+        expect(events).toEqual([
+          "coordinator-shutdown",
+          "daemon-stop",
+          "ownership-release",
+          "process-exit",
+        ]);
+      });
+      expect(exit).toHaveBeenCalledWith(0);
+      const records = fs.readFileSync(path.join(dir, "daemon.log"), "utf8")
+        .trimEnd()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(records).toContainEqual(expect.objectContaining({
+        level: "info",
+        message: "daemon self-sleep threshold reached",
+      }));
+    } finally {
+      removeNewProcessListeners(listenersBefore);
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
   it("maps collection errors to fixed PATCH codes without leaking a rejection to createDaemon", async () => {
     resetDiagnosticHarness();
     vi.useFakeTimers();
