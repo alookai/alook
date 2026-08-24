@@ -398,6 +398,10 @@ export async function runPreparedDaemon(
         log.error("machine key rejected by server — is it correct / has it expired?");
         void shutdown(1);
       },
+      onSelfSleep: () => {
+        log.info("daemon self-sleep threshold reached");
+        void shutdown(0);
+      },
     });
   } catch (error) {
     clearInterval(keepAlive);

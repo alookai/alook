@@ -25,6 +25,10 @@ import { AgentRouter } from "../manager/agentRouter";
 import { CredentialBroker } from "../credentials/credentialProxy";
 import type { AgentBackend as Driver } from "../drivers/index.js";
 import type { Logger } from "../logger";
+import {
+  DAEMON_SELF_SLEEP_TIMEOUT_MS,
+  type DaemonSelfSleepClock,
+} from "./daemonSelfSleep";
 
 const timelineSweepHarness = vi.hoisted(() => {
   let implementation: (workingDirectoryBase: string) => Promise<unknown> =
@@ -539,6 +543,87 @@ for await (const line of createInterface({ input: process.stdin })) {
     } finally {
       // stop is idempotent enough for the failure path and keeps the loopback
       // server from leaking if an assertion above throws early.
+      await daemon.stop();
+    }
+  });
+
+  it("resets self-sleep only for newer wakes and suspends it while an agent works", async () => {
+    const sockets: FakeSocket[] = [];
+    const sessions: DaemonFakeSession[] = [];
+    const timers: Array<{
+      callback: () => void;
+      delayMs: number;
+      cancelled: boolean;
+      handle: ReturnType<typeof setTimeout>;
+    }> = [];
+    const clock: DaemonSelfSleepClock = {
+      setTimer: (callback, delayMs) => {
+        const handle = { unref() {} } as ReturnType<typeof setTimeout>;
+        timers.push({ callback, delayMs, cancelled: false, handle });
+        return handle;
+      },
+      clearTimer: (handle) => {
+        const timer = timers.find((candidate) => candidate.handle === handle);
+        if (timer) timer.cancelled = true;
+      },
+    };
+    const onSelfSleep = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/enroll-agent")) return Response.json({ runnerKey: "runner_test" });
+      if (url.includes("/daemon/bots")) {
+        return Response.json({ bots: [{ id: "bot_1", name: "Bot", discriminator: "0001" }] });
+      }
+      return Response.json({ attempted: 0 });
+    }));
+
+    const daemon = await createDaemon({
+      machineKey: "cmk_self_sleep",
+      serverUrl: "http://server.invalid",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as never,
+      runtimeReport: [{ id: "codex" }],
+      driverFor: () => fullFakeDriver("codex"),
+      sessionFactory: () => {
+        const session = daemonFakeSession();
+        sessions.push(session);
+        return session;
+      },
+      capabilities: [],
+      onSelfSleep,
+      selfSleepClock: clock,
+    });
+    const wake = (seq: number) => sockets[0]!.emit("message", JSON.stringify({
+      type: "agent:wake",
+      agentId: "bot_1",
+      config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
+      launchId: `launch_${seq}`,
+      unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: seq },
+    }));
+
+    try {
+      expect(timers).toHaveLength(1);
+      expect(timers[0]?.delayMs).toBe(DAEMON_SELF_SLEEP_TIMEOUT_MS);
+      sockets[0]!.emit("open");
+      wake(1);
+      await vi.waitFor(() => expect(sessions).toHaveLength(1));
+      await vi.waitFor(() => expect(timers).toHaveLength(2));
+      expect(timers.every((timer) => timer.cancelled)).toBe(true);
+
+      await sessions[0]!.fire("runtime_event", { kind: "turn_end", sessionId: "test-session" });
+      await vi.waitFor(() => expect(timers).toHaveLength(3));
+      expect(timers[2]?.cancelled).toBe(false);
+
+      wake(1);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(timers).toHaveLength(3);
+
+      wake(2);
+      await vi.waitFor(() => expect(timers.length).toBeGreaterThanOrEqual(4));
+      expect(timers[2]?.cancelled).toBe(true);
+      timers[2]?.callback();
+      expect(onSelfSleep).not.toHaveBeenCalled();
+    } finally {
       await daemon.stop();
     }
   });
