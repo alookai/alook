@@ -26,7 +26,7 @@ pnpm dev:cli
 
 ## Project Structure
 
-Alook is a monorepo with five packages:
+Alook is a monorepo with nine packages:
 
 | Package | Location | What it does |
 |---------|----------|-------------|
@@ -35,6 +35,10 @@ Alook is a monorepo with five packages:
 | `@alook/shared` | `src/shared` | Types, constants, DB schema, validation |
 | `@alook/email-worker` | `src/email-worker` | Inbound email parsing and storage |
 | `@alook/ws-do` | `src/ws-do` | Real-time WebSocket channels |
+| `@alook/app` | `src/app` | One-command local bootstrap (`npx @alook/app onboard`) |
+| `@alook/daemon` | `src/daemon` | Host-side runtime backend, process manager, credential proxy |
+| `@alook/desktop` | `src/desktop` | Desktop app (Tauri) |
+| `@alook/wake-worker` | `src/wake-worker` | Wakes offline agents with unread messages |
 
 ## Making Changes
 
