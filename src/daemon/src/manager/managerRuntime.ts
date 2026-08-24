@@ -424,6 +424,7 @@ export class AgentProcessManager {
   private readonly liveSessions = new Map<string, string>();
   private readonly thinkingBuffers = new Map<string, string>();
   private readonly activeSpawnState = new Map<string, ActiveSpawnState>();
+  private readonly publishedAgentActivity = new Map<string, AgentActivityState>();
   private readonly traceProcessNonce = randomUUID();
   private nextSpawnOrdinal = 1;
   private nextDaemonTurnOrdinal = 1;
@@ -865,14 +866,20 @@ export class AgentProcessManager {
     }
     if (
       this.opts.onAgentActivity
-      && event.type !== "spawned"
       && event.type !== "admission_started"
       && event.type !== "admission_settled"
     ) {
       const after = this.deriveActivitySnapshot(state);
       for (const [agentId, activity] of Object.entries(after)) {
-        if (agentId in before && before[agentId] !== activity) {
+        if (!(agentId in before)) {
+          this.publishedAgentActivity.set(agentId, activity);
+          continue;
+        }
+        const previouslyPublished = this.publishedAgentActivity.get(agentId) ?? before[agentId];
+        const publishable = event.type !== "spawned" || activity === "running";
+        if (publishable && previouslyPublished !== activity) {
           this.opts.onAgentActivity({ agentId, state: activity });
+          this.publishedAgentActivity.set(agentId, activity);
         }
       }
     }

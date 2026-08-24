@@ -613,9 +613,12 @@ for await (const line of createInterface({ input: process.stdin })) {
       launchId: `launch_${seq}`,
       unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: seq },
     }));
-    const wakeAckCount = (seq: number) => sockets[0]!.sent
-      .map((frame) => JSON.parse(frame) as Record<string, unknown>)
+    const sentFrames = () => sockets[0]!.sent.map((frame) => JSON.parse(frame) as Record<string, unknown>);
+    const wakeAckCount = (seq: number) => sentFrames()
       .filter((frame) => frame.type === "agent_wake_ack" && frame.launchId === `launch_${seq}` && frame.status === "ok")
+      .length;
+    const activityCount = (state: "running" | "idle") => sentFrames()
+      .filter((frame) => frame.type === "agent_activity" && frame.agentId === "bot_1" && frame.state === state)
       .length;
 
     try {
@@ -625,10 +628,12 @@ for await (const line of createInterface({ input: process.stdin })) {
       wake(1);
       await vi.waitFor(() => expect(sessions).toHaveLength(1));
       await vi.waitFor(() => expect(wakeAckCount(1)).toBe(1));
+      await vi.waitFor(() => expect(activityCount("running")).toBe(1), { timeout: 5_000 });
       await vi.waitFor(() => expect(timers).toHaveLength(2));
-      await vi.waitFor(() => expect(timers.slice(0, 2).every((timer) => timer.cancelled)).toBe(true));
+      expect(timers.slice(0, 2).every((timer) => timer.cancelled)).toBe(true);
 
       await sessions[0]!.fire("runtime_event", { kind: "turn_end", sessionId: "test-session" });
+      await vi.waitFor(() => expect(activityCount("idle")).toBe(1), { timeout: 5_000 });
       await vi.waitFor(() => expect(timers).toHaveLength(3));
       expect(timers[2]?.cancelled).toBe(false);
 
@@ -640,6 +645,7 @@ for await (const line of createInterface({ input: process.stdin })) {
       await vi.waitFor(() => expect(wakeAckCount(2)).toBe(1));
       await vi.waitFor(() => expect(timers.length).toBeGreaterThanOrEqual(4));
       expect(timers[2]?.cancelled).toBe(true);
+      expect(timers[3]?.cancelled).toBe(false);
       timers[2]?.callback();
       expect(onSelfSleep).not.toHaveBeenCalled();
     } finally {

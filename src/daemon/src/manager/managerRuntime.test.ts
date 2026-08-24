@@ -1793,6 +1793,63 @@ describe("AgentProcessManager — session race conditions", () => {
 });
 
 describe("AgentProcessManager — onAgentActivity (derived activity reporting)", () => {
+  it.each(["turn-before-spawn", "spawn-before-turn"] as const)(
+    "publishes one running edge without a transient idle when admission order is %s",
+    async (order) => {
+      const session = fakeSession(`activity-${order}`);
+      const onAgentActivity = vi.fn();
+      const mgr = new AgentProcessManager({
+        driverFor: () => fakeDriver("codex"),
+        baseContextFor: () => ({
+          workingDirectory: "/tmp",
+          agentId: "a1",
+          standingPrompt: "",
+          config: {} as LaunchContext["config"],
+          credentialProxy: {} as LaunchContext["credentialProxy"],
+        }),
+        sessionFactory: (hooks) => bindFactorySession(hooks, session),
+        onAgentActivity,
+      });
+      const dispatch = (event: Record<string, unknown>) => (
+        mgr as unknown as { dispatch(value: unknown): void }
+      ).dispatch(event);
+
+      mgr.register("a1");
+      mgr.deliver("a1", { id: "root", text: "hello" });
+      expect(onAgentActivity.mock.calls.map((call) => call[0])).toEqual([
+        { agentId: "a1", state: "starting" },
+      ]);
+
+      const turnStarted = {
+        type: "turn_started",
+        agentId: "a1",
+        sessionInstanceId: session.sessionInstanceId,
+        turnId: "root-turn",
+        commandIds: ["root"],
+        nowMs: 1,
+      };
+      if (order === "turn-before-spawn") {
+        dispatch(turnStarted);
+        dispatch({ type: "spawned", agentId: "a1", nowMs: 2 });
+      } else {
+        dispatch({ type: "spawned", agentId: "a1", nowMs: 1 });
+        dispatch({
+          type: "admission_settled",
+          agentId: "a1",
+          sessionInstanceId: session.sessionInstanceId,
+          commandId: "root",
+          outcome: "accepted",
+        });
+        dispatch(turnStarted);
+      }
+
+      expect(onAgentActivity.mock.calls.map((call) => call[0])).toEqual([
+        { agentId: "a1", state: "starting" },
+        { agentId: "a1", state: "running" },
+      ]);
+    },
+  );
+
   it("fires exactly once per real derived transition — the turn_end→idle transition fires once, not re-fired while the FSM stays running until hibernation", async () => {
     vi.useFakeTimers();
     try {
