@@ -34,6 +34,7 @@ function dm(id: string): UnreadDm {
     channelId: id,
     otherUserId: `u-${id}`,
     otherUserName: id,
+    otherUserDiscriminator: "0001",
     otherUserAvatar: "?",
     lastMessageAt: "2026-01-01T00:00:00.000Z",
   }

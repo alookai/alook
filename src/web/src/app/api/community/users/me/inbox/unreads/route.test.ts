@@ -146,8 +146,8 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
   it("returns unread DMs sorted most-recent first", async () => {
     mockListEligibleUnreadChannels.mockResolvedValue([])
     mockListEligibleUnreadDms.mockResolvedValue([
-      { channelId: "dm_1", otherUserId: "u2", otherUserName: "Alice", otherUserImage: null, lastMessageAt: "2026-06-25T09:00:00Z" },
-      { channelId: "dm_2", otherUserId: "u3", otherUserName: "Bob", otherUserImage: "https://cdn/b.png", lastMessageAt: "2026-06-25T11:00:00Z" },
+      { channelId: "dm_1", otherUserId: "u2", otherUserName: "Alice", otherUserDiscriminator: "1111", otherUserImage: null, lastMessageAt: "2026-06-25T09:00:00Z" },
+      { channelId: "dm_2", otherUserId: "u3", otherUserName: "Bob", otherUserDiscriminator: "2222", otherUserImage: "https://cdn/b.png", lastMessageAt: "2026-06-25T11:00:00Z" },
     ])
 
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
@@ -156,6 +156,7 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
     expect(res.status).toBe(200)
     expect(body.dms).toHaveLength(2)
     expect(body.dms[0].channelId).toBe("dm_2")
+    expect(body.dms[0].otherUserDiscriminator).toBe("2222")
     expect(body.dms[0].otherUserAvatar).toBe("https://cdn/b.png")
     expect(body.dms[1].channelId).toBe("dm_1")
     // No cdn image → avatar falls back to the initial letter.
@@ -174,7 +175,7 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
   it("returns dms alongside servers when both have unreads", async () => {
     mockListEligibleUnreadChannels.mockResolvedValue([row({ channelId: "c1" })])
     mockListEligibleUnreadDms.mockResolvedValue([
-      { channelId: "dm_1", otherUserId: "u2", otherUserName: "Alice", otherUserImage: null, lastMessageAt: "2026-06-25T12:00:00Z" },
+      { channelId: "dm_1", otherUserId: "u2", otherUserName: "Alice", otherUserDiscriminator: "1111", otherUserImage: null, lastMessageAt: "2026-06-25T12:00:00Z" },
     ])
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/unreads"))
     const body = await res.json()

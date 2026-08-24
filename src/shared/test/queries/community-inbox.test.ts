@@ -397,13 +397,14 @@ describe("listUnreadDms — seq read-watermark behaviour", () => {
     const db = createUnreadDmRowMock([
       {
         channelId: "dm_ch_1", lastMessageAt: "2026-07-06T00:00:05.000Z",
-        hasReadState: 1, hasUnreadBeyondSeq: 1, otherUserId: "u_alice", otherUserName: "Alice", otherUserImage: null,
+        hasReadState: 1, hasUnreadBeyondSeq: 1, otherUserId: "u_alice", otherUserName: "Alice", otherUserDiscriminator: "1111", otherUserImage: null,
       },
     ]);
     const result = await inboxQueries.listUnreadDms(db, "u_viewer");
     expect(result).toHaveLength(1);
     expect(result[0]!.channelId).toBe("dm_ch_1");
     expect(result[0]!.otherUserId).toBe("u_alice");
+    expect(result[0]!.otherUserDiscriminator).toBe("1111");
   });
 
   it("filters out DMs where the viewer is caught up (nothing beyond lastReadSeq)", async () => {
@@ -411,7 +412,7 @@ describe("listUnreadDms — seq read-watermark behaviour", () => {
     const db = createUnreadDmRowMock([
       {
         channelId: "dm_ch_1", lastMessageAt: ts,
-        hasReadState: 1, hasUnreadBeyondSeq: 0, otherUserId: "u_alice", otherUserName: "Alice", otherUserImage: null,
+        hasReadState: 1, hasUnreadBeyondSeq: 0, otherUserId: "u_alice", otherUserName: "Alice", otherUserDiscriminator: "1111", otherUserImage: null,
       },
     ]);
     const result = await inboxQueries.listUnreadDms(db, "u_viewer");
@@ -422,7 +423,7 @@ describe("listUnreadDms — seq read-watermark behaviour", () => {
     const db = createUnreadDmRowMock([
       {
         channelId: "dm_ch_1", lastMessageAt: "2026-07-06T00:00:00.000Z",
-        hasReadState: 0, hasUnreadBeyondSeq: 0, otherUserId: "u_alice", otherUserName: "Alice", otherUserImage: "https://cdn/a.png",
+        hasReadState: 0, hasUnreadBeyondSeq: 0, otherUserId: "u_alice", otherUserName: "Alice", otherUserDiscriminator: "1111", otherUserImage: "https://cdn/a.png",
       },
     ]);
     const result = await inboxQueries.listUnreadDms(db, "u_viewer");
@@ -434,7 +435,7 @@ describe("listUnreadDms — seq read-watermark behaviour", () => {
     const db = createUnreadDmRowMock([
       {
         channelId: "dm_ch_1", lastMessageAt: null,
-        hasReadState: 0, hasUnreadBeyondSeq: 0, otherUserId: "u_alice", otherUserName: "Alice", otherUserImage: null,
+        hasReadState: 0, hasUnreadBeyondSeq: 0, otherUserId: "u_alice", otherUserName: "Alice", otherUserDiscriminator: "1111", otherUserImage: null,
       },
     ]);
     const result = await inboxQueries.listUnreadDms(db, "u_viewer");

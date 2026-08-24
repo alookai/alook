@@ -3,8 +3,10 @@
 import { useCallback, useState, type ComponentProps } from "react"
 import { communityKeys } from "@/lib/query-keys"
 import { channelHref } from "@/lib/community/community-route"
-import type { Marked } from "@/lib/community/models/inbox"
+import type { Marked, UnreadDm } from "@/lib/community/models/inbox"
+import { dmSummaryFromInbox, upsertDmSummary, type DmCache } from "@/lib/community/dm-cache"
 import { useInboxUnreads, useInboxMentions, useInboxMarked } from "@/hooks/community/use-inbox"
+import { startDmRouteVerification } from "@/hooks/community/use-dm-route-verification"
 import { useInboxAutoCollapse } from "@/hooks/community/use-inbox-auto-collapse"
 import {
   useMarkAllInboxRead,
@@ -77,22 +79,17 @@ export function useShellInboxController({
     }
   }, [cancelPendingNavigation, router, watchInboxItem])
 
-  const openDm = useCallback((dmId: string) => {
+  const openDm = useCallback((dm: UnreadDm) => {
+    const dmId = dm.channelId
     queryClient.setQueryData(
       communityKeys.dms(),
-      (previous: { conversations: { id: string; unread?: boolean }[] } | undefined) =>
-        previous
-          ? {
-            ...previous,
-            conversations: previous.conversations.map((dm) =>
-              dm.id === dmId ? { ...dm, unread: false } : dm
-            ),
-          }
-          : previous,
+      (previous: DmCache | undefined) =>
+        upsertDmSummary(previous, dmSummaryFromInbox(dm)),
     )
     watchInboxItem(`dm:${dmId}`)
     cancelPendingNavigation()
     router.push(`/c/me/${dmId}`)
+    void startDmRouteVerification(queryClient, dmId).catch(() => undefined)
   }, [cancelPendingNavigation, queryClient, router, watchInboxItem])
 
   const popoverProps: ComponentProps<typeof InboxPopover> = {

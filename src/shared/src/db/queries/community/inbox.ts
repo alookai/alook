@@ -485,6 +485,7 @@ export interface UnreadDmRow {
   channelId: string;
   otherUserId: string;
   otherUserName: string;
+  otherUserDiscriminator: string;
   otherUserImage: string | null;
   lastMessageAt: string;
 }
@@ -542,6 +543,7 @@ export async function listUnreadDms(
       hasUnreadBeyondSeq: sql<number>`EXISTS (SELECT 1 FROM ${communityMessage} m WHERE m.channel_id = ${communityChannel.id} AND m.seq > COALESCE(${communityReadState.lastReadSeq}, 0))`,
       otherUserId: user.id,
       otherUserName: user.name,
+      otherUserDiscriminator: user.discriminator,
       otherUserImage: user.image,
     })
     .from(communityChannel)
@@ -587,6 +589,7 @@ export async function listUnreadDms(
       channelId: r.channelId,
       otherUserId: r.otherUserId,
       otherUserName: r.otherUserName,
+      otherUserDiscriminator: r.otherUserDiscriminator,
       otherUserImage: r.otherUserImage,
       lastMessageAt: r.lastMessageAt!,
     }));
@@ -619,6 +622,7 @@ export async function listEligibleUnreadDms(
             channelId: communityChannel.id,
             otherUserId: user.id,
             otherUserName: user.name,
+            otherUserDiscriminator: user.discriminator,
             otherUserImage: user.image,
             lastMessageAt: sql<string>`MAX(${communityMessage.createdAt})`,
           })

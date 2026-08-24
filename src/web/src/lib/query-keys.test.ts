@@ -109,6 +109,11 @@ describe("communityKeys", () => {
   it("keys top-level social/machine feeds directly under all", () => {
     expect(communityKeys.friends()).toEqual(["community", "friends"])
     expect(communityKeys.dms()).toEqual(["community", "dms"])
+    expect(communityKeys.dmRouteVerification("d1")).toEqual([
+      "community",
+      "dm-route-verification",
+      "d1",
+    ])
     expect(communityKeys.folders()).toEqual(["community", "folders"])
     expect(communityKeys.machines()).toEqual(["community", "machines"])
     expect(communityKeys.notificationSettings()).toEqual([

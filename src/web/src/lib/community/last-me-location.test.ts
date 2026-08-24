@@ -71,8 +71,7 @@ describe("resolveMeLocationStatus", () => {
     expect(resolveMeLocationStatus({
       pathname: "/c/me/machines",
       dmId: undefined,
-      dmsReady: false,
-      dmIds: [],
+      dmRouteStatus: "idle",
     })).toBe("remember")
   })
 
@@ -80,8 +79,7 @@ describe("resolveMeLocationStatus", () => {
     expect(resolveMeLocationStatus({
       pathname: "/c/me/dm_1",
       dmId: "dm_1",
-      dmsReady: false,
-      dmIds: [],
+      dmRouteStatus: "pending",
     })).toBe("wait")
   })
 
@@ -89,14 +87,12 @@ describe("resolveMeLocationStatus", () => {
     expect(resolveMeLocationStatus({
       pathname: "/c/me/dm_1",
       dmId: "dm_1",
-      dmsReady: true,
-      dmIds: ["dm_1"],
+      dmRouteStatus: "present",
     })).toBe("remember")
     expect(resolveMeLocationStatus({
       pathname: "/c/me/dm_missing",
       dmId: "dm_missing",
-      dmsReady: true,
-      dmIds: ["dm_1"],
+      dmRouteStatus: "missing",
     })).toBe("stale")
   })
 
@@ -104,8 +100,7 @@ describe("resolveMeLocationStatus", () => {
     expect(resolveMeLocationStatus({
       pathname: "/c/me/dm_1/messages",
       dmId: "dm_1",
-      dmsReady: true,
-      dmIds: ["dm_1"],
+      dmRouteStatus: "present",
     })).toBe("ignore")
   })
 })

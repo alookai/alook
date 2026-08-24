@@ -113,5 +113,6 @@ export const tid = {
   forumNewPost: "community-forum-new-post",
   forumPostList: "community-forum-post-list",
   inboxUnreadChild: (id: string) => `community-inbox-unread-child-${id}`,
+  inboxUnreadDm: (id: string) => `community-inbox-unread-dm-${id}`,
   channelRefPill: (id: string) => `community-channel-ref-pill-${id}`,
 } as const

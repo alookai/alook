@@ -4,9 +4,11 @@ import { useCallback, useEffect, useMemo, type ReactNode } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { usePathname, useRouter, useParams } from "next/navigation"
 import { ShellFrame } from "@/components/community/shell/shell-frame"
+import { CommunityPendingFrame } from "@/components/community/shell/community-pending-frame"
 import { DmSidebar } from "@/components/community/channels/dm-sidebar"
 import { useCommunityStore, useCurrentChannelId } from "@/stores/community"
 import { useDms } from "@/hooks/community/use-dms"
+import { useDmRouteVerification } from "@/hooks/community/use-dm-route-verification"
 import { useFriends, useFriendsPresence } from "@/hooks/community/use-friends"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
@@ -26,7 +28,8 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const params = useParams<{ dmId?: string }>()
-  const { dms: rawDms, isLoading: dmsLoading, isSuccess: dmsReady } = useDms()
+  const { dms: rawDms, isLoading: dmsLoading } = useDms()
+  const dmRouteStatus = useDmRouteVerification(params.dmId, rawDms)
   const onlineUserIds = useOnlineUserIds()
   const dms = useMemo(
     () =>
@@ -69,8 +72,7 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   const meLocationStatus = resolveMeLocationStatus({
     pathname,
     dmId: params.dmId,
-    dmsReady,
-    dmIds: rawDms.map((dm) => dm.id),
+    dmRouteStatus,
   })
 
   useEffect(() => {
@@ -159,7 +161,9 @@ export default function MeLayout({ children }: { children: ReactNode }) {
       activeServerId={undefined}
       sidebar={sidebar}
     >
-      {children}
+      {params.dmId && meLocationStatus !== "remember"
+        ? <CommunityPendingFrame href={pathname} />
+        : children}
     </ShellFrame>
   )
 }
