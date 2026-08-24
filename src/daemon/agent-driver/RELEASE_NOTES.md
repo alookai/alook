@@ -1,5 +1,25 @@
 # Release notes
 
+## Complete semantic output and payload-free liveness
+
+- Replaced public text/reasoning delta events with
+  `assistant_message_completed` and `assistant_reasoning_completed`.
+- Provider fragments now stay inside the logical session, where they are
+  assembled per exact root turn with a 1 MiB UTF-8 bound and explicit
+  completion truncation metadata.
+- Added payload-free `work_heartbeat` events for real fragment activity. The
+  first fragment emits immediately, later fragments are coalesced to at most
+  one heartbeat per second, and no timer creates trailing activity.
+- Crashes discard incomplete fragment buffers; trusted turn terminals flush
+  delta-only backends before `turn_completed`.
+
+### Compatibility
+
+This is an intentional breaking change to the repository-private event
+contract. Consumers must handle complete semantic events rather than public
+transport chunks. Provider adapter-author fragment/completion events remain
+internal to `@alook/agent-driver`.
+
 ## Persistent built-in sessions and logical diagnostics
 
 - Unified Claude, Codex, Cursor, OpenCode, and Pi behind the persistent

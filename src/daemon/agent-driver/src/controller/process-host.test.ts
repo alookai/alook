@@ -164,7 +164,7 @@ describe("ProcessLane — raw stdout tap (P0-1)", () => {
   });
 
   it("continues through normalizeLine and runtime_event when the tap throws", async () => {
-    const parsedEvent = { kind: "text", text: "ok" } as const;
+    const parsedEvent = { kind: "assistant_message_completed", text: "ok" } as const;
     const normalizeLine = vi.fn(() => [parsedEvent]);
     const { driver, stdout } = controllableDriver(normalizeLine);
     const session = new ProcessLane(driver, minimalCtx(), {

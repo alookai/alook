@@ -5,20 +5,21 @@ import { syncBuiltinESMExports } from "node:module";
 import * as os from "os";
 import * as path from "path";
 import { createTimelineRecorder } from "./recorder";
-import { createTimelineEntry, filenameForDate, readRecentEntries } from "./timeline";
+import type { TimelineRecorderLike, TimelineTurnOwner } from "./recorder";
+import { createTimelineEntry, filenameForDate, readRecentEntries, TIMELINE_MAX_BYTES } from "./timeline";
 import { acquireLock, lockPathFor, releaseLock } from "./filelock";
 import type { Message } from "../server/contract";
 
 const tmpDirs: string[] = [];
 function mkDir(): string {
-  const d = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "recorder-"));
-  tmpDirs.push(d);
-  return d;
+  const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "recorder-"));
+  tmpDirs.push(dir);
+  return dir;
 }
-afterEach(() => {
-  for (const d of tmpDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
-});
 
+afterEach(() => {
+  for (const dir of tmpDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+});
 const NOW = () => new Date("2026-06-25T12:00:00");
 const msg = (seq: string, text: string): Message => ({
   seq,
@@ -28,126 +29,369 @@ const msg = (seq: string, text: string): Message => ({
   time: "2026-06-25T12:00:00+00:00",
 });
 
-describe("createTimelineRecorder (append-only, 4-field schema)", () => {
-  it("treats an empty pull as a no-op before resolving or preparing the timeline directory", () => {
+function begin(
+  recorder: TimelineRecorderLike,
+  turnId: string,
+  sessionInstanceId = "epoch-1",
+  agentId = "a",
+): TimelineTurnOwner {
+  const owner = {
+    sessionInstanceId,
+    rootTurnId: turnId,
+    barrierGeneration: recorder.barrierGeneration(agentId),
+  };
+  recorder.beginTurn(agentId, owner);
+  return owner;
+}
+
+function observe(
+  recorder: TimelineRecorderLike,
+  agentId: string,
+  rootTurnId: string,
+  messages: Message[],
+): TimelineTurnOwner {
+  const owner = begin(recorder, rootTurnId, `epoch-${rootTurnId}`, agentId);
+  recorder.recordInboxPull(agentId, owner, messages);
+  recorder.finalizeTurn(agentId, owner);
+  return owner;
+}
+
+describe("createTimelineRecorder exact turn ownership", () => {
+  it("keeps an empty pull as a no-op without resolving a directory", () => {
     const timelineDirFor = vi.fn(() => {
       throw new Error("must not resolve a directory for an empty pull");
     });
-    const rec = createTimelineRecorder({ timelineDirFor, now: NOW });
+    const recorder = createTimelineRecorder({ timelineDirFor, now: NOW });
 
-    expect(() => rec.appendEntryForAgent("agent_1", [])).not.toThrow();
+    expect(() => recorder.recordInboxPull("a", null, [])).not.toThrow();
     expect(timelineDirFor).not.toHaveBeenCalled();
   });
 
-  it("bakes the session id (set before the pull) into the opened entry, then accumulates responses", () => {
+  it("records complete messages against one exact row and finalizes idempotently", () => {
     const dir = mkDir();
-    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
-
-    // session_init lands first (control plane), then the agent pulls (data plane).
-    rec.setSession("agent_1", "sess-42");
-    rec.appendEntryForAgent("agent_1", [msg("#1", "hello team")]);
-    rec.appendResponseToLatest("agent_1", "thinking…");
-    rec.appendResponseToLatest("agent_1", "hi!");
-
-    const [row] = readRecentEntries(dir, { now: NOW() });
-    expect(row.messages.map((m) => m.content.text)).toEqual(["hello team"]);
-    expect(row.session_id).toBe("sess-42");
-    expect(row.provider).toBe("claude");
-    expect(row.agent_responses).toEqual(["thinking…", "hi!"]);
-  });
-
-  it("a pull AFTER the latest row already has a response opens a new entry", () => {
-    const dir = mkDir();
-    const rec = createTimelineRecorder({ timelineDirFor: () => dir, now: NOW });
-
-    rec.appendEntryForAgent("agent_1", [msg("#1", "first")]);
-    rec.appendResponseToLatest("agent_1", "reply to first");
-    rec.appendEntryForAgent("agent_1", [msg("#2", "second")]); // latest had a response → new entry
-    rec.appendResponseToLatest("agent_1", "reply to second");
-
-    const rows = readRecentEntries(dir, { now: NOW() });
-    expect(rows).toHaveLength(2);
-    expect(rows[0].messages[0].content.text).toBe("first");
-    expect(rows[0].agent_responses).toEqual(["reply to first"]);
-    expect(rows[1].messages[0].content.text).toBe("second");
-    expect(rows[1].agent_responses).toEqual(["reply to second"]);
-  });
-
-  it("consecutive pulls with NO response between merge into one entry (same session/provider)", () => {
-    const dir = mkDir();
-    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
-    rec.setSession("agent_1", "sess-1");
-
-    rec.appendEntryForAgent("agent_1", [msg("#1", "first")]);
-    rec.appendEntryForAgent("agent_1", [msg("#2", "second")]); // no response yet → merge
-    rec.appendResponseToLatest("agent_1", "reply to both");
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
+    recorder.setSession("a", "sess-1", "epoch-1");
+    const owner = begin(recorder, "turn-1");
+    recorder.recordInboxPull("a", owner, [msg("#1", "hello")]);
+    for (let index = 1; index <= 6; index++) recorder.recordAssistantMessage("a", owner, `response-${index}`);
+    recorder.finalizeTurn("a", owner);
+    recorder.finalizeTurn("a", owner);
 
     const rows = readRecentEntries(dir, { now: NOW() });
     expect(rows).toHaveLength(1);
-    expect(rows[0].messages.map((m) => m.content.text)).toEqual(["first", "second"]);
-    expect(rows[0].agent_responses).toEqual(["reply to both"]);
+    expect(rows[0]).toMatchObject({ session_id: "sess-1", provider: "claude" });
+    expect(rows[0].messages.map((message) => message.content.text)).toEqual(["hello"]);
+    expect(rows[0].agent_responses).toEqual([
+      "response-2", "response-3", "response-4", "response-5", "response-6",
+    ]);
   });
 
-  it("writes a non-empty pull after local midnight only to the new day's file", () => {
+  it("does not let pre-pull output from turn B mutate turn A", () => {
     const dir = mkDir();
-    let current = new Date("2026-06-25T12:00:00");
-    const rec = createTimelineRecorder({
-      timelineDirFor: () => dir,
-      providerFor: () => "claude",
-      now: () => current,
-    });
-    rec.setSession("agent_1", "sess-1");
-    rec.appendEntryForAgent("agent_1", [msg("#1", "before midnight")]);
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, now: NOW });
+    const ownerA = begin(recorder, "turn-a");
+    recorder.recordInboxPull("a", ownerA, [msg("#1", "for A")]);
+    recorder.recordAssistantMessage("a", ownerA, "answer A");
+    recorder.finalizeTurn("a", ownerA);
 
-    current = new Date("2026-06-26T12:00:00");
-    rec.appendEntryForAgent("agent_1", [msg("#2", "after midnight")]);
-
-    const firstDay = fs.readFileSync(path.join(dir, filenameForDate(new Date("2026-06-25T12:00:00"))), "utf8");
-    const secondDay = fs.readFileSync(path.join(dir, filenameForDate(current)), "utf8");
-    expect(firstDay).toContain("before midnight");
-    expect(firstDay).not.toContain("after midnight");
-    expect(secondDay).toContain("after midnight");
-    expect(secondDay).not.toContain("before midnight");
-  });
-
-  it("does NOT merge when session_id differs (new session = new entry)", () => {
-    const dir = mkDir();
-    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
-    rec.setSession("agent_1", "sess-1");
-    rec.appendEntryForAgent("agent_1", [msg("#1", "first")]);
-    rec.setSession("agent_1", "sess-2");
-    rec.appendEntryForAgent("agent_1", [msg("#2", "second")]);
+    const ownerB = begin(recorder, "turn-b");
+    recorder.recordAssistantMessage("a", ownerB, "opening B");
+    recorder.finalizeTurn("a", ownerB);
 
     const rows = readRecentEntries(dir, { now: NOW() });
     expect(rows).toHaveLength(2);
-    expect(rows[0].session_id).toBe("sess-1");
-    expect(rows[1].session_id).toBe("sess-2");
+    expect(rows[0].agent_responses).toEqual(["answer A"]);
+    expect(rows[1].messages).toEqual([]);
+    expect(rows[1].agent_responses).toEqual(["opening B"]);
   });
 
-  it("resumeSessionId returns the latest session id for the agent", () => {
+  it("binds a late pull response to captured turn A after turn B begins", () => {
     const dir = mkDir();
-    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, now: NOW });
+    const ownerA = begin(recorder, "turn-a");
+    recorder.recordAssistantMessage("a", ownerA, "answer A");
+    recorder.finalizeTurn("a", ownerA);
 
-    rec.setSession("agent_1", "sess-old");
-    rec.appendEntryForAgent("agent_1", [msg("#1", "a")]);
-    expect(rec.resumeSessionId("agent_1", "claude")).toBe("sess-old");
+    const ownerB = begin(recorder, "turn-b");
+    recorder.recordInboxPull("a", ownerA, [msg("#1", "late observation for A")]);
+    recorder.recordAssistantMessage("a", ownerB, "answer B");
+    recorder.finalizeTurn("a", ownerB);
 
-    rec.setSession("agent_1", "sess-new");
-    rec.appendEntryForAgent("agent_1", [msg("#2", "b")]);
-    expect(rec.resumeSessionId("agent_1", "claude")).toBe("sess-new");
+    const rows = readRecentEntries(dir, { now: NOW() });
+    expect(rows).toHaveLength(2);
+    expect(rows[0].messages.map((message) => message.content.text)).toEqual(["late observation for A"]);
+    expect(rows[0].agent_responses).toEqual(["answer A"]);
+    expect(rows[1].agent_responses).toEqual(["answer B"]);
   });
 
-  it("does not resume across providers", () => {
+  it("keeps an ownerless pull unowned when a later turn starts", () => {
     const dir = mkDir();
-    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
-    rec.setSession("a", "sess-claude");
-    rec.appendEntryForAgent("a", [msg("#1", "x")]);
-    expect(rec.resumeSessionId("a", "codex")).toBeNull();
-    expect(rec.resumeSessionId("a", "claude")).toBe("sess-claude");
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, now: NOW });
+    recorder.recordInboxPull("a", null, [msg("#1", "ownerless")]);
+    const owner = begin(recorder, "turn-b");
+    recorder.recordAssistantMessage("a", owner, "answer B");
+    recorder.finalizeTurn("a", owner);
+
+    const rows = readRecentEntries(dir, { now: NOW() });
+    expect(rows).toHaveLength(2);
+    expect(rows[0].messages.map((message) => message.content.text)).toEqual(["ownerless"]);
+    expect(rows[0].agent_responses).toEqual([]);
+    expect(rows[1].agent_responses).toEqual(["answer B"]);
+  });
+
+  it("refreshes a captured handle across unrelated writes and updates only its row", () => {
+    const dir = mkDir();
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, now: NOW });
+    const owner = begin(recorder, "turn-a");
+    recorder.recordInboxPull("a", owner, [msg("#1", "first A")]);
+    recorder.recordInboxPull("a", null, [msg("#2", "unrelated newer row")]);
+    recorder.recordInboxPull("a", owner, [msg("#3", "busy A")]);
+
+    const rows = readRecentEntries(dir, { now: NOW() });
+    expect(rows).toHaveLength(2);
+    expect(rows[0].messages.map((message) => message.content.text)).toEqual(["first A", "busy A"]);
+    expect(rows[1].messages.map((message) => message.content.text)).toEqual(["unrelated newer row"]);
+  });
+
+  it("commits after midnight to the prior day's captured row", () => {
+    const dir = mkDir();
+    let current = new Date("2026-06-25T12:00:00");
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, now: () => current });
+    const owner = begin(recorder, "turn-a");
+    recorder.recordInboxPull("a", owner, [msg("#1", "before midnight")]);
+
+    current = new Date("2026-06-26T12:00:00");
+    recorder.recordAssistantMessage("a", owner, "after midnight response");
+    recorder.finalizeTurn("a", owner);
+
+    const firstFile = path.join(dir, filenameForDate(new Date("2026-06-25T12:00:00")));
+    expect(fs.readFileSync(firstFile, "utf8")).toContain("after midnight response");
+    expect(fs.existsSync(path.join(dir, filenameForDate(current)))).toBe(false);
+  });
+
+  it("opens a new-day target when the same turn pulls after midnight", () => {
+    const dir = mkDir();
+    let current = new Date("2026-06-25T12:00:00");
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, now: () => current });
+    const owner = begin(recorder, "turn-a");
+    recorder.recordInboxPull("a", owner, [msg("#1", "day one")]);
+    current = new Date("2026-06-26T12:00:00");
+    recorder.recordInboxPull("a", owner, [msg("#2", "day two")]);
+    recorder.recordAssistantMessage("a", owner, "day two response");
+    recorder.finalizeTurn("a", owner);
+
+    const first = fs.readFileSync(path.join(dir, filenameForDate(new Date("2026-06-25T12:00:00"))), "utf8");
+    const second = fs.readFileSync(path.join(dir, filenameForDate(current)), "utf8");
+    expect(first).toContain("day one");
+    expect(first).not.toContain("day two response");
+    expect(second).toContain("day two");
+    expect(second).toContain("day two response");
+  });
+
+  it("bounds multibyte complete messages and row-fit truncation with one explicit marker", () => {
+    const dir = mkDir();
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, now: NOW });
+    const owner = begin(recorder, "turn-a");
+    recorder.recordInboxPull("a", owner, [msg("#1", "x".repeat(1_020_000))]);
+    recorder.recordAssistantMessage("a", owner, "你".repeat(30_000));
+    recorder.finalizeTurn("a", owner);
+
+    const [row] = readRecentEntries(dir, { now: NOW() });
+    expect(Buffer.byteLength(`${JSON.stringify(row)}\n`, "utf8")).toBeLessThanOrEqual(TIMELINE_MAX_BYTES);
+    expect(Buffer.byteLength(row.agent_responses[0]!, "utf8")).toBeLessThanOrEqual(65_536);
+    expect(row.agent_responses[0]).toMatch(/… \[truncated\]$/u);
+    expect(row.agent_responses[0]!.match(/… \[truncated\]/gu)).toHaveLength(1);
+  });
+
+  it("rejects an externally rewritten captured row instead of falling back to latest", () => {
+    const dir = mkDir();
+    const diagnostics: string[] = [];
+    const recorder = createTimelineRecorder({
+      timelineDirFor: () => dir,
+      now: NOW,
+      onDiagnostic: (event) => diagnostics.push(`${event.code}:${event.reason ?? ""}`),
+    });
+    const owner = begin(recorder, "turn-a");
+    recorder.recordInboxPull("a", owner, [msg("#1", "original")]);
+    recorder.recordAssistantMessage("a", owner, "must not redirect");
+    const file = path.join(dir, filenameForDate(NOW()));
+    fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("original", "external"));
+    recorder.finalizeTurn("a", owner);
+
+    const rows = readRecentEntries(dir, { now: NOW() });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].messages[0].content.text).toBe("external");
+    expect(rows[0].agent_responses).toEqual([]);
+    expect(diagnostics).toContain("timeline_exact_write_rejected:generation");
   });
 });
 
-describe("forgetSession — inline system row", () => {
+describe("createTimelineRecorder barriers and pending commits", () => {
+  it("lets a retained pre-reset handle update in place before the durable barrier", () => {
+    const dir = mkDir();
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, now: NOW });
+    const owner = begin(recorder, "turn-a");
+    recorder.recordInboxPull("a", owner, [msg("#1", "old turn")]);
+    recorder.recordAssistantMessage("a", owner, "completed before reset");
+    recorder.forgetSession("a");
+    recorder.finalizeTurn("a", owner);
+
+    const rows = readRecentEntries(dir, { now: NOW() });
+    expect(rows).toHaveLength(2);
+    expect(rows[0].agent_responses).toEqual(["completed before reset"]);
+    expect(rows[1].system?.type).toBe("reset_session");
+  });
+
+  it("drops an old no-handle fallback across reset and model replacement fences", () => {
+    for (const fence of ["reset", "model"] as const) {
+      const dir = mkDir();
+      const diagnostics: string[] = [];
+      const recorder = createTimelineRecorder({
+        timelineDirFor: () => dir,
+        now: NOW,
+        onDiagnostic: (event) => diagnostics.push(`${event.code}:${event.reason ?? ""}`),
+      });
+      const owner = begin(recorder, `turn-${fence}`);
+      recorder.recordAssistantMessage("a", owner, "must be dropped");
+      if (fence === "reset") recorder.forgetSession("a");
+      else recorder.fenceSession("a");
+      recorder.finalizeTurn("a", owner);
+
+      const rows = readRecentEntries(dir, { now: NOW() });
+      expect(rows.flatMap((row) => row.agent_responses)).not.toContain("must be dropped");
+      expect(diagnostics.some((entry) => entry.includes("timeline_fallback_rejected"))).toBe(true);
+    }
+  });
+
+  it("retains a lock-missed exact commit and retries only on later recorder activity", () => {
+    const dir = mkDir();
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
+    recorder.setSession("a", "sess-1", "epoch-1");
+    const owner = begin(recorder, "turn-a");
+    recorder.recordInboxPull("a", owner, [msg("#1", "hello")]);
+    recorder.recordAssistantMessage("a", owner, "pending response");
+    const lock = lockPathFor(dir, filenameForDate(NOW()));
+    expect(acquireLock(lock)).toBe(true);
+    try {
+      recorder.finalizeTurn("a", owner);
+    } finally {
+      releaseLock(lock);
+    }
+
+    expect(recorder.resumeSessionId("a", "claude")).toBe("sess-1");
+    expect(readRecentEntries(dir, { now: NOW() })[0].agent_responses).toEqual([]);
+    begin(recorder, "turn-b", "epoch-2");
+    expect(readRecentEntries(dir, { now: NOW() })[0].agent_responses).toEqual(["pending response"]);
+  });
+
+  it("retains an authorized pre-pull fallback commit when the next turn begins", () => {
+    const dir = mkDir();
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, now: NOW });
+    const owner = begin(recorder, "turn-a");
+    recorder.recordAssistantMessage("a", owner, "pending fallback");
+    const lock = lockPathFor(dir, filenameForDate(NOW()));
+    expect(acquireLock(lock)).toBe(true);
+    try {
+      recorder.finalizeTurn("a", owner);
+    } finally {
+      releaseLock(lock);
+    }
+
+    begin(recorder, "turn-b", "epoch-2");
+    const rows = readRecentEntries(dir, { now: NOW() });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].messages).toEqual([]);
+    expect(rows[0].agent_responses).toEqual(["pending fallback"]);
+  });
+
+  it("retains a write-failed exact commit and retries after later real activity", () => {
+    if (process.platform === "win32") return;
+    const dir = mkDir();
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, now: NOW });
+    const owner = begin(recorder, "turn-a");
+    recorder.recordInboxPull("a", owner, [msg("#1", "hello")]);
+    recorder.recordAssistantMessage("a", owner, "write retry");
+    fs.chmodSync(dir, 0o500);
+    try {
+      recorder.finalizeTurn("a", owner);
+    } finally {
+      fs.chmodSync(dir, 0o700);
+    }
+
+    expect(readRecentEntries(dir, { now: NOW() })[0].agent_responses).toEqual([]);
+    begin(recorder, "turn-b", "epoch-2");
+    expect(readRecentEntries(dir, { now: NOW() })[0].agent_responses).toEqual(["write retry"]);
+  });
+
+  it("expires a pending commit after 15 minutes and never redirects it", () => {
+    const dir = mkDir();
+    let current = new Date("2026-06-25T12:00:00");
+    const diagnostics: string[] = [];
+    const recorder = createTimelineRecorder({
+      timelineDirFor: () => dir,
+      now: () => current,
+      onDiagnostic: (event) => diagnostics.push(event.code),
+    });
+    const owner = begin(recorder, "turn-a");
+    recorder.recordInboxPull("a", owner, [msg("#1", "hello")]);
+    recorder.recordAssistantMessage("a", owner, "expired response");
+    const lock = lockPathFor(dir, filenameForDate(current));
+    expect(acquireLock(lock)).toBe(true);
+    try {
+      recorder.finalizeTurn("a", owner);
+    } finally {
+      releaseLock(lock);
+    }
+    current = new Date(current.getTime() + 15 * 60_000 + 1);
+    recorder.setSession("a", "new-session", "epoch-2");
+
+    expect(readRecentEntries(dir, { now: current })[0].agent_responses).toEqual([]);
+    expect(diagnostics).toContain("timeline_pending_commit_expired");
+  });
+
+  it("bounds pending exact commits to eight per agent", () => {
+    const dir = mkDir();
+    const diagnostics: string[] = [];
+    const recorder = createTimelineRecorder({
+      timelineDirFor: () => dir,
+      now: NOW,
+      onDiagnostic: (event) => diagnostics.push(event.code),
+    });
+    const owners: TimelineTurnOwner[] = [];
+    for (let index = 1; index <= 9; index++) {
+      const owner = begin(recorder, `turn-${index}`, `epoch-${index}`);
+      recorder.recordInboxPull("a", owner, [msg(`#${index}`, `message-${index}`)]);
+      owners.push(owner);
+    }
+    const lock = lockPathFor(dir, filenameForDate(NOW()));
+    expect(acquireLock(lock)).toBe(true);
+    try {
+      for (const [index, owner] of owners.entries()) {
+        recorder.recordAssistantMessage("a", owner, `response-${index + 1}`);
+        recorder.finalizeTurn("a", owner);
+      }
+    } finally {
+      releaseLock(lock);
+    }
+
+    expect(diagnostics).toContain("timeline_pending_commit_overflow");
+    expect(readRecentEntries(dir, { now: NOW() }).flatMap((row) => row.agent_responses)).toEqual([]);
+  });
+});
+
+describe("createTimelineRecorder durable resume control", () => {
+  it("resolves only the latest provider-compatible exact turn", () => {
+    const dir = mkDir();
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
+    expect(recorder.setSession("a", "sess-old", "epoch-old")).toBe(true);
+    observe(recorder, "a", "old", [msg("#1", "old")]);
+    expect(recorder.setSession("a", "sess-new", "epoch-new")).toBe(true);
+    observe(recorder, "a", "new", [msg("#2", "new")]);
+
+    expect(recorder.resumeSessionId("a", "claude")).toBe("sess-new");
+    expect(recorder.resumeSessionId("a", "codex")).toBeNull();
+  });
+
   it("keeps resume resolution at a fixed open-file bound with 1,000 historical day files", () => {
     const dir = mkDir();
     const emptyTurn = `${JSON.stringify(createTimelineEntry({ messages: [] }))}\n`;
@@ -162,20 +406,20 @@ describe("forgetSession — inline system row", () => {
       day.setDate(day.getDate() - index);
       fs.writeFileSync(path.join(dir, filenameForDate(day)), emptyTurn);
     }
-    fs.writeFileSync(path.join(dir, ".resume-control.json"), JSON.stringify({
+    fs.writeFileSync(path.join(dir, ".resume-control.json"), `${JSON.stringify({
       version: 1,
       attemptedSessionId: null,
       fencedSessionId: null,
       fullBarrier: null,
-    }) + "\n");
+    })}\n`);
 
     const originalOpenSync = nodeFs.openSync;
     const open = vi.fn(originalOpenSync);
     nodeFs.openSync = open as typeof nodeFs.openSync;
     syncBuiltinESMExports();
     try {
-      const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
-      expect(rec.resolveResumeSession("agent_1", "codex")).toEqual({
+      const recorder = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
+      expect(recorder.resolveResumeSession("a", "codex")).toEqual({
         kind: "none",
         stalledSessionId: null,
         fencedSessionId: null,
@@ -187,69 +431,28 @@ describe("forgetSession — inline system row", () => {
     }
   });
 
-  it("uses recent history only when control state is missing and fails closed for corrupt control inputs", () => {
-    const makeSessionHistory = (): { dir: string; controlPath: string } => {
+  it("uses history only when control is missing and fails closed for corrupt control", () => {
+    const makeHistory = (): { dir: string; control: string } => {
       const dir = mkDir();
-      const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
-      rec.setSession("agent_1", "sess-existing");
-      rec.appendEntryForAgent("agent_1", [msg("#1", "existing")]);
-      return { dir, controlPath: path.join(dir, ".resume-control.json") };
+      const recorder = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
+      recorder.setSession("a", "sess-existing", "epoch-existing");
+      observe(recorder, "a", "existing", [msg("#1", "existing")]);
+      return { dir, control: path.join(dir, ".resume-control.json") };
     };
     const resolve = (dir: string) => createTimelineRecorder({
       timelineDirFor: () => dir,
       providerFor: () => "codex",
       now: NOW,
-    }).resolveResumeSession("agent_1", "codex");
+    }).resolveResumeSession("a", "codex");
 
-    const missing = makeSessionHistory();
-    fs.unlinkSync(missing.controlPath);
-    expect(resolve(missing.dir)).toEqual({
-      kind: "session",
-      sessionId: "sess-existing",
-      stalledSessionId: null,
-      fencedSessionId: null,
-    });
+    const missing = makeHistory();
+    fs.unlinkSync(missing.control);
+    expect(resolve(missing.dir)).toMatchObject({ kind: "session", sessionId: "sess-existing" });
 
-    const corrupt = makeSessionHistory();
-    fs.writeFileSync(corrupt.controlPath, "{not-json}\n");
-    expect(resolve(corrupt.dir)).toEqual({
-      kind: "barrier",
-      type: "reset_session",
-      forgottenSessionId: null,
-      fencedSessionId: null,
-    });
-
-    const oversized = makeSessionHistory();
-    fs.writeFileSync(oversized.controlPath, "x".repeat(4_097));
-    expect(resolve(oversized.dir)).toEqual({
-      kind: "barrier",
-      type: "reset_session",
-      forgottenSessionId: null,
-      fencedSessionId: null,
-    });
-
-    const nonRegular = makeSessionHistory();
-    fs.unlinkSync(nonRegular.controlPath);
-    fs.mkdirSync(nonRegular.controlPath);
-    expect(resolve(nonRegular.dir)).toEqual({
-      kind: "barrier",
-      type: "reset_session",
-      forgottenSessionId: null,
-      fencedSessionId: null,
-    });
-
-    if (process.platform !== "win32") {
-      const linked = makeSessionHistory();
-      const outside = path.join(mkDir(), "outside-control.json");
-      fs.writeFileSync(outside, JSON.stringify({
-        version: 1,
-        attemptedSessionId: null,
-        fencedSessionId: null,
-        fullBarrier: null,
-      }));
-      fs.unlinkSync(linked.controlPath);
-      fs.symlinkSync(outside, linked.controlPath);
-      expect(resolve(linked.dir)).toEqual({
+    for (const body of ["{not-json}\n", "x".repeat(4_097)]) {
+      const corrupt = makeHistory();
+      fs.writeFileSync(corrupt.control, body);
+      expect(resolve(corrupt.dir)).toEqual({
         kind: "barrier",
         type: "reset_session",
         forgottenSessionId: null,
@@ -260,48 +463,38 @@ describe("forgetSession — inline system row", () => {
 
   it("persists and clears the one-stall recovery allowance", () => {
     const dir = mkDir();
-    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
-    rec.setSession("agent_1", "sess-poison");
-    rec.appendEntryForAgent("agent_1", [msg("#1", "before stall")]);
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
+    recorder.setSession("a", "sess-poison", "epoch-poison");
+    observe(recorder, "a", "before-stall", [msg("#1", "before stall")]);
 
-    rec.recordSessionStall("agent_1", "sess-poison");
-    const controlPath = path.join(dir, ".resume-control.json");
-    const controlStat = fs.statSync(controlPath);
-    expect(controlStat.isFile()).toBe(true);
-    if (process.platform !== "win32") expect(controlStat.mode & 0o777).toBe(0o600);
-    expect(fs.readdirSync(dir).filter((name) => name.includes("resume-control") && name.endsWith(".tmp"))).toEqual([]);
-    expect(rec.resolveResumeSession("agent_1", "codex")).toEqual({
+    expect(recorder.recordSessionStall("a", "sess-poison")).toBe(true);
+    expect(recorder.resolveResumeSession("a", "codex")).toMatchObject({
       kind: "session",
       sessionId: "sess-poison",
       stalledSessionId: "sess-poison",
-      fencedSessionId: null,
     });
-
-    rec.clearSessionStall("agent_1", "sess-poison");
-    expect(rec.resolveResumeSession("agent_1", "codex")).toEqual({
+    expect(recorder.clearSessionStall("a", "sess-poison")).toBe(true);
+    expect(recorder.resolveResumeSession("a", "codex")).toMatchObject({
       kind: "session",
       sessionId: "sess-poison",
       stalledSessionId: null,
-      fencedSessionId: null,
     });
   });
 
   for (const failureMode of ["lock", "rename"] as const) {
     for (const transition of ["attempt", "fence", "reset_session", "nap", "clear"] as const) {
-      it(`does not append a ${transition} forensic row when the control ${failureMode} transition fails`, () => {
+      it(`does not advance ${transition} when the control ${failureMode} transition fails`, () => {
         const dir = mkDir();
-        const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
-        expect(rec.setSession("agent_1", "sess-poison")).toBe(true);
-        rec.appendEntryForAgent("agent_1", [msg("#1", "before transition")]);
+        const recorder = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
+        expect(recorder.setSession("a", "sess-poison", "epoch-poison")).toBe(true);
+        observe(recorder, "a", "before-transition", [msg("#1", "before transition")]);
         if (transition === "fence" || transition === "clear") {
-          expect(rec.recordSessionStall("agent_1", "sess-poison")).toBe(true);
+          expect(recorder.recordSessionStall("a", "sess-poison")).toBe(true);
         }
 
         const controlPath = path.join(dir, ".resume-control.json");
         const beforeControl = fs.readFileSync(controlPath, "utf8");
-        const beforeSystemRows = readRecentEntries(dir, { now: NOW() })
-          .filter((row) => row.system)
-          .map((row) => row.system);
+        const beforeSystems = readRecentEntries(dir, { now: NOW() }).filter((row) => row.system).map((row) => row.system);
         const lockPath = lockPathFor(dir, ".resume-control.json");
         const originalRenameSync = nodeFs.renameSync;
         if (failureMode === "lock") expect(acquireLock(lockPath)).toBe(true);
@@ -312,15 +505,14 @@ describe("forgetSession — inline system row", () => {
           }) as typeof nodeFs.renameSync;
           syncBuiltinESMExports();
         }
-
         try {
           const result = transition === "attempt"
-            ? rec.recordSessionStall("agent_1", "sess-poison")
+            ? recorder.recordSessionStall("a", "sess-poison")
             : transition === "fence"
-              ? rec.forgetSession("agent_1", "stall_recovery", "sess-poison")
+              ? recorder.forgetSession("a", "stall_recovery", "sess-poison")
               : transition === "clear"
-                ? rec.clearSessionStall("agent_1", "sess-poison")
-                : rec.forgetSession("agent_1", transition);
+                ? recorder.clearSessionStall("a", "sess-poison")
+                : recorder.forgetSession("a", transition);
           expect(result).toBe(false);
         } finally {
           if (failureMode === "lock") releaseLock(lockPath);
@@ -331,320 +523,83 @@ describe("forgetSession — inline system row", () => {
         }
 
         expect(fs.readFileSync(controlPath, "utf8")).toBe(beforeControl);
-        expect(readRecentEntries(dir, { now: NOW() })
-          .filter((row) => row.system)
-          .map((row) => row.system)).toEqual(beforeSystemRows);
-        const rebuilt = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
-        expect(rebuilt.resolveResumeSession("agent_1", "codex")).toEqual({
-          kind: "session",
-          sessionId: "sess-poison",
-          stalledSessionId: transition === "fence" || transition === "clear" ? "sess-poison" : null,
-          fencedSessionId: null,
-        });
+        expect(readRecentEntries(dir, { now: NOW() }).filter((row) => row.system).map((row) => row.system))
+          .toEqual(beforeSystems);
       });
     }
-
-    it(`keeps the prior in-memory session when setSession hits a control ${failureMode} failure`, () => {
-      const dir = mkDir();
-      const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
-      expect(rec.setSession("agent_1", "sess-old")).toBe(true);
-      const controlPath = path.join(dir, ".resume-control.json");
-      const beforeControl = fs.readFileSync(controlPath, "utf8");
-      const lockPath = lockPathFor(dir, ".resume-control.json");
-      const originalRenameSync = nodeFs.renameSync;
-      if (failureMode === "lock") expect(acquireLock(lockPath)).toBe(true);
-      else {
-        nodeFs.renameSync = ((oldPath: fs.PathLike, newPath: fs.PathLike) => {
-          if (String(newPath) === controlPath) throw new Error("injected control rename failure");
-          return originalRenameSync(oldPath, newPath);
-        }) as typeof nodeFs.renameSync;
-        syncBuiltinESMExports();
-      }
-      try {
-        expect(rec.setSession("agent_1", "sess-new")).toBe(false);
-      } finally {
-        if (failureMode === "lock") releaseLock(lockPath);
-        else {
-          nodeFs.renameSync = originalRenameSync;
-          syncBuiltinESMExports();
-        }
-      }
-      expect(fs.readFileSync(controlPath, "utf8")).toBe(beforeControl);
-      rec.appendEntryForAgent("agent_1", [msg("#1", "after failed set")]);
-      expect(readRecentEntries(dir, { now: NOW() }).at(-1)?.session_id).toBe("sess-old");
-    });
   }
 
-  it("resolves an attempt marker outside the seven-day turn-history window", () => {
+  it("keeps the prior in-memory session when setSession cannot persist", () => {
     const dir = mkDir();
-    const oldRecorder = createTimelineRecorder({
-      timelineDirFor: () => dir,
-      providerFor: () => "codex",
-      now: () => new Date("2026-06-01T12:00:00Z"),
-    });
-    oldRecorder.recordSessionStall("agent_1", "sess-poison");
-
-    const rebuiltRecorder = createTimelineRecorder({
-      timelineDirFor: () => dir,
-      providerFor: () => "codex",
-      now: () => new Date("2026-06-25T12:00:00Z"),
-    });
-    expect(rebuiltRecorder.resolveResumeSession("agent_1", "codex")).toEqual({
-      kind: "none",
-      stalledSessionId: "sess-poison",
-      fencedSessionId: null,
-    });
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
+    expect(recorder.setSession("a", "sess-old", "epoch-old")).toBe(true);
+    const lock = lockPathFor(dir, ".resume-control.json");
+    expect(acquireLock(lock)).toBe(true);
+    try {
+      expect(recorder.setSession("a", "sess-new", "epoch-new")).toBe(false);
+    } finally {
+      releaseLock(lock);
+    }
+    observe(recorder, "a", "after-failed-set", [msg("#1", "after failed set")]);
+    expect(readRecentEntries(dir, { now: NOW() }).at(-1)?.session_id).toBe("sess-old");
   });
 
-  it("persists the exact repeatedly stalled session in a stall_recovery barrier", () => {
+  it("persists the exact repeatedly stalled session in a durable fence", () => {
     const dir = mkDir();
-    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
-    rec.setSession("agent_1", "sess-poison");
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "codex", now: NOW });
+    recorder.setSession("a", "sess-poison", "epoch-poison");
+    expect(recorder.forgetSession("a", "stall_recovery", "sess-poison")).toBe(true);
 
-    rec.forgetSession("agent_1", "stall_recovery", "sess-poison");
-
-    const rows = readRecentEntries(dir, { now: NOW() });
-    expect(rows).toHaveLength(1);
-    expect(rows[0].system).toEqual({
+    expect(readRecentEntries(dir, { now: NOW() })[0].system).toEqual({
       type: "stall_recovery",
       time: NOW().toISOString(),
       backend_session_id: "sess-poison",
     });
-    expect(rec.resolveResumeSession("agent_1", "codex")).toEqual({
+    expect(recorder.resolveResumeSession("a", "codex")).toEqual({
       kind: "barrier",
       type: "stall_recovery",
       forgottenSessionId: "sess-poison",
       fencedSessionId: "sess-poison",
     });
   });
-
-  it("appends a bare reset_session system row (no forgot_session_id) and clears the map", () => {
-    const dir = mkDir();
-    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
-    rec.setSession("agent_1", "sess-1");
-
-    rec.forgetSession("agent_1");
-    const rows = readRecentEntries(dir, { now: NOW() });
-    const last = rows[rows.length - 1];
-    expect(last.system?.type).toBe("reset_session");
-    expect((last.system as unknown as { forgot_session_id?: unknown }).forgot_session_id).toBeUndefined();
-    expect(last.session_id).toBeNull();
-    expect(last.messages).toEqual([]);
-    expect(last.agent_responses).toEqual([]);
-
-    // A subsequent append proves the in-memory session id was cleared —
-    // the new turn row carries null for session_id.
-    rec.appendEntryForAgent("agent_1", [msg("#1", "post-reset")]);
-    const afterRows = readRecentEntries(dir, { now: NOW() });
-    expect(afterRows[afterRows.length - 1].session_id).toBeNull();
-  });
-
-  it("writes a valid reset_session row on a fresh workdir with no in-memory session and no prior rows", () => {
-    const dir = mkDir();
-    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
-
-    rec.forgetSession("agent_1");
-    const rows = readRecentEntries(dir, { now: NOW() });
-    expect(rows).toHaveLength(1);
-    expect(rows[0].system?.type).toBe("reset_session");
-  });
 });
 
-describe("appendResponseToLatest — text-before-first-pull fallback", () => {
-  it("after a reset barrier, a text event before the first inbox pull opens a fresh turn row (does NOT clobber the barrier)", () => {
+describe("createTimelineRecorder session and filesystem safety", () => {
+  it("honors reset barriers for resume and allows a later exact session", () => {
     const dir = mkDir();
-    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
+    recorder.setSession("a", "sess-1", "epoch-1");
+    const first = begin(recorder, "turn-1", "epoch-1");
+    recorder.recordInboxPull("a", first, [msg("#1", "old")]);
+    recorder.finalizeTurn("a", first);
+    expect(recorder.resumeSessionId("a", "claude")).toBe("sess-1");
 
-    rec.setSession("a", "sess-1");
-    rec.appendEntryForAgent("a", [msg("#1", "hi")]);
-    rec.appendResponseToLatest("a", "old reply");
-
-    // Owner-triggered reset — barrier is the newest line now.
-    rec.forgetSession("a");
-
-    // Fresh spawn: session_init lands, then a text event BEFORE the agent
-    // pulls its inbox.
-    rec.setSession("a", "sess-2");
-    rec.appendResponseToLatest("a", "I'll check for unfinished work.");
-
-    const rows = readRecentEntries(dir, { now: NOW() });
-    // Row 0: original turn — untouched.
-    expect(rows[0].messages.map((m) => m.content.text)).toEqual(["hi"]);
-    expect(rows[0].agent_responses).toEqual(["old reply"]);
-    // Row 1: the barrier — MUST NOT carry the response.
-    expect(rows[1].system?.type).toBe("reset_session");
-    expect(rows[1].agent_responses).toEqual([]);
-    // Row 2: the fallback turn row, opened by appendResponseToLatest.
-    expect(rows[2].system).toBeUndefined();
-    expect(rows[2].session_id).toBe("sess-2");
-    expect(rows[2].provider).toBe("claude");
-    expect(rows[2].messages).toEqual([]);
-    expect(rows[2].agent_responses).toEqual(["I'll check for unfinished work."]);
+    recorder.forgetSession("a");
+    expect(recorder.resumeSessionId("a", "claude")).toBeNull();
+    recorder.setSession("a", "sess-2", "epoch-2");
+    const second = begin(recorder, "turn-2", "epoch-2");
+    recorder.recordInboxPull("a", second, [msg("#2", "new")]);
+    expect(recorder.resumeSessionId("a", "claude")).toBe("sess-2");
+    expect(recorder.resumeSessionId("a", "codex")).toBeNull();
   });
 
-  it("subsequent inbox pull appends its OWN turn row (fallback row has a response, so appendOrMergeEntry won't merge)", () => {
-    const dir = mkDir();
-    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
-
-    rec.forgetSession("a"); // barrier
-    rec.setSession("a", "sess-2");
-    rec.appendResponseToLatest("a", "pre-pull chatter");
-    // Now the fresh spawn actually pulls inbox.
-    rec.appendEntryForAgent("a", [msg("#1", "unread")]);
-    rec.appendResponseToLatest("a", "post-pull reply");
-
-    const rows = readRecentEntries(dir, { now: NOW() });
-    // [barrier, fallback, pull]
-    expect(rows).toHaveLength(3);
-    expect(rows[0].system?.type).toBe("reset_session");
-    expect(rows[1].agent_responses).toEqual(["pre-pull chatter"]);
-    expect(rows[1].messages).toEqual([]);
-    expect(rows[2].messages.map((m) => m.content.text)).toEqual(["unread"]);
-    expect(rows[2].agent_responses).toEqual(["post-pull reply"]);
-  });
-
-  it("first-ever text event with no prior rows opens a fallback turn row", () => {
-    const dir = mkDir();
-    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
-
-    rec.setSession("a", "sess-1");
-    rec.appendResponseToLatest("a", "hello");
-
-    const rows = readRecentEntries(dir, { now: NOW() });
-    expect(rows).toHaveLength(1);
-    expect(rows[0].session_id).toBe("sess-1");
-    expect(rows[0].agent_responses).toEqual(["hello"]);
-    expect(rows[0].messages).toEqual([]);
-  });
-
-  it("keeps only the latest five normal responses in FIFO order", () => {
-    const dir = mkDir();
-    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
-    rec.appendEntryForAgent("a", [msg("#1", "hello")]);
-    for (let index = 1; index <= 6; index++) rec.appendResponseToLatest("a", `r${index}`);
-    expect(readRecentEntries(dir, { now: NOW() })[0].agent_responses).toEqual(["r2", "r3", "r4", "r5", "r6"]);
-  });
-
-  it("keeps only the latest five text-before-first-pull fallback responses", () => {
-    const dir = mkDir();
-    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
-    rec.setSession("a", "sess-1");
-    for (let index = 1; index <= 6; index++) rec.appendResponseToLatest("a", `r${index}`);
-    const rows = readRecentEntries(dir, { now: NOW() });
-    expect(rows).toHaveLength(1);
-    expect(rows[0].agent_responses).toEqual(["r2", "r3", "r4", "r5", "r6"]);
-  });
-
-  it("does not create a fallback row when the latest-day lock is busy", () => {
-    const dir = mkDir();
-    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
-    rec.appendEntryForAgent("a", [msg("#1", "hello")]);
-    const filename = filenameForDate(NOW());
-    const file = path.join(dir, filename);
-    const before = fs.readFileSync(file);
-    const lock = lockPathFor(dir, filename);
-    expect(acquireLock(lock)).toBe(true);
-    try {
-      rec.appendResponseToLatest("a", "must not fall back");
-    } finally {
-      releaseLock(lock);
-    }
-
-    expect(fs.readFileSync(file)).toEqual(before);
-    expect(readRecentEntries(dir, { now: NOW() })).toHaveLength(1);
-    expect(readRecentEntries(dir, { now: NOW() })[0].agent_responses).toEqual([]);
-  });
-});
-
-describe("recorder timeline directory safety", () => {
-  it("does not create an outside timeline through an agent-directory symlink", () => {
+  it("does not create or mutate an outside timeline through an agent-directory symlink", () => {
     if (process.platform === "win32") return;
     const base = mkDir();
-    const outsideAgent = mkDir();
+    const outside = mkDir();
     const agentLink = path.join(base, "agent-link");
-    fs.symlinkSync(outsideAgent, agentLink);
-    const linkedTimeline = path.join(agentLink, ".context_timeline");
-    const rec = createTimelineRecorder({
-      timelineDirFor: () => linkedTimeline,
+    fs.symlinkSync(outside, agentLink);
+    const recorder = createTimelineRecorder({
+      timelineDirFor: () => path.join(agentLink, ".context_timeline"),
       providerFor: () => "claude",
       now: NOW,
     });
+    const owner = begin(recorder, "turn-a");
+    recorder.recordInboxPull("a", owner, [msg("#1", "blocked")]);
+    recorder.recordAssistantMessage("a", owner, "blocked");
+    recorder.finalizeTurn("a", owner);
+    recorder.forgetSession("a");
 
-    rec.setSession("a", "outside-session");
-    rec.appendEntryForAgent("a", [msg("#1", "blocked")]);
-    rec.appendResponseToLatest("a", "blocked");
-    rec.forgetSession("a");
-
-    expect(fs.readdirSync(outsideAgent)).toEqual([]);
-  });
-
-  it("does not read or modify an existing outside timeline through an agent-directory symlink", () => {
-    if (process.platform === "win32") return;
-    const base = mkDir();
-    const outsideAgent = mkDir();
-    const outsideTimeline = path.join(outsideAgent, ".context_timeline");
-    fs.mkdirSync(outsideTimeline);
-    const file = path.join(outsideTimeline, filenameForDate(NOW()));
-    fs.writeFileSync(file, `${JSON.stringify(createTimelineEntry({
-      messages: [msg("#1", "outside")],
-      sessionId: "outside-session",
-      provider: "claude",
-    }))}\n`);
-    const before = fs.readFileSync(file);
-    const agentLink = path.join(base, "agent-link");
-    fs.symlinkSync(outsideAgent, agentLink);
-    const linkedTimeline = path.join(agentLink, ".context_timeline");
-    const rec = createTimelineRecorder({
-      timelineDirFor: () => linkedTimeline,
-      providerFor: () => "claude",
-      now: NOW,
-    });
-
-    expect(rec.resumeSessionId("a", "claude")).toBeNull();
-    rec.appendEntryForAgent("a", [msg("#1", "blocked")]);
-    rec.appendResponseToLatest("a", "blocked");
-    rec.forgetSession("a");
-
-    expect(fs.readdirSync(outsideTimeline)).toEqual([filenameForDate(NOW())]);
-    expect(fs.readFileSync(file)).toEqual(before);
-  });
-});
-
-describe("resumeSessionId honors the reset_session barrier", () => {
-  it("multi-turn survival: three rows all carrying sess-1 then reset → null", () => {
-    const dir = mkDir();
-    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
-    rec.setSession("a", "sess-1");
-    rec.appendEntryForAgent("a", [msg("#1", "t1")]);
-    rec.appendResponseToLatest("a", "r1");
-    rec.appendEntryForAgent("a", [msg("#2", "t2")]);
-    rec.appendResponseToLatest("a", "r2");
-    rec.appendEntryForAgent("a", [msg("#3", "t3")]);
-    rec.appendResponseToLatest("a", "r3");
-    rec.forgetSession("a");
-
-    expect(rec.resumeSessionId("a", "claude")).toBeNull();
-  });
-
-  it("future sessions unaffected: reset + newer row carrying sess-2 → returns sess-2", () => {
-    const dir = mkDir();
-    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
-    rec.setSession("a", "sess-1");
-    rec.appendEntryForAgent("a", [msg("#1", "old")]);
-    rec.appendResponseToLatest("a", "reply1");
-    rec.forgetSession("a");
-    rec.setSession("a", "sess-2");
-    rec.appendEntryForAgent("a", [msg("#2", "fresh")]);
-
-    expect(rec.resumeSessionId("a", "claude")).toBe("sess-2");
-  });
-
-  it("no reset → unchanged behavior (returns newest non-null session_id)", () => {
-    const dir = mkDir();
-    const rec = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });
-    rec.setSession("a", "sess-only");
-    rec.appendEntryForAgent("a", [msg("#1", "x")]);
-
-    expect(rec.resumeSessionId("a", "claude")).toBe("sess-only");
+    expect(fs.readdirSync(outside)).toEqual([]);
   });
 });

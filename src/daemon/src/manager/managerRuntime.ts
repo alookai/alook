@@ -30,6 +30,7 @@ import { nowLocalISO } from "../util/localTime.js";
 import type { ResumeSessionResolution } from "../timeline/timeline.js";
 import type { SystemEntryType } from "../timeline/types.js";
 import { randomUUID } from "node:crypto";
+import type { TimelineTurnOwner } from "../timeline/recorder.js";
 const SESSION_STOP_GRACE_MS = 2_000;
 export type AgentActivityState = "idle" | "starting" | "running" | "stopping";
 export type DaemonAgentSession = AgentSession<BuiltinBackendSpecs, BuiltinBackendId>;
@@ -83,6 +84,7 @@ interface ActiveSpawnState {
   launchIdSnapshot: string | null;
   nextTurnOrdinal: number;
   activeSpan: ActiveTurnSpan | null;
+  timelineTurnOwner: TimelineTurnOwner | null;
   pendingDeliverySpans: Map<string, PendingDeliveryTrace>;
 }
 interface TraceRecordBase {
@@ -246,8 +248,12 @@ export interface ManagerRuntimeOpts {
   logger?: Logger;
 }
 export interface TimelineRecorder {
-  setSession(agentId: string, sessionId: string): boolean;
-  appendResponseToLatest(agentId: string, text: string): void;
+  barrierGeneration(agentId: string): number;
+  beginTurn(agentId: string, owner: TimelineTurnOwner): void;
+  recordAssistantMessage(agentId: string, owner: TimelineTurnOwner, text: string, truncated?: boolean): void;
+  finalizeTurn(agentId: string, owner: TimelineTurnOwner): void;
+  fenceSession(agentId: string): void;
+  setSession(agentId: string, sessionId: string, sessionInstanceId?: string): boolean;
   resumeSessionId(agentId: string, provider: string | null): string | null;
   resolveResumeSession?(agentId: string, provider: string | null): ResumeSessionResolution;
   recordSessionStall?(agentId: string, sessionId: string): boolean;
@@ -422,7 +428,6 @@ export class AgentProcessManager {
   private readonly resumeSessions = new Map<string, string>();
   private readonly launchIds = new Map<string, string>();
   private readonly liveSessions = new Map<string, string>();
-  private readonly thinkingBuffers = new Map<string, string>();
   private readonly activeSpawnState = new Map<string, ActiveSpawnState>();
   private readonly publishedAgentActivity = new Map<string, AgentActivityState>();
   private readonly traceProcessNonce = randomUUID();
@@ -571,6 +576,7 @@ export class AgentProcessManager {
       throw new Error("Reset aborted because resume control could not be persisted");
     }
     this.register(agentId, { runtimeConfig: opts.runtimeConfig, launchId: opts.launchId });
+    if (!opts.forgetSession) this.opts.timeline?.fenceSession(agentId);
     this.abortCurrentTurn(agentId, opts.abortCause);
     this.markResetting(agentId);
     const status = this.state.agents[agentId]?.status;
@@ -642,6 +648,10 @@ export class AgentProcessManager {
       sessionId: this.liveSessions.get(agentId) ?? null,
       launchId: this.launchIds.get(agentId) ?? null,
     };
+  }
+  timelineTurnOwner(agentId: string): TimelineTurnOwner | null {
+    const owner = this.traceOwnerFor(agentId);
+    return owner?.timelineTurnOwner ? { ...owner.timelineTurnOwner } : null;
   }
   liveSessionReports(): Array<{ agentId: string; sessionId: string; launchId: string }> {
     return [...this.liveSessions.entries()].map(([agentId, sessionId]) => ({
@@ -723,6 +733,9 @@ export class AgentProcessManager {
   ): boolean {
     if (!expectedSpan || owner.activeSpan !== expectedSpan) return false;
     owner.activeSpan = null;
+    const timelineTurnOwner = owner.timelineTurnOwner;
+    owner.timelineTurnOwner = null;
+    if (timelineTurnOwner) this.opts.timeline?.finalizeTurn(owner.agentId, timelineTurnOwner);
     const nowMs = this.now();
     const base = {
       recordKind: "turn_span" as const,
@@ -1315,6 +1328,7 @@ export class AgentProcessManager {
       launchIdSnapshot: typeof ctx.launchId === "string" && ctx.launchId.length > 0 ? ctx.launchId : null,
       nextTurnOrdinal: 1,
       activeSpan: null,
+      timelineTurnOwner: null,
       pendingDeliverySpans: new Map(),
     };
     const previousOwner = this.activeSpawnState.get(agentId);
@@ -1368,7 +1382,6 @@ export class AgentProcessManager {
           this.emitErrorAudit(agentId, "exit", "abnormal_exit", `Session ended unexpectedly (${detail})`);
         }
       }
-      this.flushThinkingAudit(agentId);
       if (state.sessionInstanceId) {
         this.dispatch({ type: "session_closed", agentId, sessionInstanceId: state.sessionInstanceId }, state);
       }
@@ -1399,7 +1412,11 @@ export class AgentProcessManager {
         reportSpawnFailure(event.error.code || "failed_to_start", { message: event.error.message });
       }
       if (event.type === "session_started") {
-        const persisted = this.opts.timeline?.setSession(agentId, event.backendSessionId);
+        const persisted = this.opts.timeline?.setSession(
+          agentId,
+          event.backendSessionId,
+          event.sessionInstanceId,
+        );
         if (persisted === false) {
           state.discardEvents = true;
           reportSpawnFailure("resume_control_update_failed", {
@@ -1579,24 +1596,6 @@ export class AgentProcessManager {
       this.log.debug("audit emit failed (error)", { agentId, err: String(err) });
     }
   }
-  private flushThinkingAudit(agentId: string): void {
-    const buffered = this.thinkingBuffers.get(agentId);
-    if (!buffered) return;
-    this.thinkingBuffers.delete(agentId);
-    if (!this.opts.onBotAuditEvent) return;
-    const { text, truncated, chars } = truncateThinking(buffered);
-    try {
-      this.opts.onBotAuditEvent(agentId, {
-        kind: "thinking",
-        payload: { text, truncated, chars },
-      }, {
-        sessionId: this.liveSessions.get(agentId) ?? null,
-        launchId: this.launchIds.get(agentId) ?? null,
-      });
-    } catch (err) {
-      this.log.debug("audit emit failed (thinking)", { agentId, err: String(err) });
-    }
-  }
   private onAgentEvent(
     agentId: string,
     event: ManagedEvent,
@@ -1644,26 +1643,33 @@ export class AgentProcessManager {
       }
     }
     if (this.opts.onBotAuditEvent) {
-      if (event.type === "thinking_delta") {
-        if (event.text.length > 0) {
-          this.thinkingBuffers.set(agentId, (this.thinkingBuffers.get(agentId) ?? "") + event.text);
+      if (event.type === "assistant_reasoning_completed" && event.text.length > 0) {
+        const { text, truncated, chars } = truncateThinking(event.text);
+        try {
+          this.opts.onBotAuditEvent(agentId, {
+            kind: "thinking",
+            payload: { text, truncated: truncated || event.truncated, chars },
+          }, {
+            sessionId: this.liveSessions.get(agentId) ?? null,
+            launchId: this.launchIds.get(agentId) ?? null,
+          });
+        } catch (err) {
+          this.log.debug("audit emit failed (thinking)", { agentId, err: String(err) });
         }
-      } else {
-        this.flushThinkingAudit(agentId);
-        if (event.type === "tool_started") {
-          const audit = extractToolAudit(event.name, event.input);
-          if (!audit.suppressed) {
-            const payload = audit.target !== undefined
-              ? { name: audit.name, target: audit.target }
-              : { name: audit.name };
-            try {
-              this.opts.onBotAuditEvent(agentId, { kind: "tool_call", payload }, {
-                sessionId: this.liveSessions.get(agentId) ?? null,
-                launchId: this.launchIds.get(agentId) ?? null,
-              });
-            } catch (err) {
-              this.log.debug("audit emit failed (tool_call)", { agentId, err: String(err) });
-            }
+      }
+      if (event.type === "tool_started") {
+        const audit = extractToolAudit(event.name, event.input);
+        if (!audit.suppressed) {
+          const payload = audit.target !== undefined
+            ? { name: audit.name, target: audit.target }
+            : { name: audit.name };
+          try {
+            this.opts.onBotAuditEvent(agentId, { kind: "tool_call", payload }, {
+              sessionId: this.liveSessions.get(agentId) ?? null,
+              launchId: this.launchIds.get(agentId) ?? null,
+            });
+          } catch (err) {
+            this.log.debug("audit emit failed (tool_call)", { agentId, err: String(err) });
           }
         }
       }
@@ -1687,8 +1693,29 @@ export class AgentProcessManager {
         runtime: runtimeId,
       });
     }
-    if (event.type === "text_delta" && event.text.length > 0) {
-      this.opts.timeline?.appendResponseToLatest(agentId, event.text);
+    if (event.type === "turn_started") {
+      const timelineTurnOwner: TimelineTurnOwner = {
+        sessionInstanceId: event.sessionInstanceId,
+        rootTurnId: event.turnId,
+        barrierGeneration: this.opts.timeline?.barrierGeneration(agentId) ?? 0,
+      };
+      owner.timelineTurnOwner = timelineTurnOwner;
+      this.opts.timeline?.beginTurn(agentId, timelineTurnOwner);
+    }
+    if (event.type === "assistant_message_completed" && event.text.length > 0) {
+      const timelineTurnOwner = owner.timelineTurnOwner;
+      if (
+        timelineTurnOwner
+        && timelineTurnOwner.sessionInstanceId === event.sessionInstanceId
+        && timelineTurnOwner.rootTurnId === event.turnId
+      ) {
+        this.opts.timeline?.recordAssistantMessage(
+          agentId,
+          timelineTurnOwner,
+          event.text,
+          event.truncated,
+        );
+      }
     }
     if (event.type === "command_queued") this.acknowledgePendingDelivery(owner, event.commandId);
     if (event.type === "command_accepted") this.settlePendingDelivery(owner, event.commandId, "accepted");
@@ -1704,9 +1731,10 @@ export class AgentProcessManager {
       switch (event.type) {
         case "turn_started":
           return { type: "turn_started" as const, turnId: event.turnId, commandIds: event.commandIds };
-        case "thinking_delta":
-        case "text_delta":
-          return event.text.length > 0 ? { type: "turn_work" as const, turnId: event.turnId } : null;
+        case "work_heartbeat":
+        case "assistant_reasoning_completed":
+        case "assistant_message_completed":
+          return { type: "turn_work" as const, turnId: event.turnId };
         case "tool_started":
           return { type: "turn_tool_started" as const, turnId: event.turnId };
         case "tool_finished":
@@ -1743,12 +1771,12 @@ export class AgentProcessManager {
             turnId: event.turnId,
             backendTurnId: event.backendTurnId,
           };
-        case "thinking_delta":
+        case "assistant_reasoning_completed":
           return { kind: "thinking" as const, phase: "inference" as const, turnId: event.turnId };
-        case "text_delta":
-          return event.text.length > 0
-            ? { kind: "text" as const, phase: "inference" as const, turnId: event.turnId }
-            : null;
+        case "assistant_message_completed":
+          return { kind: "text" as const, phase: "inference" as const, turnId: event.turnId };
+        case "work_heartbeat":
+          return { kind: "internal_progress" as const, phase: "inference" as const, turnId: event.turnId };
         case "tool_started":
           return { kind: "tool_call" as const, phase: "tool" as const, turnId: event.turnId };
         case "tool_finished":

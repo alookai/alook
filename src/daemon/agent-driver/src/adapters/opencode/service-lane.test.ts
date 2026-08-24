@@ -939,7 +939,7 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
       durable: { aggregateID: service.sessionId, seq: 3, version: 1 },
       data: { sessionID: service.sessionId, assistantMessageID: "msg_assistant", textID: "text_3", text: "done" },
     });
-    await vi.waitFor(() => expect(laneEvents.runtime).toContainEqual({ kind: "text", text: "done" }));
+    await vi.waitFor(() => expect(laneEvents.runtime).toContainEqual({ kind: "assistant_message_completed", text: "done" }));
     service.releaseHistory();
     await expect(catchingUp).rejects.toThrow("OpenCode emitted an unseen durable event below the replay cursor");
     expect(laneEvents.runtime.some((event) => event.kind === "turn_end")).toBe(false);
@@ -1157,8 +1157,8 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
     service.active = false;
 
     await waitForTurn(runtime, 1);
-    expect(runtime).toContainEqual({ kind: "thinking", text: "" });
-    expect(runtime).toContainEqual({ kind: "thinking", text: "considering" });
+    expect(runtime).toContainEqual({ kind: "internal_progress", source: "opencode.service", itemType: "step_started" });
+    expect(runtime).toContainEqual({ kind: "assistant_reasoning_completed", text: "considering" });
     expect(runtime).toContainEqual({ kind: "tool_call", name: "Read", input: { path: "README.md" } });
     expect(runtime).toContainEqual({ kind: "tool_output", name: "Read" });
     expect(runtime).toContainEqual({ kind: "tool_output", name: "OpenCode tool" });

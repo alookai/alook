@@ -260,11 +260,15 @@ describe("AgentProcessManager.switchModel", () => {
     expect((spawnLog![1][0] as { model?: string }).model).toBe("default");
   });
 
-  it("writes NO timeline reset_session barrier — forgetSession is never called, so resume still resolves", async () => {
+  it("writes no durable reset barrier but fences old in-memory turn ownership", async () => {
     const timelineCalls: string[] = [];
     const timeline: TimelineRecorder = {
+      barrierGeneration: () => 0,
+      beginTurn: () => {},
+      recordAssistantMessage: () => {},
+      finalizeTurn: () => {},
+      fenceSession: (a) => timelineCalls.push(`fence:${a}`),
       setSession: (a, s) => timelineCalls.push(`session:${a}:${s}`),
-      appendResponseToLatest: () => {},
       resumeSessionId: () => "resumable-sess",
       forgetSession: (a) => timelineCalls.push(`forget:${a}`),
     };
@@ -294,6 +298,7 @@ describe("AgentProcessManager.switchModel", () => {
     await session.fire("exit");
     // forgetSession — the writer of the reset_session barrier — must never run.
     expect(timelineCalls.some((c) => c.startsWith("forget:"))).toBe(false);
+    expect(timelineCalls).toContain("fence:a1");
   });
 
   // #910 verify-by-test (Cecilia FINAL LOCK §7 / bot-provider-switch plan):
@@ -340,16 +345,20 @@ describe("AgentProcessManager.switchModel", () => {
   });
 
   // Convergence contract (B1): resetSession and switchModel now both route
-  // through the shared `restartAgent`; the ONLY behavioral difference is whether
-  // it calls forgetSession (reset does + writes its barrier; switch does not).
+  // through the shared `restartAgent`; reset writes a durable barrier while a
+  // model switch preserves resume state but still fences old in-memory owners.
   // This pins that contract in one place so a future refactor can't silently
   // make switchModel forget or resetSession preserve.
-  it("resetSession forgets (with its barrier) while switchModel preserves — the sole restartAgent divergence", async () => {
+  it("resetSession writes a barrier while switchModel uses only an in-memory fence", async () => {
     const mk = () => {
       const timelineCalls: string[] = [];
       const timeline: TimelineRecorder = {
+        barrierGeneration: () => 0,
+        beginTurn: () => {},
+        recordAssistantMessage: () => {},
+        finalizeTurn: () => {},
+        fenceSession: (a) => timelineCalls.push(`fence:${a}`),
         setSession: () => {},
-        appendResponseToLatest: () => {},
         resumeSessionId: () => "resumable-sess",
         forgetSession: (a, barrierType) => timelineCalls.push(`forget:${a}:${barrierType ?? "reset_session"}`),
       };
@@ -380,5 +389,6 @@ describe("AgentProcessManager.switchModel", () => {
     const s = mk();
     await s.mgr.switchModel("a1", { runtimeConfig: NAMED_CFG, launchId: "l1", rewakePrompt: REWAKE });
     expect(s.timelineCalls.some((c) => c.startsWith("forget:"))).toBe(false);
+    expect(s.timelineCalls).toContain("fence:a1");
   });
 });

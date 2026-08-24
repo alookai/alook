@@ -271,11 +271,11 @@ function installVendorHarness(backend: BuiltinBackendId): VendorHarness {
         case "cursor":
           break;
         case "opencode":
-          openCodeLanes[0]!.emit({ kind: "thinking", text: `turn-${turn}` });
+          openCodeLanes[0]!.emit({ kind: "assistant_reasoning_completed", text: `turn-${turn}` });
           break;
         case "pi":
           handles[0]!.isStreaming = true;
-          lanes[0]!.emitEvents([{ kind: "thinking", text: `turn-${turn}` }]);
+          lanes[0]!.emitEvents([{ kind: "assistant_reasoning_delta", text: `turn-${turn}` }]);
           break;
       }
     },
@@ -1088,7 +1088,7 @@ describe("claude persistent transport ownership", () => {
     });
     harness.emitProvider({ type: "system", subtype: "status", status: "late-progress" });
     await settle();
-    expect(events.filter((event) => event.type === "text_delta")).toHaveLength(0);
+    expect(events.filter((event) => event.type === "assistant_message_completed")).toHaveLength(0);
     expect(events.filter((event) => event.type === "tool_started")).toHaveLength(0);
     expect(events.filter((event) => event.type === "internal_progress")).toHaveLength(0);
 
@@ -1107,7 +1107,7 @@ describe("claude persistent transport ownership", () => {
     await vi.waitFor(() => {
       expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(2);
     });
-    expect(events.filter((event) => event.type === "text_delta")).toMatchObject([{ text: "B_TEXT" }]);
+    expect(events.filter((event) => event.type === "assistant_message_completed")).toMatchObject([{ text: "B_TEXT" }]);
     expect(events.filter((event) => event.type === "tool_started")).toMatchObject([{ name: "CurrentTool" }]);
     expect(harness.processes).toHaveLength(1);
 
@@ -1145,7 +1145,7 @@ describe("claude persistent transport ownership", () => {
       ], sameChunk);
       await settle();
       expect(opened.session.snapshot().activeTurn).toBeUndefined();
-      expect(events.filter((event) => event.type === "text_delta")).toHaveLength(0);
+      expect(events.filter((event) => event.type === "assistant_message_completed")).toHaveLength(0);
       expect(events.filter((event) => event.type === "tool_started")).toHaveLength(0);
       expect(events.filter((event) => event.type === "internal_progress")).toHaveLength(0);
 

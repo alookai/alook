@@ -84,6 +84,69 @@ interface ActiveTurn {
   turnId: string;
   commandIds: string[];
   terminalOwner?: string;
+  pendingMessage: SemanticAssembler;
+  pendingReasoning: SemanticAssembler;
+  lastWorkHeartbeatAt: number | null;
+}
+
+interface SemanticAssembler {
+  chunks: string[];
+  bytes: number;
+  truncated: boolean;
+}
+
+const SEMANTIC_ASSEMBLER_MAX_BYTES = 1_048_576;
+const WORK_HEARTBEAT_MIN_INTERVAL_MS = 1_000;
+
+function emptySemanticAssembler(): SemanticAssembler {
+  return { chunks: [], bytes: 0, truncated: false };
+}
+
+function utf8Prefix(text: string, maxBytes: number): string {
+  if (maxBytes <= 0 || text.length === 0) return "";
+  if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    let end = mid;
+    const code = text.charCodeAt(end - 1);
+    if (code >= 0xd800 && code <= 0xdbff) end -= 1;
+    if (Buffer.byteLength(text.slice(0, end), "utf8") <= maxBytes) low = mid;
+    else high = mid - 1;
+  }
+  let end = low;
+  const code = text.charCodeAt(end - 1);
+  if (code >= 0xd800 && code <= 0xdbff) end -= 1;
+  while (end > 0 && Buffer.byteLength(text.slice(0, end), "utf8") > maxBytes) end -= 1;
+  return text.slice(0, end);
+}
+
+function appendSemanticFragment(buffer: SemanticAssembler, text: string): void {
+  if (text.length === 0 || buffer.truncated) return;
+  const remaining = SEMANTIC_ASSEMBLER_MAX_BYTES - buffer.bytes;
+  const bytes = Buffer.byteLength(text, "utf8");
+  if (bytes <= remaining) {
+    buffer.chunks.push(text);
+    buffer.bytes += bytes;
+    return;
+  }
+  const prefix = utf8Prefix(text, remaining);
+  if (prefix.length > 0) {
+    buffer.chunks.push(prefix);
+    buffer.bytes += Buffer.byteLength(prefix, "utf8");
+  }
+  buffer.truncated = true;
+}
+
+function finishSemanticAssembler(buffer: SemanticAssembler): { text: string; truncated: boolean } {
+  return { text: buffer.chunks.join(""), truncated: buffer.truncated };
+}
+
+function boundedSemanticCompletion(text: string): { text: string; truncated: boolean } {
+  const buffer = emptySemanticAssembler();
+  appendSemanticFragment(buffer, text);
+  return finishSemanticAssembler(buffer);
 }
 
 interface ClosedLaneTombstone {
@@ -423,7 +486,14 @@ implements AgentSession<Specs, Id> {
     const turnId = this.host.createId();
     const commandIds = messages.map((message) => message.id);
     const terminalOwner = this.adapter.beginTurn?.();
-    this.activeTurn = { turnId, commandIds: [...commandIds], ...(terminalOwner ? { terminalOwner } : {}) };
+    this.activeTurn = {
+      turnId,
+      commandIds: [...commandIds],
+      ...(terminalOwner ? { terminalOwner } : {}),
+      pendingMessage: emptySemanticAssembler(),
+      pendingReasoning: emptySemanticAssembler(),
+      lastWorkHeartbeatAt: null,
+    };
     this.turnError = undefined;
     this.interruptedTurnId = undefined;
     this.processTurnEnded = false;
@@ -646,11 +716,35 @@ implements AgentSession<Specs, Id> {
           });
         }
         return;
-      case "thinking":
-        if (turnId) this.emit({ type: "thinking_delta", turnId, text: event.text });
+      case "assistant_reasoning_delta":
+      case "assistant_message_delta":
+        if (turnId && this.activeTurn?.turnId === turnId && event.text.length > 0) {
+          appendSemanticFragment(
+            event.kind === "assistant_message_delta"
+              ? this.activeTurn.pendingMessage
+              : this.activeTurn.pendingReasoning,
+            event.text,
+          );
+          const now = this.host.now();
+          if (
+            this.activeTurn.lastWorkHeartbeatAt === null
+            || now - this.activeTurn.lastWorkHeartbeatAt >= WORK_HEARTBEAT_MIN_INTERVAL_MS
+          ) {
+            this.activeTurn.lastWorkHeartbeatAt = now;
+            this.emit({ type: "work_heartbeat", turnId });
+          }
+        }
         return;
-      case "text":
-        if (turnId) this.emit({ type: "text_delta", turnId, text: event.text });
+      case "assistant_reasoning_completed":
+      case "assistant_message_completed":
+        if (turnId && this.activeTurn?.turnId === turnId) {
+          const field = event.kind === "assistant_message_completed" ? "pendingMessage" : "pendingReasoning";
+          this.activeTurn[field] = emptySemanticAssembler();
+          if (event.text.length > 0) {
+            const completed = boundedSemanticCompletion(event.text);
+            this.emit({ type: event.kind, turnId, ...completed });
+          }
+        }
         return;
       case "tool_call":
         this.outstandingToolUses += 1;
@@ -721,6 +815,18 @@ implements AgentSession<Specs, Id> {
         });
         return;
       case "turn_end":
+        if (turnId && this.activeTurn?.turnId === turnId) {
+          const reasoning = finishSemanticAssembler(this.activeTurn.pendingReasoning);
+          const message = finishSemanticAssembler(this.activeTurn.pendingMessage);
+          this.activeTurn.pendingReasoning = emptySemanticAssembler();
+          this.activeTurn.pendingMessage = emptySemanticAssembler();
+          if (reasoning.text.length > 0) {
+            this.emit({ type: "assistant_reasoning_completed", turnId, ...reasoning });
+          }
+          if (message.text.length > 0) {
+            this.emit({ type: "assistant_message_completed", turnId, ...message });
+          }
+        }
         this.completeTurn(event.sessionId, physicalOwner, generation, event.turnOwner);
         return;
     }
@@ -747,9 +853,7 @@ implements AgentSession<Specs, Id> {
     // every event from a closed per-turn transport before any shared-state side
     // effect in onAdapterEvent's switch can run.
     if (this.adapter.execution.lifetime === "turn") return undefined;
-    const isRootWork = event.kind === "thinking"
-      || event.kind === "text"
-      || event.kind === "tool_call"
+    const isRootWork = event.kind === "tool_call"
       || event.kind === "tool_output"
       || event.kind === "compaction_started"
       || event.kind === "compaction_finished"
@@ -769,6 +873,9 @@ implements AgentSession<Specs, Id> {
       turnId: tombstone.localTurnId,
       commandIds: tombstone.commandIds,
       ...(tombstone.terminalOwner ? { terminalOwner: tombstone.terminalOwner } : {}),
+      pendingMessage: emptySemanticAssembler(),
+      pendingReasoning: emptySemanticAssembler(),
+      lastWorkHeartbeatAt: null,
     };
     this.state = "working";
     return tombstone.localTurnId;

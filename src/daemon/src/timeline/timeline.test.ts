@@ -4,7 +4,10 @@ import * as os from "os";
 import * as path from "path";
 import {
   appendEntry,
+  appendTrackedEntry,
   appendOrMergeEntry,
+  updateTrackedEntry,
+  refreshTimelineEntryHandle,
   updateLatestEntry,
   updateLatestEntryResult,
   readRecentEntries,
@@ -17,6 +20,7 @@ import {
   sweepTimelineHistory,
   TIMELINE_MAX_BYTES,
 } from "./timeline";
+import type { TimelineEntryHandle } from "./timeline";
 import { acquireLock, lockPathFor, releaseLock } from "./filelock";
 import type { Message } from "../server/contract";
 
@@ -79,6 +83,103 @@ describe("timeline append / read (4-field schema)", () => {
     );
     const rows = readRecentEntries(dir, { now: NOW });
     expect(rows.map((r) => r.session_id)).toEqual(["ok"]);
+  });
+});
+
+describe("exact tracked row handles", () => {
+  it("refreshes an older handle across recorder-owned appends and updates only its captured row", () => {
+    const dir = mkDir();
+    const first = appendTrackedEntry(
+      dir,
+      createTimelineEntry({ messages: [msg("first")], sessionId: "s1", provider: "claude" }),
+      NOW,
+    );
+    expect(first.status).toBe("written");
+    if (first.status !== "written" || !first.handle) throw new Error("missing first handle");
+
+    const second = appendTrackedEntry(
+      dir,
+      createTimelineEntry({ messages: [msg("second")], sessionId: "s2", provider: "codex" }),
+      NOW,
+    );
+    expect(second.status).toBe("written");
+    if (second.status !== "written") throw new Error("missing second rewrite");
+    const refreshed = refreshTimelineEntryHandle(first.handle, second.rewrite);
+    expect(refreshed).not.toBeNull();
+
+    const updated = updateTrackedEntry(dir, refreshed!, (entry) => ({
+      ...entry,
+      agent_responses: ["response for first"],
+    }));
+    expect(updated.status).toBe("written");
+    const rows = readRecentEntries(dir, { now: NOW });
+    expect(rows.map((row) => row.agent_responses)).toEqual([["response for first"], []]);
+  });
+
+  it("rejects a stale generation without falling through to the latest row", () => {
+    const dir = mkDir();
+    const first = appendTrackedEntry(dir, createTimelineEntry({ messages: [msg("first")] }), NOW);
+    if (first.status !== "written" || !first.handle) throw new Error("missing first handle");
+    expect(appendTrackedEntry(dir, createTimelineEntry({ messages: [msg("latest")] }), NOW).status)
+      .toBe("written");
+
+    const rejected = updateTrackedEntry(dir, first.handle, (entry) => ({
+      ...entry,
+      agent_responses: ["must not land"],
+    }));
+    expect(rejected).toEqual({ status: "rejected", reason: "generation" });
+    expect(readRecentEntries(dir, { now: NOW }).map((row) => row.agent_responses)).toEqual([[], []]);
+  });
+
+  it("rejects an external rewrite even when the captured row remains at the same ordinal", () => {
+    const dir = mkDir();
+    const tracked = appendTrackedEntry(dir, createTimelineEntry({ messages: [msg("captured")] }), NOW);
+    if (tracked.status !== "written" || !tracked.handle) throw new Error("missing tracked handle");
+    expect(appendEntry(dir, createTimelineEntry({ messages: [msg("external")] }), NOW)).toBe(true);
+
+    expect(updateTrackedEntry(dir, tracked.handle, (entry) => entry))
+      .toEqual({ status: "rejected", reason: "generation" });
+  });
+
+  it("fails closed on ordinal or hash mismatch", () => {
+    const dir = mkDir();
+    const tracked = appendTrackedEntry(dir, createTimelineEntry({ messages: [msg("captured")] }), NOW);
+    if (tracked.status !== "written" || !tracked.handle) throw new Error("missing tracked handle");
+    const wrongOrdinal: TimelineEntryHandle = { ...tracked.handle, rowOrdinal: 99 };
+    const wrongHash: TimelineEntryHandle = { ...tracked.handle, expectedHash: "0".repeat(64) };
+
+    expect(updateTrackedEntry(dir, wrongOrdinal, (entry) => entry))
+      .toEqual({ status: "rejected", reason: "ordinal" });
+    expect(updateTrackedEntry(dir, wrongHash, (entry) => entry))
+      .toEqual({ status: "rejected", reason: "hash" });
+  });
+
+  it("fences a handle when compaction evicts its row", () => {
+    const dir = mkDir();
+    const first = appendTrackedEntry(dir, entryWithPayloadBytes(240_000, "old"), NOW);
+    if (first.status !== "written" || !first.handle) throw new Error("missing first handle");
+    let handle: TimelineEntryHandle | null = first.handle;
+    for (let index = 0; index < 6 && handle; index++) {
+      const write = appendTrackedEntry(dir, entryWithPayloadBytes(240_000, `new-${index}`), NOW);
+      if (write.status !== "written") throw new Error("append failed");
+      handle = refreshTimelineEntryHandle(handle, write.rewrite);
+    }
+    expect(handle).toBeNull();
+    expect(readRecentEntries(dir, { now: NOW }).some((row) => row.session_id === "old")).toBe(false);
+  });
+
+  it("updates the captured prior-day file after midnight", () => {
+    const dir = mkDir();
+    const yesterday = new Date("2026-06-24T23:59:59");
+    const tracked = appendTrackedEntry(dir, createTimelineEntry({ messages: [msg("before midnight")] }), yesterday);
+    if (tracked.status !== "written" || !tracked.handle) throw new Error("missing prior-day handle");
+    expect(appendTrackedEntry(dir, createTimelineEntry({ messages: [msg("new day")] }), NOW).status)
+      .toBe("written");
+
+    expect(updateTrackedEntry(dir, tracked.handle, (entry) => ({ ...entry, agent_responses: ["old-day response"] })).status)
+      .toBe("written");
+    const rows = readRecentEntries(dir, { now: NOW });
+    expect(rows.map((row) => row.agent_responses)).toEqual([["old-day response"], []]);
   });
 });
 

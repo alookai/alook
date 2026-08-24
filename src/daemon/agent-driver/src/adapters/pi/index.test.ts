@@ -105,7 +105,7 @@ describe("PiDriver.openLane — does not fire the initial prompt itself", () => 
 
     expect(received).toEqual([
       { kind: "session_init", sessionId: "sess_1" },
-      { kind: "text", text: "hi" },
+      { kind: "assistant_message_delta", text: "hi" },
     ]);
   });
 
@@ -239,8 +239,9 @@ describe("Pi SDK event-family coverage", () => {
   it("maps every supported family and explicitly no-ops every known unsupported family", () => {
     const state = { sawTextDelta: false };
     const supported = [
-      { input: { type: "message_update", delta: { type: "thinking_delta", delta: "t" } }, kind: "thinking" },
-      { input: { type: "message_update", delta: { type: "text_delta", delta: "x" } }, kind: "text" },
+      { input: { type: "message_update", delta: { type: "thinking_delta", delta: "t" } }, kind: "assistant_reasoning_delta" },
+      { input: { type: "message_update", delta: { type: "text_delta", delta: "x" } }, kind: "assistant_message_delta" },
+      { input: { type: "message_update", delta: { type: "text_end", content: "x" } }, kind: "assistant_message_completed" },
       { input: { type: "message_update", delta: { type: "error", message: "e" } }, kind: "error" },
       { input: { type: "tool_execution_start", toolName: "bash", args: {} }, kind: "tool_call" },
       { input: { type: "tool_execution_end", toolName: "bash" }, kind: "tool_output" },

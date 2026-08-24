@@ -161,12 +161,14 @@ export function mapPiSdkEvent(event: any, sessionId: string, state: { sawTextDel
     const d = event.delta ?? {};
     switch (d.type) {
       case "thinking_delta":
-        return [{ kind: "thinking", text: d.delta ?? "" }];
+        return [{ kind: "assistant_reasoning_delta", text: d.delta ?? "" }];
       case "text_delta":
         state.sawTextDelta = true;
-        return [{ kind: "text", text: d.delta ?? "" }];
-      case "text_end":
-        return state.sawTextDelta ? [] : [{ kind: "text", text: d.content ?? "" }];
+        return [{ kind: "assistant_message_delta", text: d.delta ?? "" }];
+      case "text_end": {
+        state.sawTextDelta = false;
+        return [{ kind: "assistant_message_completed", text: d.content ?? "" }];
+      }
       case "error":
         return [{ kind: "error", message: d.message ?? "Pi error" }];
       default:

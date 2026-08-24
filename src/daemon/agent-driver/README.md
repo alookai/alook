@@ -38,7 +38,7 @@ const session = opened.session;
 const observedText: string[] = [];
 const eventsDone = (async () => {
   for await (const event of session.events) {
-    if (event.type === "text_delta") observedText.push(event.text);
+    if (event.type === "assistant_message_completed") observedText.push(event.text);
   }
 })();
 

@@ -58,7 +58,7 @@ describe("builtin adapter protocol conformance", () => {
           })),
         ];
       },
-      expectedEventKinds: ["session_init", "thinking", "tool_call", "tool_output", "text", "turn_end"],
+      expectedEventKinds: ["session_init", "assistant_reasoning_completed", "tool_call", "tool_output", "assistant_message_completed", "turn_end"],
     });
     expect(events.at(-1)).toMatchObject({ kind: "turn_end", sessionId: "claude-root", turnOwner: expect.stringMatching(/^claude:/) });
   });
@@ -78,7 +78,7 @@ describe("builtin adapter protocol conformance", () => {
           ...adapter.normalizeLine(line({ jsonrpc: "2.0", method: "turn/completed", params: { threadId: rootThread, turn: { id: rootTurn, status: "completed" } } })),
         ];
       },
-      expectedEventKinds: ["session_init", "turn_owner", "thinking", "tool_call", "tool_output", "turn_end"],
+      expectedEventKinds: ["session_init", "turn_owner", "tool_call", "tool_output", "turn_end"],
     });
     expect(JSON.stringify(events)).not.toContain("must not leak");
   });
@@ -120,11 +120,12 @@ describe("builtin adapter protocol conformance", () => {
           { type: "tool_execution_start", toolName: "read", args: {} },
           { type: "tool_execution_end", toolName: "read" },
           { type: "message_update", delta: { type: "text_delta", delta: "done" } },
+          { type: "message_update", delta: { type: "text_end", content: "done" } },
           { type: "agent_end" },
         ];
         return vendorEvents.flatMap((event) => mapPiSdkEvent(event, "pi-root", state)) as AdapterEvent[];
       },
-      expectedEventKinds: ["thinking", "tool_call", "tool_output", "text"],
+      expectedEventKinds: ["assistant_reasoning_delta", "tool_call", "tool_output", "assistant_message_delta", "assistant_message_completed"],
       terminalSource: "transport_invocation",
     });
   });

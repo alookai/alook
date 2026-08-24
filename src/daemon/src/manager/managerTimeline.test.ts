@@ -7,8 +7,12 @@ import type { AgentEvent, AgentSessionResult, BuiltinBackendSpecs } from "@alook
 function fakeRecorder(resume: Record<string, string> = {}) {
   const calls: string[] = [];
   const rec: TimelineRecorder = {
+    barrierGeneration: () => 0,
+    beginTurn: (agentId, owner) => calls.push(`begin:${agentId}:${owner.rootTurnId}`),
+    recordAssistantMessage: (agentId, owner, text) => calls.push(`resp:${agentId}:${owner.rootTurnId}:${text}`),
+    finalizeTurn: (agentId, owner) => calls.push(`final:${agentId}:${owner.rootTurnId}`),
+    fenceSession: (agentId) => calls.push(`fence:${agentId}`),
     setSession: (agentId, sessionId) => calls.push(`session:${agentId}:${sessionId}`),
-    appendResponseToLatest: (agentId, text) => calls.push(`resp:${agentId}:${text}`),
     resumeSessionId: (agentId) => resume[agentId] ?? null,
     forgetSession: (agentId) => calls.push(`forget:${agentId}`),
   };
@@ -49,6 +53,14 @@ function manager(rec: TimelineRecorder, capture: { ctx?: LaunchContext }) {
         },
         closed,
         async start(message: { id: string }) {
+          publish({
+            sequence: ++sequence,
+            sessionInstanceId: "timeline-test",
+            at: Date.now(),
+            type: "turn_started",
+            turnId: "test-turn",
+            commandIds: [message.id],
+          });
           return { status: "accepted" as const, delivery: "prompt" as const, commandId: message.id, turnId: "test-turn" };
         },
         async send(message: { id: string }) {
@@ -74,7 +86,7 @@ function manager(rec: TimelineRecorder, capture: { ctx?: LaunchContext }) {
       if (event.kind === "session_init") {
         publish({ ...base, type: "session_started", backendSessionId: event.sessionId ?? "test-session" });
       } else if (event.kind === "text") {
-        publish({ ...base, type: "text_delta", turnId: "test-turn", text: event.text ?? "" });
+        publish({ ...base, type: "assistant_message_completed", turnId: "test-turn", text: event.text ?? "", truncated: false });
       }
     } else if (ev === "exit") {
       resolveClosed({ outcome: "crashed", requested: false, exitCode: 0, signal: null, cleanup: { status: "released" } });
@@ -86,7 +98,7 @@ function manager(rec: TimelineRecorder, capture: { ctx?: LaunchContext }) {
 }
 
 describe("manager ↔ timeline (daily log + resume)", () => {
-  it("annotates the latest entry on session_init / text / exit (by agent, not task id)", async () => {
+  it("binds session/completed messages/finalization to the exact driver turn", async () => {
     const { rec, calls } = fakeRecorder();
     const cap: { ctx?: LaunchContext } = {};
     const { mgr, emit } = manager(rec, cap);
@@ -99,13 +111,12 @@ describe("manager ↔ timeline (daily log + resume)", () => {
     await emit("runtime_event", { kind: "text", text: "" }); // empty text ignored
     await emit("exit");
 
-    // The manager does NOT open the entry (that's the data plane / inbox pull)
-    // and there's no status close — it records the session id and accumulates the
-    // agent's text onto the latest row.
     expect(calls).toEqual([
+      "begin:agent_1:test-turn",
       "session:agent_1:sess-7",
-      "resp:agent_1:part 1",
-      "resp:agent_1:part 2",
+      "resp:agent_1:test-turn:part 1",
+      "resp:agent_1:test-turn:part 2",
+      "final:agent_1:test-turn",
     ]);
   });
 

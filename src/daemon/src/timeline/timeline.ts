@@ -12,7 +12,7 @@
  * except behind the default param.
  */
 import * as fs from "node:fs";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { acquireLock, releaseLock, lockPathFor } from "./filelock.js";
 import type { ContextTimelineEntry, SystemEntryType } from "./types.js";
@@ -52,6 +52,31 @@ interface TimelineLine {
   entry: ContextTimelineEntry;
   barrier: boolean;
 }
+
+/** Process-local exact-row identity. Never persisted in the timeline schema. */
+export interface TimelineEntryHandle {
+  readonly filename: string;
+  readonly fileGeneration: string;
+  readonly rowOrdinal: number;
+  readonly expectedHash: string;
+}
+
+/** Remaps every row from one recorder-owned atomic file rewrite to the next. */
+export interface TimelineFileRewrite {
+  readonly filename: string;
+  readonly previousFileGeneration: string | null;
+  readonly fileGeneration: string;
+  readonly previousRowHashes: readonly string[];
+  readonly rowOrdinals: readonly (number | null)[];
+  readonly rowHashes: readonly string[];
+}
+
+export type TimelineTrackedWriteResult =
+  | { readonly status: "written"; readonly rewrite: TimelineFileRewrite; readonly handle?: TimelineEntryHandle }
+  | {
+      readonly status: "rejected";
+      readonly reason: "unsafe" | "lock" | "missing" | "generation" | "ordinal" | "hash" | "system" | "oversized" | "write" | "evicted";
+    };
 
 function isBarrier(entry: ContextTimelineEntry): boolean {
   return entry.system !== undefined;
@@ -101,6 +126,56 @@ function timelineLine(entry: ContextTimelineEntry): TimelineLine | null {
   const bytes = Buffer.byteLength(text, "utf8") + 1;
   if (bytes > TIMELINE_MAX_BYTES) return null;
   return { text, bytes, entry: boundedEntry, barrier: isBarrier(boundedEntry) };
+}
+
+function timelineRowHash(line: TimelineLine): string {
+  return createHash("sha256").update(line.text, "utf8").digest("hex");
+}
+
+function timelineFileGeneration(filePath: string, lines: readonly TimelineLine[]): string | null {
+  try {
+    const stat = fs.lstatSync(filePath, { bigint: true });
+    if (!stat.isFile()) return null;
+    const digest = createHash("sha256");
+    digest.update(`${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}\n`);
+    for (const line of lines) digest.update(line.text, "utf8").update("\n");
+    return digest.digest("hex");
+  } catch {
+    return null;
+  }
+}
+
+function handleFor(
+  filename: string,
+  generation: string,
+  lines: readonly TimelineLine[],
+  rowOrdinal: number,
+): TimelineEntryHandle {
+  return {
+    filename,
+    fileGeneration: generation,
+    rowOrdinal,
+    expectedHash: timelineRowHash(lines[rowOrdinal]!),
+  };
+}
+
+export function refreshTimelineEntryHandle(
+  handle: TimelineEntryHandle,
+  rewrite: TimelineFileRewrite,
+): TimelineEntryHandle | null {
+  if (handle.filename !== rewrite.filename) return handle;
+  if (handle.fileGeneration !== rewrite.previousFileGeneration) return null;
+  if (rewrite.previousRowHashes[handle.rowOrdinal] !== handle.expectedHash) return null;
+  const rowOrdinal = rewrite.rowOrdinals[handle.rowOrdinal];
+  if (rowOrdinal === null || rowOrdinal === undefined) return null;
+  const expectedHash = rewrite.rowHashes[rowOrdinal];
+  if (!expectedHash) return null;
+  return {
+    filename: handle.filename,
+    fileGeneration: rewrite.fileGeneration,
+    rowOrdinal,
+    expectedHash,
+  };
 }
 
 function compactLines(input: readonly TimelineLine[]): TimelineLine[] {
@@ -320,6 +395,42 @@ function writeRequiredTimeline(
   return atomicReplaceTimeline(filePath, compacted);
 }
 
+function writeTrackedTimeline(
+  filePath: string,
+  filename: string,
+  existing: readonly TimelineLine[],
+  input: readonly TimelineLine[],
+  required: TimelineLine,
+  replacement?: { oldOrdinal: number; line: TimelineLine },
+): TimelineTrackedWriteResult {
+  const previousFileGeneration = timelineFileGeneration(filePath, existing);
+  const previousRowHashes = existing.map(timelineRowHash);
+  const compacted = compactLines(input);
+  const targetOrdinal = compacted.indexOf(required);
+  if (targetOrdinal < 0) return { status: "rejected", reason: "evicted" };
+  if (!atomicReplaceTimeline(filePath, compacted)) return { status: "rejected", reason: "write" };
+  const fileGeneration = timelineFileGeneration(filePath, compacted);
+  if (!fileGeneration) return { status: "rejected", reason: "write" };
+  const rowOrdinals = existing.map((line, oldOrdinal) => {
+    if (replacement?.oldOrdinal === oldOrdinal) return compacted.indexOf(replacement.line);
+    const nextOrdinal = compacted.indexOf(line);
+    return nextOrdinal < 0 ? null : nextOrdinal;
+  });
+  const rewrite: TimelineFileRewrite = {
+    filename,
+    previousFileGeneration,
+    fileGeneration,
+    previousRowHashes,
+    rowOrdinals,
+    rowHashes: compacted.map(timelineRowHash),
+  };
+  return {
+    status: "written",
+    rewrite,
+    handle: handleFor(filename, fileGeneration, compacted, targetOrdinal),
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /* Date / filename helpers (injectable clock)                          */
 /* ------------------------------------------------------------------ */
@@ -487,6 +598,93 @@ export function updateResumeControlState(
 /* ------------------------------------------------------------------ */
 /* Write (lock-guarded)                                                */
 /* ------------------------------------------------------------------ */
+
+/** Append one row and return its exact process-local handle plus rewrite remap. */
+export function appendTrackedEntry(
+  timelineDir: string,
+  entry: ContextTimelineEntry,
+  now: Date = new Date(),
+): TimelineTrackedWriteResult {
+  if (timelineDirectoryState(timelineDir) !== "safe") return { status: "rejected", reason: "unsafe" };
+  const filename = filenameForDate(now);
+  const filePath = join(timelineDir, filename);
+  const lockPath = lockPathFor(timelineDir, filename);
+  try {
+    if (!acquireLock(lockPath)) return { status: "rejected", reason: "lock" };
+  } catch {
+    return { status: "rejected", reason: "write" };
+  }
+  try {
+    const existing = scanTimelineFile(filePath);
+    const required = timelineLine(entry);
+    if (!existing) return { status: "rejected", reason: "unsafe" };
+    if (!required) return { status: "rejected", reason: "oversized" };
+    return writeTrackedTimeline(filePath, filename, existing, [...existing, required], required);
+  } catch {
+    return { status: "rejected", reason: "write" };
+  } finally {
+    releaseLock(lockPath);
+  }
+}
+
+/**
+ * Rewrite only the exact captured row. Generation, ordinal, and row hash must
+ * all match under the captured file's lock; there is deliberately no latest-row
+ * fallback.
+ */
+export function updateTrackedEntry(
+  timelineDir: string,
+  handle: TimelineEntryHandle,
+  update: (entry: ContextTimelineEntry) => ContextTimelineEntry,
+): TimelineTrackedWriteResult {
+  if (timelineDirectoryState(timelineDir) !== "safe") return { status: "rejected", reason: "unsafe" };
+  if (!DATE_FILENAME_PATTERN.test(handle.filename) || basename(handle.filename) !== handle.filename) {
+    return { status: "rejected", reason: "unsafe" };
+  }
+  const filePath = join(timelineDir, handle.filename);
+  const lockPath = lockPathFor(timelineDir, handle.filename);
+  try {
+    if (!acquireLock(lockPath)) return { status: "rejected", reason: "lock" };
+  } catch {
+    return { status: "rejected", reason: "write" };
+  }
+  try {
+    const existing = scanTimelineFile(filePath);
+    if (!existing) return { status: "rejected", reason: "unsafe" };
+    if (existing.length === 0) return { status: "rejected", reason: "missing" };
+    const generation = timelineFileGeneration(filePath, existing);
+    if (!generation || generation !== handle.fileGeneration) {
+      return { status: "rejected", reason: "generation" };
+    }
+    const captured = existing[handle.rowOrdinal];
+    if (!captured) return { status: "rejected", reason: "ordinal" };
+    if (timelineRowHash(captured) !== handle.expectedHash) {
+      return { status: "rejected", reason: "hash" };
+    }
+    if (captured.entry.system) return { status: "rejected", reason: "system" };
+    const nextEntry = update({
+      ...captured.entry,
+      messages: [...captured.entry.messages],
+      agent_responses: [...captured.entry.agent_responses],
+    });
+    const replacement = timelineLine(nextEntry);
+    if (!replacement) return { status: "rejected", reason: "oversized" };
+    const input = [...existing];
+    input[handle.rowOrdinal] = replacement;
+    return writeTrackedTimeline(
+      filePath,
+      handle.filename,
+      existing,
+      input,
+      replacement,
+      { oldOrdinal: handle.rowOrdinal, line: replacement },
+    );
+  } catch {
+    return { status: "rejected", reason: "write" };
+  } finally {
+    releaseLock(lockPath);
+  }
+}
 
 /** Append a new entry to today's file. Best-effort: logs nothing, swallows lock miss. */
 export function appendEntry(timelineDir: string, entry: ContextTimelineEntry, now: Date = new Date()): boolean {

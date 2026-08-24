@@ -358,7 +358,7 @@ if (!opened.ok) throw new Error(opened.error.message);
 const { session } = opened;
 const eventsDone = (async () => {
   for await (const event of session.events) {
-    if (event.type === "text_delta") process.stdout.write(event.text);
+    if (event.type === "assistant_message_completed") console.log(event.text);
   }
 })();
 
