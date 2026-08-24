@@ -36,8 +36,8 @@ vi.mock("./community-inbox-popover", () => ({
 vi.mock("./shell-frame-overlays", () => ({
   ShellFrameOverlays: (props: Record<string, unknown>) => createElement("shell-overlays", props),
 }))
-vi.mock("@/components/community/channels/channel-loading-frame", () => ({
-  ChannelLoadingFrame: () => createElement("channel-loading-frame"),
+vi.mock("./community-pending-frame", () => ({
+  CommunityPendingFrame: (props: Record<string, unknown>) => createElement("channel-loading-frame", props),
 }))
 
 const rail = { railProps: { activeServerId: "s1" } } as never
@@ -72,12 +72,13 @@ describe("ShellFrameView", () => {
     vi.stubGlobal("ResizeObserver", ResizeObserverMock)
   })
 
-  it("shows one stable loading frame while the breakpoint is unknown", async () => {
+  it("keeps responsive detail shell zones while the breakpoint is unknown", async () => {
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
       renderer = TestRenderer.create(createElement(ShellFrameView, {
         breakpoint: "unknown",
         surface: "detail",
+        loadingHref: "/c/me/dm_1",
         navigationPending: false,
         sidebar: () => createElement("sidebar-content"),
         cancelPendingNavigation: vi.fn(),
@@ -86,8 +87,36 @@ describe("ShellFrameView", () => {
         inbox,
       }, createElement("main-content")))
     })
+    expect(renderer.root.findAllByType("channel-loading-frame")).toHaveLength(2)
+    expect(renderer.root.findAllByType("server-rail")).toHaveLength(1)
+    expect(renderer.root.findAllByProps({ className: "hidden sm:contents" })).toHaveLength(1)
+    expect(renderer.root.findAllByType("sidebar-content")).toHaveLength(1)
+    expect(renderer.root.findAllByType("user-bar")).toHaveLength(1)
+    expect(renderer.root.findByProps({ "data-slot": "community-user-bar-overlay" }).props.className)
+      .toContain("max-sm:hidden")
+    expect(renderer.root.findAllByType("main-content")).toHaveLength(0)
+    expect(renderer.root.findAllByType("shell-overlays")).toHaveLength(0)
+  })
+
+  it("keeps rail, sidebar, and UserBar in the unknown list shell", async () => {
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ShellFrameView, {
+        breakpoint: "unknown",
+        surface: "list",
+        loadingHref: "/c/me",
+        navigationPending: false,
+        sidebar: () => createElement("sidebar-content"),
+        cancelPendingNavigation: vi.fn(),
+        rail,
+        profile,
+        inbox,
+      }, createElement("main-content")))
+    })
+    expect(renderer.root.findAllByType("server-rail")).toHaveLength(1)
+    expect(renderer.root.findAllByType("sidebar-content")).toHaveLength(1)
+    expect(renderer.root.findAllByType("user-bar")).toHaveLength(1)
     expect(renderer.root.findAllByType("channel-loading-frame")).toHaveLength(1)
-    expect(renderer.root.findAllByType("server-rail")).toHaveLength(0)
     expect(renderer.root.findAllByType("main-content")).toHaveLength(0)
   })
 
@@ -98,6 +127,7 @@ describe("ShellFrameView", () => {
       renderer = TestRenderer.create(createElement(ShellFrameView, {
         breakpoint: "desktop",
         surface: "detail",
+        loadingHref: "/c/channels/s1/c1",
         navigationPending: false,
         sidebar,
         cancelPendingNavigation: vi.fn(),
@@ -149,6 +179,7 @@ describe("ShellFrameView", () => {
       renderer = TestRenderer.create(createElement(ShellFrameView, {
         breakpoint: "desktop",
         surface: "list",
+        loadingHref: "/c/channels/s1",
         navigationPending: false,
         sidebar,
         cancelPendingNavigation: vi.fn(),
@@ -173,6 +204,7 @@ describe("ShellFrameView", () => {
       renderer = TestRenderer.create(createElement(ShellFrameView, {
         breakpoint: "mobile",
         surface: "list",
+        loadingHref: "/c/me",
         navigationPending: false,
         sidebar,
         cancelPendingNavigation: vi.fn(),
@@ -211,6 +243,7 @@ describe("ShellFrameView", () => {
       renderer.update(createElement(ShellFrameView, {
         breakpoint: "mobile",
         surface: "detail",
+        loadingHref: "/c/me/dm_1",
         navigationPending: false,
         sidebar,
         cancelPendingNavigation: vi.fn(),
@@ -240,6 +273,7 @@ describe("ShellFrameView", () => {
     }
     const common = {
       surface: "detail" as const,
+      loadingHref: "/c/me/dm_1",
       navigationPending: false,
       sidebar: () => createElement("sidebar-content"),
       cancelPendingNavigation: vi.fn(),
@@ -275,6 +309,7 @@ describe("ShellFrameView", () => {
     const sidebar = vi.fn(() => createElement("sidebar-content"))
     const common = {
       surface: "list" as const,
+      loadingHref: "/c/me",
       navigationPending: false,
       sidebar,
       cancelPendingNavigation: vi.fn(),
@@ -318,6 +353,7 @@ describe("ShellFrameView", () => {
     const sidebar = vi.fn(() => createElement("sidebar-content"))
     const common = {
       sidebar,
+      loadingHref: "/c/me/friends",
       cancelPendingNavigation: vi.fn(),
       navigationPending: true,
       rail,
@@ -334,6 +370,8 @@ describe("ShellFrameView", () => {
     })
     expect(renderer.root.findAllByType("channel-loading-frame")).toHaveLength(1)
     expect(renderer.root.findAllByType("main-content")).toHaveLength(0)
+    expect(renderer.root.findAllByType("server-rail")).toHaveLength(1)
+    expect(renderer.root.findAllByType("user-bar")).toHaveLength(1)
 
     await act(async () => {
       renderer.update(createElement(
@@ -343,6 +381,15 @@ describe("ShellFrameView", () => {
       ))
     })
     expect(renderer.root.findAllByType("channel-loading-frame")).toHaveLength(1)
+    expect(renderer.root.findAllByType("server-rail")).toHaveLength(1)
+    expect(renderer.root.findAllByType("sidebar-content")).toHaveLength(1)
+    expect(renderer.root.findAllByType("user-bar")).toHaveLength(1)
+    expect(renderer.root.findAll((node) =>
+      typeof node.props.className === "string" &&
+      node.props.className.includes("absolute inset-0 z-20")))
+      .toHaveLength(0)
+    expect(renderer.root.findAllByType("panel")[1]!.findAllByType("channel-loading-frame"))
+      .toHaveLength(1)
 
     await act(async () => {
       renderer.update(createElement(
@@ -353,5 +400,9 @@ describe("ShellFrameView", () => {
     })
     expect(renderer.root.findAllByType("channel-loading-frame")).toHaveLength(1)
     expect(renderer.root.findAllByType("main-content")).toHaveLength(0)
+    expect(renderer.root.findAllByType("server-rail")).toHaveLength(0)
+    expect(renderer.root.findAllByType("user-bar")).toHaveLength(0)
+    expect(renderer.root.findByType("channel-loading-frame").props.reserveBackSlot).toBe(true)
+    expect(renderer.root.findByType("channel-loading-frame").props.onBack).toBeUndefined()
   })
 })

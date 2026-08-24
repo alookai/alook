@@ -119,10 +119,27 @@ export function InviteAcceptClient({ token }: { token: string }) {
     return (
       <Shell>
         <Skeleton className="size-21 rounded-2xl" />
-        <Skeleton className="mt-5 h-3 w-32 rounded" />
-        <Skeleton className="mt-3 h-7 w-48 rounded" />
-        <Skeleton className="mt-4 h-4 w-64 rounded" />
+        <Skeleton className="mt-5 h-3 w-28 rounded" />
+        <Skeleton className="mt-1 h-10 w-56 rounded" />
+        <div className="mt-3 flex w-full max-w-xs flex-col items-center gap-1.5">
+          <Skeleton className="h-3.5 w-64 max-w-full rounded" />
+          <Skeleton className="h-3.5 w-48 max-w-full rounded" />
+        </div>
+        <div className="mt-4 flex h-5 items-center gap-1.5">
+          <Skeleton className="h-3.5 w-16 rounded" />
+          <Skeleton className="size-5 rounded-full" />
+          <Skeleton className="h-3.5 w-20 rounded" />
+        </div>
         <Skeleton className="mt-6 h-11 w-full rounded-xl" />
+        <div className="mt-4 flex h-5 items-center gap-2">
+          <div className="flex -space-x-1.5">
+            <Skeleton className="size-5 rounded-full ring-2 ring-background" />
+            <Skeleton className="size-5 rounded-full ring-2 ring-background" />
+            <Skeleton className="size-5 rounded-full ring-2 ring-background" />
+          </div>
+          <Skeleton className="h-3 w-20 rounded" />
+        </div>
+        <Skeleton className="mt-3 h-3 w-32 rounded" />
       </Shell>
     )
   }

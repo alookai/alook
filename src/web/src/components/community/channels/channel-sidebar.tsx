@@ -199,7 +199,14 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   // PREVIOUS server's categories for one commit while `loading` has already
   // flipped true. Gating on catOrder would flash the old server's channel list
   // for a frame before collapsing to skeleton.
-  if (loading) return <ChannelSidebarSkeleton noHeader={noHeader} />
+  if (loading) {
+    return (
+      <ChannelSidebarSkeleton
+        noHeader={noHeader}
+        showInviteAction={Boolean(serverId && onInvitePopoverOpenChange)}
+      />
+    )
+  }
 
 
   // Who may create a channel where:
@@ -454,15 +461,22 @@ function ForumSidebarThreadRow({
 
 // Loading placeholder for the channel sidebar. Kept colocated so changes to
 // row density or header height stay in sync with the live sidebar above.
-function ChannelSidebarSkeleton({ noHeader }: { noHeader?: boolean }) {
+function ChannelSidebarSkeleton({
+  noHeader,
+  showInviteAction,
+}: {
+  noHeader?: boolean
+  showInviteAction: boolean
+}) {
   return (
-    <aside className="flex min-w-0 flex-1 flex-col">
+    <aside className="flex min-h-0 min-w-0 flex-1 flex-col">
       {!noHeader && (
-        <header className="flex h-12 items-center border-b border-border/40 px-2">
-          <Skeleton className="h-5 w-32 rounded" />
+        <header className="flex h-12 items-center gap-1 border-b border-border/40 px-2">
+          <Skeleton className="ml-2 h-7 w-32 rounded" />
+          {showInviteAction && <Skeleton className="ml-auto size-7 shrink-0 rounded-md" />}
         </header>
       )}
-      <div className="flex-1 overflow-hidden px-2 py-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-4 thin-scrollbar scrollbar-none">
         <div className="mb-4 space-y-1">
           <Skeleton className="h-7 w-full rounded-md" />
           <Skeleton className="h-7 w-11/12 rounded-md" />

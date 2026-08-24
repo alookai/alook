@@ -13,16 +13,18 @@ export function renderMessageListView(
 ) {
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <ComposerAccessoryRail
-        typingNames={controller.isLoading ? [] : props.typingUsers ?? []}
-        scrollCount={controller.isLoading ? 0 : controller.pillCount}
-        scrollMode={controller.pillMode}
-        onScroll={controller.pillOnClick}
-        selectMode={controller.selectMode}
-        selectedCount={controller.selectedIds.size}
-        onCancelSelection={controller.exitSelect}
-        onShareSelection={() => controller.setShareOpen(true)}
-      />
+      {!controller.isLoading && (
+        <ComposerAccessoryRail
+          typingNames={props.typingUsers ?? []}
+          scrollCount={controller.pillCount}
+          scrollMode={controller.pillMode}
+          onScroll={controller.pillOnClick}
+          selectMode={controller.selectMode}
+          selectedCount={controller.selectedIds.size}
+          onCancelSelection={controller.exitSelect}
+          onShareSelection={() => controller.setShareOpen(true)}
+        />
+      )}
       {controller.shareOpen && controller.selectedMessages.length > 0 && (
         <MessageShareDialog
           m={controller.selectedMessages}

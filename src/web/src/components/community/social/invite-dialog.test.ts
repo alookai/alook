@@ -1,6 +1,7 @@
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { readFileSync } from "node:fs"
 import type { Friend } from "@/lib/community/models/people"
 
 const { toastSpy } = vi.hoisted(() => ({ toastSpy: vi.fn() }))
@@ -85,6 +86,15 @@ describe("InviteFriendRow", () => {
     const html = renderRow({ invited: true })
     expect(html).toContain(">Invited<")
     expect(hasDisabledButton(html)).toBe(true)
+  })
+
+  it("keeps loading rows on the real row padding and trailing action footprint", () => {
+    const source = readFileSync(new URL("./invite-dialog.tsx", import.meta.url), "utf8")
+    expect(source).toContain('<div data-slot="invite-friends-loading">')
+    expect(source).toContain(
+      'className="flex items-center gap-3 rounded-md px-2 py-2"',
+    )
+    expect(source).toContain('className="h-8 w-16 shrink-0 rounded-md"')
   })
 })
 

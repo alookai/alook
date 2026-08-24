@@ -12,6 +12,7 @@ import type { ShellRouter } from "./shell-frame-types"
 export type CommunityNavigationController = {
   currentHref: string
   navigationPending: boolean
+  pendingHref: string | null
   push: (href: string) => void
   replace: (href: string) => void
   prefetch: (href: string) => void
@@ -27,21 +28,25 @@ export function useCommunityNavigationController(): CommunityNavigationControlle
   const currentHref = search ? `${pathname}?${search}` : pathname
   const gateRef = useRef(createNavigationIntentGate())
   const [navigationPending, setNavigationPending] = useState(false)
+  const [pendingHref, setPendingHref] = useState<string | null>(null)
 
   const cancelPendingNavigation = useCallback(() => {
     supersedeNavigationIntent(gateRef.current)
     setNavigationPending(false)
+    setPendingHref(null)
   }, [])
 
   useEffect(() => {
     supersedeNavigationIntent(gateRef.current)
     setNavigationPending(false)
+    setPendingHref(null)
   }, [currentHref])
 
   const push = useCallback((href: string) => {
     if (href === currentHref) return
     supersedeNavigationIntent(gateRef.current)
     setNavigationPending(true)
+    setPendingHref(href)
     router.push(href)
   }, [currentHref, router])
 
@@ -49,21 +54,26 @@ export function useCommunityNavigationController(): CommunityNavigationControlle
     if (href === currentHref) return
     supersedeNavigationIntent(gateRef.current)
     setNavigationPending(true)
+    setPendingHref(href)
     router.replace(href)
   }, [currentHref, router])
 
   const resolveAndPush = useCallback(async (resolve: () => Promise<string>) => {
     setNavigationPending(true)
+    setPendingHref(null)
     try {
       return await commitLatestNavigationIntent(gateRef.current, resolve, (href) => {
         if (href === currentHref) {
           setNavigationPending(false)
+          setPendingHref(null)
           return
         }
+        setPendingHref(href)
         router.push(href)
       })
     } catch (error) {
       setNavigationPending(false)
+      setPendingHref(null)
       throw error
     }
   }, [currentHref, router])
@@ -71,6 +81,7 @@ export function useCommunityNavigationController(): CommunityNavigationControlle
   return {
     currentHref,
     navigationPending,
+    pendingHref,
     push,
     replace,
     prefetch: router.prefetch,

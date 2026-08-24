@@ -55,14 +55,17 @@ describe("useCommunityNavigationController", () => {
   it("sets pending immediately and clears it after the committed href changes", async () => {
     const hook = await renderController()
     expect(hook.current.navigationPending).toBe(false)
+    expect(hook.current.pendingHref).toBeNull()
 
     await act(async () => hook.current.push("/c/me/friends"))
     expect(mocks.push).toHaveBeenCalledWith("/c/me/friends")
     expect(hook.current.navigationPending).toBe(true)
+    expect(hook.current.pendingHref).toBe("/c/me/friends")
 
     mocks.pathname.current = "/c/me/friends"
     await hook.rerender()
     expect(hook.current.navigationPending).toBe(false)
+    expect(hook.current.pendingHref).toBeNull()
   })
 
   it("uses replace for semantic parent navigation", async () => {
@@ -70,6 +73,7 @@ describe("useCommunityNavigationController", () => {
     await act(async () => hook.current.replace("/c/channels/s1"))
     expect(mocks.replace).toHaveBeenCalledWith("/c/channels/s1")
     expect(mocks.push).not.toHaveBeenCalled()
+    expect(hook.current.pendingHref).toBe("/c/channels/s1")
   })
 
   it("commits only the latest async destination", async () => {
@@ -85,12 +89,40 @@ describe("useCommunityNavigationController", () => {
       firstResult = hook.current.resolveAndPush(() => first)
       secondResult = hook.current.resolveAndPush(() => second)
     })
-    resolveFirst("/c/channels/s1/c1")
-    resolveSecond("/c/channels/s2/c2")
-
-    await expect(firstResult).resolves.toBe(false)
-    await expect(secondResult).resolves.toBe(true)
+    await act(async () => {
+      resolveFirst("/c/channels/s1/c1")
+      resolveSecond("/c/channels/s2/c2")
+      await expect(firstResult).resolves.toBe(false)
+      await expect(secondResult).resolves.toBe(true)
+    })
     expect(mocks.push).toHaveBeenCalledTimes(1)
     expect(mocks.push).toHaveBeenCalledWith("/c/channels/s2/c2")
+    expect(hook.current.pendingHref).toBe("/c/channels/s2/c2")
+  })
+
+  it("clears pending destination state on cancellation and async failure", async () => {
+    const hook = await renderController()
+    await act(async () => hook.current.push("/c/me/friends"))
+    expect(hook.current.pendingHref).toBe("/c/me/friends")
+
+    await act(async () => hook.current.cancelPendingNavigation())
+    expect(hook.current.navigationPending).toBe(false)
+    expect(hook.current.pendingHref).toBeNull()
+
+    await expect(act(async () => {
+      await hook.current.resolveAndPush(async () => {
+        throw new Error("lookup failed")
+      })
+    })).rejects.toThrow("lookup failed")
+    expect(hook.current.navigationPending).toBe(false)
+    expect(hook.current.pendingHref).toBeNull()
+  })
+
+  it("does not enter pending state for the committed href", async () => {
+    const hook = await renderController()
+    await act(async () => hook.current.push("/c/me"))
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(hook.current.navigationPending).toBe(false)
+    expect(hook.current.pendingHref).toBeNull()
   })
 })

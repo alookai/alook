@@ -60,10 +60,11 @@ export function DmHeaderSkeleton({ onBack }: { onBack?: () => void }) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-3">
       {onBack && (
-        <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
+        <Skeleton data-slot="loading-back-placeholder" aria-hidden className="size-8 shrink-0 rounded-md" />
       )}
       <Skeleton className="size-6 rounded-full" />
       <Skeleton className="h-4 w-32 rounded" />
+      <Skeleton className="ml-auto size-7 rounded-md" />
     </header>
   )
 }

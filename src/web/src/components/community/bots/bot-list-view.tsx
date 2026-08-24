@@ -23,36 +23,77 @@ function BotCardSkeleton() {
   )
 }
 
+function botBackBar(onBack?: () => void, reserveBackSlot = false) {
+  return onBack || reserveBackSlot ? (
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6">
+      {onBack ? (
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onBack}
+          className="text-muted-foreground hover:text-foreground"
+          aria-label="Back"
+        >
+          <ChevronLeft className="size-5" />
+        </Button>
+      ) : (
+        <Skeleton data-slot="loading-back-placeholder" aria-hidden className="size-8 shrink-0 rounded-md" />
+      )}
+      <span className="ml-1 truncate text-base font-semibold">My Bots</span>
+    </header>
+  ) : null
+}
+
+export function BotListSkeleton({
+  onBack,
+  reserveBackSlot = false,
+}: {
+  onBack?: () => void
+  reserveBackSlot?: boolean
+} = {}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {botBackBar(undefined, reserveBackSlot || Boolean(onBack))}
+      <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6 thin-scrollbar">
+        <header className="flex items-center justify-between gap-4">
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <Skeleton className="h-6 w-24 rounded" />
+            <Skeleton className="h-4 w-full max-w-80 rounded" />
+          </div>
+          <div className="flex items-center gap-1">
+            <Skeleton className="size-9 rounded-md" />
+            <Skeleton className="h-9 w-28 rounded-md" />
+          </div>
+        </header>
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-3 rounded-lg p-1">
+            <div className="flex h-7 items-center gap-2 px-1">
+              <Skeleton className="size-3 rounded" />
+              <Skeleton className="size-3.5 rounded" />
+              <Skeleton className="h-3 w-28 rounded" />
+              <Skeleton className="size-1.5 rounded-full" />
+              <Skeleton className="ml-auto h-7 w-20 rounded-md" />
+            </div>
+            <div className="flex flex-col gap-3">
+              <BotCardSkeleton />
+              <BotCardSkeleton />
+              <BotCardSkeleton />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function renderBotListView(
   { onBack }: BotListProps,
   controller: BotListController,
 ) {
-  const backBar = onBack ? (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6">
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        onClick={onBack}
-        className="text-muted-foreground hover:text-foreground"
-        aria-label="Back"
-      >
-        <ChevronLeft className="size-5" />
-      </Button>
-      <span className="ml-1 truncate text-base font-semibold">My Bots</span>
-    </header>
-  ) : null
+  const backBar = botBackBar(onBack)
 
   if ((controller.isLoading || controller.machinesLoading) && controller.bots.length === 0) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        {backBar}
-        <div className="flex flex-col gap-3 p-6">
-          <BotCardSkeleton />
-          <BotCardSkeleton />
-          <BotCardSkeleton />
-        </div>
-      </div>
-    )
+    return <BotListSkeleton onBack={onBack} />
   }
 
   if (controller.bots.length === 0) {

@@ -22,11 +22,18 @@ import { CreateDialogShell } from "../settings/create-dialog-shell"
 // Skeleton header for the loading frame between route change and channel
 // metadata arriving. Same h-12 footprint as <ChannelHeader> so the body below
 // doesn't shift when the real header lands.
-export function ChannelHeaderSkeleton({ onBack }: { onBack?: () => void }) {
+export function ChannelHeaderSkeleton({
+  onBack,
+  reserveBackSlot = false,
+}: {
+  onBack?: () => void
+  reserveBackSlot?: boolean
+}) {
+  const showBackSlot = reserveBackSlot || Boolean(onBack)
   return (
     <header role="banner" className="flex h-12 shrink-0 items-center gap-1 border-b border-border/40 px-3">
-      {onBack && (
-        <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
+      {showBackSlot && (
+        <Skeleton data-slot="loading-back-placeholder" aria-hidden className="size-8 shrink-0 rounded-md" />
       )}
       <Skeleton className="ml-1 size-6 rounded-md" />
       <Skeleton className="h-4 w-32 rounded" />

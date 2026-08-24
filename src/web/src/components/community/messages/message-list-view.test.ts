@@ -86,7 +86,7 @@ describe("renderMessageListView", () => {
     expect(renderer!.root.findAll((node) => node.props.className === "mb-6")).toHaveLength(1)
   })
 
-  it("keeps the same wrappers while true empty loading hides pill content and typing names", () => {
+  it("keeps the same wrappers while true empty loading omits the interactive accessory rail", () => {
     const listProps = props({ messages: [] })
     const state = controller({ isLoading: true, pillCount: 8 })
     const renderRows = vi.fn(() => React.createElement("virtual-rows"))
@@ -95,10 +95,7 @@ describe("renderMessageListView", () => {
       renderer = TestRenderer.create(renderMessageListView(listProps, state, renderRows))
     })
     expect(renderer!.root.findByType("div").props.className).toBe("relative flex min-h-0 flex-1 flex-col")
-    expect(mockedRail).toHaveBeenCalledWith(expect.objectContaining({
-      typingNames: [],
-      scrollCount: 0,
-    }), undefined)
+    expect(mockedRail).not.toHaveBeenCalled()
     expect(renderRows).not.toHaveBeenCalled()
     expect(renderer!.root.findAll((node) => node.props.className === "mb-6")).toHaveLength(1)
   })

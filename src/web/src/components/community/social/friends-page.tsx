@@ -33,7 +33,7 @@ function FriendSection({ title, count, emptyLabel, children }: {
 
 // Friends page (@me, no DM selected) — All (friends + blocked) / New (add friend + pending).
 export function FriendsPage({
-  friends, pending, blocked, loading, onBack,
+  friends, pending, blocked, loading, onBack, reserveBackSlot = false,
   onAccept, onReject, onCancelRequest, onUnblock, onSendRequest, onRemoveFriend, onBlock, onDm,
 }: {
   friends: Friend[]
@@ -41,6 +41,7 @@ export function FriendsPage({
   blocked: BlockedUser[]
   loading?: boolean
   onBack?: () => void
+  reserveBackSlot?: boolean
   onOpenProfile?: OpenProfile
   onAccept?: (id: string) => void
   onReject?: (id: string) => void
@@ -98,6 +99,38 @@ export function FriendsPage({
     }, 300)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
   }, [addValue])
+
+  if (loading && friends.length === 0 && pending.length === 0 && blocked.length === 0) {
+    return (
+      <div
+        aria-busy="true"
+        aria-label="Loading friends"
+        className="flex min-h-0 min-w-0 flex-1 flex-col gap-2"
+      >
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-4">
+          {(reserveBackSlot || Boolean(onBack)) && (
+            <Skeleton data-slot="loading-back-placeholder" aria-hidden className="size-8 shrink-0 rounded-md" />
+          )}
+          <div aria-hidden className="inline-flex h-8 items-center gap-1 p-0.75 text-muted-foreground">
+            <span className="inline-flex h-[calc(100%-1px)] items-center px-2 py-1 text-sm font-medium">All</span>
+            <span className="inline-flex h-[calc(100%-1px)] items-center px-2 py-1 text-sm font-medium">New</span>
+          </div>
+        </header>
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto thin-scrollbar p-4">
+          <Skeleton className="mb-4 h-11 w-full rounded-md" />
+          <div className="flex min-h-0 flex-col">
+            <div className="mb-2 text-xs font-semibold text-muted-foreground">All friends — …</div>
+            <FriendRowsSkeleton />
+          </div>
+          <div className="mt-8 flex min-h-0 flex-col">
+            <div className="mb-2 text-xs font-semibold text-muted-foreground">Blocked — …</div>
+            <FriendRowsSkeleton withActions />
+          </div>
+        </div>
+        <span className="sr-only">Loading friends</span>
+      </div>
+    )
+  }
 
   const sendRequest = (u: { id: string; name: string; discriminator: string }) => {
     onSendRequest?.({ userId: u.id, username: `${u.name}#${u.discriminator}` })

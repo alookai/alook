@@ -36,6 +36,20 @@ const render = () =>
     }),
   )
 
+const renderLoading = () =>
+  renderToStaticMarkup(
+    createElement(ChannelSidebar, {
+      tree: emptyTree,
+      serverName: "Alpha",
+      serverIcon: null,
+      serverId: "srv_1",
+      activeChannel: "",
+      setActiveChannel: vi.fn(),
+      loading: true,
+      onInvitePopoverOpenChange: vi.fn(),
+    }),
+  )
+
 const forumTree = {
   ...emptyTree,
   catOrder: ["cat_1"],
@@ -98,6 +112,16 @@ describe("ChannelSidebar header", () => {
     const css = readFileSync(new URL("../../../app/globals.css", import.meta.url), "utf8")
     expect(css).toContain(".thin-scrollbar.scrollbar-none")
     expect(css).toContain("scrollbar-width: none")
+  })
+
+  it("keeps the same header action slot and scroll owner while loading", () => {
+    const html = renderLoading()
+    expect(html).toContain("flex min-h-0 min-w-0 flex-1 flex-col")
+    expect(html).toContain(
+      "min-h-0 flex-1 overflow-y-auto px-2 py-4 thin-scrollbar scrollbar-none",
+    )
+    expect(html).toContain("ml-auto size-7 shrink-0 rounded-md")
+    expect(html).not.toContain("overflow-hidden")
   })
 
   it("renders the server name as the sole header identity marker (no duplicate ServerCrumb icon)", () => {
