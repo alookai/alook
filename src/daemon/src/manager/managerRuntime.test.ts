@@ -279,7 +279,7 @@ function bindFactorySession(
   return session;
 }
 
-function makeManager(opts: { logger?: Logger; tickIntervalMs?: number; idleTimeoutMs?: number; staleThresholdMs?: number; resetStuckThresholdMs?: number; handshakeTimeoutMs?: number; now?: () => number; onBotAuditEvent?: (agentId: string, event: unknown, context: { sessionId: string | null; launchId: string | null }) => void } = {}) {
+function makeManager(opts: { logger?: Logger; tickIntervalMs?: number; idleTimeoutMs?: number; idleResetTimeoutMs?: number; staleThresholdMs?: number; resetStuckThresholdMs?: number; handshakeTimeoutMs?: number; now?: () => number; onBotAuditEvent?: (agentId: string, event: unknown, context: { sessionId: string | null; launchId: string | null }) => void } = {}) {
   const session = fakeSession();
   const factory = sessionFactoryFor(session);
   const onRuntimeSpawnFailed = vi.fn();
@@ -312,6 +312,113 @@ function exactTimelineLifecycleStub() {
     fenceSession: vi.fn(),
   };
 }
+
+describe("AgentProcessManager — idle session reset", () => {
+  it("persists an exact reset barrier and clears the local session without waking an idle agent", () => {
+    const forgetSession = vi.fn(() => true);
+    const sessionFactory = vi.fn();
+    const mgr = new AgentProcessManager({
+      driverFor: () => fakeDriver("codex"),
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "a1",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      sessionFactory,
+      timeline: { ...exactTimelineLifecycleStub(), forgetSession } as never,
+      now: () => 123,
+    });
+    mgr.register("a1");
+    const internal = mgr as unknown as { applyEffect(effect: object): void };
+
+    internal.applyEffect({ type: "reset_idle_session", agentId: "a1", sessionId: "sess-old" });
+
+    expect(forgetSession).toHaveBeenCalledWith("a1", "reset_session", "sess-old");
+    expect(sessionFactory).not.toHaveBeenCalled();
+    expect(mgr.snapshot().agents.a1).toMatchObject({ status: "idle", sessionId: null, idleSince: null });
+  });
+
+  it("defers the reset and leaves state retryable when the barrier cannot be persisted", () => {
+    const logger = stubLogger();
+    const forgetSession = vi.fn(() => false);
+    const mgr = new AgentProcessManager({
+      driverFor: () => fakeDriver("codex"),
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "a1",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      timeline: { ...exactTimelineLifecycleStub(), forgetSession } as never,
+      logger,
+    });
+    mgr.register("a1");
+    const before = mgr.snapshot();
+    const internal = mgr as unknown as { applyEffect(effect: object): void };
+
+    internal.applyEffect({ type: "reset_idle_session", agentId: "a1", sessionId: "sess-old" });
+    internal.applyEffect({ type: "reset_idle_session", agentId: "a1", sessionId: "sess-old" });
+
+    expect(forgetSession).toHaveBeenCalledTimes(2);
+    expect(mgr.snapshot()).toBe(before);
+    expect(logger.calls.error.map(([message]) => message)).toEqual([
+      "idle session reset barrier was not persisted; reset deferred",
+      "idle session reset barrier was not persisted; reset deferred",
+    ]);
+  });
+
+  it("fences the old spawn owner before stop so a late session_started cannot restore the reset session", async () => {
+    const session = fakeSession("idle-reset-instance");
+    session.stop = vi.fn(session.stop.bind(session));
+    const setSession = vi.fn(() => true);
+    const forgetSession = vi.fn(() => true);
+    const mgr = new AgentProcessManager({
+      driverFor: () => fakeDriver("codex"),
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "a1",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      sessionFactory: sessionFactoryFor(session),
+      timeline: {
+        ...exactTimelineLifecycleStub(),
+        setSession,
+        forgetSession,
+        resumeSessionId: () => null,
+      } as never,
+      now: () => 123,
+    });
+    mgr.register("a1");
+    mgr.deliver("a1", { id: "first", text: "hello" });
+    session.startResolver?.();
+    await Promise.resolve();
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "sess-old" });
+    await session.fire("runtime_event", { kind: "turn_end", sessionId: "sess-old" });
+    expect(mgr.snapshot().agents.a1).toMatchObject({ sessionId: "sess-old", idleSince: 123 });
+
+    const internal = mgr as unknown as {
+      applyEffect(effect: object): void;
+      activeSpawnState: Map<string, { discardEvents: boolean }>;
+    };
+    internal.applyEffect({ type: "reset_idle_session", agentId: "a1", sessionId: "sess-old" });
+
+    expect(forgetSession).toHaveBeenCalledWith("a1", "reset_session", "sess-old");
+    expect(internal.activeSpawnState.get("a1")?.discardEvents).toBe(true);
+    expect(session.stop).toHaveBeenCalledWith({ reason: "idle_timeout", forceAfterMs: 2_000 });
+    expect(mgr.snapshot().agents.a1.sessionId).toBeNull();
+    expect(setSession).toHaveBeenCalledTimes(1);
+
+    await session.fire("runtime_event", { kind: "session_init", sessionId: "sess-old" });
+
+    expect(setSession).toHaveBeenCalledTimes(1);
+    expect(mgr.snapshot().agents.a1.sessionId).toBeNull();
+  });
+});
 
 function recordObservedTurn(
   recorder: ReturnType<typeof createTimelineRecorder>,
