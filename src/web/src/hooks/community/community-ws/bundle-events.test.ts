@@ -273,6 +273,8 @@ describe("useCommunityWs — operation bundles", () => {
   })
 
   it("replays every legal committed-message child idempotently after a partial parent projection", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-21T12:00:00.000Z"))
     await mountHook({ viewerUserId: "viewer-1" })
     useCommunityStore.getState().subscribe({ channelId: "other-channel" })
     capturedQueryClient.setQueryData(communityKeys.server("s1"), {
