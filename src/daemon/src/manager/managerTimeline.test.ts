@@ -150,7 +150,7 @@ describe("manager.resetSession", () => {
     mode: { kind: "default" as const },
   };
 
-  it("idle path: register → forgetSession → deliver rewake; spawn fires with sessionId=undefined and rewake prompt", async () => {
+  it("idle path: durable forget → register → deliver rewake; spawn fires with sessionId=undefined and rewake prompt", async () => {
     const { rec, calls } = fakeRecorder();
     const cap: { ctx?: LaunchContext } = {};
     const { mgr } = manager(rec, cap);

@@ -201,11 +201,34 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
       threadId: "root-thread",
       turn: { id: "next-turn", status: "inProgress" },
     }))).toEqual([
-      { kind: "turn_owner", receipt: "codex:root-thread:next-turn" },
+      {
+        kind: "turn_owner",
+        receipt: "codex:root-thread:next-turn",
+        nativeTurnId: "next-turn",
+      },
       { kind: "thinking", text: "" },
     ]);
     expect(n.normalizeLine(completed)).toEqual([]);
     expect(n.currentTurnId).toBe("next-turn");
+  });
+
+  it("classifies retrying stream errors as recovery and preserves nested fatal messages", () => {
+    const n = new CodexEventNormalizer();
+    adoptRootTurn(n, "root-thread", "root-turn");
+
+    expect(n.normalizeLine(notify("error", {
+      threadId: "root-thread",
+      turnId: "root-turn",
+      willRetry: true,
+      error: { message: "Reconnecting... 1/5", additionalDetails: "sensitive transport detail" },
+    }))).toEqual([{ kind: "runtime_recovery", stage: "retrying", source: "codex_stream" }]);
+
+    expect(n.normalizeLine(notify("error", {
+      threadId: "root-thread",
+      turnId: "root-turn",
+      willRetry: false,
+      error: { message: "request failed" },
+    }))).toEqual([{ kind: "error", message: "request failed" }]);
   });
 
   it("clears terminal ownership when a new thread is explicitly adopted and rejects an unowned terminal", () => {

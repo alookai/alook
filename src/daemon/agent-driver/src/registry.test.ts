@@ -40,6 +40,12 @@ describe("driver.capabilities", () => {
         transport: { kind: "stdio_rpc", protocol: "codex.app-server.v1" },
         wakeStart: "immediate",
         terminalOwnership: "transport_request",
+        turnSilence: {
+          nativeIdleTimeoutMs: 300_000,
+          daemonGraceMs: 60_000,
+          recoveryGraceMs: 60_000,
+          maxRecoveryExtensions: 1,
+        },
       },
       cursor: {
         lifetime: "session",
@@ -154,5 +160,41 @@ describe("adapter registration runtime boundary", () => {
       { ...EXPECTED.claude, sessionLifetime: "per_turn" },
       adapter,
     )).toThrow("delivery conflicts with its execution lifetime");
+  });
+
+  it("rejects malformed turn-silence policies instead of disabling stall detection", () => {
+    const adapter = {
+      id: "sixth",
+      instructionDelivery: { kind: "native" },
+      execution: {
+        lifetime: "session",
+        transport: { kind: "stdio_stream", protocol: "sixth.test.v1" },
+        wakeStart: "immediate",
+        terminalOwnership: "vendor_message",
+        turnSilence: {
+          nativeIdleTimeoutMs: 300_000,
+          daemonGraceMs: 60_000,
+          recoveryGraceMs: 60_000,
+          maxRecoveryExtensions: 1,
+        },
+      },
+      probe() {},
+      openLane() {},
+    };
+    const invalidPolicies = [
+      null,
+      { ...adapter.execution.turnSilence, nativeIdleTimeoutMs: 0 },
+      { ...adapter.execution.turnSilence, daemonGraceMs: -1 },
+      { ...adapter.execution.turnSilence, recoveryGraceMs: Number.POSITIVE_INFINITY },
+      { ...adapter.execution.turnSilence, maxRecoveryExtensions: 0.5 },
+      { ...adapter.execution.turnSilence, nativeIdleTimeoutMs: Number.MAX_SAFE_INTEGER, daemonGraceMs: 1 },
+    ];
+    for (const turnSilence of invalidPolicies) {
+      expect(() => assertAdapterCompatibility(
+        "sixth",
+        EXPECTED.claude,
+        { ...adapter, execution: { ...adapter.execution, turnSilence } },
+      )).toThrow("invalid turnSilence declaration");
+    }
   });
 });

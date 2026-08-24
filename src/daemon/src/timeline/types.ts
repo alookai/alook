@@ -25,27 +25,33 @@ import type { Message } from "../server/contract.js";
  *     message carries its own `time`.
  *   - **System** (`system` set): an out-of-band event the daemon needs to
  *     record in-line with turns so both the resume walker AND the agent's
- *     own history read see it. First (and only) type today is
- *     `reset_session`: the owner asked to forget prior conversation. On
- *     resume, `findResumableSession` walks newest→oldest and STOPS if it
- *     hits a `reset_session` row before finding a session id — so every
- *     row at or before the reset is invisible for resume without touching
- *     the rows themselves.
+ *     own history read see it. `reset_session` and `nap` deliberately forget
+ *     all prior conversation; stall-recovery rows persist the one allowed
+ *     recovery attempt, its clean reset, and the final exact-session fence. On
+ *     resume, the resolver walks newest→oldest: reset/nap rows hide older
+ *     candidates, while an exact stall fence remains attached to any newer
+ *     healthy candidate so stale external resume sources cannot resurrect it.
  *
  * On a system row, `session_id`/`provider` are null and `messages`/
  * `agent_responses` are empty. The system row is not mergeable with a
  * following turn (see `appendOrMergeEntry`).
  */
-// `reset_session` — owner-triggered reset. `nap` — the agent reset its OWN
-// session (see agent:nap). Both are resume barriers with identical walker
-// semantics; the distinct type just records who initiated it.
-export type SystemEntryType = "reset_session" | "nap";
+// Stall recovery uses durable attempt/clear markers plus a final barrier so a
+// daemon restart cannot replenish the same poisoned session's retry allowance.
+export type SystemEntryType =
+  | "reset_session"
+  | "nap"
+  | "stall_recovery_attempt"
+  | "stall_recovery_clear"
+  | "stall_recovery";
 
 export interface SystemEntry {
   /** Event kind. Extend by adding to `SystemEntryType`. */
   type: SystemEntryType;
   /** ISO timestamp when the event landed — the row is otherwise untimed. */
   time: string;
+  /** Exact backend session associated with a stall-recovery row. */
+  backend_session_id?: string;
 }
 
 export interface ContextTimelineEntry {

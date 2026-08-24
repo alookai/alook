@@ -11,6 +11,7 @@ import {
   createTimelineEntry,
   createSystemEntry,
   findResumableSession,
+  resolveResumableSession,
   filenameForDate,
   localISOString,
   sweepTimelineHistory,
@@ -582,6 +583,74 @@ describe("findResumableSession", () => {
       createSystemEntry("nap", "2026-06-25T12:00:00Z"),
     ];
     expect(findResumableSession(rows)).toBeNull();
+  });
+
+  it("returns the exact backend session fenced by a stall_recovery barrier", () => {
+    const rows = [
+      { ...createTimelineEntry({ messages: [], provider: "codex", sessionId: "sess-poison" }) },
+      createSystemEntry("stall_recovery", "2026-06-25T12:00:00Z", "sess-poison"),
+    ];
+    expect(resolveResumableSession(rows, "codex")).toEqual({
+      kind: "barrier",
+      type: "stall_recovery",
+      forgottenSessionId: "sess-poison",
+      fencedSessionId: "sess-poison",
+    });
+    expect(findResumableSession(rows, "codex")).toBeNull();
+  });
+
+  it("carries an un-cleared first-stall attempt across later rows for the same session", () => {
+    const rows = [
+      createTimelineEntry({ messages: [], provider: "codex", sessionId: "sess-poison" }),
+      createSystemEntry("stall_recovery_attempt", "2026-06-25T12:00:00Z", "sess-poison"),
+      createTimelineEntry({ messages: [], provider: "codex", sessionId: "sess-poison" }),
+    ];
+    expect(resolveResumableSession(rows, "codex")).toEqual({
+      kind: "session",
+      sessionId: "sess-poison",
+      stalledSessionId: "sess-poison",
+      fencedSessionId: null,
+    });
+  });
+
+  it("retains the consumed attempt even when no timeline session row remains", () => {
+    const rows = [
+      createSystemEntry("stall_recovery_attempt", "2026-06-25T12:00:00Z", "sess-poison"),
+    ];
+    expect(resolveResumableSession(rows, "codex")).toEqual({
+      kind: "none",
+      stalledSessionId: "sess-poison",
+      fencedSessionId: null,
+    });
+  });
+
+  it("a clean-completion marker clears the durable first-stall attempt", () => {
+    const rows = [
+      createTimelineEntry({ messages: [], provider: "codex", sessionId: "sess-poison" }),
+      createSystemEntry("stall_recovery_attempt", "2026-06-25T12:00:00Z", "sess-poison"),
+      createTimelineEntry({ messages: [], provider: "codex", sessionId: "sess-poison" }),
+      createSystemEntry("stall_recovery_clear", "2026-06-25T12:01:00Z", "sess-poison"),
+    ];
+    expect(resolveResumableSession(rows, "codex")).toEqual({
+      kind: "session",
+      sessionId: "sess-poison",
+      stalledSessionId: null,
+      fencedSessionId: null,
+    });
+  });
+
+  it("carries an exact fence alongside a newer healthy session", () => {
+    const rows = [
+      createTimelineEntry({ messages: [], provider: "codex", sessionId: "sess-poison" }),
+      createSystemEntry("stall_recovery", "2026-06-25T12:00:00Z", "sess-poison"),
+      createTimelineEntry({ messages: [], provider: "codex", sessionId: "sess-healthy" }),
+    ];
+    expect(resolveResumableSession(rows, "codex")).toEqual({
+      kind: "session",
+      sessionId: "sess-healthy",
+      stalledSessionId: null,
+      fencedSessionId: "sess-poison",
+    });
   });
 
   it("returns a session id from a row appended AFTER the barrier", () => {

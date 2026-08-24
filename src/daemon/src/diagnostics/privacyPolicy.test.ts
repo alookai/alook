@@ -49,11 +49,12 @@ const EXPECTED_MANAGER_EVENTS = [
   "begin_reset",
   "rewake_after_reset",
   "runtime_signal",
+  "stall_control_failed",
   "admission_started",
   "admission_settled",
 ] as const;
 
-const EXPECTED_MANAGER_EFFECTS = ["spawn", "send", "stop", "terminate_stalled", "force_exit", "gated_hold"] as const;
+const EXPECTED_MANAGER_EFFECTS = ["spawn", "send", "stop", "terminate_stalled", "clear_stall_recovery", "force_exit", "gated_hold"] as const;
 const EXPECTED_AGENT_STATUSES = ["idle", "starting", "running", "stopping"] as const;
 const EXPECTED_DERIVED_ACTIVITIES = ["idle", "starting", "running", "stopping"] as const;
 const EXPECTED_TURN_OUTCOMES = ["clean", "errored"] as const;
@@ -77,6 +78,18 @@ const EXPECTED_ABORT_CAUSES = [
   "force_exit",
   "other",
 ] as const;
+const EXPECTED_NATIVE_ACTIVITY_KINDS = [
+  "turn_started",
+  "backend_turn_started",
+  "thinking",
+  "text",
+  "tool_call",
+  "tool_output",
+  "internal_progress",
+  "recovery",
+  "turn_end",
+] as const;
+const EXPECTED_RUNTIME_PHASES = ["idle", "admission", "inference", "tool", "recovery", "terminal"] as const;
 const EXPECTED_LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
 const EXPECTED_EXIT_SIGNALS = [
   "SIGABRT",
@@ -137,6 +150,13 @@ const FSM_FIELD_RULES: Readonly<Record<string, ProjectionFieldRule>> = {
   inbox: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER },
   lastDeliverAt: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER, nullable: true },
   lastProgressAt: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER },
+  lastNativeActivityAt: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER, optional: true },
+  lastNativeActivityKind: { type: "enum", values: EXPECTED_NATIVE_ACTIVITY_KINDS, nullable: true, optional: true },
+  runtimePhase: { type: "enum", values: EXPECTED_RUNTIME_PHASES, optional: true },
+  backendTurnId: { type: "string", maxChars: 512, nullable: true, optional: true },
+  turnSilenceBudgetMs: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER, optional: true },
+  nativeDeadlineAt: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER, nullable: true, optional: true },
+  recoveryExtensionsUsed: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER, optional: true },
   idleSince: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER, nullable: true },
   resetting: { type: "boolean" },
   resettingSince: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER, nullable: true },
@@ -155,6 +175,7 @@ const FSM_FIELD_RULES: Readonly<Record<string, ProjectionFieldRule>> = {
   nowMs: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER },
   timeIso: { type: "timestamp" },
   sinceProgressMs: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER },
+  sinceNativeActivityMs: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER, optional: true },
   sinceDeliverMs: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER, nullable: true },
   sinceStoppingMs: { type: "integer", min: 0, max: Number.MAX_SAFE_INTEGER, nullable: true },
   traceTurnId: { type: "string", maxChars: 1_024, optional: true },
@@ -375,6 +396,13 @@ function baseFsm(overrides: Record<string, unknown> = {}): Record<string, unknow
     inbox: 2,
     lastDeliverAt: 100,
     lastProgressAt: 110,
+    lastNativeActivityAt: 115,
+    lastNativeActivityKind: "thinking",
+    runtimePhase: "inference",
+    backendTurnId: "native-turn-7",
+    turnSilenceBudgetMs: 360_000,
+    nativeDeadlineAt: 475_000,
+    recoveryExtensionsUsed: 0,
     idleSince: null,
     resetting: false,
     resettingSince: null,
@@ -384,6 +412,7 @@ function baseFsm(overrides: Record<string, unknown> = {}): Record<string, unknow
     nowMs: 120,
     timeIso: "1970-01-01T00:00:00.120Z",
     sinceProgressMs: 10,
+    sinceNativeActivityMs: 5,
     sinceDeliverMs: 20,
     sinceStoppingMs: null,
     traceTurnId: "launch_1:1",
@@ -518,6 +547,13 @@ describe("B2c privacy policy", () => {
       inbox: 2,
       lastDeliverAt: 100,
       lastProgressAt: 110,
+      lastNativeActivityAt: 115,
+      lastNativeActivityKind: "thinking",
+      runtimePhase: "inference",
+      backendTurnId: "native-turn-7",
+      turnSilenceBudgetMs: 360_000,
+      nativeDeadlineAt: 475_000,
+      recoveryExtensionsUsed: 0,
       idleSince: null,
       resetting: false,
       resettingSince: null,
@@ -527,6 +563,7 @@ describe("B2c privacy policy", () => {
       nowMs: 120,
       timeIso: "1970-01-01T00:00:00.120Z",
       sinceProgressMs: 10,
+      sinceNativeActivityMs: 5,
       sinceDeliverMs: 20,
       sinceStoppingMs: null,
       traceTurnId: "launch_1:1",
@@ -536,6 +573,12 @@ describe("B2c privacy policy", () => {
       launchIdSnapshot: "launch_1",
     });
     expect(JSON.stringify(projected)).not.toMatch(/PROMPT_LEAK|SEND_LEAK|RESPONSE_LEAK|THINKING_LEAK|TOOL_LEAK|ERROR_LEAK|RECENT_LEAK|UNKNOWN_LEAK/);
+
+    const credentialBearingNativeId = api.projectFsmTraceRow(baseFsm({
+      backendTurnId: "OPENAI_API_KEY=native-turn-secret /Users/private/native-turn",
+    }), "target-agent");
+    expect(credentialBearingNativeId).not.toBeNull();
+    expect(JSON.stringify(credentialBearingNativeId)).not.toMatch(/native-turn-secret|\/Users\/private/);
 
     for (const deliveryPhase of EXPECTED_DELIVERY_PHASES) {
       expect(api.projectFsmTraceRow(baseFsm({ deliveryPhase }), "target-agent"), deliveryPhase).toMatchObject({ deliveryPhase });

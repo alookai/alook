@@ -146,6 +146,23 @@ export function assertAdapterCompatibility(
   ) {
     throw new Error(`Adapter ${registrationId} has an invalid transport declaration`);
   }
+  if (execution.turnSilence !== undefined) {
+    const silence = execution.turnSilence as Record<string, unknown> | undefined;
+    const safeInteger = (value: unknown, minimum: number): value is number =>
+      typeof value === "number" && Number.isSafeInteger(value) && value >= minimum;
+    if (
+      !silence
+      || typeof silence !== "object"
+      || Array.isArray(silence)
+      || !safeInteger(silence.nativeIdleTimeoutMs, 1)
+      || !safeInteger(silence.daemonGraceMs, 0)
+      || !safeInteger(silence.recoveryGraceMs, 0)
+      || !safeInteger(silence.maxRecoveryExtensions, 0)
+      || !Number.isSafeInteger(silence.nativeIdleTimeoutMs + silence.daemonGraceMs)
+    ) {
+      throw new Error(`Adapter ${registrationId} has an invalid turnSilence declaration`);
+    }
+  }
   const capabilities = registeredCapabilities as Record<string, unknown> | undefined;
   const declaredLifetime = capabilities?.sessionLifetime === "persistent" ? "session" : "turn";
   if (execution.lifetime !== declaredLifetime) {

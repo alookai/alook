@@ -289,7 +289,7 @@ describe("daemon runner logger", () => {
     }
   });
 
-  it("preserves projected FSM timestamps through the runner bundle seam", async () => {
+  it("exports projected native-liveness diagnostics and FSM timestamps through the runner bundle seam", async () => {
     resetDiagnosticHarness();
     vi.useFakeTimers();
     const listenersBefore = processListenerSnapshot();
@@ -316,12 +316,19 @@ describe("daemon runner logger", () => {
     traceSink.write(JSON.stringify({
       recordKind: "fsm",
       agentId: "bot_1",
-      event: "register",
+      event: "runtime_signal",
       status: "idle",
       turnActive: false,
       inbox: 0,
       lastDeliverAt: null,
       lastProgressAt: eventTime,
+      lastNativeActivityAt: eventTime - 10,
+      lastNativeActivityKind: "backend_turn_started",
+      runtimePhase: "inference",
+      backendTurnId: "native-turn-7",
+      turnSilenceBudgetMs: 360_000,
+      nativeDeadlineAt: eventTime + 360_000,
+      recoveryExtensionsUsed: 1,
       idleSince: eventTime,
       resetting: false,
       resettingSince: null,
@@ -331,6 +338,7 @@ describe("daemon runner logger", () => {
       nowMs: eventTime,
       timeIso: new Date(eventTime).toISOString(),
       sinceProgressMs: 0,
+      sinceNativeActivityMs: 10,
       sinceDeliverMs: null,
       sinceStoppingMs: null,
     }));
@@ -388,9 +396,17 @@ describe("daemon runner logger", () => {
         expect.objectContaining({
           recordKind: "fsm",
           agentId: "bot_1",
-          event: "register",
+          event: "runtime_signal",
           nowMs: eventTime,
           timeMs: eventTime,
+          lastNativeActivityAt: eventTime - 10,
+          lastNativeActivityKind: "backend_turn_started",
+          runtimePhase: "inference",
+          backendTurnId: "native-turn-7",
+          turnSilenceBudgetMs: 360_000,
+          nativeDeadlineAt: eventTime + 360_000,
+          recoveryExtensionsUsed: 1,
+          sinceNativeActivityMs: 10,
         }),
         expect.objectContaining({
           recordKind: "turn_span",

@@ -44,6 +44,12 @@ export class CodexDriver implements BackendAdapter {
     transport: { kind: "stdio_rpc", protocol: "codex.app-server.v1" },
     wakeStart: "immediate",
     terminalOwnership: "transport_request",
+    turnSilence: {
+      nativeIdleTimeoutMs: 300_000,
+      daemonGraceMs: 60_000,
+      recoveryGraceMs: 60_000,
+      maxRecoveryExtensions: 1,
+    },
   } as const;
 
   private readonly eventNormalizer = new CodexEventNormalizer();

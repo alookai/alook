@@ -152,8 +152,6 @@ export const PI_IGNORED_EVENT_TYPES = [
   "queue_update",
   "session_info_changed",
   "thinking_level_changed",
-  "auto_retry_start",
-  "auto_retry_end",
   "agent_end",
 ] as const;
 
@@ -176,6 +174,10 @@ export function mapPiSdkEvent(event: any, sessionId: string, state: { sawTextDel
     }
   }
   switch (event?.type) {
+    case "auto_retry_start":
+      return [{ kind: "runtime_recovery", stage: "retrying", source: "pi_auto_retry" }];
+    case "auto_retry_end":
+      return [{ kind: "runtime_recovery", stage: "recovered", source: "pi_auto_retry" }];
     case "tool_execution_start":
       return [{ kind: "tool_call", name: event.toolName ?? "unknown_tool", input: event.args ?? {} }];
     case "tool_execution_end":
