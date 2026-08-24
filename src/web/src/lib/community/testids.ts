@@ -112,6 +112,7 @@ export const tid = {
   forumTagChip: (tag: string) => `community-forum-tag-chip-${tag}`,
   forumNewPost: "community-forum-new-post",
   forumPostList: "community-forum-post-list",
+  inboxUnreadChannel: (id: string) => `community-inbox-unread-channel-${id}`,
   inboxUnreadChild: (id: string) => `community-inbox-unread-child-${id}`,
   inboxUnreadDm: (id: string) => `community-inbox-unread-dm-${id}`,
   channelRefPill: (id: string) => `community-channel-ref-pill-${id}`,

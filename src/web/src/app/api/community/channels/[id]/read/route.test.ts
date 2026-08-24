@@ -10,11 +10,14 @@ const mockGetChannelForMember = vi.fn()
 const mockGetMessage = vi.fn()
 const mockGetLatestMessage = vi.fn()
 const mockMarkReadToMessageBuilder = vi.fn()
+const mockAdvanceReadStateRevisionBuilder = vi.fn()
 const mockMarkChannelMentionsReadBuilder = vi.fn()
 const mockBatch = vi.fn()
+const mockBroadcastToUserSafe = vi.fn()
+const mockGetPrimaryDb = vi.fn(() => ({ batch: (...a: unknown[]) => mockBatch(...a) }))
 
 vi.mock("@/lib/db", () => ({
-  getDb: vi.fn(() => ({ batch: (...a: unknown[]) => mockBatch(...a) })),
+  getPrimaryDb: (...args: unknown[]) => mockGetPrimaryDb(...args),
 }))
 
 vi.mock("@alook/shared", async () => {
@@ -32,6 +35,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityReadState: {
         markReadToMessageBuilder: (...a: unknown[]) => mockMarkReadToMessageBuilder(...a),
+        advanceReadStateRevisionBuilder: (...a: unknown[]) => mockAdvanceReadStateRevisionBuilder(...a),
       },
       communityMention: {
         markChannelMentionsReadBuilder: (...a: unknown[]) =>
@@ -46,6 +50,10 @@ vi.mock("@/lib/middleware/auth", () => ({
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
     return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
   }),
+}))
+
+vi.mock("@/lib/community/fanout", () => ({
+  broadcastToUserSafe: (...args: unknown[]) => mockBroadcastToUserSafe(...args),
 }))
 
 vi.mock("@/lib/middleware/helpers", () => {
@@ -75,15 +83,18 @@ describe("PUT /api/community/channels/[id]/read", () => {
     mockMarkChannelMentionsReadBuilder.mockReturnValue({
       __builder: "markChannelMentionsRead",
     })
-    mockBatch.mockResolvedValue(undefined)
+    mockAdvanceReadStateRevisionBuilder.mockReturnValue({ __builder: "advanceRevision" })
+    mockBatch.mockResolvedValue([[], [], [{ revision: 1 }]])
+    mockBroadcastToUserSafe.mockResolvedValue(undefined)
   })
 
-  it("no-body call on non-empty channel: uses latest message and issues one batch with both builders", async () => {
+  it("commits the read, mention clear, and revision in one batch and broadcasts one complete frame", async () => {
     mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
     mockGetLatestMessage.mockResolvedValue({
       id: "m_latest",
       createdAt: "2026-07-05T10:00:00.000Z",
+      seq: 9,
     })
 
     const res = await PUT(putReq(), { params: { id: "c1" } } as any)
@@ -93,16 +104,30 @@ describe("PUT /api/community/channels/[id]/read", () => {
     expect(mockMarkReadToMessageBuilder).toHaveBeenCalledWith(expect.anything(), {
       userId: "u1",
       channelId: "c1",
-      message: { id: "m_latest", createdAt: "2026-07-05T10:00:00.000Z" },
+      message: { id: "m_latest", createdAt: "2026-07-05T10:00:00.000Z", seq: 9 },
     })
 
     // Exactly one batch call carrying both statements in order.
     expect(mockBatch).toHaveBeenCalledTimes(1)
     const batchArg = mockBatch.mock.calls[0]![0]
     expect(Array.isArray(batchArg)).toBe(true)
-    expect(batchArg).toHaveLength(2)
+    expect(batchArg).toHaveLength(3)
     expect(batchArg[0]).toEqual({ __builder: "markReadToMessage" })
     expect(batchArg[1]).toEqual({ __builder: "markChannelMentionsRead" })
+    expect(batchArg[2]).toEqual({ __builder: "advanceRevision" })
+    expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("u1", expect.objectContaining({
+      type: "community:read_state.advanced",
+      revision: 1,
+      advances: [{
+        channelId: "c1",
+        lastReadMessageId: "m_latest",
+        lastReadAt: "2026-07-05T10:00:00.000Z",
+        lastReadSeq: 9,
+      }],
+      inboxChanged: true,
+    }))
+    expect(mockGetPrimaryDb).toHaveBeenCalledOnce()
+    await expect(res.json()).resolves.toEqual({ ok: true, revision: 1 })
   })
 
   it("no-body call on EMPTY channel: no writes at all, returns 200 { ok: true }", async () => {
@@ -128,6 +153,7 @@ describe("PUT /api/community/channels/[id]/read", () => {
     mockGetLatestMessage.mockResolvedValue({
       id: "m_latest",
       createdAt: "2026-07-05T10:00:00.000Z",
+      seq: 9,
     })
     // D1 batches are atomic: if the batch rejects, the whole transaction
     // rolls back. We verify the route surfaces that failure rather than
@@ -150,7 +176,7 @@ describe("PUT /api/community/channels/[id]/read", () => {
     })
     mockBatch
       .mockRejectedValueOnce(new Error("SQLITE_BUSY: database is locked"))
-      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce([[], [], [{ revision: 2 }]])
 
     const res = await PUT(putReq(), { params: { id: "c1" } } as any)
 
@@ -208,6 +234,7 @@ describe("PUT /api/community/channels/[id]/read", () => {
         id: "m_42",
         channelId: "c1",
         createdAt: "2026-07-01T12:00:00.000Z",
+        seq: 42,
       })
 
       const res = await PUT(putReq({ lastReadMessageId: "m_42" }), { params: { id: "c1" } } as any)
@@ -218,7 +245,7 @@ describe("PUT /api/community/channels/[id]/read", () => {
       expect(mockMarkReadToMessageBuilder).toHaveBeenCalledWith(expect.anything(), {
         userId: "u1",
         channelId: "c1",
-        message: { id: "m_42", createdAt: "2026-07-01T12:00:00.000Z" },
+        message: { id: "m_42", createdAt: "2026-07-01T12:00:00.000Z", seq: 42 },
       })
       // Body path never consults getLatestMessage.
       expect(mockGetLatestMessage).not.toHaveBeenCalled()
@@ -257,6 +284,7 @@ describe("PUT /api/community/channels/[id]/read", () => {
       mockGetLatestMessage.mockResolvedValue({
         id: "m_latest",
         createdAt: "2026-07-05T10:00:00.000Z",
+        seq: 9,
       })
 
       // Empty string body — treated as no lastReadMessageId.
@@ -268,7 +296,7 @@ describe("PUT /api/community/channels/[id]/read", () => {
       expect(mockMarkReadToMessageBuilder).toHaveBeenCalledWith(expect.anything(), {
         userId: "u1",
         channelId: "c1",
-        message: { id: "m_latest", createdAt: "2026-07-05T10:00:00.000Z" },
+        message: { id: "m_latest", createdAt: "2026-07-05T10:00:00.000Z", seq: 9 },
       })
     })
   })

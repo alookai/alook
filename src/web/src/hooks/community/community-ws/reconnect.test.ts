@@ -338,8 +338,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 900)
 
     expect(summary).toMatchObject({
-      policyCount: 13,
-      successCount: 12,
+      policyCount: 14,
+      successCount: 13,
       failureCount: 1,
       reconnectDurationMs: 900,
     })
@@ -369,7 +369,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 10)
     useCommunityWsStore.setState({ resetPresence: originalResetPresence })
 
-    expect(summary).toMatchObject({ policyCount: 13, successCount: 12, failureCount: 1 })
+    expect(summary).toMatchObject({ policyCount: 14, successCount: 13, failureCount: 1 })
     expect(telemetry.failure).toHaveBeenCalledWith({
       policy: "presence-overlay",
       reason: "sync-throw",

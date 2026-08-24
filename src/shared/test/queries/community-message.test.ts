@@ -961,8 +961,8 @@ describe("getLatestMessagesByChannelIds", () => {
 
 describe("read-state invariant property — every write path", () => {
   // Fixture message tuples used across paths.
-  const CHANNEL_MSG = { id: "m_ch_latest", createdAt: "2026-07-05T10:00:00.000Z" };
-  const DM_MSG = { id: "m_dm_latest", createdAt: "2026-07-05T11:00:00.000Z" };
+  const CHANNEL_MSG = { id: "m_ch_latest", createdAt: "2026-07-05T10:00:00.000Z", seq: 10 };
+  const DM_MSG = { id: "m_dm_latest", createdAt: "2026-07-05T11:00:00.000Z", seq: 11 };
 
   // Capture every insert/onConflict/update `set` payload that touches
   // communityReadState.
@@ -994,18 +994,17 @@ describe("read-state invariant property — every write path", () => {
           } else {
             writes.push({ lastReadAt: v.lastReadAt, lastReadMessageId: v.lastReadMessageId });
           }
-          const chain: any = {
-            returning: vi.fn(() =>
-              Promise.resolve([{ ...v, id: v.id ?? "m_generated" }])
-            ),
-            onConflictDoUpdate: vi.fn((cfg: any) => {
+          const chain: any = {};
+          chain.returning = vi.fn(() =>
+            Promise.resolve([{ ...v, id: v.id ?? "m_generated", revision: 1 }])
+          );
+          chain.onConflictDoUpdate = vi.fn((cfg: any) => {
               writes.push({
                 lastReadAt: cfg.set.lastReadAt,
                 lastReadMessageId: cfg.set.lastReadMessageId,
               });
-              return { __builder: "insert-onconflict" };
-            }),
-          };
+              return chain;
+            });
           return chain;
         }),
       })),
@@ -1099,7 +1098,7 @@ describe("read-state invariant property — every write path", () => {
     const spy = vi
       .spyOn(msg, "getLatestMessagesByChannelIds")
       .mockResolvedValue([
-        { channelId: "c_mass", id: "m_mass_latest", createdAt: "2026-07-06T00:00:00.000Z" },
+        { channelId: "c_mass", id: "m_mass_latest", createdAt: "2026-07-06T00:00:00.000Z", seq: 12 },
       ]);
     await readState.markAllServerChannelsRead(dbF, "u_1", ["c_mass"]);
     spy.mockRestore();

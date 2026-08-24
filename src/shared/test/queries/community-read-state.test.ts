@@ -27,6 +27,56 @@ describe("community/read-state exports", () => {
   });
 });
 
+describe("getAccountReadStateSnapshot", () => {
+  it("keeps revision and rows aligned when a mutation races the snapshot", async () => {
+    const builders = [{ kind: "revision" }, { kind: "rows" }];
+    let selectIndex = 0;
+    let state = {
+      revision: 4,
+      readStates: [{
+        channelId: "c1",
+        lastReadMessageId: "m2",
+        lastReadAt: "2026-08-24T00:00:02.000Z",
+        lastReadSeq: 2,
+      }],
+    };
+    const db: any = {
+      select: vi.fn(() => {
+        const builder: any = builders[selectIndex++];
+        builder.from = vi.fn(() => builder);
+        builder.where = vi.fn(() => builder);
+        builder.limit = vi.fn(() => builder);
+        return builder;
+      }),
+      batch: vi.fn(async () => {
+        const captured = structuredClone(state);
+        state = {
+          revision: 5,
+          readStates: [{
+            channelId: "c1",
+            lastReadMessageId: "m3",
+            lastReadAt: "2026-08-24T00:00:03.000Z",
+            lastReadSeq: 3,
+          }],
+        };
+        return [[{ revision: captured.revision }], captured.readStates];
+      }),
+    };
+
+    await expect(readStateQueries.getAccountReadStateSnapshot(db, "u1")).resolves.toEqual({
+      revision: 4,
+      readStates: [{
+        channelId: "c1",
+        lastReadMessageId: "m2",
+        lastReadAt: "2026-08-24T00:00:02.000Z",
+        lastReadSeq: 2,
+      }],
+    });
+    expect(db.batch).toHaveBeenCalledOnce();
+    expect(db.batch.mock.calls[0]![0]).toEqual(builders);
+  });
+});
+
 describe("markReadToMessageBuilder — channel branch", () => {
   it("returns a builder synchronously (no await, no Promise) so it composes into db.batch", () => {
     const db = createInsertBuilderMock();
@@ -146,104 +196,60 @@ describe("markReadToMessageBuilder — DM is a channel", () => {
 // return the count of channels that got a write (not the reachable-channel
 // count).
 
-function makeMassMarkDbMock(opts: {
-  memberChannelIds: string[];
-  latestByChannel: Record<string, { id: string; createdAt: string } | undefined>;
-  existingReadStateChannels: string[]; // channelIds that already have a row
-}) {
-  const updates: Array<{ id: string; set: any }> = [];
+function makeMassMarkDbMock(revision = 7) {
   const inserts: any[] = [];
-
-  // Post-id-set convergence, `markAllServerChannelsRead` takes the visible
-  // channel id set as an ARGUMENT (no member-channel select of its own). The
-  // only select it now issues is the existing-read-state-rows lookup:
-  //   select({id, channelId}).from(communityReadState).where(...) → existing rows.
-  // (`getLatestMessagesByChannelIds` is intercepted via vi.spyOn.)
-
+  const conflicts: any[] = [];
   const db: any = {
-    select: vi.fn(() => {
+    insert: vi.fn(() => {
       const chain: any = {};
-      chain.from = vi.fn(() => chain);
-      chain.innerJoin = vi.fn(() => chain);
-      chain.leftJoin = vi.fn(() => chain);
-      chain.groupBy = vi.fn(() => chain);
-      chain.as = vi.fn(() => chain);
-      chain.where = vi.fn(() =>
-        Promise.resolve(
-          opts.existingReadStateChannels.map((c, i) => ({
-            id: `rs_${i}_${c}`,
-            channelId: c,
-          }))
-        )
-      );
+      chain.values = vi.fn((value: any) => {
+        inserts.push(value);
+        return chain;
+      });
+      chain.onConflictDoUpdate = vi.fn((value: any) => {
+        conflicts.push(value);
+        return chain;
+      });
+      chain.returning = vi.fn(() => chain);
       return chain;
     }),
-    update: vi.fn(() => ({
-      set: vi.fn((s: any) => ({
-        where: vi.fn((w: any) => {
-          // where clause is `and(eq(readState.id, u.id), lt(readState.lastReadAt, u.createdAt))`
-          // — we can't inspect its structure without evaluating the SQL
-          // fragment, but the mere presence of a non-null argument lets
-          // downstream tests assert that a guard was passed at all.
-          updates.push({ id: "unknown", set: s, where: w });
-          return Promise.resolve();
-        }),
-      })),
-    })),
-    insert: vi.fn(() => ({
-      values: vi.fn((v: any) => {
-        inserts.push(v);
-        return Promise.resolve();
-      }),
-    })),
-    __updates: updates,
+    batch: vi.fn(async (statements: unknown[]) =>
+      statements.map((_, index) => index === statements.length - 1 ? [{ revision }] : [])
+    ),
     __inserts: inserts,
+    __conflicts: conflicts,
   };
-
   return db;
 }
 
 describe("markAllServerChannelsRead", () => {
   it("returns 0 and does nothing when the user has no member channels", async () => {
-    const db = makeMassMarkDbMock({
-      memberChannelIds: [],
-      latestByChannel: {},
-      existingReadStateChannels: [],
-    });
+    const db = makeMassMarkDbMock();
     const messageModule = await import("../../src/db/queries/community/message");
     const spy = vi.spyOn(messageModule, "getLatestMessagesByChannelIds").mockResolvedValue([]);
 
-    const count = await readStateQueries.markAllServerChannelsRead(db, "u_1", []);
-    expect(count).toBe(0);
-    expect(db.__updates).toHaveLength(0);
+    const result = await readStateQueries.markAllServerChannelsRead(db, "u_1", []);
+    expect(result).toEqual({ count: 0, revision: null, advances: [] });
     expect(db.__inserts).toHaveLength(0);
+    expect(db.batch).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 
   it("returns 0 and skips writes when NONE of the member channels have messages", async () => {
-    const db = makeMassMarkDbMock({
-      memberChannelIds: ["c_a", "c_b"],
-      latestByChannel: {},
-      existingReadStateChannels: [],
-    });
+    const db = makeMassMarkDbMock();
     const messageModule = await import("../../src/db/queries/community/message");
     // Every channel is empty — the batched helper returns nothing.
     const spy = vi.spyOn(messageModule, "getLatestMessagesByChannelIds").mockResolvedValue([]);
 
-    const count = await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a", "c_b"]);
-    expect(count).toBe(0);
-    // The invariant: empty channels get no row.
-    expect(db.__updates).toHaveLength(0);
+    const result = await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a", "c_b"]);
+    expect(result).toEqual({ count: 0, revision: null, advances: [] });
     expect(db.__inserts).toHaveLength(0);
+    expect(db.batch).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 
   it("returns the count of non-empty channels; inserts aligned rows for channels with no existing read state", async () => {
-    const db = makeMassMarkDbMock({
-      memberChannelIds: ["c_a", "c_b", "c_c_empty"],
-      latestByChannel: {},
-      existingReadStateChannels: [],
-    });
+    const db = makeMassMarkDbMock(11);
     const messageModule = await import("../../src/db/queries/community/message");
     // c_a and c_b have messages; c_c_empty has none.
     const spy = vi.spyOn(messageModule, "getLatestMessagesByChannelIds").mockResolvedValue([
@@ -251,12 +257,25 @@ describe("markAllServerChannelsRead", () => {
       { channelId: "c_b", id: "m_b_latest", createdAt: "2026-07-05T11:00:00Z", seq: 11 },
     ]);
 
-    const count = await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a", "c_b", "c_c_empty"]);
-    expect(count).toBe(2);
-    expect(db.__updates).toHaveLength(0);
-    // One batched insert containing both rows.
-    expect(db.__inserts).toHaveLength(1);
-    const rows = db.__inserts[0] as Array<any>;
+    const result = await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a", "c_b", "c_c_empty"]);
+    expect(result).toEqual({
+      count: 2,
+      revision: 11,
+      advances: [{
+        channelId: "c_a",
+        lastReadMessageId: "m_a_latest",
+        lastReadAt: "2026-07-05T10:00:00Z",
+        lastReadSeq: 10,
+      }, {
+        channelId: "c_b",
+        lastReadMessageId: "m_b_latest",
+        lastReadAt: "2026-07-05T11:00:00Z",
+        lastReadSeq: 11,
+      }],
+    });
+    expect(db.batch).toHaveBeenCalledTimes(1);
+    expect(db.batch.mock.calls[0]![0]).toHaveLength(3);
+    const rows = db.__inserts.filter((row: any) => row.channelId);
     expect(rows).toHaveLength(2);
     // The invariant per-row: lastReadAt === message.createdAt, lastReadMessageId === message.id.
     const byChannel = Object.fromEntries(rows.map((r) => [r.channelId, r]));
@@ -277,32 +296,17 @@ describe("markAllServerChannelsRead", () => {
     spy.mockRestore();
   });
 
-  it("updates existing rows in place, aligned to the latest message per channel", async () => {
-    const db = makeMassMarkDbMock({
-      memberChannelIds: ["c_a", "c_b"],
-      latestByChannel: {},
-      existingReadStateChannels: ["c_a", "c_b"],
-    });
+  it("uses the same guarded upsert for existing rows and fresh rows", async () => {
+    const db = makeMassMarkDbMock();
     const messageModule = await import("../../src/db/queries/community/message");
     const spy = vi.spyOn(messageModule, "getLatestMessagesByChannelIds").mockResolvedValue([
       { channelId: "c_a", id: "m_a_new", createdAt: "2026-07-05T10:00:00Z", seq: 20 },
       { channelId: "c_b", id: "m_b_new", createdAt: "2026-07-05T11:00:00Z", seq: 21 },
     ]);
 
-    const count = await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a", "c_b"]);
-    expect(count).toBe(2);
-    // Two UPDATEs, no INSERT.
-    expect(db.__updates).toHaveLength(2);
-    expect(db.__inserts).toHaveLength(0);
-
-    // Each update's `set` carries an ALIGNED tuple — never `lastReadMessageId: null`.
-    for (const u of db.__updates) {
-      expect(u.set.lastReadMessageId).not.toBeNull();
-      expect(typeof u.set.lastReadAt).toBe("string");
-      expect(typeof u.set.lastReadMessageId).toBe("string");
-    }
-    // The two sets, combined, cover c_a's and c_b's aligned tuples in some order.
-    const sets = db.__updates.map((u) => u.set);
+    const result = await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a", "c_b"]);
+    expect(result).toMatchObject({ count: 2, revision: 7 });
+    const sets = db.__conflicts.slice(0, 2).map((conflict: any) => conflict.set);
     const aTuple = sets.find((s) => s.lastReadMessageId === "m_a_new");
     const bTuple = sets.find((s) => s.lastReadMessageId === "m_b_new");
     expect(aTuple).toBeDefined();
@@ -314,27 +318,16 @@ describe("markAllServerChannelsRead", () => {
     spy.mockRestore();
   });
 
-  it("each UPDATE carries a monotone guard in its WHERE so a stale row cannot be regressed", async () => {
-    const db = makeMassMarkDbMock({
-      memberChannelIds: ["c_a"],
-      latestByChannel: {},
-      existingReadStateChannels: ["c_a"],
-    });
+  it("each upsert carries a seq monotone guard", async () => {
+    const db = makeMassMarkDbMock();
     const messageModule = await import("../../src/db/queries/community/message");
     const spy = vi.spyOn(messageModule, "getLatestMessagesByChannelIds").mockResolvedValue([
       { channelId: "c_a", id: "m_a_new", createdAt: "2026-07-05T10:00:00Z", seq: 20 },
     ]);
 
     await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a"]);
-    // A raw eq(id, ...) is a Drizzle SQL fragment; a guarded and(eq(...), lt(...))
-    // is a distinct fragment. We can't evaluate them structurally without
-    // spinning up SQLite, but the WHERE clause is definitely not undefined
-    // AND (post-refactor) is now an `and(...)` compound rather than a bare
-    // eq. Presence is the load-bearing bit — absence would silently allow
-    // "mark all read" to regress a channel whose stale read-state row is
-    // ahead of its current latest message.
-    expect(db.__updates).toHaveLength(1);
-    expect(db.__updates[0].where).toBeDefined();
+    expect(db.__conflicts[0].setWhere).toBeDefined();
+    expect(db.batch).toHaveBeenCalledTimes(1);
     spy.mockRestore();
   });
 });

@@ -27,6 +27,7 @@ export type CommunityWsProxy = {
   heldCount: () => number
   releaseHeld: (predicate?: (frame: CapturedCommunityFrame) => boolean) => number
   replay: (frame: CapturedCommunityFrame) => void
+  disconnect: () => Promise<void>
 }
 
 export type CommunityWsProxyOptions = {
@@ -99,6 +100,12 @@ export async function proxyCommunityWebSockets(
       const message = payloads.get(frame)
       if (!message || !activeClient) throw new Error("community frame is not replayable")
       activeClient.send(message)
+    },
+    disconnect: async () => {
+      if (!activeClient) return
+      const client = activeClient
+      activeClient = undefined
+      await client.close({ code: 1012, reason: "test transport offline" })
     },
   }
 }

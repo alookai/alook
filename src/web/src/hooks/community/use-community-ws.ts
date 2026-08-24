@@ -13,6 +13,7 @@ import {
   dispatchCommunityWsEvent,
   dispatchCommunityWsEvents,
 } from "@/hooks/community/community-ws/registry"
+import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { runCommunityWsProjectionTransaction } from "@/hooks/community/community-ws/projection-transaction"
 import {
   invalidateDms,
@@ -289,16 +290,34 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   const handleReconnect = useCallback(async ({ reconnectDurationMs }: { reconnectDurationMs: number }) => {
     await reconcileCommunityWsReconnect(queryClient, reconnectDurationMs)
   }, [queryClient])
+  const handleAuthenticated = useCallback(async () => {
+    useCommunityWsStore.getState().markAccessConnected()
+    await reconcileAccountReadState(queryClient)
+  }, [queryClient])
   const { send, reconnectNow } = useUserWs(handleMessage, {
     onReconnect: handleReconnect,
     onDisconnect: useCommunityWsStore.getState().markAccessDisconnected,
-    onAuthenticated: useCommunityWsStore.getState().markAccessConnected,
+    onAuthenticated: handleAuthenticated,
     onConnectionStateChange: handleConnectionStateChange,
     requestDaemonStatusOnAuth: false,
   })
   useEffect(() => {
     reconnectTransportRef.current = reconnectNow
   }, [reconnectNow])
+
+  useEffect(() => {
+    if (typeof document === "undefined" || typeof window === "undefined") return
+    const reconcileVisible = () => {
+      if (document.visibilityState !== "visible") return
+      void reconcileAccountReadState(queryClient).catch(() => undefined)
+    }
+    document.addEventListener("visibilitychange", reconcileVisible)
+    window.addEventListener("pageshow", reconcileVisible)
+    return () => {
+      document.removeEventListener("visibilitychange", reconcileVisible)
+      window.removeEventListener("pageshow", reconcileVisible)
+    }
+  }, [queryClient])
 
   // Publish the send binding so free helpers (`communityWsSendTyping`) can
   // dispatch without holding a hook reference. Single-instance assumption

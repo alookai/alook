@@ -5,6 +5,8 @@ import type {
   CommunityFriendRemove,
   CommunityFriendRequest,
   CommunityMentionCreate,
+  CommunityInboxChanged,
+  CommunityReadStateAdvanced,
   CommunityWsEvent,
 } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
@@ -23,6 +25,60 @@ import {
   invalidateInbox,
   invalidateServersList,
 } from "./invalidation-projections"
+import {
+  projectReadStateEnvelope,
+  reconcileAccountReadState,
+} from "./read-state-reconciliation"
+
+function invalidateReadStateDerived({ projection, queryClient }: SocialEventContext) {
+  projection.invalidate("read-state-inbox", {
+    queryKey: communityKeys.inbox(),
+  })
+  projection.invalidate("read-state-dms", {
+    queryKey: communityKeys.dms(),
+  })
+  invalidateServersList(projection)
+  for (const query of queryClient.getQueryCache().getAll()) {
+    const key = query.queryKey
+    if (
+      key[0] === "community"
+      && key[1] === "servers"
+      && typeof key[2] === "string"
+      && key.length === 3
+    ) {
+      projection.invalidate(`read-state-server-${key[2]}`, {
+        queryKey: communityKeys.server(key[2]),
+        exact: true,
+      })
+    }
+  }
+}
+
+export function handleReadStateAdvanced(
+  event: CommunityReadStateAdvanced,
+  context: SocialEventContext,
+) {
+  applyReadStateEnvelope(event, context)
+}
+
+function applyReadStateEnvelope(
+  event: CommunityReadStateAdvanced | CommunityInboxChanged,
+  context: SocialEventContext,
+) {
+  const outcome = projectReadStateEnvelope(context.queryClient, event)
+  if (outcome === "gap") {
+    void reconcileAccountReadState(context.queryClient).catch(() => undefined)
+    return
+  }
+  if (outcome === "applied") invalidateReadStateDerived(context)
+}
+
+export function handleInboxChanged(
+  event: CommunityInboxChanged,
+  context: SocialEventContext,
+) {
+  applyReadStateEnvelope(event, context)
+}
 
 type CommunityUnreadBump = Extract<
   CommunityWsEvent,

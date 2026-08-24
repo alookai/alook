@@ -6,6 +6,7 @@ import { invalidateForumSidebarBaseExact } from "@/hooks/community/use-forum-sid
 import { clearAllTypingIndicators } from "@/hooks/community/community-ws/typing"
 import { communityWsReconnectPolicies } from "@/hooks/community/community-ws/registry"
 import { reconcileFocusedMessageQueries } from "@/hooks/community/community-ws/reconnect-messages"
+import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
 import {
   trackCommunityWsReconcileComplete,
   trackCommunityWsReconcileFailure,
@@ -184,6 +185,9 @@ function policyExecutors(queryClient: QueryClient): Record<CommunityWsReconcileP
         queryClient.invalidateQueries({ queryKey: communityKeys.dms(), refetchType: "active" }),
       ])
       if (settled.some((result) => result.status === "rejected")) throw new Error("inbox reconciliation failed")
+    },
+    "cached-read-state": async () => {
+      await reconcileAccountReadState(queryClient, { invalidateSurfaces: false })
     },
     "all-cached-servers": async () => {
       const serverIds = cachedServerIds(queryKeys)

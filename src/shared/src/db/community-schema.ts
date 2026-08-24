@@ -372,6 +372,13 @@ export const communityReadState = sqliteTable(
   (t) => [index("idx_read_state_user").on(t.userId)]
 );
 
+export const communityReadStateRevision = sqliteTable("community_read_state_revision", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  revision: integer("revision").notNull().default(0),
+});
+
 // 13. community_reaction
 export const communityReaction = sqliteTable(
   "community_reaction",

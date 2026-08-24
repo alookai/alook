@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
-import { getDb } from "@/lib/db"
-import { queries, withD1Retry } from "@alook/shared"
+import { getPrimaryDb } from "@/lib/db"
+import { queries, WS_EVENTS, withD1Retry } from "@alook/shared"
 import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
+import { broadcastToUserSafe } from "@/lib/community/fanout"
 
 /**
  * PUT /api/community/channels/:id/read
@@ -31,7 +32,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 
-  const db = getDb(ctx.env.DB)
+  const db = getPrimaryDb(ctx.env.DB)
 
   // Unified id-in-path access gate: preserves the 404-vs-403 human split
   // (unknown → 404, known non-member → 403) AND, for a DM id, runs the DM block
@@ -89,7 +90,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   // Fire both writes in one D1 batch so partial failure can't leave the
   // inbox inconsistent (mark-read succeeded but the mention clear didn't, or
   // vice versa). D1 batches are atomic per SQLite guarantees.
-  await withD1Retry(
+  const results = await withD1Retry(
     () => db.batch([
       queries.communityReadState.markReadToMessageBuilder(db, {
         userId: ctx.userId,
@@ -97,9 +98,25 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
         message: target,
       }),
       queries.communityMention.markChannelMentionsReadBuilder(db, ctx.userId, channelId),
+      queries.communityReadState.advanceReadStateRevisionBuilder(db, ctx.userId),
     ]),
     { route: "community/channel-read:commit" }
   )
 
-  return writeJSON({ ok: true })
+  const revision = (results[2] as Array<{ revision: number }> | undefined)?.[0]?.revision
+  if (revision === undefined) throw new Error("read-state revision missing")
+
+  await broadcastToUserSafe(ctx.userId, {
+    type: WS_EVENTS.READ_STATE_ADVANCED,
+    revision,
+    advances: [{
+      channelId,
+      lastReadMessageId: target.id,
+      lastReadAt: target.createdAt,
+      lastReadSeq: target.seq,
+    }],
+    inboxChanged: true,
+  })
+
+  return writeJSON({ ok: true, revision })
 })

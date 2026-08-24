@@ -1,7 +1,6 @@
-import { eq, and, inArray, lt, sql } from "drizzle-orm";
-import { communityReadState } from "../../community-schema";
+import { eq, and, sql } from "drizzle-orm";
+import { communityReadState, communityReadStateRevision } from "../../community-schema";
 import type { Database } from "../../index";
-import { chunk, maxRowsPerInsert, D1_MAX_IN_PARAMS } from "../_chunk";
 import {
   getLatestMessagesByChannelIds,
   getMessageByChannelAndSeq,
@@ -62,8 +61,8 @@ function buildTargetFilter(data: { userId: string; channelId: string }) {
 // `EXISTS(message.seq > lastReadSeq)` — the same seq ruler the agent side uses —
 // so every human read write must advance `lastReadSeq` too, else a human's read
 // never registers under the new predicate (permanent phantom-unread). `seq`
-// co-advances with `createdAt` (both from the same message), so the monotone
-// guard stays on `lastReadAt` and `lastReadSeq` is set alongside.
+// co-advances with `createdAt` (both from the same message), and the monotone
+// guard uses `lastReadSeq` so same-timestamp messages still order correctly.
 export function markReadToMessageBuilder(
   db: Database,
   data: {
@@ -74,18 +73,6 @@ export function markReadToMessageBuilder(
 ) {
   const { userId, channelId, message } = data;
 
-  // Monotone guard: `setWhere` requires the incoming `lastReadAt` to be
-  // strictly greater than the row's current value. If a stale client PUT
-  // arrives (channel switch → return, remounted `useChannelWatermark`
-  // resets its local `maxSeen` and picks an older mid-viewport row as
-  // its first advance), the UPDATE portion no-ops and the existing row
-  // wins. INSERT (no row yet) is unaffected — you can't regress what
-  // doesn't exist. Sibling pattern to `createMessage`'s author-watermark
-  // upsert, which guards on `lastReadSeq < seq` for the same reason.
-  //
-  // Timestamp comparison is safe: `lastReadAt` is a TEXT ISO-8601 string
-  // (see schema note) and SQLite compares those lexicographically, which
-  // matches temporal order for ISO-8601.
   return db
     .insert(communityReadState)
     .values({
@@ -102,9 +89,60 @@ export function markReadToMessageBuilder(
         lastReadMessageId: message.id,
         lastReadSeq: message.seq,
       },
-      setWhere: sql`${communityReadState.lastReadAt} < ${message.createdAt}`,
+      setWhere: sql`${communityReadState.lastReadSeq} < ${message.seq}`,
     });
 }
+
+export function advanceReadStateRevisionBuilder(db: Database, userId: string) {
+  return db
+    .insert(communityReadStateRevision)
+    .values({ userId, revision: 1 })
+    .onConflictDoUpdate({
+      target: communityReadStateRevision.userId,
+      set: { revision: sql`${communityReadStateRevision.revision} + 1` },
+    })
+    .returning({ revision: communityReadStateRevision.revision });
+}
+
+export async function getAccountReadStateSnapshot(db: Database, userId: string) {
+  const revisionQuery = db
+    .select({ revision: communityReadStateRevision.revision })
+    .from(communityReadStateRevision)
+    .where(eq(communityReadStateRevision.userId, userId))
+    .limit(1);
+  const readStatesQuery = db
+    .select({
+      channelId: communityReadState.channelId,
+      lastReadMessageId: communityReadState.lastReadMessageId,
+      lastReadAt: communityReadState.lastReadAt,
+      lastReadSeq: communityReadState.lastReadSeq,
+    })
+    .from(communityReadState)
+    .where(eq(communityReadState.userId, userId));
+  const [revisionRows, readStates] = await db.batch([
+    revisionQuery,
+    readStatesQuery,
+  ]) as unknown as [Array<{ revision: number }>, Array<{
+    channelId: string;
+    lastReadMessageId: string | null;
+    lastReadAt: string;
+    lastReadSeq: number;
+  }>];
+  return { revision: revisionRows[0]?.revision ?? 0, readStates };
+}
+
+export type ReadStateAdvance = {
+  channelId: string;
+  lastReadMessageId: string;
+  lastReadAt: string;
+  lastReadSeq: number;
+};
+
+export type ReadAllResult = {
+  count: number;
+  revision: number | null;
+  advances: ReadStateAdvance[];
+};
 
 /**
  * Async sibling of `markReadToMessageBuilder` for the non-batch DM / thread
@@ -143,13 +181,11 @@ export async function markReadToMessage(
  *   channels stay empty in `communityReadState` because the invariant
  *   forbids `lastReadMessageId = null` rows.
  */
-// lastReadSeq intentionally not maintained here — see comment on
-// `markReadToMessageBuilder` above.
 export async function markAllServerChannelsRead(
   db: Database,
   userId: string,
   visibleChannelIds: string[]
-): Promise<number> {
+): Promise<ReadAllResult> {
   // Scope to the channels the viewer may see — the same visible-id set the
   // inbox unread + mentions consumers use (resolved once per fetch via
   // `listVisibleChannelIdsForUser`). Convergence on the id set replaces the
@@ -158,99 +194,34 @@ export async function markAllServerChannelsRead(
   // id set parent-climbs, so a child under a private parent the viewer can't
   // see is now correctly EXCLUDED — mark-all no longer writes read-state rows
   // for channels behind an invisible private parent.
-  if (visibleChannelIds.length === 0) return 0;
+  if (visibleChannelIds.length === 0) return { count: 0, revision: null, advances: [] };
   const channelIds = visibleChannelIds;
 
   const latest = await getLatestMessagesByChannelIds(db, channelIds);
-  if (latest.length === 0) return 0;
+  if (latest.length === 0) return { count: 0, revision: null, advances: [] };
 
-  // Existing rows for these channels — used to split into UPDATE vs INSERT
-  // batches so we don't run one query per channel. The upsert index only
-  // fires per statement; we can't fold every channel into a single insert
-  // with `onConflictDoUpdate` because each channel has a DIFFERENT
-  // `(lastReadAt, lastReadMessageId)` pair.
-  // `latest` ranges over channels-with-messages (a subset of the visible set,
-  // still possibly >100). Chunk the `inArray` for D1's 100-param limit; no
-  // order/limit → concat.
-  const latestChannelIds = latest.map((l) => l.channelId);
-  const existing = (
-    await Promise.all(
-      chunk(latestChannelIds, D1_MAX_IN_PARAMS).map((ids) =>
-        db
-          .select({
-            id: communityReadState.id,
-            channelId: communityReadState.channelId,
-          })
-          .from(communityReadState)
-          .where(
-            and(
-              eq(communityReadState.userId, userId),
-              inArray(communityReadState.channelId, ids)
-            )
-          )
-      )
-    )
-  ).flat();
+  const statements = latest.map((message) => markReadToMessageBuilder(db, {
+    userId,
+    channelId: message.channelId,
+    message,
+  }));
+  const results = await db.batch([
+    ...statements,
+    advanceReadStateRevisionBuilder(db, userId),
+  ] as any) as unknown as unknown[][];
+  const revision = (results.at(-1) as Array<{ revision: number }> | undefined)?.[0]?.revision;
+  if (revision === undefined) throw new Error("read-state revision missing");
 
-  const existingByChannel = new Map<string, string>();
-  for (const row of existing) {
-    if (row.channelId) existingByChannel.set(row.channelId, row.id);
-  }
-
-  // Split latest into (a) rows we need to UPDATE by primary key and (b) rows
-  // we need to INSERT fresh.
-  const toUpdate: Array<{ id: string; channelId: string; msgId: string; createdAt: string; seq: number }> = [];
-  const toInsert: Array<{ channelId: string; msgId: string; createdAt: string; seq: number }> = [];
-  for (const l of latest) {
-    const existingId = existingByChannel.get(l.channelId);
-    if (existingId) {
-      toUpdate.push({ id: existingId, channelId: l.channelId, msgId: l.id, createdAt: l.createdAt, seq: l.seq });
-    } else {
-      toInsert.push({ channelId: l.channelId, msgId: l.id, createdAt: l.createdAt, seq: l.seq });
-    }
-  }
-
-  // Perform updates row-by-row (one small UPDATE per row is fine — this path
-  // fires on user click "Mark all read", not in a hot loop). Alternative
-  // would be a `CASE WHEN ...` bulk UPDATE, which is uglier and only wins
-  // above ~50 channels.
-  //
-  // Monotone guard mirrors `markReadToMessageBuilder`: only advance rows
-  // whose current `lastReadAt` is strictly older than the channel's
-  // latest. If a stale row happens to already sit ahead of the current
-  // latest (rare — usually only under concurrent writes or right after
-  // a message delete), leave it alone rather than regressing.
-  for (const u of toUpdate) {
-    await db
-      .update(communityReadState)
-      .set({ lastReadAt: u.createdAt, lastReadMessageId: u.msgId, lastReadSeq: u.seq })
-      .where(
-        and(
-          eq(communityReadState.id, u.id),
-          lt(communityReadState.lastReadAt, u.createdAt)
-        )
-      );
-  }
-
-  if (toInsert.length > 0) {
-    // communityReadState emits 6 bind params/row (id $defaultFn, user_id,
-    // channel_id, last_read_at, last_read_message_id, last_read_seq — now
-    // explicitly supplied, no longer defaulted), so cap at floor(100/6)=16
-    // rows/statement for D1's 100-param limit.
-    for (const batch of chunk(toInsert, maxRowsPerInsert(6))) {
-      await db.insert(communityReadState).values(
-        batch.map((i) => ({
-          userId,
-          channelId: i.channelId,
-          lastReadAt: i.createdAt,
-          lastReadMessageId: i.msgId,
-          lastReadSeq: i.seq,
-        }))
-      );
-    }
-  }
-
-  return latest.length;
+  return {
+    count: latest.length,
+    revision,
+    advances: latest.map((message) => ({
+      channelId: message.channelId,
+      lastReadMessageId: message.id,
+      lastReadAt: message.createdAt,
+      lastReadSeq: message.seq,
+    })),
+  };
 }
 
 /**
@@ -260,15 +231,13 @@ export async function markAllServerChannelsRead(
  * the same channel mark-read path. Same invariant, monotone guard, and
  * "empty conversations are skipped" semantics.
  */
-// lastReadSeq intentionally not maintained here — see comment on
-// `markReadToMessageBuilder` above.
 export async function markAllDmsRead(
   db: Database,
   userId: string
-): Promise<number> {
+): Promise<ReadAllResult> {
   const dms = await listDMs(db, userId);
   const dmChannelIds = dms.map((d) => d.id);
-  if (dmChannelIds.length === 0) return 0;
+  if (dmChannelIds.length === 0) return { count: 0, revision: null, advances: [] };
   return markAllServerChannelsRead(db, userId, dmChannelIds);
 }
 

@@ -65,13 +65,13 @@ describe("Community browser event runtime contract", () => {
   const fixtures = Object.values(communityWsEventFixtures)
   const names = Object.values(WS_EVENTS).sort()
 
-  it("locks the exact 41-event inventory", () => {
-    expect(names).toHaveLength(41)
+  it("locks the exact 43-event inventory", () => {
+    expect(names).toHaveLength(43)
     expect(Object.keys(communityWsEventFixtures).sort()).toEqual(names)
     expect(Object.keys(requiredFixturePaths).sort()).toEqual(names)
   })
 
-  it("decodes and canonically encodes all 41 current event fixtures", () => {
+  it("decodes and canonically encodes all 43 current event fixtures", () => {
     for (const fixture of fixtures) {
       expect(decodeCommunityBrowserEvent(fixture)).toEqual({ ok: true, event: fixture })
       const encoded = encodeCommunityBrowserEvent(fixture)
@@ -93,6 +93,21 @@ describe("Community browser event runtime contract", () => {
         type: fixture.type,
       })
     }
+  })
+
+  it("requires one complete read-state effects envelope per revision", () => {
+    expect(decodeCommunityBrowserEvent({
+      type: "community:read_state.advanced",
+      revision: 4,
+      inboxChanged: true,
+    })).toMatchObject({ reason: "invalid-payload" })
+    expect(decodeCommunityBrowserEvent({
+      type: "community:inbox.changed",
+      revision: 5,
+      advances: [],
+      inboxChanged: true,
+      reason: "read_all",
+    })).toMatchObject({ reason: "invalid-payload" })
   })
 
   it("fails closed for family, removed-version, shape, and strict-key errors", () => {

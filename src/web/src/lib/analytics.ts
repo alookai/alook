@@ -167,6 +167,7 @@ export type CommunityWsReconcilePolicy =
   | "focused-pins"
   | "focused-threads"
   | "inbox-dms"
+  | "cached-read-state"
   | "all-cached-servers"
   | "friends"
   | "presence-overlay"

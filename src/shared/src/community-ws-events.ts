@@ -356,6 +356,30 @@ const communityUnreadBumpSchema = z.strictObject({
   isMention: z.boolean().optional(),
 })
 
+const communityReadStateAdvanceSchema = z.strictObject({
+  channelId: string,
+  lastReadMessageId: string,
+  lastReadAt: string,
+  lastReadSeq: z.number().int().nonnegative(),
+})
+
+const readStateEnvelopeFields = {
+  revision: z.number().int().positive(),
+  advances: z.array(communityReadStateAdvanceSchema).min(1),
+  inboxChanged: z.literal(true),
+}
+
+const communityReadStateAdvancedSchema = z.strictObject({
+  type: z.literal("community:read_state.advanced"),
+  ...readStateEnvelopeFields,
+})
+
+const communityInboxChangedSchema = z.strictObject({
+  type: z.literal("community:inbox.changed"),
+  ...readStateEnvelopeFields,
+  reason: z.literal("read_all"),
+})
+
 const communityPresenceUpdateSchema = z.strictObject({
   type: z.literal("community:presence.update"),
   userId: string,
@@ -460,6 +484,8 @@ const CommunityWsEventDiscriminatedSchema = z.discriminatedUnion("type", [
   communityInviteCreateSchema,
   communityMentionCreateSchema,
   communityUnreadBumpSchema,
+  communityReadStateAdvancedSchema,
+  communityInboxChangedSchema,
   communityPresenceUpdateSchema,
   communityStatusUpdateSchema,
   communityMachineCreatedSchema,
@@ -524,6 +550,8 @@ export type CommunityFriendBlock = Extract<CommunityWsEvent, { type: "community:
 export type CommunityInviteCreate = Extract<CommunityWsEvent, { type: "community:invite.create" }>
 export type CommunityMentionCreate = Extract<CommunityWsEvent, { type: "community:mention.create" }>
 export type CommunityUnreadBump = Extract<CommunityWsEvent, { type: "community:unread.bump" }>
+export type CommunityReadStateAdvanced = Extract<CommunityWsEvent, { type: "community:read_state.advanced" }>
+export type CommunityInboxChanged = Extract<CommunityWsEvent, { type: "community:inbox.changed" }>
 export type CommunityPresenceUpdate = Extract<CommunityWsEvent, { type: "community:presence.update" }>
 export type CommunityStatusUpdate = Extract<CommunityWsEvent, { type: "community:status.update" }>
 export type CommunityMachineCreated = Extract<CommunityWsEvent, { type: "community:machine.created" }>
@@ -594,6 +622,8 @@ export const WS_EVENTS = {
   INVITE_CREATE: "community:invite.create",
   MENTION_CREATE: "community:mention.create",
   UNREAD_BUMP: "community:unread.bump",
+  READ_STATE_ADVANCED: "community:read_state.advanced",
+  INBOX_CHANGED: "community:inbox.changed",
   PRESENCE_UPDATE: "community:presence.update",
   STATUS_UPDATE: "community:status.update",
   MACHINE_CREATED: "community:machine.created",
