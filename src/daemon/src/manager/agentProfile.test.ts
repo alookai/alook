@@ -68,7 +68,6 @@ describe("agent profile from server-downlinked RuntimeConfig", () => {
 
     expect(ctxs).toHaveLength(1);
     expect(ctxs[0].standingPrompt).toContain("You are the onboarding assistant.");
-    expect(ctxs[0].standingPrompt).toContain("### Role");
     expect(ctxs[0].config.description).toBe(
       "You are the onboarding assistant.",
     );
@@ -83,7 +82,6 @@ describe("agent profile from server-downlinked RuntimeConfig", () => {
       runtimeConfig: makeRuntimeConfig({ runtime: "mock", agentName: "Bot" }),
     });
     mgr.deliver("agent_2", { seq: 1, text: "hi" });
-    expect(ctxs[0].standingPrompt).toContain("### Role");
     expect(ctxs[0].standingPrompt).toContain("Bot");
     expect(ctxs[0].config.description).toBe("Bot");
   });
