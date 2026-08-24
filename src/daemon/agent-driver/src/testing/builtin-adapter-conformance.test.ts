@@ -116,11 +116,11 @@ describe("builtin adapter protocol conformance", () => {
         });
         const state = { sawTextDelta: false };
         const vendorEvents = [
-          { type: "message_update", delta: { type: "thinking_delta", delta: "plan" } },
+          { type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "plan" } },
           { type: "tool_execution_start", toolName: "read", args: {} },
           { type: "tool_execution_end", toolName: "read" },
-          { type: "message_update", delta: { type: "text_delta", delta: "done" } },
-          { type: "message_update", delta: { type: "text_end", content: "done" } },
+          { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "done" } },
+          { type: "message_update", assistantMessageEvent: { type: "text_end", content: "done" } },
           { type: "agent_end" },
         ];
         return vendorEvents.flatMap((event) => mapPiSdkEvent(event, "pi-root", state)) as AdapterEvent[];
