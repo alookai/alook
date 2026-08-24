@@ -241,81 +241,62 @@ describe("read coordinator", () => {
     expect(submitTimeline(lease, 5)).toBe(false)
   })
 
-  it("routes an observed forum anchor only through the exact opener transport", async () => {
+  it("coalesces visible forum cards through the ordinary channel transport", async () => {
     const queryClient = new QueryClient()
     const lease = registerReadSurface(queryClient, "user-1", {
-      kind: "forum-opener",
-      openerMessageId: "opener-9",
-      parentChannelId: "forum-1",
-      parentSeq: 9,
+      kind: "timeline",
+      channelId: "forum-1",
     })
     apiFetch.mockResolvedValue({
-      changed: false,
+      changed: true,
       revision: 8,
-      openerMessageId: "opener-9",
+      targetSeq: 12,
     })
 
     expect(submitReadIntent(lease, {
-      kind: "forum-opener",
-      openerMessageId: "opener-9",
-      parentChannelId: "forum-1",
-      parentSeq: 9,
+      kind: "timeline",
+      channelId: "forum-1",
+      messageId: "opener-9",
+      seq: 9,
     })).toBe(true)
     expect(submitReadIntent(lease, {
-      kind: "forum-opener",
-      openerMessageId: "opener-9",
-      parentChannelId: "forum-1",
-      parentSeq: 9,
+      kind: "timeline",
+      channelId: "forum-1",
+      messageId: "opener-12",
+      seq: 12,
     })).toBe(true)
     await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
 
     expect(apiFetch).toHaveBeenCalledWith(
-      "/api/community/messages/opener-9/read",
-      expect.objectContaining({ method: "PUT", signal: expect.any(AbortSignal) }),
+      "/api/community/channels/forum-1/read",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ lastReadMessageId: "opener-12" }),
+        signal: expect.any(AbortSignal),
+      }),
     )
     expect(submitReadIntent(lease, {
-      kind: "forum-opener",
-      openerMessageId: "opener-9",
-      parentChannelId: "forum-1",
-      parentSeq: 9,
+      kind: "timeline",
+      channelId: "forum-1",
+      messageId: "opener-9",
+      seq: 9,
     })).toBe(false)
   })
 
-  it("treats a parent baseline or exact sparse snapshot as forum confirmation", async () => {
-    const baselineClient = new QueryClient()
-    const baselineLease = registerReadSurface(baselineClient, "user-1", {
-      kind: "forum-opener",
-      openerMessageId: "opener-1",
-      parentChannelId: "forum-1",
-      parentSeq: 12,
+  it("treats the ordinary forum channel cursor as card confirmation", async () => {
+    const queryClient = new QueryClient()
+    const lease = registerReadSurface(queryClient, "user-1", {
+      kind: "timeline",
+      channelId: "forum-1",
     })
-    projectReadCoordinatorSnapshot(baselineClient, {
+    projectReadCoordinatorSnapshot(queryClient, {
       readStates: [{ channelId: "forum-1", lastReadSeq: 12 }],
-      forumOpenerReads: [],
     })
-    expect(submitReadIntent(baselineLease, {
-      kind: "forum-opener",
-      openerMessageId: "opener-1",
-      parentChannelId: "forum-1",
-      parentSeq: 12,
-    })).toBe(false)
-
-    const sparseClient = new QueryClient()
-    const sparseLease = registerReadSurface(sparseClient, "user-1", {
-      kind: "forum-opener",
-      openerMessageId: "opener-2",
-      parentChannelId: "forum-1",
-      parentSeq: 14,
-    })
-    projectReadCoordinatorSnapshot(sparseClient, {
-      readStates: [],
-      forumOpenerReads: [{ openerMessageId: "opener-2" }],
-    })
-    expect(submitReadIntent(sparseLease, {
-      kind: "forum-opener",
-      openerMessageId: "opener-2",
-      parentChannelId: "forum-1",
-      parentSeq: 14,
+    expect(submitReadIntent(lease, {
+      kind: "timeline",
+      channelId: "forum-1",
+      messageId: "opener-12",
+      seq: 12,
     })).toBe(false)
     await vi.runAllTimersAsync()
     expect(apiFetch).not.toHaveBeenCalled()

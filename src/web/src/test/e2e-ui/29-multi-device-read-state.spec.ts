@@ -543,11 +543,11 @@ test("a visible live tail clears both devices while an unseen tail stays unread"
   deviceA.page.off("response", trackUnseenReads)
 })
 
-test("forum opener reads are exact, sparse, idempotent, and pruned by Mark all", async ({ asUser }) => {
+test("forum cards use the ordinary parent cursor while child cursors stay independent", async ({ asUser }) => {
   test.setTimeout(180_000)
   const stamp = Date.now()
-  const serverId = await seedServer("alice", `Sparse forum sync ${stamp}`)
-  const forumId = await seedChannel("alice", serverId, `sparse-forum-${stamp}`, "forum")
+  const serverId = await seedServer("alice", `Unified forum sync ${stamp}`)
+  const forumId = await seedChannel("alice", serverId, `unified-forum-${stamp}`, "forum")
   await seedJoinServer("alice", "bob", serverId)
 
   const alice = await asUser("alice")
@@ -559,15 +559,14 @@ test("forum opener reads are exact, sparse, idempotent, and pruned by Mark all",
     expect(response.status()).toBe(201)
     return await response.json() as { threadId: string }
   }
-  const first = await createEmptyPost(`Sparse first ${stamp}`)
-  const second = await createEmptyPost(`Sparse second ${stamp}`)
+  const first = await createEmptyPost(`Unified first ${stamp}`)
+  const second = await createEmptyPost(`Unified second ${stamp}`)
 
   const deviceA = await asUser("bob")
   const deviceB = await asUser("bob")
   const proxyA = await proxyCommunityWebSockets(deviceA.context)
   const proxyB = await proxyCommunityWebSockets(deviceB.context)
-  await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${forumId}`)
-  await gotoAfterUserWsAuth(deviceB.page, `/c/channels/${serverId}/${forumId}`)
+  await gotoAfterUserWsAuth(deviceB.page, "/c/me")
 
   const threadsResponse = await deviceA.page.request.get(
     `/api/community/channels/${forumId}/threads?order=createdAt&limit=50`,
@@ -586,92 +585,85 @@ test("forum opener reads are exact, sparse, idempotent, and pruned by Mark all",
   )).json() as {
     revision: number
     readStates: Array<{ channelId: string; lastReadSeq: number }>
-    forumOpenerReads: Array<{ openerMessageId: string }>
   }
-  const openerResponses: Array<{ openerId: string; status: number }> = []
-  const trackOpenerResponse = (response: {
+  const forumResponses: Array<{ target: string; status: number }> = []
+  const trackForumResponse = (response: {
     request: () => { method: () => string }
     url: () => string
     status: () => number
   }) => {
     const url = new URL(response.url())
-    const match = url.pathname.match(/^\/api\/community\/messages\/([^/]+)\/read$/)
-    if (response.request().method() === "PUT" && match?.[1]) {
-      openerResponses.push({ openerId: match[1], status: response.status() })
+    if (
+      response.request().method() === "PUT"
+      && url.pathname === `/api/community/channels/${forumId}/read`
+    ) {
+      const body = (response.request() as unknown as { postDataJSON: () => { lastReadMessageId: string } })
+        .postDataJSON()
+      forumResponses.push({ target: body.lastReadMessageId, status: response.status() })
     }
   }
-  deviceA.page.on("response", trackOpenerResponse)
+  deviceA.page.on("response", trackForumResponse)
 
-  await deviceA.page.waitForTimeout(1_200)
-  expect(openerResponses).toEqual([])
-  const beforeFirst = await accountSnapshot()
-  const firstFrameStarts = [proxyA.frames.length, proxyB.frames.length]
-  await deviceA.page.getByTestId(tid.forumThreadCard(first.threadId)).evaluate((element) => {
-    ;(element as HTMLElement).click()
-  })
-  await expect.poll(() => new URL(deviceA.page.url()).pathname)
-    .toBe(`/c/channels/${serverId}/${first.threadId}`)
-  await expect(deviceA.page.getByTestId("forum-opener-read-anchor")).toBeVisible()
-  await expect.poll(() => openerResponses.filter((row) => row.openerId === firstOpener).length, {
+  const beforeVisible = await accountSnapshot()
+  const frameStarts = [proxyA.frames.length, proxyB.frames.length]
+  await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${forumId}`)
+  await expect(deviceA.page.getByTestId(tid.forumThreadCard(first.threadId))).toBeVisible()
+  await expect(deviceA.page.getByTestId(tid.forumThreadCard(second.threadId))).toBeVisible()
+  await expect.poll(() => forumResponses.length, {
     timeout: 20_000,
   }).toBe(1)
   await deviceA.page.waitForTimeout(1_200)
-  expect(openerResponses.filter((row) => row.openerId === firstOpener)).toEqual([
-    { openerId: firstOpener!, status: 200 },
+  expect(forumResponses).toEqual([
+    { target: secondOpener!, status: 200 },
   ])
-  const afterFirst = await accountSnapshot()
-  expect(afterFirst.revision).toBe(beforeFirst.revision + 1)
-  expect(afterFirst.forumOpenerReads.map((row) => row.openerMessageId)).toEqual([firstOpener])
-  for (const [proxy, start] of [[proxyA, firstFrameStarts[0]], [proxyB, firstFrameStarts[1]]] as const) {
-    await expect.poll(() => proxy.frames.slice(start!).flatMap(communityFrameEvents)
-      .filter((event) => event.type === "community:inbox.changed"
-        && event.reason === "forum_opener_read").length, { timeout: 20_000 }).toBe(1)
+  const afterVisible = await accountSnapshot()
+  expect(afterVisible.revision).toBe(beforeVisible.revision + 1)
+  expect(afterVisible.readStates.find((row) => row.channelId === forumId)?.lastReadSeq)
+    .toBeGreaterThanOrEqual(2)
+  expect(afterVisible.readStates.some((row) => row.channelId === first.threadId)).toBe(false)
+  expect(afterVisible.readStates.some((row) => row.channelId === second.threadId)).toBe(false)
+  for (const [proxy, start] of [[proxyA, frameStarts[0]], [proxyB, frameStarts[1]]] as const) {
+    await expect.poll(() => readStateEventsSince(proxy.frames, start!).filter(
+      (event) => event.revision === afterVisible.revision,
+    ).length, { timeout: 20_000 }).toBe(1)
   }
 
-  await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${forumId}`)
+  const beforeNavigationWrites = forumResponses.length
   await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${first.threadId}`)
   await deviceA.page.waitForTimeout(1_200)
-  expect(openerResponses.filter((row) => row.openerId === firstOpener)).toHaveLength(1)
-  expect((await accountSnapshot()).revision).toBe(afterFirst.revision)
+  expect(forumResponses).toHaveLength(beforeNavigationWrites)
+  expect((await accountSnapshot()).revision).toBe(afterVisible.revision)
 
   const directForumRead = await deviceA.page.request.put(
     `/api/community/channels/${forumId}/read`,
     { data: { lastReadMessageId: firstOpener } },
   )
-  expect(directForumRead.status()).toBe(400)
+  expect(directForumRead.status()).toBe(200)
+  expect(await directForumRead.json()).toMatchObject({ changed: false, revision: afterVisible.revision })
 
-  await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${second.threadId}`)
-  await expect.poll(() => openerResponses.filter((row) => row.openerId === secondOpener).length, {
-    timeout: 20_000,
-  }).toBe(1)
-  const afterSecond = await accountSnapshot()
-  expect(afterSecond.revision).toBe(afterFirst.revision + 1)
-  expect(new Set(afterSecond.forumOpenerReads.map((row) => row.openerMessageId))).toEqual(
-    new Set([firstOpener, secondOpener]),
-  )
-
-  const snapshotRepair = deviceA.page.waitForResponse((response) =>
-    response.request().method() === "GET"
-    && new URL(response.url()).pathname === "/api/community/users/me/read-state",
-  )
-  const readAll = await deviceA.page.request.post(
-    "/api/community/users/me/inbox/unreads/read-all",
-  )
-  expect(readAll.status()).toBe(200)
-  expect((await readAll.json() as { changed: boolean }).changed).toBe(true)
-  expect((await snapshotRepair).status()).toBe(200)
-  const afterReadAll = await accountSnapshot()
-  expect(afterReadAll.revision).toBe(afterSecond.revision + 1)
-  expect(afterReadAll.forumOpenerReads).toEqual([])
-  expect(afterReadAll.readStates.find((row) => row.channelId === forumId)?.lastReadSeq)
-    .toBeGreaterThanOrEqual(2)
-
-  const beforeCoveredReopenCount = openerResponses.length
-  await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${first.threadId}`)
+  await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${forumId}`)
+  const setDeviceAVisibility = async (state: "hidden" | "visible") => {
+    await deviceA.page.evaluate((next) => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: next })
+      document.dispatchEvent(new Event("visibilitychange"))
+    }, state)
+    await expect.poll(() => deviceA.page.evaluate(() => document.visibilityState)).toBe(state)
+  }
+  await setDeviceAVisibility("hidden")
+  await deviceB.page.getByRole("button", { name: "Inbox" }).click()
+  const third = await createEmptyPost(`Unified third ${stamp}`)
+  await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(forumId))).toBeVisible()
   await deviceA.page.waitForTimeout(1_200)
-  expect(openerResponses).toHaveLength(beforeCoveredReopenCount)
-  expect((await accountSnapshot()).revision).toBe(afterReadAll.revision)
-  deviceA.page.off("response", trackOpenerResponse)
+  expect(forumResponses).toHaveLength(1)
+  expect((await accountSnapshot()).revision).toBe(afterVisible.revision)
+  await setDeviceAVisibility("visible")
+  await expect(deviceA.page.getByTestId(tid.forumThreadCard(third.threadId))).toBeVisible()
+  await expect.poll(() => forumResponses.length, { timeout: 20_000 }).toBe(2)
+  const afterThird = await accountSnapshot()
+  expect(afterThird.revision).toBe(afterVisible.revision + 1)
+  expect(afterThird.readStates.find((row) => row.channelId === forumId)?.lastReadSeq).toBe(3)
+  await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(forumId))).toHaveCount(0)
+  deviceA.page.off("response", trackForumResponse)
 })
 
 test("human author-send and notification writers replace both active profiles", async ({ asUser }) => {
@@ -815,7 +807,6 @@ test("forum delete broadcasts replacement and removal to both active profiles", 
   )).json() as {
     revision: number
     readStates: Array<{ channelId: string; lastReadMessageId: string | null }>
-    forumOpenerReads: Array<{ openerMessageId: string }>
   }
   expect(deletedSnapshot.revision).toBeGreaterThan(beforeDeleteSnapshot.revision)
   await expect.poll(() => [proxyA, proxyB].every((proxy, index) =>
@@ -824,8 +815,7 @@ test("forum delete broadcasts replacement and removal to both active profiles", 
     timeout: 20_000,
   }).toBe(true)
   expect(deletedSnapshot.readStates.some((state) => state.channelId === deletedChildId)).toBe(false)
-  expect(deletedSnapshot.readStates.some((state) => state.channelId === forumId)).toBe(false)
-  expect(deletedSnapshot.forumOpenerReads.some((row) => row.openerMessageId === deletedOpenerId))
-    .toBe(false)
+  expect(deletedSnapshot.readStates.find((state) => state.channelId === forumId)?.lastReadMessageId)
+    .toBe(priorOpenerId)
   await expect(deviceB.page.getByTestId(tid.forumThreadCard(deletedChildId))).toHaveCount(0)
 })

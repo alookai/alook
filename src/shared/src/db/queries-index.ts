@@ -48,7 +48,6 @@ export * as communityPin from "./queries/community/pin";
 export * as communityMessageMark from "./queries/community/mark";
 export * as communityMention from "./queries/community/mention";
 export * as communityReadState from "./queries/community/read-state";
-export * as communityForumOpenerRead from "./queries/community/forum-opener-read";
 export * as communityUserProfile from "./queries/community/user-profile";
 export * as communitySearch from "./queries/community/search";
 export * as communityNotificationSetting from "./queries/community/notification-setting";

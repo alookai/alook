@@ -159,29 +159,29 @@ afterEach(async () => {
 });
 
 describe("deleteForumPost real D1 batch", () => {
-  it("versions sparse-only owners and repairs every pointer during hard-delete compensation", async () => {
+  it("versions mention-only owners and repairs every ordinary pointer in one delete batch", async () => {
     const { id, t2 } = await seedCanonicalPost();
-    const sparseOnly = `fpd_sparse_${crypto.randomUUID().replaceAll("-", "")}`;
-    createdUsers.push(sparseOnly);
+    const mentionOnly = `fpd_mention_${crypto.randomUUID().replaceAll("-", "")}`;
+    createdUsers.push(mentionOnly);
     await run(
-      "INSERT INTO user (id, email, name, discriminator) VALUES (?, ?, 'Sparse', ?)",
-      sparseOnly,
-      `${sparseOnly}@example.com`,
-      stamp4(sparseOnly),
+      "INSERT INTO user (id, email, name, discriminator) VALUES (?, ?, 'Mention', ?)",
+      mentionOnly,
+      `${mentionOnly}@example.com`,
+      stamp4(mentionOnly),
     );
     await run(
-      `INSERT INTO community_forum_opener_read
-        (user_id, opener_message_id, read_at)
-       VALUES (?, ?, '2026-08-23T01:02:30.000Z')`,
-      sparseOnly,
+      `INSERT INTO community_mention (id, message_id, user_id, kind, read)
+       VALUES (?, ?, ?, 'mention', 0)`,
+      `mention_only_${id.opener}`,
       id.opener,
+      mentionOnly,
     );
 
     const db = createDb(runtimeEnv.DB);
     const result = await queries.communityMessage.hardDeleteMessage(db, id.opener);
 
     expect(new Set(result?.readStateRevisions.map((row) => row.userId))).toEqual(
-      new Set([id.owner, id.reader, sparseOnly]),
+      new Set([id.owner, id.reader, mentionOnly]),
     );
     for (const userId of [id.owner, id.reader]) {
       expect(await first<{ lastReadMessageId: string; lastReadSeq: number }>(
@@ -195,11 +195,10 @@ describe("deleteForumPost real D1 batch", () => {
     }
     await expect(queries.communityReadState.getAccountReadStateSnapshot(
       db,
-      sparseOnly,
+      mentionOnly,
     )).resolves.toEqual({
       revision: 1,
       readStates: [],
-      forumOpenerReads: [],
     });
     expect(await first("SELECT id FROM community_message WHERE id = ?", id.opener)).toBeNull();
     expect(await first<{ message_count: number; last_message_at: string }>(
@@ -269,7 +268,6 @@ describe("deleteForumPost real D1 batch", () => {
           lastReadSeq: 2,
           lastReadAt: t2,
         }],
-        forumOpenerReads: [],
       });
     }
     expect(new Set(result.readStateRevisions.map((revision) => revision.userId))).toEqual(
@@ -371,7 +369,6 @@ describe("deleteForumPost real D1 batch", () => {
         lastReadAt: t2,
         lastReadSeq: 2,
       }],
-      forumOpenerReads: [],
     });
   });
 

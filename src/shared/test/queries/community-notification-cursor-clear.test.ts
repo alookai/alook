@@ -101,12 +101,6 @@ describe("notification setting cursor-clear contract", () => {
         user_id TEXT PRIMARY KEY,
         revision INTEGER NOT NULL DEFAULT 0
       );
-      CREATE TABLE community_forum_opener_read (
-        user_id TEXT NOT NULL,
-        opener_message_id TEXT NOT NULL,
-        read_at TEXT NOT NULL,
-        PRIMARY KEY(user_id, opener_message_id)
-      );
       CREATE TABLE community_channel_member (
         channel_id TEXT NOT NULL,
         user_id TEXT NOT NULL,
@@ -205,13 +199,9 @@ describe("notification setting cursor-clear contract", () => {
       .toEqual({ count: 0 });
   });
 
-  it("advances the forum baseline, prunes covered sparse rows, and versions only an effective policy change", async () => {
+  it("advances a forum's ordinary cursor and versions only an effective policy change", async () => {
     sqlite.exec(`
       UPDATE community_channel SET type = 'forum' WHERE id = 'parent';
-      INSERT INTO community_forum_opener_read (user_id, opener_message_id, read_at) VALUES
-        ('u', 'parent-1', '2026-01-01T00:00:01Z'),
-        ('u', 'parent-2', '2026-01-01T00:00:02Z'),
-        ('u', 'sibling-4', '2026-01-01T00:00:04Z');
     `);
 
     const first = await setChannelLevel(db, {
@@ -221,10 +211,6 @@ describe("notification setting cursor-clear contract", () => {
       actorKind: "human",
     });
     expect(first.readStateRevision).toBe(1);
-    expect(sqlite.prepare(`
-      SELECT opener_message_id FROM community_forum_opener_read
-      WHERE user_id = 'u' ORDER BY opener_message_id
-    `).all()).toEqual([{ opener_message_id: "sibling-4" }]);
     expect(cursors()).toContainEqual({
       channel_id: "parent",
       last_read_message_id: "parent-2",

@@ -6,7 +6,6 @@ import {
   communityReadStateRevision,
   communityMessageSeq,
   communityChannelMember,
-  communityForumOpenerRead,
   communityMention,
   communityMessageTag,
 } from "../../community-schema";
@@ -128,7 +127,6 @@ export type CreateMessageData = {
    * human realtime state.
    */
   authorKind?: "human" | "bot";
-  humanReadTarget?: "timeline" | "forum-opener";
   content: string;
   channelId: string;
   type?: string;
@@ -209,7 +207,6 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
   const now = new Date().toISOString();
   const messageId = data.id ?? nanoid();
   const authorIsHuman = data.authorKind === "human";
-  const humanForumOpener = authorIsHuman && data.humanReadTarget === "forum-opener";
 
   // Pass `createdAt: now` explicitly so `msg.createdAt` matches the exact
   // string we write to `channel.lastMessageAt` and to the author's read marker
@@ -287,16 +284,9 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
       set: { revision: sql`${communityReadStateRevision.revision} + 1` },
     })
     .returning({ revision: communityReadStateRevision.revision });
-  const humanReadEffect = humanForumOpener
-    ? db.insert(communityForumOpenerRead).values({
-        userId: data.authorId,
-        openerMessageId: messageId,
-        readAt: now,
-      })
-    : authorWatermark;
   const results = (await db.batch([
     ...baseStatements,
-    humanReadEffect,
+    authorWatermark,
     humanRevision,
   ] as any)) as any[];
   const msg = (results[0] as InsertedMessage[])[0]!;
@@ -371,7 +361,7 @@ async function hardDeleteMessageAttempt(
     .limit(1);
   const prior = priorRows[0];
 
-  const [impactedPointers, impactedSparse, impactedMentions] = await Promise.all([
+  const [impactedPointers, impactedMentions] = await Promise.all([
     db
       .selectDistinct({ userId: communityReadState.userId })
       .from(communityReadState)
@@ -380,14 +370,6 @@ async function hardDeleteMessageAttempt(
         eq(user.isBot, false),
         eq(communityReadState.channelId, msg.channelId),
         eq(communityReadState.lastReadMessageId, messageId),
-      )),
-    db
-      .selectDistinct({ userId: communityForumOpenerRead.userId })
-      .from(communityForumOpenerRead)
-      .innerJoin(user, eq(user.id, communityForumOpenerRead.userId))
-      .where(and(
-        eq(user.isBot, false),
-        eq(communityForumOpenerRead.openerMessageId, messageId),
       )),
     db
       .selectDistinct({ userId: communityMention.userId })
@@ -400,7 +382,6 @@ async function hardDeleteMessageAttempt(
   ]);
   const impactedUserIds = [...new Set([
     ...impactedPointers,
-    ...impactedSparse,
     ...impactedMentions,
   ].map((row) => row.userId))];
   const impactedIdsJson = JSON.stringify(impactedUserIds);
@@ -416,11 +397,6 @@ async function hardDeleteMessageAttempt(
       WHERE current_state.user_id = ${userIdSql}
         AND current_state.channel_id = ${msg.channelId}
         AND current_state.last_read_message_id = ${messageId}
-    )
-    OR EXISTS (
-      SELECT 1 FROM ${communityForumOpenerRead} AS current_sparse
-      WHERE current_sparse.user_id = ${userIdSql}
-        AND current_sparse.opener_message_id = ${messageId}
     )
     OR EXISTS (
       SELECT 1 FROM ${communityMention} AS current_mention

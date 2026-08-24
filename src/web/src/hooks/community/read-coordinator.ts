@@ -14,36 +14,19 @@ import {
 
 export const READ_COORDINATOR_DEBOUNCE_MS = 500
 
-type TimelineReadIntent = {
+export type ReadIntent = {
   kind: "timeline"
   channelId: string
   messageId: string
   seq: number
 }
 
-type ForumOpenerReadIntent = {
-  kind: "forum-opener"
-  openerMessageId: string
-  parentChannelId: string
-  parentSeq: number
-}
-
-export type ReadIntent = TimelineReadIntent | ForumOpenerReadIntent
-
-export type ReadSurface =
-  | { kind: "timeline"; channelId: string }
-  | {
-      kind: "forum-opener"
-      openerMessageId: string
-      parentChannelId: string
-      parentSeq: number
-    }
+export type ReadSurface = { kind: "timeline"; channelId: string }
 
 type ReadMutationResponse = {
   changed: boolean
   revision: number
-  targetSeq?: number
-  openerMessageId?: string
+  targetSeq: number
 }
 
 type SurfaceLease = {
@@ -70,33 +53,22 @@ type ScopeState = {
   attemptEpoch: number
   retryCount: number
   confirmedSeq: number
-  confirmedOpener: boolean
 }
 
 const coordinators = new WeakMap<QueryClient, ReadCoordinator>()
 const disposedClients = new WeakSet<QueryClient>()
 
 function scopeKey(surface: ReadSurface) {
-  return surface.kind === "timeline"
-    ? `timeline:${surface.channelId}`
-    : `forum-opener:${surface.openerMessageId}`
+  return `timeline:${surface.channelId}`
 }
 
 function sameIntent(left: ReadIntent, right: ReadIntent) {
-  if (left.kind !== right.kind) return false
-  return left.kind === "timeline"
-    ? left.channelId === (right as TimelineReadIntent).channelId
-      && left.seq === (right as TimelineReadIntent).seq
-    : left.openerMessageId === (right as ForumOpenerReadIntent).openerMessageId
+  return left.channelId === right.channelId && left.seq === right.seq
 }
 
 function laterIntent(current: ReadIntent | null, incoming: ReadIntent) {
   if (!current) return incoming
-  if (current.kind !== incoming.kind) return incoming
-  if (incoming.kind === "timeline") {
-    return incoming.seq > (current as TimelineReadIntent).seq ? incoming : current
-  }
-  return current
+  return incoming.seq > current.seq ? incoming : current
 }
 
 function retryable(error: unknown) {
@@ -135,7 +107,6 @@ class ReadCoordinator {
         attemptEpoch: 0,
         retryCount: 0,
         confirmedSeq,
-        confirmedOpener: false,
       }
       this.states.set(key, state)
     } else if (surface.kind === "timeline") {
@@ -149,7 +120,6 @@ class ReadCoordinator {
     state.leases.add(token)
     const cached = this.queryClient.getQueryData<{
       readStates: Array<{ channelId: string; lastReadSeq: number }>
-      forumOpenerReads?: Array<{ openerMessageId: string }>
     }>(communityKeys.accountReadStateSnapshot())
     if (cached) this.applySnapshot(cached)
     return { coordinator: this, key, token, epoch: state.epoch }
@@ -194,25 +164,16 @@ class ReadCoordinator {
 
   applySnapshot(snapshot: {
     readStates: Array<{ channelId: string; lastReadSeq: number }>
-    forumOpenerReads?: Array<{ openerMessageId: string }>
   }) {
     if (this.disposed) return
     const seqByChannel = new Map(
       snapshot.readStates.map((row) => [row.channelId, row.lastReadSeq]),
     )
-    const sparse = new Set(
-      (snapshot.forumOpenerReads ?? []).map((row) => row.openerMessageId),
-    )
     for (const state of this.states.values()) {
-      if (state.surface.kind === "timeline") {
-        state.confirmedSeq = Math.max(
-          state.confirmedSeq,
-          seqByChannel.get(state.surface.channelId) ?? 0,
-        )
-      } else {
-        state.confirmedOpener = sparse.has(state.surface.openerMessageId)
-          || (seqByChannel.get(state.surface.parentChannelId) ?? 0) >= state.surface.parentSeq
-      }
+      state.confirmedSeq = Math.max(
+        state.confirmedSeq,
+        seqByChannel.get(state.surface.channelId) ?? 0,
+      )
       this.cancelConfirmedWork(state)
     }
   }
@@ -265,26 +226,15 @@ class ReadCoordinator {
     const identityEpoch = this.identityEpoch
     try {
       const response = await apiFetch<ReadMutationResponse>(
-        target.kind === "timeline"
-          ? `/api/community/channels/${target.channelId}/read`
-          : `/api/community/messages/${target.openerMessageId}/read`,
-        target.kind === "timeline"
-          ? {
-              method: "PUT",
-              body: JSON.stringify({ lastReadMessageId: target.messageId }),
-              signal: controller.signal,
-            }
-          : { method: "PUT", signal: controller.signal },
+        `/api/community/channels/${target.channelId}/read`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ lastReadMessageId: target.messageId }),
+          signal: controller.signal,
+        },
       )
       if (!this.attemptActive(state, attemptEpoch, identityEpoch)) return
-      if (target.kind === "timeline") {
-        state.confirmedSeq = Math.max(
-          state.confirmedSeq,
-          response.targetSeq ?? target.seq,
-        )
-      } else {
-        state.confirmedOpener = true
-      }
+      state.confirmedSeq = Math.max(state.confirmedSeq, response.targetSeq)
       state.dirty = sameIntent(state.dirty ?? target, target) ? null : state.dirty
       state.retryCount = 0
       void reconcileAccountReadState(this.queryClient, {
@@ -331,18 +281,11 @@ class ReadCoordinator {
   }
 
   private confirmed(state: ScopeState, intent: ReadIntent) {
-    return intent.kind === "timeline"
-      ? state.confirmedSeq >= intent.seq
-      : state.confirmedOpener
-        || (state.surface.kind === "forum-opener"
-          && state.confirmedSeq >= state.surface.parentSeq)
+    return state.confirmedSeq >= intent.seq
   }
 
   private matchesSurface(surface: ReadSurface, intent: ReadIntent) {
-    return surface.kind === intent.kind
-      && (surface.kind === "timeline"
-        ? surface.channelId === (intent as TimelineReadIntent).channelId
-        : surface.openerMessageId === (intent as ForumOpenerReadIntent).openerMessageId)
+    return surface.channelId === intent.channelId
   }
 
   private validState(lease: SurfaceLease) {

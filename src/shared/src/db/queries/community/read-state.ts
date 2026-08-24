@@ -1,6 +1,5 @@
 import { eq, and, gte, notExists, or, sql, type SQL } from "drizzle-orm";
 import {
-  communityForumOpenerRead,
   communityReadState,
   communityReadStateRevision,
 } from "../../community-schema";
@@ -11,10 +10,6 @@ import {
   getMessageByChannelAndSeq,
 } from "./message";
 import { listDMs } from "./dm";
-import {
-  coveredForumOpenerReadExistsCondition,
-  pruneCoveredForumOpenerReadsBuilder,
-} from "./forum-opener-read";
 
 /**
  * # Community read-state invariant
@@ -213,16 +208,6 @@ export function accountReadStateRowsBuilder(db: Database, userId: string) {
     .where(eq(communityReadState.userId, userId));
 }
 
-export function accountForumOpenerReadRowsBuilder(db: Database, userId: string) {
-  return db
-    .select({
-      openerMessageId: communityForumOpenerRead.openerMessageId,
-      readAt: communityForumOpenerRead.readAt,
-    })
-    .from(communityForumOpenerRead)
-    .where(eq(communityForumOpenerRead.userId, userId));
-}
-
 export type AccountReadState = {
   channelId: string;
   lastReadMessageId: string | null;
@@ -233,12 +218,6 @@ export type AccountReadState = {
 export type AccountReadStateSnapshot = {
   revision: number;
   readStates: AccountReadState[];
-  forumOpenerReads: AccountForumOpenerRead[];
-};
-
-export type AccountForumOpenerRead = {
-  openerMessageId: string;
-  readAt: string;
 };
 
 export type AccountReadStateRevisionByUser = {
@@ -249,17 +228,14 @@ export type AccountReadStateRevisionByUser = {
 export async function getAccountReadStateSnapshot(db: Database, userId: string) {
   const revisionQuery = accountReadStateRevisionBuilder(db, userId);
   const readStatesQuery = accountReadStateRowsBuilder(db, userId);
-  const forumOpenerReadsQuery = accountForumOpenerReadRowsBuilder(db, userId);
-  const [revisionRows, readStates, forumOpenerReads] = await db.batch([
+  const [revisionRows, readStates] = await db.batch([
     revisionQuery,
     readStatesQuery,
-    forumOpenerReadsQuery,
   ]) as unknown as [
     Array<{ revision: number }>,
     AccountReadState[],
-    AccountForumOpenerRead[],
   ];
-  return { revision: revisionRows[0]?.revision ?? 0, readStates, forumOpenerReads };
+  return { revision: revisionRows[0]?.revision ?? 0, readStates };
 }
 
 export type ReadStateAdvance = {
@@ -356,25 +332,13 @@ export async function markAllServerChannelsRead(
     channelId: message.channelId,
     message,
   }));
-  const pruneStatements = latest.map((message) =>
-    pruneCoveredForumOpenerReadsBuilder(db, {
+  const effectConditions = latest.map((message) =>
+    readStateAdvancesCondition(db, {
       userId,
       channelId: message.channelId,
       targetSeq: message.seq,
     })
   );
-  const effectConditions = latest.flatMap((message) => [
-    readStateAdvancesCondition(db, {
-      userId,
-      channelId: message.channelId,
-      targetSeq: message.seq,
-    }),
-    coveredForumOpenerReadExistsCondition(db, {
-      userId,
-      channelId: message.channelId,
-      targetSeq: message.seq,
-    }),
-  ]);
   const effectCondition = effectConditions.slice(1).reduce(
     (combined, condition) => or(combined, condition)!,
     effectConditions[0]!
@@ -382,7 +346,6 @@ export async function markAllServerChannelsRead(
   const results = await db.batch([
     advanceReadStateRevisionWhenBuilder(db, userId, effectCondition),
     ...statements,
-    ...pruneStatements,
     accountReadStateRevisionBuilder(db, userId),
   ] as any) as unknown as unknown[][];
   const changed = (results[0] as Array<{ revision: number }>).length > 0;

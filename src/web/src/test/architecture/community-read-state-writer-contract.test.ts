@@ -23,6 +23,19 @@ function source(path: string): string {
 }
 
 describe("human account read-state writer contract", () => {
+  it("has no sparse authority in production schema, snapshot, transport, or producer code", () => {
+    const productionFiles = [
+      ...walkTypeScript(resolve(repositoryRoot, "src/shared/src")),
+      ...walkTypeScript(resolve(repositoryRoot, "src/web/src"))
+        .filter((path) => !path.includes("/test/") && !path.endsWith(".test.ts")),
+    ]
+    const sparsePattern = /communityForumOpenerRead|forumOpenerReads|forum_opener_read|ForumOpenerRead/
+    expect(productionFiles
+      .filter((path) => sparsePattern.test(readFileSync(path, "utf8")))
+      .map((path) => relative(repositoryRoot, path)))
+      .toEqual([])
+  })
+
   it("keeps every direct read-state writer in the reviewed allowlist", () => {
     const directWriters = walkTypeScript(sharedCommunityQueries)
       .filter((path) => /\.(?:insert|update|delete)\(\s*communityReadState\s*\)/m.test(readFileSync(path, "utf8")))
@@ -40,25 +53,21 @@ describe("human account read-state writer contract", () => {
   it("requires every human-capable writer and FK cascade to mint only bounded revisions", () => {
     const message = source("src/shared/src/db/queries/community/message.ts")
     expect(message).toContain('authorKind?: "human" | "bot"')
-    expect(message).toContain('humanReadTarget?: "timeline" | "forum-opener"')
     expect(message).toContain("communityReadStateRevision")
-    expect(message).toContain("db.insert(communityForumOpenerRead).values")
+    expect(message).toContain("authorWatermark")
     expect(message).toContain("return { ...msg, readStateRevision: revision }")
-    expect(message).toContain("impactedSparse")
     expect(message).toContain("impactedMentions")
     expect(message).not.toContain("humanSnapshot")
 
     const notification = source("src/shared/src/db/queries/community/notification-setting.ts")
     expect(notification).toContain('actorKind: "human" | "bot"')
     expect(notification).toContain("advanceReadStateRevisionWhenBuilder")
-    expect(notification).toContain("delete(communityForumOpenerRead)")
     expect(notification).not.toContain("accountReadStateRowsBuilder")
 
     const forumDelete = source("src/shared/src/db/queries/community/forum-post-delete.ts")
     expect(forumDelete).toContain("advanceReadStateRevisionsForUsersBuilder")
     expect(forumDelete).not.toContain("accountReadStateRowsForUsersBuilder")
     expect(forumDelete).toContain("impactedHumansStable")
-    expect(forumDelete).toContain("impactedSparse")
     expect(forumDelete).toContain("impactedMentions")
     expect(forumDelete).toContain("deleteForumPostAttempt(db, input, attempt + 1)")
 
@@ -66,7 +75,6 @@ describe("human account read-state writer contract", () => {
     expect(cascadeDelete).toContain("advanceReadStateRevisionsForUsersBuilder")
     expect(cascadeDelete).not.toContain("accountReadStateRowsForUsersBuilder")
     expect(cascadeDelete.match(/impactedHumansStable/g)?.length).toBeGreaterThanOrEqual(6)
-    expect(cascadeDelete.match(/impactedSparse/g)?.length).toBeGreaterThanOrEqual(4)
     expect(cascadeDelete.match(/impactedMentions/g)?.length).toBeGreaterThanOrEqual(4)
     expect(cascadeDelete).toContain("deleteChannelWithMediaAttempt(db, input, attempt + 1)")
     expect(cascadeDelete).toContain("deleteServerWithMediaAttempt(db, input, attempt + 1)")
@@ -82,9 +90,9 @@ describe("human account read-state writer contract", () => {
     expect(readState).not.toContain("accountReadStateRowsForUsersBuilder")
   })
 
-  it("keeps browser timeline and opener read transports in the account coordinator only", () => {
+  it("keeps the sole browser read transport in the account coordinator only", () => {
     const webSourceRoot = resolve(repositoryRoot, "src/web/src")
-    const transportPattern = /\/api\/community\/(?:channels|messages)\/\$\{[^}]+\}\/read(?!-)/
+    const transportPattern = /\/api\/community\/channels\/\$\{[^}]+\}\/read(?!-)/
     const owners = walkTypeScript(webSourceRoot)
       .filter((path) => !path.includes("/test/") && !path.endsWith(".test.ts"))
       .filter((path) => transportPattern.test(readFileSync(path, "utf8")))
@@ -93,6 +101,27 @@ describe("human account read-state writer contract", () => {
     expect(owners).toEqual([
       "src/web/src/hooks/community/read-coordinator.ts",
     ])
+  })
+
+  it("keeps type-specific access in the adapter and the post-auth read effect generic", () => {
+    const route = source("src/web/src/app/api/community/channels/[id]/read/route.ts")
+    const postAuthorization = route.slice(route.indexOf("if (!auth.ok)"))
+    expect(postAuthorization).not.toMatch(/channel\.type|visibilityIsDmParticipant|surface ===/)
+    expect(route).not.toContain("getLatestMessage")
+    expect(route).toContain('Object.keys(body).length !== 1')
+    expect(route).toContain('typeof body.lastReadMessageId !== "string"')
+  })
+
+  it("adapts forum cards into generic message rows and leaves navigation write-free", () => {
+    const forumView = source("src/web/src/components/community/channels/forum-view.tsx")
+    const forumSurface = source("src/web/src/components/community/channels/forum-surface.tsx")
+    expect(forumSurface).toContain("useTimelineReadObserver")
+    expect(forumView).toContain("data-msg-id={p.openerMessageId || undefined}")
+    expect(forumSurface).toContain("channelId: forumChannelId")
+
+    const thread = source("src/web/src/components/community/channels/thread-channel-surface.tsx")
+    expect(thread).not.toContain("submitReadIntent")
+    expect(thread).not.toContain("/read")
   })
 
   it("makes every production message door state the author kind explicitly", () => {

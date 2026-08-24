@@ -9,24 +9,10 @@ import { broadcastToUserSafe } from "@/lib/community/fanout"
 /**
  * PUT /api/community/channels/:id/read
  *
- * Marks the channel read for the current viewer. Two shapes:
- * - Body omitted or `{}` → mass mark-read. Server picks the latest message
- *   in the channel and writes both `lastReadAt = msg.createdAt` and
- *   `lastReadMessageId = msg.id`. Empty channels are a no-op — no row
- *   written — because the read-state invariant forbids
- *   `lastReadMessageId = null` rows.
- * - Body `{ lastReadMessageId }` → Slack-style progressive mark-read.
- *   Verifies the message exists AND belongs to this channel, then writes
- *   the message's `createdAt` + `id` as the new pointer. Rejects when the
- *   message belongs to another channel (400) — protects against confused-
- *   deputy watermark advances.
- *
- * The body key matches DM (`PUT /dm/:id/read`) and thread
- * (`PUT /threads/:id/read`) — all three routes accept `lastReadMessageId`.
- *
- * Mention clear still fires in one D1 batch on non-empty channels. On an
- * empty channel we short-circuit before writing anything — there are no
- * mentions to clear on a channel with no messages.
+ * The sole accepted body is the strict object `{ lastReadMessageId: string }`.
+ * Every channel type uses the same ordinary `(userId, channelId)` cursor.
+ * The server re-reads the canonical target row, rejects an unknown id (404)
+ * or a row from another channel (400), and never falls back to the latest row.
  */
 export const PUT = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -44,56 +30,41 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     { route: "community/channel-read:access" }
   )
   if (!auth.ok) return writeError(auth.error, auth.status)
-  if (auth.value.surface === "channel" && auth.value.channel.type === "forum") {
-    return writeError("forum opener reads require the message read route", 400)
-  }
-
-  // Parse the body — best-effort. An empty body is legal (mass mark-read).
-  let lastReadMessageId: string | undefined
+  let body: unknown
   try {
-    // A truly empty body throws in `req.json()`; catch and treat as `{}`.
-    const raw = await req.text()
-    if (raw.trim().length > 0) {
-      const body = JSON.parse(raw) as { lastReadMessageId?: unknown }
-      if (typeof body?.lastReadMessageId === "string" && body.lastReadMessageId.length > 0) {
-        lastReadMessageId = body.lastReadMessageId
-      }
-    }
+    body = await req.json()
   } catch {
-    // Malformed JSON — fall through with `lastReadMessageId` unset. The mass
-    // mark-read semantics are the safe fallback.
+    return writeError("invalid read target", 400)
   }
+  if (
+    body === null
+    || typeof body !== "object"
+    || Array.isArray(body)
+    || Object.keys(body).length !== 1
+    || !("lastReadMessageId" in body)
+    || typeof body.lastReadMessageId !== "string"
+    || body.lastReadMessageId.length === 0
+  ) return writeError("invalid read target", 400)
+  const lastReadMessageId = body.lastReadMessageId
 
-  // Resolve the target message. Both branches align (lastReadAt, lastReadMessageId)
-  // to a real message — that's the read-state invariant.
-  let target: { id: string; createdAt: string; seq: number } | null
-  if (lastReadMessageId) {
-    const msg = await withD1Retry(
-      () => queries.communityMessage.getMessage(db, lastReadMessageId),
-      { route: "community/channel-read:message" }
+  const message = await withD1Retry(
+    () => queries.communityMessage.getMessage(db, lastReadMessageId),
+    { route: "community/channel-read:message" }
+  )
+  if (!message) return writeError("message not found", 404)
+  if (message.channelId !== channelId) {
+    const targetAccess = await withD1Retry(
+      () => requireMessageSurfaceAccess(db, message.channelId, ctx.userId),
+      { route: "community/channel-read:target-access" },
     )
-    if (!msg) return writeError("message not found", 404)
-    // Scope check — a message from another channel MUST NOT advance THIS
-    // channel's watermark.
-    if (msg.channelId !== channelId) {
-      return writeError("message not in channel", 400)
-    }
-    target = { id: msg.id, createdAt: msg.createdAt, seq: msg.seq }
-  } else {
-    target = await withD1Retry(
-      () => queries.communityMessage.getLatestMessage(db, { channelId }),
-      { route: "community/channel-read:latest" }
-    )
-    // Empty channel: no row can be written under the invariant. Nothing to
-    // clear either (mentions/for-you require messages to exist first), so
-    // short-circuit with a successful no-op.
-    if (!target) {
-      const revisionRows = await withD1Retry(
-        () => queries.communityReadState.accountReadStateRevisionBuilder(db, ctx.userId),
-        { route: "community/channel-read:empty-revision" },
-      )
-      return writeJSON({ changed: false, targetSeq: 0, revision: revisionRows[0]?.revision ?? 0 })
-    }
+    if (!targetAccess.ok) return writeError(targetAccess.error, targetAccess.status)
+    return writeError("message not in channel", 400)
+  }
+  const target = {
+    id: message.id,
+    channelId: message.channelId,
+    createdAt: message.createdAt,
+    seq: message.seq,
   }
 
   // Fire both writes in one D1 batch so partial failure can't leave the

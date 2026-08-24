@@ -375,7 +375,6 @@ const communityInboxChangedSchema = z.strictObject({
   ...readStateEnvelopeFields,
   reason: z.enum([
     "read_all",
-    "forum_opener_read",
     "mention_read_all",
     "mention_dismiss",
     "notification_policy",

@@ -414,7 +414,7 @@ describe("createCommunityMessage — committed delivery handoff", () => {
     }))
   })
 
-  it("routes a human forum opener to exact sparse self-read ownership", async () => {
+  it("routes a human forum opener through the ordinary author read-state ownership", async () => {
     mockCreateMessage.mockResolvedValue({ id: "msg_forum", readStateRevision: 13 })
     mockGetMessage.mockResolvedValue(messageRow({ id: "msg_forum", channelId: "forum_1" }))
 
@@ -430,7 +430,6 @@ describe("createCommunityMessage — committed delivery handoff", () => {
       authorId: "author_1",
       authorKind: "human",
       channelId: "forum_1",
-      humanReadTarget: "forum-opener",
     }))
   })
 })

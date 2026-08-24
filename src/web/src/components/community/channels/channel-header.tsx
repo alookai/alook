@@ -54,7 +54,7 @@ export type ChannelNotifLevel = typeof USE_SERVER_DEFAULT | NotifLevel
 
 export function ChannelHeader({
   channel, rightPanel, onToggle, notifLevel, onSetNotifLevel, onBack,
-  breadcrumb, breadcrumbReadAnchor, forum, server, tools,
+  breadcrumb, forum, server, tools,
 }: {
   channel: string
   rightPanel: RightPanel
@@ -69,7 +69,6 @@ export function ChannelHeader({
     titleRename?: boolean
     onNavigateBack?: () => void
   }
-  breadcrumbReadAnchor?: (node: HTMLSpanElement | null) => void
   server?: { id: string; name: string; icon: string | null }
   tools?: { threads?: boolean; pinned?: boolean; members?: boolean }
 }) {
@@ -102,12 +101,7 @@ export function ChannelHeader({
             <span className="truncate text-base font-medium">{channel}</span>
           </button>
           <ChannelIcon className="shrink-0 text-base text-muted-foreground/60" />
-          <span
-            ref={breadcrumbReadAnchor}
-            data-testid={breadcrumbReadAnchor ? "forum-opener-read-anchor" : undefined}
-            className="min-w-0 truncate text-base font-medium"
-            title={breadcrumb.label}
-          >
+          <span className="min-w-0 truncate text-base font-medium" title={breadcrumb.label}>
             {breadcrumb.label}
           </span>
           {breadcrumb.onRename && (

@@ -42,7 +42,6 @@ describe("getAccountReadStateSnapshot", () => {
     const builders = [
       { kind: "revision" },
       { kind: "rows" },
-      { kind: "forum-opener-rows" },
     ];
     let selectIndex = 0;
     let state = {
@@ -52,10 +51,6 @@ describe("getAccountReadStateSnapshot", () => {
         lastReadMessageId: "m2",
         lastReadAt: "2026-08-24T00:00:02.000Z",
         lastReadSeq: 2,
-      }],
-      forumOpenerReads: [{
-        openerMessageId: "opener-1",
-        readAt: "2026-08-24T00:00:02.000Z",
       }],
     };
     const db: any = {
@@ -76,12 +71,10 @@ describe("getAccountReadStateSnapshot", () => {
             lastReadAt: "2026-08-24T00:00:03.000Z",
           lastReadSeq: 3,
         }],
-          forumOpenerReads: [],
         };
         return [
           [{ revision: captured.revision }],
           captured.readStates,
-          captured.forumOpenerReads,
         ];
       }),
     };
@@ -93,10 +86,6 @@ describe("getAccountReadStateSnapshot", () => {
         lastReadMessageId: "m2",
         lastReadAt: "2026-08-24T00:00:02.000Z",
         lastReadSeq: 2,
-      }],
-      forumOpenerReads: [{
-        openerMessageId: "opener-1",
-        readAt: "2026-08-24T00:00:02.000Z",
       }],
     });
     expect(db.batch).toHaveBeenCalledOnce();
@@ -313,8 +302,8 @@ describe("markAllServerChannelsRead", () => {
       revision: 11,
     });
     expect(db.batch).toHaveBeenCalledTimes(1);
-    expect(db.batch.mock.calls[0]![0]).toHaveLength(6);
-    expect(db.__deletes).toHaveLength(2);
+    expect(db.batch.mock.calls[0]![0]).toHaveLength(4);
+    expect(db.__deletes).toHaveLength(0);
     const rows = db.__inserts.filter((row: any) => row.channelId);
     expect(rows).toHaveLength(2);
     // The invariant per-row: lastReadAt === message.createdAt, lastReadMessageId === message.id.

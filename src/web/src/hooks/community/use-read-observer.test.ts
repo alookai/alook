@@ -176,6 +176,32 @@ describe("useTimelineReadObserver", () => {
     })
   })
 
+  it("submits only the visible forum-card prefix candidate and preserves unseen newer siblings", () => {
+    const rows = [makeRow("opener-a"), makeRow("opener-b"), makeRow("opener-c")]
+    const root = makeRoot(rows)
+    useTestRender({
+      channelId: "forum-1",
+      messages: [
+        { id: "opener-a", seq: 1, authorId: "alice" },
+        { id: "opener-b", seq: 2, authorId: "alice" },
+        { id: "opener-c", seq: 3, authorId: "alice" },
+      ],
+      scrollRootEl: root,
+      confirmedSeq: 0,
+    })
+    runEffects()
+
+    trigger(observers[0]!, rows[0]!)
+
+    expect(coordinator.submit).toHaveBeenCalledOnce()
+    expect(coordinator.submit).toHaveBeenCalledWith({ lease: "timeline" }, {
+      kind: "timeline",
+      channelId: "forum-1",
+      messageId: "opener-a",
+      seq: 1,
+    })
+  })
+
   it("rejects hidden callbacks and re-samples the static row on foreground", () => {
     const { row } = useTestRender()
     runEffects()

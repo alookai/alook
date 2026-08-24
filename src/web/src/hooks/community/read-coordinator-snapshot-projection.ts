@@ -2,7 +2,6 @@ import type { QueryClient } from "@tanstack/react-query"
 
 export type ReadCoordinatorSnapshot = {
   readStates: Array<{ channelId: string; lastReadSeq: number }>
-  forumOpenerReads?: Array<{ openerMessageId: string }>
 }
 
 type SnapshotProjector = (snapshot: ReadCoordinatorSnapshot) => void

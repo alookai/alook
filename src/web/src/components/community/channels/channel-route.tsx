@@ -202,7 +202,6 @@ export function ChannelRoute({ serverParam, channelId }: {
         anchorMessageId={jumpTargetId}
         parentChannelId={currentChannelMeta?.parentChannelId ?? null}
         parentMessageId={currentChannelMeta?.parentMessageId ?? null}
-        parentMessageSeq={forumPostOpener.data?.seq ?? null}
         parentChannelName={parentChannelInServer?.name ?? "channel"}
         parentIsForum={isForumPostChild}
         childCreatorId={currentChannelMeta?.creatorId}

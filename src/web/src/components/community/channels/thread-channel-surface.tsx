@@ -6,7 +6,6 @@ import { toastApiError, apiFetch } from "@/lib/api/client"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 import { useEditMessage } from "@/hooks/community/mutations"
-import { useForumOpenerReadAnchor } from "@/hooks/community/use-forum-opener-read-anchor"
 import { ChannelHeader, ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
 import { ChannelShell } from "@/components/community/channels/channel-shell"
 import { CommunityPanel } from "@/components/community/shell/community-panel"
@@ -31,7 +30,6 @@ export function ThreadChannelSurface({
   anchorMessageId,
   parentChannelId,
   parentMessageId,
-  parentMessageSeq = null,
   parentChannelName,
   parentIsForum,
   childCreatorId,
@@ -58,7 +56,6 @@ export function ThreadChannelSurface({
   anchorMessageId: string | null
   parentChannelId: string | null
   parentMessageId: string | null
-  parentMessageSeq?: number | null
   parentChannelName: string
   parentIsForum: boolean
   childCreatorId?: string | null
@@ -85,7 +82,6 @@ export function ThreadChannelSurface({
   const breakpoint = useBreakpoint()
   const [rightPanel, setRightPanel] = useState<RightPanel>(null)
   const [localName, setLocalName] = useState<string | null>(null)
-  const [openerReadAnchor, setOpenerReadAnchor] = useState<HTMLSpanElement | null>(null)
   const { mutateAsync: editMessageAsync } = useEditMessage()
   const feed = useChannelMessageFeed({
     channelId,
@@ -95,13 +91,6 @@ export function ThreadChannelSurface({
     anchorMessageId,
   })
   const displayName = localName ?? channelName
-  useForumOpenerReadAnchor({
-    element: openerReadAnchor,
-    openerMessageId: parentIsForum ? parentMessageId : null,
-    parentChannelId: parentIsForum ? parentChannelId : null,
-    parentSeq: parentIsForum ? parentMessageSeq : null,
-    snapshotReady: parentIsForum && !feed.readSnapshotFetching,
-  })
 
   useEffect(() => {
     setRightPanel(null)
@@ -215,7 +204,6 @@ export function ThreadChannelSurface({
                 onNavigateBack: navigateBack,
                 onRename: rename,
               }}
-              breadcrumbReadAnchor={parentIsForum ? setOpenerReadAnchor : undefined}
             />
           )}
           body={(

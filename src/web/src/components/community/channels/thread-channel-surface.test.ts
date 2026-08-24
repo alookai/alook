@@ -33,9 +33,6 @@ vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
 vi.mock("@/hooks/community/use-channel-message-feed", () => ({
   useChannelMessageFeed: vi.fn(),
 }))
-vi.mock("@/hooks/community/use-forum-opener-read-anchor", () => ({
-  useForumOpenerReadAnchor: vi.fn(),
-}))
 vi.mock("@/hooks/community/mutations", () => ({
   useEditMessage: () => ({ mutateAsync: mocks.editMessage }),
 }))

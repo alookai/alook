@@ -2,7 +2,6 @@ import { and, eq, exists, inArray, isNull, or, sql } from "drizzle-orm"
 import {
   communityAttachment,
   communityChannel,
-  communityForumOpenerRead,
   communityMention,
   communityMessage,
   communityReadState,
@@ -67,7 +66,7 @@ async function deleteChannelWithMediaAttempt(
     .select({ id: communityMessage.id })
     .from(communityMessage)
     .where(inArray(communityMessage.channelId, scopedChannelIds))
-  const [impactedPointers, impactedSparse, impactedMentions] = await Promise.all([
+  const [impactedPointers, impactedMentions] = await Promise.all([
     db
       .selectDistinct({ userId: communityReadState.userId })
       .from(communityReadState)
@@ -75,14 +74,6 @@ async function deleteChannelWithMediaAttempt(
       .where(and(
         eq(user.isBot, false),
         inArray(communityReadState.channelId, scopedChannelIds),
-      )),
-    db
-      .selectDistinct({ userId: communityForumOpenerRead.userId })
-      .from(communityForumOpenerRead)
-      .innerJoin(user, eq(user.id, communityForumOpenerRead.userId))
-      .where(and(
-        eq(user.isBot, false),
-        inArray(communityForumOpenerRead.openerMessageId, scopedMessageIds),
       )),
     db
       .selectDistinct({ userId: communityMention.userId })
@@ -95,7 +86,6 @@ async function deleteChannelWithMediaAttempt(
   ])
   const impactedUserIds = [...new Set([
     ...impactedPointers,
-    ...impactedSparse,
     ...impactedMentions,
   ].map((row) => row.userId))]
   const impactedIdsJson = JSON.stringify(impactedUserIds)
@@ -104,20 +94,6 @@ async function deleteChannelWithMediaAttempt(
       SELECT 1 FROM ${communityReadState} AS current_state
       WHERE current_state.user_id = ${userIdSql}
         AND current_state.channel_id IN (
-          SELECT scoped_channel.id FROM ${communityChannel} AS scoped_channel
-          WHERE scoped_channel.server_id = ${input.serverId}
-            AND (
-              scoped_channel.id = ${input.channelId}
-              OR scoped_channel.parent_channel_id = ${input.channelId}
-            )
-        )
-    )
-    OR EXISTS (
-      SELECT 1 FROM ${communityForumOpenerRead} AS current_sparse
-      INNER JOIN ${communityMessage} AS sparse_opener
-        ON sparse_opener.id = current_sparse.opener_message_id
-      WHERE current_sparse.user_id = ${userIdSql}
-        AND sparse_opener.channel_id IN (
           SELECT scoped_channel.id FROM ${communityChannel} AS scoped_channel
           WHERE scoped_channel.server_id = ${input.serverId}
             AND (
@@ -252,7 +228,7 @@ async function deleteServerWithMediaAttempt(
     .select({ id: communityMessage.id })
     .from(communityMessage)
     .where(inArray(communityMessage.channelId, scopedChannelIds))
-  const [impactedPointers, impactedSparse, impactedMentions] = await Promise.all([
+  const [impactedPointers, impactedMentions] = await Promise.all([
     db
       .selectDistinct({ userId: communityReadState.userId })
       .from(communityReadState)
@@ -260,14 +236,6 @@ async function deleteServerWithMediaAttempt(
       .where(and(
         eq(user.isBot, false),
         inArray(communityReadState.channelId, scopedChannelIds),
-      )),
-    db
-      .selectDistinct({ userId: communityForumOpenerRead.userId })
-      .from(communityForumOpenerRead)
-      .innerJoin(user, eq(user.id, communityForumOpenerRead.userId))
-      .where(and(
-        eq(user.isBot, false),
-        inArray(communityForumOpenerRead.openerMessageId, scopedMessageIds),
       )),
     db
       .selectDistinct({ userId: communityMention.userId })
@@ -280,7 +248,6 @@ async function deleteServerWithMediaAttempt(
   ])
   const impactedUserIds = [...new Set([
     ...impactedPointers,
-    ...impactedSparse,
     ...impactedMentions,
   ].map((row) => row.userId))]
   const impactedIdsJson = JSON.stringify(impactedUserIds)
@@ -289,16 +256,6 @@ async function deleteServerWithMediaAttempt(
       SELECT 1 FROM ${communityReadState} AS current_state
       WHERE current_state.user_id = ${userIdSql}
         AND current_state.channel_id IN (
-          SELECT scoped_channel.id FROM ${communityChannel} AS scoped_channel
-          WHERE scoped_channel.server_id = ${input.serverId}
-        )
-    )
-    OR EXISTS (
-      SELECT 1 FROM ${communityForumOpenerRead} AS current_sparse
-      INNER JOIN ${communityMessage} AS sparse_opener
-        ON sparse_opener.id = current_sparse.opener_message_id
-      WHERE current_sparse.user_id = ${userIdSql}
-        AND sparse_opener.channel_id IN (
           SELECT scoped_channel.id FROM ${communityChannel} AS scoped_channel
           WHERE scoped_channel.server_id = ${input.serverId}
         )

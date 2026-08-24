@@ -367,7 +367,6 @@ export async function createCommunityMessage(params: {
     type?: string;
     clientNonce?: string;
     extraStatements?: unknown[];
-    humanReadTarget?: "timeline" | "forum-opener";
   } = {
     authorId,
     authorKind,
@@ -378,9 +377,6 @@ export async function createCommunityMessage(params: {
     ...(messageType !== undefined ? { type: messageType } : {}),
     ...(clientNonce !== undefined ? { clientNonce } : {}),
     ...(extraStatements !== undefined ? { extraStatements } : {}),
-    ...(authorKind === "human" && target.kind === "forum"
-      ? { humanReadTarget: "forum-opener" as const }
-      : {}),
   }
 
   // Insert first so `reserveAttachmentsForMessage`'s UPDATE can key off

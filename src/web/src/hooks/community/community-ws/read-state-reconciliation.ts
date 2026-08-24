@@ -13,10 +13,6 @@ type AccountReadState = {
 export type AccountReadStateSnapshot = {
   revision: number
   readStates: AccountReadState[]
-  forumOpenerReads?: Array<{
-    openerMessageId: string
-    readAt: string
-  }>
 }
 
 export type ReadStateEnvelope = {

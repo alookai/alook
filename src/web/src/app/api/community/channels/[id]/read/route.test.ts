@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
 vi.mock("@opennextjs/cloudflare", () => ({
@@ -7,8 +7,10 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockGetChannel = vi.fn()
 const mockGetChannelForMember = vi.fn()
+const mockGetDM = vi.fn()
+const mockGetDMPeer = vi.fn()
+const mockIsBlocked = vi.fn()
 const mockGetMessage = vi.fn()
-const mockGetLatestMessage = vi.fn()
 const mockMarkReadToMessageBuilder = vi.fn()
 const mockReadStateAdvancesCondition = vi.fn()
 const mockAdvanceReadStateRevisionWhenAnyBuilder = vi.fn()
@@ -17,7 +19,7 @@ const mockUnreadChannelMentionThroughSeqCondition = vi.fn()
 const mockMarkChannelMentionsReadBuilder = vi.fn()
 const mockBatch = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
-const mockGetPrimaryDb = vi.fn(() => ({ batch: (...a: unknown[]) => mockBatch(...a) }))
+const mockGetPrimaryDb = vi.fn(() => ({ batch: (...args: unknown[]) => mockBatch(...args) }))
 
 vi.mock("@/lib/db", () => ({
   getPrimaryDb: (...args: unknown[]) => mockGetPrimaryDb(...args),
@@ -29,26 +31,32 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     queries: {
       communityChannel: {
-        getChannel: (...a: unknown[]) => mockGetChannel(...a),
-        getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
+        getChannel: (...args: unknown[]) => mockGetChannel(...args),
+        getChannelForMember: (...args: unknown[]) => mockGetChannelForMember(...args),
+      },
+      communityDm: {
+        getDM: (...args: unknown[]) => mockGetDM(...args),
+        getDMPeer: (...args: unknown[]) => mockGetDMPeer(...args),
+      },
+      communityFriendship: {
+        isBlocked: (...args: unknown[]) => mockIsBlocked(...args),
       },
       communityMessage: {
-        getMessage: (...a: unknown[]) => mockGetMessage(...a),
-        getLatestMessage: (...a: unknown[]) => mockGetLatestMessage(...a),
+        getMessage: (...args: unknown[]) => mockGetMessage(...args),
       },
       communityReadState: {
-        markReadToMessageBuilder: (...a: unknown[]) => mockMarkReadToMessageBuilder(...a),
-        readStateAdvancesCondition: (...a: unknown[]) => mockReadStateAdvancesCondition(...a),
-        advanceReadStateRevisionWhenAnyBuilder: (...a: unknown[]) =>
-          mockAdvanceReadStateRevisionWhenAnyBuilder(...a),
-        accountReadStateRevisionBuilder: (...a: unknown[]) =>
-          mockAccountReadStateRevisionBuilder(...a),
+        markReadToMessageBuilder: (...args: unknown[]) => mockMarkReadToMessageBuilder(...args),
+        readStateAdvancesCondition: (...args: unknown[]) => mockReadStateAdvancesCondition(...args),
+        advanceReadStateRevisionWhenAnyBuilder: (...args: unknown[]) =>
+          mockAdvanceReadStateRevisionWhenAnyBuilder(...args),
+        accountReadStateRevisionBuilder: (...args: unknown[]) =>
+          mockAccountReadStateRevisionBuilder(...args),
       },
       communityMention: {
-        unreadChannelMentionThroughSeqCondition: (...a: unknown[]) =>
-          mockUnreadChannelMentionThroughSeqCondition(...a),
-        markChannelMentionsReadBuilder: (...a: unknown[]) =>
-          mockMarkChannelMentionsReadBuilder(...a),
+        unreadChannelMentionThroughSeqCondition: (...args: unknown[]) =>
+          mockUnreadChannelMentionThroughSeqCondition(...args),
+        markChannelMentionsReadBuilder: (...args: unknown[]) =>
+          mockMarkChannelMentionsReadBuilder(...args),
       },
     },
   }
@@ -69,8 +77,7 @@ vi.mock("@/lib/middleware/helpers", () => {
   const { NextResponse } = require("next/server")
   return {
     writeJSON: (data: unknown, status = 200) => NextResponse.json(data, { status }),
-    writeError: (message: string, status: number) =>
-      NextResponse.json({ error: message }, { status }),
+    writeError: (message: string, status: number) => NextResponse.json({ error: message }, { status }),
   }
 })
 
@@ -79,268 +86,149 @@ import { PUT } from "./route"
 function putReq(body?: unknown) {
   return new NextRequest("http://localhost/api/community/channels/c1/read", {
     method: "PUT",
-    ...(body !== undefined ? { body: typeof body === "string" ? body : JSON.stringify(body) } : {}),
+    ...(body !== undefined
+      ? { body: typeof body === "string" ? body : JSON.stringify(body) }
+      : {}),
   })
+}
+
+function allow(type = "text") {
+  mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type })
+  mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type })
 }
 
 describe("PUT /api/community/channels/[id]/read", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    // Each builder returns an opaque token so the route body can pass it to
-    // db.batch — the batch call is what we actually assert on.
-    mockMarkReadToMessageBuilder.mockReturnValue({ __builder: "markReadToMessage" })
-    mockMarkChannelMentionsReadBuilder.mockReturnValue({
-      __builder: "markChannelMentionsRead",
-    })
+    mockMarkReadToMessageBuilder.mockReturnValue({ __builder: "mark" })
+    mockMarkChannelMentionsReadBuilder.mockReturnValue({ __builder: "mentions" })
     mockReadStateAdvancesCondition.mockReturnValue({ __condition: "pointer" })
     mockUnreadChannelMentionThroughSeqCondition.mockReturnValue({ __condition: "mention" })
-    mockAdvanceReadStateRevisionWhenAnyBuilder.mockReturnValue({ __builder: "advanceRevision" })
-    mockAccountReadStateRevisionBuilder.mockReturnValue({ __builder: "currentRevision" })
-    mockBatch.mockResolvedValue([[{ revision: 1 }], [], [], [{ revision: 1 }]])
+    mockAdvanceReadStateRevisionWhenAnyBuilder.mockReturnValue({ __builder: "revision" })
+    mockAccountReadStateRevisionBuilder.mockReturnValue({ __builder: "current" })
+    mockBatch.mockResolvedValue([[{ revision: 7 }], [], [], [{ revision: 7 }]])
     mockBroadcastToUserSafe.mockResolvedValue(undefined)
+    mockGetDM.mockResolvedValue({ id: "c1", lastMessageAt: null, createdAt: "t" })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "u2" })
+    mockIsBlocked.mockResolvedValue(false)
   })
 
-  it("commits the read, mention clear, and revision in one batch and broadcasts one complete frame", async () => {
-    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
-    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
-    mockGetLatestMessage.mockResolvedValue({
-      id: "m_latest",
-      createdAt: "2026-07-05T10:00:00.000Z",
-      seq: 9,
-    })
+  it.each(["text", "forum", "thread", "dm"])(
+    "uses the same exact-target cursor path for %s channels",
+    async (type) => {
+      allow(type)
+      mockGetMessage.mockResolvedValue({
+        id: "m42",
+        channelId: "c1",
+        createdAt: "2026-08-24T01:02:03.000Z",
+        seq: 42,
+      })
 
-    const res = await PUT(putReq(), { params: { id: "c1" } } as any)
-    expect(res.status).toBe(200)
+      const res = await PUT(putReq({ lastReadMessageId: "m42" }), { params: { id: "c1" } } as any)
 
-    // Builder invoked with the latest message tuple — that's the invariant.
-    expect(mockMarkReadToMessageBuilder).toHaveBeenCalledWith(expect.anything(), {
-      userId: "u1",
-      channelId: "c1",
-      message: { id: "m_latest", createdAt: "2026-07-05T10:00:00.000Z", seq: 9 },
-    })
+      expect(res.status).toBe(200)
+      expect(mockGetMessage).toHaveBeenCalledWith(expect.anything(), "m42")
+      expect(mockMarkReadToMessageBuilder).toHaveBeenCalledWith(expect.anything(), {
+        userId: "u1",
+        channelId: "c1",
+        message: {
+          id: "m42",
+          channelId: "c1",
+          createdAt: "2026-08-24T01:02:03.000Z",
+          seq: 42,
+        },
+      })
+      expect(mockBatch.mock.calls[0]![0]).toEqual([
+        { __builder: "revision" },
+        { __builder: "mark" },
+        { __builder: "mentions" },
+        { __builder: "current" },
+      ])
+      expect(mockBroadcastToUserSafe).toHaveBeenCalledTimes(1)
+      await expect(res.json()).resolves.toEqual({ changed: true, targetSeq: 42, revision: 7 })
+    },
+  )
 
-    // Exactly one batch call carrying both statements in order.
-    expect(mockBatch).toHaveBeenCalledTimes(1)
-    const batchArg = mockBatch.mock.calls[0]![0]
-    expect(Array.isArray(batchArg)).toBe(true)
-    expect(batchArg).toHaveLength(4)
-    expect(batchArg[0]).toEqual({ __builder: "advanceRevision" })
-    expect(batchArg[1]).toEqual({ __builder: "markReadToMessage" })
-    expect(batchArg[2]).toEqual({ __builder: "markChannelMentionsRead" })
-    expect(batchArg[3]).toEqual({ __builder: "currentRevision" })
-    expect(mockMarkChannelMentionsReadBuilder).toHaveBeenCalledWith(
-      expect.anything(),
-      "u1",
-      "c1",
-      9,
-    )
-    expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("u1", expect.objectContaining({
-      type: "community:read_state.advanced",
-      revision: 1,
-      inboxChanged: true,
-    }))
-    expect(mockGetPrimaryDb).toHaveBeenCalledOnce()
-    await expect(res.json()).resolves.toEqual({ changed: true, targetSeq: 9, revision: 1 })
-  })
+  it("returns current revision with no frame for an equivalent no-op", async () => {
+    allow()
+    mockGetMessage.mockResolvedValue({ id: "m42", channelId: "c1", createdAt: "t", seq: 42 })
+    mockBatch.mockResolvedValue([[], [], [], [{ revision: 9 }]])
 
-  it("returns the current revision and emits no frame for a duplicate pointer/mention no-op", async () => {
-    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
-    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
-    mockGetLatestMessage.mockResolvedValue({
-      id: "m_latest",
-      createdAt: "2026-07-05T10:00:00.000Z",
-      seq: 9,
-    })
-    mockBatch.mockResolvedValue([[], [], [], [{ revision: 6 }]])
+    const res = await PUT(putReq({ lastReadMessageId: "m42" }), { params: { id: "c1" } } as any)
 
-    const res = await PUT(putReq(), { params: { id: "c1" } } as any)
-
-    await expect(res.json()).resolves.toEqual({ changed: false, targetSeq: 9, revision: 6 })
+    await expect(res.json()).resolves.toEqual({ changed: false, targetSeq: 42, revision: 9 })
     expect(mockBroadcastToUserSafe).not.toHaveBeenCalled()
   })
 
-  it("no-body call on EMPTY channel: no writes at all, returns 200 { ok: true }", async () => {
-    // This is the invariant's most load-bearing consequence: mass mark-read
-    // on an empty channel writes nothing rather than inserting a
-    // lastReadMessageId=null row.
-    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
-    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
-    mockGetLatestMessage.mockResolvedValue(null)
-    mockAccountReadStateRevisionBuilder.mockResolvedValue([{ revision: 6 }])
+  it.each([
+    ["omitted", undefined],
+    ["empty", ""],
+    ["malformed", "{"],
+    ["object without target", {}],
+    ["alternative target key", { targetMessageId: "m42" }],
+    ["additional key", { lastReadMessageId: "m42", extra: true }],
+    ["empty target", { lastReadMessageId: "" }],
+    ["non-string target", { lastReadMessageId: 42 }],
+    ["null", null],
+    ["array", [{ lastReadMessageId: "m42" }]],
+  ])("rejects %s body without reading latest", async (_label, body) => {
+    allow()
 
-    const res = await PUT(putReq(), { params: { id: "c1" } } as any)
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ changed: false, targetSeq: 0, revision: 6 })
+    const res = await PUT(putReq(body), { params: { id: "c1" } } as any)
 
-    expect(mockMarkReadToMessageBuilder).not.toHaveBeenCalled()
-    expect(mockMarkChannelMentionsReadBuilder).not.toHaveBeenCalled()
-    expect(mockBatch).not.toHaveBeenCalled()
-  })
-
-  it("propagates a batch failure so callers see the error (all writes roll back)", async () => {
-    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
-    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
-    mockGetLatestMessage.mockResolvedValue({
-      id: "m_latest",
-      createdAt: "2026-07-05T10:00:00.000Z",
-      seq: 9,
-    })
-    // D1 batches are atomic: if the batch rejects, the whole transaction
-    // rolls back. We verify the route surfaces that failure rather than
-    // silently returning 200.
-    mockBatch.mockRejectedValue(new Error("d1 batch failed"))
-
-    await expect(PUT(putReq(), { params: { id: "c1" } } as any)).rejects.toThrow(
-      "d1 batch failed"
-    )
-    expect(mockBatch).toHaveBeenCalledTimes(1)
-  })
-
-  it("retries a transient BUSY from the atomic batch with the same monotonic target", async () => {
-    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
-    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
-    mockGetLatestMessage.mockResolvedValue({
-      id: "m_latest",
-      createdAt: "2026-07-05T10:00:00.000Z",
-      seq: 42,
-    })
-    mockBatch
-      .mockRejectedValueOnce(new Error("SQLITE_BUSY: database is locked"))
-      .mockResolvedValueOnce([[{ revision: 2 }], [], [], [{ revision: 2 }]])
-
-    const res = await PUT(putReq(), { params: { id: "c1" } } as any)
-
-    expect(res.status).toBe(200)
-    expect(mockBatch).toHaveBeenCalledTimes(2)
-    expect(mockMarkReadToMessageBuilder).toHaveBeenNthCalledWith(1, expect.anything(), {
-      userId: "u1",
-      channelId: "c1",
-      message: { id: "m_latest", createdAt: "2026-07-05T10:00:00.000Z", seq: 42 },
-    })
-    expect(mockMarkReadToMessageBuilder).toHaveBeenNthCalledWith(2, expect.anything(), {
-      userId: "u1",
-      channelId: "c1",
-      message: { id: "m_latest", createdAt: "2026-07-05T10:00:00.000Z", seq: 42 },
-    })
-  })
-
-  it("returns 400 when the channel id is missing", async () => {
-    const res = await PUT(putReq(), { params: {} } as any)
     expect(res.status).toBe(400)
-    expect(mockGetChannel).not.toHaveBeenCalled()
-    expect(mockGetChannelForMember).not.toHaveBeenCalled()
-    expect(mockBatch).not.toHaveBeenCalled()
-  })
-
-  it("returns 404 when the channel does not exist", async () => {
-    mockGetChannel.mockResolvedValue(null)
-
-    const res = await PUT(putReq(), { params: { id: "c1" } } as any)
-    expect(res.status).toBe(404)
-    expect(mockGetChannelForMember).not.toHaveBeenCalled()
-    expect(mockMarkReadToMessageBuilder).not.toHaveBeenCalled()
-    expect(mockMarkChannelMentionsReadBuilder).not.toHaveBeenCalled()
-    expect(mockBatch).not.toHaveBeenCalled()
-  })
-
-  it("returns 403 when the channel exists but the caller is not a member", async () => {
-    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
-    // requireChannelMember short-circuits to 403 when the member/channel join is empty.
-    mockGetChannelForMember.mockResolvedValue(null)
-
-    const res = await PUT(putReq(), { params: { id: "c1" } } as any)
-    expect(res.status).toBe(403)
-    expect(mockMarkReadToMessageBuilder).not.toHaveBeenCalled()
-    expect(mockMarkChannelMentionsReadBuilder).not.toHaveBeenCalled()
-    expect(mockBatch).not.toHaveBeenCalled()
-  })
-
-  it("rejects both bodyless and explicit reads against a top-level forum", async () => {
-    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum" })
-    mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1", type: "forum" })
-
-    for (const req of [putReq(), putReq({ lastReadMessageId: "opener-1" })]) {
-      const res = await PUT(req, { params: { id: "c1" } } as any)
-      expect(res.status).toBe(400)
-    }
-    expect(mockGetLatestMessage).not.toHaveBeenCalled()
     expect(mockGetMessage).not.toHaveBeenCalled()
     expect(mockBatch).not.toHaveBeenCalled()
   })
 
-  // ── #3: PUT body carries `lastReadMessageId` ─────────────────────────────────
-  describe("PUT with { lastReadMessageId } body — progressive watermark", () => {
-    it("writes the message's createdAt/id via markReadToMessageBuilder when the message belongs to the channel", async () => {
-      mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
-      mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
-      mockGetMessage.mockResolvedValue({
-        id: "m_42",
-        channelId: "c1",
-        createdAt: "2026-07-01T12:00:00.000Z",
-        seq: 42,
-      })
+  it("returns 404 for an unknown target", async () => {
+    allow()
+    mockGetMessage.mockResolvedValue(null)
+    const res = await PUT(putReq({ lastReadMessageId: "missing" }), { params: { id: "c1" } } as any)
+    expect(res.status).toBe(404)
+    expect(mockBatch).not.toHaveBeenCalled()
+  })
 
-      const res = await PUT(putReq({ lastReadMessageId: "m_42" }), { params: { id: "c1" } } as any)
-      expect(res.status).toBe(200)
-      expect(mockGetMessage).toHaveBeenCalledWith(expect.anything(), "m_42")
-      // The builder must receive the message's own timestamp + id — that's
-      // the whole point of the progressive watermark.
-      expect(mockMarkReadToMessageBuilder).toHaveBeenCalledWith(expect.anything(), {
-        userId: "u1",
-        channelId: "c1",
-        message: { id: "m_42", createdAt: "2026-07-01T12:00:00.000Z", seq: 42 },
-      })
-      // Body path never consults getLatestMessage.
-      expect(mockGetLatestMessage).not.toHaveBeenCalled()
-    })
+  it("returns 400 for a target in another channel", async () => {
+    allow()
+    mockGetMessage.mockResolvedValue({ id: "m42", channelId: "other", createdAt: "t", seq: 42 })
+    const res = await PUT(putReq({ lastReadMessageId: "m42" }), { params: { id: "c1" } } as any)
+    expect(res.status).toBe(400)
+    expect(mockBatch).not.toHaveBeenCalled()
+  })
 
-    it("rejects with 400 when the message belongs to a different channel", async () => {
-      mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
-      mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
-      // Scope-violation: the message is real but lives in c_other.
-      mockGetMessage.mockResolvedValue({
-        id: "m_42",
-        channelId: "c_other",
-        createdAt: "2026-07-01T12:00:00.000Z",
-      })
+  it("does not disclose an existing target in an inaccessible channel", async () => {
+    mockGetChannel
+      .mockResolvedValueOnce({ id: "c1", serverId: "s1", type: "text" })
+      .mockResolvedValueOnce(null)
+    mockGetChannelForMember
+      .mockResolvedValueOnce({ id: "c1", serverId: "s1", type: "text" })
+    mockGetMessage.mockResolvedValue({ id: "m42", channelId: "private", createdAt: "t", seq: 42 })
 
-      const res = await PUT(putReq({ lastReadMessageId: "m_42" }), { params: { id: "c1" } } as any)
-      expect(res.status).toBe(400)
-      expect(mockMarkReadToMessageBuilder).not.toHaveBeenCalled()
-      expect(mockBatch).not.toHaveBeenCalled()
-    })
+    const res = await PUT(putReq({ lastReadMessageId: "m42" }), { params: { id: "c1" } } as any)
 
-    it("returns 404 when the message id doesn't exist at all", async () => {
-      mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
-      mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
-      mockGetMessage.mockResolvedValue(null)
+    expect(res.status).toBe(404)
+    expect(mockBatch).not.toHaveBeenCalled()
+  })
 
-      const res = await PUT(putReq({ lastReadMessageId: "m_ghost" }), { params: { id: "c1" } } as any)
-      expect(res.status).toBe(404)
-      expect(mockMarkReadToMessageBuilder).not.toHaveBeenCalled()
-      expect(mockBatch).not.toHaveBeenCalled()
-    })
+  it("preserves unknown-channel 404 and known-nonmember 403 before target lookup", async () => {
+    mockGetChannel.mockResolvedValueOnce(null)
+    const missing = await PUT(putReq({ lastReadMessageId: "m42" }), { params: { id: "c1" } } as any)
+    expect(missing.status).toBe(404)
 
-    it("empty body falls back to latest-message no-body path", async () => {
-      mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
-      mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
-      mockGetLatestMessage.mockResolvedValue({
-        id: "m_latest",
-        createdAt: "2026-07-05T10:00:00.000Z",
-        seq: 9,
-      })
+    mockGetChannel.mockResolvedValueOnce({ id: "c1", serverId: "s1", type: "forum" })
+    mockGetChannelForMember.mockResolvedValueOnce(null)
+    const forbidden = await PUT(putReq({ lastReadMessageId: "m42" }), { params: { id: "c1" } } as any)
+    expect(forbidden.status).toBe(403)
+    expect(mockGetMessage).not.toHaveBeenCalled()
+  })
 
-      // Empty string body — treated as no lastReadMessageId.
-      const res = await PUT(putReq(""), { params: { id: "c1" } } as any)
-      expect(res.status).toBe(200)
-      // getMessage never fetched because there's no id to check.
-      expect(mockGetMessage).not.toHaveBeenCalled()
-      // Builder aligned to the LATEST message, not "now".
-      expect(mockMarkReadToMessageBuilder).toHaveBeenCalledWith(expect.anything(), {
-        userId: "u1",
-        channelId: "c1",
-        message: { id: "m_latest", createdAt: "2026-07-05T10:00:00.000Z", seq: 9 },
-      })
-    })
+  it("surfaces an atomic batch failure", async () => {
+    allow()
+    mockGetMessage.mockResolvedValue({ id: "m42", channelId: "c1", createdAt: "t", seq: 42 })
+    mockBatch.mockRejectedValue(new Error("d1 batch failed"))
+
+    await expect(PUT(putReq({ lastReadMessageId: "m42" }), { params: { id: "c1" } } as any))
+      .rejects.toThrow("d1 batch failed")
   })
 })

@@ -3,7 +3,6 @@
 import { useEffect, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useCurrentUser } from "@/contexts/community/current-user"
-import type { Msg } from "@/lib/community/models/message"
 import {
   registerReadSurface,
   releaseReadSurface,
@@ -13,6 +12,12 @@ import {
 
 const READ_VISIBILITY_THRESHOLD = 0.2
 
+export type ReadCandidate = {
+  id: string
+  seq?: number
+  authorId?: string
+}
+
 export function useTimelineReadObserver({
   channelId,
   messages,
@@ -21,7 +26,7 @@ export function useTimelineReadObserver({
   confirmedSeq,
 }: {
   channelId: string | null | undefined
-  messages: Msg[]
+  messages: ReadCandidate[]
   scrollRootEl: HTMLElement | null
   snapshotReady: boolean
   confirmedSeq: number

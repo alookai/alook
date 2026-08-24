@@ -3,7 +3,6 @@ import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
 import {
   communityChannel,
   communityChannelMember,
-  communityForumOpenerRead,
   communityMessage,
   communityReadState,
   communityServer,
@@ -242,25 +241,10 @@ export async function listEligibleUnreadChannels(
               eq(communityReadState.userId, userId)
             )
           )
-          .leftJoin(
-            communityForumOpenerRead,
-            and(
-              eq(communityForumOpenerRead.userId, userId),
-              eq(
-                communityForumOpenerRead.openerMessageId,
-                communityMessage.id,
-              ),
-            ),
-          )
           .where(
             and(
               inArray(communityChannel.id, ids),
               eq(communityChannel.archived, 0),
-              or(
-                ne(communityChannel.type, "forum"),
-                isNotNull(communityChannel.parentChannelId),
-                isNull(communityForumOpenerRead.openerMessageId),
-              ),
               or(
                 and(
                   isNotNull(communityReadState.id),
@@ -359,16 +343,6 @@ export async function listUnreadForumOpeners(
               eq(communityReadState.userId, userId)
             )
           )
-          .leftJoin(
-            communityForumOpenerRead,
-            and(
-              eq(communityForumOpenerRead.userId, userId),
-              eq(
-                communityForumOpenerRead.openerMessageId,
-                communityMessage.id,
-              ),
-            ),
-          )
           .where(
             and(
               inArray(communityChannel.id, ids),
@@ -376,7 +350,6 @@ export async function listUnreadForumOpeners(
               eq(communityChannel.type, "forum"),
               eq(communityChannel.archived, 0),
               eq(childChannel.archived, 0),
-              isNull(communityForumOpenerRead.openerMessageId),
               or(
                 and(
                   isNotNull(communityReadState.id),

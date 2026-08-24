@@ -2,7 +2,6 @@ import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import {
   communityAttachment,
   communityChannel,
-  communityForumOpenerRead,
   communityMention,
   communityMessage,
   communityReadState,
@@ -100,7 +99,7 @@ async function deleteForumPostAttempt(
     .from(communityMessage)
     .where(eq(communityMessage.channelId, input.childChannelId));
 
-  const [impactedPointers, impactedSparse, impactedMentions] = await Promise.all([
+  const [impactedPointers, impactedMentions] = await Promise.all([
     db
       .selectDistinct({ userId: communityReadState.userId })
       .from(communityReadState)
@@ -116,14 +115,6 @@ async function deleteForumPostAttempt(
         ),
       )),
     db
-      .selectDistinct({ userId: communityForumOpenerRead.userId })
-      .from(communityForumOpenerRead)
-      .innerJoin(user, eq(user.id, communityForumOpenerRead.userId))
-      .where(and(
-        eq(user.isBot, false),
-        eq(communityForumOpenerRead.openerMessageId, input.openerId),
-      )),
-    db
       .selectDistinct({ userId: communityMention.userId })
       .from(communityMention)
       .innerJoin(user, eq(user.id, communityMention.userId))
@@ -137,7 +128,6 @@ async function deleteForumPostAttempt(
   ]);
   const impactedUserIds = [...new Set([
     ...impactedPointers,
-    ...impactedSparse,
     ...impactedMentions,
   ].map((row) => row.userId))];
   const impactedIdsJson = JSON.stringify(impactedUserIds);
@@ -166,11 +156,6 @@ async function deleteForumPostAttempt(
             )
         )
         OR EXISTS (
-          SELECT 1 FROM ${communityForumOpenerRead} AS current_sparse
-          WHERE current_sparse.user_id = current_user.id
-            AND current_sparse.opener_message_id = ${input.openerId}
-        )
-        OR EXISTS (
           SELECT 1 FROM ${communityMention} AS current_mention
           INNER JOIN ${communityMessage} AS mentioned_message
             ON mentioned_message.id = current_mention.message_id
@@ -195,11 +180,6 @@ async function deleteForumPostAttempt(
                 AND current_state.last_read_message_id = ${input.openerId})
               OR current_state.channel_id = ${input.childChannelId}
             )
-        )
-        OR EXISTS (
-          SELECT 1 FROM ${communityForumOpenerRead} AS current_sparse
-          WHERE current_sparse.user_id = enumerated_user.id
-            AND current_sparse.opener_message_id = ${input.openerId}
         )
         OR EXISTS (
           SELECT 1 FROM ${communityMention} AS current_mention

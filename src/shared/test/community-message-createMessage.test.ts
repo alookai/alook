@@ -21,7 +21,6 @@ type BuilderTag =
   | { kind: "update-channel" }
   | { kind: "update-dm" }
   | { kind: "insert-revision" }
-  | { kind: "insert-forum-opener"; values: Record<string, unknown> }
   | { kind: "select-readstates" }
   | { kind: "insert-readstate"; values: Record<string, unknown> };
 
@@ -57,14 +56,6 @@ function makeMockDb(seq: number): { db: Database; state: MockDb } {
       const name = getTableName(table);
       if (name.includes("read_state_revision")) {
         return makeReturningBuilder({ kind: "insert-revision" }, [{ revision: 3 }]);
-      }
-      if (name.includes("forum_opener_read")) {
-        const b: any = { __tag: { kind: "insert-forum-opener", values: {} } };
-        b.values = (values: Record<string, unknown>) => {
-          b.__tag.values = values;
-          return b;
-        };
-        return b;
       }
       if (name.includes("read_state")) {
         // Read-state upsert captures its `values(...)` payload for assertions.
@@ -220,12 +211,11 @@ describe("createMessage — batch composition", () => {
     expect(msg.readStateRevision).toBe(3);
   });
 
-  it("human forum opener atomically writes exact sparse self-read instead of the parent cursor", async () => {
+  it("human forum opener uses the same ordinary author cursor as every channel type", async () => {
     const { db, state } = makeMockDb(13);
     const msg = await queries.communityMessage.createMessage(db, {
       authorId: "human_1",
       authorKind: "human",
-      humanReadTarget: "forum-opener",
       content: "A new forum post",
       channelId: "forum_1",
     });
@@ -234,18 +224,18 @@ describe("createMessage — batch composition", () => {
     expect(state.batchCalls[0]!.map((statement) => statement.kind)).toEqual([
       "insert-msg",
       "update-channel",
-      "insert-forum-opener",
+      "insert-readstate",
       "insert-revision",
     ]);
-    expect(state.batchCalls[0]!.some((statement) => statement.kind === "insert-readstate"))
-      .toBe(false);
-    const sparse = state.batchCalls[0]!.find(
-      (statement): statement is Extract<BuilderTag, { kind: "insert-forum-opener" }> =>
-        statement.kind === "insert-forum-opener",
+    const cursor = state.batchCalls[0]!.find(
+      (statement): statement is Extract<BuilderTag, { kind: "insert-readstate" }> =>
+        statement.kind === "insert-readstate",
     );
-    expect(sparse?.values).toMatchObject({
+    expect(cursor?.values).toMatchObject({
       userId: "human_1",
-      openerMessageId: msg.id,
+      channelId: "forum_1",
+      lastReadMessageId: msg.id,
+      lastReadSeq: 13,
     });
     expect(msg.readStateRevision).toBe(3);
   });
