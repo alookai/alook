@@ -58,55 +58,66 @@ export function useEagerChannelRead({
   const firedForRef = useRef<string | null>(null)
 
   useEffect(() => {
-    if (!channelId) return
-    if (!snapshotReady) return
-    if (firedForRef.current === channelId) return
-    firedForRef.current = channelId
+    const attemptRead = () => {
+      if (!channelId) return
+      if (!snapshotReady) return
+      if (
+        typeof document !== "undefined"
+        && document.visibilityState !== "visible"
+      ) return
+      if (firedForRef.current === channelId) return
+      firedForRef.current = channelId
 
-    void apiFetch(`/api/community/channels/${channelId}/read`, { method: "PUT" })
-      .then(() => {
-        // Always refresh the inbox feeds — the mass mark-read cleared them.
-        void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
+      void apiFetch(`/api/community/channels/${channelId}/read`, { method: "PUT" })
+        .then(() => {
+          // Always refresh the inbox feeds — the mass mark-read cleared them.
+          void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
 
-        // Keep the local canonical attribution in step with the successful
-        // read even on a direct/deep-link mount (where no sidebar click ran).
-        // Otherwise a loaded child that later expires from the projection
-        // could incorrectly re-light its parent from stale local ownership.
-        if (serverId && isChildChannel) {
-          removeForumSidebarUnreadChild(queryClient, serverId, channelId)
-          patchForumSidebarUnreadExact(queryClient, serverId, channelId, false)
-        } else if (serverId) {
-          setForumSidebarParentUnreadBase(queryClient, serverId, channelId, false)
-        }
+          // Keep the local canonical attribution in step with the successful
+          // read even on a direct/deep-link mount (where no sidebar click ran).
+          // Otherwise a loaded child that later expires from the projection
+          // could incorrectly re-light its parent from stale local ownership.
+          if (serverId && isChildChannel) {
+            removeForumSidebarUnreadChild(queryClient, serverId, channelId)
+            patchForumSidebarUnreadExact(queryClient, serverId, channelId, false)
+          } else if (serverId) {
+            setForumSidebarParentUnreadBase(queryClient, serverId, channelId, false)
+          }
 
-        // The rail mention badge (`server.mentions`) only needs refreshing when
-        // this server actually carries mentions the PUT may have cleared. Read
-        // it from the `servers()` cache and gate on it: the common case (no
-        // mentions anywhere in the server) skips the invalidate entirely.
-        //
-        // The badge count lives in the `servers()` LIST query — NOT in
-        // `server(serverId)` (that's the detail: categories/channels, no
-        // count). So refresh `servers()` and, critically, with `exact: true`:
-        // members/presence/invites/server(id) are all nested under
-        // `servers()` in the key hierarchy, and a non-exact invalidate
-        // prefix-matches and force-refetches that whole subtree (overriding
-        // their staleTime: Infinity). `exact` refreshes only the badge list.
-        if (!serverId) return
-        const servers = queryClient.getQueryData<ServersResponse>(
-          communityKeys.servers(),
-        )
-        const hasMentions = servers?.servers.some(
-          (s) => s.id === serverId && s.mentions > 0,
-        )
-        if (hasMentions) {
-          void queryClient.invalidateQueries({
-            queryKey: communityKeys.servers(),
-            exact: true,
-          })
-        }
-      })
-      .catch(() => {
-        // Silent — the watermark / WS invalidate reconciles the inbox anyway.
-      })
+          // The rail mention badge (`server.mentions`) only needs refreshing when
+          // this server actually carries mentions the PUT may have cleared. Read
+          // it from the `servers()` cache and gate on it: the common case (no
+          // mentions anywhere in the server) skips the invalidate entirely.
+          //
+          // The badge count lives in the `servers()` LIST query — NOT in
+          // `server(serverId)` (that's the detail: categories/channels, no
+          // count). So refresh `servers()` and, critically, with `exact: true`:
+          // members/presence/invites/server(id) are all nested under
+          // `servers()` in the key hierarchy, and a non-exact invalidate
+          // prefix-matches and force-refetches that whole subtree (overriding
+          // their staleTime: Infinity). `exact` refreshes only the badge list.
+          if (!serverId) return
+          const servers = queryClient.getQueryData<ServersResponse>(
+            communityKeys.servers(),
+          )
+          const hasMentions = servers?.servers.some(
+            (s) => s.id === serverId && s.mentions > 0,
+          )
+          if (hasMentions) {
+            void queryClient.invalidateQueries({
+              queryKey: communityKeys.servers(),
+              exact: true,
+            })
+          }
+        })
+        .catch(() => {
+          // Silent — the watermark / WS invalidate reconciles the inbox anyway.
+        })
+    }
+
+    attemptRead()
+    if (typeof document === "undefined") return
+    document.addEventListener("visibilitychange", attemptRead)
+    return () => document.removeEventListener("visibilitychange", attemptRead)
   }, [channelId, serverId, isChildChannel, snapshotReady, queryClient])
 }

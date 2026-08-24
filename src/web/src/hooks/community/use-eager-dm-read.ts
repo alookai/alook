@@ -29,23 +29,35 @@ export function useEagerDmRead({
   const firedForRef = useRef<string | null>(null)
 
   useEffect(() => {
-    if (!dmId) return
-    if (!snapshotReady) return
-    if (firedForRef.current === dmId) return
-    firedForRef.current = dmId
+    const attemptRead = () => {
+      if (!dmId) return
+      if (!snapshotReady) return
+      if (
+        typeof document !== "undefined"
+        && document.visibilityState !== "visible"
+      ) return
+      if (firedForRef.current === dmId) return
+      firedForRef.current = dmId
 
-    // Optimistic trim so the inbox popover drops this DM immediately.
-    queryClient.setQueryData<UnreadsResponse>(communityKeys.inboxUnreads(), (prev) =>
-      prev ? { ...prev, dms: prev.dms.filter((d) => d.channelId !== dmId) } : prev,
-    )
+      // Optimistic trim only after a foreground read intent is accepted. A DM
+      // mounted in a hidden tab must remain unread on this and other devices.
+      queryClient.setQueryData<UnreadsResponse>(communityKeys.inboxUnreads(), (prev) =>
+        prev ? { ...prev, dms: prev.dms.filter((d) => d.channelId !== dmId) } : prev,
+      )
 
-    void apiFetch(`/api/community/channels/${dmId}/read`, { method: "PUT" })
-      .then(() => {
-        void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
-        void queryClient.invalidateQueries({ queryKey: communityKeys.dms() })
-      })
-      .catch(() => {
-        // Silent — the watermark / WS invalidate reconciles the inbox anyway.
-      })
+      void apiFetch(`/api/community/channels/${dmId}/read`, { method: "PUT" })
+        .then(() => {
+          void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
+          void queryClient.invalidateQueries({ queryKey: communityKeys.dms() })
+        })
+        .catch(() => {
+          // Silent — the watermark / WS invalidate reconciles the inbox anyway.
+        })
+    }
+
+    attemptRead()
+    if (typeof document === "undefined") return
+    document.addEventListener("visibilitychange", attemptRead)
+    return () => document.removeEventListener("visibilitychange", attemptRead)
   }, [dmId, snapshotReady, queryClient])
 }

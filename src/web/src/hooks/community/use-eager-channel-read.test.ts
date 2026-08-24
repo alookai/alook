@@ -14,7 +14,7 @@
  * never the whole `servers()` prefix. A plain switch into a mention-free
  * server must not trigger any server-level refetch.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { communityKeys } from "@/lib/query-keys"
 import type { ServersResponse } from "@/hooks/community/use-servers"
 
@@ -22,6 +22,8 @@ import type { ServersResponse } from "@/hooks/community/use-servers"
 let refs: Map<string, { current: unknown }> = new Map()
 let refCounter = 0
 let pendingEffects: Array<() => void> = []
+let documentVisibility: DocumentVisibilityState = "visible"
+let visibilityListeners = new Set<() => void>()
 
 vi.mock("react", () => ({
   useRef: (initial: unknown) => {
@@ -38,6 +40,11 @@ function flushEffects() {
   const effects = pendingEffects
   pendingEffects = []
   for (const fn of effects) fn()
+}
+
+function fireDocumentVisibility(state: DocumentVisibilityState) {
+  documentVisibility = state
+  for (const listener of visibilityListeners) listener()
 }
 
 // ── apiFetch stub — the PUT resolves immediately ───────────────────────────
@@ -65,6 +72,8 @@ function resetHarness() {
   refs = new Map()
   refCounter = 0
   pendingEffects = []
+  documentVisibility = "visible"
+  visibilityListeners = new Set()
   serversCache = undefined
   apiFetchMock.mockClear()
   invalidateQueries.mockClear()
@@ -87,7 +96,20 @@ function invalidatedKeys() {
 
 beforeEach(() => {
   resetHarness()
+  vi.stubGlobal("document", {
+    get visibilityState() {
+      return documentVisibility
+    },
+    addEventListener: (type: string, listener: () => void) => {
+      if (type === "visibilitychange") visibilityListeners.add(listener)
+    },
+    removeEventListener: (type: string, listener: () => void) => {
+      if (type === "visibilitychange") visibilityListeners.delete(listener)
+    },
+  })
 })
+
+afterEach(() => vi.unstubAllGlobals())
 
 const server = (id: string, mentions: number) => ({
   id,
@@ -228,5 +250,32 @@ describe("useEagerChannelRead — rail-badge fan-out gate", () => {
     flushEffects()
     await settle()
     expect(apiFetchMock).not.toHaveBeenCalled()
+  })
+
+  it("does not consume a hidden eager read and fires exactly once after becoming visible", async () => {
+    const useHook = await loadHook()
+    documentVisibility = "hidden"
+    useHook({
+      channelId: "ch_hidden",
+      serverId: "srv_1",
+      isChildChannel: false,
+      snapshotReady: true,
+    })
+    flushEffects()
+    await settle()
+    expect(apiFetchMock).not.toHaveBeenCalled()
+    expect(invalidateQueries).not.toHaveBeenCalled()
+
+    fireDocumentVisibility("visible")
+    await settle()
+    expect(apiFetchMock).toHaveBeenCalledTimes(1)
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/channels/ch_hidden/read", {
+      method: "PUT",
+    })
+    expect(invalidatedKeys()).toContain(JSON.stringify(communityKeys.inbox()))
+
+    fireDocumentVisibility("visible")
+    await settle()
+    expect(apiFetchMock).toHaveBeenCalledTimes(1)
   })
 })

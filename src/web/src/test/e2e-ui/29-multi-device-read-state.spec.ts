@@ -203,6 +203,132 @@ test("one human account converges read state across two browser profiles", async
   expect(scoped.every((row) => row.lastReadSeq > 0)).toBe(true)
 })
 
+test("hidden eager channel and DM mounts defer cross-device reads until visible", async ({ asUser }) => {
+  test.setTimeout(180_000)
+  const stamp = Date.now()
+  const serverId = await seedServer("alice", `Hidden eager sync ${stamp}`)
+  const channelId = await seedChannel("alice", serverId, `hidden-eager-${stamp}`)
+  await seedJoinServer("alice", "bob", serverId)
+  const channelBody = `hidden eager channel ${stamp}`
+  await seedMessage("alice", channelId, channelBody)
+  const dmId = await seedDm("alice", userId("bob"))
+  const dmBody = `hidden eager dm ${stamp}`
+  await seedDmMessage("alice", dmId, dmBody)
+
+  const deviceA = await asUser("bob")
+  const deviceB = await asUser("bob")
+  await gotoAfterUserWsAuth(deviceA.page, "/c/me")
+  await gotoAfterUserWsAuth(deviceB.page, "/c/me")
+  await deviceA.page.evaluate(() => {
+    let qaVisibility: DocumentVisibilityState = "visible"
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => qaVisibility,
+    })
+    Object.defineProperty(window, "__alookQaSetVisibility", {
+      configurable: true,
+      value: (next: DocumentVisibilityState) => {
+        qaVisibility = next
+        document.dispatchEvent(new Event("visibilitychange"))
+      },
+    })
+  })
+  const setDeviceAVisibility = async (state: "hidden" | "visible") => {
+    await deviceA.page.evaluate((nextState) => {
+      const setter = (window as Window & {
+        __alookQaSetVisibility?: (state: DocumentVisibilityState) => void
+      }).__alookQaSetVisibility
+      if (!setter) throw new Error("QA visibility setter missing")
+      setter(nextState)
+    }, state)
+    await expect.poll(() => deviceA.page.evaluate(() => document.visibilityState))
+      .toBe(state)
+  }
+  const accountSnapshot = async () => await (await deviceB.page.request.get(
+    "/api/community/users/me/read-state",
+  )).json() as {
+    revision: number
+    readStates: Array<{ channelId: string; lastReadSeq: number }>
+  }
+  const scopedSeq = (
+    snapshot: Awaited<ReturnType<typeof accountSnapshot>>,
+    targetChannelId: string,
+  ) => snapshot.readStates.find((row) => row.channelId === targetChannelId)?.lastReadSeq ?? 0
+
+  await deviceB.page.getByRole("button", { name: "Inbox" }).click()
+  await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible()
+  await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toBeVisible()
+
+  const beforeChannel = await accountSnapshot()
+  const channelReadResponses: number[] = []
+  const trackChannelReads = (response: { request: () => { method: () => string }; url: () => string; status: () => number }) => {
+    if (
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname === `/api/community/channels/${channelId}/read`
+    ) channelReadResponses.push(response.status())
+  }
+  deviceA.page.on("response", trackChannelReads)
+  await setDeviceAVisibility("hidden")
+  await deviceA.page.getByTestId(tid.serverIcon(serverId)).click()
+  await expect(deviceA.page.getByTestId(tid.channelRow(channelId))).toBeVisible()
+  await deviceA.page.getByTestId(tid.channelRow(channelId)).evaluate((element) => {
+    ;(element as HTMLElement).click()
+  })
+  await expect.poll(() => new URL(deviceA.page.url()).pathname, { timeout: 20_000 })
+    .toBe(`/c/channels/${serverId}/${channelId}`)
+  await expect.poll(() => deviceA.page.evaluate(() => document.visibilityState)).toBe("hidden")
+  await expect(deviceA.page.getByText(channelBody, { exact: true })).toBeVisible()
+  await deviceA.page.waitForTimeout(1_000)
+  expect(channelReadResponses).toEqual([])
+  const hiddenChannel = await accountSnapshot()
+  expect(hiddenChannel.revision).toBe(beforeChannel.revision)
+  expect(scopedSeq(hiddenChannel, channelId)).toBe(scopedSeq(beforeChannel, channelId))
+  await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible()
+
+  const visibleChannelRead = deviceA.page.waitForResponse((response) =>
+    response.request().method() === "PUT"
+    && new URL(response.url()).pathname === `/api/community/channels/${channelId}/read`,
+  )
+  await setDeviceAVisibility("visible")
+  expect((await visibleChannelRead).status()).toBe(200)
+  await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
+  deviceA.page.off("response", trackChannelReads)
+
+  await deviceA.page.getByTestId(tid.homeButton).click()
+  await expect.poll(() => new URL(deviceA.page.url()).pathname).toMatch(/^\/c\/me(?:\/|$)/)
+  await expect(deviceA.page.getByTestId(tid.dmRow(dmId))).toBeVisible()
+  const beforeDm = await accountSnapshot()
+  const dmReadResponses: number[] = []
+  const trackDmReads = (response: { request: () => { method: () => string }; url: () => string; status: () => number }) => {
+    if (
+      response.request().method() === "PUT"
+      && new URL(response.url()).pathname === `/api/community/channels/${dmId}/read`
+    ) dmReadResponses.push(response.status())
+  }
+  deviceA.page.on("response", trackDmReads)
+  await setDeviceAVisibility("hidden")
+  await deviceA.page.getByTestId(tid.dmRow(dmId)).click()
+  await expect.poll(() => new URL(deviceA.page.url()).pathname, { timeout: 20_000 })
+    .toBe(`/c/me/${dmId}`)
+  await expect.poll(() => deviceA.page.evaluate(() => document.visibilityState)).toBe("hidden")
+  await expect(deviceA.page.getByText(dmBody, { exact: true })).toBeVisible()
+  await deviceA.page.waitForTimeout(1_000)
+  expect(dmReadResponses).toEqual([])
+  const hiddenDm = await accountSnapshot()
+  expect(hiddenDm.revision).toBe(beforeDm.revision)
+  expect(scopedSeq(hiddenDm, dmId)).toBe(scopedSeq(beforeDm, dmId))
+  await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toBeVisible()
+
+  const visibleDmRead = deviceA.page.waitForResponse((response) =>
+    response.request().method() === "PUT"
+    && new URL(response.url()).pathname === `/api/community/channels/${dmId}/read`,
+  )
+  await setDeviceAVisibility("visible")
+  expect((await visibleDmRead).status()).toBe(200)
+  await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toHaveCount(0)
+  deviceA.page.off("response", trackDmReads)
+})
+
 test("a visible live tail clears both devices while an unseen tail stays unread", async ({ asUser }) => {
   test.setTimeout(180_000)
   const stamp = Date.now()
