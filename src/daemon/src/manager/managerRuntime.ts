@@ -1,6 +1,8 @@
 import {
   reduceManager,
   createInitialManagerState,
+  DEFAULT_IDLE_RESET_TIMEOUT_MS,
+  DEFAULT_IDLE_TIMEOUT_MS,
   DEFAULT_STOPPING_STUCK_THRESHOLD_MS,
   type ManagerState,
   type ManagerEvent,
@@ -214,6 +216,7 @@ export interface ManagerRuntimeOpts {
   credentialProxy?: HostLaunchContext["credentialProxy"];
   staleThresholdMs?: number;
   idleTimeoutMs?: number;
+  idleResetTimeoutMs?: number;
   resetStuckThresholdMs?: number;
   stoppingStuckThresholdMs?: number;
   handshakeTimeoutMs?: number;
@@ -481,7 +484,8 @@ export class AgentProcessManager {
     this.opts = {
       tickIntervalMs: 5_000,
       staleThresholdMs: 120_000,
-      idleTimeoutMs: 300_000,
+      idleTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS,
+      idleResetTimeoutMs: DEFAULT_IDLE_RESET_TIMEOUT_MS,
       resetStuckThresholdMs: 120_000,
       stoppingStuckThresholdMs: DEFAULT_STOPPING_STUCK_THRESHOLD_MS,
       handshakeTimeoutMs: 60_000,
@@ -495,6 +499,7 @@ export class AgentProcessManager {
       this.opts.idleTimeoutMs,
       this.opts.resetStuckThresholdMs,
       this.opts.stoppingStuckThresholdMs,
+      this.opts.idleResetTimeoutMs,
     );
   }
   register(agentId: string, launch?: { runtimeConfig?: RuntimeConfig; sessionId?: string; launchId?: string }): void {
@@ -515,8 +520,12 @@ export class AgentProcessManager {
     const effects = this.dispatch({ type: "wake", agentId, message: normalized, nowMs: this.now() });
     return effects.length > 0;
   }
-  forgetSession(agentId: string, barrierType: "reset_session" | "nap" = "reset_session"): boolean {
-    if (!this.forgetSessionSources(agentId, barrierType)) return false;
+  forgetSession(
+    agentId: string,
+    barrierType: "reset_session" | "nap" = "reset_session",
+    forgottenSessionId?: string,
+  ): boolean {
+    if (!this.forgetSessionSources(agentId, barrierType, forgottenSessionId)) return false;
     this.dispatch({ type: "reset_session", agentId });
     return true;
   }
@@ -1205,6 +1214,34 @@ export class AgentProcessManager {
           mode: effect.mode,
         });
         break;
+      case "reset_idle_session": {
+        const spawnState = this.activeSpawnState.get(effect.agentId);
+        const persisted = this.forgetSession(
+          effect.agentId,
+          "reset_session",
+          effect.sessionId,
+        );
+        if (!persisted) {
+          this.log.error("idle session reset barrier was not persisted; reset deferred", {
+            agentId: effect.agentId,
+            sessionId: effect.sessionId,
+          });
+          this.emitErrorAudit(
+            effect.agentId,
+            "reset",
+            "resume_control_update_failed",
+            "Idle session reset deferred because resume control could not be persisted",
+          );
+          break;
+        }
+        if (spawnState) spawnState.discardEvents = true;
+        this.dispatch({ type: "idle_reset_committed", agentId: effect.agentId, nowMs: this.now() });
+        this.log.info("idle agent session reset", {
+          agentId: effect.agentId,
+          sessionId: effect.sessionId,
+        });
+        break;
+      }
       case "force_exit": {
         const session = this.sessions.get(effect.agentId);
         const state = this.activeSpawnState.get(effect.agentId);

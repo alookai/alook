@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   reduceManager,
   createInitialManagerState,
+  DEFAULT_IDLE_RESET_TIMEOUT_MS,
+  DEFAULT_IDLE_TIMEOUT_MS,
   isActivelyWorking,
   type ManagerState,
   type AgentState,
@@ -118,6 +120,16 @@ function startAdmission(
 }
 
 describe("reduceManager — single-flight spawn", () => {
+  it("defaults to 30-minute process hibernation and 6-hour session reset", () => {
+    const state = createInitialManagerState();
+    expect(DEFAULT_IDLE_TIMEOUT_MS).toBe(30 * 60 * 1_000);
+    expect(DEFAULT_IDLE_RESET_TIMEOUT_MS).toBe(6 * 60 * 60 * 1_000);
+    expect(state).toMatchObject({
+      idleTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS,
+      idleResetTimeoutMs: DEFAULT_IDLE_RESET_TIMEOUT_MS,
+    });
+  });
+
   it("ignores a stale session close", () => {
     let state = register(createInitialManagerState(), "a", PERSISTENT_GATED);
     state = spawnRoot(state, 1);
@@ -618,6 +630,104 @@ describe("reduceManager — tick: stall + idle hibernation", () => {
     const r = reduceManager(s, { type: "tick", nowMs: 200 });
     expect(r.effects).toEqual([{ type: "stop", agentId: "a", reason: "idle_timeout" }]);
     expect(r.state.agents.a.sessionId).toBe("sess-1"); // preserved for resume
+  });
+
+  it("keeps the per-agent idle clock across hibernation and resets the resumable session at its deadline", () => {
+    let s = createInitialManagerState(100_000, 100, 100_000, 100_000, 1_000);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
+    s = spawnRoot(s, 0);
+    s = reduceManager(s, { type: "backend_session", agentId: "a", sessionId: "sess-1" }).state;
+    s = completeRoot(s, "turn-a", 0).state;
+
+    const hibernating = reduceManager(s, { type: "tick", nowMs: 100 });
+    expect(hibernating.effects).toEqual([{ type: "stop", agentId: "a", reason: "idle_timeout" }]);
+    expect(hibernating.state.agents.a).toMatchObject({ status: "stopping", idleSince: 0 });
+
+    s = reduceManager(hibernating.state, {
+      type: "session_closed",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+    }).state;
+    expect(s.agents.a.idleSince).toBe(0);
+    s = reduceManager(s, { type: "exit", agentId: "a" }).state;
+    expect(s.agents.a).toMatchObject({ status: "idle", idleSince: 0, sessionId: "sess-1" });
+    expect(reduceManager(s, { type: "tick", nowMs: 999 }).effects).toEqual([]);
+
+    const due = reduceManager(s, { type: "tick", nowMs: 1_000 });
+    expect(due.effects).toEqual([
+      { type: "reset_idle_session", agentId: "a", sessionId: "sess-1" },
+    ]);
+    const committed = reduceManager(due.state, {
+      type: "idle_reset_committed",
+      agentId: "a",
+      nowMs: 1_000,
+    });
+    expect(committed.effects).toEqual([]);
+    expect(committed.state.agents.a).toMatchObject({
+      status: "idle",
+      sessionId: null,
+      idleSince: null,
+    });
+    expect(reduceManager(committed.state, { type: "tick", nowMs: 12_000 }).effects).toEqual([]);
+  });
+
+  it("cancels the idle reset clock when a new message wakes a hibernated agent", () => {
+    let s = createInitialManagerState(100_000, 100, 100_000, 100_000, 1_000);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
+    s = spawnRoot(s, 0);
+    s = reduceManager(s, { type: "backend_session", agentId: "a", sessionId: "sess-1" }).state;
+    s = completeRoot(s, "turn-a", 0).state;
+    s = reduceManager(s, { type: "tick", nowMs: 100 }).state;
+    s = reduceManager(s, {
+      type: "session_closed",
+      agentId: "a",
+      sessionInstanceId: SESSION_INSTANCE,
+    }).state;
+    s = reduceManager(s, { type: "exit", agentId: "a" }).state;
+
+    const wake = reduceManager(s, {
+      type: "wake",
+      agentId: "a",
+      message: { text: "new work" },
+      nowMs: 500,
+    });
+    expect(wake.effects).toEqual([{
+      type: "spawn",
+      agentId: "a",
+      messages: [{ text: "new work" }],
+      resumeSessionId: "sess-1",
+    }]);
+    expect(wake.state.agents.a.idleSince).toBeNull();
+    expect(reduceManager(wake.state, { type: "tick", nowMs: 2_000 }).effects).toEqual([]);
+  });
+
+  it("commits a due idle reset for a still-running quiescent agent before stopping it", () => {
+    let s = createInitialManagerState(100_000, 0, 100_000, 100_000, 100);
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 0 }).state;
+    s = spawnRoot(s, 0);
+    s = reduceManager(s, { type: "backend_session", agentId: "a", sessionId: "sess-1" }).state;
+    s = completeRoot(s, "turn-a", 0).state;
+
+    expect(reduceManager(s, { type: "tick", nowMs: 100 }).effects).toEqual([
+      { type: "reset_idle_session", agentId: "a", sessionId: "sess-1" },
+    ]);
+    const committed = reduceManager(s, {
+      type: "idle_reset_committed",
+      agentId: "a",
+      nowMs: 100,
+    });
+    expect(committed.effects).toEqual([
+      { type: "stop", agentId: "a", reason: "idle_session_reset" },
+    ]);
+    expect(committed.state.agents.a).toMatchObject({
+      status: "stopping",
+      sessionId: null,
+      idleSince: null,
+      stoppingSince: 100,
+    });
   });
 
   it("root progress after a stale turn_end restores active work and cancels idle hibernation", () => {
