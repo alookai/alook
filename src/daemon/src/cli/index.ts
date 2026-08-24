@@ -196,6 +196,13 @@ async function readLiteralInput(args: {
   return undefined;
 }
 
+const MALFORMED_ALOOK_HEREDOC_TAIL =
+  /(^|\r?\n)(?:["']ALOOK_MESSAGE_[A-Z0-9_]+["']?|ALOOK_MESSAGE_[A-Z0-9_]+["'])(?:\r?\n)?$/;
+
+function stripMalformedAlookHeredocTail(input: string): string {
+  return input.replace(MALFORMED_ALOOK_HEREDOC_TAIL, "$1");
+}
+
 /* ------------------------------------------------------------------ */
 /* Commands                                                            */
 /* ------------------------------------------------------------------ */
@@ -302,13 +309,16 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
   if (!channel) throw new CliError("message send: --target <ref> is required (e.g. /demo-workspace#1234/general)");
 
   const fileFlag = opts.file as string | undefined;
-  const text = await readLiteralInput({
+  const literalText = await readLiteralInput({
     command: "message send",
     stdinSelected: opts.stdin === true,
     stdin,
     filePath: fileFlag,
     fileOption: "--file <path>",
   });
+  const text = opts.stdin === true && literalText !== undefined
+    ? stripMalformedAlookHeredocTail(literalText)
+    : literalText;
 
   // `--attachment` may repeat. Commander wires this via `.option(..., collect, [])`
   // below; treat a missing flag as an empty list.
