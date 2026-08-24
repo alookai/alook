@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600&family=VT323&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@700&family=DM+Sans:wght@400;600&family=VT323&display=swap');
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -12,7 +12,7 @@ body {
   height: 500px;
   overflow: hidden;
   font-family: 'DM Sans', sans-serif;
-  background: linear-gradient(135deg, #f5f0e8 0%, #ddd5c8 100%);
+  background: transparent;
 }
 
 .banner {
@@ -20,46 +20,66 @@ body {
   height: 500px;
   display: flex;
   align-items: center;
+  padding: 54px 90px;
+  background: #f4f9e9;
+  overflow: hidden;
+  position: relative;
 }
 
-/* Left side — avoid Twitter avatar at bottom-left */
+/* Keep all copy above the bottom-left X profile-avatar overlay. */
 .left {
   flex: 1;
-  padding-left: 200px;
-  padding-right: 20px;
-  padding-bottom: 80px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
+  align-self: stretch;
+  padding-top: 24px;
+  padding-right: 40px;
 }
 
-.logo {
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 28px;
+}
+
+.brand img {
+  width: 64px;
+  height: 64px;
+}
+
+.brand-name {
+  font-family: 'Caveat', cursive;
   font-size: 36px;
-  font-weight: 600;
-  color: #3d3428;
-  margin-bottom: 20px;
+  font-weight: 700;
+  color: #1b271f;
 }
 
 .title {
-  font-size: 48px;
-  font-weight: 600;
-  color: #2a231a;
-  line-height: 1.15;
+  color: #356f95;
+  font-family: 'VT323', monospace;
+  font-size: 80px;
+  font-weight: 400;
+  letter-spacing: -0.035em;
+  line-height: 0.98;
 }
 
 .tagline {
-  font-size: 20px;
-  color: #8a7e6e;
-  margin-top: 14px;
+  color: #1b271f;
+  font-family: 'VT323', monospace;
+  font-size: 80px;
+  font-weight: 400;
+  letter-spacing: -0.035em;
+  line-height: 0.98;
 }
 
 /* Right side — typewriter container */
 .right {
-  width: 560px;
+  width: 500px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding-right: 40px;
 }
 
 /* ─── 3D Typewriter (from homepage) ─── */
@@ -71,8 +91,8 @@ body {
   --tw-body-top: oklch(0.28 0.01 60);
   --tw-chrome: oklch(0.72 0.01 75);
   --tw-chrome-hi: oklch(0.82 0.005 80);
-  --tw-paper: oklch(0.97 0.008 80);
-  --tw-blob: oklch(0.88 0.025 82);
+  --tw-paper: #fbfdf4;
+  --tw-blob: #ddedb7;
   --tw-roller: oklch(0.15 0.01 55);
 }
 
@@ -84,8 +104,6 @@ body {
   justify-content: flex-end;
   overflow: visible;
   zoom: 0.72;
-  transform: translateX(-50px);
-  /* Explicit height = body(260) + paper(~200) so flex centering includes paper */
   height: 460px;
 }
 
@@ -391,9 +409,11 @@ body {
 </head>
 <body>
 <div class="banner">
-  <!-- Left side -->
   <div class="left">
-    <div class="logo">alook.ai</div>
+    <div class="brand">
+      <img src="../alook.svg" alt="" />
+      <span class="brand-name">Alook</span>
+    </div>
     <div class="title">Share your agents</div>
     <div class="tagline">with people you trust.</div>
   </div>
@@ -416,12 +436,12 @@ body {
               <div class="tw-paper-track">
                 <div class="tw-paper">
                   <div class="tw-email-headers">
-                    <div class="tw-email-line"><span>From:</span> jarvis@alook.ai</div>
-                    <div class="tw-email-line"><span>To:</span> you@email.com</div>
-                    <div class="tw-email-line"><span>Subject:</span> Good morning!</div>
+                    <div class="tw-email-line">HOME / FAMILY-PLANS</div>
+                    <div class="tw-email-line"><span>Maya joined the room.</span></div>
+                    <div class="tw-email-line">A note for Alli#8145</div>
                   </div>
                   <div class="tw-email-body">
-                    Your agents are always on. I handled everything overnight.
+                    Maya and Alli now share this channel. Either can reply here, and Gus can catch up when he returns.
                   </div>
                 </div>
               </div>
