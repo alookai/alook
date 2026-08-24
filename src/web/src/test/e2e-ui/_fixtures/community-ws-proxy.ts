@@ -103,9 +103,13 @@ export async function proxyCommunityWebSockets(
     },
     /* istanbul ignore next -- retained offline/reconnect Chromium journey */
     disconnect: async () => {
+      /* istanbul ignore next -- retained offline/reconnect Chromium journey */
       if (!activeClient) return
+      /* istanbul ignore next -- retained offline/reconnect Chromium journey */
       const client = activeClient
+      /* istanbul ignore next -- retained offline/reconnect Chromium journey */
       activeClient = undefined
+      /* istanbul ignore next -- retained offline/reconnect Chromium journey */
       await client.close({ code: 1012, reason: "test transport offline" })
     },
   }

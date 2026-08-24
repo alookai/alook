@@ -26,6 +26,7 @@ interface MockState {
   selectQueue: Array<{ shape: SelectShape; rows: unknown[] }>;
   impactedQueue?: unknown[][];
   revisionRows?: Array<{ userId: string; revision: number }>;
+  deletedRows?: Array<{ id: string }>;
 }
 
 function makeDb(state: MockState): Database {
@@ -90,7 +91,7 @@ function makeDb(state: MockState): Database {
       state.batchCalls.push(stmts.map((s) => s.__tag as Tag));
       return Promise.resolve(stmts.map((statement) => (
         statement.__tag?.kind === "delete-msg"
-          ? [{ id: "msg_1" }]
+          ? state.deletedRows ?? [{ id: "msg_1" }]
           : statement.__tag?.kind === "revision"
             ? state.revisionRows ?? []
             : []
@@ -214,6 +215,32 @@ describe("hardDeleteMessage — cascading rollback", () => {
     };
     await queries.communityMessage.hardDeleteMessage(makeDb(state), "missing");
     expect(state.batchCalls).toHaveLength(0);
+  });
+
+  it("idempotent — target disappears after selection → no retry and no throw", async () => {
+    const state: MockState = {
+      batchCalls: [],
+      selectQueue: [
+        {
+          shape: "message",
+          rows: [{
+            id: "msg_1",
+            channelId: "chan_1",
+            authorId: "user_1",
+            seq: 1,
+            createdAt: "2026-01-01T00:00:01Z",
+          }],
+        },
+        { shape: "prior", rows: [] },
+        { shape: "message", rows: [] },
+      ],
+      deletedRows: [],
+    };
+
+    await expect(
+      queries.communityMessage.hardDeleteMessage(makeDb(state), "msg_1"),
+    ).resolves.toBeNull();
+    expect(state.batchCalls).toHaveLength(1);
   });
 
   it("versions the union of pointer, sparse-opener, and mention owners before deleting", async () => {
