@@ -15,11 +15,14 @@ describe("ClaudeEventNormalizer.normalizeLine", () => {
     expect(n.currentSessionId).toBe("s1");
   });
 
-  it("assistant text block → text", () => {
+  it("combines assistant text blocks into one completed message", () => {
     const out = new ClaudeEventNormalizer().normalizeLine(
-      J({ type: "assistant", message: { content: [{ type: "text", text: "hi there" }] } }),
+      J({ type: "assistant", message: { content: [
+        { type: "text", text: "hi " },
+        { type: "text", text: "there" },
+      ] } }),
     );
-    expect(out).toEqual([{ kind: "text", text: "hi there" }]);
+    expect(out).toEqual([{ kind: "assistant_message_completed", text: "hi there" }]);
   });
 
   it("assistant thinking + tool_use blocks", () => {
@@ -35,7 +38,7 @@ describe("ClaudeEventNormalizer.normalizeLine", () => {
       }),
     );
     expect(out).toEqual([
-      { kind: "thinking", text: "hmm" },
+      { kind: "assistant_reasoning_completed", text: "hmm" },
       { kind: "tool_call", name: "Bash", input: { cmd: "ls" } },
     ]);
   });

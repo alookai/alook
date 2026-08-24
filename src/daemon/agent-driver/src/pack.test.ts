@@ -70,7 +70,7 @@ const session = opened.session;
 const observedText: string[] = [];
 const eventsDone = (async () => {
   for await (const event of session.events) {
-    if (event.type === "text_delta") observedText.push(event.text);
+    if (event.type === "assistant_message_completed") observedText.push(event.text);
   }
 })();
 const receipt = await session.start({ id: "command-example", kind: "user", text: "Explain this repository." });
@@ -163,7 +163,7 @@ if (receipt.status !== "accepted") throw new Error(JSON.stringify(receipt));
 await done;
 await opened.session.stop({ reason: "owner_request", forceAfterMs: 1_000 });
 await opened.session.closed;
-if (!events.some((event) => event.type === "text_delta" && event.text === "packed-ok")) throw new Error("missing packed text event: " + JSON.stringify(events));
+if (!events.some((event) => event.type === "assistant_message_completed" && event.text === "packed-ok")) throw new Error("missing packed text event: " + JSON.stringify(events));
 try {
   await import("@alook/agent-driver/internal/adapter");
   throw new Error("private subpath unexpectedly exported");

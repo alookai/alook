@@ -292,8 +292,19 @@ export type CoreAgentEventPayload =
     }
   | { readonly type: "turn_started"; readonly turnId: string; readonly commandIds: readonly string[] }
   | { readonly type: "backend_turn_started"; readonly turnId: string; readonly backendTurnId: string }
-  | { readonly type: "thinking_delta"; readonly turnId: string; readonly text: string }
-  | { readonly type: "text_delta"; readonly turnId: string; readonly text: string }
+  | { readonly type: "work_heartbeat"; readonly turnId: string }
+  | {
+      readonly type: "assistant_reasoning_completed";
+      readonly turnId: string;
+      readonly text: string;
+      readonly truncated: boolean;
+    }
+  | {
+      readonly type: "assistant_message_completed";
+      readonly turnId: string;
+      readonly text: string;
+      readonly truncated: boolean;
+    }
   | {
       readonly type: "tool_started";
       readonly turnId: string;

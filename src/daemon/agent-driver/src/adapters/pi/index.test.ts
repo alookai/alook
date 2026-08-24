@@ -101,11 +101,11 @@ describe("PiDriver.openLane — does not fire the initial prompt itself", () => 
     // Simulate the SDK emitting a text_delta while handling a prompt sent
     // later, via the subscribe callback deps.session.subscribe captured.
     const subscribeCb = deps.session.subscribe.mock.calls[0][0];
-    subscribeCb({ type: "message_update", delta: { type: "text_delta", delta: "hi" } });
+    subscribeCb({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "hi" } });
 
     expect(received).toEqual([
       { kind: "session_init", sessionId: "sess_1" },
-      { kind: "text", text: "hi" },
+      { kind: "assistant_message_delta", text: "hi" },
     ]);
   });
 
@@ -239,9 +239,10 @@ describe("Pi SDK event-family coverage", () => {
   it("maps every supported family and explicitly no-ops every known unsupported family", () => {
     const state = { sawTextDelta: false };
     const supported = [
-      { input: { type: "message_update", delta: { type: "thinking_delta", delta: "t" } }, kind: "thinking" },
-      { input: { type: "message_update", delta: { type: "text_delta", delta: "x" } }, kind: "text" },
-      { input: { type: "message_update", delta: { type: "error", message: "e" } }, kind: "error" },
+      { input: { type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "t" } }, kind: "assistant_reasoning_delta" },
+      { input: { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "x" } }, kind: "assistant_message_delta" },
+      { input: { type: "message_update", assistantMessageEvent: { type: "text_end", content: "x" } }, kind: "assistant_message_completed" },
+      { input: { type: "message_update", assistantMessageEvent: { type: "error", error: { errorMessage: "e" } } }, kind: "error" },
       { input: { type: "tool_execution_start", toolName: "bash", args: {} }, kind: "tool_call" },
       { input: { type: "tool_execution_end", toolName: "bash" }, kind: "tool_output" },
       { input: { type: "compaction_start" }, kind: "compaction_started" },
@@ -250,6 +251,14 @@ describe("Pi SDK event-family coverage", () => {
     for (const item of supported) {
       expect(mapPiSdkEvent(item.input, "session", state)[0]?.kind).toBe(item.kind);
     }
+    expect(mapPiSdkEvent({
+      type: "message_update",
+      assistantMessageEvent: { type: "error", error: { errorMessage: "provider failed" } },
+    }, "session", state)).toEqual([{ kind: "error", message: "provider failed" }]);
+    expect(mapPiSdkEvent({
+      type: "message_update",
+      delta: { type: "text_end", content: "wrong outer field" },
+    }, "session", state)).toEqual([]);
     for (const type of PI_IGNORED_EVENT_TYPES) {
       expect(mapPiSdkEvent({ type }, "session", state)).toEqual([]);
     }

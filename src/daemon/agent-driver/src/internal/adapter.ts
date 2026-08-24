@@ -53,8 +53,10 @@ export interface EncodeMessageOptions { mode?: InputMode }
 
 export type AdapterEvent =
   | { kind: "session_init"; sessionId: string }
-  | { kind: "thinking"; text: string }
-  | { kind: "text"; text: string }
+  | { kind: "assistant_reasoning_delta"; text: string }
+  | { kind: "assistant_reasoning_completed"; text: string }
+  | { kind: "assistant_message_delta"; text: string }
+  | { kind: "assistant_message_completed"; text: string }
   | { kind: "tool_call"; name: string; input: unknown }
   | { kind: "tool_output"; name: string }
   | { kind: "compaction_started" }

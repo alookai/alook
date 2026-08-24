@@ -798,16 +798,20 @@ export class OpenCodeServiceLane implements RuntimeLane {
     }
     switch (event.type) {
       case "session.next.step.started":
-        this.events.emit("runtime_event", { kind: "thinking", text: "" } satisfies AdapterEvent);
+        this.events.emit("runtime_event", {
+          kind: "internal_progress",
+          source: "opencode.service",
+          itemType: "step_started",
+        } satisfies AdapterEvent);
         break;
       case "session.next.text.ended":
         if (typeof data.text === "string" && data.text.length > 0) {
-          this.events.emit("runtime_event", { kind: "text", text: data.text } satisfies AdapterEvent);
+          this.events.emit("runtime_event", { kind: "assistant_message_completed", text: data.text } satisfies AdapterEvent);
         }
         break;
       case "session.next.reasoning.ended":
         if (typeof data.text === "string" && data.text.length > 0) {
-          this.events.emit("runtime_event", { kind: "thinking", text: data.text } satisfies AdapterEvent);
+          this.events.emit("runtime_event", { kind: "assistant_reasoning_completed", text: data.text } satisfies AdapterEvent);
         }
         break;
       case "session.next.tool.called":

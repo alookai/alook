@@ -22,6 +22,7 @@ import type {
   BuiltinBackendSpecs,
 } from "@alook/agent-driver";
 import { AgentRouter } from "../manager/agentRouter";
+import { WsControlChannel } from "../server/wsControlChannel";
 import { CredentialBroker } from "../credentials/credentialProxy";
 import type { AgentBackend as Driver } from "../drivers/index.js";
 import type { Logger } from "../logger";
@@ -58,11 +59,25 @@ const credentialProxyHarness = vi.hoisted(() => ({
   onInboxPullObservationError: undefined as ((failure: Record<string, unknown>) => void) | undefined,
 }));
 
+const timelineRecorderHarness = vi.hoisted(() => ({
+  pulls: [] as Array<{ agentId: string; owner: unknown; messages: unknown[] }>,
+}));
+
 vi.mock("../timeline/index.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../timeline/index.js")>();
   return {
     ...actual,
     sweepTimelineHistory: (workingDirectoryBase: string) => timelineSweepHarness.run(workingDirectoryBase),
+    createTimelineRecorder: (...args: Parameters<typeof actual.createTimelineRecorder>) => {
+      const recorder = actual.createTimelineRecorder(...args);
+      return {
+        ...recorder,
+        recordInboxPull(agentId: string, owner: Parameters<typeof recorder.recordInboxPull>[1], messages: Parameters<typeof recorder.recordInboxPull>[2]) {
+          timelineRecorderHarness.pulls.push({ agentId, owner, messages });
+          recorder.recordInboxPull(agentId, owner, messages);
+        },
+      };
+    },
   };
 });
 
@@ -93,6 +108,7 @@ afterEach(() => {
   credentialProxyHarness.onInboxPullStart = undefined;
   credentialProxyHarness.onInboxPullResponse = undefined;
   credentialProxyHarness.onInboxPullObservationError = undefined;
+  timelineRecorderHarness.pulls.splice(0);
   for (const dir of startupSweepDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -252,7 +268,7 @@ function daemonFakeSession(options: {
         } else if (runtime.kind === "turn_end") {
           emit({ type: "turn_completed", turnId: "daemon-test-turn", commandIds: [], result: { outcome: "success", backendSessionId: runtime.sessionId } } as never);
         } else if (runtime.kind === "text") {
-          emit({ type: "text_delta", turnId: "daemon-test-turn", text: runtime.text ?? "" } as never);
+          emit({ type: "assistant_message_completed", turnId: "daemon-test-turn", text: runtime.text ?? "", truncated: false } as never);
         }
       } else if (event === "exit") {
         const result: AgentSessionResult = { outcome: "stopped", requested: true, exitCode: null, signal: null, cleanup: { status: "released" } };
@@ -946,6 +962,37 @@ for await (const line of createInterface({ input: process.stdin })) {
     await daemon.stop();
   });
 
+  it("treats non-object or absent pull observation tokens as ownerless without model-seen updates", async () => {
+    const sockets: FakeSocket[] = [];
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "timeline-invalid-token-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    const recordModelSeen = vi.spyOn(WsControlChannel.prototype, "recordModelSeen");
+    const daemon = await createDaemon({
+      machineKey: "cmk_invalid_observation_token",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [],
+      driverFor: () => fakeDriver,
+      capabilities: [],
+      workingDirectoryBase,
+    });
+    const messages = [{
+      seq: "#1",
+      channel: "/demo#1234/general",
+      sender: "@gus#1813",
+      content: { text: "ownerless" },
+      time: "2026-08-24T12:00:00Z",
+    }];
+
+    credentialProxyHarness.onInboxPullResponse?.("bot_1", messages, "invalid-token");
+    credentialProxyHarness.onInboxPullResponse?.("bot_1", messages);
+
+    expect(timelineRecorderHarness.pulls.map((pull) => pull.owner)).toEqual([null, null]);
+    expect(recordModelSeen).not.toHaveBeenCalled();
+    await daemon.stop();
+  });
+
   it("starts the timeline sweep immediately without awaiting its completion", async () => {
     const sockets: FakeSocket[] = [];
     const workingDirectoryBase = mkdtempSync(join(tmpdir(), "timeline-startup-"));
@@ -1259,6 +1306,80 @@ describe("createDaemon — logging", () => {
       observePull(7);
       await vi.waitFor(() => expect(sends).toHaveLength(3));
       expect(sends[2]).toMatchObject({ sequence: 8 });
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  it("uses only the immutable pull-start owner when the active turn changes before response", async () => {
+    global.fetch = vi.fn(async (url: string | URL) => {
+      if (String(url).includes("/enroll-agent")) {
+        return new Response(JSON.stringify({ runnerKey: "rk_pull_owner" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ bots: [] }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "timeline-pull-owner-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    mkdirSync(join(workingDirectoryBase, "bot_1"));
+    const sockets: FakeSocket[] = [];
+    let session: DaemonFakeSession | undefined;
+    const daemon = await createDaemon({
+      machineKey: "cmk_pull_owner",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [{ id: "codex" }],
+      driverFor: () => fullFakeDriver("codex"),
+      sessionFactory: () => {
+        session = daemonFakeSession();
+        return session;
+      },
+      capabilities: [],
+      workingDirectoryBase,
+    });
+
+    try {
+      const ownerlessToken = credentialProxyHarness.onInboxPullStart?.("bot_1");
+      sockets[0].emit("open");
+      sockets[0].emit("message", JSON.stringify({
+        type: "bot:added",
+        botId: "bot_1",
+        name: "Bot One",
+        discriminator: "0001",
+      }));
+      sockets[0].emit("message", JSON.stringify({
+        type: "agent:wake",
+        agentId: "bot_1",
+        config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
+        launchId: "launch_1",
+        unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
+      }));
+      await vi.waitFor(() => expect(session).toBeDefined());
+      await vi.waitFor(() => {
+        const token = credentialProxyHarness.onInboxPullStart?.("bot_1") as { owner?: unknown } | undefined;
+        expect(token?.owner).toMatchObject({ sessionInstanceId: "daemon-test", rootTurnId: "daemon-test-turn" });
+      });
+      const ownedToken = credentialProxyHarness.onInboxPullStart?.("bot_1");
+      await session!.fire("runtime_event", { kind: "turn_end", sessionId: "test-session" });
+
+      const observed = (seq: string, text: string) => [{
+        seq,
+        channel: "/demo#1234/general",
+        sender: "@gus#1813",
+        content: { text },
+        time: "2026-08-24T12:00:00Z",
+      }];
+      credentialProxyHarness.onInboxPullResponse?.("bot_1", observed("#1", "late owned"), ownedToken);
+      credentialProxyHarness.onInboxPullResponse?.("bot_1", observed("#2", "late ownerless"), ownerlessToken);
+
+      expect(timelineRecorderHarness.pulls).toHaveLength(2);
+      expect(timelineRecorderHarness.pulls[0]!.owner).toMatchObject({
+        sessionInstanceId: "daemon-test",
+        rootTurnId: "daemon-test-turn",
+        barrierGeneration: 0,
+      });
+      expect(timelineRecorderHarness.pulls[1]!.owner).toBeNull();
     } finally {
       await daemon.stop();
     }

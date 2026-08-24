@@ -453,11 +453,20 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
 
   const broker = new CredentialBroker({ upstreamBaseUrl: opts.serverUrl });
   const proxy = await startCredentialProxy(broker, {
-    onInboxPullStart: (agentId) => channelRef?.modelSeenGeneration(agentId),
+    onInboxPullStart: (agentId) => ({
+      modelSeenGeneration: channelRef?.modelSeenGeneration(agentId),
+      owner: managerRef?.timelineTurnOwner(agentId) ?? null,
+    }),
     onInboxPullResponse: (agentId, messages, observationToken) => {
-      timeline.appendEntryForAgent(agentId, messages);
-      if (typeof observationToken === "number") {
-        channelRef?.recordModelSeen(agentId, messages, observationToken);
+      const token = observationToken && typeof observationToken === "object"
+        ? observationToken as {
+            modelSeenGeneration?: unknown;
+            owner?: ReturnType<AgentProcessManager["timelineTurnOwner"]>;
+          }
+        : null;
+      timeline.recordInboxPull(agentId, token?.owner ?? null, messages);
+      if (typeof token?.modelSeenGeneration === "number") {
+        channelRef?.recordModelSeen(agentId, messages, token.modelSeenGeneration);
       }
     },
     onInboxPullObservationError: ({ agentId, reason, contentEncoding }) => {

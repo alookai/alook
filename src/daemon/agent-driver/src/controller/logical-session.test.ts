@@ -334,12 +334,140 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)("%s logi
     const pending = take(iterator, 5);
     await session.start({ id: "one", kind: "user", text: "hello" });
     await emit(driver, { kind: "session_init", sessionId: backend === "pi" ? "sdk-session" : `${backend}-session` });
-    await emit(driver, { kind: "thinking", text: "think" });
-    await emit(driver, { kind: "text", text: "answer" });
+    await emit(driver, { kind: "assistant_reasoning_completed", text: "think" });
+    await emit(driver, { kind: "assistant_message_completed", text: "answer" });
     const events = await pending;
     expect(events.map((event) => event.type)).toEqual([
-      "command_accepted", "turn_started", "session_started", "thinking_delta", "text_delta",
+      "command_accepted", "turn_started", "session_started", "assistant_reasoning_completed", "assistant_message_completed",
     ]);
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+});
+
+describe("root-turn text assembly", () => {
+  it("keeps provider deltas private, emits payload-free heartbeats, and publishes one authoritative message", async () => {
+    const lane = new ControlledRuntimeLane();
+    const { session } = makeSession("claude", { lane });
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+
+    lane.emit({ kind: "assistant_message_delta", text: "hel" });
+    lane.emit({ kind: "assistant_message_delta", text: "lo" });
+    lane.emit({ kind: "assistant_message_completed", text: "hello" });
+    lane.emit({ kind: "turn_end", sessionId: "vendor-session", turnOwner: "claude:test:1" });
+
+    const events = await take(iterator as never, 6);
+    expect(events.map((event) => event.type)).toEqual([
+      "command_accepted",
+      "turn_started",
+      "work_heartbeat",
+      "assistant_message_completed",
+      "session_started",
+      "turn_completed",
+    ]);
+    expect(events.filter((event) => event.type === "assistant_message_completed"))
+      .toMatchObject([{ text: "hello", truncated: false }]);
+    for (const heartbeat of events.filter((event) => event.type === "work_heartbeat")) {
+      expect(heartbeat).not.toHaveProperty("text");
+    }
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("flushes a delta-only backend once at its trusted turn boundary", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "cursor:test:1" };
+    const { session } = makeSession("cursor", { lane });
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+
+    lane.emit({ kind: "assistant_message_delta", text: "hel" });
+    lane.emit({ kind: "assistant_message_delta", text: "lo" });
+    lane.emit({ kind: "turn_end", sessionId: "vendor-session", turnOwner: "cursor:test:1" });
+
+    const events = await take(iterator as never, 6);
+    expect(events.filter((event) => event.type === "assistant_message_completed"))
+      .toMatchObject([{ text: "hello", truncated: false }]);
+    expect(events.findIndex((event) => event.type === "assistant_message_completed"))
+      .toBeLessThan(events.findIndex((event) => event.type === "turn_completed"));
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("drops an unfinished delta buffer when the runtime crashes before a boundary", async () => {
+    const { session, driver } = makeSession("claude");
+    const observed: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
+    const collecting = (async () => { for await (const event of session.events) observed.push(event); })();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    await emit(driver, { kind: "assistant_message_delta", text: "partial" });
+
+    driver.processes[0]!.emit("exit", 7, null);
+    await session.closed;
+    await collecting;
+
+    expect(observed.filter((event) => event.type === "work_heartbeat")).toHaveLength(1);
+    expect(observed.filter((event) => event.type === "assistant_message_completed")).toHaveLength(0);
+  });
+
+  it("coalesces fragment activity to one immediate heartbeat and at most one per second", async () => {
+    let nowMs = 10_000;
+    const lane = new ControlledRuntimeLane();
+    const { session } = makeSession("claude", { lane, now: () => nowMs });
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+
+    lane.emit({ kind: "assistant_message_delta", text: "a" });
+    lane.emit({ kind: "assistant_message_delta", text: "b" });
+    nowMs += 999;
+    lane.emit({ kind: "assistant_reasoning_delta", text: "c" });
+    nowMs += 1;
+    lane.emit({ kind: "assistant_message_delta", text: "d" });
+    lane.emit({ kind: "turn_end", sessionId: "vendor-session", turnOwner: "claude:test:1" });
+
+    const events = await take(iterator as never, 8);
+    expect(events.filter((event) => event.type === "work_heartbeat")).toHaveLength(2);
+    for (const heartbeat of events.filter((event) => event.type === "work_heartbeat")) {
+      expect(heartbeat).toEqual(expect.objectContaining({ type: "work_heartbeat", turnId: expect.any(String) }));
+      expect(heartbeat).not.toHaveProperty("text");
+    }
+    expect(events.filter((event) => event.type === "assistant_reasoning_completed"))
+      .toMatchObject([{ text: "c", truncated: false }]);
+    expect(events.filter((event) => event.type === "assistant_message_completed"))
+      .toMatchObject([{ text: "abd", truncated: false }]);
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("replaces matching fragments with an authoritative completed reasoning snapshot", async () => {
+    const lane = new ControlledRuntimeLane();
+    const { session } = makeSession("claude", { lane });
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+
+    lane.emit({ kind: "assistant_reasoning_delta", text: "partial" });
+    lane.emit({ kind: "assistant_reasoning_completed", text: "authoritative" });
+    lane.emit({ kind: "turn_end", sessionId: "vendor-session", turnOwner: "claude:test:1" });
+
+    const events = await take(iterator as never, 6);
+    expect(events.filter((event) => event.type === "assistant_reasoning_completed"))
+      .toMatchObject([{ text: "authoritative", truncated: false }]);
+    expect(JSON.stringify(events)).not.toContain("partial");
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("bounds delta-only multibyte output at one MiB without splitting UTF-8", async () => {
+    const lane = new ControlledRuntimeLane();
+    const { session } = makeSession("claude", { lane });
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+
+    lane.emit({ kind: "assistant_message_delta", text: "🙂".repeat(300_000) });
+    lane.emit({ kind: "turn_end", sessionId: "vendor-session", turnOwner: "claude:test:1" });
+
+    const events = await take(iterator as never, 6);
+    const completed = events.find((event) => event.type === "assistant_message_completed");
+    expect(completed).toMatchObject({ truncated: true });
+    if (completed?.type !== "assistant_message_completed") throw new Error("missing completed message");
+    expect(Buffer.byteLength(completed.text, "utf8")).toBeLessThanOrEqual(1_048_576);
+    expect(completed.text.endsWith("🙂")).toBe(true);
+    expect(completed.text).not.toContain("�");
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 });
@@ -487,9 +615,9 @@ describe("runtime-lane admission state machine", () => {
       receipt: "claude:test:1",
       nativeTurnId: "OPENAI_API_KEY=native-secret /Users/private",
     });
-    hostileLane.emit({ kind: "text", text: "next safe event" });
+    hostileLane.emit({ kind: "assistant_message_delta", text: "next safe event" });
     const hostileEvents = await take(hostileIterator as never, 3);
-    expect(hostileEvents.map((event) => event.type)).toEqual(["command_accepted", "turn_started", "text_delta"]);
+    expect(hostileEvents.map((event) => event.type)).toEqual(["command_accepted", "turn_started", "work_heartbeat"]);
     expect(JSON.stringify(hostileEvents)).not.toMatch(/native-secret|\/Users\/private/);
     await hostileSession.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
@@ -962,13 +1090,30 @@ describe("closed physical-lane tombstone", () => {
     await session.start({ id: "one", kind: "user", text: "first" });
     await emit(driver, { kind: "turn_end", sessionId: "root" });
     const reopened = (session as any).reopenClosedLaneForWork(
-      { kind: "text", text: "stale" },
+      { kind: "assistant_message_completed", text: "stale" },
       new SdkLane({ prompt: async () => {}, steer: async () => {} }, "other"),
       99,
     );
     expect(reopened).toBeUndefined();
     expect(session.snapshot().activeTurn).toBeUndefined();
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
+  it("does not let post-terminal content fragments reopen or heartbeat a closed root turn", async () => {
+    const { session, driver } = makeSession("claude");
+    const observed: Array<AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>> = [];
+    const collecting = (async () => { for await (const event of session.events) observed.push(event); })();
+    await session.start({ id: "one", kind: "user", text: "first" });
+    await emit(driver, { kind: "turn_end", sessionId: "root" });
+    await emit(driver, { kind: "assistant_message_delta", text: "late" });
+    await emit(driver, { kind: "assistant_reasoning_delta", text: "late reasoning" });
+
+    expect(session.snapshot().activeTurn).toBeUndefined();
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+    await collecting;
+    expect(observed.filter((event) => event.type === "work_heartbeat")).toHaveLength(0);
+    expect(observed.filter((event) => event.type === "assistant_message_completed")).toHaveLength(0);
+    expect(observed.filter((event) => event.type === "assistant_reasoning_completed")).toHaveLength(0);
   });
 });
 
@@ -1483,7 +1628,10 @@ describe("logical-session terminal facts", () => {
   it("fails and releases a session when its unread event buffer overflows", async () => {
     const { session, driver, host } = makeSession("pi");
     await session.start({ id: "one", kind: "user", text: "start" });
-    driver.lane!.emitEvents([{ kind: "text", text: "x".repeat(session.events.maxBufferedBytes) }]);
+    driver.lane!.emitEvents(Array.from({ length: 5 }, () => ({
+      kind: "assistant_message_completed" as const,
+      text: "x".repeat(1_048_576),
+    })));
     await expect(session.closed).resolves.toMatchObject({
       outcome: "crashed",
       error: { code: "event_buffer_overflow" },
@@ -1499,7 +1647,10 @@ describe("logical-session terminal facts", () => {
       const iterator = session.events[Symbol.asyncIterator]();
       driver.hangDispose = true;
       await session.start({ id: "one", kind: "user", text: "start" });
-      driver.lane!.emitEvents([{ kind: "text", text: "x".repeat(session.events.maxBufferedBytes) }]);
+      driver.lane!.emitEvents(Array.from({ length: 5 }, () => ({
+        kind: "assistant_message_completed" as const,
+        text: "x".repeat(1_048_576),
+      })));
       await expect(session.stop({ reason: "shutdown", forceAfterMs: 10 })).resolves.toMatchObject({
         status: "already_stopping",
         requestId: expect.any(String),

@@ -623,14 +623,14 @@ export class CursorAcpLane implements RuntimeLane {
       case "agent_message_chunk": {
         const content = record(update.content);
         if (content?.type === "text" && typeof content.text === "string") {
-          this.events.emit("runtime_event", { kind: "text", text: content.text } satisfies AdapterEvent);
+          this.events.emit("runtime_event", { kind: "assistant_message_delta", text: content.text } satisfies AdapterEvent);
         }
         return;
       }
       case "agent_thought_chunk": {
         const content = record(update.content);
         if (content?.type === "text" && typeof content.text === "string") {
-          this.events.emit("runtime_event", { kind: "thinking", text: content.text } satisfies AdapterEvent);
+          this.events.emit("runtime_event", { kind: "assistant_reasoning_delta", text: content.text } satisfies AdapterEvent);
         }
         return;
       }

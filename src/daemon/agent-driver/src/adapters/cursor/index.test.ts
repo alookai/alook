@@ -553,7 +553,7 @@ describe("CursorDriver persistent ACP transport", () => {
     ].join("\n"));
 
     expect(events.findIndex((event) => event.kind === "turn_end")).toBeGreaterThanOrEqual(0);
-    expect(events.some((event) => event.kind === "text")).toBe(false);
+    expect(events.some((event) => event.kind === "assistant_message_delta")).toBe(false);
     expect(events.at(-1)).toMatchObject({
       kind: "runtime_diagnostic",
       severity: "warning",
@@ -595,7 +595,7 @@ describe("CursorDriver persistent ACP transport", () => {
       },
     })}\n`);
 
-    expect(events.some((event) => event.kind === "text")).toBe(false);
+    expect(events.some((event) => event.kind === "assistant_message_delta")).toBe(false);
     expect(events).toContainEqual(expect.objectContaining({
       kind: "runtime_diagnostic",
       message: "Cursor ACP emitted a session update without an active prompt",
@@ -1028,8 +1028,8 @@ describe("CursorDriver persistent ACP transport", () => {
       content: { type: "text", text: "must-not-project" },
     });
 
-    expect(events).toContainEqual({ kind: "text", text: "hello" });
-    expect(events).toContainEqual({ kind: "thinking", text: "thinking" });
+    expect(events).toContainEqual({ kind: "assistant_message_delta", text: "hello" });
+    expect(events).toContainEqual({ kind: "assistant_reasoning_delta", text: "thinking" });
     expect(events).toContainEqual({ kind: "tool_call", name: "Read", input: { path: "README.md" } });
     expect(events).toContainEqual({ kind: "tool_output", name: "Read" });
     expect(events).toContainEqual({ kind: "internal_progress", source: "cursor.acp", itemType: "plan" });

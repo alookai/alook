@@ -108,15 +108,14 @@ export class CodexEventNormalizer {
             receipt: this.turnReceipt(params.threadId, params.turn.id),
             nativeTurnId: params.turn.id,
           },
-          { kind: "thinking", text: "" },
         ];
 
       case "item/reasoning/textDelta":
       case "item/reasoning/summaryTextDelta":
-        return [{ kind: "thinking", text: params?.delta ?? "" }];
+        return [{ kind: "assistant_reasoning_delta", text: params?.delta ?? "" }];
 
       case "item/agentMessage/delta":
-        return [{ kind: "text", text: params?.delta ?? "" }];
+        return [{ kind: "assistant_message_delta", text: params?.delta ?? "" }];
 
       case "item/started":
         return this.handleItemStarted(params);
@@ -273,9 +272,9 @@ export class CodexEventNormalizer {
       case "collabAgentToolCall":
         return [{ kind: "tool_output", name: "collab_tool_call" }];
       case "agentMessage":
-        return [{ kind: "text", text: params?.item?.text ?? "" }];
+        return [{ kind: "assistant_message_completed", text: params?.item?.text ?? "" }];
       case "reasoning":
-        return [{ kind: "thinking", text: params?.item?.text ?? "" }];
+        return [{ kind: "assistant_reasoning_completed", text: params?.item?.text ?? "" }];
       default:
         return [];
     }

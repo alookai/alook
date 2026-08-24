@@ -158,17 +158,19 @@ export const PI_IGNORED_EVENT_TYPES = [
 /** Map a Pi SDK event to zero or more normalized events. */
 export function mapPiSdkEvent(event: any, sessionId: string, state: { sawTextDelta: boolean }): AdapterEvent[] {
   if (event?.type === "message_update") {
-    const d = event.delta ?? {};
+    const d = event.assistantMessageEvent ?? {};
     switch (d.type) {
       case "thinking_delta":
-        return [{ kind: "thinking", text: d.delta ?? "" }];
+        return [{ kind: "assistant_reasoning_delta", text: d.delta ?? "" }];
       case "text_delta":
         state.sawTextDelta = true;
-        return [{ kind: "text", text: d.delta ?? "" }];
-      case "text_end":
-        return state.sawTextDelta ? [] : [{ kind: "text", text: d.content ?? "" }];
+        return [{ kind: "assistant_message_delta", text: d.delta ?? "" }];
+      case "text_end": {
+        state.sawTextDelta = false;
+        return [{ kind: "assistant_message_completed", text: d.content ?? "" }];
+      }
       case "error":
-        return [{ kind: "error", message: d.message ?? "Pi error" }];
+        return [{ kind: "error", message: d.error?.errorMessage ?? "Pi error" }];
       default:
         return [];
     }

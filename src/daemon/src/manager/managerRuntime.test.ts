@@ -179,8 +179,8 @@ function fakeSession(sessionInstanceId = "test-instance"): FakeSession {
           case "session_init":
             push({ type: "session_started", backendSessionId: event.sessionId ?? "test-session" } as never);
             break;
-          case "thinking": push({ type: "thinking_delta", turnId, text: event.text ?? "" } as never); break;
-          case "text": push({ type: "text_delta", turnId, text: event.text ?? "" } as never); break;
+          case "thinking": push({ type: "assistant_reasoning_completed", turnId, text: event.text ?? "", truncated: false } as never); break;
+          case "text": push({ type: "assistant_message_completed", turnId, text: event.text ?? "", truncated: false } as never); break;
           case "tool_call": push({ type: "tool_started", turnId, name: event.name ?? "unknown", input: (event.input ?? null) as never } as never); break;
           case "tool_output": push({ type: "tool_finished", turnId, name: event.name ?? "unknown" } as never); break;
           case "compaction_started":
@@ -303,6 +303,32 @@ function makeManager(opts: { logger?: Logger; tickIntervalMs?: number; idleTimeo
   return { mgr, session, onRuntimeSpawnFailed, onRuntimeSessionEstablished };
 }
 
+function exactTimelineLifecycleStub() {
+  return {
+    barrierGeneration: () => 0,
+    beginTurn: vi.fn(),
+    recordAssistantMessage: vi.fn(),
+    finalizeTurn: vi.fn(),
+    fenceSession: vi.fn(),
+  };
+}
+
+function recordObservedTurn(
+  recorder: ReturnType<typeof createTimelineRecorder>,
+  agentId: string,
+  rootTurnId: string,
+  messages: Parameters<ReturnType<typeof createTimelineRecorder>["recordInboxPull"]>[2],
+): void {
+  const owner = {
+    sessionInstanceId: `fixture-${rootTurnId}`,
+    rootTurnId,
+    barrierGeneration: recorder.barrierGeneration(agentId),
+  };
+  recorder.beginTurn(agentId, owner);
+  recorder.recordInboxPull(agentId, owner, messages);
+  recorder.finalizeTurn(agentId, owner);
+}
+
 describe("AgentProcessManager — repeated backend-session stall recovery", () => {
   it("rejects a backend session before publishing it when setSession cannot persist control", async () => {
     const session = fakeSession("set-session-control-failure");
@@ -321,8 +347,8 @@ describe("AgentProcessManager — repeated backend-session stall recovery", () =
       }),
       sessionFactory: (hooks) => bindFactorySession(hooks, session),
       timeline: {
+        ...exactTimelineLifecycleStub(),
         setSession: () => false,
-        appendResponseToLatest: vi.fn(),
         resumeSessionId: () => null,
         recordSessionStall: () => true,
         clearSessionStall: () => true,
@@ -364,8 +390,8 @@ describe("AgentProcessManager — repeated backend-session stall recovery", () =
         }),
         sessionFactory: (hooks) => bindFactorySession(hooks, session),
         timeline: {
+          ...exactTimelineLifecycleStub(),
           setSession: () => true,
-          appendResponseToLatest: vi.fn(),
           resumeSessionId: () => null,
           recordSessionStall,
           clearSessionStall: () => true,
@@ -433,8 +459,8 @@ describe("AgentProcessManager — repeated backend-session stall recovery", () =
         }),
         sessionFactory: (hooks) => bindFactorySession(hooks, session),
         timeline: {
+          ...exactTimelineLifecycleStub(),
           setSession: () => true,
-          appendResponseToLatest: vi.fn(),
           resumeSessionId: () => "sess-poison",
           resolveResumeSession: () => ({
             kind: "session",
@@ -495,8 +521,8 @@ describe("AgentProcessManager — repeated backend-session stall recovery", () =
       }),
       sessionFactory: (hooks) => bindFactorySession(hooks, session),
       timeline: {
+        ...exactTimelineLifecycleStub(),
         setSession: () => true,
-        appendResponseToLatest: vi.fn(),
         resumeSessionId: () => "sess-poison",
         resolveResumeSession: () => ({
           kind: "session",
@@ -533,8 +559,8 @@ describe("AgentProcessManager — repeated backend-session stall recovery", () =
         }),
         sessionFactory,
         timeline: {
+          ...exactTimelineLifecycleStub(),
           setSession: () => true,
-          appendResponseToLatest: vi.fn(),
           resumeSessionId: () => null,
           recordSessionStall: () => true,
           clearSessionStall: () => true,
@@ -604,7 +630,7 @@ describe("AgentProcessManager — repeated backend-session stall recovery", () =
       });
       writer.forgetSession("a1", "stall_recovery", "sess-poison");
       writer.setSession("a1", "sess-healthy");
-      writer.appendEntryForAgent("a1", [{
+      recordObservedTurn(writer, "a1", "healthy-after-fence", [{
         seq: "#1",
         channel: "/test/general",
         sender: "@tester#0001",
@@ -659,7 +685,7 @@ describe("AgentProcessManager — repeated backend-session stall recovery", () =
         now: () => new Date(now),
       });
       writer.setSession("a1", "sess-healthy");
-      writer.appendEntryForAgent("a1", [{
+      recordObservedTurn(writer, "a1", "healthy-clean-marker", [{
         seq: "#1",
         channel: "/test/general",
         sender: "@tester#0001",
@@ -810,7 +836,7 @@ describe("AgentProcessManager — repeated backend-session stall recovery", () =
       firstManager.deliver("a1", { id: "wake-before-restart", seq: 1, text: "first" });
       firstSession.startResolver?.();
       await firstSession.fire("runtime_event", { kind: "session_init", sessionId: "sess-poison" });
-      firstRecorder.appendEntryForAgent("a1", [{
+      recordObservedTurn(firstRecorder, "a1", "before-daemon-restart", [{
         seq: "#1",
         channel: "/test/general",
         sender: "@tester#0001",
@@ -924,8 +950,8 @@ describe("AgentProcessManager — repeated backend-session stall recovery", () =
           return bindFactorySession(hooks, session);
         },
         timeline: {
+          ...exactTimelineLifecycleStub(),
           setSession,
-          appendResponseToLatest: vi.fn(),
           resumeSessionId: () => resolution.kind === "session" ? resolution.sessionId : null,
           resolveResumeSession: () => resolution,
           recordSessionStall,
@@ -1428,6 +1454,121 @@ describe("AgentProcessManager — session race conditions", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("renews only the exact root lease from payload-free heartbeats and stalls when they stop", async () => {
+    vi.useFakeTimers();
+    try {
+      let currentTime = 0;
+      const { mgr, session } = makeManager({ now: () => currentTime, tickIntervalMs: 5 });
+      const baseSnapshot = session.snapshot.bind(session);
+      session.snapshot = () => ({
+        ...baseSnapshot(),
+        diagnostics: {
+          deliveryPhase: "working",
+          turnSilence: {
+            nativeIdleTimeoutMs: 80,
+            daemonGraceMs: 20,
+            recoveryGraceMs: 50,
+            maxRecoveryExtensions: 1,
+            normalBudgetMs: 100,
+          },
+          metrics: {
+            physicalOpenCount: 1,
+            turnCount: 1,
+            commandAdmissionCount: 1,
+            commandAdmissionLatencyTotalMs: 0,
+            queueDwellCount: 0,
+            queueDwellTotalMs: 0,
+            sseReconnectCount: 0,
+            resumeOutcome: "not_requested",
+            terminalOwnerKind: "transport_request",
+          },
+        },
+      });
+      const stop = vi.spyOn(session, "stop");
+      mgr.start();
+      mgr.deliver("a1", { id: "heartbeat-stall", seq: 1, text: "hello" });
+      session.startResolver?.();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      currentTime = 90;
+      await session.pushAgentEvent({ type: "work_heartbeat", turnId: "test-turn" });
+      expect(mgr.snapshot().agents.a1).toMatchObject({
+        lastNativeActivityAt: 90,
+        lastNativeActivityKind: "internal_progress",
+        runtimePhase: "inference",
+      });
+      expect(mgr.snapshot().agents.a1.execution.lease).toMatchObject({ nativeDeadlineAt: 190 });
+
+      currentTime = 189;
+      await vi.advanceTimersByTimeAsync(5);
+      expect(stop).not.toHaveBeenCalled();
+      currentTime = 190;
+      await vi.advanceTimersByTimeAsync(5);
+      expect(stop).toHaveBeenCalledWith({ reason: "stalled", forceAfterMs: 2_000 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects stale heartbeat ownership and maps complete semantic events to typed native evidence", async () => {
+    let currentTime = 0;
+    const { mgr, session } = makeManager({ now: () => currentTime });
+    mgr.deliver("a1", { id: "typed-evidence", seq: 1, text: "hello" });
+    session.startResolver?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    const internal = mgr as unknown as {
+      activeSpawnState: Map<string, object>;
+      onAgentEvent(agentId: string, event: AgentEvent<BuiltinBackendSpecs, "codex">, runtimeId: "codex", owner: object): void;
+    };
+    const owner = internal.activeSpawnState.get("a1")!;
+
+    currentTime = 40;
+    internal.onAgentEvent("a1", {
+      type: "work_heartbeat",
+      turnId: "test-turn",
+      sequence: 100,
+      sessionInstanceId: "stale-epoch",
+      at: currentTime,
+    }, "codex", owner);
+    await session.pushAgentEvent({ type: "work_heartbeat", turnId: "child-turn" });
+    await session.pushAgentEvent({
+      type: "diagnostic",
+      turnId: "test-turn",
+      severity: "info",
+      source: "test",
+      message: "observational only",
+    });
+    expect(mgr.snapshot().agents.a1).toMatchObject({
+      lastNativeActivityAt: 0,
+      lastNativeActivityKind: "turn_started",
+    });
+
+    await session.pushAgentEvent({
+      type: "assistant_reasoning_completed",
+      turnId: "test-turn",
+      text: "reasoning",
+      truncated: false,
+    });
+    expect(mgr.snapshot().agents.a1).toMatchObject({
+      lastNativeActivityAt: 40,
+      lastNativeActivityKind: "thinking",
+    });
+    currentTime = 50;
+    await session.pushAgentEvent({
+      type: "assistant_message_completed",
+      turnId: "test-turn",
+      text: "answer",
+      truncated: false,
+    });
+    expect(mgr.snapshot().agents.a1).toMatchObject({
+      lastNativeActivityAt: 50,
+      lastNativeActivityKind: "text",
+    });
+    await mgr.stopAll();
   });
 
   it("does not let turn-scoped telemetry or diagnostics refresh the native silence deadline", async () => {
@@ -2097,14 +2238,29 @@ describe("truncateThinking", () => {
 });
 
 describe("AgentProcessManager — bot audit event emission", () => {
-  it("emits `thinking` with truncated+chars fields (flushed at the next event)", async () => {
+  it("contains audit observer failures for reasoning and tool-start events", async () => {
+    const logger = stubLogger();
+    const onBotAuditEvent = vi.fn(() => { throw new Error("observer failed"); });
+    const { mgr, session } = makeManager({ logger, onBotAuditEvent });
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+
+    await expect(session.fire("runtime_event", { kind: "thinking", text: "completed reasoning" }))
+      .resolves.toBeUndefined();
+    await expect(session.fire("runtime_event", { kind: "tool_call", name: "Read", input: { file_path: "/x" } }))
+      .resolves.toBeUndefined();
+
+    expect(logger.calls.debug.map(([message]) => message)).toEqual(expect.arrayContaining([
+      "audit emit failed (thinking)",
+      "audit emit failed (tool_call)",
+    ]));
+  });
+
+  it("emits completed reasoning with truncated+chars fields immediately", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
     await session.fire("runtime_event", { kind: "thinking", text: "think about it" });
-    expect(onBotAuditEvent).not.toHaveBeenCalled();
-    await session.fire("runtime_event", { kind: "turn_end" });
 
     expect(onBotAuditEvent).toHaveBeenCalledWith(
       "a1",
@@ -2120,16 +2276,14 @@ describe("AgentProcessManager — bot audit event emission", () => {
     );
   });
 
-  it("coalesces delta-streamed thinking into ONE row and drops empty deltas", async () => {
+  it("emits one bounded audit row per completed reasoning item and drops empty items", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
     await session.fire("runtime_event", { kind: "thinking", text: "" });
-    await session.fire("runtime_event", { kind: "thinking", text: "let me " });
-    await session.fire("runtime_event", { kind: "thinking", text: "count" });
+    await session.fire("runtime_event", { kind: "thinking", text: "let me count" });
     await session.fire("runtime_event", { kind: "thinking", text: "" });
-    await session.fire("runtime_event", { kind: "tool_call", name: "Read", input: { file_path: "/x" } });
 
     const thinkingCalls = onBotAuditEvent.mock.calls.filter(
       ([, ev]) => (ev as { kind?: string })?.kind === "thinking"
@@ -4347,8 +4501,19 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     publish({ type: "diagnostic", severity: "warning", source: "codex", message: "warning" });
     publish({ type: "token_usage", turnId: "test-turn", source: "codex", usage: {}, details: {} });
     publish({ type: "rate_limits", turnId: "test-turn", source: "codex", details: {} });
-    publish({ type: "thinking_delta", turnId: "test-turn", text: "" });
-    publish({ type: "text_delta", turnId: "test-turn", text: "" });
+    publish({ type: "work_heartbeat", turnId: "test-turn" });
+    publish({
+      type: "assistant_reasoning_completed",
+      turnId: "test-turn",
+      text: "reasoning",
+      truncated: false,
+    });
+    publish({
+      type: "assistant_message_completed",
+      turnId: "test-turn",
+      text: "answer",
+      truncated: false,
+    });
     publish({ type: "command_queued", commandId: "queued", reason: "runtime_busy" });
     publish({ type: "command_accepted", commandId: "accepted", turnId: "test-turn", delivery: "steer" });
     publish({
@@ -4358,7 +4523,7 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     });
     publish({ type: "turn_started", turnId: "test-turn", commandIds: ["accepted"] });
 
-    expect(rows.filter((row) => row.event === "runtime_signal")).toHaveLength(baselineSignals + 4);
+    expect(rows.filter((row) => row.event === "runtime_signal")).toHaveLength(baselineSignals + 6);
   });
 
   it("keeps tail telemetry observational while turn-correlated work can recover a false terminal", async () => {
@@ -4723,14 +4888,14 @@ describe("AgentProcessManager — defensive owner fences", () => {
     const owner = internal.activeSpawnState.get("a1")!;
     owner.sessionInstanceId = "test-instance";
     internal.onAgentEvent("a1", {
-      type: "thinking_delta", turnId: "turn", text: "stale", sequence: 1,
+      type: "assistant_reasoning_completed", turnId: "turn", text: "stale", truncated: false, sequence: 1,
       sessionInstanceId: "stale-instance", at: Date.now(),
     }, "codex", owner);
     owner.superseded = true;
     (mgr as unknown as { state: { agents: { a1: { execution: { sessionInstanceId: string } } } } })
       .state.agents.a1.execution.sessionInstanceId = "replacement-instance";
     internal.onAgentEvent("a1", {
-      type: "thinking_delta", turnId: "turn", text: "superseded", sequence: 2,
+      type: "assistant_reasoning_completed", turnId: "turn", text: "superseded", truncated: false, sequence: 2,
       sessionInstanceId: "test-instance", at: Date.now(),
     }, "codex", owner);
     expect(logger.calls.warn.map(([message]) => message)).toEqual([
@@ -5010,8 +5175,8 @@ describe("Codex root event ownership — subagent completion isolation", () => {
         for (const event of events) {
           if (event.kind === "session_init") {
             await session.pushAgentEvent({ type: "session_started", backendSessionId: event.sessionId });
-          } else if (event.kind === "thinking") {
-            await session.pushAgentEvent({ type: "thinking_delta", turnId: "test-turn", text: event.text });
+          } else if (event.kind === "assistant_reasoning_completed") {
+            await session.pushAgentEvent({ type: "assistant_reasoning_completed", turnId: "test-turn", text: event.text, truncated: false });
           } else if (event.kind === "tool_call") {
             await session.pushAgentEvent({ type: "tool_started", turnId: "test-turn", name: event.name, input: event.input as never });
           } else if (event.kind === "tool_output") {

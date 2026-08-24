@@ -77,16 +77,20 @@ export class ClaudeEventNormalizer {
   private handleAssistant(event: any, out: AdapterEvent[]): void {
     const content = event?.message?.content;
     if (!Array.isArray(content)) return;
+    const completedText: string[] = [];
     for (const block of content) {
       if (block?.type === "thinking") {
-        out.push({ kind: "thinking", text: block.thinking ?? "" });
+        out.push({ kind: "assistant_reasoning_completed", text: block.thinking ?? "" });
       } else if (block?.type === "text") {
         const text: string = block.text ?? "";
         if (API_ERROR_RE.test(text)) out.push({ kind: "error", message: text });
-        else out.push({ kind: "text", text });
+        else completedText.push(text);
       } else if (block?.type === "tool_use") {
         out.push({ kind: "tool_call", name: block.name ?? "unknown_tool", input: block.input });
       }
+    }
+    if (completedText.length > 0) {
+      out.push({ kind: "assistant_message_completed", text: completedText.join("") });
     }
   }
 
