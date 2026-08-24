@@ -265,7 +265,7 @@ describe("ForumView filter bar / composer swap", () => {
     expect(html).toContain("#help")
   })
 
-  it("keeps mobile filter tags in their own single-line scroller beside the fixed action", () => {
+  it("keeps filter tags in one horizontal scroller at every checkpoint beside the fixed action", () => {
     const html = render([makePost({ tags: ["alpha", "beta", "gamma", "delta"] })])
     const railIndex = html.indexOf(tid.forumTagScroller)
     const listIndex = html.indexOf(tid.forumPostList)
@@ -279,8 +279,8 @@ describe("ForumView filter bar / composer swap", () => {
     expect(railMarkup).toContain("flex-nowrap")
     expect(railMarkup).toContain("overflow-x-auto")
     expect(railMarkup).toContain("thin-scrollbar")
-    expect(railMarkup).toContain("sm:flex-wrap")
-    expect(railMarkup).toContain("sm:overflow-x-visible")
+    expect(railMarkup).not.toContain("sm:flex-wrap")
+    expect(railMarkup).not.toContain("sm:overflow-x-visible")
     expect(railMarkup).toContain('tabindex="0"')
     expect(html).not.toContain(tid.forumTagFadeLeft)
     expect(html).not.toContain(tid.forumTagFadeRight)

@@ -62,7 +62,7 @@ test.describe.serial("forum post tags + participant avatars", () => {
     await expect(page.getByTestId(tid.forumTagDialog)).toBeVisible({ timeout: 10_000 })
     // The active (selected) chips carry a remove affordance; click #beta to
     // deselect, then close to save.
-    await page.getByTestId(tid.forumTagDialog).getByRole("button", { name: "#beta" }).click()
+    await page.getByTestId(tid.forumTagDialogChip("beta")).click()
     await page.keyboard.press("Escape")
     await expect(page.getByTestId(tid.forumTagDialog)).toHaveCount(0)
 

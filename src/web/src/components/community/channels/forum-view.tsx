@@ -330,7 +330,7 @@ export function ForumView({
                   syncTagFades()
                 }
               }}
-              className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar sm:flex-wrap sm:overflow-x-visible"
+              className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar"
             >
               {filterTags.length > 0 && (
                 <>
@@ -370,14 +370,14 @@ export function ForumView({
               <span
                 aria-hidden
                 data-testid={tid.forumTagFadeLeft}
-                className="pointer-events-none absolute inset-y-0 left-0 z-10 w-3.5 bg-linear-to-r from-background to-transparent sm:hidden"
+                className="pointer-events-none absolute inset-y-0 left-0 z-10 w-3.5 bg-linear-to-r from-background to-transparent"
               />
             )}
             {tagFades.right && (
               <span
                 aria-hidden
                 data-testid={tid.forumTagFadeRight}
-                className="pointer-events-none absolute inset-y-0 right-0 z-10 w-3.5 bg-linear-to-l from-background to-transparent sm:hidden"
+                className="pointer-events-none absolute inset-y-0 right-0 z-10 w-3.5 bg-linear-to-l from-background to-transparent"
               />
             )}
           </div>

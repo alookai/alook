@@ -6,7 +6,16 @@ import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
 
 const MOBILE_WIDTHS = [320, 390] as const
+const FILTER_RAIL_WIDTHS = [320, 390, 1280] as const
 const TAGS = ["alpha-long-tag", "beta-long-tag", "gamma", "delta", "epsilon"]
+const DESKTOP_OVERFLOW_TAGS = [
+  "desktop-overflow-tag-one",
+  "desktop-overflow-tag-two",
+  "desktop-overflow-tag-three",
+  "desktop-overflow-tag-four",
+  "desktop-overflow-tag-five",
+] as const
+const LAST_FILTER_TAG = [...TAGS, ...DESKTOP_OVERFLOW_TAGS].sort().at(-1)!
 
 type Rect = { left: number; right: number; top: number; bottom: number; width: number; height: number }
 
@@ -31,7 +40,7 @@ async function rect(locator: Locator): Promise<Rect | null> {
 
 async function expectNewPostGeometry(
   page: Page,
-  width: (typeof MOBILE_WIDTHS)[number],
+  width: (typeof FILTER_RAIL_WIDTHS)[number],
   state: string,
   expected?: Rect,
 ): Promise<Rect> {
@@ -223,16 +232,16 @@ async function expectMobileGeometry(
   expect(documentWidth.scroll, `${role}@${width}: horizontal overflow`).toBe(documentWidth.client)
 }
 
-async function expectMobileFilterRail(
+async function expectFilterRail(
   page: Page,
-  width: (typeof MOBILE_WIDTHS)[number],
+  width: (typeof FILTER_RAIL_WIDTHS)[number],
   testInfo: TestInfo,
 ): Promise<Rect> {
   await page.setViewportSize({ width, height: 844 })
   const bar = page.getByTestId(tid.forumFilterBar)
   const rail = page.getByTestId(tid.forumTagScroller)
   const all = page.getByTestId(tid.forumTagAll)
-  const last = page.getByTestId(tid.forumTagChip(TAGS.at(-1)!))
+  const last = page.getByTestId(tid.forumTagChip(LAST_FILTER_TAG))
   const fadeLeft = page.getByTestId(tid.forumTagFadeLeft)
   const fadeRight = page.getByTestId(tid.forumTagFadeRight)
   const originalColorScheme = await page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
@@ -333,8 +342,11 @@ async function expectMobileFilterRail(
     await expect(page.locator("html")).not.toHaveClass(/dark/)
   }
 
-  await page.keyboard.press("End")
-  await expect.poll(() => rail.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
+  await rail.press("End")
+  await expect(rail).toBeFocused()
+  await expect.poll(() => rail.evaluate((element) => (
+    element.scrollWidth - element.clientWidth - element.scrollLeft
+  ))).toBeLessThanOrEqual(1)
   await expect(fadeLeft).toBeVisible()
   await expect(fadeRight).toHaveCount(0)
   const [railAtEnd, lastAtEnd] = await Promise.all([rect(rail), rect(last)])
@@ -362,8 +374,7 @@ async function expectMobileFilterRail(
   const [railWithLastActive, activeLast] = await Promise.all([rect(rail), rect(last)])
   expect(activeLast!.left).toBeGreaterThanOrEqual(railWithLastActive!.left - 0.5)
   expect(activeLast!.right).toBeLessThanOrEqual(railWithLastActive!.right + 0.5)
-  await rail.focus()
-  await page.keyboard.press("Home")
+  await rail.press("Home")
   await expect.poll(() => rail.evaluate((element) => element.scrollLeft)).toBe(0)
   await expect(fadeLeft).toHaveCount(0)
   await expect(fadeRight).toBeVisible()
@@ -393,7 +404,7 @@ async function expectMobileFilterRail(
 
 async function expectNoOverflowFilterRail(
   page: Page,
-  width: (typeof MOBILE_WIDTHS)[number],
+  width: (typeof FILTER_RAIL_WIDTHS)[number],
   route: string,
   postId: string,
   expectedNewPost: Rect,
@@ -452,7 +463,7 @@ async function seedTags(forumId: string, threadId: string, tags: string[]): Prom
 }
 
 test("forum post actions stay discoverable on mobile without changing permissions", async ({ asUser }, testInfo) => {
-  test.setTimeout(120_000)
+  test.setTimeout(180_000)
   const stamp = Date.now().toString().slice(-6)
   const serverId = await seedServer("alice", `Mobile forum actions ${Date.now()}`)
   const forumId = await seedChannel("alice", serverId, "mobile-actions", "forum")
@@ -485,11 +496,11 @@ test("forum post actions stay discoverable on mobile without changing permission
   )
   await seedMessage("carol", primaryPostId, "participant and reply-count coverage")
   await seedTags(forumId, primaryPostId, TAGS)
-  await seedTags(forumId, cjkPostId, TAGS.slice(0, 2))
+  await seedTags(forumId, cjkPostId, [...DESKTOP_OVERFLOW_TAGS])
   await seedTags(compactForumId, compactPostId, ["solo"])
   const postCases = [
     { id: primaryPostId, tags: TAGS.slice(0, 2), titleState: "truncated" as const },
-    { id: cjkPostId, tags: TAGS.slice(0, 2), titleState: "double" as const },
+    { id: cjkPostId, tags: [], titleState: "double" as const },
     { id: noTagPostId, tags: [], titleState: "single" as const },
   ]
   const route = `/c/channels/${serverId}/${forumId}`
@@ -504,9 +515,11 @@ test("forum post actions stay discoverable on mobile without changing permission
 
   const authorWrites = observeClientWrites(author.page)
   authorWrites.active = true
-  const newPostGeometry = new Map<(typeof MOBILE_WIDTHS)[number], Rect>()
+  const newPostGeometry = new Map<(typeof FILTER_RAIL_WIDTHS)[number], Rect>()
+  for (const width of FILTER_RAIL_WIDTHS) {
+    newPostGeometry.set(width, await expectFilterRail(author.page, width, testInfo))
+  }
   for (const width of MOBILE_WIDTHS) {
-    newPostGeometry.set(width, await expectMobileFilterRail(author.page, width, testInfo))
     for (const post of postCases) {
       await expectMobileGeometry(
         author.page,
@@ -524,7 +537,7 @@ test("forum post actions stay discoverable on mobile without changing permission
     })
   }
   authorWrites.active = false
-  for (const width of MOBILE_WIDTHS) {
+  for (const width of FILTER_RAIL_WIDTHS) {
     const expectedNewPost = newPostGeometry.get(width)
     expect(expectedNewPost, `filter rail@${width}: expected baseline New Post geometry`).toBeDefined()
     await expectNoOverflowFilterRail(author.page, width, compactRoute, compactPostId, expectedNewPost!, testInfo)
