@@ -17,6 +17,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(() => ({})),
+  getPrimaryDb: vi.fn(() => ({})),
 }))
 
 vi.mock("@alook/shared", async () => {

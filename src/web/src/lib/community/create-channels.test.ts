@@ -6,6 +6,7 @@ const mockGetThreadChannelByParentMessage = vi.fn()
 const mockHardDeleteMessage = vi.fn()
 const mockAddThreadParticipants = vi.fn()
 const mockFanOutToChannel = vi.fn()
+const mockBroadcastToUserSafe = vi.fn()
 const mockDeleteChannel = vi.fn()
 const mockListMessageAttachments = vi.fn()
 const mockRebindPendingAttachmentsToChild = vi.fn()
@@ -19,6 +20,7 @@ vi.mock("@/lib/community/message-handler", () => ({
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: vi.fn(),
   fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
+  broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
 
 vi.mock("@/lib/community/permissions", () => ({

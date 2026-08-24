@@ -99,22 +99,20 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
       }),
       queries.communityMention.markChannelMentionsReadBuilder(db, ctx.userId, channelId),
       queries.communityReadState.advanceReadStateRevisionBuilder(db, ctx.userId),
+      queries.communityReadState.accountReadStateRowsBuilder(db, ctx.userId),
     ]),
     { route: "community/channel-read:commit" }
   )
 
   const revision = (results[2] as Array<{ revision: number }> | undefined)?.[0]?.revision
   if (revision === undefined) throw new Error("read-state revision missing")
+  const readStates = results[3] as queries.communityReadState.AccountReadState[] | undefined
+  if (!readStates) throw new Error("read-state snapshot missing")
 
   await broadcastToUserSafe(ctx.userId, {
     type: WS_EVENTS.READ_STATE_ADVANCED,
     revision,
-    advances: [{
-      channelId,
-      lastReadMessageId: target.id,
-      lastReadAt: target.createdAt,
-      lastReadSeq: target.seq,
-    }],
+    readStates,
     inboxChanged: true,
   })
 

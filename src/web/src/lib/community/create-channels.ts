@@ -13,7 +13,7 @@ import {
   type StoredChannelType,
   type Database,
 } from "@alook/shared"
-import { fanOutToServerMembers, fanOutToChannel } from "@/lib/community/fanout"
+import { broadcastToUserSafe, fanOutToServerMembers, fanOutToChannel } from "@/lib/community/fanout"
 import { createWithCollisionPolicy } from "@/lib/community/create-collision"
 import { requireServerMember, requireChannelMember } from "@/lib/community/permissions"
 import { requireMessageBearingSurface } from "@/lib/community/channel-write-guard"
@@ -22,6 +22,20 @@ import { createCommunityMessage, type IncomingMessageBody } from "@/lib/communit
 import { attachmentThumbnailUrl, attachmentUrl } from "@/lib/community/storage"
 
 const log = createLogger({ service: "community-create-channels" })
+
+async function hardDeleteMessageAndBroadcastReadState(db: Database, messageId: string) {
+  const result = await queries.communityMessage.hardDeleteMessage(db, messageId)
+  const snapshot = result?.readStateSnapshot
+  if (snapshot) {
+    await broadcastToUserSafe(snapshot.userId, {
+      type: WS_EVENTS.READ_STATE_ADVANCED,
+      revision: snapshot.revision,
+      readStates: snapshot.readStates,
+      inboxChanged: true,
+    })
+  }
+  return result
+}
 
 /**
  * Single-source creation cores for the `POST /channels` create door (route/disc
@@ -304,6 +318,7 @@ export type CreateMessageWithThreadResult =
 export async function createMessageWithThread(params: {
   db: Database
   authorId: string
+  authorKind: "human" | "bot"
   parentChannelId: string
   serverId: string
   body: IncomingMessageBody
@@ -320,6 +335,7 @@ export async function createMessageWithThread(params: {
   const created = await createCommunityMessage({
     db,
     authorId,
+    authorKind: params.authorKind,
     target: { kind: "channel", channelId: parentChannelId, serverId },
     body: params.body,
     source: params.source,
@@ -392,7 +408,7 @@ export async function createMessageWithThread(params: {
     // let a secondary rollback failure mask the real cause, and never fail
     // silently — Aigneis #670/#680).
     try {
-      await queries.communityMessage.hardDeleteMessage(db, messageId)
+      await hardDeleteMessageAndBroadcastReadState(db, messageId)
     } catch (rollbackErr) {
       log.error("thread_open_rollback_failed", {
         messageId,
@@ -404,7 +420,7 @@ export async function createMessageWithThread(params: {
   }
   if (!threadResult.ok) {
     try {
-      await queries.communityMessage.hardDeleteMessage(db, messageId)
+      await hardDeleteMessageAndBroadcastReadState(db, messageId)
     } catch (rollbackErr) {
       log.error("thread_open_rollback_failed", {
         messageId,
@@ -429,7 +445,7 @@ export async function createMessageWithThread(params: {
         })
       }
       try {
-        await queries.communityMessage.hardDeleteMessage(db, messageId)
+        await hardDeleteMessageAndBroadcastReadState(db, messageId)
       } catch (rollbackErr) {
         log.error("thread_rollback_delete_opener_failed", {
           messageId,

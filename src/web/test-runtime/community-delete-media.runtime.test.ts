@@ -96,6 +96,16 @@ describe("existing delete media real D1 batches", () => {
       `att_pending_child_${stamp}`, owner, child,
       `att_other_${stamp}`, unrelatedMessage, owner, unrelated,
     )
+    await run(
+      `INSERT INTO community_read_state
+        (id, user_id, channel_id, last_read_at, last_read_message_id, last_read_seq) VALUES
+        (?, ?, ?, '2026-08-23T00:00:00.000Z', ?, 1),
+        (?, ?, ?, '2026-08-23T00:00:00.000Z', ?, 1),
+        (?, ?, ?, '2026-08-23T00:00:00.000Z', ?, 1)`,
+      `rs_root_${stamp}`, owner, root, rootMessage,
+      `rs_child_${stamp}`, owner, child, childMessage,
+      `rs_other_${stamp}`, owner, unrelated, unrelatedMessage,
+    )
 
     const db = createDb(runtimeEnv.DB)
     const results = await Promise.all([
@@ -109,6 +119,16 @@ describe("existing delete media real D1 batches", () => {
       "root/original", "root/thumb", "child/original", "child/thumb",
       "root/pending", "root/pending-thumb", "child/pending",
     ]))
+    expect(winner.readStateSnapshots).toEqual([{
+      userId: owner,
+      revision: 1,
+      readStates: [{
+        channelId: unrelated,
+        lastReadMessageId: unrelatedMessage,
+        lastReadAt: "2026-08-23T00:00:00.000Z",
+        lastReadSeq: 1,
+      }],
+    }])
     expect(results.find((result) => !result.deleted)?.mediaKeys).toEqual([])
     expect(await first("SELECT id FROM community_channel WHERE id = ?", root)).toBeNull()
     expect(await first("SELECT id FROM community_channel WHERE id = ?", child)).toBeNull()
@@ -137,12 +157,18 @@ describe("existing delete media real D1 batches", () => {
       `att_server_${stamp}`, message, owner, channel,
       `att_server_pending_${stamp}`, owner, channel,
     )
+    await run(
+      `INSERT INTO community_read_state
+        (id, user_id, channel_id, last_read_at, last_read_message_id, last_read_seq)
+       VALUES (?, ?, ?, '2026-08-23T00:00:00.000Z', ?, 1)`,
+      `rs_server_${stamp}`, owner, channel, message,
+    )
 
     const db = createDb(runtimeEnv.DB)
     await expect(queries.communityDeleteMedia.deleteServerWithMedia(db, {
       serverId: server,
       ownerId: "not-owner",
-    })).resolves.toEqual({ deleted: false, mediaKeys: [], iconKey: null })
+    })).resolves.toEqual({ deleted: false, mediaKeys: [], iconKey: null, readStateSnapshots: [] })
 
     const results = await Promise.all([
       queries.communityDeleteMedia.deleteServerWithMedia(db, { serverId: server, ownerId: owner }),
@@ -153,11 +179,13 @@ describe("existing delete media real D1 batches", () => {
       deleted: true,
       mediaKeys: ["server/original", "server/thumb", "server/pending"],
       iconKey: icon,
+      readStateSnapshots: [{ userId: owner, revision: 1, readStates: [] }],
     })
     expect(results.find((result) => !result.deleted)).toEqual({
       deleted: false,
       mediaKeys: [],
       iconKey: null,
+      readStateSnapshots: [],
     })
     expect(await first("SELECT id FROM community_server WHERE id = ?", server)).toBeNull()
   })
@@ -267,7 +295,7 @@ describe("guarded pending insert and server icon CAS in real D1", () => {
     await expect(queries.communityDeleteMedia.deleteServerWithMedia(db, {
       serverId: server,
       ownerId: owner,
-    })).resolves.toEqual({ deleted: true, mediaKeys: [], iconKey: replacement })
+    })).resolves.toEqual({ deleted: true, mediaKeys: [], iconKey: replacement, readStateSnapshots: [] })
   })
 
   it("linearizes server deletion before a stale icon replacement at the delete", async () => {
@@ -278,7 +306,7 @@ describe("guarded pending insert and server icon CAS in real D1", () => {
     await expect(queries.communityDeleteMedia.deleteServerWithMedia(db, {
       serverId: server,
       ownerId: owner,
-    })).resolves.toEqual({ deleted: true, mediaKeys: [], iconKey: original })
+    })).resolves.toEqual({ deleted: true, mediaKeys: [], iconKey: original, readStateSnapshots: [] })
     await expect(queries.communityServer.updateServerIconIfCurrent(db, {
       serverId: server,
       expectedIcon: original,

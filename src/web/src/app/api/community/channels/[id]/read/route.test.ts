@@ -11,6 +11,7 @@ const mockGetMessage = vi.fn()
 const mockGetLatestMessage = vi.fn()
 const mockMarkReadToMessageBuilder = vi.fn()
 const mockAdvanceReadStateRevisionBuilder = vi.fn()
+const mockAccountReadStateRowsBuilder = vi.fn()
 const mockMarkChannelMentionsReadBuilder = vi.fn()
 const mockBatch = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
@@ -36,6 +37,7 @@ vi.mock("@alook/shared", async () => {
       communityReadState: {
         markReadToMessageBuilder: (...a: unknown[]) => mockMarkReadToMessageBuilder(...a),
         advanceReadStateRevisionBuilder: (...a: unknown[]) => mockAdvanceReadStateRevisionBuilder(...a),
+        accountReadStateRowsBuilder: (...a: unknown[]) => mockAccountReadStateRowsBuilder(...a),
       },
       communityMention: {
         markChannelMentionsReadBuilder: (...a: unknown[]) =>
@@ -84,7 +86,13 @@ describe("PUT /api/community/channels/[id]/read", () => {
       __builder: "markChannelMentionsRead",
     })
     mockAdvanceReadStateRevisionBuilder.mockReturnValue({ __builder: "advanceRevision" })
-    mockBatch.mockResolvedValue([[], [], [{ revision: 1 }]])
+    mockAccountReadStateRowsBuilder.mockReturnValue({ __builder: "readStateSnapshot" })
+    mockBatch.mockResolvedValue([[], [], [{ revision: 1 }], [{
+      channelId: "c1",
+      lastReadMessageId: "m_latest",
+      lastReadAt: "2026-07-05T10:00:00.000Z",
+      lastReadSeq: 9,
+    }]])
     mockBroadcastToUserSafe.mockResolvedValue(undefined)
   })
 
@@ -111,14 +119,15 @@ describe("PUT /api/community/channels/[id]/read", () => {
     expect(mockBatch).toHaveBeenCalledTimes(1)
     const batchArg = mockBatch.mock.calls[0]![0]
     expect(Array.isArray(batchArg)).toBe(true)
-    expect(batchArg).toHaveLength(3)
+    expect(batchArg).toHaveLength(4)
     expect(batchArg[0]).toEqual({ __builder: "markReadToMessage" })
     expect(batchArg[1]).toEqual({ __builder: "markChannelMentionsRead" })
     expect(batchArg[2]).toEqual({ __builder: "advanceRevision" })
+    expect(batchArg[3]).toEqual({ __builder: "readStateSnapshot" })
     expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("u1", expect.objectContaining({
       type: "community:read_state.advanced",
       revision: 1,
-      advances: [{
+      readStates: [{
         channelId: "c1",
         lastReadMessageId: "m_latest",
         lastReadAt: "2026-07-05T10:00:00.000Z",
@@ -176,7 +185,12 @@ describe("PUT /api/community/channels/[id]/read", () => {
     })
     mockBatch
       .mockRejectedValueOnce(new Error("SQLITE_BUSY: database is locked"))
-      .mockResolvedValueOnce([[], [], [{ revision: 2 }]])
+      .mockResolvedValueOnce([[], [], [{ revision: 2 }], [{
+        channelId: "c1",
+        lastReadMessageId: "m_latest",
+        lastReadAt: "2026-07-05T10:00:00.000Z",
+        lastReadSeq: 42,
+      }]])
 
     const res = await PUT(putReq(), { params: { id: "c1" } } as any)
 

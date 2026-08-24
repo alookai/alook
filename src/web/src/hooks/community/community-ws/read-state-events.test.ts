@@ -45,7 +45,7 @@ describe("same-account read-state WS events", () => {
     dispatchCommunityWsEvent({
       type: "community:read_state.advanced",
       revision: 3,
-      advances: [{
+      readStates: [{
         channelId: "dm1",
         lastReadMessageId: "m4",
         lastReadAt: "2026-08-24T00:00:04.000Z",
@@ -79,7 +79,7 @@ describe("same-account read-state WS events", () => {
     dispatchCommunityWsEvent({
       type: "community:read_state.advanced",
       revision: 5,
-      advances: [{
+      readStates: [{
         channelId: "c1",
         lastReadMessageId: "m5",
         lastReadAt: "2026-08-24T00:00:05.000Z",
@@ -104,7 +104,7 @@ describe("same-account read-state WS events", () => {
     const event = {
       type: "community:inbox.changed",
       revision: 8,
-      advances: [{
+      readStates: [{
         channelId: "c1",
         lastReadMessageId: "m8",
         lastReadAt: "2026-08-24T00:00:08.000Z",

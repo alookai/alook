@@ -16,7 +16,7 @@ export type AccountReadStateSnapshot = {
 
 export type ReadStateEnvelope = {
   revision: number
-  advances: AccountReadState[]
+  readStates: AccountReadState[]
   inboxChanged: true
 }
 
@@ -137,18 +137,9 @@ export function projectReadStateEnvelope(
   if (envelope.revision <= snapshot.revision) return "stale" as const
   if (envelope.revision !== snapshot.revision + 1) return "gap" as const
 
-  const byChannel = new Map(snapshot.readStates.map((row) => [row.channelId, row]))
-  const order = snapshot.readStates.map((row) => row.channelId)
-  for (const incoming of envelope.advances) {
-    const existing = byChannel.get(incoming.channelId)
-    if (!existing) order.push(incoming.channelId)
-    if (!existing || incoming.lastReadSeq > existing.lastReadSeq) {
-      byChannel.set(incoming.channelId, incoming)
-    }
-  }
   const next = {
     revision: envelope.revision,
-    readStates: order.map((channelId) => byChannel.get(channelId)!),
+    readStates: envelope.readStates,
   }
   const outcome = applyAccountReadStateSnapshot(queryClient, next)
   return outcome === "applied" ? "applied" as const : "stale" as const

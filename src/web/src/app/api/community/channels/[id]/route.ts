@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
-import { getDb } from "@/lib/db"
+import { getDb, getPrimaryDb } from "@/lib/db"
 import {
   queries,
   canManageServer,
@@ -161,7 +161,7 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 
-  const db = getDb(ctx.env.DB)
+  const db = getPrimaryDb(ctx.env.DB)
   const access = await requireChannelAccess(db, channelId, ctx.userId)
   if (!access.ok) return writeError(access.error, access.status)
   const channel = access.value.channel
@@ -196,6 +196,13 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
     serverId: channel.serverId,
   })
   if (!result.deleted) return writeError("channel not found", 404)
+
+  await Promise.all((result.readStateSnapshots ?? []).map((snapshot) => broadcastToUserSafe(snapshot.userId, {
+    type: WS_EVENTS.READ_STATE_ADVANCED,
+    revision: snapshot.revision,
+    readStates: snapshot.readStates,
+    inboxChanged: true,
+  })))
 
   if (result.mediaKeys.length > 0) {
     scheduleCommunityMediaCleanup(ctx.env.COMMUNITY_MEDIA, executionContext, {

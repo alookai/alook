@@ -45,19 +45,19 @@ describe("POST /api/community/users/me/inbox/dms/read-all", () => {
   })
 
   it("broadcasts the committed revision to every same-account socket", async () => {
-    const advances = [{
+    const readStates = [{
       channelId: "dm1",
       lastReadMessageId: "m8",
       lastReadAt: "2026-08-24T00:00:08.000Z",
       lastReadSeq: 8,
     }]
-    mocks.markAll.mockResolvedValue({ count: 3, revision: 8, advances })
+    mocks.markAll.mockResolvedValue({ count: 3, snapshot: { revision: 8, readStates } })
     const response = await POST(new Request("http://localhost", { method: "POST" }) as any)
     await expect(response.json()).resolves.toEqual({ ok: true, count: 3, revision: 8 })
     expect(mocks.broadcast).toHaveBeenCalledWith("u1", {
       type: "community:inbox.changed",
       revision: 8,
-      advances,
+      readStates,
       inboxChanged: true,
       reason: "read_all",
     })
@@ -65,7 +65,7 @@ describe("POST /api/community/users/me/inbox/dms/read-all", () => {
   })
 
   it("does not broadcast an empty read-all no-op", async () => {
-    mocks.markAll.mockResolvedValue({ count: 0, revision: null, advances: [] })
+    mocks.markAll.mockResolvedValue({ count: 0, snapshot: null })
     const response = await POST(new Request("http://localhost", { method: "POST" }) as any)
     await expect(response.json()).resolves.toEqual({ ok: true, count: 0, revision: null })
     expect(mocks.broadcast).not.toHaveBeenCalled()

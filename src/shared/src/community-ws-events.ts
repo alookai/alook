@@ -358,14 +358,19 @@ const communityUnreadBumpSchema = z.strictObject({
 
 const communityReadStateAdvanceSchema = z.strictObject({
   channelId: string,
-  lastReadMessageId: string,
+  lastReadMessageId: nullableString,
   lastReadAt: string,
   lastReadSeq: z.number().int().nonnegative(),
 })
 
 const readStateEnvelopeFields = {
   revision: z.number().int().positive(),
-  advances: z.array(communityReadStateAdvanceSchema).min(1),
+  // Exact-next frames carry a complete replacement, not a monotone delta.
+  // Destructive writers (forum/channel/server delete) can regress or remove a
+  // row, so a delta-only envelope cannot preserve the revision=snapshot
+  // invariant. Empty is valid when the mutation removed the account's final
+  // read-state row.
+  readStates: z.array(communityReadStateAdvanceSchema),
   inboxChanged: z.literal(true),
 }
 

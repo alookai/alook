@@ -102,6 +102,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const created = await createCommunityMessage({
     db,
     authorId: botId,
+    authorKind: "bot",
     target: { kind: "dm", channelId: dm.id, otherUserId: ownerId },
     body: { content: `${requesterLabel} wants to add me to a server. Approve?` },
     skipMentions: true,

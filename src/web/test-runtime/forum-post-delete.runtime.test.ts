@@ -206,6 +206,19 @@ describe("deleteForumPost real D1 batch", () => {
       last_read_seq: 2,
       last_read_at: t2,
     });
+    expect(result.readStateSnapshots).toHaveLength(2);
+    for (const snapshot of result.readStateSnapshots) {
+      expect(snapshot.revision).toBe(1);
+      expect(snapshot.readStates).toEqual([{
+        channelId: id.forum,
+        lastReadMessageId: id.siblingOpener,
+        lastReadSeq: 2,
+        lastReadAt: t2,
+      }]);
+    }
+    expect(new Set(result.readStateSnapshots.map((snapshot) => snapshot.userId))).toEqual(
+      new Set([id.owner, id.reader]),
+    );
     expect(await first("SELECT id FROM community_channel WHERE id = ?", id.siblingChild)).not.toBeNull();
     expect(await first("SELECT id FROM community_message WHERE id = ?", id.siblingOpener)).not.toBeNull();
   });
@@ -232,5 +245,129 @@ describe("deleteForumPost real D1 batch", () => {
       id.forum,
     )).toEqual({ message_count: 2, last_message_at: t2 });
     expect(await first("SELECT id FROM community_channel WHERE id = ?", id.child)).toBeNull();
+  });
+
+  it("re-enumerates when a new human enters the destructive scope before batch commit", async () => {
+    const { id, t2 } = await seedCanonicalPost();
+    const lateReader = `fpd_late_${crypto.randomUUID().replaceAll("-", "")}`;
+    createdUsers.push(lateReader);
+    await run(
+      "INSERT INTO user (id, email, name, discriminator) VALUES (?, ?, 'Late', ?)",
+      lateReader,
+      `${lateReader}@example.com`,
+      stamp4(lateReader),
+    );
+
+    const baseDb = createDb(runtimeEnv.DB);
+    let injectBeforeFirstBatch = true;
+    const racedDb = new Proxy(baseDb, {
+      get(target, property, receiver) {
+        if (property === "batch") {
+          return async (statements: unknown[]) => {
+            if (injectBeforeFirstBatch) {
+              injectBeforeFirstBatch = false;
+              await run(
+                `INSERT INTO community_read_state
+                  (id, user_id, channel_id, last_read_at, last_read_message_id, last_read_seq)
+                 VALUES (?, ?, ?, '2026-08-23T01:02:00.000Z', ?, 3)`,
+                `rs_late_${id.opener}`,
+                lateReader,
+                id.forum,
+                id.opener,
+              );
+            }
+            return target.batch(statements as never[]);
+          };
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+
+    const result = await queries.communityForumPostDelete.deleteForumPost(racedDb, {
+      openerId: id.opener,
+      openerSeq: 3,
+      forumChannelId: id.forum,
+      childChannelId: id.child,
+    });
+
+    expect(result.deleted).toBe(true);
+    expect(new Set(result.readStateSnapshots.map((snapshot) => snapshot.userId))).toEqual(
+      new Set([id.owner, id.reader, lateReader]),
+    );
+    expect(result.readStateSnapshots.find((snapshot) => snapshot.userId === lateReader)).toEqual({
+      userId: lateReader,
+      revision: 1,
+      readStates: [{
+        channelId: id.forum,
+        lastReadMessageId: id.siblingOpener,
+        lastReadAt: t2,
+        lastReadSeq: 2,
+      }],
+    });
+  });
+
+  it("returns the in-batch revision snapshot even when a later commit wins before result handling", async () => {
+    const { id, t2 } = await seedCanonicalPost();
+    const baseDb = createDb(runtimeEnv.DB);
+    const laterMessage = `fpd_later_${crypto.randomUUID().replaceAll("-", "")}`;
+    const laterTime = "2026-08-23T01:04:00.000Z";
+    let interleaveAfterFirstBatch = true;
+    const interleavedDb = new Proxy(baseDb, {
+      get(target, property, receiver) {
+        if (property === "batch") {
+          return async (statements: unknown[]) => {
+            const committedResults = await target.batch(statements as never[]);
+            if (interleaveAfterFirstBatch) {
+              interleaveAfterFirstBatch = false;
+              await runtimeEnv.DB.batch([
+                runtimeEnv.DB.prepare(
+                  `INSERT INTO community_message
+                    (id, author_id, content, created_at, channel_id, seq)
+                   VALUES (?, ?, 'later', ?, ?, 4)`,
+                ).bind(laterMessage, id.owner, laterTime, id.forum),
+                runtimeEnv.DB.prepare(
+                  `UPDATE community_read_state
+                   SET last_read_at = ?, last_read_message_id = ?, last_read_seq = 4
+                   WHERE user_id = ? AND channel_id = ?`,
+                ).bind(laterTime, laterMessage, id.owner, id.forum),
+                runtimeEnv.DB.prepare(
+                  `UPDATE community_read_state_revision
+                   SET revision = revision + 1 WHERE user_id = ?`,
+                ).bind(id.owner),
+              ]);
+            }
+            return committedResults;
+          };
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+
+    const result = await queries.communityForumPostDelete.deleteForumPost(interleavedDb, {
+      openerId: id.opener,
+      openerSeq: 3,
+      forumChannelId: id.forum,
+      childChannelId: id.child,
+    });
+
+    expect(result.readStateSnapshots.find((snapshot) => snapshot.userId === id.owner)).toEqual({
+      userId: id.owner,
+      revision: 1,
+      readStates: [{
+        channelId: id.forum,
+        lastReadMessageId: id.siblingOpener,
+        lastReadAt: t2,
+        lastReadSeq: 2,
+      }],
+    });
+    expect(await first<{ revision: number }>(
+      "SELECT revision FROM community_read_state_revision WHERE user_id = ?",
+      id.owner,
+    )).toEqual({ revision: 2 });
+    expect(await first<{ last_read_message_id: string; last_read_seq: number }>(
+      "SELECT last_read_message_id, last_read_seq FROM community_read_state WHERE user_id = ? AND channel_id = ?",
+      id.owner,
+      id.forum,
+    )).toEqual({ last_read_message_id: laterMessage, last_read_seq: 4 });
   });
 });

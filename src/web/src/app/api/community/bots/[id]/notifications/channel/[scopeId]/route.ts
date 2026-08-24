@@ -34,12 +34,13 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   if (!body.level || !(NOTIFICATION_LEVEL_VALUES as readonly string[]).includes(body.level)) {
     return writeError(`level must be one of: ${NOTIFICATION_LEVEL_VALUES.join(", ")}`, 400)
   }
-  const setting = await queries.communityNotificationSetting.setChannelLevel(auth.db, {
+  const result = await queries.communityNotificationSetting.setChannelLevel(auth.db, {
     userId: auth.botId,
     channelId: auth.channelId,
     level: body.level,
+    actorKind: "bot",
   })
-  return writeJSON(setting)
+  return writeJSON(result.setting)
 })
 
 export const DELETE = withAuth(async (_req, ctx) => {
@@ -48,6 +49,7 @@ export const DELETE = withAuth(async (_req, ctx) => {
   await queries.communityNotificationSetting.removeChannelOverride(auth.db, {
     userId: auth.botId,
     channelId: auth.channelId,
+    actorKind: "bot",
   })
   return new Response(null, { status: 204 })
 })

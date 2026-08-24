@@ -229,7 +229,7 @@ export const communityWsEventFixtures = {
   "community:read_state.advanced": {
     type: "community:read_state.advanced",
     revision: 1,
-    advances: [{
+    readStates: [{
       channelId: "channel-1",
       lastReadMessageId: "message-1",
       lastReadAt: "2026-01-01T00:00:00.000Z",
@@ -240,7 +240,7 @@ export const communityWsEventFixtures = {
   "community:inbox.changed": {
     type: "community:inbox.changed",
     revision: 2,
-    advances: [{
+    readStates: [{
       channelId: "channel-1",
       lastReadMessageId: "message-2",
       lastReadAt: "2026-01-01T00:00:01.000Z",

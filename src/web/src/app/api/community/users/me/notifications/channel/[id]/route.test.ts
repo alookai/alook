@@ -3,8 +3,12 @@ import { NextRequest } from "next/server"
 
 const requireMessageSurfaceAccess = vi.fn()
 const setChannelLevel = vi.fn()
+const broadcastToUserSafe = vi.fn()
 
-vi.mock("@/lib/db", () => ({ getDb: () => ({}) }))
+vi.mock("@/lib/db", () => ({ getPrimaryDb: () => ({}) }))
+vi.mock("@/lib/community/fanout", () => ({
+  broadcastToUserSafe: (...args: unknown[]) => broadcastToUserSafe(...args),
+}))
 vi.mock("@/lib/community/permissions", () => ({
   requireMessageSurfaceAccess: (...args: unknown[]) => requireMessageSurfaceAccess(...args),
 }))
@@ -30,7 +34,11 @@ describe("human DM notification settings", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     requireMessageSurfaceAccess.mockResolvedValue({ ok: true, value: { surface: "dm" } })
-    setChannelLevel.mockResolvedValue({ level: "mentions" })
+    setChannelLevel.mockResolvedValue({
+      setting: { level: "mentions" },
+      readStateSnapshot: { revision: 2, readStates: [] },
+    })
+    broadcastToUserSafe.mockResolvedValue(undefined)
   })
 
   it("uses the unified message-surface gate so DM block and participant checks apply", async () => {
@@ -42,7 +50,13 @@ describe("human DM notification settings", () => {
     expect(response.status).toBe(200)
     expect(requireMessageSurfaceAccess).toHaveBeenCalledWith({}, "dm_1", "user_1")
     expect(setChannelLevel).toHaveBeenCalledWith({}, {
-      userId: "user_1", channelId: "dm_1", level: "mentions",
+      userId: "user_1", channelId: "dm_1", level: "mentions", actorKind: "human",
+    })
+    expect(broadcastToUserSafe).toHaveBeenCalledWith("user_1", {
+      type: "community:read_state.advanced",
+      revision: 2,
+      readStates: [],
+      inboxChanged: true,
     })
   })
 })

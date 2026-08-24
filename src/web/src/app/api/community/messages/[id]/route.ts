@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
-import { getDb } from "@/lib/db"
+import { getDb, getPrimaryDb } from "@/lib/db"
 import { canManageServer, queries, MAX_MESSAGE_CONTENT_LENGTH, WS_EVENTS } from "@alook/shared"
 import {
   requireChannelMember,
@@ -134,7 +134,7 @@ export const DELETE = withCommunityActor(async (_req: NextRequest, ctx) => {
   const openerId = ctx.params?.id
   if (!openerId || openerId === REF_PLACEHOLDER_ID) return writeError("missing message id", 400)
 
-  const db = getDb(ctx.env.DB)
+  const db = getPrimaryDb(ctx.env.DB)
   const opener = await queries.communityMessage.getMessage(db, openerId)
   if (!opener) return writeError("message not found", 404)
 
@@ -183,6 +183,12 @@ export const DELETE = withCommunityActor(async (_req: NextRequest, ctx) => {
   })
 
   if (result.deleted) {
+    await Promise.all((result.readStateSnapshots ?? []).map((snapshot) => broadcastToUserSafe(snapshot.userId, {
+      type: WS_EVENTS.READ_STATE_ADVANCED,
+      revision: snapshot.revision,
+      readStates: snapshot.readStates,
+      inboxChanged: true,
+    })))
     if (result.mediaKeys.length > 0) {
       const { ctx: executionContext } = await getCloudflareContext({ async: true })
       scheduleForumPostMediaCleanup(ctx.env.COMMUNITY_MEDIA, executionContext, {

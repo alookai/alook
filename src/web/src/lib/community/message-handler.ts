@@ -10,13 +10,29 @@ import {
   isUniqueConstraintError,
   withD1Retry,
   reachIsParticipantSet,
+  WS_EVENTS,
 } from "@alook/shared"
 import type { MentionType } from "@alook/shared"
 import type { Database } from "@alook/shared"
 import { dispatchCommittedMessage } from "./message-dispatcher"
 import { attachmentThumbnailUrl, attachmentUrl } from "./storage"
+import { broadcastToUserSafe } from "./fanout"
 
 const log = createLogger({ service: "community-message-handler" })
+
+async function hardDeleteMessageAndBroadcastReadState(db: Database, messageId: string) {
+  const result = await queries.communityMessage.hardDeleteMessage(db, messageId)
+  const snapshot = result?.readStateSnapshot
+  if (snapshot) {
+    await broadcastToUserSafe(snapshot.userId, {
+      type: WS_EVENTS.READ_STATE_ADVANCED,
+      revision: snapshot.revision,
+      readStates: snapshot.readStates,
+      inboxChanged: true,
+    })
+  }
+  return result
+}
 
 export type MessageTarget =
   | { kind: "channel"; channelId: string; serverId: string }
@@ -151,6 +167,8 @@ export type CreateMessageResult = CreateMessageOk | CreateMessageError
 export async function createCommunityMessage(params: {
   db: Database
   authorId: string
+  /** Human writers mint/broadcast a full account read-state revision. */
+  authorKind: "human" | "bot"
   target: MessageTarget
   body: IncomingMessageBody
   /** Provenance tag included in diagnostics when a requested reply target is out of scope. */
@@ -242,6 +260,7 @@ export async function createCommunityMessage(params: {
   const {
     db,
     authorId,
+    authorKind,
     target,
     body,
     source,
@@ -341,6 +360,7 @@ export async function createCommunityMessage(params: {
 
   const baseMessageData: {
     authorId: string;
+    authorKind: "human" | "bot";
     content: string;
     channelId: string;
     replyToId: string | undefined;
@@ -350,6 +370,7 @@ export async function createCommunityMessage(params: {
     extraStatements?: unknown[];
   } = {
     authorId,
+    authorKind,
     content,
     channelId: target.channelId,
     replyToId,
@@ -428,7 +449,7 @@ export async function createCommunityMessage(params: {
       // recovering from), log both and re-throw the ORIGINAL reserve error —
       // it's the one the caller cares about; matches bots/route.ts:139's shape.
       try {
-        await queries.communityMessage.hardDeleteMessage(db, created.id)
+        await hardDeleteMessageAndBroadcastReadState(db, created.id)
       } catch (rollbackErr) {
         log.error("attachment_reserve_rollback_failed", {
           messageId: created.id,
@@ -459,7 +480,7 @@ export async function createCommunityMessage(params: {
         })
       }
       try {
-        await queries.communityMessage.hardDeleteMessage(db, created.id)
+        await hardDeleteMessageAndBroadcastReadState(db, created.id)
       } catch (rollbackErr) {
         log.error("attachment_partial_reserve_rollback_failed", {
           messageId: created.id,
@@ -670,12 +691,34 @@ export async function createCommunityMessage(params: {
 
   // Delivery is planned from committed D1 facts. The handler contributes only
   // structural outcomes that cannot be safely reconstructed later.
-  const doBroadcast = (): Promise<void> => dispatchCommittedMessage(db, row.id, {
-    ...(joinedParticipantUserIds.includes(authorId)
-      ? { memberAddedUserId: authorId }
-      : {}),
-    ...(skipChildChannelUpdate ? { suppressParentProjection: true } : {}),
-  })
+  const readStateSnapshot = (created as typeof created & {
+    readStateSnapshot?: {
+      revision: number
+      readStates: Array<{
+        channelId: string
+        lastReadMessageId: string | null
+        lastReadAt: string
+        lastReadSeq: number
+      }>
+    }
+  }).readStateSnapshot
+  const doBroadcast = async (): Promise<void> => {
+    const deliveries: Promise<void>[] = [dispatchCommittedMessage(db, row.id, {
+      ...(joinedParticipantUserIds.includes(authorId)
+        ? { memberAddedUserId: authorId }
+        : {}),
+      ...(skipChildChannelUpdate ? { suppressParentProjection: true } : {}),
+    })]
+    if (readStateSnapshot) {
+      deliveries.push(broadcastToUserSafe(authorId, {
+        type: WS_EVENTS.READ_STATE_ADVANCED,
+        revision: readStateSnapshot.revision,
+        readStates: readStateSnapshot.readStates,
+        inboxChanged: true,
+      }))
+    }
+    await Promise.all(deliveries)
+  }
 
   // Migration-backfill mode drops the real-time delivery shell entirely — the
   // structural core (row + thread + enroll + mention rows) already committed

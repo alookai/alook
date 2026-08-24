@@ -1,4 +1,4 @@
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, type SQL } from "drizzle-orm";
 import { communityReadState, communityReadStateRevision } from "../../community-schema";
 import type { Database } from "../../index";
 import {
@@ -104,13 +104,48 @@ export function advanceReadStateRevisionBuilder(db: Database, userId: string) {
     .returning({ revision: communityReadStateRevision.revision });
 }
 
-export async function getAccountReadStateSnapshot(db: Database, userId: string) {
-  const revisionQuery = db
+/**
+ * Bulk sibling used by destructive mutations that may replace/remove rows for
+ * several human accounts at once. `condition` is evaluated inside the same D1
+ * batch immediately before the destructive statement, so a raced loser does
+ * not mint revisions for a mutation it did not commit.
+ */
+export function advanceReadStateRevisionsForUsersBuilder(
+  db: Database,
+  userIds: string[],
+  condition: SQL<unknown>,
+) {
+  const ids = JSON.stringify([...new Set(userIds)]);
+  const selected = db
+    .select({
+      userId: sql<string>`CAST(value AS TEXT)`.as("user_id"),
+      revision: sql<number>`1`.as("revision"),
+    })
+    .from(sql`json_each(${ids})`)
+    .where(condition);
+  return db
+    .insert(communityReadStateRevision)
+    .select(selected)
+    .onConflictDoUpdate({
+      target: communityReadStateRevision.userId,
+      set: { revision: sql`${communityReadStateRevision.revision} + 1` },
+    })
+    .returning({
+      userId: communityReadStateRevision.userId,
+      revision: communityReadStateRevision.revision,
+    });
+}
+
+export function accountReadStateRevisionBuilder(db: Database, userId: string) {
+  return db
     .select({ revision: communityReadStateRevision.revision })
     .from(communityReadStateRevision)
     .where(eq(communityReadStateRevision.userId, userId))
     .limit(1);
-  const readStatesQuery = db
+}
+
+export function accountReadStateRowsBuilder(db: Database, userId: string) {
+  return db
     .select({
       channelId: communityReadState.channelId,
       lastReadMessageId: communityReadState.lastReadMessageId,
@@ -119,15 +154,62 @@ export async function getAccountReadStateSnapshot(db: Database, userId: string) 
     })
     .from(communityReadState)
     .where(eq(communityReadState.userId, userId));
+}
+
+export function accountReadStateRowsForUsersBuilder(db: Database, userIds: string[]) {
+  const ids = JSON.stringify([...new Set(userIds)]);
+  return db
+    .select({
+      userId: communityReadState.userId,
+      channelId: communityReadState.channelId,
+      lastReadMessageId: communityReadState.lastReadMessageId,
+      lastReadAt: communityReadState.lastReadAt,
+      lastReadSeq: communityReadState.lastReadSeq,
+    })
+    .from(communityReadState)
+    .where(sql`${communityReadState.userId} IN (SELECT CAST(value AS TEXT) FROM json_each(${ids}))`);
+}
+
+export type AccountReadState = {
+  channelId: string;
+  lastReadMessageId: string | null;
+  lastReadAt: string;
+  lastReadSeq: number;
+};
+
+export type AccountReadStateSnapshot = {
+  revision: number;
+  readStates: AccountReadState[];
+};
+
+export type AccountReadStateSnapshotByUser = AccountReadStateSnapshot & {
+  userId: string;
+};
+
+export function groupAccountReadStateSnapshots(
+  revisions: Array<{ userId: string; revision: number }>,
+  rows: Array<AccountReadState & { userId: string }>,
+): AccountReadStateSnapshotByUser[] {
+  const rowsByUser = new Map<string, AccountReadState[]>();
+  for (const { userId, ...row } of rows) {
+    const current = rowsByUser.get(userId) ?? [];
+    current.push(row);
+    rowsByUser.set(userId, current);
+  }
+  return revisions.map(({ userId, revision }) => ({
+    userId,
+    revision,
+    readStates: rowsByUser.get(userId) ?? [],
+  }));
+}
+
+export async function getAccountReadStateSnapshot(db: Database, userId: string) {
+  const revisionQuery = accountReadStateRevisionBuilder(db, userId);
+  const readStatesQuery = accountReadStateRowsBuilder(db, userId);
   const [revisionRows, readStates] = await db.batch([
     revisionQuery,
     readStatesQuery,
-  ]) as unknown as [Array<{ revision: number }>, Array<{
-    channelId: string;
-    lastReadMessageId: string | null;
-    lastReadAt: string;
-    lastReadSeq: number;
-  }>];
+  ]) as unknown as [Array<{ revision: number }>, AccountReadState[]];
   return { revision: revisionRows[0]?.revision ?? 0, readStates };
 }
 
@@ -140,8 +222,7 @@ export type ReadStateAdvance = {
 
 export type ReadAllResult = {
   count: number;
-  revision: number | null;
-  advances: ReadStateAdvance[];
+  snapshot: AccountReadStateSnapshot | null;
 };
 
 /**
@@ -194,11 +275,11 @@ export async function markAllServerChannelsRead(
   // id set parent-climbs, so a child under a private parent the viewer can't
   // see is now correctly EXCLUDED — mark-all no longer writes read-state rows
   // for channels behind an invisible private parent.
-  if (visibleChannelIds.length === 0) return { count: 0, revision: null, advances: [] };
+  if (visibleChannelIds.length === 0) return { count: 0, snapshot: null };
   const channelIds = visibleChannelIds;
 
   const latest = await getLatestMessagesByChannelIds(db, channelIds);
-  if (latest.length === 0) return { count: 0, revision: null, advances: [] };
+  if (latest.length === 0) return { count: 0, snapshot: null };
 
   const statements = latest.map((message) => markReadToMessageBuilder(db, {
     userId,
@@ -208,19 +289,16 @@ export async function markAllServerChannelsRead(
   const results = await db.batch([
     ...statements,
     advanceReadStateRevisionBuilder(db, userId),
+    accountReadStateRowsBuilder(db, userId),
   ] as any) as unknown as unknown[][];
-  const revision = (results.at(-1) as Array<{ revision: number }> | undefined)?.[0]?.revision;
+  const revision = (results.at(-2) as Array<{ revision: number }> | undefined)?.[0]?.revision;
   if (revision === undefined) throw new Error("read-state revision missing");
+  const readStates = results.at(-1) as AccountReadState[] | undefined;
+  if (!readStates) throw new Error("read-state snapshot missing");
 
   return {
     count: latest.length,
-    revision,
-    advances: latest.map((message) => ({
-      channelId: message.channelId,
-      lastReadMessageId: message.id,
-      lastReadAt: message.createdAt,
-      lastReadSeq: message.seq,
-    })),
+    snapshot: { revision, readStates },
   };
 }
 
@@ -237,7 +315,7 @@ export async function markAllDmsRead(
 ): Promise<ReadAllResult> {
   const dms = await listDMs(db, userId);
   const dmChannelIds = dms.map((d) => d.id);
-  if (dmChannelIds.length === 0) return { count: 0, revision: null, advances: [] };
+  if (dmChannelIds.length === 0) return { count: 0, snapshot: null };
   return markAllServerChannelsRead(db, userId, dmChannelIds);
 }
 

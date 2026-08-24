@@ -5,7 +5,15 @@ import {
   communityMessage,
   communityReadState,
 } from "../../community-schema";
+import { user } from "../../schema";
 import type { Database } from "../../index";
+import {
+  accountReadStateRowsForUsersBuilder,
+  advanceReadStateRevisionsForUsersBuilder,
+  groupAccountReadStateSnapshots,
+  type AccountReadState,
+  type AccountReadStateSnapshotByUser,
+} from "./read-state";
 
 export type DeleteForumPostInput = {
   openerId: string;
@@ -19,6 +27,7 @@ export type DeleteForumPostResult = {
   deleted: boolean;
   /** Captured in the same D1 batch before message/channel cascades ran. */
   mediaKeys: string[];
+  readStateSnapshots: AccountReadStateSnapshotByUser[];
 };
 
 /**
@@ -44,6 +53,14 @@ export type DeleteForumPostResult = {
 export async function deleteForumPost(
   db: Database,
   input: DeleteForumPostInput,
+): Promise<DeleteForumPostResult> {
+  return deleteForumPostAttempt(db, input, 0);
+}
+
+async function deleteForumPostAttempt(
+  db: Database,
+  input: DeleteForumPostInput,
+  attempt: number,
 ): Promise<DeleteForumPostResult> {
   const openerStillExists = sql<boolean>`EXISTS (
     SELECT 1 FROM community_message AS guarded_opener
@@ -82,6 +99,54 @@ export async function deleteForumPost(
     .from(communityMessage)
     .where(eq(communityMessage.channelId, input.childChannelId));
 
+  const impactedHumans = await db
+    .selectDistinct({ userId: communityReadState.userId })
+    .from(communityReadState)
+    .innerJoin(user, eq(user.id, communityReadState.userId))
+    .where(and(
+      eq(user.isBot, false),
+      or(
+        and(
+          eq(communityReadState.channelId, input.forumChannelId),
+          eq(communityReadState.lastReadMessageId, input.openerId),
+        ),
+        eq(communityReadState.channelId, input.childChannelId),
+      ),
+    ));
+  const impactedUserIds = impactedHumans.map((row) => row.userId);
+  const impactedIdsJson = JSON.stringify(impactedUserIds);
+  // The affected-human set is discovered before batch() because D1 cannot
+  // pipe one statement's RETURNING rows into later statements. Close that
+  // window optimistically inside the atomic batch: if a new human row enters
+  // either destructive scope, every mutation (including the root delete)
+  // becomes a no-op and this function re-enumerates. Rows for already-known
+  // humans may change safely: their account revision and final full snapshot
+  // still cover the result. Bot rows remain outside this account contract.
+  const impactedHumansStable = sql<boolean>`NOT EXISTS (
+    SELECT 1
+    FROM ${communityReadState} AS current_state
+    INNER JOIN ${user} AS current_user ON current_user.id = current_state.user_id
+    WHERE current_user."isBot" = 0
+      AND (
+        (current_state.channel_id = ${input.forumChannelId}
+          AND current_state.last_read_message_id = ${input.openerId})
+        OR current_state.channel_id = ${input.childChannelId}
+      )
+      AND current_state.user_id NOT IN (
+        SELECT CAST(value AS TEXT) FROM json_each(${impactedIdsJson})
+      )
+  )`;
+  const rowBelongsToKnownHumanOrBot = sql<boolean>`(
+    ${communityReadState.userId} IN (
+      SELECT CAST(value AS TEXT) FROM json_each(${impactedIdsJson})
+    )
+    OR EXISTS (
+      SELECT 1 FROM ${user} AS state_user
+      WHERE state_user.id = ${communityReadState.userId}
+        AND state_user."isBot" = 1
+    )
+  )`;
+
   const mediaSnapshot = db
     .select({
       r2Key: communityAttachment.r2Key,
@@ -109,6 +174,8 @@ export async function deleteForumPost(
       eq(communityReadState.lastReadMessageId, input.openerId),
       openerStillExists,
       priorMessageExists,
+      impactedHumansStable,
+      rowBelongsToKnownHumanOrBot,
     ));
 
   const removeEmptyReadStates = db
@@ -118,6 +185,8 @@ export async function deleteForumPost(
       eq(communityReadState.lastReadMessageId, input.openerId),
       openerStillExists,
       sql<boolean>`NOT (${priorMessageExists})`,
+      impactedHumansStable,
+      rowBelongsToKnownHumanOrBot,
     ));
 
   const removePendingAttachments = db
@@ -126,6 +195,7 @@ export async function deleteForumPost(
       isNull(communityAttachment.messageId),
       eq(communityAttachment.targetId, input.childChannelId),
       openerStillExists,
+      impactedHumansStable,
     ));
 
   const updateForum = db
@@ -146,6 +216,7 @@ export async function deleteForumPost(
     .where(and(
       eq(communityChannel.id, input.forumChannelId),
       openerStillExists,
+      impactedHumansStable,
     ));
 
   const deleteOpener = db
@@ -153,24 +224,63 @@ export async function deleteForumPost(
     .where(and(
       eq(communityMessage.id, input.openerId),
       eq(communityMessage.channelId, input.forumChannelId),
+      impactedHumansStable,
     ))
     .returning({ id: communityMessage.id });
 
+  const revisionIndex = 5;
+  const deleteIndex = impactedUserIds.length > 0 ? 6 : 5;
+  const snapshotIndex = impactedUserIds.length > 0 ? 7 : -1;
   const results = (await db.batch([
     mediaSnapshot,
     repairReadStates,
     removeEmptyReadStates,
     removePendingAttachments,
     updateForum,
+    ...(impactedUserIds.length > 0
+      ? [advanceReadStateRevisionsForUsersBuilder(
+          db,
+          impactedUserIds,
+          and(openerStillExists, impactedHumansStable)!,
+        )]
+      : []),
     deleteOpener,
+    ...(impactedUserIds.length > 0
+      ? [accountReadStateRowsForUsersBuilder(db, impactedUserIds)]
+      : []),
   ] as any)) as unknown[];
   const mediaRows = results[0] as Array<{ r2Key: string; thumbnailR2Key: string | null }>;
-  const deletedRows = results[5] as Array<{ id: string }>;
+  const deletedRows = results[deleteIndex] as Array<{ id: string }>;
+  const revisions = impactedUserIds.length > 0
+    ? results[revisionIndex] as Array<{ userId: string; revision: number }>
+    : [];
+  const readStateRows = impactedUserIds.length > 0
+    ? results[snapshotIndex] as Array<AccountReadState & { userId: string }>
+    : [];
+
+  const deleted = deletedRows.length > 0;
+  if (!deleted) {
+    const roots = await db
+      .select({ id: communityMessage.id })
+      .from(communityMessage)
+      .where(and(
+        eq(communityMessage.id, input.openerId),
+        eq(communityMessage.channelId, input.forumChannelId),
+      ))
+      .limit(1);
+    if (roots.length > 0) {
+      if (attempt >= 4) throw new Error("forum read-state audience did not stabilize");
+      return deleteForumPostAttempt(db, input, attempt + 1);
+    }
+  }
 
   return {
-    deleted: deletedRows.length > 0,
-    mediaKeys: deletedRows.length > 0
+    deleted,
+    mediaKeys: deleted
       ? mediaRows.flatMap((row) => [row.r2Key, row.thumbnailR2Key].filter((key): key is string => !!key))
+      : [],
+    readStateSnapshots: deleted
+      ? groupAccountReadStateSnapshots(revisions, readStateRows)
       : [],
   };
 }

@@ -21,7 +21,7 @@ const mockFanOutToChannel = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
 const mockScheduleMediaCleanup = vi.fn()
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})), getPrimaryDb: vi.fn(() => ({})) }))
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")

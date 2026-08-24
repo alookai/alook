@@ -3,11 +3,13 @@ import {
   communityMessage,
   communityChannel,
   communityReadState,
+  communityReadStateRevision,
   communityMessageSeq,
   communityChannelMember,
   communityMessageTag,
 } from "../../community-schema";
 import { user } from "../../schema";
+import { nanoid } from "nanoid";
 import type { Database } from "../../index";
 import { createLogger } from "../../../logger";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
@@ -90,6 +92,14 @@ function safeParseEmbeds(raw: string | null, messageId: string): unknown | undef
 export type CreateMessageData = {
   id?: string;
   authorId: string;
+  /**
+   * Human authors participate in the account read-state revision contract;
+   * bots intentionally keep their single-machine cursor semantics. The
+   * unified Web funnel passes this explicitly. Low-level/system callers
+   * default to bot so historical bot card writers cannot accidentally mint
+   * human realtime state.
+   */
+  authorKind?: "human" | "bot";
   content: string;
   channelId: string;
   type?: string;
@@ -168,6 +178,8 @@ export async function createMessage(
 // is identical to having this inlined.
 async function insertMessageRow(db: Database, data: CreateMessageData, seq: number) {
   const now = new Date().toISOString();
+  const messageId = data.id ?? nanoid();
+  const authorIsHuman = data.authorKind === "human";
 
   // Pass `createdAt: now` explicitly so `msg.createdAt` matches the exact
   // string we write to `channel.lastMessageAt` and to the author's read-state
@@ -181,7 +193,7 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
       // Drizzle's `$defaultFn` on `communityMessage.id` only fires when the
       // field is absent from `.values(...)`; passing `id` explicitly when the
       // caller supplies one keeps the pre-minted path a one-line difference.
-      ...(data.id !== undefined ? { id: data.id } : {}),
+      id: messageId,
       authorId: data.authorId,
       content: data.content,
       channelId: data.channelId,
@@ -210,34 +222,64 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
   // Caller-supplied extra statements (e.g. the bot sent-activity rollup bump)
   // ride this same batch — appended AFTER insert+scope so the message row is
   // index 0. They share the batch's all-or-nothing commit.
-  const batchStatements = [insertMsg, scopeUpdate, ...(data.extraStatements ?? [])];
-  const results = (await db.batch(batchStatements as any)) as any[];
-  const msg = (results[0] as InsertedMessage[])[0]!;
-
-  // Author read-watermark: advance the sender's own read-state to this
-  // message so `listUnreadChannels` (predicate: lastMessageAt > lastReadAt)
-  // never surfaces the channel the author just sent in. Kept inline (NOT
-  // folded into `markReadToMessageBuilder`, which is deliberately "humans
-  // only" — see its comment) because this path must write `lastReadSeq` per
-  // design §4 — every author (bot or human) must have its own `lastReadSeq`
-  // stay in lockstep with its sends, or the committed-message planner sees a
-  // stale wake cursor. Runs as a separate await because it needs `msg.id`.
-  await db
+  const authorWatermark = db
     .insert(communityReadState)
     .values({
       userId: data.authorId,
       channelId: data.channelId,
       lastReadAt: now,
-      lastReadMessageId: msg.id,
+      lastReadMessageId: messageId,
       lastReadSeq: seq,
     })
     .onConflictDoUpdate({
       target: [communityReadState.userId, communityReadState.channelId],
-      set: { lastReadAt: now, lastReadMessageId: msg.id, lastReadSeq: seq },
+      set: { lastReadAt: now, lastReadMessageId: messageId, lastReadSeq: seq },
       setWhere: sql`${communityReadState.lastReadSeq} < ${seq}`,
     });
+  const commonStatements = [
+    insertMsg,
+    scopeUpdate,
+    ...(data.extraStatements ?? []),
+    authorWatermark,
+  ];
+  if (!authorIsHuman) {
+    const results = (await db.batch(commonStatements as any)) as any[];
+    return (results[0] as InsertedMessage[])[0]!;
+  }
 
-  return msg;
+  const humanRevision = db
+    .insert(communityReadStateRevision)
+    .values({ userId: data.authorId, revision: 1 })
+    .onConflictDoUpdate({
+      target: communityReadStateRevision.userId,
+      set: { revision: sql`${communityReadStateRevision.revision} + 1` },
+    })
+    .returning({ revision: communityReadStateRevision.revision });
+  const humanSnapshot = db
+    .select({
+      channelId: communityReadState.channelId,
+      lastReadMessageId: communityReadState.lastReadMessageId,
+      lastReadAt: communityReadState.lastReadAt,
+      lastReadSeq: communityReadState.lastReadSeq,
+    })
+    .from(communityReadState)
+    .where(eq(communityReadState.userId, data.authorId));
+  const results = (await db.batch([
+    ...commonStatements,
+    humanRevision,
+    humanSnapshot,
+  ] as any)) as any[];
+  const msg = (results[0] as InsertedMessage[])[0]!;
+  const revisionRows = results.at(-2) as Array<{ revision: number }> | undefined;
+  const readStates = results.at(-1) as Array<{
+    channelId: string;
+    lastReadMessageId: string | null;
+    lastReadAt: string;
+    lastReadSeq: number;
+  }> | undefined;
+  const revision = revisionRows?.[0]?.revision;
+  if (revision === undefined || !readStates) throw new Error("human author read-state snapshot missing");
+  return { ...msg, readStateSnapshot: { revision, readStates } };
 }
 
 /**
@@ -271,12 +313,13 @@ export async function hardDeleteMessage(db: Database, messageId: string) {
       authorId: communityMessage.authorId,
       seq: communityMessage.seq,
       createdAt: communityMessage.createdAt,
+      authorIsBot: sql<boolean>`(SELECT ${user.isBot} FROM ${user} WHERE ${user.id} = ${communityMessage.authorId})`,
     })
     .from(communityMessage)
     .where(eq(communityMessage.id, messageId))
     .limit(1);
   const msg = msgRows[0];
-  if (!msg) return;
+  if (!msg) return null;
 
   // Prior-in-scope message for the read-state revert. Pre-fetched because
   // Drizzle's D1 batch driver serializes each statement independently and
@@ -331,7 +374,44 @@ export async function hardDeleteMessage(db: Database, messageId: string) {
         .where(readStateWhere)
     : db.delete(communityReadState).where(readStateWhere);
 
-  await db.batch([deleteMsg, scopeUpdate, readStateStmt] as any);
+  if (msg.authorIsBot !== false) {
+    await db.batch([deleteMsg, scopeUpdate, readStateStmt] as any);
+    return { readStateSnapshot: null };
+  }
+
+  const humanRevision = db
+    .insert(communityReadStateRevision)
+    .values({ userId: msg.authorId, revision: 1 })
+    .onConflictDoUpdate({
+      target: communityReadStateRevision.userId,
+      set: { revision: sql`${communityReadStateRevision.revision} + 1` },
+    })
+    .returning({ revision: communityReadStateRevision.revision });
+  const humanSnapshot = db
+    .select({
+      channelId: communityReadState.channelId,
+      lastReadMessageId: communityReadState.lastReadMessageId,
+      lastReadAt: communityReadState.lastReadAt,
+      lastReadSeq: communityReadState.lastReadSeq,
+    })
+    .from(communityReadState)
+    .where(eq(communityReadState.userId, msg.authorId));
+  const results = await db.batch([
+    deleteMsg,
+    scopeUpdate,
+    readStateStmt,
+    humanRevision,
+    humanSnapshot,
+  ] as any) as unknown[];
+  const revision = (results.at(-2) as Array<{ revision: number }> | undefined)?.[0]?.revision;
+  const readStates = results.at(-1) as Array<{
+    channelId: string;
+    lastReadMessageId: string | null;
+    lastReadAt: string;
+    lastReadSeq: number;
+  }> | undefined;
+  if (revision === undefined || !readStates) throw new Error("human rollback read-state snapshot missing");
+  return { readStateSnapshot: { userId: msg.authorId, revision, readStates } };
 }
 
 // Shared select projection for the three list-messages paths (`listMessages`,

@@ -104,10 +104,16 @@ describe("Community browser event runtime contract", () => {
     expect(decodeCommunityBrowserEvent({
       type: "community:inbox.changed",
       revision: 5,
-      advances: [],
       inboxChanged: true,
       reason: "read_all",
     })).toMatchObject({ reason: "invalid-payload" })
+    expect(decodeCommunityBrowserEvent({
+      type: "community:inbox.changed",
+      revision: 5,
+      readStates: [],
+      inboxChanged: true,
+      reason: "read_all",
+    })).toMatchObject({ ok: true })
   })
 
   it("fails closed for family, removed-version, shape, and strict-key errors", () => {

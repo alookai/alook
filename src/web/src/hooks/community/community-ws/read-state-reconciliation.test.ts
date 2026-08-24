@@ -21,7 +21,7 @@ describe("account read-state reconciliation", () => {
     apiFetch.mockReset()
   })
 
-  it("applies only the exact next revision and keeps the maximum seq", () => {
+  it("applies an exact-next complete replacement, including a legitimate regression", () => {
     const snapshot: AccountReadStateSnapshot = {
       revision: 4,
       readStates: [{
@@ -40,7 +40,7 @@ describe("account read-state reconciliation", () => {
 
     expect(projectReadStateEnvelope(queryClient, {
       revision: 5,
-      advances: [{
+      readStates: [{
         channelId: "c1",
         lastReadMessageId: "m7",
         lastReadAt: "2026-08-24T00:00:07.000Z",
@@ -50,10 +50,18 @@ describe("account read-state reconciliation", () => {
     })).toBe("applied")
     expect(queryClient.getQueryData<AccountReadStateSnapshot>(
       communityKeys.accountReadStateSnapshot(),
-    )).toEqual({ ...snapshot, revision: 5 })
+    )).toEqual({
+      revision: 5,
+      readStates: [{
+        channelId: "c1",
+        lastReadMessageId: "m7",
+        lastReadAt: "2026-08-24T00:00:07.000Z",
+        lastReadSeq: 7,
+      }],
+    })
     expect(queryClient.getQueryData(communityKeys.channelReadStateSnapshot("c1"))).toMatchObject({
-      lastReadMessageId: "m9",
-      lastReadSeq: 9,
+      lastReadMessageId: "m7",
+      lastReadSeq: 7,
     })
   })
 
@@ -70,18 +78,18 @@ describe("account read-state reconciliation", () => {
     }
     expect(projectReadStateEnvelope(queryClient, {
       revision: 6,
-      advances: [advance],
+      readStates: [advance],
       inboxChanged: true,
     })).toBe("stale")
     expect(projectReadStateEnvelope(queryClient, {
       revision: 8,
-      advances: [advance],
+      readStates: [advance],
       inboxChanged: true,
     })).toBe("gap")
     queryClient.removeQueries({ queryKey: communityKeys.accountReadStateSnapshot() })
     expect(projectReadStateEnvelope(queryClient, {
       revision: 1,
-      advances: [advance],
+      readStates: [advance],
       inboxChanged: true,
     })).toBe("gap")
   })
@@ -96,7 +104,7 @@ describe("account read-state reconciliation", () => {
 
     expect(projectReadStateEnvelope(queryClient, {
       revision: 3,
-      advances: [{
+      readStates: [{
         channelId: "c1",
         lastReadMessageId: "m4",
         lastReadAt: "2026-08-24T00:00:04.000Z",
@@ -176,7 +184,7 @@ describe("account read-state reconciliation", () => {
     const reconciliation = reconcileAccountReadState(queryClient, { invalidateSurfaces: false })
     expect(projectReadStateEnvelope(queryClient, {
       revision: 7,
-      advances: [{
+      readStates: [{
         channelId: "c1",
         lastReadMessageId: "m7",
         lastReadAt: "2026-08-24T00:00:07.000Z",

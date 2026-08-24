@@ -63,13 +63,13 @@ describe("POST /api/community/users/me/inbox/unreads/read-all", () => {
   it("returns the count of NON-EMPTY channels marked read (invariant: empty channels excluded)", async () => {
     // Post-invariant: count == channels that actually received an aligned
     // write. Empty channels are skipped, so this is <= reachable-channel count.
-    const advances = [{
+    const readStates = [{
       channelId: "c1",
       lastReadMessageId: "m3",
       lastReadAt: "2026-08-24T00:00:03.000Z",
       lastReadSeq: 3,
     }]
-    mockMarkAllServerChannelsRead.mockResolvedValue({ count: 7, revision: 3, advances })
+    mockMarkAllServerChannelsRead.mockResolvedValue({ count: 7, snapshot: { revision: 3, readStates } })
     const res = await POST(new NextRequest("http://localhost/api/community/users/me/inbox/unreads/read-all", { method: "POST" }))
     const body = await res.json()
     expect(res.status).toBe(200)
@@ -83,7 +83,7 @@ describe("POST /api/community/users/me/inbox/unreads/read-all", () => {
     expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("u1", {
       type: "community:inbox.changed",
       revision: 3,
-      advances,
+      readStates,
       inboxChanged: true,
       reason: "read_all",
     })
@@ -91,7 +91,7 @@ describe("POST /api/community/users/me/inbox/unreads/read-all", () => {
   })
 
   it("returns count 0 when every channel is empty (nothing to write)", async () => {
-    mockMarkAllServerChannelsRead.mockResolvedValue({ count: 0, revision: null, advances: [] })
+    mockMarkAllServerChannelsRead.mockResolvedValue({ count: 0, snapshot: null })
     const res = await POST(new NextRequest("http://localhost/api/community/users/me/inbox/unreads/read-all", { method: "POST" }))
     const body = await res.json()
     expect(res.status).toBe(200)
