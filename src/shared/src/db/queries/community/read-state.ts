@@ -1,5 +1,6 @@
-import { eq, and, gte, notExists, or, sql, type SQL } from "drizzle-orm";
+import { eq, and, exists, gte, notExists, or, sql, type SQL } from "drizzle-orm";
 import {
+  communityMessage,
   communityReadState,
   communityReadStateRevision,
 } from "../../community-schema";
@@ -45,9 +46,10 @@ function buildTargetFilter(data: { userId: string; channelId: string }) {
 
 export function readStateAdvancesCondition(
   db: Database,
-  data: { userId: string; channelId: string; targetSeq: number }
+  data: { userId: string; channelId: string; targetSeq: number },
+  guard?: SQL<unknown>,
 ): SQL<unknown> {
-  return notExists(
+  const advances = notExists(
     db
       .select({ one: sql<number>`1` })
       .from(communityReadState)
@@ -58,6 +60,32 @@ export function readStateAdvancesCondition(
           gte(communityReadState.lastReadSeq, data.targetSeq)
         )
       )
+  );
+  return guard ? and(guard, advances)! : advances;
+}
+
+export type CanonicalReadTarget = {
+  id: string;
+  channelId: string;
+  createdAt: string;
+  seq: number;
+};
+
+/** Re-check an exact pre-read target inside the mutation transaction. */
+export function canonicalReadTargetExistsCondition(
+  db: Database,
+  target: CanonicalReadTarget,
+): SQL<unknown> {
+  return exists(
+    db
+      .select({ one: sql<number>`1` })
+      .from(communityMessage)
+      .where(and(
+        eq(communityMessage.id, target.id),
+        eq(communityMessage.channelId, target.channelId),
+        eq(communityMessage.createdAt, target.createdAt),
+        eq(communityMessage.seq, target.seq),
+      )),
   );
 }
 
@@ -112,6 +140,52 @@ export function markReadToMessageBuilder(
         lastReadSeq: message.seq,
       },
       setWhere: sql`${communityReadState.lastReadSeq} < ${message.seq}`,
+    });
+}
+
+/**
+ * Route-facing guarded sibling. The candidate row is selected from the exact
+ * canonical message inside the same D1 batch, so a target deleted after the
+ * route's pre-read cannot be written back as an orphan cursor.
+ */
+export function markReadToExistingMessageBuilder(
+  db: Database,
+  data: {
+    userId: string;
+    channelId: string;
+    message: CanonicalReadTarget;
+  },
+) {
+  const { userId, channelId, message } = data;
+  const selected = db
+    .select({
+      id: sql<string>`lower(hex(randomblob(16)))`.as("id"),
+      userId: sql<string>`${userId}`.as("user_id"),
+      channelId: communityMessage.channelId,
+      lastReadAt: communityMessage.createdAt,
+      lastReadMessageId: communityMessage.id,
+      lastReadSeq: communityMessage.seq,
+    })
+    .from(communityMessage)
+    .where(and(
+      eq(communityMessage.id, message.id),
+      eq(communityMessage.channelId, channelId),
+      eq(communityMessage.createdAt, message.createdAt),
+      eq(communityMessage.seq, message.seq),
+    ))
+    .limit(1);
+
+  return db
+    .insert(communityReadState)
+    .select(selected)
+    .onConflictDoUpdate({
+      target: [communityReadState.userId, communityReadState.channelId],
+      set: {
+        lastReadAt: sql`excluded.last_read_at`,
+        lastReadMessageId: sql`excluded.last_read_message_id`,
+        lastReadSeq: sql`excluded.last_read_seq`,
+      },
+      setWhere: sql`${communityReadState.lastReadSeq} < excluded.last_read_seq`,
     });
 }
 

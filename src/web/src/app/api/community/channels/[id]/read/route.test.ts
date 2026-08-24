@@ -11,7 +11,8 @@ const mockGetDM = vi.fn()
 const mockGetDMPeer = vi.fn()
 const mockIsBlocked = vi.fn()
 const mockGetMessage = vi.fn()
-const mockMarkReadToMessageBuilder = vi.fn()
+const mockCanonicalReadTargetExistsCondition = vi.fn()
+const mockMarkReadToExistingMessageBuilder = vi.fn()
 const mockReadStateAdvancesCondition = vi.fn()
 const mockAdvanceReadStateRevisionWhenAnyBuilder = vi.fn()
 const mockAccountReadStateRevisionBuilder = vi.fn()
@@ -45,7 +46,10 @@ vi.mock("@alook/shared", async () => {
         getMessage: (...args: unknown[]) => mockGetMessage(...args),
       },
       communityReadState: {
-        markReadToMessageBuilder: (...args: unknown[]) => mockMarkReadToMessageBuilder(...args),
+        canonicalReadTargetExistsCondition: (...args: unknown[]) =>
+          mockCanonicalReadTargetExistsCondition(...args),
+        markReadToExistingMessageBuilder: (...args: unknown[]) =>
+          mockMarkReadToExistingMessageBuilder(...args),
         readStateAdvancesCondition: (...args: unknown[]) => mockReadStateAdvancesCondition(...args),
         advanceReadStateRevisionWhenAnyBuilder: (...args: unknown[]) =>
           mockAdvanceReadStateRevisionWhenAnyBuilder(...args),
@@ -100,7 +104,8 @@ function allow(type = "text") {
 describe("PUT /api/community/channels/[id]/read", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockMarkReadToMessageBuilder.mockReturnValue({ __builder: "mark" })
+    mockCanonicalReadTargetExistsCondition.mockReturnValue({ __condition: "target" })
+    mockMarkReadToExistingMessageBuilder.mockReturnValue({ __builder: "mark" })
     mockMarkChannelMentionsReadBuilder.mockReturnValue({ __builder: "mentions" })
     mockReadStateAdvancesCondition.mockReturnValue({ __condition: "pointer" })
     mockUnreadChannelMentionThroughSeqCondition.mockReturnValue({ __condition: "mention" })
@@ -128,7 +133,22 @@ describe("PUT /api/community/channels/[id]/read", () => {
 
       expect(res.status).toBe(200)
       expect(mockGetMessage).toHaveBeenCalledWith(expect.anything(), "m42")
-      expect(mockMarkReadToMessageBuilder).toHaveBeenCalledWith(expect.anything(), {
+      const targetGuard = { __condition: "target" }
+      expect(mockCanonicalReadTargetExistsCondition).toHaveBeenCalledWith(expect.anything(), {
+        id: "m42",
+        channelId: "c1",
+        createdAt: "2026-08-24T01:02:03.000Z",
+        seq: 42,
+      })
+      expect(mockReadStateAdvancesCondition).toHaveBeenCalledWith(expect.anything(), {
+        userId: "u1",
+        channelId: "c1",
+        targetSeq: 42,
+      }, targetGuard)
+      expect(mockUnreadChannelMentionThroughSeqCondition).toHaveBeenCalledWith(
+        expect.anything(), "u1", "c1", 42, targetGuard,
+      )
+      expect(mockMarkReadToExistingMessageBuilder).toHaveBeenCalledWith(expect.anything(), {
         userId: "u1",
         channelId: "c1",
         message: {
@@ -138,6 +158,9 @@ describe("PUT /api/community/channels/[id]/read", () => {
           seq: 42,
         },
       })
+      expect(mockMarkChannelMentionsReadBuilder).toHaveBeenCalledWith(
+        expect.anything(), "u1", "c1", 42, targetGuard,
+      )
       expect(mockBatch.mock.calls[0]![0]).toEqual([
         { __builder: "revision" },
         { __builder: "mark" },
@@ -157,6 +180,18 @@ describe("PUT /api/community/channels/[id]/read", () => {
     const res = await PUT(putReq({ lastReadMessageId: "m42" }), { params: { id: "c1" } } as any)
 
     await expect(res.json()).resolves.toEqual({ changed: false, targetSeq: 42, revision: 9 })
+    expect(mockBroadcastToUserSafe).not.toHaveBeenCalled()
+  })
+
+  it("returns no effect and emits no hint when the in-batch target guard loses a delete race", async () => {
+    allow()
+    mockGetMessage.mockResolvedValue({ id: "m42", channelId: "c1", createdAt: "t", seq: 42 })
+    mockBatch.mockResolvedValue([[], [], [], [{ revision: 9 }]])
+
+    const res = await PUT(putReq({ lastReadMessageId: "m42" }), { params: { id: "c1" } } as any)
+
+    await expect(res.json()).resolves.toEqual({ changed: false, targetSeq: 42, revision: 9 })
+    expect(mockCanonicalReadTargetExistsCondition).toHaveBeenCalledOnce()
     expect(mockBroadcastToUserSafe).not.toHaveBeenCalled()
   })
 

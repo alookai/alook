@@ -217,7 +217,8 @@ export function markChannelMentionsReadBuilder(
   db: Database,
   userId: string,
   channelId: string,
-  targetSeq?: number
+  targetSeq?: number,
+  guard?: SQL<unknown>,
 ) {
   const matchingMentionIds = db
     .select({ id: communityMention.id })
@@ -235,16 +236,20 @@ export function markChannelMentionsReadBuilder(
   return db
     .update(communityMention)
     .set({ read: 1 })
-    .where(inArray(communityMention.id, matchingMentionIds));
+    .where(and(
+      inArray(communityMention.id, matchingMentionIds),
+      ...(guard ? [guard] : []),
+    ));
 }
 
 export function unreadChannelMentionThroughSeqCondition(
   db: Database,
   userId: string,
   channelId: string,
-  targetSeq: number
+  targetSeq: number,
+  guard?: SQL<unknown>,
 ): SQL<unknown> {
-  return exists(
+  const unreadExists = exists(
     db
       .select({ one: sql<number>`1` })
       .from(communityMention)
@@ -261,6 +266,7 @@ export function unreadChannelMentionThroughSeqCondition(
         )
       )
   );
+  return guard ? and(guard, unreadExists)! : unreadExists;
 }
 
 export function unreadMessageMentionCondition(

@@ -70,16 +70,21 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   // Fire both writes in one D1 batch so partial failure can't leave the
   // inbox inconsistent (mark-read succeeded but the mention clear didn't, or
   // vice versa). D1 batches are atomic per SQLite guarantees.
+  const canonicalTargetExists = queries.communityReadState.canonicalReadTargetExistsCondition(
+    db,
+    target,
+  )
   const pointerAdvances = queries.communityReadState.readStateAdvancesCondition(db, {
     userId: ctx.userId,
     channelId,
     targetSeq: target.seq,
-  })
+  }, canonicalTargetExists)
   const eligibleMentionChanges = queries.communityMention.unreadChannelMentionThroughSeqCondition(
     db,
     ctx.userId,
     channelId,
     target.seq,
+    canonicalTargetExists,
   )
   const results = await withD1Retry(
     () => db.batch([
@@ -88,7 +93,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
         ctx.userId,
         [pointerAdvances, eligibleMentionChanges],
       ),
-      queries.communityReadState.markReadToMessageBuilder(db, {
+      queries.communityReadState.markReadToExistingMessageBuilder(db, {
         userId: ctx.userId,
         channelId,
         message: target,
@@ -98,6 +103,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
         ctx.userId,
         channelId,
         target.seq,
+        canonicalTargetExists,
       ),
       queries.communityReadState.accountReadStateRevisionBuilder(db, ctx.userId),
     ]),

@@ -334,6 +334,94 @@ describe("deleteForumPost real D1 batch", () => {
     expect(await first("SELECT id FROM community_message WHERE id = ?", id.siblingOpener)).not.toBeNull();
   });
 
+  it("makes a delete-first/read-second race a generic no-op without reviving an orphan cursor", async () => {
+    const { id } = await seedCanonicalPost();
+    await run(
+      `INSERT INTO community_mention (id, message_id, user_id, kind, read)
+       VALUES (?, ?, ?, 'mention', 0)`,
+      `mention_prior_${id.opener}`,
+      id.prior,
+      id.owner,
+    );
+    const target = await first<{
+      id: string;
+      channelId: string;
+      createdAt: string;
+      seq: number;
+    }>(
+      `SELECT id, channel_id AS channelId, created_at AS createdAt, seq
+       FROM community_message WHERE id = ?`,
+      id.opener,
+    );
+    expect(target).not.toBeNull();
+
+    const db = createDb(runtimeEnv.DB);
+    await expect(queries.communityForumPostDelete.deleteForumPost(db, {
+      openerId: id.opener,
+      openerSeq: 3,
+      forumChannelId: id.forum,
+      childChannelId: id.child,
+    })).resolves.toMatchObject({ deleted: true });
+
+    const beforeSnapshot = await queries.communityReadState.getAccountReadStateSnapshot(db, id.owner);
+    const beforeMention = await first<{ read: number }>(
+      "SELECT read FROM community_mention WHERE message_id = ? AND user_id = ?",
+      id.prior,
+      id.owner,
+    );
+    const targetExists = queries.communityReadState.canonicalReadTargetExistsCondition(db, target!);
+    const results = await db.batch([
+      queries.communityReadState.advanceReadStateRevisionWhenAnyBuilder(
+        db,
+        id.owner,
+        [
+          queries.communityReadState.readStateAdvancesCondition(db, {
+            userId: id.owner,
+            channelId: id.forum,
+            targetSeq: target!.seq,
+          }, targetExists),
+          queries.communityMention.unreadChannelMentionThroughSeqCondition(
+            db,
+            id.owner,
+            id.forum,
+            target!.seq,
+            targetExists,
+          ),
+        ],
+      ),
+      queries.communityReadState.markReadToExistingMessageBuilder(db, {
+        userId: id.owner,
+        channelId: id.forum,
+        message: target!,
+      }),
+      queries.communityMention.markChannelMentionsReadBuilder(
+        db,
+        id.owner,
+        id.forum,
+        target!.seq,
+        targetExists,
+      ),
+      queries.communityReadState.accountReadStateRevisionBuilder(db, id.owner),
+    ] as any) as unknown[];
+
+    expect(results[0]).toEqual([]);
+    await expect(queries.communityReadState.getAccountReadStateSnapshot(db, id.owner))
+      .resolves.toEqual(beforeSnapshot);
+    expect(await first<{ read: number }>(
+      "SELECT read FROM community_mention WHERE message_id = ? AND user_id = ?",
+      id.prior,
+      id.owner,
+    )).toEqual(beforeMention);
+    expect(await first(
+      `SELECT rs.id
+       FROM community_read_state AS rs
+       LEFT JOIN community_message AS message
+         ON message.id = rs.last_read_message_id
+       WHERE rs.user_id = ? AND message.id IS NULL`,
+      id.owner,
+    )).toBeNull();
+  });
+
   it.each([
     ["parent repair", "community_read_state"],
     ["child cascade", "community_channel"],
