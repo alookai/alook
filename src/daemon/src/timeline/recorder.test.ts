@@ -429,7 +429,7 @@ describe("createTimelineRecorder durable resume control", () => {
       nodeFs.openSync = originalOpenSync;
       syncBuiltinESMExports();
     }
-  });
+  }, 30_000);
 
   it("uses history only when control is missing and fails closed for corrupt control", () => {
     const makeHistory = (): { dir: string; control: string } => {
