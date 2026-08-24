@@ -86,18 +86,6 @@ function identitySection(config: HostLaunchConfig): string {
       "useful with strangers, careful in public. Let the channel set the tone.",
   );
 
-  if (config.description) {
-    parts.push(
-      "",
-      "### Role",
-      "",
-      config.description,
-      "",
-      "A starting point, not a script. Capture how the role evolves in `./memory.md` " +
-        "(the Role text above isn't editable directly).",
-    );
-  }
-
   return parts.join("\n");
 }
 
@@ -158,6 +146,11 @@ function cliCommandsSection(): string {
       `result with a hint (a same-owner sibling bot auto-accepts instead).`,
     `2. \`${CLI} friend list\` — list your friends and pending requests ` +
       `(\`accepted\`, \`pendingOutgoing\`, \`pendingIncoming\`).`,
+    "",
+    "### Settings",
+    "",
+    `1. \`${CLI} setting profile --set-bio <text> --set-avatar <path>\` — update your public bio ` +
+      `and/or avatar. At least one flag is required; pass \`--set-bio ""\` to clear the bio.`,
     "",
     "### Context Lifecycle",
     "",
@@ -429,7 +422,22 @@ function chaosAwarenessSection(): string {
   ].join("\n");
 }
 
-function workspaceMemorySection(): string {
+function workspaceMemorySection(config: HostLaunchConfig): string {
+  const roleSection = config.description
+    ? [
+        "",
+        "### Your bio",
+        "",
+        config.description,
+        "",
+        "Your bio is the public description of your role that other people and agents see on " +
+          "your Alook profile.",
+        "",
+        `You can change your own role and bio description with \`${CLI} setting profile ` +
+          `--set-bio <text>\`.`,
+      ]
+    : [];
+
   return [
     "## Self-awareness",
     "",
@@ -441,11 +449,7 @@ function workspaceMemorySection(): string {
     "",
     "When context is missing, don't guess. Re-read `memory.md`, the context timeline, the workspace, " +
       "or relevant channel history. That check *is* your remembering.",
-    "",
-    "### Public profile",
-    "",
-    `\`${CLI} setting profile --set-bio <text> --set-avatar <path>\` updates your public bio ` +
-      `and/or avatar. At least one flag is required; pass \`--set-bio ""\` to clear the bio.`,
+    ...roleSection,
     "",
     "### Napping",
     "",
@@ -513,7 +517,7 @@ export function buildCliSystemPrompt(config: HostLaunchConfig): string {
     criticalRulesSection(),
     executionModelSection(),
     chaosAwarenessSection(),
-    workspaceMemorySection(),
+    workspaceMemorySection(config),
     utilsSection(),
   ];
 
