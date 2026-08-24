@@ -22,6 +22,7 @@ import type {
   BuiltinBackendSpecs,
 } from "@alook/agent-driver";
 import { AgentRouter } from "../manager/agentRouter";
+import { WsControlChannel } from "../server/wsControlChannel";
 import { CredentialBroker } from "../credentials/credentialProxy";
 import type { AgentBackend as Driver } from "../drivers/index.js";
 import type { Logger } from "../logger";
@@ -958,6 +959,37 @@ for await (const line of createInterface({ input: process.stdin })) {
     ]]);
     expect(JSON.stringify(warnings)).not.toContain("private");
     expect(JSON.stringify(warnings)).not.toContain("Bearer");
+    await daemon.stop();
+  });
+
+  it("treats non-object or absent pull observation tokens as ownerless without model-seen updates", async () => {
+    const sockets: FakeSocket[] = [];
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "timeline-invalid-token-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    const recordModelSeen = vi.spyOn(WsControlChannel.prototype, "recordModelSeen");
+    const daemon = await createDaemon({
+      machineKey: "cmk_invalid_observation_token",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [],
+      driverFor: () => fakeDriver,
+      capabilities: [],
+      workingDirectoryBase,
+    });
+    const messages = [{
+      seq: "#1",
+      channel: "/demo#1234/general",
+      sender: "@gus#1813",
+      content: { text: "ownerless" },
+      time: "2026-08-24T12:00:00Z",
+    }];
+
+    credentialProxyHarness.onInboxPullResponse?.("bot_1", messages, "invalid-token");
+    credentialProxyHarness.onInboxPullResponse?.("bot_1", messages);
+
+    expect(timelineRecorderHarness.pulls.map((pull) => pull.owner)).toEqual([null, null]);
+    expect(recordModelSeen).not.toHaveBeenCalled();
     await daemon.stop();
   });
 

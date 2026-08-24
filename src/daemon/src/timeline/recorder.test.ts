@@ -203,6 +203,20 @@ describe("createTimelineRecorder exact turn ownership", () => {
     expect(row.agent_responses[0]!.match(/… \[truncated\]/gu)).toHaveLength(1);
   });
 
+  it("adds one marker when row fitting truncates an otherwise unbounded response", () => {
+    const dir = mkDir();
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, now: NOW });
+    const owner = begin(recorder, "turn-row-fit");
+    recorder.recordInboxPull("a", owner, [msg("#1", "x".repeat(1_040_000))]);
+    recorder.recordAssistantMessage("a", owner, "r".repeat(20_000));
+    recorder.finalizeTurn("a", owner);
+
+    const [row] = readRecentEntries(dir, { now: NOW() });
+    expect(Buffer.byteLength(`${JSON.stringify(row)}\n`, "utf8")).toBeLessThanOrEqual(TIMELINE_MAX_BYTES);
+    expect(row.agent_responses[0]).toMatch(/… \[truncated\]$/u);
+    expect(row.agent_responses[0]!.match(/… \[truncated\]/gu)).toHaveLength(1);
+  });
+
   it("rejects an externally rewritten captured row instead of falling back to latest", () => {
     const dir = mkDir();
     const diagnostics: string[] = [];
@@ -224,9 +238,138 @@ describe("createTimelineRecorder exact turn ownership", () => {
     expect(rows[0].agent_responses).toEqual([]);
     expect(diagnostics).toContain("timeline_exact_write_rejected:generation");
   });
+
+  it("fences a captured handle omitted by an external rewrite remap", () => {
+    const dir = mkDir();
+    const diagnostics: string[] = [];
+    const recorder = createTimelineRecorder({
+      timelineDirFor: () => dir,
+      now: NOW,
+      onDiagnostic: (event) => diagnostics.push(`${event.code}:${event.reason ?? ""}`),
+    });
+    const owner = begin(recorder, "turn-rewritten");
+    recorder.recordInboxPull("a", owner, [msg("#1", "captured")]);
+    recorder.recordAssistantMessage("a", owner, "must not redirect");
+    const file = path.join(dir, filenameForDate(NOW()));
+    fs.writeFileSync(file, `${JSON.stringify(createTimelineEntry({ messages: [msg("#9", "external")] }))}\n`);
+
+    recorder.recordInboxPull("a", null, [msg("#10", "unrelated")]);
+    recorder.finalizeTurn("a", owner);
+
+    expect(diagnostics).toContain("timeline_handle_fenced:rewrite_remap");
+    expect(readRecentEntries(dir, { now: NOW() }).flatMap((row) => row.agent_responses))
+      .not.toContain("must not redirect");
+  });
+
+  it("rejects an oversized no-handle fallback before writing a row", () => {
+    const dir = mkDir();
+    const diagnostics: string[] = [];
+    const recorder = createTimelineRecorder({
+      timelineDirFor: () => dir,
+      now: NOW,
+      onDiagnostic: (event) => diagnostics.push(`${event.code}:${event.reason ?? ""}`),
+    });
+    expect(recorder.setSession("a", "s".repeat(TIMELINE_MAX_BYTES), "epoch-large")).toBe(true);
+    const owner = begin(recorder, "turn-large", "epoch-large");
+    recorder.recordAssistantMessage("a", owner, "pre-pull output");
+    recorder.finalizeTurn("a", owner);
+
+    expect(diagnostics).toContain("timeline_response_did_not_fit:oversized");
+    expect(readRecentEntries(dir, { now: NOW() })).toEqual([]);
+  });
+
+  it("records a never-begun pull owner as ownerless", () => {
+    const dir = mkDir();
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, now: NOW });
+    const owner: TimelineTurnOwner = {
+      sessionInstanceId: "missing-epoch",
+      rootTurnId: "missing-turn",
+      barrierGeneration: recorder.barrierGeneration("a"),
+    };
+    recorder.recordInboxPull("a", owner, [msg("#1", "never begun")]);
+
+    const [row] = readRecentEntries(dir, { now: NOW() });
+    expect(row.messages.map((message) => message.content.text)).toEqual(["never begun"]);
+    expect(row.agent_responses).toEqual([]);
+  });
+
+  it("falls back to an ownerless append when the barrier changes during pull recording", () => {
+    const dir = mkDir();
+    let recorder!: TimelineRecorderLike;
+    let nowCalls = 0;
+    let reentered = false;
+    const now = () => {
+      nowCalls++;
+      if (nowCalls === 2 && !reentered) {
+        reentered = true;
+        recorder.fenceSession("a");
+      }
+      return NOW();
+    };
+    recorder = createTimelineRecorder({ timelineDirFor: () => dir, now });
+    const owner = begin(recorder, "turn-barrier-race");
+    nowCalls = 0;
+
+    recorder.recordInboxPull("a", owner, [msg("#1", "barrier-raced")]);
+
+    const [row] = readRecentEntries(dir, { now: NOW() });
+    expect(row.messages.map((message) => message.content.text)).toEqual(["barrier-raced"]);
+    expect(row.agent_responses).toEqual([]);
+  });
+
+  it("rejects completed output delivered after finalization", () => {
+    const dir = mkDir();
+    const diagnostics: string[] = [];
+    const recorder = createTimelineRecorder({
+      timelineDirFor: () => dir,
+      now: NOW,
+      onDiagnostic: (event) => diagnostics.push(`${event.code}:${event.reason ?? ""}`),
+    });
+    const owner = begin(recorder, "turn-finalized");
+    recorder.finalizeTurn("a", owner);
+    recorder.recordAssistantMessage("a", owner, "too late");
+
+    expect(diagnostics).toContain("timeline_completed_message_rejected:stale_owner");
+    expect(readRecentEntries(dir, { now: NOW() })).toEqual([]);
+  });
+
+  it("rejects a no-handle fallback after another turn becomes active", () => {
+    const dir = mkDir();
+    const diagnostics: string[] = [];
+    const recorder = createTimelineRecorder({
+      timelineDirFor: () => dir,
+      now: NOW,
+      onDiagnostic: (event) => diagnostics.push(`${event.code}:${event.reason ?? ""}`),
+    });
+    const ownerA = begin(recorder, "turn-a");
+    recorder.recordAssistantMessage("a", ownerA, "buffered A");
+    begin(recorder, "turn-b", "epoch-b");
+    recorder.finalizeTurn("a", ownerA);
+
+    expect(diagnostics).toContain("timeline_fallback_rejected:fenced_owner");
+    expect(readRecentEntries(dir, { now: NOW() })).toEqual([]);
+  });
 });
 
 describe("createTimelineRecorder barriers and pending commits", () => {
+  it("rejects beginTurn owners captured before a barrier advance", () => {
+    const diagnostics: string[] = [];
+    const recorder = createTimelineRecorder({
+      timelineDirFor: () => mkDir(),
+      now: NOW,
+      onDiagnostic: (event) => diagnostics.push(`${event.code}:${event.reason ?? ""}`),
+    });
+    const staleOwner: TimelineTurnOwner = {
+      sessionInstanceId: "stale-epoch",
+      rootTurnId: "stale-turn",
+      barrierGeneration: recorder.barrierGeneration("a"),
+    };
+    recorder.fenceSession("a");
+    recorder.beginTurn("a", staleOwner);
+
+    expect(diagnostics).toContain("timeline_turn_begin_fenced:barrier_generation");
+  });
+
   it("lets a retained pre-reset handle update in place before the durable barrier", () => {
     const dir = mkDir();
     const recorder = createTimelineRecorder({ timelineDirFor: () => dir, now: NOW });
@@ -347,6 +490,72 @@ describe("createTimelineRecorder barriers and pending commits", () => {
 
     expect(readRecentEntries(dir, { now: current })[0].agent_responses).toEqual([]);
     expect(diagnostics).toContain("timeline_pending_commit_expired");
+  });
+
+  it("removes a successful finalized state after the retention TTL", () => {
+    const dir = mkDir();
+    let current = new Date("2026-06-25T12:00:00");
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, now: () => current });
+    const owner = begin(recorder, "turn-reusable");
+    recorder.finalizeTurn("a", owner);
+
+    current = new Date(current.getTime() + 15 * 60_000 + 1);
+    recorder.beginTurn("a", owner);
+    recorder.recordAssistantMessage("a", owner, "recreated after ttl");
+    recorder.finalizeTurn("a", owner);
+
+    expect(readRecentEntries(dir, { now: current }).flatMap((row) => row.agent_responses))
+      .toEqual(["recreated after ttl"]);
+  });
+
+  it("deletes a pending exact commit when its row becomes terminally stale", () => {
+    const dir = mkDir();
+    const diagnostics: string[] = [];
+    const recorder = createTimelineRecorder({
+      timelineDirFor: () => dir,
+      now: NOW,
+      onDiagnostic: (event) => diagnostics.push(`${event.code}:${event.reason ?? ""}`),
+    });
+    const owner = begin(recorder, "turn-pending-terminal");
+    recorder.recordInboxPull("a", owner, [msg("#1", "captured")]);
+    recorder.recordAssistantMessage("a", owner, "must not redirect");
+    const filename = filenameForDate(NOW());
+    const file = path.join(dir, filename);
+    const lock = lockPathFor(dir, filename);
+    expect(acquireLock(lock)).toBe(true);
+    try {
+      recorder.finalizeTurn("a", owner);
+    } finally {
+      releaseLock(lock);
+    }
+    fs.writeFileSync(file, `${JSON.stringify(createTimelineEntry({ messages: [msg("#2", "replacement")] }))}\n`);
+
+    begin(recorder, "turn-trigger", "epoch-trigger");
+
+    expect(diagnostics).toContain("timeline_exact_write_rejected:generation");
+    expect(readRecentEntries(dir, { now: NOW() }).flatMap((row) => row.agent_responses))
+      .not.toContain("must not redirect");
+  });
+
+  it("prunes the oldest of more than eight retained finalized states", () => {
+    const dir = mkDir();
+    let current = new Date("2026-06-25T12:00:00");
+    const recorder = createTimelineRecorder({ timelineDirFor: () => dir, now: () => current });
+    const owners: TimelineTurnOwner[] = [];
+    for (let index = 0; index < 9; index++) {
+      const owner = begin(recorder, `turn-${index}`, `epoch-${index}`);
+      owners.push(owner);
+      recorder.finalizeTurn("a", owner);
+      current = new Date(current.getTime() + 1);
+    }
+    begin(recorder, "turn-trigger", "epoch-trigger");
+
+    recorder.beginTurn("a", owners[0]!);
+    recorder.recordAssistantMessage("a", owners[0]!, "oldest recreated");
+    recorder.finalizeTurn("a", owners[0]!);
+
+    expect(readRecentEntries(dir, { now: current }).flatMap((row) => row.agent_responses))
+      .toEqual(["oldest recreated"]);
   });
 
   it("bounds pending exact commits to eight per agent", () => {

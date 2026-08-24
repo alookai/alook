@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import * as fs from "fs";
+import nodeFs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import * as os from "os";
 import * as path from "path";
 import {
@@ -87,6 +89,47 @@ describe("timeline append / read (4-field schema)", () => {
 });
 
 describe("exact tracked row handles", () => {
+  it("uses the current date when a tracked append omits now", () => {
+    const dir = mkDir();
+    const result = appendTrackedEntry(dir, createTimelineEntry({ messages: [msg("default now")] }));
+
+    expect(result.status).toBe("written");
+    expect(fs.readdirSync(dir).filter((name) => name.endsWith(".jsonl"))).toHaveLength(1);
+  });
+
+  it("reports write when lock acquisition throws a non-contention error", () => {
+    const dir = mkDir();
+    const lock = lockPathFor(dir, filenameForDate(NOW));
+    const originalMkdirSync = nodeFs.mkdirSync;
+    nodeFs.mkdirSync = ((target: fs.PathLike, ...args: unknown[]) => {
+      if (String(target) === lock) {
+        const error = new Error("lock parent failure") as NodeJS.ErrnoException;
+        error.code = "EACCES";
+        throw error;
+      }
+      return (originalMkdirSync as (...values: unknown[]) => unknown)(target, ...args);
+    }) as typeof nodeFs.mkdirSync;
+    syncBuiltinESMExports();
+    try {
+      expect(appendTrackedEntry(dir, createTimelineEntry({ messages: [msg("blocked")] }), NOW))
+        .toEqual({ status: "rejected", reason: "write" });
+    } finally {
+      nodeFs.mkdirSync = originalMkdirSync;
+      syncBuiltinESMExports();
+    }
+  });
+
+  it("reports write and releases the lock when append serialization throws", () => {
+    const dir = mkDir();
+    const entry = createTimelineEntry({ messages: [msg("circular")] }) as ReturnType<typeof createTimelineEntry> & { circular?: unknown };
+    entry.circular = entry;
+
+    expect(appendTrackedEntry(dir, entry, NOW)).toEqual({ status: "rejected", reason: "write" });
+    const lock = lockPathFor(dir, filenameForDate(NOW));
+    expect(acquireLock(lock)).toBe(true);
+    releaseLock(lock);
+  });
+
   it("refreshes an older handle across recorder-owned appends and updates only its captured row", () => {
     const dir = mkDir();
     const first = appendTrackedEntry(
@@ -152,6 +195,39 @@ describe("exact tracked row handles", () => {
       .toEqual({ status: "rejected", reason: "ordinal" });
     expect(updateTrackedEntry(dir, wrongHash, (entry) => entry))
       .toEqual({ status: "rejected", reason: "hash" });
+  });
+
+  it("rejects an unsafe forged handle filename without touching outside files", () => {
+    const base = mkDir();
+    const dir = path.join(base, "timeline");
+    fs.mkdirSync(dir);
+    const outside = path.join(base, "outside.jsonl");
+    fs.writeFileSync(outside, "outside unchanged\n");
+    const forged: TimelineEntryHandle = {
+      filename: "../outside.jsonl",
+      fileGeneration: "0".repeat(64),
+      rowOrdinal: 0,
+      expectedHash: "0".repeat(64),
+    };
+
+    expect(updateTrackedEntry(dir, forged, (entry) => entry))
+      .toEqual({ status: "rejected", reason: "unsafe" });
+    expect(fs.readFileSync(outside, "utf8")).toBe("outside unchanged\n");
+  });
+
+  it("reports write, preserves bytes, and releases the lock when an update callback throws", () => {
+    const dir = mkDir();
+    const tracked = appendTrackedEntry(dir, createTimelineEntry({ messages: [msg("captured")] }), NOW);
+    if (tracked.status !== "written" || !tracked.handle) throw new Error("missing tracked handle");
+    const file = path.join(dir, tracked.handle.filename);
+    const before = fs.readFileSync(file);
+
+    expect(updateTrackedEntry(dir, tracked.handle, () => { throw new Error("update failed"); }))
+      .toEqual({ status: "rejected", reason: "write" });
+    expect(fs.readFileSync(file)).toEqual(before);
+    const lock = lockPathFor(dir, tracked.handle.filename);
+    expect(acquireLock(lock)).toBe(true);
+    releaseLock(lock);
   });
 
   it("fences a handle when compaction evicts its row", () => {

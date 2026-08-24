@@ -2238,6 +2238,23 @@ describe("truncateThinking", () => {
 });
 
 describe("AgentProcessManager — bot audit event emission", () => {
+  it("contains audit observer failures for reasoning and tool-start events", async () => {
+    const logger = stubLogger();
+    const onBotAuditEvent = vi.fn(() => { throw new Error("observer failed"); });
+    const { mgr, session } = makeManager({ logger, onBotAuditEvent });
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+
+    await expect(session.fire("runtime_event", { kind: "thinking", text: "completed reasoning" }))
+      .resolves.toBeUndefined();
+    await expect(session.fire("runtime_event", { kind: "tool_call", name: "Read", input: { file_path: "/x" } }))
+      .resolves.toBeUndefined();
+
+    expect(logger.calls.debug.map(([message]) => message)).toEqual(expect.arrayContaining([
+      "audit emit failed (thinking)",
+      "audit emit failed (tool_call)",
+    ]));
+  });
+
   it("emits completed reasoning with truncated+chars fields immediately", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
