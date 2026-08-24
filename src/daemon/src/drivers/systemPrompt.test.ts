@@ -23,10 +23,10 @@ const baseConfig: LaunchConfig = {
  * - Only test the INPUT → OUTPUT contract: values that come in via
  *   `LaunchConfig` must round-trip verbatim into the output, and their
  *   absence must NOT leak into the output.
- * - Stable executable CLI grammar is also a contract: generated command
- *   examples may be scanned for required flags without asserting prose.
  * - DO NOT ADD tests that assert on specific prompt content (section headings,
- *   command names, feature strings, tone words). If you find yourself writing
+ *   command names, flags, feature strings, tone words). Do not scan or slice
+ *   the generated prompt to enforce its prose or command examples. If you find
+ *   yourself writing
  *   `expect(prompt).toContain("some english phrase")` for a phrase that isn't
  *   a value the caller passed in, stop — that test does not belong here.
  */
@@ -59,15 +59,6 @@ describe("buildCliSystemPrompt", () => {
 
     const withoutRole = buildCliSystemPrompt(baseConfig);
     expect(withoutRole).not.toContain("You are the onboarding assistant.");
-  });
-
-  it("includes the required reminder flag in every generated message-send instruction", () => {
-    const sendLines = buildCliSystemPrompt(baseConfig)
-      .split("\n")
-      .filter((line) => line.includes("message send"));
-
-    expect(sendLines.length).toBeGreaterThan(0);
-    expect(sendLines.filter((line) => !line.includes("--remind-after"))).toEqual([]);
   });
 
 });

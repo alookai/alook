@@ -22,6 +22,7 @@ vi.mock("./messageReminderClient", async (importOriginal) => ({
 import { main, setApiForTesting, decodeTextEscapes, type CliInputStream } from "./index";
 import type { ServerApi } from "../server/contract";
 import { MAX_SERVER_ICON_SIZE_BYTES } from "@alook/shared/constants/community";
+import { MESSAGE_SEND_STDIN_POLICY } from "../drivers/systemPrompt";
 
 /** Capture exactly the JSON object the CLI prints to stdout. */
 function captureStdout(): { lines: () => string[]; restore: () => void } {
@@ -1742,7 +1743,7 @@ describe("decodeTextEscapes", () => {
   });
 });
 
-describe("message send — literal stdin/file body contract", () => {
+describe("message send — required bounded stdin body contract", () => {
   it("forwards stdin byte-for-byte without shell expansion or escape decoding", async () => {
     const fs = await import("fs");
     const os = await import("os");
@@ -1784,6 +1785,25 @@ describe("message send — literal stdin/file body contract", () => {
     expect(sentText).toBe(expected);
   });
 
+  it("repairs the malformed heredoc tail before enforcing the 1 KiB boundary", async () => {
+    const body = `${"a".repeat(1023)}\n`;
+    let sentText: string | undefined;
+    setApiForTesting(stubApi({
+      send: async (request: Parameters<ServerApi["send"]>[0]) => {
+        sentText = request.content.text;
+        return { state: "sent", message: { seq: "#1", channel: "/s/c", sender: "@a", content: { text: "" }, time: "" } };
+      },
+    }));
+
+    await mainWithStdin(
+      ["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"],
+      `${body}ALOOK_MESSAGE_BOUNDARY'\n`,
+    );
+
+    expect(Buffer.byteLength(body, "utf8")).toBe(1024);
+    expect(sentText).toBe(body);
+  });
+
   it.each([
     ["body\nALOOK_MESSAGE_7F3C\n"],
     ["body\nALOOK_MESSAGE_7F3C'\nmore\n"],
@@ -1819,33 +1839,38 @@ describe("message send — literal stdin/file body contract", () => {
     expect(sentText).toBe(literal);
   });
 
-  it("forwards file content byte-for-byte, including surrounding whitespace", async () => {
-    const fs = await import("fs");
-    const os = await import("os");
-    const path = await import("path");
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cli-esc-"));
-    const file = path.join(dir, "body.txt");
-    const literal = "  a\\\\nb\n总部 🎉\nALOOK_MESSAGE_FILE'\n";
-    fs.writeFileSync(file, literal);
-    let sentText: string | undefined;
-    setApiForTesting(
-      stubApi({
-        send: async (input: Parameters<ServerApi["send"]>[0]) => {
-          sentText = input.content.text;
-          return { state: "sent", message: { seq: "#1", channel: "/s/c", sender: "@a", content: { text: "" }, time: "" } };
-        },
-      }),
+  it("accepts an exact 1024-byte stdin body", async () => {
+    const body = "a".repeat(1024);
+    const sendSpy = vi.fn(async () => ({
+      state: "sent" as const,
+      message: { seq: "#1", channel: "/s/c", sender: "@a", content: { text: "" }, time: "" },
+    }));
+    setApiForTesting(stubApi({ send: sendSpy }));
+
+    await mainWithStdin(
+      ["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"],
+      body,
     );
-    await main(["message", "send", "--target", "/s#0042/general", "--file", file, "--remind-after", "0"]);
-    fs.rmSync(dir, { recursive: true, force: true });
-    expect(sentText).toBe(literal);
+
+    expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ content: { text: body } }));
   });
 
-  it("rejects --stdin with --file before sending", async () => {
+  it.each([
+    ["ASCII", "a".repeat(1025), 1025],
+    ["multibyte UTF-8", "界".repeat(342), 1026],
+  ])("rejects an oversized %s stdin body before sending", async (_label, body, expectedBytes) => {
     const sendSpy = vi.fn();
     setApiForTesting(stubApi({ send: sendSpy }));
-    await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0", "--file", "body.md"]);
-    expect(parseEnvelope(cap.lines()).error).toContain("mutually exclusive");
+
+    await mainWithStdin(
+      ["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"],
+      body,
+    );
+
+    expect(parseEnvelope(cap.lines()).error).toBe(
+      `message send: --stdin body is ${expectedBytes} bytes; max 1024. Rewrite it before retrying.\n\n` +
+      MESSAGE_SEND_STDIN_POLICY,
+    );
     expect(sendSpy).not.toHaveBeenCalled();
   });
 
@@ -1900,46 +1925,38 @@ describe("message send — literal stdin/file body contract", () => {
     expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ content: { text: "" } }));
   });
 
-  it("keeps attachment-only sends valid without reading stdin", async () => {
-    const sendSpy = vi.fn(async () => ({
-      state: "sent" as const,
-      message: { seq: "#1", channel: "/s/c", sender: "@a", content: { text: "" }, time: "" },
-    }));
+  it("requires --stdin even when an attachment is present", async () => {
+    const sendSpy = vi.fn();
     setApiForTesting(stubApi({ send: sendSpy }));
     await main(["message", "send", "--target", "/s#0042/general", "--attachment", "att_1", "--remind-after", "0"]);
-    expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({
-      content: { text: "" },
-      attachments: ["att_1"],
-    }));
+    expect(parseEnvelope(cap.lines()).error).toContain("required option '--stdin'");
+    expect(sendSpy).not.toHaveBeenCalled();
   });
 
-  it("rejects empty EOF and an unreadable body file before sending", async () => {
-    const os = await import("os");
-    const path = await import("path");
+  it("rejects empty EOF without an attachment", async () => {
     const sendSpy = vi.fn();
     setApiForTesting(stubApi({ send: sendSpy }));
     await mainWithStdin(["message", "send", "--target", "/s#0042/general", "--stdin", "--remind-after", "0"], "");
     expect(parseEnvelope(cap.lines()).error).toContain("--stdin");
-
-    cap.lines().length = 0;
-    const missing = path.join(os.tmpdir(), `alook-missing-${Date.now()}-${Math.random()}.md`);
-    await main(["message", "send", "--target", "/s#0042/general", "--file", missing, "--remind-after", "0"]);
-    expect(parseEnvelope(cap.lines()).error).toContain("cannot read file");
     expect(sendSpy).not.toHaveBeenCalled();
   });
 
-  it("documents --stdin and removes --text from send help", async () => {
+  it("documents required bounded stdin and removes file/text body inputs from send help", async () => {
     await main(["message", "send", "-h"]);
     const help = cap.lines().join("");
     expect(help).toContain("--stdin");
+    expect(help).toContain("max 1 KiB");
+    expect(help).not.toContain("--file");
     expect(help).not.toContain("--text");
   });
 
-  it("removes --text from the public parser", async () => {
+  it.each(["--file", "--text"])("removes %s from the public parser", async (removedOption) => {
     const sendSpy = vi.fn();
     setApiForTesting(stubApi({ send: sendSpy }));
-    await main(["message", "send", "--target", "/s#0042/general", "--text", "legacy", "--remind-after", "0"]);
-    expect(parseEnvelope(cap.lines()).error).toContain("unknown option '--text'");
+    await mainWithStdin([
+      "message", "send", "--target", "/s#0042/general", "--stdin", removedOption, "legacy", "--remind-after", "0",
+    ]);
+    expect(parseEnvelope(cap.lines()).error).toContain(`unknown option '${removedOption}'`);
     expect(sendSpy).not.toHaveBeenCalled();
   });
 });

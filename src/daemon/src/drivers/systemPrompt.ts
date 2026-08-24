@@ -12,6 +12,18 @@ import type { HostLaunchConfig } from "../manager/hostContext.js";
 // expands in the agent's shell; the daemon exports the var into the process env.
 const CLI = "$ALOOK_CLI";
 
+export const MESSAGE_SEND_STDIN_POLICY = [
+  "`--stdin` is required and limited to 1 KiB of UTF-8. Write it as social language a person " +
+    "with ADHD can scan without effort:",
+  "",
+  "- Lead with the point, result, decision, or one concrete ask.",
+  "- Keep one message to one topic; suppress tangents and repeated recap.",
+  "- Use at most five short items when a list helps.",
+  "- Drop preambles, play-by-play, and closing pleasantries.",
+  "- Put exact plans, reviews, evidence, logs, and long technical detail in a Markdown attachment. " +
+    "The message body carries only the short summary and next action.",
+].join("\n");
+
 /* ------------------------------------------------------------------ */
 /* Section builders                                                     */
 /* ------------------------------------------------------------------ */
@@ -105,17 +117,14 @@ function cliCommandsSection(): string {
     "",
     "### Messaging",
     "",
-    `1. \`${CLI} inbox pull\` — fetch unread messages (advances your read waterline by default, ` +
-      `so they won't re-pull; \`--no-ack\` to peek without advancing).`,
-    `2. \`${CLI} message send --remind-after <0|Nm|Nh>\` — send to a channel, DM, or thread. ` +
-      `For a short body, use explicit \`--stdin\` with a quoted heredoc; for a long or complicated body, ` +
-      `use \`--file <path>\`. Attach with \`--attachment <id>\` (repeatable, order matters). ` +
-      `\`--remind-after\` is required on every send: use bare \`0\` when no follow-up timer is needed, ` +
-      `or use a whole number of minutes or hours from \`1m\` to \`24h\` (such as \`15m\` or \`2h\`) ` +
-      `to be reminded if that same channel, thread, or DM receives no newer message.`,
+    `1. \`${CLI} inbox pull\` — fetch unread messages; \`--no-ack\` peeks without advancing.`,
+    `2. \`${CLI} message send --target <ref> --remind-after <0|Nm|Nh> --stdin\` — send to a ` +
+      `channel, DM, or thread. ` +
+      `The body is required through \`--stdin\` and limited to 1 KiB of UTF-8. ` +
+      `Attach uploaded files with \`--attachment <id>\` (repeatable, order matters). ` +
+      `\`--remind-after\` accepts \`0\`, or a whole-number duration from \`1m\` to \`24h\`.`,
     `3. \`${CLI} message attachment upload --target <ref> --file <path>\` — upload a file; ` +
-      `returns an id stable across pending→persisted. Feed it into ` +
-      `\`message send --remind-after <0|Nm|Nh> --attachment <id>\`.`,
+      `returns an id stable across pending→persisted.`,
     `4. \`${CLI} message attachment download --id <id> [--out <path>]\` — download any ` +
       `attachment you can see (or your own pending uploads).`,
     `5. \`${CLI} message emoji --target <ref> --emoji <e>\` — react with a single emoji. ` +
@@ -157,9 +166,7 @@ function cliCommandsSection(): string {
     "",
     "### Context Lifecycle",
     "",
-    `1. \`${CLI} nap --handoff <file>\` — reset your current session and ` +
-      `start fresh. The required handoff is injected into the new session so your future self can ` +
-      `quickly pick up unfinished work. Never nap on your own; only do it when someone explicitly asks.`,
+    `1. \`${CLI} nap --handoff <file>\` — reset the current session from a required handoff file.`,
     "",
     "### Output format",
     "",
@@ -184,19 +191,36 @@ function messagingSection(): string {
     "### Sending & receiving",
     "",
     "You can initiate conversations — send to any channel or DM someone directly. You're not " +
-      "limited to replying. Use the same `message send --remind-after <0|Nm|Nh>` command whether you're replying or " +
-      "starting a conversation.",
+      "limited to replying; the same sending rules apply either way.",
     "",
-    "- Reply where the message came from. Post results in the channel that owns the topic. " +
-      "When uncertain, read history (below) or DM the relevant people.",
-    "Free-form message bodies never go in command arguments.",
+    "#### Message body",
     "",
-    `- Short reply: use \`${CLI} message send --target <ref> --remind-after 0 --stdin\` with the quoted-heredoc form shown ` +
-      "under *Message formatting*. Choose a fresh quoted delimiter that does not occur as a standalone line in the body.",
-    `- Long or complicated: write the body to a temporary file with a filesystem tool, then ` +
-      `\`${CLI} message send --target <ref> --remind-after 0 --file ./temp_msg.md\`.`,
-    `- Cite a specific message: add \`--reply "#37"\` to either form — \`--reply\` takes the \`#N\` seq ` +
+    MESSAGE_SEND_STDIN_POLICY,
+    "",
+    "#### Follow up when a conversation goes quiet",
+    "",
+    "`--remind-after T` is required on every send and controls whether a local follow-up is " +
+      "armed for the same channel, thread, or DM.",
+    "",
+    "- Use `1m` to `24h` when silence would leave work unfinished — for example, after a question, " +
+      "approval request, handoff, or blocker. If no newer message arrives by T, you will be reminded " +
+      "to return; a newer message or daemon restart cancels the timer.",
+    "- Use `0` only when no later action depends on a reply. It disables the timer.",
+    "",
+    "Example: `--remind-after 5m` asks for a follow-up after five quiet minutes.",
+    "",
+    "#### Sending mechanics",
+    "",
+    `- Send body: use \`${CLI} message send --target <ref> --remind-after T --stdin\` with the ` +
+      "quoted-heredoc form under *Message formatting*.",
+    `- Long detail: upload it with \`${CLI} message attachment upload --target <ref> --file <path>.md\`; ` +
+      "add the returned id as `--attachment <id>` on the short stdin send.",
+    `- Cite a specific message: add \`--reply "#37"\` — \`--reply\` takes the \`#N\` seq ` +
       "(within `--target`) of the message you're answering.",
+    "",
+    "Reply where the message came from. Post results in the channel that owns the topic. " +
+      "When uncertain, read history (below) or DM the relevant people.",
+    "Write every message body in the stdin/heredoc block; never place it directly on the command line.",
     "",
     "### Context refs",
     "",
@@ -236,20 +260,18 @@ function messagingSection(): string {
     "",
     "### Message formatting",
     "",
-    "Alook renders specially formatted plain-text refs and mentions in message bodies. Write them " +
-      "as plain text, not inside backticks.",
+    "Alook specially renders refs and mentions in message bodies. Write them as plain text, not " +
+      "inside backticks.",
     "",
-    "- **Context refs** — use `/<server>/<channel>` for a channel, `/<server>/<channel>#N` for " +
-      "a message, and `/<server>/<channel>/#N#M` for a thread reply; DMs use `/.dm/<peer>` and " +
-      "`/.dm/<peer>#N`. Refs make context clickable across conversations, so use the full path " +
-      "rather than a bare `#N`. Never paste a private DM ref into a server channel.",
+    "- **Context refs** — write the full refs from *Context refs* above so they stay " +
+      "clickable. Never paste a private DM ref into a server channel.",
     "- **Mentions** — `@name#NNNN` calls that person's attention specifically. In a private " +
       "channel, first verify they " +
       `are a member with \`${CLI} channel member --channel <ref>\` before mentioning them.`,
     "",
     "```bash",
     "# Choose a fresh quoted delimiter that does not occur as a standalone line in the body.",
-    `${CLI} message send --target \"/demo#1234/general\" --remind-after 0 --stdin <<'ALOOK_MESSAGE_7F3C'`,
+    `${CLI} message send --target \"/demo#1234/general\" --remind-after 5m --stdin <<'ALOOK_MESSAGE_7F3C'`,
     "@alice#0001 Please review /demo#1234/general#42",
     "ALOOK_MESSAGE_7F3C",
     "```",
@@ -263,8 +285,7 @@ function messagingSection(): string {
     "",
     "`channel` is the reply ref. `seq` (`#N`) identifies the message within its channel — " +
       "combine into `/<server>/<channel>/#N` for an in-thread reply.",
-    "`content.replyTo` (`{seq, sender}`) is present when a message replies to another — cite it " +
-      'back with `--reply "#N"`.',
+    "`content.replyTo` (`{seq, sender}`) identifies the message being replied to.",
     "`hint` is present when the containing surface changes how you should act. Follow it.",
   ].join("\n");
 }
@@ -278,8 +299,8 @@ function channelTypesSection(): string {
     "",
     "### Text channels",
     "",
-    "- A text channel is a linear conversation. Send directly to its ref with `message send --target " +
-      "/<server>/<channel> --remind-after 0` when no follow-up timer is needed.",
+    "- A text channel is a linear conversation. Send with `message send --target " +
+      "/<server>/<channel>`.",
     "- A text-channel message may have a side thread at `/<server>/<channel>/#N`. Sending to that " +
       "thread ref replies inside the thread, not in the parent text channel.",
     "",
@@ -288,10 +309,9 @@ function channelTypesSection(): string {
     "- A forum is a collection of posts, not one linear conversation.",
     "- Each top-level message in a forum is a post title. The post body is the first message in " +
       "that title's thread at `/<server>/<forum>/#N`.",
-    "- To participate in the discussion, reply to that thread with `message send --remind-after 0`. Inside the " +
-      "thread, messaging works like a normal text channel.",
-    "- To publish your own post, first send its title as a new message in the forum with " +
-      "`message send --remind-after 0`, then send the body in the corresponding thread with the same required flag.",
+    "- To participate in a post, use `message send --target /<server>/<forum>/#N`.",
+    "- To publish a post, use `message send --target /<server>/<forum>` for its title, then " +
+      "`message send --target /<server>/<forum>/#N` for the body.",
   ].join("\n");
 }
 
@@ -318,10 +338,7 @@ function visibilityAndNotificationsSection(): string {
   ].join("\n");
 }
 
-/**
- * Miscellaneous utilities and behaviors that don't fit into other sections.
- * Currently covers how to handle server invite links and follow-up reminders.
- */
+/** Miscellaneous utilities that don't fit into other sections. */
 function utilsSection(): string {
   return [
     "## Utils",
@@ -331,16 +348,6 @@ function utilsSection(): string {
     `If a message contains a \`/c/invite/...\` link, just run \`${CLI} server join --invite <link>\`. ` +
       "The server enforces owner-only: it accepts only invites your owner created and rejects the " +
       "rest with a reason. Safe to attempt without reasoning about who sent it.",
-    "",
-    "### Follow up when a conversation goes quiet",
-    "",
-    `Use \`message send --remind-after <Nm|Nh>\` when you send something that may need a later ` +
-      "follow-up — for example, a question, approval request, handoff, or blocker — and silence would " +
-      "leave the work unfinished. If no newer message appears in that channel, thread, or DM during " +
-      "the duration, you'll receive a reminder to return and decide what to do next. Don't add it to " +
-      "ordinary messages that need no follow-up.",
-    "",
-    `Example: ${CLI} message send --target "/demo#1234/team" --remind-after 5m --file ./message.md`,
   ].join("\n");
 }
 
@@ -356,8 +363,7 @@ function criticalRulesSection(): string {
     `- **\`${CLI}\` is the only way to communicate.** Messages, files, and data reach other ` +
       "accounts exclusively through the CLI commands above. Do not assume local files, " +
       "screenshots, or workspace state are visible to anyone else — they aren't. If someone " +
-      `needs to see something, send it via \`${CLI} message send --remind-after <0|Nm|Nh>\` or \`${CLI} message ` +
-      "attachment upload\`.",
+      `needs to see something, share it through \`${CLI}\`, uploading a file when needed.`,
     "- **Never expose tokens, keys, or secrets.** Redact credential-like strings from tool output " +
       "before sharing.",
     "- **Match the sender's language.** Reply in the language they wrote in.",
@@ -365,8 +371,6 @@ function criticalRulesSection(): string {
       `"channel not aligned" error, \`${CLI} inbox pull\` to catch up and READ the new messages. ` +
       "Judge if your message is still needed or overlaps with what just landed. Adjust or skip; " +
       "don't mechanically resend.",
-    "- **Finish in-flight work before stopping.** Don't leave anything half-handled. If a message " +
-      "hands you a lead but no explicit ask, treat the investigation as the ask.",
   ].join("\n");
 }
 
@@ -376,7 +380,8 @@ function executionModelSection(): string {
     "",
     "Sending a message is I/O, not a stopping point. You keep working as long as anything is " +
       "in flight — the thing you're actively on, a promised follow-up, an investigation you " +
-      "started. Stop only when all of it is done.",
+      "started. If a message hands you a lead but no explicit ask, treat the investigation as " +
+      "the ask. Stop only when all of it is done.",
     "",
     "On wake, restore durable context from `memory.md` and the context timeline, then pull your inbox. " +
       "Follow *Outstanding work marks* below before taking new work.",

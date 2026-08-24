@@ -33,6 +33,7 @@ import {
   MAX_SERVER_ICON_SIZE_BYTES,
 } from "@alook/shared/constants/community";
 import { nowLocalISO, toLocalISO } from "../util/localTime.js";
+import { MESSAGE_SEND_STDIN_POLICY } from "../drivers/systemPrompt.js";
 
 /**
  * Rewrite every message's UTC `.time` (server-stamped) into local-tz ISO with
@@ -159,7 +160,7 @@ async function readLiteralInput(args: {
   stdinSelected: boolean;
   stdin?: CliInputStream;
   filePath?: string;
-  fileOption: string;
+  fileOption?: string;
 }): Promise<string | undefined> {
   const { command, stdinSelected, stdin, filePath, fileOption } = args;
   if (stdinSelected && filePath !== undefined) {
@@ -169,9 +170,8 @@ async function readLiteralInput(args: {
   if (stdinSelected) {
     if (!stdin) throw new CliError(`${command}: stdin is unavailable`);
     if (stdin.isTTY === true) {
-      throw new CliError(
-        `${command}: --stdin requires piped input; use ${fileOption} in an interactive terminal`,
-      );
+      const suffix = fileOption ? `; use ${fileOption} in an interactive terminal` : "";
+      throw new CliError(`${command}: --stdin requires piped input${suffix}`);
     }
     try {
       const chunks: Buffer[] = [];
@@ -208,6 +208,7 @@ function stripMalformedAlookHeredocTail(input: string): string {
 /* ------------------------------------------------------------------ */
 
 const CLIENT_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+const CLIENT_MAX_MESSAGE_BODY_BYTES = 1024;
 
 /**
  * Guess a content-type from a filename extension. Kept trivial — the server
@@ -308,25 +309,27 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
   const channel = opts.target as string;
   if (!channel) throw new CliError("message send: --target <ref> is required (e.g. /demo-workspace#1234/general)");
 
-  const fileFlag = opts.file as string | undefined;
   const literalText = await readLiteralInput({
     command: "message send",
     stdinSelected: opts.stdin === true,
     stdin,
-    filePath: fileFlag,
-    fileOption: "--file <path>",
   });
-  const text = opts.stdin === true && literalText !== undefined
-    ? stripMalformedAlookHeredocTail(literalText)
-    : literalText;
+  const text = stripMalformedAlookHeredocTail(literalText ?? "");
+  const textBytes = Buffer.byteLength(text, "utf8");
+  if (textBytes > CLIENT_MAX_MESSAGE_BODY_BYTES) {
+    throw new CliError(
+      `message send: --stdin body is ${textBytes} bytes; max ${CLIENT_MAX_MESSAGE_BODY_BYTES}. ` +
+      `Rewrite it before retrying.\n\n${MESSAGE_SEND_STDIN_POLICY}`,
+    );
+  }
 
   // `--attachment` may repeat. Commander wires this via `.option(..., collect, [])`
   // below; treat a missing flag as an empty list.
   const attachmentIds = Array.isArray(opts.attachment) ? (opts.attachment as string[]) : [];
 
-  const hasText = typeof text === "string" && text.trim().length > 0;
+  const hasText = text.trim().length > 0;
   if (!hasText && attachmentIds.length === 0) {
-    throw new CliError("message send: --stdin, --file <path>, or --attachment <id> is required");
+    throw new CliError("message send: --stdin must contain text unless --attachment <id> is present");
   }
 
   // `--reply` accepts the hash form the agent already sees in payloads (`"#37"`)
@@ -768,8 +771,7 @@ function buildProgram(stdin: CliInputStream): Command {
     .command("send")
     .description("send a message to a channel, DM, or thread")
     .option("--target <ref>", "destination (path-style ref, e.g. /demo-workspace#1234/general)")
-    .option("--stdin", "read the literal UTF-8 message body from non-TTY stdin")
-    .option("--file <path>", "read the literal UTF-8 message body from a file")
+    .requiredOption("--stdin", "read the required UTF-8 message body from non-TTY stdin (max 1 KiB)")
     .option(
       "-a, --attachment <id>",
       "attach an uploaded file by id (repeatable — order = message order)",
