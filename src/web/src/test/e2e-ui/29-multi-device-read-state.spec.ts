@@ -399,7 +399,7 @@ test("a visible live tail clears both devices while an unseen tail stays unread"
   await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${channelId}`)
   await gotoAfterUserWsAuth(deviceB.page, `/c/channels/${serverId}/${siblingId}`)
   await deviceB.page.getByRole("button", { name: "Inbox" }).click()
-  await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
+  await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible()
 
   const scroller = deviceA.page
     .locator("[data-onboarding-target='channel-composer']")
@@ -407,8 +407,14 @@ test("a visible live tail clears both devices while an unseen tail stays unread"
     .locator(".thin-scrollbar")
     .first()
   await expect(deviceA.page.getByTestId(tid.scrollToPresent)).toBeVisible()
+  const baselineRead = deviceA.page.waitForResponse((response) =>
+    response.request().method() === "PUT"
+    && new URL(response.url()).pathname === `/api/community/channels/${channelId}/read`,
+  )
   await deviceA.page.getByTestId(tid.scrollToPresent).click()
   await expect(deviceA.page.getByTestId(tid.scrollToPresent)).toHaveCount(0)
+  expect((await baselineRead).status()).toBe(200)
+  await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
 
   const visibleStarts = [proxyA.frames.length, proxyB.frames.length]
   const visibleRead = deviceA.page.waitForResponse((response) =>
