@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   consumeFirstSignupGuideHandoff,
   readFirstSignupGuideHandoff,
@@ -15,6 +15,10 @@ function storage(initial?: string) {
 }
 
 describe("first-signup guide handoff", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it("writes a versioned one-shot handoff with a stable avatar seed", () => {
     const target = storage()
 
@@ -56,5 +60,55 @@ describe("first-signup guide handoff", () => {
     expect(writeFirstSignupGuideHandoff(null, 1_000, "id")).toBeNull()
     expect(readFirstSignupGuideHandoff(null, 1_000)).toBeNull()
     expect(() => consumeFirstSignupGuideHandoff("seed", null)).not.toThrow()
+  })
+
+  it("uses session storage when no storage override is provided", () => {
+    const target = storage()
+    vi.stubGlobal("window", { sessionStorage: target })
+
+    expect(writeFirstSignupGuideHandoff(undefined, 1_000, "browser-id")).toEqual({
+      version: 1,
+      seed: "alook-guide-browser-id",
+      createdAt: 1_000,
+    })
+    expect(readFirstSignupGuideHandoff(undefined, 1_001)?.seed).toBe("alook-guide-browser-id")
+    consumeFirstSignupGuideHandoff("alook-guide-browser-id")
+    expect(target.removeItem).toHaveBeenCalledOnce()
+  })
+
+  it("fails closed when session storage access throws", () => {
+    vi.stubGlobal("window", {
+      get sessionStorage() {
+        throw new Error("storage disabled")
+      },
+    })
+
+    expect(writeFirstSignupGuideHandoff(undefined, 1_000, "id")).toBeNull()
+    expect(readFirstSignupGuideHandoff(undefined, 1_000)).toBeNull()
+    expect(() => consumeFirstSignupGuideHandoff("seed")).not.toThrow()
+  })
+
+  it("fails closed when storage operations throw", () => {
+    const writeFailure = {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(() => { throw new Error("write failed") }),
+      removeItem: vi.fn(),
+    }
+    expect(writeFirstSignupGuideHandoff(writeFailure, 1_000, "id")).toBeNull()
+
+    const readFailure = {
+      getItem: vi.fn(() => { throw new Error("read failed") }),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    }
+    expect(readFirstSignupGuideHandoff(readFailure, 1_000)).toBeNull()
+
+    const consumeFailure = {
+      getItem: vi.fn(() => "not-json"),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    }
+    expect(() => consumeFirstSignupGuideHandoff("seed", consumeFailure)).not.toThrow()
+    expect(consumeFailure.removeItem).toHaveBeenCalledOnce()
   })
 })
