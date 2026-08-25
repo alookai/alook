@@ -166,6 +166,9 @@ function buildNapRewakePrompt(handoff: string): string {
 
 export class AgentRouter {
   private readonly running = new Set<string>();
+  // WakeCoordinator may deliberately re-admit the same semantic watermark
+  // until its coverage is model-seen. Each admission is a new driver command.
+  private nextWakeAdmissionOrdinal = 1;
   /**
    * Mutable per-runtime health map. Seeded from the startup snapshot passed
    * on construction; mutated live by `markRuntimeUnhealthy` / `markRuntimeHealthy`
@@ -428,7 +431,7 @@ export class AgentRouter {
           // The manager (not this router) decides spawn vs. in-process notify
           // vs. coalesce — see managerPolicy's `onWake`.
           const producedEffect = this.opts.manager.deliver(cmd.agentId, {
-            id: `${cmd.agentId}:wake:${cmd.unreadNotice.channel}:${cmd.unreadNotice.latestSeq}`,
+            id: `${cmd.agentId}:wake:${cmd.unreadNotice.channel}:${cmd.unreadNotice.latestSeq}:admission:${this.nextWakeAdmissionOrdinal++}`,
             seq: cmd.unreadNotice.latestSeq,
             text,
           });

@@ -33,7 +33,7 @@ function fakeManager(
   initialStatuses: Record<string, "idle" | "starting" | "running" | "stopping"> = {},
   deliverReturns?: boolean,
 ) {
-  const delivers: Array<{ agentId: string; text: string; seq?: number }> = [];
+  const delivers: Array<{ agentId: string; id?: string; text: string; seq?: number }> = [];
   const registers: Array<{ agentId: string; sessionId?: string; launchId?: string }> = [];
   const forgets: string[] = [];
   const resets: Array<{ agentId: string; rewakePrompt: string; launchId: string; barrierType?: string }> = [];
@@ -45,8 +45,8 @@ function fakeManager(
       registers.push({ agentId, sessionId: launch?.sessionId, launchId: launch?.launchId });
       order.push(`register:${agentId}`);
     },
-    deliver(agentId: string, m: { seq?: number; text: string }) {
-      delivers.push({ agentId, text: m.text, seq: m.seq });
+    deliver(agentId: string, m: { id?: string; seq?: number; text: string }) {
+      delivers.push({ agentId, id: m.id, text: m.text, seq: m.seq });
       order.push(`deliver:${agentId}`);
       return deliverReturns;
     },
@@ -118,7 +118,12 @@ describe("AgentRouter — agent:wake", () => {
     });
 
     expect(registers).toEqual([{ agentId: "a1", sessionId: undefined, launchId: "l1" }]);
-    expect(delivers).toEqual([{ agentId: "a1", text: "You have unread messages.", seq: 7 }]);
+    expect(delivers).toEqual([{
+      agentId: "a1",
+      id: "a1:wake:/demo#1234/general:7:admission:1",
+      text: "You have unread messages.",
+      seq: 7,
+    }]);
     expect(wakeAcks).toEqual([{ agentId: "a1", launchId: "l1", status: "ok" }]);
   });
 
@@ -141,10 +146,15 @@ describe("AgentRouter — agent:wake", () => {
       unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 7 },
     });
 
-    expect(delivers).toEqual([{ agentId: "a1", text: "custom: /demo#1234/general#7", seq: 7 }]);
+    expect(delivers).toEqual([{
+      agentId: "a1",
+      id: "a1:wake:/demo#1234/general:7:admission:1",
+      text: "custom: /demo#1234/general#7",
+      seq: 7,
+    }]);
   });
 
-  it("repeated agent:wake commands for the same agent each register + deliver again (no dedup — no deliveryId anymore)", async () => {
+  it("gives each admitted replay of the same semantic wake a distinct driver command id", async () => {
     const { mgr, delivers } = fakeManager();
     const { ch, wakeAcks, fire } = fakeChannel();
     const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "mock" }] });
@@ -160,7 +170,10 @@ describe("AgentRouter — agent:wake", () => {
     await fire(wake);
     await fire(wake);
 
-    expect(delivers.length).toBe(2);
+    expect(delivers.map((delivery) => delivery.id)).toEqual([
+      "a1:wake:/demo#1234/general:7:admission:1",
+      "a1:wake:/demo#1234/general:7:admission:2",
+    ]);
     expect(wakeAcks.length).toBe(2);
   });
 
