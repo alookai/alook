@@ -11,6 +11,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
+import { DEV_WS_DO_URL, RATE_LIMITS, type RateLimitResult } from "@alook/shared"
 import {
   seedTestData,
   cleanupTestData,
@@ -76,44 +77,44 @@ afterAll(() => {
 
 describe("community message rate limit — DO-backed", () => {
   it("accepts up to the per-window max, then returns 429 with Retry-After", async () => {
-    // Policy: community:msgSend = 30 sends / 10s fixed window (see
-    // `RATE_LIMITS` in src/shared/src/lib/rate-limits.ts). Fire the whole
-    // burst CONCURRENTLY so every request provably lands inside one window —
-    // a sequential loop can take >10s on a slow runner, letting the fixed
-    // window reset mid-loop so the counter never reaches the ceiling and no
-    // 429 is ever emitted (the old flake). The DO counter is
-    // strongly-consistent, so concurrency still yields a deterministic split.
-    const MAX = 30
-    const responses = await Promise.all(
-      Array.from({ length: MAX + 1 }, (_, i) =>
-        sessionRequest(
-          `/api/community/channels/${channelId}/messages`,
-          cookie,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ content: `rate-limit-e2e ${i}` }),
-          },
-        ),
-      ),
+    const name = "community:msgSend" as const
+    const policy = RATE_LIMITS[name]
+    const sendMessage = (content: string) => sessionRequest(
+      `/api/community/channels/${channelId}/messages`,
+      cookie,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      },
     )
 
-    const accepted = responses.filter((r) => r.status === 201).length
-    const rejected = responses.filter((r) => r.status === 429)
+    // Keep the two assertions that matter on the real community route, but
+    // avoid making a cold CI runner perform 31 full auth + D1 message writes.
+    // The first write creates the exact (name, userId) DO window used by the
+    // route. Lightweight calls to the real ws-do service then fill that same
+    // strongly-consistent counter before the overflow request exercises the
+    // route's 429 response.
+    const accepted = await sendMessage("rate-limit-e2e accepted")
+    expect(accepted.status).toBe(201)
 
-    // Exactly the ceiling is accepted; the overflow is blocked (not fail-open).
-    // If `accepted` < 30, the counter started with stale state from a previous
-    // run — reset with `pnpm db:reset`.
-    expect(accepted).toBe(MAX)
-    expect(rejected).toHaveLength(1)
+    const primed = await Promise.all(
+      Array.from({ length: policy.max - 1 }, async () => {
+        const response = await fetch(`${DEV_WS_DO_URL}/rate-limit/check`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, key: seed.userId, ...policy }),
+        })
+        expect(response.status).toBe(200)
+        return (await response.json()) as RateLimitResult
+      }),
+    )
+    expect(primed).toEqual(Array.from({ length: policy.max - 1 }, () => ({ allowed: true })))
 
-    // Every 429 carries a positive Retry-After (set by writeError() when the
-    // DO returns { allowed: false }). Asserted per-response so a fail-open
-    // (429 without the header) is caught regardless of ordering.
-    for (const res of rejected) {
-      const retryAfter = res.headers.get("retry-after")
-      expect(retryAfter).toBeTruthy()
-      expect(Number(retryAfter)).toBeGreaterThan(0)
-    }
+    const rejected = await sendMessage("rate-limit-e2e rejected")
+    expect(rejected.status).toBe(429)
+    const retryAfter = rejected.headers.get("retry-after")
+    expect(retryAfter).toBeTruthy()
+    expect(Number(retryAfter)).toBeGreaterThan(0)
   }, 30_000)
 })

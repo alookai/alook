@@ -164,7 +164,17 @@ jobs:
         run: pnpm --filter @alook/agent-driver build
       - name: Run full tests with coverage
         if: env.RUN_COVERAGE == 'true'
-        run: pnpm vitest run --coverage --coverage.reporter=json --coverage.reporter=text
+        run: |
+          pnpm vitest run --coverage --coverage.reporter=json --coverage.reporter=text \
+            --exclude src/daemon/agent-driver/src/pack.test.ts \
+            --exclude src/daemon/src/version.packed.test.ts \
+            --exclude src/daemon/src/agent-driver-bundle.packed.test.ts \
+            --exclude src/daemon/src/cli/daemonSelfUpdate.real.test.ts
+      - name: Run package artifact tests after coverage
+        if: env.RUN_COVERAGE == 'true'
+        run: |
+          pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism src/pack.test.ts
+          pnpm --filter @alook/daemon exec vitest run --no-file-parallelism src/version.packed.test.ts src/agent-driver-bundle.packed.test.ts src/cli/daemonSelfUpdate.real.test.ts
       - name: Run daemon tests in isolation
         if: env.RUN_COVERAGE != 'true'
         env:
