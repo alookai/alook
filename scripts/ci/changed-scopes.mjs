@@ -92,6 +92,16 @@ export function classifyPaths(inputPaths, options = {}) {
   const codeChanged =
     full || paths.some((path) => !isMarkdownPath(path) && !isBlogPath(path))
   const runCodeChecks = codeChanged && !effectiveBlogOnly && !effectiveDocsOnly
+  const appPackedArtifactInput = paths.some(
+    (path) =>
+      path.startsWith("src/app/") ||
+      path.startsWith("src/daemon/") ||
+      path.startsWith("src/shared/") ||
+      path.startsWith("src/email-worker/") ||
+      path.startsWith("src/ws-do/") ||
+      path.startsWith("src/wake-worker/") ||
+      (path.startsWith("src/web/") && !isBlogPath(path))
+  )
 
   return {
     paths,
@@ -106,6 +116,7 @@ export function classifyPaths(inputPaths, options = {}) {
     run_rust: runCodeChecks && (full || desktop),
     run_lighthouse: runCodeChecks && (full || web),
     run_knip: runCodeChecks && (full || app || cli || shared || web || worker),
+    run_app_packed_artifact: full || appPackedArtifactInput,
   }
 }
 
