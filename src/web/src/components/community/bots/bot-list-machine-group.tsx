@@ -162,10 +162,7 @@ export function renderBotMachineGroup(
                       <span className="size-4" aria-hidden /> Chat
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      onClick={() => {
-                        controller.setActivityBot(bot)
-                        controller.setActivityOpen(true)
-                      }}
+                      onClick={() => controller.openActivity(bot)}
                     >
                       <Activity className="size-4" /> View activity
                     </DropdownMenuItem>

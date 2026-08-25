@@ -1,13 +1,17 @@
 "use client"
 
 import { useCallback, useState, type ComponentProps } from "react"
+import { parseNameAndTag } from "@alook/shared"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { userProfileQueryFn, PROFILE_STALE_TIME_MS } from "@/hooks/community/use-user-profile"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
-import type { Profile } from "@/components/community/social/profile-types"
+import type {
+  OwnerProfileRef,
+  Profile,
+} from "@/components/community/social/profile-types"
 import {
   resolveProfileContextLabel,
   resolveProfileServerId,
@@ -79,9 +83,10 @@ export function useShellProfileController({
     fileName: string
   } | null>(null)
 
-  const openProfile = useCallback((
+  const openProfileAt = useCallback((
     name: string,
-    event: React.MouseEvent,
+    x: number,
+    y: number,
     discriminator?: string,
     targetUserId?: string,
   ) => {
@@ -96,8 +101,8 @@ export function useShellProfileController({
           onlineUserIds,
           resolveProfileContextLabel(profileServerId, selfMember),
         ),
-        x: event.clientX,
-        y: event.clientY,
+        x,
+        y,
         initialStatusEmoji: currentUser.statusEmoji ?? null,
         initialStatusText: currentUser.statusText ?? null,
       })
@@ -121,8 +126,8 @@ export function useShellProfileController({
         mutual: 0,
         presence: resolveProfilePresence(false, userId, onlineUserIds),
       },
-      x: event.clientX,
-      y: event.clientY,
+      x,
+      y,
       initialStatusEmoji: member?.statusEmoji ?? null,
       initialStatusText: member?.statusText ?? null,
     })
@@ -135,7 +140,7 @@ export function useShellProfileController({
         })
         .then((profileResponse) => {
           setProfile((previous) =>
-            previous
+            previous?.data.userId === profileResponse.id
               ? {
                 ...previous,
                 data: {
@@ -143,6 +148,13 @@ export function useShellProfileController({
                   about: profileResponse.aboutMe ?? previous.data.about,
                   mutual: profileResponse.mutualServers ?? 0,
                   discriminator: profileResponse.discriminator ?? previous.data.discriminator,
+                  identity: profileResponse.kind === "bot"
+                    ? {
+                        kind: "bot",
+                        ownerProfile: profileResponse.ownerProfile,
+                        ownedByViewer: profileResponse.ownedByViewer,
+                      }
+                    : { kind: "human" },
                 },
                 initialStatusEmoji: profileResponse.statusEmoji,
                 initialStatusText: profileResponse.statusText,
@@ -153,6 +165,34 @@ export function useShellProfileController({
         .catch((error) => toastApiError(error, "Failed to load profile"))
     }
   }, [currentUser, friends, members, onlineUserIds, profileServerId, queryClient])
+
+  const openProfile = useCallback((
+    name: string,
+    event: React.MouseEvent,
+    discriminator?: string,
+    targetUserId?: string,
+  ) => {
+    openProfileAt(name, event.clientX, event.clientY, discriminator, targetUserId)
+  }, [openProfileAt])
+
+  const openOwnerProfile = useCallback((owner: OwnerProfileRef) => {
+    if (!profile) return
+    const parsed = parseNameAndTag(owner.handle)
+    if (!parsed) return
+    openProfileAt(
+      parsed.name,
+      profile.x,
+      profile.y,
+      parsed.discriminator,
+      owner.id,
+    )
+  }, [openProfileAt, profile])
+
+  const openBotAudit = useCallback((botId: string) => {
+    cancelPendingNavigation()
+    router.push(`/c/me/bots?audit=${encodeURIComponent(botId)}`)
+    setProfile(null)
+  }, [cancelPendingNavigation, router])
 
   const previewImage = useCallback((image: ImagePreview) => setPreview(image), [])
   const previewAttachment = useCallback(
@@ -302,6 +342,8 @@ export function useShellProfileController({
   return {
     currentUser,
     openProfile,
+    openOwnerProfile,
+    openBotAudit,
     previewImage,
     previewAttachment,
     profile,

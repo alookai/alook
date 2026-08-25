@@ -1,6 +1,9 @@
-import { describe, it, expect, vi } from "vitest";
+import Sqlite from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import * as profileQueries from "../../src/db/queries/community/user-profile";
 import { communityUserProfile } from "../../src/db/community-schema";
+import type { Database } from "../../src/db";
 
 function createSelectMock(rows: any[]) {
   const chain: any = {};
@@ -20,9 +23,114 @@ function createUpsertMock(returnRow: any) {
 }
 
 describe("community/user-profile exports", () => {
-  it("exports getProfile + updateProfile", () => {
+  it("exports public profile + getProfile + updateProfile queries", () => {
+    expect(typeof profileQueries.getPublicProfileForViewer).toBe("function");
     expect(typeof profileQueries.getProfile).toBe("function");
     expect(typeof profileQueries.updateProfile).toBe("function");
+  });
+});
+
+describe("getPublicProfileForViewer", () => {
+  let sqlite: Sqlite.Database;
+  let db: Database;
+
+  beforeEach(() => {
+    sqlite = new Sqlite(":memory:");
+    sqlite.exec(`
+      CREATE TABLE user (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        emailVerified INTEGER,
+        image TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        isBot INTEGER NOT NULL DEFAULT 0,
+        ownerUserId TEXT,
+        deletedAt TEXT,
+        discriminator TEXT NOT NULL DEFAULT '0000',
+        lastRefreshContextAt TEXT
+      );
+      CREATE TABLE community_user_profile (
+        user_id TEXT PRIMARY KEY,
+        about_me TEXT DEFAULT '',
+        banner_color TEXT,
+        status_emoji TEXT,
+        status_text TEXT DEFAULT ''
+      );
+    `);
+    db = drizzle(sqlite) as unknown as Database;
+
+    const insertUser = sqlite.prepare(`
+      INSERT INTO user
+        (id, name, email, image, createdAt, updatedAt, isBot, ownerUserId, deletedAt, discriminator)
+      VALUES (?, ?, ?, ?, '2026-01-01', '2026-01-01', ?, ?, ?, ?)
+    `);
+    insertUser.run("viewer_1", "Viewer", "viewer@example.com", null, 0, null, null, "0001");
+    insertUser.run("human_1", "Human", "human@example.com", "human.png", 0, null, null, "0002");
+    insertUser.run("owner_1", "Owner", "owner@example.com", null, 0, null, null, "0042");
+    insertUser.run("bot_1", "Helper", "bot@example.com", "bot.png", 1, "owner_1", null, "0100");
+    insertUser.run("deleted_target", "Gone", "gone@example.com", null, 0, null, "2026-02-01", "0003");
+    insertUser.run("deleted_owner", "Old Owner", "old-owner@example.com", null, 0, null, "2026-02-01", "0004");
+    insertUser.run("orphaned_bot", "Orphan", "orphan@example.com", null, 1, "deleted_owner", null, "0101");
+
+    sqlite.prepare(`
+      INSERT INTO community_user_profile
+        (user_id, about_me, banner_color, status_emoji, status_text)
+      VALUES ('bot_1', 'backend bot', '#123456', '🛠️', 'Working')
+    `).run();
+  });
+
+  afterEach(() => sqlite.close());
+
+  it("returns the human discriminator without bot-only identity fields", async () => {
+    await expect(profileQueries.getPublicProfileForViewer(db, "human_1", "viewer_1"))
+      .resolves.toEqual({
+        id: "human_1",
+        name: "Human",
+        discriminator: "0002",
+        image: "human.png",
+        aboutMe: "",
+        bannerColor: null,
+        statusEmoji: null,
+        statusText: "",
+        identity: { kind: "human" },
+      });
+  });
+
+  it("returns canonical public owner navigation and SQL-derived viewer ownership", async () => {
+    const ownerView = await profileQueries.getPublicProfileForViewer(db, "bot_1", "owner_1");
+    expect(ownerView).toEqual({
+      id: "bot_1",
+      name: "Helper",
+      discriminator: "0100",
+      image: "bot.png",
+      aboutMe: "backend bot",
+      bannerColor: "#123456",
+      statusEmoji: "🛠️",
+      statusText: "Working",
+      identity: {
+        kind: "bot",
+        ownerProfile: { id: "owner_1", handle: "Owner#0042" },
+        ownedByViewer: true,
+      },
+    });
+
+    const otherView = await profileQueries.getPublicProfileForViewer(db, "bot_1", "viewer_1");
+    expect(otherView?.identity).toEqual({
+      kind: "bot",
+      ownerProfile: { id: "owner_1", handle: "Owner#0042" },
+      ownedByViewer: false,
+    });
+    expect(otherView).not.toHaveProperty("ownerUserId");
+    expect(otherView).not.toHaveProperty("email");
+  });
+
+  it("does not resolve a soft-deleted target or a bot whose owner is soft-deleted", async () => {
+    await expect(profileQueries.getPublicProfileForViewer(db, "deleted_target", "viewer_1"))
+      .resolves.toBeNull();
+    await expect(profileQueries.getPublicProfileForViewer(db, "orphaned_bot", "viewer_1"))
+      .resolves.toBeNull();
   });
 });
 

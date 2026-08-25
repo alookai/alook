@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { isPresenceOnline } from "@alook/shared"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
+import { removeCommunityParam } from "@/lib/community/community-route"
 import { machineName as resolveMachineName } from "@/lib/community/machine-name"
 import { useMachines } from "@/hooks/community/use-machines"
 import {
@@ -30,6 +31,7 @@ export function useBotListController(): BotListController {
   const searchParams = useSearchParams()
   const botsQuery = useBots()
   const { bots, isLoading } = botsQuery
+  const botsResolved = botsQuery.data !== undefined
   const { machines, isLoading: machinesLoading } = useMachines()
   const onlineUserIds = useOnlineUserIds()
   const [createOpen, setCreateOpen] = useState(false)
@@ -131,9 +133,11 @@ export function useBotListController(): BotListController {
   }, [bots, machines])
 
   const targetMachineId = searchParams.get("machineId")
+  const targetAuditBotId = searchParams.get("audit")
   const [highlightId, setHighlightId] = useState<string | null>(null)
   const groupRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const scrolledForRef = useRef<string | null>(null)
+  const suppressedAuditRef = useRef<string | null>(null)
   useEffect(() => {
     if (!targetMachineId || bots.length === 0) return
     setCollapsedMachines((current) => {
@@ -149,6 +153,46 @@ export function useBotListController(): BotListController {
     const timer = setTimeout(() => setHighlightId(null), 2000)
     return () => clearTimeout(timer)
   }, [targetMachineId, bots.length])
+
+  useEffect(() => {
+    if (!botsResolved) return
+    if (!targetAuditBotId) {
+      suppressedAuditRef.current = null
+      if (activityOpen) setActivityOpen(false)
+      if (activityBot) setActivityBot(null)
+      return
+    }
+    if (suppressedAuditRef.current === targetAuditBotId) return
+
+    const targetBot = bots.find((bot) => bot.id === targetAuditBotId)
+    if (!targetBot) {
+      suppressedAuditRef.current = targetAuditBotId
+      if (activityOpen) setActivityOpen(false)
+      if (activityBot) setActivityBot(null)
+      const query = searchParams.toString()
+      router.replace(removeCommunityParam(`/c/me/bots${query ? `?${query}` : ""}`, "audit"))
+      return
+    }
+
+    if (activityBot?.id !== targetBot.id) setActivityBot(targetBot)
+    if (!activityOpen) setActivityOpen(true)
+  }, [activityBot, activityOpen, bots, botsResolved, router, searchParams, targetAuditBotId])
+
+  const openActivity = (bot: BotSummary) => {
+    suppressedAuditRef.current = null
+    const next = new URLSearchParams(searchParams.toString())
+    next.set("audit", bot.id)
+    router.push(`/c/me/bots?${next.toString()}`)
+  }
+
+  const onActivityOpenChange = (open: boolean) => {
+    if (open) return
+    if (targetAuditBotId) suppressedAuditRef.current = targetAuditBotId
+    setActivityOpen(false)
+    setActivityBot(null)
+    const query = searchParams.toString()
+    router.replace(removeCommunityParam(`/c/me/bots${query ? `?${query}` : ""}`, "audit"))
+  }
 
   const openMachines = () => router.push("/c/me/machines")
   const bringMachineOnline = (machineId: string) => {
@@ -220,9 +264,9 @@ export function useBotListController(): BotListController {
     editOpen,
     setEditOpen,
     activityBot,
-    setActivityBot,
     activityOpen,
-    setActivityOpen,
+    openActivity,
+    onActivityOpenChange,
     bugReportBot,
     setBugReportBot,
     bugReportOpen,

@@ -19,6 +19,14 @@ describe("community QA selectors", () => {
   it("exposes the profile context badge independently from the card", () => {
     expect(tid.profileCard).toBe("community-profile-card")
     expect(tid.profileContextBadge).toBe("community-profile-context-badge")
+    expect(tid.profileBotBadge).toBe("community-profile-bot-badge")
+    expect(tid.profileOwnerLink).toBe("community-profile-owner-link")
+    expect(tid.botAuditPreview).toBe("community-bot-audit-preview")
+    expect(tid.botAuditPreviewDock).toBe("community-bot-audit-preview-dock")
+    expect(tid.botAuditPreviewActive).toBe("community-bot-audit-preview-active")
+    expect(tid.botAuditPreviewRow("event_1")).toBe(
+      "community-bot-audit-preview-row-event_1",
+    )
   })
 
   it("exposes attachment preview selectors from one canonical map", () => {

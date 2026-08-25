@@ -1,17 +1,21 @@
 "use client"
 
-import { useState } from "react"
-import { MessagesSquare, Shield } from "lucide-react"
+import { useLayoutEffect, useRef, useState } from "react"
+import { Bot, MessagesSquare, Shield, UserRound } from "lucide-react"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Badge } from "@/components/ui/badge"
 import { Avatar } from "../avatar"
 import { SeededBackdrop } from "@/components/avatar"
 import { resolveAvatar } from "@/lib/avatar/resolve"
 import { StatusEditor, hasStatus } from "./status-editor"
-import type { Profile } from "@/components/community/social/profile-types"
+import type {
+  OwnerProfileRef,
+  Profile,
+} from "@/components/community/social/profile-types"
 import type { Breakpoint } from "@/hooks/use-mobile"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { tid } from "@/lib/community/testids"
+import { BotAuditPreview, isBotActivityActive } from "./bot-audit-preview"
 
 // Merge rule for the card's status pill: overlay wins over seed. The overlay
 // (`useCommunityWsStore.userStatuses`) is the same live source the member
@@ -41,13 +45,152 @@ export function resolveProfileBackdropSeed(
   return resolved.kind === "beam" ? resolved.seed : fallbackSeed
 }
 
+export function displayOwnerHandle(handle: string): string {
+  return handle.replace(/#\d+$/, "")
+}
+
+export type AuditPreviewPlacement = "right" | "left" | "top" | "bottom"
+
+type RectLike = Pick<DOMRect, "top" | "right" | "bottom" | "left" | "width" | "height">
+
+export function resolveAuditPreviewPlacement({
+  card,
+  preview,
+  viewportWidth,
+  viewportHeight,
+  gap = 8,
+}: {
+  card: RectLike
+  preview: Pick<RectLike, "width" | "height">
+  viewportWidth: number
+  viewportHeight: number
+  gap?: number
+}): AuditPreviewPlacement {
+  const room = {
+    right: viewportWidth - card.right,
+    left: card.left,
+    top: card.top,
+    bottom: viewportHeight - card.bottom,
+  }
+  const sideCrossAxisFits = preview.height <= viewportHeight - gap * 2
+  const verticalCrossAxisFits = preview.width <= viewportWidth - gap * 2
+
+  if (sideCrossAxisFits && room.right >= preview.width + gap) return "right"
+  if (sideCrossAxisFits && room.left >= preview.width + gap) return "left"
+  if (verticalCrossAxisFits && room.top >= preview.height + gap) return "top"
+  if (verticalCrossAxisFits && room.bottom >= preview.height + gap) return "bottom"
+
+  return (Object.entries(room) as Array<[AuditPreviewPlacement, number]>)
+    .sort((a, b) => b[1] - a[1])[0]?.[0] ?? "right"
+}
+
+type AuditPreviewPosition = {
+  placement: AuditPreviewPlacement
+  left: number | string
+  top: number
+}
+
+function clamp(value: number, min: number, max: number): number {
+  if (min > max) return value
+  return Math.min(Math.max(value, min), max)
+}
+
+function useAuditPreviewPosition(enabled: boolean, x: number, y: number) {
+  const popoverRef = useRef<HTMLDivElement | null>(null)
+  const cardRef = useRef<HTMLDivElement | null>(null)
+  const previewRef = useRef<HTMLDivElement | null>(null)
+  const [position, setPosition] = useState<AuditPreviewPosition>({
+    placement: "right",
+    left: "calc(100% + 0.5rem)",
+    top: 0,
+  })
+
+  useLayoutEffect(() => {
+    if (!enabled) return
+
+    let frame = 0
+    const update = () => {
+      const cardElement = cardRef.current
+      const previewElement = previewRef.current
+      if (!cardElement || !previewElement) return
+      const transformedCard = cardElement.getBoundingClientRect()
+      const card = {
+        top: transformedCard.top,
+        right: transformedCard.left + cardElement.offsetWidth,
+        bottom: transformedCard.top + cardElement.offsetHeight,
+        left: transformedCard.left,
+        width: cardElement.offsetWidth,
+        height: cardElement.offsetHeight,
+      }
+      const preview = {
+        width: previewElement.offsetWidth,
+        height: previewElement.offsetHeight,
+      }
+      const gap = 8
+      const margin = 8
+      const placement = resolveAuditPreviewPlacement({
+        card,
+        preview,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        gap,
+      })
+
+      const verticalOffset = clamp(
+        0,
+        margin - card.top,
+        window.innerHeight - margin - preview.height - card.top,
+      )
+      const horizontalOffset = clamp(
+        card.width - preview.width,
+        margin - card.left,
+        window.innerWidth - margin - preview.width - card.left,
+      )
+      const next: AuditPreviewPosition = placement === "right"
+        ? { placement, left: card.width + gap, top: verticalOffset }
+        : placement === "left"
+          ? { placement, left: -preview.width - gap, top: verticalOffset }
+          : placement === "top"
+            ? { placement, left: horizontalOffset, top: -preview.height - gap }
+            : { placement, left: horizontalOffset, top: card.height + gap }
+
+      setPosition((current) => current.placement === next.placement
+        && current.left === next.left
+        && current.top === next.top
+        ? current
+        : next)
+    }
+
+    update()
+    frame = requestAnimationFrame(update)
+    window.addEventListener("resize", update)
+    window.addEventListener("scroll", update, true)
+    const popoverElement = popoverRef.current
+    popoverElement?.addEventListener("animationend", update)
+    popoverElement?.addEventListener("animationcancel", update)
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update)
+    if (cardRef.current) observer?.observe(cardRef.current)
+    if (previewRef.current) observer?.observe(previewRef.current)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener("resize", update)
+      window.removeEventListener("scroll", update, true)
+      popoverElement?.removeEventListener("animationend", update)
+      popoverElement?.removeEventListener("animationcancel", update)
+      observer?.disconnect()
+    }
+  }, [enabled, x, y])
+
+  return { popoverRef, cardRef, previewRef, position }
+}
+
 // Profile card — popover anchored at the click point on desktop, bottom sheet on mobile.
 // Status (emoji + text) is read live from `useCommunityWsStore.userStatuses` —
 // the same overlay the member list, friends list, and UserBar consume. The
 // `initialStatusEmoji` / `initialStatusText` props are a first-paint seed for
 // users the overlay has never seen a WS event for; once the overlay has an
 // entry, it wins. See plans/profile-card-status-overlay.md.
-export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpdateStatus, initialStatusEmoji, initialStatusText, embedded }: {
+export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpdateStatus, onOpenOwnerProfile, onOpenBotAudit, initialStatusEmoji, initialStatusText, activityStatusEmoji, activityStatusText, embedded }: {
   data: Profile
   x: number
   y: number
@@ -58,8 +201,12 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   // Only used when `isSelf` — the inline status row opens `StatusEditor` and
   // calls this on a preset pick / free-text commit / emoji override / clear.
   onUpdateStatus?: (emoji: string | null, text: string | null) => void
+  onOpenOwnerProfile?: (owner: OwnerProfileRef) => void
+  onOpenBotAudit?: (botId: string) => void
   initialStatusEmoji?: string | null
   initialStatusText?: string | null
+  activityStatusEmoji?: string | null
+  activityStatusText?: string | null
   // Static card surface for contexts such as product previews. The regular
   // profile interaction still uses the anchored popover / mobile sheet.
   embedded?: boolean
@@ -69,6 +216,14 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   const mobile = bp === "mobile"
   const liveStatus = useCommunityWsStore((s) => (data.userId ? s.userStatuses.get(data.userId) : undefined))
   const { emoji: statusEmoji, text: statusText } = resolveCardStatus(liveStatus, initialStatusEmoji, initialStatusText)
+  const activityStatus = resolveCardStatus(liveStatus, activityStatusEmoji, activityStatusText)
+  const botIdentity = data.identity?.kind === "bot" ? data.identity : null
+  const showAuditPreview = Boolean(botIdentity?.ownedByViewer && data.userId)
+  const { popoverRef, cardRef, previewRef, position: previewPosition } = useAuditPreviewPosition(
+    showAuditPreview && !mobile && !embedded,
+    x,
+    y,
+  )
   const backdropSeed = resolveProfileBackdropSeed(data.avatar, data.userId, data.name)
   const close = () => setOpen(false)
   const send = () => {
@@ -178,8 +333,35 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
               (a step past DESIGN.md's 16px between-groups token) rather than
               just tighter line spacing off the bio above it. */}
           <p className="mt-2 text-[15px] text-muted-foreground">{data.about || "No bio yet."}</p>
-          {(data.contextLabel || data.mutual > 0) && (
-            <div className="mt-6 flex items-center gap-2 text-xs text-muted-foreground">
+          {(botIdentity || data.contextLabel || data.mutual > 0) && (
+            <div className="mt-6 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              {botIdentity && (
+                <>
+                  <Badge
+                    data-testid={tid.profileBotBadge}
+                    variant="secondary"
+                    className="h-5 gap-1 text-xs"
+                  >
+                    <Bot className="size-3 shrink-0" aria-hidden />
+                    Bot
+                  </Badge>
+                  <button
+                    type="button"
+                    data-testid={tid.profileOwnerLink}
+                    className="group/owner flex h-11 min-w-0 max-w-full items-center rounded-full text-xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:h-5"
+                    onClick={() => onOpenOwnerProfile?.(botIdentity.ownerProfile)}
+                    aria-label={`Open owner profile @${botIdentity.ownerProfile.handle}`}
+                  >
+                    <Badge
+                      variant="secondary"
+                      className="pointer-events-none min-w-0 max-w-full transition-colors group-hover/owner:bg-accent group-active/owner:bg-accent/80"
+                    >
+                      <UserRound className="size-3 shrink-0" aria-hidden />
+                      <span className="min-w-0 truncate">@{displayOwnerHandle(botIdentity.ownerProfile.handle)}</span>
+                    </Badge>
+                  </button>
+                </>
+              )}
               {data.contextLabel && (
                 <Badge data-testid={tid.profileContextBadge} variant="secondary" className="h-5 gap-1 text-xs">
                   <Shield className="size-3" /> {data.contextLabel}
@@ -214,15 +396,29 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
     </>
   )
 
+  const auditPreview = showAuditPreview && data.userId ? (
+    <BotAuditPreview
+      botId={data.userId}
+      active={isBotActivityActive(activityStatus.emoji, activityStatus.text)}
+      onOpen={() => onOpenBotAudit?.(data.userId!)}
+    />
+  ) : null
+
   if (embedded)
-    return <div data-testid={tid.profileCard} className="w-full overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">{card}</div>
+    return (
+      <div className="flex w-full flex-col gap-2">
+        {auditPreview}
+        <div data-testid={tid.profileCard} className="w-full overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">{card}</div>
+      </div>
+    )
 
   // mobile: bottom sheet (intentional mobile UX, kept manual)
   if (mobile)
     return (
       <div className="fixed inset-0 z-30 flex flex-col justify-end" onClick={onClose}>
         <div className="absolute inset-0 bg-foreground/30" />
-        <div className="relative p-3" onClick={(e) => e.stopPropagation()}>
+        <div className="relative flex flex-col gap-2 p-3" onClick={(e) => e.stopPropagation()}>
+          {auditPreview}
           <div data-testid={tid.profileCard} className="overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">{card}</div>
         </div>
       </div>
@@ -237,8 +433,21 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
         className="pointer-events-none fixed size-0"
         style={{ left: x, top: y }}
       />
-      <PopoverContent data-testid={tid.profileCard} side="right" align="start" sideOffset={8} className="w-75 overflow-hidden p-2">
-        {card}
+      <PopoverContent ref={popoverRef} side="right" align="start" sideOffset={8} className="relative w-75 overflow-visible border-0 bg-transparent p-0 shadow-none">
+        {auditPreview && (
+          <div
+            ref={previewRef}
+            data-testid={tid.botAuditPreviewDock}
+            data-placement={previewPosition.placement}
+            className="absolute w-full"
+            style={{ left: previewPosition.left, top: previewPosition.top }}
+          >
+            {auditPreview}
+          </div>
+        )}
+        <div ref={cardRef} data-testid={tid.profileCard} className="overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">
+          {card}
+        </div>
       </PopoverContent>
     </Popover>
   )

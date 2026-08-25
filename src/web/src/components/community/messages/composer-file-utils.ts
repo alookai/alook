@@ -1,6 +1,32 @@
 import type { PendingFile } from "@/hooks/use-file-attachments"
 import type { SendAttachment } from "@/lib/community/models/message"
 
+export const LONG_PASTE_ATTACHMENT_THRESHOLD = 1_000
+
+export type LongPasteAttachment = {
+  file: File
+  nextIndex: number
+}
+
+export function createLongPasteAttachment(
+  text: string | undefined,
+  existingFileNames: readonly string[],
+  startIndex = 1,
+): LongPasteAttachment | null {
+  if (!text || text.length <= LONG_PASTE_ATTACHMENT_THRESHOLD) return null
+
+  const occupiedNames = new Set(existingFileNames)
+  let index = Math.max(1, startIndex)
+  while (occupiedNames.has(`copy-${index}.md`)) index++
+
+  return {
+    file: new File([text], `copy-${index}.md`, {
+      type: "text/markdown",
+    }),
+    nextIndex: index + 1,
+  }
+}
+
 export function pendingFilesToSendAttachments(
   pendingFiles: PendingFile[],
 ): SendAttachment[] | undefined {

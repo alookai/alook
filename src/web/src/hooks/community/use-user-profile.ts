@@ -6,10 +6,11 @@ import { apiFetch } from "@/lib/api/client"
  * Fetches a public user profile card (avatar, name, aboutMe, mutual-server
  * count).
  *
- * The route (`GET /api/community/users/:userId/profile`) already gates on
- * viewer visibility, so we can cache freely under the viewer's session.
+ * The route (`GET /api/community/users/:userId/profile`) is authenticated and
+ * returns viewer-relative bot ownership. The community query cache is cleared
+ * on logout, so this response remains scoped to the current viewer session.
  */
-export type UserProfile = {
+type UserProfileBase = {
   id: string
   name: string
   discriminator: string
@@ -20,6 +21,15 @@ export type UserProfile = {
   statusEmoji: string | null
   statusText: string | null
 }
+
+export type UserProfile = UserProfileBase & (
+  | { kind: "human" }
+  | {
+      kind: "bot"
+      ownerProfile: { id: string; handle: string }
+      ownedByViewer: boolean
+    }
+)
 
 export const userProfileQueryFn = (userId: string) => () =>
   apiFetch<UserProfile>(`/api/community/users/${userId}/profile`)

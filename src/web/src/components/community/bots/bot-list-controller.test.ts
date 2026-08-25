@@ -13,7 +13,9 @@ const readWebSource = (path: string) => readFileSync(resolve(webRoot, path), "ut
 const mocks = vi.hoisted(() => ({
   hookOrder: [] as string[],
   target: "mac1" as string | null,
+  audit: null as string | null,
   bots: [] as BotSummary[],
+  botsDataReady: true,
   machines: [] as Array<Record<string, unknown>>,
   botsLoading: false,
   machinesLoading: false,
@@ -21,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   onboardingSnapshot: null as Record<string, unknown> | null,
   actionState: null as Record<string, unknown> | null,
   push: vi.fn(),
+  replace: vi.fn(),
   createDm: vi.fn(),
   del: vi.fn(),
   resetBot: vi.fn(),
@@ -36,17 +39,29 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => {
     mocks.hookOrder.push("router")
-    return { push: mocks.push }
+    return { push: mocks.push, replace: mocks.replace }
   },
   useSearchParams: () => {
     mocks.hookOrder.push("searchParams")
-    return { get: () => mocks.target }
+    return {
+      get: (key: string) => key === "machineId" ? mocks.target : mocks.audit,
+      toString: () => {
+        const params = new URLSearchParams()
+        if (mocks.target) params.set("machineId", mocks.target)
+        if (mocks.audit) params.set("audit", mocks.audit)
+        return params.toString()
+      },
+    }
   },
 }))
 vi.mock("@/hooks/community/use-bots", () => ({
   useBots: () => {
     mocks.hookOrder.push("bots")
-    return { bots: mocks.bots, isLoading: mocks.botsLoading }
+    return {
+      bots: mocks.bots,
+      data: mocks.botsDataReady ? { bots: mocks.bots } : undefined,
+      isLoading: mocks.botsLoading,
+    }
   },
   useDeleteBot: () => {
     mocks.hookOrder.push("delete")
@@ -130,7 +145,9 @@ describe("useBotListController", () => {
     vi.useFakeTimers()
     mocks.hookOrder.length = 0
     mocks.target = "mac1"
+    mocks.audit = null
     mocks.bots = [bot("b1", "mac1")]
+    mocks.botsDataReady = true
     mocks.machines = [
       { id: "mac1", displayName: "One", hostname: "one", status: "online" },
       { id: "mac2", displayName: "Two", hostname: "two", status: "online" },
@@ -219,7 +236,7 @@ describe("useBotListController", () => {
     }
   })
 
-  it("retains all observable state and both ref-backed lifecycles across loading/data rerenders", () => {
+  it("retains non-URL state and both ref-backed lifecycles across loading/data rerenders", () => {
     mocks.target = null
     const renderer = render()
     const refs = latest.groupRefs
@@ -229,8 +246,6 @@ describe("useBotListController", () => {
       latest.setCreateOpen(true)
       latest.setEditingBot(selected)
       latest.setEditOpen(true)
-      latest.setActivityBot(selected)
-      latest.setActivityOpen(true)
       latest.setBugReportBot({ id: selected.id, name: selected.name })
       latest.setBugReportOpen(true)
       latest.setConfirmDelete(selected)
@@ -247,8 +262,8 @@ describe("useBotListController", () => {
     expect(latest.createOpen).toBe(true)
     expect(latest.editingBot).toBe(selected)
     expect(latest.editOpen).toBe(true)
-    expect(latest.activityBot).toBe(selected)
-    expect(latest.activityOpen).toBe(true)
+    expect(latest.activityBot).toBeNull()
+    expect(latest.activityOpen).toBe(false)
     expect(latest.bugReportBot).toEqual({ id: "selected", name: "selected" })
     expect(latest.bugReportOpen).toBe(true)
     expect(latest.confirmDelete).toBe(selected)
@@ -285,6 +300,79 @@ describe("useBotListController", () => {
     expect(scrollIntoView).not.toHaveBeenCalled()
     expect(latest.highlightId).toBeNull()
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("opens an owned audit deep link only after its bot is available", () => {
+    mocks.audit = "b1"
+    mocks.botsDataReady = false
+    mocks.botsLoading = true
+    const renderer = render()
+    expect(latest.activityOpen).toBe(false)
+    expect(latest.activityBot).toBeNull()
+
+    mocks.botsLoading = false
+    mocks.botsDataReady = true
+    act(() => renderer.update(React.createElement(Probe)))
+    expect(latest.activityOpen).toBe(true)
+    expect(latest.activityBot?.id).toBe("b1")
+    expect(mocks.replace).not.toHaveBeenCalled()
+  })
+
+  it("does not consume a reload deep link during a transient idle query without data", () => {
+    mocks.audit = "b1"
+    mocks.bots = []
+    mocks.botsLoading = false
+    mocks.botsDataReady = false
+    const renderer = render()
+    expect(latest.activityOpen).toBe(false)
+    expect(mocks.replace).not.toHaveBeenCalled()
+
+    mocks.bots = [bot("b1", "mac1")]
+    mocks.botsDataReady = true
+    act(() => renderer.update(React.createElement(Probe)))
+    expect(latest.activityOpen).toBe(true)
+    expect(latest.activityBot?.id).toBe("b1")
+    expect(mocks.replace).not.toHaveBeenCalled()
+  })
+
+  it("clears invalid or nonowned audit ids without opening the modal", () => {
+    mocks.audit = "foreign"
+    render()
+    expect(latest.activityOpen).toBe(false)
+    expect(latest.activityBot).toBeNull()
+    expect(mocks.replace).toHaveBeenCalledWith("/c/me/bots?machineId=mac1")
+  })
+
+  it("pushes URL-owned activity state, preserves machineId, and closes with replace", () => {
+    const renderer = render()
+    act(() => latest.openActivity(mocks.bots[0]!))
+    expect(mocks.push).toHaveBeenCalledWith("/c/me/bots?machineId=mac1&audit=b1")
+
+    mocks.audit = "b1"
+    act(() => renderer.update(React.createElement(Probe)))
+    expect(latest.activityOpen).toBe(true)
+    expect(latest.activityBot?.id).toBe("b1")
+
+    act(() => latest.onActivityOpenChange(false))
+    expect(latest.activityOpen).toBe(false)
+    expect(latest.activityBot).toBeNull()
+    expect(mocks.replace).toHaveBeenLastCalledWith("/c/me/bots?machineId=mac1")
+  })
+
+  it("closes on Back and reopens the same owned target on Forward", () => {
+    mocks.audit = "b1"
+    const renderer = render()
+    expect(latest.activityOpen).toBe(true)
+
+    mocks.audit = null
+    act(() => renderer.update(React.createElement(Probe)))
+    expect(latest.activityOpen).toBe(false)
+    expect(latest.activityBot).toBeNull()
+
+    mocks.audit = "b1"
+    act(() => renderer.update(React.createElement(Probe)))
+    expect(latest.activityOpen).toBe(true)
+    expect(latest.activityBot?.id).toBe("b1")
   })
 
   it("clears a normally consumed target after exactly 2000ms", () => {

@@ -507,10 +507,9 @@ export interface DaemonInfo {
    * (`daemons/<id>/status.json`, per-daemon since C0). NULL when no snapshot yet
    * (or a dead daemon). Per-row accurate even with multiple daemons sharing a
    * baseDir (pre-C0 the global single file made every row show the last
-   * writer's count). `running` = agents with derivedActivity "running" (actually
-   * working a turn); `agents` = total registered — the render shows
-   * `running/agents` so an operator sees "how many are busy" not just "how many
-   * exist" (C2, the AGENTS-count-imprecision fix).
+   * writer's count). Current daemons publish `running` from the process
+   * manager's owned sessions and `agents` from the machine-scoped bound-bot
+   * roster; older snapshots retain the FSM-row fallback for compatibility.
    */
   agents: number | null;
   running: number | null;
@@ -555,8 +554,14 @@ export function daemonList(opts: DaemonListOpts): DaemonInfo[] {
     if (alive && statusPath) {
       const s = daemonStatusFromFile(statusPath, now);
       if (s.found) {
-        agents = s.agents.length;
-        running = s.agents.filter((a) => a.derivedActivity === "running").length;
+        if (s.agentSummary) {
+          agents = s.agentSummary.total;
+          running = s.agentSummary.running;
+        } else {
+          // Compatibility with snapshots written by older daemons.
+          agents = s.agents.length;
+          running = s.agents.filter((a) => a.derivedActivity === "running").length;
+        }
         lastActiveMs = daemonLastActiveMs(s, now);
       }
     }
@@ -607,6 +612,8 @@ export interface DaemonStatusResult {
   freshness: "fresh" | "stale" | "missing";
   /** The snapshot's own writtenAt (ms epoch), or null. */
   writtenAt: number | null;
+  /** Authoritative list counts when written by a current daemon. */
+  agentSummary: DaemonStatusSnapshot["agentSummary"] | null;
   agents: DaemonStatusSnapshot["agents"];
   /**
    * Set when no `id` was given AND more than one daemon exists — the caller must
@@ -620,7 +627,24 @@ export interface DaemonStatusResult {
 /** Older than this ⇒ "stale" (a few status-write intervals of slack). */
 const STATUS_STALE_MS = 20_000;
 
-const MISSING_STATUS: DaemonStatusResult = { found: false, ageMs: null, freshness: "missing", writtenAt: null, agents: [] };
+const MISSING_STATUS: DaemonStatusResult = {
+  found: false,
+  ageMs: null,
+  freshness: "missing",
+  writtenAt: null,
+  agentSummary: null,
+  agents: [],
+};
+
+function validAgentSummary(value: unknown): DaemonStatusSnapshot["agentSummary"] | null {
+  if (!value || typeof value !== "object") return null;
+  const summary = value as { total?: unknown; running?: unknown };
+  const validTotal = summary.total === null
+    || (Number.isInteger(summary.total) && (summary.total as number) >= 0);
+  const validRunning = Number.isInteger(summary.running) && (summary.running as number) >= 0;
+  if (!validTotal || !validRunning) return null;
+  return { total: summary.total as number | null, running: summary.running as number };
+}
 
 /** Read+parse ONE status.json at a known path. Never throws (best-effort). */
 function daemonStatusFromFile(statusPath: string, nowMs: number): DaemonStatusResult {
@@ -633,6 +657,7 @@ function daemonStatusFromFile(statusPath: string, nowMs: number): DaemonStatusRe
       ageMs,
       freshness: ageMs <= STATUS_STALE_MS ? "fresh" : "stale",
       writtenAt: snap.writtenAt,
+      agentSummary: validAgentSummary(snap.agentSummary),
       agents: Array.isArray(snap.agents) ? snap.agents : [],
     };
   } catch {

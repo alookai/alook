@@ -19,7 +19,11 @@ import {
 } from "@/lib/community/composer-draft"
 import { detectMentionType } from "@/lib/community/mention-extension"
 import { buildPasteDom } from "@/lib/community/paste-plain-text"
-import { clipboardFiles, pendingFilesToSendAttachments } from "./composer-file-utils"
+import {
+  clipboardFiles,
+  createLongPasteAttachment,
+  pendingFilesToSendAttachments,
+} from "./composer-file-utils"
 import type { ComposerHandle, ComposerProps } from "./composer-types"
 import type { ComposerViewProps } from "./composer-view"
 import { useComposerSuggestions } from "./use-composer-suggestions"
@@ -67,6 +71,11 @@ export function useComposerController(
     handleDragOver,
     handleDrop: handleDropRaw,
   } = attachments
+  const pendingFilesRef = useRef(pendingFiles)
+  const nextLongPasteIndexRef = useRef(1)
+  useLayoutEffect(() => {
+    pendingFilesRef.current = pendingFiles
+  }, [pendingFiles])
   const typingTimer = useRef<NodeJS.Timeout | null>(null)
   const sendRef = useRef<() => void>(() => {})
   const sendInFlightRef = useRef<Promise<void> | null>(null)
@@ -79,6 +88,7 @@ export function useComposerController(
     if (sendScopeRef.current !== nextScope) {
       sendScopeRef.current = nextScope
       sendScopeVersionRef.current++
+      nextLongPasteIndexRef.current = 1
     }
     draftKeyRef.current = draftKey
   }, [channel, context, draftKey])
@@ -169,9 +179,22 @@ export function useComposerController(
       },
       handlePaste: (_view, event) => {
         const files = clipboardFiles(event.clipboardData?.items)
-        if (files.length === 0) return false
+        if (files.length > 0) {
+          event.preventDefault()
+          void addPendingFiles(files)
+          return true
+        }
+
+        const attachment = createLongPasteAttachment(
+          event.clipboardData?.getData("text/plain"),
+          pendingFilesRef.current.map(({ file }) => file.name),
+          nextLongPasteIndexRef.current,
+        )
+        if (!attachment) return false
+
         event.preventDefault()
-        addPendingFiles(files)
+        nextLongPasteIndexRef.current = attachment.nextIndex
+        void addPendingFiles([attachment.file])
         return true
       },
       clipboardTextParser: (text, $context) => {
@@ -256,6 +279,7 @@ export function useComposerController(
       editor.commands.clearContent()
       if (draftKeyRef.current) clearComposerDraft(draftKeyRef.current)
       transferPendingFiles()
+      nextLongPasteIndexRef.current = 1
       suggestions.resetPopups()
     })()
     sendInFlightRef.current = attempt
@@ -288,6 +312,7 @@ export function useComposerController(
       if (!editor) return
       editor.commands.clearContent()
       setPendingFiles([])
+      nextLongPasteIndexRef.current = 1
       suggestions.resetPopups()
     },
     isEmpty: () => !editor || (editor.isEmpty && pendingFiles.length === 0),

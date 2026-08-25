@@ -469,7 +469,7 @@ describe("Turbo CI execution", () => {
     )
   })
 
-  it("runs tests once and uploads the single Istanbul report only for coverage events", () => {
+  it("keeps package builds away from dist consumers and uploads one Istanbul report", () => {
     const linux = ciJob("test-linux")
     expect(linux).toContain(
       "RUN_COVERAGE: ${{ github.event_name != 'push' || startsWith(github.event.head_commit.message, 'release:') }}",
@@ -479,6 +479,26 @@ describe("Turbo CI execution", () => {
     expect(linux).toContain("if: env.RUN_COVERAGE == 'true'")
     expect(linux).toContain("if: env.RUN_COVERAGE != 'true'")
     expect(linux).toContain("files: ./coverage/coverage-final.json")
+    for (const testPath of [
+      "src/daemon/agent-driver/src/pack.test.ts",
+      "src/daemon/src/version.packed.test.ts",
+      "src/daemon/src/agent-driver-bundle.packed.test.ts",
+      "src/daemon/src/cli/daemonSelfUpdate.real.test.ts",
+    ]) {
+      expect(linux).toContain(`--exclude ${testPath}`)
+    }
+    expect(linux).toContain(
+      "pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism src/pack.test.ts",
+    )
+    expect(linux).toContain(
+      "pnpm --filter @alook/daemon exec vitest run --no-file-parallelism src/version.packed.test.ts src/agent-driver-bundle.packed.test.ts src/cli/daemonSelfUpdate.real.test.ts",
+    )
+    const coverageRun = linux.indexOf("- name: Run full tests with coverage")
+    const packageRuns = linux.indexOf("- name: Run package artifact tests after coverage")
+    const coverageUpload = linux.indexOf("- name: Upload coverage")
+    expect(coverageRun).toBeGreaterThan(-1)
+    expect(packageRuns).toBeGreaterThan(coverageRun)
+    expect(coverageUpload).toBeGreaterThan(packageRuns)
     expect(linux).not.toContain("coverage:workers")
     expect(linux).not.toContain("workers-runtime")
     expect(ciWorkflow).not.toMatch(/^  coverage:/m)

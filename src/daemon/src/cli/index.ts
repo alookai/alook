@@ -84,9 +84,10 @@ function relTime(ms: number | null, nowMs: number): string {
 
 /**
  * Render `daemon list` as a human table (C2/C3). Columns: ID (pass to `daemon
- * stop <id>`), AGENTS (`running/total` — how many are actually working a turn
- * vs total registered, C2), LAST ACTIVE, PID, STATE. Data is per-daemon since
- * C0 (each row reads its own daemon's status.json), so no multi-daemon caveat.
+ * stop <id>`), AGENTS (`running/total` — how many manager-owned sessions are
+ * live vs total bots bound to the machine), LAST ACTIVE, PID, STATE. Data is
+ * per-daemon since C0 (each row reads its own daemon's status.json), so no
+ * multi-daemon caveat.
  * NO machine key / hash prefix (credential stays out of human view, red line 2).
  */
 export function renderDaemonList(daemons: DaemonInfo[], nowMs: number = Date.now()): string {
@@ -94,7 +95,7 @@ export function renderDaemonList(daemons: DaemonInfo[], nowMs: number = Date.now
   const header = ["ID", "AGENTS", "LAST ACTIVE", "PID", "STATE"];
   const rows = daemons.map((d) => [
     d.id,
-    // `running/total`: e.g. "2/8" = 2 working, 8 registered. "—" if no snapshot.
+    // `running/total`: e.g. "2/8" = 2 live, 8 bound. "—" if no snapshot.
     d.agents == null ? "—" : `${d.running ?? 0}/${d.agents}`,
     relTime(d.lastActiveMs, nowMs),
     String(d.pid),

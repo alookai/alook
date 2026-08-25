@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest"
 import { clipboardFiles, pendingFilesToSendAttachments } from "./composer"
+import {
+  LONG_PASTE_ATTACHMENT_THRESHOLD,
+  createLongPasteAttachment,
+} from "./composer-file-utils"
 import type { ComposerProps } from "./composer"
 import type { PendingFile } from "@/hooks/use-file-attachments"
 
@@ -123,5 +127,41 @@ describe("clipboardFiles", () => {
       { kind: "file", file: png },
     ])
     expect(clipboardFiles(list)).toEqual([png])
+  })
+})
+
+describe("createLongPasteAttachment", () => {
+  it("keeps text at the 1,000-character threshold inline", () => {
+    expect(
+      createLongPasteAttachment(
+        "x".repeat(LONG_PASTE_ATTACHMENT_THRESHOLD),
+        [],
+      ),
+    ).toBeNull()
+  })
+
+  it("creates a Markdown file with the exact long-paste content", async () => {
+    const text = `# Log\n\n${"x".repeat(LONG_PASTE_ATTACHMENT_THRESHOLD)}`
+    const attachment = createLongPasteAttachment(text, [])
+
+    expect(attachment?.file.name).toBe("copy-1.md")
+    expect(attachment?.file.type).toBe("text/markdown")
+    expect(await attachment?.file.text()).toBe(text)
+    expect(attachment?.nextIndex).toBe(2)
+  })
+
+  it("uses the first free name at or after the requested index", () => {
+    expect(
+      createLongPasteAttachment(
+        "x".repeat(LONG_PASTE_ATTACHMENT_THRESHOLD + 1),
+        ["copy-2.md", "notes.md", "copy-3.md"],
+        2,
+      )?.file.name,
+    ).toBe("copy-4.md")
+  })
+
+  it("falls through for missing and empty clipboard text", () => {
+    expect(createLongPasteAttachment(undefined, [])).toBeNull()
+    expect(createLongPasteAttachment("", [])).toBeNull()
   })
 })

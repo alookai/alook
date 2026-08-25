@@ -652,6 +652,10 @@ export class AgentProcessManager {
   snapshot(): ManagerState {
     return this.state;
   }
+  /** Number of physical agent sessions currently owned by this manager. */
+  runningAgentCount(): number {
+    return this.sessions.size;
+  }
   auditContext(agentId: string): { sessionId: string | null; launchId: string | null } {
     return {
       sessionId: this.liveSessions.get(agentId) ?? null,

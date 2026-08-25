@@ -575,6 +575,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     string,
     { name: string; discriminator: string; description?: string; ownerName?: string; ownerDiscriminator?: string }
   >();
+  let botCacheReady = false;
 
   async function listMyBotsHttp(): Promise<
     Array<{
@@ -604,6 +605,20 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     return json.bots ?? [];
   }
 
+  function replaceBotCache(bots: Awaited<ReturnType<typeof listMyBotsHttp>>): void {
+    botsById.clear();
+    for (const b of bots) {
+      botsById.set(b.id, {
+        name: b.name,
+        discriminator: b.discriminator,
+        description: b.description,
+        ownerName: b.ownerName,
+        ownerDiscriminator: b.ownerDiscriminator,
+      });
+    }
+    botCacheReady = true;
+  }
+
   async function coldStartWarmup(): Promise<void> {
     const start = Date.now();
     let attempt = 0;
@@ -611,16 +626,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       try {
         const bots = await listMyBotsHttp();
         // Server snapshot wins — reconcile the cache.
-        botsById.clear();
-        for (const b of bots) {
-          botsById.set(b.id, {
-            name: b.name,
-            discriminator: b.discriminator,
-            description: b.description,
-            ownerName: b.ownerName,
-            ownerDiscriminator: b.ownerDiscriminator,
-          });
-        }
+        replaceBotCache(bots);
         log.info("cold-start bot-cache warmup succeeded", { bots: bots.length, attempt });
         return;
       } catch {
@@ -927,7 +933,14 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     const statusPath = opts.statusFilePath;
     const writeStatus = () => {
       const nowMs = Date.now();
-      writeStatusFile(statusPath, { writtenAt: nowMs, agents: manager.statusProjection(nowMs) });
+      writeStatusFile(statusPath, {
+        writtenAt: nowMs,
+        agentSummary: {
+          total: botCacheReady ? botsById.size : null,
+          running: manager.runningAgentCount(),
+        },
+        agents: manager.statusProjection(nowMs),
+      });
     };
     writeStatus(); // one immediately so `daemon status` works right after boot
     statusTimer = setInterval(writeStatus, STATUS_WRITE_INTERVAL_MS);
@@ -958,15 +971,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         // the fetch once before erroring out.
         try {
           const bots = await listMyBotsHttp();
-          for (const b of bots) {
-            botsById.set(b.id, {
-              name: b.name,
-              discriminator: b.discriminator,
-              description: b.description,
-              ownerName: b.ownerName,
-              ownerDiscriminator: b.ownerDiscriminator,
-            });
-          }
+          replaceBotCache(bots);
         } catch {
           // Fall through — still treat as unknown below.
         }

@@ -17,6 +17,9 @@ function render(event: AuditEvent): TestRenderer.ReactTestRenderer {
 const flatten = (children: unknown): string => {
   if (typeof children === "string") return children
   if (Array.isArray(children)) return children.map(flatten).join("")
+  if (children && typeof children === "object" && "children" in (children as any)) {
+    return flatten((children as any).children)
+  }
   if (children && typeof children === "object" && "props" in (children as any)) {
     return flatten((children as any).props.children)
   }
@@ -58,6 +61,32 @@ describe("BotActivityRow — model_changed", () => {
     })
     expect(modelRowText(renderer)).toContain("default")
     expect(modelRowText(renderer)).toContain("claude-sonnet-4-6")
+  })
+})
+
+describe("BotActivityRow — concrete command copy", () => {
+  it("renders the actual short CLI command", () => {
+    const renderer = render({
+      id: "e-cli",
+      kind: "cli_invocation",
+      payload: { subcommand: "inboxPull" },
+      sessionId: null,
+      launchId: null,
+      createdAt: "2026-07-26T00:00:00.000Z",
+    })
+    expect(flatten(renderer.root)).toContain("alook inbox pull")
+  })
+
+  it("renders the normalized tool name", () => {
+    const renderer = render({
+      id: "e-tool",
+      kind: "tool_call",
+      payload: { name: "Read", target: "/tmp/notes.md" },
+      sessionId: null,
+      launchId: null,
+      createdAt: "2026-07-26T00:00:00.000Z",
+    })
+    expect(flatten(renderer.root)).toContain("read")
   })
 })
 

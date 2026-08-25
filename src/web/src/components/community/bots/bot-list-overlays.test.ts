@@ -51,7 +51,8 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
     setEditOpen: noop,
     activityBot: null,
     activityOpen: false,
-    setActivityOpen: noop,
+    onActivityOpenChange: noop,
+    openActivity: noop,
     bugReportBot: null,
     bugReportOpen: false,
     setBugReportOpen: noop,
@@ -111,7 +112,7 @@ describe("renderBotListOverlaySlots", () => {
   it("keeps selected child props and the conditional keyed bug slot", () => {
     const bot = { id: "b1", name: "Blake" }
     const setEditOpen = vi.fn()
-    const setActivityOpen = vi.fn()
+    const onActivityOpenChange = vi.fn()
     const setBugReportOpen = vi.fn()
     const state = controller({
       createOpen: true,
@@ -123,7 +124,7 @@ describe("renderBotListOverlaySlots", () => {
       setEditOpen,
       activityBot: bot as BotListController["activityBot"],
       activityOpen: true,
-      setActivityOpen,
+      onActivityOpenChange,
       bugReportBot: bot,
       bugReportOpen: true,
       setBugReportOpen,
@@ -137,7 +138,7 @@ describe("renderBotListOverlaySlots", () => {
       avatarSeed: "seed",
     })
     expect(slots.edit.props).toEqual({ bot, open: true, onOpenChange: setEditOpen })
-    expect(slots.activity.props).toEqual({ bot, open: true, onOpenChange: setActivityOpen })
+    expect(slots.activity.props).toEqual({ bot, open: true, onOpenChange: onActivityOpenChange })
     expect(slots.help.props).toEqual({
       open: true,
       onOpenChange: state.setHelpOpen,
@@ -149,7 +150,7 @@ describe("renderBotListOverlaySlots", () => {
     act(() => slots.activity.props.onOpenChange(false))
     act(() => slots.bug?.props.onOpenChange(false))
     expect(setEditOpen).toHaveBeenCalledWith(false)
-    expect(setActivityOpen).toHaveBeenCalledWith(false)
+    expect(onActivityOpenChange).toHaveBeenCalledWith(false)
     expect(setBugReportOpen).toHaveBeenCalledWith(false)
     expect(state.editingBot).toBe(bot)
     expect(state.activityBot).toBe(bot)
