@@ -351,10 +351,41 @@ describe("useComposerController", () => {
     expect(mocks.addPendingFiles).toHaveBeenCalledWith([file])
     expect(
       editorOptions.editorProps.handlePaste({} as never, {
-        clipboardData: { items: { length: 0 } },
+        clipboardData: {
+          items: { length: 0 },
+          getData: () => "x".repeat(1_000),
+        },
         preventDefault: vi.fn(),
       } as unknown as ClipboardEvent),
     ).toBe(false)
+
+    const preventLongPaste = vi.fn()
+    expect(
+      editorOptions.editorProps.handlePaste({} as never, {
+        clipboardData: {
+          items: { length: 0 },
+          getData: () => "x".repeat(1_001),
+        },
+        preventDefault: preventLongPaste,
+      } as unknown as ClipboardEvent),
+    ).toBe(true)
+    expect(preventLongPaste).toHaveBeenCalledOnce()
+    const firstLongPasteFile = mocks.addPendingFiles.mock.calls.at(-1)?.[0][0] as File
+    expect(firstLongPasteFile.name).toBe("copy-1.md")
+    expect(firstLongPasteFile.type).toBe("text/markdown")
+    expect(await firstLongPasteFile.text()).toBe("x".repeat(1_001))
+
+    expect(
+      editorOptions.editorProps.handlePaste({} as never, {
+        clipboardData: {
+          items: { length: 0 },
+          getData: () => "y".repeat(1_001),
+        },
+        preventDefault: vi.fn(),
+      } as unknown as ClipboardEvent),
+    ).toBe(true)
+    const secondLongPasteFile = mocks.addPendingFiles.mock.calls.at(-1)?.[0][0] as File
+    expect(secondLongPasteFile.name).toBe("copy-2.md")
 
     handleRef.current?.focusEditor()
     expect(focus).toHaveBeenCalledWith("end")
@@ -366,6 +397,18 @@ describe("useComposerController", () => {
     expect(setPendingFiles).toHaveBeenCalledWith([])
     expect(resetPopups).toHaveBeenCalled()
     expect(transferPendingFiles).toHaveBeenCalledTimes(transfersBeforeReset)
+
+    expect(
+      editorOptions.editorProps.handlePaste({} as never, {
+        clipboardData: {
+          items: { length: 0 },
+          getData: () => "z".repeat(1_001),
+        },
+        preventDefault: vi.fn(),
+      } as unknown as ClipboardEvent),
+    ).toBe(true)
+    const afterResetFile = mocks.addPendingFiles.mock.calls.at(-1)?.[0][0] as File
+    expect(afterResetFile.name).toBe("copy-1.md")
   })
 
   it("retains one TipTap editor instance while render-time configuration reruns", async () => {
