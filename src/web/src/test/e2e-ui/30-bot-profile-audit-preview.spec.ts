@@ -5,7 +5,7 @@ import { test, expect, sessionCookie } from "./_fixtures/community-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { seedChannel, seedJoinServer, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
-import { REPO_ROOT, WEB_URL, WS_URL } from "./_setup/paths"
+import { MACHINE_WS_URL, REPO_ROOT, WEB_URL } from "./_setup/paths"
 
 type UserKey = "alice" | "bob"
 
@@ -110,7 +110,7 @@ function connectMachine(credential: string) {
   const Ws = requireFromDaemon("ws") as {
     WebSocket: new (url: string, options: { headers: Record<string, string> }) => MachineSocket
   }
-  const socket = new Ws.WebSocket(WS_URL.replace(/^http/, "ws"), {
+  const socket = new Ws.WebSocket(MACHINE_WS_URL.replace(/^http/, "ws"), {
     headers: { Authorization: `Bearer ${credential}` },
   })
   return {

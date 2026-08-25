@@ -24,8 +24,24 @@ export function resolveWsUrl({
   return singleRuntime ? webUrl : "http://localhost:8789"
 }
 
+export function resolveMachineWsUrl({
+  wsUrl,
+  singleRuntime,
+}: {
+  wsUrl: string
+  singleRuntime: boolean
+}): string {
+  const baseUrl = wsUrl.replace(/\/$/, "")
+  return singleRuntime ? `${baseUrl}/api/ws/community-machine` : baseUrl
+}
+
 export const WS_URL = resolveWsUrl({
   webUrl: WEB_URL,
   explicitWsUrl: process.env.DEV_WS_DO_URL,
+  singleRuntime: !!process.env.CI,
+})
+
+export const MACHINE_WS_URL = resolveMachineWsUrl({
+  wsUrl: WS_URL,
   singleRuntime: !!process.env.CI,
 })

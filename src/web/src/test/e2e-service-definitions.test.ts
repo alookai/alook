@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { serviceDefinitions } from "./e2e-ui/_setup/services"
-import { resolveWsUrl } from "./e2e-ui/_setup/paths"
+import { resolveMachineWsUrl, resolveWsUrl } from "./e2e-ui/_setup/paths"
 
 describe("UI E2E service definitions", () => {
   it("uses one Wrangler runtime for web and ws-do in CI", () => {
@@ -40,5 +40,19 @@ describe("UI E2E service definitions", () => {
       explicitWsUrl: "http://localhost:9000",
       singleRuntime: true,
     })).toBe("http://localhost:9000")
+  })
+
+  it("routes machine upgrades through the web worker in the single runtime", () => {
+    expect(resolveMachineWsUrl({
+      wsUrl: "http://localhost:3000/",
+      singleRuntime: true,
+    })).toBe("http://localhost:3000/api/ws/community-machine")
+  })
+
+  it("connects machines directly to ws-do in the split runtime", () => {
+    expect(resolveMachineWsUrl({
+      wsUrl: "http://localhost:8789/",
+      singleRuntime: false,
+    })).toBe("http://localhost:8789")
   })
 })
