@@ -74,6 +74,12 @@ describe("exclusive lifecycle reservation", () => {
     await releaseLifecycleReservation(next);
   }, 15_000);
 
+  it("rejects a sequential contender while the exact sentinel authority is live", async () => {
+    const owner = await acquireLifecycleReservation();
+    await expect(acquireLifecycleReservation()).rejects.toThrow("another Alook lifecycle command owns");
+    await releaseLifecycleReservation(owner);
+  }, 15_000);
+
   it("blocks a failed challenge while its token-scoped heartbeat is fresh", async () => {
     const heartbeat = join(fixture.dir, "fresh-heartbeat");
     writeFileSync(heartbeat, String(Date.now()));

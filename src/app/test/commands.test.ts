@@ -118,6 +118,13 @@ describe("daemon command", () => {
 });
 
 describe("start command", () => {
+  it("requires onboarding before starting services", async () => {
+    mocks.isInstalled.mockReturnValue(false);
+
+    await expect(startCommand().parseAsync([], { from: "user" })).rejects.toThrow("Alook not installed");
+    expect(mocks.acquireLifecycleReservation).not.toHaveBeenCalled();
+  });
+
   it("uses one eight-port profile for preflight, spawn, readiness, and daemon restart", async () => {
     mocks.startSavedDaemons.mockReturnValue({ started: [], failed: ["cm_failed"] });
 
@@ -154,6 +161,15 @@ describe("start command", () => {
     expect(mocks.startServices).not.toHaveBeenCalled();
     expect(mocks.releaseLifecycleReservation).toHaveBeenCalledWith(reservation);
   });
+
+  it("clears a stale registry before starting a replacement", async () => {
+    mocks.inspectServices.mockResolvedValue({ state: "stale", registry: { runId: "old" } });
+
+    await startCommand().parseAsync([], { from: "user" });
+
+    expect(mocks.clearRegistry).toHaveBeenCalledWith("old");
+    expect(mocks.startServices).toHaveBeenCalledOnce();
+  });
 });
 
 describe("stop command", () => {
@@ -169,9 +185,24 @@ describe("stop command", () => {
     await stopCommand().parseAsync([], { from: "user" });
     expect(console.log).toHaveBeenCalledWith("\nAll services stopped.");
   });
+
+  it("reports when no verified services were running", async () => {
+    mocks.stopServices.mockResolvedValue({ stopped: false, errors: [] });
+
+    await stopCommand().parseAsync([], { from: "user" });
+
+    expect(console.log).toHaveBeenCalledWith("No verified running services found.");
+  });
 });
 
 describe("update command", () => {
+  it("rejects an inconsistent generation before installation", async () => {
+    mocks.inspectServices.mockResolvedValue({ state: "profile-mismatch", detail: "port drift" });
+
+    await expect(updateCommand().parseAsync([], { from: "user" })).rejects.toThrow(/profile-mismatch.*port drift/s);
+    expect(mocks.installBundled).not.toHaveBeenCalled();
+  });
+
   it("preserves a running generation's exact custom profile across stop and restart", async () => {
     const custom = structuredClone(DEFAULT_SERVICE_PROFILE);
     custom.web.business = 35210;
@@ -193,6 +224,25 @@ describe("update command", () => {
     mocks.stopServices.mockResolvedValue({ stopped: false, errors: ["authority mismatch"] });
     await expect(updateCommand().parseAsync([], { from: "user" })).rejects.toThrow("authority mismatch");
     expect(mocks.installBundled).not.toHaveBeenCalled();
+    expect(mocks.startServices).not.toHaveBeenCalled();
+  });
+
+  it("clears a stale registry and installs without restarting services", async () => {
+    mocks.inspectServices.mockResolvedValue({ state: "stale", registry: { runId: "old" } });
+
+    await updateCommand().parseAsync([], { from: "user" });
+
+    expect(mocks.clearRegistry).toHaveBeenCalledWith("old");
+    expect(mocks.installBundled).toHaveBeenCalledOnce();
+    expect(mocks.startServices).not.toHaveBeenCalled();
+    expect(console.log).toHaveBeenCalledWith("Run 'npx @alook/app start' to start services.");
+  });
+
+  it("installs without stopping when no services are running", async () => {
+    await updateCommand().parseAsync([], { from: "user" });
+
+    expect(mocks.stopServices).not.toHaveBeenCalled();
+    expect(mocks.installBundled).toHaveBeenCalledOnce();
     expect(mocks.startServices).not.toHaveBeenCalled();
   });
 });

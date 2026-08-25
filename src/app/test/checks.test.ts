@@ -30,8 +30,7 @@ describe("checks", () => {
   describe("checkPort", () => {
     it("returns true for an unused port", async () => {
       const { checkPort } = await import("../src/lib/checks.js");
-      // Port 0 or a random high port should be unused
-      const result = await checkPort(49999);
+      const result = await checkPort(await releasedPort());
       expect(result).toBe(true);
     });
 
@@ -86,6 +85,13 @@ describe("checks", () => {
       const profile = structuredClone(DEFAULT_SERVICE_PROFILE);
       profile.wsDo.business = profile.web.inspector;
       expect(() => validateServicePortProfile(profile)).toThrow("assigned to both");
+    });
+
+    it.each([0, 65_536, 1.5])("rejects invalid port %s", async (port) => {
+      const { validateServicePortProfile } = await import("../src/lib/checks.js");
+      const profile = structuredClone(DEFAULT_SERVICE_PROFILE);
+      profile.web.business = port;
+      expect(() => validateServicePortProfile(profile)).toThrow("invalid web.business port");
     });
   });
 });

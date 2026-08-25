@@ -1,6 +1,6 @@
 import { fork } from "node:child_process";
 import type { EventEmitter } from "node:events";
-import { closeSync, createWriteStream, mkdirSync, openSync } from "node:fs";
+import { closeSync, createWriteStream, mkdirSync, openSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { resolveMode } from "@alook/shared";
@@ -50,6 +50,17 @@ interface SupervisorHandle {
 }
 
 type ManagedChild = ReturnType<typeof fork> & EventEmitter;
+
+const FAILURE_LOG_TAIL_BYTES = 64 * 1024;
+
+function failureLogTail(logPath: string): string {
+  try {
+    const contents = readFileSync(logPath);
+    return contents.subarray(Math.max(0, contents.length - FAILURE_LOG_TAIL_BYTES)).toString().trim();
+  } catch {
+    return "";
+  }
+}
 
 export interface OwnedServiceHandle {
   runId: string;
@@ -215,10 +226,29 @@ async function launchServiceSupervisor(
 
   return await new Promise((resolve, reject) => {
     let acquired = false;
+    let acquisitionSettled = false;
+    let failureSettled = false;
+    const statusError = (label: string, nextStatus?: AuthorityStatus) => {
+      const detail = nextStatus?.error ?? (
+        nextStatus?.childState === "exited"
+          ? `exit=${String(nextStatus.exitCode)} signal=${String(nextStatus.exitSignal)}`
+          : ""
+      );
+      const tail = failureLogTail(logPath);
+      return new Error(`${name} ${label}${detail ? `: ${detail}` : ""}; log=${logPath}${tail ? `\nstderr tail:\n${tail}` : ""}`);
+    };
+    const settleFailure = (nextStatus: AuthorityStatus) => {
+      if (failureSettled) return;
+      failureSettled = true;
+      resolveFailure(nextStatus);
+    };
     const fail = (error: Error) => {
       clearTimeout(timer);
-      if (!acquired) reject(error);
-      else resolveFailure({
+      if (!acquired) {
+        if (acquisitionSettled) return;
+        acquisitionSettled = true;
+        reject(error);
+      } else settleFailure({
         ok: false,
         runId,
         service: name,
@@ -228,19 +258,33 @@ async function launchServiceSupervisor(
       });
     };
     const timer = setTimeout(() => {
-      fail(new Error(`${name} supervisor did not acquire authority`));
+      fail(statusError("supervisor did not acquire authority"));
       void requestAuthority({ pid: supervisor.pid ?? 0, endpoint, token }, "terminate", 1_000)
         .catch(() => { supervisor.kill(); });
     }, SUPERVISOR_ACQUISITION_BUDGET_MS + 2_000);
     supervisor.once("error", fail);
     supervisor.once("exit", (code, signal) => fail(new Error(`${name} supervisor exited (${String(code ?? signal)})`)));
+    supervisor.once("disconnect", () => {
+      if (!acquired) fail(statusError("supervisor IPC disconnected before acquisition"));
+    });
     supervisor.on("message", (message) => {
       const payload = message as { type?: string; status?: AuthorityStatus };
       if (payload.type === "child-error" || payload.type === "child-exit" || payload.type === "supervisor-error") {
-        if (payload.status) resolveFailure(payload.status);
+        if (!payload.status) {
+          fail(statusError(`supervisor sent malformed ${payload.type}`));
+          return;
+        }
+        if (!acquired) fail(statusError(payload.type, payload.status));
+        else settleFailure(payload.status);
         return;
       }
-      if (payload.type !== "acquired" || !payload.status?.childPid) return;
+      if (payload.type !== "acquired") return;
+      if (!payload.status?.childPid) {
+        fail(statusError("supervisor sent malformed acquired response", payload.status));
+        return;
+      }
+      if (acquisitionSettled) return;
+      acquisitionSettled = true;
       clearTimeout(timer);
       acquired = true;
       const authority: ControlAuthority = { pid: payload.status.supervisorPid, endpoint, token };
@@ -270,10 +314,7 @@ async function launchServiceSupervisor(
   });
 }
 
-async function requestOwnedShutdown(runId: string, entry: ServiceRegistryEntry, status: AuthorityStatus): Promise<void> {
-  if (!statusMatchesEntry(status, runId, entry.name, entry)) {
-    throw new Error("authority identity mismatch");
-  }
+async function requestOwnedShutdown(entry: ServiceRegistryEntry): Promise<void> {
   await requestAuthority(entry.authority, "terminate");
 }
 
@@ -377,7 +418,7 @@ export async function terminateOwnedHandle(handle: OwnedServiceHandle): Promise<
     try {
       const status = await requestAuthority(entry.authority, "status");
       if (!statusMatchesEntry(status, handle.runId, name, entry)) throw new Error("authority identity mismatch");
-      await requestOwnedShutdown(handle.runId, entry, status);
+      await requestOwnedShutdown(entry);
     } catch (error) {
       failures.push(`${name}: ${String(error)}`);
     }
@@ -405,7 +446,7 @@ export async function stopServices(): Promise<{ stopped: boolean; errors: string
     try {
       const status = await requestAuthority(entry.authority, "status");
       if (!statusMatchesEntry(status, registry.runId, name, entry)) throw new Error("private authority mismatch");
-      await requestOwnedShutdown(registry.runId, entry, status);
+      await requestOwnedShutdown(entry);
     } catch (error) {
       errors.push(`${name} pid=${entry.authority.pid} endpoint=${entry.authority.endpoint}: ${String(error)}`);
     }

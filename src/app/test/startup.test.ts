@@ -146,6 +146,49 @@ describe("four-service readiness", () => {
     expect(Date.now() - started).toBeLessThan(500);
     expect(mocks.terminateOwnedHandle).not.toHaveBeenCalled();
   });
+
+  it("handles an expired deadline and missing service entries diagnostically", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    const registry = fixtureRegistry("http://fixture");
+    delete registry.services.web;
+    await expect(waitForExistingServices(registry, 1)).rejects.toThrow("missing health URL");
+  });
+
+  it("reports pending services when the shared deadline expires between polling steps", async () => {
+    let now = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => {
+      now += 11_000;
+      return now;
+    });
+    const progress = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const registry = fixtureRegistry("http://fixture");
+
+    await expect(waitForExistingServices(registry, 30_000)).rejects.toThrow("services did not become ready");
+    expect(progress).toHaveBeenCalledWith(expect.stringContaining("still starting"));
+  });
+
+  it("marks ready even when a supervisor failure promise is intentionally absent", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 200 }));
+    const registry = fixtureRegistry("http://fixture");
+    const handle = ownedHandle(registry);
+    delete handle.supervisors.web;
+    await waitForOwnedServices(handle, 100);
+    expect(mocks.markServicesReady).toHaveBeenCalledWith(handle);
+  });
+
+  it("reports both readiness and owned cleanup failures", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+    mocks.terminateOwnedHandle.mockRejectedValueOnce(new Error("cleanup failed"));
+    const handle = ownedHandle(fixtureRegistry("http://fixture"), Promise.resolve({
+      ok: false,
+      runId: "run",
+      service: "web",
+      supervisorPid: 1,
+      childState: "error",
+      error: "startup failed",
+    }));
+    await expect(waitForOwnedServices(handle, 100)).rejects.toThrow("service startup and owned cleanup both failed");
+  });
 });
 
 describe("owned signal cleanup", () => {
@@ -174,6 +217,21 @@ describe("owned signal cleanup", () => {
     await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(130));
     expect(mocks.acquireLifecycleReservation).toHaveBeenCalledOnce();
     expect(mocks.releaseLifecycleReservation).toHaveBeenCalledWith(fresh);
+    controller.dispose();
+  });
+
+  it("makes repeated signals single-settle and exits nonzero when cleanup fails", async () => {
+    const initial = { token: "initial" } as never;
+    const handle = ownedHandle(fixtureRegistry("http://fixture"));
+    mocks.terminateOwnedHandle.mockRejectedValueOnce(new Error("cleanup failed"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    const controller = installOwnedSignalCleanup(handle, initial);
+    process.emit("SIGTERM", "SIGTERM");
+    process.emit("SIGINT", "SIGINT");
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1));
+    expect(mocks.terminateOwnedHandle).toHaveBeenCalledOnce();
+    expect(error).toHaveBeenCalledWith("cleanup failed");
     controller.dispose();
   });
 });

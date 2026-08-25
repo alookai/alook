@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { createServer } from "node:net";
 import {
   createAuthorityToken,
   createControlEndpoint,
@@ -15,6 +16,14 @@ const scratch = join(tmpdir(), `alook-control-authority-${process.pid}`);
 const supervisorEntry = join(scratch, "service-supervisor.js");
 const appRoot = fileURLToPath(new URL("../", import.meta.url));
 const treeFixture = join(appRoot, "test/fixtures/process-tree-child.mjs");
+const INTEGRATION_TEST_TIMEOUT_MS = SUPERVISOR_ACQUISITION_BUDGET_MS + 10_000;
+const STDERR_TAIL_BYTES = 64 * 1024;
+
+function testEndpoint(label: string): string {
+  return process.platform === "win32"
+    ? `\\\\.\\pipe\\alook-control-test-${process.pid}-${label}`
+    : join(scratch, `${label}.sock`);
+}
 
 function alive(pid: number): boolean {
   try {
@@ -43,7 +52,7 @@ async function launchOwnedTree(
     signalBarrier?: string;
     signalDelayMs?: number;
     terminationBudgetMs?: number;
-    watcherFailure?: "exit" | "withhold-watermark";
+    watcherFailure?: "exit" | "withhold-marker";
     watcherFailureTrigger?: string;
   } = {},
 ) {
@@ -53,7 +62,7 @@ async function launchOwnedTree(
   const pidFile = join(scratch, `${runId}.json`);
   const supervisor = fork(supervisorEntry, [], {
     detached: true,
-    stdio: ["ignore", "ignore", "ignore", "ipc"],
+    stdio: ["ignore", "ignore", "pipe", "ipc"],
     env: {
       ...process.env,
       ALOOK_APP_TERMINATION_GRACE_MS: "100",
@@ -74,16 +83,42 @@ async function launchOwnedTree(
     },
   });
   const status = await new Promise<Record<string, unknown>>((resolvePromise, reject) => {
+    let settled = false;
+    let stderr = Buffer.alloc(0);
+    const finish = (error?: Error, value?: Record<string, unknown>) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) {
+        const tail = stderr.toString().trim();
+        reject(new Error(`${error.message}${tail ? `\nstderr tail:\n${tail}` : ""}`));
+      } else resolvePromise(value!);
+    };
     const timer = setTimeout(
-      () => reject(new Error("supervisor acquisition timed out")),
+      () => finish(new Error("supervisor acquisition timed out")),
       SUPERVISOR_ACQUISITION_BUDGET_MS + 2_000,
     );
-    supervisor.once("error", reject);
+    supervisor.stderr?.on("data", (chunk: Buffer) => {
+      stderr = Buffer.concat([stderr, chunk]);
+      if (stderr.length > STDERR_TAIL_BYTES) stderr = stderr.subarray(stderr.length - STDERR_TAIL_BYTES);
+    });
+    supervisor.once("error", (error) => finish(error));
+    supervisor.once("exit", (code, signal) => finish(new Error(
+      `supervisor exited (${String(code ?? signal)}) before acquisition`,
+    )));
+    supervisor.once("disconnect", () => finish(new Error("supervisor IPC disconnected before acquisition")));
     supervisor.on("message", (message) => {
       const payload = message as { type?: string; status?: Record<string, unknown> };
-      if (payload.type !== "acquired" || !payload.status) return;
-      clearTimeout(timer);
-      resolvePromise(payload.status);
+      if (payload.type === "supervisor-error" || payload.type === "child-error" || payload.type === "child-exit") {
+        finish(new Error(`${payload.type}: ${JSON.stringify(payload.status ?? {})}`));
+        return;
+      }
+      if (payload.type !== "acquired") return;
+      if (!payload.status) {
+        finish(new Error("supervisor sent malformed acquired response"));
+        return;
+      }
+      finish(undefined, payload.status);
     });
     supervisor.send({
       mode: "service",
@@ -153,6 +188,36 @@ afterAll(() => {
 });
 
 describe("private supervisor authority", () => {
+  it("handles partial, invalid, and timed-out authority responses deterministically", async () => {
+    const partialEndpoint = testEndpoint("partial");
+    const partial = createServer((socket) => {
+      socket.once("data", () => {
+        socket.write('{"ok":true,"runId":"run",');
+        setTimeout(() => socket.end('"service":"web","supervisorPid":1,"childState":"running"}\n'), 5);
+      });
+    });
+    await new Promise<void>((resolve) => partial.listen(partialEndpoint, resolve));
+    await expect(requestAuthority({ pid: 1, endpoint: partialEndpoint, token: "token" }, "status", 100))
+      .resolves.toMatchObject({ runId: "run", childState: "running" });
+    await new Promise<void>((resolve) => partial.close(() => resolve()));
+
+    const invalidEndpoint = testEndpoint("invalid");
+    const invalid = createServer((socket) => socket.once("data", () => socket.end("not-json\n")));
+    await new Promise<void>((resolve) => invalid.listen(invalidEndpoint, resolve));
+    await expect(requestAuthority({ pid: 1, endpoint: invalidEndpoint, token: "token" }, "status", 100))
+      .rejects.toThrow();
+    await new Promise<void>((resolve) => invalid.close(() => resolve()));
+
+    const silentEndpoint = testEndpoint("silent");
+    let silentSocket: import("node:net").Socket | undefined;
+    const silent = createServer((socket) => { silentSocket = socket; });
+    await new Promise<void>((resolve) => silent.listen(silentEndpoint, resolve));
+    await expect(requestAuthority({ pid: 1, endpoint: silentEndpoint, token: "token" }, "status", 20))
+      .rejects.toThrow("authority status timed out");
+    silentSocket?.destroy();
+    await new Promise<void>((resolve) => silent.close(() => resolve()));
+  });
+
   it.each(["graceful", "stubborn"] as const)(
     "terminates only the matching-token owned root and descendant tree (%s)",
     async (mode) => {
@@ -175,7 +240,7 @@ describe("private supervisor authority", () => {
       await expect(requestAuthority(owned.authority, "terminate", 3_000)).resolves.toMatchObject({ childState: "stopped" });
       await waitUntil(() => !alive(owned.runnerPid) && !alive(owned.pids.root) && !alive(owned.pids.descendant));
     },
-    15_000,
+    INTEGRATION_TEST_TIMEOUT_MS,
   );
 
   it("keeps an authenticated terminate request alive beyond the generic socket timeout", async () => {
@@ -185,7 +250,7 @@ describe("private supervisor authority", () => {
     await expect(requestAuthority(owned.authority, "terminate")).resolves.toMatchObject({ childState: "stopped" });
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(2_000);
     await waitUntil(() => !alive(owned.authority.pid) && !alive(owned.runnerPid));
-  }, 15_000);
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 
   it("returns a slow termination failure without dropping its authority endpoint", async () => {
     const owned = await launchOwnedTree("stubborn", { forceSignalError: true, signalDelayMs: 2_100 });
@@ -201,7 +266,7 @@ describe("private supervisor authority", () => {
       forceKillTree(owned.runnerPid);
       if (alive(owned.authority.pid)) owned.supervisor.kill();
     }
-  }, 15_000);
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 
   it("retains matching-token authority when the command root exits but its descendant survives", async () => {
     const owned = await launchOwnedTree("orphan");
@@ -214,7 +279,7 @@ describe("private supervisor authority", () => {
 
     await expect(requestAuthority(owned.authority, "terminate", 3_000)).resolves.toMatchObject({ childState: "stopped" });
     await waitUntil(() => !alive(owned.runnerPid) && !alive(owned.pids.descendant));
-  }, 15_000);
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 
   it.skipIf(process.platform !== "win32")(
     "retains a descendant created through a short-lived intermediate after seed acquisition",
@@ -253,10 +318,10 @@ describe("private supervisor authority", () => {
         if (alive(owned.authority.pid)) owned.supervisor.kill();
       }
     },
-    15_000,
+    INTEGRATION_TEST_TIMEOUT_MS,
   );
 
-  it.skipIf(process.platform !== "win32").each(["exit", "withhold-watermark"] as const)(
+  it.skipIf(process.platform !== "win32").each(["exit", "withhold-marker"] as const)(
     "fails closed before signaling when the Windows process watcher authority becomes incomplete (%s)",
     async (watcherFailure) => {
       const barrier = join(scratch, `watcher-${watcherFailure}-${Date.now()}`);
@@ -270,7 +335,7 @@ describe("private supervisor authority", () => {
       try {
         writeFileSync(failureTrigger, "fail\n");
         await expect(requestAuthority(owned.authority, "terminate", 3_000)).rejects.toThrow(
-          watcherFailure === "exit" ? "process watcher exited" : "required watermark",
+          watcherFailure === "exit" ? "process watcher exited" : "required marker",
         );
         expect(existsSync(barrier)).toBe(false);
         await expect(requestAuthority(owned.authority, "status")).resolves.toMatchObject({
@@ -284,7 +349,7 @@ describe("private supervisor authority", () => {
         if (alive(owned.authority.pid)) owned.supervisor.kill();
       }
     },
-    15_000,
+    INTEGRATION_TEST_TIMEOUT_MS,
   );
 
   it.skipIf(process.platform !== "win32")(
@@ -309,7 +374,7 @@ describe("private supervisor authority", () => {
         forceKillTree(unrelated.pids.root);
       }
     },
-    15_000,
+    INTEGRATION_TEST_TIMEOUT_MS,
   );
 
   it.skipIf(process.platform !== "win32")(
@@ -338,7 +403,7 @@ describe("private supervisor authority", () => {
         if (alive(owned.authority.pid)) owned.supervisor.kill();
       }
     },
-    15_000,
+    INTEGRATION_TEST_TIMEOUT_MS,
   );
 
   it.skipIf(process.platform !== "win32")(
@@ -364,7 +429,7 @@ describe("private supervisor authority", () => {
         if (alive(owned.authority.pid)) owned.supervisor.kill();
       }
     },
-    15_000,
+    INTEGRATION_TEST_TIMEOUT_MS,
   );
 
   it("terminates cleanly after the launching CLI disconnects its readiness IPC", async () => {
@@ -374,7 +439,7 @@ describe("private supervisor authority", () => {
 
     await expect(requestAuthority(owned.authority, "terminate", 3_000)).resolves.toMatchObject({ childState: "stopped" });
     await waitUntil(() => !alive(owned.runnerPid) && !alive(owned.pids.root) && !alive(owned.pids.descendant));
-  }, 15_000);
+  }, INTEGRATION_TEST_TIMEOUT_MS);
 
   it("derives an unguessable per-generation endpoint without exposing the token", () => {
     const token = createAuthorityToken();

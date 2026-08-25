@@ -108,6 +108,19 @@ describe("waitForServer", () => {
     await expect(waitForServer(BASE, 0)).rejects.toThrow("server did not start within 1 seconds");
   });
 
+  it("prints bounded progress while retrying an unavailable server", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
+    const progress = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const pending = waitForServer(BASE, 10_001);
+    const rejected = expect(pending).rejects.toThrow("server did not start within 11 seconds");
+    await vi.advanceTimersByTimeAsync(10_001);
+    await rejected;
+    expect(progress).toHaveBeenCalledWith("  still starting...\n");
+    vi.useRealTimers();
+  });
+
   it("enforces the deadline when a listener accepts HTTP but never responds", async () => {
     vi.unstubAllGlobals();
     const server = createServer(() => {});

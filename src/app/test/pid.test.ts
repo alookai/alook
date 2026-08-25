@@ -67,6 +67,24 @@ describe("service registry", () => {
     expect(readRegistryText()).toBe("not json");
   });
 
+  it.each([
+    null,
+    {},
+    { ...registry(), version: 2 },
+    { ...registry(), phase: "unknown" },
+    { ...registry(), profile: { ...registry().profile, web: undefined } },
+    { ...registry(), profile: { ...registry().profile, web: { business: 1.5, inspector: 2 } } },
+    { ...registry(), services: { web: { ...registry().services.web, name: "wsDo" } } },
+    { ...registry(), services: { web: { ...registry().services.web, authority: null } } },
+    { ...registry(), services: { web: { ...registry().services.web, authority: { pid: "bad", endpoint: "x", token: "y" } } } },
+    { ...registry(), services: { web: { ...registry().services.web, childPid: "bad" } } },
+    { ...registry(), services: { web: { ...registry().services.web, businessPort: 999 } } },
+    { ...registry(), services: { web: { ...registry().services.web, healthUrl: 1 } } },
+  ])("rejects an invalid typed registry %#", (value) => {
+    writeFileSync(paths.pidFile, JSON.stringify(value));
+    expect(readRegistry()).toBeUndefined();
+  });
+
   it("writes atomically and reads the typed schema with private POSIX permissions", () => {
     const value = registry();
     writeRegistry(value);

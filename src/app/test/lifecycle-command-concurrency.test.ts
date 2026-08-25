@@ -36,13 +36,33 @@ async function profile(): Promise<ServicePortProfile> {
   throw new Error("no isolated lifecycle command port profile available");
 }
 
-async function waitForFiles(paths: string[], timeoutMs = 15_000): Promise<void> {
+async function waitForFiles(
+  paths: string[],
+  children: ChildProcess[],
+  diagnostics: Array<{ stdout: string; stderr: string }>,
+  timeoutMs = 15_000,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (paths.every(existsSync)) return;
+    const exited = children.findIndex((child, index) => (
+      !existsSync(paths[index]) && (child.exitCode !== null || child.signalCode !== null)
+    ));
+    if (exited !== -1) {
+      const detail = diagnostics[exited];
+      throw new Error(
+        `lifecycle fixture ${exited} exited ${String(children[exited].exitCode ?? children[exited].signalCode)}` +
+        `${detail.stderr ? `\nstderr tail:\n${detail.stderr}` : ""}` +
+        `${detail.stdout ? `\nstdout tail:\n${detail.stdout}` : ""}`,
+      );
+    }
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 25));
   }
-  throw new Error(`timed out waiting for ${paths.join(", ")}`);
+  throw new Error(
+    `timed out waiting for ${paths.join(", ")}` + diagnostics.map((detail, index) => (
+      `\nchild ${index} stderr tail:\n${detail.stderr}\nchild ${index} stdout tail:\n${detail.stdout}`
+    )).join(""),
+  );
 }
 
 async function waitForExit(child: ChildProcess): Promise<void> {
@@ -103,10 +123,20 @@ describe("command-level lifecycle serialization", () => {
       env,
       stdio: "pipe",
     }));
+    const diagnostics = children.map((child) => {
+      const detail = { stdout: "", stderr: "" };
+      child.stdout?.on("data", (chunk) => {
+        detail.stdout = `${detail.stdout}${chunk.toString()}`.slice(-64 * 1024);
+      });
+      child.stderr?.on("data", (chunk) => {
+        detail.stderr = `${detail.stderr}${chunk.toString()}`.slice(-64 * 1024);
+      });
+      return detail;
+    });
     writeFileSync(barrier, "go\n");
 
     try {
-      await waitForFiles(results);
+      await waitForFiles(results, children, diagnostics);
       const values = results.map((path) => JSON.parse(readFileSync(path, "utf8")) as { generationOwned: boolean; outcome: string });
       expect(values.filter((value) => value.generationOwned), JSON.stringify(values)).toHaveLength(1);
       expect(values.filter((value) => !value.generationOwned)).toHaveLength(1);
