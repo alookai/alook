@@ -91,12 +91,12 @@ const daemonPackage = JSON.parse(
   readFileSync(resolve(repositoryRoot, "src/daemon/package.json"), "utf8"),
 ) as { devDependencies?: Record<string, string> }
 const workspaceManifest = readFileSync(resolve(repositoryRoot, "pnpm-workspace.yaml"), "utf8")
-const appPackageSmokeScript = readFileSync(
-  resolve(repositoryRoot, "src/app/scripts/app-package-smoke.mjs"),
+const appPackedArtifactScript = readFileSync(
+  resolve(repositoryRoot, "src/app/scripts/app-packed-artifact.mjs"),
   "utf8",
 )
-const selfHostedSmokeScript = readFileSync(
-  resolve(repositoryRoot, "src/app/scripts/self-hosted-smoke.mjs"),
+const packedArtifactVerifier = readFileSync(
+  resolve(repositoryRoot, "src/app/scripts/verify-packed-artifact.mjs"),
   "utf8",
 )
 
@@ -159,7 +159,7 @@ describe("Bun workflow setup", () => {
   })
 
   it("installs pinned Bun in every CI job that builds a daemon package fixture", () => {
-    const bunJobs = ["static-checks", "test-linux", "test-windows", "app-package-smoke"]
+    const bunJobs = ["static-checks", "test-linux", "test-windows", "app-packed-artifact"]
     expect(ciWorkflow.match(/oven-sh\/setup-bun/g)).toHaveLength(bunJobs.length)
     for (const job of bunJobs) {
       expect(ciJob(job)).toContain("oven-sh/setup-bun")
@@ -196,7 +196,7 @@ describe("CI workflow graph", () => {
 
   it("gates the consolidated jobs under the stable CI Gate", () => {
     const gate = ciJob("ci-gate")
-    for (const job of ["static-checks", "test-linux", "test-windows", "app-package-smoke"]) {
+    for (const job of ["static-checks", "test-linux", "test-windows", "app-packed-artifact"]) {
       expect(gate).toContain(`- ${job}`)
       expect(gate).toContain(`"name":"${job}"`)
     }
@@ -206,37 +206,55 @@ describe("CI workflow graph", () => {
     }
   })
 
-  it("gates the fail-closed exact-tarball App Package Smoke", () => {
+  it("gates the fail-closed exact-tarball app artifact check", () => {
     const scope = ciJob("scope")
-    const smoke = ciJob("app-package-smoke")
+    const artifact = ciJob("app-packed-artifact")
     const gate = ciJob("ci-gate")
-    expect(scope).toContain("run_app_package_smoke: ${{ steps.scope.outputs.run_app_package_smoke }}")
-    expect(smoke).toContain("if: needs.scope.outputs.run_app_package_smoke == 'true'")
-    expect(smoke).toContain("node src/app/scripts/app-package-smoke.mjs --output-dir")
-    expect(smoke).toContain("if: always()")
-    expect(smoke).toContain("if-no-files-found: error")
-    expect(smoke).toContain("!${{ runner.temp }}/alook-app-package/self-hosted-smoke/install/**")
-    expect(smoke).toContain("!${{ runner.temp }}/alook-app-package/self-hosted-smoke/state/**")
-    expect(gate).toContain("- app-package-smoke")
-    expect(gate).toContain('"name":"app-package-smoke"')
+    expect(scope).toContain(
+      "run_app_packed_artifact: ${{ steps.scope.outputs.run_app_packed_artifact }}",
+    )
+    expect(artifact).toContain("if: needs.scope.outputs.run_app_packed_artifact == 'true'")
+    expect(artifact).toContain("timeout-minutes: 15")
+    expect(artifact).toContain("node src/app/scripts/app-packed-artifact.mjs --output-dir")
+    expect(artifact).toContain("if: always()")
+    expect(artifact).toContain("if-no-files-found: error")
+    expect(artifact).toContain('tarballs=("$RUNNER_TEMP"/alook-app-packed-artifact/*.tgz)')
+    expect(artifact).toContain("[[ ${#tarballs[@]} -eq 1 ]]")
+    for (const evidence of [
+      "*.tgz",
+      "manifest.json",
+      "artifact-verification/positive-wrangler.log",
+      "artifact-verification/negative-wrangler.log",
+    ]) {
+      expect(artifact).toContain(evidence)
+    }
+    for (const excluded of [
+      "artifact-verification/extracted",
+      "artifact-verification/negative/package",
+      "artifact-verification/positive-wrangler/**",
+      "artifact-verification/negative-wrangler/**",
+    ]) {
+      expect(artifact).not.toContain(excluded)
+    }
+    expect(gate).toContain("- app-packed-artifact")
+    expect(gate).toContain('"name":"app-packed-artifact"')
   })
 })
 
-describe("App package CI contract", () => {
-  it("packs once and verifies those exact bytes without publishing", () => {
-    expect(appPackageSmokeScript.match(/npm[\s\S]*pack/g)).toHaveLength(1)
-    expect(appPackageSmokeScript).toContain("verifyPackedArtifact(tarball")
-    expect(appPackageSmokeScript).toContain("runSelfHostedSmoke(tarball")
-    expect(appPackageSmokeScript).not.toContain("npm publish")
+describe("App packed artifact CI contract", () => {
+  it("packs once and verifies those exact bytes without lifecycle or publishing", () => {
+    expect(appPackedArtifactScript.match(/execFileSync\("npm", \[\s*"pack"/g)).toHaveLength(1)
+    expect(appPackedArtifactScript).toContain("verifyPackedArtifact(tarball")
+    expect(appPackedArtifactScript).not.toContain("self-hosted")
+    expect(appPackedArtifactScript).not.toContain("onboard")
+    expect(appPackedArtifactScript).not.toContain("npm publish")
   })
 
-  it("makes both lifecycle rounds, D1 truth, no-browser flag, and final teardown fatal", () => {
-    expect(selfHostedSmokeScript).toContain("for (let round = 1; round <= 2; round += 1)")
-    expect(selfHostedSmokeScript).toContain('"--no-open"')
-    expect(selfHostedSmokeScript).toContain("community_read_state_revision")
-    expect(selfHostedSmokeScript).toContain("PRAGMA foreign_key_check")
-    expect(selfHostedSmokeScript).toContain("smoke and teardown both failed")
-    expect(selfHostedSmokeScript).not.toContain("|| true")
+  it("derives the negative from the extracted candidate and requires the missing runtime", () => {
+    expect(packedArtifactVerifier).toContain("cpSync(packageRoot, negativePackageRoot")
+    expect(packedArtifactVerifier).toContain("rmSync(negativeRuntime)")
+    expect(packedArtifactVerifier).toContain('negativeOutput.includes("worker-runtime")')
+    expect(packedArtifactVerifier).toContain("Packed artifact Wrangler dry-run produced no output")
   })
 })
 

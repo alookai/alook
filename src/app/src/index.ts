@@ -34,7 +34,4 @@ program.addCommand(stopCommand());
 program.addCommand(updateCommand());
 program.addCommand(daemonCommand());
 
-void program.parseAsync().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+program.parse();

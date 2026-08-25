@@ -1,8 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
-    "scripts/**/*.{ts,mjs}",
-    "src/service-supervisor.ts"
+    "scripts/**/*.{ts,mjs}"
   ],
   "project": ["src/**/*.ts"],
   "ignoreDependencies": [
@@ -13,7 +12,8 @@
     "predev",
     "printf",
     "pbcopy",
-    "xclip"
+    "xclip",
+    "taskkill"
   ],
   "vitest": {
     "entry": ["test/**/*.test.ts"]

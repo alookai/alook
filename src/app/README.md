@@ -47,7 +47,6 @@ npx @alook/app daemon start --id <machine-id> # Restart without exposing its cre
 --port-ws <port>     WebSocket worker port (default: 15212)
 --port-wake <port>   Wake worker port (default: 15213)
 --skip-register      Skip account creation (onboard only)
---no-open            Do not prompt, copy to the clipboard, or open a browser (onboard only)
 ```
 
 ## Architecture
@@ -63,17 +62,7 @@ Alook runs four local services, each in its own Wrangler dev process:
 | **WebSocket (WS-DO)** | 15212 | Real-time communication via Durable Objects |
 | **Wake Worker** | 15213 | Dispatches unread-message wake events to local daemons |
 
-Each service also has a derived inspector port. The default inspector ports are Web `19229`, WebSocket `19230`, Email `19231`, and Wake `19232`. Custom business ports derive an isolated inspector profile from the Web port; all eight ports are checked before any service starts. If a port is owned by another process, Alook reports the exact service and port but never tries to kill an unverified owner.
-
 All services share a single SQLite database (Cloudflare D1 local mode) with state persisted at `~/.alook/self-hosted/web/.wrangler/state/`.
-
-Startup waits for Web `/api/health` and the Email, WebSocket, and Wake `/health` endpoints under one bounded deadline. A timeout or early service exit reports the relevant log in `~/.alook/self-hosted/logs/` and the recovery command `npx @alook/app stop`.
-
-### Lifecycle ownership
-
-`onboard`, `start`, `stop`, and `update` are serialized. A private supervisor owns each service tree and proves a random per-run authority token before it can be stopped. The registry records that generation and its exact eight-port profile; numeric PIDs alone are never trusted as ownership proof. Missing or mismatched authority fails closed and preserves diagnostics rather than signaling an unrelated process.
-
-An existing generation is reused only when all four supervisors are live, the requested port profile matches exactly, and all four health endpoints pass again. Partial, mismatched, or recovery-required state must be resolved with `npx @alook/app stop` before retrying.
 
 ### Directory Layout
 
@@ -87,7 +76,7 @@ An existing generation is reused only when all four supervisors are live, the re
 ├── wake-worker/          # Agent wake dispatcher
 ├── daemon/               # Private machine credentials, daemon state, and logs
 ├── logs/                 # Service logs (web, email, WS, and wake workers)
-└── .pids.json            # Generation, private supervisor authority, ports, health, and logs
+└── .pids.json            # PID tracking for running services
 ```
 
 ### Database Migrations

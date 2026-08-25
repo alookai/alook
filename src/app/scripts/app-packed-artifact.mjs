@@ -5,7 +5,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { verifyPackedArtifact } from "./verify-packed-artifact.mjs";
-import { runSelfHostedSmoke } from "./self-hosted-smoke.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const appRoot = resolve(dirname(scriptPath), "..");
@@ -29,7 +28,7 @@ function digest(path, algorithm, encoding = "hex") {
   return createHash(algorithm).update(readFileSync(path)).digest(encoding);
 }
 
-export async function runAppPackageSmoke(options) {
+export function runAppPackedArtifact(options) {
   const outputDir = resolve(options.outputDir);
   mkdirSync(outputDir, { recursive: true });
   if (!options.skipBuild) {
@@ -52,8 +51,9 @@ export async function runAppPackageSmoke(options) {
   if (packed[0].integrity && packed[0].integrity !== integrity) {
     throw new Error("npm pack integrity does not match the exact tarball bytes");
   }
-  verifyPackedArtifact(tarball, { scratchRoot: join(outputDir, "artifact-verification") });
-  const smoke = await runSelfHostedSmoke(tarball, { scratchRoot: join(outputDir, "self-hosted-smoke") });
+  const verification = verifyPackedArtifact(tarball, {
+    scratchRoot: join(outputDir, "artifact-verification"),
+  });
   const manifest = {
     package: packed[0].name,
     version: packed[0].version,
@@ -61,8 +61,12 @@ export async function runAppPackageSmoke(options) {
     filename: packed[0].filename,
     integrity,
     sha256: digest(tarball, "sha256"),
-    artifactVerification: join(outputDir, "artifact-verification"),
-    smokeEvidence: smoke.evidenceRoot,
+    verification: {
+      positiveWrangler: "passed",
+      negativeWrangler: "failed-missing-worker-runtime",
+      positiveLog: verification.positiveLog,
+      negativeLog: verification.negativeLog,
+    },
   };
   const manifestPath = join(outputDir, "manifest.json");
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -72,8 +76,10 @@ export async function runAppPackageSmoke(options) {
 if (process.argv[1] === scriptPath) {
   try {
     const args = parseArgs(process.argv.slice(2));
-    if (!args.outputDir) throw new Error("Usage: app-package-smoke.mjs --output-dir <directory> [--skip-build]");
-    console.log(JSON.stringify(await runAppPackageSmoke(args), null, 2));
+    if (!args.outputDir) {
+      throw new Error("Usage: app-packed-artifact.mjs --output-dir <directory> [--skip-build]");
+    }
+    console.log(JSON.stringify(runAppPackedArtifact(args), null, 2));
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

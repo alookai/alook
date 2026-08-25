@@ -48,12 +48,14 @@ describe("classifyPaths", () => {
     expect(result.run_ui_e2e).toBe(true)
     expect(result.run_lighthouse).toBe(true)
     expect(result.run_e2e).toBe(true)
-    expect(result.run_app_package_smoke).toBe(true)
+    expect(result.run_app_packed_artifact).toBe(true)
   })
 
   it("fails closed for every app bundle input while excluding stripped blog-only inputs", () => {
     for (const path of [
       "src/app/src/index.ts",
+      "src/daemon/src/index.ts",
+      "src/daemon/agent-driver/src/index.ts",
       "src/web/custom-worker.ts",
       "src/web/src/lib/worker-runtime.ts",
       "src/web/wrangler.toml",
@@ -65,11 +67,11 @@ describe("classifyPaths", () => {
       "pnpm-lock.yaml",
       ".github/workflows/publish-app.yml",
     ]) {
-      expect(classifyPaths([path]).run_app_package_smoke, path).toBe(true)
+      expect(classifyPaths([path]).run_app_packed_artifact, path).toBe(true)
     }
-    expect(classifyPaths(["src/web/src/content/example.mdx"]).run_app_package_smoke).toBe(false)
-    expect(classifyPaths(["src/web/public/blog/example/hero.webp"]).run_app_package_smoke).toBe(false)
-    expect(classifyPaths(["README.md"]).run_app_package_smoke).toBe(false)
+    expect(classifyPaths(["src/web/src/content/example.mdx"]).run_app_packed_artifact).toBe(false)
+    expect(classifyPaths(["src/web/public/blog/example/hero.webp"]).run_app_packed_artifact).toBe(false)
+    expect(classifyPaths(["README.md"]).run_app_packed_artifact).toBe(false)
   })
 
   it("routes CLI and daemon integration test changes through Linux E2E", () => {
@@ -117,6 +119,7 @@ describe("classifyPaths", () => {
     expect(result.full).toBe(true)
     expect(result.blog_only).toBe(false)
     expect(result.run_windows).toBe(true)
+    expect(result.run_app_packed_artifact).toBe(true)
   })
 })
 
@@ -146,7 +149,7 @@ describe("runCli", () => {
       expect(values).toContain("full=true")
       expect(values).toContain("run_windows=true")
       expect(values).toContain("run_ui_e2e=true")
-      expect(values).toContain("run_app_package_smoke=true")
+      expect(values).toContain("run_app_packed_artifact=true")
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

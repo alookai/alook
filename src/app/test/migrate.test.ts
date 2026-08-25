@@ -40,8 +40,10 @@ describe("runMigrations", () => {
     expect(logs.join("\n")).toContain("Migrations complete");
   });
 
-  it("throws on migration failure so the lifecycle reservation can unwind", () => {
+  it("exits on migration failure", () => {
     mockExecFileSync.mockImplementation(() => { const e = new Error("fail") as Error & { stderr?: Buffer }; e.stderr = Buffer.from("D1 error"); throw e; });
-    expect(() => runMigrations()).toThrow("failed to run migrations");
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => { throw new Error("exit"); }) as never);
+    expect(() => runMigrations()).toThrow("exit");
+    expect(exit).toHaveBeenCalledWith(1);
   });
 });

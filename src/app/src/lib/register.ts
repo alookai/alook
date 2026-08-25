@@ -110,32 +110,19 @@ export async function createPairingToken(baseURL: string, cookie: string): Promi
 
 export async function waitForServer(baseURL: string, timeoutMs = 90000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
-  let nextProgressAt = Date.now() + 10_000;
+  let dots = 0;
   while (Date.now() < deadline) {
-    const remainingMs = deadline - Date.now();
     try {
-      const res = await fetch(`${baseURL}/api/auth/session`, {
-        method: "GET",
-        signal: AbortSignal.timeout(Math.max(1, Math.min(5_000, remainingMs))),
-      });
+      const res = await fetch(`${baseURL}/api/auth/session`, { method: "GET" });
       if (res.status < 500) return;
     } catch {}
-
-    if (Date.now() >= nextProgressAt) {
+    dots++;
+    if (dots % 10 === 0) {
       process.stdout.write("  still starting...\n");
-      nextProgressAt += 10_000;
     }
-
-    const sleepMs = Math.min(1_000, deadline - Date.now());
-    if (sleepMs > 0) {
-      await new Promise((r) => setTimeout(r, sleepMs));
-    }
+    await new Promise((r) => setTimeout(r, 1000));
   }
-
-  const seconds = Math.max(1, Math.ceil(timeoutMs / 1000));
-  throw new Error(
-    `server did not start within ${seconds} seconds\n` +
-    `Check logs at ${join(SELF_HOSTED_DIR, "logs", "web.log")}\n` +
-    "Run 'npx @alook/app stop' before retrying if Alook ports remain occupied.",
-  );
+  console.error("Error: server did not start within 90 seconds");
+  console.error(`Check logs at ${join(SELF_HOSTED_DIR, "logs", "web.log")}`);
+  process.exit(1);
 }

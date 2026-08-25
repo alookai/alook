@@ -32,7 +32,7 @@ jobs:
       run_rust: ${{ steps.scope.outputs.run_rust }}
       run_lighthouse: ${{ steps.scope.outputs.run_lighthouse }}
       run_knip: ${{ steps.scope.outputs.run_knip }}
-      run_app_package_smoke: ${{ steps.scope.outputs.run_app_package_smoke }}
+      run_app_packed_artifact: ${{ steps.scope.outputs.run_app_packed_artifact }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -250,12 +250,12 @@ jobs:
           TURBO_SCM_HEAD: ${{ needs.scope.outputs.head_sha }}
         run: pnpm turbo run test --affected --filter=@alook/cli --filter=@alook/app --filter=@alook/shared
 
-  app-package-smoke:
-    name: App Package Smoke
+  app-packed-artifact:
+    name: App Packed Artifact
     needs: scope
-    if: needs.scope.outputs.run_app_package_smoke == 'true'
+    if: needs.scope.outputs.run_app_packed_artifact == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
@@ -267,17 +267,27 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Pack once, verify Worker closure, and run two installed lifecycle rounds
-        run: node src/app/scripts/app-package-smoke.mjs --output-dir "$RUNNER_TEMP/alook-app-package"
-      - name: Upload app package smoke evidence
+      - name: Pack once and verify Worker closure
+        run: node src/app/scripts/app-packed-artifact.mjs --output-dir "$RUNNER_TEMP/alook-app-packed-artifact"
+      - name: Require complete app artifact evidence
+        if: always()
+        run: |
+          shopt -s nullglob
+          tarballs=("$RUNNER_TEMP"/alook-app-packed-artifact/*.tgz)
+          [[ ${#tarballs[@]} -eq 1 ]]
+          test -f "$RUNNER_TEMP/alook-app-packed-artifact/manifest.json"
+          test -f "$RUNNER_TEMP/alook-app-packed-artifact/artifact-verification/positive-wrangler.log"
+          test -f "$RUNNER_TEMP/alook-app-packed-artifact/artifact-verification/negative-wrangler.log"
+      - name: Upload app packed artifact evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: app-package-smoke-${{ github.sha }}
+          name: app-packed-artifact-${{ github.sha }}
           path: |
-            ${{ runner.temp }}/alook-app-package
-            !${{ runner.temp }}/alook-app-package/self-hosted-smoke/install/**
-            !${{ runner.temp }}/alook-app-package/self-hosted-smoke/state/**
+            ${{ runner.temp }}/alook-app-packed-artifact/*.tgz
+            ${{ runner.temp }}/alook-app-packed-artifact/manifest.json
+            ${{ runner.temp }}/alook-app-packed-artifact/artifact-verification/positive-wrangler.log
+            ${{ runner.temp }}/alook-app-packed-artifact/artifact-verification/negative-wrangler.log
           if-no-files-found: error
           retention-days: 7
 
@@ -391,7 +401,7 @@ jobs:
       - static-checks
       - test-linux
       - test-windows
-      - app-package-smoke
+      - app-packed-artifact
       - e2e
       - desktop-rust
       - lighthouse
@@ -405,7 +415,7 @@ jobs:
           {"name":"static-checks","expected":${{ needs.scope.outputs.run_code_checks == 'true' }},"result":"${{ needs.static-checks.result }}"},
           {"name":"test-linux","expected":${{ needs.scope.outputs.run_code_checks == 'true' }},"result":"${{ needs.test-linux.result }}"},
           {"name":"test-windows","expected":${{ needs.scope.outputs.run_windows == 'true' }},"result":"${{ needs.test-windows.result }}"},
-          {"name":"app-package-smoke","expected":${{ needs.scope.outputs.run_app_package_smoke == 'true' }},"result":"${{ needs.app-package-smoke.result }}"},
+          {"name":"app-packed-artifact","expected":${{ needs.scope.outputs.run_app_packed_artifact == 'true' }},"result":"${{ needs.app-packed-artifact.result }}"},
           {"name":"e2e","expected":${{ needs.scope.outputs.run_e2e == 'true' && github.event_name != 'push' }},"result":"${{ needs.e2e.result }}"},
           {"name":"desktop-rust","expected":${{ needs.scope.outputs.run_rust == 'true' }},"result":"${{ needs.desktop-rust.result }}"},
           {"name":"lighthouse","expected":${{ needs.scope.outputs.run_lighthouse == 'true' && github.event_name != 'push' }},"result":"${{ needs.lighthouse.result }}"}
