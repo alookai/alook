@@ -1,7 +1,7 @@
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore } from "@/stores/community/ws"
@@ -13,6 +13,7 @@ vi.mock("@/lib/api/client", () => ({
 }))
 
 type Result = ReturnType<typeof useBotAuditPreview>
+const renderers = new Set<TestRenderer.ReactTestRenderer>()
 
 function renderHook(botId: string | null) {
   const result: { current: Result } = { current: null as never }
@@ -23,8 +24,9 @@ function renderHook(botId: string | null) {
     result.current = useBotAuditPreview(botId)
     return null
   }
+  let renderer!: TestRenderer.ReactTestRenderer
   act(() => {
-    TestRenderer.create(
+    renderer = TestRenderer.create(
       React.createElement(
         QueryClientProvider,
         { client: queryClient },
@@ -32,6 +34,7 @@ function renderHook(botId: string | null) {
       ),
     )
   })
+  renderers.add(renderer)
   return { result, queryClient }
 }
 
@@ -39,6 +42,16 @@ async function flush() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
+}
+
+async function waitFor(predicate: () => boolean, tries = 200) {
+  for (let attempt = 0; attempt < tries; attempt += 1) {
+    if (predicate()) return
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    })
+  }
+  expect(predicate()).toBe(true)
 }
 
 const event = (id: string, second: number) => ({
@@ -56,11 +69,17 @@ describe("useBotAuditPreview", () => {
     useCommunityWsStore.getState().reset()
   })
 
+  afterEach(() => {
+    act(() => {
+      for (const renderer of renderers) renderer.unmount()
+    })
+    renderers.clear()
+  })
+
   it("uses a separate finite limit=5 cache from the full modal", async () => {
     apiFetch.mockResolvedValueOnce({ events: [event("e1", 1)], nextCursor: null })
     const { result, queryClient } = renderHook("b1")
-    await flush()
-    await flush()
+    await waitFor(() => result.current.events.length === 1)
 
     expect(apiFetch).toHaveBeenCalledWith(
       "/api/community/bots/b1/audit-log?limit=5",
@@ -82,7 +101,7 @@ describe("useBotAuditPreview", () => {
       nextCursor: null,
     })
     const { result } = renderHook("b1")
-    await flush()
+    await waitFor(() => result.current.events.length === 4)
 
     act(() => {
       useCommunityWsStore.getState().pushBotAuditEvent({
@@ -98,7 +117,7 @@ describe("useBotAuditPreview", () => {
         botId: "b1",
       })
     })
-    await flush()
+    await waitFor(() => result.current.events[0]?.id === "e2")
 
     expect(result.current.events.map((item) => item.id)).toEqual([
       "e2",
@@ -115,7 +134,7 @@ describe("useBotAuditPreview", () => {
       nextCursor: null,
     })
     const { result } = renderHook("b1")
-    await flush()
+    await waitFor(() => result.current.events.length === 3)
 
     expect(result.current.events.map((item) => item.id)).toEqual(["e3", "e2", "e1"])
   })
@@ -123,8 +142,7 @@ describe("useBotAuditPreview", () => {
   it("reports authoritative 404s so a stale owned card can hide the preview", async () => {
     apiFetch.mockRejectedValueOnce(new ApiError("not found", 404))
     const { result } = renderHook("b1")
-    await flush()
-    await flush()
+    await waitFor(() => result.current.isNotFound)
     expect(result.current.isNotFound).toBe(true)
     expect(apiFetch).toHaveBeenCalledTimes(1)
   })
