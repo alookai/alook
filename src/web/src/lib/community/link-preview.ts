@@ -4,6 +4,7 @@ export type LinkPreview = {
   title: string
   description?: string
   siteName?: string
+  thumbnailUrl?: string
 }
 
 const URL_CANDIDATE_RE = /https?:\/\/[^\s<>"']+/gi

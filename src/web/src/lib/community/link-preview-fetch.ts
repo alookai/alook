@@ -2,6 +2,8 @@ import { isIP } from "node:net"
 import { getPreviewFromContent } from "link-preview-js/mobile"
 import type { LinkPreview } from "./link-preview"
 
+export type FetchedLinkPreview = LinkPreview & { thumbnailSource?: string }
+
 const MAX_URL_LENGTH = 2_048
 const MAX_HTML_BYTES = 128 * 1024
 const MAX_OEMBED_BYTES = 16 * 1024
@@ -129,6 +131,16 @@ function cleanText(value: unknown, maxLength: number): string | undefined {
   return Array.from(cleaned).slice(0, maxLength).join("")
 }
 
+function cleanThumbnailSource(value: unknown, base: URL): string | undefined {
+  if (typeof value !== "string" || !value) return undefined
+  try {
+    const source = normalizePublicPreviewUrl(new URL(value, base).href)
+    return source.protocol === "https:" ? source.href : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function youtubeVideoId(url: URL): string | null {
   const host = url.hostname.toLowerCase()
   let candidate: string | null = null
@@ -169,7 +181,7 @@ async function readBoundedText(response: Response, maxBytes: number): Promise<st
   return text + decoder.decode()
 }
 
-async function fetchYouTubeOEmbed(original: URL, videoId: string, signal: AbortSignal): Promise<LinkPreview> {
+async function fetchYouTubeOEmbed(original: URL, videoId: string, signal: AbortSignal): Promise<FetchedLinkPreview> {
   // The destination is fixed rather than derived from user input. The source
   // URL is only an encoded oEmbed parameter, so it cannot steer the fetch.
   const endpoint = new URL("https://www.youtube.com/oembed")
@@ -197,12 +209,14 @@ async function fetchYouTubeOEmbed(original: URL, videoId: string, signal: AbortS
   if (!title) throw new Error("YouTube oEmbed metadata missing")
   const siteName = cleanText(record.provider_name, 80) ?? "YouTube"
   const authorName = cleanText(record.author_name, 80)
+  const thumbnailSource = cleanThumbnailSource(record.thumbnail_url, original)
   return {
     url: original.href,
     hostname: original.hostname,
     title,
     siteName,
     ...(authorName ? { description: authorName } : {}),
+    ...(thumbnailSource ? { thumbnailSource } : {}),
   }
 }
 
@@ -277,10 +291,11 @@ async function fetchHtml(start: URL, signal: AbortSignal): Promise<{ html: strin
 }
 
 /**
- * Fetch one public page within a single hard budget and return sanitized,
- * plain-text metadata only. Remote HTML and media URLs never cross this API.
+ * Fetch one public page within a single hard budget and return sanitized text
+ * plus an internal, revalidated image candidate. The caller must never expose
+ * thumbnailSource; it is only input to the same-origin thumbnail manifest.
  */
-export async function fetchLinkPreview(input: string): Promise<LinkPreview> {
+export async function fetchLinkPreview(input: string): Promise<FetchedLinkPreview> {
   const original = normalizePublicPreviewUrl(input)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS)
@@ -305,12 +320,19 @@ export async function fetchLinkPreview(input: string): Promise<LinkPreview> {
           || "",
         description: response.description
           || doc("meta[name='twitter:description'],meta[property='twitter:description']").first().attr("content"),
+        images: response.images.length > 0
+          ? response.images
+          : [doc("meta[name='twitter:image'],meta[property='twitter:image']").first().attr("content")]
+              .filter((value): value is string => Boolean(value)),
       }),
     })
     const record = parsed as Record<string, unknown>
     const parsedTitle = cleanText(record.title, 160)
     const description = cleanText(record.description, 320)
     const siteName = cleanText(record.siteName, 80)
+    const thumbnailSource = Array.isArray(record.images)
+      ? cleanThumbnailSource(record.images[0], finalUrl)
+      : undefined
     if (!parsedTitle && !description) throw new Error("preview metadata missing")
     const title = parsedTitle ?? siteName ?? original.hostname
     return {
@@ -319,6 +341,7 @@ export async function fetchLinkPreview(input: string): Promise<LinkPreview> {
       title,
       ...(description ? { description } : {}),
       ...(siteName ? { siteName } : {}),
+      ...(thumbnailSource ? { thumbnailSource } : {}),
     }
   } finally {
     clearTimeout(timer)

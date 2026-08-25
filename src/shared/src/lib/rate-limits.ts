@@ -30,6 +30,11 @@ export const RATE_LIMITS = {
    */
   "community:linkPreview": { windowMs: 60_000, max: 60 },
   /**
+   * Authenticated same-origin thumbnail cache misses. The digest-only route
+   * cannot choose an origin, but decoding/transcoding is still bounded work.
+   */
+  "community:linkPreviewThumbnail": { windowMs: 60_000, max: 120 },
+  /**
    * OTP send (better-auth `/email-otp/send-verification-otp`). Prevents
    * cost/abuse from someone spamming another user's inbox. Window/max are
    * overridable via `AUTH_OTP_RATE_LIMIT_MAX` / `_WINDOW_SEC`.

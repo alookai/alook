@@ -8,13 +8,37 @@ import { communityKeys } from "@/lib/query-keys"
 import { tid } from "@/lib/community/testids"
 import type { LinkPreview } from "@/lib/community/link-preview"
 
-type LinkPreviewResponse = { preview: LinkPreview | null }
+type LinkPreviewResponse = {
+  preview: LinkPreview | null
+  staleTimeSeconds?: number
+}
 
 const POSITIVE_STALE_TIME_MS = 6 * 60 * 60 * 1_000
 const NEGATIVE_STALE_TIME_MS = 5 * 60 * 1_000
 
 export function linkPreviewStaleTime(data: LinkPreviewResponse | undefined): number {
+  if (data?.staleTimeSeconds === 6 * 60 * 60) return POSITIVE_STALE_TIME_MS
+  if (data?.staleTimeSeconds === 5 * 60) return NEGATIVE_STALE_TIME_MS
   return data?.preview ? POSITIVE_STALE_TIME_MS : NEGATIVE_STALE_TIME_MS
+}
+
+export function LinkPreviewThumbnail({ src }: { src: string }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) return null
+  return (
+    <img
+      data-testid={tid.linkPreviewThumbnail}
+      src={src}
+      alt=""
+      width={640}
+      height={360}
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      className="aspect-video w-full bg-muted object-cover"
+      onError={() => setFailed(true)}
+    />
+  )
 }
 
 export function LinkPreviewCardView({ preview }: { preview: LinkPreview }) {
@@ -24,19 +48,22 @@ export function LinkPreviewCardView({ preview }: { preview: LinkPreview }) {
       href={preview.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="group block max-w-108 rounded-lg border border-border bg-card px-3 py-2.5 text-foreground transition-colors hover:border-primary/35 hover:bg-accent/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group block max-w-108 overflow-hidden rounded-lg border border-border bg-card text-foreground transition-colors hover:border-primary/35 hover:bg-accent/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       aria-label={`Open link preview: ${preview.title}`}
     >
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <span className="min-w-0 truncate">{preview.siteName ?? preview.hostname}</span>
-        <ExternalLink aria-hidden="true" className="size-3 shrink-0 opacity-55 transition-opacity group-hover:opacity-90" />
+      {preview.thumbnailUrl && <LinkPreviewThumbnail src={preview.thumbnailUrl} />}
+      <div className="px-3 py-2.5">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="min-w-0 truncate">{preview.siteName ?? preview.hostname}</span>
+          <ExternalLink aria-hidden="true" className="size-3 shrink-0 opacity-55 transition-opacity group-hover:opacity-90" />
+        </div>
+        <div className="mt-1 line-clamp-2 text-sm font-medium leading-snug">{preview.title}</div>
+        {preview.description && (
+          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+            {preview.description}
+          </p>
+        )}
       </div>
-      <div className="mt-1 line-clamp-2 text-sm font-medium leading-snug">{preview.title}</div>
-      {preview.description && (
-        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-          {preview.description}
-        </p>
-      )}
     </a>
   )
 }

@@ -4,13 +4,21 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { fetchLinkPreview, normalizePublicPreviewUrl } from "@/lib/community/link-preview-fetch"
+import {
+  linkPreviewPageDigest,
+  linkPreviewThumbnailUrl,
+  writeLinkPreviewThumbnailManifest,
+} from "@/lib/community/link-preview-thumbnail"
 import type { LinkPreview } from "@/lib/community/link-preview"
 
 const POSITIVE_TTL_SECONDS = 6 * 60 * 60
 const NEGATIVE_TTL_SECONDS = 5 * 60
 const MAX_REQUEST_BODY_BYTES = 4 * 1024
 
-type CacheEntry = { preview: LinkPreview | null }
+type CacheEntry = {
+  preview: LinkPreview | null
+  staleTimeSeconds: typeof POSITIVE_TTL_SECONDS | typeof NEGATIVE_TTL_SECONDS
+}
 
 class RequestBodyTooLargeError extends Error {}
 
@@ -43,7 +51,7 @@ async function readBoundedJson(req: NextRequest): Promise<unknown> {
   return JSON.parse(body + decoder.decode())
 }
 
-function isLinkPreview(value: unknown): value is LinkPreview {
+function isLinkPreview(value: unknown, expectedDigest: string): value is LinkPreview {
   if (!value || typeof value !== "object") return false
   const item = value as Record<string, unknown>
   return typeof item.url === "string"
@@ -51,23 +59,29 @@ function isLinkPreview(value: unknown): value is LinkPreview {
     && typeof item.title === "string"
     && (item.description === undefined || typeof item.description === "string")
     && (item.siteName === undefined || typeof item.siteName === "string")
+    && (item.thumbnailUrl === undefined
+      || item.thumbnailUrl === linkPreviewThumbnailUrl(expectedDigest))
 }
 
-function parseCacheEntry(raw: string): CacheEntry | null {
+function parseCacheEntry(raw: string, expectedDigest: string): CacheEntry | null {
   try {
-    const value = JSON.parse(raw) as { preview?: unknown }
-    if (value.preview === null) return { preview: null }
-    if (isLinkPreview(value.preview)) return { preview: value.preview }
+    const value = JSON.parse(raw) as { preview?: unknown; staleTimeSeconds?: unknown }
+    if (value.preview === null && value.staleTimeSeconds === NEGATIVE_TTL_SECONDS) {
+      return { preview: null, staleTimeSeconds: NEGATIVE_TTL_SECONDS }
+    }
+    if (isLinkPreview(value.preview, expectedDigest)
+      && (value.staleTimeSeconds === POSITIVE_TTL_SECONDS
+        || value.staleTimeSeconds === NEGATIVE_TTL_SECONDS)) {
+      return { preview: value.preview, staleTimeSeconds: value.staleTimeSeconds }
+    }
   } catch {
     // Treat a stale/malformed cache entry as a miss.
   }
   return null
 }
 
-async function cacheKey(url: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(url))
-  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")
-  return `link-preview:v1:${hex}`
+function cacheKey(pageDigest: string): string {
+  return `link-preview:v2:${pageDigest}`
 }
 
 /**
@@ -99,13 +113,14 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("invalid preview URL", 400)
   }
 
-  const key = await cacheKey(normalized)
+  const pageDigest = await linkPreviewPageDigest(normalized)
+  const key = cacheKey(pageDigest)
   const kv = ctx.env.CACHE_KV ?? null
   if (kv) {
     try {
       const cached = await kv.get(key)
       if (cached) {
-        const entry = parseCacheEntry(cached)
+        const entry = parseCacheEntry(cached, pageDigest)
         if (entry) return writeJSON(entry)
       }
     } catch {
@@ -115,14 +130,31 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   let entry: CacheEntry
   try {
-    entry = { preview: await fetchLinkPreview(normalized) }
+    const fetched = await fetchLinkPreview(normalized)
+    const { thumbnailSource, ...preview } = fetched
+    let staleTimeSeconds: CacheEntry["staleTimeSeconds"] = POSITIVE_TTL_SECONDS
+    if (thumbnailSource) {
+      try {
+        await writeLinkPreviewThumbnailManifest({
+          bucket: ctx.env.COMMUNITY_MEDIA,
+          pageDigest,
+          sourceUrl: thumbnailSource,
+        })
+        preview.thumbnailUrl = linkPreviewThumbnailUrl(pageDigest)
+      } catch {
+        // A capability is exposed only after its strongly-consistent manifest
+        // exists. Retry this degraded text-only preview after the negative TTL.
+        staleTimeSeconds = NEGATIVE_TTL_SECONDS
+      }
+    }
+    entry = { preview, staleTimeSeconds }
   } catch {
-    entry = { preview: null }
+    entry = { preview: null, staleTimeSeconds: NEGATIVE_TTL_SECONDS }
   }
 
   if (kv) {
     const write = kv.put(key, JSON.stringify(entry), {
-      expirationTtl: entry.preview ? POSITIVE_TTL_SECONDS : NEGATIVE_TTL_SECONDS,
+      expirationTtl: entry.staleTimeSeconds,
     }).catch(() => {
       // A cache write failure must never turn a valid message link into an error.
     })

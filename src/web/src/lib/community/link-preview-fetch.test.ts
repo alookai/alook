@@ -102,6 +102,19 @@ describe("fetchLinkPreview", () => {
     })
   })
 
+  it("keeps a validated YouTube thumbnail URL internal to the server result", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      title: "A YouTube video",
+      provider_name: "YouTube",
+      thumbnail_url: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+    }), { headers: { "content-type": "application/json" } })))
+
+    await expect(fetchLinkPreview("https://youtu.be/dQw4w9WgXcQ")).resolves.toMatchObject({
+      title: "A YouTube video",
+      thumbnailSource: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+    })
+  })
+
   it.each([
     "https://youtu.be/dQw4w9WgXcQ?t=5",
     "https://m.youtube.com/shorts/dQw4w9WgXcQ",
@@ -432,6 +445,40 @@ describe("fetchLinkPreview", () => {
       title: "Twitter-only title",
       description: "Twitter-only description",
     })
+  })
+
+  it("selects the first public HTTPS Open Graph image resolved against the final page", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
+      "<html><head>"
+        + "<meta property='og:title' content='With image'>"
+        + "<meta property='og:image' content='/assets/card.png#fragment'>"
+        + "</head></html>",
+      { headers: { "content-type": "text/html" } },
+    )))
+
+    await expect(fetchLinkPreview("https://example.com/post")).resolves.toMatchObject({
+      title: "With image",
+      thumbnailSource: "https://example.com/assets/card.png",
+    })
+  })
+
+  it("falls back to a Twitter image without exposing insecure or private candidates", async () => {
+    const html = (image: string) => "<html><head>"
+      + "<meta name='twitter:title' content='Twitter-only'>"
+      + `<meta name='twitter:image' content='${image}'>`
+      + "</head></html>"
+
+    for (const [image, expected] of [
+      ["https://cdn.example.org/card.webp", "https://cdn.example.org/card.webp"],
+      ["http://cdn.example.org/card.webp", undefined],
+      ["https://127.0.0.1/card.webp", undefined],
+    ] as const) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(html(image), {
+        headers: { "content-type": "text/html" },
+      })))
+      const preview = await fetchLinkPreview("https://example.com/twitter-image")
+      expect(preview.thumbnailSource).toBe(expected)
+    }
   })
 
   it("removes controls and bidi markers and caps every returned field", async () => {

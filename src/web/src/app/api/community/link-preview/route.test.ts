@@ -5,6 +5,7 @@ const mockFetchLinkPreview = vi.fn()
 const mockCheckRateLimit = vi.fn()
 const mockKvGet = vi.fn()
 const mockKvPut = vi.fn()
+const mockR2Put = vi.fn()
 const mockWaitUntil = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
@@ -27,7 +28,10 @@ vi.mock("@/lib/rate-limit", () => ({
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: (handler: (...args: any[]) => unknown) => (req: NextRequest) => handler(req, {
-    env: { CACHE_KV: { get: mockKvGet, put: mockKvPut } },
+    env: {
+      CACHE_KV: { get: mockKvGet, put: mockKvPut },
+      COMMUNITY_MEDIA: { put: mockR2Put },
+    },
     userId: "user_1",
     email: "user@example.com",
   }),
@@ -62,6 +66,7 @@ describe("POST /api/community/link-preview", () => {
     mockCheckRateLimit.mockResolvedValue({ allowed: true })
     mockKvGet.mockResolvedValue(null)
     mockKvPut.mockResolvedValue(undefined)
+    mockR2Put.mockResolvedValue(undefined)
     mockFetchLinkPreview.mockResolvedValue({
       url: "https://example.com/",
       hostname: "example.com",
@@ -121,11 +126,13 @@ describe("POST /api/community/link-preview", () => {
   it("returns a valid cached preview without fetching the origin", async () => {
     mockKvGet.mockResolvedValue(JSON.stringify({
       preview: { url: "https://example.com/", hostname: "example.com", title: "Cached" },
+      staleTimeSeconds: 21_600,
     }))
 
     const response = await POST(request({ url: "https://example.com/#fragment" }))
     expect(await response.json()).toEqual({
       preview: { url: "https://example.com/", hostname: "example.com", title: "Cached" },
+      staleTimeSeconds: 21_600,
     })
     expect(mockCheckRateLimit).toHaveBeenCalledWith(
       expect.anything(),
@@ -136,13 +143,60 @@ describe("POST /api/community/link-preview", () => {
   })
 
   it("returns a cached negative preview without fetching the origin", async () => {
-    mockKvGet.mockResolvedValue(JSON.stringify({ preview: null }))
+    mockKvGet.mockResolvedValue(JSON.stringify({ preview: null, staleTimeSeconds: 300 }))
 
     const response = await POST(request({ url: "https://example.com/" }))
 
-    expect(await response.json()).toEqual({ preview: null })
+    expect(await response.json()).toEqual({ preview: null, staleTimeSeconds: 300 })
     expect(mockFetchLinkPreview).not.toHaveBeenCalled()
     expect(mockKvPut).not.toHaveBeenCalled()
+  })
+
+  it("returns a valid degraded cached preview with its exact digest path", async () => {
+    const thumbnailUrl = "/api/community/link-preview/thumbnail/0f115db062b7c0dd030b16878c99dea5c354b49dc37b38eb8846179c7783e9d7"
+    mockKvGet.mockResolvedValue(JSON.stringify({
+      preview: {
+        url: "https://example.com/",
+        hostname: "example.com",
+        title: "Cached",
+        thumbnailUrl,
+      },
+      staleTimeSeconds: 300,
+    }))
+
+    const response = await POST(request({ url: "https://example.com/" }))
+
+    expect(await response.json()).toEqual({
+      preview: {
+        url: "https://example.com/",
+        hostname: "example.com",
+        title: "Cached",
+        thumbnailUrl,
+      },
+      staleTimeSeconds: 300,
+    })
+    expect(mockFetchLinkPreview).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["an unsupported TTL", "/api/community/link-preview/thumbnail/0f115db062b7c0dd030b16878c99dea5c354b49dc37b38eb8846179c7783e9d7", 123],
+    ["an upstream image URL", "https://images.example.com/og.jpg", 21_600],
+    ["a mismatched digest path", `/api/community/link-preview/thumbnail/${"a".repeat(64)}`, 21_600],
+  ])("treats a cached preview with %s as a miss", async (_label, thumbnailUrl, staleTimeSeconds) => {
+    mockKvGet.mockResolvedValue(JSON.stringify({
+      preview: {
+        url: "https://example.com/",
+        hostname: "example.com",
+        title: "Unsafe cache entry",
+        thumbnailUrl,
+      },
+      staleTimeSeconds,
+    }))
+
+    const response = await POST(request({ url: "https://example.com/" }))
+
+    expect((await response.json()).preview.title).toBe("Example")
+    expect(mockFetchLinkPreview).toHaveBeenCalledOnce()
   })
 
   it("treats a malformed cache entry as a miss", async () => {
@@ -169,9 +223,10 @@ describe("POST /api/community/link-preview", () => {
     expect(await response.json()).toMatchObject({ preview: { title: "Example" } })
     expect(mockFetchLinkPreview).toHaveBeenCalledWith("https://example.com/")
     expect(mockKvPut).toHaveBeenCalledWith(
-      expect.stringMatching(/^link-preview:v1:[a-f0-9]{64}$/),
+      expect.stringMatching(/^link-preview:v2:[a-f0-9]{64}$/),
       JSON.stringify({
         preview: { url: "https://example.com/", hostname: "example.com", title: "Example" },
+        staleTimeSeconds: 21_600,
       }),
       { expirationTtl: 21_600 },
     )
@@ -183,10 +238,10 @@ describe("POST /api/community/link-preview", () => {
 
     const response = await POST(request({ url: "https://example.com/" }))
 
-    expect(await response.json()).toEqual({ preview: null })
+    expect(await response.json()).toEqual({ preview: null, staleTimeSeconds: 300 })
     expect(mockKvPut).toHaveBeenCalledWith(
       expect.any(String),
-      JSON.stringify({ preview: null }),
+      JSON.stringify({ preview: null, staleTimeSeconds: 300 }),
       { expirationTtl: 300 },
     )
   })
@@ -199,6 +254,57 @@ describe("POST /api/community/link-preview", () => {
 
     expect((await response.json()).preview.title).toBe("Example")
     await expect(backgroundWrite).resolves.toBeUndefined()
+  })
+
+  it("awaits a private R2 manifest before returning only a same-origin thumbnail path", async () => {
+    mockFetchLinkPreview.mockResolvedValue({
+      url: "https://example.com/",
+      hostname: "example.com",
+      title: "Example",
+      thumbnailSource: "https://images.example.com/og.png",
+    })
+
+    const response = await POST(request({ url: "https://example.com/" }))
+    const body = await response.json()
+
+    expect(body).toEqual({
+      preview: {
+        url: "https://example.com/",
+        hostname: "example.com",
+        title: "Example",
+        thumbnailUrl: "/api/community/link-preview/thumbnail/0f115db062b7c0dd030b16878c99dea5c354b49dc37b38eb8846179c7783e9d7",
+      },
+      staleTimeSeconds: 21_600,
+    })
+    expect(JSON.stringify(body)).not.toContain("images.example.com")
+    expect(mockR2Put).toHaveBeenCalledWith(
+      "link-preview-thumbnails/v1/0f115db062b7c0dd030b16878c99dea5c354b49dc37b38eb8846179c7783e9d7/manifest.json",
+      expect.stringContaining('"sourceUrl":"https://images.example.com/og.png"'),
+      expect.objectContaining({ httpMetadata: { contentType: "application/json" } }),
+    )
+    expect(mockR2Put.mock.invocationCallOrder[0]).toBeLessThan(mockKvPut.mock.invocationCallOrder[0]!)
+  })
+
+  it("omits a thumbnail and uses the recovery TTL when the manifest write fails", async () => {
+    mockFetchLinkPreview.mockResolvedValue({
+      url: "https://example.com/",
+      hostname: "example.com",
+      title: "Example",
+      thumbnailSource: "https://images.example.com/og.png",
+    })
+    mockR2Put.mockRejectedValue(new Error("R2 unavailable"))
+
+    const response = await POST(request({ url: "https://example.com/" }))
+
+    expect(await response.json()).toEqual({
+      preview: { url: "https://example.com/", hostname: "example.com", title: "Example" },
+      staleTimeSeconds: 300,
+    })
+    expect(mockKvPut).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.stringContaining('"staleTimeSeconds":300'),
+      { expirationTtl: 300 },
+    )
   })
 
   it("enforces the authenticated preview rate limit", async () => {
