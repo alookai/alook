@@ -35,6 +35,45 @@ afterEach(() => {
 });
 
 describe("packed artifact verifier", () => {
+  it("copies the Worker runtime into the packaged entry's relative import path", async () => {
+    const execSync = vi.fn();
+    const cpSync = vi.fn();
+    const mkdirSync = vi.fn();
+    const bundleFs = {
+      cpSync,
+      existsSync: vi.fn(() => false),
+      mkdirSync,
+      readFileSync: vi.fn(() => 'main = "src/index.ts"'),
+      readdirSync: vi.fn(() => []),
+      rmSync: vi.fn(),
+      writeFileSync: vi.fn(),
+    };
+
+    vi.doMock("fs", () => bundleFs);
+    vi.doMock("node:fs", () => bundleFs);
+    vi.doMock("child_process", () => ({ execSync }));
+    vi.doMock("node:child_process", () => ({ execSync }));
+    vi.resetModules();
+
+    try {
+      await import("../scripts/bundle.ts");
+    } finally {
+      vi.doUnmock("fs");
+      vi.doUnmock("node:fs");
+      vi.doUnmock("child_process");
+      vi.doUnmock("node:child_process");
+    }
+
+    const appRoot = join(import.meta.dirname, "..");
+    const monoRoot = join(appRoot, "..", "..");
+    const webDest = join(appRoot, "bundled", "web");
+    expect(mkdirSync).toHaveBeenCalledWith(join(webDest, "src", "lib"), { recursive: true });
+    expect(cpSync).toHaveBeenCalledWith(
+      join(monoRoot, "src", "web", "src", "lib", "worker-runtime.ts"),
+      join(webDest, "src", "lib", "worker-runtime.ts"),
+    );
+  });
+
   it("derives the missing-runtime negative control from the candidate and validates both outcomes", () => {
     const { packageRoot, scratchRoot } = fixture();
     mocks.spawnSync
