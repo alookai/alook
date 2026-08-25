@@ -289,9 +289,18 @@ export async function runCli(argv, env = process.env) {
   throw new Error(`unknown command ${args.command}`)
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  runCli(process.argv.slice(2)).catch((error) => {
-    process.stderr.write(`${error.stack ?? error}\n`)
-    process.exitCode = 1
+export function runCliEntry({
+  direct = process.argv[1] === fileURLToPath(import.meta.url),
+  argv = process.argv.slice(2),
+  env = process.env,
+  stderr = process.stderr,
+  setExitCode = (code) => { process.exitCode = code },
+} = {}) {
+  if (!direct) return undefined
+  return runCli(argv, env).catch((error) => {
+    stderr.write(`${error.stack ?? error}\n`)
+    setExitCode(1)
   })
 }
+
+void runCliEntry()

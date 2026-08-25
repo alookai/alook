@@ -1,12 +1,14 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   createShardManifest,
   expectedMatrix,
   fetchExecutedShards,
   resolveExecutedShards,
+  runCli,
+  runCliEntry,
   verifyArtifactClosure,
   verifyMergedReport,
 } from "./e2e-shard-artifacts.mjs"
@@ -20,6 +22,7 @@ const matrix = {
 
 const roots: string[] = []
 afterEach(() => {
+  vi.unstubAllGlobals()
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
@@ -46,6 +49,19 @@ function artifactRoot(attempts = [1, 2]) {
 }
 
 describe("expectedMatrix", () => {
+  it.each([
+    ["missing include", {}],
+    ["empty include", { include: [] }],
+  ])("rejects a matrix with %s", (_, value) => {
+    expect(() => expectedMatrix(value)).toThrow("non-empty include array")
+  })
+
+  it("rejects a shard without specs", () => {
+    expect(() => expectedMatrix({ include: [
+      { shard: 1, total: 1, specs: [] },
+    ] })).toThrow("matrix shard 1 must contain specs")
+  })
+
   it("rejects duplicate cross-shard assignment", () => {
     expect(() => expectedMatrix({ include: [
       { shard: 1, total: 2, specs: ["src/test/e2e-ui/a.spec.ts"] },
@@ -116,6 +132,24 @@ describe("resolveExecutedShards", () => {
     expect(urls).toHaveLength(2)
     expect(urls[1]).toContain("/attempts/2/jobs?per_page=100&page=1")
   })
+
+  it("uses the default fetch and API URL while rejecting an attempt mismatch", async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ run_attempt: 1, run_started_at: "2026-08-25T17:13:19Z" }),
+    } as Response))
+    vi.stubGlobal("fetch", fetchImpl)
+
+    await expect(fetchExecutedShards({
+      repository: "alookai/alook",
+      runId: "run-1",
+      attempt: 2,
+      expectedTotal: 2,
+      token: "redacted",
+    })).rejects.toThrow("GitHub run attempt 1 does not match 2")
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(fetchImpl.mock.calls[0]![0]).toBe("https://api.github.com/repos/alookai/alook/actions/runs/run-1")
+  })
 })
 
 describe("verifyArtifactClosure", () => {
@@ -170,6 +204,7 @@ describe("verifyArtifactClosure", () => {
   it.each([
     ["wrong run ID", (manifest: any) => { manifest.runId = "wrong" }, "run ID mismatch"],
     ["wrong SHA", (manifest: any) => { manifest.sha = "wrong" }, "SHA mismatch"],
+    ["wrong identity", (manifest: any) => { manifest.shard = 99 }, "manifest identity mismatch"],
     ["wrong specs", (manifest: any) => { manifest.specs = ["unexpected.spec.ts"] }, "specs mismatch"],
   ])("rejects %s", (_, mutate, message) => {
     const root = artifactRoot([2, 2])
@@ -238,6 +273,159 @@ describe("verifyArtifactClosure", () => {
       sha: "abc123",
       executedShards: new Set([1, 2]),
     })).toThrow(message)
+  })
+})
+
+describe("runCli", () => {
+  it("writes a normalized shard manifest", async () => {
+    const root = mkdtempSync(join(tmpdir(), "alook-shard-cli-"))
+    roots.push(root)
+    const output = join(root, "nested", "shard-manifest.json")
+
+    await runCli([
+      "write-manifest",
+      "--run-id", "run-2",
+      "--attempt", "2",
+      "--sha", "def456",
+      "--shard", "1",
+      "--total", "2",
+      "--output", output,
+    ], {
+      E2E_SPECS: JSON.stringify(["src/test/e2e-ui/a.spec.ts"]),
+    })
+
+    const contents = readFileSync(output, "utf8")
+    expect(contents.endsWith("\n")).toBe(true)
+    expect(JSON.parse(contents)).toEqual({
+      version: 1,
+      runId: "run-2",
+      attempt: 2,
+      sha: "def456",
+      shard: 1,
+      total: 2,
+      specs: ["a.spec.ts"],
+    })
+  })
+
+  it("rejects an invalid CLI argument pair", async () => {
+    await expect(runCli(["write-manifest", "--run-id"], {})).rejects.toThrow(
+      "invalid CLI argument --run-id",
+    )
+  })
+
+  it("verifies artifacts through the default GitHub fetch path", async () => {
+    const root = artifactRoot([2, 2])
+    const output = join(root, "merged")
+    const fetchImpl = vi.fn(async (url: string) => ({
+      ok: true,
+      json: async () => url.includes("/jobs?")
+        ? { jobs: [
+            { name: "UI Playwright E2E (1/2)", started_at: "2026-08-25T17:13:20Z" },
+            { name: "UI Playwright E2E (2/2)", started_at: "2026-08-25T17:13:21Z" },
+          ] }
+        : { run_attempt: 2, run_started_at: "2026-08-25T17:13:19Z" },
+    } as Response))
+    vi.stubGlobal("fetch", fetchImpl)
+
+    await runCli([
+      "verify-artifacts",
+      "--root", root,
+      "--output", output,
+      "--run-id", "run-1",
+      "--attempt", "2",
+      "--sha", "abc123",
+    ], {
+      E2E_MATRIX: JSON.stringify(matrix),
+      GITHUB_REPOSITORY: "alookai/alook",
+      GITHUB_TOKEN: "redacted",
+    })
+
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
+      "https://api.github.com/repos/alookai/alook/actions/runs/run-1",
+      "https://api.github.com/repos/alookai/alook/actions/runs/run-1/attempts/2/jobs?per_page=100&page=1",
+    ])
+    expect(readFileSync(join(output, "shard-1-report-1.zip"), "utf8")).toBe("zip-1")
+    expect(readFileSync(join(output, "shard-2-report-2.zip"), "utf8")).toBe("zip-2")
+  })
+
+  it("requires the matrix for artifact verification", async () => {
+    await expect(runCli(["verify-artifacts"], {})).rejects.toThrow("E2E_MATRIX is required")
+  })
+
+  it("verifies an exact merged report", async () => {
+    const root = mkdtempSync(join(tmpdir(), "alook-shard-cli-"))
+    roots.push(root)
+    const report = join(root, "report.json")
+    writeFileSync(report, JSON.stringify({ suites: [
+      { file: "src/test/e2e-ui/a.spec.ts" },
+      { file: "b.spec.ts" },
+    ] }))
+
+    await expect(runCli([
+      "verify-merged",
+      "--report", report,
+    ], {
+      E2E_MATRIX: JSON.stringify(matrix),
+    })).resolves.toBeUndefined()
+  })
+
+  it("requires the matrix for merged report verification", async () => {
+    await expect(runCli(["verify-merged"], {})).rejects.toThrow("E2E_MATRIX is required")
+  })
+
+  it("rejects an unknown command", async () => {
+    await expect(runCli(["unknown"], {})).rejects.toThrow("unknown command unknown")
+  })
+})
+
+describe("runCliEntry", () => {
+  it("has no side effects for a non-direct import", () => {
+    const stderr = { write: vi.fn() }
+    const setExitCode = vi.fn()
+
+    expect(runCliEntry({
+      direct: false,
+      argv: ["unknown"],
+      env: {},
+      stderr,
+      setExitCode,
+    })).toBeUndefined()
+    expect(stderr.write).not.toHaveBeenCalled()
+    expect(setExitCode).not.toHaveBeenCalled()
+  })
+
+  it("returns and catches the direct CLI promise", async () => {
+    const stderr = { write: vi.fn() }
+    const setExitCode = vi.fn()
+    const result = runCliEntry({
+      direct: true,
+      argv: ["unknown"],
+      env: {},
+      stderr,
+      setExitCode,
+    })
+
+    expect(result).toBeInstanceOf(Promise)
+    await result
+    expect(stderr.write).toHaveBeenCalledOnce()
+    expect(stderr.write.mock.calls[0]![0]).toContain("unknown command unknown")
+    expect(setExitCode).toHaveBeenCalledWith(1)
+  })
+
+  it("sets the process exit code through the production default", async () => {
+    const previousExitCode = process.exitCode
+    const stderr = { write: vi.fn() }
+    try {
+      await runCliEntry({
+        direct: true,
+        argv: ["unknown"],
+        env: {},
+        stderr,
+      })
+      expect(process.exitCode).toBe(1)
+    } finally {
+      process.exitCode = previousExitCode
+    }
   })
 })
 

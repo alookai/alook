@@ -42,7 +42,7 @@
     "commander": "^15.0.0",
     "sharp": "^0.35.0",
     "ws": "^8.21.3",
-    "wrangler": "4.113.0"
+    "wrangler": "^4.125.0"
   },
   "devDependencies": {
     "@alook/shared": "workspace:*",
