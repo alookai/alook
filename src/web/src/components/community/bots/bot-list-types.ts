@@ -25,9 +25,9 @@ export type BotListController = {
   editOpen: boolean
   setEditOpen: Dispatch<SetStateAction<boolean>>
   activityBot: BotSummary | null
-  setActivityBot: Dispatch<SetStateAction<BotSummary | null>>
   activityOpen: boolean
-  setActivityOpen: Dispatch<SetStateAction<boolean>>
+  openActivity: (bot: BotSummary) => void
+  onActivityOpenChange: (open: boolean) => void
   bugReportBot: Pick<BotSummary, "id" | "name"> | null
   setBugReportBot: Dispatch<SetStateAction<Pick<BotSummary, "id" | "name"> | null>>
   bugReportOpen: boolean

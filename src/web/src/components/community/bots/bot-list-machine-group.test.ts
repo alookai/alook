@@ -64,8 +64,8 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
     collapsedMachines: new Set(),
     setCollapsedMachines: noop,
     setConfirmResetMachine: noop,
-    setActivityBot: noop,
-    setActivityOpen: noop,
+    openActivity: noop,
+    onActivityOpenChange: noop,
     setEditingBot: noop,
     setEditOpen: noop,
     setConfirmReset: noop,
@@ -241,8 +241,7 @@ describe("renderBotMachineGroup", () => {
   })
 
   it("keeps menu order, testids, and selected-bot action projections", () => {
-    const setActivityBot = vi.fn()
-    const setActivityOpen = vi.fn()
+    const openActivity = vi.fn()
     const setEditingBot = vi.fn()
     const setEditOpen = vi.fn()
     const setConfirmReset = vi.fn()
@@ -254,8 +253,7 @@ describe("renderBotMachineGroup", () => {
     let renderer!: TestRenderer.ReactTestRenderer
     act(() => {
       renderer = TestRenderer.create(renderBotMachineGroup(group({ bots: [item] }), controller({
-        setActivityBot,
-        setActivityOpen,
+        openActivity,
         setEditingBot,
         setEditOpen,
         setConfirmReset,
@@ -292,8 +290,7 @@ describe("renderBotMachineGroup", () => {
     act(() => items[4]!.props.onClick())
     act(() => items[5]!.props.onClick())
     expect(chatWithBot).toHaveBeenCalledWith(item)
-    expect(setActivityBot).toHaveBeenCalledWith(item)
-    expect(setActivityOpen).toHaveBeenCalledWith(true)
+    expect(openActivity).toHaveBeenCalledWith(item)
     expect(setEditingBot).toHaveBeenCalledWith(item)
     expect(setEditOpen).toHaveBeenCalledWith(true)
     expect(setConfirmReset).toHaveBeenCalledWith(item)

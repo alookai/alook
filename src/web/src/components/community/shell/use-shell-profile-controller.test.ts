@@ -84,6 +84,7 @@ vi.mock("@/components/community/social/profile-lookup", () => ({
     about: "About",
     mutual: 0,
     presence: "online",
+    identity: { kind: "human" },
   }),
 }))
 vi.mock("@/lib/community/presence", () => ({ resolveProfilePresence: () => "online" }))
@@ -176,11 +177,13 @@ describe("useShellProfileController", () => {
 
   it("opens a remote seed before fetch and hydrates only card state", async () => {
     const response = deferred<{
+      id: string
       aboutMe: string
       mutualServers: number
       discriminator: string
       statusEmoji: string | null
       statusText: string | null
+      kind: "human"
     }>()
     mocks.fetchQuery.mockReturnValue(response.promise)
     const hook = await renderController()
@@ -191,11 +194,13 @@ describe("useShellProfileController", () => {
     }))
 
     await act(async () => response.resolve({
+      id: "remote",
       aboutMe: "hydrated",
       mutualServers: 3,
       discriminator: "1234",
       statusEmoji: "🌱",
       statusText: "Growing",
+      kind: "human",
     }))
     expect(hook.current.profile?.data).toMatchObject({
       about: "hydrated",
@@ -204,6 +209,100 @@ describe("useShellProfileController", () => {
     })
     expect(hook.current.profile?.initialStatusEmoji).toBe("🌱")
     expect(mocks.setUserStatus).not.toHaveBeenCalled()
+  })
+
+  it("does not let a slow profile response overwrite the next opened card", async () => {
+    const first = deferred<Record<string, unknown>>()
+    const second = deferred<Record<string, unknown>>()
+    mocks.fetchQuery
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+    const hook = await renderController()
+
+    await act(async () => hook.current.openProfile(
+      "Remote",
+      { clientX: 4, clientY: 5 } as never,
+      undefined,
+      "remote",
+    ))
+    await act(async () => hook.current.openProfile(
+      "Next",
+      { clientX: 8, clientY: 9 } as never,
+      undefined,
+      "next",
+    ))
+    await act(async () => second.resolve({
+      id: "next",
+      aboutMe: "next hydrated",
+      mutualServers: 1,
+      discriminator: "9001",
+      statusEmoji: null,
+      statusText: "",
+      kind: "human",
+    }))
+    await act(async () => first.resolve({
+      id: "remote",
+      aboutMe: "stale response",
+      mutualServers: 9,
+      discriminator: "0001",
+      statusEmoji: "❌",
+      statusText: "stale",
+      kind: "human",
+    }))
+
+    expect(hook.current.profile?.data).toMatchObject({
+      userId: "next",
+      name: "Next",
+      about: "next hydrated",
+      discriminator: "9001",
+    })
+  })
+
+  it("hydrates bot ownership, swaps to the exact owner, and routes audit preview", async () => {
+    mocks.fetchQuery.mockResolvedValueOnce({
+      id: "remote",
+      aboutMe: "bot",
+      mutualServers: 0,
+      discriminator: "1234",
+      statusEmoji: null,
+      statusText: "",
+      kind: "bot",
+      ownerProfile: { id: "owner", handle: "Owner#0042" },
+      ownedByViewer: true,
+    }).mockResolvedValueOnce({
+      id: "owner",
+      aboutMe: "owner",
+      mutualServers: 0,
+      discriminator: "0042",
+      statusEmoji: null,
+      statusText: "",
+      kind: "human",
+    })
+    const hook = await renderController()
+
+    await act(async () => hook.current.openProfile(
+      "Remote",
+      { clientX: 4, clientY: 5 } as never,
+      undefined,
+      "remote",
+    ))
+    expect(hook.current.profile?.data.identity).toEqual({
+      kind: "bot",
+      ownerProfile: { id: "owner", handle: "Owner#0042" },
+      ownedByViewer: true,
+    })
+
+    await act(async () => hook.current.openOwnerProfile({ id: "owner", handle: "Owner#0042" }))
+    expect(hook.current.profile).toMatchObject({
+      x: 4,
+      y: 5,
+      data: { userId: "owner", name: "Owner", discriminator: "0042" },
+    })
+
+    act(() => hook.current.openBotAudit("remote"))
+    expect(hook.cancelPendingNavigation).toHaveBeenCalledOnce()
+    expect(hook.pushed).toContain("/c/me/bots?audit=remote")
+    expect(hook.current.profile).toBeNull()
   })
 
   it("opens empty-text DMs, does not await accepted commits, and blocks rejected sends", async () => {

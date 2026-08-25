@@ -24,10 +24,6 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const id = ctx.params?.id as string
   const db = getDb(ctx.env.DB)
 
-  // Ownership + soft-delete gate — matches `getBotOwnedBy` predicate.
-  const bot = await queries.communityBot.getBotOwnedBy(db, id, ctx.userId)
-  if (!bot) return writeError("bot not found", 404)
-
   const url = new URL(req.url)
   const beforeCreatedAt = url.searchParams.get("beforeCreatedAt") ?? undefined
   const beforeId = url.searchParams.get("beforeId") ?? undefined
@@ -36,12 +32,14 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     ? Math.max(1, Math.min(MAX_LIMIT, Number.parseInt(limitRaw, 10) || DEFAULT_LIMIT))
     : DEFAULT_LIMIT
 
-  const rows = await queries.communityBotAuditLog.listBotActivityEvents(db, {
+  const rows = await queries.communityBotAuditLog.listOwnedBotActivityEvents(db, {
     botId: id,
+    ownerUserId: ctx.userId,
     beforeCreatedAt,
     beforeId,
     limit,
   })
+  if (rows === null) return writeError("bot not found", 404)
 
   const events = rows.map((r) => ({
     id: r.id,

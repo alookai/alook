@@ -2753,3 +2753,35 @@ body {
   background-color: var(--background);
   min-height: 100dvh;
 }
+
+/* Hallmark · active bot boundary: strong beat, weak beat, pause. */
+.bot-audit-active-heartbeat::before {
+  animation: bot-audit-heartbeat 2s ease-in-out infinite;
+}
+
+@keyframes bot-audit-heartbeat {
+  0%,
+  36%,
+  100% {
+    opacity: 0.28;
+  }
+
+  8% {
+    opacity: 0.9;
+  }
+
+  16% {
+    opacity: 0.34;
+  }
+
+  26% {
+    opacity: 0.62;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bot-audit-active-heartbeat::before {
+    animation: none;
+    opacity: 0.55;
+  }
+}

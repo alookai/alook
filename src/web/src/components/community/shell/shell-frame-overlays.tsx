@@ -41,6 +41,10 @@ export function ShellFrameOverlays({
           onMessage={controller.profileMessage}
           isSelf={!!profile.data.userId && profile.data.userId === currentUser.id}
           onUpdateStatus={controller.updateOwnStatus}
+          onOpenOwnerProfile={controller.openOwnerProfile}
+          onOpenBotAudit={controller.openBotAudit}
+          activityStatusEmoji={profile.initialStatusEmoji}
+          activityStatusText={profile.initialStatusText}
           {...profileStatusSeeds}
         />
       )}

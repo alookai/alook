@@ -1,27 +1,41 @@
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
+import { readFileSync } from "node:fs"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { describe, it, expect } from "vitest"
-import { resolveCardStatus, resolveProfileBackdropSeed } from "./profile-card"
+import {
+  displayOwnerHandle,
+  resolveAuditPreviewPlacement,
+  resolveCardStatus,
+  resolveProfileBackdropSeed,
+} from "./profile-card"
 import { ProfileCard } from "./profile-card"
 import { serializeBeamSeed } from "@/lib/avatar/seed-url"
 import type { Profile } from "@/components/community/social/profile-types"
 
 function renderProfile(overrides: Partial<Profile> = {}) {
-  return renderToStaticMarkup(createElement(ProfileCard, {
-    embedded: true,
-    data: {
-      name: "Ren",
-      userId: "user_1",
-      avatar: "R",
-      about: "",
-      mutual: 0,
-      ...overrides,
-    },
-    x: 0,
-    y: 0,
-    bp: "desktop",
-    onClose: () => undefined,
-  }))
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  return renderToStaticMarkup(createElement(
+    QueryClientProvider,
+    { client: queryClient },
+    createElement(ProfileCard, {
+      embedded: true,
+      data: {
+        name: "Ren",
+        userId: "user_1",
+        avatar: "R",
+        about: "",
+        mutual: 0,
+        ...overrides,
+      },
+      x: 0,
+      y: 0,
+      bp: "desktop",
+      onClose: () => undefined,
+    }),
+  ))
 }
 
 describe("ProfileCard contextual metadata", () => {
@@ -44,6 +58,118 @@ describe("ProfileCard contextual metadata", () => {
 
     expect(html).not.toContain("community-profile-context-badge")
     expect(html).toContain("2 mutual servers")
+  })
+
+  it("shows every bot's clickable owner but withholds preview from nonowners", () => {
+    const html = renderProfile({
+      identity: {
+        kind: "bot",
+        ownerProfile: { id: "owner_1", handle: "Owner#0042" },
+        ownedByViewer: false,
+      },
+    })
+
+    expect(html).toContain('data-testid="community-profile-bot-badge"')
+    expect(html).toContain(">Bot</span>")
+    expect(html).toContain('data-testid="community-profile-owner-link"')
+    expect(html).toContain(">@Owner</span>")
+    expect(html).not.toContain(">@Owner#0042</span>")
+    expect(html).toContain('aria-label="Open owner profile @Owner#0042"')
+    expect(html).not.toContain("community-bot-audit-preview")
+  })
+
+  it("mounts the fixed secondary preview only for the owning viewer", () => {
+    const html = renderProfile({
+      identity: {
+        kind: "bot",
+        ownerProfile: { id: "owner_1", handle: "Owner#0042" },
+        ownedByViewer: true,
+      },
+    })
+
+    expect(html).toContain('data-testid="community-bot-audit-preview"')
+    expect(html).toContain("h-40")
+  })
+
+  it("wraps owner metadata and exposes a full accessible label while truncating long handles", () => {
+    const handle = `${"VeryLongOwner".repeat(4)}#0042`
+    const html = renderProfile({
+      identity: {
+        kind: "bot",
+        ownerProfile: { id: "owner_1", handle },
+        ownedByViewer: false,
+      },
+    })
+
+    expect(html).toContain("flex min-w-0 flex-wrap items-center")
+    expect(html).toContain("group/owner flex h-11 min-w-0 max-w-full")
+    expect(html).toContain("sm:h-5")
+    expect(html).toContain("group-hover/owner:bg-accent")
+    expect(html).toContain("group-active/owner:bg-accent/80")
+    expect(html).toContain('<span class="min-w-0 truncate">')
+    expect(html).toContain(`>@${displayOwnerHandle(handle)}</span>`)
+    expect(html).not.toContain(`>@${handle}</span>`)
+    expect(html).toContain(`aria-label="Open owner profile @${handle}"`)
+  })
+
+  it("keeps the desktop main card at the anchor and independently docks the preview", () => {
+    const source = readFileSync(new URL("./profile-card.tsx", import.meta.url), "utf8")
+    const desktop = source.slice(source.indexOf("// desktop:"))
+    const mainCard = desktop.indexOf(`data-testid={tid.profileCard}`)
+    const independentPreview = desktop.indexOf(`data-testid={tid.botAuditPreviewDock}`)
+
+    expect(desktop).toContain(
+      `className="relative w-75 overflow-visible border-0 bg-transparent p-0 shadow-none"`,
+    )
+    expect(mainCard).toBeGreaterThan(0)
+    expect(independentPreview).toBeGreaterThan(0)
+    expect(independentPreview).toBeLessThan(mainCard)
+    expect(desktop).toContain("ref={popoverRef}")
+    expect(source).toContain('addEventListener("animationend", update)')
+    expect(source).toContain("cardElement.offsetWidth")
+    expect(source).toContain("previewElement.offsetWidth")
+  })
+})
+
+describe("resolveAuditPreviewPlacement", () => {
+  const card = {
+    top: 300,
+    right: 700,
+    bottom: 600,
+    left: 400,
+    width: 300,
+    height: 300,
+  }
+  const preview = { width: 300, height: 160 }
+
+  it("prefers the right side whenever it fits", () => {
+    expect(resolveAuditPreviewPlacement({
+      card,
+      preview,
+      viewportWidth: 1200,
+      viewportHeight: 900,
+    })).toBe("right")
+  })
+
+  it("falls back left, then above, then below according to available space", () => {
+    expect(resolveAuditPreviewPlacement({
+      card: { ...card, left: 500, right: 800 },
+      preview,
+      viewportWidth: 900,
+      viewportHeight: 900,
+    })).toBe("left")
+    expect(resolveAuditPreviewPlacement({
+      card: { ...card, left: 20, right: 320 },
+      preview,
+      viewportWidth: 620,
+      viewportHeight: 900,
+    })).toBe("top")
+    expect(resolveAuditPreviewPlacement({
+      card: { ...card, top: 40, bottom: 340, left: 20, right: 320 },
+      preview,
+      viewportWidth: 620,
+      viewportHeight: 900,
+    })).toBe("bottom")
   })
 })
 

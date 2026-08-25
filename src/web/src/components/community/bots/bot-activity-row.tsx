@@ -2,6 +2,10 @@
 
 import { useState } from "react"
 import type { AuditEvent, AuditKind } from "@/hooks/community/use-bot-audit-log"
+import {
+  formatAlookAuditCommand,
+  formatAuditToolName,
+} from "@/lib/community/audit-event-summary"
 
 /**
  * One audit-log entry. Rendered as a 3-column strip:
@@ -77,17 +81,17 @@ function RowBody({
   onToggle: () => void
 }) {
   if (event.kind === "cli_invocation") {
-    const p = event.payload as { subcommand?: string } | null
-    const sub = p?.subcommand ?? "?"
+    const command = formatAlookAuditCommand(event.payload)
+    const subcommand = command.replace(/^alook\s+/, "")
     return (
       <span className="font-mono text-[13px] text-foreground">
-        alook <span className="text-muted-foreground">{sub}</span>
+        alook <span className="text-muted-foreground">{subcommand}</span>
       </span>
     )
   }
   if (event.kind === "tool_call") {
     const p = event.payload as { name?: string; target?: string } | null
-    const name = (p?.name ?? "?").toLowerCase()
+    const name = formatAuditToolName(event.payload)
     if (p?.target) {
       return (
         <div
