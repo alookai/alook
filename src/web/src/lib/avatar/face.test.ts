@@ -39,6 +39,16 @@ describe("renderFaceSvg", () => {
     expect(svg.trim().endsWith("</svg>")).toBe(true)
   })
 
+  it("can expose stable face-part hooks without changing the default SVG", () => {
+    const defaultSvg = renderFaceSvg("guide-face")
+    const motionSvg = renderFaceSvg("guide-face", { motionParts: true })
+
+    expect(defaultSvg).not.toContain("alook-avatar-eyes")
+    expect(motionSvg).toContain('class="alook-avatar-shell"')
+    expect(motionSvg).toContain('class="alook-avatar-eyes"')
+    expect(motionSvg).toContain('class="alook-avatar-mouth"')
+  })
+
   it("uses no <mask> id (would collide across many faces on one page)", () => {
     const svg = renderFaceSvg("Alice")
     expect(svg).not.toContain("<mask")

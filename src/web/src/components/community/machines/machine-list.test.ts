@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   fetchLatestDaemonVersion: vi.fn(),
   machinesLoading: { current: false },
+  onboardingState: { current: "done" as unknown },
+  readFirstSignupGuideHandoff: vi.fn(),
+  consumeFirstSignupGuideHandoff: vi.fn(),
 }))
 
 vi.mock("sonner", () => ({
@@ -57,6 +60,10 @@ vi.mock("@/components/ui/skeleton", () => ({
   Skeleton: (props: Record<string, unknown>) => React.createElement("skeleton-row", props),
 }))
 vi.mock("@/components/avatar", () => ({ GeneratedAvatar: () => null }))
+vi.mock("./guide-me-avatar-motion", () => ({
+  GuideMeAvatarMotion: (props: Record<string, unknown>) =>
+    React.createElement("guide-avatar-motion", props),
+}))
 vi.mock("./machine-card", () => ({ MachineCard: () => null }))
 vi.mock("./pair-machine-sheet", () => ({ PairMachineSheet: () => null }))
 vi.mock("@/components/community/onboarding-tiles/connect-tile", () => ({ ConnectTile: () => null }))
@@ -73,7 +80,11 @@ vi.mock("@/lib/community-onboarding", () => ({
   readCommunityOnboardingState: vi.fn(() => null),
   startCommunityOnboarding: vi.fn(),
   updateCommunityOnboardingResources: vi.fn(),
-  useCommunityOnboarding: () => "done",
+  useCommunityOnboarding: () => mocks.onboardingState.current,
+}))
+vi.mock("@/lib/community/first-signup-guide", () => ({
+  readFirstSignupGuideHandoff: mocks.readFirstSignupGuideHandoff,
+  consumeFirstSignupGuideHandoff: mocks.consumeFirstSignupGuideHandoff,
 }))
 vi.mock("@/lib/api/config", () => ({
   fetchLatestDaemonVersion: mocks.fetchLatestDaemonVersion,
@@ -111,6 +122,30 @@ describe("machine daemon update UI", () => {
       package: "@alook/daemon",
     })
     mocks.machinesLoading.current = false
+    mocks.onboardingState.current = "done"
+    mocks.readFirstSignupGuideHandoff.mockReset()
+    mocks.readFirstSignupGuideHandoff.mockReturnValue(null)
+    mocks.consumeFirstSignupGuideHandoff.mockReset()
+  })
+
+  it("consumes the first-signup handoff and gives its stable seed to the empty-state motion", async () => {
+    mocks.onboardingState.current = null
+    mocks.readFirstSignupGuideHandoff.mockReturnValue({
+      version: 1,
+      seed: "first-signup-face",
+      createdAt: 1_000,
+    })
+
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(MachineList))
+    })
+
+    expect(mocks.consumeFirstSignupGuideHandoff).toHaveBeenCalledWith("first-signup-face")
+    expect(renderer.root.findByType("guide-avatar-motion").props).toMatchObject({
+      seed: "first-signup-face",
+      intro: true,
+    })
   })
 
   it("loads Community update eligibility from the daemon package endpoint", async () => {

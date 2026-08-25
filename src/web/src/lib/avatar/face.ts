@@ -124,7 +124,10 @@ export const FACE_VOCABULARY = {
 // Render a generated beam face to an SVG string for the given seed + palette.
 // Feature choice is deterministic on the seed hash; the head is placed in the
 // lower band so the top ~20% stays clear for a hat.
-export function renderFaceSvg(seed: string): string {
+export function renderFaceSvg(
+  seed: string,
+  { motionParts = false }: { motionParts?: boolean } = {},
+): string {
   const i = avatarHash(seed)
   const theme = avatarThemeFromSeed(seed)
   const wrapper = theme.face
@@ -157,9 +160,13 @@ export function renderFaceSvg(seed: string): string {
   const eyeSpread = i % 2
   const mouthSpread = i % 2
 
-  const wrapperEl = `<path d="${shapePath}" fill="${wrapper}"/>`
-  const eyes = eyeFn(eyeSpread, c)
-  const mouth = mouthFn(mouthSpread, c)
+  const wrapperEl = `<path${motionParts ? ' class="alook-avatar-shell"' : ""} d="${shapePath}" fill="${wrapper}"/>`
+  const eyes = motionParts
+    ? `<g class="alook-avatar-eyes">${eyeFn(eyeSpread, c)}</g>`
+    : eyeFn(eyeSpread, c)
+  const mouth = motionParts
+    ? `<g class="alook-avatar-mouth">${mouthFn(mouthSpread, c)}</g>`
+    : mouthFn(mouthSpread, c)
 
   // The face is nested inside the head's transform group and shares its EXACT
   // transform, so features always sit on the wrapper fill, centered on it. Both

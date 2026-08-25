@@ -97,6 +97,25 @@
   animation: community-guide-me-orbit 4.8s linear infinite;
 }
 
+.community-guide-me-orbit-holder {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.community-guide-me-orbit-holder.is-intro {
+  opacity: 0;
+}
+
+.community-guide-me-orbit-holder.is-intro.is-ready {
+  animation: community-first-signup-orbit-handoff 1.42s var(--ease-in-out) forwards;
+}
+
+.community-guide-me-orbit-holder.is-intro .community-guide-me-orbit,
+.community-guide-me-orbit-holder.is-intro .community-guide-me-avatar {
+  animation-play-state: paused;
+}
+
 .community-guide-me-avatar {
   position: absolute;
   top: -3px;
@@ -121,6 +140,163 @@
   to {
     transform: translateX(-50%) rotate(-360deg);
   }
+}
+
+.community-first-signup-guide {
+  --guide-end-scale: 0.1875;
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 40;
+  display: inline-flex;
+  width: 128px;
+  height: 128px;
+  opacity: 0;
+  pointer-events: none;
+  transform-origin: top left;
+  will-change: transform, opacity;
+}
+
+.community-first-signup-guide.is-ready {
+  animation: community-first-signup-guide-travel 1.42s var(--ease-in-out) both;
+}
+
+.community-first-signup-guide-art {
+  display: inline-flex;
+  width: 100%;
+  height: 100%;
+  transform-origin: 50% 100%;
+  will-change: transform;
+}
+
+.community-first-signup-guide .alook-avatar-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+  will-change: transform;
+}
+
+.community-first-signup-guide.is-ready .community-first-signup-guide-art {
+  animation: community-first-signup-guide-body 1.42s var(--ease-in-out) both;
+}
+
+.community-first-signup-guide.is-ready .alook-avatar-eyes {
+  animation: community-first-signup-guide-eyes 1.42s var(--ease-in-out) both;
+}
+
+@keyframes community-first-signup-guide-travel {
+  0% {
+    opacity: 0;
+    transform: translate3d(var(--guide-start-x), calc(var(--guide-start-y) + 18px), 0);
+    animation-timing-function: var(--ease-out);
+  }
+
+  8%, 54% {
+    opacity: 1;
+  }
+
+  18.3%, 23% {
+    transform: translate3d(var(--guide-start-x), var(--guide-start-y), 0);
+    animation-timing-function: var(--ease-out);
+  }
+
+  28%, 32% {
+    transform: translate3d(calc(var(--guide-start-x) - 12px), var(--guide-start-y), 0);
+  }
+
+  34% {
+    transform: translate3d(var(--guide-start-x), var(--guide-start-y), 0);
+  }
+
+  41% {
+    transform: translate3d(var(--guide-start-x), var(--guide-start-y), 0);
+    animation-timing-function: var(--ease-out);
+  }
+
+  46%, 50% {
+    transform: translate3d(calc(var(--guide-start-x) + 12px), var(--guide-start-y), 0);
+  }
+
+  52%, 54% {
+    transform: translate3d(var(--guide-start-x), var(--guide-start-y), 0);
+  }
+
+  57% {
+    transform: translate3d(var(--guide-start-x), var(--guide-start-y), 0);
+    animation-timing-function: var(--ease-in-out);
+  }
+
+  75% {
+    transform: translate3d(var(--guide-mid-x), var(--guide-mid-y), 0) scale(0.56);
+    animation-timing-function: var(--ease-in-out);
+  }
+
+  93%, 96% {
+    opacity: 1;
+    transform: translate3d(var(--guide-end-x), var(--guide-end-y), 0) scale(var(--guide-end-scale));
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--guide-end-x), var(--guide-end-y), 0) scale(var(--guide-end-scale));
+  }
+}
+
+@keyframes community-first-signup-guide-eyes {
+  0% { transform: translateX(0); }
+  18% {
+    transform: translateX(0);
+    animation-timing-function: var(--ease-out);
+  }
+  23%, 29% { transform: translateX(-6px); }
+  34% { transform: translateX(0); }
+  36% {
+    transform: translateX(0);
+    animation-timing-function: var(--ease-out);
+  }
+  41%, 47% { transform: translateX(6px); }
+  52%, 100% { transform: translateX(0); }
+}
+
+@keyframes community-first-signup-guide-body {
+  0%, 34%, 52%, 93%, 100% {
+    transform: none;
+  }
+
+  23%, 41% {
+    transform: none;
+    animation-timing-function: var(--ease-out);
+  }
+
+  28%, 32% {
+    transform: rotate(-5deg) scaleX(0.94) scaleY(1.04);
+  }
+
+  46%, 50% {
+    transform: rotate(5deg) scaleX(0.94) scaleY(1.04);
+  }
+
+  54% {
+    transform: none;
+    animation-timing-function: var(--ease-in);
+  }
+
+  57% {
+    transform: translateY(5px) scaleX(1.04) scaleY(0.92);
+    animation-timing-function: var(--ease-in-out);
+  }
+
+  66%, 82% {
+    transform: scaleX(0.96) scaleY(1.06);
+  }
+}
+
+@keyframes community-first-signup-orbit-handoff {
+  0% { opacity: 0; }
+  92.9% {
+    opacity: 0;
+    animation-timing-function: var(--ease-out);
+  }
+  94%, 100% { opacity: 1; }
 }
 
 .driver-popover.community-onboarding-popover .driver-popover-arrow-side-left {
@@ -287,9 +463,34 @@ body.community-onboarding-active.driver-active :is(
 }
 
 @media (max-width: 639px) {
+  .community-first-signup-guide {
+    width: 104px;
+    height: 104px;
+  }
+
+  .community-first-signup-guide .alook-avatar-eyes {
+    animation-name: community-first-signup-guide-eyes-mobile;
+  }
+
   .community-onboarding-card {
     padding: 11px 12px;
   }
+}
+
+@keyframes community-first-signup-guide-eyes-mobile {
+  0% { transform: translateX(0); }
+  18% {
+    transform: translateX(0);
+    animation-timing-function: var(--ease-out);
+  }
+  23%, 29% { transform: translateX(-4px); }
+  34% { transform: translateX(0); }
+  36% {
+    transform: translateX(0);
+    animation-timing-function: var(--ease-out);
+  }
+  41%, 47% { transform: translateX(4px); }
+  52%, 100% { transform: translateX(0); }
 }
 
 @media (max-height: 520px) {
@@ -299,6 +500,14 @@ body.community-onboarding-active.driver-active :is(
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .community-first-signup-guide {
+    display: none;
+  }
+
+  .community-guide-me-orbit-holder.is-intro.is-ready {
+    animation: community-first-signup-orbit-reduced 120ms var(--ease-out) forwards;
+  }
+
   .community-guide-me-orbit,
   .community-guide-me-avatar {
     animation: none;
@@ -329,7 +538,15 @@ body.community-onboarding-active.driver-active :is(
   }
 }
 
+@keyframes community-first-signup-orbit-reduced {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 :root {
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in: cubic-bezier(0.8, 0, 0.8, 0.2);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --community-onboarding-overlay: oklch(0.18 0.03 230);
   --background: oklch(1 0 0);
   --app-bg: var(--background);

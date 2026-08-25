@@ -14,7 +14,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { GeneratedAvatar } from "@/components/avatar"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -45,6 +44,11 @@ import {
   useCommunityOnboarding,
 } from "@/lib/community-onboarding"
 import { removeCommunityParam } from "@/lib/community/community-route"
+import {
+  consumeFirstSignupGuideHandoff,
+  readFirstSignupGuideHandoff,
+} from "@/lib/community/first-signup-guide"
+import { GuideMeAvatarMotion } from "./guide-me-avatar-motion"
 
 // Loading placeholder shaped like a real MachineCard (size-10 rounded-xl icon +
 // name row + meta lines + trailing kebab slot) so the list doesn't reflow when
@@ -189,12 +193,26 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const [confirmUpdate, setConfirmUpdate] = useState<CommunityMachineSummary | null>(null)
   const [latestVersion, setLatestVersion] = useState<string | null>(null)
   const [guideAvatarSeed, setGuideAvatarSeed] = useState("alook-guide")
+  const [firstSignupGuideSeed, setFirstSignupGuideSeed] = useState<string | null>(null)
+  const emptyStageRef = useRef<HTMLDivElement>(null)
   const onboardingState = useCommunityOnboarding()
   const controllerMode = getAppMode()
 
   useEffect(() => {
     setGuideAvatarSeed(`alook-guide-${crypto.randomUUID()}`)
   }, [])
+
+  useEffect(() => {
+    if (machinesLoading) return
+    const handoff = readFirstSignupGuideHandoff()
+    if (!handoff) return
+
+    consumeFirstSignupGuideHandoff(handoff.seed)
+    if (machines.length === 0) {
+      setGuideAvatarSeed(handoff.seed)
+      setFirstSignupGuideSeed(handoff.seed)
+    }
+  }, [machines.length, machinesLoading])
 
   useEffect(() => {
     if (controllerMode === "dev") return
@@ -329,6 +347,10 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     void requestMachineUpdate(machine.id)
   }, [])
 
+  const finishFirstSignupGuide = useCallback(() => {
+    setFirstSignupGuideSeed(null)
+  }, [])
+
   const botsToDelete = confirmDelete
     ? bots.filter((b) => b.machineId === confirmDelete.id)
     : []
@@ -343,7 +365,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         {backBar}
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 p-12 text-center">
+        <div ref={emptyStageRef} className="flex flex-1 flex-col items-center justify-center gap-4 p-12 text-center">
           <div className="w-full max-w-70 overflow-hidden rounded-xl">
             <div className="aspect-200/130 w-full">
               <ConnectTile />
@@ -366,15 +388,12 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
             </Button>
             <span className="community-guide-me">
               {onboardingState === null ? (
-                <span className="community-guide-me-orbit" aria-hidden="true">
-                  <span className="community-guide-me-avatar">
-                    <GeneratedAvatar
-                      seed={guideAvatarSeed}
-                      size={24}
-                      className="rounded-full ring-2 ring-background shadow-sm"
-                    />
-                  </span>
-                </span>
+                <GuideMeAvatarMotion
+                  seed={guideAvatarSeed}
+                  intro={firstSignupGuideSeed !== null}
+                  stageRef={emptyStageRef}
+                  onIntroComplete={finishFirstSignupGuide}
+                />
               ) : null}
               <Button
                 variant="ghost"
