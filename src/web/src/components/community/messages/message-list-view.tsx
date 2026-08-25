@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import { Skeleton } from "@/components/ui/skeleton"
+import { tid } from "@/lib/community/testids"
 import { ChannelIcon } from "../channels/channel-icon"
 import { ComposerAccessoryRail } from "./composer-accessory-rail"
 import { MessageShareDialog } from "./message-share-dialog"
@@ -34,6 +35,7 @@ export function renderMessageListView(
       )}
       <div
         ref={controller.scrollRef}
+        data-testid={tid.messageScroller}
         className="flex-1 overflow-x-clip overflow-y-auto thin-scrollbar"
       >
         <div className="flex min-h-full flex-col justify-end px-4 py-8">

@@ -18,6 +18,7 @@ import type { FileAttachment, ImagePreview } from "@/lib/community/models/messag
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 import type { ChannelMemberPanelProps } from "@/components/community/members/channel-member-view-model"
+import { tid } from "@/lib/community/testids"
 
 const ignoreNestedThread = () => {}
 
@@ -236,7 +237,11 @@ export function ThreadChannelSurface({
                 presentVersion={controller.feed.presentVersion}
                 unreadCount={controller.feed.unreadCount}
               />
-              <div data-onboarding-target="channel-composer" className="shrink-0">
+              <div
+                data-onboarding-target="channel-composer"
+                data-testid={tid.channelComposerShell}
+                className="shrink-0"
+              >
                 <Composer
                   channel={displayName}
                   context="thread"

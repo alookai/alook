@@ -44,12 +44,7 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
   const divider = page.getByTestId(tid.newDivider)
   await expect(divider).toBeVisible({ timeout: 30_000 })
 
-  await divider.evaluate((element) => {
-    const scroller = element.closest<HTMLElement>(".overflow-y-auto")
-    if (!scroller) throw new Error("message scroller not found")
-    scroller.dataset.e2eMessageScroller = "true"
-  })
-  const scroller = page.locator("[data-e2e-message-scroller='true']")
+  const scroller = page.getByTestId(tid.messageScroller)
   await expect(scroller).toHaveCount(1)
   const box = await scroller.boundingBox()
   expect(box).not.toBeNull()
@@ -66,16 +61,16 @@ test("NEW divider does not fight upward scrolling while a peer message arrives",
 
   const samples: number[] = [await scroller.evaluate((element) => element.scrollTop)]
   const liveAppend = (async () => {
-    await page.waitForTimeout(250)
+    await page.waitForTimeout(250) // inject the append during the upward-scroll gesture
     return seedMessage("bob", channelId, `live during upward scroll ${Date.now()}`)
   })()
   for (let index = 0; index < 60; index++) {
     await page.mouse.wheel(0, -24)
-    await page.waitForTimeout(24)
+    await page.waitForTimeout(24) // fixed wheel-event cadence under test
     samples.push(await scroller.evaluate((element) => element.scrollTop))
   }
   await liveAppend
-  await page.waitForTimeout(250)
+  await page.waitForTimeout(250) // post-append scroll-correction exclusion window
   samples.push(await scroller.evaluate((element) => element.scrollTop))
   const scrollEvents = await page.evaluate(() => (
     window as unknown as { __newDividerScrollEvents: number[] }

@@ -3,11 +3,14 @@
 // Playwright specs (via _fixtures/testids). Naming: community-<区域>-<元素>[-<标识>].
 export const tid = {
   composerInput: "community-composer-input",
+  channelComposerShell: "community-composer-shell",
+  composerFileInput: "community-composer-file-input",
   composerSend: "community-composer-send",
   composerAttach: "community-composer-attach",
   composerAccessoryRail: "community-composer-accessory-rail",
   scrollToPresent: "community-scroll-to-present",
   messageSelectionToolbar: "community-message-selection-toolbar",
+  messageScroller: "community-message-scroller",
   wsStatus: "community-ws-status",
   wsRetry: "community-ws-retry",
   serverAdd: "community-server-add",
@@ -35,6 +38,7 @@ export const tid = {
   botAuditPreview: "community-bot-audit-preview",
   botAuditPreviewDock: "community-bot-audit-preview-dock",
   botAuditPreviewActive: "community-bot-audit-preview-active",
+  botActivityModal: "bot-activity-modal",
   botAuditPreviewRow: (id: string) => `community-bot-audit-preview-row-${id}`,
   statusPill: "community-status-pill",
   inviteToken: "community-invite-token",

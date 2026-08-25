@@ -22,6 +22,6 @@
     "knip": "^6.32.2",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10",
-    "wrangler": "^4.125.0"
+    "wrangler": "4.113.0"
   }
 }

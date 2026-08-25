@@ -16,6 +16,7 @@ import {
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
+import { tid } from "@/lib/community/testids"
 
 export function TextChannelSurface({
   channelId,
@@ -135,7 +136,11 @@ export function TextChannelSurface({
                 presentVersion={feed.presentVersion}
                 unreadCount={feed.unreadCount}
               />
-              <div data-onboarding-target="channel-composer" className="shrink-0">
+              <div
+                data-onboarding-target="channel-composer"
+                data-testid={tid.channelComposerShell}
+                className="shrink-0"
+              >
                 <Composer
                   channel={channelName}
                   context="channel"

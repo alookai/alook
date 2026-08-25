@@ -38,8 +38,10 @@ test.describe.serial("eject, navigation & logout", () => {
     await page.waitForURL(/\/sign-in/, { timeout: 20_000 , waitUntil: "commit" })
 
     // Session is actually cleared: revisiting a protected route stays bounced.
-    await page.goto("/c")
+    await page.goto("/c", { waitUntil: "commit" })
     await page.waitForURL(/\/sign-in/, { timeout: 20_000 , waitUntil: "commit" })
     await expect(page).toHaveURL(/\/sign-in/)
+    await expect.poll(async () => (await page.context().cookies())
+      .some((cookie) => cookie.name.startsWith("better-auth"))).toBe(false)
   })
 })

@@ -1,6 +1,7 @@
 import { test, expect } from "./_fixtures/community-fixture"
 import { composerEditable, sendMessage } from "./_fixtures/actions"
 import { seedServer, seedChannel, seedMessage } from "./_fixtures/seed"
+import { tid } from "./_fixtures/testids"
 
 // Journey 9 — threads. Creating a thread from a message surfaces a thread
 // indicator on the parent message (regression ab572e3e).
@@ -79,6 +80,6 @@ test.describe.serial("threads", () => {
     // Back on the parent channel, the message now carries a thread indicator.
     await page.goto(`/c/channels/${serverId}/${channelId}`)
     await expect(row).toBeVisible({ timeout: 20_000 })
-    await expect(page.locator(`[data-testid^="community-thread-indicator-"]`).first()).toBeVisible({ timeout: 15_000 })
+    await expect(page.locator(`[data-testid^="${tid.threadIndicator("")}"]`).first()).toBeVisible({ timeout: 15_000 })
   })
 })

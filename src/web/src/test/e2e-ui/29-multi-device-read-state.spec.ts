@@ -113,7 +113,7 @@ test("one human account converges read state across two browser profiles", async
   expect((await channelRepair).status()).toBe(200)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toBeVisible()
-  await deviceA.page.waitForTimeout(1_200)
+  await deviceA.page.waitForTimeout(1_200) // duplicate channel-read repair exclusion window
   expect(channelResponses).toEqual([200])
   const afterChannelRead = await accountSnapshot()
   expect(afterChannelRead.revision).toBe(beforeChannelRead.revision + 1)
@@ -151,7 +151,7 @@ test("one human account converges read state across two browser profiles", async
   expect((await dmRepair).status()).toBe(200)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toHaveCount(0)
   await expect(deviceB.page.getByText("Caught up", { exact: true })).toBeVisible()
-  await deviceA.page.waitForTimeout(1_200)
+  await deviceA.page.waitForTimeout(1_200) // duplicate DM-read repair exclusion window
   expect(dmResponses).toEqual([200])
   const afterDmRead = await accountSnapshot()
   expect(afterDmRead.revision).toBe(beforeDmRead.revision + 1)
@@ -216,9 +216,22 @@ test("one human account converges read state across two browser profiles", async
   ])
   const completedReadAllResponses = await Promise.all(readAllResponses)
   expect(completedReadAllResponses.every((response) => response.status() === 200)).toBe(true)
-  const readAllResults = await Promise.all(completedReadAllResponses.map(async (response) =>
-    await response.json() as { changed: boolean; revision: number }))
-  expect(readAllResults.filter((result) => result.changed)).toHaveLength(1)
+  const readAllResults = await Promise.all(completedReadAllResponses.map(async (response) => ({
+    path: new URL(response.url()).pathname,
+    ...await response.json() as { changed: boolean; revision: number },
+  })))
+  const changedReadAllResults = readAllResults.filter((result) => result.changed)
+  // Channel and DM read-all are deliberately separate routes. Each domain has
+  // one winner across the two concurrent profiles; requiring one winner total
+  // made the assertion depend on request scheduling rather than idempotency.
+  for (const path of [
+    "/api/community/users/me/inbox/unreads/read-all",
+    "/api/community/users/me/inbox/dms/read-all",
+  ]) {
+    expect(changedReadAllResults.filter((result) => result.path === path)).toHaveLength(1)
+  }
+  const changedRevisions = changedReadAllResults.map((result) => result.revision).sort((a, b) => a - b)
+  expect(new Set(changedRevisions).size).toBe(2)
   await expect(deviceA.page.getByText("Caught up", { exact: true })).toBeVisible({ timeout: 20_000 })
   await expect(deviceB.page.getByText("Caught up", { exact: true })).toBeVisible({ timeout: 20_000 })
 
@@ -230,15 +243,15 @@ test("one human account converges read state across two browser profiles", async
     ))
   await expect.poll(() => readAllEvents(proxyA.frames, readAllFrameStarts[0]!).length, {
     timeout: 20_000,
-  }).toBe(1)
+  }).toBe(changedReadAllResults.length)
   await expect.poll(() => readAllEvents(proxyB.frames, readAllFrameStarts[1]!).length, {
     timeout: 20_000,
-  }).toBe(1)
+  }).toBe(changedReadAllResults.length)
   for (const events of [
     readAllEvents(proxyA.frames, readAllFrameStarts[0]!),
     readAllEvents(proxyB.frames, readAllFrameStarts[1]!),
   ]) {
-    expect(events[0]?.revision).toBe(readAllResults.find((result) => result.changed)?.revision)
+    expect(events.map((event) => event.revision).sort((a, b) => a - b)).toEqual(changedRevisions)
     expect(events.every((event) => event.inboxChanged && !("readStates" in event))).toBe(true)
   }
 
@@ -330,7 +343,7 @@ test("hidden eager channel and DM mounts defer cross-device reads until visible"
     .toBe(`/c/channels/${serverId}/${channelId}`)
   await expect.poll(() => deviceA.page.evaluate(() => document.visibilityState)).toBe("hidden")
   await expect(deviceA.page.getByText(channelBody, { exact: true })).toBeVisible()
-  await deviceA.page.waitForTimeout(1_000)
+  await deviceA.page.waitForTimeout(1_000) // hidden-tab channel-read exclusion window
   expect(channelReadResponses).toEqual([])
   const hiddenChannel = await accountSnapshot()
   expect(hiddenChannel.revision).toBe(beforeChannel.revision)
@@ -364,7 +377,7 @@ test("hidden eager channel and DM mounts defer cross-device reads until visible"
     .toBe(`/c/me/${dmId}`)
   await expect.poll(() => deviceA.page.evaluate(() => document.visibilityState)).toBe("hidden")
   await expect(deviceA.page.getByText(dmBody, { exact: true })).toBeVisible()
-  await deviceA.page.waitForTimeout(1_000)
+  await deviceA.page.waitForTimeout(1_000) // hidden-tab DM-read exclusion window
   expect(dmReadResponses).toEqual([])
   const hiddenDm = await accountSnapshot()
   expect(hiddenDm.revision).toBe(beforeDm.revision)
@@ -401,11 +414,7 @@ test("a visible live tail clears both devices while an unseen tail stays unread"
   await deviceB.page.getByRole("button", { name: "Inbox" }).click()
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible()
 
-  const scroller = deviceA.page
-    .locator("[data-onboarding-target='channel-composer']")
-    .locator("xpath=ancestor::main[1]")
-    .locator(".thin-scrollbar")
-    .first()
+  const scroller = deviceA.page.getByTestId(tid.messageScroller)
   await expect(deviceA.page.getByTestId(tid.scrollToPresent)).toBeVisible()
   const baselineRead = deviceA.page.waitForResponse((response) =>
     response.request().method() === "PUT"
@@ -475,7 +484,7 @@ test("a visible live tail clears both devices while an unseen tail stays unread"
     }).toBeGreaterThan(0)
   }
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible()
-  await deviceA.page.waitForTimeout(1_000)
+  await deviceA.page.waitForTimeout(1_000) // hidden active-profile read exclusion window
   expect(hiddenReadResponses).toEqual([])
   const afterHidden = await (await deviceA.page.request.get(
     "/api/community/users/me/read-state",
@@ -527,7 +536,7 @@ test("a visible live tail clears both devices while an unseen tail stays unread"
     }).toBeGreaterThan(0)
   }
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible()
-  await deviceA.page.waitForTimeout(1_000)
+  await deviceA.page.waitForTimeout(1_000) // unseen-tail read exclusion window
   expect(unseenReadResponses).toEqual([])
   const afterUnseen = await (await deviceA.page.request.get(
     "/api/community/users/me/read-state",
@@ -618,7 +627,7 @@ test("forum cards use the ordinary parent cursor while child cursors stay indepe
   await expect.poll(() => forumResponses.length, {
     timeout: 20_000,
   }).toBe(1)
-  await deviceA.page.waitForTimeout(1_200)
+  await deviceA.page.waitForTimeout(1_200) // duplicate forum-parent read exclusion window
   expect(forumResponses).toEqual([
     { target: secondOpener!, status: 200 },
   ])
@@ -636,7 +645,7 @@ test("forum cards use the ordinary parent cursor while child cursors stay indepe
 
   const beforeNavigationWrites = forumResponses.length
   await gotoAfterUserWsAuth(deviceA.page, `/c/channels/${serverId}/${first.threadId}`)
-  await deviceA.page.waitForTimeout(1_200)
+  await deviceA.page.waitForTimeout(1_200) // child-navigation parent-read exclusion window
   expect(forumResponses).toHaveLength(beforeNavigationWrites)
   expect((await accountSnapshot()).revision).toBe(afterVisible.revision)
 
@@ -659,7 +668,7 @@ test("forum cards use the ordinary parent cursor while child cursors stay indepe
   await deviceB.page.getByRole("button", { name: "Inbox" }).click()
   const third = await createEmptyPost(`Unified third ${stamp}`)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(forumId))).toBeVisible()
-  await deviceA.page.waitForTimeout(1_200)
+  await deviceA.page.waitForTimeout(1_200) // hidden-device forum-child read exclusion window
   expect(forumResponses).toHaveLength(1)
   expect((await accountSnapshot()).revision).toBe(afterVisible.revision)
   await setDeviceAVisibility("visible")

@@ -15,6 +15,7 @@ import {
   proxyCommunityWebSockets,
   type CapturedCommunityFrame,
 } from "./_fixtures/community-ws-proxy"
+import { tid } from "./_fixtures/testids"
 
 function messageFrame(frame: CapturedCommunityFrame, channelId: string, content: string): boolean {
   return communityFrameEvents(frame).some((event) =>
@@ -35,7 +36,7 @@ test.describe.serial("committed message delivery QA", () => {
     let armed = false
     const carolProxy = await proxyCommunityWebSockets(carol.context)
     await gotoAfterUserWsAuth(carol.page, `/c/channels/${serverId}/${forumId}`)
-    await expect(carol.page.getByTestId(`community-forum-post-${threadId}`)).toBeVisible({ timeout: 20_000 })
+    await expect(carol.page.getByTestId(tid.forumThreadCard(threadId))).toBeVisible({ timeout: 20_000 })
     armed = true
 
     const bob = await asUser("bob")
@@ -92,7 +93,7 @@ test.describe.serial("committed message delivery QA", () => {
     const editable = composerEditable(alice.page)
     await editable.click()
     await editable.pressSequentially(`@${bobInfo.name.slice(0, 3)}`)
-    await alice.page.getByTestId(`community-mention-option-${bobInfo.id}`).click()
+    await alice.page.getByTestId(tid.mentionOption(bobInfo.id)).click()
     await editable.pressSequentially(` ${missing}`)
     await alice.page.keyboard.press("Enter")
     await expect.poll(() => dropped, { timeout: 20_000 }).toBe(true)
@@ -116,7 +117,7 @@ test.describe.serial("committed message delivery QA", () => {
       const response = await bob.page.request.get("/api/community/servers")
       const data = await response.json() as { servers: Array<{ id: string; mentions: number }> }
       const authoritative = data.servers.find((server) => server.id === serverId)?.mentions ?? 0
-      const badge = bob.page.getByTestId(`community-rail-unread-badge-${serverId}`)
+      const badge = bob.page.getByTestId(tid.railUnreadBadge(serverId))
       const displayed = await badge.count() === 0
         ? 0
         : Number((await badge.textContent())?.trim())
@@ -202,7 +203,7 @@ test.describe.serial("committed message delivery QA", () => {
     const editable = composerEditable(alice.page)
     await editable.click()
     await editable.pressSequentially(`@${bobInfo.name.slice(0, 3)}`)
-    await alice.page.getByTestId(`community-mention-option-${bobInfo.id}`).click()
+    await alice.page.getByTestId(tid.mentionOption(bobInfo.id)).click()
     await editable.pressSequentially(` ${body}`)
     await alice.page.keyboard.press("Enter")
     await expect.poll(() => duplicated, { timeout: 20_000 }).toBe(true)
@@ -220,18 +221,18 @@ test.describe.serial("committed message delivery QA", () => {
     ])
     const messageId = communityFrameEvents(batch)[0]?.message?.id
     expect(messageId).toBeTruthy()
-    await expect(bob.page.getByTestId(`community-message-${messageId}`)).toHaveCount(1)
+    await expect(bob.page.getByTestId(tid.message(messageId!))).toHaveCount(1)
 
     const requestsBeforeReload = serverRequests.length
     await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}/${channelId}`)
-    await expect(bob.page.getByTestId(`community-message-${messageId}`)).toHaveCount(1)
+    await expect(bob.page.getByTestId(tid.message(messageId!))).toHaveCount(1)
     await expect.poll(() => serverRequests.length, { timeout: 20_000 })
       .toBeGreaterThan(requestsBeforeReload)
     const requestsBeforeReplay = serverRequests.length
     proxy.replay(batch)
     await expect.poll(() => serverRequests.length, { timeout: 20_000 })
       .toBeGreaterThan(requestsBeforeReplay)
-    await expect(bob.page.getByTestId(`community-message-${messageId}`)).toHaveCount(1)
+    await expect(bob.page.getByTestId(tid.message(messageId!))).toHaveCount(1)
   })
 
   test("Q9: every receiver gets the same batch-only channel and DM delivery", async ({ asUser }) => {
@@ -257,7 +258,7 @@ test.describe.serial("committed message delivery QA", () => {
     const editable = composerEditable(alice.page)
     await editable.click()
     await editable.pressSequentially(`@${bobInfo.name.slice(0, 3)}`)
-    await alice.page.getByTestId(`community-mention-option-${bobInfo.id}`).click()
+    await alice.page.getByTestId(tid.mentionOption(bobInfo.id)).click()
     await editable.pressSequentially(" batch channel")
     await alice.page.keyboard.press("Enter")
     await expect.poll(() => firstProxy.frames.slice(firstChannelStart).some((frame) =>
