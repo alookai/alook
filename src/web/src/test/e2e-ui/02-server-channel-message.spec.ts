@@ -27,13 +27,57 @@ test("server → channel → message", async ({ asUser }) => {
   await expect(page.getByTestId(tid.message(firstPayload.message.id))).toHaveCount(1)
   await expect(page.getByTestId(tid.composerInput)).toHaveText("")
 
+  const editable = composerEditable(page)
+  const pastePlainText = (text: string) => editable.evaluate((element, pastedText) => {
+    const clipboardData = new DataTransfer()
+    clipboardData.setData("text/plain", pastedText)
+    element.dispatchEvent(new ClipboardEvent("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData,
+    }))
+  }, text)
+
+  await editable.click()
+  await pastePlainText("x".repeat(1_000))
+  await expect(editable).toHaveText("x".repeat(1_000))
+  await page.keyboard.press("ControlOrMeta+A")
+  await page.keyboard.press("Backspace")
+
+  const firstLongPaste = `# first paste\n\n${"a".repeat(1_001)}`
+  const secondLongPaste = `second paste\n${"b".repeat(1_001)}`
+  await pastePlainText(firstLongPaste)
+  await pastePlainText(secondLongPaste)
+  await expect(editable).toHaveText("")
+  await expect(page.getByText("copy-1.md", { exact: true })).toBeVisible()
+  await expect(page.getByText("copy-2.md", { exact: true })).toBeVisible()
+
+  const longPasteResponsePromise = page.waitForResponse((response) => {
+    const pathname = new URL(response.url()).pathname
+    return response.request().method() === "POST"
+      && /^\/api\/community\/channels\/[^/]+\/messages$/.test(pathname)
+  })
+  await page.keyboard.press("Enter")
+  const longPasteResponse = await longPasteResponsePromise
+  expect(longPasteResponse.status()).toBe(201)
+  const longPasteRequest = longPasteResponse.request().postDataJSON() as {
+    content: string
+    attachments?: string[]
+  }
+  expect(longPasteRequest.content).toBe("")
+  expect(longPasteRequest.attachments).toHaveLength(2)
+  const longPastePayload = await longPasteResponse.json() as { message: { id: string } }
+  const longPasteMessage = page.getByTestId(tid.message(longPastePayload.message.id))
+  await expect(longPasteMessage.getByText("copy-1.md", { exact: true })).toBeVisible()
+  await expect(longPasteMessage.getByText("copy-2.md", { exact: true })).toBeVisible()
+  await expect(page.getByTestId(tid.composerInput).locator("../..").getByText(/^copy-[12]\.md$/)).toHaveCount(0)
+
   let sends = 0
   page.on("request", (request) => {
     const pathname = new URL(request.url()).pathname
     if (request.method() === "POST" && /^\/api\/community\/channels\/[^/]+\/messages$/.test(pathname)) sends++
   })
 
-  const editable = composerEditable(page)
   const imeBody = `ime probe ${Date.now()}`
   await editable.click()
   await editable.pressSequentially(imeBody)
