@@ -2,7 +2,12 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ImageResponse } from "next/og";
 import { BRAND_SLOGAN } from "@/lib/brand-copy";
-import { getOgTitlePresentation, normalizeOgTitle } from "./og-title";
+import {
+  normalizeOgTitle,
+  OG_TITLE_FONT_SIZE,
+  OG_TITLE_LINE_CLAMP,
+  OG_TITLE_MAX_HEIGHT,
+} from "./og-title";
 
 export const OG_IMAGE_SIZE = { width: 1200, height: 630 } as const;
 export const OG_IMAGE_CONTENT_TYPE = "image/png";
@@ -109,7 +114,6 @@ function TypewriterIllustration() {
 
 export async function renderOgImage(rawTitle: string): Promise<ImageResponse> {
   const title = normalizeOgTitle(rawTitle) || BRAND_SLOGAN;
-  const titlePresentation = getOgTitlePresentation(title);
   const [logoData, fontData] = await assetsPromise;
   const logoDataUri = `data:image/png;base64,${logoData.toString("base64")}`;
 
@@ -150,7 +154,7 @@ export async function renderOgImage(rawTitle: string): Promise<ImageResponse> {
             position: "absolute",
             left: 80,
             top: 310,
-            height: titlePresentation.maxHeight,
+            height: OG_TITLE_MAX_HEIGHT,
             width: 600,
             overflow: "hidden",
           }}
@@ -158,17 +162,17 @@ export async function renderOgImage(rawTitle: string): Promise<ImageResponse> {
           <div
             style={{
               display: "block",
-              fontSize: titlePresentation.fontSize,
+              fontSize: OG_TITLE_FONT_SIZE,
               fontWeight: 600,
               color: "#2a231a",
               lineHeight: 1.15,
-              lineClamp: titlePresentation.lineClamp,
+              lineClamp: OG_TITLE_LINE_CLAMP,
               width: "100%",
               overflow: "hidden",
               wordBreak: "break-word",
             }}
           >
-            {titlePresentation.displayTitle}
+            {title}
           </div>
         </div>
 
