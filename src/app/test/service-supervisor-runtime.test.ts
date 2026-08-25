@@ -98,7 +98,7 @@ function windowsHarness(records: () => Array<{ pid: number; parentPid: number; b
     setTimeout(() => watcher.stdout.write(`${JSON.stringify({
       pid: marker.pid,
       parentPid: fakeProcess.pid,
-      eventTime: birth,
+      eventTime: String(BigInt(birth) + 1n),
     })}\n`), 5);
     return marker;
   });
@@ -642,6 +642,8 @@ describe("service supervisor runtime", () => {
     const watcher = child(73_301);
     const marker = child(73_302);
     let spawnCount = 0;
+    const eventTime = String((BigInt(Date.now()) * 10_000n) + 116_444_737_000_000_000n);
+    const birth = String(BigInt(eventTime) - 10_000n);
     const spawn = vi.fn(() => {
       spawnCount += 1;
       if (spawnCount === 1) {
@@ -651,11 +653,11 @@ describe("service supervisor runtime", () => {
       setImmediate(() => watcher.stdout.write(`${JSON.stringify({
         pid: marker.pid,
         parentPid: fakeProcess.pid,
-        eventTime: "200",
+        eventTime,
       })}\n`));
       return marker;
     });
-    const execFileSync = vi.fn(() => JSON.stringify([{ pid: marker.pid, parentPid: fakeProcess.pid, birth: "200" }]));
+    const execFileSync = vi.fn(() => JSON.stringify([{ pid: marker.pid, parentPid: fakeProcess.pid, birth }]));
     const runtime = createServiceSupervisorRuntime({
       process: fakeProcess as unknown as NodeJS.Process,
       spawn: spawn as never,
@@ -677,20 +679,75 @@ describe("service supervisor runtime", () => {
     harness.runtime.testing.cleanupEndpoint();
   });
 
-  it("fails a flush when the active Windows watcher is deliberately terminated", async () => {
-    const scratch = mkdtempSync(join(tmpdir(), "alook-runtime-watcher-exit-"));
-    scratchPaths.push(scratch);
-    const trigger = join(scratch, "trigger");
-    writeFileSync(trigger, "exit\n");
+  it("accepts a qualifying marker event already queued by the same watcher", async () => {
+    const fakeProcess = new FakeProcess();
+    fakeProcess.platform = "win32";
+    const watcher = child(75_111);
+    const marker = child(75_112);
+    const birth = String((BigInt(Date.now()) * 10_000n) + 116_444_737_000_000_000n);
+    let spawns = 0;
+    const runtime = createServiceSupervisorRuntime({
+      process: fakeProcess as unknown as NodeJS.Process,
+      spawn: vi.fn(() => {
+        spawns += 1;
+        if (spawns === 1) {
+          setImmediate(() => watcher.stdout.write("ready\n"));
+          return watcher;
+        }
+        return marker;
+      }) as never,
+      readWindowsProcessSnapshot: vi.fn(() => JSON.stringify({
+        pid: marker.pid,
+        parentPid: fakeProcess.pid,
+        birth,
+      })),
+    });
+    await runtime.testing.startWindowsProcessWatcher(Date.now() + 1_000);
+    runtime.testing.recordWindowsStartEvent({
+      pid: marker.pid,
+      parentPid: fakeProcess.pid,
+      eventTime: String(BigInt(birth) + 10_000n),
+    });
+    await expect(runtime.testing.flushWindowsProcessWatcher(Date.now() + 1_000)).resolves.toBeUndefined();
+    expect(marker.kill).toHaveBeenCalledOnce();
+    runtime.testing.cleanupEndpoint();
+  });
+
+  it("fails a marker snapshot loop immediately after the watcher reports malformed data", async () => {
+    const fakeProcess = new FakeProcess();
+    fakeProcess.platform = "win32";
+    const watcher = child(75_121);
+    const marker = child(75_122);
+    let spawns = 0;
+    let runtime: ReturnType<typeof createServiceSupervisorRuntime>;
+    runtime = createServiceSupervisorRuntime({
+      process: fakeProcess as unknown as NodeJS.Process,
+      spawn: vi.fn(() => {
+        spawns += 1;
+        if (spawns === 1) {
+          setImmediate(() => watcher.stdout.write("ready\n"));
+          return watcher;
+        }
+        return marker;
+      }) as never,
+      readWindowsProcessSnapshot: vi.fn(() => {
+        runtime.testing.recordWindowsStartEvent({ pid: "invalid", parentPid: 0, eventTime: "1" });
+        return "";
+      }),
+    });
+    await runtime.testing.startWindowsProcessWatcher(Date.now() + 1_000);
+    await expect(runtime.testing.flushWindowsProcessWatcher(Date.now() + 1_000))
+      .rejects.toThrow("invalid event");
+    expect(marker.kill).toHaveBeenCalledOnce();
+    runtime.testing.cleanupEndpoint();
+  });
+
+  it("fails a flush when the injected Windows watcher exits", async () => {
     const harness = windowsHarness(() => []);
-    harness.fakeProcess.env = {
-      ALOOK_APP_TEST_WINDOWS_WATCHER_FAILURE: "exit",
-      ALOOK_APP_TEST_WINDOWS_WATCHER_FAILURE_TRIGGER: trigger,
-    };
     await harness.runtime.testing.startWindowsProcessWatcher(Date.now() + 1_000);
+    harness.watcher.emit("exit", 1, null);
     await expect(harness.runtime.testing.flushWindowsProcessWatcher(Date.now() + 1_000))
       .rejects.toThrow("process watcher exited");
-    expect(harness.watcher.kill).toHaveBeenCalledOnce();
     harness.runtime.testing.cleanupEndpoint();
   });
 
@@ -741,9 +798,7 @@ describe("service supervisor runtime", () => {
       execFileSync: vi.fn(() => "") as never,
     });
     await runtime.testing.startWindowsProcessWatcher(Date.now() + 1_000);
-    const deadline = Date.now() + 100;
-    const now = vi.spyOn(Date, "now");
-    now.mockReturnValueOnce(deadline - 1).mockReturnValue(deadline);
+    const deadline = Date.now() + 30;
     await expect(runtime.testing.flushWindowsProcessWatcher(deadline)).rejects.toThrow("required marker");
   });
 
@@ -753,6 +808,7 @@ describe("service supervisor runtime", () => {
     const watcher = child(failure === "error" ? 75_205 : 75_206);
     if (failure === "missing") watcher.kill.mockImplementation(() => true);
     const marker = child(failure === "error" ? 75_207 : 75_208);
+    const markerBirth = String((BigInt(Date.now()) * 10_000n) + 116_444_737_000_000_000n);
     let spawns = 0;
     let runtime: ReturnType<typeof createServiceSupervisorRuntime>;
     runtime = createServiceSupervisorRuntime({
@@ -772,7 +828,7 @@ describe("service supervisor runtime", () => {
       execFileSync: vi.fn(() => JSON.stringify({
         pid: marker.pid,
         parentPid: fakeProcess.pid,
-        birth: "100",
+        birth: markerBirth,
       })) as never,
     });
     await runtime.testing.startWindowsProcessWatcher(Date.now() + 1_000);
@@ -872,22 +928,17 @@ describe("service supervisor runtime", () => {
   });
 
   it.each([
-    { label: "wrong parent", parentPid: 99_999, eventTime: "300", expected: "parent identity changed" },
-    { label: "withheld exact marker", parentPid: 73_001, eventTime: "300", expected: "required marker", withhold: true },
-    { label: "creation mismatch", parentPid: 73_001, eventTime: "301", expected: "required marker" },
-  ])("fails closed and reaps a Windows marker for $label", async ({ parentPid, eventTime, expected, withhold }) => {
-    const scratch = mkdtempSync(join(tmpdir(), "alook-runtime-marker-"));
-    scratchPaths.push(scratch);
-    const trigger = join(scratch, "trigger");
-    writeFileSync(trigger, "fail\n");
+    { label: "wrong parent", parentPid: 99_999, emitEvent: true, expected: "parent identity changed" },
+    { label: "withheld marker", parentPid: 73_001, emitEvent: false, expected: "required marker" },
+    { label: "predated identity", parentPid: 73_001, emitEvent: true, expected: "predates", predated: true },
+  ])("fails closed and reaps a Windows marker for $label", async ({ parentPid, emitEvent, expected, predated }) => {
     const fakeProcess = new FakeProcess();
     fakeProcess.platform = "win32";
-    fakeProcess.env = withhold ? {
-      ALOOK_APP_TEST_WINDOWS_WATCHER_FAILURE: "withhold-marker",
-      ALOOK_APP_TEST_WINDOWS_WATCHER_FAILURE_TRIGGER: trigger,
-    } : {};
     const watcher = child(73_401);
     const marker = child(73_402);
+    const birth = predated
+      ? "1"
+      : String((BigInt(Date.now()) * 10_000n) + 116_444_737_000_000_000n);
     let spawnCount = 0;
     const runtime = createServiceSupervisorRuntime({
       process: fakeProcess as unknown as NodeJS.Process,
@@ -897,14 +948,96 @@ describe("service supervisor runtime", () => {
           setImmediate(() => watcher.stdout.write("ready\n"));
           return watcher;
         }
-        setImmediate(() => watcher.stdout.write(`${JSON.stringify({ pid: marker.pid, parentPid, eventTime })}\n`));
+        if (emitEvent) {
+          setImmediate(() => watcher.stdout.write(`${JSON.stringify({
+            pid: marker.pid,
+            parentPid,
+            eventTime: String(BigInt(birth) + 10_000n),
+          })}\n`));
+        }
         return marker;
       }) as never,
-      execFileSync: vi.fn(() => JSON.stringify([{ pid: marker.pid, parentPid, birth: "300" }])) as never,
+      execFileSync: vi.fn(() => JSON.stringify([{ pid: marker.pid, parentPid, birth }])) as never,
     });
     await runtime.testing.startWindowsProcessWatcher(Date.now() + 1_000);
     await expect(runtime.testing.flushWindowsProcessWatcher(Date.now() + 80)).rejects.toThrow(expected);
     expect(marker.kill).toHaveBeenCalledOnce();
+    runtime.testing.cleanupEndpoint();
+  });
+
+  it("rejects same-PID marker reuse after watcher observation and always reaps the marker", async () => {
+    const fakeProcess = new FakeProcess();
+    fakeProcess.platform = "win32";
+    const watcher = child(73_411);
+    const marker = child(73_412);
+    const firstBirth = String((BigInt(Date.now()) * 10_000n) + 116_444_737_000_000_000n);
+    let spawns = 0;
+    let snapshots = 0;
+    const runtime = createServiceSupervisorRuntime({
+      process: fakeProcess as unknown as NodeJS.Process,
+      spawn: vi.fn(() => {
+        spawns += 1;
+        if (spawns === 1) {
+          setImmediate(() => watcher.stdout.write("ready\n"));
+          return watcher;
+        }
+        setImmediate(() => watcher.stdout.write(`${JSON.stringify({
+          pid: marker.pid,
+          parentPid: fakeProcess.pid,
+          eventTime: String(BigInt(firstBirth) + 10_000n),
+        })}\n`));
+        return marker;
+      }) as never,
+      readWindowsProcessSnapshot: vi.fn(() => {
+        snapshots += 1;
+        return JSON.stringify({
+          pid: marker.pid,
+          parentPid: fakeProcess.pid,
+          birth: snapshots === 1 ? firstBirth : String(BigInt(firstBirth) + 1n),
+        });
+      }),
+    });
+    await runtime.testing.startWindowsProcessWatcher(Date.now() + 1_000);
+    await expect(runtime.testing.flushWindowsProcessWatcher(Date.now() + 1_000))
+      .rejects.toThrow("identity changed after observation");
+    expect(marker.kill).toHaveBeenCalledOnce();
+    runtime.testing.cleanupEndpoint();
+  });
+
+  it("rejects a marker that exits between watcher observation and identity confirmation", async () => {
+    const fakeProcess = new FakeProcess();
+    fakeProcess.platform = "win32";
+    const watcher = child(73_421);
+    const marker = child(73_422);
+    const birth = String((BigInt(Date.now()) * 10_000n) + 116_444_737_000_000_000n);
+    let spawns = 0;
+    const runtime = createServiceSupervisorRuntime({
+      process: fakeProcess as unknown as NodeJS.Process,
+      spawn: vi.fn(() => {
+        spawns += 1;
+        if (spawns === 1) {
+          setImmediate(() => watcher.stdout.write("ready\n"));
+          return watcher;
+        }
+        setImmediate(() => {
+          watcher.stdout.write(`${JSON.stringify({
+            pid: marker.pid,
+            parentPid: fakeProcess.pid,
+            eventTime: String(BigInt(birth) + 10_000n),
+          })}\n`);
+          marker.exitCode = 1;
+        });
+        return marker;
+      }) as never,
+      readWindowsProcessSnapshot: vi.fn(() => JSON.stringify({
+        pid: marker.pid,
+        parentPid: fakeProcess.pid,
+        birth,
+      })),
+    });
+    await runtime.testing.startWindowsProcessWatcher(Date.now() + 1_000);
+    await expect(runtime.testing.flushWindowsProcessWatcher(Date.now() + 1_000))
+      .rejects.toThrow("exited before identity confirmation");
     runtime.testing.cleanupEndpoint();
   });
 
@@ -963,6 +1096,11 @@ describe("service supervisor runtime", () => {
       execFileSync: vi.fn(() => JSON.stringify({ pid: "bad", parentPid: 1, birth: "1" })) as never,
     });
     expect(() => invalidRuntime.testing.windowsProcessSnapshot()).toThrow("invalid record");
+    const invalidBirthRuntime = createServiceSupervisorRuntime({
+      process: snapshotProcess as unknown as NodeJS.Process,
+      readWindowsProcessSnapshot: vi.fn(() => JSON.stringify({ pid: 1, parentPid: 0, birth: "invalid" })),
+    });
+    expect(() => invalidBirthRuntime.testing.windowsProcessSnapshot()).toThrow("invalid record");
 
     const noPidProcess = new FakeProcess();
     noPidProcess.platform = "win32";
@@ -1027,7 +1165,7 @@ describe("service supervisor runtime", () => {
     });
     await timeoutRuntime.testing.startWindowsProcessWatcher(Date.now() + 1_000);
     await expect(timeoutRuntime.testing.flushWindowsProcessWatcher(Date.now() + 30))
-      .rejects.toThrow("termination deadline exceeded");
+      .rejects.toThrow("required marker");
     expect(timeoutMarker.kill).toHaveBeenCalledOnce();
     timeoutRuntime.testing.cleanupEndpoint();
   });
@@ -1046,9 +1184,13 @@ describe("service supervisor runtime", () => {
         return watcher;
       }
       const marker = child(markerPid++);
-      const birth = String(1_000 + marker.pid);
+      const birth = String((BigInt(Date.now()) * 10_000n) + 116_444_737_000_000_000n + BigInt(marker.pid));
       markerBirths.set(marker.pid, birth);
-      setImmediate(() => watcher.stdout.write(`${JSON.stringify({ pid: marker.pid, parentPid: fakeProcess.pid, eventTime: birth })}\n`));
+      setImmediate(() => watcher.stdout.write(`${JSON.stringify({
+        pid: marker.pid,
+        parentPid: fakeProcess.pid,
+        eventTime: String(BigInt(birth) + 1n),
+      })}\n`));
       return marker;
     });
     const execFileSync = vi.fn(() => JSON.stringify([...markerBirths].map(([pid, birth]) => ({
@@ -1085,22 +1227,23 @@ describe("service supervisor runtime", () => {
     runtime.testing.cleanupEndpoint();
   });
 
-  it("applies the Windows reused-seed fault injection only after seed identities lock", () => {
+  it("uses the injected WMI snapshot boundary without consulting process env", () => {
     const fakeProcess = new FakeProcess();
     fakeProcess.platform = "win32";
     fakeProcess.env = {
       ALOOK_APP_TEST_REUSE_WINDOWS_COMMAND_ROOT_PID: "1",
       ALOOK_APP_TEST_REUSED_SEED_DESCENDANT_PID: "31",
     };
+    const readWindowsProcessSnapshot = vi.fn(() => JSON.stringify([
+      { pid: 31, parentPid: 30, birth: "31" },
+    ]));
     const runtime = createServiceSupervisorRuntime({
       process: fakeProcess as unknown as NodeJS.Process,
-      execFileSync: vi.fn(() => JSON.stringify([
-        { pid: 30, parentPid: 1, birth: "30" },
-        { pid: 31, parentPid: 2, birth: "31" },
-      ])) as never,
+      readWindowsProcessSnapshot,
     });
     runtime.testing.setState({ commandRootPid: 30, windowsSeedIdentitiesLocked: true });
     expect(runtime.testing.windowsProcessSnapshot()).toEqual([{ pid: 31, parentPid: 30, birth: "31" }]);
+    expect(readWindowsProcessSnapshot).toHaveBeenCalledOnce();
   });
 
   it("fails Windows ownership refresh for a missing parent snapshot or creation event", async () => {
@@ -1140,41 +1283,41 @@ describe("service supervisor runtime", () => {
     harness.runtime.testing.cleanupEndpoint();
   });
 
-  it("executes bounded POSIX signal barriers, force paths, and tree-exit checks", async () => {
-    const scratch = mkdtempSync(join(tmpdir(), "alook-runtime-signal-"));
-    scratchPaths.push(scratch);
-    const barrier = join(scratch, "barrier");
+  it("executes injected POSIX signal, force, and tree-exit paths", async () => {
     const fakeProcess = new FakeProcess();
-    fakeProcess.env = { ALOOK_APP_TEST_TREE_SIGNAL_BARRIER: barrier };
     fakeProcess.kill.mockImplementation(() => true);
     const runtime = createServiceSupervisorRuntime({ process: fakeProcess as unknown as NodeJS.Process });
-    const waiting = runtime.testing.waitForTreeSignalBarrier(Date.now() + 1_000);
-    await waitFor(() => existsSync(barrier));
-    writeFileSync(`${barrier}.release`, "go\n");
-    await waiting;
-    fakeProcess.env = {};
     await expect(runtime.testing.signalTree(22, false, Date.now() + 1_000)).resolves.toBeUndefined();
     await expect(runtime.testing.signalTree(22, true, Date.now() + 1_000)).resolves.toBeUndefined();
     expect(fakeProcess.kill).toHaveBeenCalledWith(22, "SIGTERM");
     expect(fakeProcess.kill).toHaveBeenCalledWith(-22, "SIGKILL");
-    fakeProcess.env = { ALOOK_APP_TEST_FORCE_TREE_SIGNAL_ERROR: "1" };
+    fakeProcess.kill.mockImplementation((_pid, signal) => {
+      if (signal === "SIGKILL") throw new Error("forced signal denied");
+      return true;
+    });
     await expect(runtime.testing.signalTree(22, true, Date.now() + 1_000))
-      .resolves.toEqual(expect.objectContaining({ message: "simulated forced tree signal failure" }));
-    fakeProcess.env = {};
+      .resolves.toEqual(expect.objectContaining({ message: "forced signal denied" }));
     fakeProcess.kill.mockImplementation(() => { throw Object.assign(new Error("gone"), { code: "ESRCH" }); });
     await expect(runtime.testing.waitForTreeExit(22, 20, Date.now() + 100)).resolves.toBe(true);
     await expect(runtime.testing.ownedTreeAlive(22)).resolves.toBe(false);
   });
 
-  it("executes a successful delay and fails a withheld tree-signal barrier", async () => {
-    const scratch = mkdtempSync(join(tmpdir(), "alook-runtime-barrier-timeout-"));
-    scratchPaths.push(scratch);
+  it("uses an injected clock and scheduler for bounded tree-exit polling", async () => {
     const fakeProcess = new FakeProcess();
-    fakeProcess.env = { ALOOK_APP_TEST_TREE_SIGNAL_DELAY_MS: "1" };
-    const runtime = createServiceSupervisorRuntime({ process: fakeProcess as unknown as NodeJS.Process });
-    await expect(runtime.testing.waitForTreeSignalBarrier(Date.now() + 1_000)).resolves.toBeUndefined();
-    fakeProcess.env = { ALOOK_APP_TEST_TREE_SIGNAL_BARRIER: join(scratch, "barrier") };
-    await expect(runtime.testing.waitForTreeSignalBarrier(Date.now() + 20)).rejects.toThrow("barrier timed out");
+    fakeProcess.kill.mockImplementation(() => true);
+    let current = 0;
+    const scheduleTimeout = vi.fn((callback: (...args: unknown[]) => void) => {
+      current += 10;
+      callback();
+      return {} as NodeJS.Timeout;
+    });
+    const runtime = createServiceSupervisorRuntime({
+      process: fakeProcess as unknown as NodeJS.Process,
+      now: () => current,
+      scheduleTimeout: scheduleTimeout as never,
+    });
+    await expect(runtime.testing.waitForTreeExit(22, 20, 100)).resolves.toBe(false);
+    expect(scheduleTimeout).toHaveBeenCalledTimes(2);
   });
 
   it("returns false when a POSIX tree remains alive through the exit deadline", async () => {
@@ -1309,11 +1452,9 @@ describe("service supervisor runtime", () => {
     await expect(pending).rejects.toThrow("process watcher exited");
   });
 
-  it("fails signal barriers at their deadline and terminates absent owned children safely", async () => {
+  it("terminates absent owned children safely", async () => {
     const fakeProcess = new FakeProcess();
-    fakeProcess.env = { ALOOK_APP_TEST_TREE_SIGNAL_DELAY_MS: "20" };
     const runtime = createServiceSupervisorRuntime({ process: fakeProcess as unknown as NodeJS.Process });
-    await expect(runtime.testing.waitForTreeSignalBarrier(Date.now() + 10)).rejects.toThrow("delay exceeds");
     await expect(runtime.testing.terminateOwnedTree()).rejects.toThrow("original child authority is missing");
     const owned = child(74_201);
     runtime.testing.setState({
@@ -1327,7 +1468,6 @@ describe("service supervisor runtime", () => {
         childState: "running",
       },
     });
-    fakeProcess.env = {};
     fakeProcess.kill.mockImplementation(() => { throw Object.assign(new Error("gone"), { code: "ESRCH" }); });
     await expect(runtime.testing.terminateOwnedTree()).resolves.toMatchObject({ childState: "stopped" });
   });
@@ -1386,21 +1526,58 @@ describe("service supervisor runtime", () => {
       .rejects.toThrow("did not become ready");
   });
 
-  it("resets injected watcher and heartbeat state before constructing the next runtime", () => {
+  it("keeps separately constructed runtime state and adapters isolated", () => {
+    const firstProcess = new FakeProcess();
+    firstProcess.pid = 76_001;
+    const secondProcess = new FakeProcess();
+    secondProcess.pid = 76_002;
+    const first = createServiceSupervisorRuntime({ process: firstProcess as unknown as NodeJS.Process });
+    first.testing.setState({
+      init: {
+        mode: "reservation",
+        runId: "first",
+        service: "lifecycle",
+        token: "first-token",
+        endpoint: "first-endpoint",
+        heartbeatPath: "first-heartbeat",
+      },
+    });
+    const second = createServiceSupervisorRuntime({ process: secondProcess as unknown as NodeJS.Process });
+    second.testing.setState({
+      init: {
+        mode: "reservation",
+        runId: "second",
+        service: "lifecycle",
+        token: "second-token",
+        endpoint: "second-endpoint",
+        heartbeatPath: "second-heartbeat",
+      },
+    });
+    expect(first.testing.tokenMatches("first-token")).toBe(true);
+    expect(first.testing.tokenMatches("second-token")).toBe(false);
+    expect(second.testing.tokenMatches("second-token")).toBe(true);
+    expect(second.testing.tokenMatches("first-token")).toBe(false);
+  });
+
+  it("keeps injected watcher, clock identity, and heartbeat state instance-local during cleanup", () => {
     const fakeProcess = new FakeProcess();
-    const runtime = createServiceSupervisorRuntime({ process: fakeProcess as unknown as NodeJS.Process });
+    const watcher = child(76_011);
     const heartbeat = setInterval(() => {}, 60_000);
     heartbeat.unref();
-    const clear = vi.spyOn(globalThis, "clearInterval");
+    const clearScheduledInterval = vi.fn((value: NodeJS.Timeout) => clearInterval(value));
+    const runtime = createServiceSupervisorRuntime({
+      process: fakeProcess as unknown as NodeJS.Process,
+      clearScheduledInterval: clearScheduledInterval as never,
+    });
     runtime.testing.setState({
-      windowsProcessWatcher: child(76_001) as never,
+      windowsProcessWatcher: watcher as never,
       windowsProcessWatcherError: new Error("watcher error"),
       windowsProcessWatcherStartedAt: 10n,
-      windowsSeedCutoff: 20n,
       heartbeat,
     });
-    createServiceSupervisorRuntime({ process: fakeProcess as unknown as NodeJS.Process });
-    expect(clear).toHaveBeenCalledWith(heartbeat);
+    runtime.testing.cleanupEndpoint();
+    expect(watcher.kill).toHaveBeenCalledOnce();
+    expect(clearScheduledInterval).toHaveBeenCalledWith(heartbeat);
   });
 
   it("runs the production constructor without exposing adapter selection", () => {

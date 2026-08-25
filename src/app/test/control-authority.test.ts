@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { execFileSync, fork, spawn } from "node:child_process";
+import { execFileSync, fork } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -51,6 +51,7 @@ async function launchOwnedTree(
     reusedSeedDescendantPid?: number;
     signalBarrier?: string;
     signalDelayMs?: number;
+    terminationGraceMs?: number;
     terminationBudgetMs?: number;
     watcherFailure?: "exit" | "withhold-marker";
     watcherFailureTrigger?: string;
@@ -65,7 +66,7 @@ async function launchOwnedTree(
     stdio: ["ignore", "ignore", "pipe", "ipc"],
     env: {
       ...process.env,
-      ALOOK_APP_TERMINATION_GRACE_MS: "100",
+      ALOOK_APP_TERMINATION_GRACE_MS: String(options.terminationGraceMs ?? 100),
       ...(options.forceSignalError ? { ALOOK_APP_TEST_FORCE_TREE_SIGNAL_ERROR: "1" } : {}),
       ...(options.reuseWindowsCommandRootPid ? { ALOOK_APP_TEST_REUSE_WINDOWS_COMMAND_ROOT_PID: "1" } : {}),
       ...(options.reusedSeedDescendantPid
@@ -144,18 +145,6 @@ async function launchOwnedTree(
   };
 }
 
-async function launchUnownedTree() {
-  const pidFile = join(scratch, `unowned-${Date.now()}.json`);
-  const root = spawn(process.execPath, [treeFixture, pidFile, "stubborn"], {
-    detached: true,
-    stdio: "ignore",
-    windowsHide: true,
-  });
-  await waitUntil(() => existsSync(pidFile));
-  const pids = JSON.parse(readFileSync(pidFile, "utf8")) as { root: number; descendant: number };
-  return { pids, root };
-}
-
 function forceKillTree(rootPid: number): void {
   try {
     if (process.platform === "win32") {
@@ -166,6 +155,23 @@ function forceKillTree(rootPid: number): void {
   } catch {
     return;
   }
+}
+
+function windowsChildPids(parentPid: number): number[] {
+  const script = [
+    `$rows=@(Get-CimInstance Win32_Process -Filter 'ParentProcessId=${parentPid}' | ForEach-Object { [int]$_.ProcessId })`,
+    "ConvertTo-Json -InputObject $rows -Compress",
+  ].join("; ");
+  const output = execFileSync("powershell.exe", [
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    script,
+  ], { encoding: "utf8", windowsHide: true }).trim();
+  if (!output) return [];
+  const parsed = JSON.parse(output) as number | number[];
+  return Array.isArray(parsed) ? parsed : [parsed];
 }
 
 beforeAll(() => {
@@ -244,7 +250,7 @@ describe("private supervisor authority", () => {
   );
 
   it("keeps an authenticated terminate request alive beyond the generic socket timeout", async () => {
-    const owned = await launchOwnedTree("graceful", { signalDelayMs: 2_100 });
+    const owned = await launchOwnedTree("stubborn", { terminationGraceMs: 2_100 });
     const startedAt = Date.now();
 
     await expect(requestAuthority(owned.authority, "terminate")).resolves.toMatchObject({ childState: "stopped" });
@@ -252,16 +258,24 @@ describe("private supervisor authority", () => {
     await waitUntil(() => !alive(owned.authority.pid) && !alive(owned.runnerPid));
   }, INTEGRATION_TEST_TIMEOUT_MS);
 
-  it("returns a slow termination failure without dropping its authority endpoint", async () => {
-    const owned = await launchOwnedTree("stubborn", { forceSignalError: true, signalDelayMs: 2_100 });
-    const startedAt = Date.now();
+  it("ignores every legacy ALOOK_APP_TEST hook in the bundled production entry", async () => {
+    const barrier = join(scratch, `inert-test-env-${Date.now()}`);
+    const trigger = `${barrier}.trigger`;
+    writeFileSync(trigger, "trigger\n");
+    const owned = await launchOwnedTree("graceful", {
+      forceSignalError: true,
+      reuseWindowsCommandRootPid: true,
+      reusedSeedDescendantPid: 99_999,
+      signalBarrier: barrier,
+      signalDelayMs: 30_000,
+      watcherFailure: "exit",
+      watcherFailureTrigger: trigger,
+    });
     try {
-      await expect(requestAuthority(owned.authority, "terminate")).rejects.toThrow("owned child tree");
-      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(2_000);
-      await expect(requestAuthority(owned.authority, "status")).resolves.toMatchObject({
-        runId: owned.runId,
-        supervisorPid: owned.authority.pid,
-      });
+      await expect(requestAuthority(owned.authority, "terminate", 3_000))
+        .resolves.toMatchObject({ childState: "stopped" });
+      expect(existsSync(barrier)).toBe(false);
+      await waitUntil(() => !alive(owned.runnerPid) && !alive(owned.pids.root) && !alive(owned.pids.descendant));
     } finally {
       forceKillTree(owned.runnerPid);
       if (alive(owned.authority.pid)) owned.supervisor.kill();
@@ -284,8 +298,7 @@ describe("private supervisor authority", () => {
   it.skipIf(process.platform !== "win32")(
     "retains a descendant created through a short-lived intermediate after seed acquisition",
     async () => {
-      const barrier = join(scratch, `late-orphan-${Date.now()}`);
-      const owned = await launchOwnedTree("late-orphan", { forceSignalError: true, signalBarrier: barrier });
+      const owned = await launchOwnedTree("late-orphan");
       let latePids: { root: number; bridge: number; descendant: number } | undefined;
       try {
         writeFileSync(`${owned.pidFile}.spawn`, "spawn\n");
@@ -298,20 +311,9 @@ describe("private supervisor authority", () => {
         await waitUntil(() => !alive(latePids!.bridge));
         expect(alive(latePids!.descendant)).toBe(true);
 
-        const termination = requestAuthority(owned.authority, "terminate", 5_000);
-        await waitUntil(() => existsSync(barrier));
-        process.kill(owned.pids.root);
-        process.kill(owned.runnerPid);
-        await waitUntil(() => !alive(owned.pids.root) && !alive(owned.runnerPid));
-        expect(alive(latePids!.descendant)).toBe(true);
-        writeFileSync(`${barrier}.release`, "continue\n");
-
-        await expect(termination).rejects.toThrow("owned child tree");
-        await expect(requestAuthority(owned.authority, "status")).resolves.toMatchObject({
-          runId: owned.runId,
-          supervisorPid: owned.authority.pid,
-        });
-        expect(alive(latePids!.descendant)).toBe(true);
+        await expect(requestAuthority(owned.authority, "terminate", 5_000))
+          .resolves.toMatchObject({ childState: "stopped" });
+        await waitUntil(() => !alive(owned.runnerPid) && !alive(latePids!.descendant));
       } finally {
         if (latePids?.descendant && alive(latePids.descendant)) process.kill(latePids.descendant);
         forceKillTree(owned.pids.root);
@@ -321,23 +323,17 @@ describe("private supervisor authority", () => {
     INTEGRATION_TEST_TIMEOUT_MS,
   );
 
-  it.skipIf(process.platform !== "win32").each(["exit", "withhold-marker"] as const)(
-    "fails closed before signaling when the Windows process watcher authority becomes incomplete (%s)",
-    async (watcherFailure) => {
-      const barrier = join(scratch, `watcher-${watcherFailure}-${Date.now()}`);
-      const failureTrigger = `${barrier}.fail`;
-      const owned = await launchOwnedTree("stubborn", {
-        signalBarrier: barrier,
-        terminationBudgetMs: 1_000,
-        watcherFailure,
-        watcherFailureTrigger: failureTrigger,
-      });
+  it.skipIf(process.platform !== "win32")(
+    "fails closed before signaling after the active Windows watcher is externally killed",
+    async () => {
+      const owned = await launchOwnedTree("stubborn", { terminationBudgetMs: 1_000 });
       try {
-        writeFileSync(failureTrigger, "fail\n");
-        await expect(requestAuthority(owned.authority, "terminate", 3_000)).rejects.toThrow(
-          watcherFailure === "exit" ? "process watcher exited" : "required marker",
-        );
-        expect(existsSync(barrier)).toBe(false);
+        const children = windowsChildPids(owned.authority.pid);
+        const watcherPid = children.find((pid) => pid !== owned.runnerPid);
+        expect(watcherPid).toBeDefined();
+        execFileSync("taskkill", ["/F", "/PID", String(watcherPid)], { stdio: "ignore", windowsHide: true });
+        await expect(requestAuthority(owned.authority, "terminate", 3_000))
+          .rejects.toThrow("process watcher exited");
         await expect(requestAuthority(owned.authority, "status")).resolves.toMatchObject({
           runId: owned.runId,
           supervisorPid: owned.authority.pid,
@@ -346,86 +342,6 @@ describe("private supervisor authority", () => {
         expect(alive(owned.pids.descendant)).toBe(true);
       } finally {
         forceKillTree(owned.runnerPid);
-        if (alive(owned.authority.pid)) owned.supervisor.kill();
-      }
-    },
-    INTEGRATION_TEST_TIMEOUT_MS,
-  );
-
-  it.skipIf(process.platform !== "win32")(
-    "rejects a reused Windows seed identity without adopting or killing an unrelated tree",
-    async () => {
-      const unrelated = await launchUnownedTree();
-      const owned = await launchOwnedTree("graceful", {
-        reuseWindowsCommandRootPid: true,
-        reusedSeedDescendantPid: unrelated.pids.root,
-      });
-      try {
-        await expect(requestAuthority(owned.authority, "terminate")).rejects.toThrow("identity is unavailable");
-        await expect(requestAuthority(owned.authority, "status")).resolves.toMatchObject({
-          runId: owned.runId,
-          supervisorPid: owned.authority.pid,
-        });
-        expect(alive(unrelated.pids.root)).toBe(true);
-        expect(alive(unrelated.pids.descendant)).toBe(true);
-      } finally {
-        forceKillTree(owned.runnerPid);
-        if (alive(owned.authority.pid)) owned.supervisor.kill();
-        forceKillTree(unrelated.pids.root);
-      }
-    },
-    INTEGRATION_TEST_TIMEOUT_MS,
-  );
-
-  it.skipIf(process.platform !== "win32")(
-    "rejects a nonzero taskkill race when the runner exits but an owned descendant survives",
-    async () => {
-      const barrier = join(scratch, `taskkill-live-descendant-${Date.now()}`);
-      const owned = await launchOwnedTree("orphan", { forceSignalError: true, signalBarrier: barrier });
-      try {
-        await waitUntil(async () => (await requestAuthority(owned.authority, "status")).childState === "exited");
-        expect(alive(owned.pids.descendant)).toBe(true);
-
-        const termination = requestAuthority(owned.authority, "terminate", 5_000);
-        await waitUntil(() => existsSync(barrier));
-        process.kill(owned.runnerPid);
-        await waitUntil(() => !alive(owned.runnerPid));
-        writeFileSync(`${barrier}.release`, "continue\n");
-
-        await expect(termination).rejects.toThrow("owned child tree");
-        await expect(requestAuthority(owned.authority, "status", 2_000)).resolves.toMatchObject({
-          runId: owned.runId,
-          supervisorPid: owned.authority.pid,
-        });
-        expect(alive(owned.pids.descendant)).toBe(true);
-      } finally {
-        if (alive(owned.pids.descendant)) process.kill(owned.pids.descendant);
-        if (alive(owned.authority.pid)) owned.supervisor.kill();
-      }
-    },
-    INTEGRATION_TEST_TIMEOUT_MS,
-  );
-
-  it.skipIf(process.platform !== "win32")(
-    "accepts a nonzero taskkill race only after the independently tracked tree is empty",
-    async () => {
-      const barrier = join(scratch, `taskkill-empty-tree-${Date.now()}`);
-      const owned = await launchOwnedTree("orphan", { signalBarrier: barrier });
-      try {
-        await waitUntil(async () => (await requestAuthority(owned.authority, "status")).childState === "exited");
-        expect(alive(owned.pids.descendant)).toBe(true);
-
-        const termination = requestAuthority(owned.authority, "terminate", 5_000);
-        await waitUntil(() => existsSync(barrier));
-        process.kill(owned.pids.descendant);
-        process.kill(owned.runnerPid);
-        await waitUntil(() => !alive(owned.pids.descendant) && !alive(owned.runnerPid));
-        writeFileSync(`${barrier}.release`, "continue\n");
-
-        await expect(termination).resolves.toMatchObject({ childState: "stopped" });
-        await waitUntil(() => !alive(owned.authority.pid));
-      } finally {
-        if (alive(owned.pids.descendant)) process.kill(owned.pids.descendant);
         if (alive(owned.authority.pid)) owned.supervisor.kill();
       }
     },
