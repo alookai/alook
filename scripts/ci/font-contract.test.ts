@@ -3,6 +3,7 @@ import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
 const appRoot = resolve(import.meta.dirname, "../../src/web/src/app")
+const publicRoot = resolve(import.meta.dirname, "../../src/web/public")
 const layout = readFileSync(resolve(appRoot, "layout.tsx"), "utf8")
 const ogRoute = readFileSync(resolve(appRoot, "og/route.tsx"), "utf8")
 const fontDefinitions = readFileSync(resolve(appRoot, "fonts.ts"), "utf8")
@@ -17,11 +18,11 @@ describe("web font contract", () => {
   it("references committed local font files", () => {
     const paths = [...fontDefinitions.matchAll(/(?:src|path): "\.\/fonts\/([^\"]+)"/g)]
       .map((match) => match[1])
-      .concat("dm-sans-600.ttf")
 
-    expect(paths).toHaveLength(8)
+    expect(paths).toHaveLength(7)
     for (const path of paths) {
       expect(existsSync(resolve(appRoot, "fonts", path))).toBe(true)
     }
+    expect(existsSync(resolve(publicRoot, "fonts/dm-sans-600.ttf"))).toBe(true)
   })
 })

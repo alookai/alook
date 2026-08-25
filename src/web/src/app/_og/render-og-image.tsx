@@ -1,5 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { headers } from "next/headers";
 import { ImageResponse } from "next/og";
 import { BRAND_SLOGAN } from "@/lib/brand-copy";
 import {
@@ -12,15 +12,16 @@ import {
 export const OG_IMAGE_SIZE = { width: 1200, height: 630 } as const;
 export const OG_IMAGE_CONTENT_TYPE = "image/png";
 
-const processRoot = process.cwd();
-const webRoot = processRoot.endsWith(join("src", "web"))
-  ? processRoot
-  : join(processRoot, "src", "web");
+const OG_LOGO_ASSET_URL = "https://assets.local/icon-192.png";
+const OG_FONT_ASSET_URL = "https://assets.local/fonts/dm-sans-600.ttf";
 
-const assetsPromise = Promise.all([
-  readFile(join(webRoot, "public/icon-192.png")),
-  readFile(join(webRoot, "src/app/fonts/dm-sans-600.ttf")),
-]);
+async function fetchOgAsset(assets: Fetcher, url: string): Promise<ArrayBuffer> {
+  const response = await assets.fetch(url);
+  if (!response.ok) {
+    throw new Error(`OG asset ${new URL(url).pathname} returned ${response.status}`);
+  }
+  return response.arrayBuffer();
+}
 
 function TypewriterIllustration() {
   const keyRows = [9, 7, 9];
@@ -114,8 +115,15 @@ function TypewriterIllustration() {
 
 export async function renderOgImage(rawTitle: string): Promise<ImageResponse> {
   const title = normalizeOgTitle(rawTitle) || BRAND_SLOGAN;
-  const [logoData, fontData] = await assetsPromise;
-  const logoDataUri = `data:image/png;base64,${logoData.toString("base64")}`;
+  await headers();
+  const { env } = await getCloudflareContext({ async: true });
+  if (!env.ASSETS) throw new Error("Cloudflare ASSETS binding is unavailable");
+
+  const [logoData, fontData] = await Promise.all([
+    fetchOgAsset(env.ASSETS, OG_LOGO_ASSET_URL),
+    fetchOgAsset(env.ASSETS, OG_FONT_ASSET_URL),
+  ]);
+  const logoDataUri = `data:image/png;base64,${Buffer.from(logoData).toString("base64")}`;
 
   return new ImageResponse(
     (
@@ -211,7 +219,7 @@ export async function renderOgImage(rawTitle: string): Promise<ImageResponse> {
       fonts: [
         {
           name: "DM Sans",
-          data: Uint8Array.from(fontData).buffer,
+          data: fontData,
           weight: 600,
           style: "normal",
         },

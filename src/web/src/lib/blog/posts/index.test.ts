@@ -138,40 +138,59 @@ describe("getAllPosts", () => {
 });
 
 describe("getPostBySlug", () => {
-  it("returns the post matching the given slug", async () => {
-    mockReaddirSync.mockReturnValue(
-      ["post-a.mdx", "post-b.mdx"] as unknown as ReturnType<
-        typeof readdirSync
-      >
-    );
-    mockImportMdxMetadata.mockImplementation(async (slug) => {
-      if (slug === "post-a") return postA;
-      if (slug === "post-b") return postB;
-      return undefined;
-    });
+  it("imports and returns only the requested canonical post without scanning", async () => {
+    mockImportMdxMetadata.mockResolvedValue(postA);
 
-    const { getPostBySlug } = await import("./index");
+    const { getPostBySlug } = await import("./get-post-by-slug");
     const post = await getPostBySlug("post-a");
 
-    expect(post).toBeDefined();
-    expect(post!.title).toBe("Post A");
+    expect(post).toEqual(postA);
+    expect(mockImportMdxMetadata).toHaveBeenCalledWith("post-a");
+    expect(mockReaddirSync).not.toHaveBeenCalled();
   });
 
   it("returns undefined for a draft slug", async () => {
-    mockReaddirSync.mockReturnValue(
-      ["post-a.mdx", "draft-post.mdx"] as unknown as ReturnType<
-        typeof readdirSync
-      >
-    );
-    mockImportMdxMetadata.mockImplementation(async (slug) => {
-      if (slug === "post-a") return postA;
-      if (slug === "draft-post") return draftPost;
-      return undefined;
-    });
+    mockImportMdxMetadata.mockResolvedValue(draftPost);
 
-    const { getPostBySlug } = await import("./index");
+    const { getPostBySlug } = await import("./get-post-by-slug");
     const post = await getPostBySlug("draft-post");
 
     expect(post).toBeUndefined();
+    expect(mockReaddirSync).not.toHaveBeenCalled();
+  });
+
+  it("returns undefined for missing or incomplete metadata", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { getPostBySlug } = await import("./get-post-by-slug");
+
+    mockImportMdxMetadata.mockResolvedValueOnce(undefined);
+    await expect(getPostBySlug("missing")).resolves.toBeUndefined();
+
+    mockImportMdxMetadata.mockResolvedValueOnce(incompletePost);
+    await expect(getPostBySlug("incomplete")).resolves.toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("missing required field")
+    );
+    expect(mockReaddirSync).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("returns undefined when metadata slug does not match the requested module", async () => {
+    mockImportMdxMetadata.mockResolvedValue(postB);
+
+    const { getPostBySlug } = await import("./get-post-by-slug");
+
+    await expect(getPostBySlug("post-a")).resolves.toBeUndefined();
+    expect(mockReaddirSync).not.toHaveBeenCalled();
+  });
+
+  it("propagates unexpected MDX import failures", async () => {
+    const failure = new Error("MDX evaluation failed");
+    mockImportMdxMetadata.mockRejectedValue(failure);
+
+    const { getPostBySlug } = await import("./get-post-by-slug");
+
+    await expect(getPostBySlug("post-a")).rejects.toBe(failure);
+    expect(mockReaddirSync).not.toHaveBeenCalled();
   });
 });
