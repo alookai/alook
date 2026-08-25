@@ -34,4 +34,21 @@ describe("LinkPreviewCardView", () => {
     expect(linkPreviewStaleTime({ preview: null })).toBe(5 * 60 * 1_000)
     expect(linkPreviewStaleTime(undefined)).toBe(5 * 60 * 1_000)
   })
+
+  it("renders YouTube metadata through the same text-only generic card", () => {
+    const html = renderToStaticMarkup(createElement(LinkPreviewCardView, {
+      preview: {
+        url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        hostname: "www.youtube.com",
+        siteName: "YouTube",
+        title: "A YouTube video",
+      },
+    }))
+
+    expect(html).toContain(`data-testid="${tid.linkPreviewCard}"`)
+    expect(html).toContain('href="https://www.youtube.com/watch?v=dQw4w9WgXcQ"')
+    expect(html).toContain("A YouTube video")
+    expect(html).not.toContain("<img")
+    expect(html).not.toContain("<iframe")
+  })
 })

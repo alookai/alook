@@ -4,8 +4,20 @@ import type { LinkPreview } from "./link-preview"
 
 const MAX_URL_LENGTH = 2_048
 const MAX_HTML_BYTES = 128 * 1024
+const MAX_OEMBED_BYTES = 16 * 1024
 const MAX_REDIRECTS = 3
 const TOTAL_TIMEOUT_MS = 3_000
+const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/
+const YOUTUBE_HOSTS = new Set([
+  "youtube.com",
+  "www.youtube.com",
+  "m.youtube.com",
+  "music.youtube.com",
+])
+const YOUTUBE_NOCOOKIE_HOSTS = new Set([
+  "youtube-nocookie.com",
+  "www.youtube-nocookie.com",
+])
 const CONTROL_AND_BIDI_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g
 const SPECIAL_HOST_SUFFIXES = [
   ".localhost",
@@ -117,6 +129,83 @@ function cleanText(value: unknown, maxLength: number): string | undefined {
   return Array.from(cleaned).slice(0, maxLength).join("")
 }
 
+function youtubeVideoId(url: URL): string | null {
+  const host = url.hostname.toLowerCase()
+  let candidate: string | null = null
+  if (host === "youtu.be" && /^\/[A-Za-z0-9_-]+\/?$/.test(url.pathname)) {
+    candidate = url.pathname.split("/")[1] ?? null
+  } else if (YOUTUBE_HOSTS.has(host) && url.pathname === "/watch") {
+    candidate = url.searchParams.get("v")
+  } else if (YOUTUBE_HOSTS.has(host) && /^\/(?:shorts|embed|live)\/[A-Za-z0-9_-]+\/?$/.test(url.pathname)) {
+    candidate = url.pathname.split("/")[2] ?? null
+  } else if (YOUTUBE_NOCOOKIE_HOSTS.has(host) && /^\/embed\/[A-Za-z0-9_-]+\/?$/.test(url.pathname)) {
+    candidate = url.pathname.split("/")[2] ?? null
+  }
+  return candidate && YOUTUBE_VIDEO_ID_RE.test(candidate) ? candidate : null
+}
+
+async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
+  if (!response.body) throw new Error("preview response has no body")
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let text = ""
+  let total = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const remaining = maxBytes - total
+      if (value.byteLength > remaining) {
+        await reader.cancel()
+        throw new Error("preview response is too large")
+      }
+      total += value.byteLength
+      text += decoder.decode(value, { stream: true })
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  return text + decoder.decode()
+}
+
+async function fetchYouTubeOEmbed(original: URL, videoId: string, signal: AbortSignal): Promise<LinkPreview> {
+  // The destination is fixed rather than derived from user input. The source
+  // URL is only an encoded oEmbed parameter, so it cannot steer the fetch.
+  const endpoint = new URL("https://www.youtube.com/oembed")
+  endpoint.searchParams.set("url", `https://www.youtube.com/watch?v=${videoId}`)
+  endpoint.searchParams.set("format", "json")
+  const response = await fetch(endpoint.href, {
+    method: "GET",
+    redirect: "error",
+    signal,
+    headers: { Accept: "application/json" },
+    referrerPolicy: "no-referrer",
+  })
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => {})
+    throw new Error("YouTube oEmbed rejected request")
+  }
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? ""
+  if (!/^application\/(?:[\w.+-]+\+)?json(?:;|$)/.test(contentType)) {
+    await response.body?.cancel().catch(() => {})
+    throw new Error("YouTube oEmbed response is not JSON")
+  }
+
+  const record = JSON.parse(await readBoundedText(response, MAX_OEMBED_BYTES)) as Record<string, unknown>
+  const title = cleanText(record.title, 160)
+  if (!title) throw new Error("YouTube oEmbed metadata missing")
+  const siteName = cleanText(record.provider_name, 80) ?? "YouTube"
+  const authorName = cleanText(record.author_name, 80)
+  return {
+    url: original.href,
+    hostname: original.hostname,
+    title,
+    siteName,
+    ...(authorName ? { description: authorName } : {}),
+  }
+}
+
 async function readBoundedHtml(response: Response): Promise<string> {
   if (!response.body) throw new Error("preview response has no body")
 
@@ -197,6 +286,10 @@ export async function fetchLinkPreview(input: string): Promise<LinkPreview> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS)
   try {
+    const youtubeId = youtubeVideoId(original)
+    if (youtubeId) {
+      return await fetchYouTubeOEmbed(original, youtubeId, controller.signal)
+    }
     const { html, finalUrl, contentType } = await fetchHtml(original, controller.signal)
     const parsed = await getPreviewFromContent({
       url: finalUrl.href,
@@ -235,6 +328,7 @@ export async function fetchLinkPreview(input: string): Promise<LinkPreview> {
 
 export const LINK_PREVIEW_LIMITS = {
   maxHtmlBytes: MAX_HTML_BYTES,
+  maxOEmbedBytes: MAX_OEMBED_BYTES,
   maxRedirects: MAX_REDIRECTS,
   timeoutMs: TOTAL_TIMEOUT_MS,
 } as const

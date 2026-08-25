@@ -50,6 +50,147 @@ describe("normalizePublicPreviewUrl", () => {
 })
 
 describe("fetchLinkPreview", () => {
+  it("uses bounded YouTube oEmbed metadata instead of scanning oversized HTML", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      title: "A YouTube video",
+      provider_name: "YouTube",
+      author_name: "Example creator",
+    }), { headers: { "content-type": "application/json; charset=utf-8" } }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(fetchLinkPreview("https://www.youtube.com/watch?v=dQw4w9WgXcQ#chapter")).resolves.toEqual({
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      hostname: "www.youtube.com",
+      title: "A YouTube video",
+      siteName: "YouTube",
+      description: "Example creator",
+    })
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://www.youtube.com/oembed?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&format=json",
+    )
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      method: "GET",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+    })
+  })
+
+  it.each([
+    "https://youtu.be/dQw4w9WgXcQ?t=5",
+    "https://m.youtube.com/shorts/dQw4w9WgXcQ",
+    "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+  ])("extracts a legal video id from an explicit supported shape: %s", async (url) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      title: "Supported video shape",
+      provider_name: "YouTube",
+    }), { headers: { "content-type": "application/json" } }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(fetchLinkPreview(url)).resolves.toMatchObject({ title: "Supported video shape" })
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://www.youtube.com/oembed?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&format=json",
+    )
+  })
+
+  it("caps YouTube oEmbed bodies and cancels the oversized stream", async () => {
+    const cancel = vi.fn()
+    const oversized = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(LINK_PREVIEW_LIMITS.maxOEmbedBytes + 1))
+      },
+      cancel,
+    })
+    const fetchMock = vi.fn().mockResolvedValue(new Response(oversized, {
+      headers: { "content-type": "application/json" },
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(fetchLinkPreview("https://youtu.be/dQw4w9WgXcQ"))
+      .rejects.toThrow("preview response is too large")
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    "https://youtube.example.org/watch?v=dQw4w9WgXcQ",
+    "https://notyoutube.com/watch?v=dQw4w9WgXcQ",
+    "https://www.youtube.com/",
+    "https://www.youtube.com/@alookai",
+    "https://www.youtube.com/watch?v=too-short",
+  ])("does not use oEmbed for a non-video YouTube shape: %s", async (url) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      "<html><head><meta property='og:title' content='Generic HTML'></head></html>",
+      { headers: { "content-type": "text/html" } },
+    ))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(fetchLinkPreview(url)).resolves.toMatchObject({ title: "Generic HTML" })
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(new URL(url).href)
+  })
+
+  it("does not follow an oEmbed redirect, including one toward a private target", async () => {
+    const cancel = vi.fn()
+    const redirectBody = new ReadableStream<Uint8Array>({ cancel })
+    const fetchMock = vi.fn().mockResolvedValue(new Response(redirectBody, {
+      status: 302,
+      headers: { location: "http://127.0.0.1/metadata" },
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(fetchLinkPreview("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+      .rejects.toThrow("YouTube oEmbed rejected request")
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it("rejects and cancels an oEmbed response with the wrong MIME type", async () => {
+    const cancel = vi.fn()
+    const body = new ReadableStream<Uint8Array>({ cancel })
+    const fetchMock = vi.fn().mockResolvedValue(new Response(body, {
+      headers: { "content-type": "text/html" },
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(fetchLinkPreview("https://youtu.be/dQw4w9WgXcQ"))
+      .rejects.toThrow("YouTube oEmbed response is not JSON")
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it("sanitizes and caps malicious oEmbed text without returning remote HTML or media", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      title: `Safe\u202E<script>${"x".repeat(200)}`,
+      provider_name: `You\u0007Tube${"y".repeat(100)}`,
+      author_name: `Creator\u202E${"z".repeat(100)}`,
+      html: "<iframe src='https://attacker.invalid'></iframe>",
+      thumbnail_url: "https://attacker.invalid/image.png",
+    }), { headers: { "content-type": "application/json" } })))
+
+    const preview = await fetchLinkPreview("https://youtu.be/dQw4w9WgXcQ")
+
+    expect(preview.title).toHaveLength(160)
+    expect(preview.siteName).toHaveLength(80)
+    expect(preview.description).toHaveLength(80)
+    expect(`${preview.title}${preview.siteName}${preview.description}`).not.toMatch(/[\u0007\u202E]/)
+    expect(preview).not.toHaveProperty("html")
+    expect(preview).not.toHaveProperty("thumbnail_url")
+  })
+
+  it("applies the single total timeout while waiting for YouTube oEmbed", async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true })
+    })))
+
+    const preview = fetchLinkPreview("https://youtu.be/dQw4w9WgXcQ")
+    const rejected = expect(preview).rejects.toThrow("aborted")
+    await vi.advanceTimersByTimeAsync(LINK_PREVIEW_LIMITS.timeoutMs)
+
+    await rejected
+  })
+
   it("follows bounded manual redirects, revalidates them, and sanitizes metadata", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(null, {
