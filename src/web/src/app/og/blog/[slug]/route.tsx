@@ -1,5 +1,5 @@
 import { renderOgImage } from "@/app/_og/render-og-image";
-import { getPostBySlug } from "@/lib/blog/posts";
+import { getPostBySlug } from "@/lib/blog/posts/get-post-by-slug";
 
 export async function GET(
   _request: Request,

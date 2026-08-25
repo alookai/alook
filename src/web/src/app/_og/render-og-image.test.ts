@@ -1,6 +1,6 @@
 import { inflateSync } from "node:zlib"
 import { readFileSync } from "node:fs"
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   normalizeOgTitle,
   OG_TITLE_FONT_SIZE,
@@ -10,6 +10,42 @@ import {
   OG_TITLE_MAX_LINES,
 } from "./og-title"
 import { renderOgImage } from "./render-og-image"
+
+const {
+  mockAssetFetch,
+  mockGetCloudflareContext,
+  mockHeaders,
+} = vi.hoisted(() => ({
+  mockAssetFetch: vi.fn(),
+  mockGetCloudflareContext: vi.fn(),
+  mockHeaders: vi.fn(),
+}))
+
+vi.mock("@opennextjs/cloudflare", () => ({
+  getCloudflareContext: mockGetCloudflareContext,
+}))
+
+vi.mock("next/headers", () => ({
+  headers: mockHeaders,
+}))
+
+const LOGO_ASSET_URL = "https://assets.local/icon-192.png"
+const FONT_ASSET_URL = "https://assets.local/fonts/dm-sans-600.ttf"
+const officialLogo = readFileSync(new URL("../../../public/icon-192.png", import.meta.url))
+const officialFont = readFileSync(new URL("../../../public/fonts/dm-sans-600.ttf", import.meta.url))
+
+beforeEach(() => {
+  mockHeaders.mockReset().mockResolvedValue(new Headers())
+  mockAssetFetch.mockReset().mockImplementation(async (input: string | URL | Request) => {
+    const url = String(input)
+    if (url === LOGO_ASSET_URL) return new Response(Uint8Array.from(officialLogo))
+    if (url === FONT_ASSET_URL) return new Response(Uint8Array.from(officialFont))
+    return new Response(null, { status: 404 })
+  })
+  mockGetCloudflareContext.mockReset().mockResolvedValue({
+    env: { ASSETS: { fetch: mockAssetFetch } },
+  })
+})
 
 type DecodedPng = {
   width: number
@@ -221,15 +257,55 @@ function countSmallColorComponents(
 }
 
 describe("OG image", () => {
-  it("loads the generated raster logo instead of embedding manual base64 or requesting SVG", () => {
-    const officialLogo = readFileSync(new URL("../../../public/icon-192.png", import.meta.url))
+  it("loads the canonical public assets through the request-scoped ASSETS binding", async () => {
     const rendererSource = readFileSync(new URL("./render-og-image.tsx", import.meta.url), "utf8")
 
     expect(officialLogo.byteLength).toBeGreaterThan(1_000)
-    expect(rendererSource).toContain('processRoot.endsWith(join("src", "web"))')
-    expect(rendererSource).toContain('join(webRoot, "public/icon-192.png")')
+    expect(officialFont.byteLength).toBeGreaterThan(30_000)
+    expect(rendererSource).toContain(`"${LOGO_ASSET_URL}"`)
+    expect(rendererSource).toContain(`"${FONT_ASSET_URL}"`)
+    expect(rendererSource).not.toContain("node:fs")
+    expect(rendererSource).not.toContain("node:path")
+    expect(rendererSource).not.toContain("process.cwd()")
+    expect(rendererSource).not.toContain("file://")
     expect(rendererSource).not.toContain("iVBORw0KGgo")
     expect(rendererSource).not.toContain("alook.svg")
+
+    await renderOgImage("OG asset binding regression")
+
+    expect(mockHeaders).toHaveBeenCalledOnce()
+    expect(mockGetCloudflareContext).toHaveBeenCalledWith({ async: true })
+    expect(mockAssetFetch.mock.calls.map(([input]) => input)).toEqual([
+      LOGO_ASSET_URL,
+      FONT_ASSET_URL,
+    ])
+    expect(mockHeaders.mock.invocationCallOrder[0]).toBeLessThan(
+      mockGetCloudflareContext.mock.invocationCallOrder[0],
+    )
+    expect(mockGetCloudflareContext.mock.invocationCallOrder[0]).toBeLessThan(
+      mockAssetFetch.mock.invocationCallOrder[0],
+    )
+  })
+
+  it("fails explicitly when the ASSETS binding is unavailable", async () => {
+    mockGetCloudflareContext.mockResolvedValueOnce({ env: {} })
+
+    await expect(renderOgImage("missing binding")).rejects.toThrow(
+      "Cloudflare ASSETS binding is unavailable",
+    )
+    expect(mockAssetFetch).not.toHaveBeenCalled()
+  })
+
+  it("fails explicitly when a required OG asset is unavailable", async () => {
+    mockAssetFetch.mockImplementation(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url === LOGO_ASSET_URL) return new Response(Uint8Array.from(officialLogo))
+      return new Response(null, { status: 404 })
+    })
+
+    await expect(renderOgImage("missing font")).rejects.toThrow(
+      "OG asset /fonts/dm-sans-600.ttf returned 404",
+    )
   })
 
   it("renders the official brand colors into the logo crop", async () => {
