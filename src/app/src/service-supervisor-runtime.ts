@@ -20,7 +20,13 @@ import {
   WINDOWS_TREE_COMMAND_TIMEOUT_MS,
   type AuthorityStatus,
 } from "./lib/control-authority.js";
-import { createWindowsCommandInvocation } from "./lib/windows-command.js";
+import {
+  createWindowsCommandInvocation,
+  resolveTrustedWindowsSystemExecutable,
+  TRUSTED_WINDOWS_POWERSHELL,
+  TRUSTED_WINDOWS_TASKKILL,
+  trustedWindowsAuthorityEnvironment,
+} from "./lib/windows-command.js";
 
 interface BaseInit {
   runId: string;
@@ -93,6 +99,7 @@ export interface ServiceSupervisorRuntimeAdapters {
   rmSync: typeof nodeRmSync;
   writeFileSync: typeof nodeWriteFileSync;
   signalProcess: NodeJS.Process["kill"];
+  resolveWindowsSystemExecutable: (expectedPath: string) => string;
   spawnWindowsProcessWatcher: (parentPid: number) => ManagedChild;
   readWindowsProcessSnapshot: (timeoutMs: number) => string;
 }
@@ -130,7 +137,9 @@ export interface ServiceSupervisorRuntime {
       latestWindowsStartEvents?: WindowsProcessStartEvent[];
       heartbeat?: NodeJS.Timeout;
     }): void;
-    cleanupEndpoint(): void;
+    cleanupEndpoint(deadline?: number): Promise<void>;
+    cleanupAndExit(code: number): Promise<void>;
+    reportStartFailure(error: unknown): Promise<void>;
   };
 }
 
@@ -151,6 +160,7 @@ export function createServiceSupervisorRuntime(
   const rmSync = adapters.rmSync ?? nodeRmSync;
   const writeFileSync = adapters.writeFileSync ?? nodeWriteFileSync;
   const signalProcess = adapters.signalProcess ?? ((pid, signal) => process.kill(pid, signal));
+  const resolveWindowsSystemExecutable = adapters.resolveWindowsSystemExecutable ?? resolveTrustedWindowsSystemExecutable;
   const spawnWindowsProcessWatcher = adapters.spawnWindowsProcessWatcher ?? ((parentPid) => {
     const script = [
       "$ErrorActionPreference='Stop'",
@@ -163,7 +173,8 @@ export function createServiceSupervisorRuntime(
       "[Console]::Out.Flush()",
       "try { while (Get-Process -Id $parentPid -ErrorAction SilentlyContinue) { try { $event=$watcher.WaitForNextEvent(); [Console]::Out.WriteLine(([PSCustomObject]@{pid=[int]$event.ProcessID;parentPid=[int]$event.ParentProcessID;eventTime=[string]$event.TIME_CREATED}|ConvertTo-Json -Compress)); [Console]::Out.Flush() } catch [System.Management.ManagementException] { if ($_.Exception.ErrorCode -ne [System.Management.ManagementStatus]::Timedout) { throw } } } } finally { $watcher.Stop(); $watcher.Dispose() }",
     ].join("; ");
-    return spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
+    return spawn(resolveWindowsSystemExecutable(TRUSTED_WINDOWS_POWERSHELL), ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
+      env: trustedWindowsAuthorityEnvironment(),
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     }) as ManagedChild;
@@ -174,8 +185,9 @@ export function createServiceSupervisorRuntime(
       "$rows=@(Get-CimInstance Win32_Process | ForEach-Object { [PSCustomObject]@{ pid=[int]$_.ProcessId; parentPid=[int]$_.ParentProcessId; birth=[string]($_.CreationDate.ToUniversalTime().ToFileTimeUtc()) } })",
       "ConvertTo-Json -InputObject $rows -Compress",
     ].join("; ");
-    return execFileSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
+    return execFileSync(resolveWindowsSystemExecutable(TRUSTED_WINDOWS_POWERSHELL), ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
       encoding: "utf8",
+      env: trustedWindowsAuthorityEnvironment(),
       stdio: ["ignore", "pipe", "pipe"],
       timeout: timeoutMs,
       windowsHide: true,
@@ -196,6 +208,7 @@ export function createServiceSupervisorRuntime(
   const pendingWindowsStartEvents: WindowsProcessStartEvent[] = [];
   const latestWindowsStartEvents = new Map<number, WindowsProcessStartEvent>();
   let windowsWatcherMarker: WindowsWatcherMarker | undefined;
+  const windowsWatcherMarkerCleanups = new WeakMap<ManagedChild, Promise<void>>();
   let heartbeat: NodeJS.Timeout | undefined;
   let status: AuthorityStatus = {
     ok: false,
@@ -338,16 +351,54 @@ export function createServiceSupervisorRuntime(
     });
   }
 
-  async function stopWindowsWatcherMarker(marker: ManagedChild): Promise<void> {
+  async function stopWindowsWatcherMarker(marker: ManagedChild, deadline: number): Promise<void> {
     if (marker.exitCode !== null || marker.signalCode !== null) return;
-    await new Promise<void>((resolve) => {
-      const timer = scheduleTimeout(resolve, 500);
-      marker.once("exit", () => {
-        clearScheduledTimeout(timer);
-        resolve();
-      });
-      marker.kill();
+    const active = windowsWatcherMarkerCleanups.get(marker);
+    if (active) return active;
+    const cleanup = new Promise<void>((resolve, reject) => {
+      const cleanupState: { timer?: ReturnType<typeof scheduleTimeout> } = {};
+      let settled = false;
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        if (cleanupState.timer !== undefined) clearScheduledTimeout(cleanupState.timer);
+        marker.removeListener("exit", onExit);
+        if (error) reject(error);
+        else resolve();
+      };
+      const onExit = () => {
+        if (marker.exitCode === null && marker.signalCode === null) {
+          finish(new Error("Windows process watcher marker exit could not be proven"));
+        } else finish();
+      };
+      marker.once("exit", onExit);
+      let accepted: boolean;
+      try {
+        accepted = marker.kill();
+      } catch (error) {
+        finish(new Error(`Windows process watcher marker cleanup failed: ${String(error)}`));
+        return;
+      }
+      if (marker.exitCode !== null || marker.signalCode !== null) {
+        finish();
+        return;
+      }
+      if (!accepted) {
+        finish(new Error("Windows process watcher marker refused termination"));
+        return;
+      }
+      const remaining = deadline - now();
+      if (remaining <= 0) {
+        finish(new Error("Windows process watcher marker cleanup deadline exceeded"));
+        return;
+      }
+      cleanupState.timer = scheduleTimeout(
+        () => finish(new Error("Windows process watcher marker cleanup deadline exceeded")),
+        remaining,
+      );
     });
+    windowsWatcherMarkerCleanups.set(marker, cleanup);
+    return cleanup;
   }
 
   async function flushWindowsProcessWatcher(deadline = now() + 5_000): Promise<void> {
@@ -358,6 +409,7 @@ export function createServiceSupervisorRuntime(
       stdio: "ignore",
       windowsHide: true,
     }) as ManagedChild;
+    let operationError: unknown;
     try {
       if (!markerChild.pid) throw new Error("Windows process watcher marker did not start");
       let markerRecord: WindowsProcessRecord | undefined;
@@ -412,10 +464,22 @@ export function createServiceSupervisorRuntime(
       ) {
         throw new Error("Windows process watcher marker identity changed after observation");
       }
-    } finally {
-      windowsWatcherMarker = undefined;
-      await stopWindowsWatcherMarker(markerChild);
+    } catch (error) {
+      operationError = error;
     }
+    windowsWatcherMarker = undefined;
+    try {
+      await stopWindowsWatcherMarker(markerChild, deadline);
+    } catch (cleanupError) {
+      if (operationError) {
+        throw new AggregateError(
+          [operationError, cleanupError],
+          `${String(operationError)}; marker cleanup failed: ${String(cleanupError)}`,
+        );
+      }
+      throw cleanupError;
+    }
+    if (operationError) throw operationError;
   }
 
   function windowsOperationTimeout(deadline?: number): number {
@@ -544,7 +608,8 @@ export function createServiceSupervisorRuntime(
           try {
             const args = ["/T", "/PID", String(target)];
             if (force) args.unshift("/F");
-            execFileSync("taskkill", args, {
+            execFileSync(resolveWindowsSystemExecutable(TRUSTED_WINDOWS_TASKKILL), args, {
+              env: trustedWindowsAuthorityEnvironment(),
               stdio: "ignore",
               timeout: windowsOperationTimeout(deadline),
               windowsHide: true,
@@ -604,18 +669,45 @@ export function createServiceSupervisorRuntime(
     return status;
   }
 
-  function cleanupEndpoint(): void {
+  async function cleanupEndpoint(deadline = now() + WINDOWS_TREE_COMMAND_TIMEOUT_MS): Promise<void> {
     if (heartbeat) clearScheduledInterval(heartbeat);
     heartbeat = undefined;
     windowsProcessWatcher?.kill();
     windowsProcessWatcher = undefined;
-    if (windowsWatcherMarker) windowsWatcherMarker.child.kill();
+    const marker = windowsWatcherMarker?.child;
     windowsWatcherMarker = undefined;
     server?.close();
     server = undefined;
     if (init && process.platform !== "win32" && existsSync(init.endpoint)) {
       rmSync(init.endpoint, { force: true });
     }
+    if (marker) await stopWindowsWatcherMarker(marker, deadline);
+  }
+
+  async function cleanupAndExit(code: number): Promise<void> {
+    try {
+      await cleanupEndpoint();
+      process.exit(code);
+    } catch (error) {
+      status = { ...status, ok: false, childState: "error", error: String(error) };
+      emit({ type: "supervisor-error", status });
+      process.exitCode = 1;
+    }
+  }
+
+  async function reportStartFailure(error: unknown): Promise<void> {
+    let reported = error;
+    try {
+      await cleanupEndpoint();
+    } catch (cleanupError) {
+      reported = new AggregateError(
+        [error, cleanupError],
+        `${String(error)}; endpoint cleanup failed: ${String(cleanupError)}`,
+      );
+    }
+    status = { ...status, ok: false, childState: "error", error: String(reported) };
+    emit({ type: "supervisor-error", status });
+    process.exitCode = 1;
   }
 
   function respond(socket: import("node:net").Socket, value: AuthorityStatus): void {
@@ -647,8 +739,7 @@ export function createServiceSupervisorRuntime(
             if (request.action === "release" && init?.mode === "reservation") {
               respond(socket, { ...status, ok: true, childState: "stopped" });
               scheduleImmediate(() => {
-                cleanupEndpoint();
-                process.exit(0);
+                void cleanupAndExit(0);
               });
               return;
             }
@@ -659,8 +750,7 @@ export function createServiceSupervisorRuntime(
                 }
                 respond(socket, { ...status, ok: true, childState: "stopped" });
                 scheduleImmediate(() => {
-                  cleanupEndpoint();
-                  process.exit(0);
+                  void cleanupAndExit(0);
                 });
               })().catch((error) => respond(socket, { ...status, ok: false, error: String(error) }));
               return;
@@ -670,8 +760,7 @@ export function createServiceSupervisorRuntime(
                 .then((value) => {
                   respond(socket, { ...value, ok: true });
                   scheduleImmediate(() => {
-                    cleanupEndpoint();
-                    process.exit(0);
+                    void cleanupAndExit(0);
                   });
                 })
                 .catch((error) => respond(socket, { ...status, ok: false, error: String(error) }));
@@ -821,18 +910,12 @@ export function createServiceSupervisorRuntime(
         }
         return;
       }
-      void start(next).catch((error) => {
-        status = { ...status, ok: false, childState: "error", error: String(error) };
-        emit({ type: "supervisor-error", status });
-        cleanupEndpoint();
-        process.exitCode = 1;
-      });
+      void start(next).catch(reportStartFailure);
     });
 
     process.once("disconnect", () => {
       if (init?.mode === "reservation") {
-        cleanupEndpoint();
-        process.exit(0);
+        void cleanupAndExit(0);
       }
     });
   }
@@ -878,6 +961,8 @@ export function createServiceSupervisorRuntime(
         startControlServer,
         setState,
         cleanupEndpoint,
+        cleanupAndExit,
+        reportStartFailure,
       },
     };
 }

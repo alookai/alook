@@ -2,6 +2,10 @@ import { existsSync, realpathSync, statSync } from "node:fs";
 import { win32 } from "node:path";
 
 export const TRUSTED_WINDOWS_COMMAND_PROCESSOR = String.raw`C:\Windows\System32\cmd.exe`;
+export const TRUSTED_WINDOWS_POWERSHELL = String.raw`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`;
+export const TRUSTED_WINDOWS_TASKKILL = String.raw`C:\Windows\System32\taskkill.exe`;
+const TRUSTED_WINDOWS_ROOT = String.raw`C:\Windows`;
+const TRUSTED_WINDOWS_POWERSHELL_MODULES = String.raw`C:\Windows\System32\WindowsPowerShell\v1.0\Modules`;
 
 interface WindowsCommandFilesystem {
   exists(path: string): boolean;
@@ -14,6 +18,29 @@ const productionFilesystem: WindowsCommandFilesystem = {
   realpath: (path) => realpathSync.native(path),
   isFile: (path) => statSync(path).isFile(),
 };
+
+export function resolveTrustedWindowsSystemExecutable(
+  expectedPath: string,
+  filesystem: WindowsCommandFilesystem = productionFilesystem,
+): string {
+  if (!win32.isAbsolute(expectedPath) || !filesystem.exists(expectedPath)) {
+    throw new Error(`trusted Windows system executable is missing: ${expectedPath}`);
+  }
+  const canonical = filesystem.realpath(expectedPath);
+  if (canonical.toLowerCase() !== expectedPath.toLowerCase() || !filesystem.isFile(canonical)) {
+    throw new Error(`trusted Windows system executable failed canonical regular-file validation: ${canonical}`);
+  }
+  return canonical;
+}
+
+export function trustedWindowsAuthorityEnvironment(): NodeJS.ProcessEnv {
+  return {
+    SystemRoot: TRUSTED_WINDOWS_ROOT,
+    WINDIR: TRUSTED_WINDOWS_ROOT,
+    ComSpec: TRUSTED_WINDOWS_COMMAND_PROCESSOR,
+    PSModulePath: TRUSTED_WINDOWS_POWERSHELL_MODULES,
+  };
+}
 
 export interface WindowsCommandInvocation {
   command: string;
@@ -61,15 +88,11 @@ export function createWindowsCommandInvocation(
 ): WindowsCommandInvocation {
   const shim = resolveNpmShim(command, env, filesystem);
   if (!shim) return { command, args };
-  if (!filesystem.exists(TRUSTED_WINDOWS_COMMAND_PROCESSOR)) {
-    throw new Error(`trusted Windows command processor is missing: ${TRUSTED_WINDOWS_COMMAND_PROCESSOR}`);
-  }
-  const canonical = filesystem.realpath(TRUSTED_WINDOWS_COMMAND_PROCESSOR);
-  if (
-    canonical.toLowerCase() !== TRUSTED_WINDOWS_COMMAND_PROCESSOR.toLowerCase() ||
-    !filesystem.isFile(canonical)
-  ) {
-    throw new Error(`trusted Windows command processor failed canonical regular-file validation: ${canonical}`);
+  let canonical: string;
+  try {
+    canonical = resolveTrustedWindowsSystemExecutable(TRUSTED_WINDOWS_COMMAND_PROCESSOR, filesystem);
+  } catch (error) {
+    throw new Error(String(error).replace("trusted Windows system executable", "trusted Windows command processor"));
   }
   const commandLine = `"${[shim, ...args].map(quoteCmdToken).join(" ")}"`;
   return {

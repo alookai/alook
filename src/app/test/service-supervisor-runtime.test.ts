@@ -6,7 +6,22 @@ import { tmpdir } from "node:os";
 import { createConnection } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { requestAuthority } from "../src/lib/control-authority.js";
-import { createServiceSupervisorRuntime, runServiceSupervisor } from "../src/service-supervisor-runtime.js";
+import { TRUSTED_WINDOWS_POWERSHELL } from "../src/lib/windows-command.js";
+import {
+  createServiceSupervisorRuntime as createProductionServiceSupervisorRuntime,
+  runServiceSupervisor,
+} from "../src/service-supervisor-runtime.js";
+
+function createServiceSupervisorRuntime(
+  adapters: Parameters<typeof createProductionServiceSupervisorRuntime>[0] = {},
+) {
+  return createProductionServiceSupervisorRuntime({
+    resolveWindowsSystemExecutable: (expectedPath) => (
+      expectedPath === TRUSTED_WINDOWS_POWERSHELL ? "powershell.exe" : "taskkill"
+    ),
+    ...adapters,
+  });
+}
 
 class FakeProcess extends EventEmitter {
   pid = 73_001;
@@ -188,8 +203,9 @@ describe("service supervisor runtime", () => {
     await waitFor(() => fakeProcess.exit.mock.calls.length === 1);
     expect(fakeProcess.exit).toHaveBeenCalledWith(0);
     fakeProcess.emit("disconnect");
+    await waitFor(() => fakeProcess.exit.mock.calls.length === 2);
     expect(fakeProcess.exit).toHaveBeenCalledTimes(2);
-    runtime.testing.cleanupEndpoint();
+    await runtime.testing.cleanupEndpoint();
   });
 
   it("acquires and terminates a service through the real control server with injected process adapters", async () => {
@@ -1040,6 +1056,141 @@ describe("service supervisor runtime", () => {
       .rejects.toThrow("exited before identity confirmation");
     runtime.testing.cleanupEndpoint();
   });
+
+  it.each([
+    { scenario: "normal success", cleanup: "no-exit", expected: "cleanup deadline exceeded" },
+    { scenario: "normal success with unverifiable exit", cleanup: "unproven-exit", expected: "exit could not be proven" },
+    { scenario: "watcher error", cleanup: "kill-error", expected: "watcher boom; marker cleanup failed" },
+    { scenario: "watcher EOF", cleanup: "refusal", expected: "marker cleanup failed" },
+    { scenario: "marker timeout", cleanup: "no-exit", expected: "required marker; marker cleanup failed" },
+    { scenario: "identity mismatch", cleanup: "kill-error", expected: "identity changed after observation; marker cleanup failed" },
+  ] as const)(
+    "fails closed when marker cleanup cannot be proven after $scenario ($cleanup)",
+    async ({ scenario, cleanup, expected }) => {
+      const fakeProcess = new FakeProcess();
+      fakeProcess.platform = "win32";
+      const watcher = child(73_431);
+      const marker = child(73_432);
+      const birth = String((BigInt(Date.now()) * 10_000n) + 116_444_737_000_000_000n);
+      marker.kill.mockImplementation(() => {
+        if (cleanup === "kill-error") throw new Error("marker kill denied");
+        if (cleanup === "unproven-exit") {
+          marker.emit("exit", null, "SIGTERM");
+          return true;
+        }
+        return cleanup !== "refusal";
+      });
+      let spawns = 0;
+      let snapshots = 0;
+      const runtime = createServiceSupervisorRuntime({
+        process: fakeProcess as unknown as NodeJS.Process,
+        spawn: vi.fn(() => {
+          spawns += 1;
+          if (spawns === 1) {
+            setImmediate(() => watcher.stdout.write("ready\n"));
+            return watcher;
+          }
+          setImmediate(() => {
+            if (scenario === "watcher error") watcher.emit("error", new Error("watcher boom"));
+            else if (scenario === "watcher EOF") watcher.emit("exit", 1, null);
+            else if (scenario !== "marker timeout") {
+              watcher.stdout.write(`${JSON.stringify({
+                pid: marker.pid,
+                parentPid: fakeProcess.pid,
+                eventTime: String(BigInt(birth) + 10_000n),
+              })}\n`);
+            }
+          });
+          return marker;
+        }) as never,
+        readWindowsProcessSnapshot: vi.fn(() => {
+          snapshots += 1;
+          return JSON.stringify({
+            pid: marker.pid,
+            parentPid: fakeProcess.pid,
+            birth: scenario === "identity mismatch" && snapshots > 1 ? String(BigInt(birth) + 1n) : birth,
+          });
+        }),
+      });
+      await runtime.testing.startWindowsProcessWatcher(Date.now() + 1_000);
+      await expect(runtime.testing.flushWindowsProcessWatcher(Date.now() + 60)).rejects.toThrow(expected);
+      expect(marker.kill).toHaveBeenCalledOnce();
+      await runtime.testing.cleanupEndpoint();
+    },
+  );
+
+  it("rejects endpoint cleanup when an in-flight marker refuses termination", async () => {
+    const fakeProcess = new FakeProcess();
+    fakeProcess.platform = "win32";
+    const watcher = child(73_441);
+    const marker = child(73_442);
+    marker.kill.mockReturnValue(false);
+    let spawns = 0;
+    const runtime = createServiceSupervisorRuntime({
+      process: fakeProcess as unknown as NodeJS.Process,
+      spawn: vi.fn(() => {
+        spawns += 1;
+        if (spawns === 1) {
+          setImmediate(() => watcher.stdout.write("ready\n"));
+          return watcher;
+        }
+        return marker;
+      }) as never,
+      readWindowsProcessSnapshot: vi.fn(() => JSON.stringify({
+        pid: marker.pid,
+        parentPid: fakeProcess.pid,
+        birth: String((BigInt(Date.now()) * 10_000n) + 116_444_737_000_000_000n),
+      })),
+    });
+    await runtime.testing.startWindowsProcessWatcher(Date.now() + 1_000);
+    const pending = runtime.testing.flushWindowsProcessWatcher(Date.now() + 1_000);
+    await waitFor(() => spawns === 2);
+    await expect(runtime.testing.cleanupEndpoint(Date.now() + 100)).rejects.toThrow("refused termination");
+    await expect(pending).rejects.toThrow("marker cleanup failed");
+    expect(marker.kill).toHaveBeenCalledOnce();
+  });
+
+  it.each(["exit", "start-failure"] as const)(
+    "reports an in-flight marker cleanup refusal during $mode handling",
+    async (mode) => {
+      const fakeProcess = new FakeProcess();
+      fakeProcess.platform = "win32";
+      const watcher = child(mode === "exit" ? 73_451 : 73_461);
+      const marker = child(mode === "exit" ? 73_452 : 73_462);
+      marker.kill.mockReturnValue(false);
+      let spawns = 0;
+      const runtime = createServiceSupervisorRuntime({
+        process: fakeProcess as unknown as NodeJS.Process,
+        spawn: vi.fn(() => {
+          spawns += 1;
+          if (spawns === 1) {
+            setImmediate(() => watcher.stdout.write("ready\n"));
+            return watcher;
+          }
+          return marker;
+        }) as never,
+        readWindowsProcessSnapshot: vi.fn(() => JSON.stringify({
+          pid: marker.pid,
+          parentPid: fakeProcess.pid,
+          birth: String((BigInt(Date.now()) * 10_000n) + 116_444_737_000_000_000n),
+        })),
+      });
+      await runtime.testing.startWindowsProcessWatcher(Date.now() + 1_000);
+      const pending = runtime.testing.flushWindowsProcessWatcher(Date.now() + 1_000);
+      await waitFor(() => spawns === 2);
+      if (mode === "exit") await runtime.testing.cleanupAndExit(0);
+      else await runtime.testing.reportStartFailure(new Error("controlled startup failure"));
+      await expect(pending).rejects.toThrow("marker cleanup failed");
+      expect(fakeProcess.exitCode).toBe(1);
+      expect(fakeProcess.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "supervisor-error",
+          status: expect.objectContaining({ error: expect.stringContaining("refused termination") }),
+        }),
+        expect.any(Function),
+      );
+    },
+  );
 
   it("fails closed on watcher EOF and creation-time regression before another marker is spawned", async () => {
     const fakeProcess = new FakeProcess();

@@ -74,6 +74,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -94,6 +95,23 @@ describe("four-service readiness", () => {
     ]));
     expect(mocks.markServicesReady).toHaveBeenCalledWith(handle);
     expect(mocks.terminateOwnedHandle).not.toHaveBeenCalled();
+  });
+
+  it("retries unavailable health after the bounded polling delay", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new Error("not ready"))
+      .mockRejectedValueOnce(new Error("not ready"))
+      .mockRejectedValueOnce(new Error("not ready"))
+      .mockRejectedValueOnce(new Error("not ready"))
+      .mockResolvedValue({ status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const readiness = waitForExistingServices(fixtureRegistry("http://fixture"), 2_000);
+    await vi.advanceTimersByTimeAsync(500);
+    await readiness;
+
+    expect(fetchMock).toHaveBeenCalledTimes(8);
   });
 
   it("lets an exact child early exit win the readiness race and cleans only the owned handle", async () => {

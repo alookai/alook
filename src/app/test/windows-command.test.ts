@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   createWindowsCommandInvocation,
+  resolveTrustedWindowsSystemExecutable,
   TRUSTED_WINDOWS_COMMAND_PROCESSOR,
+  TRUSTED_WINDOWS_POWERSHELL,
+  TRUSTED_WINDOWS_TASKKILL,
+  trustedWindowsAuthorityEnvironment,
 } from "../src/lib/windows-command.js";
 
 function filesystem(options: {
@@ -19,6 +23,42 @@ function filesystem(options: {
 }
 
 describe("trusted Windows command shim", () => {
+  it("resolves only canonical absolute built-in Windows authority executables", () => {
+    const fs = filesystem({
+      existing: [TRUSTED_WINDOWS_POWERSHELL, TRUSTED_WINDOWS_TASKKILL],
+      files: [TRUSTED_WINDOWS_POWERSHELL, TRUSTED_WINDOWS_TASKKILL],
+    });
+    expect(resolveTrustedWindowsSystemExecutable(TRUSTED_WINDOWS_POWERSHELL, fs))
+      .toBe(TRUSTED_WINDOWS_POWERSHELL);
+    expect(resolveTrustedWindowsSystemExecutable(TRUSTED_WINDOWS_TASKKILL, fs))
+      .toBe(TRUSTED_WINDOWS_TASKKILL);
+    expect(() => resolveTrustedWindowsSystemExecutable("powershell.exe", fs)).toThrow("is missing");
+    expect(() => resolveTrustedWindowsSystemExecutable(String.raw`C:\attacker\taskkill.exe`, fs))
+      .toThrow("is missing");
+  });
+
+  it("gives authority executables a fixed system environment without caller search paths", () => {
+    expect(trustedWindowsAuthorityEnvironment()).toEqual({
+      SystemRoot: String.raw`C:\Windows`,
+      WINDIR: String.raw`C:\Windows`,
+      ComSpec: TRUSTED_WINDOWS_COMMAND_PROCESSOR,
+      PSModulePath: String.raw`C:\Windows\System32\WindowsPowerShell\v1.0\Modules`,
+    });
+    expect(trustedWindowsAuthorityEnvironment()).not.toHaveProperty("PATH");
+  });
+
+  it("rejects authority executable realpath drift and non-regular files", () => {
+    expect(() => resolveTrustedWindowsSystemExecutable(TRUSTED_WINDOWS_POWERSHELL, filesystem({
+      existing: [TRUSTED_WINDOWS_POWERSHELL],
+      files: [String.raw`C:\attacker\powershell.exe`],
+      realpaths: { [TRUSTED_WINDOWS_POWERSHELL]: String.raw`C:\attacker\powershell.exe` },
+    }))).toThrow("canonical regular-file validation");
+    expect(() => resolveTrustedWindowsSystemExecutable(TRUSTED_WINDOWS_TASKKILL, filesystem({
+      existing: [TRUSTED_WINDOWS_TASKKILL],
+      files: [],
+    }))).toThrow("canonical regular-file validation");
+  });
+
   it("ignores every ComSpec casing and PATH-shadowed cmd.exe", () => {
     const shim = String.raw`C:\fake bin\npx.cmd`;
     const fakeCmd = String.raw`C:\attacker\cmd.exe`;
