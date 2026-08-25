@@ -1427,16 +1427,15 @@ export const AuditLogWakeTriggerPayloadSchema = z.object({
 export type AuditLogWakeTriggerPayload = z.infer<typeof AuditLogWakeTriggerPayloadSchema>;
 
 /**
- * `session_reset` payload — an owner-triggered reset that has actually
- * completed (written when the reborn agent's `agent_session` lands, not at
- * dispatch). `trigger` distinguishes a single-bot reset from a machine-wide
- * "reset all" so my-bots can label them. No `actorId`: reset is owner-only, so
- * the actor is the bot owner, resolved server-side at the landing — it never
- * travels on the wire. (Rows written before this shape carried `{}` and parse
- * to null, which the lenient client parser tolerates.)
+ * `session_reset` payload — a completed context reset. Owner-triggered single
+ * and batch resets are written when the reborn agent's `agent_session` lands;
+ * `idle_timeout` is emitted after the daemon commits its local six-hour reset
+ * barrier. No `actorId`: owner reset is owner-only and automatic reset has no
+ * human actor. (Rows written before this shape carried `{}` and parse to null,
+ * which the lenient client parser tolerates.)
  */
 export const AuditLogSessionResetPayloadSchema = z.object({
-  trigger: z.enum(["single", "reset_all"]),
+  trigger: z.enum(["single", "reset_all", "idle_timeout"]),
 });
 export type AuditLogSessionResetPayload = z.infer<typeof AuditLogSessionResetPayloadSchema>;
 
@@ -1515,15 +1514,44 @@ export const BotAuditEventKindSchema = z.enum([
 export type BotAuditEventKind = z.infer<typeof BotAuditEventKindSchema>;
 
 /**
- * `bot_audit_event` frame — daemon → server. Two producers on the daemon side
- * feed this (credential proxy sighting for `cli_invocation`, runtime event
- * stream for `tool_call` / `thinking`); ws-do stamps `createdAt` and inserts.
+ * `bot_audit_event` frame — daemon → server. Ordinary telemetry gets a server
+ * creation time. A reliable idle reset carries the durable local barrier time
+ * so delayed delivery cannot make Web Awake younger than the actual reset.
  */
 export const HostBotAuditEventFrameSchema = z.object({
   type: z.literal("bot_audit_event"),
+  eventId: z.string().min(1).max(128).optional(),
+  occurredAt: z.string().datetime({ offset: true }).optional(),
   agentId: z.string().min(1),
   sessionId: z.string().nullable().optional(),
   launchId: z.string().nullable().optional(),
   event: BotAuditEventSchema,
+}).superRefine((frame, ctx) => {
+  if (
+    frame.event.kind === "session_reset" &&
+    frame.event.payload.trigger === "idle_timeout" &&
+    (!frame.eventId || !frame.occurredAt)
+  ) {
+    if (!frame.eventId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["eventId"],
+        message: "eventId is required for idle_timeout session_reset",
+      });
+    }
+    if (!frame.occurredAt) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["occurredAt"],
+        message: "occurredAt is required for idle_timeout session_reset",
+      });
+    }
+  }
 });
 export type HostBotAuditEventFrame = z.infer<typeof HostBotAuditEventFrameSchema>;
+
+export const BotAuditEventAckFrameSchema = z.strictObject({
+  type: z.literal("bot_audit_event_ack"),
+  eventId: z.string().min(1).max(128),
+});
+export type BotAuditEventAckFrame = z.infer<typeof BotAuditEventAckFrameSchema>;

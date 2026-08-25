@@ -894,16 +894,21 @@ export type BotAuditEventPayload =
         model: string | null;
       };
     }
-  // Reset/nap completion events, emitted upward by the DO when the reborn
-  // agent's `agent_session` frame lands (not at dispatch). `trigger`
+  // Reset/nap completion events. Owner reset/nap are emitted by the DO when the
+  // reborn agent's `agent_session` frame lands; `idle_timeout` is emitted by
+  // the daemon only after its local six-hour reset barrier commits. `trigger`
   // distinguishes the entry-point so my-bots can read "was reset" vs "slept";
   // `actorId` never travels — it is the bot owner, resolved server-side at the
   // landing (reset is owner-only). See plans/reset-nap-completion-rehome.md.
-  | { kind: "session_reset"; payload: { trigger: "single" | "reset_all" } }
+  | { kind: "session_reset"; payload: { trigger: "single" | "reset_all" | "idle_timeout" } }
   | { kind: "nap"; payload: { trigger: "nap" } };
 
 export interface HostBotAuditEventFrame {
   type: "bot_audit_event";
+  /** Stable id for reliable events; required on `session_reset/idle_timeout`. */
+  eventId?: string;
+  /** Durable barrier completion time; required on `session_reset/idle_timeout`. */
+  occurredAt?: string;
   agentId: AgentId;
   sessionId?: string | null;
   launchId?: string | null;
@@ -986,9 +991,11 @@ export interface HostControlChannel {
    */
   reportAgentTypingStop?(info: { agentId: AgentId; channelId: string }): void;
   /**
-   * Report a bot audit event (cli_invocation | tool_call | thinking) upward.
-   * Optional so LocalControlChannel can omit — matches `reportAgentActivity?`
-   * convention. ws-do stamps `createdAt` and enforces the 500-row retention.
+   * Report a bot audit event upward. Automatic idle-reset completions are
+   * retained and replayed by the real WS channel until the server acknowledges
+   * their durable write; other audit events remain point-in-time. Optional so
+   * LocalControlChannel can omit — matches `reportAgentActivity?` convention.
+   * ws-do stamps `createdAt` and enforces the 500-row retention.
    */
   reportBotAuditEvent?(frame: HostBotAuditEventFrame): Promise<void>;
   /**

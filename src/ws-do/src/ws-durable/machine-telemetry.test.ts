@@ -46,6 +46,7 @@ import {
   mockStubFetch,
   mockToSummary,
   mockTouchBotRefreshContext,
+  mockTouchBotRefreshContextForAuditEventStatement,
   mockTouchMachineHeartbeat,
   mockUpdateProfile,
   mockUpsertMachineByMachineId,
@@ -469,7 +470,112 @@ describe("WebSocketDurableObject", () => {
       beforeEach(() => {
         mockGetBotBindingWithOwner.mockReset()
         mockInsertBotActivityEventAndPrune.mockReset()
+        mockTouchBotRefreshContext.mockReset().mockResolvedValue(undefined)
+        mockTouchBotRefreshContextForAuditEventStatement.mockReset().mockReturnValue({ __stmt: "touch-awake" })
         mockStubFetch.mockClear()
+      })
+
+      it("preserves the durable completion time when a reset is replayed two hours late", async () => {
+        const { durable, store } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "0".repeat(64),
+        })
+        mockGetBotBindingWithOwner.mockResolvedValue({
+          machineId: "cm_1",
+          runtime: "codex",
+          ownerUserId: "owner_1",
+          name: "Bot",
+          discriminator: "0007",
+        })
+        mockInsertBotActivityEventAndPrune.mockImplementation(async (_db, data) => ({
+          id: data.id,
+          createdAt: data.createdAt,
+        }))
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+        })
+        const occurredAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+
+        await durable.webSocketMessage(
+          ws as any,
+          JSON.stringify({
+            type: "bot_audit_event",
+            eventId: "bae_idle_reset",
+            occurredAt,
+            agentId: "bot_1",
+            sessionId: null,
+            launchId: null,
+            event: { kind: "session_reset", payload: { trigger: "idle_timeout" } },
+          }),
+        )
+
+        const [, insertData, extraStatements] = mockInsertBotActivityEventAndPrune.mock.calls[0]!
+        expect(insertData).toEqual({
+          id: "bae_idle_reset",
+          botId: "bot_1",
+          sessionId: null,
+          launchId: null,
+          kind: "session_reset",
+          payload: JSON.stringify({ trigger: "idle_timeout" }),
+          createdAt: occurredAt,
+        })
+        expect(mockTouchBotRefreshContextForAuditEventStatement).toHaveBeenCalledWith(
+          expect.anything(),
+          "bot_1",
+          "bae_idle_reset",
+          insertData.createdAt,
+        )
+        expect(extraStatements).toEqual([{ __stmt: "touch-awake" }])
+        const call = mockStubFetch.mock.calls.find((c: any[]) =>
+          (c[0] as Request).url.endsWith("/community-broadcast"),
+        )
+        expect(call).toBeDefined()
+        expect(JSON.parse(await (call![0] as Request).clone().text())).toMatchObject({
+          type: "community:bot.audit_event",
+          botId: "bot_1",
+          id: "bae_idle_reset",
+          kind: "session_reset",
+          payload: { trigger: "idle_timeout" },
+          createdAt: insertData.createdAt,
+        })
+        expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+          type: "bot_audit_event_ack",
+          eventId: "bae_idle_reset",
+        }))
+      })
+
+      it("rejects an idle-reset completion timestamp beyond the future-skew bound", async () => {
+        const { durable, store } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "0".repeat(64),
+        })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+        })
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "bot_audit_event",
+          eventId: "bae_future_reset",
+          occurredAt: new Date(Date.now() + 6 * 60 * 1000).toISOString(),
+          agentId: "bot_1",
+          event: { kind: "session_reset", payload: { trigger: "idle_timeout" } },
+        }))
+
+        expect(mockGetBotBindingWithOwner).not.toHaveBeenCalled()
+        expect(mockInsertBotActivityEventAndPrune).not.toHaveBeenCalled()
+        expect(ws.send).not.toHaveBeenCalled()
       })
 
       it("inserts + prunes atomically and notifies the OWNER only when the machine owns the bot", async () => {
@@ -490,6 +596,7 @@ describe("WebSocketDurableObject", () => {
           id: "bae_abc",
           createdAt: "2025-01-01T00:00:00.000Z",
         })
+        expect(mockTouchBotRefreshContext).not.toHaveBeenCalled()
 
         const ws = createMockWebSocket()
         ws.serializeAttachment({
@@ -518,6 +625,7 @@ describe("WebSocketDurableObject", () => {
             kind: "tool_call",
             payload: JSON.stringify({ name: "Read" }),
           }),
+          [],
         )
         // Owner is notified via notifyUserDO — request goes to `user:owner_1`
         // and the payload carries the full audit event including createdAt
@@ -575,6 +683,7 @@ describe("WebSocketDurableObject", () => {
         await durable.webSocketMessage(ws as any, frame)
 
         expect(mockInsertBotActivityEventAndPrune).not.toHaveBeenCalled()
+        expect(mockTouchBotRefreshContext).not.toHaveBeenCalled()
         expect(mockStubFetch).not.toHaveBeenCalled()
       })
 
@@ -638,10 +747,50 @@ describe("WebSocketDurableObject", () => {
         })
         await durable.webSocketMessage(ws as any, frame)
 
+        expect(mockTouchBotRefreshContext).not.toHaveBeenCalled()
         expect(mockStubFetch).not.toHaveBeenCalled()
       })
 
-      it("drops the frame with phase='write' when the insert throws — socket stays open, no fan-out", async () => {
+      it("acks an idempotent idle-reset retry without a second Awake write or broadcast", async () => {
+        const { durable, store } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "0".repeat(64),
+        })
+        mockGetBotBindingWithOwner.mockResolvedValue({
+          machineId: "cm_1",
+          runtime: "codex",
+          ownerUserId: "owner_1",
+          name: "Bot",
+          discriminator: "0007",
+        })
+        mockInsertBotActivityEventAndPrune.mockResolvedValue(null)
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+        })
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "bot_audit_event",
+          eventId: "bae_idle_reset",
+          occurredAt: new Date().toISOString(),
+          agentId: "bot_1",
+          event: { kind: "session_reset", payload: { trigger: "idle_timeout" } },
+        }))
+
+        expect(mockInsertBotActivityEventAndPrune).toHaveBeenCalledOnce()
+        expect(mockStubFetch).not.toHaveBeenCalled()
+        expect(ws.send).toHaveBeenCalledExactlyOnceWith(JSON.stringify({
+          type: "bot_audit_event_ack",
+          eventId: "bae_idle_reset",
+        }))
+      })
+
+      it("keeps a failed atomic idle-reset batch unacked with no fan-out", async () => {
         // This is the ws_frame_dropped_write category — the audit-loss SLO
         // signal. The DO must NOT close the socket, and no owner fan-out
         // should be emitted (the row was never persisted).
@@ -670,12 +819,15 @@ describe("WebSocketDurableObject", () => {
 
         const frame = JSON.stringify({
           type: "bot_audit_event",
+          eventId: "bae_idle_reset",
+          occurredAt: new Date().toISOString(),
           agentId: "bot_1",
-          event: { kind: "tool_call", payload: { name: "Read" } },
+          event: { kind: "session_reset", payload: { trigger: "idle_timeout" } },
         })
         await durable.webSocketMessage(ws as any, frame)
 
         expect(mockStubFetch).not.toHaveBeenCalled()
+        expect(ws.send).not.toHaveBeenCalled()
         expect(ws.close as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
       })
     })

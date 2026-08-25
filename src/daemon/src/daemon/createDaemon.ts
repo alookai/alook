@@ -427,6 +427,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       | { kind: "cli_invocation"; payload: { subcommand: string } }
       | { kind: "tool_call"; payload: { name: string; target?: string } }
       | { kind: "thinking"; payload: { text: string; truncated: boolean; chars: number } }
+      | { kind: "session_reset"; payload: { trigger: "idle_timeout" } }
       | {
           kind: "error";
           payload: {
@@ -436,10 +437,17 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
             model: string | null;
           };
         },
-    context?: { sessionId?: string | null; launchId?: string | null }
+    context?: {
+      sessionId?: string | null;
+      launchId?: string | null;
+      eventId?: string;
+      occurredAt?: string;
+    }
   ) => {
     void channelRef?.reportBotAuditEvent?.({
       type: "bot_audit_event",
+      ...(context?.eventId ? { eventId: context.eventId } : {}),
+      ...(context?.occurredAt ? { occurredAt: context.occurredAt } : {}),
       agentId,
       sessionId: context?.sessionId ?? null,
       launchId: context?.launchId ?? null,
@@ -615,6 +623,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         ownerName: b.ownerName,
         ownerDiscriminator: b.ownerDiscriminator,
       });
+      restorePendingIdleResetEvents(b.id);
     }
     botCacheReady = true;
   }
@@ -732,9 +741,25 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     headers: { Authorization: `Bearer ${opts.machineKey}` },
     webSocketFactory: opts.webSocketFactory as never,
     onAuthRejected: opts.onAuthRejected,
+    onBotAuditEventAck: ({ agentId, eventId }) =>
+      timeline.acknowledgeIdleResetEvent(agentId, eventId),
     logger: log.child("ws"),
   });
   channelRef = channel;
+
+  function restorePendingIdleResetEvents(agentId: string): void {
+    for (const pending of timeline.pendingIdleResetEvents(agentId)) {
+      channel.restorePendingBotAuditEvent({
+        type: "bot_audit_event",
+        eventId: pending.eventId,
+        occurredAt: pending.occurredAt,
+        agentId,
+        sessionId: null,
+        launchId: null,
+        event: { kind: "session_reset", payload: { trigger: "idle_timeout" } },
+      });
+    }
+  }
 
   // Cache-side handler for bot:* frames. Runs BEFORE AgentRouter sees them,
   // via a channel wrapper (registered below).
@@ -748,6 +773,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
           ownerName: cmd.ownerName,
           ownerDiscriminator: cmd.ownerDiscriminator,
         });
+        restorePendingIdleResetEvents(cmd.botId);
         log.debug("bot:added", { botId: cmd.botId, name: cmd.name });
         break;
       case "bot:updated": {

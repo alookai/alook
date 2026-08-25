@@ -317,6 +317,7 @@ describe("AgentProcessManager — idle session reset", () => {
   it("persists an exact reset barrier and clears the local session without waking an idle agent", () => {
     const forgetSession = vi.fn(() => true);
     const sessionFactory = vi.fn();
+    const onBotAuditEvent = vi.fn();
     const mgr = new AgentProcessManager({
       driverFor: () => fakeDriver("codex"),
       baseContextFor: () => ({
@@ -329,20 +330,34 @@ describe("AgentProcessManager — idle session reset", () => {
       sessionFactory,
       timeline: { ...exactTimelineLifecycleStub(), forgetSession } as never,
       now: () => 123,
+      onBotAuditEvent,
     });
     mgr.register("a1");
     const internal = mgr as unknown as { applyEffect(effect: object): void };
 
     internal.applyEffect({ type: "reset_idle_session", agentId: "a1", sessionId: "sess-old" });
 
-    expect(forgetSession).toHaveBeenCalledWith("a1", "reset_session", "sess-old");
+    const completion = forgetSession.mock.calls[0]![3];
+    expect(forgetSession).toHaveBeenCalledWith(
+      "a1",
+      "reset_session",
+      "sess-old",
+      { eventId: expect.stringMatching(/^bae_/), occurredAt: "1970-01-01T00:00:00.123Z" },
+    );
     expect(sessionFactory).not.toHaveBeenCalled();
+    expect(onBotAuditEvent).toHaveBeenCalledOnce();
+    expect(onBotAuditEvent).toHaveBeenCalledWith(
+      "a1",
+      { kind: "session_reset", payload: { trigger: "idle_timeout" } },
+      { sessionId: null, launchId: null, ...completion },
+    );
     expect(mgr.snapshot().agents.a1).toMatchObject({ status: "idle", sessionId: null, idleSince: null });
   });
 
   it("defers the reset and leaves state retryable when the barrier cannot be persisted", () => {
     const logger = stubLogger();
     const forgetSession = vi.fn(() => false);
+    const onBotAuditEvent = vi.fn();
     const mgr = new AgentProcessManager({
       driverFor: () => fakeDriver("codex"),
       baseContextFor: () => ({
@@ -354,6 +369,7 @@ describe("AgentProcessManager — idle session reset", () => {
       }),
       timeline: { ...exactTimelineLifecycleStub(), forgetSession } as never,
       logger,
+      onBotAuditEvent,
     });
     mgr.register("a1");
     const before = mgr.snapshot();
@@ -363,6 +379,12 @@ describe("AgentProcessManager — idle session reset", () => {
     internal.applyEffect({ type: "reset_idle_session", agentId: "a1", sessionId: "sess-old" });
 
     expect(forgetSession).toHaveBeenCalledTimes(2);
+    expect(
+      onBotAuditEvent.mock.calls.filter(([, event]) => event.kind === "session_reset"),
+    ).toHaveLength(0);
+    expect(
+      onBotAuditEvent.mock.calls.filter(([, event]) => event.kind === "error"),
+    ).toHaveLength(2);
     expect(mgr.snapshot()).toBe(before);
     expect(logger.calls.error.map(([message]) => message)).toEqual([
       "idle session reset barrier was not persisted; reset deferred",
@@ -407,7 +429,12 @@ describe("AgentProcessManager — idle session reset", () => {
     };
     internal.applyEffect({ type: "reset_idle_session", agentId: "a1", sessionId: "sess-old" });
 
-    expect(forgetSession).toHaveBeenCalledWith("a1", "reset_session", "sess-old");
+    expect(forgetSession).toHaveBeenCalledWith(
+      "a1",
+      "reset_session",
+      "sess-old",
+      { eventId: expect.stringMatching(/^bae_/), occurredAt: "1970-01-01T00:00:00.123Z" },
+    );
     expect(internal.activeSpawnState.get("a1")?.discardEvents).toBe(true);
     expect(session.stop).toHaveBeenCalledWith({ reason: "idle_timeout", forceAfterMs: 2_000 });
     expect(mgr.snapshot().agents.a1.sessionId).toBeNull();

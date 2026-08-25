@@ -310,6 +310,97 @@ describe("WsControlChannel — bot audit event reports", () => {
     ).resolves.toBeUndefined();
     expect(sockets[0].frames().some((f) => f.type === "bot_audit_event")).toBe(false);
   });
+
+  it("replays a disconnected idle reset and clears it only after the server ack", async () => {
+    const { ch, sockets } = makeChannel();
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.connect();
+
+    await ch.reportBotAuditEvent({
+      type: "bot_audit_event",
+      eventId: "bae_disconnected",
+      occurredAt: "2026-08-25T14:00:00.000Z",
+      agentId: "bot_1",
+      sessionId: null,
+      launchId: null,
+      event: { kind: "session_reset", payload: { trigger: "idle_timeout" } },
+    });
+    expect(sockets[0].frames().some((f) => f.type === "bot_audit_event")).toBe(false);
+
+    sockets[0].emit("open");
+    const first = sockets[0].frames().find((f) => f.type === "bot_audit_event");
+    expect(first).toMatchObject({
+      agentId: "bot_1",
+      sessionId: null,
+      launchId: null,
+      event: { kind: "session_reset", payload: { trigger: "idle_timeout" } },
+    });
+    expect(first.eventId).toBe("bae_disconnected");
+
+    sockets[0].emit("message", JSON.stringify({
+      type: "bot_audit_event_ack",
+      eventId: first.eventId,
+    }));
+    sockets[0].emit("close");
+    await new Promise((r) => setTimeout(r, 10));
+    sockets[1].emit("open");
+    expect(sockets[1].frames().some((f) => f.type === "bot_audit_event")).toBe(false);
+  });
+
+  it("retries the same idle-reset event id when the socket drops before ack", async () => {
+    const { ch, sockets } = makeChannel();
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.connect();
+    sockets[0].emit("open");
+
+    await ch.reportBotAuditEvent({
+      type: "bot_audit_event",
+      eventId: "bae_before_ack",
+      occurredAt: "2026-08-25T14:00:00.000Z",
+      agentId: "bot_1",
+      event: { kind: "session_reset", payload: { trigger: "idle_timeout" } },
+    });
+    const first = sockets[0].frames().find((f) => f.type === "bot_audit_event");
+
+    sockets[0].emit("close");
+    await new Promise((r) => setTimeout(r, 10));
+    sockets[1].emit("open");
+    const replay = sockets[1].frames().find((f) => f.type === "bot_audit_event");
+    expect(replay).toEqual(first);
+  });
+
+  it("retries on an open socket after the ack timeout and stops after ack", async () => {
+    vi.useFakeTimers();
+    try {
+      const onBotAuditEventAck = vi.fn(() => true);
+      const { ch, sockets } = makeChannel({ auditAckRetryMs: 100, onBotAuditEventAck });
+      ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+      ch.connect();
+      sockets[0].emit("open");
+      await ch.reportBotAuditEvent({
+        type: "bot_audit_event",
+        eventId: "bae_no_ack",
+        occurredAt: "2026-08-25T14:00:00.000Z",
+        agentId: "bot_1",
+        event: { kind: "session_reset", payload: { trigger: "idle_timeout" } },
+      });
+
+      expect(sockets[0].frames().filter((f) => f.eventId === "bae_no_ack")).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(sockets[0].frames().filter((f) => f.eventId === "bae_no_ack")).toHaveLength(2);
+
+      sockets[0].emit("message", JSON.stringify({
+        type: "bot_audit_event_ack",
+        eventId: "bae_no_ack",
+      }));
+      expect(onBotAuditEventAck).toHaveBeenCalledWith({ agentId: "bot_1", eventId: "bae_no_ack" });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(sockets[0].frames().filter((f) => f.eventId === "bae_no_ack")).toHaveLength(2);
+      ch.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("WsControlChannel — HTTP 401s are non-terminal", () => {
