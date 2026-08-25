@@ -15,6 +15,7 @@ describe("writeStatusFile (batch E2 — atomic daemon status snapshot)", () => {
 
   const snap: DaemonStatusSnapshot = {
     writtenAt: 1000,
+    agentSummary: { total: 3, running: 1 },
     agents: [
       { agentId: "a1", status: "running", derivedActivity: "idle", turnActive: false, inbox: 0, sinceProgressMs: 42, stoppingSince: null },
     ],

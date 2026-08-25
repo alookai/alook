@@ -757,6 +757,215 @@ for await (const line of createInterface({ input: process.stdin })) {
     }
   });
 
+  it("writes machine-bound bot totals after warmup and keeps bot pushes in sync", async () => {
+    vi.useFakeTimers();
+    const sockets: FakeSocket[] = [];
+    const root = mkdtempSync(join(tmpdir(), "daemon-status-summary-"));
+    startupSweepDirs.push(root);
+    const statusFilePath = join(root, "status.json");
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL) => {
+      if (String(url).includes("/api/community/daemon/bots")) {
+        return Response.json({
+          bots: [
+            { id: "bot_1", name: "One", discriminator: "0001" },
+            { id: "bot_2", name: "Two", discriminator: "0002" },
+          ],
+        });
+      }
+      return Response.json({});
+    }));
+
+    const daemon = await createDaemon({
+      machineKey: "cmk_status_summary",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as never,
+      runtimeReport: [],
+      driverFor: () => fakeDriver,
+      capabilities: [],
+      statusFilePath,
+      workingDirectoryBase: root,
+      tickIntervalMs: 1_000_000,
+    });
+
+    try {
+      expect(JSON.parse(readFileSync(statusFilePath, "utf8")).agentSummary).toEqual({
+        total: null,
+        running: 0,
+      });
+
+      sockets[0].emit("open");
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(JSON.parse(readFileSync(statusFilePath, "utf8")).agentSummary).toEqual({
+        total: 2,
+        running: 0,
+      });
+
+      sockets[0].emit("message", JSON.stringify({
+        type: "bot:added",
+        botId: "bot_3",
+        name: "Three",
+        discriminator: "0003",
+      }));
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(JSON.parse(readFileSync(statusFilePath, "utf8")).agentSummary.total).toBe(3);
+
+      sockets[0].emit("message", JSON.stringify({ type: "bot:removed", botId: "bot_2" }));
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(JSON.parse(readFileSync(statusFilePath, "utf8")).agentSummary.total).toBe(2);
+    } finally {
+      await daemon.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts manager-owned sessions across bot removal and physical exit", async () => {
+    vi.useFakeTimers();
+    const sockets: FakeSocket[] = [];
+    const sessions: DaemonFakeSession[] = [];
+    const root = mkdtempSync(join(tmpdir(), "daemon-status-running-"));
+    startupSweepDirs.push(root);
+    mkdirSync(join(root, "bot_1"));
+    mkdirSync(join(root, "bot_2"));
+    const statusFilePath = join(root, "status.json");
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/api/community/daemon/bots")) {
+        return Response.json({
+          bots: [
+            { id: "bot_1", name: "One", discriminator: "0001" },
+            { id: "bot_2", name: "Two", discriminator: "0002" },
+          ],
+        });
+      }
+      if (url.includes("/api/community/daemon/enroll-agent")) {
+        return Response.json({ runnerKey: "runner_test" });
+      }
+      return Response.json({ attempted: 0 });
+    }));
+
+    const daemon = await createDaemon({
+      machineKey: "cmk_status_running",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as never,
+      runtimeReport: [{ id: "codex" }],
+      driverFor: () => fullFakeDriver("codex"),
+      sessionFactory: () => {
+        const session = daemonFakeSession();
+        sessions.push(session);
+        return session;
+      },
+      capabilities: [],
+      statusFilePath,
+      workingDirectoryBase: root,
+      tickIntervalMs: 1_000_000,
+    });
+    const summary = () => JSON.parse(readFileSync(statusFilePath, "utf8")).agentSummary;
+    const wake = (agentId: string, latestSeq: number) => sockets[0].emit("message", JSON.stringify({
+      type: "agent:wake",
+      agentId,
+      config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
+      launchId: `launch_${latestSeq}`,
+      unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq },
+    }));
+
+    try {
+      sockets[0].emit("open");
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(summary()).toEqual({ total: 2, running: 0 });
+
+      wake("bot_1", 1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(sessions).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(summary()).toEqual({ total: 2, running: 1 });
+
+      sockets[0].emit("message", JSON.stringify({ type: "bot:removed", botId: "bot_1" }));
+      await vi.advanceTimersByTimeAsync(1);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(summary()).toEqual({ total: 1, running: 0 });
+
+      wake("bot_2", 2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(sessions).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(summary()).toEqual({ total: 1, running: 1 });
+
+      await sessions[1]!.fire("exit");
+      await vi.advanceTimersByTimeAsync(1);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(summary()).toEqual({ total: 1, running: 0 });
+    } finally {
+      await daemon.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("marks a deferred roster fetch authoritative after warmup exhaustion", async () => {
+    vi.useFakeTimers();
+    const sockets: FakeSocket[] = [];
+    const sessions: DaemonFakeSession[] = [];
+    const root = mkdtempSync(join(tmpdir(), "daemon-status-deferred-roster-"));
+    startupSweepDirs.push(root);
+    mkdirSync(join(root, "bot_1"));
+    const statusFilePath = join(root, "status.json");
+    let allowRoster = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/api/community/daemon/bots")) {
+        return allowRoster
+          ? Response.json({ bots: [{ id: "bot_1", name: "One", discriminator: "0001" }] })
+          : Response.json({ error: "unavailable" }, { status: 503 });
+      }
+      if (url.includes("/api/community/daemon/enroll-agent")) {
+        return Response.json({ runnerKey: "runner_test" });
+      }
+      return Response.json({ attempted: 0 });
+    }));
+
+    const daemon = await createDaemon({
+      machineKey: "cmk_status_deferred_roster",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as never,
+      runtimeReport: [{ id: "codex" }],
+      driverFor: () => fullFakeDriver("codex"),
+      sessionFactory: () => {
+        const session = daemonFakeSession();
+        sessions.push(session);
+        return session;
+      },
+      capabilities: [],
+      statusFilePath,
+      workingDirectoryBase: root,
+      tickIntervalMs: 1_000_000,
+    });
+    const summary = () => JSON.parse(readFileSync(statusFilePath, "utf8")).agentSummary;
+
+    try {
+      sockets[0].emit("open");
+      await vi.advanceTimersByTimeAsync(35_000);
+      expect(summary()).toEqual({ total: null, running: 0 });
+
+      allowRoster = true;
+      sockets[0].emit("message", JSON.stringify({
+        type: "agent:wake",
+        agentId: "bot_1",
+        config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
+        launchId: "launch_deferred",
+        unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
+      }));
+      await vi.advanceTimersByTimeAsync(1);
+      expect(sessions).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(summary()).toEqual({ total: 1, running: 1 });
+    } finally {
+      await daemon.stop();
+      vi.useRealTimers();
+    }
+  });
+
   it("consumes diagnostics before Router and invokes the injected handler once", async () => {
     const sockets: FakeSocket[] = [];
     const routerEntry = spyOnRouterCommandEntry();
