@@ -78,7 +78,7 @@ describe("ProfileCard contextual metadata", () => {
     expect(html).not.toContain("community-bot-audit-preview")
   })
 
-  it("mounts the fixed secondary preview only for the owning viewer", () => {
+  it("mounts the content-sized secondary preview only for the owning viewer", () => {
     const html = renderProfile({
       identity: {
         kind: "bot",
@@ -88,7 +88,7 @@ describe("ProfileCard contextual metadata", () => {
     })
 
     expect(html).toContain('data-testid="community-bot-audit-preview"')
-    expect(html).toContain("h-40")
+    expect(html).not.toContain("h-40")
   })
 
   it("wraps owner metadata and exposes a full accessible label while truncating long handles", () => {
