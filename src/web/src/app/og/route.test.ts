@@ -3,12 +3,21 @@ import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { NextRequest } from "next/server"
 import { OG_LOGO_DATA_URI } from "./og-logo"
+import { getOgTitlePresentation, OG_TITLE_LINE_CLAMP, OG_TITLE_MAX_LINES } from "./og-title"
 import { GET } from "./route"
 
 type DecodedPng = {
   width: number
   height: number
   rgba: Uint8Array
+}
+
+type PixelBounds = {
+  minX: number
+  maxX: number
+  minY: number
+  maxY: number
+  count: number
 }
 
 function paeth(left: number, above: number, upperLeft: number): number {
@@ -79,6 +88,39 @@ function decodeRgbaPng(png: Uint8Array): DecodedPng {
   return { width, height, rgba }
 }
 
+function colorBounds(
+  decoded: DecodedPng,
+  color: readonly [number, number, number],
+  region: { minX: number; maxX: number; minY: number; maxY: number },
+  tolerance = 12,
+): PixelBounds | null {
+  let minX = decoded.width
+  let maxX = -1
+  let minY = decoded.height
+  let maxY = -1
+  let count = 0
+
+  for (let y = region.minY; y <= region.maxY; y += 1) {
+    for (let x = region.minX; x <= region.maxX; x += 1) {
+      const index = (y * decoded.width + x) * 4
+      const distance = Math.hypot(
+        decoded.rgba[index] - color[0],
+        decoded.rgba[index + 1] - color[1],
+        decoded.rgba[index + 2] - color[2],
+      )
+      if (distance <= tolerance) {
+        minX = Math.min(minX, x)
+        maxX = Math.max(maxX, x)
+        minY = Math.min(minY, y)
+        maxY = Math.max(maxY, y)
+        count += 1
+      }
+    }
+  }
+
+  return count > 0 ? { minX, maxX, minY, maxY, count } : null
+}
+
 describe("OG image", () => {
   it("embeds the checked-in raster logo instead of requesting the public SVG", () => {
     const [prefix, payload] = OG_LOGO_DATA_URI.split(",", 2)
@@ -125,4 +167,88 @@ describe("OG image", () => {
     for (const count of hits) expect(count).toBeGreaterThan(20)
     expect(hits.reduce((sum, count) => sum + count, 0)).toBeGreaterThan(4_000)
   })
+
+  it("keeps short, medium, long, and unbroken titles within two non-overlapping lines", async () => {
+    const cases = [
+      {
+        name: "short",
+        title: "Bring your agents",
+        expectedFontSize: 52,
+        maxTitleHeight: 65,
+      },
+      {
+        name: "medium",
+        title: "How to Coordinate Multiple AI Agents Across Teams Without Losing Context, Duplicating Work, or Missing Approvals",
+        expectedFontSize: 44,
+        maxTitleHeight: 103,
+      },
+      {
+        name: "long",
+        title: "How to Coordinate Multiple AI Agents Across Teams Without Losing Context, Duplicating Work, Missing Approvals, or Breaking Shared Workflows in a Fast-Moving Organization While Keeping Every Decision Visible and Reviewable",
+        expectedFontSize: 38,
+        maxTitleHeight: 90,
+      },
+      {
+        name: "unbroken",
+        title: "THISISONEEXTREMELYLONGUNBROKENSTRINGWITHOUTANYSPACESORBREAKPOINTSTHATKEEPSGOINGANDGOINGANDGOINGANDGOINGANDGOINGANDGOINGANDGOING",
+        expectedFontSize: 38,
+        maxTitleHeight: 90,
+      },
+    ]
+
+    expect(OG_TITLE_MAX_LINES).toBe(2)
+    expect(OG_TITLE_LINE_CLAMP).toBe('2 "…"')
+
+    for (const testCase of cases) {
+      const presentation = getOgTitlePresentation(testCase.title)
+      expect(presentation).toEqual({
+        fontSize: testCase.expectedFontSize,
+        lineClamp: '2 "…"',
+      })
+
+      const request = new NextRequest(`http://localhost/og?title=${encodeURIComponent(testCase.title)}`)
+      const response = await GET(request)
+      expect(response.status, testCase.name).toBe(200)
+      const decoded = decodeRgbaPng(new Uint8Array(await response.arrayBuffer()))
+      expect([decoded.width, decoded.height], testCase.name).toEqual([1200, 630])
+
+      const titleBounds = colorBounds(decoded, [42, 35, 26], {
+        minX: 70,
+        maxX: 740,
+        minY: 280,
+        maxY: 430,
+      })
+      const subtitleBounds = colorBounds(decoded, [138, 126, 110], {
+        minX: 70,
+        maxX: 740,
+        minY: 400,
+        maxY: 560,
+      })
+      const logoBounds = colorBounds(decoded, [255, 153, 21], {
+        minX: 70,
+        maxX: 210,
+        minY: 80,
+        maxY: 360,
+      })
+      const typewriterBounds = colorBounds(decoded, [184, 169, 142], {
+        minX: 740,
+        maxX: 1120,
+        minY: 220,
+        maxY: 520,
+      })
+
+      expect(titleBounds, testCase.name).not.toBeNull()
+      expect(subtitleBounds, testCase.name).not.toBeNull()
+      expect(logoBounds, testCase.name).not.toBeNull()
+      expect(typewriterBounds, testCase.name).not.toBeNull()
+      if (!titleBounds || !subtitleBounds || !logoBounds || !typewriterBounds) continue
+
+      expect(titleBounds.maxY - titleBounds.minY + 1, testCase.name)
+        .toBeLessThanOrEqual(testCase.maxTitleHeight)
+      expect(titleBounds.maxX, testCase.name).toBeLessThan(710)
+      expect(titleBounds.minY - logoBounds.maxY, testCase.name).toBeGreaterThanOrEqual(24)
+      expect(subtitleBounds.minY - titleBounds.maxY, testCase.name).toBeGreaterThanOrEqual(16)
+      expect(typewriterBounds.minX - titleBounds.maxX, testCase.name).toBeGreaterThanOrEqual(40)
+    }
+  }, 20_000)
 })

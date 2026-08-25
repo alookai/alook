@@ -2,6 +2,7 @@ import { ImageResponse } from "next/og";
 import type { NextRequest } from "next/server";
 import { BRAND_SLOGAN } from "@/lib/brand-copy";
 import { OG_LOGO_DATA_URI } from "./og-logo";
+import { getOgTitlePresentation } from "./og-title";
 
 async function loadFont(): Promise<ArrayBuffer | null> {
   try {
@@ -125,6 +126,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
     const title = searchParams.get("title") || BRAND_SLOGAN;
+    const titlePresentation = getOgTitlePresentation(title);
 
     const fontData = await loadFont();
 
@@ -146,7 +148,10 @@ export async function GET(request: NextRequest) {
               display: "flex",
               flexDirection: "column",
               justifyContent: "center",
-              flex: 1,
+              boxSizing: "border-box",
+              width: 660,
+              flexShrink: 0,
+              overflow: "hidden",
               paddingRight: 60,
             }}
           >
@@ -162,7 +167,20 @@ export async function GET(request: NextRequest) {
                 alook.ai
               </span>
             </div>
-            <div style={{ display: "flex", fontSize: 52, fontWeight: 600, color: "#2a231a", lineHeight: 1.15 }}>
+            <div
+              style={{
+                display: "block",
+                fontSize: titlePresentation.fontSize,
+                fontWeight: 600,
+                color: "#2a231a",
+                lineHeight: 1.15,
+                lineClamp: titlePresentation.lineClamp,
+                width: "100%",
+                maxWidth: 600,
+                overflow: "hidden",
+                wordBreak: "break-word",
+              }}
+            >
               {title}
             </div>
             <div style={{ display: "flex", fontSize: 22, color: "#8a7e6e", marginTop: 20 }}>
@@ -177,6 +195,7 @@ export async function GET(request: NextRequest) {
               alignItems: "center",
               justifyContent: "center",
               width: 380,
+              flexShrink: 0,
             }}
           >
             <TypewriterIllustration />
