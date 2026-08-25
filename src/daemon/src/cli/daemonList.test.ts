@@ -162,6 +162,37 @@ describe("daemonList — C0 per-daemon subdir layout + multi-daemon isolation", 
     expect(row!.running).toBe(4); // only the working ones → renders "4/6"
   });
 
+  it("prefers authoritative machine counts over conflicting historical FSM rows", () => {
+    const id = "cm_summary_wins";
+    writeDaemon(id, process.pid, 6, Date.now(), 5);
+    const statusPath = path.join(baseDir, "daemons", id, "status.json");
+    const snapshot = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+    fs.writeFileSync(statusPath, JSON.stringify({
+      ...snapshot,
+      agentSummary: { total: 4, running: 2 },
+    }));
+
+    const row = daemonList({ baseDir }).find((item) => item.id === id);
+    expect(row).toMatchObject({ agents: 4, running: 2 });
+    expect(renderDaemonList([row!])).toContain("2/4");
+  });
+
+  it("renders unknown instead of a false zero before the bot roster is loaded", () => {
+    const id = "cm_summary_unknown";
+    writeDaemon(id, process.pid, 3, Date.now(), 3);
+    const statusPath = path.join(baseDir, "daemons", id, "status.json");
+    const snapshot = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+    fs.writeFileSync(statusPath, JSON.stringify({
+      ...snapshot,
+      agentSummary: { total: null, running: 0 },
+    }));
+
+    const row = daemonList({ baseDir }).find((item) => item.id === id);
+    expect(row).toMatchObject({ agents: null, running: 0 });
+    expect(renderDaemonList([row!])).toContain("—");
+    expect(renderDaemonList([row!])).not.toContain("0/0");
+  });
+
   it("TWO daemons each show their OWN agent count — not the last writer's (the multi-daemon bug fix)", () => {
     // The pre-C0 bug: a single global status.json meant both rows showed the
     // last writer's count. Per-key subdir status → each row is its own.

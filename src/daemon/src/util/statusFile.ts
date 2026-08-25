@@ -23,6 +23,19 @@ import { writeFileSync, renameSync } from "node:fs";
 export interface DaemonStatusSnapshot {
   /** ms epoch when this snapshot was written — the reader flags its age. */
   writtenAt: number;
+  /**
+   * Authoritative machine-level counts for `daemon list`.
+   *
+   * `total` is null until the daemon has loaded its machine-scoped bot roster;
+   * reporting zero before that point would turn an unknown into a lie.
+   * `running` comes from the process manager's owned physical sessions.
+   *
+   * Optional for compatibility with snapshots written by older daemons.
+   */
+  agentSummary?: {
+    total: number | null;
+    running: number;
+  };
   agents: Array<{
     agentId: string;
     status: string;

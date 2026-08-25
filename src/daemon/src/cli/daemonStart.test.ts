@@ -59,13 +59,14 @@ describe("daemonStatus — reads snapshot + always flags freshness (batch E2)", 
   // Per-key layout (C0): status lives at daemons/<id>/status.json.
   const ID = "cm_status_test_123";
   const daemonSubdir = () => path.join(baseDir, "daemons", ID);
-  const writeSnap = (writtenAt: number) => {
+  const writeSnap = (writtenAt: number, agentSummary?: { total: number | null; running: number }) => {
     const dir = daemonSubdir();
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
       path.join(dir, "status.json"),
       JSON.stringify({
         writtenAt,
+        ...(agentSummary ? { agentSummary } : {}),
         agents: [
           { agentId: "a1", status: "running", derivedActivity: "idle", turnActive: false, inbox: 0, sinceProgressMs: 10, stoppingSince: null },
         ],
@@ -81,13 +82,21 @@ describe("daemonStatus — reads snapshot + always flags freshness (batch E2)", 
   });
 
   it("recent snapshot → 'fresh' with the agent projection + age", () => {
-    writeSnap(1000);
+    writeSnap(1000, { total: 4, running: 2 });
     const r = daemonStatus({ id: ID, baseDir, now: () => 3000 }); // 2s old
     expect(r.found).toBe(true);
     expect(r.freshness).toBe("fresh");
     expect(r.ageMs).toBe(2000);
+    expect(r.agentSummary).toEqual({ total: 4, running: 2 });
     expect(r.agents[0]?.agentId).toBe("a1");
     expect(r.agents[0]?.derivedActivity).toBe("idle");
+  });
+
+  it("keeps an unknown authoritative total distinct from zero", () => {
+    writeSnap(1000, { total: null, running: 0 });
+    const r = daemonStatus({ id: ID, baseDir, now: () => 1000 });
+
+    expect(r.agentSummary).toEqual({ total: null, running: 0 });
   });
 
   it("recent snapshot resolvable WITHOUT an id when only one daemon exists (auto-pick)", () => {
