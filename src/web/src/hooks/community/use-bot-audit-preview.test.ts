@@ -109,6 +109,17 @@ describe("useBotAuditPreview", () => {
     ])
   })
 
+  it("orders equal timestamps by descending event id", async () => {
+    apiFetch.mockResolvedValueOnce({
+      events: [event("e1", 1), event("e3", 1), event("e2", 1)],
+      nextCursor: null,
+    })
+    const { result } = renderHook("b1")
+    await flush()
+
+    expect(result.current.events.map((item) => item.id)).toEqual(["e3", "e2", "e1"])
+  })
+
   it("reports authoritative 404s so a stale owned card can hide the preview", async () => {
     apiFetch.mockRejectedValueOnce(new ApiError("not found", 404))
     const { result } = renderHook("b1")

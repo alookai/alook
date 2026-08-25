@@ -107,6 +107,17 @@ describe("listOwnedBotActivityEvents", () => {
     expect(rows?.map((row) => row.id)).toEqual(["bae_b", "bae_a"])
   })
 
+  it("supports a timestamp-only cursor", async () => {
+    const rows = await q.listOwnedBotActivityEvents(db, {
+      botId: "bot_1",
+      ownerUserId: "owner_1",
+      beforeCreatedAt: "2026-08-03T00:00:00.000Z",
+      limit: 5,
+    })
+
+    expect(rows?.map((row) => row.id)).toEqual(["bae_a"])
+  })
+
   it("returns an empty page for an owned live bot with no matching events", async () => {
     await expect(
       q.listOwnedBotActivityEvents(db, {
