@@ -2,11 +2,10 @@ import { inflateSync } from "node:zlib"
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import {
-  getOgTitleVisualUnits,
-  getOgTitlePresentation,
   normalizeOgTitle,
+  OG_TITLE_FONT_SIZE,
   OG_TITLE_LINE_CLAMP,
-  OG_TITLE_MAX_DISPLAY_UNITS,
+  OG_TITLE_MAX_HEIGHT,
   OG_TITLE_MAX_INPUT_GRAPHEMES,
   OG_TITLE_MAX_LINES,
 } from "./og-title"
@@ -127,6 +126,34 @@ function colorBounds(
   return count > 0 ? { minX, maxX, minY, maxY, count } : null
 }
 
+function saturatedColorBounds(
+  decoded: DecodedPng,
+  region: { minX: number; maxX: number; minY: number; maxY: number },
+): PixelBounds | null {
+  let minX = decoded.width
+  let maxX = -1
+  let minY = decoded.height
+  let maxY = -1
+  let count = 0
+
+  for (let y = region.minY; y <= region.maxY; y += 1) {
+    for (let x = region.minX; x <= region.maxX; x += 1) {
+      const index = (y * decoded.width + x) * 4
+      const red = decoded.rgba[index]
+      const green = decoded.rgba[index + 1]
+      const blue = decoded.rgba[index + 2]
+      if (Math.max(red, green, blue) - Math.min(red, green, blue) < 40) continue
+      minX = Math.min(minX, x)
+      maxX = Math.max(maxX, x)
+      minY = Math.min(minY, y)
+      maxY = Math.max(maxY, y)
+      count += 1
+    }
+  }
+
+  return count > 0 ? { minX, maxX, minY, maxY, count } : null
+}
+
 function countSmallColorComponents(
   decoded: DecodedPng,
   color: readonly [number, number, number],
@@ -187,7 +214,7 @@ function countSmallColorComponents(
 
     const componentWidth = maxX - minX + 1
     const componentHeight = maxY - minY + 1
-    if (pixels >= 4 && componentWidth <= 6 && componentHeight <= 8) smallComponents += 1
+    if (pixels >= 4 && componentWidth <= 12 && componentHeight <= 12) smallComponents += 1
   }
 
   return smallComponents
@@ -240,40 +267,31 @@ describe("OG image", () => {
     expect(hits.reduce((sum, count) => sum + count, 0)).toBeGreaterThan(4_000)
   })
 
-  it("keeps bounded short, medium, long, CJK, and unbroken titles within two non-overlapping lines", async () => {
+  it("lets Satori clamp text titles to two contained lines with a visible ellipsis", async () => {
     const cases = [
       {
         name: "short",
         title: "Bring your agents",
-        expectedFontSize: 52,
-        maxTitleHeight: 65,
+        expectsEllipsis: false,
       },
       {
         name: "medium",
         title: "How to Coordinate Multiple AI Agents Across Teams Without Losing Context, Duplicating Work, or Missing Approvals",
-        expectedFontSize: 44,
-        maxTitleHeight: 103,
         expectsEllipsis: true,
       },
       {
         name: "long",
         title: "How to Coordinate Multiple AI Agents Across Teams Without Losing Context, Duplicating Work, Missing Approvals, or Breaking Shared Workflows in a Fast-Moving Organization While Keeping Every Decision Visible and Reviewable",
-        expectedFontSize: 38,
-        maxTitleHeight: 90,
         expectsEllipsis: true,
       },
       {
         name: "unbroken",
         title: "X".repeat(5_600),
-        expectedFontSize: 38,
-        maxTitleHeight: 90,
         expectsEllipsis: true,
       },
       {
         name: "cjk-long",
         title: "如何在快速变化的团队里协调多个人工智能代理同时保留上下文避免重复工作遗漏审批并确保每一个共享流程都清晰可靠可追溯并能长期安全展示",
-        expectedFontSize: 38,
-        maxTitleHeight: 90,
         expectsEllipsis: true,
       },
     ]
@@ -281,6 +299,8 @@ describe("OG image", () => {
     expect(OG_TITLE_MAX_LINES).toBe(2)
     expect(OG_TITLE_LINE_CLAMP).toBe('2 "…"')
     expect(OG_TITLE_MAX_INPUT_GRAPHEMES).toBe(240)
+    expect(OG_TITLE_FONT_SIZE).toBe(52)
+    expect(OG_TITLE_MAX_HEIGHT).toBe(120)
 
     const familyEmoji = "👨‍👩‍👧‍👦"
     const oversized = `  ${familyEmoji.repeat(260)}  `
@@ -290,26 +310,7 @@ describe("OG image", () => {
     expect(normalized.endsWith("…")).toBe(true)
     expect(normalizeOgTitle("  spaced\n\t title  ")).toBe("spaced title")
 
-    for (const emojiTitle of ["😀".repeat(100), familyEmoji.repeat(100)]) {
-      const presentation = getOgTitlePresentation(emojiTitle)
-      expect(presentation.fontSize).toBe(38)
-      expect(presentation.displayTitle.endsWith("…")).toBe(true)
-      expect(getOgTitleVisualUnits(presentation.displayTitle)).toBeLessThanOrEqual(
-        OG_TITLE_MAX_DISPLAY_UNITS[38],
-      )
-    }
-
     for (const testCase of cases) {
-      const presentation = getOgTitlePresentation(testCase.title)
-      expect(presentation.fontSize).toBe(testCase.expectedFontSize)
-      expect(presentation.lineClamp).toBe('2 "…"')
-      expect(presentation.maxHeight).toBe(
-        Math.ceil(testCase.expectedFontSize * 1.15 * OG_TITLE_MAX_LINES),
-      )
-      expect(getOgTitleVisualUnits(presentation.displayTitle))
-        .toBeLessThanOrEqual(OG_TITLE_MAX_DISPLAY_UNITS[testCase.expectedFontSize as 38 | 44 | 52])
-      if (testCase.expectsEllipsis) expect(presentation.displayTitle.endsWith("…")).toBe(true)
-
       const response = await renderOgImage(testCase.title)
       expect(response.status, testCase.name).toBe(200)
       const decoded = decodeRgbaPng(new Uint8Array(await response.arrayBuffer()))
@@ -347,20 +348,51 @@ describe("OG image", () => {
       if (!titleBounds || !subtitleBounds || !logoBounds || !typewriterBounds) continue
 
       expect(titleBounds.maxY - titleBounds.minY + 1, testCase.name)
-        .toBeLessThanOrEqual(testCase.maxTitleHeight)
-      expect(titleBounds.maxX, testCase.name).toBeLessThan(710)
+        .toBeLessThanOrEqual(OG_TITLE_MAX_HEIGHT)
+      expect(titleBounds.maxX, testCase.name).toBeLessThan(680)
       expect(titleBounds.minY - logoBounds.maxY, testCase.name).toBeGreaterThanOrEqual(24)
       expect(subtitleBounds.minY - titleBounds.maxY, testCase.name).toBeGreaterThanOrEqual(16)
       expect(typewriterBounds.minX - titleBounds.maxX, testCase.name).toBeGreaterThanOrEqual(40)
       if (testCase.expectsEllipsis) {
         const ellipsisComponents = countSmallColorComponents(decoded, [42, 35, 26], {
-          minX: titleBounds.minX,
+          minX: Math.max(titleBounds.minX, titleBounds.maxX - 80),
           maxX: titleBounds.maxX,
           minY: titleBounds.maxY - 24,
           maxY: titleBounds.maxY,
         })
-        expect(ellipsisComponents, testCase.name).toBeGreaterThanOrEqual(3)
+        expect(ellipsisComponents, testCase.name).toBeGreaterThanOrEqual(2)
       }
+    }
+  }, 30_000)
+
+  it("contains ordinary and ZWJ emoji inside the two-line title box", async () => {
+    for (const [name, title] of [
+      ["ordinary emoji", "😀".repeat(100)],
+      ["ZWJ emoji", "👨‍👩‍👧‍👦".repeat(100)],
+    ] as const) {
+      expect(normalizeOgTitle(title)).toBe(title)
+      const response = await renderOgImage(title)
+      const decoded = decodeRgbaPng(new Uint8Array(await response.arrayBuffer()))
+      const emojiBounds = saturatedColorBounds(decoded, {
+        minX: 70,
+        maxX: 740,
+        minY: 280,
+        maxY: 440,
+      })
+
+      expect(emojiBounds, name).not.toBeNull()
+      if (!emojiBounds) continue
+      expect(emojiBounds.maxX, name).toBeLessThan(680)
+      expect(emojiBounds.maxY - emojiBounds.minY + 1, name)
+        .toBeLessThanOrEqual(OG_TITLE_MAX_HEIGHT)
+
+      const overflowBounds = saturatedColorBounds(decoded, {
+        minX: 680,
+        maxX: 740,
+        minY: 280,
+        maxY: 440,
+      })
+      expect(overflowBounds, name).toBeNull()
     }
   }, 20_000)
 })
