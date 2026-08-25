@@ -35,6 +35,10 @@ describe("summarizeAuditEvent", () => {
       payload: { subcommand: "attachmentUpload" },
     })).toBe("alook message attachment upload")
     expect(summarizeAuditEvent({
+      kind: "cli_invocation",
+      payload: { subcommand: "customCommand" },
+    })).toBe("alook custom command")
+    expect(summarizeAuditEvent({
       kind: "tool_call",
       payload: { name: "Exec_Command", target: "cat /Users/gus/private.txt" },
     })).toBe("exec_command")
