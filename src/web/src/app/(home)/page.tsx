@@ -8,8 +8,6 @@ import { getSession } from "@/lib/session";
 
 const title = LANDING_META_TITLE;
 const description = LANDING_META_DESCRIPTION;
-const image = "/og?title=Share%20your%20agents%20with%20people%20you%20trust";
-
 export const metadata: Metadata = {
   title: { absolute: title },
   description,
@@ -20,14 +18,12 @@ export const metadata: Metadata = {
     title,
     description,
     url: "https://alook.ai",
-    images: [{ url: image, width: 1200, height: 630, alt: title }],
   },
   twitter: {
     card: "summary_large_image",
     site: "@alook_ai",
     title,
     description,
-    images: [image],
   },
 };
 

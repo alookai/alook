@@ -10,6 +10,7 @@ import {
   getNextTopicBridge,
   getRelatedPosts,
 } from "@/lib/blog/topics";
+import { getBlogOgImage } from "./og-image";
 
 export const dynamicParams = false;
 
@@ -27,7 +28,10 @@ export async function generateMetadata({
   const post = await getPostBySlug(slug);
   if (!post) return {};
 
-  const ogImage = post.image ?? `/og?title=${encodeURIComponent(post.title)}`;
+  // Preserve existing hero images. Only posts without one use the bounded,
+  // route-owned fallback; unlike the retired query route, the slug is resolved
+  // against canonical post metadata on the server.
+  const ogImage = getBlogOgImage(post);
 
   return {
     title: post.title,

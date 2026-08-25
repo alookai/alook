@@ -12,7 +12,7 @@ import { caveat, dmMono, dmSans, instrumentSerif, literata, vt323 } from "./font
 import "./globals.css";
 
 const SITE_URL = "https://alook.ai";
-const OG_IMAGE_URL = "/og?title=Share%20your%20agents%20with%20people%20you%20trust";
+const OG_IMAGE_URL = "/og";
 
 export const viewport: Viewport = {
   width: "device-width",

@@ -23,8 +23,6 @@ export async function generateMetadata({
 
   const title = `${template.name} — AI Company Templates`;
   const url = `${SITE_URL}/templates/${id}`;
-  const ogImage = `/og?title=${encodeURIComponent(template.name)}`;
-
   return {
     title,
     description: template.description,
@@ -34,13 +32,11 @@ export async function generateMetadata({
       title,
       description: template.description,
       url,
-      images: [{ url: ogImage, width: 1200, height: 630 }],
     },
     twitter: {
       card: "summary_large_image",
       title,
       description: template.description,
-      images: [ogImage],
     },
   };
 }

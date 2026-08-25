@@ -14,13 +14,11 @@ export const metadata: Metadata = {
     title: "AI Company Templates — Alook",
     description,
     url: "https://alook.ai/templates",
-    images: [{ url: "/og?title=AI Company Templates", width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
     title: "AI Company Templates — Alook",
     description,
-    images: ["/og?title=AI Company Templates"],
   },
 };
 
