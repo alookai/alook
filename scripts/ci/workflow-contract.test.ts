@@ -91,6 +91,14 @@ const daemonPackage = JSON.parse(
   readFileSync(resolve(repositoryRoot, "src/daemon/package.json"), "utf8"),
 ) as { devDependencies?: Record<string, string> }
 const workspaceManifest = readFileSync(resolve(repositoryRoot, "pnpm-workspace.yaml"), "utf8")
+const appPackageSmokeScript = readFileSync(
+  resolve(repositoryRoot, "src/app/scripts/app-package-smoke.mjs"),
+  "utf8",
+)
+const selfHostedSmokeScript = readFileSync(
+  resolve(repositoryRoot, "src/app/scripts/self-hosted-smoke.mjs"),
+  "utf8",
+)
 
 function ciJob(name: string): string {
   const start = ciWorkflow.indexOf(`\n  ${name}:\n`)
@@ -151,7 +159,7 @@ describe("Bun workflow setup", () => {
   })
 
   it("installs pinned Bun in every CI job that builds a daemon package fixture", () => {
-    const bunJobs = ["static-checks", "test-linux", "test-windows"]
+    const bunJobs = ["static-checks", "test-linux", "test-windows", "app-package-smoke"]
     expect(ciWorkflow.match(/oven-sh\/setup-bun/g)).toHaveLength(bunJobs.length)
     for (const job of bunJobs) {
       expect(ciJob(job)).toContain("oven-sh/setup-bun")
@@ -188,7 +196,7 @@ describe("CI workflow graph", () => {
 
   it("gates the consolidated jobs under the stable CI Gate", () => {
     const gate = ciJob("ci-gate")
-    for (const job of ["static-checks", "test-linux", "test-windows"]) {
+    for (const job of ["static-checks", "test-linux", "test-windows", "app-package-smoke"]) {
       expect(gate).toContain(`- ${job}`)
       expect(gate).toContain(`"name":"${job}"`)
     }
@@ -196,6 +204,39 @@ describe("CI workflow graph", () => {
       expect(gate).not.toContain(`- ${removed}`)
       expect(gate).not.toContain(`"name":"${removed}"`)
     }
+  })
+
+  it("gates the fail-closed exact-tarball App Package Smoke", () => {
+    const scope = ciJob("scope")
+    const smoke = ciJob("app-package-smoke")
+    const gate = ciJob("ci-gate")
+    expect(scope).toContain("run_app_package_smoke: ${{ steps.scope.outputs.run_app_package_smoke }}")
+    expect(smoke).toContain("if: needs.scope.outputs.run_app_package_smoke == 'true'")
+    expect(smoke).toContain("node src/app/scripts/app-package-smoke.mjs --output-dir")
+    expect(smoke).toContain("if: always()")
+    expect(smoke).toContain("if-no-files-found: error")
+    expect(smoke).toContain("!${{ runner.temp }}/alook-app-package/self-hosted-smoke/install/**")
+    expect(smoke).toContain("!${{ runner.temp }}/alook-app-package/self-hosted-smoke/state/**")
+    expect(gate).toContain("- app-package-smoke")
+    expect(gate).toContain('"name":"app-package-smoke"')
+  })
+})
+
+describe("App package CI contract", () => {
+  it("packs once and verifies those exact bytes without publishing", () => {
+    expect(appPackageSmokeScript.match(/npm[\s\S]*pack/g)).toHaveLength(1)
+    expect(appPackageSmokeScript).toContain("verifyPackedArtifact(tarball")
+    expect(appPackageSmokeScript).toContain("runSelfHostedSmoke(tarball")
+    expect(appPackageSmokeScript).not.toContain("npm publish")
+  })
+
+  it("makes both lifecycle rounds, D1 truth, no-browser flag, and final teardown fatal", () => {
+    expect(selfHostedSmokeScript).toContain("for (let round = 1; round <= 2; round += 1)")
+    expect(selfHostedSmokeScript).toContain('"--no-open"')
+    expect(selfHostedSmokeScript).toContain("community_read_state_revision")
+    expect(selfHostedSmokeScript).toContain("PRAGMA foreign_key_check")
+    expect(selfHostedSmokeScript).toContain("smoke and teardown both failed")
+    expect(selfHostedSmokeScript).not.toContain("|| true")
   })
 })
 

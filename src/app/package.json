@@ -34,6 +34,8 @@
     "prepack": "pnpm run build && node -e \"const{existsSync}=require('fs');if(!existsSync('bundled/web'))throw new Error('bundled/ missing — run pnpm bundle first')\"",
     "bundle": "bun run scripts/bundle.ts",
     "verify:packed-artifact": "node scripts/verify-packed-artifact.mjs",
+    "smoke:self-hosted": "node scripts/self-hosted-smoke.mjs",
+    "smoke:package": "node scripts/app-package-smoke.mjs",
     "knip": "knip",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",

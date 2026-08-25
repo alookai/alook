@@ -48,6 +48,28 @@ describe("classifyPaths", () => {
     expect(result.run_ui_e2e).toBe(true)
     expect(result.run_lighthouse).toBe(true)
     expect(result.run_e2e).toBe(true)
+    expect(result.run_app_package_smoke).toBe(true)
+  })
+
+  it("fails closed for every app bundle input while excluding stripped blog-only inputs", () => {
+    for (const path of [
+      "src/app/src/index.ts",
+      "src/web/custom-worker.ts",
+      "src/web/src/lib/worker-runtime.ts",
+      "src/web/wrangler.toml",
+      "src/web/migrations/0001.sql",
+      "src/shared/src/index.ts",
+      "src/email-worker/src/index.ts",
+      "src/ws-do/src/index.ts",
+      "src/wake-worker/src/index.ts",
+      "pnpm-lock.yaml",
+      ".github/workflows/publish-app.yml",
+    ]) {
+      expect(classifyPaths([path]).run_app_package_smoke, path).toBe(true)
+    }
+    expect(classifyPaths(["src/web/src/content/example.mdx"]).run_app_package_smoke).toBe(false)
+    expect(classifyPaths(["src/web/public/blog/example/hero.webp"]).run_app_package_smoke).toBe(false)
+    expect(classifyPaths(["README.md"]).run_app_package_smoke).toBe(false)
   })
 
   it("routes CLI and daemon integration test changes through Linux E2E", () => {
@@ -124,6 +146,7 @@ describe("runCli", () => {
       expect(values).toContain("full=true")
       expect(values).toContain("run_windows=true")
       expect(values).toContain("run_ui_e2e=true")
+      expect(values).toContain("run_app_package_smoke=true")
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
