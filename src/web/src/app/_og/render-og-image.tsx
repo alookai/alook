@@ -7,9 +7,14 @@ import { getOgTitlePresentation, normalizeOgTitle } from "./og-title";
 export const OG_IMAGE_SIZE = { width: 1200, height: 630 } as const;
 export const OG_IMAGE_CONTENT_TYPE = "image/png";
 
+const processRoot = process.cwd();
+const webRoot = processRoot.endsWith(join("src", "web"))
+  ? processRoot
+  : join(processRoot, "src", "web");
+
 const assetsPromise = Promise.all([
-  readFile(join(process.cwd(), "public/icon-192.png")),
-  readFile(join(process.cwd(), "src/app/fonts/dm-sans-600.ttf")),
+  readFile(join(webRoot, "public/icon-192.png")),
+  readFile(join(webRoot, "src/app/fonts/dm-sans-600.ttf")),
 ]);
 
 function TypewriterIllustration() {

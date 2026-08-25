@@ -199,7 +199,8 @@ describe("OG image", () => {
     const rendererSource = readFileSync(new URL("./render-og-image.tsx", import.meta.url), "utf8")
 
     expect(officialLogo.byteLength).toBeGreaterThan(1_000)
-    expect(rendererSource).toContain('join(process.cwd(), "public/icon-192.png")')
+    expect(rendererSource).toContain('processRoot.endsWith(join("src", "web"))')
+    expect(rendererSource).toContain('join(webRoot, "public/icon-192.png")')
     expect(rendererSource).not.toContain("iVBORw0KGgo")
     expect(rendererSource).not.toContain("alook.svg")
   })
