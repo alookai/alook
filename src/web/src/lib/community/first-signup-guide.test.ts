@@ -81,6 +81,19 @@ describe("first-signup guide handoff", () => {
     })
   })
 
+  it("defaults to the current time and a crypto UUID", () => {
+    const target = storage()
+    vi.spyOn(Date, "now").mockReturnValue(1_000)
+    vi.stubGlobal("crypto", { randomUUID: vi.fn(() => "browser-id") })
+
+    expect(writeFirstSignupGuideHandoff(target)).toEqual({
+      version: 1,
+      seed: "alook-guide-browser-id",
+      createdAt: 1_000,
+    })
+    expect(readFirstSignupGuideHandoff(target)?.seed).toBe("alook-guide-browser-id")
+  })
+
   it("ignores an empty handoff when consuming", () => {
     const target = storage()
 
