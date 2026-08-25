@@ -26,12 +26,15 @@ export const TIMELINE_READ_CHUNK_BYTES = 65_536;
 const DATE_FILENAME_PATTERN = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
 const RESUME_CONTROL_FILENAME = ".resume-control.json";
 const RESUME_CONTROL_MAX_BYTES = 4_096;
+const MAX_PENDING_IDLE_RESET_EVENTS = 32;
 
 export interface ResumeControlState {
   version: 1;
   attemptedSessionId: string | null;
   fencedSessionId: string | null;
   fullBarrier: "reset_session" | "nap" | null;
+  /** Stable completions committed atomically with their idle-reset barrier. */
+  pendingIdleResetEvents: Array<{ eventId: string; occurredAt: string }>;
 }
 
 export type ResumeControlReadResult =
@@ -44,6 +47,7 @@ const EMPTY_RESUME_CONTROL: ResumeControlState = {
   attemptedSessionId: null,
   fencedSessionId: null,
   fullBarrier: null,
+  pendingIdleResetEvents: [],
 };
 
 interface TimelineLine {
@@ -521,10 +525,27 @@ export function readResumeControlState(timelineDir: string): ResumeControlReadRe
     const value = JSON.parse(raw) as Partial<ResumeControlState>;
     const validSessionId = (candidate: unknown): candidate is string | null =>
       candidate === null || (typeof candidate === "string" && candidate.length > 0 && candidate.length <= 512);
+    const pendingIdleResetEvents = value.pendingIdleResetEvents === undefined
+      ? []
+      : value.pendingIdleResetEvents;
     if (
       value.version !== 1
       || !validSessionId(value.attemptedSessionId)
       || !validSessionId(value.fencedSessionId)
+      || !Array.isArray(pendingIdleResetEvents)
+      || pendingIdleResetEvents.length > MAX_PENDING_IDLE_RESET_EVENTS
+      || pendingIdleResetEvents.some(
+        (event) =>
+          !event
+          || typeof event !== "object"
+          || typeof event.eventId !== "string"
+          || event.eventId.length < 1
+          || event.eventId.length > 128
+          || typeof event.occurredAt !== "string"
+          || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(event.occurredAt)
+          || !Number.isFinite(Date.parse(event.occurredAt)),
+      )
+      || new Set(pendingIdleResetEvents.map((event) => event.eventId)).size !== pendingIdleResetEvents.length
       || (
         value.fullBarrier !== null
         && value.fullBarrier !== "reset_session"
@@ -538,6 +559,7 @@ export function readResumeControlState(timelineDir: string): ResumeControlReadRe
         attemptedSessionId: value.attemptedSessionId,
         fencedSessionId: value.fencedSessionId,
         fullBarrier: value.fullBarrier,
+        pendingIdleResetEvents,
       },
     };
   } catch {
@@ -560,11 +582,28 @@ export function updateResumeControlState(
     const current = readResumeControlState(timelineDir);
     const base = current.kind === "state" ? current.state : EMPTY_RESUME_CONTROL;
     const next = update({ ...base });
+    if (
+      !Array.isArray(next.pendingIdleResetEvents)
+      || next.pendingIdleResetEvents.length > MAX_PENDING_IDLE_RESET_EVENTS
+      || next.pendingIdleResetEvents.some(
+        (event) =>
+          !event
+          || typeof event !== "object"
+          || typeof event.eventId !== "string"
+          || event.eventId.length < 1
+          || event.eventId.length > 128
+          || typeof event.occurredAt !== "string"
+          || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(event.occurredAt)
+          || !Number.isFinite(Date.parse(event.occurredAt)),
+      )
+      || new Set(next.pendingIdleResetEvents.map((event) => event.eventId)).size !== next.pendingIdleResetEvents.length
+    ) return false;
     const canonical: ResumeControlState = {
       version: 1,
       attemptedSessionId: next.attemptedSessionId,
       fencedSessionId: next.fencedSessionId,
       fullBarrier: next.fullBarrier,
+      pendingIdleResetEvents: next.pendingIdleResetEvents,
     };
     const body = JSON.stringify(canonical) + "\n";
     if (Buffer.byteLength(body, "utf8") > RESUME_CONTROL_MAX_BYTES) return false;

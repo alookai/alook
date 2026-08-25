@@ -20,6 +20,8 @@ import {
   notifyUserDO,
 } from "./presence-typing"
 
+const IDLE_RESET_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000
+
 /**
  * Telemetry handlers are deliberately independent first-match branches. Each
  * returns false only when its schema does not recognize the frame; once a
@@ -173,9 +175,10 @@ export async function handleTypingStopFrame(
  * Serialization failures are not persistence loss and remain outside the
  * `ws_frame_dropped_write` SLO; binding failures do too. Only the insert path
  * uses the audit-write category, and successful rows notify the owner alone.
- * Insert and rolling prune stay atomic in the query layer. The server-stamped
- * row id and creation time are authoritative; daemon timestamps never enter
- * the persisted or outbound event. A null insert produces no notification.
+ * Insert, rolling prune, and the guarded Awake stamp stay atomic in the query
+ * layer. Ordinary telemetry uses server time; idle reset uses its authenticated,
+ * validated durable barrier time so delayed replay preserves product meaning.
+ * A null insert produces no notification but still receives an idempotent ack.
  * This path must never use the general presence audience because per-bot
  * activity is private to the owner.
  * The stored payload remains a JSON string for the audit query while the
@@ -184,6 +187,7 @@ export async function handleTypingStopFrame(
  */
 export async function handleAuditFrame(
   context: WsDurableContext,
+  ws: WebSocket,
   parsed: unknown,
   identity: CommunityMachineIdentity,
 ): Promise<boolean> {
@@ -191,6 +195,22 @@ export async function handleAuditFrame(
   if (!auditParse.success) return false
 
   const frame = auditParse.data
+  const isIdleReset =
+    frame.event.kind === "session_reset" &&
+    frame.event.payload.trigger === "idle_timeout"
+  if (
+    isIdleReset
+    && Date.parse(frame.occurredAt!) > Date.now() + IDLE_RESET_MAX_FUTURE_SKEW_MS
+  ) {
+    context.log.warn("ws_frame_dropped", {
+      category: "ws_frame_dropped",
+      frame_type: "bot_audit_event",
+      phase: "future_occurred_at",
+      agentId: frame.agentId,
+      machineId: identity.machineId,
+    })
+    return true
+  }
   let payload: string
   try {
     payload = JSON.stringify(frame.event.payload)
@@ -217,24 +237,45 @@ export async function handleAuditFrame(
     ),
     isMatch: (binding) => binding.machineId === identity.machineId,
     write: async (binding) => {
-      const inserted = await queries.communityBotAuditLog.insertBotActivityEventAndPrune(db, {
-        botId: frame.agentId,
-        sessionId: frame.sessionId ?? null,
-        launchId: frame.launchId ?? null,
-        kind: frame.event.kind,
-        payload,
-      })
-      if (!inserted) return
-      await notifyUserDO(context, binding.ownerUserId, {
-        type: WS_EVENTS.BOT_AUDIT_EVENT,
-        botId: frame.agentId,
-        id: inserted.id,
-        kind: frame.event.kind,
-        payload: frame.event.payload,
-        sessionId: frame.sessionId ?? null,
-        launchId: frame.launchId ?? null,
-        createdAt: inserted.createdAt,
-      }).catch(() => { })
+      const createdAt = isIdleReset
+        ? new Date(Date.parse(frame.occurredAt!)).toISOString()
+        : new Date().toISOString()
+      const extraStatements = isIdleReset
+        ? [queries.communityBot.touchBotRefreshContextForAuditEventStatement(
+          db,
+          frame.agentId,
+          frame.eventId!,
+          createdAt,
+        )]
+        : []
+      const inserted = await queries.communityBotAuditLog.insertBotActivityEventAndPrune(
+        db,
+        {
+          ...(frame.eventId ? { id: frame.eventId } : {}),
+          botId: frame.agentId,
+          sessionId: frame.sessionId ?? null,
+          launchId: frame.launchId ?? null,
+          kind: frame.event.kind,
+          payload,
+          ...(isIdleReset ? { createdAt } : {}),
+        },
+        extraStatements,
+      )
+      if (inserted) {
+        await notifyUserDO(context, binding.ownerUserId, {
+          type: WS_EVENTS.BOT_AUDIT_EVENT,
+          botId: frame.agentId,
+          id: inserted.id,
+          kind: frame.event.kind,
+          payload: frame.event.payload,
+          sessionId: frame.sessionId ?? null,
+          launchId: frame.launchId ?? null,
+          createdAt: inserted.createdAt,
+        }).catch(() => { })
+      }
+      if (frame.eventId) {
+        ws.send(JSON.stringify({ type: "bot_audit_event_ack", eventId: frame.eventId }))
+      }
     },
   })
   return true

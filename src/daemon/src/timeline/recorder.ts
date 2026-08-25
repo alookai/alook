@@ -168,7 +168,18 @@ export interface TimelineRecorderLike {
    * Returns false unless the authoritative control transition was committed;
    * the forensic row is appended only after that precondition.
    */
-  forgetSession(agentId: string, barrierType?: SystemEntryType, forgottenSessionId?: string): boolean;
+  forgetSession(
+    agentId: string,
+    barrierType?: SystemEntryType,
+    forgottenSessionId?: string,
+    pendingIdleResetEvent?: { eventId: string; occurredAt: string },
+  ): boolean;
+  /** Durable idle-reset completions which still need a server receipt. */
+  pendingIdleResetEvents(
+    agentId: string,
+  ): ReadonlyArray<{ eventId: string; occurredAt: string }>;
+  /** Clear one durable completion only after its server receipt arrives. */
+  acknowledgeIdleResetEvent(agentId: string, eventId: string): boolean;
 }
 
 export interface TimelineRecorderOptions {
@@ -541,7 +552,7 @@ export function createTimelineRecorder(opts: TimelineRecorderOptions): TimelineR
     clearSessionStall(agentId, sessionId) {
       return appendStallMarker(agentId, "stall_recovery_clear", sessionId);
     },
-    forgetSession(agentId, barrierType = "reset_session", forgottenSessionId) {
+    forgetSession(agentId, barrierType = "reset_session", forgottenSessionId, pendingIdleResetEvent) {
       retryPending(agentId);
       const dir = dirFor(agentId);
       // Persist the authoritative transition before clearing the in-memory
@@ -558,6 +569,11 @@ export function createTimelineRecorder(opts: TimelineRecorderOptions): TimelineR
           attemptedSessionId: null,
           fencedSessionId: null,
           fullBarrier: barrierType,
+          pendingIdleResetEvents:
+            pendingIdleResetEvent
+              && !state.pendingIdleResetEvents.some(({ eventId }) => eventId === pendingIdleResetEvent.eventId)
+              ? [...state.pendingIdleResetEvents, pendingIdleResetEvent]
+              : state.pendingIdleResetEvents,
         }));
       } else if (barrierType === "stall_recovery") {
         persisted = updateResumeControlState(dir, (state) => ({
@@ -591,6 +607,18 @@ export function createTimelineRecorder(opts: TimelineRecorderOptions): TimelineR
       );
       handleTrackedResult(agentId, null, result);
       return true;
+    },
+    pendingIdleResetEvents(agentId) {
+      const state = readResumeControlState(dirFor(agentId));
+      return state.kind === "state" ? state.state.pendingIdleResetEvents.map((event) => ({ ...event })) : [];
+    },
+    acknowledgeIdleResetEvent(agentId, eventId) {
+      const dir = dirFor(agentId);
+      if (!prepareTimelineDirectory(dir)) return false;
+      return updateResumeControlState(dir, (state) => ({
+        ...state,
+        pendingIdleResetEvents: state.pendingIdleResetEvents.filter((event) => event.eventId !== eventId),
+      }));
     },
   };
 

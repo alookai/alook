@@ -27,11 +27,13 @@ export type BotActivityEventRow = {
 };
 
 export type BotActivityEventInput = {
+  id?: string;
   botId: string;
   sessionId?: string | null;
   launchId?: string | null;
   kind: "cli_invocation" | "tool_call" | "thinking" | "wake_trigger" | "session_reset" | "nap" | "model_changed" | "provider_changed" | "error";
   payload: string;
+  createdAt?: string;
 };
 
 /**
@@ -90,12 +92,15 @@ export function insertBotActivityEventStatement(
   return db
     .insert(communityBotActivityEvent)
     .values({
+      ...(data.id ? { id: data.id } : {}),
       botId: data.botId,
       sessionId: data.sessionId ?? null,
       launchId: data.launchId ?? null,
       kind: data.kind,
       payload: data.payload,
+      ...(data.createdAt ? { createdAt: data.createdAt } : {}),
     })
+    .onConflictDoNothing({ target: communityBotActivityEvent.id })
     .returning({
       id: communityBotActivityEvent.id,
       createdAt: communityBotActivityEvent.createdAt,
