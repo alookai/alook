@@ -1,4 +1,5 @@
 import { createConnection } from "net";
+import { SERVICE_NAMES, type ServicePortProfile } from "./constants.js";
 
 export function checkNodeVersion(): void {
   const [major, minor] = process.versions.node.split(".").map(Number);
@@ -16,20 +17,38 @@ export async function checkPort(port: number): Promise<boolean> {
   });
 }
 
-export async function checkPorts(ports: { web: number; emailWorker: number; wsDo: number; wakeWorker: number }): Promise<void> {
-  const checks = [
-    { name: "web", port: ports.web },
-    { name: "email-worker", port: ports.emailWorker },
-    { name: "ws-do", port: ports.wsDo },
-    { name: "wake-worker", port: ports.wakeWorker },
-  ];
+export function validateServicePortProfile(profile: ServicePortProfile): void {
+  const seen = new Map<number, string>();
+  for (const name of SERVICE_NAMES) {
+    for (const kind of ["business", "inspector"] as const) {
+      const port = profile[name][kind];
+      const label = `${name}.${kind}`;
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        throw new Error(`invalid ${label} port ${String(port)}; choose a different Web/business port`);
+      }
+      const duplicate = seen.get(port);
+      if (duplicate) {
+        throw new Error(`port ${port} is assigned to both ${duplicate} and ${label}; choose a different Web/business port`);
+      }
+      seen.set(port, label);
+    }
+  }
+}
 
-  for (const { name, port } of checks) {
+export async function checkPorts(profile: ServicePortProfile): Promise<void> {
+  validateServicePortProfile(profile);
+  const checks = SERVICE_NAMES.flatMap((name) => [
+    { name, kind: "business" as const, port: profile[name].business },
+    { name, kind: "inspector" as const, port: profile[name].inspector },
+  ]);
+
+  for (const { name, kind, port } of checks) {
     const available = await checkPort(port);
     if (!available) {
-      console.error(`Error: port ${port} (${name}) is already in use.`);
-      console.error(`Use --port-web, --port-email, --port-ws, and --port-wake to specify alternative ports.`);
-      process.exit(1);
+      throw new Error(
+        `port ${port} (${name} ${kind}) is already in use.\n` +
+        "Run 'npx @alook/app stop' before retrying, or choose different business ports.",
+      );
     }
   }
 }

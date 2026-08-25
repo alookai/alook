@@ -27,7 +27,6 @@ export function runMigrations(): void {
     const stderr = (err as { stderr?: Buffer }).stderr?.toString() ?? "";
     if (stderr) console.error(stderr);
     else console.error(err instanceof Error ? err.message : String(err));
-    console.error("Error: failed to run migrations");
-    process.exit(1);
+    throw new Error("failed to run migrations");
   }
 }

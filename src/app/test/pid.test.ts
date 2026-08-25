@@ -1,75 +1,103 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { readFileSync, existsSync, unlinkSync, mkdirSync } from "fs";
-import { join } from "path";
-import { tmpdir } from "os";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 
-vi.mock("../src/lib/constants.js", () => {
-  const dir = join(tmpdir(), `alook-test-pid-${process.pid}`);
-  return {
-    SELF_HOSTED_DIR: dir,
-    PID_FILE: join(dir, ".pids.json"),
-  };
+const paths = vi.hoisted(() => {
+  const dir = `${process.env.TMPDIR ?? process.env.TEMP ?? "/tmp"}/alook-test-pid-${process.pid}`;
+  return { dir, pidFile: `${dir}/.pids.json` };
 });
 
-const { readPids, writePids, clearPids, isAlive } = await import("../src/lib/pid.js");
-const { PID_FILE, SELF_HOSTED_DIR } = await import("../src/lib/constants.js");
+vi.mock("../src/lib/constants.js", () => ({
+  SELF_HOSTED_DIR: paths.dir,
+  PID_FILE: paths.pidFile,
+  SERVICE_NAMES: ["web", "emailWorker", "wsDo", "wakeWorker"],
+}));
 
-describe("pid", () => {
+import {
+  clearRegistry,
+  isAlive,
+  readRegistry,
+  readRegistryText,
+  writeRegistry,
+  type ServiceRegistry,
+} from "../src/lib/pid.js";
+
+function registry(runId = "run-one"): ServiceRegistry {
+  const profile = {
+    web: { business: 15210, inspector: 19229 },
+    emailWorker: { business: 15211, inspector: 19231 },
+    wsDo: { business: 15212, inspector: 19230 },
+    wakeWorker: { business: 15213, inspector: 19232 },
+  };
+  return {
+    version: 1,
+    runId,
+    phase: "starting",
+    profile,
+    services: {
+      web: {
+        name: "web",
+        authority: { pid: 1234, endpoint: "fixture", token: "secret" },
+        childPid: 5678,
+        childState: "running",
+        businessPort: profile.web.business,
+        inspectorPort: profile.web.inspector,
+        healthUrl: "http://127.0.0.1:15210/api/health",
+        logPath: "/tmp/web.log",
+      },
+    },
+    createdAt: "2026-08-25T00:00:00.000Z",
+  };
+}
+
+describe("service registry", () => {
   beforeEach(() => {
-    mkdirSync(SELF_HOSTED_DIR, { recursive: true });
-    if (existsSync(PID_FILE)) unlinkSync(PID_FILE);
+    rmSync(paths.dir, { recursive: true, force: true });
+    mkdirSync(paths.dir, { recursive: true });
   });
 
   afterEach(() => {
-    if (existsSync(PID_FILE)) unlinkSync(PID_FILE);
+    rmSync(paths.dir, { recursive: true, force: true });
   });
 
-  describe("readPids", () => {
-    it("returns empty record when no file exists", () => {
-      expect(readPids()).toEqual({});
-    });
-
-    it("returns parsed pids when file exists", () => {
-      const pids = { web: 1234, emailWorker: 5678, wsDo: 9012 };
-      writePids(pids);
-      expect(readPids()).toEqual(pids);
-    });
-
-    it("returns empty record for corrupted file", () => {
-      const { writeFileSync } = require("fs");
-      writeFileSync(PID_FILE, "not json");
-      expect(readPids()).toEqual({});
-    });
+  it("returns undefined when absent or malformed", () => {
+    expect(readRegistry()).toBeUndefined();
+    expect(readRegistryText()).toBeUndefined();
+    writeFileSync(paths.pidFile, "not json");
+    expect(readRegistry()).toBeUndefined();
+    expect(readRegistryText()).toBe("not json");
   });
 
-  describe("writePids", () => {
-    it("writes pids with restricted permissions", () => {
-      writePids({ web: 100, emailWorker: 200, wsDo: 300 });
-      const content = JSON.parse(readFileSync(PID_FILE, "utf-8"));
-      expect(content).toEqual({ web: 100, emailWorker: 200, wsDo: 300 });
-    });
+  it("writes atomically and reads the typed schema with private POSIX permissions", () => {
+    const value = registry();
+    writeRegistry(value);
+    expect(readRegistry()).toEqual(value);
+    if (process.platform !== "win32") expect(statSync(paths.pidFile).mode & 0o777).toBe(0o600);
+    expect(readdirSync(paths.dir).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
 
-  describe("clearPids", () => {
-    it("removes pid file", () => {
-      writePids({ web: 1 });
-      expect(existsSync(PID_FILE)).toBe(true);
-      clearPids();
-      expect(existsSync(PID_FILE)).toBe(false);
-    });
-
-    it("does not throw when file does not exist", () => {
-      expect(() => clearPids()).not.toThrow();
-    });
+  it("allows only the same runId to advance registry state", () => {
+    const value = registry();
+    writeRegistry(value);
+    writeRegistry({ ...value, phase: "ready" });
+    expect(readRegistry()?.phase).toBe("ready");
+    expect(() => writeRegistry(registry("replacement"))).toThrow("refusing to replace service generation");
   });
 
-  describe("isAlive", () => {
-    it("returns true for current process", () => {
-      expect(isAlive(process.pid)).toBe(true);
-    });
+  it("refuses to overwrite malformed state", () => {
+    writeFileSync(paths.pidFile, "{}");
+    expect(() => writeRegistry(registry())).toThrow("malformed or unverifiable");
+  });
 
-    it("returns false for non-existent pid", () => {
-      expect(isAlive(999999)).toBe(false);
-    });
+  it("clears only the matching generation", () => {
+    writeRegistry(registry());
+    expect(clearRegistry("older-run")).toBe(false);
+    expect(existsSync(paths.pidFile)).toBe(true);
+    expect(clearRegistry("run-one")).toBe(true);
+    expect(existsSync(paths.pidFile)).toBe(false);
+  });
+
+  it("distinguishes live and nonexistent numeric PIDs without using them as authority", () => {
+    expect(isAlive(process.pid)).toBe(true);
+    expect(isAlive(999999)).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { SELF_HOSTED_DIR } from "./constants.js";
+import type { ServicePortProfile } from "./constants.js";
 
 function deduplicateDevSection(content: string): string {
   const devIdx = content.indexOf("[dev]");
@@ -65,7 +66,13 @@ function setVar(content: string, key: string, value: string): string {
   return content + `\n[vars]\n${key} = "${value}"\n`;
 }
 
-export function patchWranglerConfigs(ports: { web: number; emailWorker: number; wsDo: number; wakeWorker: number }): void {
+export function patchWranglerConfigs(profile: ServicePortProfile): void {
+  const ports = {
+    web: profile.web.business,
+    emailWorker: profile.emailWorker.business,
+    wsDo: profile.wsDo.business,
+    wakeWorker: profile.wakeWorker.business,
+  };
   const webToml = join(SELF_HOSTED_DIR, "web", "wrangler.toml");
   let webContent = deduplicateDevSection(readFileSync(webToml, "utf-8"));
 
@@ -90,8 +97,8 @@ export function patchWranglerConfigs(ports: { web: number; emailWorker: number; 
   setDevPort(join(SELF_HOSTED_DIR, "ws-do", "wrangler.toml"), ports.wsDo);
   setDevPort(join(SELF_HOSTED_DIR, "wake-worker", "wrangler.toml"), ports.wakeWorker);
 
-  setInspectorPort(join(SELF_HOSTED_DIR, "web", "wrangler.toml"), 19229);
-  setInspectorPort(join(SELF_HOSTED_DIR, "ws-do", "wrangler.toml"), 19230);
-  setInspectorPort(join(SELF_HOSTED_DIR, "email-worker", "wrangler.toml"), 19231);
-  setInspectorPort(join(SELF_HOSTED_DIR, "wake-worker", "wrangler.toml"), 19232);
+  setInspectorPort(join(SELF_HOSTED_DIR, "web", "wrangler.toml"), profile.web.inspector);
+  setInspectorPort(join(SELF_HOSTED_DIR, "ws-do", "wrangler.toml"), profile.wsDo.inspector);
+  setInspectorPort(join(SELF_HOSTED_DIR, "email-worker", "wrangler.toml"), profile.emailWorker.inspector);
+  setInspectorPort(join(SELF_HOSTED_DIR, "wake-worker", "wrangler.toml"), profile.wakeWorker.inspector);
 }

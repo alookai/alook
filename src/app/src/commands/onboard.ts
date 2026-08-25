@@ -1,7 +1,7 @@
 import { Command } from "commander";
-import { execSync, spawn as spawnAsync } from "child_process";
-import { createInterface } from "readline";
-import { checkNodeVersion, checkPorts } from "../lib/checks.js";
+import { execSync, spawn as spawnAsync } from "node:child_process";
+import { createInterface } from "node:readline";
+import { checkNodeVersion, checkPorts, validateServicePortProfile } from "../lib/checks.js";
 import {
   assertInstallationComplete,
   getMissingInstallFiles,
@@ -10,14 +10,22 @@ import {
 } from "../lib/install.js";
 import { ensureSecrets } from "../lib/secrets.js";
 import { runMigrations } from "../lib/migrate.js";
-import { startServices, isRunning } from "../lib/services.js";
+import { inspectServices, startServices } from "../lib/services.js";
+import { collectEmail, registerUser, createPairingToken } from "../lib/register.js";
 import {
-  collectEmail,
-  registerUser,
-  createPairingToken,
-  waitForServer,
-} from "../lib/register.js";
-import { DEFAULT_PORTS, WEB_URL, SELF_HOSTED_DIR } from "../lib/constants.js";
+  installOwnedSignalCleanup,
+  waitForExistingServices,
+  waitForOwnedServices,
+  type OwnedSignalCleanup,
+} from "../lib/startup.js";
+import { clearRegistry } from "../lib/pid.js";
+import { acquireLifecycleReservation, releaseLifecycleReservation } from "../lib/lifecycle-lock.js";
+import {
+  createServicePortProfile,
+  DEFAULT_PORTS,
+  WEB_URL,
+  SELF_HOSTED_DIR,
+} from "../lib/constants.js";
 import { patchWranglerConfigs } from "../lib/wrangler-config.js";
 import { pairAndStartDaemon } from "../lib/daemon.js";
 
@@ -29,6 +37,7 @@ export function onboardCommand(): Command {
     .option("--port-ws <port>", "WebSocket worker port", String(DEFAULT_PORTS.wsDo))
     .option("--port-wake <port>", "Wake worker port", String(DEFAULT_PORTS.wakeWorker))
     .option("--skip-register", "Skip account creation (just start services)")
+    .option("--no-open", "Do not prompt, copy to clipboard, or open a browser")
     .action(async (opts) => {
       const ports = {
         web: parseInt(opts.portWeb, 10),
@@ -36,61 +45,71 @@ export function onboardCommand(): Command {
         wsDo: parseInt(opts.portWs, 10),
         wakeWorker: parseInt(opts.portWake, 10),
       };
+      const profile = createServicePortProfile(ports);
+      validateServicePortProfile(profile);
 
       console.log("\n🚀 Alook Local Setup\n");
-
-      // 1. Environment checks
       checkNodeVersion();
 
-      // 2. Check ports
-      await checkPorts(ports);
-
-      // 3. Collect user input before heavy install/migrate work
       let email: string | undefined;
-      if (!opts.skipRegister) {
-        email = await collectEmail();
-      }
+      if (!opts.skipRegister) email = await collectEmail();
 
       const devMode = !!process.env.ALOOK_PROJECT_ROOT;
+      const reservation = await acquireLifecycleReservation();
+      let ownedHandle: Awaited<ReturnType<typeof startServices>> | undefined;
+      let signalCleanup: OwnedSignalCleanup | undefined;
+      let servicesReady = false;
+      try {
+        const inspection = await inspectServices(profile);
+        if (inspection.state === "reusable") {
+          console.log("\nServices already running; revalidating all four health endpoints...");
+          await waitForExistingServices(inspection.registry);
+        } else if (inspection.state === "none" || inspection.state === "stale") {
+          if (inspection.state === "stale") clearRegistry(inspection.registry.runId);
+          await checkPorts(profile);
 
-      if (devMode) {
-        // Dev mode: run predev + migrations from monorepo
-        const root = process.env.ALOOK_PROJECT_ROOT!;
-        console.log("Preparing dev environment...");
-        try {
-          execSync("pnpm predev", { cwd: root, stdio: "inherit" });
-        } catch {}
-        execSync("pnpm db:migrate", { cwd: root, stdio: ["pipe", "inherit", "inherit"] });
-      } else {
-        // Production: install bundled assets
-        if (!isInstalled()) {
-          const missingFiles = getMissingInstallFiles();
-          console.log(`Installing missing Alook files (${missingFiles.length} required files missing)...`);
-          installBundled();
+          if (devMode) {
+            const root = process.env.ALOOK_PROJECT_ROOT!;
+            console.log("Preparing dev environment...");
+            try {
+              execSync("pnpm predev", { cwd: root, stdio: "inherit" });
+            } catch {}
+            execSync("pnpm db:migrate", { cwd: root, stdio: ["pipe", "inherit", "inherit"] });
+          } else {
+            if (!isInstalled()) {
+              const missingFiles = getMissingInstallFiles();
+              console.log(`Installing missing Alook files (${missingFiles.length} required files missing)...`);
+              installBundled();
+            } else {
+              console.log(`Installation found at ${SELF_HOSTED_DIR}`);
+            }
+            assertInstallationComplete();
+            ensureSecrets(profile.web.business);
+            patchWranglerConfigs(profile);
+            runMigrations();
+          }
+
+          ownedHandle = await startServices(profile, {
+            foreground: devMode,
+            onHandle: (handle) => {
+              signalCleanup = installOwnedSignalCleanup(handle, reservation);
+            },
+          });
+          console.log("\nWaiting for all services to be ready...");
+          await waitForOwnedServices(ownedHandle);
+          servicesReady = true;
         } else {
-          console.log(`Installation found at ${SELF_HOSTED_DIR}`);
+          throw new Error(`${inspection.state}: ${inspection.detail}. Run 'npx @alook/app stop' before retrying.`);
         }
-
-        assertInstallationComplete();
-        ensureSecrets(ports.web);
-        patchWranglerConfigs(ports);
-        runMigrations();
+      } finally {
+        await releaseLifecycleReservation(reservation);
+        signalCleanup?.markReservationReleased();
+        if (!servicesReady || !devMode) signalCleanup?.dispose();
       }
 
-      // 8. Start services
-      if (isRunning()) {
-        console.log("\nServices already running.");
-      } else {
-        startServices(ports, { foreground: devMode });
-      }
+      const baseURL = WEB_URL(profile.web.business);
+      console.log("  ✓ All services ready\n");
 
-      // 9. Wait for web server
-      const baseURL = WEB_URL(ports.web);
-      console.log("\nWaiting for server to be ready...");
-      await waitForServer(baseURL);
-      console.log("  ✓ Server ready\n");
-
-      // 10. Register with collected email
       if (email) {
         const { sessionCookie } = await registerUser(baseURL, email);
         const { tokenId } = await createPairingToken(baseURL, sessionCookie);
@@ -101,30 +120,27 @@ export function onboardCommand(): Command {
         }
       }
 
-      // 11. Print summary
       console.log("\n" + "─".repeat(50));
       console.log("\n⚠️  Local mode: email send/receive is not available.");
       console.log("   To enable email, connect to alook.ai cloud.\n");
       console.log("─".repeat(50));
-      console.log(`\n🎉 Alook is running!`);
+      console.log("\n🎉 Alook is running!");
       console.log(`   Dashboard: ${baseURL}`);
-      if (email) {
-        console.log(`   Login:     ${email}`);
-      }
-      console.log(`\n   Stop:   npx @alook/app stop`);
-      console.log(`   Start:  npx @alook/app start`);
-      console.log(`   Update: npx @alook/app update\n`);
+      if (email) console.log(`   Login:     ${email}`);
+      console.log("\n   Stop:   npx @alook/app stop");
+      console.log("   Start:  npx @alook/app start");
+      console.log("   Update: npx @alook/app update\n");
 
-      // 12. Copy email & open browser on Enter
+      if (opts.open === false) return;
       const signInURL = `${baseURL}/sign-in`;
       if (email) {
         try {
           execSync(`printf '%s' ${JSON.stringify(email)} | pbcopy`, { stdio: "ignore" });
-          console.log(`   Email copied to clipboard.\n`);
+          console.log("   Email copied to clipboard.\n");
         } catch {
           try {
             execSync(`printf '%s' ${JSON.stringify(email)} | xclip -selection clipboard`, { stdio: "ignore" });
-            console.log(`   Email copied to clipboard.\n`);
+            console.log("   Email copied to clipboard.\n");
           } catch {}
         }
       }
@@ -136,13 +152,9 @@ export function onboardCommand(): Command {
           resolve();
         });
       });
-
-      const openCmd = process.platform === "darwin" ? "open" :
-        process.platform === "win32" ? "cmd" : "xdg-open";
+      const openCmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
       try {
-        const openArgs = process.platform === "win32"
-          ? ["/c", "start", "", signInURL]
-          : [signInURL];
+        const openArgs = process.platform === "win32" ? ["/c", "start", "", signInURL] : [signInURL];
         spawnAsync(openCmd, openArgs, { stdio: "ignore", detached: true }).unref();
       } catch {}
     });
