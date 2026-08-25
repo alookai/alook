@@ -34,10 +34,11 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   if (!body.level || !(NOTIFICATION_LEVEL_VALUES as readonly string[]).includes(body.level)) {
     return writeError(`level must be one of: ${NOTIFICATION_LEVEL_VALUES.join(", ")}`, 400)
   }
-  const setting = await queries.communityNotificationSetting.setServerLevel(auth.db, {
+  const result = await queries.communityNotificationSetting.setServerLevel(auth.db, {
     userId: auth.botId,
     serverId: auth.serverId,
     level: body.level,
+    actorKind: "bot",
   })
-  return writeJSON(setting)
+  return writeJSON(result.setting)
 })

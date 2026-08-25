@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import { withD1Retry } from "./db"
+import { getDb, getPrimaryDb, withD1Retry } from "./db"
 import { mockD1FailingUntil, makeD1Error } from "@alook/shared/db/resilience-testing"
 
 /**
@@ -72,5 +72,22 @@ describe("web/lib/db withD1Retry re-export", () => {
     await vi.runAllTimersAsync()
     await promise
     expect(calls).toBe(3)
+  })
+})
+
+describe("D1 session selection", () => {
+  const session = {} as D1DatabaseSession
+  const d1 = { withSession: vi.fn(() => session) } as unknown as D1Database
+
+  beforeEach(() => vi.clearAllMocks())
+
+  it("keeps ordinary reads replica-eligible", () => {
+    expect(getDb(d1)).toBeDefined()
+    expect(d1.withSession).toHaveBeenCalledWith("first-unconstrained")
+  })
+
+  it("starts authoritative reads and write-derived pre-reads on primary", () => {
+    expect(getPrimaryDb(d1)).toBeDefined()
+    expect(d1.withSession).toHaveBeenCalledWith("first-primary")
   })
 })

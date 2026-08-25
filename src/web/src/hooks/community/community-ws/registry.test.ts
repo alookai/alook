@@ -48,7 +48,9 @@ vi.mock("./membership-events", () => ({
 }))
 vi.mock("./social-events", () => ({
   handleFriendEvent: handlers.handleFriendEvent,
+  handleInboxChanged: handlers.handleInboxChanged,
   handleMentionCreate: handlers.handleMentionCreate,
+  handleReadStateAdvanced: handlers.handleReadStateAdvanced,
   handleUnreadBump: handlers.handleUnreadBump,
 }))
 vi.mock("./presence-machine-events", () => ({
@@ -75,10 +77,10 @@ function dispatchContext(queryClient = new QueryClient()): CommunityWsDispatchCo
 }
 
 describe("community WebSocket registry", () => {
-  it("has exactly one entry for each of the 41 runtime event types", () => {
+  it("has exactly one entry for each of the 43 runtime event types", () => {
     const eventTypes = Object.values(WS_EVENTS).sort()
     const registryTypes = Object.keys(communityWsRegistry).sort()
-    expect(eventTypes).toHaveLength(41)
+    expect(eventTypes).toHaveLength(43)
     expect(registryTypes).toEqual(eventTypes)
   })
 
@@ -90,8 +92,8 @@ describe("community WebSocket registry", () => {
   })
 
   it("deduplicates the complete policy set", () => {
-    expect(communityWsReconnectPolicies).toHaveLength(13)
-    expect(new Set(communityWsReconnectPolicies).size).toBe(13)
+    expect(communityWsReconnectPolicies).toHaveLength(14)
+    expect(new Set(communityWsReconnectPolicies).size).toBe(14)
   })
 
   it.each([

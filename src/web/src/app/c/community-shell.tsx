@@ -45,8 +45,8 @@ export function CommunityShell({
 /**
  * Mounted once beneath the QueryClient + CurrentUser providers. Owns:
  * - The community WebSocket handler (`useCommunityWs`) — the module-scoped
- *   Zustand stores + pending-reads map assume a single instance for the whole
- *   session, so it lives here at the tree root.
+ *   Zustand stores assume a single instance for the whole session, so it lives
+ *   here at the tree root.
  * - The `aboutMe` hydration that used to live in the God-context's mount
  *   effect — needed so the "Edit profile" dialog opens with the current value.
  */

@@ -1,7 +1,11 @@
-import { eq, and, inArray, lt, sql } from "drizzle-orm";
-import { communityReadState } from "../../community-schema";
+import { eq, and, exists, gte, notExists, or, sql, type SQL } from "drizzle-orm";
+import {
+  communityMessage,
+  communityReadState,
+  communityReadStateRevision,
+} from "../../community-schema";
+import { user } from "../../schema";
 import type { Database } from "../../index";
-import { chunk, maxRowsPerInsert, D1_MAX_IN_PARAMS } from "../_chunk";
 import {
   getLatestMessagesByChannelIds,
   getMessageByChannelAndSeq,
@@ -40,6 +44,51 @@ function buildTargetFilter(data: { userId: string; channelId: string }) {
   )!;
 }
 
+export function readStateAdvancesCondition(
+  db: Database,
+  data: { userId: string; channelId: string; targetSeq: number },
+  guard?: SQL<unknown>,
+): SQL<unknown> {
+  const advances = notExists(
+    db
+      .select({ one: sql<number>`1` })
+      .from(communityReadState)
+      .where(
+        and(
+          eq(communityReadState.userId, data.userId),
+          eq(communityReadState.channelId, data.channelId),
+          gte(communityReadState.lastReadSeq, data.targetSeq)
+        )
+      )
+  );
+  return guard ? and(guard, advances)! : advances;
+}
+
+export type CanonicalReadTarget = {
+  id: string;
+  channelId: string;
+  createdAt: string;
+  seq: number;
+};
+
+/** Re-check an exact pre-read target inside the mutation transaction. */
+export function canonicalReadTargetExistsCondition(
+  db: Database,
+  target: CanonicalReadTarget,
+): SQL<unknown> {
+  return exists(
+    db
+      .select({ one: sql<number>`1` })
+      .from(communityMessage)
+      .where(and(
+        eq(communityMessage.id, target.id),
+        eq(communityMessage.channelId, target.channelId),
+        eq(communityMessage.createdAt, target.createdAt),
+        eq(communityMessage.seq, target.seq),
+      )),
+  );
+}
+
 /**
  * Canonical batchable channel/DM read-state upsert.
  *
@@ -62,8 +111,8 @@ function buildTargetFilter(data: { userId: string; channelId: string }) {
 // `EXISTS(message.seq > lastReadSeq)` — the same seq ruler the agent side uses —
 // so every human read write must advance `lastReadSeq` too, else a human's read
 // never registers under the new predicate (permanent phantom-unread). `seq`
-// co-advances with `createdAt` (both from the same message), so the monotone
-// guard stays on `lastReadAt` and `lastReadSeq` is set alongside.
+// co-advances with `createdAt` (both from the same message), and the monotone
+// guard uses `lastReadSeq` so same-timestamp messages still order correctly.
 export function markReadToMessageBuilder(
   db: Database,
   data: {
@@ -74,18 +123,6 @@ export function markReadToMessageBuilder(
 ) {
   const { userId, channelId, message } = data;
 
-  // Monotone guard: `setWhere` requires the incoming `lastReadAt` to be
-  // strictly greater than the row's current value. If a stale client PUT
-  // arrives (channel switch → return, remounted `useChannelWatermark`
-  // resets its local `maxSeen` and picks an older mid-viewport row as
-  // its first advance), the UPDATE portion no-ops and the existing row
-  // wins. INSERT (no row yet) is unaffected — you can't regress what
-  // doesn't exist. Sibling pattern to `createMessage`'s author-watermark
-  // upsert, which guards on `lastReadSeq < seq` for the same reason.
-  //
-  // Timestamp comparison is safe: `lastReadAt` is a TEXT ISO-8601 string
-  // (see schema note) and SQLite compares those lexicographically, which
-  // matches temporal order for ISO-8601.
   return db
     .insert(communityReadState)
     .values({
@@ -102,8 +139,198 @@ export function markReadToMessageBuilder(
         lastReadMessageId: message.id,
         lastReadSeq: message.seq,
       },
-      setWhere: sql`${communityReadState.lastReadAt} < ${message.createdAt}`,
+      setWhere: sql`${communityReadState.lastReadSeq} < ${message.seq}`,
     });
+}
+
+/**
+ * Route-facing guarded sibling. The candidate row is selected from the exact
+ * canonical message inside the same D1 batch, so a target deleted after the
+ * route's pre-read cannot be written back as an orphan cursor.
+ */
+export function markReadToExistingMessageBuilder(
+  db: Database,
+  data: {
+    userId: string;
+    channelId: string;
+    message: CanonicalReadTarget;
+  },
+) {
+  const { userId, channelId, message } = data;
+  const selected = db
+    .select({
+      id: sql<string>`lower(hex(randomblob(16)))`.as("id"),
+      userId: sql<string>`${userId}`.as("user_id"),
+      channelId: communityMessage.channelId,
+      lastReadAt: communityMessage.createdAt,
+      lastReadMessageId: communityMessage.id,
+      lastReadSeq: communityMessage.seq,
+    })
+    .from(communityMessage)
+    .where(and(
+      eq(communityMessage.id, message.id),
+      eq(communityMessage.channelId, channelId),
+      eq(communityMessage.createdAt, message.createdAt),
+      eq(communityMessage.seq, message.seq),
+    ))
+    .limit(1);
+
+  return db
+    .insert(communityReadState)
+    .select(selected)
+    .onConflictDoUpdate({
+      target: [communityReadState.userId, communityReadState.channelId],
+      set: {
+        lastReadAt: sql`excluded.last_read_at`,
+        lastReadMessageId: sql`excluded.last_read_message_id`,
+        lastReadSeq: sql`excluded.last_read_seq`,
+      },
+      setWhere: sql`${communityReadState.lastReadSeq} < excluded.last_read_seq`,
+    });
+}
+
+export function advanceReadStateRevisionBuilder(db: Database, userId: string) {
+  return db
+    .insert(communityReadStateRevision)
+    .values({ userId, revision: 1 })
+    .onConflictDoUpdate({
+      target: communityReadStateRevision.userId,
+      set: { revision: sql`${communityReadStateRevision.revision} + 1` },
+    })
+    .returning({ revision: communityReadStateRevision.revision });
+}
+
+export function advanceReadStateRevisionWhenBuilder(
+  db: Database,
+  userId: string,
+  condition: SQL<unknown>
+) {
+  const selected = db
+    .select({
+      userId: sql<string>`${userId}`.as("user_id"),
+      revision: sql<number>`1`.as("revision"),
+    })
+    .from(user)
+    .where(and(eq(user.id, userId), condition));
+  return db
+    .insert(communityReadStateRevision)
+    .select(selected)
+    .onConflictDoUpdate({
+      target: communityReadStateRevision.userId,
+      set: { revision: sql`${communityReadStateRevision.revision} + 1` },
+    })
+    .returning({ revision: communityReadStateRevision.revision });
+}
+
+export function advanceReadStateRevisionWhenAnyBuilder(
+  db: Database,
+  userId: string,
+  conditions: [SQL<unknown>, SQL<unknown>, ...SQL<unknown>[]]
+) {
+  return advanceReadStateRevisionWhenBuilder(db, userId, or(...conditions)!);
+}
+
+/**
+ * Bulk sibling used by destructive mutations that may replace/remove rows for
+ * several human accounts at once. `condition` is evaluated inside the same D1
+ * batch immediately before the destructive statement, so a raced loser does
+ * not mint revisions for a mutation it did not commit.
+ */
+export function advanceReadStateRevisionsForUsersBuilder(
+  db: Database,
+  userIds: string[],
+  condition: SQL<unknown>,
+) {
+  const ids = JSON.stringify([...new Set(userIds)]);
+  const selected = db
+    .select({
+      userId: sql<string>`CAST(value AS TEXT)`.as("user_id"),
+      revision: sql<number>`1`.as("revision"),
+    })
+    .from(sql`json_each(${ids})`)
+    .where(condition);
+  return db
+    .insert(communityReadStateRevision)
+    .select(selected)
+    .onConflictDoUpdate({
+      target: communityReadStateRevision.userId,
+      set: { revision: sql`${communityReadStateRevision.revision} + 1` },
+    })
+    .returning({
+      userId: communityReadStateRevision.userId,
+      revision: communityReadStateRevision.revision,
+    });
+}
+
+export function accountReadStateRevisionBuilder(db: Database, userId: string) {
+  return db
+    .select({ revision: communityReadStateRevision.revision })
+    .from(communityReadStateRevision)
+    .where(eq(communityReadStateRevision.userId, userId))
+    .limit(1);
+}
+
+export function accountReadStateRowsBuilder(db: Database, userId: string) {
+  return db
+    .select({
+      channelId: communityReadState.channelId,
+      lastReadMessageId: communityReadState.lastReadMessageId,
+      lastReadAt: communityReadState.lastReadAt,
+      lastReadSeq: communityReadState.lastReadSeq,
+    })
+    .from(communityReadState)
+    .where(eq(communityReadState.userId, userId));
+}
+
+export type AccountReadState = {
+  channelId: string;
+  lastReadMessageId: string | null;
+  lastReadAt: string;
+  lastReadSeq: number;
+};
+
+export type AccountReadStateSnapshot = {
+  revision: number;
+  readStates: AccountReadState[];
+};
+
+export type AccountReadStateRevisionByUser = {
+  userId: string;
+  revision: number;
+};
+
+export async function getAccountReadStateSnapshot(db: Database, userId: string) {
+  const revisionQuery = accountReadStateRevisionBuilder(db, userId);
+  const readStatesQuery = accountReadStateRowsBuilder(db, userId);
+  const [revisionRows, readStates] = await db.batch([
+    revisionQuery,
+    readStatesQuery,
+  ]) as unknown as [
+    Array<{ revision: number }>,
+    AccountReadState[],
+  ];
+  return { revision: revisionRows[0]?.revision ?? 0, readStates };
+}
+
+export type ReadStateAdvance = {
+  channelId: string;
+  lastReadMessageId: string;
+  lastReadAt: string;
+  lastReadSeq: number;
+};
+
+export type ReadAllResult = {
+  count: number;
+  changed: boolean;
+  revision: number;
+};
+
+async function getCurrentAccountReadStateRevision(
+  db: Database,
+  userId: string
+): Promise<number> {
+  const rows = await accountReadStateRevisionBuilder(db, userId);
+  return rows[0]?.revision ?? 0;
 }
 
 /**
@@ -143,13 +370,11 @@ export async function markReadToMessage(
  *   channels stay empty in `communityReadState` because the invariant
  *   forbids `lastReadMessageId = null` rows.
  */
-// lastReadSeq intentionally not maintained here — see comment on
-// `markReadToMessageBuilder` above.
 export async function markAllServerChannelsRead(
   db: Database,
   userId: string,
   visibleChannelIds: string[]
-): Promise<number> {
+): Promise<ReadAllResult> {
   // Scope to the channels the viewer may see — the same visible-id set the
   // inbox unread + mentions consumers use (resolved once per fetch via
   // `listVisibleChannelIdsForUser`). Convergence on the id set replaces the
@@ -158,99 +383,53 @@ export async function markAllServerChannelsRead(
   // id set parent-climbs, so a child under a private parent the viewer can't
   // see is now correctly EXCLUDED — mark-all no longer writes read-state rows
   // for channels behind an invisible private parent.
-  if (visibleChannelIds.length === 0) return 0;
+  if (visibleChannelIds.length === 0) {
+    return {
+      count: 0,
+      changed: false,
+      revision: await getCurrentAccountReadStateRevision(db, userId),
+    };
+  }
   const channelIds = visibleChannelIds;
 
   const latest = await getLatestMessagesByChannelIds(db, channelIds);
-  if (latest.length === 0) return 0;
-
-  // Existing rows for these channels — used to split into UPDATE vs INSERT
-  // batches so we don't run one query per channel. The upsert index only
-  // fires per statement; we can't fold every channel into a single insert
-  // with `onConflictDoUpdate` because each channel has a DIFFERENT
-  // `(lastReadAt, lastReadMessageId)` pair.
-  // `latest` ranges over channels-with-messages (a subset of the visible set,
-  // still possibly >100). Chunk the `inArray` for D1's 100-param limit; no
-  // order/limit → concat.
-  const latestChannelIds = latest.map((l) => l.channelId);
-  const existing = (
-    await Promise.all(
-      chunk(latestChannelIds, D1_MAX_IN_PARAMS).map((ids) =>
-        db
-          .select({
-            id: communityReadState.id,
-            channelId: communityReadState.channelId,
-          })
-          .from(communityReadState)
-          .where(
-            and(
-              eq(communityReadState.userId, userId),
-              inArray(communityReadState.channelId, ids)
-            )
-          )
-      )
-    )
-  ).flat();
-
-  const existingByChannel = new Map<string, string>();
-  for (const row of existing) {
-    if (row.channelId) existingByChannel.set(row.channelId, row.id);
+  if (latest.length === 0) {
+    return {
+      count: 0,
+      changed: false,
+      revision: await getCurrentAccountReadStateRevision(db, userId),
+    };
   }
 
-  // Split latest into (a) rows we need to UPDATE by primary key and (b) rows
-  // we need to INSERT fresh.
-  const toUpdate: Array<{ id: string; channelId: string; msgId: string; createdAt: string; seq: number }> = [];
-  const toInsert: Array<{ channelId: string; msgId: string; createdAt: string; seq: number }> = [];
-  for (const l of latest) {
-    const existingId = existingByChannel.get(l.channelId);
-    if (existingId) {
-      toUpdate.push({ id: existingId, channelId: l.channelId, msgId: l.id, createdAt: l.createdAt, seq: l.seq });
-    } else {
-      toInsert.push({ channelId: l.channelId, msgId: l.id, createdAt: l.createdAt, seq: l.seq });
-    }
-  }
+  const statements = latest.map((message) => markReadToMessageBuilder(db, {
+    userId,
+    channelId: message.channelId,
+    message,
+  }));
+  const effectConditions = latest.map((message) =>
+    readStateAdvancesCondition(db, {
+      userId,
+      channelId: message.channelId,
+      targetSeq: message.seq,
+    })
+  );
+  const effectCondition = effectConditions.slice(1).reduce(
+    (combined, condition) => or(combined, condition)!,
+    effectConditions[0]!
+  );
+  const results = await db.batch([
+    advanceReadStateRevisionWhenBuilder(db, userId, effectCondition),
+    ...statements,
+    accountReadStateRevisionBuilder(db, userId),
+  ] as any) as unknown as unknown[][];
+  const changed = (results[0] as Array<{ revision: number }>).length > 0;
+  const revision = (results.at(-1) as Array<{ revision: number }> | undefined)?.[0]?.revision ?? 0;
 
-  // Perform updates row-by-row (one small UPDATE per row is fine — this path
-  // fires on user click "Mark all read", not in a hot loop). Alternative
-  // would be a `CASE WHEN ...` bulk UPDATE, which is uglier and only wins
-  // above ~50 channels.
-  //
-  // Monotone guard mirrors `markReadToMessageBuilder`: only advance rows
-  // whose current `lastReadAt` is strictly older than the channel's
-  // latest. If a stale row happens to already sit ahead of the current
-  // latest (rare — usually only under concurrent writes or right after
-  // a message delete), leave it alone rather than regressing.
-  for (const u of toUpdate) {
-    await db
-      .update(communityReadState)
-      .set({ lastReadAt: u.createdAt, lastReadMessageId: u.msgId, lastReadSeq: u.seq })
-      .where(
-        and(
-          eq(communityReadState.id, u.id),
-          lt(communityReadState.lastReadAt, u.createdAt)
-        )
-      );
-  }
-
-  if (toInsert.length > 0) {
-    // communityReadState emits 6 bind params/row (id $defaultFn, user_id,
-    // channel_id, last_read_at, last_read_message_id, last_read_seq — now
-    // explicitly supplied, no longer defaulted), so cap at floor(100/6)=16
-    // rows/statement for D1's 100-param limit.
-    for (const batch of chunk(toInsert, maxRowsPerInsert(6))) {
-      await db.insert(communityReadState).values(
-        batch.map((i) => ({
-          userId,
-          channelId: i.channelId,
-          lastReadAt: i.createdAt,
-          lastReadMessageId: i.msgId,
-          lastReadSeq: i.seq,
-        }))
-      );
-    }
-  }
-
-  return latest.length;
+  return {
+    count: latest.length,
+    changed,
+    revision,
+  };
 }
 
 /**
@@ -260,15 +439,19 @@ export async function markAllServerChannelsRead(
  * the same channel mark-read path. Same invariant, monotone guard, and
  * "empty conversations are skipped" semantics.
  */
-// lastReadSeq intentionally not maintained here — see comment on
-// `markReadToMessageBuilder` above.
 export async function markAllDmsRead(
   db: Database,
   userId: string
-): Promise<number> {
+): Promise<ReadAllResult> {
   const dms = await listDMs(db, userId);
   const dmChannelIds = dms.map((d) => d.id);
-  if (dmChannelIds.length === 0) return 0;
+  if (dmChannelIds.length === 0) {
+    return {
+      count: 0,
+      changed: false,
+      revision: await getCurrentAccountReadStateRevision(db, userId),
+    };
+  }
   return markAllServerChannelsRead(db, userId, dmChannelIds);
 }
 

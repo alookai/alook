@@ -38,7 +38,7 @@ describe("owner bot server notification settings", () => {
     vi.clearAllMocks()
     getBotOwnedBy.mockResolvedValue({ id: "bot_1", ownerUserId: "owner" })
     requireServerMember.mockResolvedValue({ ok: true, value: { role: "member" } })
-    setServerLevel.mockResolvedValue({ level: "nothing" })
+    setServerLevel.mockResolvedValue({ setting: { level: "nothing" }, readStateRevision: null })
   })
 
   it("checks bot membership and writes the bot user id", async () => {
@@ -46,7 +46,7 @@ describe("owner bot server notification settings", () => {
     expect(response.status).toBe(200)
     expect(requireServerMember).toHaveBeenCalledWith({}, "server_1", "bot_1")
     expect(setServerLevel).toHaveBeenCalledWith({}, {
-      userId: "bot_1", serverId: "server_1", level: "nothing",
+      userId: "bot_1", serverId: "server_1", level: "nothing", actorKind: "bot",
     })
   })
 

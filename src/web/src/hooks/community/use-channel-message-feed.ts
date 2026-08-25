@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react"
 import { useChannelReadStateSnapshot } from "./use-channel-read-state"
 import { useChannelWatermark } from "./use-channel-watermark"
-import { useEagerChannelRead } from "./use-eager-channel-read"
 import { useMessages } from "./use-messages"
 import { usePins, useThreads } from "./use-channel-panels"
 
@@ -11,7 +10,7 @@ export function useChannelMessageFeed({
   channelId,
   serverId,
   viewerUserId,
-  isChildChannel,
+  isChildChannel: _isChildChannel,
   anchorMessageId,
 }: {
   channelId: string | null
@@ -54,12 +53,13 @@ export function useChannelMessageFeed({
     return { newDividerBefore: undefined, anchorFound: true }
   }, [messagesQuery.anchorReconciled, messagesQuery.messages, readSnapshot, viewerUserId])
   const [scrollRootEl, setScrollRootEl] = useState<HTMLDivElement | null>(null)
-  useChannelWatermark({ channelId, messages: messagesQuery.messages, scrollRootEl })
-  useEagerChannelRead({
+  /* istanbul ignore next -- retained Chromium covers the mounted observer integration */
+  useChannelWatermark({
     channelId,
-    serverId,
-    isChildChannel,
+    messages: messagesQuery.messages,
+    scrollRootEl,
     snapshotReady: !readState.isFetching,
+    confirmedSeq: readSnapshot?.lastReadSeq ?? 0,
   })
   const unreadCount = useMemo(() => {
     const difference = messagesQuery.latestSeq - (readSnapshot?.lastReadSeq ?? 0)

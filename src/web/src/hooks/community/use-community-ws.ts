@@ -13,6 +13,7 @@ import {
   dispatchCommunityWsEvent,
   dispatchCommunityWsEvents,
 } from "@/hooks/community/community-ws/registry"
+import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { runCommunityWsProjectionTransaction } from "@/hooks/community/community-ws/projection-transaction"
 import {
   invalidateDms,
@@ -145,13 +146,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   useEffect(() => {
     viewerUserIdRef.current = options?.viewerUserId ?? null
   })
-
-  // #3: the previous WS-driven auto-mark-read (a `useMarkChannelRead()` call
-  // fired on every foreign-authored message in the focused channel) has
-  // been removed. The IntersectionObserver in `useChannelWatermark` is now
-  // authoritative — if a WS-delivered message actually becomes visible in
-  // the viewport, IO advances the read pointer; if the user is scrolled up
-  // reading history, the pointer stays put (which is the correct behavior).
 
   // Debounced inbox invalidation. Grouping repeated invalidations into one
   // refetch cycle keeps the popover from re-rendering on every message tick.
@@ -289,16 +283,34 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   const handleReconnect = useCallback(async ({ reconnectDurationMs }: { reconnectDurationMs: number }) => {
     await reconcileCommunityWsReconnect(queryClient, reconnectDurationMs)
   }, [queryClient])
+  const handleAuthenticated = useCallback(async () => {
+    useCommunityWsStore.getState().markAccessConnected()
+    await reconcileAccountReadState(queryClient)
+  }, [queryClient])
   const { send, reconnectNow } = useUserWs(handleMessage, {
     onReconnect: handleReconnect,
     onDisconnect: useCommunityWsStore.getState().markAccessDisconnected,
-    onAuthenticated: useCommunityWsStore.getState().markAccessConnected,
+    onAuthenticated: handleAuthenticated,
     onConnectionStateChange: handleConnectionStateChange,
     requestDaemonStatusOnAuth: false,
   })
   useEffect(() => {
     reconnectTransportRef.current = reconnectNow
   }, [reconnectNow])
+
+  useEffect(() => {
+    if (typeof document === "undefined" || typeof window === "undefined") return
+    const reconcileVisible = () => {
+      if (document.visibilityState !== "visible") return
+      void reconcileAccountReadState(queryClient).catch(() => undefined)
+    }
+    document.addEventListener("visibilitychange", reconcileVisible)
+    window.addEventListener("pageshow", reconcileVisible)
+    return () => {
+      document.removeEventListener("visibilitychange", reconcileVisible)
+      window.removeEventListener("pageshow", reconcileVisible)
+    }
+  }, [queryClient])
 
   // Publish the send binding so free helpers (`communityWsSendTyping`) can
   // dispatch without holding a hook reference. Single-instance assumption

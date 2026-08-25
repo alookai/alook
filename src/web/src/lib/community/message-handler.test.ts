@@ -71,6 +71,11 @@ vi.mock("./message-dispatcher", () => ({
   dispatchCommittedMessage: (...a: unknown[]) => mockDispatchCommittedMessage(...a),
 }))
 
+const mockBroadcastToUserSafe = vi.fn(async () => {})
+vi.mock("./fanout", () => ({
+  broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
+}))
+
 
 import {
   createCommunityMessage,
@@ -381,6 +386,51 @@ describe("createCommunityMessage — committed delivery handoff", () => {
     })
 
     expect(mockDispatchCommittedMessage).toHaveBeenCalledWith({}, "msg_1", {})
+  })
+
+  it("broadcasts the human author watermark as one bounded revision hint", async () => {
+    mockCreateMessage.mockResolvedValue({
+      id: "msg_1",
+      readStateRevision: 12,
+    })
+    mockGetMessage.mockResolvedValue(messageRow())
+
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      authorKind: "human",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "human send" },
+    })
+
+    expect(mockCreateMessage).toHaveBeenCalledWith({}, expect.objectContaining({
+      authorId: "author_1",
+      authorKind: "human",
+    }))
+    await vi.waitFor(() => expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("author_1", {
+      type: "community:read_state.advanced",
+      revision: 12,
+      inboxChanged: true,
+    }))
+  })
+
+  it("routes a human forum opener through the ordinary author read-state ownership", async () => {
+    mockCreateMessage.mockResolvedValue({ id: "msg_forum", readStateRevision: 13 })
+    mockGetMessage.mockResolvedValue(messageRow({ id: "msg_forum", channelId: "forum_1" }))
+
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      authorKind: "human",
+      target: { kind: "forum", channelId: "forum_1", serverId: "srv_1" },
+      body: { content: "new forum opener" },
+    })
+
+    expect(mockCreateMessage).toHaveBeenCalledWith({}, expect.objectContaining({
+      authorId: "author_1",
+      authorKind: "human",
+      channelId: "forum_1",
+    }))
   })
 })
 

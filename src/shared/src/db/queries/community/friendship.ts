@@ -419,6 +419,7 @@ export async function sendRequest(
     const otherP = profiles.get(otherId);
     const content = cardContent(otherP?.name ?? "Someone", botP?.name ?? "your bot");
     const msg = await createMessage(db, {
+      authorKind: "bot",
       authorId: botId,
       channelId: dm.id,
       content,
@@ -1078,6 +1079,7 @@ export async function ownerDecideOnRow(
         const otherP = profiles.get(row.requesterId);
         const content = cardContent(otherP?.name ?? "Someone", botP?.name ?? "your bot");
         const msg = await createMessage(db, {
+          authorKind: "bot",
           authorId: row.addresseeId,
           channelId: dm.id,
           content,

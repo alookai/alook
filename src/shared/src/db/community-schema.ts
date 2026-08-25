@@ -30,6 +30,7 @@ export const communityServer = sqliteTable(
       .references(() => user.id, { onDelete: "restrict" }),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
+  /* istanbul ignore next -- exercised by real D1 migration/runtime */
   (t) => [
     // Unique server handle `name#discriminator` — the server-segment address
     // anchor, so a ref `/name#disc/...` resolves to exactly one server. Mirrors
@@ -371,6 +372,13 @@ export const communityReadState = sqliteTable(
   },
   (t) => [index("idx_read_state_user").on(t.userId)]
 );
+
+export const communityReadStateRevision = sqliteTable("community_read_state_revision", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(/* istanbul ignore next -- exercised by real D1 migration/runtime */ () => user.id, { onDelete: "cascade" }),
+  revision: integer("revision").notNull().default(0),
+});
 
 // 13. community_reaction
 export const communityReaction = sqliteTable(

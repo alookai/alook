@@ -19,6 +19,8 @@ import { resolveProfilePresence } from "@/lib/community/presence"
 import { avatarInitial } from "@/lib/community/avatar"
 import { signOut } from "@/lib/auth-client"
 import { clearPersistedCache } from "@/lib/query-persister"
+import { disposeAccountReadStateReconciliation } from "@/hooks/community/community-ws/read-state-reconciliation"
+import { disposeReadCoordinator } from "@/hooks/community/read-coordinator"
 import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
@@ -250,6 +252,8 @@ export function useShellProfileController({
     useCommunityStore.getState().reset()
     useCommunityWsStore.getState().reset()
     useMessageStreamStore.getState().resetAll()
+    disposeReadCoordinator(queryClient)
+    disposeAccountReadStateReconciliation(queryClient)
     queryClient.clear()
     await clearPersistedCache(currentUser.id).catch(() => {})
     await signOut()

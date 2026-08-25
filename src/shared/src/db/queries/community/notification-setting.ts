@@ -6,6 +6,7 @@ import {
   isNotNull,
   inArray,
   gt,
+  exists,
   notExists,
   sql,
 } from "drizzle-orm";
@@ -22,6 +23,10 @@ import {
   communityServerMember,
 } from "../../community-schema";
 import type { Database } from "../../index";
+import {
+  accountReadStateRevisionBuilder,
+  advanceReadStateRevisionWhenBuilder,
+} from "./read-state";
 import type { NotificationLevelValue } from "../../../constants/community";
 import { currentEffectiveLevelSql } from "./notification-eligibility";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
@@ -402,23 +407,62 @@ function buildClearAffectedUnreadStatement(
     });
 }
 
+function effectivePolicyChangesCondition(
+  db: Database,
+  userId: string,
+  change: SettingChange,
+) {
+  const scope: MutationScope = change.kind === "set-server"
+    ? { kind: "server", id: change.id }
+    : { kind: "channel", id: change.id };
+  const channelSql = {
+    id: communityChannel.id,
+    serverId: communityChannel.serverId,
+    parentChannelId: communityChannel.parentChannelId,
+  };
+  return exists(db
+    .select({ one: sql<number>`1` })
+    .from(communityChannel)
+    .where(
+      and(
+        affectedChannelWhere(scope),
+        userCanAccessChannelSql(userId),
+        sql`${currentEffectiveLevelSql(userId, channelSql)} <> ${nextEffectiveLevelSql(userId, change)}`,
+      ),
+    ));
+}
+
 async function applySettingMutation(
   db: Database,
   userId: string,
   change: SettingChange,
   mutation: unknown,
-) {
+  actorKind: "human" | "bot",
+): Promise<number | null> {
   // Clear first while the current projection still represents the "before"
   // level used by the changed-effective predicate. D1 batch is atomic, so no
   // observer can see the cursor advance without the setting write (or vice
   // versa), and any failure rolls both statements back.
   const clearUnread = buildClearAffectedUnreadStatement(db, userId, change);
-  await db.batch([clearUnread, mutation] as any);
+  if (actorKind === "bot") {
+    await db.batch([clearUnread, mutation] as any);
+    return null;
+  }
+  const effectChanges = effectivePolicyChangesCondition(db, userId, change);
+  const results = await db.batch([
+    advanceReadStateRevisionWhenBuilder(db, userId, effectChanges),
+    clearUnread,
+    mutation,
+    accountReadStateRevisionBuilder(db, userId),
+  ] as any) as unknown[];
+  const changed = (results[0] as Array<{ revision: number }>).length > 0;
+  const revision = (results[3] as Array<{ revision: number }>)[0]?.revision ?? 0;
+  return changed ? revision : null;
 }
 
 export async function setServerLevel(
   db: Database,
-  data: { userId: string; serverId: string; level: string }
+  data: { userId: string; serverId: string; level: string; actorKind: "human" | "bot" }
 ) {
   const mutation = db
     .insert(communityNotificationSetting)
@@ -438,11 +482,12 @@ export async function setServerLevel(
       set: { level: data.level },
     });
 
-  await applySettingMutation(
+  const readStateRevision = await applySettingMutation(
     db,
     data.userId,
     { kind: "set-server", id: data.serverId, level: data.level },
     mutation,
+    data.actorKind,
   );
 
   const rows = await db
@@ -456,12 +501,12 @@ export async function setServerLevel(
       ),
     )
     .limit(1);
-  return rows[0]!;
+  return { setting: rows[0]!, readStateRevision };
 }
 
 export async function setChannelLevel(
   db: Database,
-  data: { userId: string; channelId: string; level: string }
+  data: { userId: string; channelId: string; level: string; actorKind: "human" | "bot" }
 ) {
   const mutation = db
     .insert(communityNotificationSetting)
@@ -481,11 +526,12 @@ export async function setChannelLevel(
       set: { level: data.level },
     });
 
-  await applySettingMutation(
+  const readStateRevision = await applySettingMutation(
     db,
     data.userId,
     { kind: "set-channel", id: data.channelId, level: data.level },
     mutation,
+    data.actorKind,
   );
 
   const rows = await db
@@ -499,12 +545,12 @@ export async function setChannelLevel(
       ),
     )
     .limit(1);
-  return rows[0]!;
+  return { setting: rows[0]!, readStateRevision };
 }
 
 export async function removeChannelOverride(
   db: Database,
-  data: { userId: string; channelId: string }
+  data: { userId: string; channelId: string; actorKind: "human" | "bot" }
 ) {
   const existingRows = await db
     .select()
@@ -528,11 +574,12 @@ export async function removeChannelOverride(
       )
     );
 
-  await applySettingMutation(
+  const readStateRevision = await applySettingMutation(
     db,
     data.userId,
     { kind: "remove-channel", id: data.channelId },
     mutation,
+    data.actorKind,
   );
-  return existingRows[0] ?? null;
+  return { setting: existingRows[0] ?? null, readStateRevision };
 }

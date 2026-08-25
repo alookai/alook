@@ -17,6 +17,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(() => ({})),
+  getPrimaryDb: vi.fn(() => ({})),
 }))
 
 vi.mock("@alook/shared", async () => {
@@ -135,7 +136,7 @@ describe("DELETE /api/community/servers/[id]", () => {
     })
     mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", role: "owner" })
     mockListMemberUserIds.mockResolvedValue(["u1", "u2"])
-    mockDeleteServerWithMedia.mockResolvedValue({ deleted: true, mediaKeys: [], iconKey: null })
+    mockDeleteServerWithMedia.mockResolvedValue({ deleted: true, mediaKeys: [], iconKey: null, readStateRevisions: [] })
     mockFanOutToUsers.mockResolvedValue(undefined)
   })
 
@@ -147,7 +148,7 @@ describe("DELETE /api/community/servers/[id]", () => {
     })
     mockDeleteServerWithMedia.mockImplementation(async () => {
       order.push("delete")
-      return { deleted: true, mediaKeys: [], iconKey: null }
+      return { deleted: true, mediaKeys: [], iconKey: null, readStateRevisions: [] }
     })
     mockFanOutToUsers.mockImplementation(async () => {
       order.push("fanout")
@@ -178,6 +179,7 @@ describe("DELETE /api/community/servers/[id]", () => {
       deleted: true,
       mediaKeys: ["channel/s1/a"],
       iconKey: null,
+      readStateRevisions: [],
     })
     mockWaitUntil.mockImplementationOnce(() => {
       throw new TypeError("secret registration detail")
@@ -198,6 +200,7 @@ describe("DELETE /api/community/servers/[id]", () => {
         deleted: true,
         mediaKeys: ["channel/s1/a", "channel/s1/a.thumbnail.jpg"],
         iconKey: "server-icon/s1/icon-a",
+        readStateRevisions: [],
       }
     })
     mockScheduleMediaCleanup.mockImplementation(() => order.push("cleanup"))
@@ -229,6 +232,7 @@ describe("DELETE /api/community/servers/[id]", () => {
       deleted: true,
       mediaKeys: ["channel/s1/a"],
       iconKey: "server-icon/other/icon-a",
+      readStateRevisions: [],
     })
 
     const res = await DELETE(deleteReq(), ctx)
@@ -242,7 +246,7 @@ describe("DELETE /api/community/servers/[id]", () => {
   })
 
   it("returns 404 without cleanup or fanout when the owner-scoped delete loses", async () => {
-    mockDeleteServerWithMedia.mockResolvedValue({ deleted: false, mediaKeys: [], iconKey: null })
+    mockDeleteServerWithMedia.mockResolvedValue({ deleted: false, mediaKeys: [], iconKey: null, readStateRevisions: [] })
 
     const res = await DELETE(deleteReq(), ctx)
 

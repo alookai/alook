@@ -8,8 +8,9 @@ import type { Database } from "../src/index";
  *
  * `createMessage` was refactored from 4 sequential awaits to:
  *   (1) claimNextSeq — separate await
- *   (2) db.batch([insertMsg.returning(), scopeUpdate]) — atomic pair
- *   (3) author read-state upsert — separate await (needs msg.id from step 2)
+ *   (2) db.batch([insertMsg.returning(), scopeUpdate, authorWatermark]) —
+ *       atomic author-send aggregate write. The message id is pre-minted so
+ *       the watermark no longer needs a post-batch await.
  *
  * These tests mock the Database builder chain and assert the batch's
  * contents, without needing a real D1 backend.
@@ -19,12 +20,15 @@ type BuilderTag =
   | { kind: "insert-msg" }
   | { kind: "update-channel" }
   | { kind: "update-dm" }
+  | { kind: "insert-revision" }
+  | { kind: "select-readstates" }
   | { kind: "insert-readstate"; values: Record<string, unknown> };
 
 interface MockDb {
   batchCalls: Array<BuilderTag[]>;
   awaitedStatements: BuilderTag[];
   seqReturned: number;
+  messageId?: string;
 }
 
 function makeMockDb(seq: number): { db: Database; state: MockDb } {
@@ -50,6 +54,9 @@ function makeMockDb(seq: number): { db: Database; state: MockDb } {
   const db: any = {
     insert: (table: any) => {
       const name = getTableName(table);
+      if (name.includes("read_state_revision")) {
+        return makeReturningBuilder({ kind: "insert-revision" }, [{ revision: 3 }]);
+      }
       if (name.includes("read_state")) {
         // Read-state upsert captures its `values(...)` payload for assertions.
         const b: any = { __tag: { kind: "insert-readstate", values: {} } };
@@ -66,8 +73,12 @@ function makeMockDb(seq: number): { db: Database; state: MockDb } {
       }
       // Assume message insert — resolves to a row array carrying the seq we
       // stored so callers can pick out msg.id/seq.
-      const row = { id: "msg_test", seq: state.seqReturned, createdAt: "2026-01-01T00:00:00.000Z" };
-      return makeReturningBuilder({ kind: "insert-msg" }, [row]);
+      const b = makeReturningBuilder({ kind: "insert-msg" }, []);
+      b.values = (values: { id: string }) => {
+        state.messageId = values.id;
+        return b;
+      };
+      return b;
     },
     update: (table: any) => {
       const name = getTableName(table);
@@ -75,6 +86,17 @@ function makeMockDb(seq: number): { db: Database; state: MockDb } {
         ? { kind: "update-dm" }
         : { kind: "update-channel" };
       return makeReturningBuilder(tag, undefined);
+    },
+    select: () => {
+      const row = {
+        channelId: "chan_1",
+        lastReadMessageId: state.messageId!,
+        lastReadAt: "2026-01-01T00:00:00.000Z",
+        lastReadSeq: state.seqReturned,
+      };
+      const b = makeReturningBuilder({ kind: "select-readstates" }, [row]);
+      b.from = () => b;
+      return b;
     },
     batch: (stmts: any[]) => {
       const tags = stmts.map((s) => s.__tag as BuilderTag);
@@ -84,7 +106,16 @@ function makeMockDb(seq: number): { db: Database; state: MockDb } {
       return Promise.resolve(
         tags.map((t) =>
           t.kind === "insert-msg"
-            ? [{ id: "msg_test", seq: state.seqReturned, createdAt: "2026-01-01T00:00:00.000Z" }]
+            ? [{ id: state.messageId!, seq: state.seqReturned, createdAt: "2026-01-01T00:00:00.000Z" }]
+            : t.kind === "insert-revision"
+              ? [{ revision: 3 }]
+              : t.kind === "select-readstates"
+                ? [{
+                    channelId: "chan_1",
+                    lastReadMessageId: state.messageId!,
+                    lastReadAt: "2026-01-01T00:00:00.000Z",
+                    lastReadSeq: state.seqReturned,
+                  }]
             : undefined
         )
       );
@@ -113,7 +144,7 @@ describe("createMessage — batch composition", () => {
     vi.clearAllMocks();
   });
 
-  it("channel send: batches (insert msg, update channel) and separately upserts author read-state with lastReadSeq", async () => {
+  it("channel send atomically batches message, channel, and author read-state watermark", async () => {
     const { db, state } = makeMockDb(42);
     const msg = await queries.communityMessage.createMessage(db, {
       authorId: "user_1",
@@ -123,23 +154,21 @@ describe("createMessage — batch composition", () => {
 
     expect(state.batchCalls).toHaveLength(1);
     const batchTags = state.batchCalls[0]!.map((t) => t.kind);
-    expect(batchTags).toEqual(["insert-msg", "update-channel"]);
+    expect(batchTags).toEqual(["insert-msg", "update-channel", "insert-readstate"]);
 
-    // Author read-state runs after the batch as its own await, and must
-    // carry `lastReadSeq: seq` (design §4 — bot-as-author wake filter reads it).
-    const readState = state.awaitedStatements.find((s) => s.kind === "insert-readstate");
+    const readState = state.batchCalls[0]!.find((s) => s.kind === "insert-readstate");
     expect(readState).toBeDefined();
     const values = (readState as { kind: "insert-readstate"; values: Record<string, unknown> })
       .values;
     expect(values.lastReadSeq).toBe(42);
-    expect(values.lastReadMessageId).toBe("msg_test");
+    expect(values.lastReadMessageId).toBe(msg.id);
     expect(values.channelId).toBe("chan_1");
 
-    expect(msg.id).toBe("msg_test");
+    expect(msg.id).toBe(state.messageId);
     expect(msg.seq).toBe(42);
   });
 
-  it("DM send: a DM is a type=dm channel, so it batches (insert msg, update channel) and separately upserts author read-state with lastReadSeq", async () => {
+  it("DM send atomically batches message, channel, and author read-state watermark", async () => {
     const { db, state } = makeMockDb(7);
     const msg = await queries.communityMessage.createMessage(db, {
       authorId: "user_1",
@@ -150,17 +179,64 @@ describe("createMessage — batch composition", () => {
     expect(state.batchCalls).toHaveLength(1);
     const batchTags = state.batchCalls[0]!.map((t) => t.kind);
     // DMs are channels now — the scope bump always targets communityChannel.
-    expect(batchTags).toEqual(["insert-msg", "update-channel"]);
+    expect(batchTags).toEqual(["insert-msg", "update-channel", "insert-readstate"]);
 
-    const readState = state.awaitedStatements.find((s) => s.kind === "insert-readstate");
+    const readState = state.batchCalls[0]!.find((s) => s.kind === "insert-readstate");
     expect(readState).toBeDefined();
     const values = (readState as { kind: "insert-readstate"; values: Record<string, unknown> })
       .values;
     expect(values.lastReadSeq).toBe(7);
-    expect(values.lastReadMessageId).toBe("msg_test");
+    expect(values.lastReadMessageId).toBe(msg.id);
     expect(values.channelId).toBe("dm_chan_1");
 
-    expect(msg.id).toBe("msg_test");
+    expect(msg.id).toBe(state.messageId);
     expect(msg.seq).toBe(7);
+  });
+
+  it("human send atomically appends a revision without materializing account rows", async () => {
+    const { db, state } = makeMockDb(9);
+    const msg = await queries.communityMessage.createMessage(db, {
+      authorId: "human_1",
+      authorKind: "human",
+      content: "hello from another device",
+      channelId: "chan_1",
+    });
+
+    expect(state.batchCalls[0]!.map((statement) => statement.kind)).toEqual([
+      "insert-msg",
+      "update-channel",
+      "insert-readstate",
+      "insert-revision",
+    ]);
+    expect(msg.readStateRevision).toBe(3);
+  });
+
+  it("human forum opener uses the same ordinary author cursor as every channel type", async () => {
+    const { db, state } = makeMockDb(13);
+    const msg = await queries.communityMessage.createMessage(db, {
+      authorId: "human_1",
+      authorKind: "human",
+      content: "A new forum post",
+      channelId: "forum_1",
+    });
+
+    expect(state.batchCalls).toHaveLength(1);
+    expect(state.batchCalls[0]!.map((statement) => statement.kind)).toEqual([
+      "insert-msg",
+      "update-channel",
+      "insert-readstate",
+      "insert-revision",
+    ]);
+    const cursor = state.batchCalls[0]!.find(
+      (statement): statement is Extract<BuilderTag, { kind: "insert-readstate" }> =>
+        statement.kind === "insert-readstate",
+    );
+    expect(cursor?.values).toMatchObject({
+      userId: "human_1",
+      channelId: "forum_1",
+      lastReadMessageId: msg.id,
+      lastReadSeq: 13,
+    });
+    expect(msg.readStateRevision).toBe(3);
   });
 });

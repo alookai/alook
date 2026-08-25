@@ -338,8 +338,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 900)
 
     expect(summary).toMatchObject({
-      policyCount: 13,
-      successCount: 12,
+      policyCount: 14,
+      successCount: 13,
       failureCount: 1,
       reconnectDurationMs: 900,
     })
@@ -369,7 +369,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 10)
     useCommunityWsStore.setState({ resetPresence: originalResetPresence })
 
-    expect(summary).toMatchObject({ policyCount: 13, successCount: 12, failureCount: 1 })
+    expect(summary).toMatchObject({ policyCount: 14, successCount: 13, failureCount: 1 })
     expect(telemetry.failure).toHaveBeenCalledWith({
       policy: "presence-overlay",
       reason: "sync-throw",
@@ -461,13 +461,15 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(started).not.toContain(JSON.stringify([...communityKeys.all, "bot"]))
 
     gates.get(JSON.stringify(communityKeys.friends()))!.resolve()
-    await flushMicrotasks()
-    expect(started).toContain(JSON.stringify(communityKeys.machines()))
+    await vi.waitFor(() => {
+      expect(started).toContain(JSON.stringify(communityKeys.machines()))
+    })
     expect(started).not.toContain(JSON.stringify([...communityKeys.all, "bot"]))
 
     gates.get(JSON.stringify(communityKeys.machines()))!.resolve()
-    await flushMicrotasks()
-    expect(started).toContain(JSON.stringify([...communityKeys.all, "bot"]))
+    await vi.waitFor(() => {
+      expect(started).toContain(JSON.stringify([...communityKeys.all, "bot"]))
+    })
 
     for (const gate of gates.values()) gate.resolve()
     await work

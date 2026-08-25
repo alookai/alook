@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
-import { getDb } from "@/lib/db"
+import { getDb, getPrimaryDb } from "@/lib/db"
 import {
   queries,
   isServerOwner,
@@ -11,7 +11,7 @@ import {
   WS_EVENTS,
   slugify,
 } from "@alook/shared"
-import { fanOutToServerMembers, fanOutToUsers } from "@/lib/community/fanout"
+import { broadcastToUserSafe, fanOutToServerMembers, fanOutToUsers } from "@/lib/community/fanout"
 import { requireServerAdmin } from "@/lib/community/permissions"
 import { scheduleCommunityMediaCleanup } from "@/lib/community/community-media-cleanup"
 import { isOwnedServerIconKey } from "@/lib/community/storage"
@@ -77,7 +77,7 @@ export const DELETE = withAuth(async (_req, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("missing server id", 400)
 
-  const db = getDb(ctx.env.DB)
+  const db = getPrimaryDb(ctx.env.DB)
 
   const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
   if (!member) return writeError("not a member of this server", 403)
@@ -99,6 +99,12 @@ export const DELETE = withAuth(async (_req, ctx) => {
     ownerId: ctx.userId,
   })
   if (!result.deleted) return writeError("server not found", 404)
+
+  await Promise.all(result.readStateRevisions.map((revision) => broadcastToUserSafe(revision.userId, {
+    type: WS_EVENTS.READ_STATE_ADVANCED,
+    revision: revision.revision,
+    inboxChanged: true,
+  })))
 
   const mediaKeys = [
     ...result.mediaKeys,

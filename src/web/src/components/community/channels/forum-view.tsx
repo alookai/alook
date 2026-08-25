@@ -187,6 +187,7 @@ export function ForumView({
   posts, loading, tag, availableTags = [], onTagChange, onOpenPost, onCreatePost, onEditPostTags, canEditPostTags, savingTagsFor,
   hasMore, loadingMore, onLoadMore,
   onDeletePost, canDeletePost, deletingPost,
+  onScrollRoot,
 }: {
   forumChannelId: string
   members: Member[]
@@ -216,6 +217,7 @@ export function ForumView({
   canDeletePost?: (post: ForumThread) => boolean
   // The post id whose delete is in flight, if any.
   deletingPost?: string | null
+  onScrollRoot?: (node: HTMLDivElement | null) => void
 }) {
   const [composing, setComposing] = useState(false)
   const [deletingFor, setDeletingFor] = useState<ForumThread | null>(null)
@@ -224,6 +226,10 @@ export function ForumView({
   const activeFilterRef = useRef<HTMLButtonElement>(null)
   const tagScrollerRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const bindScrollRoot = useCallback((node: HTMLDivElement | null) => {
+    scrollRef.current = node
+    onScrollRoot?.(node)
+  }, [onScrollRoot])
   const alignedTagRef = useRef<string | null>(null)
   // eslint-disable-next-line react-hooks/incompatible-library -- library limitation, same as member-list.tsx
   const virtualizer = useVirtualizer({
@@ -388,7 +394,7 @@ export function ForumView({
       )}
 
       <div
-        ref={scrollRef}
+        ref={bindScrollRoot}
         role="main"
         data-testid={tid.forumPostList}
         className="flex-1 overflow-y-auto thin-scrollbar px-0 py-2 sm:px-4"
@@ -415,6 +421,7 @@ export function ForumView({
                   key={p.id}
                   role="button"
                   tabIndex={0}
+                  data-msg-id={p.openerMessageId || undefined}
                   data-testid={tid.forumThreadCard(p.id)}
                   onClick={() => onOpenPost(p.id)}
                   onKeyDown={(event) => {

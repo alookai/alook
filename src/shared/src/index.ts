@@ -576,6 +576,8 @@ export type {
   CommunityStatusUpdate,
   CommunityMentionCreate,
   CommunityUnreadBump,
+  CommunityReadStateAdvanced,
+  CommunityInboxChanged,
   CommunityMachineCreated,
   CommunityMachineStatus,
   CommunityMachineUpdated,

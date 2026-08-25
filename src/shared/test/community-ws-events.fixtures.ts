@@ -226,6 +226,17 @@ export const communityWsEventFixtures = {
     userId: "user-1",
     channelId: "channel-1",
   },
+  "community:read_state.advanced": {
+    type: "community:read_state.advanced",
+    revision: 1,
+    inboxChanged: true,
+  },
+  "community:inbox.changed": {
+    type: "community:inbox.changed",
+    revision: 2,
+    inboxChanged: true,
+    reason: "read_all",
+  },
   "community:presence.update": {
     type: "community:presence.update",
     userId: "user-1",
@@ -297,6 +308,8 @@ export const requiredFixturePaths = {
   "community:invite.create": ["invite"],
   "community:mention.create": ["messageId"],
   "community:unread.bump": ["channelId"],
+  "community:read_state.advanced": ["revision"],
+  "community:inbox.changed": ["reason"],
   "community:presence.update": ["online"],
   "community:status.update": ["statusText"],
   "community:machine.created": ["machine"],

@@ -961,8 +961,8 @@ describe("getLatestMessagesByChannelIds", () => {
 
 describe("read-state invariant property — every write path", () => {
   // Fixture message tuples used across paths.
-  const CHANNEL_MSG = { id: "m_ch_latest", createdAt: "2026-07-05T10:00:00.000Z" };
-  const DM_MSG = { id: "m_dm_latest", createdAt: "2026-07-05T11:00:00.000Z" };
+  const CHANNEL_MSG = { id: "m_ch_latest", createdAt: "2026-07-05T10:00:00.000Z", seq: 10 };
+  const DM_MSG = { id: "m_dm_latest", createdAt: "2026-07-05T11:00:00.000Z", seq: 11 };
 
   // Capture every insert/onConflict/update `set` payload that touches
   // communityReadState.
@@ -975,8 +975,9 @@ describe("read-state invariant property — every write path", () => {
   function makePropertyDb() {
     let seqCounter = 0;
     const db: any = {
-      insert: vi.fn((table: unknown) => ({
-        values: vi.fn((v: any) => {
+      insert: vi.fn((table: unknown) => {
+        const insert: any = {
+          values: vi.fn((v: any) => {
           if (table === communityMessageSeq) {
             // `claimNextSeq`'s counter row — not a read-state write, doesn't
             // carry lastReadAt/lastReadMessageId, so it's a no-op for `writes`.
@@ -994,26 +995,36 @@ describe("read-state invariant property — every write path", () => {
           } else {
             writes.push({ lastReadAt: v.lastReadAt, lastReadMessageId: v.lastReadMessageId });
           }
-          const chain: any = {
-            returning: vi.fn(() =>
-              Promise.resolve([{ ...v, id: v.id ?? "m_generated" }])
-            ),
-            onConflictDoUpdate: vi.fn((cfg: any) => {
+          const chain: any = {};
+          chain.returning = vi.fn(() =>
+            Promise.resolve([{ ...v, id: v.id ?? "m_generated", revision: 1 }])
+          );
+          chain.onConflictDoUpdate = vi.fn((cfg: any) => {
               writes.push({
                 lastReadAt: cfg.set.lastReadAt,
                 lastReadMessageId: cfg.set.lastReadMessageId,
               });
-              return { __builder: "insert-onconflict" };
-            }),
-          };
-          return chain;
-        }),
-      })),
+              return chain;
+            });
+            return chain;
+          }),
+          select: vi.fn(() => {
+            const chain: any = {};
+            chain.onConflictDoUpdate = vi.fn(() => chain);
+            chain.returning = vi.fn(() => Promise.resolve([]));
+            return chain;
+          }),
+        };
+        return insert;
+      }),
       update: vi.fn(() => ({
         set: vi.fn((s: any) => {
           writes.push({ lastReadAt: s.lastReadAt, lastReadMessageId: s.lastReadMessageId });
           return { where: vi.fn(() => Promise.resolve()) };
         }),
+      })),
+      delete: vi.fn(() => ({
+        where: vi.fn(() => Promise.resolve()),
       })),
       select: vi.fn(() => {
         const chain: any = {};
@@ -1023,7 +1034,9 @@ describe("read-state invariant property — every write path", () => {
         chain.as = vi.fn(() => chain);
         chain.orderBy = vi.fn(() => chain);
         chain.limit = vi.fn(() => Promise.resolve([]));
-        chain.where = vi.fn(() => Promise.resolve([]));
+        chain.where = vi.fn(() => chain);
+        chain.then = (resolve: (value: unknown[]) => unknown) =>
+          Promise.resolve([]).then(resolve);
         return chain;
       }),
       // `createMessage` composes (insert msg, update scope) into a single
@@ -1093,13 +1106,15 @@ describe("read-state invariant property — every write path", () => {
       chain.as = vi.fn(() => chain);
       chain.orderBy = vi.fn(() => chain);
       chain.limit = vi.fn(() => Promise.resolve([]));
-      chain.where = vi.fn(() => Promise.resolve([]));
+      chain.where = vi.fn(() => chain);
+      chain.then = (resolve: (value: unknown[]) => unknown) =>
+        Promise.resolve([]).then(resolve);
       return chain;
     });
     const spy = vi
       .spyOn(msg, "getLatestMessagesByChannelIds")
       .mockResolvedValue([
-        { channelId: "c_mass", id: "m_mass_latest", createdAt: "2026-07-06T00:00:00.000Z" },
+        { channelId: "c_mass", id: "m_mass_latest", createdAt: "2026-07-06T00:00:00.000Z", seq: 12 },
       ]);
     await readState.markAllServerChannelsRead(dbF, "u_1", ["c_mass"]);
     spy.mockRestore();

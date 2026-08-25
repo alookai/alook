@@ -255,6 +255,7 @@ async function handleHumanSend(
     const created = await createMessageWithThread({
       db,
       authorId: userId,
+      authorKind: "human",
       parentChannelId: target.channelId,
       serverId: target.serverId,
       body: { content, mentionType: forumBody.mentionType },
@@ -294,6 +295,7 @@ async function handleHumanSend(
   const result = await createCommunityMessage({
     db,
     authorId: userId,
+    authorKind: "human",
     target,
     body: raw as Record<string, unknown>,
     source: "web",
@@ -353,6 +355,7 @@ async function handleBotSend(
     const created = await createMessageWithThread({
       db,
       authorId: botUserId,
+      authorKind: "bot",
       parentChannelId: channelId,
       serverId: target.serverId,
       body: { content: body.content.text },
@@ -423,6 +426,7 @@ async function handleBotSend(
   const result = await createCommunityMessage({
     db,
     authorId: botUserId,
+    authorKind: "bot",
     target,
     body: { content: body.content.text, replyToId },
     source: "cli",

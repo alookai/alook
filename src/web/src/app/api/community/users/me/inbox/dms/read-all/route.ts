@@ -1,7 +1,8 @@
-import { queries } from "@alook/shared"
-import { getDb } from "@/lib/db"
+import { queries, WS_EVENTS } from "@alook/shared"
+import { getPrimaryDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON } from "@/lib/middleware/helpers"
+import { broadcastToUserSafe } from "@/lib/community/fanout"
 
 /**
  * POST /api/community/users/me/inbox/dms/read-all
@@ -12,7 +13,15 @@ import { writeJSON } from "@/lib/middleware/helpers"
  * channel-unreads + dms — each idempotent and independently retryable.
  */
 export const POST = withAuth(async (_req, ctx) => {
-  const db = getDb(ctx.env.DB)
-  const count = await queries.communityReadState.markAllDmsRead(db, ctx.userId)
-  return writeJSON({ ok: true, count })
+  const db = getPrimaryDb(ctx.env.DB)
+  const { count, changed, revision } = await queries.communityReadState.markAllDmsRead(db, ctx.userId)
+  if (changed) {
+    await broadcastToUserSafe(ctx.userId, {
+      type: WS_EVENTS.INBOX_CHANGED,
+      revision,
+      inboxChanged: true,
+      reason: "read_all",
+    })
+  }
+  return writeJSON({ ok: true, count, changed, revision })
 })

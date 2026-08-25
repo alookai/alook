@@ -27,6 +27,7 @@ export type CommunityWsProxy = {
   heldCount: () => number
   releaseHeld: (predicate?: (frame: CapturedCommunityFrame) => boolean) => number
   replay: (frame: CapturedCommunityFrame) => void
+  disconnect: () => Promise<void>
 }
 
 export type CommunityWsProxyOptions = {
@@ -99,6 +100,17 @@ export async function proxyCommunityWebSockets(
       const message = payloads.get(frame)
       if (!message || !activeClient) throw new Error("community frame is not replayable")
       activeClient.send(message)
+    },
+    /* istanbul ignore next -- retained offline/reconnect Chromium journey */
+    disconnect: async () => {
+      /* istanbul ignore next -- retained offline/reconnect Chromium journey */
+      if (!activeClient) return
+      /* istanbul ignore next -- retained offline/reconnect Chromium journey */
+      const client = activeClient
+      /* istanbul ignore next -- retained offline/reconnect Chromium journey */
+      activeClient = undefined
+      /* istanbul ignore next -- retained offline/reconnect Chromium journey */
+      await client.close({ code: 1012, reason: "test transport offline" })
     },
   }
 }

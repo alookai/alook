@@ -294,8 +294,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     // mounted ChannelView sync the store in its own useEffect keeps skeleton
     // type consistent with the target channel.
     //
-    // #3: also do NOT eagerly mark the channel read. The
-    // IntersectionObserver in `useChannelWatermark` is authoritative — it
+    // Also do NOT eagerly mark the channel read. The visible-row read observer
     // advances the pointer as the user actually looks at messages. Clicking
     // the sidebar is not "I read everything"; it's just a navigation event.
     // `channelTree.markRead(id)` is a client-only tint (unread flag on the

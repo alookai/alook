@@ -1,21 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useCommunityStore } from "./index"
 
-// Mock the mark-reads flush so we can assert `reset()` invokes it without
-// the real implementation firing HTTP requests. `vi.mock` is hoisted above
-// regular `const` declarations, so we stash the spy in `vi.hoisted(...)`
-// which the hoisted mock factory can safely reference.
-const { flushPendingReadsSpy } = vi.hoisted(() => ({
-  flushPendingReadsSpy: vi.fn(),
-}))
-vi.mock("@/lib/community/pending-reads", () => ({
-  flushPendingReads: flushPendingReadsSpy,
-}))
-
 beforeEach(() => {
   useCommunityStore.getState().reset()
-  expect(flushPendingReadsSpy).toHaveBeenCalled()
-  flushPendingReadsSpy.mockClear()
 })
 
 describe("useCommunityStore", () => {
@@ -116,11 +103,6 @@ describe("useCommunityStore", () => {
     // previewImage stays even though we only passed openProfile.
     expect(useCommunityStore.getState().uiHandlers.previewImage).toBe(previewImage)
     expect(useCommunityStore.getState().uiHandlers.openProfile).toBe(openProfile)
-  })
-
-  it("reset flushes pending mark-reads before returning", () => {
-    useCommunityStore.getState().reset()
-    expect(flushPendingReadsSpy).toHaveBeenCalledTimes(1)
   })
 
   it("reset clears every field including timer maps", () => {

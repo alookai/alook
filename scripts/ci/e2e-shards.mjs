@@ -37,6 +37,7 @@ export const SPEC_SECONDS = {
   "27-canonical-forum-post-delete.spec.ts": 30,
   "28-community-delete-media-cleanup.spec.ts": 45,
   "29-community-bot-avatar-cleanup.spec.ts": 15,
+  "29-multi-device-read-state.spec.ts": 45,
 }
 
 function walk(directory) {

@@ -56,6 +56,7 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenForumThread, o
           {s.channels.map((c) => (
             <div key={c.channelId}>
               <button
+                data-testid={tid.inboxUnreadChannel(c.channelId)}
                 onClick={() => onOpenChannel?.(s.serverId, c.channelId)}
                 className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
               >

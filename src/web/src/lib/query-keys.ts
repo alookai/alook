@@ -99,6 +99,8 @@ export const communityKeys = {
   // stays put while the progressive watermark advances.
   dmReadStateSnapshot: (dmId: string) =>
     [...communityKeys.all, "dm", dmId, "read-state-snapshot"] as const,
+  accountReadStateSnapshot: () =>
+    [...communityKeys.all, "read-state-snapshot"] as const,
 
   // Single hydrated message (opener block, deep-link previews).
   message: (messageId: string) =>

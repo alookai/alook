@@ -4,6 +4,19 @@ import { vi } from "vitest"
 import type { UseUserWsOptions, UserWsConnectionPhase } from "@/lib/use-user-ws"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 
+const communityApiFetch = vi.hoisted(() => vi.fn(async (...args: unknown[]) => {
+  const url = args[0]
+  if (url === "/api/community/users/me/read-state") {
+    return { revision: 0, readStates: [] }
+  }
+  throw new Error(`unexpected API fetch: ${url}`)
+}))
+
+vi.mock("@/lib/api/client", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api/client")>("@/lib/api/client")
+  return { ...actual, apiFetch: (...args: unknown[]) => communityApiFetch(...args) }
+})
+
 type ShimCallback = (...args: unknown[]) => unknown
 
 let refs: Map<string, { current: unknown }> = new Map()
@@ -112,6 +125,14 @@ function resetHarnessState() {
   stableReconnectNow = vi.fn()
   useUserWsCallCount = 0
   markReadMutate.mockClear()
+  communityApiFetch.mockReset()
+  communityApiFetch.mockImplementation(async (...args: unknown[]) => {
+    const url = args[0]
+    if (url === "/api/community/users/me/read-state") {
+      return { revision: 0, readStates: [] }
+    }
+    throw new Error(`unexpected API fetch: ${url}`)
+  })
 }
 
 export async function mountHook(options?: { viewerUserId?: string | null } & Record<string, unknown>) {

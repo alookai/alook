@@ -5,6 +5,8 @@ import type {
   CommunityFriendRemove,
   CommunityFriendRequest,
   CommunityMentionCreate,
+  CommunityInboxChanged,
+  CommunityReadStateAdvanced,
   CommunityWsEvent,
 } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
@@ -23,6 +25,36 @@ import {
   invalidateInbox,
   invalidateServersList,
 } from "./invalidation-projections"
+import {
+  projectReadStateEnvelope,
+  reconcileAccountReadState,
+} from "./read-state-reconciliation"
+
+export function handleReadStateAdvanced(
+  event: CommunityReadStateAdvanced,
+  context: SocialEventContext,
+) {
+  applyReadStateEnvelope(event, context)
+}
+
+function applyReadStateEnvelope(
+  event: CommunityReadStateAdvanced | CommunityInboxChanged,
+  context: SocialEventContext,
+) {
+  const outcome = projectReadStateEnvelope(context.queryClient, event)
+  if (outcome === "gap") {
+    void reconcileAccountReadState(context.queryClient, {
+      targetRevision: event.revision,
+    }).catch(() => undefined)
+  }
+}
+
+export function handleInboxChanged(
+  event: CommunityInboxChanged,
+  context: SocialEventContext,
+) {
+  applyReadStateEnvelope(event, context)
+}
 
 type CommunityUnreadBump = Extract<
   CommunityWsEvent,
