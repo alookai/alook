@@ -98,6 +98,11 @@ cpSync(join(webSrc, ".open-next"), join(webDest, ".open-next"), { recursive: tru
 rewriteAbsolutePaths(webDest);
 cpSync(join(webSrc, "wrangler.toml"), join(webDest, "wrangler.toml"));
 cpSync(join(webSrc, "custom-worker.ts"), join(webDest, "custom-worker.ts"));
+mkdirSync(join(webDest, "src", "lib"), { recursive: true });
+cpSync(
+  join(webSrc, "src", "lib", "worker-runtime.ts"),
+  join(webDest, "src", "lib", "worker-runtime.ts"),
+);
 cpSync(join(webSrc, "migrations"), join(webDest, "migrations"), { recursive: true });
 
 // --- Build Email Worker ---

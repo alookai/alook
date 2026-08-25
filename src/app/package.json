@@ -33,6 +33,7 @@
     "build": "bun build src/index.ts --outdir dist --target node --format esm --external commander --external wrangler && node scripts/bundle-daemon.mjs",
     "prepack": "pnpm run build && node -e \"const{existsSync}=require('fs');if(!existsSync('bundled/web'))throw new Error('bundled/ missing — run pnpm bundle first')\"",
     "bundle": "bun run scripts/bundle.ts",
+    "verify:packed-artifact": "node scripts/verify-packed-artifact.mjs",
     "knip": "knip",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
