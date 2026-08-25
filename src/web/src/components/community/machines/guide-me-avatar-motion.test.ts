@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs"
-import path from "node:path"
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { describe, expect, it, vi } from "vitest"
@@ -75,7 +74,7 @@ describe("first-signup guide avatar motion", () => {
   })
 
   it("uses phase easings for the one-shot NPC motion while leaving orbit linear", () => {
-    const styles = readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8")
+    const styles = readFileSync(new URL("../../../app/globals.css", import.meta.url), "utf8")
 
     expect(styles).toContain(
       "animation: community-guide-me-orbit 4.8s linear infinite;",
