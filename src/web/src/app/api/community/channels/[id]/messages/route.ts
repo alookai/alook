@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
-import { getDb } from "@/lib/db"
+import { getDb, getPrimaryDb } from "@/lib/db"
 import { queries, withD1Retry, CommunityAgentSendRequestSchema, MAX_FORUM_TAG_LENGTH, utcDayKey } from "@alook/shared"
 import {
   parseCursor,
@@ -185,7 +185,12 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
  * SAME mask (never skipped because machine-token — ASSERT 1 ①-C).
  */
 export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
-  const db = getDb(ctx.env.DB)
+  // A send is read-before-write: authorization, alignment, retries, and the
+  // blocked response all depend on the latest committed channel state. Start
+  // this request on primary so a lagging replica cannot supply a stale CAS
+  // boundary or stale `latestSeq`; subsequent reads remain sequentially
+  // consistent within the same D1 session.
+  const db = getPrimaryDb(ctx.env.DB)
 
   let raw: unknown
   try {
