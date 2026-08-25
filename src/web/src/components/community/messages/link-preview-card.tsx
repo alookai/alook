@@ -1,6 +1,7 @@
 "use client"
 
 import { memo, useEffect, useRef, useState } from "react"
+import { ExternalLink } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
@@ -57,8 +58,11 @@ export function LinkPreviewCardView({ preview }: { preview: LinkPreview }) {
       className="group block w-full max-w-108 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       aria-label={`Open link preview: ${preview.title}`}
     >
-      <Card className="gap-0 py-0 transition-shadow group-hover:ring-foreground/20">
+      <Card className="relative gap-0 py-0 transition-shadow group-hover:ring-foreground/20">
         <LinkPreviewThumbnail src={preview.thumbnailUrl} onError={() => setFailed(true)} />
+        <span className="pointer-events-none absolute top-2 right-2 flex size-7 items-center justify-center rounded-full bg-background/80 text-foreground shadow-sm backdrop-blur-sm">
+          <ExternalLink aria-hidden="true" className="size-3.5" />
+        </span>
       </Card>
     </a>
   )

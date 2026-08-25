@@ -12,7 +12,11 @@ vi.mock("html-to-image", () => ({ toBlob: vi.fn() }))
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock("next/image", () => ({ default: "img" }))
 vi.mock("../avatar", () => ({ Avatar: "mock-avatar" }))
-vi.mock("./message-body", () => ({ MessageBody: ({ text }: { text: string }) => text }))
+vi.mock("./message-body", () => ({
+  MessageBody: (props: { text: string; enableLinkPreview?: boolean }) => (
+    React.createElement("mock-message-body", props)
+  ),
+}))
 vi.mock("@/components/ui/button", () => ({ Button: "button" }))
 vi.mock("@/components/ui/dialog", () => {
   const Passthrough = ({ children }: { children?: React.ReactNode }) => children
@@ -102,6 +106,23 @@ describe("MessageShareDialog message context", () => {
     const reactions = renderer.root.findByProps({ "data-testid": "message-share-reactions-m1" })
     const text = reactions.findAllByType("span").map((span) => span.children.join(""))
     expect(text).toEqual(expect.arrayContaining(["👍", "2", "🎉", "11"]))
+  })
+
+  it("matches the live message link-preview suppression when a richer embed exists", () => {
+    const withEmbed = renderMessage(message({
+      content: "https://example.com/story",
+      embeds: [{ title: "Story" }],
+    }))
+    const embeddedBody = withEmbed.root.find(
+      (node) => node.type === "mock-message-body",
+    )
+    expect(embeddedBody.props.enableLinkPreview).toBe(false)
+
+    const withoutEmbed = renderMessage(message({ content: "https://example.com/story" }))
+    const plainBody = withoutEmbed.root.find(
+      (node) => node.type === "mock-message-body",
+    )
+    expect(plainBody.props.enableLinkPreview).toBe(true)
   })
 
   it("renders attached originals at their intrinsic ratio and omits files", () => {
