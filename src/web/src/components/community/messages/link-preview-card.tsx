@@ -1,12 +1,12 @@
 "use client"
 
 import { memo, useEffect, useRef, useState } from "react"
-import { ExternalLink } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { tid } from "@/lib/community/testids"
 import type { LinkPreview } from "@/lib/community/link-preview"
+import { Card } from "@/components/ui/card"
 
 type LinkPreviewResponse = {
   preview: LinkPreview | null
@@ -22,7 +22,7 @@ export function linkPreviewStaleTime(data: LinkPreviewResponse | undefined): num
   return data?.preview ? POSITIVE_STALE_TIME_MS : NEGATIVE_STALE_TIME_MS
 }
 
-export function LinkPreviewThumbnail({ src }: { src: string }) {
+function LinkPreviewThumbnail({ src, onError }: { src: string; onError?: () => void }) {
   const [failed, setFailed] = useState(false)
   if (failed) return null
   return (
@@ -36,34 +36,30 @@ export function LinkPreviewThumbnail({ src }: { src: string }) {
       decoding="async"
       referrerPolicy="no-referrer"
       className="aspect-video w-full bg-muted object-cover"
-      onError={() => setFailed(true)}
+      onError={() => {
+        setFailed(true)
+        onError?.()
+      }}
     />
   )
 }
 
 export function LinkPreviewCardView({ preview }: { preview: LinkPreview }) {
+  const [failed, setFailed] = useState(false)
+  if (!preview.thumbnailUrl || failed) return null
+
   return (
     <a
       data-testid={tid.linkPreviewCard}
       href={preview.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="group block max-w-108 overflow-hidden rounded-lg border border-border bg-card text-foreground transition-colors hover:border-primary/35 hover:bg-accent/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group block w-full max-w-108 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       aria-label={`Open link preview: ${preview.title}`}
     >
-      {preview.thumbnailUrl && <LinkPreviewThumbnail src={preview.thumbnailUrl} />}
-      <div className="px-3 py-2.5">
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="min-w-0 truncate">{preview.siteName ?? preview.hostname}</span>
-          <ExternalLink aria-hidden="true" className="size-3 shrink-0 opacity-55 transition-opacity group-hover:opacity-90" />
-        </div>
-        <div className="mt-1 line-clamp-2 text-sm font-medium leading-snug">{preview.title}</div>
-        {preview.description && (
-          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-            {preview.description}
-          </p>
-        )}
-      </div>
+      <Card className="gap-0 py-0 transition-shadow group-hover:ring-foreground/20">
+        <LinkPreviewThumbnail src={preview.thumbnailUrl} onError={() => setFailed(true)} />
+      </Card>
     </a>
   )
 }
