@@ -26,19 +26,11 @@ export const metadata: Metadata = {
     title: pageTitle,
     description,
     url: "https://alook.ai/blog",
-    images: [
-      {
-        url: `/og?title=${encodeURIComponent(pageTitle)}`,
-        width: 1200,
-        height: 630,
-      },
-    ],
   },
   twitter: {
     card: "summary_large_image",
     title: pageTitle,
     description,
-    images: [`/og?title=${encodeURIComponent(pageTitle)}`],
   },
 };
 

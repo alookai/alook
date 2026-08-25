@@ -8,9 +8,6 @@ export const metadata: Metadata = {
   description: BRAND_SLOGAN,
   robots: { index: false, follow: true },
   alternates: { canonical: "/sign-in" },
-  openGraph: {
-    images: [{ url: "/og?title=Sign In", width: 1200, height: 630 }],
-  },
 };
 
 export default async function AuthLayout({

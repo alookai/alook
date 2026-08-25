@@ -1,16 +1,16 @@
 import { inflateSync } from "node:zlib"
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
-import { NextRequest } from "next/server"
-import { OG_LOGO_DATA_URI } from "./og-logo"
 import {
+  getOgTitleVisualUnits,
   getOgTitlePresentation,
   normalizeOgTitle,
   OG_TITLE_LINE_CLAMP,
+  OG_TITLE_MAX_DISPLAY_UNITS,
   OG_TITLE_MAX_INPUT_GRAPHEMES,
   OG_TITLE_MAX_LINES,
 } from "./og-title"
-import { GET } from "./route"
+import { renderOgImage } from "./render-og-image"
 
 type DecodedPng = {
   width: number
@@ -194,19 +194,18 @@ function countSmallColorComponents(
 }
 
 describe("OG image", () => {
-  it("embeds the checked-in raster logo instead of requesting the public SVG", () => {
-    const [prefix, payload] = OG_LOGO_DATA_URI.split(",", 2)
+  it("loads the generated raster logo instead of embedding manual base64 or requesting SVG", () => {
     const officialLogo = readFileSync(new URL("../../../public/icon-192.png", import.meta.url))
-    const routeSource = readFileSync(new URL("./route.tsx", import.meta.url), "utf8")
+    const rendererSource = readFileSync(new URL("./render-og-image.tsx", import.meta.url), "utf8")
 
-    expect(prefix).toBe("data:image/png;base64")
-    expect(Buffer.from(payload, "base64")).toEqual(officialLogo)
-    expect(routeSource).toContain("src={OG_LOGO_DATA_URI}")
-    expect(routeSource).not.toContain('new URL("/alook.svg", request.url)')
+    expect(officialLogo.byteLength).toBeGreaterThan(1_000)
+    expect(rendererSource).toContain('join(process.cwd(), "public/icon-192.png")')
+    expect(rendererSource).not.toContain("iVBORw0KGgo")
+    expect(rendererSource).not.toContain("alook.svg")
   })
 
   it("renders the official brand colors into the logo crop", async () => {
-    const response = await GET(new NextRequest("http://localhost/og?title=OG%20logo%20regression"))
+    const response = await renderOgImage("OG logo regression")
     expect(response.status).toBe(200)
     expect(response.headers.get("content-type")).toBe("image/png")
 
@@ -221,7 +220,7 @@ describe("OG image", () => {
       [255, 153, 21],
     ]
     const hits = brandColors.map(() => 0)
-    for (let y = 170; y < 315; y += 1) {
+    for (let y = 70; y < 330; y += 1) {
       for (let x = 75; x < 205; x += 1) {
         const index = (y * decoded.width + x) * 4
         const pixel = decoded.rgba.subarray(index, index + 3)
@@ -264,7 +263,7 @@ describe("OG image", () => {
       },
       {
         name: "unbroken",
-        title: "UNBROKEN".repeat(700),
+        title: "X".repeat(5_600),
         expectedFontSize: 38,
         maxTitleHeight: 90,
         expectsEllipsis: true,
@@ -290,15 +289,27 @@ describe("OG image", () => {
     expect(normalized.endsWith("…")).toBe(true)
     expect(normalizeOgTitle("  spaced\n\t title  ")).toBe("spaced title")
 
+    for (const emojiTitle of ["😀".repeat(100), familyEmoji.repeat(100)]) {
+      const presentation = getOgTitlePresentation(emojiTitle)
+      expect(presentation.fontSize).toBe(38)
+      expect(presentation.displayTitle.endsWith("…")).toBe(true)
+      expect(getOgTitleVisualUnits(presentation.displayTitle)).toBeLessThanOrEqual(
+        OG_TITLE_MAX_DISPLAY_UNITS[38],
+      )
+    }
+
     for (const testCase of cases) {
       const presentation = getOgTitlePresentation(testCase.title)
-      expect(presentation).toEqual({
-        fontSize: testCase.expectedFontSize,
-        lineClamp: '2 "…"',
-      })
+      expect(presentation.fontSize).toBe(testCase.expectedFontSize)
+      expect(presentation.lineClamp).toBe('2 "…"')
+      expect(presentation.maxHeight).toBe(
+        Math.ceil(testCase.expectedFontSize * 1.15 * OG_TITLE_MAX_LINES),
+      )
+      expect(getOgTitleVisualUnits(presentation.displayTitle))
+        .toBeLessThanOrEqual(OG_TITLE_MAX_DISPLAY_UNITS[testCase.expectedFontSize as 38 | 44 | 52])
+      if (testCase.expectsEllipsis) expect(presentation.displayTitle.endsWith("…")).toBe(true)
 
-      const request = new NextRequest(`http://localhost/og?title=${encodeURIComponent(testCase.title)}`)
-      const response = await GET(request)
+      const response = await renderOgImage(testCase.title)
       expect(response.status, testCase.name).toBe(200)
       const decoded = decodeRgbaPng(new Uint8Array(await response.arrayBuffer()))
       expect([decoded.width, decoded.height], testCase.name).toEqual([1200, 630])
@@ -312,7 +323,7 @@ describe("OG image", () => {
       const subtitleBounds = colorBounds(decoded, [138, 126, 110], {
         minX: 70,
         maxX: 740,
-        minY: 400,
+        minY: 440,
         maxY: 560,
       })
       const logoBounds = colorBounds(decoded, [255, 153, 21], {
@@ -342,7 +353,7 @@ describe("OG image", () => {
       expect(typewriterBounds.minX - titleBounds.maxX, testCase.name).toBeGreaterThanOrEqual(40)
       if (testCase.expectsEllipsis) {
         const ellipsisComponents = countSmallColorComponents(decoded, [42, 35, 26], {
-          minX: titleBounds.maxX - 30,
+          minX: titleBounds.minX,
           maxX: titleBounds.maxX,
           minY: titleBounds.maxY - 24,
           maxY: titleBounds.maxY,
