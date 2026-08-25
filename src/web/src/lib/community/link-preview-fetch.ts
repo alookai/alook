@@ -243,7 +243,7 @@ function isRedirect(status: number): boolean {
 
 async function fetchHtml(start: URL, signal: AbortSignal): Promise<{ html: string; finalUrl: URL; contentType: string }> {
   let current = start
-  for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
+  for (let redirects = 0; ; redirects += 1) {
     const response = await fetch(current.href, {
       method: "GET",
       redirect: "manual",
@@ -274,7 +274,6 @@ async function fetchHtml(start: URL, signal: AbortSignal): Promise<{ html: strin
     }
     return { html: await readBoundedHtml(response), finalUrl: current, contentType }
   }
-  throw new Error("too many preview redirects")
 }
 
 /**

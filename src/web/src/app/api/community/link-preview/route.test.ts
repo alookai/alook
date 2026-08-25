@@ -108,6 +108,16 @@ describe("POST /api/community/link-preview", () => {
     expect(mockFetchLinkPreview).not.toHaveBeenCalled()
   })
 
+  it("rejects a request with no body only after applying the rate limit", async () => {
+    const req = new NextRequest("http://localhost/api/community/link-preview", { method: "POST" })
+
+    const response = await POST(req)
+
+    expect(response.status).toBe(400)
+    expect(mockCheckRateLimit).toHaveBeenCalledOnce()
+    expect(mockFetchLinkPreview).not.toHaveBeenCalled()
+  })
+
   it("returns a valid cached preview without fetching the origin", async () => {
     mockKvGet.mockResolvedValue(JSON.stringify({
       preview: { url: "https://example.com/", hostname: "example.com", title: "Cached" },
@@ -123,6 +133,16 @@ describe("POST /api/community/link-preview", () => {
       "user_1",
     )
     expect(mockFetchLinkPreview).not.toHaveBeenCalled()
+  })
+
+  it("returns a cached negative preview without fetching the origin", async () => {
+    mockKvGet.mockResolvedValue(JSON.stringify({ preview: null }))
+
+    const response = await POST(request({ url: "https://example.com/" }))
+
+    expect(await response.json()).toEqual({ preview: null })
+    expect(mockFetchLinkPreview).not.toHaveBeenCalled()
+    expect(mockKvPut).not.toHaveBeenCalled()
   })
 
   it("treats a malformed cache entry as a miss", async () => {

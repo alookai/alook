@@ -18,6 +18,13 @@ describe("normalizePublicPreviewUrl", () => {
   })
 
   it.each([
+    ["https://8.8.8.8/path#private", "https://8.8.8.8/path"],
+    ["https://[2606:4700:4700::1111]/dns#private", "https://[2606:4700:4700::1111]/dns"],
+  ])("accepts a globally routable literal address: %s", (input, expected) => {
+    expect(normalizePublicPreviewUrl(input).href).toBe(expected)
+  })
+
+  it.each([
     "http://localhost/",
     "http://service.internal/",
     "http://127.0.0.1/",
@@ -26,11 +33,22 @@ describe("normalizePublicPreviewUrl", () => {
     "http://169.254.169.254/",
     "http://172.16.0.1/",
     "http://192.168.0.1/",
+    "http://192.0.0.1/",
+    "http://192.0.2.1/",
+    "http://192.88.99.1/",
     "http://198.18.0.1/",
+    "http://198.51.100.1/",
+    "http://203.0.113.1/",
+    "http://224.0.0.1/",
     "http://[::1]/",
     "http://[fc00::1]/",
     "http://[fe80::1]/",
     "http://[2001:db8::1]/",
+    "http://[2001::1]/",
+    "http://[2001:2::1]/",
+    "http://[2001:d::1]/",
+    "http://[2001:10::1]/",
+    "http://[2002::1]/",
     "http://[::ffff:127.0.0.1]/",
     "http://127.1/",
     "http://2130706433/",
@@ -46,6 +64,14 @@ describe("normalizePublicPreviewUrl", () => {
     "https://example.com:8443/",
   ])("rejects unsupported URL authority/protocol shapes: %s", (url) => {
     expect(() => normalizePublicPreviewUrl(url)).toThrow()
+  })
+
+  it.each([
+    "",
+    "not a URL",
+    `https://example.com/${"x".repeat(2_048)}`,
+  ])("rejects an empty, malformed, or oversized URL: %s", (url) => {
+    expect(() => normalizePublicPreviewUrl(url)).toThrow("invalid preview URL")
   })
 })
 
@@ -110,6 +136,25 @@ describe("fetchLinkPreview", () => {
       .rejects.toThrow("preview response is too large")
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(cancel).toHaveBeenCalledOnce()
+  })
+
+  it("rejects a bodyless YouTube oEmbed response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, {
+      headers: { "content-type": "application/json" },
+    })))
+
+    await expect(fetchLinkPreview("https://youtu.be/dQw4w9WgXcQ"))
+      .rejects.toThrow("preview response has no body")
+  })
+
+  it("rejects YouTube oEmbed JSON without a meaningful title", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      provider_name: "YouTube",
+      author_name: "Example creator",
+    }), { headers: { "content-type": "application/json" } })))
+
+    await expect(fetchLinkPreview("https://youtu.be/dQw4w9WgXcQ"))
+      .rejects.toThrow("YouTube oEmbed metadata missing")
   })
 
   it.each([
@@ -234,6 +279,16 @@ describe("fetchLinkPreview", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it("rejects and cancels a redirect without a location", async () => {
+    const cancel = vi.fn()
+    const body = new ReadableStream<Uint8Array>({ cancel })
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { status: 302 })))
+
+    await expect(fetchLinkPreview("https://example.com/start"))
+      .rejects.toThrow("invalid preview redirect")
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
   it("revalidates every redirect hop before the next fetch", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(null, {
@@ -334,6 +389,25 @@ describe("fetchLinkPreview", () => {
     await vi.advanceTimersByTimeAsync(LINK_PREVIEW_LIMITS.timeoutMs)
 
     await rejected
+  })
+
+  it("rejects a bodyless HTML response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, {
+      headers: { "content-type": "text/html" },
+    })))
+
+    await expect(fetchLinkPreview("https://example.com/bodyless"))
+      .rejects.toThrow("preview response has no body")
+  })
+
+  it("rejects and cancels a non-success HTML response", async () => {
+    const cancel = vi.fn()
+    const body = new ReadableStream<Uint8Array>({ cancel })
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { status: 503 })))
+
+    await expect(fetchLinkPreview("https://example.com/unavailable"))
+      .rejects.toThrow("preview origin rejected request")
+    expect(cancel).toHaveBeenCalledOnce()
   })
 
   it("rejects non-HTML responses", async () => {
