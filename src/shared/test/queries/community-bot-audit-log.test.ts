@@ -2,8 +2,14 @@ import Sqlite from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest"
 import * as q from "../../src/db/queries/community/bot-audit-log"
+import { touchBotRefreshContextForAuditEventStatement } from "../../src/db/queries/community/bot"
+import { communityBotActivityEvent } from "../../src/db/community-schema"
 import type { Database } from "../../src/db"
-import { BotAuditEventSchema, HostBotAuditEventFrameSchema } from "../../src/schemas"
+import {
+  BotAuditEventAckFrameSchema,
+  BotAuditEventSchema,
+  HostBotAuditEventFrameSchema,
+} from "../../src/schemas"
 
 /**
  * Smoke test — verifies the bot-audit-log query module exports the documented
@@ -42,7 +48,8 @@ describe("listOwnedBotActivityEvents", () => {
         id TEXT PRIMARY KEY,
         isBot INTEGER NOT NULL DEFAULT 0,
         ownerUserId TEXT,
-        deletedAt TEXT
+        deletedAt TEXT,
+        lastRefreshContextAt TEXT
       );
       CREATE TABLE community_bot_activity_event (
         id TEXT PRIMARY KEY,
@@ -55,6 +62,20 @@ describe("listOwnedBotActivityEvents", () => {
       );
     `)
     db = drizzle(sqlite) as unknown as Database
+    ;(db as any).batch = (
+      statements: Array<{ toSQL: () => { sql: string; params: unknown[] } }>,
+    ) => sqlite.transaction(() =>
+      statements.map((statement) => {
+        const query = statement.toSQL()
+        const prepared = sqlite.prepare(query.sql)
+        if (!prepared.reader) return prepared.run(...query.params)
+        return prepared.all(...query.params).map((row: any) => {
+          if (!("created_at" in row)) return row
+          const { created_at: createdAt, ...rest } = row
+          return { ...rest, createdAt }
+        })
+      }),
+    )()
 
     const insertUser = sqlite.prepare(
       "INSERT INTO user (id, isBot, ownerUserId, deletedAt) VALUES (?, ?, ?, ?)",
@@ -152,6 +173,121 @@ describe("listOwnedBotActivityEvents", () => {
       }),
     ).resolves.toBeNull()
   })
+
+  it("atomically inserts an idle reset and stamps Awake exactly once across a retry", async () => {
+    const eventId = "bae_idle_atomic"
+    const firstCreatedAt = "2026-08-25T14:00:00.000Z"
+    const inserted = await q.insertBotActivityEventAndPrune(
+      db,
+      {
+        id: eventId,
+        botId: "bot_1",
+        kind: "session_reset",
+        payload: JSON.stringify({ trigger: "idle_timeout" }),
+        createdAt: firstCreatedAt,
+      },
+      [touchBotRefreshContextForAuditEventStatement(
+        db,
+        "bot_1",
+        eventId,
+        firstCreatedAt,
+      )],
+    )
+    expect(inserted).toEqual({ id: eventId, createdAt: firstCreatedAt })
+    expect(sqlite.prepare(
+      "SELECT lastRefreshContextAt FROM user WHERE id = 'bot_1'",
+    ).get()).toEqual({ lastRefreshContextAt: firstCreatedAt })
+
+    const retryCreatedAt = "2026-08-25T14:05:00.000Z"
+    const duplicate = await q.insertBotActivityEventAndPrune(
+      db,
+      {
+        id: eventId,
+        botId: "bot_1",
+        kind: "session_reset",
+        payload: JSON.stringify({ trigger: "idle_timeout" }),
+        createdAt: retryCreatedAt,
+      },
+      [touchBotRefreshContextForAuditEventStatement(
+        db,
+        "bot_1",
+        eventId,
+        retryCreatedAt,
+      )],
+    )
+    expect(duplicate).toBeNull()
+    expect(sqlite.prepare(
+      "SELECT count(*) AS count FROM community_bot_activity_event WHERE id = ?",
+    ).get(eventId)).toEqual({ count: 1 })
+    expect(sqlite.prepare(
+      "SELECT lastRefreshContextAt FROM user WHERE id = 'bot_1'",
+    ).get()).toEqual({ lastRefreshContextAt: firstCreatedAt })
+  })
+
+  it("does not regress Awake when an older reset completion arrives late", async () => {
+    const newerRefresh = "2026-08-25T16:00:00.000Z"
+    sqlite.prepare(
+      "UPDATE user SET lastRefreshContextAt = ? WHERE id = 'bot_1'",
+    ).run(newerRefresh)
+    const eventId = "bae_delayed_older_reset"
+    const occurredAt = "2026-08-25T14:00:00.000Z"
+
+    await expect(q.insertBotActivityEventAndPrune(
+      db,
+      {
+        id: eventId,
+        botId: "bot_1",
+        kind: "session_reset",
+        payload: JSON.stringify({ trigger: "idle_timeout" }),
+        createdAt: occurredAt,
+      },
+      [touchBotRefreshContextForAuditEventStatement(db, "bot_1", eventId, occurredAt)],
+    )).resolves.toEqual({ id: eventId, createdAt: occurredAt })
+    expect(sqlite.prepare(
+      "SELECT lastRefreshContextAt FROM user WHERE id = 'bot_1'",
+    ).get()).toEqual({ lastRefreshContextAt: newerRefresh })
+  })
+
+  it("rolls back the audit insert and Awake stamp when any statement in the batch fails", async () => {
+    sqlite.prepare(`
+      INSERT INTO community_bot_activity_event
+        (id, bot_id, kind, payload, created_at)
+      VALUES ('bae_collision', 'bot_1', 'tool_call', '{}', '2026-08-25T13:00:00.000Z')
+    `).run()
+    const eventId = "bae_atomic_failure"
+    const createdAt = "2026-08-25T14:00:00.000Z"
+    const failingStatement = (db as any)
+      .insert(communityBotActivityEvent)
+      .values({
+        id: "bae_collision",
+        botId: "bot_1",
+        kind: "tool_call",
+        payload: "{}",
+        createdAt,
+      })
+
+    await expect(q.insertBotActivityEventAndPrune(
+      db,
+      {
+        id: eventId,
+        botId: "bot_1",
+        kind: "session_reset",
+        payload: JSON.stringify({ trigger: "idle_timeout" }),
+        createdAt,
+      },
+      [
+        touchBotRefreshContextForAuditEventStatement(db, "bot_1", eventId, createdAt),
+        failingStatement,
+      ],
+    )).rejects.toThrow(/UNIQUE constraint failed/)
+
+    expect(sqlite.prepare(
+      "SELECT count(*) AS count FROM community_bot_activity_event WHERE id = ?",
+    ).get(eventId)).toEqual({ count: 0 })
+    expect(sqlite.prepare(
+      "SELECT lastRefreshContextAt FROM user WHERE id = 'bot_1'",
+    ).get()).toEqual({ lastRefreshContextAt: null })
+  })
 })
 
 describe("BotAuditEventSchema — payload discriminated union", () => {
@@ -239,6 +375,16 @@ describe("BotAuditEventSchema — payload discriminated union", () => {
     })
     expect(r.success).toBe(true)
   })
+  it.each(["single", "reset_all", "idle_timeout"])(
+    "accepts session_reset trigger=%s",
+    (trigger) => {
+      const r = BotAuditEventSchema.safeParse({
+        kind: "session_reset",
+        payload: { trigger },
+      })
+      expect(r.success).toBe(true)
+    },
+  )
   it("rejects an error payload with a bad scope", () => {
     const r = BotAuditEventSchema.safeParse({
       kind: "error",
@@ -288,5 +434,38 @@ describe("HostBotAuditEventFrameSchema", () => {
       event: { kind: "tool_call", payload: { name: "Read" } },
     })
     expect(r.success).toBe(false)
+  })
+  it("requires a stable eventId and durable completion time for idle_timeout resets", () => {
+    const withoutId = HostBotAuditEventFrameSchema.safeParse({
+      type: "bot_audit_event",
+      agentId: "bot_1",
+      event: { kind: "session_reset", payload: { trigger: "idle_timeout" } },
+    })
+    const withId = HostBotAuditEventFrameSchema.safeParse({
+      type: "bot_audit_event",
+      eventId: "bae_reset_1",
+      occurredAt: "2026-08-25T14:00:00.000Z",
+      agentId: "bot_1",
+      event: { kind: "session_reset", payload: { trigger: "idle_timeout" } },
+    })
+    const withoutOccurredAt = HostBotAuditEventFrameSchema.safeParse({
+      type: "bot_audit_event",
+      eventId: "bae_reset_1",
+      agentId: "bot_1",
+      event: { kind: "session_reset", payload: { trigger: "idle_timeout" } },
+    })
+    expect(withoutId.success).toBe(false)
+    expect(withoutOccurredAt.success).toBe(false)
+    expect(withId.success).toBe(true)
+  })
+  it("accepts only a strict audit acknowledgement with an eventId", () => {
+    expect(BotAuditEventAckFrameSchema.safeParse({
+      type: "bot_audit_event_ack",
+      eventId: "bae_reset_1",
+    }).success).toBe(true)
+    expect(BotAuditEventAckFrameSchema.safeParse({
+      type: "bot_audit_event_ack",
+      eventId: "",
+    }).success).toBe(false)
   })
 })

@@ -18,7 +18,7 @@
  * return null / 404 at the route. The victim's state must be untouched.
  */
 
-import { aliasedTable, and, count, eq, gte, inArray, isNull, sql } from "drizzle-orm";
+import { aliasedTable, and, count, eq, exists, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { user } from "../../schema";
 import {
   communityBotBinding,
@@ -30,6 +30,7 @@ import {
   communityUserProfile,
   communityReadState,
   communityBotDailyActivity,
+  communityBotActivityEvent,
 } from "../../community-schema";
 import { communityMachine } from "../../community-machine-schema";
 import type { Database } from "../../index";
@@ -742,6 +743,38 @@ export async function touchBotRefreshContext(
     .update(user)
     .set({ lastRefreshContextAt: now })
     .where(and(eq(user.id, botId), eq(user.isBot, true), isNull(user.deletedAt)));
+}
+
+/**
+ * Batchable Awake stamp for a reliable audit insert. The exact audit row must
+ * exist with the same validated completion timestamp, so a duplicate event-id
+ * retry cannot move Awake or create an audit/timestamp split. The monotonic
+ * predicate also prevents a delayed reset from overwriting a newer wake/reset.
+ */
+export function touchBotRefreshContextForAuditEventStatement(
+  db: Database,
+  botId: string,
+  eventId: string,
+  createdAt: string,
+) {
+  const exactInsertedEvent = db
+    .select({ id: communityBotActivityEvent.id })
+    .from(communityBotActivityEvent)
+    .where(and(
+      eq(communityBotActivityEvent.id, eventId),
+      eq(communityBotActivityEvent.botId, botId),
+      eq(communityBotActivityEvent.createdAt, createdAt),
+    ));
+  return db
+    .update(user)
+    .set({ lastRefreshContextAt: createdAt })
+    .where(and(
+      eq(user.id, botId),
+      eq(user.isBot, true),
+      isNull(user.deletedAt),
+      or(isNull(user.lastRefreshContextAt), lt(user.lastRefreshContextAt, createdAt)),
+      exists(exactInsertedEvent),
+    ));
 }
 
 /**

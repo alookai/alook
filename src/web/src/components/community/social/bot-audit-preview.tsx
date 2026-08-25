@@ -65,7 +65,7 @@ export function BotAuditPreview({
         ? "Bot activity in progress. Open full bot activity log"
         : "Bot at rest. Open full bot activity log"}
       className={[
-        "relative flex h-40 w-full shrink-0 flex-col overflow-hidden rounded-xl border bg-card text-left shadow-(--e1) transition-[border-color] duration-150",
+        "relative flex w-full shrink-0 flex-col overflow-hidden rounded-xl border bg-card text-left shadow-(--e1) transition-[border-color] duration-150",
         "after:pointer-events-none after:absolute after:inset-0 after:z-10 after:rounded-[inherit] after:opacity-0 after:ring-2 after:ring-inset after:ring-ring/50 after:transition-opacity after:duration-150 after:content-[''] hover:after:opacity-100 active:after:ring-ring/70",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
         active
@@ -82,7 +82,7 @@ export function BotAuditPreview({
         </span>
         <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
       </div>
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto py-1 thin-scrollbar">
+      <div className="flex flex-col py-1">
         {isLoading ? (
           <PreviewSkeleton />
         ) : isError ? (

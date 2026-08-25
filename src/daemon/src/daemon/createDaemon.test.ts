@@ -30,6 +30,7 @@ import {
   DAEMON_SELF_SLEEP_TIMEOUT_MS,
   type DaemonSelfSleepClock,
 } from "./daemonSelfSleep";
+import { createTimelineRecorder } from "../timeline/index.js";
 
 const timelineSweepHarness = vi.hoisted(() => {
   let implementation: (workingDirectoryBase: string) => Promise<unknown> =
@@ -1947,6 +1948,59 @@ describe("createDaemon — logging", () => {
       logger.calls.info.some(([, m, d]) => m === "cold-start bot-cache warmup succeeded" && (d[0] as any).bots === 1),
     ).toBe(true);
     await daemon.stop();
+  });
+
+  it("replays the same durable idle-reset completion after daemon reconstruction", async () => {
+    const base = mkdtempSync(join(tmpdir(), "daemon-audit-outbox-"));
+    startupSweepDirs.push(base);
+    const completion = {
+      eventId: "bae_process_rebuild",
+      occurredAt: "2026-08-25T12:00:00.000Z",
+    };
+    const timelineDirFor = (agentId: string) => join(base, agentId, ".context_timeline");
+    mkdirSync(join(base, "bot_1"));
+    const recorder = createTimelineRecorder({ timelineDirFor });
+    expect(recorder.forgetSession("bot_1", "reset_session", "sess-old", completion)).toBe(true);
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({
+      bots: [{ id: "bot_1", name: "Bot", discriminator: "0001" }],
+    }), { status: 200 })) as unknown as typeof fetch;
+
+    const start = async (sockets: FakeSocket[]) => {
+      const daemon = await createDaemon({
+        machineKey: "cmk_outbox",
+        serverUrl: "http://localhost:9999",
+        serverWsUrl: "ws://x",
+        webSocketFactory: factory(sockets) as any,
+        runtimeReport: [],
+        driverFor: () => fakeDriver,
+        workingDirectoryBase: base,
+        capabilities: [],
+      });
+      sockets[0].emit("open");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return daemon;
+    };
+
+    const firstSockets: FakeSocket[] = [];
+    const firstDaemon = await start(firstSockets);
+    const firstFrame = firstSockets[0].sent.map((raw) => JSON.parse(raw)).find(
+      (frame) => frame.type === "bot_audit_event",
+    );
+    expect(firstFrame).toMatchObject({ ...completion, agentId: "bot_1" });
+    await firstDaemon.stop();
+
+    const rebuiltSockets: FakeSocket[] = [];
+    const rebuiltDaemon = await start(rebuiltSockets);
+    const replay = rebuiltSockets[0].sent.map((raw) => JSON.parse(raw)).find(
+      (frame) => frame.type === "bot_audit_event",
+    );
+    expect(replay).toEqual(firstFrame);
+    rebuiltSockets[0].emit("message", JSON.stringify({
+      type: "bot_audit_event_ack",
+      eventId: completion.eventId,
+    }));
+    expect(createTimelineRecorder({ timelineDirFor }).pendingIdleResetEvents("bot_1")).toEqual([]);
+    await rebuiltDaemon.stop();
   });
 
   it("logs enrollAgent's failure branch (bot known, enroll HTTP call fails)", async () => {

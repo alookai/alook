@@ -118,12 +118,13 @@ export const mockListBotsForMachine = vi.fn<(db: unknown, machineId: string) => 
 export const mockIsBotOnline = vi.fn<(db: unknown, botUserId: string) => Promise<boolean>>().mockResolvedValue(false)
 export const mockGetBotBinding = vi.fn<(db: unknown, botId: string) => Promise<{ machineId: string; runtime: string } | null>>().mockResolvedValue(null)
 export const mockGetBotBindingWithOwner = vi.fn<(db: unknown, botId: string) => Promise<{ machineId: string; runtime: string; ownerUserId: string; name: string; discriminator: string } | null>>().mockResolvedValue(null)
-export const mockInsertBotActivityEventAndPrune = vi.fn<(db: unknown, data: unknown) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
+export const mockInsertBotActivityEventAndPrune = vi.fn<(db: unknown, data: any, extraStatements?: unknown[]) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
 export const mockInsertBotAuditSessionReset = vi.fn<(db: unknown, data: unknown) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
 export const mockInsertBotAuditNap = vi.fn<(db: unknown, data: unknown) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
 export const mockInsertBotAuditModelChanged = vi.fn<(db: unknown, data: unknown) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
 export const mockInsertBotAuditProviderChanged = vi.fn<(db: unknown, data: unknown) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
 export const mockTouchBotRefreshContext = vi.fn<(db: unknown, botId: string, now: string) => Promise<void>>().mockResolvedValue(undefined)
+export const mockTouchBotRefreshContextForAuditEventStatement = vi.fn().mockReturnValue({ __stmt: "touch-awake" })
 export const mockUpdateProfile = vi
   .fn<(db: unknown, userId: string, data: { statusEmoji?: string | null; statusText?: string | null }) => Promise<unknown>>()
   .mockResolvedValue({})
@@ -280,7 +281,7 @@ vi.mock("@alook/shared", async () => {
   }
   const HostBotAuditEventFrameSchema = {
     safeParse(v: unknown) {
-      const m = v as { type?: unknown; agentId?: unknown; sessionId?: unknown; launchId?: unknown; event?: unknown }
+      const m = v as { type?: unknown; eventId?: unknown; occurredAt?: unknown; agentId?: unknown; sessionId?: unknown; launchId?: unknown; event?: unknown }
       if (m?.type !== "bot_audit_event") return { success: false } as const
       if (typeof m.agentId !== "string" || m.agentId.length === 0) return { success: false } as const
       const ev = m.event as { kind?: unknown; payload?: unknown }
@@ -293,11 +294,22 @@ vi.mock("@alook/shared", async () => {
       else if (kind === "tool_call") ok = typeof payload.name === "string"
       else if (kind === "thinking")
         ok = typeof payload.text === "string" && typeof payload.truncated === "boolean" && typeof payload.chars === "number"
+      else if (kind === "session_reset")
+        ok = payload.trigger === "single" || payload.trigger === "reset_all" || payload.trigger === "idle_timeout"
+      if (kind === "session_reset" && payload.trigger === "idle_timeout") {
+        ok = ok
+          && typeof m.eventId === "string"
+          && m.eventId.length > 0
+          && typeof m.occurredAt === "string"
+          && Number.isFinite(Date.parse(m.occurredAt))
+      }
       if (!ok) return { success: false } as const
       return {
         success: true as const,
         data: {
           type: "bot_audit_event" as const,
+          eventId: typeof m.eventId === "string" ? m.eventId : undefined,
+          occurredAt: typeof m.occurredAt === "string" ? m.occurredAt : undefined,
           agentId: m.agentId,
           sessionId: typeof m.sessionId === "string" ? m.sessionId : m.sessionId === null ? null : undefined,
           launchId: typeof m.launchId === "string" ? m.launchId : m.launchId === null ? null : undefined,
@@ -474,6 +486,8 @@ vi.mock("@alook/shared", async () => {
         getBotBinding: (...a: [unknown, string]) => mockGetBotBinding(...a),
         getBotBindingWithOwner: (...a: [unknown, string]) => mockGetBotBindingWithOwner(...a),
         touchBotRefreshContext: (...a: [unknown, string, string]) => mockTouchBotRefreshContext(...a),
+        touchBotRefreshContextForAuditEventStatement: (...a: [unknown, string, string, string]) =>
+          mockTouchBotRefreshContextForAuditEventStatement(...a),
       },
       communityBotAuditLog: {
         insertBotActivityEventAndPrune: (...a: any[]) => mockInsertBotActivityEventAndPrune(...a),

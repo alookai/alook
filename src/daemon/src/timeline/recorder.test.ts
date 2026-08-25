@@ -589,6 +589,27 @@ describe("createTimelineRecorder barriers and pending commits", () => {
 });
 
 describe("createTimelineRecorder durable resume control", () => {
+  it("recovers the same idle-reset completion after reconstruction until acked", () => {
+    const dir = mkDir();
+    const completion = {
+      eventId: "bae_crash_recovery",
+      occurredAt: "2026-06-24T12:00:00.000Z",
+    };
+    const first = createTimelineRecorder({ timelineDirFor: () => dir, now: NOW });
+    expect(first.forgetSession("a", "reset_session", "sess-old", completion)).toBe(true);
+
+    const rebuilt = createTimelineRecorder({ timelineDirFor: () => dir, now: NOW });
+    expect(rebuilt.pendingIdleResetEvents("a")).toEqual([completion]);
+    expect(rebuilt.acknowledgeIdleResetEvent("a", completion.eventId)).toBe(true);
+
+    const afterAck = createTimelineRecorder({ timelineDirFor: () => dir, now: NOW });
+    expect(afterAck.pendingIdleResetEvents("a")).toEqual([]);
+    expect(afterAck.resolveResumeSession("a", null)).toMatchObject({
+      kind: "barrier",
+      type: "reset_session",
+    });
+  });
+
   it("resolves only the latest provider-compatible exact turn", () => {
     const dir = mkDir();
     const recorder = createTimelineRecorder({ timelineDirFor: () => dir, providerFor: () => "claude", now: NOW });

@@ -229,6 +229,7 @@ export interface ManagerRuntimeOpts {
     event:
       | { kind: "tool_call"; payload: { name: string; target?: string } }
       | { kind: "thinking"; payload: { text: string; truncated: boolean; chars: number } }
+      | { kind: "session_reset"; payload: { trigger: "idle_timeout" } }
       | {
           kind: "error";
           payload: {
@@ -238,7 +239,12 @@ export interface ManagerRuntimeOpts {
             model: string | null;
           };
         },
-    context: { sessionId: string | null; launchId: string | null }
+    context: {
+      sessionId: string | null;
+      launchId: string | null;
+      eventId?: string;
+      occurredAt?: string;
+    }
   ) => void;
   onAgentLocallyStopped?: (info: { agentId: string; reason: "stop" | "terminate_stalled" }) => void;
   onRuntimeRawLine?: (agentId: string, line: string) => void;
@@ -261,7 +267,12 @@ export interface TimelineRecorder {
   resolveResumeSession?(agentId: string, provider: string | null): ResumeSessionResolution;
   recordSessionStall?(agentId: string, sessionId: string): boolean;
   clearSessionStall?(agentId: string, sessionId: string): boolean;
-  forgetSession(agentId: string, barrierType?: SystemEntryType, forgottenSessionId?: string): boolean;
+  forgetSession(
+    agentId: string,
+    barrierType?: SystemEntryType,
+    forgottenSessionId?: string,
+    pendingIdleResetEvent?: { eventId: string; occurredAt: string },
+  ): boolean;
 }
 const THINKING_MAX_BYTES = 4096;
 const AUDIT_ERROR_MESSAGE_MAX_LEN = 2000;
@@ -524,8 +535,14 @@ export class AgentProcessManager {
     agentId: string,
     barrierType: "reset_session" | "nap" = "reset_session",
     forgottenSessionId?: string,
+    pendingIdleResetEvent?: { eventId: string; occurredAt: string },
   ): boolean {
-    if (!this.forgetSessionSources(agentId, barrierType, forgottenSessionId)) return false;
+    if (!this.forgetSessionSources(
+      agentId,
+      barrierType,
+      forgottenSessionId,
+      pendingIdleResetEvent,
+    )) return false;
     this.dispatch({ type: "reset_session", agentId });
     return true;
   }
@@ -533,8 +550,16 @@ export class AgentProcessManager {
     agentId: string,
     barrierType: SystemEntryType,
     forgottenSessionId?: string,
+    pendingIdleResetEvent?: { eventId: string; occurredAt: string },
   ): boolean {
-    const persisted = this.opts.timeline?.forgetSession(agentId, barrierType, forgottenSessionId);
+    const persisted = pendingIdleResetEvent
+      ? this.opts.timeline?.forgetSession(
+        agentId,
+        barrierType,
+        forgottenSessionId,
+        pendingIdleResetEvent,
+      )
+      : this.opts.timeline?.forgetSession(agentId, barrierType, forgottenSessionId);
     if (persisted === false) return false;
     this.resumeSessions.delete(agentId);
     this.liveSessions.delete(agentId);
@@ -1220,10 +1245,15 @@ export class AgentProcessManager {
         break;
       case "reset_idle_session": {
         const spawnState = this.activeSpawnState.get(effect.agentId);
+        const completion = {
+          eventId: `bae_${randomUUID()}`,
+          occurredAt: new Date(this.now()).toISOString(),
+        };
         const persisted = this.forgetSession(
           effect.agentId,
           "reset_session",
           effect.sessionId,
+          completion,
         );
         if (!persisted) {
           this.log.error("idle session reset barrier was not persisted; reset deferred", {
@@ -1240,6 +1270,23 @@ export class AgentProcessManager {
         }
         if (spawnState) spawnState.discardEvents = true;
         this.dispatch({ type: "idle_reset_committed", agentId: effect.agentId, nowMs: this.now() });
+        if (this.opts.onBotAuditEvent) {
+          try {
+            this.opts.onBotAuditEvent(effect.agentId, {
+              kind: "session_reset",
+              payload: { trigger: "idle_timeout" },
+            }, {
+              sessionId: null,
+              launchId: null,
+              ...completion,
+            });
+          } catch (err) {
+            this.log.debug("audit emit failed (idle session reset)", {
+              agentId: effect.agentId,
+              err: String(err),
+            });
+          }
+        }
         this.log.info("idle agent session reset", {
           agentId: effect.agentId,
           sessionId: effect.sessionId,

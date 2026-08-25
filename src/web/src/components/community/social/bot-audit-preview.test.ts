@@ -88,6 +88,7 @@ describe("BotAuditPreview", () => {
       "Bot activity in progress. Open full bot activity log",
     )
     expect(button.props.className).toContain("duration-150")
+    expect(button.props.className).not.toContain("h-40")
     expect(button.props.className).not.toContain("hover:bg-accent")
     expect(button.props.className).toContain("hover:after:opacity-100")
     expect(button.props.className).toContain("after:ring-inset")
@@ -106,6 +107,9 @@ describe("BotAuditPreview", () => {
       && node.props["data-testid"].startsWith("community-bot-audit-preview-row-")))
       .toHaveLength(4)
     expect(renderer.root.findAllByType("button")).toHaveLength(1)
+    const timeline = button.find((node) => node.props.className === "flex flex-col py-1")
+    expect(timeline.props.className).not.toContain("overflow-y-auto")
+    expect(timeline.props.className).not.toContain("thin-scrollbar")
     const rows = renderer.root.findAll((node) =>
       typeof node.props["data-testid"] === "string"
       && node.props["data-testid"].startsWith("community-bot-audit-preview-row-"))

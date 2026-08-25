@@ -71,6 +71,7 @@ export async function handleCommunityMachineMessage(
   )) return
   if (await handleAuditFrame(
     context,
+    ws,
     parsed,
     identity,
   )) return

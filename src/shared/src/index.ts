@@ -308,6 +308,7 @@ export {
   AuditLogNapPayloadSchema,
   AuditLogErrorPayloadSchema,
   HostBotAuditEventFrameSchema,
+  BotAuditEventAckFrameSchema,
 } from "./schemas";
 
 export type {
@@ -393,6 +394,7 @@ export type {
   BotAuditEventKind,
   AuditLogWakeTriggerPayload,
   AuditLogProviderChangedPayload,
+  BotAuditEventAckFrame,
 } from "./schemas";
 
 // Community agent CLI bridge contract — lifted from `src/daemon/src/server/contract.ts`.

@@ -22,6 +22,7 @@
  * (reconnect/heartbeat and frame (de)serialization) end to end, rather than
  * shortcut in-process.
  */
+import { BotAuditEventAckFrameSchema } from "@alook/shared";
 import type {
   HostControlChannel,
   HostCommand,
@@ -61,6 +62,8 @@ const DEFAULT_PONG_TIMEOUT_MS = 30_000;
 const DEFAULT_RECONNECT_BASE_MS = 500;
 /** Reconnect: ceiling on the exponential backoff. */
 const DEFAULT_RECONNECT_MAX_MS = 30_000;
+/** Reliable audit receipt timeout; retried forever with this bounded cadence. */
+const DEFAULT_AUDIT_ACK_RETRY_MS = 5_000;
 
 export interface WsControlChannelOpts {
   url: string;
@@ -75,6 +78,10 @@ export interface WsControlChannelOpts {
   };
   /** Heartbeat: ping every `pingIntervalMs`, declare dead after `pongTimeoutMs`. */
   heartbeat?: { pingIntervalMs?: number; pongTimeoutMs?: number };
+  /** Receipt retry cadence for durable audit completions. */
+  auditAckRetryMs?: number;
+  /** Clears the matching local durable fact; false keeps retrying. */
+  onBotAuditEventAck?: (info: { agentId: AgentId; eventId: string }) => boolean;
   /**
    * Called when the server explicitly rejects our machine key via an
    * `AUTH_REJECTED` frame — the SOLE terminal-revocation signal. HTTP 401s
@@ -162,8 +169,10 @@ export class WsControlChannel implements HostControlChannel {
   private closedByUser = false;
   private authRejected = false;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private auditRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private pongDeadline = 0;
   private resyncProvider: ResyncProvider | null = null;
+  private readonly pendingBotAuditEvents = new Map<string, HostBotAuditEventFrame>();
   private readonly log: Logger;
   private readonly wakeCoordinator = new WakeCoordinator();
 
@@ -185,6 +194,7 @@ export class WsControlChannel implements HostControlChannel {
   close(): void {
     this.closedByUser = true;
     this.clearHeartbeat();
+    this.clearAuditRetry();
     this.ws?.close();
     this.ws = null;
     this.statusValue = "closed";
@@ -309,14 +319,36 @@ export class WsControlChannel implements HostControlChannel {
   }
 
   /**
-   * Emit a bot audit event upward — either from the credential proxy sighting
-   * (`cli_invocation`) or from a runtime `thinking` / non-Bash `tool_call`
-   * event. Frame is dropped when the socket isn't open; audit events are
-   * point-in-time (not resynced on reconnect), matching the ready/session
-   * policy above.
+   * Emit a bot audit event upward. Automatic idle-reset completions are
+   * reliable: assign a stable id, retain before the first send, replay on
+   * reconnect, and clear only after the server acknowledges its durable write.
+   * Other audit events remain point-in-time and may drop while disconnected.
    */
   async reportBotAuditEvent(frame: HostBotAuditEventFrame): Promise<void> {
+    if (
+      frame.event.kind === "session_reset" &&
+      frame.event.payload.trigger === "idle_timeout"
+    ) {
+      if (!frame.eventId || !frame.occurredAt) {
+        this.log.error("durable idle-reset audit missing local receipt", {
+          agentId: frame.agentId,
+        });
+        return;
+      }
+      this.pendingBotAuditEvents.set(frame.eventId, frame);
+      this.sendFrame(frame);
+      this.scheduleAuditRetry();
+      return;
+    }
     this.sendFrame(frame);
+  }
+
+  /** Restore one completion from the timeline's durable outbox after startup. */
+  restorePendingBotAuditEvent(frame: HostBotAuditEventFrame): void {
+    if (!frame.eventId || !frame.occurredAt) return;
+    this.pendingBotAuditEvents.set(frame.eventId, frame);
+    this.sendFrame(frame);
+    this.scheduleAuditRetry();
   }
 
   /**
@@ -378,10 +410,13 @@ export class WsControlChannel implements HostControlChannel {
       // otherwise lost forever, stranding the pill on a stale state.
       const liveActivities = activities ?? [];
       for (const a of liveActivities) this.sendFrame({ type: "agent_activity", ...a });
+      for (const frame of this.pendingBotAuditEvents.values()) this.sendFrame(frame);
+      this.scheduleAuditRetry();
       this.log.info("resync sent", {
         ready: ready.runtimeReport.length,
         sessions: sessions.length,
         activities: liveActivities.length,
+        pendingAuditEvents: this.pendingBotAuditEvents.size,
       });
     }
     for (const hook of this.resyncHooks) {
@@ -430,6 +465,30 @@ export class WsControlChannel implements HostControlChannel {
       this.authRejected = true;
       this.log.error("AUTH_REJECTED received — machine key rejected, not reconnecting");
       this.opts.onAuthRejected?.();
+      return;
+    }
+
+    const auditAck = BotAuditEventAckFrameSchema.safeParse(frame);
+    if (auditAck.success) {
+      this.attempt = 0;
+      const pending = this.pendingBotAuditEvents.get(auditAck.data.eventId);
+      if (!pending) return;
+      let durableCleared = this.opts.onBotAuditEventAck === undefined;
+      try {
+        durableCleared = this.opts.onBotAuditEventAck?.({
+          agentId: pending.agentId,
+          eventId: auditAck.data.eventId,
+        }) ?? true;
+      } catch (err) {
+        this.log.warn("bot audit ack local clear threw", {
+          eventId: auditAck.data.eventId,
+          err: describeErr(err),
+        });
+      }
+      if (durableCleared) this.pendingBotAuditEvents.delete(auditAck.data.eventId);
+      else this.log.warn("bot audit ack local clear deferred", { eventId: auditAck.data.eventId });
+      if (this.pendingBotAuditEvents.size === 0) this.clearAuditRetry();
+      else this.scheduleAuditRetry();
       return;
     }
 
@@ -521,6 +580,7 @@ export class WsControlChannel implements HostControlChannel {
   private onSocketClosed(code?: number, reason?: unknown): void {
     this.log.warn("control channel closed", { code, reason: reason ? String(reason) : "" });
     this.clearHeartbeat();
+    this.clearAuditRetry();
     this.ws = null;
     if (this.closedByUser) return;
     if (this.authRejected) {
@@ -575,6 +635,25 @@ export class WsControlChannel implements HostControlChannel {
       clearInterval(this.pingTimer);
       this.pingTimer = null;
     }
+  }
+
+  private scheduleAuditRetry(): void {
+    if (this.auditRetryTimer || this.pendingBotAuditEvents.size === 0) return;
+    const delayMs = this.opts.auditAckRetryMs ?? DEFAULT_AUDIT_ACK_RETRY_MS;
+    this.auditRetryTimer = setTimeout(() => {
+      this.auditRetryTimer = null;
+      if (this.statusValue === "open") {
+        for (const frame of this.pendingBotAuditEvents.values()) this.sendFrame(frame);
+      }
+      this.scheduleAuditRetry();
+    }, delayMs);
+    this.auditRetryTimer.unref?.();
+  }
+
+  private clearAuditRetry(): void {
+    if (!this.auditRetryTimer) return;
+    clearTimeout(this.auditRetryTimer);
+    this.auditRetryTimer = null;
   }
 
   private now(): number {
