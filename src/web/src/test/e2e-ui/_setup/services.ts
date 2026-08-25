@@ -78,23 +78,76 @@ export function restoreState(): void {
 export async function hasExactHealth(
   url: string,
   fetchImpl: typeof fetch = fetch,
-  signal?: AbortSignal,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<{ ok: boolean; status: number | null; detail: string }> {
+  const timeoutMs = options.timeoutMs ?? 3_000
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error("health probe timeout must be a positive finite number")
+  }
+  const controller = new AbortController()
+  const abortFromCaller = () => controller.abort(options.signal?.reason)
+  if (options.signal?.aborted) abortFromCaller()
+  else options.signal?.addEventListener("abort", abortFromCaller, { once: true })
+
+  let deadline: ReturnType<typeof setTimeout> | undefined
+  const timeoutResult = new Promise<{ ok: false; status: null; detail: string }>((resolveTimeout) => {
+    deadline = setTimeout(() => {
+      controller.abort(new Error(`health probe timed out after ${timeoutMs}ms`))
+      resolveTimeout({ ok: false, status: null, detail: `health probe timed out after ${timeoutMs}ms` })
+    }, timeoutMs)
+  })
+  const fetchResult = (async () => {
+    try {
+      const res = await fetchImpl(url, { signal: controller.signal })
+      const body = await res.json().catch(() => null)
+      const ok = res.status === 200
+        && body !== null
+        && typeof body === "object"
+        && Object.keys(body).length === 1
+        && (body as { status?: unknown }).status === "ok"
+      return { ok, status: res.status, detail: ok ? "exact health matched" : `unexpected health payload ${JSON.stringify(body)}` }
+    } catch (error) {
+      return { ok: false, status: null, detail: error instanceof Error ? error.message : String(error) }
+    }
+  })()
+
   try {
-    const res = await fetchImpl(url, { signal })
-    const body = await res.json().catch(() => null)
-    const ok = res.status === 200
-      && body !== null
-      && typeof body === "object"
-      && Object.keys(body).length === 1
-      && (body as { status?: unknown }).status === "ok"
-    return { ok, status: res.status, detail: ok ? "exact health matched" : `unexpected health payload ${JSON.stringify(body)}` }
-  } catch (error) {
-    return { ok: false, status: null, detail: error instanceof Error ? error.message : String(error) }
+    return await Promise.race([fetchResult, timeoutResult])
+  } finally {
+    if (deadline) clearTimeout(deadline)
+    options.signal?.removeEventListener("abort", abortFromCaller)
+    controller.abort()
   }
 }
 
-async function waitForHealth(service: ManagedService, timeoutMs = 90_000): Promise<void> {
+function childCloseRace(service: ManagedService, abortProbe: AbortController): {
+  promise: Promise<never>
+  cleanup: () => void
+} {
+  const onClose = (code: number | null, signal: NodeJS.Signals | null) => {
+    rejectClose(new Error(
+      readinessExitMessage(service.name, code, signal)
+        ?? `${service.name} closed before readiness`,
+    ))
+    abortProbe.abort()
+  }
+  let rejectClose!: (reason: Error) => void
+  const promise = new Promise<never>((_resolve, reject) => {
+    rejectClose = reject
+    service.proc.once("close", onClose)
+  })
+  return {
+    promise,
+    cleanup: () => service.proc.removeListener("close", onClose),
+  }
+}
+
+export async function waitForHealth(
+  service: ManagedService,
+  timeoutMs = 90_000,
+  fetchImpl: typeof fetch = fetch,
+  probeTimeoutMs = 3_000,
+): Promise<void> {
   const start = Date.now()
   // Date.now() is fine here — this runs in the Playwright config process
   // (node), not inside a workflow script.
@@ -105,8 +158,32 @@ async function waitForHealth(service: ManagedService, timeoutMs = 90_000): Promi
       service.proc.signalCode,
     )
     if (exitMessage) throw new Error(exitMessage)
-    if ((await hasExactHealth(service.healthUrl)).ok) return
-    await new Promise((r) => setTimeout(r, 1000))
+    const remainingMs = timeoutMs - (Date.now() - start)
+    if (remainingMs <= 0) break
+    const probeController = new AbortController()
+    const close = childCloseRace(service, probeController)
+    let result: Awaited<ReturnType<typeof hasExactHealth>>
+    try {
+      const subscribedExitMessage = readinessExitMessage(
+        service.name,
+        service.proc.exitCode,
+        service.proc.signalCode,
+      )
+      if (subscribedExitMessage) throw new Error(subscribedExitMessage)
+      result = await Promise.race([
+        hasExactHealth(service.healthUrl, fetchImpl, {
+          signal: probeController.signal,
+          timeoutMs: Math.min(probeTimeoutMs, remainingMs),
+        }),
+        close.promise,
+      ])
+    } finally {
+      close.cleanup()
+      probeController.abort()
+    }
+    if (result.ok) return
+    const delayMs = Math.min(1_000, timeoutMs - (Date.now() - start))
+    if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs))
   }
   throw new Error(`${service.name} not ready after ${timeoutMs}ms (${service.healthUrl})`)
 }
@@ -295,10 +372,7 @@ function startHealthSupervisor(services: ManagedService[]): void {
     healthProbeInFlight = true
     try {
       for (const service of services) {
-        const controller = new AbortController()
-        const deadline = setTimeout(() => controller.abort(), 3_000)
-        const result = await hasExactHealth(service.healthUrl, fetch, controller.signal)
-        clearTimeout(deadline)
+        const result = await hasExactHealth(service.healthUrl)
         const state = readLifecycleState(SERVICE_STATE_PATH)
         if (!state) return
         const updated = applyHealthProbe(state, service.name, {

@@ -69,6 +69,22 @@ describe("resolveExecutedShards", () => {
     })]).toEqual([2])
   })
 
+  it("accepts a merge-only rerun with a complete carry-forward roster", () => {
+    expect(resolveExecutedShards({
+      jobs,
+      runStartedAt: "2026-08-25T17:20:00Z",
+      expectedTotal: 2,
+    })).toEqual(new Set())
+  })
+
+  it("rejects an incomplete attempt job roster", () => {
+    expect(() => resolveExecutedShards({
+      jobs: [jobs[0]],
+      runStartedAt: "2026-08-25T17:20:00Z",
+      expectedTotal: 2,
+    })).toThrow("attempt job roster is missing UI Playwright shards: 2")
+  })
+
   it("rejects a shard outside the declared matrix range", () => {
     expect(() => resolveExecutedShards({
       jobs: [{ name: "UI Playwright E2E (3/2)", started_at: "2026-08-25T17:13:26Z" }],
@@ -103,6 +119,24 @@ describe("resolveExecutedShards", () => {
 })
 
 describe("verifyArtifactClosure", () => {
+  it("accepts all previous-attempt artifacts for a merge-only rerun", () => {
+    const root = artifactRoot([1, 1])
+    const output = join(root, "..", `${root.split("/").at(-1)}-merged`)
+    roots.push(output)
+    const result = verifyArtifactClosure({
+      root,
+      output,
+      matrix,
+      runId: "run-1",
+      attempt: 2,
+      sha: "abc123",
+      executedShards: new Set(),
+    })
+    expect(result.manifests.map((manifest) => manifest.attempt)).toEqual([1, 1])
+    expect(readFileSync(join(output, "shard-1-report-1.zip"), "utf8")).toBe("zip-1")
+    expect(readFileSync(join(output, "shard-2-report-2.zip"), "utf8")).toBe("zip-2")
+  })
+
   it("accepts an older unexecuted shard and a fresh executed shard", () => {
     const root = artifactRoot([1, 2])
     const output = join(root, "..", `${root.split("/").at(-1)}-merged`)

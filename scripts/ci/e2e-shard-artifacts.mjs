@@ -78,6 +78,7 @@ export function createShardManifest({ runId, attempt, sha, shard, total, specs }
 export function resolveExecutedShards({ jobs, runStartedAt, expectedTotal }) {
   const startedAt = Date.parse(runStartedAt)
   if (!Number.isFinite(startedAt)) throw new Error(`invalid run_started_at: ${runStartedAt}`)
+  const roster = new Set()
   const executed = new Set()
   for (const job of jobs) {
     const match = /^UI Playwright E2E \((\d+)\/(\d+)\)$/.exec(job.name ?? "")
@@ -86,13 +87,21 @@ export function resolveExecutedShards({ jobs, runStartedAt, expectedTotal }) {
     const total = parsePositiveInteger(match[2], "job total")
     if (total !== expectedTotal) throw new Error(`job ${job.name} does not match matrix total ${expectedTotal}`)
     if (shard > expectedTotal) throw new Error(`job ${job.name} has an out-of-range shard`)
+    if (roster.has(shard)) throw new Error(`attempt job roster contains duplicate shard ${shard}`)
+    roster.add(shard)
     const jobStartedAt = Date.parse(job.started_at)
     if (!Number.isFinite(jobStartedAt)) throw new Error(`job ${job.name} has invalid started_at`)
     if (jobStartedAt < startedAt) continue
     if (executed.has(shard)) throw new Error(`current attempt contains duplicate execution for shard ${shard}`)
     executed.add(shard)
   }
-  if (executed.size === 0) throw new Error("current run attempt executed no UI Playwright shards")
+  const missing = Array.from(
+    { length: expectedTotal },
+    (_, index) => index + 1,
+  ).filter((shard) => !roster.has(shard))
+  if (missing.length > 0) {
+    throw new Error(`attempt job roster is missing UI Playwright shards: ${missing.join(", ")}`)
+  }
   return executed
 }
 

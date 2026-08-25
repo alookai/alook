@@ -1,8 +1,11 @@
+import { EventEmitter } from "node:events"
+import type { ChildProcess } from "node:child_process"
 import { describe, expect, it } from "vitest"
 import {
   hasExactHealth,
   readinessExitMessage,
   serviceDefinitions,
+  waitForHealth,
   waitForServicesReady,
   wranglerLogEnvironment,
 } from "./e2e-ui/_setup/services"
@@ -89,12 +92,55 @@ describe("UI E2E service definitions", () => {
     })
   })
 
+  it("bounds a health probe even when fetch never resolves", async () => {
+    const result = await hasExactHealth(
+      "http://service.test/health",
+      async () => new Promise<Response>(() => {}),
+      { timeoutMs: 5 },
+    )
+
+    expect(result).toEqual({
+      ok: false,
+      status: null,
+      detail: "health probe timed out after 5ms",
+    })
+  })
+
   it("turns a child close before readiness into an immediate failure", () => {
     expect(readinessExitMessage("web-ws-do", null, null)).toBeNull()
     expect(readinessExitMessage("web-ws-do", 1, null))
       .toBe("web-ws-do exited before readiness (code 1, signal null)")
     expect(readinessExitMessage("web-ws-do", null, "SIGTERM"))
       .toBe("web-ws-do exited before readiness (code null, signal SIGTERM)")
+  })
+
+  it("races a child close that occurs during an in-flight readiness probe", async () => {
+    const proc = Object.assign(new EventEmitter(), {
+      exitCode: null as number | null,
+      signalCode: null as NodeJS.Signals | null,
+    }) as unknown as ChildProcess
+    const service = {
+      name: "web-ws-do",
+      proc,
+      healthUrl: "http://service.test/health",
+    }
+    let probeSignal: AbortSignal | undefined
+    const readiness = waitForHealth(
+      service,
+      1_000,
+      async (_url, init) => {
+        probeSignal = init?.signal ?? undefined
+        return new Promise<Response>(() => {})
+      },
+      500,
+    )
+
+    await Promise.resolve()
+    proc.exitCode = 1
+    proc.emit("close", 1, null)
+
+    await expect(readiness).rejects.toThrow("web-ws-do exited before readiness (code 1, signal null)")
+    expect(probeSignal?.aborted).toBe(true)
   })
 
   it("does not pass the service array index as a readiness timeout", async () => {
