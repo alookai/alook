@@ -221,7 +221,7 @@ test("owner-only bot profile preview, owner swap, and URL-owned audit modal", as
     await expect(alice.page.getByTestId(tid.profileCard))
       .toContainText(ownerHandle!.trim().replace(/^@/, ""))
 
-    await alice.page.keyboard.press("Escape")
+    await alice.page.mouse.click(4, 4)
     await expect(alice.page.getByTestId(tid.profileCard)).toHaveCount(0)
     await alice.page.setViewportSize({ width: 1280, height: 900 })
     await openBotProfile(alice.page, botName)
