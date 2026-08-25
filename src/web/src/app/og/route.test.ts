@@ -3,7 +3,13 @@ import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import { NextRequest } from "next/server"
 import { OG_LOGO_DATA_URI } from "./og-logo"
-import { getOgTitlePresentation, OG_TITLE_LINE_CLAMP, OG_TITLE_MAX_LINES } from "./og-title"
+import {
+  getOgTitlePresentation,
+  normalizeOgTitle,
+  OG_TITLE_LINE_CLAMP,
+  OG_TITLE_MAX_INPUT_GRAPHEMES,
+  OG_TITLE_MAX_LINES,
+} from "./og-title"
 import { GET } from "./route"
 
 type DecodedPng = {
@@ -121,6 +127,72 @@ function colorBounds(
   return count > 0 ? { minX, maxX, minY, maxY, count } : null
 }
 
+function countSmallColorComponents(
+  decoded: DecodedPng,
+  color: readonly [number, number, number],
+  region: { minX: number; maxX: number; minY: number; maxY: number },
+  tolerance = 12,
+): number {
+  const width = region.maxX - region.minX + 1
+  const height = region.maxY - region.minY + 1
+  const mask = new Uint8Array(width * height)
+  for (let y = region.minY; y <= region.maxY; y += 1) {
+    for (let x = region.minX; x <= region.maxX; x += 1) {
+      const sourceIndex = (y * decoded.width + x) * 4
+      const distance = Math.hypot(
+        decoded.rgba[sourceIndex] - color[0],
+        decoded.rgba[sourceIndex + 1] - color[1],
+        decoded.rgba[sourceIndex + 2] - color[2],
+      )
+      if (distance <= tolerance) {
+        mask[(y - region.minY) * width + x - region.minX] = 1
+      }
+    }
+  }
+
+  let smallComponents = 0
+  for (let start = 0; start < mask.length; start += 1) {
+    if (mask[start] !== 1) continue
+    const queue = [start]
+    mask[start] = 2
+    let minX = width
+    let maxX = -1
+    let minY = height
+    let maxY = -1
+    let pixels = 0
+    while (queue.length > 0) {
+      const current = queue.pop()
+      if (current === undefined) break
+      const x = current % width
+      const y = Math.floor(current / width)
+      minX = Math.min(minX, x)
+      maxX = Math.max(maxX, x)
+      minY = Math.min(minY, y)
+      maxY = Math.max(maxY, y)
+      pixels += 1
+
+      for (let dy = -1; dy <= 1; dy += 1) {
+        for (let dx = -1; dx <= 1; dx += 1) {
+          if (dx === 0 && dy === 0) continue
+          const nextX = x + dx
+          const nextY = y + dy
+          if (nextX < 0 || nextX >= width || nextY < 0 || nextY >= height) continue
+          const next = nextY * width + nextX
+          if (mask[next] !== 1) continue
+          mask[next] = 2
+          queue.push(next)
+        }
+      }
+    }
+
+    const componentWidth = maxX - minX + 1
+    const componentHeight = maxY - minY + 1
+    if (pixels >= 4 && componentWidth <= 6 && componentHeight <= 8) smallComponents += 1
+  }
+
+  return smallComponents
+}
+
 describe("OG image", () => {
   it("embeds the checked-in raster logo instead of requesting the public SVG", () => {
     const [prefix, payload] = OG_LOGO_DATA_URI.split(",", 2)
@@ -168,7 +240,7 @@ describe("OG image", () => {
     expect(hits.reduce((sum, count) => sum + count, 0)).toBeGreaterThan(4_000)
   })
 
-  it("keeps short, medium, long, and unbroken titles within two non-overlapping lines", async () => {
+  it("keeps bounded short, medium, long, CJK, and unbroken titles within two non-overlapping lines", async () => {
     const cases = [
       {
         name: "short",
@@ -181,23 +253,42 @@ describe("OG image", () => {
         title: "How to Coordinate Multiple AI Agents Across Teams Without Losing Context, Duplicating Work, or Missing Approvals",
         expectedFontSize: 44,
         maxTitleHeight: 103,
+        expectsEllipsis: true,
       },
       {
         name: "long",
         title: "How to Coordinate Multiple AI Agents Across Teams Without Losing Context, Duplicating Work, Missing Approvals, or Breaking Shared Workflows in a Fast-Moving Organization While Keeping Every Decision Visible and Reviewable",
         expectedFontSize: 38,
         maxTitleHeight: 90,
+        expectsEllipsis: true,
       },
       {
         name: "unbroken",
-        title: "THISISONEEXTREMELYLONGUNBROKENSTRINGWITHOUTANYSPACESORBREAKPOINTSTHATKEEPSGOINGANDGOINGANDGOINGANDGOINGANDGOINGANDGOINGANDGOING",
+        title: "UNBROKEN".repeat(700),
         expectedFontSize: 38,
         maxTitleHeight: 90,
+        expectsEllipsis: true,
+      },
+      {
+        name: "cjk-long",
+        title: "如何在快速变化的团队里协调多个人工智能代理同时保留上下文避免重复工作遗漏审批并确保每一个共享流程都清晰可靠可追溯并能长期安全展示",
+        expectedFontSize: 38,
+        maxTitleHeight: 90,
+        expectsEllipsis: true,
       },
     ]
 
     expect(OG_TITLE_MAX_LINES).toBe(2)
     expect(OG_TITLE_LINE_CLAMP).toBe('2 "…"')
+    expect(OG_TITLE_MAX_INPUT_GRAPHEMES).toBe(240)
+
+    const familyEmoji = "👨‍👩‍👧‍👦"
+    const oversized = `  ${familyEmoji.repeat(260)}  `
+    const normalized = normalizeOgTitle(oversized)
+    expect(Array.from(new Intl.Segmenter("en", { granularity: "grapheme" }).segment(normalized)))
+      .toHaveLength(OG_TITLE_MAX_INPUT_GRAPHEMES)
+    expect(normalized.endsWith("…")).toBe(true)
+    expect(normalizeOgTitle("  spaced\n\t title  ")).toBe("spaced title")
 
     for (const testCase of cases) {
       const presentation = getOgTitlePresentation(testCase.title)
@@ -249,6 +340,15 @@ describe("OG image", () => {
       expect(titleBounds.minY - logoBounds.maxY, testCase.name).toBeGreaterThanOrEqual(24)
       expect(subtitleBounds.minY - titleBounds.maxY, testCase.name).toBeGreaterThanOrEqual(16)
       expect(typewriterBounds.minX - titleBounds.maxX, testCase.name).toBeGreaterThanOrEqual(40)
+      if (testCase.expectsEllipsis) {
+        const ellipsisComponents = countSmallColorComponents(decoded, [42, 35, 26], {
+          minX: titleBounds.maxX - 30,
+          maxX: titleBounds.maxX,
+          minY: titleBounds.maxY - 24,
+          maxY: titleBounds.maxY,
+        })
+        expect(ellipsisComponents, testCase.name).toBeGreaterThanOrEqual(3)
+      }
     }
   }, 20_000)
 })

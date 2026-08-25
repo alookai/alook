@@ -236,7 +236,7 @@ describe("landing content contract", () => {
     expect(signInClient).toContain('description: "Use your own computer and existing agent subscriptions."')
     expect(signInClient).not.toContain("Bring your own workspaces")
     expect(communityLayout).toContain('<SignupTracker redirectTo="/c/me/machines" />')
-    expect(ogRoute).toContain('searchParams.get("title") || BRAND_SLOGAN')
+    expect(ogRoute).toContain('normalizeOgTitle(searchParams.get("title") ?? "") || BRAND_SLOGAN')
     expect(ogRoute).toContain("src={OG_LOGO_DATA_URI}")
     expect(ogRoute).not.toContain('new URL("/alook.svg", request.url)')
     expect(ogRoute).toContain("width={120}")

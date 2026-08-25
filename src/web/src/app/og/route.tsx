@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og";
 import type { NextRequest } from "next/server";
 import { BRAND_SLOGAN } from "@/lib/brand-copy";
 import { OG_LOGO_DATA_URI } from "./og-logo";
-import { getOgTitlePresentation } from "./og-title";
+import { getOgTitlePresentation, normalizeOgTitle } from "./og-title";
 
 async function loadFont(): Promise<ArrayBuffer | null> {
   try {
@@ -125,7 +125,7 @@ function TypewriterIllustration() {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
-    const title = searchParams.get("title") || BRAND_SLOGAN;
+    const title = normalizeOgTitle(searchParams.get("title") ?? "") || BRAND_SLOGAN;
     const titlePresentation = getOgTitlePresentation(title);
 
     const fontData = await loadFont();
