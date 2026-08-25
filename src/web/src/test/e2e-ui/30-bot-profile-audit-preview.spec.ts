@@ -191,6 +191,7 @@ test("owner-only bot profile preview, owner swap, and URL-owned audit modal", as
 
     const preview = alice.page.getByTestId(tid.botAuditPreview)
     await expect(preview).toBeVisible()
+    await expect(preview).toContainText("Only you can see this")
     await expect(preview).toHaveAttribute(
       "aria-label",
       "Bot at rest. Open full bot activity log",
@@ -205,12 +206,22 @@ test("owner-only bot profile preview, owner swap, and URL-owned audit modal", as
       "aria-label",
       "Bot activity in progress. Open full bot activity log",
     )
-    await expect(alice.page.getByTestId(tid.botAuditPreviewActive)).toBeVisible()
+    const activeRow = alice.page.getByTestId(tid.botAuditPreviewActive)
+    await expect(activeRow).toBeVisible()
+    await expect(activeRow.locator("time")).toHaveAttribute("datetime", /^\d{4}-\d{2}-\d{2}T/)
+    await expect(activeRow.getByText("running", { exact: true })).toBeVisible()
+    await expect(activeRow.locator('[aria-hidden="true"]')).toHaveCount(3)
+    await expect(activeRow.locator(".bg-linear-to-r")).toHaveCount(0)
+    await expect(preview).toHaveClass(/bot-audit-active-heartbeat/)
+    await expect.poll(() => preview.evaluate((element) =>
+      getComputedStyle(element, "::before").animationName))
+      .toBe("bot-audit-heartbeat")
     await expect(alice.page.locator('[data-testid^="community-bot-audit-preview-row-"]'))
       .toHaveCount(4)
 
     await alice.page.setViewportSize({ width: 375, height: 812 })
     const ownerLink = alice.page.getByTestId(tid.profileOwnerLink)
+    await expect(alice.page.getByTestId(tid.profileBotBadge)).toContainText("Bot")
     await expect(ownerLink).toBeVisible()
     const ownerLinkBox = await ownerLink.boundingBox()
     expect(ownerLinkBox?.height).toBeGreaterThanOrEqual(44)
@@ -225,6 +236,10 @@ test("owner-only bot profile preview, owner swap, and URL-owned audit modal", as
     await expect(alice.page.getByTestId(tid.profileCard)).toHaveCount(0)
     await alice.page.setViewportSize({ width: 1280, height: 900 })
     await openBotProfile(alice.page, botName)
+    await expect(alice.page.getByTestId(tid.botAuditPreviewDock)).toHaveAttribute(
+      "data-placement",
+      /^(right|left|top|bottom)$/,
+    )
     await alice.page.getByTestId(tid.botAuditPreview).click()
     await expect(alice.page).toHaveURL(new RegExp(`/c/me/bots\\?audit=${botId}$`))
     await expect(alice.page.getByTestId("bot-activity-modal")).toBeVisible()

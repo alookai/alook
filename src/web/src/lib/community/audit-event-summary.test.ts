@@ -3,7 +3,7 @@ import { summarizeAuditEvent } from "./audit-event-summary"
 import type { AuditKind } from "@/hooks/community/use-bot-audit-log"
 
 describe("summarizeAuditEvent", () => {
-  it("has bounded payload-free copy for every audit kind", () => {
+  it("has bounded copy for every audit kind", () => {
     const kinds: AuditKind[] = [
       "cli_invocation",
       "tool_call",
@@ -18,11 +18,26 @@ describe("summarizeAuditEvent", () => {
     const secret = "https://private.example/path?token=secret"
 
     for (const kind of kinds) {
-      const summary = summarizeAuditEvent({ kind })
+      const summary = summarizeAuditEvent({ kind, payload: null })
       expect(summary.length).toBeGreaterThan(0)
       expect(summary).not.toContain(secret)
       expect(summary).not.toContain("private.example")
     }
+  })
+
+  it("shows the real short Alook command and tool name without arguments", () => {
+    expect(summarizeAuditEvent({
+      kind: "cli_invocation",
+      payload: { subcommand: "inboxPull" },
+    })).toBe("alook inbox pull")
+    expect(summarizeAuditEvent({
+      kind: "cli_invocation",
+      payload: { subcommand: "attachmentUpload" },
+    })).toBe("alook message attachment upload")
+    expect(summarizeAuditEvent({
+      kind: "tool_call",
+      payload: { name: "Exec_Command", target: "cat /Users/gus/private.txt" },
+    })).toBe("exec_command")
   })
 
   it("never derives preview text from thinking, path, URL, or error payloads", () => {

@@ -1,10 +1,13 @@
 "use client"
 
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4 */
+
 import {
   BOT_ACTIVITY_PRESETS,
   RUNNING_PRESETS,
 } from "@alook/shared"
-import { Activity, ChevronRight } from "lucide-react"
+import { Activity, ChevronRight, Lock } from "lucide-react"
+import { useEffect, useState } from "react"
 import { useBotAuditPreview } from "@/hooks/community/use-bot-audit-preview"
 import {
   formatAuditPreviewTime,
@@ -44,7 +47,13 @@ export function BotAuditPreview({
 
   if (isNotFound) return null
 
-  const visibleEvents = active ? events.slice(0, 4) : events.slice(0, 5)
+  const visibleEvents = [...events]
+    .sort((a, b) => {
+      if (a.createdAt !== b.createdAt) return a.createdAt > b.createdAt ? -1 : 1
+      return a.id > b.id ? -1 : a.id < b.id ? 1 : 0
+    })
+    .slice(0, active ? 4 : 5)
+    .reverse()
 
   return (
     <button
@@ -56,18 +65,24 @@ export function BotAuditPreview({
         ? "Bot activity in progress. Open full bot activity log"
         : "Bot at rest. Open full bot activity log"}
       className={[
-        "flex h-40 w-full shrink-0 flex-col overflow-hidden rounded-xl border bg-card text-left shadow-(--e1) transition-colors duration-150 hover:bg-accent/40 active:bg-accent/60",
+        "relative flex h-40 w-full shrink-0 flex-col overflow-hidden rounded-xl border bg-card text-left shadow-(--e1) transition-[border-color] duration-150",
+        "after:pointer-events-none after:absolute after:inset-0 after:z-10 after:rounded-[inherit] after:opacity-0 after:ring-2 after:ring-inset after:ring-ring/50 after:transition-opacity after:duration-150 after:content-[''] hover:after:opacity-100 active:after:ring-ring/70",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-        active ? "border-primary/35" : "border-border",
+        active
+          ? "bot-audit-active-heartbeat border-primary/35 before:pointer-events-none before:absolute before:inset-0 before:z-20 before:rounded-[inherit] before:ring-2 before:ring-inset before:ring-primary/60 before:content-['']"
+          : "border-border",
       ].join(" ")}
     >
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/40 px-3">
         <Activity className="size-3.5 text-muted-foreground" aria-hidden />
-        <span className="text-xs font-medium text-foreground">Recent activity</span>
-        <ChevronRight className="ml-auto size-3.5 text-muted-foreground" aria-hidden />
+        <span className="shrink-0 text-xs font-medium text-foreground">Recent activity</span>
+        <span className="ml-auto flex shrink-0 items-center gap-1 whitespace-nowrap text-[10px] text-muted-foreground">
+          <Lock className="size-3" aria-hidden />
+          Only you can see this
+        </span>
+        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto py-1 thin-scrollbar">
-        {active && <ActiveRow />}
         {isLoading ? (
           <PreviewSkeleton />
         ) : isError ? (
@@ -93,33 +108,55 @@ export function BotAuditPreview({
         ) : (
           <PreviewStateRow label="No recent activity" />
         )}
+        {active && <ActiveRow latestEventAt={visibleEvents.at(-1)?.createdAt} />}
       </div>
     </button>
   )
 }
 
-function ActiveRow() {
+function ActiveRow({ latestEventAt }: { latestEventAt?: string }) {
+  const [nowMs, setNowMs] = useState(Date.now)
+
+  useEffect(() => {
+    let timer: ReturnType<typeof globalThis.setTimeout>
+    const scheduleNextMinute = () => {
+      const delay = 60_000 - (Date.now() % 60_000)
+      timer = globalThis.setTimeout(() => {
+        setNowMs(Date.now())
+        scheduleNextMinute()
+      }, delay)
+    }
+    scheduleNextMinute()
+    return () => globalThis.clearTimeout(timer)
+  }, [])
+
+  const latestEventMs = latestEventAt ? Date.parse(latestEventAt) : Number.NaN
+  const displayedAt = new Date(
+    Number.isFinite(latestEventMs) ? Math.max(nowMs, latestEventMs) : nowMs,
+  ).toISOString()
+
   return (
     <div
       data-testid={tid.botAuditPreviewActive}
-      className="grid h-6 grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-2 px-3"
+      className="grid h-6 shrink-0 grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-2 px-3 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-200 motion-reduce:animate-none"
     >
-      <span className="font-mono text-[10px] uppercase tracking-wide text-primary/70">
-        now
-      </span>
+      <time
+        dateTime={displayedAt}
+        suppressHydrationWarning
+        className="font-mono text-[10px] tabular-nums text-muted-foreground/70"
+      >
+        {formatAuditPreviewTime(displayedAt)}
+      </time>
       <span className="flex items-center gap-1" aria-label="Bot activity in progress">
+        <span className="mr-1 text-xs text-primary/70">running</span>
         {[0, 1, 2].map((index) => (
           <span
             key={index}
             aria-hidden
-            className="size-1.5 rounded-full bg-primary motion-safe:animate-bounce motion-reduce:animate-none"
-            style={{ animationDelay: `${index * 120}ms` }}
+            className="size-1.5 rounded-full bg-primary motion-safe:animate-pulse motion-reduce:animate-none"
+            style={{ animationDelay: `${index * 160}ms` }}
           />
         ))}
-        <span
-          aria-hidden
-          className="ml-1 h-px flex-1 bg-linear-to-r from-primary/55 via-primary/20 to-transparent motion-safe:animate-pulse motion-reduce:animate-none"
-        />
       </span>
     </div>
   )
