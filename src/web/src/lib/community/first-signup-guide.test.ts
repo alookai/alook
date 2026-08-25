@@ -16,6 +16,7 @@ function storage(initial?: string) {
 
 describe("first-signup guide handoff", () => {
   afterEach(() => {
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -60,6 +61,31 @@ describe("first-signup guide handoff", () => {
     expect(writeFirstSignupGuideHandoff(null, 1_000, "id")).toBeNull()
     expect(readFirstSignupGuideHandoff(null, 1_000)).toBeNull()
     expect(() => consumeFirstSignupGuideHandoff("seed", null)).not.toThrow()
+  })
+
+  it("fails closed outside a browser when storage is not provided", () => {
+    expect(writeFirstSignupGuideHandoff(undefined, 1_000, "id")).toBeNull()
+    expect(readFirstSignupGuideHandoff(undefined, 1_000)).toBeNull()
+    expect(() => consumeFirstSignupGuideHandoff("seed")).not.toThrow()
+  })
+
+  it("falls back to time and Math.random when crypto UUIDs are unavailable", () => {
+    const target = storage()
+    vi.stubGlobal("crypto", {})
+    vi.spyOn(Math, "random").mockReturnValue(0.25)
+
+    expect(writeFirstSignupGuideHandoff(target, 1_000)).toEqual({
+      version: 1,
+      seed: "alook-guide-1000-0.25",
+      createdAt: 1_000,
+    })
+  })
+
+  it("ignores an empty handoff when consuming", () => {
+    const target = storage()
+
+    expect(() => consumeFirstSignupGuideHandoff("seed", target)).not.toThrow()
+    expect(target.removeItem).not.toHaveBeenCalled()
   })
 
   it("uses session storage when no storage override is provided", () => {
