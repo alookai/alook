@@ -1,5 +1,7 @@
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
+import { readFileSync } from "node:fs"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { describe, it, expect } from "vitest"
 import { resolveCardStatus, resolveProfileBackdropSeed } from "./profile-card"
 import { ProfileCard } from "./profile-card"
@@ -7,21 +9,28 @@ import { serializeBeamSeed } from "@/lib/avatar/seed-url"
 import type { Profile } from "@/components/community/social/profile-types"
 
 function renderProfile(overrides: Partial<Profile> = {}) {
-  return renderToStaticMarkup(createElement(ProfileCard, {
-    embedded: true,
-    data: {
-      name: "Ren",
-      userId: "user_1",
-      avatar: "R",
-      about: "",
-      mutual: 0,
-      ...overrides,
-    },
-    x: 0,
-    y: 0,
-    bp: "desktop",
-    onClose: () => undefined,
-  }))
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  return renderToStaticMarkup(createElement(
+    QueryClientProvider,
+    { client: queryClient },
+    createElement(ProfileCard, {
+      embedded: true,
+      data: {
+        name: "Ren",
+        userId: "user_1",
+        avatar: "R",
+        about: "",
+        mutual: 0,
+        ...overrides,
+      },
+      x: 0,
+      y: 0,
+      bp: "desktop",
+      onClose: () => undefined,
+    }),
+  ))
 }
 
 describe("ProfileCard contextual metadata", () => {
@@ -44,6 +53,65 @@ describe("ProfileCard contextual metadata", () => {
 
     expect(html).not.toContain("community-profile-context-badge")
     expect(html).toContain("2 mutual servers")
+  })
+
+  it("shows every bot's clickable owner but withholds preview from nonowners", () => {
+    const html = renderProfile({
+      identity: {
+        kind: "bot",
+        ownerProfile: { id: "owner_1", handle: "Owner#0042" },
+        ownedByViewer: false,
+      },
+    })
+
+    expect(html).toContain('data-testid="community-profile-owner-link"')
+    expect(html).toContain("@Owner#0042")
+    expect(html).not.toContain("community-bot-audit-preview")
+  })
+
+  it("mounts the fixed secondary preview only for the owning viewer", () => {
+    const html = renderProfile({
+      identity: {
+        kind: "bot",
+        ownerProfile: { id: "owner_1", handle: "Owner#0042" },
+        ownedByViewer: true,
+      },
+    })
+
+    expect(html).toContain('data-testid="community-bot-audit-preview"')
+    expect(html).toContain("h-40")
+  })
+
+  it("wraps owner metadata and exposes a full accessible label while truncating long handles", () => {
+    const handle = `${"VeryLongOwner".repeat(4)}#0042`
+    const html = renderProfile({
+      identity: {
+        kind: "bot",
+        ownerProfile: { id: "owner_1", handle },
+        ownedByViewer: false,
+      },
+    })
+
+    expect(html).toContain("flex min-w-0 flex-wrap items-center")
+    expect(html).toContain("h-5 min-w-0 max-w-full")
+    expect(html).toContain('<span class="min-w-0 truncate">')
+    expect(html).toContain(`aria-label="Open owner profile @${handle}"`)
+  })
+
+  it("keeps the desktop main card at the anchor and absolutely positions preview above it", () => {
+    const source = readFileSync(new URL("./profile-card.tsx", import.meta.url), "utf8")
+    const desktop = source.slice(source.indexOf("// desktop:"))
+    const mainCard = desktop.indexOf(`data-testid={tid.profileCard}`)
+    const independentPreview = desktop.indexOf(
+      `className="absolute right-0 bottom-[calc(100%+0.5rem)] w-full"`,
+    )
+
+    expect(desktop).toContain(
+      `className="relative w-75 overflow-visible border-0 bg-transparent p-0 shadow-none"`,
+    )
+    expect(mainCard).toBeGreaterThan(0)
+    expect(independentPreview).toBeGreaterThan(0)
+    expect(independentPreview).toBeLessThan(mainCard)
   })
 })
 

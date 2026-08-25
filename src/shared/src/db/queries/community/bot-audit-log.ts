@@ -128,28 +128,29 @@ export function pruneBotActivityEventsStatement(db: Database, botId: string) {
 }
 
 /**
- * List events for a bot, newest first, with composite cursor pagination on
- * `(createdAt DESC, id DESC)`.
+ * Owner-scoped event page for one live bot, newest first, with composite
+ * cursor pagination on `(createdAt DESC, id DESC)`.
  *
- * The list is filtered to bots that are still live (`user.deletedAt IS NULL`);
- * a soft-deleted bot returns an empty list even if raw rows remain.
+ * Ownership and bot/live state are predicates on the query's starting user
+ * row. Event cursor predicates stay inside the LEFT JOIN so an authorized bot
+ * with no events (or no events before the cursor) still returns its sentinel
+ * and maps to an empty page. No matching sentinel means missing, deleted,
+ * human, or non-owned and maps to null.
  */
-export async function listBotActivityEvents(
+export async function listOwnedBotActivityEvents(
   db: Database,
   opts: {
     botId: string;
+    ownerUserId: string;
     beforeCreatedAt?: string;
     beforeId?: string;
     limit?: number;
   }
-): Promise<BotActivityEventRow[]> {
-  const limit = Math.min(opts.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
-  const conds = [
-    eq(communityBotActivityEvent.botId, opts.botId),
-    isNull(user.deletedAt),
-  ];
+): Promise<BotActivityEventRow[] | null> {
+  const limit = Math.max(1, Math.min(opts.limit ?? DEFAULT_LIMIT, MAX_LIMIT));
+  const eventConds = [eq(communityBotActivityEvent.botId, user.id)];
   if (opts.beforeCreatedAt !== undefined && opts.beforeId !== undefined) {
-    conds.push(
+    eventConds.push(
       or(
         lt(communityBotActivityEvent.createdAt, opts.beforeCreatedAt),
         and(
@@ -159,26 +160,49 @@ export async function listBotActivityEvents(
       )!
     );
   } else if (opts.beforeCreatedAt !== undefined) {
-    conds.push(lt(communityBotActivityEvent.createdAt, opts.beforeCreatedAt));
+    eventConds.push(lt(communityBotActivityEvent.createdAt, opts.beforeCreatedAt));
   }
 
   const rows = await db
     .select({
-      id: communityBotActivityEvent.id,
-      botId: communityBotActivityEvent.botId,
+      botId: user.id,
+      eventId: communityBotActivityEvent.id,
       sessionId: communityBotActivityEvent.sessionId,
       launchId: communityBotActivityEvent.launchId,
       kind: communityBotActivityEvent.kind,
       payload: communityBotActivityEvent.payload,
       createdAt: communityBotActivityEvent.createdAt,
     })
-    .from(communityBotActivityEvent)
-    .innerJoin(user, eq(user.id, communityBotActivityEvent.botId))
-    .where(and(...conds))
+    .from(user)
+    .leftJoin(communityBotActivityEvent, and(...eventConds))
+    .where(
+      and(
+        eq(user.id, opts.botId),
+        eq(user.isBot, true),
+        eq(user.ownerUserId, opts.ownerUserId),
+        isNull(user.deletedAt)
+      )
+    )
     .orderBy(desc(communityBotActivityEvent.createdAt), desc(communityBotActivityEvent.id))
     .limit(limit);
 
-  return rows;
+  if (rows.length === 0) return null;
+
+  return rows.flatMap((row) =>
+    row.eventId === null
+      ? []
+      : [
+          {
+            id: row.eventId,
+            botId: row.botId,
+            sessionId: row.sessionId,
+            launchId: row.launchId,
+            kind: row.kind!,
+            payload: row.payload!,
+            createdAt: row.createdAt!,
+          },
+        ]
+  );
 }
 
 /**

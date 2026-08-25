@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
-const mockGetBotOwnedBy = vi.fn()
-const mockListBotActivityEvents = vi.fn()
+const mockListOwnedBotActivityEvents = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -15,11 +14,8 @@ vi.mock("@alook/shared", async () => {
   return {
     ...actual,
     queries: {
-      communityBot: {
-        getBotOwnedBy: (...a: unknown[]) => mockGetBotOwnedBy(...a),
-      },
       communityBotAuditLog: {
-        listBotActivityEvents: (...a: unknown[]) => mockListBotActivityEvents(...a),
+        listOwnedBotActivityEvents: (...a: unknown[]) => mockListOwnedBotActivityEvents(...a),
       },
     },
   }
@@ -71,20 +67,22 @@ describe("GET /api/community/bots/[id]/audit-log", () => {
     isAuthed = false
     const res = await GET(req(), ctx("b1"))
     expect(res.status).toBe(401)
-    expect(mockGetBotOwnedBy).not.toHaveBeenCalled()
+    expect(mockListOwnedBotActivityEvents).not.toHaveBeenCalled()
   })
 
-  it("returns 404 when the bot is missing or not owned by the session user (getBotOwnedBy filters both)", async () => {
-    mockGetBotOwnedBy.mockResolvedValue(null)
+  it("returns 404 when the one owner-scoped query finds no live owned bot", async () => {
+    mockListOwnedBotActivityEvents.mockResolvedValue(null)
     const res = await GET(req(), ctx("b1"))
     expect(res.status).toBe(404)
-    expect(mockGetBotOwnedBy).toHaveBeenCalledWith(expect.anything(), "b1", "u1")
-    expect(mockListBotActivityEvents).not.toHaveBeenCalled()
+    expect(mockListOwnedBotActivityEvents).toHaveBeenCalledTimes(1)
+    expect(mockListOwnedBotActivityEvents).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ botId: "b1", ownerUserId: "u1" }),
+    )
   })
 
   it("returns rows + a null nextCursor when fewer than `limit` results come back", async () => {
-    mockGetBotOwnedBy.mockResolvedValue({ id: "b1" })
-    mockListBotActivityEvents.mockResolvedValue([
+    mockListOwnedBotActivityEvents.mockResolvedValue([
       {
         id: "bae_1",
         botId: "b1",
@@ -111,9 +109,17 @@ describe("GET /api/community/bots/[id]/audit-log", () => {
     expect(body.nextCursor).toBe(null)
   })
 
+  it("returns 200 with an empty page for an owned bot with no events", async () => {
+    mockListOwnedBotActivityEvents.mockResolvedValue([])
+    const res = await GET(req("?limit=5"), ctx("b1"))
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ events: [], nextCursor: null })
+    expect(mockListOwnedBotActivityEvents).toHaveBeenCalledTimes(1)
+  })
+
   it("round-trips a canonical tool_call row: name is lowercased, target survives", async () => {
-    mockGetBotOwnedBy.mockResolvedValue({ id: "b1" })
-    mockListBotActivityEvents.mockResolvedValue([
+    mockListOwnedBotActivityEvents.mockResolvedValue([
       {
         id: "bae_1",
         botId: "b1",
@@ -132,7 +138,6 @@ describe("GET /api/community/bots/[id]/audit-log", () => {
   })
 
   it("returns a composite nextCursor when the page fills to the limit", async () => {
-    mockGetBotOwnedBy.mockResolvedValue({ id: "b1" })
     const rows = Array.from({ length: 2 }).map((_, i) => ({
       id: `bae_${i}`,
       botId: "b1",
@@ -142,7 +147,7 @@ describe("GET /api/community/bots/[id]/audit-log", () => {
       payload: JSON.stringify({ name: "Read" }),
       createdAt: `2025-01-01T00:00:0${i}.000Z`,
     }))
-    mockListBotActivityEvents.mockResolvedValue(rows)
+    mockListOwnedBotActivityEvents.mockResolvedValue(rows)
     const res = await GET(req("?limit=2"), ctx("b1"))
     const body = (await res.json()) as { nextCursor: { beforeCreatedAt: string; beforeId: string } | null }
     // Composite cursor uses the LAST row (oldest in the newest-first page) so
@@ -154,16 +159,16 @@ describe("GET /api/community/bots/[id]/audit-log", () => {
   })
 
   it("forwards beforeCreatedAt + beforeId to the query for cursor pagination", async () => {
-    mockGetBotOwnedBy.mockResolvedValue({ id: "b1" })
-    mockListBotActivityEvents.mockResolvedValue([])
+    mockListOwnedBotActivityEvents.mockResolvedValue([])
     await GET(
       req("?beforeCreatedAt=2025-01-01T00:00:00.000Z&beforeId=bae_x&limit=25"),
       ctx("b1"),
     )
-    expect(mockListBotActivityEvents).toHaveBeenCalledWith(
+    expect(mockListOwnedBotActivityEvents).toHaveBeenCalledWith(
       expect.anything(),
       {
         botId: "b1",
+        ownerUserId: "u1",
         beforeCreatedAt: "2025-01-01T00:00:00.000Z",
         beforeId: "bae_x",
         limit: 25,
@@ -172,8 +177,7 @@ describe("GET /api/community/bots/[id]/audit-log", () => {
   })
 
   it("returns a parsed {from,to} payload for a model_changed row (guards parseAuditLogPayload's default)", async () => {
-    mockGetBotOwnedBy.mockResolvedValue({ id: "b1" })
-    mockListBotActivityEvents.mockResolvedValue([
+    mockListOwnedBotActivityEvents.mockResolvedValue([
       {
         id: "bae_m",
         botId: "b1",
@@ -192,16 +196,15 @@ describe("GET /api/community/bots/[id]/audit-log", () => {
   })
 
   it("caps limit at 100 and floors it at 1 (defends against unbounded page requests)", async () => {
-    mockGetBotOwnedBy.mockResolvedValue({ id: "b1" })
-    mockListBotActivityEvents.mockResolvedValue([])
+    mockListOwnedBotActivityEvents.mockResolvedValue([])
     await GET(req("?limit=99999"), ctx("b1"))
-    expect(mockListBotActivityEvents).toHaveBeenCalledWith(
+    expect(mockListOwnedBotActivityEvents).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ limit: 100 }),
     )
     await GET(req("?limit=0"), ctx("b1"))
     // 0 → falls back to default (50) via the || fallback.
-    expect(mockListBotActivityEvents).toHaveBeenLastCalledWith(
+    expect(mockListOwnedBotActivityEvents).toHaveBeenLastCalledWith(
       expect.anything(),
       expect.objectContaining({ limit: 50 }),
     )

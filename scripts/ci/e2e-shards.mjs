@@ -38,6 +38,7 @@ export const SPEC_SECONDS = {
   "28-community-delete-media-cleanup.spec.ts": 45,
   "29-community-bot-avatar-cleanup.spec.ts": 15,
   "29-multi-device-read-state.spec.ts": 45,
+  "30-bot-profile-audit-preview.spec.ts": 35,
 }
 
 function walk(directory) {

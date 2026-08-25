@@ -1,17 +1,21 @@
 "use client"
 
 import { useState } from "react"
-import { MessagesSquare, Shield } from "lucide-react"
+import { MessagesSquare, Shield, UserRound } from "lucide-react"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Badge } from "@/components/ui/badge"
 import { Avatar } from "../avatar"
 import { SeededBackdrop } from "@/components/avatar"
 import { resolveAvatar } from "@/lib/avatar/resolve"
 import { StatusEditor, hasStatus } from "./status-editor"
-import type { Profile } from "@/components/community/social/profile-types"
+import type {
+  OwnerProfileRef,
+  Profile,
+} from "@/components/community/social/profile-types"
 import type { Breakpoint } from "@/hooks/use-mobile"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { tid } from "@/lib/community/testids"
+import { BotAuditPreview, isBotActivityActive } from "./bot-audit-preview"
 
 // Merge rule for the card's status pill: overlay wins over seed. The overlay
 // (`useCommunityWsStore.userStatuses`) is the same live source the member
@@ -47,7 +51,7 @@ export function resolveProfileBackdropSeed(
 // `initialStatusEmoji` / `initialStatusText` props are a first-paint seed for
 // users the overlay has never seen a WS event for; once the overlay has an
 // entry, it wins. See plans/profile-card-status-overlay.md.
-export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpdateStatus, initialStatusEmoji, initialStatusText, embedded }: {
+export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpdateStatus, onOpenOwnerProfile, onOpenBotAudit, initialStatusEmoji, initialStatusText, activityStatusEmoji, activityStatusText, embedded }: {
   data: Profile
   x: number
   y: number
@@ -58,8 +62,12 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   // Only used when `isSelf` — the inline status row opens `StatusEditor` and
   // calls this on a preset pick / free-text commit / emoji override / clear.
   onUpdateStatus?: (emoji: string | null, text: string | null) => void
+  onOpenOwnerProfile?: (owner: OwnerProfileRef) => void
+  onOpenBotAudit?: (botId: string) => void
   initialStatusEmoji?: string | null
   initialStatusText?: string | null
+  activityStatusEmoji?: string | null
+  activityStatusText?: string | null
   // Static card surface for contexts such as product previews. The regular
   // profile interaction still uses the anchored popover / mobile sheet.
   embedded?: boolean
@@ -69,6 +77,8 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   const mobile = bp === "mobile"
   const liveStatus = useCommunityWsStore((s) => (data.userId ? s.userStatuses.get(data.userId) : undefined))
   const { emoji: statusEmoji, text: statusText } = resolveCardStatus(liveStatus, initialStatusEmoji, initialStatusText)
+  const activityStatus = resolveCardStatus(liveStatus, activityStatusEmoji, activityStatusText)
+  const botIdentity = data.identity?.kind === "bot" ? data.identity : null
   const backdropSeed = resolveProfileBackdropSeed(data.avatar, data.userId, data.name)
   const close = () => setOpen(false)
   const send = () => {
@@ -178,8 +188,21 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
               (a step past DESIGN.md's 16px between-groups token) rather than
               just tighter line spacing off the bio above it. */}
           <p className="mt-2 text-[15px] text-muted-foreground">{data.about || "No bio yet."}</p>
-          {(data.contextLabel || data.mutual > 0) && (
-            <div className="mt-6 flex items-center gap-2 text-xs text-muted-foreground">
+          {(botIdentity || data.contextLabel || data.mutual > 0) && (
+            <div className="mt-6 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              {botIdentity && (
+                <Badge
+                  render={<button type="button" />}
+                  data-testid={tid.profileOwnerLink}
+                  variant="secondary"
+                  className="h-5 min-w-0 max-w-full gap-1 text-xs hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  onClick={() => onOpenOwnerProfile?.(botIdentity.ownerProfile)}
+                  aria-label={`Open owner profile @${botIdentity.ownerProfile.handle}`}
+                >
+                  <UserRound className="size-3 shrink-0" />
+                  <span className="min-w-0 truncate">@{botIdentity.ownerProfile.handle}</span>
+                </Badge>
+              )}
               {data.contextLabel && (
                 <Badge data-testid={tid.profileContextBadge} variant="secondary" className="h-5 gap-1 text-xs">
                   <Shield className="size-3" /> {data.contextLabel}
@@ -214,15 +237,29 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
     </>
   )
 
+  const auditPreview = botIdentity?.ownedByViewer && data.userId ? (
+    <BotAuditPreview
+      botId={data.userId}
+      active={isBotActivityActive(activityStatus.emoji, activityStatus.text)}
+      onOpen={() => onOpenBotAudit?.(data.userId!)}
+    />
+  ) : null
+
   if (embedded)
-    return <div data-testid={tid.profileCard} className="w-full overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">{card}</div>
+    return (
+      <div className="flex w-full flex-col gap-2">
+        {auditPreview}
+        <div data-testid={tid.profileCard} className="w-full overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">{card}</div>
+      </div>
+    )
 
   // mobile: bottom sheet (intentional mobile UX, kept manual)
   if (mobile)
     return (
       <div className="fixed inset-0 z-30 flex flex-col justify-end" onClick={onClose}>
         <div className="absolute inset-0 bg-foreground/30" />
-        <div className="relative p-3" onClick={(e) => e.stopPropagation()}>
+        <div className="relative flex flex-col gap-2 p-3" onClick={(e) => e.stopPropagation()}>
+          {auditPreview}
           <div data-testid={tid.profileCard} className="overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">{card}</div>
         </div>
       </div>
@@ -237,8 +274,15 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
         className="pointer-events-none fixed size-0"
         style={{ left: x, top: y }}
       />
-      <PopoverContent data-testid={tid.profileCard} side="right" align="start" sideOffset={8} className="w-75 overflow-hidden p-2">
-        {card}
+      <PopoverContent side="right" align="start" sideOffset={8} className="relative w-75 overflow-visible border-0 bg-transparent p-0 shadow-none">
+        {auditPreview && (
+          <div className="absolute right-0 bottom-[calc(100%+0.5rem)] w-full">
+            {auditPreview}
+          </div>
+        )}
+        <div data-testid={tid.profileCard} className="overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">
+          {card}
+        </div>
       </PopoverContent>
     </Popover>
   )

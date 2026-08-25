@@ -29,6 +29,7 @@ export function buildSelfProfile(
     about: currentUser.aboutMe ?? "",
     mutual: 0,
     presence: resolveProfilePresence(true, undefined, onlineUserIds),
+    identity: { kind: "human" },
   }
 }
 

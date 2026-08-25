@@ -21,7 +21,23 @@ export type Profile = {
   // member/friend match could be resolved (e.g. a stale mention). See
   // `resolveProfilePresence` in shell-frame.tsx.
   presence?: Presence
+  // Hydrated API identity. Seeded cards intentionally omit this so the main
+  // profile can paint before the public profile request resolves.
+  identity?: ProfileIdentity
 }
+
+export type OwnerProfileRef = {
+  id: string
+  handle: string
+}
+
+type ProfileIdentity =
+  | { kind: "human" }
+  | {
+      kind: "bot"
+      ownerProfile: OwnerProfileRef
+      ownedByViewer: boolean
+    }
 
 // Shared callback signature for opening a user's profile card at a click point.
 // `userId` is the exact-match disambiguator — pass it whenever the caller

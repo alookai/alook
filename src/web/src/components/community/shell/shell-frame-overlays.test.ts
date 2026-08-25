@@ -36,6 +36,8 @@ const controller = {
   closeProfile: vi.fn(),
   profileMessage: vi.fn(),
   updateOwnStatus: vi.fn(),
+  openOwnerProfile: vi.fn(),
+  openBotAudit: vi.fn(),
   preview: { url: "/image.png", alt: "image" },
   closePreview: vi.fn(),
   attachmentPreview: { id: "a1", filename: "notes.txt" },
@@ -92,6 +94,10 @@ describe("ShellFrameOverlays", () => {
     const profileCard = renderer.root.findByType("profile-card")
     expect(profileCard.props.initialStatusEmoji).toBe("🌱")
     expect(profileCard.props.initialStatusText).toBe("Growing")
+    expect(profileCard.props.activityStatusEmoji).toBe("🌱")
+    expect(profileCard.props.activityStatusText).toBe("Growing")
+    expect(profileCard.props.onOpenOwnerProfile).toBe(controller.openOwnerProfile)
+    expect(profileCard.props.onOpenBotAudit).toBe(controller.openBotAudit)
     expect(renderer.root.findByType("crop-dialog").props.maskShape).toBe("circle")
 
     renderer.root.findByType("attachment-sheet").props.onOpenChange(false)
@@ -113,6 +119,8 @@ describe("ShellFrameOverlays", () => {
     const profileCard = renderer.root.findByType("profile-card")
     expect("initialStatusEmoji" in profileCard.props).toBe(false)
     expect("initialStatusText" in profileCard.props).toBe(false)
+    expect(profileCard.props.activityStatusEmoji).toBe("🌱")
+    expect(profileCard.props.activityStatusText).toBe("Growing")
   })
 
   it("omits nullable overlays while keeping closed sheet and settings wiring", async () => {
