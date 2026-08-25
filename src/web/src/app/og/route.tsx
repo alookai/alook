@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 import type { NextRequest } from "next/server";
 import { BRAND_SLOGAN } from "@/lib/brand-copy";
+import { OG_LOGO_DATA_URI } from "./og-logo";
 
 async function loadFont(): Promise<ArrayBuffer | null> {
   try {
@@ -124,7 +125,6 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
     const title = searchParams.get("title") || BRAND_SLOGAN;
-    const logoUrl = new URL("/alook.svg", request.url).toString();
 
     const fontData = await loadFont();
 
@@ -152,7 +152,7 @@ export async function GET(request: NextRequest) {
           >
             <div style={{ display: "flex", alignItems: "center", marginBottom: 32 }}>
               <img
-                src={logoUrl}
+                src={OG_LOGO_DATA_URI}
                 width={120}
                 height={120}
                 alt=""
