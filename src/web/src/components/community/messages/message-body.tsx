@@ -142,7 +142,7 @@ function MessageBodyImpl({
       >
         {text}
       </Streamdown>
-      {(inviteTokens.length > 0 || previewUrl) && (
+      {inviteTokens.length > 0 && (
         // `pb-2` is *inside* the message row so the row's hover tint
         // (`bg-accent/40`) extends below the card. A margin on the card
         // itself wouldn't do that — it'd push the card out of the row's
@@ -155,9 +155,9 @@ function MessageBodyImpl({
               perspective={perspective}
             />
           ))}
-          {previewUrl && <LinkPreviewCard url={previewUrl} />}
         </div>
       )}
+      {previewUrl && <LinkPreviewCard url={previewUrl} />}
     </div>
   )
 }

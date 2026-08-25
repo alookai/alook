@@ -50,26 +50,28 @@ export function LinkPreviewCardView({ preview }: { preview: LinkPreview }) {
   if (!preview.thumbnailUrl || failed) return null
 
   return (
-    <a
-      data-testid={tid.linkPreviewCard}
-      href={preview.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="group block w-full max-w-108 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      aria-label={`Open link preview: ${preview.title}`}
-    >
-      <Card className="relative gap-0 py-0 transition-shadow group-hover:ring-foreground/20">
-        <LinkPreviewThumbnail src={preview.thumbnailUrl} onError={() => setFailed(true)} />
-        <span className="pointer-events-none absolute top-2 right-2 flex size-7 items-center justify-center rounded-full bg-background/80 text-foreground shadow-sm backdrop-blur-sm">
-          <ExternalLink aria-hidden="true" className="size-3.5" />
-        </span>
-      </Card>
-    </a>
+    <div className="pb-2">
+      <a
+        data-testid={tid.linkPreviewCard}
+        href={preview.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="group block w-full max-w-108 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={`Open link preview: ${preview.title}`}
+      >
+        <Card className="relative gap-0 py-0 transition-shadow group-hover:ring-foreground/20">
+          <LinkPreviewThumbnail src={preview.thumbnailUrl} onError={() => setFailed(true)} />
+          <span className="pointer-events-none absolute top-2 right-2 flex size-7 items-center justify-center rounded-full bg-background/80 text-foreground shadow-sm backdrop-blur-sm">
+            <ExternalLink aria-hidden="true" className="size-3.5" />
+          </span>
+        </Card>
+      </a>
+    </div>
   )
 }
 
 function LinkPreviewCardImpl({ url }: { url: string }) {
-  const sentinelRef = useRef<HTMLDivElement>(null)
+  const sentinelRef = useRef<HTMLSpanElement>(null)
   const [nearViewport, setNearViewport] = useState(false)
 
   useEffect(() => {
@@ -101,7 +103,13 @@ function LinkPreviewCardImpl({ url }: { url: string }) {
 
   const preview = query.data?.preview
   if (!preview) {
-    return <div ref={sentinelRef} className="h-px w-full" aria-hidden="true" />
+    return (
+      <span
+        ref={sentinelRef}
+        className="pointer-events-none absolute size-px overflow-hidden opacity-0"
+        aria-hidden="true"
+      />
+    )
   }
   return <LinkPreviewCardView preview={preview} />
 }

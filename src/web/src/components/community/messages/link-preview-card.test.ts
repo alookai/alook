@@ -24,6 +24,7 @@ describe("LinkPreviewCardView", () => {
     expect(html).toContain('rel="noopener noreferrer"')
     expect(html).toContain('aria-label="Open link preview: Pull Request #511"')
     expect(html).toContain('data-slot="card"')
+    expect(html).toContain('class="pb-2"')
     expect(html).toContain("w-full max-w-108")
     expect(html).toContain("pointer-events-none absolute top-2 right-2")
     expect(html).toContain('aria-hidden="true"')
@@ -91,5 +92,8 @@ describe("LinkPreviewCardView", () => {
     act(() => image.props.onError())
     expect(renderer!.root.findAllByType("img")).toHaveLength(0)
     expect(renderer!.root.findAllByType("a")).toHaveLength(0)
+    expect(renderer!.root.findAll(
+      (node) => node.type === "div" && node.props.className === "pb-2",
+    )).toHaveLength(0)
   })
 })
