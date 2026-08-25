@@ -201,13 +201,16 @@ interface DaemonFakeSession extends DaemonTestSession {
 function daemonFakeSession(options: {
   onStart?: (input: { id: string; text: string }) => void;
   onSend?: (input: { id: string; text: string; sequence?: number }) => void;
+  onStop?: () => void;
   establish?: boolean;
+  enforceCommandIdempotency?: boolean;
 } = {}): DaemonFakeSession {
   type Event = AgentEvent<BuiltinBackendSpecs, "codex">;
   let sequence = 0;
   const queued: Event[] = [];
   const waiters: Array<(value: IteratorResult<Event>) => void> = [];
   let ended = false;
+  const commands = new Map<string, { method: "start" | "send"; canonical: string }>();
   let resolveClosed!: (result: AgentSessionResult) => void;
   const closed = new Promise<AgentSessionResult>((resolve) => { resolveClosed = resolve; });
   const emit = (payload: Omit<Event, "sequence" | "sessionInstanceId" | "at">) => {
@@ -233,6 +236,7 @@ function daemonFakeSession(options: {
     closed,
     async start(input) {
       options.onStart?.(input);
+      commands.set(input.id, { method: "start", canonical: JSON.stringify(input) });
       if (options.establish !== false) {
         await session.fire("runtime_event", { kind: "session_init", sessionId: "test-session" });
       }
@@ -242,11 +246,21 @@ function daemonFakeSession(options: {
     },
     async send(input) {
       options.onSend?.(input);
+      const canonical = JSON.stringify(input);
+      const existing = commands.get(input.id);
+      if (options.enforceCommandIdempotency && existing) {
+        if (existing.method !== "send" || existing.canonical !== canonical) {
+          return { status: "rejected", reason: "duplicate_conflict" };
+        }
+        return { status: "accepted", delivery: "steer", commandId: input.id, turnId: "daemon-test-turn" };
+      }
+      commands.set(input.id, { method: "send", canonical });
       emit({ type: "command_accepted", commandId: input.id, turnId: "daemon-test-turn", delivery: "steer" } as never);
       return { status: "accepted", delivery: "steer", commandId: input.id, turnId: "daemon-test-turn" };
     },
     async interrupt() { return { status: "not_running" }; },
     async stop() {
+      options.onStop?.();
       if (!ended) {
         ended = true;
         const result: AgentSessionResult = { outcome: "stopped", requested: true, exitCode: null, signal: null, cleanup: { status: "released" } };
@@ -1306,6 +1320,109 @@ describe("createDaemon — logging", () => {
       observePull(7);
       await vi.waitFor(() => expect(sends).toHaveLength(3));
       expect(sends[2]).toMatchObject({ sequence: 8 });
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  it("re-injects partial multi-channel coverage with a fresh driver command id while the session stays active", async () => {
+    let releaseEnroll!: () => void;
+    const enrollGate = new Promise<void>((resolve) => { releaseEnroll = resolve; });
+    let enrollStarted = false;
+    global.fetch = vi.fn(async (url: string | URL) => {
+      if (String(url).includes("/enroll-agent")) {
+        enrollStarted = true;
+        await enrollGate;
+        return new Response(JSON.stringify({ runnerKey: "rk_unobserved_replay" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ bots: [] }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "unobserved-wake-replay-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    mkdirSync(join(workingDirectoryBase, "bot_replay"));
+    const starts: Array<{ id: string; text: string }> = [];
+    const sends: Array<{ id: string; text: string; sequence?: number }> = [];
+    let stopCount = 0;
+    const sockets: FakeSocket[] = [];
+    const daemon = await createDaemon({
+      machineKey: "cmk_unobserved_replay",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [{ id: "codex" }],
+      workingDirectoryBase,
+      driverFor: () => fullFakeDriver("codex"),
+      sessionFactory: () => daemonFakeSession({
+        onStart: (input) => starts.push(input),
+        onSend: (input) => sends.push(input),
+        onStop: () => { stopCount += 1; },
+        enforceCommandIdempotency: true,
+      }),
+      capabilities: [],
+    });
+    const wake = (channel: string, latestSeq: number, launchId: string) => sockets[0].emit("message", JSON.stringify({
+      type: "agent:wake",
+      agentId: "bot_replay",
+      config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
+      launchId,
+      unreadNotice: { kind: "unread_notice", channel, latestSeq },
+    }));
+    const wakeAcked = (launchId: string) => sockets[0].sent.map((frame) => JSON.parse(frame)).some(
+      (frame) => frame.type === "agent_wake_ack"
+        && frame.launchId === launchId
+        && frame.status === "ok",
+    );
+    const observePull = (channel: string, seq: number) => {
+      const observationToken = credentialProxyHarness.onInboxPullStart?.("bot_replay");
+      credentialProxyHarness.onInboxPullResponse?.(
+        "bot_replay",
+        [{ channel, seq: `#${seq}` }],
+        observationToken,
+      );
+    };
+
+    try {
+      sockets[0].emit("open");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      sockets[0].emit("message", JSON.stringify({
+        type: "bot:added",
+        botId: "bot_replay",
+        name: "Replay Bot",
+        discriminator: "0001",
+      }));
+
+      wake("/demo#1234/root", 1, "root");
+      await vi.waitFor(() => expect(enrollStarted).toBe(true));
+
+      // These two desired watermarks are folded into the admission that
+      // follows the blocked root wake. The selected c2 command therefore owns
+      // coverage for both c1 and c2.
+      wake("/demo#1234/c1", 2, "c1");
+      wake("/demo#1234/c2", 7, "c2");
+      await vi.waitFor(() => expect(wakeAcked("c1")).toBe(true));
+      await vi.waitFor(() => expect(wakeAcked("c2")).toBe(true));
+      observePull("/demo#1234/root", 1);
+      releaseEnroll();
+
+      await vi.waitFor(() => expect(starts).toHaveLength(1));
+      await vi.waitFor(() => expect(wakeAcked("root")).toBe(true));
+      await vi.waitFor(() => expect(sends).toHaveLength(1));
+
+      // The pull proves only c1 reached the model. c2 must be re-admitted into
+      // the still-running session, using a fresh driver command identity.
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      observePull("/demo#1234/c1", 2);
+      await vi.waitFor(() => expect(sends).toHaveLength(2));
+
+      expect(starts[0]!.id).toContain(":admission:1");
+      expect(sends[0]!.id).toContain(":admission:2");
+      expect(sends[1]!.id).toContain(":admission:3");
+      expect(sends[0]).toMatchObject({ sequence: 7 });
+      expect(sends[1]).toMatchObject({ sequence: 7 });
+      expect(sends[1]!.id).not.toBe(sends[0]!.id);
+      expect(sends[1]!.text).not.toBe(sends[0]!.text);
+      expect(stopCount).toBe(0);
     } finally {
       await daemon.stop();
     }
