@@ -63,6 +63,9 @@ describe("BotAuditPreview", () => {
     expect(button.props["aria-label"]).toBe(
       "Bot activity in progress. Open full bot activity log",
     )
+    expect(button.props.className).toContain("duration-150")
+    expect(button.props.className).toContain("hover:bg-accent/40")
+    expect(button.props.className).toContain("active:bg-accent/60")
     expect(renderer.root.findAllByProps({
       "data-testid": "community-bot-audit-preview-active",
     })).toHaveLength(1)

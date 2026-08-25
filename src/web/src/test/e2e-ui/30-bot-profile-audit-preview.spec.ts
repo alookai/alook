@@ -209,7 +209,11 @@ test("owner-only bot profile preview, owner swap, and URL-owned audit modal", as
     await expect(alice.page.locator('[data-testid^="community-bot-audit-preview-row-"]'))
       .toHaveCount(4)
 
+    await alice.page.setViewportSize({ width: 375, height: 812 })
     const ownerLink = alice.page.getByTestId(tid.profileOwnerLink)
+    await expect(ownerLink).toBeVisible()
+    const ownerLinkBox = await ownerLink.boundingBox()
+    expect(ownerLinkBox?.height).toBeGreaterThanOrEqual(44)
     const ownerHandle = await ownerLink.textContent()
     await ownerLink.click()
     await expect(alice.page.getByTestId(tid.profileCard)).toHaveCount(1)
@@ -217,6 +221,7 @@ test("owner-only bot profile preview, owner swap, and URL-owned audit modal", as
     await expect(alice.page.getByTestId(tid.profileCard))
       .toContainText(ownerHandle!.trim().replace(/^@/, ""))
 
+    await alice.page.setViewportSize({ width: 1280, height: 900 })
     await openBotProfile(alice.page, botName)
     await alice.page.getByTestId(tid.botAuditPreview).click()
     await expect(alice.page).toHaveURL(new RegExp(`/c/me/bots\\?audit=${botId}$`))

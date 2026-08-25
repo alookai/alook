@@ -56,7 +56,7 @@ export function BotAuditPreview({
         ? "Bot activity in progress. Open full bot activity log"
         : "Bot at rest. Open full bot activity log"}
       className={[
-        "flex h-40 w-full shrink-0 flex-col overflow-hidden rounded-xl border bg-card text-left shadow-(--e1) transition-colors",
+        "flex h-40 w-full shrink-0 flex-col overflow-hidden rounded-xl border bg-card text-left shadow-(--e1) transition-colors duration-150 hover:bg-accent/40 active:bg-accent/60",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
         active ? "border-primary/35" : "border-border",
       ].join(" ")}

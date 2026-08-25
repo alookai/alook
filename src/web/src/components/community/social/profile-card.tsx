@@ -191,17 +191,21 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
           {(botIdentity || data.contextLabel || data.mutual > 0) && (
             <div className="mt-6 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
               {botIdentity && (
-                <Badge
-                  render={<button type="button" />}
+                <button
+                  type="button"
                   data-testid={tid.profileOwnerLink}
-                  variant="secondary"
-                  className="h-5 min-w-0 max-w-full gap-1 text-xs hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  className="group/owner flex h-11 min-w-0 max-w-full items-center rounded-full text-xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:h-5"
                   onClick={() => onOpenOwnerProfile?.(botIdentity.ownerProfile)}
                   aria-label={`Open owner profile @${botIdentity.ownerProfile.handle}`}
                 >
-                  <UserRound className="size-3 shrink-0" />
-                  <span className="min-w-0 truncate">@{botIdentity.ownerProfile.handle}</span>
-                </Badge>
+                  <Badge
+                    variant="secondary"
+                    className="pointer-events-none min-w-0 max-w-full transition-colors group-hover/owner:bg-accent group-active/owner:bg-accent/80"
+                  >
+                    <UserRound className="size-3 shrink-0" />
+                    <span className="min-w-0 truncate">@{botIdentity.ownerProfile.handle}</span>
+                  </Badge>
+                </button>
               )}
               {data.contextLabel && (
                 <Badge data-testid={tid.profileContextBadge} variant="secondary" className="h-5 gap-1 text-xs">

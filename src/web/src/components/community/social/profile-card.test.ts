@@ -93,7 +93,10 @@ describe("ProfileCard contextual metadata", () => {
     })
 
     expect(html).toContain("flex min-w-0 flex-wrap items-center")
-    expect(html).toContain("h-5 min-w-0 max-w-full")
+    expect(html).toContain("group/owner flex h-11 min-w-0 max-w-full")
+    expect(html).toContain("sm:h-5")
+    expect(html).toContain("group-hover/owner:bg-accent")
+    expect(html).toContain("group-active/owner:bg-accent/80")
     expect(html).toContain('<span class="min-w-0 truncate">')
     expect(html).toContain(`aria-label="Open owner profile @${handle}"`)
   })
