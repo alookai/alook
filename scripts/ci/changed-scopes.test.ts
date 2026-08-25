@@ -54,16 +54,23 @@ describe("classifyPaths", () => {
   it("fails closed for every app bundle input while excluding stripped blog-only inputs", () => {
     for (const path of [
       "src/app/src/index.ts",
+      "src/app/README.md",
       "src/daemon/src/index.ts",
       "src/daemon/agent-driver/src/index.ts",
+      "src/daemon/README.md",
       "src/web/custom-worker.ts",
       "src/web/src/lib/worker-runtime.ts",
       "src/web/wrangler.toml",
       "src/web/migrations/0001.sql",
+      "src/web/README.md",
       "src/shared/src/index.ts",
+      "src/shared/README.md",
       "src/email-worker/src/index.ts",
+      "src/email-worker/README.md",
       "src/ws-do/src/index.ts",
+      "src/ws-do/README.md",
       "src/wake-worker/src/index.ts",
+      "src/wake-worker/README.md",
       "pnpm-lock.yaml",
       ".github/workflows/publish-app.yml",
     ]) {
@@ -72,6 +79,7 @@ describe("classifyPaths", () => {
     expect(classifyPaths(["src/web/src/content/example.mdx"]).run_app_packed_artifact).toBe(false)
     expect(classifyPaths(["src/web/public/blog/example/hero.webp"]).run_app_packed_artifact).toBe(false)
     expect(classifyPaths(["README.md"]).run_app_packed_artifact).toBe(false)
+    expect(classifyPaths(["src/app/README.md"]).run_code_checks).toBe(false)
   })
 
   it("routes CLI and daemon integration test changes through Linux E2E", () => {

@@ -116,7 +116,7 @@ export function classifyPaths(inputPaths, options = {}) {
     run_rust: runCodeChecks && (full || desktop),
     run_lighthouse: runCodeChecks && (full || web),
     run_knip: runCodeChecks && (full || app || cli || shared || web || worker),
-    run_app_packed_artifact: runCodeChecks && (full || appPackedArtifactInput),
+    run_app_packed_artifact: full || appPackedArtifactInput,
   }
 }
 
