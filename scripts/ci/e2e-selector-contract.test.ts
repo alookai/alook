@@ -12,21 +12,49 @@ function sourceFiles(directory: string): string[] {
   })
 }
 
+function selectorViolations(source: string): string[] {
+  const rules = [
+    { label: "literal getByTestId", pattern: /getByTestId\s*\(\s*[`"']/ },
+    {
+      label: "hard-coded data-testid selector",
+      pattern: /data-testid(?:[\^$*~|])?\s*=\s*\\?["'](?!\$\{)/,
+    },
+    {
+      label: "hard-coded unquoted data-testid selector",
+      pattern: /data-testid(?:[\^$*~|])?\s*=\s*(?!\\?["']|\$\{)[^\s\]]+/,
+    },
+    { label: "bare data-testid selector", pattern: /\[\s*data-testid\s*\]/ },
+  ]
+  return rules.filter(({ pattern }) => pattern.test(source)).map(({ label }) => label)
+}
+
 describe("E2E selector contract", () => {
   it("derives every test ID from the canonical registry", () => {
     const violations = sourceFiles(e2eRoot).flatMap((path) => {
       const source = readFileSync(path, "utf8")
-      return [
-        { label: "literal getByTestId", index: source.search(/getByTestId\s*\(\s*[`"']/) },
-        {
-          label: "hard-coded data-testid selector",
-          index: source.search(/data-testid(?:\^)?\s*=\s*\\?["'](?:community|bot)-/),
-        },
-      ].flatMap(({ label, index }) => index === -1
-        ? []
-        : [`${path.slice(e2eRoot.length + 1)}: ${label}`])
+      return selectorViolations(source).map((label) => `${path.slice(e2eRoot.length + 1)}: ${label}`)
     })
 
     expect(violations).toEqual([])
+  })
+
+  it.each([
+    ["arbitrary quoted value", `page.locator('[data-testid="rogue-id"]')`],
+    ["arbitrary escaped value", `document.querySelector("[data-testid=\\"rogue-id\\"]")`],
+    ["arbitrary prefix value", `page.locator('[data-testid^="rogue-"]')`],
+    ["arbitrary unquoted value", `page.locator('[data-testid=rogue-id]')`],
+    ["bare attribute lookup", `page.locator('[data-testid]')`],
+  ])("rejects %s", (_label, fixture) => {
+    expect(selectorViolations(fixture)).not.toEqual([])
+  })
+
+  it("allows canonical registry values to be interpolated or passed into evaluate", () => {
+    const fixture = `
+      page.getByTestId(tid.messageScroller)
+      page.locator(\`[data-testid="\${tid.messageScroller}"]\`)
+      page.evaluate((id) => document.querySelector(\`[data-testid="\${id}"]\`), tid.messageScroller)
+    `
+
+    expect(selectorViolations(fixture)).toEqual([])
   })
 })
