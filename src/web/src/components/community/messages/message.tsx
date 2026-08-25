@@ -373,6 +373,7 @@ function MessageImpl({
               <MessageBody
                 text={m.content}
                 onOpenProfile={onOpenProfile}
+                enableLinkPreview={!m.embeds?.length}
                 perspective={
                   viewerUserId
                     ? m.authorId === viewerUserId ? "sender" : "recipient"

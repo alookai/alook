@@ -24,6 +24,12 @@ export const RATE_LIMITS = {
    */
   "community:msgSend": { windowMs: 10_000, max: 30 },
   /**
+   * Authenticated link-preview lookups. Cache hits are cheap but still count:
+   * the boundary accepts a user-controlled public URL and must stay bounded
+   * even when KV is cold or unavailable.
+   */
+  "community:linkPreview": { windowMs: 60_000, max: 60 },
+  /**
    * OTP send (better-auth `/email-otp/send-verification-otp`). Prevents
    * cost/abuse from someone spamming another user's inbox. Window/max are
    * overridable via `AUTH_OTP_RATE_LIMIT_MAX` / `_WINDOW_SEC`.

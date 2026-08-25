@@ -66,6 +66,7 @@ export const tid = {
   imageLightboxLoading: "community-image-lightbox-loading",
   imageLightboxError: "community-image-lightbox-error",
   imageLightboxRetry: "community-image-lightbox-retry",
+  linkPreviewCard: "community-link-preview-card",
 
   message: (id: string) => `community-message-${id}`,
   messageImage: (id: string, index: number) => `community-message-image-${id}-${index}`,

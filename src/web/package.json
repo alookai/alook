@@ -72,6 +72,7 @@
     "idb-keyval": "^6.3.0",
     "input-otp": "^1.4.2",
     "katex": "^0.18.4",
+    "link-preview-js": "5.0.0",
     "lucide-react": "^1.31.0",
     "mdast-util-find-and-replace": "^3.0.2",
     "mdast-util-from-markdown": "^2.0.3",
