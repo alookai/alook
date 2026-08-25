@@ -37,9 +37,16 @@ test.describe.serial("eject, navigation & logout", () => {
     await page.getByRole("button", { name: "Log Out" }).click()
     await page.waitForURL(/\/sign-in/, { timeout: 20_000 , waitUntil: "commit" })
 
-    // Session is actually cleared: revisiting a protected route stays bounced.
-    await page.goto("/c")
-    await page.waitForURL(/\/sign-in/, { timeout: 20_000 , waitUntil: "commit" })
+    // Session is actually cleared: a protected route returns a sign-in redirect.
+    await expect.poll(async () => (await page.context().cookies())
+      .some((cookie) => cookie.name.startsWith("better-auth"))).toBe(false)
+    const protectedResponse = await page.request.get("/c", { maxRedirects: 0 })
+    expect(protectedResponse.status()).toBe(307)
+    const redirectLocation = protectedResponse.headers().location
+    expect(redirectLocation).toBeTruthy()
+    const redirectUrl = new URL(redirectLocation!, page.url())
+    expect(redirectUrl.pathname).toBe("/sign-in")
+    expect(redirectUrl.searchParams.get("redirect")).toBe("/c")
     await expect(page).toHaveURL(/\/sign-in/)
   })
 })

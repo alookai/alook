@@ -122,14 +122,19 @@ describe("E2E UI workflow", () => {
     expect(workflow).toContain("if-no-files-found: ignore")
     expect(workflow).toContain("retention-days: 7")
     expect(workflow).toContain(
-      "name: blob-report-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}",
+      "name: blob-report-${{ github.run_id }}-${{ matrix.shard }}",
     )
     expect(workflow).toContain(
-      "pattern: blob-report-${{ github.run_id }}-${{ github.run_attempt }}-*",
+      "pattern: blob-report-${{ github.run_id }}-*",
     )
-    expect(workflow).toContain(
-      "name: playwright-merge-runtime-${{ github.run_id }}-${{ github.run_attempt }}",
-    )
+    expect(workflow).toContain("overwrite: true")
+    expect(workflow).toContain("merge-multiple: false")
+    expect(workflow).toContain("actions: read")
+    expect(workflow).toContain("verify-artifacts")
+    expect(workflow).toContain("verify-merged")
+    expect(workflow).toContain("--reporter html,json")
+    expect(workflow).not.toContain("playwright-merge-runtime")
+    expect(workflow.match(/pnpm install --frozen-lockfile/g)).toHaveLength(2)
     expect(workflow.match(/if-no-files-found: error/g)).toHaveLength(2)
     expect(workflow.match(/continue-on-error: true/g)).toHaveLength(1)
   })

@@ -84,7 +84,7 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
       await expect.poll(() => new URL(page.url()).pathname).toBe(
         `/c/channels/${serverId}/${threadId}`,
       )
-      await page.waitForTimeout(500)
+      await page.waitForTimeout(500) // duplicate-anchor exclusion window
       expect(anchorRouteRequests).toBe(1)
     } finally {
       releaseFirstAnchor()
@@ -128,7 +128,7 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     await expect(page.getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
     await expect(page.getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
     await expect(page.locator('[data-slot="skeleton"]')).toHaveCount(0)
-    await page.waitForTimeout(2_000)
+    await page.waitForTimeout(2_000) // late exact-channel/message fetch exclusion window
 
     expect(requests.filter((url) => isSidebarRequest(url, serverId))).toHaveLength(1)
     expect(new URL(requests.find((url) => isSidebarRequest(url, serverId))!).searchParams.get("retainId"))
@@ -168,7 +168,7 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     await expect(page.getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
     await expect(page.getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
     await expect(page.locator('[data-slot="skeleton"]')).toHaveCount(0)
-    await page.waitForTimeout(2_000)
+    await page.waitForTimeout(2_000) // late duplicate anchored/unanchored fetch exclusion window
 
     const messageResponses = successfulResponses.filter((url) =>
       isChannelMessagesRequest(url, threadId),
@@ -198,7 +198,7 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     await page.getByTestId(tid.channelRow(textBId)).click()
     await page.waitForURL(new RegExp(`${textBId}(?:\\?|$)`), { timeout: 20_000, waitUntil: "commit" })
     await expect(page.getByTestId(tid.channelRow(textBId))).toBeVisible()
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(300) // post-switch sidebar refetch exclusion window
 
     expect(requests.filter((url) => isSidebarRequest(url, serverId))).toHaveLength(0)
 

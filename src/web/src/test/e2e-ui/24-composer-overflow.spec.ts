@@ -44,9 +44,9 @@ type PlaceholderMetrics = {
 async function placeholderMetrics(composer: Locator): Promise<PlaceholderMetrics> {
   const paragraph = composer.locator(".tiptap p.is-editor-empty").first()
   await expect(paragraph).toBeVisible()
-  return paragraph.evaluate((node) => {
+  return paragraph.evaluate((node, ids) => {
     const element = node as HTMLElement
-    const composerElement = element.closest("[data-testid='community-composer-input']") as HTMLElement
+    const composerElement = element.closest(`[data-testid='${ids.composerInput}']`) as HTMLElement
     const pseudo = getComputedStyle(element, "::before")
     const text = element.dataset.placeholder ?? ""
     const canvas = document.createElement("canvas")
@@ -58,7 +58,7 @@ async function placeholderMetrics(composer: Locator): Promise<PlaceholderMetrics
     const composerRect = composerElement.getBoundingClientRect()
     const clipsHorizontally = pseudo.overflowX === "hidden" || pseudo.overflowX === "clip"
     const attachElement = composerElement.parentElement?.querySelector<HTMLElement>(
-      "[data-testid='community-composer-attach']",
+      `[data-testid='${ids.composerAttach}']`,
     )
     const emojiElement = composerElement.parentElement?.querySelector<HTMLElement>(
       "button[aria-label='Emoji picker']",
@@ -87,7 +87,7 @@ async function placeholderMetrics(composer: Locator): Promise<PlaceholderMetrics
       attach: attachElement ? toRect(attachElement.getBoundingClientRect()) : null,
       emoji: emojiElement ? toRect(emojiElement.getBoundingClientRect()) : null,
     }
-  })
+  }, { composerInput: tid.composerInput, composerAttach: tid.composerAttach })
 }
 
 function expectContainedPlaceholder(metrics: PlaceholderMetrics, expected: string, width: number): void {

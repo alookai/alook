@@ -14,6 +14,11 @@ async function loadReporter(ci: string | undefined) {
   return config.reporter
 }
 
+async function loadConfig() {
+  vi.resetModules()
+  return (await import("../../playwright.config")).default
+}
+
 afterEach(() => {
   if (originalCi === undefined) {
     delete process.env.CI
@@ -34,5 +39,14 @@ describe("Playwright reporter configuration", () => {
 
   it("uses the list reporter outside CI", async () => {
     await expect(loadReporter(undefined)).resolves.toBe("list")
+  })
+
+  it("keeps the single-worker zero-retry timing contract without a global failure cap", async () => {
+    const config = await loadConfig()
+    expect(config.retries).toBe(0)
+    expect(config.workers).toBe(1)
+    expect(config.timeout).toBe(60_000)
+    expect(config.expect?.timeout).toBe(10_000)
+    expect(config.maxFailures).toBeUndefined()
   })
 })

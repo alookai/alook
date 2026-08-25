@@ -254,7 +254,7 @@ test("server → channel → message", async ({ asUser }) => {
       revokeObjectUrl(url)
     }
   })
-  await page.locator('input[type="file"]').last().setInputFiles({
+  await page.getByTestId(tid.composerFileInput).setInputFiles({
     name: "rejected.txt",
     mimeType: "text/plain",
     buffer: Buffer.from("keep me"),
@@ -286,7 +286,7 @@ test("server → channel → message", async ({ asUser }) => {
       value: () => "00000000-0000-4000-8000-000000000002",
     })
   })
-  await page.locator('input[type="file"]').last().setInputFiles({
+  await page.getByTestId(tid.composerFileInput).setInputFiles({
     name: "accepted.txt",
     mimeType: "text/plain",
     buffer: Buffer.from("transfer me"),

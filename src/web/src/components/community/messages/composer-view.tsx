@@ -145,6 +145,7 @@ export function ComposerView({
           </div>
         )}
         <input
+          data-testid={tid.composerFileInput}
           ref={fileInputRef}
           type="file"
           multiple

@@ -8,6 +8,8 @@ export const REPO_ROOT = resolve(__dirname, "../../../../../..")
 export const AUTH_DIR = resolve(__dirname, "../.auth")
 export const MANIFEST_PATH = resolve(AUTH_DIR, "manifest.json")
 export const SERVICE_LOG_DIR = resolve(REPO_ROOT, "src/web/e2e-service-logs")
+export const SERVICE_STATE_PATH = resolve(AUTH_DIR, "service-state.json")
+export const SERVICE_FAILURE_CLAIM_PATH = resolve(AUTH_DIR, "service-failure-claimed")
 
 export const WEB_URL = process.env.ALOOK_SERVER_URL || "http://localhost:3000"
 

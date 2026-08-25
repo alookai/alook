@@ -1,5 +1,14 @@
+import { EventEmitter } from "node:events"
+import type { ChildProcess } from "node:child_process"
 import { describe, expect, it } from "vitest"
-import { serviceDefinitions } from "./e2e-ui/_setup/services"
+import {
+  hasExactHealth,
+  readinessExitMessage,
+  serviceDefinitions,
+  waitForHealth,
+  waitForServicesReady,
+  wranglerLogEnvironment,
+} from "./e2e-ui/_setup/services"
 import { resolveMachineWsUrl, resolveWsUrl } from "./e2e-ui/_setup/paths"
 
 describe("UI E2E service definitions", () => {
@@ -8,6 +17,10 @@ describe("UI E2E service definitions", () => {
 
     expect(definitions).toHaveLength(1)
     expect(definitions[0]).toMatchObject({ name: "web-ws-do" })
+    expect(definitions[0]).toMatchObject({
+      expectedStatus: 200,
+      expectedBody: { status: "ok" },
+    })
     expect(definitions[0]?.args).toEqual(expect.arrayContaining([
       "src/web/wrangler.toml",
       "src/ws-do/wrangler.toml",
@@ -54,5 +67,93 @@ describe("UI E2E service definitions", () => {
       wsUrl: "http://localhost:8789/",
       singleRuntime: false,
     })).toBe("http://localhost:8789")
+  })
+
+  it.each([
+    [200, { status: "ok" }, true],
+    [201, { status: "ok" }, false],
+    [200, { status: "ok", extra: true }, false],
+    [200, { status: "degraded" }, false],
+  ] as const)("requires the exact health contract", async (status, body, expected) => {
+    const result = await hasExactHealth(
+      "http://service.test/health",
+      async () => new Response(JSON.stringify(body), { status }),
+    )
+
+    expect(result.ok).toBe(expected)
+    expect(result.status).toBe(status)
+  })
+
+  it("places sanitized debug logs inside the uploaded service-log tree", () => {
+    expect(wranglerLogEnvironment("/logs/web-wrangler-internal")).toEqual({
+      WRANGLER_LOG: "debug",
+      WRANGLER_LOG_PATH: "/logs/web-wrangler-internal",
+      WRANGLER_LOG_SANITIZE: "true",
+    })
+  })
+
+  it("bounds a health probe even when fetch never resolves", async () => {
+    const result = await hasExactHealth(
+      "http://service.test/health",
+      async () => new Promise<Response>(() => {}),
+      { timeoutMs: 5 },
+    )
+
+    expect(result).toEqual({
+      ok: false,
+      status: null,
+      detail: "health probe timed out after 5ms",
+    })
+  })
+
+  it("turns a child close before readiness into an immediate failure", () => {
+    expect(readinessExitMessage("web-ws-do", null, null)).toBeNull()
+    expect(readinessExitMessage("web-ws-do", 1, null))
+      .toBe("web-ws-do exited before readiness (code 1, signal null)")
+    expect(readinessExitMessage("web-ws-do", null, "SIGTERM"))
+      .toBe("web-ws-do exited before readiness (code null, signal SIGTERM)")
+  })
+
+  it("races a child close that occurs during an in-flight readiness probe", async () => {
+    const proc = Object.assign(new EventEmitter(), {
+      exitCode: null as number | null,
+      signalCode: null as NodeJS.Signals | null,
+    }) as unknown as ChildProcess
+    const service = {
+      name: "web-ws-do",
+      proc,
+      healthUrl: "http://service.test/health",
+    }
+    let probeSignal: AbortSignal | undefined
+    const readiness = waitForHealth(
+      service,
+      1_000,
+      async (_url, init) => {
+        probeSignal = init?.signal ?? undefined
+        return new Promise<Response>(() => {})
+      },
+      500,
+    )
+
+    await Promise.resolve()
+    proc.exitCode = 1
+    proc.emit("close", 1, null)
+
+    await expect(readiness).rejects.toThrow("web-ws-do exited before readiness (code 1, signal null)")
+    expect(probeSignal?.aborted).toBe(true)
+  })
+
+  it("does not pass the service array index as a readiness timeout", async () => {
+    const observedTimeouts: Array<number | undefined> = []
+    const services = [
+      { name: "web", proc: {} as never, healthUrl: "http://localhost:3000/api/health" },
+      { name: "ws-do", proc: {} as never, healthUrl: "http://localhost:8789/health" },
+    ]
+
+    await waitForServicesReady(services, async (_service, timeoutMs) => {
+      observedTimeouts.push(timeoutMs)
+    })
+
+    expect(observedTimeouts).toEqual([undefined, undefined])
   })
 })

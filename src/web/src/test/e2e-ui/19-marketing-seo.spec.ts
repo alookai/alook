@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./_fixtures/community-fixture"
 
 test("homepage SSR keeps product demos out of the heading tree", async ({ page, request }) => {
   const response = await request.get("/")

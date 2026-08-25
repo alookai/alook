@@ -24,9 +24,16 @@ describe("community QA selectors", () => {
     expect(tid.botAuditPreview).toBe("community-bot-audit-preview")
     expect(tid.botAuditPreviewDock).toBe("community-bot-audit-preview-dock")
     expect(tid.botAuditPreviewActive).toBe("community-bot-audit-preview-active")
+    expect(tid.botActivityModal).toBe("bot-activity-modal")
     expect(tid.botAuditPreviewRow("event_1")).toBe(
       "community-bot-audit-preview-row-event_1",
     )
+  })
+
+  it("exposes stable composer and message-list surfaces", () => {
+    expect(tid.channelComposerShell).toBe("community-composer-shell")
+    expect(tid.composerFileInput).toBe("community-composer-file-input")
+    expect(tid.messageScroller).toBe("community-message-scroller")
   })
 
   it("exposes attachment preview selectors from one canonical map", () => {

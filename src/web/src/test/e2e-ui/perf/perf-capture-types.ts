@@ -71,6 +71,7 @@ declare global {
     __PERF_RESIZES__?: number[]
     __PERF_RESIZE_OBSERVER__?: ResizeObserver
     __PERF_ATTACH_RESIZE__?: () => boolean
+    __PERF_WAIT_FOR_STABLE_RESIZE__?: () => Promise<void>
     __PERF_SKELETON_TS__?: number | null
     __PERF_PAINTED_TS__?: number | null
   }

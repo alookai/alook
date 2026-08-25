@@ -85,8 +85,54 @@ async function previewRects(page: Page) {
 }
 
 async function waitForDialogEntrance(page: Page) {
-  await expect(page.getByTestId(tid.imageLightbox)).toBeVisible()
-  await page.waitForTimeout(200)
+  const lightbox = page.getByTestId(tid.imageLightbox)
+  await expect(lightbox).toBeVisible()
+  await lightbox.evaluate((element, ids) => {
+    const dialog = element.closest<HTMLElement>("[data-slot='dialog-content']")
+    if (!dialog) throw new Error("lightbox dialog content disappeared")
+    return Promise.all(dialog.getAnimations({ subtree: true }).map((animation) => animation.finished))
+      .then(() => new Promise<void>((resolveStable, rejectStable) => {
+        let previous = ""
+        let unchangedFrames = 0
+        let observedFrames = 0
+        const sample = () => {
+          const container = document.querySelector<HTMLElement>(`[data-testid="${ids.container}"]`)
+          if (!container) {
+            rejectStable(new Error("lightbox container disappeared"))
+            return
+          }
+          // The failed-original state intentionally unmounts the original
+          // image. Sample whichever image layers currently exist; each test
+          // phase separately asserts its required layer before measuring.
+          const nodes = [
+            container,
+            document.querySelector<HTMLElement>(`[data-testid="${ids.thumbnail}"]`),
+            document.querySelector<HTMLElement>(`[data-testid="${ids.original}"]`),
+          ].filter((node): node is HTMLElement => node !== null)
+          const current = nodes.map((node) => {
+            const rect = node.getBoundingClientRect()
+            return [rect.x, rect.y, rect.width, rect.height].join(":")
+          }).join("|")
+          unchangedFrames = current === previous ? unchangedFrames + 1 : 0
+          previous = current
+          observedFrames += 1
+          if (unchangedFrames >= 1) {
+            resolveStable()
+            return
+          }
+          if (observedFrames >= 120) {
+            rejectStable(new Error("lightbox geometry did not stabilize within 120 animation frames"))
+            return
+          }
+          requestAnimationFrame(sample)
+        }
+        requestAnimationFrame(sample)
+      }))
+  }, {
+    container: tid.imageLightbox,
+    thumbnail: tid.imageLightboxThumbnail,
+    original: tid.imageLightboxOriginal,
+  })
 }
 
 async function attachScreenshot(testInfo: TestInfo, name: string, page: Page) {
@@ -116,7 +162,7 @@ async function uploadImage(args: {
   const editable = composerEditable(page)
   await editable.click()
   await editable.pressSequentially(message)
-  await page.locator('input[type="file"]').last().setInputFiles({
+  await page.getByTestId(tid.composerFileInput).setInputFiles({
     name,
     mimeType,
     buffer,

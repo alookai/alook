@@ -33,6 +33,7 @@ import { test, expect, type Page, type BrowserContext } from "@playwright/test"
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { DEV_PASSWORD } from "@alook/shared"
+import { tid } from "../_fixtures/testids"
 import type {
   CacheState,
   CaptureFile,
@@ -106,14 +107,44 @@ const INPAGE_SETUP = `
   // detached node and never fire again — hence NO cross-switch guard here, and
   // we disconnect the prior observer before re-observing the current root.
   window.__PERF_ATTACH_RESIZE__ = () => {
-    const root = document.querySelector('.thin-scrollbar');
+    const root = document.querySelector('[data-testid="${tid.messageScroller}"]');
     if (!root) return false;
     if (window.__PERF_RESIZE_OBSERVER__) window.__PERF_RESIZE_OBSERVER__.disconnect();
     const rz = new ResizeObserver(() => { window.__PERF_RESIZES__.push(performance.now()); });
     rz.observe(root);
+    if (root.firstElementChild) rz.observe(root.firstElementChild);
     window.__PERF_RESIZE_OBSERVER__ = rz;
     return true;
   };
+  window.__PERF_WAIT_FOR_STABLE_RESIZE__ = () => new Promise((resolve, reject) => {
+    let previous = '';
+    let unchangedFrames = 0;
+    let observedFrames = 0;
+    const sample = () => {
+      const root = document.querySelector('[data-testid="${tid.messageScroller}"]');
+      const content = root?.firstElementChild;
+      if (!root || !content) {
+        reject(new Error('message scroller geometry target disappeared'));
+        return;
+      }
+      const rootRect = root.getBoundingClientRect();
+      const contentRect = content.getBoundingClientRect();
+      const current = [rootRect.width, rootRect.height, contentRect.width, contentRect.height, root.scrollHeight].join(':');
+      unchangedFrames = current === previous ? unchangedFrames + 1 : 0;
+      previous = current;
+      observedFrames += 1;
+      if (window.__PERF_RESIZES__.length > 0 && unchangedFrames >= 1) {
+        resolve();
+        return;
+      }
+      if (observedFrames >= 120) {
+        reject(new Error('ResizeObserver did not report stable message geometry'));
+        return;
+      }
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
 })()
 `
 
@@ -266,7 +297,7 @@ test("community switch perceived-latency capture", async ({ browser }) => {
           // loading spell at all.
           if (
             window.__PERF_SKELETON_TS__ == null &&
-            document.querySelector(".thin-scrollbar [data-slot='skeleton']")
+            document.querySelector(`[data-testid="${tid.messageScroller}"] [data-slot='skeleton']`)
           ) {
             window.__PERF_SKELETON_TS__ = performance.now()
           }
@@ -286,8 +317,7 @@ test("community switch perceived-latency capture", async ({ browser }) => {
     // node — the bug that left contentStableTs perpetually null.
     await page.evaluate(() => window.__PERF_ATTACH_RESIZE__?.())
 
-    // Let reflow settle so the ResizeObserver captures content-stable.
-    await page.waitForTimeout(600)
+    await page.evaluate(() => window.__PERF_WAIT_FOR_STABLE_RESIZE__?.())
 
     const drained = await drainSwitch(page, t0, markName)
     captured.push({ kind, targetId, cacheState, ...drained })
@@ -355,27 +385,63 @@ test("community switch perceived-latency capture", async ({ browser }) => {
     const ch = channels[i]
     await clearIdb()
     await measureSwitch("channel", ch.id, "cold", async () => {
-      await page.getByTestId(`community-channel-row-${ch.id}`).click()
+      await page.getByTestId(tid.channelRow(ch.id)).click()
     })
     // memory-warm: click away and back within staleTime.
     const prev = channels[i - 1]
-    await page.getByTestId(`community-channel-row-${prev.id}`).click()
-    await page.waitForTimeout(200)
+    await page.getByTestId(tid.channelRow(prev.id)).click()
+    await page.waitForURL(new RegExp(`/c/channels/${targetServer.id}/${prev.id}$`), {
+      waitUntil: "commit",
+    })
+    await expect(page.getByTestId(tid.messageScroller).locator("[data-msg-id]").first()).toBeVisible()
     await measureSwitch("channel", ch.id, "memory-warm", async () => {
-      await page.getByTestId(`community-channel-row-${ch.id}`).click()
+      await page.getByTestId(tid.channelRow(ch.id)).click()
     })
   }
 
   // --- disk-warm channel pass: let the app persist to IDB, reload preserving
   // it, then measure the first switch (messages paint from disk, read-state
   // still refetches). ---
-  await page.waitForTimeout(1500) // let the throttled persist settle
+  const persistedKey = `alook:qc:v1:${manifest.owner.userId}:client`
+  const persistedChannelId = channels[Math.min(channels.length, N_CHANNEL + 1) - 1]!.id
+  await expect.poll(() => page.evaluate(({ key, channelId }) => (
+    new Promise<boolean>((resolvePersisted, rejectPersisted) => {
+      const open = indexedDB.open("keyval-store")
+      open.onerror = () => rejectPersisted(open.error ?? new Error("failed to open query persister"))
+      open.onsuccess = () => {
+        const db = open.result
+        if (!db.objectStoreNames.contains("keyval")) {
+          db.close()
+          resolvePersisted(false)
+          return
+        }
+        const tx = db.transaction("keyval", "readonly")
+        const request = tx.objectStore("keyval").get(key)
+        request.onsuccess = () => {
+          db.close()
+          if (typeof request.result !== "string") {
+            resolvePersisted(false)
+            return
+          }
+          const client = JSON.parse(request.result) as {
+            clientState?: { queries?: Array<{ queryKey?: unknown[] }> }
+          }
+          resolvePersisted(client.clientState?.queries?.some((query) =>
+            Array.isArray(query.queryKey) && query.queryKey.includes(channelId)) ?? false)
+        }
+        request.onerror = () => {
+          db.close()
+          rejectPersisted(request.error ?? new Error("failed to read query persister"))
+        }
+      }
+    })
+  ), { key: persistedKey, channelId: persistedChannelId })).toBe(true)
   await page.reload({ waitUntil: "commit" })
   await page.waitForSelector("[data-msg-id]", { timeout: 20_000 }).catch(() => {})
   {
     const ch = channels[1]
     await measureSwitch("channel", ch.id, "disk-warm", async () => {
-      await page.getByTestId(`community-channel-row-${ch.id}`).click()
+      await page.getByTestId(tid.channelRow(ch.id)).click()
     })
   }
 
@@ -384,7 +450,7 @@ test("community switch perceived-latency capture", async ({ browser }) => {
   for (const srv of otherServers) {
     await clearIdb()
     await measureSwitch("server", srv.id, "cold", async () => {
-      await page.getByTestId(`community-server-icon-${srv.id}`).click()
+      await page.getByTestId(tid.serverIcon(srv.id)).click()
     })
   }
 

@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test"
 import { test, expect } from "./_fixtures/community-fixture"
 import { seedChannel, seedMessage, seedServer } from "./_fixtures/seed"
+import { tid } from "./_fixtures/testids"
 
 type RowRect = { top: number; bottom: number; height: number }
 
@@ -18,6 +19,39 @@ async function expectRowsNotToOverlap(page: Page, messageIds: string[]): Promise
     const rows = await Promise.all(messageIds.map((messageId) => messageRowRect(page, messageId)))
     return rows.slice(1).every((row, index) => row.top >= rows[index]!.bottom - 0.5)
   }).toBe(true)
+}
+
+async function waitForStableScrollerFrames(page: Page, messageId: string): Promise<void> {
+  await page.getByTestId(tid.messageScroller).evaluate((element, targetMessageId) => (
+    new Promise<void>((resolveStable, rejectStable) => {
+      let previous = ""
+      let unchangedFrames = 0
+      let observedFrames = 0
+      const sample = () => {
+        const message = document.querySelector<HTMLElement>(`[data-msg-id="${CSS.escape(targetMessageId)}"]`)
+        const row = message?.parentElement
+        if (!row) {
+          rejectStable(new Error(`message row ${targetMessageId} disappeared`))
+          return
+        }
+        const rect = row.getBoundingClientRect()
+        const current = [element.scrollTop, element.scrollHeight, rect.top, rect.bottom, rect.height].join(":")
+        unchangedFrames = current === previous ? unchangedFrames + 1 : 0
+        previous = current
+        observedFrames += 1
+        if (unchangedFrames >= 1) {
+          resolveStable()
+          return
+        }
+        if (observedFrames >= 120) {
+          rejectStable(new Error("message scroller did not stabilize within 120 animation frames"))
+          return
+        }
+        requestAnimationFrame(sample)
+      }
+      requestAnimationFrame(sample)
+    })
+  ), messageId)
 }
 
 test("long Markdown rows stay measured and separated at iPhone width", async ({ asUser }) => {
@@ -53,15 +87,13 @@ test("long Markdown rows stay measured and separated at iPhone width", async ({ 
   expect(firstMeasurement.height).toBeGreaterThan(400)
   await expectRowsNotToOverlap(page, [longId, codeId, sentinelId])
 
-  const scroller = page.locator(`[data-msg-id="${sentinelId}"]`).locator("xpath=ancestor::*[contains(@class, 'overflow-y-auto')][1]")
+  const scroller = page.getByTestId(tid.messageScroller)
   await expect(scroller).toHaveCount(1)
   await scroller.evaluate((element) => { element.scrollTop = element.scrollHeight })
   await expect.poll(async () => scroller.evaluate((element) => (
     element.scrollHeight - element.clientHeight - element.scrollTop
   ))).toBeLessThanOrEqual(2)
-  // Let the virtualizer consume the scroll event and leave its transient
-  // scrolling state before simulating delayed Markdown growth.
-  await page.waitForTimeout(250)
+  await waitForStableScrollerFrames(page, codeId)
 
   const beforeGrowth = await messageRowRect(page, codeId)
   await page.locator(`[data-msg-id="${codeId}"] [data-community-message-body]`).evaluate((messageBody: Element) => {
@@ -88,7 +120,7 @@ test("long Markdown rows stay measured and separated at iPhone width", async ({ 
   await expect.poll(async () => scroller.evaluate((element) => (
     element.scrollHeight - element.clientHeight - element.scrollTop
   ))).toBeGreaterThan(100)
-  await page.waitForTimeout(250)
+  await waitForStableScrollerFrames(page, codeId)
 
   const readingAnchorBefore = await messageRowRect(page, codeId)
   const readingScrollBefore = await scroller.evaluate((element) => {
@@ -117,7 +149,7 @@ test("long Markdown rows stay measured and separated at iPhone width", async ({ 
   await expect.poll(async () => (await messageRowRect(page, codeId)).height)
     .toBeGreaterThan(beforeReadingGrowth.height + 200)
   await expectRowsNotToOverlap(page, [longId, codeId, sentinelId])
-  await page.waitForTimeout(500)
+  await page.waitForTimeout(500) // post-growth downward-yank exclusion window
 
   const readingAnchorAfter = await messageRowRect(page, codeId)
   const readingScrollAfter = await scroller.evaluate((element) => ({

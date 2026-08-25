@@ -196,7 +196,7 @@ test("owner-only bot profile preview, owner swap, and URL-owned audit modal", as
       "aria-label",
       "Bot at rest. Open full bot activity log",
     )
-    await expect(alice.page.locator('[data-testid^="community-bot-audit-preview-row-"]'))
+    await expect(alice.page.locator(`[data-testid^="${tid.botAuditPreviewRow("")}"]`))
       .toHaveCount(5)
     expect(ownerAuditRequests.some((url) => new URL(url).searchParams.get("limit") === "5"))
       .toBe(true)
@@ -216,7 +216,7 @@ test("owner-only bot profile preview, owner swap, and URL-owned audit modal", as
     await expect.poll(() => preview.evaluate((element) =>
       getComputedStyle(element, "::before").animationName))
       .toBe("bot-audit-heartbeat")
-    await expect(alice.page.locator('[data-testid^="community-bot-audit-preview-row-"]'))
+    await expect(alice.page.locator(`[data-testid^="${tid.botAuditPreviewRow("")}"]`))
       .toHaveCount(4)
 
     await alice.page.setViewportSize({ width: 375, height: 812 })
@@ -242,16 +242,16 @@ test("owner-only bot profile preview, owner swap, and URL-owned audit modal", as
     )
     await alice.page.getByTestId(tid.botAuditPreview).click()
     await expect(alice.page).toHaveURL(new RegExp(`/c/me/bots\\?audit=${botId}$`))
-    await expect(alice.page.getByTestId("bot-activity-modal")).toBeVisible()
+    await expect(alice.page.getByTestId(tid.botActivityModal)).toBeVisible()
     await alice.page.reload()
-    await expect(alice.page.getByTestId("bot-activity-modal")).toBeVisible()
+    await expect(alice.page.getByTestId(tid.botActivityModal)).toBeVisible()
     await alice.page.goBack({ waitUntil: "commit" })
     await expect(alice.page).toHaveURL(new RegExp(`${route}$`))
     await alice.page.goForward({ waitUntil: "commit" })
-    await expect(alice.page.getByTestId("bot-activity-modal")).toBeVisible()
+    await expect(alice.page.getByTestId(tid.botActivityModal)).toBeVisible()
 
     await alice.page.goto(`/c/me/bots?machineId=${machineId}&audit=${botId}`)
-    await expect(alice.page.getByTestId("bot-activity-modal")).toBeVisible()
+    await expect(alice.page.getByTestId(tid.botActivityModal)).toBeVisible()
     await alice.page.getByRole("button", { name: "Close", exact: true }).click()
     await expect(alice.page).toHaveURL(`/c/me/bots?machineId=${machineId}`)
 
@@ -272,7 +272,7 @@ test("owner-only bot profile preview, owner swap, and URL-owned audit modal", as
     await expect(bob.page.getByTestId(tid.profileOwnerLink)).toHaveCount(0)
 
     await bob.page.goto(`/c/me/bots?audit=${botId}`)
-    await expect(bob.page.getByTestId("bot-activity-modal")).toHaveCount(0)
+    await expect(bob.page.getByTestId(tid.botActivityModal)).toHaveCount(0)
     await expect.poll(() => new URL(bob.page.url()).searchParams.has("audit")).toBe(false)
     expect(bobAuditRequests).toEqual([])
   } finally {

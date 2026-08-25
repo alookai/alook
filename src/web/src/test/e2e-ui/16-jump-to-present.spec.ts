@@ -46,7 +46,7 @@ test("anchored channel jumps to the newest tail with one request", async ({ asUs
   await expect(jumpButton).toBeHidden()
   await expect(page.getByText("Loading newer messages…", { exact: true })).toHaveCount(0)
   await expect.poll(() => newestGets).toBe(1)
-  await page.waitForTimeout(1_000)
+  await page.waitForTimeout(1_000) // duplicate newest-fetch exclusion window
   expect(newestGets).toBe(1)
   expect(anchorGets).toBe(0)
 })

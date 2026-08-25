@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: e2e-ui-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
@@ -57,6 +58,16 @@ jobs:
       BETTER_AUTH_URL: http://localhost:3000
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - env:
+          E2E_SPECS: ${{ toJSON(matrix.specs) }}
+        run: |
+          node scripts/ci/e2e-shard-artifacts.mjs write-manifest \
+            --output src/web/e2e-shard-manifest/shard-manifest.json \
+            --run-id "${{ github.run_id }}" \
+            --attempt "${{ github.run_attempt }}" \
+            --sha "${{ github.sha }}" \
+            --shard "${{ matrix.shard }}" \
+            --total "${{ matrix.total }}"
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -69,32 +80,16 @@ jobs:
         run: |
           mapfile -t specs < <(node -e 'for (const spec of JSON.parse(process.env.E2E_SPECS)) console.log(spec)')
           pnpm --filter @alook/web exec playwright test "${specs[@]}"
-      - if: ${{ !cancelled() && matrix.shard == 1 }}
-        run: |
-          test_package=$(realpath src/web/node_modules/@playwright/test)
-          test_node_modules=$(dirname "$(dirname "$test_package")")
-          playwright_package=$(realpath "$test_node_modules/playwright")
-          playwright_node_modules=$(dirname "$playwright_package")
-          core_package=$(realpath "$playwright_node_modules/playwright-core")
-          runtime=src/web/playwright-merge-runtime/node_modules
-          mkdir -p "$runtime/@playwright"
-          cp -R "$test_package" "$runtime/@playwright/test"
-          cp -R "$playwright_package" "$runtime/playwright"
-          cp -R "$core_package" "$runtime/playwright-core"
-      - if: ${{ !cancelled() && matrix.shard == 1 }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: playwright-merge-runtime-${{ github.run_id }}-${{ github.run_attempt }}
-          path: src/web/playwright-merge-runtime/
-          if-no-files-found: error
-          retention-days: 1
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: blob-report-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
-          path: src/web/blob-report/
+          name: blob-report-${{ github.run_id }}-${{ matrix.shard }}
+          path: |
+            src/web/blob-report/
+            src/web/e2e-shard-manifest/
           if-no-files-found: error
-          retention-days: 1
+          overwrite: true
+          retention-days: 7
       - if: failure()
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -113,20 +108,42 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          pattern: blob-report-${{ github.run_id }}-${{ github.run_attempt }}-*
-          path: all-blob-reports
-          merge-multiple: true
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: playwright-merge-runtime-${{ github.run_id }}-${{ github.run_attempt }}
-          path: playwright-merge-runtime
-      - run: node playwright-merge-runtime/node_modules/@playwright/test/cli.js merge-reports --reporter html all-blob-reports
+          pattern: blob-report-${{ github.run_id }}-*
+          path: downloaded-blob-reports
+          merge-multiple: false
+      - env:
+          E2E_MATRIX: ${{ needs.scope.outputs.e2e_matrix }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/ci/e2e-shard-artifacts.mjs verify-artifacts \
+            --root downloaded-blob-reports \
+            --output verified-blob-reports \
+            --run-id "${{ github.run_id }}" \
+            --attempt "${{ github.run_attempt }}" \
+            --sha "${{ github.sha }}"
+      - env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: ${{ github.workspace }}/playwright-report
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ github.workspace }}/merged-report.json
+        run: pnpm --filter @alook/web exec playwright merge-reports --reporter html,json "${{ github.workspace }}/verified-blob-reports"
+      - env:
+          E2E_MATRIX: ${{ needs.scope.outputs.e2e_matrix }}
+        run: node scripts/ci/e2e-shard-artifacts.mjs verify-merged --report merged-report.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: playwright-report-${{ github.run_id }}-${{ github.run_attempt }}
-          path: playwright-report/
+          path: |
+            playwright-report/
+            merged-report.json
+          if-no-files-found: error
           retention-days: 14
 
   ui-e2e-gate:
