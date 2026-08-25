@@ -51,8 +51,13 @@ const mockFanOutToChannel = vi.fn()
 const mockDispatchCommittedMessage = vi.fn(async () => {})
 const mockBroadcastToUser = vi.fn()
 const mockCheckMessageRateLimit = vi.fn()
+const mockGetDb = vi.fn(() => ({}))
+const mockGetPrimaryDb = vi.fn(() => ({}))
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+vi.mock("@/lib/db", () => ({
+  getDb: (...a: unknown[]) => mockGetDb(...a),
+  getPrimaryDb: (...a: unknown[]) => mockGetPrimaryDb(...a),
+}))
 
 vi.mock("@/lib/rate-limit", () => ({
   checkRateLimit: (...a: unknown[]) => mockCheckMessageRateLimit(...a),
@@ -252,6 +257,14 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockCheckMessageRateLimit.mockResolvedValue({ allowed: true })
     mockCreateChannel.mockResolvedValue({ id: "thread_1", creatorId: "u1", createdAt: "t0", name: "thread" })
     mockRebindPendingAttachmentsToChild.mockResolvedValue(true)
+  })
+
+  it("starts the write path on a first-primary D1 session", async () => {
+    const res = await POST(postReq({ content: "hello" }), ctx)
+
+    expect(res.status).toBe(201)
+    expect(mockGetPrimaryDb).toHaveBeenCalledTimes(1)
+    expect(mockGetDb).not.toHaveBeenCalled()
   })
 
   it("accepts a bare message to a forum top-level (phase2 forum≡thread write-guard reversal — forum is now directly sendable)", async () => {
@@ -582,6 +595,37 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(mockCreateMessage).toHaveBeenCalledTimes(1)
     expect(mockHasDeliverableUnreadForAgentScope).toHaveBeenCalledTimes(1)
   })
+
+  it("bot send that loses the post-check seq race returns a fresh unaligned envelope", async () => {
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([
+      { id: "c1", serverId: "s1", type: "text", parentChannelId: null },
+    ])
+    mockGetLatestSeqForScope
+      .mockResolvedValueOnce(19)
+      .mockResolvedValueOnce(20)
+    mockGetReadState.mockResolvedValue({ lastReadSeq: 19 })
+    mockHasDeliverableUnreadForAgentScope.mockResolvedValue(false)
+    mockCreateMessage.mockResolvedValue(null)
+
+    const res = await POST(botPostReq({
+      channel: "/demo#0042/text",
+      content: { text: "reply" },
+    }), ctx)
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      state: "blocked",
+      reason: "unaligned",
+      unreadCount: 1,
+      latestSeq: 20,
+    })
+    expect(mockCreateMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ expectedSeq: 19 }),
+    )
+    expect(mockDispatchCommittedMessage).not.toHaveBeenCalled()
+  })
 })
 
 describe("GET /api/community/channels/[id]/messages", () => {
@@ -596,6 +640,16 @@ describe("GET /api/community/channels/[id]/messages", () => {
     // Every route branch calls `getLatestMessageSeq` — default to a small
     // sentinel so each test doesn't have to wire it individually.
     mockGetLatestMessageSeq.mockResolvedValue(0)
+  })
+
+  it("keeps the read path on the unconstrained replica-capable session", async () => {
+    mockListMessages.mockResolvedValue([])
+
+    const res = await GET(getReq(), ctx)
+
+    expect(res.status).toBe(200)
+    expect(mockGetDb).toHaveBeenCalledTimes(1)
+    expect(mockGetPrimaryDb).not.toHaveBeenCalled()
   })
 
   it("resolves reply previews via one scoped getMessagesByIdsInScope call (never per-item getMessage)", async () => {

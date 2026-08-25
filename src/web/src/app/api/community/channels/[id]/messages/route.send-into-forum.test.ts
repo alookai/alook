@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
 vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })) }))
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+vi.mock("@/lib/db", () => ({
+  getDb: vi.fn(() => ({})),
+  getPrimaryDb: vi.fn(() => ({})),
+}))
 
 const mockCreateMessageWithThread = vi.fn()
 const mockResolveTargetForMember = vi.fn()

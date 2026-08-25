@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { nanoid } from "nanoid";
 import * as messageQueries from "../../src/db/queries/community/message";
 import {
   communityMessage,
@@ -6,6 +7,8 @@ import {
   communityReadState,
   communityMessageSeq,
 } from "../../src/db/community-schema";
+
+vi.mock("nanoid", () => ({ nanoid: vi.fn(() => "m_generated") }));
 
 describe("community/message exports", () => {
   it("exports getMessagesByIds", () => {
@@ -186,34 +189,60 @@ describe("getMessagesByIdsInScope", () => {
  *
  * `insert(table).values(v).returning()` resolves to `[{...v, id: v.id ?? generatedId}]`
  * so the caller can read `msg.createdAt` and `msg.id` off the inserted row.
- * `insert(table).values(v).onConflictDoUpdate(cfg)` resolves to void for
- * every table EXCEPT `communityMessageSeq`, whose upsert is followed by a
- * `.returning({ nextSeq })` (`claimNextSeq`) — that one resolves to an
- * incrementing per-scopeKey counter (starting at 1), mirroring the real
- * `INSERT ... ON CONFLICT DO UPDATE SET next_seq = next_seq + 1` semantics.
+ * The mock also models the seq counter and records committed batches so a
+ * losing compare-and-swap can be distinguished from builder construction.
  */
-function createCreateMessageDbMock(opts?: { messageId?: string }) {
+type MockStatement = Promise<unknown> & { __kind?: string; __seq?: number };
+
+function mockStatement(result: unknown, kind: string, seq?: number): MockStatement {
+  return Object.assign(Promise.resolve(result), { __kind: kind, __seq: seq });
+}
+
+function seqUniqueError() {
+  return new Error(
+    "D1_ERROR: UNIQUE constraint failed: community_message.channel_id, community_message.seq"
+  );
+}
+
+function createCreateMessageDbMock(opts?: {
+  messageId?: string;
+  currentSeq?: number;
+  batchFailures?: Array<{ error: unknown; issuedSeqAfter?: number } | null>;
+}) {
   const inserts: Array<{ table: unknown; values?: any; onConflict?: any }> = [];
   const updates: Array<{ table: unknown; set?: any; where?: any }> = [];
   const generatedId = opts?.messageId ?? "m_generated";
+  vi.mocked(nanoid).mockReturnValue(generatedId);
   const seqByScope = new Map<string, number>();
+  const batches: MockStatement[][] = [];
+  const committedBatches: MockStatement[][] = [];
+  let batchAttempt = 0;
+
+  if (opts?.currentSeq !== undefined) {
+    seqByScope.set("ch_1", opts.currentSeq);
+    seqByScope.set("dm_ch_1", opts.currentSeq);
+  }
 
   const db: any = {
+    select: vi.fn(() => {
+      const chain: any = {};
+      chain.from = vi.fn(() => chain);
+      chain.where = vi.fn(() => {
+        const first = seqByScope.entries().next().value as [string, number] | undefined;
+        return Promise.resolve(first ? [{ nextSeq: first[1] }] : []);
+      });
+      return chain;
+    }),
     insert: vi.fn((table: unknown) => {
-      // `claimNextSeq`'s counter-row upsert (`communityMessageSeq`) is
-      // intentionally NOT recorded into `__inserts` — every existing
-      // assertion below indexes `__inserts[0]`/`[1]` assuming exactly the
-      // message row then the read-state upsert, and this call always
-      // precedes both (see `createMessage`'s "Step 0").
+      // Keep the counter statement out of `__inserts`: assertions below use
+      // that collection for the message and read-state payloads only.
       if (table === communityMessageSeq) {
         return {
           values: vi.fn((v: any) => ({
             onConflictDoUpdate: vi.fn(() => ({
-              returning: vi.fn(() => {
-                const next = (seqByScope.get(v.channelId) ?? 0) + 1;
-                seqByScope.set(v.channelId, next);
-                return Promise.resolve([{ nextSeq: next }]);
-              }),
+              returning: vi.fn(() =>
+                mockStatement([{ nextSeq: v.nextSeq }], "seq", v.nextSeq)
+              ),
             })),
           })),
         };
@@ -224,10 +253,12 @@ function createCreateMessageDbMock(opts?: { messageId?: string }) {
         values: vi.fn((v: any) => {
           rec.values = v;
           return {
-            returning: vi.fn(() => Promise.resolve([{ ...v, id: v.id ?? generatedId }])),
+            returning: vi.fn(() =>
+              mockStatement([{ ...v, id: v.id ?? generatedId }], "message", v.seq)
+            ),
             onConflictDoUpdate: vi.fn((cfg: any) => {
               rec.onConflict = cfg;
-              return Promise.resolve();
+              return mockStatement(undefined, "read-state", v.lastReadSeq);
             }),
           };
         }),
@@ -242,19 +273,44 @@ function createCreateMessageDbMock(opts?: { messageId?: string }) {
           return {
             where: vi.fn((w: any) => {
               rec.where = w;
-              return Promise.resolve();
+              return mockStatement(undefined, "channel-update");
             }),
           };
         }),
       };
     }),
-    // `createMessage` now composes (insert msg, update scope) into a single
-    // `db.batch(...)` for atomicity. The mock's `.returning()` / `.where()`
-    // above already resolve to Promises, so we just await each one and
-    // collect the per-statement result.
-    batch: vi.fn(async (stmts: unknown[]) => Promise.all(stmts as Promise<unknown>[])),
+    batch: vi.fn(async (stmts: MockStatement[]) => {
+      batches.push(stmts);
+      const scriptedFailure = opts?.batchFailures?.[batchAttempt++];
+      if (scriptedFailure) {
+        if (scriptedFailure.issuedSeqAfter !== undefined) {
+          const seqStmt = stmts.find((stmt) => stmt.__kind === "seq");
+          const channelId = inserts.find((rec) => rec.table === communityMessage)?.values
+            ?.channelId ?? "ch_1";
+          seqByScope.set(channelId, scriptedFailure.issuedSeqAfter);
+          if (seqStmt?.__seq !== undefined && scriptedFailure.issuedSeqAfter < seqStmt.__seq) {
+            seqByScope.set(channelId, seqStmt.__seq);
+          }
+        }
+        throw scriptedFailure.error;
+      }
+
+      const messageStmt = stmts.find((stmt) => stmt.__kind === "message");
+      const messageInsert = inserts.filter((rec) => rec.table === communityMessage).at(-1);
+      const channelId = messageInsert?.values?.channelId ?? "ch_1";
+      const currentSeq = seqByScope.get(channelId) ?? 0;
+      const proposedSeq = messageStmt?.__seq ?? 0;
+      if (proposedSeq <= currentSeq) throw seqUniqueError();
+
+      seqByScope.set(channelId, proposedSeq);
+      committedBatches.push(stmts);
+      return Promise.all(stmts);
+    }),
     __inserts: inserts,
     __updates: updates,
+    __batches: batches,
+    __committedBatches: committedBatches,
+    __setIssuedSeq: (channelId: string, seq: number) => seqByScope.set(channelId, seq),
   };
   return db;
 }
@@ -418,61 +474,21 @@ describe("createMessage — DM path (a DM is a type=dm channel)", () => {
 });
 
 describe("createMessage — seq assignment", () => {
-  /**
-   * Records every `insert(communityMessageSeq).values(v).onConflictDoUpdate(cfg)`
-   * call so tests can assert the scope key and upsert shape `claimNextSeq`
-   * sends, independent of the generic `createCreateMessageDbMock` helper
-   * (which only exposes the DERIVED seq number, not the raw upsert args).
-   */
-  function createSeqSpyDbMock(opts?: { messageId?: string; seqSequence?: number[] }) {
-    const base = createCreateMessageDbMock(opts);
-    const seqCalls: Array<{ values: any; onConflict: any }> = [];
-    let seqIdx = 0;
-    const seqSequence = opts?.seqSequence;
-    const originalInsert = base.insert;
-    base.insert = vi.fn((table: unknown) => {
-      if (table === communityMessageSeq) {
-        const rec: { values: any; onConflict: any } = { values: undefined, onConflict: undefined };
-        seqCalls.push(rec);
-        return {
-          values: vi.fn((v: any) => {
-            rec.values = v;
-            return {
-              onConflictDoUpdate: vi.fn((cfg: any) => {
-                rec.onConflict = cfg;
-                return {
-                  returning: vi.fn(() => {
-                    const next = seqSequence ? seqSequence[seqIdx++] : 1;
-                    return Promise.resolve([{ nextSeq: next }]);
-                  }),
-                };
-              }),
-            };
-          }),
-        };
-      }
-      return originalInsert(table);
-    });
-    base.__seqCalls = seqCalls;
-    return base;
-  }
-
   it("claims the seq scoped to the channelId for a channel send", async () => {
-    const db = createSeqSpyDbMock();
+    const db = createCreateMessageDbMock();
     await messageQueries.createMessage(db, { authorId: "u_1", content: "hi", channelId: "ch_1" });
-    expect(db.__seqCalls).toHaveLength(1);
-    expect(db.__seqCalls[0].values).toEqual({ channelId: "ch_1", nextSeq: 1 });
-    expect(db.__seqCalls[0].onConflict.target).toBe(communityMessageSeq.channelId);
+    expect(db.insert).toHaveBeenNthCalledWith(1, communityMessageSeq);
+    expect(db.__inserts[0].values.seq).toBe(1);
   });
 
   it("claims the seq scoped to the DM's channelId for a DM send", async () => {
-    const db = createSeqSpyDbMock();
+    const db = createCreateMessageDbMock();
     await messageQueries.createMessage(db, { authorId: "u_1", content: "hi", channelId: "dm_ch_1" });
-    expect(db.__seqCalls[0].values).toEqual({ channelId: "dm_ch_1", nextSeq: 1 });
+    expect(db.__inserts[0].values).toMatchObject({ channelId: "dm_ch_1", seq: 1 });
   });
 
   it("passes the claimed seq through to the message row AND the read-state watermark", async () => {
-    const db = createSeqSpyDbMock({ seqSequence: [5] });
+    const db = createCreateMessageDbMock({ currentSeq: 4 });
     const msg = await messageQueries.createMessage(db, {
       authorId: "u_1",
       content: "hi",
@@ -485,7 +501,7 @@ describe("createMessage — seq assignment", () => {
   });
 
   it("passes the claimed seq through for the DM channel read-state watermark too", async () => {
-    const db = createSeqSpyDbMock({ seqSequence: [9] });
+    const db = createCreateMessageDbMock({ currentSeq: 8 });
     const msg = await messageQueries.createMessage(db, {
       authorId: "u_1",
       content: "hi",
@@ -497,7 +513,7 @@ describe("createMessage — seq assignment", () => {
   });
 
   it("consecutive sends in the same channel scope get strictly increasing seqs", async () => {
-    const db = createSeqSpyDbMock({ seqSequence: [1, 2, 3] });
+    const db = createCreateMessageDbMock();
     const first = await messageQueries.createMessage(db, {
       authorId: "u_1",
       content: "one",
@@ -516,63 +532,23 @@ describe("createMessage — seq assignment", () => {
     expect([first.seq, second.seq, third.seq]).toEqual([1, 2, 3]);
   });
 
-  it("the seq claim (insert into communityMessageSeq) happens before the message row insert", async () => {
-    const order: string[] = [];
-    const db = createSeqSpyDbMock();
-    const originalInsert = db.insert;
-    db.insert = vi.fn((table: unknown) => {
-      order.push(table === communityMessageSeq ? "seq" : "message-or-other");
-      return originalInsert(table);
-    });
+  it("commits seq claim, message, channel bump, and read-state in one ordered batch", async () => {
+    const db = createCreateMessageDbMock();
     await messageQueries.createMessage(db, { authorId: "u_1", content: "hi", channelId: "ch_1" });
-    expect(order[0]).toBe("seq");
-    expect(order[1]).toBe("message-or-other");
+    expect(db.__batches).toHaveLength(1);
+    expect(db.__batches[0].map((stmt: MockStatement) => stmt.__kind)).toEqual([
+      "seq",
+      "message",
+      "channel-update",
+      "read-state",
+    ]);
+    expect(db.__committedBatches).toHaveLength(1);
   });
 });
 
 describe("createMessage — CAS claim (expectedSeq, plans/fix-agent-send-race-condition.md)", () => {
-  /**
-   * Same shape as `createSeqSpyDbMock` above, but scripts the CAS
-   * `.returning()` call per-invocation from `seqResults`: a number resolves
-   * `[{ nextSeq }]` (claim won), `null` resolves `[]` — the real
-   * SQLite/Drizzle no-op shape when `onConflictDoUpdate`'s `setWhere`
-   * evaluates false (claim lost the race).
-   */
-  function createCasSpyDbMock(opts?: { messageId?: string; seqResults?: Array<number | null> }) {
-    const base = createCreateMessageDbMock(opts);
-    const seqCalls: Array<{ values: any; onConflict: any }> = [];
-    let seqIdx = 0;
-    const seqResults = opts?.seqResults;
-    const originalInsert = base.insert;
-    base.insert = vi.fn((table: unknown) => {
-      if (table === communityMessageSeq) {
-        const rec: { values: any; onConflict: any } = { values: undefined, onConflict: undefined };
-        seqCalls.push(rec);
-        return {
-          values: vi.fn((v: any) => {
-            rec.values = v;
-            return {
-              onConflictDoUpdate: vi.fn((cfg: any) => {
-                rec.onConflict = cfg;
-                return {
-                  returning: vi.fn(() => {
-                    const next = seqResults ? seqResults[seqIdx++] : 1;
-                    return Promise.resolve(next === null || next === undefined ? [] : [{ nextSeq: next }]);
-                  }),
-                };
-              }),
-            };
-          }),
-        };
-      }
-      return originalInsert(table);
-    });
-    base.__seqCalls = seqCalls;
-    return base;
-  }
-
   it("expectedSeq matching the current counter succeeds and returns a row with the expected seq", async () => {
-    const db = createCasSpyDbMock({ seqResults: [20] });
+    const db = createCreateMessageDbMock({ currentSeq: 19 });
     const msg = await messageQueries.createMessage(db, {
       authorId: "u_1",
       content: "hi",
@@ -581,12 +557,16 @@ describe("createMessage — CAS claim (expectedSeq, plans/fix-agent-send-race-co
     });
     expect(msg).not.toBeNull();
     expect(msg!.seq).toBe(20);
-    // The CAS variant carries a setWhere gate — the unconditional claim does not.
-    expect(db.__seqCalls[0].onConflict.setWhere).toBeDefined();
+    expect(db.__committedBatches).toHaveLength(1);
   });
 
-  it("stale expectedSeq: CAS claim resolves [] → createMessage returns null, with ZERO message/channel/read-state writes", async () => {
-    const db = createCasSpyDbMock({ seqResults: [null] });
+  it("stale expectedSeq rolls the atomic batch back and returns null", async () => {
+    const db = createCreateMessageDbMock({
+      currentSeq: 20,
+      batchFailures: [{
+        error: new Error("D1 batch failed", { cause: seqUniqueError() }),
+      }],
+    });
     const result = await messageQueries.createMessage(db, {
       authorId: "u_1",
       content: "hi",
@@ -594,13 +574,12 @@ describe("createMessage — CAS claim (expectedSeq, plans/fix-agent-send-race-co
       expectedSeq: 19,
     });
     expect(result).toBeNull();
-    // No message insert, no read-state upsert, no channel lastMessageAt bump.
-    expect(db.__inserts).toHaveLength(0);
-    expect(db.__updates).toHaveLength(0);
+    expect(db.__batches).toHaveLength(1);
+    expect(db.__committedBatches).toHaveLength(0);
   });
 
   it("two racers with the same expectedSeq: first wins the CAS, second loses it", async () => {
-    const db = createCasSpyDbMock({ seqResults: [20, null] });
+    const db = createCreateMessageDbMock({ currentSeq: 19 });
     const first = await messageQueries.createMessage(db, {
       authorId: "u_1",
       content: "hi",
@@ -615,17 +594,12 @@ describe("createMessage — CAS claim (expectedSeq, plans/fix-agent-send-race-co
     });
     expect(first?.seq).toBe(20);
     expect(second).toBeNull();
-    // Both racers hit the seq-claim exactly once each, with the SAME
-    // expectedSeq snapshot (they both read `latestSeq=19` before either claimed).
-    expect(db.__seqCalls).toHaveLength(2);
-    expect(db.__seqCalls[0].values).toEqual({ channelId: "ch_1", nextSeq: 1 });
-    expect(db.__seqCalls[1].values).toEqual({ channelId: "ch_1", nextSeq: 1 });
-    expect(db.__seqCalls[0].onConflict.setWhere).toBeDefined();
-    expect(db.__seqCalls[1].onConflict.setWhere).toBeDefined();
+    expect(db.__batches).toHaveLength(2);
+    expect(db.__committedBatches).toHaveLength(1);
   });
 
   it("expectedSeq: 0 on a scope with no prior messages succeeds (first-message-ever INSERT branch, no conflict to gate)", async () => {
-    const db = createCasSpyDbMock({ seqResults: [1] });
+    const db = createCreateMessageDbMock();
     const msg = await messageQueries.createMessage(db, {
       authorId: "u_1",
       content: "hi",
@@ -636,16 +610,83 @@ describe("createMessage — CAS claim (expectedSeq, plans/fix-agent-send-race-co
     expect(msg!.seq).toBe(1);
   });
 
-  it("no expectedSeq behaves exactly as before (regression guard — web/human send path unaffected)", async () => {
-    const db = createCasSpyDbMock({ seqResults: [1] });
+  it("ordinary sends retry a lost seq race using the refreshed counter", async () => {
+    const db = createCreateMessageDbMock({
+      batchFailures: [{ error: seqUniqueError(), issuedSeqAfter: 1 }, null],
+    });
     const msg = await messageQueries.createMessage(db, {
       authorId: "u_1",
       content: "hi",
       channelId: "ch_1",
     });
-    expect(msg.seq).toBe(1);
-    // The unconditional claim carries no setWhere gate.
-    expect(db.__seqCalls[0].onConflict.setWhere).toBeUndefined();
+    expect(msg.seq).toBe(2);
+    expect(db.__batches).toHaveLength(2);
+    expect(db.__committedBatches).toHaveLength(1);
+  });
+
+  it("drains a full 30-send collision wave without exhausting ordinary retries", async () => {
+    const batchFailures = Array.from({ length: 30 }, (_, index) => ({
+      error: seqUniqueError(),
+      issuedSeqAfter: index + 1,
+    }));
+    const db = createCreateMessageDbMock({ batchFailures });
+
+    const msg = await messageQueries.createMessage(db, {
+      authorId: "u_1",
+      content: "after the burst",
+      channelId: "ch_1",
+    });
+
+    expect(msg.seq).toBe(31);
+    expect(db.__batches).toHaveLength(31);
+    expect(db.__committedBatches).toHaveLength(1);
+  });
+
+  it("stops an ordinary send after the bounded collision retry budget", async () => {
+    const lastError = seqUniqueError();
+    const batchFailures = Array.from({ length: 64 }, (_, index) => ({
+      error: index === 63 ? lastError : seqUniqueError(),
+      issuedSeqAfter: index + 1,
+    }));
+    const db = createCreateMessageDbMock({ batchFailures });
+
+    await expect(messageQueries.createMessage(db, {
+      authorId: "u_1",
+      content: "too much contention",
+      channelId: "ch_1",
+    })).rejects.toBe(lastError);
+    expect(db.__batches).toHaveLength(64);
+    expect(db.__committedBatches).toHaveLength(0);
+  });
+
+  it("recognizes a primitive D1 seq-conflict rejection", async () => {
+    const db = createCreateMessageDbMock({
+      batchFailures: [{
+        error: "D1_ERROR: UNIQUE constraint failed: community_message.channel_id, community_message.seq",
+      }],
+    });
+
+    await expect(messageQueries.createMessage(db, {
+      authorId: "u_1",
+      content: "stale aligned send",
+      channelId: "ch_1",
+      expectedSeq: 0,
+    })).resolves.toBeNull();
+    expect(db.__committedBatches).toHaveLength(0);
+  });
+
+  it("does not convert an unrelated unique violation into an alignment miss", async () => {
+    const nonceError = new Error(
+      "D1_ERROR: UNIQUE constraint failed: community_message.author_id, community_message.client_nonce"
+    );
+    const db = createCreateMessageDbMock({ batchFailures: [{ error: nonceError }] });
+    await expect(messageQueries.createMessage(db, {
+      authorId: "u_1",
+      content: "hi",
+      channelId: "ch_1",
+      expectedSeq: 0,
+    })).rejects.toBe(nonceError);
+    expect(db.__committedBatches).toHaveLength(0);
   });
 });
 
