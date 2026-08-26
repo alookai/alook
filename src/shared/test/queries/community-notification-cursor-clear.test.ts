@@ -18,7 +18,8 @@ import { listUserServers } from "../../src/db/queries/community/server";
 import {
   getInboxSnapshotForAgent,
   getLatestUnreadMessageForAgent,
-  hasDeliverableUnreadForAgentScope,
+  hasAlignmentUnreadForAgentScope,
+  listAlignmentUnreadMessagesForAgentScope,
   listUnreadMessagesForAgent,
 } from "../../src/db/queries/community/agent-inbox";
 import { listEligibleUnreadChannels } from "../../src/db/queries/community/inbox";
@@ -534,9 +535,12 @@ describe("notification setting cursor-clear contract", () => {
       hasMention: true,
     }]);
 
-    await expect(hasDeliverableUnreadForAgentScope(db, "u", "a_muted", 0))
-      .resolves.toBe(false);
-    await expect(hasDeliverableUnreadForAgentScope(db, "u", "z_eligible", 0))
+    // Passive inbox delivery stays notification-filtered above, while send
+    // alignment is deliberately readable-scope and therefore still sees the
+    // muted target. Explicit targeted pull shares this exact row predicate.
+    await expect(hasAlignmentUnreadForAgentScope(db, "u", "a_muted", 0))
+      .resolves.toBe(true);
+    await expect(hasAlignmentUnreadForAgentScope(db, "u", "z_eligible", 0))
       .resolves.toBe(true);
 
     await expect(listEligibleUnreadChannels(db, "u", visible)).resolves.toEqual([
@@ -545,6 +549,58 @@ describe("notification setting cursor-clear contract", () => {
         lastMessageAt: "2026-01-01T00:02:30Z",
         mentionCount: 1,
       }),
+    ]);
+  });
+
+  it("exact-scope alignment excludes history before the access or server-join baseline", async () => {
+    sqlite.exec(`
+      UPDATE community_server_member
+      SET joined_at = '2026-01-01T00:00:02Z'
+      WHERE server_id = 'server' AND user_id = 'u';
+      INSERT INTO community_channel (id, server_id, type, name) VALUES
+        ('access-baseline', 'server', 'text', 'access-baseline'),
+        ('server-baseline', 'server', 'text', 'server-baseline');
+      INSERT INTO community_channel_member (channel_id, user_id, relation, added_at)
+      VALUES ('access-baseline', 'u', 'access', '2026-01-01T00:00:02Z');
+      INSERT INTO community_message (id, author_id, channel_id, seq, created_at, content) VALUES
+        ('access-before', 'author', 'access-baseline', 1, '2026-01-01T00:00:01Z', 'before access'),
+        ('access-after', 'author', 'access-baseline', 2, '2026-01-01T00:00:03Z', 'after access'),
+        ('server-before', 'author', 'server-baseline', 1, '2026-01-01T00:00:01Z', 'before join'),
+        ('server-after', 'author', 'server-baseline', 2, '2026-01-01T00:00:03Z', 'after join');
+    `);
+
+    await expect(listAlignmentUnreadMessagesForAgentScope(
+      db,
+      "u",
+      "access-baseline",
+      { afterSeq: 0, max: 10 },
+    )).resolves.toMatchObject([{ id: "access-after", seq: 2 }]);
+    await expect(listAlignmentUnreadMessagesForAgentScope(
+      db,
+      "u",
+      "server-baseline",
+      { afterSeq: 0, max: 10 },
+    )).resolves.toMatchObject([{ id: "server-after", seq: 2 }]);
+  });
+
+  it("exact-scope alignment excludes the bot's own committed rows", async () => {
+    sqlite.exec(`
+      INSERT INTO community_channel (id, server_id, type, name)
+      VALUES ('self-authored', 'server', 'text', 'self-authored');
+      INSERT INTO community_message (id, author_id, channel_id, seq, created_at, content) VALUES
+        ('foreign-before', 'author', 'self-authored', 1, '2026-01-01T00:00:01Z', 'foreign 1'),
+        ('self-row', 'u', 'self-authored', 2, '2026-01-01T00:00:02Z', 'mine'),
+        ('foreign-after', 'author', 'self-authored', 3, '2026-01-01T00:00:03Z', 'foreign 3');
+    `);
+
+    await expect(listAlignmentUnreadMessagesForAgentScope(
+      db,
+      "u",
+      "self-authored",
+      { afterSeq: 0, max: 10 },
+    )).resolves.toMatchObject([
+      { id: "foreign-before", seq: 1 },
+      { id: "foreign-after", seq: 3 },
     ]);
   });
 });

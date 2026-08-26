@@ -646,65 +646,27 @@ export async function listUnreadMessagesForAgent(
 }
 
 /**
- * Does `botUserId` have any message in `channelId`, beyond seq `seen`, that
- * `inboxPull` would actually DELIVER — i.e. at/after the bot's join baseline
- * and not its own? This is the send route's alignment gate, sharing
- * `listUnreadMessagesForAgent`'s DELIVERABILITY filters (`channelJoinBaselineGuard`
- * + `authorId != bot`) so the gate and the pull can never drift on which
- * messages "count". The `seen` threshold is the gate's own business: the caller
- * passes `seenUpToSeq ?? lastReadSeq ?? 0`, preserving the daemon's forward-seen
- * boundary (a bot may report it has seen past its acked `lastReadSeq`).
+ * The single alignment-eligible row listing for an exact target. Both the send
+ * gate (limit 1 → boolean) and explicit targeted inbox pull call THIS query, so
+ * they cannot drift into "gate blocks but recovery cannot deliver" (or the
+ * reverse). Alignment is about readable target context, not passive delivery:
+ * notification policy and thread notify membership are intentionally absent.
  *
- * Why not `getLatestSeqForScope > seen`: that counts the channel's raw `nextSeq`
- * — including pre-join backlog and the bot's own messages — which the pull's
- * baseline + author filters exclude. A bot @mentioned into a channel/thread with
- * history would then read as permanently "unaligned" (gate sees backlog) while
- * `inboxPull` delivers nothing to advance its `lastReadSeq` — a wedge that only
- * luck (a fresh post-join message) breaks. Gating on the deliverable predicate
- * makes the wedge impossible by construction and needs no read-state migration
- * for already-stuck bots: the gate stops counting messages the pull never hands
- * over.
- *
- * Child-thread notification-set narrowing: the pull's allowed set
- * (`listAgentAllowedChannelIds`) additionally drops child threads
- * the bot holds no `relation='notify'` row on — those are never delivered. The
- * gate MUST mirror that same narrowing (via the SAME `listParticipatingThreadIds`
- * predicate, not a re-derived one) or it counts backlog in a scope where the
- * bot holds no `community_channel_member(relation='notify')` row, which the
- * pull will never hand over — the exact "not aligned: N unread"
- * deadlock a bot hit trying to post into a thread it hadn't engaged. This drops
- * ONLY true spectators: a bot @mentioned into a thread gets a `notify` row on the
- * send hot path (`addThreadParticipants`, source=mention), so its owed mention
- * still counts as deliverable — the narrowing is not-more-not-less than the pull.
+ * Callers authorize the concrete target before entering this query. The row
+ * boundary retains the existing product baseline: non-self messages only,
+ * strictly beyond the caller-provided cursor, and after the bot's access/join
+ * baseline. Results are contiguous seq-ascending so targeted pull can ack the
+ * page and repeat without skipping a gap.
  */
-export async function hasDeliverableUnreadForAgentScope(
+export async function listAlignmentUnreadMessagesForAgentScope(
   db: Database,
   botUserId: string,
   channelId: string,
-  seen: number
-): Promise<boolean> {
-  // Notification-set narrowing, single-channel form of `listAgentAllowedChannelIds`'s
-  // set-wide step: a child thread without a notify row for the bot is never
-  // deliverable, so its backlog must not register as unread here. Short-circuits
-  // before the deliverable scan — cheaper for the common spectator case too.
-  const typeRows = await db
-    .select({ type: communityChannel.type })
-    .from(communityChannel)
-    .where(eq(communityChannel.id, channelId))
-    .limit(1);
-  const type = typeRows[0]?.type;
-  // Same reach `participant-set` narrowing as `listAgentAllowedChannelIds` — via
-  // the SAME reachIsParticipantSet source (B2). This gate and the pull's allowed
-  // set MUST agree on which channels need a notify row to be deliverable, or the
-  // gate counts backlog the pull never delivers (the send-alignment deadlock).
-  // Reading one shared reach value is what makes that agreement structural.
-  if (reachIsParticipantSet(type)) {
-    const participating = await listParticipatingThreadIds(db, [channelId], botUserId);
-    if (participating.length === 0) return false;
-  }
-
-  const rows = await db
-    .select({ seq: communityMessage.seq })
+  opts: { afterSeq: number; max: number }
+): Promise<RawAgentMessage[]> {
+  const max = Math.max(1, Math.floor(opts.max));
+  return db
+    .select(AGENT_MESSAGE_COLUMNS)
     .from(communityMessage)
     .leftJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
     .leftJoin(
@@ -726,23 +688,27 @@ export async function hasDeliverableUnreadForAgentScope(
       and(
         eq(communityMessage.channelId, channelId),
         ne(communityMessage.authorId, botUserId),
-        gt(communityMessage.seq, seen),
+        gt(communityMessage.seq, opts.afterSeq),
         channelJoinBaselineGuard,
-        notificationEligibleSql(
-          botUserId,
-          {
-            id: communityChannel.id,
-            serverId: communityChannel.serverId,
-            parentChannelId: communityChannel.parentChannelId,
-          },
-          {
-            id: communityMessage.id,
-          },
-        ),
       )
     )
-    .limit(1);
+    .orderBy(asc(communityMessage.seq))
+    .limit(max);
+}
 
+/** Send's boolean projection of the exact same rows targeted pull delivers. */
+export async function hasAlignmentUnreadForAgentScope(
+  db: Database,
+  botUserId: string,
+  channelId: string,
+  seen: number
+): Promise<boolean> {
+  const rows = await listAlignmentUnreadMessagesForAgentScope(
+    db,
+    botUserId,
+    channelId,
+    { afterSeq: seen, max: 1 },
+  );
   return rows.length > 0;
 }
 

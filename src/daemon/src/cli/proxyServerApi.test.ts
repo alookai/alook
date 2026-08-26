@@ -416,18 +416,19 @@ describe("createProxyServerApi — inbox trinity pull/snapshot/ack (retargeted t
   });
 
 
-  it("inboxPull POSTs users/me/inbox/pull with {max} in body, agentId stripped", async () => {
+  it("inboxPull POSTs users/me/inbox/pull with {max,channel} in body, agentId stripped", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
       seen.push({ url, init });
       return jsonBody(JSON.stringify({ messages: [], hasMore: false, markedCount: 0 }), { status: 200 });
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    await api.inboxPull({ agentId: "a1" as never, max: 10 });
+    await api.inboxPull({ agentId: "a1" as never, max: 10, channel: "/s#0042/general/#3" });
     expect(seen[0].url).toBe("http://proxy.test/api/community/users/me/inbox/pull");
     expect(seen[0].init?.method).toBe("POST");
     const body = JSON.parse(String(seen[0].init?.body ?? "{}"));
     expect(body.max).toBe(10);
+    expect(body.channel).toBe("/s#0042/general/#3");
     expect(body.agentId).toBeUndefined();
   });
 

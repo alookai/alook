@@ -294,6 +294,12 @@ export interface InboxPullRequest {
   agentId: AgentId;
   /** Optional: limit how many full messages to drain (inbox notice is unbounded). */
   max?: number;
+  /**
+   * Optional exact target. When present, pull readable unread from only this
+   * concrete scope regardless of passive notification policy. The normal
+   * unscoped inbox remains notification-filtered.
+   */
+  channel?: ChannelRef;
 }
 export interface InboxPullResponse {
   /** Flat agent-facing messages drained this pull (JSONL on the wire). */

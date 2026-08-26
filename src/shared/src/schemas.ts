@@ -1253,6 +1253,7 @@ export type CommunityAgentUpdateProfileRequest = z.infer<
 
 export const CommunityAgentInboxPullRequestSchema = z.object({
   max: z.number().int().min(1).max(200).optional(),
+  channel: z.string().min(1).optional(),
 });
 export type CommunityAgentInboxPullRequest = z.infer<typeof CommunityAgentInboxPullRequestSchema>;
 

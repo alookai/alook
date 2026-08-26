@@ -2,7 +2,15 @@ import { NextRequest, NextResponse } from "next/server"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb, getPrimaryDb } from "@/lib/db"
-import { queries, withD1Retry, CommunityAgentSendRequestSchema, MAX_FORUM_TAG_LENGTH, utcDayKey } from "@alook/shared"
+import {
+  queries,
+  withD1Retry,
+  CommunityAgentSendRequestSchema,
+  MAX_FORUM_TAG_LENGTH,
+  PARTICIPANT_SOURCE,
+  WS_EVENTS,
+  utcDayKey,
+} from "@alook/shared"
 import {
   parseCursor,
   parseAnchor,
@@ -15,6 +23,7 @@ import { enrichMessages } from "@/lib/community/enrich-messages"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { createCommunityMessage, getCommunityMessageReplay } from "@/lib/community/message-handler"
 import { createMessageWithThread } from "@/lib/community/create-channels"
+import { broadcastToUserSafe } from "@/lib/community/fanout"
 import {
   resolveMessageTarget,
   type MessageTargetDescriptor,
@@ -392,20 +401,9 @@ async function handleBotSend(
     return NextResponse.json({ state: "sent", message, deduped: true })
   }
 
-  const scopeTarget = { channelId }
-  const [latestSeq, readState] = await Promise.all([
-    withD1Retry(() => queries.communityAgentInbox.getLatestSeqForScope(db, channelId), { route: "community/messages:latest-seq" }),
-    withD1Retry(() => queries.communityReadState.getReadState(db, { userId: botUserId, ...scopeTarget }), { route: "community/messages:read-state" }),
-  ])
-  const seen = body.seenUpToSeq ?? readState?.lastReadSeq ?? 0
-  const hasUnread = await withD1Retry(
-    () => queries.communityAgentInbox.hasDeliverableUnreadForAgentScope(db, botUserId, channelId, seen),
-    { route: "community/messages:has-unread" },
-  )
-  if (hasUnread) {
-    return NextResponse.json({ state: "blocked", reason: "unaligned", unreadCount: Math.max(0, latestSeq - seen), latestSeq })
-  }
-
+  // Finish every target-dependent PURE validation before a first-touch thread
+  // join. A bad attachment/reply must not subscribe the bot or emit a member
+  // event for a message that was never eligible to send.
   if (body.attachments.length > 0) {
     const rows = await withD1Retry(
       () => queries.communityAttachment.findPendingAttachmentsForSender(db, { ids: body.attachments, uploaderId: botUserId, targetId: channelId }),
@@ -419,13 +417,56 @@ async function handleBotSend(
   let replyToId: string | undefined
   if (body.replyToSeq !== undefined) {
     const replyTarget = await withD1Retry(
-      () => queries.communityMessage.getMessageByChannelAndSeq(db, scopeTarget, body.replyToSeq!),
+      () => queries.communityMessage.getMessageByChannelAndSeq(db, { channelId }, body.replyToSeq!),
       { route: "community/messages:reply-lookup" },
     )
     if (!replyTarget) {
       return NextResponse.json({ error: `reply target #${body.replyToSeq} not found in ${body.channel}` }, { status: 400 })
     }
     replyToId = replyTarget.id
+  }
+
+  // Access was already proven by resolveMessageTarget. For an existing thread,
+  // establish the independent participant/notify prerequisite BEFORE freshness
+  // evaluation so first-touch backlog can be recovered. This side effect is
+  // intentionally durable even when alignment blocks the send. `added` records
+  // send-intent self-join accurately; a blocked/abandoned attempt never "spoke".
+  if (target.kind === "thread") {
+    const joined = await withD1Retry(
+      () => queries.communityThread.addThreadParticipant(db, {
+        threadChannelId: channelId,
+        userId: botUserId,
+        source: PARTICIPANT_SOURCE.ADDED,
+      }),
+      { route: "community/messages:thread-participant" },
+    )
+    if (joined) {
+      const recipients = await withD1Retry(
+        () => queries.communityThread.listThreadParticipantUserIds(db, channelId),
+        { route: "community/messages:thread-participant-recipients" },
+      )
+      const event = {
+        type: WS_EVENTS.CHANNEL_MEMBER_ADD,
+        serverId: target.serverId,
+        channelId,
+        userId: botUserId,
+      } as const
+      await Promise.all([...new Set(recipients)].map((userId) => broadcastToUserSafe(userId, event)))
+    }
+  }
+
+  const scopeTarget = { channelId }
+  const [latestSeq, readState] = await Promise.all([
+    withD1Retry(() => queries.communityAgentInbox.getLatestSeqForScope(db, channelId), { route: "community/messages:latest-seq" }),
+    withD1Retry(() => queries.communityReadState.getReadState(db, { userId: botUserId, ...scopeTarget }), { route: "community/messages:read-state" }),
+  ])
+  const seen = body.seenUpToSeq ?? readState?.lastReadSeq ?? 0
+  const hasUnread = await withD1Retry(
+    () => queries.communityAgentInbox.hasAlignmentUnreadForAgentScope(db, botUserId, channelId, seen),
+    { route: "community/messages:has-unread" },
+  )
+  if (hasUnread) {
+    return NextResponse.json({ state: "blocked", reason: "unaligned", unreadCount: Math.max(0, latestSeq - seen), latestSeq })
   }
 
   const result = await createCommunityMessage({

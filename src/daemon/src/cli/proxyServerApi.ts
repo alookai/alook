@@ -375,7 +375,9 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     // RETARGETED off the flat `inboxPull` verb onto the caller's own inbox
     // resource POST users/me/inbox/pull (route/disc 轴3). Self-scoped to the
     // voucher's bot — no target-user param on the wire (users/me/* family).
-    // The legacy flat route is deleted. Same optional `{max?}` body.
+    // The legacy flat route is deleted. Optional `channel` requests an explicit
+    // exact-target catch-up; the server keeps ordinary unscoped pulls passive-
+    // notification-filtered.
     const { agentId: _omit, ...wire } = (req ?? {}) as unknown as Record<string, unknown>;
     const res = await fetchImpl(`${base}/api/community/users/me/inbox/pull`, {
       method: "POST",

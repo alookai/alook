@@ -367,7 +367,7 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
   if (res.state === "blocked") {
     throw new CliError(
       `channel not aligned: ${res.unreadCount} unread message(s) in ${channel} (latest #${res.latestSeq}). ` +
-        `Run \`alook inbox pull\` and READ the new messages before deciding whether to resend, ` +
+        `Run \`alook inbox pull --channel ${channel}\` and READ the new messages before deciding whether to resend, ` +
         `adjust, or skip your message.`,
     );
   }
@@ -603,7 +603,12 @@ async function cmdInboxPull(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
   const agent = agentId(opts);
   const max = opts.max ? Number(opts.max) : undefined;
-  const { messages, hasMore, markedCount } = await api.inboxPull({ agentId: agent, max });
+  const channel = opts.channel as string | undefined;
+  const { messages, hasMore, markedCount } = await api.inboxPull({
+    agentId: agent,
+    ...(max !== undefined ? { max } : {}),
+    ...(channel ? { channel } : {}),
+  });
   const pulledAt = nowLocalISO();
 
   let acked = 0;
@@ -878,8 +883,9 @@ function buildProgram(stdin: CliInputStream): Command {
 
   inbox
     .command("pull")
-    .description("fetch unread messages from all channels")
+    .description("fetch unread messages globally or from one exact target")
     .option("--max <n>", "max messages to return")
+    .option("--channel <ref>", "fetch readable unread from one exact channel, DM, or thread")
     .option("--no-ack", "do not advance read waterlines (peek only)")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })

@@ -4,7 +4,12 @@ import { NextRequest } from "next/server"
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(async () => ({ env: { DB: {} } })),
 }))
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+const mockGetDb = vi.fn(() => ({ session: "replica" }))
+const mockGetPrimaryDb = vi.fn(() => ({ session: "primary" }))
+vi.mock("@/lib/db", () => ({
+  getDb: (...a: unknown[]) => mockGetDb(...a),
+  getPrimaryDb: (...a: unknown[]) => mockGetPrimaryDb(...a),
+}))
 vi.mock("@/lib/auth", () => ({
   createAuth: vi.fn(() => ({
     api: { getSession: vi.fn(async () => ({ headers: new Headers(), response: null })) },
@@ -15,10 +20,17 @@ const mockFindActiveAgentRunnerKeyByBearer = vi.fn()
 const mockGetUserInternal = vi.fn()
 const mockGetBotBinding = vi.fn()
 const mockListUnreadMessagesForAgent = vi.fn()
+const mockListAlignmentUnreadMessagesForAgentScope = vi.fn()
 const mockListAccessVisibleChannelIdsForUser = vi.fn()
 const mockToAgentMessages = vi.fn()
 const mockListByMessageIds = vi.fn()
 const mockCountMarksForUser = vi.fn()
+const mockGetReadState = vi.fn()
+const mockResolveMessageTarget = vi.fn()
+
+vi.mock("@/lib/community/message-door", () => ({
+  resolveMessageTarget: (...a: unknown[]) => mockResolveMessageTarget(...a),
+}))
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -32,7 +44,11 @@ vi.mock("@alook/shared", async () => {
       communityAgentInbox: {
         listAccessVisibleChannelIdsForUser: (...a: unknown[]) => mockListAccessVisibleChannelIdsForUser(...a),
         listUnreadMessagesForAgent: (...a: unknown[]) => mockListUnreadMessagesForAgent(...a),
+        listAlignmentUnreadMessagesForAgentScope: (...a: unknown[]) => mockListAlignmentUnreadMessagesForAgentScope(...a),
         toAgentMessages: (...a: unknown[]) => mockToAgentMessages(...a),
+      },
+      communityReadState: {
+        getReadState: (...a: unknown[]) => mockGetReadState(...a),
       },
       communityMessageMark: {
         countMarksForUser: (...a: unknown[]) => mockCountMarksForUser(...a),
@@ -49,7 +65,8 @@ import { POST } from "./route"
 // Bot arm of POST users/me/inbox/pull (folds the flat inboxPull verb). The pull
 // is self-scoped to the voucher's bot (users/me/* family invariant): the body
 // schema is `{ max? }` only — NO target-user param — so a bot can only pull its
-// own inbox. A no-crk_ request falls to the human arm → 401.
+// own inbox. Its optional channel narrows only that same bot's pull to one
+// exact accessible scope. A no-crk_ request falls to the human arm → 401.
 function req(body?: string, headers: Record<string, string> = {}): NextRequest {
   return new NextRequest("http://localhost/api/community/users/me/inbox/pull", {
     method: "POST",
@@ -68,6 +85,11 @@ describe("POST /api/community/users/me/inbox/pull — bot arm (folds inboxPull)"
     mockListByMessageIds.mockResolvedValue([])
     mockListAccessVisibleChannelIdsForUser.mockResolvedValue(["c_1"])
     mockCountMarksForUser.mockResolvedValue(0)
+    mockGetReadState.mockResolvedValue(null)
+    mockResolveMessageTarget.mockResolvedValue({
+      ok: true,
+      value: { target: { kind: "thread", channelId: "thread_1", parentChannelId: "c_1", serverId: "s_1" }, isDm: false },
+    })
   })
 
   it("401 without Authorization (human arm, no session)", async () => {
@@ -94,6 +116,11 @@ describe("POST /api/community/users/me/inbox/pull — bot arm (folds inboxPull)"
     expect(mockCountMarksForUser).toHaveBeenCalledWith(expect.anything(), "bot_1", {
       visibleChannelIds: ["c_1"],
     })
+    expect(mockListUnreadMessagesForAgent).toHaveBeenCalledWith(
+      { session: "replica" },
+      "bot_1",
+      expect.anything(),
+    )
   })
 
   it("hasMore + probe-row trim behave (unread > max)", async () => {
@@ -102,6 +129,64 @@ describe("POST /api/community/users/me/inbox/pull — bot arm (folds inboxPull)"
     const body = await res.json()
     expect(body.hasMore).toBe(true)
     expect(body.messages).toHaveLength(2)
+  })
+
+  it("exact-target pull resolves without create and uses the shared alignment row core after read state", async () => {
+    mockGetReadState.mockResolvedValue({ lastReadSeq: 7 })
+    mockListAlignmentUnreadMessagesForAgentScope.mockResolvedValue([{ id: "m_8", seq: 8 }])
+
+    const res = await POST(req(
+      JSON.stringify({ max: 5, channel: "/demo#0042/general/#12" }),
+      { Authorization: "Bearer crk_abc" },
+    ))
+
+    expect(res.status).toBe(200)
+    expect(mockResolveMessageTarget).toHaveBeenCalledWith(
+      expect.anything(),
+      "bot_1",
+      { ref: "/demo#0042/general/#12" },
+      "bot",
+    )
+    expect(mockListAlignmentUnreadMessagesForAgentScope).toHaveBeenCalledWith(
+      { session: "primary" },
+      "bot_1",
+      "thread_1",
+      { afterSeq: 7, max: 6 },
+    )
+    expect(mockListUnreadMessagesForAgent).not.toHaveBeenCalled()
+    expect(mockResolveMessageTarget).toHaveBeenCalledWith(
+      { session: "primary" },
+      "bot_1",
+      expect.anything(),
+      "bot",
+    )
+  })
+
+  it("exact-target pull preserves bounded pagination and trims only the probe row", async () => {
+    mockListAlignmentUnreadMessagesForAgentScope.mockResolvedValue([
+      { id: "m_1", seq: 1 },
+      { id: "m_2", seq: 2 },
+      { id: "m_3", seq: 3 },
+    ])
+    const res = await POST(req(
+      JSON.stringify({ max: 2, channel: "/demo#0042/general" }),
+      { Authorization: "Bearer crk_abc" },
+    ))
+    await expect(res.json()).resolves.toMatchObject({
+      messages: [{ id: "m_1", seq: 1 }, { id: "m_2", seq: 2 }],
+      hasMore: true,
+    })
+  })
+
+  it("exact-target pull rejects an inaccessible target before unread queries", async () => {
+    mockResolveMessageTarget.mockResolvedValue({ ok: false, status: 404, error: "channel not found" })
+    const res = await POST(req(
+      JSON.stringify({ channel: "/demo#0042/private" }),
+      { Authorization: "Bearer crk_abc" },
+    ))
+    expect(res.status).toBe(404)
+    expect(mockListAlignmentUnreadMessagesForAgentScope).not.toHaveBeenCalled()
+    expect(mockListUnreadMessagesForAgent).not.toHaveBeenCalled()
   })
 
   it("returns the numeric markedCount in the HTTP response unchanged", async () => {

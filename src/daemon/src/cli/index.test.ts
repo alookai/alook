@@ -274,7 +274,7 @@ describe("channel alignment (message send)", () => {
     expect(env.error).toContain("not aligned");
     expect(env.error).toContain("3 unread");
     expect(env.error).toContain("#12");
-    expect(env.error).toContain("inbox pull");
+    expect(env.error).toContain("inbox pull --channel /s#0042/general");
     expect(env.error).toContain("READ the new messages");
     expect(env.error).toContain("before deciding");
     expect(env.error).toContain("resend, adjust, or skip");
@@ -453,6 +453,28 @@ describe("message send --reply", () => {
 });
 
 describe("inbox pull", () => {
+  it("passes an exact --channel target through while preserving normal ack", async () => {
+    const pullSpy = vi.fn(async () => ({
+      messages: [{ seq: "#8", channel: "/s#0042/general/#3", sender: "@x", content: { text: "context" }, time: "" }],
+      hasMore: true,
+      markedCount: 0,
+    }));
+    const ackSpy = vi.fn(async (req: { cursors: Array<{ channel: string; seq: number }> }) => ({
+      ok: true, applied: req.cursors, failed: [],
+    }));
+    setApiForTesting(stubApi({ inboxPull: pullSpy, ack: ackSpy }));
+
+    await main(["inbox", "pull", "--channel", "/s#0042/general/#3", "--max", "10"]);
+
+    expect(pullSpy).toHaveBeenCalledWith(expect.objectContaining({
+      channel: "/s#0042/general/#3",
+      max: 10,
+    }));
+    expect(ackSpy).toHaveBeenCalledWith(expect.objectContaining({
+      cursors: [{ channel: "/s#0042/general/#3", seq: 8 }],
+    }));
+  });
+
   it("never acks a rejected pull and only advances the returned cursor after repair", async () => {
     const ackSpy = vi.fn(async (req: { cursors: Array<{ channel: string; seq: number }> }) => ({
       ok: true, applied: req.cursors, failed: [],

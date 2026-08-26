@@ -1,8 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { queries, withD1Retry, CommunityAgentInboxPullRequestSchema } from "@alook/shared"
-import { getDb } from "@/lib/db"
+import { getDb, getPrimaryDb } from "@/lib/db"
 import { log } from "@/lib/logger"
 import { withCommunityActor, requireBot } from "@/lib/middleware/community-actor"
+import { resolveMessageTarget } from "@/lib/community/message-door"
 
 const MAX_PULL = 200
 
@@ -27,9 +28,7 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
   if (!gate.ok) return gate.response
   const { userId: botUserId } = gate.bot
 
-  const db = getDb(ctx.env.DB)
-
-  // Body is optional (`InboxPullRequest = { max? }`) — an empty/missing body is
+  // Body is optional (`InboxPullRequest = { max?, channel? }`) — an empty/missing body is
   // equivalent to `{}`, not a 400. Only a body that parses to JSON but fails
   // schema validation (e.g. `max` out of range) is rejected.
   let raw: unknown = {}
@@ -44,6 +43,32 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     return NextResponse.json({ error: "invalid payload", details: parsed.error.flatten() }, { status: 400 })
   }
   const max = Math.min(parsed.data.max ?? MAX_PULL, MAX_PULL)
+  // Targeted pull is the recovery sibling of the primary-backed send gate, so
+  // its readState + alignment rows must come from a primary session too. A
+  // replica-lagged "caught up" page would bounce immediately back to blocked
+  // on the next send. Ordinary passive inbox pull stays replica-capable.
+  const db = parsed.data.channel ? getPrimaryDb(ctx.env.DB) : getDb(ctx.env.DB)
+
+  // Exact-target pull is an explicit catch-up operation, not passive inbox
+  // delivery. Resolve/access-mask the ref without create-if-missing before any
+  // query; a stale DM/thread ref must never materialize state as a read side
+  // effect. The ordinary unscoped branch below remains notification-filtered.
+  let targetedChannelId: string | undefined
+  if (parsed.data.channel) {
+    const resolved = await resolveMessageTarget(
+      db,
+      botUserId,
+      { ref: parsed.data.channel },
+      "bot",
+    )
+    if (!resolved.ok) {
+      return NextResponse.json(
+        { error: resolved.error, ...(resolved.hint ? { hint: resolved.hint } : {}) },
+        { status: resolved.status },
+      )
+    }
+    targetedChannelId = resolved.value.target.channelId
+  }
 
   const visibleChannelIds = await withD1Retry(
     () => queries.communityAgentInbox.listAccessVisibleChannelIdsForUser(db, botUserId),
@@ -63,15 +88,30 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
     })
     return 0
   })
+  const rowsPromise = targetedChannelId
+    ? withD1Retry(async () => {
+        const readState = await queries.communityReadState.getReadState(
+          db,
+          { userId: botUserId, channelId: targetedChannelId! },
+        )
+        return queries.communityAgentInbox.listAlignmentUnreadMessagesForAgentScope(
+          db,
+          botUserId,
+          targetedChannelId!,
+          { afterSeq: readState?.lastReadSeq ?? 0, max: max + 1 },
+        )
+      }, { route: "community/users/me/inbox/pull:list-target-unread" })
+    : withD1Retry(
+        () => queries.communityAgentInbox.listUnreadMessagesForAgent(
+          db,
+          botUserId,
+          { max: max + 1, visibleChannelIds },
+        ),
+        { route: "community/users/me/inbox/pull:list-unread" },
+      )
+
   const [rows, markedCount] = await Promise.all([
-    withD1Retry(
-      () => queries.communityAgentInbox.listUnreadMessagesForAgent(
-        db,
-        botUserId,
-        { max: max + 1, visibleChannelIds },
-      ),
-      { route: "community/users/me/inbox/pull:list-unread" },
-    ),
+    rowsPromise,
     markedCountPromise,
   ])
   const hasMore = rows.length > max

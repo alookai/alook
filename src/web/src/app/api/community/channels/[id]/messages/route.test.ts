@@ -9,6 +9,7 @@ const mockGetChannelForMember = vi.fn()
 const mockGetChannel = vi.fn()
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
+const mockGetMessageByChannelAndSeq = vi.fn()
 const mockGetMessageByAuthorAndNonce = vi.fn()
 const mockGetMessageInScope = vi.fn()
 const mockGetMessagesByIdsInScope = vi.fn()
@@ -35,7 +36,9 @@ const mockToAgentMessages = vi.fn()
 const mockToAgentMessage = vi.fn()
 const mockGetLatestSeqForScope = vi.fn()
 const mockGetReadState = vi.fn()
-const mockHasDeliverableUnreadForAgentScope = vi.fn()
+const mockHasAlignmentUnreadForAgentScope = vi.fn()
+const mockAddThreadParticipant = vi.fn()
+const mockListThreadParticipantUserIds = vi.fn()
 const mockBumpBotDailyActivityStatement = vi.fn()
 const mockResolveServerByNameForMember = vi.fn()
 const mockResolveChannelByNameForMember = vi.fn()
@@ -48,6 +51,7 @@ const mockHardDeleteMessage = vi.fn()
 const mockRebindPendingAttachmentsToChild = vi.fn()
 
 const mockFanOutToChannel = vi.fn()
+const mockBroadcastToUserSafe = vi.fn()
 const mockDispatchCommittedMessage = vi.fn(async () => {})
 const mockBroadcastToUser = vi.fn()
 const mockCheckMessageRateLimit = vi.fn()
@@ -82,6 +86,7 @@ vi.mock("@alook/shared", async () => {
       communityMessage: {
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
+        getMessageByChannelAndSeq: (...a: unknown[]) => mockGetMessageByChannelAndSeq(...a),
         getMessageByAuthorAndNonce: (...a: unknown[]) => mockGetMessageByAuthorAndNonce(...a),
         getMessageInScope: (...a: unknown[]) => mockGetMessageInScope(...a),
         getMessagesByIdsInScope: (...a: unknown[]) => mockGetMessagesByIdsInScope(...a),
@@ -101,6 +106,8 @@ vi.mock("@alook/shared", async () => {
       },
       communityThread: {
         addThreadParticipants: vi.fn(async () => undefined),
+        addThreadParticipant: (...a: unknown[]) => mockAddThreadParticipant(...a),
+        listThreadParticipantUserIds: (...a: unknown[]) => mockListThreadParticipantUserIds(...a),
       },
       communityAttachment: {
         listByMessageIds: (...a: unknown[]) => mockListByMessageIds(...a),
@@ -130,7 +137,7 @@ vi.mock("@alook/shared", async () => {
         toAgentMessages: (...a: unknown[]) => mockToAgentMessages(...a),
         toAgentMessage: (...a: unknown[]) => mockToAgentMessage(...a),
         getLatestSeqForScope: (...a: unknown[]) => mockGetLatestSeqForScope(...a),
-        hasDeliverableUnreadForAgentScope: (...a: unknown[]) => mockHasDeliverableUnreadForAgentScope(...a),
+        hasAlignmentUnreadForAgentScope: (...a: unknown[]) => mockHasAlignmentUnreadForAgentScope(...a),
       },
       communityReadState: {
         getReadState: (...a: unknown[]) => mockGetReadState(...a),
@@ -149,6 +156,7 @@ vi.mock("@alook/shared", async () => {
 
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
+  broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
 
 vi.mock("@/lib/community/message-dispatcher", () => ({
@@ -216,6 +224,27 @@ function getReq() {
 
 const ctx = { params: { id: "c1" } } as any
 
+function arrangeExistingBotThread() {
+  mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
+  mockResolveChannelByNameForMember.mockResolvedValue([
+    { id: "parent_1", serverId: "s1", type: "text", parentChannelId: null },
+  ])
+  mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "root_1", authorId: "u_root" })
+  mockGetThreadChannelByParentMessage.mockResolvedValue({ id: "thread_1" })
+  mockGetChannel.mockResolvedValue({
+    id: "thread_1",
+    serverId: "s1",
+    type: "thread",
+    parentChannelId: "parent_1",
+  })
+  mockGetChannelForMember.mockResolvedValue({
+    id: "thread_1",
+    serverId: "s1",
+    type: "thread",
+    parentChannelId: "parent_1",
+  })
+}
+
 describe("POST /api/community/channels/[id]/messages", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -251,7 +280,10 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockBroadcastToUser.mockResolvedValue(undefined)
     mockGetLatestSeqForScope.mockResolvedValue(0)
     mockGetReadState.mockResolvedValue(null)
-    mockHasDeliverableUnreadForAgentScope.mockResolvedValue(false)
+    mockHasAlignmentUnreadForAgentScope.mockResolvedValue(false)
+    mockAddThreadParticipant.mockResolvedValue(null)
+    mockListThreadParticipantUserIds.mockResolvedValue([])
+    mockBroadcastToUserSafe.mockResolvedValue(undefined)
     mockBumpBotDailyActivityStatement.mockReturnValue({})
     mockToAgentMessage.mockImplementation(async (_db, row, _user, attachments) => ({ ...row, attachments }))
     mockCheckMessageRateLimit.mockResolvedValue({ allowed: true })
@@ -593,7 +625,89 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(await replay.json()).toEqual(expect.objectContaining({ state: "sent", deduped: true }))
     expect(mockFindPendingAttachmentsForSender).toHaveBeenCalledTimes(1)
     expect(mockCreateMessage).toHaveBeenCalledTimes(1)
-    expect(mockHasDeliverableUnreadForAgentScope).toHaveBeenCalledTimes(1)
+    expect(mockHasAlignmentUnreadForAgentScope).toHaveBeenCalledTimes(1)
+  })
+
+  it("first-touch existing thread joins + broadcasts before readable alignment blocks", async () => {
+    arrangeExistingBotThread()
+    mockAddThreadParticipant.mockResolvedValue({ id: "member_1" })
+    mockListThreadParticipantUserIds.mockResolvedValue(["bot_1", "u_root"])
+    mockGetLatestSeqForScope.mockResolvedValue(3)
+    mockHasAlignmentUnreadForAgentScope.mockResolvedValue(true)
+
+    const res = await POST(botPostReq({
+      channel: "/demo#0042/text/#1",
+      content: { text: "first touch" },
+    }), ctx)
+
+    expect(await res.json()).toEqual({
+      state: "blocked",
+      reason: "unaligned",
+      unreadCount: 3,
+      latestSeq: 3,
+    })
+    expect(mockAddThreadParticipant).toHaveBeenCalledWith(expect.anything(), {
+      threadChannelId: "thread_1",
+      userId: "bot_1",
+      source: "added",
+    })
+    expect(mockBroadcastToUserSafe).toHaveBeenCalledTimes(2)
+    expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("bot_1", expect.objectContaining({
+      type: WS_EVENTS.CHANNEL_MEMBER_ADD,
+      channelId: "thread_1",
+      userId: "bot_1",
+    }))
+    expect(mockAddThreadParticipant.mock.invocationCallOrder[0]).toBeLessThan(
+      mockHasAlignmentUnreadForAgentScope.mock.invocationCallOrder[0],
+    )
+    expect(mockCreateMessage).not.toHaveBeenCalled()
+  })
+
+  it("idempotent existing-thread rejoin emits no duplicate member event", async () => {
+    arrangeExistingBotThread()
+    mockAddThreadParticipant.mockResolvedValue(null)
+
+    const res = await POST(botPostReq({
+      channel: "/demo#0042/text/#1",
+      content: { text: "already participating" },
+    }), ctx)
+
+    expect(res.status).toBe(200)
+    expect(mockHasAlignmentUnreadForAgentScope).toHaveBeenCalledOnce()
+    expect(mockListThreadParticipantUserIds).not.toHaveBeenCalled()
+    expect(mockBroadcastToUserSafe).not.toHaveBeenCalled()
+  })
+
+  it("invalid pending attachment fails before first-touch participant side effects", async () => {
+    arrangeExistingBotThread()
+    mockFindPendingAttachmentsForSender.mockResolvedValue([])
+
+    const res = await POST(botPostReq({
+      channel: "/demo#0042/text/#1",
+      content: { text: "bad attachment" },
+      attachments: ["missing"],
+    }), ctx)
+
+    expect(res.status).toBe(400)
+    expect(mockAddThreadParticipant).not.toHaveBeenCalled()
+    expect(mockHasAlignmentUnreadForAgentScope).not.toHaveBeenCalled()
+  })
+
+  it("invalid reply target fails before first-touch participant side effects", async () => {
+    arrangeExistingBotThread()
+    mockGetMessageByChannelAndSeq
+      .mockResolvedValueOnce({ id: "root_1", authorId: "u_root" })
+      .mockResolvedValueOnce(null)
+
+    const res = await POST(botPostReq({
+      channel: "/demo#0042/text/#1",
+      content: { text: "bad reply" },
+      replyToSeq: 99,
+    }), ctx)
+
+    expect(res.status).toBe(400)
+    expect(mockAddThreadParticipant).not.toHaveBeenCalled()
+    expect(mockHasAlignmentUnreadForAgentScope).not.toHaveBeenCalled()
   })
 
   it("bot send that loses the post-check seq race returns a fresh unaligned envelope", async () => {
@@ -605,7 +719,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
       .mockResolvedValueOnce(19)
       .mockResolvedValueOnce(20)
     mockGetReadState.mockResolvedValue({ lastReadSeq: 19 })
-    mockHasDeliverableUnreadForAgentScope.mockResolvedValue(false)
+    mockHasAlignmentUnreadForAgentScope.mockResolvedValue(false)
     mockCreateMessage.mockResolvedValue(null)
 
     const res = await POST(botPostReq({
