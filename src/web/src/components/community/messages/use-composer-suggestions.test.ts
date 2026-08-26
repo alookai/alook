@@ -401,6 +401,104 @@ describe("useComposerSuggestions", () => {
     expect(resultRef.current!.mentionPresentation.status).toBe("loading")
   })
 
+  it("maps matching search loading, loading-more, ready, and empty states to presentation", async () => {
+    const resultRef: { current: Result | null } = { current: null }
+    const search = vi.fn()
+    const item = {
+      kind: "member" as const,
+      id: "member-1",
+      userId: "user-1",
+      label: "Ada#0001",
+      name: "Ada",
+      discriminator: "0001",
+      avatar: "A",
+      status: "online" as const,
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    const renderWith = async (
+      searchStatus: NonNullable<Options["mentionCandidates"]>["searchStatus"],
+      items: typeof item[],
+    ) => {
+      mocks.rankMention.mockReturnValue(items)
+      await act(async () => {
+        renderer.update(createElement(Harness, {
+          members: [member()],
+          context: "channel",
+          mentionCandidates: candidateSource(search, {
+            searchQuery: "ad",
+            searchStatus,
+          }),
+          channelRefCandidates: [],
+          resultRef,
+        }))
+      })
+    }
+
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(Harness, {
+        members: [member()],
+        context: "channel",
+        mentionCandidates: candidateSource(search, {
+          searchQuery: "ad",
+          searchStatus: "loading",
+        }),
+        channelRefCandidates: [],
+        resultRef,
+      }))
+    })
+    const options = mocks.buildMention.mock.calls[0][0]
+    const runQuery = (
+      resultRef.current!.mentionExtension as unknown as {
+        runQuery: (query: string) => unknown
+      }
+    ).runQuery
+    expect(runQuery("ad")).toEqual([])
+    expect(search).toHaveBeenCalledWith("ad")
+    expect(mocks.rankMention).toHaveBeenLastCalledWith(
+      [member()],
+      "channel",
+      "ad",
+    )
+    await act(async () => {
+      options.setPopup({
+        items: [],
+        query: "ad",
+        selectedIndex: 0,
+        command: vi.fn(),
+        getRect: null,
+      })
+    })
+    expect(resultRef.current!.mentionPresentation.status).toBe("loading")
+
+    await renderWith("idle", [])
+    expect(resultRef.current!.mentionPresentation.status).toBe("loading")
+
+    await renderWith("loading-more", [item])
+    expect(resultRef.current!.mentionPopup.items).toEqual([item])
+    expect(resultRef.current!.mentionPresentation.status).toBe("loading-more")
+    expect(mocks.rankMention).toHaveBeenLastCalledWith(
+      [member()],
+      "channel",
+      "ad",
+    )
+
+    await renderWith("ready", [item])
+    expect(resultRef.current!.mentionPresentation.status).toBe("ready")
+
+    await renderWith("ready", [])
+    expect(resultRef.current!.mentionPopup.items).toEqual([])
+    expect(resultRef.current!.mentionPresentation.status).toBe("empty")
+
+    await renderWith("empty", [])
+    expect(mocks.rankMention).toHaveBeenLastCalledWith(
+      [member()],
+      "channel",
+      "ad",
+    )
+    expect(resultRef.current!.mentionPopup.items).toEqual([])
+    expect(resultRef.current!.mentionPresentation.status).toBe("empty")
+  })
+
   it("keeps channel state when only serverName changes and resets both popups", async () => {
     const resultRef: { current: Result | null } = { current: null }
     let renderer!: TestRenderer.ReactTestRenderer

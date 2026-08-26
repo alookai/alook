@@ -428,11 +428,8 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
         )
         if (searchSeq.current !== seq) return
         setSearchOverlay((current) => {
-          if (!current || current.serverId !== serverId || current.query !== q) {
-            return current
-          }
           const members = cursor
-            ? mergeMemberSearchPage(current.members, data.members)
+            ? mergeMemberSearchPage(current!.members, data.members)
             : data.members
           return {
             serverId: serverId!,
@@ -449,10 +446,7 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
           setSearchOverlay((current) => ({
             serverId: serverId!,
             query: q,
-            members:
-              current?.serverId === serverId && current.query === q
-                ? current.members
-                : [],
+            members: current!.members,
             status: "error",
           }))
           toastApiError(e, "Search failed")
