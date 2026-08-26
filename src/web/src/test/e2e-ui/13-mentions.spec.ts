@@ -1,4 +1,4 @@
-import { test, expect, userId } from "./_fixtures/community-fixture"
+import { test, expect, userId, userName } from "./_fixtures/community-fixture"
 import { tid } from "./_fixtures/testids"
 import { composerEditable } from "./_fixtures/actions"
 import {
@@ -21,6 +21,7 @@ import {
 // its own auto-assigned discriminator — so the same journey exercises the
 // spaced-name pill and the same-name disambiguation.
 test.describe.serial("mentions — mandatory discriminator", () => {
+  const identityKeys = ["alice", "bob", "carol"] as const
   let serverId: string
   let channelId: string
   let bob: { id: string; discriminator: string }
@@ -38,6 +39,26 @@ test.describe.serial("mentions — mandatory discriminator", () => {
     // Distinct discriminators are what the disambiguation hinges on — if the
     // two happened to collide the journey couldn't prove per-user resolution.
     expect(bob.discriminator).not.toBe(carol.discriminator)
+  })
+
+  test.afterAll(async () => {
+    const restorations = await Promise.allSettled(identityKeys.map(async (key) => {
+      await renameUser(key, userName(key))
+      return key
+    }))
+    const verifiedMembers = await Promise.allSettled(identityKeys.map(async (key) => {
+      const member = await memberInfo("alice", serverId, userId(key))
+      return { key, name: member.name }
+    }))
+
+    expect(restorations).toEqual(identityKeys.map((key) => ({
+      status: "fulfilled",
+      value: key,
+    })))
+    expect(verifiedMembers).toEqual(identityKeys.map((key) => ({
+      status: "fulfilled",
+      value: { key, name: userName(key) },
+    })))
   })
 
   // Types `@John`, waits for the popup, and picks the member whose row id is
