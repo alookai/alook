@@ -585,6 +585,23 @@ describe("WebSocketDurableObject", () => {
       expect(mockGetChannelForMember).not.toHaveBeenCalled()
     })
 
+    it("ignores array frames without treating them as connection controls", async () => {
+      const { durable } = createDO()
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "user",
+        userId: "user-42",
+        targetUserId: "user-42",
+        authenticated: true,
+      })
+
+      await durable.webSocketMessage(ws as any, JSON.stringify([]))
+
+      expect(ws.send).not.toHaveBeenCalled()
+      expect(ws.close).not.toHaveBeenCalled()
+      expect(mockGetChannelForMember).not.toHaveBeenCalled()
+    })
+
     it("consumes connection validation frames from authenticated non-user sockets", async () => {
       const { durable } = createDO()
       const ws = createMockWebSocket()
