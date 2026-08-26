@@ -156,6 +156,29 @@ describe("GET /api/community/channels/[id]/threads", () => {
     expect(mockListMessages).not.toHaveBeenCalled()
   })
 
+  it("keeps non-forum child collections unchanged without querying archive tags", async () => {
+    mockResolveChannelAccessContext.mockResolvedValue({
+      channel: { id: "c1", serverId: "s1", parentChannelId: null, creatorId: null, type: "text" },
+      anchor: { id: "c1", serverId: "s1", parentChannelId: null, creatorId: null, type: "text" },
+      role: "member",
+      isPrivate: false,
+      isChannelMember: false,
+    })
+    mockListChildChannels.mockResolvedValue([
+      { id: "thread_1", parentMessageId: "opener_1" },
+      { id: "thread_2", parentMessageId: null },
+    ])
+
+    const res = await GET(req(), ctx)
+
+    expect(res.status).toBe(200)
+    expect((await res.json()).threads).toEqual([
+      { id: "thread_1", parentMessageId: "opener_1" },
+      { id: "thread_2", parentMessageId: null },
+    ])
+    expect(mockFilterMessageIdsByTag).not.toHaveBeenCalled()
+  })
+
   it("filters only the scoped child opener candidates for a normalized tag", async () => {
     mockListChildChannels.mockResolvedValue([
       { id: "post_1", parentMessageId: "opener_1" },
@@ -171,6 +194,28 @@ describe("GET /api/community/channels/[id]/threads", () => {
     expect(mockFilterMessageIdsByTag).toHaveBeenNthCalledWith(1, expect.anything(), ["opener_1", "opener_2"], "archived")
     expect(mockFilterMessageIdsByTag).toHaveBeenNthCalledWith(2, expect.anything(), ["opener_1", "opener_2"], "bug")
     expect((await res.json()).threads).toEqual([{ id: "post_2", parentMessageId: "opener_2" }])
+  })
+
+  it("reuses the archive opener set for the legacy Archived tag filter", async () => {
+    mockListChildChannels.mockResolvedValue([
+      { id: "post_1", parentMessageId: "opener_1" },
+      { id: "post_2", parentMessageId: "opener_2" },
+      { id: "plain_thread", parentMessageId: null },
+    ])
+    mockFilterMessageIdsByTag.mockResolvedValueOnce(["opener_1"])
+
+    const res = await GET(req(
+      "http://localhost/api/community/channels/c1/threads?tag=%20ARCHIVED%20",
+    ), ctx)
+
+    expect(res.status).toBe(200)
+    expect(mockFilterMessageIdsByTag).toHaveBeenCalledTimes(1)
+    expect(mockFilterMessageIdsByTag).toHaveBeenCalledWith(
+      expect.anything(),
+      ["opener_1", "opener_2"],
+      "archived",
+    )
+    expect((await res.json()).threads).toEqual([{ id: "post_1", parentMessageId: "opener_1" }])
   })
 
   it("rejects an empty tag before querying message_tags", async () => {
