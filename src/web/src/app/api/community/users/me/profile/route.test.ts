@@ -83,7 +83,12 @@ describe("GET /api/community/users/me/profile", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     actorKind = "human"
-    getUser.mockResolvedValue({ id: "u1", discriminator: "4242", image: "/api/community/users/u1/avatar" })
+    getUser.mockResolvedValue({
+      id: "u1",
+      name: "Jane Roe",
+      discriminator: "4242",
+      image: "/api/community/users/u1/avatar",
+    })
   })
 
   it("returns defaults when no profile row exists", async () => {
@@ -95,12 +100,13 @@ describe("GET /api/community/users/me/profile", () => {
       avatar: "/api/community/users/u1/avatar",
       bannerColor: null,
       discriminator: "4242",
+      name: "Jane Roe",
       statusEmoji: null,
       statusText: "",
     })
   })
 
-  it("returns the stored profile fields when they exist", async () => {
+  it("returns the canonical user name and stored profile fields when they exist", async () => {
     getProfile.mockResolvedValue({ aboutMe: "hi", bannerColor: "#aabbcc", statusEmoji: "🎧", statusText: "Vibing" })
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/profile"), {} as never)
     expect(await res.json()).toEqual({
@@ -108,6 +114,7 @@ describe("GET /api/community/users/me/profile", () => {
       avatar: "/api/community/users/u1/avatar",
       bannerColor: "#aabbcc",
       discriminator: "4242",
+      name: "Jane Roe",
       statusEmoji: "🎧",
       statusText: "Vibing",
     })
@@ -122,6 +129,7 @@ describe("GET /api/community/users/me/profile", () => {
       avatar: "",
       bannerColor: null,
       discriminator: "0000",
+      name: "",
       statusEmoji: null,
       statusText: "",
     })

@@ -33,6 +33,7 @@ export const GET = withCommunityActor(async (_req, ctx) => {
     avatar: viewer?.image ?? "",
     bannerColor: profile?.bannerColor ?? null,
     discriminator: viewer?.discriminator ?? "0000",
+    name: viewer?.name ?? "",
     statusEmoji: profile?.statusEmoji ?? null,
     statusText: profile?.statusText ?? "",
   })
