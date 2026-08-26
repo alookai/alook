@@ -2,9 +2,8 @@ import type { Frame } from "@playwright/test"
 import { test, expect, userId, userName } from "./_fixtures/community-fixture"
 import { tid } from "./_fixtures/testids"
 import { sendMessage } from "./_fixtures/actions"
+import { proxyCommunityWebSockets } from "./_fixtures/community-ws-proxy"
 import { seedDm, seedBlock, seedDmMessage } from "./_fixtures/seed"
-
-const DM_ROUTE_AUTHORITY_HEADER = "x-alook-dm-route-verification"
 
 // Journey 4 — DMs. human↔human needs only not-blocked (no friendship). Covers
 // the new-conversation-appears-live path and the blocked-composer regression.
@@ -18,24 +17,32 @@ test.describe.serial("direct messages", () => {
     await bob.page.goto("/c/me")
     expect((await initialDms).status()).toBe(200)
 
-    let postClickAuthorityGets = 0
+    let releaseCanonical!: () => void
+    let canonicalFinished!: () => void
+    const canonicalGate = new Promise<void>((resolve) => { releaseCanonical = resolve })
+    const canonicalSettled = new Promise<void>((resolve) => { canonicalFinished = resolve })
+    let dmsGets = 0
     const dmsPattern = "**/api/community/users/me/dms"
     await bob.page.route(dmsPattern, async (route) => {
       if (route.request().method() !== "GET") {
         await route.continue()
         return
       }
-      if (route.request().headers()[DM_ROUTE_AUTHORITY_HEADER] !== "1") {
+      dmsGets += 1
+      try {
+        await canonicalGate
         await route.continue()
-        return
+      } catch (error) {
+        if (!(error instanceof Error && error.message.includes("already handled"))) throw error
+      } finally {
+        canonicalFinished()
       }
-      postClickAuthorityGets += 1
-      await route.continue()
     })
 
     const dmId = await seedDm("alice", userId("bob"))
     const body = `first inbox DM ${Date.now()}`
     const messageId = await seedDmMessage("alice", dmId, body)
+    await expect.poll(() => dmsGets).toBe(1)
     const routeHistory: string[] = []
     const recordRoute = (frame: Frame) => {
       if (frame === bob.page.mainFrame()) routeHistory.push(new URL(frame.url()).pathname)
@@ -46,6 +53,7 @@ test.describe.serial("direct messages", () => {
       await bob.page.getByRole("button", { name: "Inbox" }).click()
       const inboxRow = bob.page.getByTestId(tid.inboxUnreadDm(dmId))
       await expect(inboxRow).toBeVisible({ timeout: 20_000 })
+      const dmsGetsBeforeClick = dmsGets
       await inboxRow.click()
 
       await bob.page.waitForURL(new RegExp(`/c/me/${dmId}$`), {
@@ -62,8 +70,10 @@ test.describe.serial("direct messages", () => {
       await expect(bob.page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
       await expect(bob.page).toHaveURL(new RegExp(`/c/me/${dmId}$`))
       expect(routeHistory).not.toContain("/c/me")
-      expect(postClickAuthorityGets).toBe(0)
+      expect(dmsGets - dmsGetsBeforeClick).toBe(0)
     } finally {
+      releaseCanonical()
+      await canonicalSettled
       bob.page.off("framenavigated", recordRoute)
       await bob.page.unroute(dmsPattern)
     }
@@ -74,14 +84,15 @@ test.describe.serial("direct messages", () => {
     const body = `held DM message ${Date.now()}`
     const messageId = await seedDmMessage("bob", dmId, body)
     const alice = await asUser("alice")
-    let canonicalDmsGets = 0
-    let authorityGets = 0
+    const wsProxy = await proxyCommunityWebSockets(alice.context, {
+      decideConnectionFrame: (frame) => frame.type === "auth.ok" ? "hold" : "forward",
+    })
+    let dmsGets = 0
     const interactiveMutations: string[] = []
     alice.page.on("request", (request) => {
       const pathname = new URL(request.url()).pathname
       if (request.method() === "GET" && pathname === "/api/community/users/me/dms") {
-        if (request.headers()[DM_ROUTE_AUTHORITY_HEADER] === "1") authorityGets += 1
-        else canonicalDmsGets += 1
+        dmsGets += 1
       }
       if (request.method() !== "GET" && pathname.startsWith(`/api/community/channels/${dmId}`)) {
         interactiveMutations.push(`${request.method()} ${pathname}`)
@@ -147,8 +158,8 @@ test.describe.serial("direct messages", () => {
       })).toBeVisible()
       await expect(alice.page.getByTestId(tid.composerInput)).toBeVisible()
       await expect(alice.page.getByTestId(tid.messageScroller).locator('[data-slot="skeleton"]')).not.toHaveCount(0)
-      expect(canonicalDmsGets).toBeGreaterThanOrEqual(1)
-      expect(authorityGets).toBe(0)
+      await expect.poll(() => wsProxy.heldConnectionCount()).toBe(1)
+      expect(dmsGets).toBe(1)
       expect(interactiveMutations).toEqual([])
 
       releaseMessages()
@@ -167,22 +178,23 @@ test.describe.serial("direct messages", () => {
 
   test("an absent DM verifies once per attempt and exposes transient Retry locally", async ({ asUser }) => {
     const alice = await asUser("alice")
+    const wsProxy = await proxyCommunityWebSockets(alice.context, {
+      decideConnectionFrame: (frame) => frame.type === "auth.ok" ? "hold" : "forward",
+    })
     const missingDmId = `dm-missing-${Date.now()}`
-    let canonicalDmsGets = 0
-    let authorityGets = 0
+    let dmsGets = 0
     const dmsPattern = "**/api/community/users/me/dms"
     await alice.page.route(dmsPattern, async (route) => {
       if (route.request().method() !== "GET") {
         await route.continue()
         return
       }
-      if (route.request().headers()[DM_ROUTE_AUTHORITY_HEADER] !== "1") {
-        canonicalDmsGets += 1
+      dmsGets += 1
+      if (dmsGets === 1) {
         await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ conversations: [] }) })
         return
       }
-      authorityGets += 1
-      if (authorityGets === 1) {
+      if (dmsGets === 2) {
         await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "temporary" }) })
         return
       }
@@ -195,11 +207,11 @@ test.describe.serial("direct messages", () => {
         hasText: "Couldn\'t verify this conversation",
       })).toBeVisible()
       await expect(alice.page).toHaveURL(new RegExp(`/c/me/${missingDmId}$`))
-      expect(canonicalDmsGets).toBeGreaterThanOrEqual(1)
-      expect(authorityGets).toBe(1)
+      await expect.poll(() => wsProxy.heldConnectionCount()).toBe(1)
+      expect(dmsGets).toBe(2)
 
       await alice.page.getByRole("button", { name: "Retry" }).click()
-      await expect.poll(() => authorityGets).toBe(2)
+      await expect.poll(() => dmsGets).toBe(3)
       await expect.poll(() => new URL(alice.page.url()).pathname).toBe("/c/me/friends")
     } finally {
       await alice.page.unroute(dmsPattern)

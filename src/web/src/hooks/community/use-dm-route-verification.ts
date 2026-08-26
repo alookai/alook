@@ -7,11 +7,8 @@ import { communityKeys } from "@/lib/query-keys"
 import type { DM } from "@/lib/community/models/people"
 import type { DmsResponse } from "./use-dms"
 
-export const DM_ROUTE_AUTHORITY_HEADER = "X-Alook-DM-Route-Verification"
-
 const dmRouteAuthorityQueryFn = () => apiFetch<DmsResponse>(
   "/api/community/users/me/dms",
-  { headers: { [DM_ROUTE_AUTHORITY_HEADER]: "1" } },
 )
 
 export type DmRouteVerification = "present" | "missing" | "denied"

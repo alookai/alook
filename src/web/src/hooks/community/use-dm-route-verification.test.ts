@@ -7,7 +7,6 @@ import type { DM } from "@/lib/community/models/people"
 import {
   classifyDmRouteAuthorityError,
   startDmRouteVerification,
-  DM_ROUTE_AUTHORITY_HEADER,
   useDmRouteVerification,
   type DmRouteVerificationResult,
   type DmRouteVerificationStatus,
@@ -113,10 +112,7 @@ describe("DM route verification", () => {
     expect(first).toBe("present")
     expect(second).toBe("present")
     expect(apiFetchMock).toHaveBeenCalledTimes(1)
-    expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/community/users/me/dms",
-      { headers: { [DM_ROUTE_AUTHORITY_HEADER]: "1" } },
-    )
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/dms")
     expect(queryClient.getQueryData(communityKeys.dms())).toEqual(authoritative)
   })
 
