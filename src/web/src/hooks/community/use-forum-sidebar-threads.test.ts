@@ -372,12 +372,12 @@ describe("useForumSidebarThreads", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1) })
     expect(queryClient.getQueryData<ForumSidebarQueryData>(key)?.threads).toEqual([])
     expect(JSON.stringify(queryClient.getQueryData(key))).not.toContain("thread-1")
-    expect(queryClient.getQueryState(
+    expect(queryClient.getQueryData(
       communityKeys.channelMeta("server-1", "thread-1"),
-    )).toBeUndefined()
-    expect(queryClient.getQueryState(
+    )).toMatchObject({ id: "thread-1", parentChannelId: "forum-1" })
+    expect(queryClient.getQueryData(
       communityKeys.forumOpenerHint("server-1", "opener-thread-1"),
-    )).toBeUndefined()
+    )).toEqual({ id: "opener-thread-1", content: "title-thread-1" })
     expect(renders.at(-1)).toEqual([])
     renderer!.unmount()
   })
@@ -537,10 +537,12 @@ describe("useForumSidebarThreads", () => {
 })
 
 describe("forum sidebar Stage B resources", () => {
-  it("does not retain known top-level routes and keeps an unknown direct child candidate", () => {
-    expect(resolveForumSidebarRouteCandidate("general", ["general", "forum"])).toBeNull()
-    expect(resolveForumSidebarRouteCandidate("post-1", ["general", "forum"])).toBe("post-1")
-    expect(resolveForumSidebarRouteCandidate("post-1", null)).toBeNull()
+  it("retains only child routes whose exact metadata confirms a forum parent", () => {
+    expect(resolveForumSidebarRouteCandidate("general", ["general", "forum"], true)).toBeNull()
+    expect(resolveForumSidebarRouteCandidate("post-1", ["general", "forum"], true)).toBe("post-1")
+    expect(resolveForumSidebarRouteCandidate("thread-1", ["general", "forum"], false)).toBeNull()
+    expect(resolveForumSidebarRouteCandidate("post-1", ["general", "forum"], null)).toBeNull()
+    expect(resolveForumSidebarRouteCandidate("post-1", null, true)).toBeNull()
   })
 
   it("requires positive forum ownership evidence", () => {
@@ -1083,7 +1085,7 @@ describe("forum sidebar Stage B resources", () => {
     )).toEqual({ id: "post-2" })
   })
 
-  it("clears stale metadata and opener content when the retained candidate is unauthorized", async () => {
+  it("clears a negative retained projection without deleting exact route metadata", async () => {
     apiFetchMock.mockResolvedValue({
       ...envelope([]),
       canonicalChannels: [],
@@ -1143,12 +1145,12 @@ describe("forum sidebar Stage B resources", () => {
     expect(queryClient.getQueryData(
       communityKeys.forumSidebarRetained("server-1", "private-post"),
     )).toBeNull()
-    expect(queryClient.getQueryState(
+    expect(queryClient.getQueryData(
       communityKeys.channelMeta("server-1", "private-post"),
-    )).toBeUndefined()
-    expect(queryClient.getQueryState(
+    )).toMatchObject({ id: "private-post", parentChannelId: "forum-1" })
+    expect(queryClient.getQueryData(
       communityKeys.forumOpenerHint("server-1", "private-opener"),
-    )).toBeUndefined()
+    )).toEqual({ id: "private-opener", content: "Private title" })
     expect(queryClient.getQueryData<ServerDetail>(
       communityKeys.server("server-1"),
     )?.forumUnreadState?.["forum-1"]).toEqual({ baseUnread: true, childIds: [] })
@@ -1156,6 +1158,68 @@ describe("forum sidebar Stage B resources", () => {
     expect(queryClient.getQueryData<ForumSidebarUnreadFallbackState>(
       communityKeys.forumSidebarUnreadFallbacks("server-1"),
     )).toEqual({})
+    renderer!.unmount()
+  })
+
+  it("settles an active negative retained query without restarting it", async () => {
+    apiFetchMock.mockResolvedValue({
+      ...envelope([]),
+      canonicalChannels: [],
+      retainedChannel: null,
+    })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const accessEpoch = useCommunityWsStore.getState().accessEpoch
+    const base = normalizeForumSidebarEnvelope(envelope([]), null).base
+    queryClient.setQueryData(
+      communityKeys.forumSidebarThreads("server-1"),
+      { ...base, verifiedEpoch: accessEpoch },
+    )
+    queryClient.setQueryData(
+      communityKeys.channelMeta("server-1", "private-post"),
+      {
+        id: "private-post",
+        serverId: "server-1",
+        name: "Private post",
+        type: "thread",
+        parentChannelId: "forum-1",
+        parentMessageId: "private-opener",
+        creatorId: "user-1",
+        archived: false,
+        activityAt: "2026-08-08T00:00:00.000Z",
+        verifiedEpoch: accessEpoch,
+      },
+    )
+    queryClient.setQueryData(
+      communityKeys.forumOpenerHint("server-1", "private-opener"),
+      { id: "private-opener", content: "Private title" },
+    )
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(Capture, { retainId: "private-post", onRender: () => undefined }),
+        ),
+      )
+    })
+    await waitFor(() => queryClient.getQueryState(
+      communityKeys.forumSidebarRetained("server-1", "private-post"),
+    )?.status === "success")
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    expect(apiFetchMock).toHaveBeenCalledTimes(1)
+    expect(queryClient.getQueryData(
+      communityKeys.forumSidebarRetained("server-1", "private-post"),
+    )).toBeNull()
+    expect(queryClient.getQueryData(
+      communityKeys.channelMeta("server-1", "private-post"),
+    )).toMatchObject({ id: "private-post", parentChannelId: "forum-1" })
+    expect(queryClient.getQueryData(
+      communityKeys.forumOpenerHint("server-1", "private-opener"),
+    )).toEqual({ id: "private-opener", content: "Private title" })
     renderer!.unmount()
   })
 

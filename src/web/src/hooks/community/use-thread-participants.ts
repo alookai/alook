@@ -3,10 +3,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import { useCommunityStore } from "@/stores/community"
 import {
   grantForumSidebarChild,
-  removeForumSidebarThreadExact,
+  removeForumSidebarProjectionExact,
   removeForumSidebarUnreadChild,
 } from "@/hooks/community/use-forum-sidebar-threads"
 
@@ -57,15 +56,7 @@ export function useRemoveThreadParticipant(
       if (serverId && userId === viewerUserId) {
         if (forumSidebar) {
           removeForumSidebarUnreadChild(qc, serverId, channelId)
-          removeForumSidebarThreadExact(qc, serverId, channelId)
-        } else {
-          qc.removeQueries({
-            queryKey: communityKeys.channelMeta(serverId, channelId),
-            exact: true,
-          })
-        }
-        if (useCommunityStore.getState().currentChannelId === channelId) {
-          useCommunityStore.getState().setCurrentChannelMeta(null)
+          removeForumSidebarProjectionExact(qc, serverId, channelId)
         }
       }
     },

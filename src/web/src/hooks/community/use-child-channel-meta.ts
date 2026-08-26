@@ -4,10 +4,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type {
-  ChildChannelMeta,
-  ForumSidebarQueryData,
-} from "@/hooks/community/use-forum-sidebar-threads"
+import type { ChildChannelMeta } from "@/hooks/community/use-forum-sidebar-threads"
 import { useCommunityWsStore } from "@/stores/community/ws"
 
 type ChannelMetaPayload = {
@@ -57,11 +54,6 @@ export function useChildChannelMeta(
   enabled: boolean,
 ) {
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
-  const sidebar = useQuery<ForumSidebarQueryData>({
-    queryKey: communityKeys.forumSidebarThreads(serverId),
-    queryFn: () => Promise.reject(new Error("forum sidebar observer only")),
-    enabled: false,
-  })
   const query = useQuery<ChildChannelMeta>({
     queryKey: communityKeys.channelMeta(serverId, channelId),
     queryFn: async () => {
@@ -71,9 +63,7 @@ export function useChildChannelMeta(
         requestEpoch,
       )
     },
-    enabled: enabled && (
-      (sidebar.isSuccess && sidebar.fetchStatus === "idle") || sidebar.isError
-    ),
+    enabled,
     staleTime: Infinity,
     gcTime: 5 * 60 * 1000,
   })

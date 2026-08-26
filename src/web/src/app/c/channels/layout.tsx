@@ -121,10 +121,17 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     return isForum(parent?.type) ? currentChannelId : null
   }, [currentChannelId, currentChannelMeta?.parentChannelId, currentServer])
   const sidebarRouteCandidate = useMemo(() => {
-    const topLevelIds = currentServer?.categories
-      ?.flatMap((category) => category.channels.map((channel) => channel.id)) ?? null
-    return resolveForumSidebarRouteCandidate(routeChannelId, topLevelIds)
-  }, [routeChannelId, currentServer])
+    const topLevelChannels = currentServer?.categories
+      ?.flatMap((category) => category.channels) ?? null
+    const parent = currentChannelId === routeChannelId && currentChannelMeta?.parentChannelId
+      ? topLevelChannels?.find((channel) => channel.id === currentChannelMeta.parentChannelId)
+      : null
+    return resolveForumSidebarRouteCandidate(
+      routeChannelId,
+      topLevelChannels?.map((channel) => channel.id) ?? null,
+      isForum(parent?.type),
+    )
+  }, [currentChannelId, currentChannelMeta?.parentChannelId, currentServer, routeChannelId])
   const forumSidebar = useForumSidebarThreads(
     serverId,
     sidebarRouteCandidate,

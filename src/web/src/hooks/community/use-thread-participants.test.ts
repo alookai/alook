@@ -53,7 +53,9 @@ beforeEach(() => {
 describe("useRemoveThreadParticipant", () => {
   it("removes the child from every sidebar view when the viewer leaves", async () => {
     const key = communityKeys.forumSidebarThreads("server_1")
+    const metaKey = communityKeys.channelMeta("server_1", "post_1")
     queryClient.setQueryData(key, sidebarData())
+    queryClient.setQueryData(metaKey, { id: "post_1", parentChannelId: "forum_1" })
     const { useRemoveThreadParticipant } = await import("./use-thread-participants")
     useRemoveThreadParticipant("post_1", "server_1", "viewer_1")
 
@@ -65,6 +67,7 @@ describe("useRemoveThreadParticipant", () => {
       { method: "DELETE" },
     )
     expect(queryClient.getQueryData<ReturnType<typeof sidebarData>>(key)?.threads).toEqual([])
+    expect(queryClient.getQueryData(metaKey)).toEqual({ id: "post_1", parentChannelId: "forum_1" })
   })
 
   it("keeps the viewer's sidebar row when the creator removes someone else", async () => {
@@ -119,7 +122,7 @@ describe("useRemoveThreadParticipant", () => {
     expect(queryClient.getQueryData(baseKey)).toBe(before.base)
     expect(queryClient.getQueryState(baseKey)?.isInvalidated).toBe(false)
     expect(queryClient.getQueryData(retainedKey)).toBe(before.retained)
-    expect(queryClient.getQueryState(metaKey)).toBeUndefined()
+    expect(queryClient.getQueryData(metaKey)).toBe(before.meta)
     expect(queryClient.getQueryData(hintKey)).toBe(before.hint)
   })
 })
