@@ -64,7 +64,7 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
   // row alongside the community profile fields.
   const currentUserId = currentUser.id
   useEffect(() => {
-    apiFetch<{ aboutMe: string; avatar: string; discriminator: string; statusEmoji: string | null; statusText: string }>(
+    apiFetch<{ aboutMe: string; avatar: string; discriminator: string; name: string; statusEmoji: string | null; statusText: string }>(
       "/api/community/users/me/profile",
     )
       .then((data) => {
@@ -73,6 +73,7 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
           aboutMe: data.aboutMe,
           avatar: data.avatar || u.avatar,
           discriminator: data.discriminator,
+          name: data.name || u.name,
           statusEmoji: data.statusEmoji,
           statusText: data.statusText,
         }))
