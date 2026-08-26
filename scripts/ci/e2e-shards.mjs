@@ -40,6 +40,7 @@ export const SPEC_SECONDS = {
   "29-multi-device-read-state.spec.ts": 45,
   "30-bot-profile-audit-preview.spec.ts": 35,
   "31-mention-candidate-pagination.spec.ts": 10,
+  "32-mobile-ws-foreground-validation.spec.ts": 80,
 }
 
 function walk(directory) {

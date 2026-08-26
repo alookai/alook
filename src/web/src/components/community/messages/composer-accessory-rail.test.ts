@@ -236,6 +236,32 @@ describe("ComposerAccessoryRail", () => {
     expect(reconnectNow).toHaveBeenCalledOnce()
   })
 
+  it("stays absent during validation, then replaces outage controls and removes them on recovery", () => {
+    const renderer = render({ scrollCount: 0, typingNames: [] })
+    expect(renderer.root.findAllByProps({ "data-testid": tid.composerAccessoryRail })).toHaveLength(0)
+
+    act(() => useCommunityWsStore.getState().setConnectionStatus("reconnecting"))
+    const status = renderer.root.findByProps({ "data-testid": tid.wsStatus })
+    expect(status.props).toMatchObject({
+      "data-ws-status": "reconnecting",
+      "aria-label": "WebSocket reconnecting",
+    })
+    expect(renderer.root.findAllByProps({ "data-testid": tid.wsRetry })).toHaveLength(0)
+
+    act(() => useCommunityWsStore.getState().setConnectionStatus("failed"))
+    const retry = renderer.root.findByProps({ "data-testid": tid.wsRetry })
+    expect(retry.props).toMatchObject({
+      "data-ws-status": "failed",
+      "aria-label": "WebSocket connection failed. Retry now",
+    })
+    expect(renderer.root.findAllByProps({ "data-testid": tid.wsStatus })).toHaveLength(0)
+
+    act(() => useCommunityWsStore.getState().setConnectionStatus("connected"))
+    expect(renderer.root.findAllByProps({ "data-testid": tid.wsStatus })).toHaveLength(0)
+    expect(renderer.root.findAllByProps({ "data-testid": tid.wsRetry })).toHaveLength(0)
+    expect(renderer.root.findAllByProps({ "data-testid": tid.composerAccessoryRail })).toHaveLength(0)
+  })
+
   it("replaces scroll with selection controls and preserves desktop typing", () => {
     const renderer = render({ selectMode: true, selectedCount: 3 })
     const rail = renderer.root.findByProps({ "data-testid": tid.composerAccessoryRail })

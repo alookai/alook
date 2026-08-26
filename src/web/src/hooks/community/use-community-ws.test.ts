@@ -125,6 +125,32 @@ describe("useCommunityWs — connection status publication", () => {
     vi.advanceTimersByTime(COMMUNITY_WS_RECONNECTING_GRACE_MS)
     expect(useCommunityWsStore.getState().connectionStatus).toBe("reconnecting")
   })
+
+  it("keeps resume validation quiet until transport failure and clears recovery once", async () => {
+    vi.useFakeTimers()
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    await mountHook()
+    flushEffects()
+
+    capturedConnectionStateChange!("reconnecting")
+    capturedConnectionStateChange!("authenticated")
+    capturedConnectionStateChange!("suspended")
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS + 1)
+    expect(useCommunityWsStore.getState().connectionStatus).toBe("connected")
+
+    capturedConnectionStateChange!("authenticated")
+    expect(useCommunityWsStore.getState().connectionStatus).toBe("connected")
+
+    capturedConnectionStateChange!("reconnecting")
+    expect(useCommunityWsStore.getState().connectionStatus).toBe("reconnecting")
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS)
+    expect(useCommunityWsStore.getState().connectionStatus).toBe("failed")
+
+    capturedConnectionStateChange!("authenticated")
+    expect(useCommunityWsStore.getState().connectionStatus).toBe("connected")
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS)
+    expect(useCommunityWsStore.getState().connectionStatus).toBe("connected")
+  })
 })
 
 describe("useCommunityWs — double-mount detection", () => {

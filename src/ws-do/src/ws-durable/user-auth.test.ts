@@ -521,6 +521,89 @@ describe("WebSocketDurableObject", () => {
 
 
   describe("webSocketMessage — auth flow", () => {
+    it("echoes an exact connection nonce only for an authenticated user", async () => {
+      const { durable } = createDO()
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "user",
+        userId: "user-42",
+        targetUserId: "user-42",
+        authenticated: true,
+      })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "connection.ping", nonce: "resume_123" }),
+      )
+
+      expect(ws.send).toHaveBeenCalledOnce()
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+        type: "connection.pong",
+        nonce: "resume_123",
+      }))
+      expect(ws.close).not.toHaveBeenCalled()
+    })
+
+    it("closes a pre-authenticated connection validation request", async () => {
+      const { durable } = createDO()
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "user",
+        userId: "",
+        targetUserId: "user-42",
+        authenticated: false,
+      })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "connection.ping", nonce: "resume_123" }),
+      )
+
+      expect(ws.close).toHaveBeenCalledWith(1008, "Not authenticated")
+      expect(ws.send).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      { type: "connection.ping", nonce: "" },
+      { type: "connection.ping", nonce: "resume_123", extra: true },
+      { type: "connection.ping", nonce: "a".repeat(65) },
+      { type: "connection.pong", nonce: "resume_123" },
+    ])("consumes invalid or client-response control frame %#", async (frame) => {
+      const { durable } = createDO()
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "user",
+        userId: "user-42",
+        targetUserId: "user-42",
+        authenticated: true,
+      })
+
+      await durable.webSocketMessage(ws as any, JSON.stringify(frame))
+
+      expect(ws.send).not.toHaveBeenCalled()
+      expect(ws.close).not.toHaveBeenCalled()
+      expect(mockGetChannelForMember).not.toHaveBeenCalled()
+    })
+
+    it("consumes connection validation frames from authenticated non-user sockets", async () => {
+      const { durable } = createDO()
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "daemon",
+        daemonId: "daemon-1",
+        userId: "user-42",
+        authenticated: true,
+      })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "connection.ping", nonce: "resume_123" }),
+      )
+
+      expect(ws.send).not.toHaveBeenCalled()
+      expect(ws.close).not.toHaveBeenCalled()
+    })
+
     it("authenticates with valid token and sends auth.ok", async () => {
       const { durable } = createDO()
       mockGetValidSessionWithIdentity.mockResolvedValue({ userId: "user-42", name: "Ana", discriminator: "0012" })
