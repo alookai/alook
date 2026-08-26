@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
 const DIGEST = "a".repeat(64)
@@ -14,6 +14,7 @@ const mockImagesInfo = vi.fn()
 const mockImagesInput = vi.fn()
 const mockImagesTransform = vi.fn()
 const mockImagesOutput = vi.fn()
+const mockLogError = vi.fn()
 let includeKv = true
 let includeImages = true
 
@@ -23,6 +24,10 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 vi.mock("@/lib/rate-limit", () => ({
   checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+}))
+
+vi.mock("@/lib/logger", () => ({
+  log: { error: (...args: unknown[]) => mockLogError(...args) },
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
@@ -47,6 +52,11 @@ vi.mock("@/lib/middleware/auth", () => ({
 }))
 
 import { GET } from "./route"
+
+afterEach(() => {
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+})
 
 function stream(bytes: Uint8Array, cancel?: () => void): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
@@ -138,6 +148,7 @@ describe("GET /api/community/link-preview/thumbnail/[digest]", () => {
     expect(mockR2Get).not.toHaveBeenCalled()
     expect(mockCheckRateLimit).not.toHaveBeenCalled()
     expect(fetch).not.toHaveBeenCalled()
+    expect(mockLogError).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -165,6 +176,10 @@ describe("GET /api/community/link-preview/thumbnail/[digest]", () => {
     expect(response.headers.get("cache-control")).toBe("no-store")
     expect(mockCheckRateLimit).not.toHaveBeenCalled()
     expect(fetch).not.toHaveBeenCalled()
+    expect(mockLogError).toHaveBeenCalledWith("link_preview_thumbnail_failure", expect.objectContaining({
+      stage: "storage",
+      disposition: "transient",
+    }))
   })
 
   it("serves a valid R2 WebP hit without rate limiting, network, or Images work", async () => {
@@ -255,6 +270,10 @@ describe("GET /api/community/link-preview/thumbnail/[digest]", () => {
     expect(response.headers.get("cache-control")).toBe("no-store")
     expect(mockCheckRateLimit).not.toHaveBeenCalled()
     expect(fetch).not.toHaveBeenCalled()
+    expect(mockLogError).toHaveBeenCalledWith("link_preview_thumbnail_failure", expect.objectContaining({
+      stage: "storage",
+      disposition: "transient",
+    }))
   })
 
   it("honors the five-minute negative cache before rate limiting or outbound work", async () => {
@@ -305,7 +324,9 @@ describe("GET /api/community/link-preview/thumbnail/[digest]", () => {
       .mockResolvedValueOnce(manifestObject({ sourceDigest }))
       .mockResolvedValueOnce(null)
     mockKvGet.mockRejectedValueOnce(new Error("KV read unavailable"))
-    vi.mocked(fetch).mockRejectedValueOnce(new Error("origin unavailable"))
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), {
+      headers: { "content-type": "image/gif" },
+    }))
     mockKvPut.mockRejectedValueOnce(new Error("KV write unavailable"))
 
     const response = await request()
@@ -317,7 +338,34 @@ describe("GET /api/community/link-preview/thumbnail/[digest]", () => {
     await expect(backgroundWrite).resolves.toBeUndefined()
   })
 
-  it("folds upstream, transform, and R2 write failures into an image-only 404 and negative cache", async () => {
+  it("negative-caches a deterministic rejection while preserving the indistinguishable 404", async () => {
+    mockR2Get
+      .mockResolvedValueOnce(manifestObject({ sourceDigest }))
+      .mockResolvedValueOnce(null)
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), {
+      headers: { "content-type": "image/gif" },
+    }))
+
+    const response = await request()
+
+    expect(response.status).toBe(404)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(mockKvPut).toHaveBeenCalledOnce()
+    expect(mockKvPut).toHaveBeenCalledWith(
+      `link-preview-thumbnail-negative:v1:${DIGEST}:${sourceDigest}`,
+      "1",
+      { expirationTtl: 300 },
+    )
+    expect(mockWaitUntil).toHaveBeenCalledWith(expect.any(Promise))
+    expect(mockLogError).toHaveBeenCalledWith("link_preview_thumbnail_failure", expect.objectContaining({
+      stage: "source",
+      disposition: "deterministic",
+      errorCode: "source_mime",
+      pageDigestPrefix: DIGEST.slice(0, 12),
+    }))
+  })
+
+  it("does not negative-cache source, Images, or R2 transient failures", async () => {
     for (const fail of [
       () => vi.mocked(fetch).mockRejectedValueOnce(new Error("origin unavailable")),
       () => mockImagesInfo.mockRejectedValueOnce(new Error("decode failed")),
@@ -332,17 +380,66 @@ describe("GET /api/community/link-preview/thumbnail/[digest]", () => {
 
       expect(response.status).toBe(404)
       expect(response.headers.get("cache-control")).toBe("no-store")
-      expect(mockKvPut).toHaveBeenLastCalledWith(
-        `link-preview-thumbnail-negative:v1:${DIGEST}:${sourceDigest}`,
-        "1",
-        { expirationTtl: 300 },
-      )
-      expect(mockWaitUntil).toHaveBeenLastCalledWith(expect.any(Promise))
+      expect(mockKvPut).not.toHaveBeenCalled()
+      expect(mockWaitUntil).not.toHaveBeenCalled()
       vi.mocked(fetch).mockResolvedValue(new Response(new Uint8Array([1, 2, 3]), {
         headers: { "content-type": "image/jpeg" },
       }))
       mockImagesInfo.mockResolvedValue({ format: "image/jpeg", fileSize: 3, width: 1200, height: 630 })
       mockR2Put.mockResolvedValue(undefined)
     }
+    expect(mockLogError).toHaveBeenNthCalledWith(1, "link_preview_thumbnail_failure", expect.objectContaining({
+      stage: "source",
+      disposition: "transient",
+    }))
+    expect(mockLogError).toHaveBeenNthCalledWith(2, "link_preview_thumbnail_failure", expect.objectContaining({
+      stage: "inspect",
+      disposition: "transient",
+    }))
+    expect(mockLogError).toHaveBeenNthCalledWith(3, "link_preview_thumbnail_failure", expect.objectContaining({
+      stage: "storage",
+      disposition: "transient",
+    }))
+  })
+
+  it("bounds R2 persistence at two seconds and safely observes late rejection", async () => {
+    vi.useFakeTimers()
+    mockR2Get
+      .mockResolvedValueOnce(manifestObject({ sourceDigest }))
+      .mockResolvedValueOnce(null)
+    mockR2Put.mockImplementationOnce(() => new Promise((_resolve, reject) => {
+      setTimeout(() => reject(new Error("late R2 failure")), 3_000)
+    }))
+
+    const result = request()
+    await vi.waitFor(() => expect(mockR2Put).toHaveBeenCalledOnce(), { interval: 1, timeout: 100 })
+    await vi.advanceTimersByTimeAsync(2_000)
+    const response = await result
+
+    expect(response.status).toBe(404)
+    expect(mockKvPut).not.toHaveBeenCalled()
+    expect(mockLogError).toHaveBeenCalledWith("link_preview_thumbnail_failure", expect.objectContaining({
+      stage: "storage",
+      disposition: "transient",
+      errorCode: "storage_timeout",
+      elapsedMs: 2_000,
+    }))
+    await vi.advanceTimersByTimeAsync(1_000)
+  })
+
+  it("logs only sanitized stage evidence", async () => {
+    mockR2Get
+      .mockResolvedValueOnce(manifestObject({ sourceDigest }))
+      .mockResolvedValueOnce(null)
+    vi.mocked(fetch).mockRejectedValueOnce(new Error(`failed ${SOURCE} ${sourceDigest}`))
+
+    await request()
+
+    const serialized = JSON.stringify(mockLogError.mock.calls)
+    expect(serialized).toContain("link_preview_thumbnail_failure")
+    expect(serialized).toContain(DIGEST.slice(0, 12))
+    expect(serialized).not.toContain(SOURCE)
+    expect(serialized).not.toContain(sourceDigest)
+    expect(serialized).not.toContain(`link-preview-thumbnails/v1/${DIGEST}`)
   })
 })

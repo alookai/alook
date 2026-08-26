@@ -1,35 +1,72 @@
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { act, create, type ReactTestRenderer } from "react-test-renderer"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
 import { LinkPreviewCardView, linkPreviewStaleTime } from "./link-preview-card"
 
-describe("LinkPreviewCardView", () => {
-  it("renders a safe thumbnail in the shared Card as one external link without metadata", () => {
-    const html = renderToStaticMarkup(createElement(LinkPreviewCardView, {
-      preview: {
-        url: "https://github.com/alookai/alook/pull/511",
-        hostname: "github.com",
-        siteName: "GitHub",
-        title: "Pull Request #511",
-        description: "Rooms for people and agents.",
-        thumbnailUrl: "/api/community/link-preview/thumbnail/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      },
-    }))
+const THUMBNAIL_URL = `/api/community/link-preview/thumbnail/${"a".repeat(64)}`
+const PREVIEW = {
+  url: "https://github.com/alookai/alook/pull/511",
+  hostname: "github.com",
+  siteName: "GitHub",
+  title: "Pull Request #511",
+  description: "Rooms for people and agents.",
+  thumbnailUrl: THUMBNAIL_URL,
+}
 
-    expect(html).toContain('href="https://github.com/alookai/alook/pull/511"')
-    expect(html).toContain(`data-testid="${tid.linkPreviewCard}"`)
-    expect(html).toContain('target="_blank"')
-    expect(html).toContain('rel="noopener noreferrer"')
-    expect(html).toContain('aria-label="Open link preview: Pull Request #511"')
-    expect(html).toContain('data-slot="card"')
-    expect(html).toContain('class="pb-2"')
-    expect(html).toContain("w-full max-w-96")
-    expect(html).toContain("pointer-events-none absolute top-2 right-2")
-    expect(html).toContain('aria-hidden="true"')
-    expect(html).not.toContain(">GitHub<")
-    expect(html).not.toContain("Rooms for people and agents.")
+afterEach(() => {
+  vi.useRealTimers()
+})
+
+function renderPreview(preview = PREVIEW): ReactTestRenderer {
+  let renderer!: ReactTestRenderer
+  act(() => {
+    renderer = create(createElement(LinkPreviewCardView, { preview }))
+  })
+  return renderer
+}
+
+describe("LinkPreviewCardView", () => {
+  it("mounts only a layout-free preload until the thumbnail loads, then reveals the existing card", () => {
+    const renderer = renderPreview()
+    const preload = renderer.root.findByType("img")
+
+    expect(preload.props).toMatchObject({
+      "data-testid": tid.linkPreviewThumbnail,
+      src: THUMBNAIL_URL,
+      alt: "",
+      width: 640,
+      height: 360,
+      loading: "eager",
+      decoding: "async",
+      referrerPolicy: "no-referrer",
+      "aria-hidden": "true",
+    })
+    expect(preload.props.className).not.toContain("aspect-video")
+    expect(renderer.root.findAllByType("a")).toHaveLength(0)
+    expect(renderer.root.findAll((node) => node.props["data-testid"] === tid.linkPreviewCard)).toHaveLength(0)
+    expect(renderer.root.findAll((node) => node.props["data-slot"] === "card")).toHaveLength(0)
+
+    act(() => preload.props.onLoad())
+
+    const link = renderer.root.findByType("a")
+    const image = renderer.root.findByType("img")
+    expect(link.props).toMatchObject({
+      href: PREVIEW.url,
+      target: "_blank",
+      rel: "noopener noreferrer",
+      "aria-label": "Open link preview: Pull Request #511",
+      "data-testid": tid.linkPreviewCard,
+    })
+    expect(image.props).toMatchObject({
+      src: THUMBNAIL_URL,
+      loading: "lazy",
+      referrerPolicy: "no-referrer",
+      className: "aspect-video w-full bg-muted object-cover",
+    })
+    expect(renderer.root.findAll((node) => node.props["data-slot"] === "card")).toHaveLength(1)
+    expect(renderer.root.findAll((node) => node.type === "div" && node.props.className === "pb-2")).toHaveLength(1)
   })
 
   it("keeps positive previews fresh for 6h but retries negative results after 5m", () => {
@@ -60,40 +97,60 @@ describe("LinkPreviewCardView", () => {
     expect(html).toBe("")
   })
 
-  it("renders only the same-origin thumbnail path and never the upstream image URL", () => {
-    const html = renderToStaticMarkup(createElement(LinkPreviewCardView, {
-      preview: {
-        url: "https://github.com/alookai/alook/pull/511",
-        hostname: "github.com",
-        title: "Pull Request #511",
-        thumbnailUrl: "/api/community/link-preview/thumbnail/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      },
-    }))
+  it("retries the identical digest URL after one and three seconds, then stops", async () => {
+    vi.useFakeTimers()
+    const renderer = renderPreview()
+    const first = renderer.root.findByType("img")
 
-    expect(html).toContain(`data-testid="${tid.linkPreviewThumbnail}"`)
-    expect(html).toContain('src="/api/community/link-preview/thumbnail/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"')
-    expect(html).toContain('width="640"')
-    expect(html).toContain('height="360"')
-    expect(html).not.toContain("avatars.githubusercontent.com")
+    act(() => first.props.onError())
+    await act(() => vi.advanceTimersByTimeAsync(999))
+    expect(renderer.root.findByType("img")).toBe(first)
+    await act(() => vi.advanceTimersByTimeAsync(1))
+    const second = renderer.root.findByType("img")
+    expect(second).not.toBe(first)
+    expect(second.props.src).toBe(THUMBNAIL_URL)
+    expect(second.props.src).not.toContain("?")
+
+    act(() => second.props.onError())
+    await act(() => vi.advanceTimersByTimeAsync(2_999))
+    expect(renderer.root.findByType("img")).toBe(second)
+    await act(() => vi.advanceTimersByTimeAsync(1))
+    const third = renderer.root.findByType("img")
+    expect(third).not.toBe(second)
+    expect(third.props.src).toBe(THUMBNAIL_URL)
+
+    act(() => third.props.onError())
+    expect(renderer.root.findAllByType("img")).toHaveLength(0)
+    expect(renderer.root.findAllByType("a")).toHaveLength(0)
   })
 
-  it("removes the whole redundant card after an image load failure", () => {
-    let renderer: ReactTestRenderer
-    act(() => {
-      renderer = create(createElement(LinkPreviewCardView, { preview: {
-        url: "https://example.com/story",
-        hostname: "example.com",
-        title: "Story",
-        thumbnailUrl: "/api/community/link-preview/thumbnail/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      } }))
-    })
+  it("cancels a pending retry on success, URL change, and unmount", async () => {
+    vi.useFakeTimers()
+    const renderer = renderPreview()
+    const first = renderer.root.findByType("img")
+    act(() => first.props.onError())
+    act(() => first.props.onLoad())
+    await act(() => vi.advanceTimersByTimeAsync(5_000))
+    expect(renderer.root.findByType("a").props.href).toBe(PREVIEW.url)
 
-    const image = renderer!.root.findByType("img")
-    act(() => image.props.onError())
-    expect(renderer!.root.findAllByType("img")).toHaveLength(0)
-    expect(renderer!.root.findAllByType("a")).toHaveLength(0)
-    expect(renderer!.root.findAll(
-      (node) => node.type === "div" && node.props.className === "pb-2",
-    )).toHaveLength(0)
+    const nextThumbnailUrl = `/api/community/link-preview/thumbnail/${"b".repeat(64)}`
+    act(() => {
+      renderer.update(createElement(LinkPreviewCardView, {
+        preview: { ...PREVIEW, url: "https://example.com/next", thumbnailUrl: nextThumbnailUrl },
+      }))
+    })
+    const nextPreload = renderer.root.findByType("img")
+    expect(nextPreload.props.src).toBe(nextThumbnailUrl)
+    expect(renderer.root.findAllByType("a")).toHaveLength(0)
+
+    act(() => nextPreload.props.onError())
+    act(() => renderer.unmount())
+    await act(() => vi.advanceTimersByTimeAsync(5_000))
+  })
+
+  it("never places an upstream image URL in the DOM", () => {
+    const renderer = renderPreview()
+    expect(JSON.stringify(renderer.toJSON())).toContain(THUMBNAIL_URL)
+    expect(JSON.stringify(renderer.toJSON())).not.toContain("avatars.githubusercontent.com")
   })
 })

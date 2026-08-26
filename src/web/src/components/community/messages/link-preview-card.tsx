@@ -16,6 +16,7 @@ type LinkPreviewResponse = {
 
 const POSITIVE_STALE_TIME_MS = 6 * 60 * 60 * 1_000
 const NEGATIVE_STALE_TIME_MS = 5 * 60 * 1_000
+const THUMBNAIL_RETRY_DELAYS_MS = [1_000, 3_000] as const
 
 export function linkPreviewStaleTime(data: LinkPreviewResponse | undefined): number {
   if (data?.staleTimeSeconds === 6 * 60 * 60) return POSITIVE_STALE_TIME_MS
@@ -23,31 +24,61 @@ export function linkPreviewStaleTime(data: LinkPreviewResponse | undefined): num
   return data?.preview ? POSITIVE_STALE_TIME_MS : NEGATIVE_STALE_TIME_MS
 }
 
-function LinkPreviewThumbnail({ src, onError }: { src: string; onError?: () => void }) {
+function LinkPreviewCardThumbnail({ preview }: { preview: LinkPreview & { thumbnailUrl: string } }) {
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
-  if (failed) return null
-  return (
-    <img
-      data-testid={tid.linkPreviewThumbnail}
-      src={src}
-      alt=""
-      width={640}
-      height={360}
-      loading="lazy"
-      decoding="async"
-      referrerPolicy="no-referrer"
-      className="aspect-video w-full bg-muted object-cover"
-      onError={() => {
-        setFailed(true)
-        onError?.()
-      }}
-    />
-  )
-}
 
-export function LinkPreviewCardView({ preview }: { preview: LinkPreview }) {
-  const [failed, setFailed] = useState(false)
-  if (!preview.thumbnailUrl || failed) return null
+  const clearRetry = () => {
+    if (retryTimerRef.current === null) return
+    clearTimeout(retryTimerRef.current)
+    retryTimerRef.current = null
+  }
+
+  useEffect(() => () => {
+    if (retryTimerRef.current !== null) clearTimeout(retryTimerRef.current)
+  }, [])
+
+  const handleLoad = () => {
+    clearRetry()
+    setLoaded(true)
+  }
+
+  const handleError = () => {
+    clearRetry()
+    setLoaded(false)
+    const delay = THUMBNAIL_RETRY_DELAYS_MS[attempt]
+    if (delay === undefined) {
+      setFailed(true)
+      return
+    }
+    retryTimerRef.current = setTimeout(() => {
+      retryTimerRef.current = null
+      setAttempt((current) => current + 1)
+    }, delay)
+  }
+
+  if (failed) return null
+  if (!loaded) {
+    return (
+      <img
+        key={attempt}
+        data-testid={tid.linkPreviewThumbnail}
+        src={preview.thumbnailUrl}
+        alt=""
+        width={640}
+        height={360}
+        loading="eager"
+        decoding="async"
+        referrerPolicy="no-referrer"
+        aria-hidden="true"
+        className="pointer-events-none absolute size-px opacity-0"
+        onLoad={handleLoad}
+        onError={handleError}
+      />
+    )
+  }
 
   return (
     <div className="pb-2">
@@ -60,7 +91,19 @@ export function LinkPreviewCardView({ preview }: { preview: LinkPreview }) {
         aria-label={`Open link preview: ${preview.title}`}
       >
         <Card className="relative gap-0 py-0 transition-shadow group-hover:ring-foreground/20">
-          <LinkPreviewThumbnail src={preview.thumbnailUrl} onError={() => setFailed(true)} />
+          <img
+            data-testid={tid.linkPreviewThumbnail}
+            src={preview.thumbnailUrl}
+            alt=""
+            width={640}
+            height={360}
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            className="aspect-video w-full bg-muted object-cover"
+            onLoad={handleLoad}
+            onError={handleError}
+          />
           <span className="pointer-events-none absolute top-2 right-2 flex size-7 items-center justify-center rounded-full bg-background/80 text-foreground shadow-sm backdrop-blur-sm">
             <ExternalLink aria-hidden="true" className="size-3.5" />
           </span>
@@ -68,6 +111,11 @@ export function LinkPreviewCardView({ preview }: { preview: LinkPreview }) {
       </a>
     </div>
   )
+}
+
+export function LinkPreviewCardView({ preview }: { preview: LinkPreview }) {
+  if (!preview.thumbnailUrl) return null
+  return <LinkPreviewCardThumbnail key={preview.thumbnailUrl} preview={preview as LinkPreview & { thumbnailUrl: string }} />
 }
 
 function LinkPreviewCardImpl({ url }: { url: string }) {

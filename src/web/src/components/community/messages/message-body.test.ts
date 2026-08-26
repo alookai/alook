@@ -83,6 +83,14 @@ describe("MessageBody — link preview spacing", () => {
       thumbnailUrl: "/api/community/link-preview/thumbnail/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     })
     try {
+      expect(previewSpacing(rendered.renderer)).toHaveLength(0)
+      expect(rendered.renderer.root.findAllByProps({
+        "data-testid": tid.linkPreviewCard,
+      })).toHaveLength(0)
+      const preload = rendered.renderer.root.findByProps({
+        "data-testid": tid.linkPreviewThumbnail,
+      })
+      act(() => preload.props.onLoad())
       expect(previewSpacing(rendered.renderer)).toHaveLength(1)
       expect(rendered.renderer.root.findAllByProps({
         "data-testid": tid.linkPreviewCard,
@@ -100,6 +108,11 @@ describe("MessageBody — link preview spacing", () => {
       thumbnailUrl: "/api/community/link-preview/thumbnail/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     })
     try {
+      const preload = rendered.renderer.root.findByProps({
+        "data-testid": tid.linkPreviewThumbnail,
+      })
+      act(() => preload.props.onLoad())
+      expect(previewSpacing(rendered.renderer)).toHaveLength(1)
       const image = rendered.renderer.root.findByProps({
         "data-testid": tid.linkPreviewThumbnail,
       })
