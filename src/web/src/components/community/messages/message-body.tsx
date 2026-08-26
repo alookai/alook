@@ -14,6 +14,8 @@ import {
   buildMdComponents,
 } from "./message-markdown"
 import { CommunityInviteCard } from "../social/community-invite-card"
+import { LinkPreviewCard } from "./link-preview-card"
+import { extractLinkPreviewUrl } from "@/lib/community/link-preview"
 import type { MessagePerspective } from "@/components/community/messages/message-presentation-types"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 
@@ -96,12 +98,18 @@ function MessageBodyImpl({
   text,
   onOpenProfile,
   perspective = "neutral",
+  enableLinkPreview = true,
 }: {
   text: string
   onOpenProfile?: OpenProfile
   perspective?: MessagePerspective
+  enableLinkPreview?: boolean
 }) {
   const inviteTokens = useMemo(() => extractInviteTokens(text), [text])
+  const previewUrl = useMemo(
+    () => enableLinkPreview ? extractLinkPreviewUrl(text) : null,
+    [enableLinkPreview, text],
+  )
   const components = useMemo(
     () => buildMdComponents(onOpenProfile),
     [onOpenProfile],
@@ -149,6 +157,7 @@ function MessageBodyImpl({
           ))}
         </div>
       )}
+      {previewUrl && <LinkPreviewCard url={previewUrl} />}
     </div>
   )
 }

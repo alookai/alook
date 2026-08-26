@@ -53,6 +53,10 @@ export const communityKeys = {
   // have — the id/serverId only comes back with the response.
   inviteInfo: (token: string) =>
     [...communityKeys.all, "invite-info", token] as const,
+  // Independent lazy unfurl. The full normalized URL is safe in the
+  // per-browser query cache; server KV keys hash it before persistence.
+  linkPreview: (url: string) =>
+    [...communityKeys.all, "link-preview", url] as const,
 
   // ── Channel-scoped resources ────────────────────────────────────────────
   // Message list roots are keyed by channelId so paginated pages nest under

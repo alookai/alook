@@ -298,7 +298,11 @@ export function MessageShareDialog({ m, open, onClose }: {
                         onMouseUp={() => onBodyMouseUp(msg.id)}
                         className="max-h-164 overflow-hidden line-clamp-32 [&_mark[data-hl]]:rounded-xs [&_mark[data-hl]]:bg-[rgba(255,208,92,0.5)] [&_mark[data-hl]]:p-[0_1px] [&_mark[data-hl]]:[box-decoration-break:clone] [&_mark[data-hl]]:[-webkit-box-decoration-break:clone] [&_mark[data-hl]]:text-inherit"
                       >
-                        <MessageBody text={msg.content} perspective="neutral" />
+                        <MessageBody
+                          text={msg.content}
+                          perspective="neutral"
+                          enableLinkPreview={!msg.embeds?.length}
+                        />
                       </div>
                     )}
                     {msg.attachments?.some((attachment) => attachment.kind === "image") && (
