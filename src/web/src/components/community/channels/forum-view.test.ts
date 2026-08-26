@@ -43,6 +43,20 @@ function render(posts: ForumThread[]): string {
   )
 }
 
+function renderWithAvailableTags(posts: ForumThread[], availableTags: string[], tag = "All"): string {
+  return renderToStaticMarkup(
+    createElement(ForumView, {
+      forumChannelId: "cha_forum",
+      members: [],
+      posts,
+      tag,
+      availableTags,
+      onTagChange: () => {},
+      onOpenPost: () => {},
+    })
+  )
+}
+
 // Render with the delete affordance wired. `canDeletePost` decides per-post
 // visibility; `deletingPost` is the in-flight post id (button disabled).
 function renderWithDelete(
@@ -291,6 +305,31 @@ describe("ForumView filter bar / composer swap", () => {
     expect(html).not.toContain(tid.forumTagFadeRight)
     expect(listMarkup).toContain("px-0")
     expect(listMarkup).toContain("sm:px-4")
+  })
+
+  it("keeps Archived last in the shared scroller and hides it without archived posts", () => {
+    const withoutArchived = renderWithAvailableTags([makePost()], ["bug", "help"])
+    expect(withoutArchived).not.toContain(tid.forumTagChip("archived"))
+
+    const html = renderWithAvailableTags([makePost()], ["archived", "bug", "help"], "archived")
+    const scrollerIndex = html.indexOf(tid.forumTagScroller)
+    const allIndex = html.indexOf(tid.forumTagAll)
+    const bugIndex = html.indexOf(tid.forumTagChip("bug"))
+    const helpIndex = html.indexOf(tid.forumTagChip("help"))
+    const archivedIndex = html.indexOf(tid.forumTagChip("archived"))
+    const scrollerCloseIndex = html.indexOf("</div>", scrollerIndex)
+    const newPostIndex = html.indexOf(tid.forumNewPost)
+
+    expect(scrollerIndex).toBeGreaterThanOrEqual(0)
+    expect(allIndex).toBeGreaterThan(scrollerIndex)
+    expect(bugIndex).toBeGreaterThan(allIndex)
+    expect(helpIndex).toBeGreaterThan(bugIndex)
+    expect(archivedIndex).toBeGreaterThan(helpIndex)
+    expect(archivedIndex).toBeLessThan(scrollerCloseIndex)
+    expect(archivedIndex).toBeLessThan(newPostIndex)
+    const archivedMarkup = html.slice(Math.max(0, archivedIndex - 500), archivedIndex + 500)
+    expect(archivedMarkup).toContain("Archived")
+    expect(archivedMarkup).toContain("opacity-100 ring-1")
   })
 
   it("matches the real responsive filter rail and 28px chip footprints while loading", () => {

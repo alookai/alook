@@ -22,6 +22,7 @@ import { VirtualRows } from "../messages/virtual-cursor-list"
 import { useVirtualCursorSentinel } from "@/hooks/community/use-virtual-cursor-sentinel"
 import { tagColorClassName, tagColorStyle } from "@/lib/community/tag-color"
 import { cn } from "@/lib/utils"
+import { FORUM_ARCHIVE_TAG } from "@alook/shared"
 
 const MAX_AVATARS = 5
 const MAX_VISIBLE_TAGS = 2
@@ -245,6 +246,11 @@ export function ForumView({
   const filterTags = availableTags.length > 0
     ? availableTags
     : [...new Set(posts.flatMap((post) => post.tags))]
+  const hasArchivedPosts = filterTags.includes(FORUM_ARCHIVE_TAG)
+  const displayFilterTags = [
+    ...filterTags.filter((candidate) => candidate !== FORUM_ARCHIVE_TAG),
+    ...(hasArchivedPosts ? [FORUM_ARCHIVE_TAG] : []),
+  ]
   const filterTagKey = filterTags.join("\0")
   const syncTagFades = useCallback(() => {
     const scroller = tagScrollerRef.current
@@ -353,7 +359,7 @@ export function ForumView({
                   >
                     All
                   </button>
-                  {filterTags.map((t) => (
+                  {displayFilterTags.map((t) => (
                     <button
                       key={t}
                       ref={tag === t ? activeFilterRef : undefined}
@@ -367,7 +373,7 @@ export function ForumView({
                       data-testid={tid.forumTagChip(t)}
                       onClick={() => onTagChange(t)}
                     >
-                      {`#${t}`}
+                      {t === FORUM_ARCHIVE_TAG ? "Archived" : `#${t}`}
                     </button>
                   ))}
                 </>

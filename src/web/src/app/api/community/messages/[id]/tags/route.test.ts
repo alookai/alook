@@ -5,6 +5,7 @@ const mockGetMessage = vi.fn()
 const mockGetThread = vi.fn()
 const mockReplaceTags = vi.fn()
 const mockRequireChannelAccess = vi.fn()
+const mockFanOutToChannel = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 vi.mock("@alook/shared", async () => {
@@ -24,6 +25,9 @@ vi.mock("@alook/shared", async () => {
 })
 vi.mock("@/lib/community/permissions", () => ({
   requireChannelAccess: (...args: unknown[]) => mockRequireChannelAccess(...args),
+}))
+vi.mock("@/lib/community/fanout", () => ({
+  fanOutToChannel: (...args: unknown[]) => mockFanOutToChannel(...args),
 }))
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: (handler: any) => (req: any, routeCtx: any) => handler(req, {
@@ -61,6 +65,7 @@ describe("PUT /api/community/messages/[id]/tags", () => {
       value: { channel: { id: "forum1", type: "forum" }, member: { role: "member" } },
     })
     mockGetThread.mockResolvedValue({ id: "thread1", type: "thread", parentMessageId: "m1" })
+    mockFanOutToChannel.mockResolvedValue(undefined)
   })
 
   it("lets the opener author replace the normalized tag set", async () => {
@@ -103,5 +108,19 @@ describe("PUT /api/community/messages/[id]/tags", () => {
     const res = await PUT(request(["a", "b", "c", "d", "e", "f"]), ctx)
     expect(res.status).toBe(400)
     expect(mockGetMessage).not.toHaveBeenCalled()
+  })
+
+  it("accepts Archived in addition to five ordinary tags", async () => {
+    const tags = ["a", "b", "c", "d", "e", "archived"]
+    const res = await PUT(request(tags), ctx)
+
+    expect(res.status).toBe(200)
+    expect(mockReplaceTags).toHaveBeenCalledWith(expect.anything(), { messageId: "m1", tags })
+    expect(mockFanOutToChannel).toHaveBeenCalledWith("forum1", {
+      type: "community:channel.child_update",
+      parentChannelId: "forum1",
+      channelId: "thread1",
+      changes: { tags },
+    })
   })
 })

@@ -83,6 +83,7 @@ const ctx = { params: { id: "c1" } } as any
 describe("GET /api/community/channels/[id]/threads", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockFilterMessageIdsByTag.mockResolvedValue([])
     mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
     mockGetMember.mockResolvedValue({ id: "m1", userId: "u1", serverId: "s1" })
     // requireChannelAccess resolves through resolveChannelAccessContext — a
@@ -161,11 +162,14 @@ describe("GET /api/community/channels/[id]/threads", () => {
       { id: "post_2", parentMessageId: "opener_2" },
       { id: "plain_thread", parentMessageId: null },
     ])
-    mockFilterMessageIdsByTag.mockResolvedValue(["opener_2"])
+    mockFilterMessageIdsByTag
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(["opener_2"])
 
     const res = await GET(req("http://localhost/api/community/channels/c1/threads?tag=%20BUG%20"), ctx)
     expect(res.status).toBe(200)
-    expect(mockFilterMessageIdsByTag).toHaveBeenCalledWith(expect.anything(), ["opener_1", "opener_2"], "bug")
+    expect(mockFilterMessageIdsByTag).toHaveBeenNthCalledWith(1, expect.anything(), ["opener_1", "opener_2"], "archived")
+    expect(mockFilterMessageIdsByTag).toHaveBeenNthCalledWith(2, expect.anything(), ["opener_1", "opener_2"], "bug")
     expect((await res.json()).threads).toEqual([{ id: "post_2", parentMessageId: "opener_2" }])
   })
 
@@ -246,6 +250,19 @@ describe("GET /api/community/channels/[id]/threads", () => {
     })
     expect(mockListChildChannels).not.toHaveBeenCalled()
     expect(mockFilterMessageIdsByTag).not.toHaveBeenCalled()
+  })
+
+  it("passes the archive system tag through the created-order query scope", async () => {
+    mockListForumThreadsByCreatedAt.mockResolvedValue([])
+    const res = await GET(req(
+      "http://localhost/api/community/channels/c1/threads?order=createdAt&tag=%20ARCHIVED%20&limit=5",
+    ), ctx)
+    expect(res.status).toBe(200)
+    expect(mockListForumThreadsByCreatedAt).toHaveBeenCalledWith(expect.anything(), {
+      parentChannelId: "c1",
+      tag: "archived",
+      limit: 6,
+    })
   })
 
   it("rejects malformed and cross-forum created-order cursors without querying children", async () => {

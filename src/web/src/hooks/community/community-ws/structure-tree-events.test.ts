@@ -461,6 +461,28 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     expect(cache?.pages[0].messages[0].thread?.messageCount).toBe(5)
   })
 
+  it("child_update tag changes invalidate every forum feed and the vocabulary", async () => {
+    await mountHook()
+    const allFeed = communityKeys.forumFeed("forum_1", null)
+    const archivedFeed = communityKeys.forumFeed("forum_1", "archived")
+    const tags = communityKeys.forumTags("forum_1")
+    const messages = communityKeys.channelMessages("forum_1")
+    for (const key of [allFeed, archivedFeed, tags, messages]) {
+      capturedQueryClient.setQueryData(key, { value: "stale" })
+    }
+
+    capturedOnMessage!({
+      type: "community:channel.child_update",
+      parentChannelId: "forum_1",
+      channelId: "post_1",
+      changes: { tags: ["archived"] },
+    } satisfies CommunityChildChannelUpdate)
+
+    for (const key of [allFeed, archivedFeed, tags, messages]) {
+      expect(capturedQueryClient.getQueryState(key)?.isInvalidated).toBe(true)
+    }
+  })
+
   it("child_update rename patches focused child metadata and its cached channel meta", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")

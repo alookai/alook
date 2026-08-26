@@ -1,6 +1,6 @@
 import { createElement, type ReactNode } from "react"
 import TestRenderer, { act, type ReactTestInstance } from "react-test-renderer"
-import { MAX_FORUM_TAG_LENGTH, MAX_FORUM_TAGS_PER_POST } from "@alook/shared"
+import { FORUM_ARCHIVE_TAG, MAX_FORUM_TAG_LENGTH, MAX_FORUM_TAGS_PER_POST } from "@alook/shared"
 import { describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
 
@@ -70,6 +70,21 @@ function pressEnter(input: ReactTestInstance): void {
 }
 
 describe("PostTagDialog frontend limits", () => {
+  it("always presets Archived and keeps it outside the ordinary tag quota", () => {
+    const selected = Array.from({ length: MAX_FORUM_TAGS_PER_POST }, (_, index) => `tag-${index + 1}`)
+    const onSave = vi.fn()
+    const { renderer } = renderDialog({ current: selected, onSave })
+    setOpen(renderer.root, true)
+
+    const archived = tagButton(renderer.root, FORUM_ARCHIVE_TAG)
+    expect(archived.props.disabled).toBe(false)
+    expect(archived.props["data-testid"]).toBe(tid.forumTagDialogChip(FORUM_ARCHIVE_TAG))
+    act(() => archived.props.onClick())
+    setOpen(renderer.root, false)
+
+    expect(onSave).toHaveBeenCalledWith([...selected, FORUM_ARCHIVE_TAG])
+  })
+
   it("uses the shared length limit and right-aligns the close-save hint", () => {
     const { renderer } = renderDialog()
     const input = renderer.root.findByType("input")

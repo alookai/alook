@@ -20,4 +20,8 @@ describe("forum tag selection", () => {
     expect(validateForumTagSelection("bug", ["bug", "feature"])).toBe("bug")
     expect(validateForumTagSelection("gone", ["bug", "feature"])).toBe("All")
   })
+
+  it("retains an available Archived selection", () => {
+    expect(validateForumTagSelection("archived", ["archived", "bug"])).toBe("archived")
+  })
 })

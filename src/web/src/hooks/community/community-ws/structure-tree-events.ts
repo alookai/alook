@@ -130,6 +130,12 @@ export function handleChildChannelUpdate(
   // child_update — sync counts/name on the parent message's thread
   // indicator if the update carries them.
   const changes = event.changes
+  if (changes.tags !== undefined) {
+    invalidateChannelMessages(projection, event.parentChannelId)
+    projection.invalidate("forum-post-tags", {
+      queryKey: communityKeys.forumTags(event.parentChannelId),
+    })
+  }
   const sidebarServerId = useCommunityStore.getState().currentServerId
   if (changes.name !== undefined && sidebarServerId) {
     queryClient.setQueryData<Record<string, unknown> | undefined>(

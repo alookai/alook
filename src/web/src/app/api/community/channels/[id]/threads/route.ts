@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { isForum, queries, MAX_FORUM_TAG_LENGTH } from "@alook/shared"
+import { FORUM_ARCHIVE_TAG, isForum, queries, MAX_FORUM_TAG_LENGTH } from "@alook/shared"
 import { requireChannelAccess } from "@/lib/community/permissions"
 import { parseBoundedInt } from "@/lib/community/messages"
 import { encodeForumCreatedAtCursor, parseForumCreatedAtCursor } from "@/lib/community/forum-feed-cursor"
@@ -102,10 +102,25 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     type: "thread",
   })
 
+  const forum = isForum(access.value.channel.type)
+  const openerIds = childChannels.map((child) => child.parentMessageId).filter((id): id is string => !!id)
+  const archivedOpeners = forum
+    ? new Set(await queries.communityMessageTag.filterMessageIdsByTag(db, openerIds, FORUM_ARCHIVE_TAG))
+    : new Set<string>()
+
   if (rawTag !== null) {
-    const openerIds = childChannels.map((child) => child.parentMessageId).filter((id): id is string => !!id)
-    const matching = new Set(await queries.communityMessageTag.filterMessageIdsByTag(db, openerIds, tag!))
-    childChannels = childChannels.filter((child) => !!child.parentMessageId && matching.has(child.parentMessageId))
+    const matching = tag === FORUM_ARCHIVE_TAG
+      ? archivedOpeners
+      : new Set(await queries.communityMessageTag.filterMessageIdsByTag(db, openerIds, tag!))
+    childChannels = childChannels.filter((child) => (
+      !!child.parentMessageId
+      && matching.has(child.parentMessageId)
+      && (tag === FORUM_ARCHIVE_TAG || !archivedOpeners.has(child.parentMessageId))
+    ))
+  } else if (forum) {
+    childChannels = childChannels.filter((child) => (
+      !child.parentMessageId || !archivedOpeners.has(child.parentMessageId)
+    ))
   }
 
   // Plain nested collection representation. View-specific parent previews,

@@ -34,6 +34,14 @@ describe("forumFeedPageQueryFn", () => {
     expect(params.get("tag")).toBe("bug")
     expect(params.get("cursor")).toBe("opaque cursor")
   })
+
+  it("uses the archive tag as its own feed query", async () => {
+    apiFetchMock.mockResolvedValue({ threads: [], included: emptyIncluded, hasMore: false })
+    await forumFeedPageQueryFn("forum_one", "archived")({ pageParam: null })
+
+    const url = apiFetchMock.mock.calls[0]![0] as string
+    expect(new URL(url, "http://localhost").searchParams.get("tag")).toBe("archived")
+  })
 })
 
 describe("mapForumFeedPages", () => {
