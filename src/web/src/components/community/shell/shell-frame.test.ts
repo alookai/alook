@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => {
       navigate: handlers.navigate,
       cancelPendingNavigation: handlers.cancelPendingNavigation,
     },
+    railOptions: vi.fn(),
     profile: {
       previewImage: handlers.previewImage,
       previewAttachment: handlers.previewAttachment,
@@ -57,7 +58,10 @@ vi.mock("@/stores/community", () => ({
   }),
 }))
 vi.mock("./use-shell-rail-controller", () => ({
-  useShellRailController: () => mocks.rail,
+  useShellRailController: (options: unknown) => {
+    mocks.railOptions(options)
+    return mocks.rail
+  },
 }))
 vi.mock("./use-shell-profile-controller", () => ({
   useShellProfileController: () => mocks.profile,
@@ -84,6 +88,7 @@ describe("ShellFrame orchestration", () => {
     mocks.registerUiHandlers.mockClear()
     mocks.replace.mockClear()
     mocks.push.mockClear()
+    mocks.railOptions.mockClear()
   })
 
   afterEach(() => vi.unstubAllGlobals())
@@ -189,5 +194,20 @@ describe("ShellFrame orchestration", () => {
     const second = mocks.registerUiHandlers.mock.calls.at(-1)?.[0]
     expect(second.navigatePath).toBe(withMessage.navigatePath)
     expect(second.replacePath).toBe(withMessage.replacePath)
+  })
+
+  it("passes the single resolved breakpoint to the rail controller", async () => {
+    mocks.breakpoint.current = "unknown"
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ShellFrame, baseProps))
+    })
+    expect(mocks.railOptions).toHaveBeenLastCalledWith(expect.objectContaining({ breakpoint: "unknown" }))
+
+    mocks.breakpoint.current = "mobile"
+    await act(async () => {
+      renderer.update(createElement(ShellFrame, baseProps, "mobile"))
+    })
+    expect(mocks.railOptions).toHaveBeenLastCalledWith(expect.objectContaining({ breakpoint: "mobile" }))
   })
 })

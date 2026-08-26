@@ -30,6 +30,26 @@ async function expectPanelToFillGroup(page: Page, id: "sidebar" | "main"): Promi
   expect(Math.abs(panelRect!.width - groupRect!.width)).toBeLessThanOrEqual(1)
 }
 
+async function installMeLoadingProbe(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const state = window as typeof window & { __wrongMeConversationLoadingSeen?: boolean }
+    state.__wrongMeConversationLoadingSeen = false
+    const inspect = () => {
+      if (location.pathname.startsWith("/c/me/") && document.querySelector('[aria-label="Loading conversation"]')) {
+        state.__wrongMeConversationLoadingSeen = true
+      }
+    }
+    new MutationObserver(inspect).observe(document.documentElement, { childList: true, subtree: true })
+    inspect()
+  })
+}
+
+async function expectNoWrongMeConversationLoading(page: Page): Promise<void> {
+  expect(await page.evaluate(() => (
+    window as typeof window & { __wrongMeConversationLoadingSeen?: boolean }
+  ).__wrongMeConversationLoadingSeen)).toBe(false)
+}
+
 test.describe.serial("mobile layout", () => {
   let serverId: string
   let channelId: string
@@ -136,12 +156,14 @@ test.describe.serial("mobile layout", () => {
 
   test("Friends, Machines, and Bots deep links all default to content", async ({ asUser }) => {
     const { page } = await asUser("alice")
+    await installMeLoadingProbe(page)
 
     for (const pathname of ["/c/me/friends", "/c/me/machines", "/c/me/bots"]) {
       await page.goto(pathname)
       const back = page.getByRole("button", { name: "Back" })
       await expect(back).toBeVisible()
       await expect(page.getByTestId(tid.homeButton)).toBeHidden()
+      await expectNoWrongMeConversationLoading(page)
 
       await back.click()
       await expect.poll(() => new URL(page.url()).pathname).toBe("/c/me")
@@ -267,8 +289,10 @@ test.describe.serial("mobile layout", () => {
 
   test("a direct DM opens detail and Header Back replaces it with Me root", async ({ asUser }) => {
     const { page } = await asUser("alice")
+    await installMeLoadingProbe(page)
     await page.goto(`/c/me/${dmId}`)
     await expect(page.getByTestId(tid.composerInput)).toBeVisible()
+    await expectNoWrongMeConversationLoading(page)
 
     await page.getByRole("button", { name: "Back" }).click()
     await expect.poll(() => new URL(page.url()).pathname).toBe("/c/me")

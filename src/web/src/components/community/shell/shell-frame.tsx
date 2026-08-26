@@ -37,6 +37,7 @@ export function ShellFrame(props: ShellFrameProps) {
   const rail = useShellRailController({
     navigation,
     queryClient,
+    breakpoint,
     view,
     activeServerId,
     onOpenActiveServerSettings,

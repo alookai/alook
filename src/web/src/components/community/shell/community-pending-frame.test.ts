@@ -14,6 +14,12 @@ vi.mock("@/components/community/social/friends-page", () => ({
 vi.mock("@/components/community/channels/channel-loading-frame", () => ({
   ChannelLoadingFrame: (props: Record<string, unknown>) => createElement("channel-skeleton", props),
 }))
+vi.mock("@/components/community/channels/dm-loading-frame", () => ({
+  DmLoadingFrame: (props: Record<string, unknown>) => createElement("dm-skeleton", props),
+}))
+vi.mock("@/components/ui/skeleton", () => ({
+  Skeleton: (props: Record<string, unknown>) => createElement("skeleton", props),
+}))
 
 import { CommunityPendingFrame } from "./community-pending-frame"
 
@@ -48,11 +54,15 @@ describe("CommunityPendingFrame", () => {
     expect(friends.root.findByType("friends-skeleton").props.onBack).toBeUndefined()
   })
 
-  it("uses the canonical conversation skeleton for DM and channel details", () => {
-    for (const href of ["/c/me/dm_1", "/c/channels/s1/c1"] ) {
-      const result = render(href)
-      expect(result.root.findByType("channel-skeleton").props.reserveBackSlot).toBe(true)
-      expect(result.root.findByType("channel-skeleton").props.onBack).toBeUndefined()
-    }
+  it("separates the neutral Me root, DM, and channel fallbacks", () => {
+    const root = render("/c/me")
+    expect(root.root.findByProps({ "aria-label": "Loading your space" }).props["aria-busy"]).toBe("true")
+
+    const dm = render("/c/me/dm_1")
+    expect(dm.root.findByType("dm-skeleton").props.reserveBackSlot).toBe(true)
+
+    const channel = render("/c/channels/s1/c1")
+    expect(channel.root.findByType("channel-skeleton").props.reserveBackSlot).toBe(true)
+    expect(channel.root.findByType("channel-skeleton").props.onBack).toBeUndefined()
   })
 })

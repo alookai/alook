@@ -19,7 +19,8 @@ import {
   useCreateServerFolderWith,
 } from "@/hooks/community/mutations"
 import { getLastChannel, pickServerLandingHref } from "@/lib/community/last-channel"
-import { getLastMeLeaf, pickMeLandingLocation } from "@/lib/community/last-me-location"
+import { getLastMeLeaf, ME_ROOT, pickMeLandingLocation } from "@/lib/community/last-me-location"
+import type { Breakpoint } from "@/hooks/use-mobile"
 import { useCommunityStore } from "@/stores/community"
 import { resolveServerRailOverlayAction } from "./server-rail-actions"
 import type { ShellFrameProps } from "./shell-frame-types"
@@ -35,11 +36,13 @@ type Options = Pick<
 > & {
   navigation: CommunityNavigationController
   queryClient: QueryClient
+  breakpoint: Breakpoint
 }
 
 export function useShellRailController({
   navigation,
   queryClient,
+  breakpoint,
   view,
   activeServerId,
   onOpenActiveServerSettings,
@@ -97,15 +100,21 @@ export function useShellRailController({
     markSwitch("server", id)
     navigation.push(`/c/channels/${id}`)
   }, [navigation])
+  const homeDestination = useCallback(
+    () => breakpoint === "desktop"
+      ? pickMeLandingLocation(getLastMeLeaf())
+      : ME_ROOT,
+    [breakpoint],
+  )
   const onHome = useCallback(() => {
-    navigation.push("/c/me")
-  }, [navigation])
+    navigation.push(homeDestination())
+  }, [homeDestination, navigation])
   const onServerPrefetch = useCallback((id: string) => {
     void resolveServerDestination(id).then((destination) => navigation.prefetch(destination))
   }, [navigation, resolveServerDestination])
   const onHomePrefetch = useCallback(
-    () => navigation.prefetch(pickMeLandingLocation(getLastMeLeaf())),
-    [navigation],
+    () => navigation.prefetch(homeDestination()),
+    [homeDestination, navigation],
   )
   const onCreateServer = useCallback(async (name: string, icon?: File) => {
     try {

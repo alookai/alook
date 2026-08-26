@@ -58,7 +58,7 @@ export function resolveMeLocationStatus({
 }: {
   pathname: string
   dmId: string | undefined
-  dmRouteStatus: "idle" | "pending" | "present" | "missing"
+  dmRouteStatus: "idle" | "pending" | "present" | "missing" | "error"
 }): MeLocationStatus {
   if (!isRememberableMeLocation(pathname)) return "ignore"
   if (!dmId) return "remember"

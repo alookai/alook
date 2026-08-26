@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   markSwitch: vi.fn(),
   toast: vi.fn(),
   toastApiError: vi.fn(),
+  lastMeLeaf: { current: null as string | null },
 }))
 
 vi.mock("sonner", () => ({ toast: mocks.toast }))
@@ -55,8 +56,9 @@ vi.mock("@/lib/community/last-channel", () => ({
     channelIds[0] ? `/c/channels/${id}/${channelIds[0]}` : `/c/channels/${id}`,
 }))
 vi.mock("@/lib/community/last-me-location", () => ({
-  getLastMeLeaf: () => null,
-  pickMeLandingLocation: () => "/c/me",
+  ME_ROOT: "/c/me",
+  getLastMeLeaf: () => mocks.lastMeLeaf.current,
+  pickMeLandingLocation: (leaf: string | null) => `/c/me/${leaf ?? "friends"}`,
 }))
 
 type Result = ReturnType<typeof useShellRailController>
@@ -95,6 +97,7 @@ async function renderController(overrides: Record<string, unknown> = {}) {
   const options = {
     navigation,
     queryClient,
+    breakpoint: "desktop",
     view: "server",
     activeServerId: "s1",
     ...overrides,
@@ -132,6 +135,7 @@ describe("useShellRailController", () => {
     for (const mock of Object.values(mocks)) {
       if (typeof mock === "function" && "mockReset" in mock) mock.mockReset()
     }
+    mocks.lastMeLeaf.current = null
   })
 
   it("commits cold server navigation synchronously without waiting for detail", async () => {
@@ -198,7 +202,7 @@ describe("useShellRailController", () => {
       hook.current.railProps.onServerNavigate("s2")
       hook.current.railProps.onHome()
     })
-    expect(hook.pushed).toEqual(["/c/channels/s2", "/c/me"])
+    expect(hook.pushed).toEqual(["/c/channels/s2", "/c/me/friends"])
     expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
   })
 
@@ -222,7 +226,7 @@ describe("useShellRailController", () => {
     await act(async () => hook.current.railProps.onServerPrefetch("s1"))
     await act(async () => hook.current.railProps.onHomePrefetch())
     expect(hook.pushed).toEqual(["/c/channels/s1"])
-    expect(hook.prefetched).toEqual(["/c/channels/s1/cached", "/c/me"])
+    expect(hook.prefetched).toEqual(["/c/channels/s1/cached", "/c/me/friends"])
     expect(hook.queryClient.fetchQuery).not.toHaveBeenCalled()
 
     hook.queryClient.fetchQuery.mockImplementationOnce(async ({ queryKey }: { queryKey: unknown[] }) => {
@@ -243,6 +247,27 @@ describe("useShellRailController", () => {
     hook.queryClient.fetchQuery.mockRejectedValueOnce(new Error("offline"))
     await act(async () => hook.current.railProps.onServerPrefetch("s3"))
     expect(hook.prefetched).toContain("/c/channels/s3")
+  })
+
+  it("uses one breakpoint-canonical Home destination for click and prefetch", async () => {
+    mocks.lastMeLeaf.current = "dm-last"
+    const desktop = await renderController({ breakpoint: "desktop" })
+    await act(async () => {
+      desktop.current.railProps.onHomePrefetch()
+      desktop.current.railProps.onHome()
+    })
+    expect(desktop.prefetched).toEqual(["/c/me/dm-last"])
+    expect(desktop.pushed).toEqual(["/c/me/dm-last"])
+
+    for (const breakpoint of ["mobile", "unknown"] as const) {
+      const safeRoot = await renderController({ breakpoint })
+      await act(async () => {
+        safeRoot.current.railProps.onHomePrefetch()
+        safeRoot.current.railProps.onHome()
+      })
+      expect(safeRoot.prefetched).toEqual(["/c/me"])
+      expect(safeRoot.pushed).toEqual(["/c/me"])
+    }
   })
 
   it("keeps callback fields stable without stabilizing the railProps aggregate", async () => {
