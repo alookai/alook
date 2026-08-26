@@ -38,6 +38,8 @@ function mockImages(args: {
   height?: number
   output?: Uint8Array
   outputType?: string
+  outputError?: unknown
+  contentTypeError?: unknown
 } = {}) {
   const transform = vi.fn()
   const output = vi.fn()
@@ -48,9 +50,13 @@ function mockImages(args: {
     },
     output: async (...values: unknown[]) => {
       output(...values)
+      if (args.outputError !== undefined) throw args.outputError
       const transformed = args.output ?? new Uint8Array([1, 2, 3])
       return {
-        contentType: () => args.outputType ?? "image/webp",
+        contentType: () => {
+          if (args.contentTypeError !== undefined) throw args.contentTypeError
+          return args.outputType ?? "image/webp"
+        },
         image: () => bytesStream(transformed),
         response: () => new Response(transformed),
       }
@@ -602,6 +608,55 @@ describe("fetchAndTransformLinkPreviewThumbnail", () => {
       disposition: "transient",
       code: "inspect_9523",
     } satisfies Partial<LinkPreviewThumbnailFailure>)
+  })
+
+  it("classifies transform rejections, preserves typed failures, and defaults unknown errors to transient", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(response())))
+
+    await expect(fetchAndTransformLinkPreviewThumbnail(
+      "https://example.com/transform-error",
+      mockImages({ outputError: Object.assign(new Error("service"), { code: 9523 }) }).binding,
+    )).rejects.toMatchObject({
+      stage: "transform",
+      disposition: "transient",
+      code: "transform_9523",
+    } satisfies Partial<LinkPreviewThumbnailFailure>)
+
+    const typed = new LinkPreviewThumbnailFailure({
+      stage: "transform",
+      disposition: "transient",
+      code: "transform_typed",
+      elapsedMs: 1,
+      message: "typed",
+    })
+    await expect(fetchAndTransformLinkPreviewThumbnail(
+      "https://example.com/typed-transform-error",
+      mockImages({ outputError: typed }).binding,
+    )).rejects.toBe(typed)
+
+    await expect(fetchAndTransformLinkPreviewThumbnail(
+      "https://example.com/unknown-transform-error",
+      mockImages({ contentTypeError: "unknown" }).binding,
+    )).rejects.toMatchObject({
+      stage: "transform",
+      disposition: "transient",
+      code: "transform_error",
+    } satisfies Partial<LinkPreviewThumbnailFailure>)
+  })
+
+  it("classifies an invalid initial source URL before outbound work", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(fetchAndTransformLinkPreviewThumbnail(
+      "http://example.com/image.jpg",
+      mockImages().binding,
+    )).rejects.toMatchObject({
+      stage: "source",
+      disposition: "deterministic",
+      code: "source_url",
+    } satisfies Partial<LinkPreviewThumbnailFailure>)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it("builds exact 24-hour R2 object metadata", () => {

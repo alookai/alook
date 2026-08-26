@@ -182,6 +182,24 @@ describe("GET /api/community/link-preview/thumbnail/[digest]", () => {
     }))
   })
 
+  it.each([
+    [Object.assign(new Error("coded storage error"), { code: "R2_TEMP" }), "storage_r2_temp"],
+    ["unknown storage error", "storage_error"],
+  ])("logs a stable storage code without exposing the raw failure", async (error, errorCode) => {
+    mockR2Get.mockRejectedValueOnce(error)
+
+    const response = await request()
+
+    expect(response.status).toBe(404)
+    expect(mockLogError).toHaveBeenCalledWith("link_preview_thumbnail_failure", expect.objectContaining({
+      stage: "storage",
+      disposition: "transient",
+      errorCode,
+    }))
+    expect(JSON.stringify(mockLogError.mock.calls)).not.toContain("coded storage error")
+    expect(JSON.stringify(mockLogError.mock.calls)).not.toContain("unknown storage error")
+  })
+
   it("serves a valid R2 WebP hit without rate limiting, network, or Images work", async () => {
     mockR2Get
       .mockResolvedValueOnce(manifestObject({ sourceDigest }))
