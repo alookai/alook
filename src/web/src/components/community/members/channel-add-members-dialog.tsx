@@ -23,7 +23,8 @@ export function ChannelAddMembersDialog({
   channelName: string
   onClose: () => void
 }) {
-  const { members: addable } = useAddableMembers(serverId, channelId)
+  const addableQuery = useAddableMembers(serverId, channelId)
+  const { members: addable } = addableQuery
   const addMember = useAddChannelMember(channelId)
 
   const candidates = addable.map((m) => ({
@@ -37,6 +38,13 @@ export function ChannelAddMembersDialog({
       title={`Add members to /${channelName}`}
       subtitle="Added members can see and post in this channel."
       candidates={candidates}
+      queryState={{
+        resolved: addableQuery.data !== undefined,
+        loading: addableQuery.isLoading,
+        error: addableQuery.isError,
+        retrying: addableQuery.data === undefined && addableQuery.isFetching,
+        retry: () => { void addableQuery.refetch() },
+      }}
       onAdd={(userId) => addMember.mutateAsync(userId)}
       onClose={onClose}
     />

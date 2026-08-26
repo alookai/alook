@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react"
 import { toast } from "sonner"
 import { isForum, type CommunityRole as Role } from "@alook/shared"
 import { AddMembersDialog } from "@/components/community/members/add-members-dialog"
@@ -132,11 +132,46 @@ export function useChannelMemberViewModel({
   )
   const parentChannelId = isNotifyUnit ? currentChannelMeta?.parentChannelId ?? null : null
   const parentChannelMembersHook = useChannelMembers(parentChannelId ?? "", !!parentChannelId)
+  const participantMembersData = channelMembersHook.data
+  const parentMembersData = parentChannelMembersHook.data
+  const refetchParticipantMembers = channelMembersHook.refetch
+  const refetchParentMembers = parentChannelMembersHook.refetch
+  const participantCandidatesResolved =
+    participantMembersData !== undefined && parentMembersData !== undefined
+  const participantCandidatesError = !participantCandidatesResolved && (
+    (participantMembersData === undefined && channelMembersHook.isError) ||
+    (parentMembersData === undefined && parentChannelMembersHook.isError)
+  )
+  const participantCandidatesLoading =
+    !participantCandidatesResolved && !participantCandidatesError
+  const participantCandidatesRetrying = !participantCandidatesResolved && (
+    (participantMembersData === undefined && channelMembersHook.isFetching) ||
+    (parentMembersData === undefined && parentChannelMembersHook.isFetching)
+  )
+  const retryParticipantCandidates = useCallback(() => {
+    const retries: Array<Promise<unknown>> = []
+    if (participantMembersData === undefined) retries.push(refetchParticipantMembers())
+    if (parentMembersData === undefined) retries.push(refetchParentMembers())
+    void Promise.all(retries)
+  }, [
+    parentMembersData,
+    participantMembersData,
+    refetchParentMembers,
+    refetchParticipantMembers,
+  ])
   const addableChannelMembers = useAddableMembers(
     serverId,
     channelId,
     manageMembersOpen && currentChannelPrivate && !isNotifyUnit,
   )
+  const {
+    data: addableMembersData,
+    isError: addableMembersError,
+    isFetching: addableMembersFetching,
+    isLoading: addableMembersLoading,
+    members: addableMembers,
+    refetch: refetchAddableMembers,
+  } = addableChannelMembers
   const addChannelMemberMut = useAddChannelMember(channelId)
   const removeChannelMemberMut = useRemoveChannelMember(channelId)
   const parentChannel = currentChannelMeta?.parentChannelId
@@ -309,8 +344,10 @@ export function useChannelMemberViewModel({
   const manageMembersDialog = useMemo(() => {
     if (!manageMembersOpen) return null
     if (isNotifyUnit) {
-      const participantIds = new Set(channelMembersHook.members.map((member) => member.userId))
-      const candidates = parentChannelMembersHook.members
+      const participantIds = new Set(
+        participantMembersData?.members.map((member) => member.userId) ?? [],
+      )
+      const candidates = (participantMembersData && parentMembersData ? parentMembersData.members : [])
         .filter((member) => !participantIds.has(member.userId) && member.userId !== currentUser.id)
         .map((member) => ({ userId: member.userId, name: member.name ?? null, avatar: member.avatar }))
       return (
@@ -318,12 +355,19 @@ export function useChannelMemberViewModel({
           title={`Add participants to /${currentChannelMeta?.name ?? channelName}`}
           subtitle="Added people are notified of new replies. Anyone with access can already read it."
           candidates={candidates}
+          queryState={{
+            resolved: participantCandidatesResolved,
+            loading: participantCandidatesLoading,
+            error: participantCandidatesError,
+            retrying: participantCandidatesRetrying,
+            retry: retryParticipantCandidates,
+          }}
           onAdd={(userId) => addThreadParticipantMut.mutateAsync(userId)}
           onClose={() => setMemberUi({ channelId, query: memberQuery, dialogOpen: false })}
         />
       )
     }
-    const candidates = addableChannelMembers.members.map((member) => ({
+    const candidates = addableMembers.map((member) => ({
       userId: member.userId,
       name: member.name ?? null,
       avatar: member.avatar,
@@ -333,6 +377,14 @@ export function useChannelMemberViewModel({
         title={`Add members to /${channelName}`}
         subtitle="Added members can see and post here."
         candidates={candidates}
+        queryState={{
+          resolved: addableMembersData !== undefined,
+          loading: addableMembersLoading,
+          error: addableMembersError,
+          retrying:
+            addableMembersData === undefined && addableMembersFetching,
+          retry: () => { void refetchAddableMembers() },
+        }}
         onAdd={(userId) => addChannelMemberMut.mutateAsync(userId)}
         onClose={() => setMemberUi({ channelId, query: memberQuery, dialogOpen: false })}
       />
@@ -340,8 +392,11 @@ export function useChannelMemberViewModel({
   }, [
     addChannelMemberMut,
     addThreadParticipantMut,
-    addableChannelMembers.members,
-    channelMembersHook.members,
+    addableMembers,
+    addableMembersData,
+    addableMembersError,
+    addableMembersFetching,
+    addableMembersLoading,
     channelName,
     channelId,
     currentChannelMeta,
@@ -349,7 +404,14 @@ export function useChannelMemberViewModel({
     isNotifyUnit,
     manageMembersOpen,
     memberQuery,
-    parentChannelMembersHook.members,
+    parentMembersData,
+    participantMembersData,
+    participantCandidatesError,
+    participantCandidatesLoading,
+    participantCandidatesResolved,
+    participantCandidatesRetrying,
+    refetchAddableMembers,
+    retryParticipantCandidates,
   ])
 
   const resolveUserName = useMemo(

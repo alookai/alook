@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
+import { readFileSync } from "node:fs"
 
 // Spy on toastApiError so the reject path can be asserted without a real DOM
 // (sonner injects a <style> at import time). Mock before importing the module.
@@ -36,6 +37,16 @@ describe("AddMemberRow", () => {
 
   it("renders the candidate's display name", () => {
     expect(render(false)).toContain("Alice")
+  })
+
+  it("uses the shared resolved/loading/error/retry picker contract", () => {
+    const source = readFileSync(new URL("./add-members-dialog.tsx", import.meta.url), "utf8")
+    expect(source).toContain("resolved: queryState.resolved")
+    expect(source).toContain("loading: queryState.loading")
+    expect(source).toContain("error: queryState.error")
+    expect(source).toContain('errorMessage="Couldn\'t load people."')
+    expect(source).toContain('emptyMessage="Everyone is already here."')
+    expect(source).toContain("onRetry={queryState.retry}")
   })
 })
 
