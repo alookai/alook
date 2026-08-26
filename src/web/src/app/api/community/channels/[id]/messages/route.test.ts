@@ -30,6 +30,7 @@ const mockGetUserInternal = vi.fn()
 const mockGetDM = vi.fn()
 const mockGetDMPeer = vi.fn()
 const mockIsBlocked = vi.fn()
+const mockCreateOrGetDM = vi.fn()
 const mockListMessagesBySeq = vi.fn()
 const mockToAgentMessages = vi.fn()
 const mockToAgentMessage = vi.fn()
@@ -43,11 +44,15 @@ const mockGetUserByNameAndDiscriminator = vi.fn()
 const mockGetDMBetween = vi.fn()
 const mockCreateChannel = vi.fn()
 const mockGetThreadChannelByParentMessage = vi.fn()
+const mockGetMessageByChannelAndSeq = vi.fn()
+const mockAddThreadParticipant = vi.fn()
+const mockListThreadParticipantUserIds = vi.fn()
 const mockDeleteChannel = vi.fn()
 const mockHardDeleteMessage = vi.fn()
 const mockRebindPendingAttachmentsToChild = vi.fn()
 
 const mockFanOutToChannel = vi.fn()
+const mockBroadcastToUserSafe = vi.fn()
 const mockDispatchCommittedMessage = vi.fn(async () => {})
 const mockBroadcastToUser = vi.fn()
 const mockCheckMessageRateLimit = vi.fn()
@@ -89,6 +94,7 @@ vi.mock("@alook/shared", async () => {
         listMessagesAround: (...a: unknown[]) => mockListMessagesAround(...a),
         listMessagesSince: (...a: unknown[]) => mockListMessagesSince(...a),
         getLatestMessageSeq: (...a: unknown[]) => mockGetLatestMessageSeq(...a),
+        getMessageByChannelAndSeq: (...a: unknown[]) => mockGetMessageByChannelAndSeq(...a),
         hardDeleteMessage: (...a: unknown[]) => mockHardDeleteMessage(...a),
         getMessageByAuthorAndNonce: (...a: unknown[]) => mockGetMessageByAuthorAndNonce(...a),
       },
@@ -101,6 +107,8 @@ vi.mock("@alook/shared", async () => {
       },
       communityThread: {
         addThreadParticipants: vi.fn(async () => undefined),
+        addThreadParticipant: (...a: unknown[]) => mockAddThreadParticipant(...a),
+        listThreadParticipantUserIds: (...a: unknown[]) => mockListThreadParticipantUserIds(...a),
       },
       communityAttachment: {
         listByMessageIds: (...a: unknown[]) => mockListByMessageIds(...a),
@@ -120,6 +128,7 @@ vi.mock("@alook/shared", async () => {
         getDM: (...a: unknown[]) => mockGetDM(...a),
         getDMPeer: (...a: unknown[]) => mockGetDMPeer(...a),
         getDMBetween: (...a: unknown[]) => mockGetDMBetween(...a),
+        createOrGetDM: (...a: unknown[]) => mockCreateOrGetDM(...a),
       },
       communityFriendship: {
         isBlocked: (...a: unknown[]) => mockIsBlocked(...a),
@@ -149,6 +158,7 @@ vi.mock("@alook/shared", async () => {
 
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
+  broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
 
 vi.mock("@/lib/community/message-dispatcher", () => ({
@@ -192,7 +202,7 @@ vi.mock("@/lib/middleware/helpers", () => {
 })
 
 import { POST, GET } from "./route"
-import { MAX_MESSAGE_CONTENT_LENGTH, MAX_ATTACHMENTS_PER_MESSAGE, MAX_FORUM_TAG_LENGTH, WS_EVENTS } from "@alook/shared"
+import { MAX_MESSAGE_CONTENT_LENGTH, MAX_ATTACHMENTS_PER_MESSAGE, MAX_FORUM_TAG_LENGTH, WS_EVENTS, PARTICIPANT_SOURCE } from "@alook/shared"
 
 function postReq(body: unknown) {
   return new NextRequest("http://localhost/api/community/channels/c1/messages", {
@@ -257,6 +267,9 @@ describe("POST /api/community/channels/[id]/messages", () => {
     mockCheckMessageRateLimit.mockResolvedValue({ allowed: true })
     mockCreateChannel.mockResolvedValue({ id: "thread_1", creatorId: "u1", createdAt: "t0", name: "thread" })
     mockRebindPendingAttachmentsToChild.mockResolvedValue(true)
+    mockAddThreadParticipant.mockResolvedValue(null)
+    mockListThreadParticipantUserIds.mockResolvedValue([])
+    mockBroadcastToUserSafe.mockResolvedValue(undefined)
   })
 
   it("starts the write path on a first-primary D1 session", async () => {
@@ -569,6 +582,192 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(mockFindPendingAttachmentsForSender).toHaveBeenCalledTimes(1)
     expect(mockCreateMessage).toHaveBeenCalledTimes(1)
     expect(mockReserveAttachmentsForMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it("auto-joins a first-touch thread before alignment, broadcasts once per resulting participant, and blocks on backlog", async () => {
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([{ id: "parent_1", serverId: "s1", type: "text", parentChannelId: null }])
+    mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "root_7" })
+    mockGetThreadChannelByParentMessage.mockResolvedValue({ id: "thread_1" })
+    mockGetChannel.mockResolvedValue({ id: "thread_1", serverId: "s1", type: "thread", parentChannelId: "parent_1" })
+    mockGetChannelForMember.mockResolvedValue({ id: "thread_1", serverId: "s1", type: "thread", parentChannelId: "parent_1" })
+    mockAddThreadParticipant.mockResolvedValue({ channelId: "thread_1", userId: "bot_1" })
+    mockListThreadParticipantUserIds.mockResolvedValue(["bot_1", "u2", "u2"])
+    mockGetLatestSeqForScope.mockResolvedValue(2)
+    mockHasDeliverableUnreadForAgentScope.mockResolvedValue(true)
+
+    const res = await POST(botPostReq({
+      channel: "/demo#0042/general/#7",
+      content: { text: "blind reply" },
+    }), ctx)
+
+    expect(await res.json()).toEqual({
+      state: "blocked",
+      reason: "unaligned",
+      unreadCount: 2,
+      latestSeq: 2,
+    })
+    expect(mockAddThreadParticipant).toHaveBeenCalledWith({}, {
+      threadChannelId: "thread_1",
+      userId: "bot_1",
+      source: PARTICIPANT_SOURCE.ADDED,
+    })
+    expect(mockListThreadParticipantUserIds).toHaveBeenCalledWith({}, "thread_1")
+    expect(mockBroadcastToUserSafe).toHaveBeenCalledTimes(2)
+    expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("bot_1", {
+      type: WS_EVENTS.CHANNEL_MEMBER_ADD,
+      serverId: "s1",
+      channelId: "thread_1",
+      userId: "bot_1",
+    })
+    expect(mockBroadcastToUserSafe).toHaveBeenCalledWith("u2", expect.objectContaining({
+      type: WS_EVENTS.CHANNEL_MEMBER_ADD,
+      channelId: "thread_1",
+      userId: "bot_1",
+    }))
+    expect(mockAddThreadParticipant.mock.invocationCallOrder[0]).toBeLessThan(
+      mockGetLatestSeqForScope.mock.invocationCallOrder[0]!,
+    )
+    expect(mockBroadcastToUserSafe.mock.invocationCallOrder[0]).toBeLessThan(
+      mockHasDeliverableUnreadForAgentScope.mock.invocationCallOrder[0]!,
+    )
+    expect(mockCreateMessage).not.toHaveBeenCalled()
+  })
+
+  it("auto-joins an empty first-touch thread and continues the existing send", async () => {
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([{ id: "parent_1", serverId: "s1", type: "text", parentChannelId: null }])
+    mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "root_7" })
+    mockGetThreadChannelByParentMessage.mockResolvedValue({ id: "thread_1" })
+    mockGetChannel.mockResolvedValue({ id: "thread_1", serverId: "s1", type: "thread", parentChannelId: "parent_1" })
+    mockGetChannelForMember.mockResolvedValue({ id: "thread_1", serverId: "s1", type: "thread", parentChannelId: "parent_1" })
+    mockAddThreadParticipant.mockResolvedValue({ channelId: "thread_1", userId: "bot_1" })
+    mockListThreadParticipantUserIds.mockResolvedValue(["bot_1"])
+
+    const res = await POST(botPostReq({
+      channel: "/demo#0042/general/#7",
+      content: { text: "first reply" },
+    }), ctx)
+
+    expect(await res.json()).toEqual(expect.objectContaining({ state: "sent" }))
+    expect(mockAddThreadParticipant).toHaveBeenCalledTimes(1)
+    expect(mockBroadcastToUserSafe).toHaveBeenCalledTimes(1)
+    expect(mockCreateMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps an existing thread participant idempotent without a duplicate member event", async () => {
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([{ id: "parent_1", serverId: "s1", type: "text", parentChannelId: null }])
+    mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "root_7" })
+    mockGetThreadChannelByParentMessage.mockResolvedValue({ id: "thread_1" })
+    mockGetChannel.mockResolvedValue({ id: "thread_1", serverId: "s1", type: "thread", parentChannelId: "parent_1" })
+    mockGetChannelForMember.mockResolvedValue({ id: "thread_1", serverId: "s1", type: "thread", parentChannelId: "parent_1" })
+    mockAddThreadParticipant.mockResolvedValue(null)
+
+    const res = await POST(botPostReq({
+      channel: "/demo#0042/general/#7",
+      content: { text: "next reply" },
+    }), ctx)
+
+    expect((await res.json()).state).toBe("sent")
+    expect(mockAddThreadParticipant).toHaveBeenCalledTimes(1)
+    expect(mockListThreadParticipantUserIds).not.toHaveBeenCalled()
+    expect(mockBroadcastToUserSafe).not.toHaveBeenCalled()
+    expect(mockCreateMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects inaccessible threads before membership or message side effects", async () => {
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([{ id: "parent_1", serverId: "s1", type: "text", parentChannelId: null }])
+    mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "root_7" })
+    mockGetThreadChannelByParentMessage.mockResolvedValue({ id: "thread_1" })
+    mockGetChannel.mockResolvedValue({ id: "thread_1", serverId: "s1", type: "thread", parentChannelId: "parent_1" })
+    mockGetChannelForMember.mockResolvedValue(null)
+
+    const res = await POST(botPostReq({
+      channel: "/demo#0042/general/#7",
+      content: { text: "forbidden" },
+    }), ctx)
+
+    expect(res.status).toBe(403)
+    expect(mockAddThreadParticipant).not.toHaveBeenCalled()
+    expect(mockHasDeliverableUnreadForAgentScope).not.toHaveBeenCalled()
+    expect(mockCreateMessage).not.toHaveBeenCalled()
+  })
+
+  it("returns a committed thread nonce replay before membership side effects", async () => {
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([{ id: "parent_1", serverId: "s1", type: "text", parentChannelId: null }])
+    mockGetMessageByChannelAndSeq.mockResolvedValue({ id: "root_7" })
+    mockGetThreadChannelByParentMessage.mockResolvedValue({ id: "thread_1" })
+    mockGetChannel.mockResolvedValue({ id: "thread_1", serverId: "s1", type: "thread", parentChannelId: "parent_1" })
+    mockGetChannelForMember.mockResolvedValue({ id: "thread_1", serverId: "s1", type: "thread", parentChannelId: "parent_1" })
+    mockGetMessageByAuthorAndNonce.mockResolvedValue({
+      id: "m-existing",
+      seq: 8,
+      clientNonce: "thread-replay",
+      channelId: "thread_1",
+      authorId: "bot_1",
+      authorName: "Bot",
+      authorImage: null,
+      authorEmail: "bot@t.com",
+      content: "already sent",
+      type: "default",
+      mentionType: null,
+      replyToId: null,
+      embeds: null,
+      createdAt: "2026-06-30T00:00:00.000Z",
+    })
+
+    const res = await POST(botPostReq({
+      channel: "/demo#0042/general/#7",
+      content: { text: "already sent" },
+      nonce: "thread-replay",
+    }), ctx)
+
+    expect(await res.json()).toEqual(expect.objectContaining({ state: "sent", deduped: true }))
+    expect(mockAddThreadParticipant).not.toHaveBeenCalled()
+    expect(mockHasDeliverableUnreadForAgentScope).not.toHaveBeenCalled()
+    expect(mockCreateMessage).not.toHaveBeenCalled()
+  })
+
+  it("does not run thread participant preflight for text, DM, or forum-top-level sends", async () => {
+    mockResolveServerByNameForMember.mockResolvedValue([{ id: "s1" }])
+    mockResolveChannelByNameForMember.mockResolvedValue([{ id: "text_1", serverId: "s1", type: "text", parentChannelId: null }])
+    mockGetChannel.mockResolvedValue({ id: "text_1", serverId: "s1", type: "text", parentChannelId: null })
+    mockGetChannelForMember.mockResolvedValue({ id: "text_1", serverId: "s1", type: "text", parentChannelId: null })
+
+    const textRes = await POST(botPostReq({
+      channel: "/demo#0042/general",
+      content: { text: "text" },
+    }), ctx)
+
+    mockGetUserByNameAndDiscriminator.mockResolvedValue({ id: "peer_1", discriminator: "0001" })
+    mockGetUserInternal.mockResolvedValue({ isBot: false, deletedAt: null })
+    mockIsBlocked.mockResolvedValue(false)
+    mockCreateOrGetDM.mockResolvedValue({ id: "dm_1" })
+    mockGetChannel.mockResolvedValue({ id: "dm_1", serverId: null, type: "dm", parentChannelId: null })
+    mockGetDM.mockResolvedValue({ id: "dm_1", lastMessageAt: null, createdAt: "t" })
+    mockGetDMPeer.mockResolvedValue({ otherUserId: "peer_1" })
+
+    const dmRes = await POST(botPostReq({
+      channel: "/.dm/peer#0001",
+      content: { text: "dm" },
+    }), ctx)
+
+    mockResolveChannelByNameForMember.mockResolvedValue([{ id: "forum_1", serverId: "s1", type: "forum", parentChannelId: null }])
+    mockGetChannel.mockResolvedValue({ id: "forum_1", serverId: "s1", type: "forum", parentChannelId: null })
+    mockGetChannelForMember.mockResolvedValue({ id: "forum_1", serverId: "s1", type: "forum", parentChannelId: null })
+
+    const forumRes = await POST(botPostReq({
+      channel: "/demo#0042/ideas",
+      content: { text: "forum opener" },
+    }), ctx)
+
+    expect(textRes.status).toBe(200)
+    expect(dmRes.status).toBe(200)
+    expect(forumRes.status).toBe(200)
+    expect(mockAddThreadParticipant).not.toHaveBeenCalled()
   })
 
   it("bot full-command replay bypasses alignment and pending checks after the first committed send", async () => {

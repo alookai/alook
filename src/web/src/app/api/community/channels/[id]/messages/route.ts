@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb, getPrimaryDb } from "@/lib/db"
-import { queries, withD1Retry, CommunityAgentSendRequestSchema, MAX_FORUM_TAG_LENGTH, utcDayKey } from "@alook/shared"
+import { queries, withD1Retry, CommunityAgentSendRequestSchema, MAX_FORUM_TAG_LENGTH, utcDayKey, WS_EVENTS, PARTICIPANT_SOURCE } from "@alook/shared"
 import {
   parseCursor,
   parseAnchor,
@@ -19,6 +19,7 @@ import {
   resolveMessageTarget,
   type MessageTargetDescriptor,
 } from "@/lib/community/message-door"
+import { broadcastToUserSafe } from "@/lib/community/fanout"
 
 // A bot addresses by ref-in-body; the path `[id]` is then a placeholder
 // (`channels/resolve/messages`) since a ref carries `/` and can't sit in a path
@@ -390,6 +391,29 @@ async function handleBotSend(
     const orderedAttachments = replay.attachments.map((a) => ({ id: a.id, filename: a.filename, contentType: a.contentType, size: a.size }))
     const message = await queries.communityAgentInbox.toAgentMessage(db, replay.row, botUserId, orderedAttachments)
     return NextResponse.json({ state: "sent", message, deduped: true })
+  }
+
+  if (target.kind === "thread") {
+    const created = await withD1Retry(
+      () => queries.communityThread.addThreadParticipant(db, {
+        threadChannelId: channelId,
+        userId: botUserId,
+        source: PARTICIPANT_SOURCE.ADDED,
+      }),
+      { route: "community/messages:thread-auto-join" },
+    )
+    if (created) {
+      const event = {
+        type: WS_EVENTS.CHANNEL_MEMBER_ADD,
+        serverId: target.serverId,
+        channelId,
+        userId: botUserId,
+      } as const
+      const recipients = await queries.communityThread.listThreadParticipantUserIds(db, channelId)
+      await Promise.all(
+        [...new Set(recipients)].map((userId) => broadcastToUserSafe(userId, event)),
+      )
+    }
   }
 
   const scopeTarget = { channelId }
