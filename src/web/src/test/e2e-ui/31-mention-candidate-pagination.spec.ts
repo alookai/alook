@@ -32,7 +32,35 @@ test("@ candidates page to completion, expose first search page, and keep status
   const serverId = await seedServer("alice", `Mention pages ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "mention-pages")
   const { page } = await asUser("alice")
-  await page.setViewportSize({ width: 390, height: 640 })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.addInitScript(() => {
+    const geometry = {
+      offsetTop: 0,
+      offsetLeft: 0,
+      width: 390,
+      height: 844,
+    }
+    const viewport = new EventTarget()
+    for (const property of ["offsetTop", "offsetLeft", "width", "height"] as const) {
+      Object.defineProperty(viewport, property, {
+        configurable: true,
+        get: () => geometry[property],
+      })
+    }
+    Object.defineProperty(viewport, "scale", { configurable: true, value: 1 })
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: viewport,
+    })
+    Object.defineProperty(window, "__setMentionTestVisualViewport", {
+      configurable: true,
+      value: (next: Partial<typeof geometry>) => {
+        Object.assign(geometry, next)
+        viewport.dispatchEvent(new Event("resize"))
+        viewport.dispatchEvent(new Event("scroll"))
+      },
+    })
+  })
 
   const browse = Array.from({ length: 12 }, (_, index) => candidate("Browse", index + 1))
   const matches = Array.from({ length: 205 }, (_, index) => candidate("CapMatch", index + 1))
@@ -110,22 +138,54 @@ test("@ candidates page to completion, expose first search page, and keep status
   await expect(page.getByTestId(tid.mentionOption(matches[204]!.id))).toHaveCount(1)
   await expect(mentionOptions).toHaveCount(205)
 
-  const bounds = await page.getByTestId(tid.mentionPopup).evaluate((element) => {
-    const rect = element.getBoundingClientRect()
+  const readBounds = () => page.getByTestId(tid.mentionPopup).evaluate((element) => {
+    const popup = element.getBoundingClientRect()
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) throw new Error("Missing composer caret")
+    const caret = selection.getRangeAt(0).getBoundingClientRect()
     const viewport = window.visualViewport
     return {
-      top: rect.top,
-      bottom: rect.bottom,
-      left: rect.left,
-      right: rect.right,
-      width: viewport?.width ?? window.innerWidth,
-      height: viewport?.height ?? window.innerHeight,
+      popup: {
+        top: popup.top,
+        bottom: popup.bottom,
+        left: popup.left,
+        right: popup.right,
+      },
+      caret: { top: caret.top, bottom: caret.bottom },
+      viewport: {
+        top: viewport?.offsetTop ?? 0,
+        bottom: (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight),
+        left: viewport?.offsetLeft ?? 0,
+        right: (viewport?.offsetLeft ?? 0) + (viewport?.width ?? window.innerWidth),
+      },
     }
   })
-  expect(bounds.top).toBeGreaterThanOrEqual(0)
-  expect(bounds.left).toBeGreaterThanOrEqual(0)
-  expect(bounds.bottom).toBeLessThanOrEqual(bounds.height)
-  expect(bounds.right).toBeLessThanOrEqual(bounds.width)
+
+  const expectAnchoredAbove = (bounds: Awaited<ReturnType<typeof readBounds>>) => {
+    expect(bounds.caret.top).toBeGreaterThanOrEqual(bounds.viewport.top)
+    expect(bounds.caret.bottom).toBeLessThanOrEqual(bounds.viewport.bottom)
+    expect(bounds.popup.top).toBeGreaterThanOrEqual(bounds.viewport.top)
+    expect(bounds.popup.bottom).toBeLessThanOrEqual(bounds.viewport.bottom)
+    expect(bounds.popup.left).toBeGreaterThanOrEqual(bounds.viewport.left)
+    expect(bounds.popup.right).toBeLessThanOrEqual(bounds.viewport.right)
+    expect(bounds.popup.bottom - bounds.caret.top).toBeGreaterThanOrEqual(-5)
+    expect(bounds.popup.bottom - bounds.caret.top).toBeLessThanOrEqual(-3)
+  }
+
+  expectAnchoredAbove(await readBounds())
+  await page.evaluate(() => {
+    const setViewport = Reflect.get(window, "__setMentionTestVisualViewport") as
+      | ((geometry: { offsetTop: number; height: number }) => void)
+      | undefined
+    if (!setViewport) throw new Error("Missing controlled visual viewport")
+    setViewport({ offsetTop: 364, height: 480 })
+  })
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  }))
+  expectAnchoredAbove(await readBounds())
+  await page.waitForTimeout(250)
+  expectAnchoredAbove(await readBounds())
 
   await page.keyboard.press("Escape")
   await editable.press("ControlOrMeta+A")
