@@ -22,9 +22,11 @@ export type MentionItem =
   | { kind: MentionType; id: MentionType; label: MentionType }
   | MemberMentionItem
 
-const VIRTUAL_ITEMS: MentionItem[] = MENTION_TYPES.map((t) => ({ kind: t, id: t, label: t }))
+export type MentionCandidatePresentation = {
+  status: "loading" | "loading-more" | "ready" | "empty" | "error"
+}
 
-const MENTION_LIMIT = 8
+const VIRTUAL_ITEMS: MentionItem[] = MENTION_TYPES.map((t) => ({ kind: t, id: t, label: t }))
 
 // The disambiguated label (`Alex#0002`, set by `rankMentionItems` below) is
 // what gets serialized into the message text via `renderText` — the backend
@@ -40,7 +42,8 @@ function mentionDisplayLabel(label: string): string {
 // members, ranked prefix-first then substring. Returns an empty list for DMs:
 // a 1:1 conversation has no roster to disambiguate against, and the backend
 // (message-handler.ts) explicitly skips mention extraction for DMs anyway, so
-// the popover would be pure noise. Capped at MENTION_LIMIT.
+// the popover would be pure noise. The popover owns viewport containment, so
+// this ranker returns the complete candidate set it receives.
 export function rankMentionItems(
   members: Member[],
   context: MentionContext,
@@ -84,7 +87,7 @@ export function rankMentionItems(
     else if (name.includes(q)) inc.push(item)
   }
 
-  return [...virtual, ...sw, ...inc].slice(0, MENTION_LIMIT)
+  return [...virtual, ...sw, ...inc]
 }
 
 // Keep TipTap's live `clientRect` resolver rather than a one-time DOMRect.
@@ -93,6 +96,7 @@ export function rankMentionItems(
 // and re-reads this resolver.
 export interface MentionPopupState {
   items: MentionItem[]
+  query: string
   selectedIndex: number
   command: ((props: { id: string; label: string }) => void) | null
   getRect: (() => DOMRect | null) | null
@@ -100,6 +104,7 @@ export interface MentionPopupState {
 
 export const EMPTY_MENTION_STATE: MentionPopupState = {
   items: [],
+  query: "",
   selectedIndex: 0,
   command: null,
   getRect: null,
@@ -107,6 +112,7 @@ export const EMPTY_MENTION_STATE: MentionPopupState = {
 
 type SuggestionProps = {
   items: MentionItem[]
+  query?: string
   command: (props: { id: string; label: string }) => void
   clientRect?: (() => DOMRect | null) | null
 }
@@ -152,12 +158,17 @@ export function buildCommunityMentionExtension(opts: {
       items: ({ query }: { query: string }) => {
         if (queryRef) queryRef.current = query
         onSearchMembersRef?.current?.(query)
-        return rankMentionItems(membersRef.current, contextRef.current, query)
+        return rankMentionItems(
+          query && onSearchMembersRef?.current ? [] : membersRef.current,
+          contextRef.current,
+          query,
+        )
       },
       render: () => ({
         onStart: (props: SuggestionProps) => {
           setPopup({
             items: props.items ?? [],
+            query: queryRef?.current ?? props.query ?? "",
             selectedIndex: 0,
             command: props.command,
             getRect: props.clientRect ?? null,
@@ -166,6 +177,7 @@ export function buildCommunityMentionExtension(opts: {
         onUpdate: (props: SuggestionProps) => {
           setPopup((cur) => ({
             items: props.items ?? [],
+            query: queryRef?.current ?? props.query ?? "",
             selectedIndex:
               cur.selectedIndex < (props.items?.length ?? 0)
                 ? cur.selectedIndex
@@ -199,16 +211,21 @@ export function buildCommunityMentionExtension(opts: {
             event.preventDefault()
             const item = cur.items[cur.selectedIndex]
             if (item && cur.command) cur.command({ id: item.id, label: item.label })
+            onSearchMembersRef?.current?.("")
             setPopup(EMPTY_MENTION_STATE)
             return true
           }
           if (event.key === "Escape") {
+            onSearchMembersRef?.current?.("")
             setPopup(EMPTY_MENTION_STATE)
             return true
           }
           return false
         },
-        onExit: () => setPopup(EMPTY_MENTION_STATE),
+        onExit: () => {
+          onSearchMembersRef?.current?.("")
+          setPopup(EMPTY_MENTION_STATE)
+        },
       }),
     },
   })

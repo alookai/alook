@@ -175,7 +175,7 @@ function surfaceProps(overrides: Record<string, unknown> = {}) {
     onSetNotificationLevel: vi.fn(),
     onBack: vi.fn(),
     composerMembers: [{ id: "member_1", userId: "member_1", name: "Alice" }],
-    onSearchComposerMembers: vi.fn(),
+    composerMentionCandidates: undefined,
     channelRefCandidates: [{ id: "parent_1", name: "general", serverId: "server_1", serverName: "Server", serverDiscriminator: "0001" }],
     memberPanelProps: {
       members: [],
@@ -257,7 +257,7 @@ describe("ThreadChannelSurface ownership", () => {
       channel: "Thread name",
       context: "thread",
       members: props.composerMembers,
-      onSearchMembers: props.onSearchComposerMembers,
+      mentionCandidates: props.composerMentionCandidates,
       channelRefCandidates: props.channelRefCandidates,
       replyingTo: "Alice",
       autoFocus: true,

@@ -70,6 +70,7 @@ function baseProps(
     onDragOver: vi.fn(),
     onDrop: vi.fn(),
     mentionPopup: EMPTY_MENTION_STATE,
+    mentionPresentation: { status: "ready" },
     channelRefPopup: EMPTY_CHANNEL_REF_STATE,
     pendingFiles: [],
     removePendingFile: vi.fn(),

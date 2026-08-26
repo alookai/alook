@@ -6,6 +6,7 @@ import { isForum, type CommunityRole as Role } from "@alook/shared"
 import { AddMembersDialog } from "@/components/community/members/add-members-dialog"
 import type { CommunityPanel } from "@/components/community/shell/community-panel"
 import type { Member } from "@/lib/community/models/people"
+import type { ComposerProps } from "@/components/community/messages/composer"
 import { toastApiError } from "@/lib/api/client"
 import { makeUserNameResolver } from "@/lib/community/display-name"
 import { resolveRowPresence } from "@/lib/community/presence"
@@ -22,6 +23,8 @@ import {
 } from "@/hooks/community/use-thread-participants"
 import { useKickMember, useSetMemberRole } from "@/hooks/community/mutations"
 import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
+
+type MentionCandidateSource = NonNullable<ComposerProps["mentionCandidates"]>
 
 type PanelProps = ComponentProps<typeof CommunityPanel>
 
@@ -79,7 +82,7 @@ export function useChannelMemberViewModel({
   currentUser: { id: string }
 }): {
   composerMembers: Member[]
-  onSearchComposerMembers: (query: string) => void
+  composerMentionCandidates?: MentionCandidateSource
   memberPanelProps: ChannelMemberPanelProps
   manageMembersDialog: ReactNode
   resolveUserName: (userId: string) => string
@@ -236,6 +239,32 @@ export function useChannelMemberViewModel({
     userStatuses,
   ])
 
+  const composerMentionCandidates = useMemo<MentionCandidateSource | undefined>(
+    () => currentChannelPrivate
+      ? undefined
+      : {
+          loading: membersHook.loading,
+          loadingMore: membersHook.loadingMore,
+          hasMore: membersHook.hasMore,
+          failed: membersHook.failed,
+          searchQuery: membersHook.searchQuery,
+          searchStatus: membersHook.searchStatus,
+          loadMore: membersHook.loadMore,
+          search: membersHook.searchMembers,
+        },
+    [
+      currentChannelPrivate,
+      membersHook.failed,
+      membersHook.hasMore,
+      membersHook.loadMore,
+      membersHook.loading,
+      membersHook.loadingMore,
+      membersHook.searchMembers,
+      membersHook.searchQuery,
+      membersHook.searchStatus,
+    ],
+  )
+
   const myRole = members.find((member) => member.userId === currentUser.id)?.role
   const unitCreatorId = isChildChannel
     ? currentChannelMeta?.creatorId
@@ -330,7 +359,7 @@ export function useChannelMemberViewModel({
 
   return {
     composerMembers,
-    onSearchComposerMembers: membersHook.searchMembers,
+    composerMentionCandidates,
     memberPanelProps,
     manageMembersDialog,
     resolveUserName,

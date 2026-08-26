@@ -5,6 +5,10 @@ import { queries, MAX_MEMBERS_PAGE_SIZE } from "@alook/shared"
 import { requireServerMember } from "@/lib/community/permissions"
 import { parseBoundedInt } from "@/lib/community/messages"
 import { mapMemberForApi } from "@/lib/community/member-payload"
+import {
+  encodeMemberSearchCursor,
+  parseMemberSearchCursor,
+} from "@/lib/community/member-search-cursor"
 
 export const GET = withAuth(async (req, ctx) => {
   const serverId = ctx.params?.id
@@ -23,11 +27,27 @@ export const GET = withAuth(async (req, ctx) => {
     MAX_MEMBERS_PAGE_SIZE,
     MAX_MEMBERS_PAGE_SIZE,
   )
+  const cursor = parseMemberSearchCursor(
+    url.searchParams.get("cursor"),
+    { serverId, query: q },
+  )
+  if (cursor === null) return writeError("invalid cursor", 400)
 
-  const rows = await queries.communityMember.searchMembers(db, serverId, q, { limit })
+  const page = await queries.communityMember.searchMembers(db, serverId, q, {
+    limit,
+    cursor,
+  })
   // No bot gating here — `searchMembers` never selected the bot columns and this
   // route never emitted `isBot`/`ownerUserId`. Byte-identical to before.
-  const members = rows.map((r) => mapMemberForApi(r, ctx.userId))
+  const members = page.members.map((r) => mapMemberForApi(r, ctx.userId))
+  const nextCursor = page.cursor
+    ? encodeMemberSearchCursor({
+        serverId,
+        query: q,
+        name: page.cursor.name,
+        id: page.cursor.id,
+      })
+    : undefined
 
-  return writeJSON({ members, limit })
+  return writeJSON({ members, limit, hasMore: page.hasMore, cursor: nextCursor })
 })

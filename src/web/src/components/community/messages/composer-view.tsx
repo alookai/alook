@@ -14,7 +14,10 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import type { PendingFile } from "@/hooks/use-file-attachments"
 import type { ChannelRefPopupState } from "@/lib/community/channel-ref-extension"
-import type { MentionPopupState } from "@/lib/community/mention-extension"
+import type {
+  MentionCandidatePresentation,
+  MentionPopupState,
+} from "@/lib/community/mention-extension"
 import { tid } from "@/lib/community/testids"
 import { EmojiPickerPopover } from "./emoji-picker"
 import {
@@ -30,6 +33,7 @@ export type ComposerViewProps = {
   onDragOver: DragEventHandler<HTMLDivElement>
   onDrop: DragEventHandler<HTMLDivElement>
   mentionPopup: MentionPopupState
+  mentionPresentation: MentionCandidatePresentation
   channelRefPopup: ChannelRefPopupState
   replyingTo?: string
   onCancelReply?: () => void
@@ -53,6 +57,7 @@ export function ComposerView({
   onDragOver,
   onDrop,
   mentionPopup,
+  mentionPresentation,
   channelRefPopup,
   replyingTo,
   onCancelReply,
@@ -77,7 +82,10 @@ export function ComposerView({
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
-      <CommunityMentionList state={mentionPopup} />
+      <CommunityMentionList
+        state={mentionPopup}
+        presentation={mentionPresentation}
+      />
       <ChannelRefList state={channelRefPopup} />
 
       {replyingTo && (

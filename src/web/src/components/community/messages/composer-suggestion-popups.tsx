@@ -15,6 +15,7 @@ import {
   type ChannelRefPopupState,
 } from "@/lib/community/channel-ref-extension"
 import type {
+  MentionCandidatePresentation,
   MentionItem,
   MentionPopupState,
 } from "@/lib/community/mention-extension"
@@ -36,25 +37,28 @@ function scrollSelectedRowIntoView(list: HTMLDivElement | null): void {
 
 export function CommunityMentionList({
   state,
+  presentation,
 }: {
   state: MentionPopupState
+  presentation: MentionCandidatePresentation
 }) {
   const listRef = useRef<HTMLDivElement>(null)
   const { items, selectedIndex, command, getRect } = state
   const geometry = useAnchoredPopover(
     getRect,
-    items.length > 0 && command !== null,
+    command !== null,
   )
   useEffect(() => {
     scrollSelectedRowIntoView(listRef.current)
   }, [selectedIndex, geometry])
-  if (!geometry || items.length === 0 || !command) return null
+  if (!geometry || !command) return null
 
   const firstMemberIndex = items.findIndex((item) => item.kind === "member")
   const hasVirtual = items.some((item) => item.kind !== "member")
   const showMembersHeader = hasVirtual && firstMemberIndex > 0
   return createPortal(
     <div
+      data-testid={tid.mentionPopup}
       className="fixed z-100 w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-(--e2)"
       style={anchoredPopoverStyle(
         geometry.rect,
@@ -79,9 +83,37 @@ export function CommunityMentionList({
             onSelect={() => command({ id: item.id, label: item.label })}
           />
         ))}
+        {presentation.status !== "ready" && (
+          <MentionStatus status={presentation.status} hasItems={items.length > 0} />
+        )}
       </div>
     </div>,
     document.body,
+  )
+}
+
+function MentionStatus({
+  status,
+  hasItems,
+}: {
+  status: Exclude<MentionCandidatePresentation["status"], "ready">
+  hasItems: boolean
+}) {
+  const label = status === "error"
+    ? "Couldn’t load members"
+    : status === "empty"
+      ? "No matching members"
+      : status === "loading-more" && hasItems
+        ? "Loading more…"
+        : "Loading members…"
+  return (
+    <div
+      data-testid={tid.mentionStatus}
+      data-state={status}
+      className="px-2 py-2 text-xs text-muted-foreground"
+    >
+      {label}
+    </div>
   )
 }
 

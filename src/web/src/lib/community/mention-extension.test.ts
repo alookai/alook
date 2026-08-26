@@ -72,9 +72,9 @@ describe("rankMentionItems", () => {
     expect(memberOrder.slice(0, 2).sort()).toEqual(["Albert#0000", "Alice#0000"])
   })
 
-  it("caps the list at 8 items", () => {
+  it("returns the complete roster without the former 8-item cap", () => {
     const many = Array.from({ length: 50 }, (_, i) => member(`u${i}`, `User${i}`))
-    expect(rankMentionItems(many, "channel", "").length).toBe(8)
+    expect(rankMentionItems(many, "channel", "").length).toBe(51)
   })
 
   it("accepts a full Member[] with role/userId fields — ranking invariants unchanged", () => {
@@ -192,6 +192,42 @@ function getItemsCallback(
   const items = (opts?.suggestion as { items: (props: { query: string }) => unknown[] } | undefined)?.items
   if (!items) throw new Error("suggestion.items not found")
   return items
+}
+
+type MentionRenderProps = {
+  items?: MentionPopupState["items"]
+  query?: string
+  command: (props: { id: string; label: string }) => void
+  clientRect?: (() => DOMRect | null) | null
+}
+
+type MentionRenderCallbacks = {
+  onStart: (props: MentionRenderProps) => void
+  onUpdate: (props: MentionRenderProps) => void
+  onKeyDown: (props: { event: KeyboardEvent }) => boolean
+  onExit: () => void
+}
+
+function getRenderCallbacks(
+  ext: ReturnType<typeof buildCommunityMentionExtension>,
+): MentionRenderCallbacks {
+  const config = (ext as unknown as {
+    config: { addOptions?: () => { suggestion?: { render?: unknown } } }
+  }).config
+  const opts =
+    config.addOptions?.() ??
+    (ext as unknown as { options?: { suggestion?: { render?: unknown } } }).options
+  const render = opts?.suggestion?.render as (() => MentionRenderCallbacks) | undefined
+  if (!render) throw new Error("suggestion.render not found")
+  return render()
+}
+
+function keyboardEvent(key: string, isComposing = false) {
+  return {
+    key,
+    isComposing,
+    preventDefault: vi.fn(),
+  } as unknown as KeyboardEvent
 }
 
 // Same access pattern as `getItemsCallback` above — reach into the configured
@@ -329,6 +365,193 @@ describe("buildCommunityMentionExtension — suggestion.items callback", () => {
     const result = items({ query: "al" }) as { id: string; kind: string }[]
     const memberIds = result.filter((r) => r.kind === "member").map((r) => r.id)
     expect(memberIds).toEqual(["m1", "m3"])
+  })
+})
+
+describe("buildCommunityMentionExtension — suggestion.render callbacks", () => {
+  function setup(queryRef?: { current: string }) {
+    let popup: MentionPopupState = EMPTY_MENTION_STATE
+    const popupRef = { current: popup }
+    const search = vi.fn()
+    const setPopup = (
+      next: MentionPopupState | ((cur: MentionPopupState) => MentionPopupState),
+    ) => {
+      popup = typeof next === "function" ? next(popup) : next
+      popupRef.current = popup
+    }
+    const ext = buildCommunityMentionExtension({
+      membersRef: { current: [] as Member[] },
+      contextRef: { current: "channel" as MentionContext },
+      popupRef,
+      setPopup,
+      onSearchMembersRef: { current: search },
+      queryRef,
+    })
+    return {
+      callbacks: getRenderCallbacks(ext),
+      popup: () => popup,
+      popupRef,
+      search,
+      setPopup,
+    }
+  }
+
+  const items = rankMentionItems(
+    [member("m1", "Ada", "0001"), member("m2", "Adel", "0002")],
+    "channel",
+    "ad",
+  )
+
+  it("starts and updates popup state while preserving only an in-range selection", () => {
+    const harness = setup()
+    const firstCommand = vi.fn()
+    const firstRect = vi.fn(() => null)
+    harness.callbacks.onStart({
+      items,
+      query: "ad",
+      command: firstCommand,
+      clientRect: firstRect,
+    })
+    expect(harness.popup()).toEqual({
+      items,
+      query: "ad",
+      selectedIndex: 0,
+      command: firstCommand,
+      getRect: firstRect,
+    })
+
+    harness.setPopup({ ...harness.popup(), selectedIndex: 1 })
+    const nextCommand = vi.fn()
+    const nextRect = vi.fn(() => null)
+    harness.callbacks.onUpdate({
+      items,
+      query: "ade",
+      command: nextCommand,
+      clientRect: nextRect,
+    })
+    expect(harness.popup()).toEqual({
+      items,
+      query: "ade",
+      selectedIndex: 1,
+      command: nextCommand,
+      getRect: nextRect,
+    })
+
+    harness.callbacks.onUpdate({
+      items: items.slice(0, 1),
+      query: "ada",
+      command: nextCommand,
+      clientRect: null,
+    })
+    expect(harness.popup()).toMatchObject({
+      items: items.slice(0, 1),
+      query: "ada",
+      selectedIndex: 0,
+      getRect: null,
+    })
+  })
+
+  it("prefers the live query ref over callback query snapshots", () => {
+    const queryRef = { current: "live-start" }
+    const harness = setup(queryRef)
+    const command = vi.fn()
+    harness.callbacks.onStart({
+      items,
+      query: "stale-start",
+      command,
+      clientRect: null,
+    })
+    expect(harness.popup().query).toBe("live-start")
+
+    queryRef.current = "live-update"
+    harness.callbacks.onUpdate({
+      items,
+      query: "stale-update",
+      command,
+      clientRect: null,
+    })
+    expect(harness.popup().query).toBe("live-update")
+  })
+
+  it("selects with Enter and Tab, then clears search and popup state", () => {
+    const harness = setup()
+    const command = vi.fn()
+    harness.setPopup({
+      items,
+      query: "ad",
+      selectedIndex: 1,
+      command,
+      getRect: null,
+    })
+    const enter = keyboardEvent("Enter")
+    expect(harness.callbacks.onKeyDown({ event: enter })).toBe(true)
+    expect(enter.preventDefault).toHaveBeenCalledOnce()
+    expect(command).toHaveBeenLastCalledWith({ id: items[1].id, label: items[1].label })
+    expect(harness.search).toHaveBeenLastCalledWith("")
+    expect(harness.popup()).toEqual(EMPTY_MENTION_STATE)
+
+    harness.setPopup({
+      items,
+      query: "ad",
+      selectedIndex: 0,
+      command,
+      getRect: null,
+    })
+    const tab = keyboardEvent("Tab")
+    expect(harness.callbacks.onKeyDown({ event: tab })).toBe(true)
+    expect(tab.preventDefault).toHaveBeenCalledOnce()
+    expect(command).toHaveBeenLastCalledWith({ id: items[0].id, label: items[0].label })
+    expect(harness.popup()).toEqual(EMPTY_MENTION_STATE)
+  })
+
+  it("dismisses on Escape and exit, and wraps arrow navigation", () => {
+    const harness = setup()
+    harness.setPopup({
+      items,
+      query: "ad",
+      selectedIndex: items.length - 1,
+      command: vi.fn(),
+      getRect: null,
+    })
+    const down = keyboardEvent("ArrowDown")
+    expect(harness.callbacks.onKeyDown({ event: down })).toBe(true)
+    expect(down.preventDefault).toHaveBeenCalledOnce()
+    expect(harness.popup().selectedIndex).toBe(0)
+
+    const up = keyboardEvent("ArrowUp")
+    expect(harness.callbacks.onKeyDown({ event: up })).toBe(true)
+    expect(up.preventDefault).toHaveBeenCalledOnce()
+    expect(harness.popup().selectedIndex).toBe(items.length - 1)
+
+    expect(harness.callbacks.onKeyDown({ event: keyboardEvent("Escape") })).toBe(true)
+    expect(harness.search).toHaveBeenLastCalledWith("")
+    expect(harness.popup()).toEqual(EMPTY_MENTION_STATE)
+
+    harness.setPopup({
+      items,
+      query: "ad",
+      selectedIndex: 0,
+      command: vi.fn(),
+      getRect: null,
+    })
+    harness.callbacks.onExit()
+    expect(harness.search).toHaveBeenLastCalledWith("")
+    expect(harness.popup()).toEqual(EMPTY_MENTION_STATE)
+  })
+
+  it("does not consume composing, empty, or unrelated key events", () => {
+    const harness = setup()
+    harness.setPopup({
+      items,
+      query: "ad",
+      selectedIndex: 0,
+      command: vi.fn(),
+      getRect: null,
+    })
+    expect(harness.callbacks.onKeyDown({ event: keyboardEvent("Enter", true) })).toBe(false)
+    expect(harness.callbacks.onKeyDown({ event: keyboardEvent("Space") })).toBe(false)
+    harness.setPopup(EMPTY_MENTION_STATE)
+    expect(harness.callbacks.onKeyDown({ event: keyboardEvent("Enter") })).toBe(false)
   })
 })
 

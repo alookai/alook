@@ -32,6 +32,7 @@ describe("community QA selectors", () => {
 
   it("exposes stable composer and message-list surfaces", () => {
     expect(tid.channelComposerShell).toBe("community-composer-shell")
+    expect(tid.memberRow("member_1")).toBe("community-member-row-member_1")
     expect(tid.composerFileInput).toBe("community-composer-file-input")
     expect(tid.messageScroller).toBe("community-message-scroller")
   })

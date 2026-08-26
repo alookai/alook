@@ -13,7 +13,12 @@ import {
 import { onEnterSubmit } from "@/lib/ime"
 import { toastApiError } from "@/lib/api/client"
 import { MAX_CHANNEL_NAME_LENGTH, type MentionType } from "@alook/shared"
-import { Composer, type ComposerHandle, type SendAttachment } from "./composer"
+import {
+  Composer,
+  type ComposerHandle,
+  type ComposerProps,
+  type SendAttachment,
+} from "./composer"
 import type { Member } from "@/lib/community/models/people"
 import {
   useUploadFile,
@@ -35,7 +40,7 @@ export type NewForumThread = {
 export function CreateForumThread({
   forumChannelId,
   members,
-  onSearchMembers,
+  mentionCandidates,
   onCancel,
   onCreatePost,
 }: {
@@ -43,7 +48,7 @@ export function CreateForumThread({
   // live under the same access-scope as the post.
   forumChannelId: string
   members: Member[]
-  onSearchMembers?: (query: string) => void
+  mentionCandidates?: ComposerProps["mentionCandidates"]
   onCancel: () => void
   // Async — the page owns the mutation call + `enterThread` navigation. This
   // handler either resolves (success — child clears its state) or rejects
@@ -173,7 +178,7 @@ export function CreateForumThread({
         channel=""
         context="channel"
         members={members}
-        onSearchMembers={onSearchMembers}
+        mentionCandidates={mentionCandidates}
         channelRefCandidates={[]}
         placeholder="What do you want to discuss?"
         onDeferredSubmit={handleBodySubmit}

@@ -1,4 +1,4 @@
-import { eq, and, ne, inArray, count, asc, or, gt, like, isNull, sql } from "drizzle-orm";
+import { eq, and, ne, inArray, count, asc, or, gt, isNull, sql } from "drizzle-orm";
 import { communityServerMember, communityUserProfile } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
@@ -280,7 +280,7 @@ export async function searchMembers(
   db: Database,
   serverId: string,
   q: string,
-  opts?: { limit?: number }
+  opts?: { limit?: number; cursor?: { name: string; id: string } }
 ) {
   const rawLimit = opts?.limit ?? MAX_MEMBERS_PAGE_SIZE;
   const limit = Math.max(1, Math.min(rawLimit, MAX_MEMBERS_PAGE_SIZE));
@@ -288,7 +288,26 @@ export async function searchMembers(
   // single "%" in the query matches every row.
   const pattern = `${escapeLikePattern(q)}%`;
 
-  return db
+  const conditions = [
+    eq(communityServerMember.serverId, serverId),
+    or(
+      sql`${user.name} LIKE ${pattern} ESCAPE '\\'`,
+      sql`${user.email} LIKE ${pattern} ESCAPE '\\'`
+    )!,
+  ];
+  if (opts?.cursor) {
+    conditions.push(
+      or(
+        gt(user.name, opts.cursor.name),
+        and(
+          eq(user.name, opts.cursor.name),
+          gt(communityServerMember.id, opts.cursor.id),
+        ),
+      )!,
+    );
+  }
+
+  const rows = await db
     .select({
       id: communityServerMember.id,
       serverId: communityServerMember.serverId,
@@ -305,17 +324,18 @@ export async function searchMembers(
     .from(communityServerMember)
     .innerJoin(user, eq(communityServerMember.userId, user.id))
     .leftJoin(communityUserProfile, eq(communityUserProfile.userId, user.id))
-    .where(
-      and(
-        eq(communityServerMember.serverId, serverId),
-        or(
-          like(user.name, pattern),
-          like(user.email, pattern)
-        )
-      )
-    )
+    .where(and(...conditions))
     .orderBy(asc(user.name), asc(communityServerMember.id))
-    .limit(limit);
+    .limit(limit + 1);
+
+  const hasMore = rows.length > limit;
+  const members = hasMore ? rows.slice(0, limit) : rows;
+  const last = members[members.length - 1];
+  const cursor = hasMore && last
+    ? { name: last.userName, id: last.id }
+    : undefined;
+
+  return { members, hasMore, cursor };
 }
 
 export async function getMember(db: Database, serverId: string, userId: string) {

@@ -40,7 +40,7 @@ export function ThreadChannelSurface({
   onSetNotificationLevel,
   onBack,
   composerMembers,
-  onSearchComposerMembers,
+  composerMentionCandidates,
   channelRefCandidates,
   memberPanelProps,
   manageMembersDialog,
@@ -66,7 +66,7 @@ export function ThreadChannelSurface({
   onSetNotificationLevel: (level: ChannelNotifLevel) => void
   onBack?: () => void
   composerMembers: ComponentProps<typeof Composer>["members"]
-  onSearchComposerMembers: ComponentProps<typeof Composer>["onSearchMembers"]
+  composerMentionCandidates: ComponentProps<typeof Composer>["mentionCandidates"]
   channelRefCandidates: ComponentProps<typeof Composer>["channelRefCandidates"]
   memberPanelProps: ChannelMemberPanelProps
   manageMembersDialog: ReactNode
@@ -246,7 +246,7 @@ export function ThreadChannelSurface({
                   channel={displayName}
                   context="thread"
                   members={composerMembers}
-                  onSearchMembers={onSearchComposerMembers}
+                  mentionCandidates={composerMentionCandidates}
                   channelRefCandidates={channelRefCandidates}
                   sendContract="accepted"
                   onAcceptSend={controller.acceptMessage}

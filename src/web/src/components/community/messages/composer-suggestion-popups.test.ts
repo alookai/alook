@@ -85,7 +85,10 @@ describe("Composer suggestion popups", () => {
     let channel!: TestRenderer.ReactTestRenderer
     await act(async () => {
       mention = TestRenderer.create(
-        createElement(CommunityMentionList, { state: EMPTY_MENTION_STATE }),
+        createElement(CommunityMentionList, {
+          state: EMPTY_MENTION_STATE,
+          presentation: { status: "ready" },
+        }),
       )
       channel = TestRenderer.create(
         createElement(ChannelRefList, { state: EMPTY_CHANNEL_REF_STATE }),
@@ -100,10 +103,12 @@ describe("Composer suggestion popups", () => {
         createElement(CommunityMentionList, {
           state: {
             items: [{ kind: "everyone", id: "everyone", label: "everyone" }],
+            query: "",
             selectedIndex: 0,
             command: vi.fn(),
             getRect: () => rect(500),
           },
+          presentation: { status: "ready" },
         }),
       )
     })
@@ -131,6 +136,7 @@ describe("Composer suggestion popups", () => {
           status: "online",
         },
       ],
+      query: "",
       selectedIndex: 1,
       command,
       getRect: () => rect(500),
@@ -138,7 +144,10 @@ describe("Composer suggestion popups", () => {
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
       renderer = TestRenderer.create(
-        createElement(CommunityMentionList, { state }),
+        createElement(CommunityMentionList, {
+          state,
+          presentation: { status: "ready" },
+        }),
         {
           createNodeMock: (element) =>
             element.props.className?.includes("overflow-y-auto") ? listNode : {},
@@ -216,6 +225,42 @@ describe("Composer suggestion popups", () => {
     await act(async () => selected.props.onMouseDown({ preventDefault }))
     expect(preventDefault).toHaveBeenCalledOnce()
     expect(command).toHaveBeenCalledWith({ id: "member-1", label: "Ada#0001" })
+  })
+
+  it("keeps one anchored frame for loading, empty, error, and loading-more", async () => {
+    const state: MentionPopupState = {
+      items: [],
+      query: "ada",
+      selectedIndex: 0,
+      command: vi.fn(),
+      getRect: () => rect(500),
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(
+        createElement(CommunityMentionList, {
+          state,
+          presentation: { status: "loading" },
+        }),
+      )
+    })
+    expect(renderer.root.findByProps({ "data-state": "loading" }).children)
+      .toEqual(["Loading members…"])
+
+    for (const [status, label] of [
+      ["empty", "No matching members"],
+      ["error", "Couldn’t load members"],
+      ["loading-more", "Loading members…"],
+    ] as const) {
+      await act(async () => {
+        renderer.update(createElement(CommunityMentionList, {
+          state,
+          presentation: { status },
+        }))
+      })
+      expect(renderer.root.findByProps({ "data-state": status }).children)
+        .toEqual([label])
+    }
   })
 
   it("adds server prefixes only for cross-server channel results", async () => {

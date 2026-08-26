@@ -66,7 +66,7 @@ function surfaceProps(overrides: Record<string, unknown> = {}) {
     notificationLevel: "Use Server Default" as const,
     onSetNotificationLevel: vi.fn(),
     composerMembers: [],
-    onSearchComposerMembers: vi.fn(),
+    composerMentionCandidates: undefined,
     memberPanelProps: { members: [] },
     manageMembersDialog: React.createElement("span", { "data-manage-dialog": true }),
     onOpenPost: vi.fn(),
@@ -96,7 +96,7 @@ describe("ForumChannelSurface ownership", () => {
     expect(forumProps).toEqual(expect.objectContaining({
       forumChannelId: "forum_1",
       members: props.composerMembers,
-      onSearchMembers: props.onSearchComposerMembers,
+      mentionCandidates: props.composerMentionCandidates,
       onOpenPost: props.onOpenPost,
       savingTagsFor: "post_saving",
       deletingPost: "post_deleting",

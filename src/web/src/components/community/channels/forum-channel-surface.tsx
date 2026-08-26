@@ -10,6 +10,7 @@ import { ChannelShell } from "@/components/community/channels/channel-shell"
 import type { ChannelMemberPanelProps } from "@/components/community/members/channel-member-view-model"
 import { CommunityPanel } from "@/components/community/shell/community-panel"
 import type { NewForumThread } from "@/components/community/messages/create-forum-thread"
+import type { ComposerProps } from "@/components/community/messages/composer"
 import { ForumSurface } from "@/components/community/channels/forum-surface"
 import type { Member } from "@/lib/community/models/people"
 import {
@@ -29,7 +30,7 @@ export function ForumChannelSurface({
   onSetNotificationLevel,
   onBack,
   composerMembers,
-  onSearchComposerMembers,
+  composerMentionCandidates,
   memberPanelProps,
   manageMembersDialog,
   onOpenPost,
@@ -45,7 +46,7 @@ export function ForumChannelSurface({
   onSetNotificationLevel: (level: ChannelNotifLevel) => void
   onBack?: () => void
   composerMembers: Member[]
-  onSearchComposerMembers?: (query: string) => void
+  composerMentionCandidates?: ComposerProps["mentionCandidates"]
   memberPanelProps: ChannelMemberPanelProps
   manageMembersDialog: ReactNode
   onOpenPost: (postId: string) => void
@@ -108,7 +109,7 @@ export function ForumChannelSurface({
             serverId={serverId}
             forumChannelId={channelId}
             members={composerMembers}
-            onSearchMembers={onSearchComposerMembers}
+            mentionCandidates={composerMentionCandidates}
             onOpenPost={onOpenPost}
             onCreatePost={createForumThread}
             canEditPostTags={(post) => canManage || post.authorId === viewer.id}

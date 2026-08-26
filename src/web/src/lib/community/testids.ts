@@ -97,6 +97,8 @@ export const tid = {
   dmRow: (id: string) => `community-dm-row-${id}`,
   memberRow: (id: string) => `community-member-row-${id}`,
   mentionOption: (id: string) => `community-mention-option-${id}`,
+  mentionPopup: "community-mention-popup",
+  mentionStatus: "community-mention-status",
   channelRefOption: (id: string) => `community-channel-ref-option-${id}`,
   reactionAdd: (msgId: string) => `community-reaction-add-${msgId}`,
   messageShare: (msgId: string) => `community-message-share-${msgId}`,
