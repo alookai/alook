@@ -343,7 +343,7 @@ export function ForumView({
                   syncTagFades()
                 }
               }}
-              className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar"
+              className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar scrollbar-none"
             >
               {filterTags.length > 0 && (
                 <>
@@ -567,7 +567,7 @@ export function ForumViewSkeleton() {
         <div className="relative min-w-0 flex-1">
           <div
             aria-hidden
-            className="pointer-events-none flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar sm:flex-wrap sm:overflow-x-visible"
+            className="pointer-events-none flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar scrollbar-none sm:flex-wrap sm:overflow-x-visible"
           >
             <Skeleton className="h-7 w-10 shrink-0 rounded-full" />
             <Skeleton className="h-7 w-16 shrink-0 rounded-full" />
