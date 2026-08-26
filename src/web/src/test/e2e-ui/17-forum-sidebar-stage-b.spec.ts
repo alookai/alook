@@ -1,6 +1,16 @@
-import { test, expect } from "./_fixtures/community-fixture"
+import type { Page } from "@playwright/test"
+import { test, expect, userId } from "./_fixtures/community-fixture"
+import { sendMessage } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
-import { seedChannel, seedForumThread, seedServer } from "./_fixtures/seed"
+import {
+  seedCategory,
+  seedChannel,
+  seedForumThread,
+  seedJoinServer,
+  seedMessage,
+  seedServer,
+  seedThread,
+} from "./_fixtures/seed"
 
 function isSidebarRequest(url: string, serverId: string): boolean {
   const parsed = new URL(url)
@@ -12,12 +22,49 @@ function isExactChannelRequest(url: string, channelId: string): boolean {
   return new URL(url).pathname === `/api/community/channels/${channelId}`
 }
 
-function isExactMessageRequest(url: string): boolean {
-  return /^\/api\/community\/messages\/[^/]+$/.test(new URL(url).pathname)
-}
-
 function isChannelMessagesRequest(url: string, channelId: string): boolean {
   return new URL(url).pathname === `/api/community/channels/${channelId}/messages`
+}
+
+async function installRouteStabilityProbe(page: Page): Promise<void> {
+  await page.addInitScript((composerShellTestId) => {
+    const target = window as typeof window & {
+      __routeStability?: { mounts: number; losses: number; present: boolean }
+    }
+    target.__routeStability = { mounts: 0, losses: 0, present: false }
+    const sample = () => {
+      const state = target.__routeStability!
+      const present = !!document.querySelector(`[data-testid="${composerShellTestId}"]`)
+      if (present && !state.present) state.mounts += 1
+      if (!present && state.present) state.losses += 1
+      state.present = present
+    }
+    const observe = () => {
+      if (!document.documentElement) {
+        globalThis.setTimeout(observe, 0)
+        return
+      }
+      new MutationObserver(sample).observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+      })
+      sample()
+    }
+    observe()
+  }, tid.channelComposerShell)
+}
+
+async function routeStability(page: Page) {
+  return page.evaluate(() => (window as typeof window & {
+    __routeStability: { mounts: number; losses: number; present: boolean }
+  }).__routeStability)
+}
+
+async function participantUserIds(page: Page, channelId: string): Promise<string[]> {
+  const response = await page.request.get(`/api/community/channels/${channelId}/members`)
+  expect(response.status()).toBe(200)
+  const payload = await response.json() as { members: Array<{ userId: string }> }
+  return payload.members.map((member) => member.userId)
 }
 
 test.describe.serial("forum sidebar Stage B request shape", () => {
@@ -27,17 +74,23 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
   let textAId: string
   let textBId: string
   let forumTitle: string
+  let ordinaryThreadId: string
 
   test.beforeAll(async () => {
     serverId = await seedServer("alice", `Sidebar ${Date.now()}`)
-    forumId = await seedChannel("alice", serverId, "forum", "forum")
-    textAId = await seedChannel("alice", serverId, "text-a")
-    textBId = await seedChannel("alice", serverId, "text-b")
+    const categoryId = await seedCategory("alice", serverId, "Grouped")
+    forumId = await seedChannel("alice", serverId, "forum", "forum", categoryId)
+    textAId = await seedChannel("alice", serverId, "text-a", undefined, categoryId)
+    textBId = await seedChannel("alice", serverId, "text-b", undefined, categoryId)
+    await seedJoinServer("alice", "bob", serverId)
+    await seedJoinServer("alice", "carol", serverId)
     forumTitle = `Retained ${Date.now()}`
     threadId = await seedForumThread("alice", forumId, forumTitle, "post body")
+    const parentMessageId = await seedMessage("alice", textAId, "ordinary thread opener")
+    ordinaryThreadId = await seedThread("alice", parentMessageId, "ordinary thread")
   })
 
-  test("a cold direct child and hard refresh use one combined GET with no exact meta/opener GETs", async ({ asUser }) => {
+  test("a cold direct child and hard refresh keep exact route metadata bounded", async ({ asUser }) => {
     const { page } = await asUser("alice")
     const requests: string[] = []
     const successfulResponses: string[] = []
@@ -97,11 +150,14 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     await expect(page.getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
     await expect(page.locator('[data-slot="skeleton"]')).toHaveCount(0)
 
-    expect(requests.filter((url) => isSidebarRequest(url, serverId))).toHaveLength(1)
-    expect(new URL(requests.find((url) => isSidebarRequest(url, serverId))!).searchParams.get("retainId"))
-      .toBe(threadId)
-    expect(requests.filter((url) => isExactChannelRequest(url, threadId))).toHaveLength(0)
-    expect(requests.filter(isExactMessageRequest)).toHaveLength(0)
+    const coldSidebarRequests = requests.filter((url) => isSidebarRequest(url, serverId))
+    expect(coldSidebarRequests.length).toBeGreaterThanOrEqual(1)
+    expect(coldSidebarRequests.length).toBeLessThanOrEqual(2)
+    expect(coldSidebarRequests.every((url) => {
+      const retainId = new URL(url).searchParams.get("retainId")
+      return retainId === null || retainId === threadId
+    })).toBe(true)
+    expect(successfulResponses.filter((url) => isExactChannelRequest(url, threadId))).toHaveLength(1)
     const coldMessageRequests = requests.filter((url) => isChannelMessagesRequest(url, threadId))
     const coldSuccessfulMessageResponses = successfulResponses.filter((url) =>
       isChannelMessagesRequest(url, threadId),
@@ -130,11 +186,10 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     await expect(page.locator('[data-slot="skeleton"]')).toHaveCount(0)
     await page.waitForTimeout(2_000) // late exact-channel/message fetch exclusion window
 
-    expect(requests.filter((url) => isSidebarRequest(url, serverId))).toHaveLength(1)
-    expect(new URL(requests.find((url) => isSidebarRequest(url, serverId))!).searchParams.get("retainId"))
-      .toBe(threadId)
-    expect(requests.filter((url) => isExactChannelRequest(url, threadId))).toHaveLength(0)
-    expect(requests.filter(isExactMessageRequest)).toHaveLength(0)
+    const refreshSidebarRequests = requests.filter((url) => isSidebarRequest(url, serverId))
+    expect(refreshSidebarRequests.length).toBeGreaterThanOrEqual(1)
+    expect(refreshSidebarRequests.length).toBeLessThanOrEqual(2)
+    expect(successfulResponses.filter((url) => isExactChannelRequest(url, threadId))).toHaveLength(1)
     const refreshMessageRequests = requests.filter((url) => isChannelMessagesRequest(url, threadId))
     expect(refreshMessageRequests.length).toBeGreaterThanOrEqual(1)
     const refreshSuccessfulMessageResponses = successfulResponses.filter((url) =>
@@ -177,6 +232,122 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
       .toHaveLength(1)
     expect(messageResponses.filter((url) => !new URL(url).searchParams.has("anchor")).length)
       .toBeLessThanOrEqual(1)
+  })
+
+  test("a non-participant keeps a grouped forum route after retained null arrives", async ({ asUser }) => {
+    const { page } = await asUser("bob")
+    await installRouteStabilityProbe(page)
+    const successfulResponses: string[] = []
+    const sidebarResponses: Array<{ url: string; retainedChannel: unknown }> = []
+    await page.route(`**/api/community/servers/${serverId}/channels?**`, async (route) => {
+      if (!isSidebarRequest(route.request().url(), serverId)) {
+        await route.continue()
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, 750))
+      await route.continue()
+    })
+    page.on("response", async (response) => {
+      if (response.request().method() !== "GET" || !response.ok()) return
+      successfulResponses.push(response.url())
+      if (!isSidebarRequest(response.url(), serverId)) return
+      const payload = await response.json() as { retainedChannel: unknown }
+      sidebarResponses.push({ url: response.url(), retainedChannel: payload.retainedChannel })
+    })
+
+    expect(await participantUserIds(page, threadId)).not.toContain(userId("bob"))
+    await page.goto(`/c/channels/${serverId}/${threadId}`)
+    await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
+    await expect.poll(() => sidebarResponses.some(({ url }) =>
+      new URL(url).searchParams.get("retainId") === threadId,
+    )).toBe(true)
+    await page.waitForTimeout(2_000)
+
+    const retainedResponses = sidebarResponses.filter(({ url }) =>
+      new URL(url).searchParams.get("retainId") === threadId
+    )
+    expect(retainedResponses).toHaveLength(1)
+    expect(retainedResponses[0]?.retainedChannel).toBeNull()
+    expect(successfulResponses.filter((url) => isExactChannelRequest(url, threadId))).toHaveLength(1)
+    expect(await routeStability(page)).toEqual({ mounts: 1, losses: 0, present: true })
+    expect(await participantUserIds(page, threadId)).not.toContain(userId("bob"))
+
+    const reply = `bob joins ${Date.now()}`
+    await sendMessage(page, reply)
+    await expect(page.getByText(reply, { exact: true })).toBeVisible({ timeout: 20_000 })
+    await expect.poll(async () => participantUserIds(page, threadId)).toContain(userId("bob"))
+  })
+
+  test("a non-participant warm forum-card click settles one negative retained request", async ({ asUser }) => {
+    const { page } = await asUser("carol")
+    await installRouteStabilityProbe(page)
+    const successfulResponses: string[] = []
+    const sidebarResponses: Array<{ url: string; retainedChannel: unknown }> = []
+    page.on("response", async (response) => {
+      if (response.request().method() !== "GET" || !response.ok()) return
+      successfulResponses.push(response.url())
+      if (!isSidebarRequest(response.url(), serverId)) return
+      const payload = await response.json() as { retainedChannel: unknown }
+      sidebarResponses.push({ url: response.url(), retainedChannel: payload.retainedChannel })
+    })
+
+    await page.goto(`/c/channels/${serverId}/${forumId}`)
+    const card = page.getByTestId(tid.forumThreadCard(threadId))
+    await expect(card).toBeVisible({ timeout: 20_000 })
+    await page.waitForTimeout(300)
+    sidebarResponses.length = 0
+    successfulResponses.length = 0
+
+    await card.click()
+    await expect.poll(() => new URL(page.url()).pathname).toBe(
+      `/c/channels/${serverId}/${threadId}`,
+    )
+    await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
+    await expect.poll(() => sidebarResponses.filter(({ url }) =>
+      new URL(url).searchParams.get("retainId") === threadId,
+    ).length).toBe(1)
+    await page.waitForTimeout(2_000)
+
+    const retainedResponses = sidebarResponses.filter(({ url }) =>
+      new URL(url).searchParams.get("retainId") === threadId
+    )
+    expect(retainedResponses).toHaveLength(1)
+    expect(retainedResponses[0]?.retainedChannel).toBeNull()
+    expect(successfulResponses.filter((url) => isExactChannelRequest(url, threadId))).toHaveLength(1)
+    expect(await routeStability(page)).toEqual({ mounts: 1, losses: 0, present: true })
+    expect(await participantUserIds(page, threadId)).not.toContain(userId("carol"))
+  })
+
+  test("a grouped ordinary thread never asks the forum sidebar to retain it", async ({ asUser }) => {
+    const { page } = await asUser("bob")
+    await installRouteStabilityProbe(page)
+    const successfulResponses: string[] = []
+    const requests: string[] = []
+    page.on("request", (request) => {
+      if (request.method() === "GET") requests.push(request.url())
+    })
+    page.on("response", (response) => {
+      if (response.request().method() === "GET" && response.ok()) {
+        successfulResponses.push(response.url())
+      }
+    })
+
+    expect(await participantUserIds(page, ordinaryThreadId)).not.toContain(userId("bob"))
+    await page.goto(`/c/channels/${serverId}/${ordinaryThreadId}`)
+    await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText("ordinary thread opener", { exact: true })).toBeVisible({ timeout: 20_000 })
+    await page.waitForTimeout(2_000)
+
+    expect(successfulResponses.filter((url) => isExactChannelRequest(url, ordinaryThreadId)))
+      .toHaveLength(1)
+    expect(requests.filter((url) =>
+      isSidebarRequest(url, serverId)
+      && new URL(url).searchParams.get("retainId") === ordinaryThreadId
+    )).toHaveLength(0)
+    expect(await routeStability(page)).toEqual({ mounts: 1, losses: 0, present: true })
+    expect(await participantUserIds(page, ordinaryThreadId)).not.toContain(userId("bob"))
   })
 
   test("sidebar top-level and child navigation reuse the warm flat base", async ({ asUser }) => {

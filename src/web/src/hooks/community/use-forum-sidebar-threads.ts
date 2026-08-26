@@ -79,8 +79,9 @@ export type NormalizedForumSidebarEnvelope = {
 export function resolveForumSidebarRouteCandidate(
   channelId: string | null,
   topLevelChannelIds: Iterable<string> | null,
+  parentIsForum: boolean | null | undefined,
 ) {
-  if (!channelId || !topLevelChannelIds) return null
+  if (!channelId || !topLevelChannelIds || !parentIsForum) return null
   return new Set(topLevelChannelIds).has(channelId) ? null : channelId
 }
 
@@ -645,17 +646,7 @@ export function removeForumSidebarThreadExact(
     getForumSidebarRetained(queryClient, serverId, childId)?.parentMessageId ??
     getForumSidebarBase(queryClient, serverId)?.threads
       .find((thread) => thread.id === childId)?.parentMessageId
-  recordInflightDelta(serverId, (delta) => {
-    delta.removed.add(childId)
-  })
-  queryClient.setQueryData<ForumSidebarQueryData | undefined>(
-    communityKeys.forumSidebarThreads(serverId),
-    (data) => removeForumSidebarThread(data, childId),
-  )
-  queryClient.removeQueries({
-    queryKey: communityKeys.forumSidebarRetained(serverId, childId),
-    exact: true,
-  })
+  removeForumSidebarProjectionExact(queryClient, serverId, childId)
   queryClient.removeQueries({
     queryKey: communityKeys.channelMeta(serverId, childId),
     exact: true,
@@ -666,6 +657,32 @@ export function removeForumSidebarThreadExact(
       exact: true,
     })
   }
+}
+
+export function removeForumSidebarProjectionExact(
+  queryClient: QueryClient,
+  serverId: string,
+  childId: string,
+) {
+  removeForumSidebarBaseProjectionExact(queryClient, serverId, childId)
+  queryClient.removeQueries({
+    queryKey: communityKeys.forumSidebarRetained(serverId, childId),
+    exact: true,
+  })
+}
+
+function removeForumSidebarBaseProjectionExact(
+  queryClient: QueryClient,
+  serverId: string,
+  childId: string,
+) {
+  recordInflightDelta(serverId, (delta) => {
+    delta.removed.add(childId)
+  })
+  queryClient.setQueryData<ForumSidebarQueryData | undefined>(
+    communityKeys.forumSidebarThreads(serverId),
+    (data) => removeForumSidebarThread(data, childId),
+  )
 }
 
 /** Undo only the in-flight removal tombstone after an optimistic HTTP failure. */
@@ -894,7 +911,9 @@ function seedForumSidebarResources(
     hasForumSidebarOwnershipEvidence(queryClient, serverId, retainId)
   ) {
     removeForumSidebarUnreadChild(queryClient, serverId, retainId)
-    removeForumSidebarThreadExact(queryClient, serverId, retainId)
+    // The retained query owns its negative result. Removing that active query
+    // here makes `retained=null` immediately eligible to refetch in a loop.
+    removeForumSidebarBaseProjectionExact(queryClient, serverId, retainId)
   }
   for (const meta of Object.values(normalized.channelMetas)) {
     queryClient.setQueryData(
@@ -1037,7 +1056,7 @@ export function useForumSidebarThreads(
             (value) => removeForumSidebarThread(value, thread.id),
           )
         } else {
-          removeForumSidebarThreadExact(queryClient, serverId, thread.id)
+          removeForumSidebarProjectionExact(queryClient, serverId, thread.id)
         }
       }
       void invalidateForumSidebarBaseExact(queryClient, serverId)
