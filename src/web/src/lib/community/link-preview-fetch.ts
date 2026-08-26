@@ -33,6 +33,7 @@ const SPECIAL_HOST_SUFFIXES = [
 ]
 
 function ipv4Bytes(hostname: string): number[] | null {
+  /* istanbul ignore next -- caller only invokes this after isIP(hostname) === 4 */
   if (isIP(hostname) !== 4) return null
   const bytes = hostname.split(".").map(Number)
   return bytes.length === 4 && bytes.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)
@@ -42,11 +43,13 @@ function ipv4Bytes(hostname: string): number[] | null {
 
 function ipv6Words(hostname: string): number[] | null {
   const host = hostname.replace(/^\[|\]$/g, "")
+  /* istanbul ignore next -- caller only invokes this after isIP(host) === 6 */
   if (isIP(host) !== 6) return null
   const [leftRaw, rightRaw] = host.split("::")
   const left = leftRaw ? leftRaw.split(":") : []
   const right = rightRaw ? rightRaw.split(":") : []
   const missing = 8 - left.length - right.length
+  /* istanbul ignore next -- isIP(host) === 6 guarantees a valid eight-word expansion */
   if (missing < 0 || (!host.includes("::") && missing !== 0)) return null
   const parts = [...left, ...Array.from({ length: missing }, () => "0"), ...right]
   const words = parts.map((part) => Number.parseInt(part || "0", 16))

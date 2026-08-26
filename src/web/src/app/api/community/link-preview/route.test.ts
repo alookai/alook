@@ -208,6 +208,18 @@ describe("POST /api/community/link-preview", () => {
     expect(mockFetchLinkPreview).toHaveBeenCalledOnce()
   })
 
+  it("treats a cached primitive preview as a miss", async () => {
+    mockKvGet.mockResolvedValue(JSON.stringify({
+      preview: "not-an-object",
+      staleTimeSeconds: 21_600,
+    }))
+
+    const response = await POST(request({ url: "https://example.com/" }))
+
+    expect((await response.json()).preview.title).toBe("Example")
+    expect(mockFetchLinkPreview).toHaveBeenCalledOnce()
+  })
+
   it("degrades a KV read failure to a bounded origin fetch", async () => {
     mockKvGet.mockRejectedValue(new Error("KV unavailable"))
 
