@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import type { NewForumThread } from "../messages/create-forum-thread"
+import type { ComposerProps } from "../messages/composer"
 import type { ForumThread } from "@/lib/community/models/message"
 import type { Member } from "@/lib/community/models/people"
 import { ForumView } from "./forum-view"
@@ -13,7 +14,7 @@ export function ForumSurface({ serverId, forumChannelId, ...props }: {
   serverId: string
   forumChannelId: string
   members: Member[]
-  onSearchMembers?: (query: string) => void
+  mentionCandidates?: ComposerProps["mentionCandidates"]
   onOpenPost: (id: string) => void
   onCreatePost?: (post: NewForumThread) => Promise<void>
   onEditPostTags?: (post: ForumThread, tags: string[]) => void

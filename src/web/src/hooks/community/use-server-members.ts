@@ -83,6 +83,34 @@ export type MembersEnvelope = {
 type SearchEnvelope = {
   members: Member[]
   limit: number
+  hasMore: boolean
+  cursor?: string
+}
+
+type MemberSearchStatus =
+  | "idle"
+  | "loading"
+  | "loading-more"
+  | "ready"
+  | "empty"
+  | "error"
+
+type MemberSearchState = {
+  serverId: string
+  query: string
+  members: Member[]
+  status: Exclude<MemberSearchStatus, "idle">
+  cursor?: string
+}
+
+export function mergeMemberSearchPage(
+  current: Member[],
+  incoming: Member[],
+): Member[] {
+  if (current.length === 0) return incoming
+  const seen = new Set(current.map((member) => member.id))
+  const additions = incoming.filter((member) => !seen.has(member.id))
+  return additions.length === 0 ? current : [...current, ...additions]
 }
 
 // Exported so the tests can drive the query function against a mocked
@@ -261,6 +289,9 @@ export type UseServerMembers = {
   hasMore: boolean
   total: number
   isSearching: boolean
+  searchQuery: string
+  searchStatus: MemberSearchStatus
+  failed: boolean
   loadMore: () => void
   reset: () => void
   refresh: () => void
@@ -278,10 +309,9 @@ export type UseServerMembers = {
  * Two view modes:
  * - "paged": pages live in the TanStack Query cache keyed under
  *   `communityKeys.members(serverId)`. `loadMore()` calls `fetchNextPage`.
- * - "search": bypasses the cache — search results live in local state
- *   because the search endpoint is a different route with its own semantics
- *   (no pagination, no cursor) and we don't want to blow away cursor state
- *   when the user starts typing.
+ * - "search": bypasses the cache — paginated search results and their cursor
+ *   live in local state because the search endpoint is a different route and
+ *   we don't want to overwrite the server-roster page cache while typing.
  *
  * WS events patch the shared paged cache in `community-ws/membership-events`
  * and notify the overlay bus above. Optimistic mutations use the same cache
@@ -326,15 +356,13 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
   })
 
   // ── Search state ────────────────────────────────────────────────────────
-  const [searchOverlay, setSearchOverlay] = useState<{
-    serverId: string | null
-    members: Member[]
-  } | null>(null)
+  const [searchOverlay, setSearchOverlay] = useState<MemberSearchState | null>(null)
   const activeSearchQuery = useRef("")
   const searchActive = useRef(false)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Monotonic sequence so out-of-order responses drop old results silently.
   const searchSeq = useRef(0)
+  const searchPageInFlight = useRef<string | null>(null)
 
   // ── Derived paged state ─────────────────────────────────────────────────
   const pagedMembers = useMemo<Member[]>(() => {
@@ -387,29 +415,72 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
   }, [serverId])
 
   const runSearch = useCallback(
-    async (q: string, seq: number) => {
+    async (q: string, seq: number, cursor?: string) => {
       if (!enabled) return
+      const pageKey = `${seq}:${cursor ?? "__first__"}`
+      if (searchPageInFlight.current === pageKey) return
+      searchPageInFlight.current = pageKey
       try {
         const params = new URLSearchParams({ q })
+        if (cursor) params.set("cursor", cursor)
         const data = await apiFetch<SearchEnvelope>(
           `/api/community/servers/${serverId}/members/search?${params}`,
         )
-        // Guard against out-of-order responses.
         if (searchSeq.current !== seq) return
-        setSearchOverlay({ serverId, members: data.members })
+        setSearchOverlay((current) => {
+          if (!current || current.serverId !== serverId || current.query !== q) {
+            return current
+          }
+          const members = cursor
+            ? mergeMemberSearchPage(current.members, data.members)
+            : data.members
+          return {
+            serverId: serverId!,
+            query: q,
+            members,
+            status: data.hasMore && data.cursor
+              ? "loading-more"
+              : members.length === 0 ? "empty" : "ready",
+            cursor: data.hasMore ? data.cursor : undefined,
+          }
+        })
       } catch (e) {
         if (searchSeq.current === seq) {
-          setSearchOverlay({ serverId, members: [] })
+          setSearchOverlay((current) => ({
+            serverId: serverId!,
+            query: q,
+            members:
+              current?.serverId === serverId && current.query === q
+                ? current.members
+                : [],
+            status: "error",
+          }))
           toastApiError(e, "Search failed")
+        }
+      } finally {
+        if (searchPageInFlight.current === pageKey) {
+          searchPageInFlight.current = null
         }
       }
     },
     [enabled, serverId],
   )
 
+  useEffect(() => {
+    if (!searchOverlay || searchOverlay.serverId !== serverId) return
+    if (searchOverlay.status !== "loading-more" || !searchOverlay.cursor) return
+    const seq = searchSeq.current
+    void runSearch(searchOverlay.query, seq, searchOverlay.cursor)
+  }, [runSearch, searchOverlay, serverId])
+
   const searchMembers = useCallback(
     (q: string) => {
       const trimmed = q.trim()
+      if (
+        trimmed.length > 0
+        && searchActive.current
+        && activeSearchQuery.current === trimmed
+      ) return
       if (searchTimer.current) {
         clearTimeout(searchTimer.current)
         searchTimer.current = null
@@ -424,12 +495,18 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
       activeSearchQuery.current = trimmed
       searchActive.current = true
       const seq = searchSeq.current
+      setSearchOverlay({
+        serverId: serverId!,
+        query: trimmed,
+        members: [],
+        status: "loading",
+      })
       searchTimer.current = setTimeout(() => {
         searchTimer.current = null
         void runSearch(trimmed, seq)
       }, SEARCH_DEBOUNCE_MS)
     },
-    [runSearch],
+    [runSearch, serverId],
   )
 
   const applyRoleChange = useCallback(
@@ -481,8 +558,14 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
     if (!q) return
     searchSeq.current += 1
     const seq = searchSeq.current
+    setSearchOverlay({
+      serverId: serverId!,
+      query: q,
+      members: [],
+      status: "loading",
+    })
     void runSearch(q, seq)
-  }, [runSearch])
+  }, [runSearch, serverId])
 
   // Mirror-patch the search overlay from mutation and WS events. Every event
   // carries serverId so a transitioning hook cannot patch results retained
@@ -534,6 +617,9 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
     hasMore,
     total,
     isSearching: isSearchingCurrentServer,
+    searchQuery: isSearchingCurrentServer ? searchOverlay.query : "",
+    searchStatus: isSearchingCurrentServer ? searchOverlay.status : "idle",
+    failed: infinite.isError,
     loadMore,
     reset,
     refresh,

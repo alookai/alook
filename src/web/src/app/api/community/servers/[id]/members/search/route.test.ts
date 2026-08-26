@@ -40,6 +40,7 @@ vi.mock("@/lib/middleware/helpers", () => {
 
 import { GET } from "./route"
 import { MAX_MEMBERS_PAGE_SIZE } from "@alook/shared"
+import { encodeMemberSearchCursor } from "@/lib/community/member-search-cursor"
 
 function getReq(query: string) {
   return new NextRequest(`http://localhost/api/community/servers/srv_1/members/search${query}`, { method: "GET" })
@@ -68,27 +69,44 @@ describe("GET /api/community/servers/[id]/members/search", () => {
     mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", serverId: "srv_1", role: "member" })
   })
 
-  it("returns matched members as display shape with { members, limit } envelope", async () => {
-    mockSearchMembers.mockResolvedValue([buildRow(1, "Alice"), buildRow(2, "Alicia")])
+  it("returns matched members as a backward-compatible paginated envelope", async () => {
+    mockSearchMembers.mockResolvedValue({
+      members: [buildRow(1, "Alice"), buildRow(2, "Alicia")],
+      hasMore: false,
+      cursor: undefined,
+    })
     const res = await GET(getReq("?q=Ali"), ctx)
     expect(res.status).toBe(200)
-    const body = await res.json() as { members: Array<{ id: string; name: string }>; limit: number }
+    const body = await res.json() as {
+      members: Array<{ id: string; name: string }>
+      limit: number
+      hasMore: boolean
+      cursor?: string
+    }
     expect(body.members.map((m) => m.name)).toEqual(["Alice", "Alicia"])
     expect(body.limit).toBe(MAX_MEMBERS_PAGE_SIZE)
+    expect(body.hasMore).toBe(false)
+    expect(body.cursor).toBeUndefined()
   })
 
   it("includes each member's discriminator in the response", async () => {
-    mockSearchMembers.mockResolvedValue([buildRow(1, "Alex"), buildRow(2, "Alex")])
+    mockSearchMembers.mockResolvedValue({
+      members: [buildRow(1, "Alex"), buildRow(2, "Alex")],
+      hasMore: false,
+    })
     const res = await GET(getReq("?q=Alex"), ctx)
     const body = await res.json() as { members: Array<{ discriminator?: string }> }
     expect(body.members.map((m) => m.discriminator)).toEqual(["0001", "0002"])
   })
 
   it("includes statusEmoji/statusText, defaulting for a user with no profile row", async () => {
-    mockSearchMembers.mockResolvedValue([
-      { ...buildRow(1, "Alex"), statusEmoji: "🎮", statusText: "Gaming" },
-      { ...buildRow(2, "Alex"), statusEmoji: null, statusText: null },
-    ])
+    mockSearchMembers.mockResolvedValue({
+      members: [
+        { ...buildRow(1, "Alex"), statusEmoji: "🎮", statusText: "Gaming" },
+        { ...buildRow(2, "Alex"), statusEmoji: null, statusText: null },
+      ],
+      hasMore: false,
+    })
     const res = await GET(getReq("?q=Alex"), ctx)
     const body = await res.json() as { members: Array<{ statusEmoji: string | null; statusText: string }> }
     expect(body.members[0]).toMatchObject({ statusEmoji: "🎮", statusText: "Gaming" })
@@ -97,9 +115,12 @@ describe("GET /api/community/servers/[id]/members/search", () => {
 
   it("never emits isBot/ownerUserId (no bot gating on search — byte-identical)", async () => {
     // Even if a row carried bot columns, search passes them through as humans.
-    mockSearchMembers.mockResolvedValue([
-      { ...buildRow(1, "Botty"), userId: "own_bot", userIsBot: true, userOwnerUserId: "u1" },
-    ])
+    mockSearchMembers.mockResolvedValue({
+      members: [
+        { ...buildRow(1, "Botty"), userId: "own_bot", userIsBot: true, userOwnerUserId: "u1" },
+      ],
+      hasMore: false,
+    })
     const res = await GET(getReq("?q=Bot"), ctx)
     const body = await res.json() as { members: Array<{ isBot?: boolean; ownerUserId?: string }> }
     expect(body.members[0].isBot).toBeUndefined()
@@ -128,7 +149,7 @@ describe("GET /api/community/servers/[id]/members/search", () => {
   })
 
   it("clamps limit param to MAX_MEMBERS_PAGE_SIZE", async () => {
-    mockSearchMembers.mockResolvedValue([])
+    mockSearchMembers.mockResolvedValue({ members: [], hasMore: false })
     const res = await GET(getReq(`?q=A&limit=9999`), ctx)
     expect(res.status).toBe(200)
     const body = await res.json() as { limit: number }
@@ -138,9 +159,46 @@ describe("GET /api/community/servers/[id]/members/search", () => {
   })
 
   it("forwards q verbatim to the query (LIKE-escape happens inside the query)", async () => {
-    mockSearchMembers.mockResolvedValue([])
+    mockSearchMembers.mockResolvedValue({ members: [], hasMore: false })
     await GET(getReq(`?q=${encodeURIComponent("50%_off")}`), ctx)
     const call = mockSearchMembers.mock.calls[0]
     expect(call[2]).toBe("50%_off")
+  })
+
+  it("encodes and forwards the stable same-name cursor", async () => {
+    mockSearchMembers.mockResolvedValue({
+      members: [buildRow(2, "Alex")],
+      hasMore: true,
+      cursor: { name: "Alex", id: "mem_2" },
+    })
+    const first = await GET(getReq("?q=Alex&limit=1"), ctx)
+    const firstBody = await first.json() as { cursor: string; hasMore: boolean }
+    expect(firstBody.hasMore).toBe(true)
+    expect(firstBody.cursor).toBeTruthy()
+
+    mockSearchMembers.mockResolvedValue({ members: [], hasMore: false })
+    await GET(getReq(`?q=Alex&cursor=${encodeURIComponent(firstBody.cursor)}`), ctx)
+    expect(mockSearchMembers.mock.calls[1][3]).toMatchObject({
+      cursor: { name: "Alex", id: "mem_2" },
+    })
+  })
+
+  it("rejects malformed and cross-query cursors before querying", async () => {
+    const malformed = await GET(getReq("?q=Alex&cursor=invalid"), ctx)
+    expect(malformed.status).toBe(400)
+    expect(mockSearchMembers).not.toHaveBeenCalled()
+
+    const crossQuery = encodeMemberSearchCursor({
+      serverId: "srv_1",
+      query: "Alice",
+      name: "Alice",
+      id: "mem_1",
+    })
+    const cross = await GET(
+      getReq(`?q=Bob&cursor=${encodeURIComponent(crossQuery)}`),
+      ctx,
+    )
+    expect(cross.status).toBe(400)
+    expect(mockSearchMembers).not.toHaveBeenCalled()
   })
 })

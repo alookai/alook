@@ -33,7 +33,7 @@ export function useComposerController(
     channel,
     context,
     members,
-    onSearchMembers,
+    mentionCandidates,
     channelRefCandidates = [],
     onChannelRefIntent,
     sendContract,
@@ -103,7 +103,7 @@ export function useComposerController(
   const suggestions = useComposerSuggestions({
     members,
     context,
-    onSearchMembers,
+    mentionCandidates,
     channelRefCandidates,
     onChannelRefIntent,
   })
@@ -348,6 +348,7 @@ export function useComposerController(
     onDragOver: handleDragOver,
     onDrop: handleDrop,
     mentionPopup: suggestions.mentionPopup,
+    mentionPresentation: suggestions.mentionPresentation,
     channelRefPopup: suggestions.channelRefPopup,
     replyingTo,
     onCancelReply,

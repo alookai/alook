@@ -3,6 +3,7 @@ import {
   buildCommunityMentionExtension,
   EMPTY_MENTION_STATE,
   rankMentionItems,
+  type MentionCandidatePresentation,
   type MentionContext,
   type MentionItem,
   type MentionPopupState,
@@ -15,11 +16,12 @@ import {
   type ChannelRefPopupState,
 } from "@/lib/community/channel-ref-extension"
 import type { Member } from "@/lib/community/models/people"
+import type { MentionCandidateSource } from "./composer-types"
 
 type ComposerSuggestionsOptions = {
   members: Member[]
   context: MentionContext
-  onSearchMembers?: (query: string) => void
+  mentionCandidates?: MentionCandidateSource
   channelRefCandidates: ChannelRefCandidate[]
   onChannelRefIntent?: () => void
 }
@@ -66,7 +68,7 @@ function channelRefItemsEqual(
 export function useComposerSuggestions({
   members,
   context,
-  onSearchMembers,
+  mentionCandidates,
   channelRefCandidates,
   onChannelRefIntent,
 }: ComposerSuggestionsOptions) {
@@ -87,7 +89,7 @@ export function useComposerSuggestions({
 
   const membersRef = useRef(members)
   const contextRef = useRef(context)
-  const onSearchMembersRef = useRef(onSearchMembers)
+  const onSearchMembersRef = useRef(mentionCandidates?.search)
   const mentionQueryRef = useRef("")
   useEffect(() => {
     membersRef.current = members
@@ -96,8 +98,8 @@ export function useComposerSuggestions({
     contextRef.current = context
   }, [context])
   useEffect(() => {
-    onSearchMembersRef.current = onSearchMembers
-  }, [onSearchMembers])
+    onSearchMembersRef.current = mentionCandidates?.search
+  }, [mentionCandidates?.search])
 
   // eslint-disable-next-line react-hooks/refs -- runtime suggestion callbacks read these refs
   const [mentionExtension] = useState(() =>
@@ -135,7 +137,17 @@ export function useComposerSuggestions({
   useEffect(() => {
     const current = mentionPopupRef.current
     if (!current.command) return
-    const items = rankMentionItems(members, context, mentionQueryRef.current)
+    const query = mentionQueryRef.current
+    const remoteSearchReady = !query || !mentionCandidates
+      || (mentionCandidates.searchQuery === query
+        && (mentionCandidates.searchStatus === "ready"
+          || mentionCandidates.searchStatus === "loading-more"
+          || mentionCandidates.searchStatus === "empty"))
+    const items = rankMentionItems(
+      remoteSearchReady ? members : [],
+      context,
+      query,
+    )
     if (mentionItemsEqual(current.items, items)) return
     setMentionPopup({
       ...current,
@@ -143,7 +155,47 @@ export function useComposerSuggestions({
       selectedIndex:
         current.selectedIndex < items.length ? current.selectedIndex : 0,
     })
-  }, [members, context])
+  }, [
+    context,
+    members,
+    mentionCandidates,
+  ])
+
+  useEffect(() => {
+    const current = mentionPopupRef.current
+    if (!current.command || current.query.trim()) return
+    if (!mentionCandidates?.hasMore) return
+    if (mentionCandidates.loading || mentionCandidates.loadingMore) return
+    if (mentionCandidates.failed) return
+    mentionCandidates.loadMore()
+  }, [mentionCandidates, mentionPopup.command, mentionPopup.query])
+
+  const mentionPresentation: MentionCandidatePresentation = (() => {
+    if (!mentionCandidates) {
+      return { status: mentionPopup.items.length > 0 ? "ready" : "empty" }
+    }
+    const query = mentionPopup.query
+    if (query) {
+      if (mentionCandidates.searchQuery !== query) return { status: "loading" }
+      if (mentionCandidates.searchStatus === "loading"
+        || mentionCandidates.searchStatus === "idle") {
+        return { status: "loading" }
+      }
+      if (mentionCandidates.searchStatus === "error") return { status: "error" }
+      if (mentionCandidates.searchStatus === "loading-more") {
+        return { status: "loading-more" }
+      }
+      return {
+        status: mentionPopup.items.length > 0 ? "ready" : "empty",
+      }
+    }
+    if (mentionCandidates.failed) return { status: "error" }
+    if (mentionCandidates.loading) return { status: "loading" }
+    if (mentionCandidates.loadingMore || mentionCandidates.hasMore) {
+      return { status: "loading-more" }
+    }
+    return { status: mentionPopup.items.length > 0 ? "ready" : "empty" }
+  })()
 
   useEffect(() => {
     const current = channelRefPopupRef.current
@@ -162,12 +214,14 @@ export function useComposerSuggestions({
   }, [channelRefCandidates])
 
   const resetPopups = () => {
+    mentionCandidates?.search("")
     setMentionPopup(EMPTY_MENTION_STATE)
     setChannelRefPopup(EMPTY_CHANNEL_REF_STATE)
   }
 
   return {
     mentionPopup,
+    mentionPresentation,
     mentionPopupRef,
     mentionExtension,
     channelRefPopup,

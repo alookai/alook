@@ -30,7 +30,7 @@ export function TextChannelSurface({
   onSetNotificationLevel,
   onBack,
   composerMembers,
-  onSearchComposerMembers,
+  composerMentionCandidates,
   channelRefCandidates,
   memberPanelProps,
   manageMembersDialog,
@@ -50,7 +50,7 @@ export function TextChannelSurface({
   onSetNotificationLevel: (level: ChannelNotifLevel) => void
   onBack?: () => void
   composerMembers: ComponentProps<typeof Composer>["members"]
-  onSearchComposerMembers: ComponentProps<typeof Composer>["onSearchMembers"]
+  composerMentionCandidates: ComponentProps<typeof Composer>["mentionCandidates"]
   channelRefCandidates: ComponentProps<typeof Composer>["channelRefCandidates"]
   memberPanelProps: ChannelMemberPanelProps
   manageMembersDialog: ReactNode
@@ -145,7 +145,7 @@ export function TextChannelSurface({
                   channel={channelName}
                   context="channel"
                   members={composerMembers}
-                  onSearchMembers={onSearchComposerMembers}
+                  mentionCandidates={composerMentionCandidates}
                   channelRefCandidates={channelRefCandidates}
                   sendContract="accepted"
                   onAcceptSend={controller.acceptMessage}

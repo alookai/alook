@@ -72,9 +72,9 @@ describe("rankMentionItems", () => {
     expect(memberOrder.slice(0, 2).sort()).toEqual(["Albert#0000", "Alice#0000"])
   })
 
-  it("caps the list at 8 items", () => {
+  it("returns the complete roster without the former 8-item cap", () => {
     const many = Array.from({ length: 50 }, (_, i) => member(`u${i}`, `User${i}`))
-    expect(rankMentionItems(many, "channel", "").length).toBe(8)
+    expect(rankMentionItems(many, "channel", "").length).toBe(51)
   })
 
   it("accepts a full Member[] with role/userId fields — ranking invariants unchanged", () => {

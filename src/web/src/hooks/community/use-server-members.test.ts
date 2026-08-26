@@ -23,6 +23,7 @@ import {
   SEARCH_DEBOUNCE_MS,
   dispatchMemberOverlayEvent,
   subscribeMemberOverlayEvents,
+  mergeMemberSearchPage,
   type MembersEnvelope,
   type MemberOverlayEvent,
 } from "./use-server-members"
@@ -55,6 +56,19 @@ function joinEvent(userId: string, id = userId): CommunityMemberJoin {
 describe("SEARCH_DEBOUNCE_MS", () => {
   it("is 200ms (matches plan)", () => {
     expect(SEARCH_DEBOUNCE_MS).toBe(200)
+  })
+})
+
+describe("mergeMemberSearchPage", () => {
+  it("appends serial search pages and drops duplicate boundary rows", () => {
+    const first = [m("a"), m("b")]
+    const merged = mergeMemberSearchPage(first, [m("b"), m("c")])
+    expect(merged.map((member) => member.id)).toEqual(["a", "b", "c"])
+  })
+
+  it("preserves the accumulated reference when a page adds nothing", () => {
+    const first = [m("a"), m("b")]
+    expect(mergeMemberSearchPage(first, [m("a")])).toBe(first)
   })
 })
 

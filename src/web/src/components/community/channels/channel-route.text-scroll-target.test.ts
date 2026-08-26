@@ -43,7 +43,7 @@ const {
   },
   mockMemberViewModel: {
     composerMembers: [],
-    onSearchComposerMembers: vi.fn(),
+    composerMentionCandidates: undefined,
     memberPanelProps: { members: [] },
     manageMembersDialog: null,
     resolveUserName: (userId: string) => userId,

@@ -96,7 +96,7 @@ export function ChannelRoute({ serverParam, channelId }: {
   })
   const {
     composerMembers,
-    onSearchComposerMembers,
+    composerMentionCandidates,
     memberPanelProps,
     manageMembersDialog,
     resolveUserName,
@@ -213,7 +213,7 @@ export function ChannelRoute({ serverParam, channelId }: {
         onSetNotificationLevel={setNotificationLevel}
         onBack={bp === "mobile" ? goBack : undefined}
         composerMembers={composerMembers}
-        onSearchComposerMembers={onSearchComposerMembers}
+        composerMentionCandidates={composerMentionCandidates}
         channelRefCandidates={channelRefCandidates}
         memberPanelProps={memberPanelProps}
         manageMembersDialog={manageMembersDialog}
@@ -241,7 +241,7 @@ export function ChannelRoute({ serverParam, channelId }: {
         onSetNotificationLevel={setNotificationLevel}
         onBack={bp === "mobile" ? goBack : undefined}
         composerMembers={composerMembers}
-        onSearchComposerMembers={onSearchComposerMembers}
+        composerMentionCandidates={composerMentionCandidates}
         memberPanelProps={memberPanelProps}
         manageMembersDialog={manageMembersDialog}
         onOpenPost={enterThread}
@@ -266,7 +266,7 @@ export function ChannelRoute({ serverParam, channelId }: {
       onSetNotificationLevel={setNotificationLevel}
       onBack={bp === "mobile" ? goBack : undefined}
       composerMembers={composerMembers}
-      onSearchComposerMembers={onSearchComposerMembers}
+      composerMentionCandidates={composerMentionCandidates}
       channelRefCandidates={channelRefCandidates}
       memberPanelProps={memberPanelProps}
       manageMembersDialog={manageMembersDialog}

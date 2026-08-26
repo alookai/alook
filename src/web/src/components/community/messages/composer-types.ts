@@ -6,6 +6,23 @@ import type { Member } from "@/lib/community/models/people"
 
 type ComposerMode = "chat" | "forumThreadBody"
 
+export type MentionCandidateSource = {
+  loading: boolean
+  loadingMore: boolean
+  hasMore: boolean
+  failed: boolean
+  searchQuery: string
+  searchStatus:
+    | "idle"
+    | "loading"
+    | "loading-more"
+    | "ready"
+    | "empty"
+    | "error"
+  loadMore: () => void
+  search: (query: string) => void
+}
+
 export type ComposerHandle = {
   focusEditor: () => void
   submitNow: () => void
@@ -18,7 +35,7 @@ type ComposerBaseProps = {
   channel: string
   context: MentionContext
   members: Member[]
-  onSearchMembers?: (query: string) => void
+  mentionCandidates?: MentionCandidateSource
   channelRefCandidates?: ChannelRefCandidate[]
   onChannelRefIntent?: () => void
   onTyping?: () => void

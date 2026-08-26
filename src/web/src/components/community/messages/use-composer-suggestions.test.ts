@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/community/mention-extension", () => ({
   EMPTY_MENTION_STATE: {
     items: [],
+    query: "",
     selectedIndex: 0,
     command: null,
     getRect: null,
@@ -73,6 +74,21 @@ const channel = (
   ...overrides,
 })
 
+const candidateSource = (
+  search: (query: string) => void,
+  overrides: Partial<NonNullable<Options["mentionCandidates"]>> = {},
+) => ({
+  loading: false,
+  loadingMore: false,
+  hasMore: false,
+  failed: false,
+  searchQuery: "",
+  searchStatus: "idle" as const,
+  loadMore: vi.fn(),
+  search,
+  ...overrides,
+})
+
 describe("useComposerSuggestions", () => {
   beforeEach(() => {
     mocks.buildMention.mockReset()
@@ -114,7 +130,10 @@ describe("useComposerSuggestions", () => {
         createElement(Harness, {
           members: firstMembers,
           context: "channel",
-          onSearchMembers: firstSearch,
+          mentionCandidates: candidateSource(firstSearch, {
+            searchQuery: "ad",
+            searchStatus: "ready",
+          }),
           channelRefCandidates: firstChannels,
           onChannelRefIntent: vi.fn(),
           resultRef,
@@ -135,7 +154,10 @@ describe("useComposerSuggestions", () => {
         createElement(Harness, {
           members: nextMembers,
           context: "thread",
-          onSearchMembers: nextSearch,
+          mentionCandidates: candidateSource(nextSearch, {
+            searchQuery: "ad",
+            searchStatus: "ready",
+          }),
           channelRefCandidates: nextChannels,
           onChannelRefIntent: nextIntent,
           resultRef,
@@ -156,6 +178,7 @@ describe("useComposerSuggestions", () => {
     await act(async () => {
       mentionOptions.setPopup({
         items: [],
+        query: "",
         selectedIndex: 0,
         command: vi.fn(),
         getRect: null,
@@ -199,7 +222,10 @@ describe("useComposerSuggestions", () => {
         createElement(Harness, {
           members: thirdMembers,
           context: "thread",
-          onSearchMembers: nextSearch,
+          mentionCandidates: candidateSource(nextSearch, {
+            searchQuery: "ad",
+            searchStatus: "ready",
+          }),
           channelRefCandidates: thirdChannels,
           onChannelRefIntent: nextIntent,
           resultRef,
@@ -242,6 +268,7 @@ describe("useComposerSuggestions", () => {
     await act(async () => {
       options.setPopup({
         items: [initialItem, secondItem],
+        query: "",
         selectedIndex: 1,
         command: vi.fn(),
         getRect: null,
@@ -295,6 +322,85 @@ describe("useComposerSuggestions", () => {
     expect(resultRef.current!.mentionPopup.selectedIndex).toBe(0)
   })
 
+  it("loads bare-@ pages serially and exposes first search pages while loading more", async () => {
+    const resultRef: { current: Result | null } = { current: null }
+    const search = vi.fn()
+    const loadMore = vi.fn()
+    let source = candidateSource(search, { hasMore: true, loadMore })
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(Harness, {
+        members: [member()],
+        context: "channel",
+        mentionCandidates: source,
+        channelRefCandidates: [],
+        resultRef,
+      }))
+    })
+    const options = mocks.buildMention.mock.calls[0][0]
+    await act(async () => {
+      options.setPopup({
+        items: [{ kind: "everyone", id: "everyone", label: "everyone" }],
+        query: "",
+        selectedIndex: 0,
+        command: vi.fn(),
+        getRect: null,
+      })
+    })
+    expect(loadMore).toHaveBeenCalledOnce()
+    expect(resultRef.current!.mentionPresentation.status).toBe("loading-more")
+
+    const firstSearchItem = {
+      kind: "member" as const,
+      id: "member-1",
+      userId: "user-1",
+      label: "Ada#0001",
+      name: "Ada",
+      discriminator: "0001",
+      avatar: "A",
+      status: "online" as const,
+    }
+    await act(async () => {
+      options.setPopup({
+        items: [],
+        query: "ad",
+        selectedIndex: 0,
+        command: vi.fn(),
+        getRect: null,
+      })
+    })
+    expect(resultRef.current!.mentionPresentation.status).toBe("loading")
+
+    mocks.rankMention.mockReturnValue([firstSearchItem])
+    source = candidateSource(search, {
+      searchQuery: "ad",
+      searchStatus: "loading-more",
+      loadMore,
+    })
+    await act(async () => {
+      renderer.update(createElement(Harness, {
+        members: [member()],
+        context: "channel",
+        mentionCandidates: source,
+        channelRefCandidates: [],
+        resultRef,
+      }))
+    })
+    expect(resultRef.current!.mentionPopup.items).toEqual([firstSearchItem])
+    expect(resultRef.current!.mentionPresentation.status).toBe("loading-more")
+
+    await act(async () => {
+      options.setPopup({
+        items: [],
+        query: "bob",
+        selectedIndex: 0,
+        command: vi.fn(),
+        getRect: null,
+      })
+    })
+    expect(resultRef.current!.mentionPresentation.status).toBe("loading")
+  })
+
   it("keeps channel state when only serverName changes and resets both popups", async () => {
     const resultRef: { current: Result | null } = { current: null }
     let renderer!: TestRenderer.ReactTestRenderer
@@ -313,6 +419,7 @@ describe("useComposerSuggestions", () => {
     await act(async () => {
       mentionOptions.setPopup({
         items: [{ kind: "everyone", id: "everyone", label: "everyone" }],
+        query: "",
         selectedIndex: 0,
         command: vi.fn(),
         getRect: null,

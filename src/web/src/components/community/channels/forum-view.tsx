@@ -12,6 +12,7 @@ import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { EmptyState } from "../empty-state"
 import { CreateForumThread, type NewForumThread } from "../messages/create-forum-thread"
+import type { ComposerProps } from "../messages/composer"
 import { PostTagDialog } from "./post-tag-dialog"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { tid } from "@/lib/community/testids"
@@ -183,7 +184,7 @@ function ForumPostTitle({ name, postId, seq }: { name: string; postId: string; s
 export function ForumView({
   forumChannelId,
   members,
-  onSearchMembers,
+  mentionCandidates,
   posts, loading, tag, availableTags = [], onTagChange, onOpenPost, onCreatePost, onEditPostTags, canEditPostTags, savingTagsFor,
   hasMore, loadingMore, onLoadMore,
   onDeletePost, canDeletePost, deletingPost,
@@ -191,7 +192,7 @@ export function ForumView({
 }: {
   forumChannelId: string
   members: Member[]
-  onSearchMembers?: (query: string) => void
+  mentionCandidates?: ComposerProps["mentionCandidates"]
   posts: ForumThread[]
   loading?: boolean
   tag: string
@@ -302,7 +303,7 @@ export function ForumView({
         <CreateForumThread
           forumChannelId={forumChannelId}
           members={members}
-          onSearchMembers={onSearchMembers}
+          mentionCandidates={mentionCandidates}
           onCancel={closeCompose}
           onCreatePost={async (post) => {
             if (!onCreatePost) return

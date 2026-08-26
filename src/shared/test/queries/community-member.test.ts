@@ -238,18 +238,18 @@ describe("searchMembers", () => {
     const rowsForAli = [{ id: "m1", userName: "Alice" }, { id: "m2", userName: "Alicia" }];
     const dbAli = createSearchMock(rowsForAli);
     const resAli = await memberQueries.searchMembers(dbAli, "srv_1", "Ali");
-    expect(resAli.map((r) => r.userName)).toEqual(["Alice", "Alicia"]);
+    expect(resAli.members.map((r) => r.userName)).toEqual(["Alice", "Alicia"]);
 
     const rowsForBob = [{ id: "m3", userName: "Bob" }];
     const dbBob = createSearchMock(rowsForBob);
     const resBob = await memberQueries.searchMembers(dbBob, "srv_1", "Bob");
-    expect(resBob.map((r) => r.userName)).toEqual(["Bob"]);
+    expect(resBob.members.map((r) => r.userName)).toEqual(["Bob"]);
 
-    // Fixture with no prefix match — DB returns [], hook returns []. This
+    // Fixture with no prefix match — DB returns an empty page. This
     // pins prefix semantics: "li" should NOT match "Alice"/"Alicia".
     const dbNone = createSearchMock([]);
     const resNone = await memberQueries.searchMembers(dbNone, "srv_1", "li");
-    expect(resNone).toEqual([]);
+    expect(resNone).toEqual({ members: [], hasMore: false, cursor: undefined });
   });
 
   it("orders by user.name ASC then id ASC", async () => {
@@ -263,13 +263,13 @@ describe("searchMembers", () => {
   it("clamps limit above MAX_MEMBERS_PAGE_SIZE down to the cap", async () => {
     const db = createSearchMock([]);
     await memberQueries.searchMembers(db, "srv_1", "A", { limit: MAX_MEMBERS_PAGE_SIZE + 5000 });
-    expect(db.limit).toHaveBeenCalledWith(MAX_MEMBERS_PAGE_SIZE);
+    expect(db.limit).toHaveBeenCalledWith(MAX_MEMBERS_PAGE_SIZE + 1);
   });
 
   it("defaults to MAX_MEMBERS_PAGE_SIZE when limit omitted", async () => {
     const db = createSearchMock([]);
     await memberQueries.searchMembers(db, "srv_1", "A");
-    expect(db.limit).toHaveBeenCalledWith(MAX_MEMBERS_PAGE_SIZE);
+    expect(db.limit).toHaveBeenCalledWith(MAX_MEMBERS_PAGE_SIZE + 1);
   });
 
   it("leftJoins communityUserProfile and passes through statusEmoji/statusText", async () => {
@@ -278,7 +278,7 @@ describe("searchMembers", () => {
     ]);
     const res = await memberQueries.searchMembers(db, "srv_1", "Ali");
     expect(db.leftJoin).toHaveBeenCalledTimes(1);
-    expect(res[0]).toMatchObject({ statusEmoji: "🎮", statusText: "Gaming" });
+    expect(res.members[0]).toMatchObject({ statusEmoji: "🎮", statusText: "Gaming" });
   });
 
   it("escapes % and _ wildcards in the query string (LIKE escape)", async () => {
@@ -300,7 +300,7 @@ describe("searchMembers", () => {
       { id: "m2", userId: "u_blocked_by_caller", userName: "Alicia" },
     ]);
     const res = await memberQueries.searchMembers(db, "srv_1", "Ali");
-    expect(res.map((r) => r.id)).toEqual(["m1", "m2"]);
+    expect(res.members.map((r) => r.id)).toEqual(["m1", "m2"]);
   });
 
   it("rows carry the user's discriminator", async () => {
@@ -309,7 +309,31 @@ describe("searchMembers", () => {
       { id: "m2", userName: "Alex", discriminator: "0002" },
     ]);
     const res = await memberQueries.searchMembers(db, "srv_1", "Alex");
-    expect(res.map((r) => r.discriminator)).toEqual(["0001", "0002"]);
+    expect(res.members.map((r) => r.discriminator)).toEqual(["0001", "0002"]);
+  });
+
+  it("returns a stable name/id cursor and slices off the probe row", async () => {
+    const db = createSearchMock([
+      { id: "m1", userName: "Alex" },
+      { id: "m2", userName: "Alex" },
+      { id: "m3", userName: "Alicia" },
+    ]);
+    const res = await memberQueries.searchMembers(db, "srv_1", "Al", { limit: 2 });
+    expect(db.limit).toHaveBeenCalledWith(3);
+    expect(res.members.map((row) => row.id)).toEqual(["m1", "m2"]);
+    expect(res).toMatchObject({
+      hasMore: true,
+      cursor: { name: "Alex", id: "m2" },
+    });
+  });
+
+  it("adds the same-name cursor boundary to the scoped search", async () => {
+    const db = createSearchMock([]);
+    await memberQueries.searchMembers(db, "srv_1", "Alex", {
+      cursor: { name: "Alex", id: "m200" },
+    });
+    expect(db.where).toHaveBeenCalledTimes(1);
+    expect(db.orderBy).toHaveBeenCalledTimes(1);
   });
 });
 
