@@ -9,8 +9,6 @@ const mocks = vi.hoisted(() => ({
   fetchLatestDaemonVersion: vi.fn(),
   machinesLoading: { current: false },
   onboardingState: { current: "done" as unknown },
-  readFirstSignupGuideHandoff: vi.fn(),
-  consumeFirstSignupGuideHandoff: vi.fn(),
 }))
 
 vi.mock("sonner", () => ({
@@ -82,10 +80,6 @@ vi.mock("@/lib/community-onboarding", () => ({
   updateCommunityOnboardingResources: vi.fn(),
   useCommunityOnboarding: () => mocks.onboardingState.current,
 }))
-vi.mock("@/lib/community/first-signup-guide", () => ({
-  readFirstSignupGuideHandoff: mocks.readFirstSignupGuideHandoff,
-  consumeFirstSignupGuideHandoff: mocks.consumeFirstSignupGuideHandoff,
-}))
 vi.mock("@/lib/api/config", () => ({
   fetchLatestDaemonVersion: mocks.fetchLatestDaemonVersion,
 }))
@@ -123,29 +117,28 @@ describe("machine daemon update UI", () => {
     })
     mocks.machinesLoading.current = false
     mocks.onboardingState.current = "done"
-    mocks.readFirstSignupGuideHandoff.mockReset()
-    mocks.readFirstSignupGuideHandoff.mockReturnValue(null)
-    mocks.consumeFirstSignupGuideHandoff.mockReset()
   })
 
-  it("consumes the first-signup handoff and gives its stable seed to the empty-state motion", async () => {
+  it("plays the guide once per empty-page mount and replays after remount", async () => {
     mocks.onboardingState.current = null
-    mocks.readFirstSignupGuideHandoff.mockReturnValue({
-      version: 1,
-      seed: "first-signup-face",
-      createdAt: 1_000,
-    })
 
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
       renderer = TestRenderer.create(React.createElement(MachineList))
     })
 
-    expect(mocks.consumeFirstSignupGuideHandoff).toHaveBeenCalledWith("first-signup-face")
-    expect(renderer.root.findByType("guide-avatar-motion").props).toMatchObject({
-      seed: "first-signup-face",
-      intro: true,
+    const firstVisit = renderer.root.findByType("guide-avatar-motion")
+    expect(firstVisit.props.intro).toBe(true)
+    expect(firstVisit.props.seed).toMatch(/^alook-guide-/)
+
+    act(() => firstVisit.props.onIntroComplete())
+    expect(renderer.root.findByType("guide-avatar-motion").props.intro).toBe(false)
+
+    act(() => renderer.unmount())
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(MachineList))
     })
+    expect(renderer.root.findByType("guide-avatar-motion").props.intro).toBe(true)
   })
 
   it("loads Community update eligibility from the daemon package endpoint", async () => {

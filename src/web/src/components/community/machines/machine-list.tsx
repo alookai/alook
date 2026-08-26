@@ -44,10 +44,6 @@ import {
   useCommunityOnboarding,
 } from "@/lib/community-onboarding"
 import { removeCommunityParam } from "@/lib/community/community-route"
-import {
-  consumeFirstSignupGuideHandoff,
-  readFirstSignupGuideHandoff,
-} from "@/lib/community/first-signup-guide"
 import { GuideMeAvatarMotion } from "./guide-me-avatar-motion"
 
 // Loading placeholder shaped like a real MachineCard (size-10 rounded-xl icon +
@@ -193,7 +189,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const [confirmUpdate, setConfirmUpdate] = useState<CommunityMachineSummary | null>(null)
   const [latestVersion, setLatestVersion] = useState<string | null>(null)
   const [guideAvatarSeed, setGuideAvatarSeed] = useState("alook-guide")
-  const [firstSignupGuideSeed, setFirstSignupGuideSeed] = useState<string | null>(null)
+  const [guideIntroActive, setGuideIntroActive] = useState(true)
   const emptyStageRef = useRef<HTMLDivElement>(null)
   const onboardingState = useCommunityOnboarding()
   const controllerMode = getAppMode()
@@ -201,18 +197,6 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   useEffect(() => {
     setGuideAvatarSeed(`alook-guide-${crypto.randomUUID()}`)
   }, [])
-
-  useEffect(() => {
-    if (machinesLoading) return
-    const handoff = readFirstSignupGuideHandoff()
-    if (!handoff) return
-
-    consumeFirstSignupGuideHandoff(handoff.seed)
-    if (machines.length === 0) {
-      setGuideAvatarSeed(handoff.seed)
-      setFirstSignupGuideSeed(handoff.seed)
-    }
-  }, [machines.length, machinesLoading])
 
   useEffect(() => {
     if (controllerMode === "dev") return
@@ -347,8 +331,8 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     void requestMachineUpdate(machine.id)
   }, [])
 
-  const finishFirstSignupGuide = useCallback(() => {
-    setFirstSignupGuideSeed(null)
+  const finishGuideIntro = useCallback(() => {
+    setGuideIntroActive(false)
   }, [])
 
   const botsToDelete = confirmDelete
@@ -390,9 +374,9 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
               {onboardingState === null ? (
                 <GuideMeAvatarMotion
                   seed={guideAvatarSeed}
-                  intro={firstSignupGuideSeed !== null}
+                  intro={guideIntroActive}
                   stageRef={emptyStageRef}
-                  onIntroComplete={finishFirstSignupGuide}
+                  onIntroComplete={finishGuideIntro}
                 />
               ) : null}
               <Button

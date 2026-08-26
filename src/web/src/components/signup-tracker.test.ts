@@ -1,12 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 
 const mockSendGTMEvent = vi.fn()
-const writeFirstSignupGuideHandoff = vi.fn()
 vi.mock("@next/third-parties/google", () => ({
   sendGTMEvent: (...args: unknown[]) => mockSendGTMEvent(...args),
-}))
-vi.mock("@/lib/community/first-signup-guide", () => ({
-  writeFirstSignupGuideHandoff: () => writeFirstSignupGuideHandoff(),
 }))
 
 vi.mock("react", () => ({
@@ -75,6 +71,5 @@ describe("SignupTracker", () => {
 
     expect(replace).toHaveBeenCalledWith("/c/me/machines")
     expect(cookieSetValue).toBe("is_new_signup=; max-age=0; path=/")
-    expect(writeFirstSignupGuideHandoff).toHaveBeenCalledOnce()
   })
 })
