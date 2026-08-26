@@ -77,6 +77,11 @@ test("one human account converges read state across two browser profiles", async
   await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toBeVisible({ timeout: 20_000 })
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible({ timeout: 20_000 })
 
+  const expectJourneyUnreadsCleared = async () => {
+    await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
+    await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toHaveCount(0)
+  }
+
   const accountSnapshot = async () => await (await deviceB.page.request.get(
     "/api/community/users/me/read-state",
   )).json() as {
@@ -149,8 +154,7 @@ test("one human account converges read state across two browser profiles", async
   await expect.poll(() => readStateEventsSince(proxyB.frames, dmFrameStart).length,
     { timeout: 20_000 }).toBeGreaterThan(0)
   expect((await dmRepair).status()).toBe(200)
-  await expect(deviceB.page.getByTestId(tid.inboxUnreadDm(dmId))).toHaveCount(0)
-  await expect(deviceB.page.getByText("Caught up", { exact: true })).toBeVisible()
+  await expectJourneyUnreadsCleared()
   await deviceA.page.waitForTimeout(1_200) // duplicate DM-read repair exclusion window
   expect(dmResponses).toEqual([200])
   const afterDmRead = await accountSnapshot()
@@ -164,7 +168,7 @@ test("one human account converges read state across two browser profiles", async
   const firstReadFrame = orderedReadFrames[0]
   expect(firstReadFrame).toBeTruthy()
   proxyB.replay(firstReadFrame!)
-  await expect(deviceB.page.getByText("Caught up", { exact: true })).toBeVisible()
+  await expectJourneyUnreadsCleared()
 
   await seedMessage("alice", channelId, `offline channel ${stamp}`)
   await seedDmMessage("alice", dmId, `offline dm ${stamp}`)
@@ -239,7 +243,9 @@ test("one human account converges read state across two browser profiles", async
     .slice(start)
     .flatMap((frame) => communityFrameEvents(frame))
     .filter((event): event is CapturedReadStateEvent => (
-      isCapturedReadStateEvent(event) && event.type === "community:inbox.changed"
+      isCapturedReadStateEvent(event)
+      && event.type === "community:inbox.changed"
+      && event.reason === "read_all"
     ))
   await expect.poll(() => readAllEvents(proxyA.frames, readAllFrameStarts[0]!).length, {
     timeout: 20_000,
