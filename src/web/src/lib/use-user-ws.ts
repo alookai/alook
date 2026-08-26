@@ -6,6 +6,7 @@ import {
   isCommunityBrowserEventBatchCandidate,
   isCommunityEventCandidate,
   isCommunityEventType,
+  isUserWsConnectionPong,
   type WsMessage,
 } from "@alook/shared"
 import {
@@ -19,8 +20,14 @@ const isLocal = isLocalMode()
 const WS_RECONNECT_INIT = Number(process.env.NEXT_PUBLIC_WS_RECONNECT_DELAY_MS) || 1000
 const WS_RECONNECT_MAX = Number(process.env.NEXT_PUBLIC_WS_RECONNECT_MAX_DELAY_MS) || 30_000
 const WS_TOKEN_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_WS_TOKEN_TIMEOUT_MS) || 10_000
-const WS_CONNECT_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_WS_CONNECT_TIMEOUT_MS) || 10_000
-const WS_STALE_AFTER_MS = 30_000
+export const WS_CONNECTION_VALIDATION_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_WS_CONNECT_TIMEOUT_MS) || 10_000
+
+type PendingConnectionValidation = {
+  ws: WebSocket
+  generation: number
+  nonce: string
+  timeout: ReturnType<typeof setTimeout>
+}
 
 function isPageHidden(): boolean {
   return typeof document !== "undefined" && document.visibilityState === "hidden"
@@ -91,6 +98,7 @@ export function useUserWs(
   const onDisconnectRef = useRef(options?.onDisconnect)
   const onAuthenticatedRef = useRef(options?.onAuthenticated)
   const onConnectionStateChangeRef = useRef(options?.onConnectionStateChange)
+  const lastConnectionPhaseRef = useRef<UserWsConnectionPhase | null>(null)
   const requestDaemonStatusOnAuthRef = useRef(options?.requestDaemonStatusOnAuth ?? true)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tokenAbortRef = useRef<AbortController | null>(null)
@@ -104,6 +112,8 @@ export function useUserWs(
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const livenessIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const connectionGenerationRef = useRef(0)
+  const connectionValidationRef = useRef<PendingConnectionValidation | null>(null)
+  const connectionValidationNeededRef = useRef(isPageHidden())
 
   useEffect(() => {
     onMessageRef.current = onMessage
@@ -129,19 +139,102 @@ export function useUserWs(
 
   const connectRef = useRef<(() => Promise<void>) | null>(null)
 
+  const publishConnectionPhase = useCallback((phase: UserWsConnectionPhase) => {
+    if (lastConnectionPhaseRef.current === phase) return
+    lastConnectionPhaseRef.current = phase
+    runLifecycleCallback("connection-state", () =>
+      onConnectionStateChangeRef.current?.(phase))
+  }, [])
+
+  const clearConnectionValidation = useCallback(() => {
+    const pending = connectionValidationRef.current
+    connectionValidationRef.current = null
+    if (pending) clearTimeout(pending.timeout)
+  }, [])
+
+  const stopHeartbeat = useCallback(() => {
+    if (pingIntervalRef.current) { clearInterval(pingIntervalRef.current); pingIntervalRef.current = null }
+    if (livenessIntervalRef.current) { clearInterval(livenessIntervalRef.current); livenessIntervalRef.current = null }
+  }, [])
+
+  const startHeartbeat = useCallback((ws: WebSocket, generation: number) => {
+    stopHeartbeat()
+    if (
+      isPageHidden()
+      || ws !== wsRef.current
+      || generation !== connectionGenerationRef.current
+      || authenticatedGenerationRef.current !== generation
+      || ws.readyState !== WebSocket.OPEN
+    ) return
+    lastMessageAtRef.current = Date.now()
+    pingIntervalRef.current = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) ws.send("ping")
+    }, 25_000)
+    livenessIntervalRef.current = setInterval(() => {
+      if (Date.now() - lastMessageAtRef.current > 30_000) ws.close()
+    }, 5_000)
+  }, [stopHeartbeat])
+
   const retireSocket = useCallback((reportDisconnect = true) => {
     const ws = wsRef.current
     wsRef.current = null
+    clearConnectionValidation()
     if (reportDisconnect && authenticatedGenerationRef.current !== null) {
       authenticatedGenerationRef.current = null
       disconnectedAtRef.current ??= Date.now()
       runLifecycleCallback("disconnect", onDisconnectRef.current)
     }
-    if (pingIntervalRef.current) { clearInterval(pingIntervalRef.current); pingIntervalRef.current = null }
-    if (livenessIntervalRef.current) { clearInterval(livenessIntervalRef.current); livenessIntervalRef.current = null }
+    stopHeartbeat()
     if (connectTimeoutRef.current !== null) { clearTimeout(connectTimeoutRef.current); connectTimeoutRef.current = null }
     ws?.close()
-  }, [])
+  }, [clearConnectionValidation, stopHeartbeat])
+
+  const failConnectionValidation = useCallback((
+    ws: WebSocket,
+    generation: number,
+    nonce: string,
+  ) => {
+    const pending = connectionValidationRef.current
+    if (
+      !pending
+      || pending.ws !== ws
+      || pending.generation !== generation
+      || pending.nonce !== nonce
+      || ws !== wsRef.current
+      || generation !== connectionGenerationRef.current
+    ) return
+    clearConnectionValidation()
+    retireSocket()
+    publishConnectionPhase(isPageHidden() ? "suspended" : "reconnecting")
+    if (!isPageHidden()) void connectRef.current?.()
+  }, [clearConnectionValidation, publishConnectionPhase, retireSocket])
+
+  const validateCurrentConnection = useCallback((ws: WebSocket, generation: number) => {
+    const current = connectionValidationRef.current
+    if (
+      current?.ws === ws
+      && current.generation === generation
+      && ws === wsRef.current
+      && generation === connectionGenerationRef.current
+    ) return
+    clearConnectionValidation()
+    stopHeartbeat()
+    const nonce = crypto.randomUUID()
+    const pending: PendingConnectionValidation = {
+      ws,
+      generation,
+      nonce,
+      timeout: setTimeout(() => {
+        failConnectionValidation(ws, generation, nonce)
+      }, WS_CONNECTION_VALIDATION_TIMEOUT_MS),
+    }
+    connectionValidationRef.current = pending
+    try {
+      ws.send(JSON.stringify({ type: "connection.ping", nonce }))
+    } catch {
+      failConnectionValidation(ws, generation, nonce)
+    }
+  }, [clearConnectionValidation, failConnectionValidation, stopHeartbeat])
 
   const scheduleReconnect = useCallback((generation: number) => {
     if (generation !== connectionGenerationRef.current) return
@@ -160,12 +253,10 @@ export function useUserWs(
 
   const connect = useCallback(async () => {
     if (isPageHidden()) {
-      runLifecycleCallback("connection-state", () =>
-        onConnectionStateChangeRef.current?.("suspended"))
+      publishConnectionPhase("suspended")
       return
     }
-    runLifecycleCallback("connection-state", () =>
-      onConnectionStateChangeRef.current?.("reconnecting"))
+    publishConnectionPhase("reconnecting")
     const generation = connectionGenerationRef.current + 1
     connectionGenerationRef.current = generation
     if (reconnectTimerRef.current !== null) {
@@ -233,24 +324,12 @@ export function useUserWs(
     connectTimeoutRef.current = setTimeout(() => {
       if (ws !== wsRef.current || generation !== connectionGenerationRef.current) return
       ws.close()
-    }, WS_CONNECT_TIMEOUT_MS)
+    }, WS_CONNECTION_VALIDATION_TIMEOUT_MS)
 
     ws.onopen = () => {
       if (ws !== wsRef.current || generation !== connectionGenerationRef.current) return
       reconnectDelay.current = WS_RECONNECT_INIT
       ws.send(JSON.stringify({ type: "auth", token: authToken }))
-
-      lastMessageAtRef.current = Date.now()
-      pingIntervalRef.current = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send("ping")
-        }
-      }, 25_000)
-      livenessIntervalRef.current = setInterval(() => {
-        if (Date.now() - lastMessageAtRef.current > 30_000) {
-          ws.close()
-        }
-      }, 5_000)
     }
 
     ws.onmessage = (e) => {
@@ -277,6 +356,21 @@ export function useUserWs(
         reportDroppedFrame("missing-type", msg)
         return
       }
+      if (msg.type === "connection.pong") {
+        const pending = connectionValidationRef.current
+        if (
+          isUserWsConnectionPong(msg)
+          && pending?.ws === ws
+          && pending.generation === generation
+          && pending.nonce === msg.nonce
+          && authenticatedGenerationRef.current === generation
+        ) {
+          clearConnectionValidation()
+          publishConnectionPhase("authenticated")
+          startHeartbeat(ws, generation)
+        }
+        return
+      }
       if (msg.type === "auth.ok") {
         if (authenticatedGenerationRef.current === generation) {
           reportDroppedFrame("duplicate-auth-ok", msg)
@@ -293,8 +387,7 @@ export function useUserWs(
           ? 0
           : Math.max(0, Date.now() - disconnectedAtRef.current)
         disconnectedAtRef.current = null
-        runLifecycleCallback("connection-state", () =>
-          onConnectionStateChangeRef.current?.("authenticated"))
+        publishConnectionPhase("authenticated")
         runLifecycleCallback("authenticated", onAuthenticatedRef.current)
         if (isReconnect) {
           runLifecycleCallback("reconnect", () =>
@@ -303,6 +396,7 @@ export function useUserWs(
         if (requestDaemonStatusOnAuthRef.current) {
           ws.send(JSON.stringify({ type: "check_daemon_status" }))
         }
+        startHeartbeat(ws, generation)
         return
       }
       if (authenticatedGenerationRef.current !== generation) {
@@ -333,20 +427,26 @@ export function useUserWs(
 
     ws.onclose = () => {
       if (ws !== wsRef.current) return
+      const validation = connectionValidationRef.current
+      if (
+        validation?.ws === ws
+        && validation.generation === generation
+      ) {
+        failConnectionValidation(ws, generation, validation.nonce)
+        return
+      }
       const wasAuthenticated = authenticatedGenerationRef.current === generation
       if (wasAuthenticated) {
         authenticatedGenerationRef.current = null
         disconnectedAtRef.current ??= Date.now()
         runLifecycleCallback("disconnect", onDisconnectRef.current)
       }
-      if (pingIntervalRef.current) { clearInterval(pingIntervalRef.current); pingIntervalRef.current = null }
-      if (livenessIntervalRef.current) { clearInterval(livenessIntervalRef.current); livenessIntervalRef.current = null }
+      stopHeartbeat()
       if (connectTimeoutRef.current !== null) { clearTimeout(connectTimeoutRef.current); connectTimeoutRef.current = null }
-      runLifecycleCallback("connection-state", () =>
-        onConnectionStateChangeRef.current?.(isPageHidden() ? "suspended" : "reconnecting"))
+      publishConnectionPhase(isPageHidden() ? "suspended" : "reconnecting")
       scheduleReconnect(generation)
     }
-  }, [retireSocket, scheduleReconnect])
+  }, [clearConnectionValidation, failConnectionValidation, publishConnectionPhase, retireSocket, scheduleReconnect, startHeartbeat, stopHeartbeat])
 
   useEffect(() => {
     connectRef.current = connect
@@ -356,23 +456,25 @@ export function useUserWs(
     void connect()
     const resumeConnection = () => {
       if (isPageHidden()) {
+        connectionValidationNeededRef.current = true
         const generation = connectionGenerationRef.current
-        if (authenticatedGenerationRef.current !== generation) {
-          runLifecycleCallback("connection-state", () =>
-            onConnectionStateChangeRef.current?.("suspended"))
-        }
+        const authenticated = authenticatedGenerationRef.current === generation
+        clearConnectionValidation()
+        stopHeartbeat()
+        publishConnectionPhase("suspended")
         if (reconnectTimerRef.current !== null) {
           clearTimeout(reconnectTimerRef.current)
           reconnectTimerRef.current = null
         }
-        if (tokenAbortRef.current) {
+        if (!authenticated) {
           connectionGenerationRef.current += 1
-          tokenAbortRef.current.abort()
+          tokenAbortRef.current?.abort()
           tokenAbortRef.current = null
           if (tokenTimeoutRef.current !== null) {
             clearTimeout(tokenTimeoutRef.current)
             tokenTimeoutRef.current = null
           }
+          retireSocket(false)
         }
         return
       }
@@ -383,13 +485,17 @@ export function useUserWs(
       const ws = wsRef.current
       const generation = connectionGenerationRef.current
       const authenticated = authenticatedGenerationRef.current === generation
-      const fresh = authenticated
-        && ws?.readyState === WebSocket.OPEN
-        && Date.now() - lastMessageAtRef.current <= WS_STALE_AFTER_MS
       const connecting = ws?.readyState === WebSocket.CONNECTING
-        && Date.now() - connectStartedAtRef.current <= WS_CONNECT_TIMEOUT_MS
-      if (fresh || connecting) return
+        && Date.now() - connectStartedAtRef.current <= WS_CONNECTION_VALIDATION_TIMEOUT_MS
+      if (authenticated && ws?.readyState === WebSocket.OPEN) {
+        if (!connectionValidationNeededRef.current) return
+        connectionValidationNeededRef.current = false
+        validateCurrentConnection(ws, generation)
+        return
+      }
+      if (connecting) return
 
+      connectionValidationNeededRef.current = false
       connectionGenerationRef.current += 1
       if (reconnectTimerRef.current !== null) {
         clearTimeout(reconnectTimerRef.current)
@@ -401,12 +507,14 @@ export function useUserWs(
     const onVisibilityChange = () => resumeConnection()
     const onPageShow = () => resumeConnection()
     const onOnline = () => resumeConnection()
+    const onOffline = () => { connectionValidationNeededRef.current = true }
     if (typeof document !== "undefined") {
       document.addEventListener("visibilitychange", onVisibilityChange)
     }
     if (typeof window !== "undefined") {
       window.addEventListener("pageshow", onPageShow)
       window.addEventListener("online", onOnline)
+      window.addEventListener("offline", onOffline)
     }
     return () => {
       if (typeof document !== "undefined") {
@@ -415,8 +523,10 @@ export function useUserWs(
       if (typeof window !== "undefined") {
         window.removeEventListener("pageshow", onPageShow)
         window.removeEventListener("online", onOnline)
+        window.removeEventListener("offline", onOffline)
       }
       connectionGenerationRef.current += 1
+      clearConnectionValidation()
       tokenAbortRef.current?.abort()
       tokenAbortRef.current = null
       if (reconnectTimerRef.current !== null) {
@@ -425,11 +535,10 @@ export function useUserWs(
       }
       if (tokenTimeoutRef.current !== null) { clearTimeout(tokenTimeoutRef.current); tokenTimeoutRef.current = null }
       if (connectTimeoutRef.current !== null) { clearTimeout(connectTimeoutRef.current); connectTimeoutRef.current = null }
-      if (pingIntervalRef.current) { clearInterval(pingIntervalRef.current); pingIntervalRef.current = null }
-      if (livenessIntervalRef.current) { clearInterval(livenessIntervalRef.current); livenessIntervalRef.current = null }
+      stopHeartbeat()
       retireSocket(false)
     }
-  }, [connect, retireSocket])
+  }, [clearConnectionValidation, connect, publishConnectionPhase, retireSocket, stopHeartbeat, validateCurrentConnection])
 
   const send = useCallback((msg: object) => {
     const ws = wsRef.current
@@ -439,6 +548,7 @@ export function useUserWs(
   }, [])
 
   const reconnectNow = useCallback(() => {
+    clearConnectionValidation()
     if (reconnectTimerRef.current !== null) {
       clearTimeout(reconnectTimerRef.current)
       reconnectTimerRef.current = null
@@ -453,12 +563,11 @@ export function useUserWs(
     retireSocket()
     if (isPageHidden()) {
       connectionGenerationRef.current += 1
-      runLifecycleCallback("connection-state", () =>
-        onConnectionStateChangeRef.current?.("suspended"))
+      publishConnectionPhase("suspended")
       return
     }
     void connectRef.current?.()
-  }, [retireSocket])
+  }, [clearConnectionValidation, publishConnectionPhase, retireSocket])
 
   return { send, reconnectNow }
 }

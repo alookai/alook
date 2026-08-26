@@ -1,6 +1,7 @@
 import {
   createDb,
   encodePreparedCommunityBrowserEventBatch,
+  isUserWsConnectionPing,
   isValidCommunityUserTarget,
   queries,
   readOrStale,
@@ -179,6 +180,20 @@ export async function handleWebSocketMessage(
   try { parsed = JSON.parse(message) } catch { ws.close(1008, "Invalid JSON"); return }
 
   const state = ws.deserializeAttachment() as ConnectionState
+
+  const controlType = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>).type
+    : undefined
+  if (controlType === "connection.ping" || controlType === "connection.pong") {
+    if (!state?.authenticated) {
+      ws.close(1008, "Not authenticated")
+      return
+    }
+    if (state.type === "user" && isUserWsConnectionPing(parsed)) {
+      ws.send(JSON.stringify({ type: "connection.pong", nonce: parsed.nonce }))
+    }
+    return
+  }
 
   if (state?.type === "community-machine") {
     await handleCommunityMachineMessage(parsed)

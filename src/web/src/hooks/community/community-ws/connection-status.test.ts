@@ -59,6 +59,32 @@ describe("community websocket connection status", () => {
     expect(publish).toHaveBeenLastCalledWith("failed")
   })
 
+  it("keeps hidden validation quiet and starts the outage clock only on failure", () => {
+    const { controller, publish } = setup()
+    controller.handlePhase("reconnecting")
+    controller.handlePhase("authenticated")
+    controller.handlePhase("suspended")
+    publish.mockClear()
+
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS + 1)
+    expect(publish).not.toHaveBeenCalled()
+
+    controller.handlePhase("authenticated")
+    expect(publish).toHaveBeenLastCalledWith("connected")
+    publish.mockClear()
+
+    controller.handlePhase("reconnecting")
+    expect(publish).toHaveBeenCalledOnce()
+    expect(publish).toHaveBeenLastCalledWith("reconnecting")
+    vi.advanceTimersByTime(COMMUNITY_WS_FAILED_AFTER_MS - 1)
+    expect(publish).not.toHaveBeenCalledWith("failed")
+    vi.advanceTimersByTime(1)
+    expect(publish).toHaveBeenLastCalledWith("failed")
+
+    controller.handlePhase("authenticated")
+    expect(publish).toHaveBeenLastCalledWith("connected")
+  })
+
   it("suspends hidden outages and starts fresh thresholds when visible again", () => {
     const { controller, publish } = setup()
     controller.handlePhase("reconnecting")

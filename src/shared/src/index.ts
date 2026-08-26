@@ -71,6 +71,13 @@ export type {
 // daemon, and the D1 query layer).
 export * from "./diagnostics-contract";
 export { compareAsciiSqliteBinary } from "./lib/sqlite-binary";
+export {
+  isUserWsConnectionPing,
+  isUserWsConnectionPong,
+  USER_WS_CONNECTION_VALIDATION_NONCE_MAX_LENGTH,
+  type UserWsConnectionPing,
+  type UserWsConnectionPong,
+} from "./user-ws-validation";
 
 // Constants
 export {

@@ -32,6 +32,7 @@ class MockWebSocket {
   simulateOpen() { this.readyState = MockWebSocket.OPEN; this.onopen?.() }
   simulateMessage(data: unknown) { this.onmessage?.({ data: JSON.stringify(data) }) }
   simulateRawMessage(data: string) { this.onmessage?.({ data }) }
+  simulateError() { this.onerror?.() }
   simulateClose() { this.readyState = MockWebSocket.CLOSED; this.onclose?.() }
 }
 
@@ -144,6 +145,26 @@ function setupTokenFetch() {
     ok: true,
     json: () => Promise.resolve({ userId: "user-1", token: "tok-123" }),
   })
+}
+
+function connectionPings(ws: MockWebSocket): Array<{ type: "connection.ping"; nonce: string }> {
+  return ws.sent.flatMap((value) => {
+    try {
+      const parsed = JSON.parse(value) as { type?: string; nonce?: string }
+      return parsed.type === "connection.ping" && typeof parsed.nonce === "string"
+        ? [{ type: "connection.ping" as const, nonce: parsed.nonce }]
+        : []
+    } catch {
+      return []
+    }
+  })
+}
+
+function dispatchHiddenToVisible() {
+  mockDocument.visibilityState = "hidden"
+  mockDocument.dispatch("visibilitychange")
+  mockDocument.visibilityState = "visible"
+  mockDocument.dispatch("visibilitychange")
 }
 
 function resetMockState() {
@@ -266,12 +287,16 @@ describe("useUserWs", () => {
   it("opens the access gate only after auth.ok", async () => {
     setupTokenFetch()
 
+    const onMessage = vi.fn()
     const onAuthenticated = vi.fn()
-    await mountHook(vi.fn(), { onAuthenticated, requestDaemonStatusOnAuth: false })
+    await mountHook(onMessage, { onAuthenticated, requestDaemonStatusOnAuth: false })
 
     const ws = MockWebSocket.instances[0]
     ws.simulateOpen()
+    ws.simulateMessage({ type: "connection.pong", nonce: "preauth_nonce" })
+    ws.simulateMessage({ type: "task.updated", taskId: "preauth" })
     expect(onAuthenticated).not.toHaveBeenCalled()
+    expect(onMessage).not.toHaveBeenCalled()
 
     ws.simulateMessage({ type: "auth.ok" })
     expect(onAuthenticated).toHaveBeenCalledTimes(1)
@@ -577,14 +602,107 @@ describe("useUserWs", () => {
     expect(MockWebSocket.instances).toHaveLength(2)
   })
 
-  it("keeps a fresh authenticated socket across pageshow and online", async () => {
+  it("parks an authenticated hidden socket without heartbeat or reconnect work", async () => {
     setupTokenFetch()
-    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const onConnectionStateChange = vi.fn()
+    await mountHook(vi.fn(), {
+      onConnectionStateChange,
+      requestDaemonStatusOnAuth: false,
+    })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    await vi.advanceTimersByTimeAsync(25_000)
+    expect(ws.sent.filter(frame => frame === "ping")).toHaveLength(1)
+
+    mockDocument.visibilityState = "hidden"
+    mockDocument.dispatch("visibilitychange")
+    const hiddenFrameCount = ws.sent.length
+    const hiddenFetchCount = mockFetch.mock.calls.length
+    await vi.advanceTimersByTimeAsync(120_000)
+
+    expect(ws.sent).toHaveLength(hiddenFrameCount)
+    expect(mockFetch).toHaveBeenCalledTimes(hiddenFetchCount)
+    expect(MockWebSocket.instances).toEqual([ws])
+    expect(ws.closed).toBe(false)
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("suspended")
+
+    mockDocument.visibilityState = "visible"
+    mockDocument.dispatch("visibilitychange")
+    mockWindow.dispatch("pageshow")
+    mockWindow.dispatch("online")
+    expect(connectionPings(ws)).toHaveLength(1)
+    expect(onConnectionStateChange).not.toHaveBeenLastCalledWith("reconnecting")
+  })
+
+  it("retires a CONNECTING socket hidden transition and ignores its late open", async () => {
+    setupTokenFetch()
+    const onConnectionStateChange = vi.fn()
+    await mountHook(vi.fn(), {
+      onConnectionStateChange,
+      requestDaemonStatusOnAuth: false,
+    })
+    const first = MockWebSocket.instances[0]!
+
+    mockDocument.visibilityState = "hidden"
+    mockDocument.dispatch("visibilitychange")
+    expect(first.closed).toBe(true)
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("suspended")
+
+    first.simulateOpen()
+    expect(first.sent).toEqual([])
+
+    mockDocument.visibilityState = "visible"
+    mockDocument.dispatch("visibilitychange")
+    mockWindow.dispatch("pageshow")
+    mockWindow.dispatch("online")
+    await flushPromises()
+
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it("retires an OPEN pre-auth socket hidden transition and ignores late auth.ok", async () => {
+    setupTokenFetch()
+    const onAuthenticated = vi.fn()
+    await mountHook(vi.fn(), {
+      onAuthenticated,
+      requestDaemonStatusOnAuth: false,
+    })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    expect(first.sent).toContain(JSON.stringify({ type: "auth", token: "tok-123" }))
+
+    mockDocument.visibilityState = "hidden"
+    mockDocument.dispatch("visibilitychange")
+    expect(first.closed).toBe(true)
+
+    first.simulateMessage({ type: "auth.ok" })
+    expect(onAuthenticated).not.toHaveBeenCalled()
+
+    mockDocument.visibilityState = "visible"
+    mockDocument.dispatch("visibilitychange")
+    mockWindow.dispatch("pageshow")
+    await flushPromises()
+
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it("coalesces foreground signals into one exact-nonce validation on the retained socket", async () => {
+    setupTokenFetch()
+    const onConnectionStateChange = vi.fn()
+    const mod = await mountHook(vi.fn(), {
+      onConnectionStateChange,
+      requestDaemonStatusOnAuth: false,
+    })
     const ws = MockWebSocket.instances[0]!
     ws.simulateOpen()
     ws.simulateMessage({ type: "auth.ok" })
     const fetchCount = mockFetch.mock.calls.length
+    onConnectionStateChange.mockClear()
 
+    dispatchHiddenToVisible()
     mockWindow.dispatch("pageshow")
     mockWindow.dispatch("online")
     await flushPromises()
@@ -592,23 +710,185 @@ describe("useUserWs", () => {
     expect(mockFetch).toHaveBeenCalledTimes(fetchCount)
     expect(MockWebSocket.instances).toEqual([ws])
     expect(ws.closed).toBe(false)
+    expect(connectionPings(ws)).toHaveLength(1)
+    expect(onConnectionStateChange).not.toHaveBeenCalledWith("reconnecting")
+
+    const [{ nonce }] = connectionPings(ws)
+    ws.simulateMessage({ type: "connection.pong", nonce })
+    expect(onConnectionStateChange).toHaveBeenLastCalledWith("authenticated")
+
+    await vi.advanceTimersByTimeAsync(mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS + 1)
+    expect(MockWebSocket.instances).toEqual([ws])
+    expect(ws.closed).toBe(false)
   })
 
-  it("keeps cached UI ownership but replaces a stale authenticated socket on foreground", async () => {
+  it("coalesces an offline-online signal pair while foreground validation is pending", async () => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+
+    dispatchHiddenToVisible()
+    expect(connectionPings(ws)).toHaveLength(1)
+
+    mockWindow.dispatch("offline")
+    mockWindow.dispatch("online")
+
+    expect(connectionPings(ws)).toHaveLength(1)
+  })
+
+  it("keeps a cleared foreground validation timer inert", async () => {
+    setupTokenFetch()
+    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    const timerSpy = vi.spyOn(globalThis, "setTimeout")
+
+    dispatchHiddenToVisible()
+    const [{ nonce }] = connectionPings(ws)
+    const timeout = timerSpy.mock.calls.find(([, delay]) =>
+      delay === mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS)?.[0]
+    expect(timeout).toBeTypeOf("function")
+
+    ws.simulateMessage({ type: "connection.pong", nonce })
+    ;(timeout as () => void)()
+
+    expect(ws.closed).toBe(false)
+    expect(MockWebSocket.instances).toEqual([ws])
+    timerSpy.mockRestore()
+  })
+
+  it("does not restart an old heartbeat after a reentrant validation lifecycle reconnect", async () => {
+    setupTokenFetch()
+    let reconnectOnValidation = false
+    const onConnectionStateChange = vi.fn((phase: string) => {
+      if (reconnectOnValidation && phase === "authenticated") {
+        latestHookResult?.reconnectNow()
+      }
+    })
+    await mountHook(vi.fn(), {
+      onConnectionStateChange,
+      requestDaemonStatusOnAuth: false,
+    })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+
+    dispatchHiddenToVisible()
+    const [{ nonce }] = connectionPings(ws)
+    reconnectOnValidation = true
+    ws.simulateMessage({ type: "connection.pong", nonce })
+    await flushPromises()
+
+    expect(ws.closed).toBe(true)
+    expect(MockWebSocket.instances).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(25_000)
+    expect(ws.sent).not.toContain("ping")
+  })
+
+  it("fails foreground validation once when its control-frame send throws", async () => {
     setupTokenFetch()
     const onDisconnect = vi.fn()
-    await mountHook(vi.fn(), { onDisconnect, requestDaemonStatusOnAuth: false })
+    await mountHook(vi.fn(), {
+      onDisconnect,
+      requestDaemonStatusOnAuth: false,
+    })
+    const ws = MockWebSocket.instances[0]!
+    const send = ws.send.bind(ws)
+    ws.send = vi.fn((data: string) => {
+      if (data.includes('"type":"connection.ping"')) throw new Error("socket send failed")
+      send(data)
+    })
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+
+    dispatchHiddenToVisible()
+    await flushPromises()
+
+    expect(onDisconnect).toHaveBeenCalledOnce()
+    expect(ws.closed).toBe(true)
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it("does not accept raw, mismatched, or queued previous validation pong as foreground proof", async () => {
+    setupTokenFetch()
+    const onDisconnect = vi.fn()
+    const onConnectionStateChange = vi.fn()
+    const mod = await mountHook(vi.fn(), {
+      onConnectionStateChange,
+      onDisconnect,
+      requestDaemonStatusOnAuth: false,
+    })
     const first = MockWebSocket.instances[0]!
     first.simulateOpen()
     first.simulateMessage({ type: "auth.ok" })
+    onConnectionStateChange.mockClear()
 
-    vi.setSystemTime(Date.now() + 31_000)
+    dispatchHiddenToVisible()
+    const [{ nonce }] = connectionPings(first)
+    first.simulateRawMessage("pong")
+    first.simulateMessage({ type: "connection.pong", nonce: "previous_nonce" })
+    first.simulateMessage({ type: "connection.pong", nonce: `${nonce}_wrong` })
+
+    await vi.advanceTimersByTimeAsync(mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS - 1)
+    expect(onDisconnect).not.toHaveBeenCalled()
+    expect(onConnectionStateChange).not.toHaveBeenCalledWith("reconnecting")
+    expect(first.closed).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(1)
     mockWindow.dispatch("pageshow")
     await flushPromises()
 
     expect(onDisconnect).toHaveBeenCalledTimes(1)
     expect(first.closed).toBe(true)
     expect(MockWebSocket.instances).toHaveLength(2)
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    expect(onConnectionStateChange).toHaveBeenCalledWith("reconnecting")
+    expect(onConnectionStateChange.mock.calls.filter(([phase]) => phase === "reconnecting"))
+      .toHaveLength(1)
+
+    first.simulateMessage({ type: "connection.pong", nonce })
+    first.simulateMessage({ type: "auth.ok" })
+    expect(onDisconnect).toHaveBeenCalledTimes(1)
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it("requires a new nonce after hidden and ignores the queued pre-hide response", async () => {
+    setupTokenFetch()
+    const onDisconnect = vi.fn()
+    const mod = await mountHook(vi.fn(), {
+      onDisconnect,
+      requestDaemonStatusOnAuth: false,
+    })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+
+    dispatchHiddenToVisible()
+    const firstNonce = connectionPings(ws).at(-1)!.nonce
+    mockDocument.visibilityState = "hidden"
+    mockDocument.dispatch("visibilitychange")
+    mockDocument.visibilityState = "visible"
+    mockDocument.dispatch("visibilitychange")
+    mockWindow.dispatch("pageshow")
+    mockWindow.dispatch("online")
+    const pings = connectionPings(ws)
+    expect(pings).toHaveLength(2)
+    const secondNonce = pings.at(-1)!.nonce
+    expect(secondNonce).not.toBe(firstNonce)
+
+    ws.simulateMessage({ type: "connection.pong", nonce: firstNonce })
+    await vi.advanceTimersByTimeAsync(mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS - 1)
+    expect(onDisconnect).not.toHaveBeenCalled()
+
+    ws.simulateMessage({ type: "connection.pong", nonce: secondNonce })
+    await vi.advanceTimersByTimeAsync(2)
+    expect(onDisconnect).not.toHaveBeenCalled()
+    expect(ws.closed).toBe(false)
+    expect(MockWebSocket.instances).toEqual([ws])
   })
 
   it("coalesces visible, pageshow, and online while one replacement token request is pending", async () => {
@@ -636,6 +916,85 @@ describe("useUserWs", () => {
     } as Response)
     await flushPromises()
     expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it("lets an exact response queued first at the deadline win without a reconnect", async () => {
+    setupTokenFetch()
+    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    dispatchHiddenToVisible()
+    const [{ nonce }] = connectionPings(ws)
+
+    vi.setSystemTime(Date.now() + mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS)
+    ws.simulateMessage({ type: "connection.pong", nonce })
+    await vi.runOnlyPendingTimersAsync()
+
+    expect(ws.closed).toBe(false)
+    expect(MockWebSocket.instances).toEqual([ws])
+    expect(mockFetch).toHaveBeenCalledOnce()
+  })
+
+  it("lets the deadline queued first retire once and makes the exact late response inert", async () => {
+    setupTokenFetch()
+    const onDisconnect = vi.fn()
+    const mod = await mountHook(vi.fn(), {
+      onDisconnect,
+      requestDaemonStatusOnAuth: false,
+    })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    dispatchHiddenToVisible()
+    const [{ nonce }] = connectionPings(ws)
+
+    await vi.advanceTimersByTimeAsync(mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS)
+    await flushPromises()
+    expect(ws.closed).toBe(true)
+    expect(MockWebSocket.instances).toHaveLength(2)
+
+    ws.simulateMessage({ type: "connection.pong", nonce })
+    ws.simulateClose()
+    ws.simulateError()
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    expect(onDisconnect).toHaveBeenCalledOnce()
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it("treats error as non-authoritative and lets current close start one validation failure chain", async () => {
+    setupTokenFetch()
+    const onConnectionStateChange = vi.fn()
+    await mountHook(vi.fn(), {
+      onConnectionStateChange,
+      requestDaemonStatusOnAuth: false,
+    })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    onConnectionStateChange.mockClear()
+    dispatchHiddenToVisible()
+
+    ws.simulateError()
+    ws.simulateError()
+    expect(MockWebSocket.instances).toEqual([ws])
+    expect(onConnectionStateChange).not.toHaveBeenCalledWith("reconnecting")
+
+    ws.simulateClose()
+    await flushPromises()
+    expect(ws.closed).toBe(true)
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    expect(onConnectionStateChange.mock.calls.filter(([phase]) => phase === "reconnecting"))
+      .toHaveLength(1)
+
+    ws.simulateClose()
+    ws.simulateError()
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(mockFetch).toHaveBeenCalledTimes(2)
   })
 
   it("failed connect (fetch rejects) retries with backoff and cleanup prevents further reconnects", async () => {
