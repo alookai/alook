@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useSearchParams } from "next/navigation"
+import { useQuery } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { useBreakpoint } from "@/hooks/use-mobile"
-import { DmHeader, DmHeaderSkeleton } from "@/components/community/channels/dm-header"
+import { DmHeader } from "@/components/community/channels/dm-header"
+import { DmLoadingFrame } from "@/components/community/channels/dm-loading-frame"
 import { Avatar } from "@/components/community/avatar"
 import { MessageList } from "@/components/community/messages/message-list"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
-import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/community/messages/composer"
+import { Composer, type SendAttachment } from "@/components/community/messages/composer"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import {
@@ -22,7 +24,7 @@ import { useOnlineUserIds, useCommunityWsStore } from "@/stores/community/ws"
 import { tid } from "@/lib/community/testids"
 import { resolveRowPresence } from "@/lib/community/presence"
 import { makeUserNameResolver } from "@/lib/community/display-name"
-import { useDms } from "@/hooks/community/use-dms"
+import { dmsQueryFn, type DmsResponse } from "@/hooks/community/use-dms"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useDmMessages } from "@/hooks/community/use-messages"
 import { useDmReadStateSnapshot } from "@/hooks/community/use-dm-read-state"
@@ -50,6 +52,9 @@ import { notifLevelDisplay, type NotifLevel } from "@alook/shared"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useSetChannelNotif } from "@/hooks/community/mutations"
 import { toastApiError } from "@/lib/api/client"
+import { communityKeys } from "@/lib/query-keys"
+
+const EMPTY_DMS: DmsResponse["conversations"] = []
 
 // Thin re-mount wrapper — same reason as the server-side channel view: the
 // dynamic segment reuses the same component instance across DM switches, so
@@ -57,6 +62,30 @@ import { toastApiError } from "@/lib/api/client"
 export default function DmPage() {
   const params = useParams<{ dmId: string }>()
   return <DmView key={params.dmId} />
+}
+
+function resolveDmLoadingOwnership({
+  hasDm,
+  dmsLoading,
+  currentChannelMatches,
+  readSnapshotFetching,
+  messagesLoading,
+}: {
+  hasDm: boolean
+  dmsLoading: boolean
+  currentChannelMatches: boolean
+  readSnapshotFetching: boolean
+  messagesLoading: boolean
+}) {
+  return {
+    fullFramePending: !hasDm && dmsLoading,
+    notFound: !hasDm && !dmsLoading,
+    messageBodyLoading: hasDm && (
+      !currentChannelMatches ||
+      readSnapshotFetching ||
+      messagesLoading
+    ),
+  }
 }
 
 function DmView() {
@@ -69,7 +98,16 @@ function DmView() {
   const notifications = useNotificationSettings()
   const setNotification = useSetChannelNotif()
 
-  const { dms, isLoading: dmsLoading } = useDms()
+  // MeLayout owns the canonical cold DMs fetch. This second observer consumes
+  // that result without treating it as stale on mount; explicit WS/query
+  // invalidation still refetches the active canonical key.
+  const dmsQuery = useQuery<DmsResponse>({
+    queryKey: communityKeys.dms(),
+    queryFn: dmsQueryFn,
+    staleTime: Infinity,
+  })
+  const dms = dmsQuery.data?.conversations ?? EMPTY_DMS
+  const dmsLoading = dmsQuery.isLoading
   const { friends: rawFriends, blocked } = useFriends()
   const onlineUserIds = useOnlineUserIds()
   const userStatuses = useCommunityWsStore((s) => s.userStatuses)
@@ -340,31 +378,22 @@ function DmView() {
 
   const handleTyping = () => { communityWsSendTyping({ channelId: dmId }) }
 
-  // Wait for query to catch up to the URL and for messages to load. See
-  // the server-side channel page for the same rationale — the store's
-  // channelId sync runs after this render commits, so gate on the two
-  // lining up before showing real content.
-  const channelHydrated =
-    currentChannelId === dmId &&
-    !messagesLoading &&
-    !dmsLoading
-  if (!channelHydrated) {
-    return (
-      <>
-        <DmHeaderSkeleton onBack={bp === "mobile" ? goBack : undefined} />
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {/* `key={dmId}` matches the real-content branch below — same
-              reconciliation fix as the channel page (see its equivalent
-              comment). `variant="dm"` now drives the skeleton shape
-              explicitly instead of the removed `dm={!!hero}` inference. */}
-          <MessageList key={dmId} channel="" messages={[]} loading={true} onOpenThread={() => { }} variant="dm" />
-          <ComposerSkeleton />
-        </main>
-      </>
-    )
+  // The DM row owns header/composer identity. Until it is known, keep the
+  // complete DM frame pending; once known, read-state and message fetching
+  // are allowed to affect only MessageList below.
+  const loadingOwnership = resolveDmLoadingOwnership({
+    hasDm: !!dm,
+    dmsLoading,
+    currentChannelMatches: currentChannelId === dmId,
+    readSnapshotFetching,
+    messagesLoading,
+  })
+
+  if (loadingOwnership.fullFramePending) {
+    return <DmLoadingFrame reserveBackSlot={bp === "mobile"} />
   }
 
-  if (!dm) {
+  if (loadingOwnership.notFound || !dm) {
     return (
       <div className="flex flex-1 items-center justify-center text-muted-foreground">
         <span className="text-sm">Conversation not found</span>
@@ -390,7 +419,7 @@ function DmView() {
           variant="dm"
           channel={dm.name}
           messages={messages}
-          loading={messagesLoading}
+          loading={loadingOwnership.messageBodyLoading}
           newDividerBefore={newDividerBefore}
           typingUsers={typingUsers.map((id) => typingNames[id] ?? resolveUserName(id))}
           onOpenThread={() => { }}

@@ -4,6 +4,8 @@ import { tid } from "./_fixtures/testids"
 import { sendMessage } from "./_fixtures/actions"
 import { seedDm, seedBlock, seedDmMessage } from "./_fixtures/seed"
 
+const DM_ROUTE_AUTHORITY_HEADER = "x-alook-dm-route-verification"
+
 // Journey 4 — DMs. human↔human needs only not-blocked (no friendship). Covers
 // the new-conversation-appears-live path and the blocked-composer regression.
 test.describe.serial("direct messages", () => {
@@ -16,29 +18,19 @@ test.describe.serial("direct messages", () => {
     await bob.page.goto("/c/me")
     expect((await initialDms).status()).toBe(200)
 
-    let releaseAuthority!: () => void
-    let authorityStarted!: () => void
-    let authorityFinished!: () => void
-    const authorityGate = new Promise<void>((resolve) => { releaseAuthority = resolve })
-    const authorityRequest = new Promise<void>((resolve) => { authorityStarted = resolve })
-    const authoritySettled = new Promise<void>((resolve) => { authorityFinished = resolve })
-    let held = false
+    let postClickAuthorityGets = 0
     const dmsPattern = "**/api/community/users/me/dms"
     await bob.page.route(dmsPattern, async (route) => {
-      if (held || route.request().method() !== "GET") {
+      if (route.request().method() !== "GET") {
         await route.continue()
         return
       }
-      held = true
-      authorityStarted()
-      try {
-        await authorityGate
+      if (route.request().headers()[DM_ROUTE_AUTHORITY_HEADER] !== "1") {
         await route.continue()
-      } catch (error) {
-        if (!(error instanceof Error && error.message.includes("already handled"))) throw error
-      } finally {
-        authorityFinished()
+        return
       }
+      postClickAuthorityGets += 1
+      await route.continue()
     })
 
     const dmId = await seedDm("alice", userId("bob"))
@@ -55,7 +47,6 @@ test.describe.serial("direct messages", () => {
       const inboxRow = bob.page.getByTestId(tid.inboxUnreadDm(dmId))
       await expect(inboxRow).toBeVisible({ timeout: 20_000 })
       await inboxRow.click()
-      await authorityRequest
 
       await bob.page.waitForURL(new RegExp(`/c/me/${dmId}$`), {
         timeout: 20_000,
@@ -67,21 +58,151 @@ test.describe.serial("direct messages", () => {
       })).toBeVisible()
       expect(routeHistory).not.toContain("/c/me")
 
-      const authorityResponse = bob.page.waitForResponse((response) =>
-        response.request().method() === "GET"
-        && new URL(response.url()).pathname === "/api/community/users/me/dms",
-      )
-      releaseAuthority()
-      expect((await authorityResponse).status()).toBe(200)
       await expect(bob.page.getByTestId(tid.message(messageId))).toHaveCount(1)
       await expect(bob.page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
       await expect(bob.page).toHaveURL(new RegExp(`/c/me/${dmId}$`))
       expect(routeHistory).not.toContain("/c/me")
+      expect(postClickAuthorityGets).toBe(0)
     } finally {
-      releaseAuthority()
-      await authoritySettled
       bob.page.off("framenavigated", recordRoute)
       await bob.page.unroute(dmsPattern)
+    }
+  })
+
+  test("a canonical DM skips authority and keeps known chrome while read-state and messages load", async ({ asUser }) => {
+    const dmId = await seedDm("alice", userId("bob"))
+    const body = `held DM message ${Date.now()}`
+    const messageId = await seedDmMessage("bob", dmId, body)
+    const alice = await asUser("alice")
+    let canonicalDmsGets = 0
+    let authorityGets = 0
+    const interactiveMutations: string[] = []
+    alice.page.on("request", (request) => {
+      const pathname = new URL(request.url()).pathname
+      if (request.method() === "GET" && pathname === "/api/community/users/me/dms") {
+        if (request.headers()[DM_ROUTE_AUTHORITY_HEADER] === "1") authorityGets += 1
+        else canonicalDmsGets += 1
+      }
+      if (request.method() !== "GET" && pathname.startsWith(`/api/community/channels/${dmId}`)) {
+        interactiveMutations.push(`${request.method()} ${pathname}`)
+      }
+    })
+
+    let releaseRead!: () => void
+    let readFinished!: () => void
+    const readGate = new Promise<void>((resolve) => { releaseRead = resolve })
+    const readSettled = new Promise<void>((resolve) => { readFinished = resolve })
+    const readPattern = `**/api/community/channels/${dmId}/read-state`
+    await alice.page.route(readPattern, async (route) => {
+      try {
+        await readGate
+        await route.continue()
+      } catch (error) {
+        if (!(error instanceof Error && error.message.includes("already handled"))) throw error
+      } finally {
+        readFinished()
+      }
+    })
+
+    let releaseMessages!: () => void
+    let messagesStarted!: () => void
+    let messagesFinished!: () => void
+    const messagesGate = new Promise<void>((resolve) => { releaseMessages = resolve })
+    const messagesRequest = new Promise<void>((resolve) => { messagesStarted = resolve })
+    const messagesSettled = new Promise<void>((resolve) => { messagesFinished = resolve })
+    let heldMessages = false
+    const messagesPattern = `**/api/community/channels/${dmId}/messages*`
+    await alice.page.route(messagesPattern, async (route) => {
+      if (route.request().method() !== "GET" || heldMessages) {
+        await route.continue()
+        return
+      }
+      heldMessages = true
+      messagesStarted()
+      try {
+        await messagesGate
+        await route.continue()
+      } catch (error) {
+        if (!(error instanceof Error && error.message.includes("already handled"))) throw error
+      } finally {
+        messagesFinished()
+      }
+    })
+
+    try {
+      await alice.page.goto(`/c/me/${dmId}`)
+      await expect(alice.page.getByRole("heading", {
+        level: 1,
+        name: new RegExp(userName("bob")),
+      })).toBeVisible({ timeout: 20_000 })
+      await expect(alice.page.getByTestId(tid.composerInput)).toBeVisible()
+      await expect(alice.page.getByTestId(tid.messageScroller).locator('[data-slot="skeleton"]')).not.toHaveCount(0)
+
+      releaseRead()
+      await readSettled
+      await messagesRequest
+      await expect(alice.page.getByRole("heading", {
+        level: 1,
+        name: new RegExp(userName("bob")),
+      })).toBeVisible()
+      await expect(alice.page.getByTestId(tid.composerInput)).toBeVisible()
+      await expect(alice.page.getByTestId(tid.messageScroller).locator('[data-slot="skeleton"]')).not.toHaveCount(0)
+      expect(canonicalDmsGets).toBeGreaterThanOrEqual(1)
+      expect(authorityGets).toBe(0)
+      expect(interactiveMutations).toEqual([])
+
+      releaseMessages()
+      await messagesSettled
+      await expect(alice.page.getByTestId(tid.message(messageId))).toHaveCount(1)
+      await expect(alice.page.getByText(body, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
+    } finally {
+      releaseRead()
+      releaseMessages()
+      await readSettled
+      await messagesSettled
+      await alice.page.unroute(readPattern)
+      await alice.page.unroute(messagesPattern)
+    }
+  })
+
+  test("an absent DM verifies once per attempt and exposes transient Retry locally", async ({ asUser }) => {
+    const alice = await asUser("alice")
+    const missingDmId = `dm-missing-${Date.now()}`
+    let canonicalDmsGets = 0
+    let authorityGets = 0
+    const dmsPattern = "**/api/community/users/me/dms"
+    await alice.page.route(dmsPattern, async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.continue()
+        return
+      }
+      if (route.request().headers()[DM_ROUTE_AUTHORITY_HEADER] !== "1") {
+        canonicalDmsGets += 1
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ conversations: [] }) })
+        return
+      }
+      authorityGets += 1
+      if (authorityGets === 1) {
+        await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "temporary" }) })
+        return
+      }
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ conversations: [] }) })
+    })
+
+    try {
+      await alice.page.goto(`/c/me/${missingDmId}`)
+      await expect(alice.page.getByRole("alert").filter({
+        hasText: "Couldn\'t verify this conversation",
+      })).toBeVisible()
+      await expect(alice.page).toHaveURL(new RegExp(`/c/me/${missingDmId}$`))
+      expect(canonicalDmsGets).toBeGreaterThanOrEqual(1)
+      expect(authorityGets).toBe(1)
+
+      await alice.page.getByRole("button", { name: "Retry" }).click()
+      await expect.poll(() => authorityGets).toBe(2)
+      await expect.poll(() => new URL(alice.page.url()).pathname).toBe("/c/me/friends")
+    } finally {
+      await alice.page.unroute(dmsPattern)
     }
   })
 

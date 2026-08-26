@@ -6,6 +6,7 @@ import { useSession } from "@/lib/auth-client"
 import { CommunityShell } from "./community-shell"
 import { avatarInitial } from "@/lib/community/avatar"
 import { SignupTracker } from "@/components/signup-tracker"
+import { CommunitySessionPendingFrame } from "@/components/community/shell/community-session-pending-frame"
 
 // The invite landing page is preview-first: a logged-out visitor must be able
 // to see it (and only hit the login wall on Join). It's a standalone
@@ -37,7 +38,7 @@ export default function CommunityLayout({
   // gate, no CommunityShell (a logged-out visitor has no currentUser).
   if (isPublic) return <><SignupTracker />{children}</>
 
-  if (isPending || !session) return null
+  if (isPending || !session) return <CommunitySessionPendingFrame />
 
   const currentUser = {
     id: session.user.id,

@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { usePathname, useRouter, useParams } from "next/navigation"
 import { ShellFrame } from "@/components/community/shell/shell-frame"
 import { CommunityPendingFrame } from "@/components/community/shell/community-pending-frame"
+import { DmRouteErrorFrame } from "@/components/community/channels/dm-route-error-frame"
 import { DmSidebar } from "@/components/community/channels/dm-sidebar"
 import { useCommunityStore, useCurrentChannelId } from "@/stores/community"
 import { useDms } from "@/hooks/community/use-dms"
@@ -28,8 +29,14 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const params = useParams<{ dmId?: string }>()
-  const { dms: rawDms, isLoading: dmsLoading } = useDms()
-  const dmRouteStatus = useDmRouteVerification(params.dmId, rawDms)
+  const {
+    dms: rawDms,
+    isLoading: dmsLoading,
+    isPending: dmsPending,
+    isFetching: dmsFetching,
+  } = useDms()
+  const canonicalDmsUnsettled = dmsPending || dmsFetching
+  const dmRouteVerification = useDmRouteVerification(params.dmId, rawDms, canonicalDmsUnsettled)
   const onlineUserIds = useOnlineUserIds()
   const dms = useMemo(
     () =>
@@ -72,7 +79,7 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   const meLocationStatus = resolveMeLocationStatus({
     pathname,
     dmId: params.dmId,
-    dmRouteStatus,
+    dmRouteStatus: dmRouteVerification.status,
   })
 
   useEffect(() => {
@@ -161,7 +168,12 @@ export default function MeLayout({ children }: { children: ReactNode }) {
       activeServerId={undefined}
       sidebar={sidebar}
     >
-      {params.dmId && meLocationStatus !== "remember"
+      {params.dmId && dmRouteVerification.status === "error"
+        ? <DmRouteErrorFrame
+            onRetry={dmRouteVerification.retry}
+            retrying={dmRouteVerification.retrying}
+          />
+        : params.dmId && meLocationStatus !== "remember"
         ? <CommunityPendingFrame href={pathname} />
         : children}
     </ShellFrame>

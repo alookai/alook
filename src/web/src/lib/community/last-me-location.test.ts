@@ -81,6 +81,11 @@ describe("resolveMeLocationStatus", () => {
       dmId: "dm_1",
       dmRouteStatus: "pending",
     })).toBe("wait")
+    expect(resolveMeLocationStatus({
+      pathname: "/c/me/dm_1",
+      dmId: "dm_1",
+      dmRouteStatus: "error",
+    })).toBe("wait")
   })
 
   it("remembers a confirmed DM and marks a missing DM stale", () => {
