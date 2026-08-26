@@ -7,8 +7,13 @@ import { toast } from "sonner"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "../avatar"
+import {
+  PeoplePickerBody,
+  PeoplePickerHeader,
+  PeoplePickerRowsSkeleton,
+  resolvePeoplePickerViewState,
+} from "../people-picker"
 import { hasStatus } from "./status-presets"
 import { useInvitableFriends } from "@/hooks/community/use-invitable-friends"
 import {
@@ -128,7 +133,8 @@ export function InviteDialog({
   const currentUser = useCurrentUser()
   // Only friends who are NOT already members of `serverId` — server-side
   // filter so a stale local members cache can't leak already-joined rows.
-  const { friends, isLoading: friendsLoading } = useInvitableFriends(serverId, open)
+  const friendsQuery = useInvitableFriends(serverId, open)
+  const { friends } = friendsQuery
   const resolveOrCreate = useResolveOrCreateInvite(serverId)
   const createOrGetDm = useCreateOrGetDm()
   const { accept: acceptDmMessage } = useDmMessageSender()
@@ -185,6 +191,15 @@ export function InviteDialog({
     })
   }, [friends, query])
 
+  const pickerState = resolvePeoplePickerViewState({
+    resolved: friendsQuery.data !== undefined,
+    loading: friendsQuery.isLoading,
+    error: friendsQuery.isError,
+    sourceCount: friends.length,
+    visibleCount: eligibleFriends.length,
+    query,
+  })
+
   const inviteFriend = async (friend: Friend) => {
     if (!token || !friend.userId) return
     const userId = friend.userId
@@ -230,9 +245,7 @@ export function InviteDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="flex max-h-[80vh] w-full flex-col gap-0 p-0 sm:max-w-md">
-        <header className="border-b border-border/50 px-4 py-3">
-          <h2 className="truncate text-sm font-semibold">Invite friends to {serverName}</h2>
-        </header>
+        <PeoplePickerHeader title={`Invite friends to ${serverName}`} />
 
         <div className="px-4 pt-3">
           <label className="relative block">
@@ -250,27 +263,19 @@ export function InviteDialog({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto thin-scrollbar px-2 py-2">
-          {friendsLoading && friends.length === 0 ? (
-            <div data-slot="invite-friends-loading">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2">
-                  <Skeleton className="size-8 shrink-0 rounded-full" />
-                  <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                    <Skeleton className="h-3.5 w-32 rounded" />
-                    <Skeleton className="h-3 w-24 rounded" />
-                  </div>
-                  <Skeleton className="h-8 w-16 shrink-0 rounded-md" />
-                </div>
-              ))}
-            </div>
-          ) : eligibleFriends.length === 0 ? (
-            <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-              {friends.length === 0
-                ? "No friends to invite — everyone you know is already here."
-                : "No matches."}
-            </p>
-          ) : (
-            eligibleFriends.map((f) => {
+          <PeoplePickerBody
+            state={pickerState}
+            loading={(
+              <div data-slot="invite-friends-loading">
+                <PeoplePickerRowsSkeleton secondaryLine actionClassName="w-16" />
+              </div>
+            )}
+            errorMessage="Couldn't load friends."
+            emptyMessage="No friends to invite — everyone you know is already here."
+            retrying={friendsQuery.data === undefined && friendsQuery.isFetching}
+            onRetry={() => { void friendsQuery.refetch() }}
+          >
+            {eligibleFriends.map((f) => {
               const invited = f.userId ? invitedUserIds.has(f.userId) : false
               const inviting = f.userId ? invitingUserIds.has(f.userId) : false
               return (
@@ -283,8 +288,8 @@ export function InviteDialog({
                   onInvite={(candidate) => void inviteFriend(candidate)}
                 />
               )
-            })
-          )}
+            })}
+          </PeoplePickerBody>
         </div>
 
         <footer className="border-t border-border/50 px-4 py-3">

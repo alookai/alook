@@ -8,7 +8,19 @@ import { useAddableMembers, useChannelMembers } from "@/hooks/community/use-chan
 const mocks = vi.hoisted(() => ({
   serverMembers: [] as Array<Record<string, unknown>>,
   channelMembers: new Map<string, Array<Record<string, unknown>>>(),
+  channelQueryState: new Map<string, {
+    resolved?: boolean
+    isLoading?: boolean
+    isError?: boolean
+    isFetching?: boolean
+  }>(),
+  channelRefetches: new Map<string, ReturnType<typeof vi.fn>>(),
   addableMembers: [] as Array<Record<string, unknown>>,
+  addableResolved: true,
+  addableLoading: false,
+  addableError: false,
+  addableFetching: false,
+  addableRefetch: vi.fn(),
   onlineUserIds: new Set<string>(),
   userStatuses: new Map<string, { emoji: string | null; text: string }>(),
   serverSearch: vi.fn(),
@@ -36,11 +48,32 @@ vi.mock("@/hooks/community/use-server-members", () => ({
   }),
 }))
 vi.mock("@/hooks/community/use-channel-members", () => ({
-  useChannelMembers: vi.fn((channelId: string) => ({
-    members: mocks.channelMembers.get(channelId) ?? [],
-    isLoading: false,
+  useChannelMembers: vi.fn((channelId: string, enabled = true) => {
+    const members = mocks.channelMembers.get(channelId) ?? []
+    const state = mocks.channelQueryState.get(channelId)
+    const resolved = enabled && (state?.resolved ?? mocks.channelMembers.has(channelId))
+    let refetch = mocks.channelRefetches.get(channelId)
+    if (!refetch) {
+      refetch = vi.fn().mockResolvedValue({})
+      mocks.channelRefetches.set(channelId, refetch)
+    }
+    return {
+      members,
+      data: resolved ? { members } : undefined,
+      isLoading: state?.isLoading ?? (enabled && !resolved && !state?.isError),
+      isError: state?.isError ?? false,
+      isFetching: state?.isFetching ?? false,
+      refetch,
+    }
+  }),
+  useAddableMembers: vi.fn((_serverId: string, _channelId: string, enabled = true) => ({
+    members: mocks.addableMembers,
+    data: enabled && mocks.addableResolved ? { members: mocks.addableMembers } : undefined,
+    isLoading: enabled && mocks.addableLoading,
+    isError: enabled && mocks.addableError,
+    isFetching: enabled && mocks.addableFetching,
+    refetch: mocks.addableRefetch,
   })),
-  useAddableMembers: vi.fn(() => ({ members: mocks.addableMembers })),
   useAddChannelMember: () => ({ mutateAsync: mocks.addChannelMember }),
   useRemoveChannelMember: () => ({ mutateAsync: mocks.removeChannelMember }),
 }))
@@ -134,7 +167,15 @@ describe("useChannelMemberViewModel", () => {
       member("alice_1", "Alice"),
     ]
     mocks.channelMembers = new Map()
+    mocks.channelQueryState = new Map()
+    mocks.channelRefetches = new Map()
     mocks.addableMembers = []
+    mocks.addableResolved = true
+    mocks.addableLoading = false
+    mocks.addableError = false
+    mocks.addableFetching = false
+    mocks.addableRefetch.mockReset()
+    mocks.addableRefetch.mockResolvedValue({})
     mocks.onlineUserIds = new Set()
     mocks.userStatuses = new Map()
     mocks.addChannelMember.mockResolvedValue({})
@@ -294,12 +335,160 @@ describe("useChannelMemberViewModel", () => {
     expect(dialogProps.candidates).toEqual([
       expect.objectContaining({ userId: "bob_1", name: "Bob" }),
     ])
+    expect(dialogProps.queryState).toEqual(expect.objectContaining({
+      resolved: true,
+      loading: false,
+      error: false,
+      retrying: false,
+    }))
     await dialogProps.onAdd("bob_1")
     await latestModel().memberPanelProps.manageContext?.onRemove("alice_1")
     expect(mocks.addThreadParticipant).toHaveBeenCalledWith("bob_1")
     expect(mocks.removeThreadParticipant).toHaveBeenCalledWith("alice_1")
     expect(mocks.addChannelMember).not.toHaveBeenCalled()
     expect(mocks.removeChannelMember).not.toHaveBeenCalled()
+  })
+
+  it("gates thread candidates on both query sources and retries only unresolved sources", () => {
+    mocks.channelMembers.set("thread_1", [
+      member("viewer_1", "Viewer", { isCreator: true }),
+      member("alice_1", "Alice"),
+    ])
+    mocks.channelMembers.set("parent_1", [
+      member("viewer_1", "Viewer"),
+      member("alice_1", "Alice"),
+      member("bob_1", "Bob"),
+    ])
+    mocks.channelQueryState.set("thread_1", { resolved: false, isLoading: true })
+    mocks.channelQueryState.set("parent_1", { resolved: false, isLoading: true })
+    const participantRefetch = vi.fn().mockResolvedValue({})
+    const parentRefetch = vi.fn().mockResolvedValue({})
+    mocks.channelRefetches.set("thread_1", participantRefetch)
+    mocks.channelRefetches.set("parent_1", parentRefetch)
+    const modelProps = props({
+      channelId: "thread_1",
+      channelName: "topic",
+      currentServer: { categories: [{ private: true, channels: [{ id: "parent_1" }] }] },
+      channelInServer: null,
+      currentChannelMeta: { name: "topic", parentChannelId: "parent_1", creatorId: "viewer_1" },
+      isChildChannel: true,
+      isNotifyUnit: true,
+    })
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(renderHarness(modelProps))
+    })
+    act(() => {
+      latestModel().memberPanelProps.onAddMember?.()
+    })
+
+    let dialogProps = mockedAddMembersDialog.mock.calls.at(-1)![0]
+    expect(dialogProps.candidates).toEqual([])
+    expect(dialogProps.queryState).toEqual(expect.objectContaining({
+      resolved: false,
+      loading: true,
+      error: false,
+    }))
+    act(() => dialogProps.queryState.retry())
+    expect(participantRefetch).toHaveBeenCalledTimes(1)
+    expect(parentRefetch).toHaveBeenCalledTimes(1)
+
+    participantRefetch.mockClear()
+    parentRefetch.mockClear()
+    mocks.channelQueryState.set("thread_1", { resolved: false, isError: true })
+    mocks.channelQueryState.set("parent_1", { resolved: true })
+    act(() => {
+      renderer!.update(renderHarness(modelProps))
+    })
+
+    dialogProps = mockedAddMembersDialog.mock.calls.at(-1)![0]
+    expect(dialogProps.candidates).toEqual([])
+    expect(dialogProps.queryState).toEqual(expect.objectContaining({
+      resolved: false,
+      loading: false,
+      error: true,
+    }))
+    act(() => dialogProps.queryState.retry())
+    expect(participantRefetch).toHaveBeenCalledTimes(1)
+    expect(parentRefetch).not.toHaveBeenCalled()
+
+    participantRefetch.mockClear()
+    parentRefetch.mockClear()
+    mocks.channelQueryState.set("thread_1", { resolved: true })
+    mocks.channelQueryState.set("parent_1", { resolved: false, isLoading: true })
+    act(() => {
+      renderer!.update(renderHarness(modelProps))
+    })
+
+    dialogProps = mockedAddMembersDialog.mock.calls.at(-1)![0]
+    expect(dialogProps.candidates).toEqual([])
+    expect(dialogProps.queryState).toEqual(expect.objectContaining({
+      resolved: false,
+      loading: true,
+      error: false,
+    }))
+    act(() => dialogProps.queryState.retry())
+    expect(participantRefetch).not.toHaveBeenCalled()
+    expect(parentRefetch).toHaveBeenCalledTimes(1)
+
+    participantRefetch.mockClear()
+    parentRefetch.mockClear()
+    mocks.channelQueryState.set("parent_1", { resolved: false, isError: true })
+    act(() => {
+      renderer!.update(renderHarness(modelProps))
+    })
+
+    dialogProps = mockedAddMembersDialog.mock.calls.at(-1)![0]
+    expect(dialogProps.candidates).toEqual([])
+    expect(dialogProps.queryState).toEqual(expect.objectContaining({
+      resolved: false,
+      loading: false,
+      error: true,
+    }))
+    act(() => dialogProps.queryState.retry())
+    expect(participantRefetch).not.toHaveBeenCalled()
+    expect(parentRefetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps composite candidates usable during a cached participant background error", () => {
+    mocks.channelMembers.set("thread_1", [
+      member("viewer_1", "Viewer", { isCreator: true }),
+      member("alice_1", "Alice"),
+    ])
+    mocks.channelMembers.set("parent_1", [
+      member("viewer_1", "Viewer"),
+      member("alice_1", "Alice"),
+      member("bob_1", "Bob"),
+    ])
+    mocks.channelQueryState.set("thread_1", {
+      resolved: true,
+      isError: true,
+      isFetching: true,
+    })
+    mocks.channelQueryState.set("parent_1", { resolved: true })
+    act(() => {
+      TestRenderer.create(renderHarness(props({
+        channelId: "thread_1",
+        channelName: "topic",
+        currentServer: { categories: [{ private: true, channels: [{ id: "parent_1" }] }] },
+        channelInServer: null,
+        currentChannelMeta: { name: "topic", parentChannelId: "parent_1", creatorId: "viewer_1" },
+        isChildChannel: true,
+        isNotifyUnit: true,
+      })))
+    })
+    act(() => {
+      latestModel().memberPanelProps.onAddMember?.()
+    })
+
+    const dialogProps = mockedAddMembersDialog.mock.calls.at(-1)![0]
+    expect(dialogProps.candidates.map((candidate) => candidate.userId)).toEqual(["bob_1"])
+    expect(dialogProps.queryState).toEqual(expect.objectContaining({
+      resolved: true,
+      loading: false,
+      error: false,
+      retrying: false,
+    }))
   })
 
   it("preserves server role and kick mutation wiring", async () => {

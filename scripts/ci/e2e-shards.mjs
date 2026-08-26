@@ -41,6 +41,7 @@ export const SPEC_SECONDS = {
   "30-bot-profile-audit-preview.spec.ts": 35,
   "31-mention-candidate-pagination.spec.ts": 10,
   "32-mobile-ws-foreground-validation.spec.ts": 80,
+  "33-picker-async-layout.spec.ts": 57,
 }
 
 function walk(directory) {

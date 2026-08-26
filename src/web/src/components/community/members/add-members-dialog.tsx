@@ -7,6 +7,13 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Avatar } from "../avatar"
+import {
+  PeoplePickerBody,
+  PeoplePickerHeader,
+  PeoplePickerRowsSkeleton,
+  resolvePeoplePickerViewState,
+  type PeoplePickerAsyncState,
+} from "../people-picker"
 import { displayName } from "@/lib/community/display-name"
 import { toastApiError } from "@/lib/api/client"
 
@@ -84,12 +91,14 @@ export function AddMembersDialog({
   title,
   subtitle,
   candidates,
+  queryState,
   onAdd,
   onClose,
 }: {
   title: string
   subtitle: string
   candidates: AddableCandidate[]
+  queryState: PeoplePickerAsyncState
   onAdd: (userId: string) => Promise<unknown> | void
   onClose: () => void
 }) {
@@ -104,15 +113,21 @@ export function AddMembersDialog({
     return candidates.filter((m) => (m.name ?? "").toLowerCase().includes(q))
   }, [candidates, query])
 
+  const pickerState = resolvePeoplePickerViewState({
+    resolved: queryState.resolved,
+    loading: queryState.loading,
+    error: queryState.error,
+    sourceCount: candidates.length,
+    visibleCount: filtered.length,
+    query,
+  })
+
   const add = (userId: string) => void runAdd(userId, onAdd, setAddingIds)
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="flex max-h-[80vh] w-full flex-col gap-0 p-0 sm:max-w-md">
-        <header className="border-b border-border/50 px-4 py-3">
-          <h2 className="truncate text-sm font-semibold">{title}</h2>
-          <p className="text-xs text-muted-foreground">{subtitle}</p>
-        </header>
+        <PeoplePickerHeader title={title} subtitle={subtitle} />
 
         <div className="min-h-0 flex-1 overflow-y-auto thin-scrollbar px-2 py-2">
           <label className="relative mx-2 mb-2 block">
@@ -124,20 +139,23 @@ export function AddMembersDialog({
               className="pl-9"
             />
           </label>
-          {filtered.length === 0 ? (
-            <p className="py-4 text-center text-sm text-muted-foreground">
-              {query ? "No matches." : "Everyone is already here."}
-            </p>
-          ) : (
-            filtered.map((m) => (
+          <PeoplePickerBody
+            state={pickerState}
+            loading={<PeoplePickerRowsSkeleton actionClassName="w-14" />}
+            errorMessage="Couldn't load people."
+            emptyMessage="Everyone is already here."
+            retrying={queryState.retrying}
+            onRetry={queryState.retry}
+          >
+            {filtered.map((m) => (
               <AddMemberRow
                 key={m.userId}
                 candidate={m}
                 adding={addingIds.has(m.userId)}
                 onAdd={add}
               />
-            ))
-          )}
+            ))}
+          </PeoplePickerBody>
         </div>
       </DialogContent>
     </Dialog>

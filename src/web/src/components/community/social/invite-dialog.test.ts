@@ -91,10 +91,15 @@ describe("InviteFriendRow", () => {
   it("keeps loading rows on the real row padding and trailing action footprint", () => {
     const source = readFileSync(new URL("./invite-dialog.tsx", import.meta.url), "utf8")
     expect(source).toContain('<div data-slot="invite-friends-loading">')
-    expect(source).toContain(
-      'className="flex items-center gap-3 rounded-md px-2 py-2"',
-    )
-    expect(source).toContain('className="h-8 w-16 shrink-0 rounded-md"')
+    expect(source).toContain('<PeoplePickerRowsSkeleton secondaryLine actionClassName="w-16" />')
+  })
+
+  it("distinguishes unresolved and failed candidate data from a resolved empty list", () => {
+    const source = readFileSync(new URL("./invite-dialog.tsx", import.meta.url), "utf8")
+    expect(source).toContain("resolved: friendsQuery.data !== undefined")
+    expect(source).toContain("error: friendsQuery.isError")
+    expect(source).toContain("friendsQuery.data === undefined && friendsQuery.isFetching")
+    expect(source).toContain("void friendsQuery.refetch()")
   })
 })
 
