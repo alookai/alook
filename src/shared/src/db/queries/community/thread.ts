@@ -1,9 +1,9 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gt, inArray, isNotNull, lt, lte, notExists, or, sql } from "drizzle-orm";
 import { communityChannel, communityChannelMember, communityMessageTag } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { chunk, maxRowsPerInsert, D1_MAX_IN_PARAMS } from "../_chunk";
-import { type ParticipantSource } from "../../../constants/community";
+import { FORUM_ARCHIVE_TAG, type ParticipantSource } from "../../../constants/community";
 import { compareAsciiSqliteBinary } from "../../../lib/sqlite-binary";
 
 // The NOTIFICATION set for a child thread — relation='notify' rows
@@ -308,6 +308,28 @@ export async function listForumThreadsByCreatedAt(
     eq(communityChannel.archived, 0),
     isNotNull(communityChannel.parentMessageId),
   ];
+  const archiveTagQuery = db
+    .select({ messageId: communityMessageTag.messageId })
+    .from(communityMessageTag)
+    .where(and(
+      eq(communityMessageTag.messageId, communityChannel.parentMessageId),
+      eq(communityMessageTag.tag, FORUM_ARCHIVE_TAG)
+    ));
+  if (params.tag === FORUM_ARCHIVE_TAG) {
+    conditions.push(exists(archiveTagQuery));
+  } else {
+    conditions.push(notExists(archiveTagQuery));
+  }
+  if (params.tag && params.tag !== FORUM_ARCHIVE_TAG) {
+    const selectedTagQuery = db
+      .select({ messageId: communityMessageTag.messageId })
+      .from(communityMessageTag)
+      .where(and(
+        eq(communityMessageTag.messageId, communityChannel.parentMessageId),
+        eq(communityMessageTag.tag, params.tag)
+      ));
+    conditions.push(exists(selectedTagQuery));
+  }
   if (params.cursor) {
     conditions.push(or(
       lt(communityChannel.createdAt, params.cursor.createdAt),
@@ -335,22 +357,6 @@ export async function listForumThreadsByCreatedAt(
     createdAt: communityChannel.createdAt,
     activityAt: activityAt.as("activity_at"),
   } as const;
-
-  if (params.tag) {
-    return db
-      .select(select)
-      .from(communityChannel)
-      .innerJoin(
-        communityMessageTag,
-        and(
-          eq(communityMessageTag.messageId, communityChannel.parentMessageId),
-          eq(communityMessageTag.tag, params.tag)
-        )
-      )
-      .where(and(...conditions))
-      .orderBy(desc(communityChannel.createdAt), desc(communityChannel.id))
-      .limit(params.limit);
-  }
 
   return db
     .select(select)

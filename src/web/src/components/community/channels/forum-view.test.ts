@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest"
+import { readFileSync } from "node:fs"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import {
@@ -37,6 +38,20 @@ function render(posts: ForumThread[]): string {
       members: [],
       posts,
       tag: "All",
+      onTagChange: () => {},
+      onOpenPost: () => {},
+    })
+  )
+}
+
+function renderWithAvailableTags(posts: ForumThread[], availableTags: string[], tag = "All"): string {
+  return renderToStaticMarkup(
+    createElement(ForumView, {
+      forumChannelId: "cha_forum",
+      members: [],
+      posts,
+      tag,
+      availableTags,
       onTagChange: () => {},
       onOpenPost: () => {},
     })
@@ -284,6 +299,7 @@ describe("ForumView filter bar / composer swap", () => {
     expect(railMarkup).toContain("flex-nowrap")
     expect(railMarkup).toContain("overflow-x-auto")
     expect(railMarkup).toContain("thin-scrollbar")
+    expect(railMarkup).toContain("scrollbar-none")
     expect(railMarkup).not.toContain("sm:flex-wrap")
     expect(railMarkup).not.toContain("sm:overflow-x-visible")
     expect(railMarkup).toContain('tabindex="0"')
@@ -293,12 +309,54 @@ describe("ForumView filter bar / composer swap", () => {
     expect(listMarkup).toContain("sm:px-4")
   })
 
+  it("keeps the tag rail scrollable without a cross-browser scrollbar gutter", () => {
+    const html = render([makePost({ tags: ["alpha", "beta", "gamma", "delta"] })])
+    const railIndex = html.indexOf(tid.forumTagScroller)
+    const railMarkup = html.slice(Math.max(0, railIndex - 400), railIndex + 900)
+    const css = readFileSync(new URL("../../../app/globals.css", import.meta.url), "utf8")
+
+    expect(railMarkup).toContain("overflow-x-auto")
+    expect(railMarkup).toContain("thin-scrollbar scrollbar-none")
+    expect(css).toContain(".scrollbar-none")
+    expect(css).toContain("-ms-overflow-style: none")
+    expect(css).toContain(".thin-scrollbar.scrollbar-none")
+    expect(css).toContain("scrollbar-width: none")
+    expect(css).toContain(".scrollbar-none::-webkit-scrollbar")
+    expect(css).toContain("display: none")
+  })
+
+  it("keeps Archived last in the shared scroller and hides it without archived posts", () => {
+    const withoutArchived = renderWithAvailableTags([makePost()], ["bug", "help"])
+    expect(withoutArchived).not.toContain(tid.forumTagChip("archived"))
+
+    const html = renderWithAvailableTags([makePost()], ["archived", "bug", "help"], "archived")
+    const scrollerIndex = html.indexOf(tid.forumTagScroller)
+    const allIndex = html.indexOf(tid.forumTagAll)
+    const bugIndex = html.indexOf(tid.forumTagChip("bug"))
+    const helpIndex = html.indexOf(tid.forumTagChip("help"))
+    const archivedIndex = html.indexOf(tid.forumTagChip("archived"))
+    const scrollerCloseIndex = html.indexOf("</div>", scrollerIndex)
+    const newPostIndex = html.indexOf(tid.forumNewPost)
+
+    expect(scrollerIndex).toBeGreaterThanOrEqual(0)
+    expect(allIndex).toBeGreaterThan(scrollerIndex)
+    expect(bugIndex).toBeGreaterThan(allIndex)
+    expect(helpIndex).toBeGreaterThan(bugIndex)
+    expect(archivedIndex).toBeGreaterThan(helpIndex)
+    expect(archivedIndex).toBeLessThan(scrollerCloseIndex)
+    expect(archivedIndex).toBeLessThan(newPostIndex)
+    const archivedMarkup = html.slice(Math.max(0, archivedIndex - 500), archivedIndex + 500)
+    expect(archivedMarkup).toContain("Archived")
+    expect(archivedMarkup).toContain("opacity-100 ring-1")
+  })
+
   it("matches the real responsive filter rail and 28px chip footprints while loading", () => {
     const html = renderToStaticMarkup(createElement(ForumViewSkeleton))
     expect(html.match(/h-7/g)).toHaveLength(4)
     expect(html).not.toContain("h-5 w-10 rounded-full")
     expect(html).toContain("flex-nowrap")
     expect(html).toContain("overflow-x-auto")
+    expect(html).toContain("thin-scrollbar scrollbar-none")
     expect(html).toContain("sm:flex-wrap")
     expect(html).toContain("sm:overflow-x-visible")
     expect(html).toContain("pointer-events-none")

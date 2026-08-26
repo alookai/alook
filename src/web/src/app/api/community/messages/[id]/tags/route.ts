@@ -5,10 +5,13 @@ import { getDb } from "@/lib/db"
 import {
   queries,
   canManageServer,
+  FORUM_ARCHIVE_TAG,
   MAX_FORUM_TAG_LENGTH,
   MAX_FORUM_TAGS_PER_POST,
+  WS_EVENTS,
 } from "@alook/shared"
 import { requireChannelAccess } from "@/lib/community/permissions"
+import { fanOutToChannel } from "@/lib/community/fanout"
 
 /** Replace the tag set on a forum opener message. */
 export const PUT = withAuth(async (req: NextRequest, ctx) => {
@@ -29,7 +32,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     return writeError("tags must contain only strings", 400)
   }
   const tags = [...new Set((input as string[]).map((tag) => tag.trim().toLowerCase()).filter(Boolean))]
-  if (tags.length > MAX_FORUM_TAGS_PER_POST) {
+  if (tags.filter((tag) => tag !== FORUM_ARCHIVE_TAG).length > MAX_FORUM_TAGS_PER_POST) {
     return writeError(`too many tags (max ${MAX_FORUM_TAGS_PER_POST})`, 400)
   }
   if (tags.some((tag) => tag.length > MAX_FORUM_TAG_LENGTH)) {
@@ -58,6 +61,12 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   if (!mayEdit) return writeError("forbidden", 403)
 
   await queries.communityMessageTag.replaceMessageTags(db, { messageId, tags })
+  await fanOutToChannel(message.channelId, {
+    type: WS_EVENTS.CHILD_CHANNEL_UPDATE,
+    parentChannelId: message.channelId,
+    channelId: thread.id,
+    changes: { tags },
+  })
 
   return writeJSON({ tags })
 })

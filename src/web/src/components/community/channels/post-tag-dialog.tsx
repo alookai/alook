@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactElement } from "react"
 import { X } from "lucide-react"
-import { MAX_FORUM_TAG_LENGTH, MAX_FORUM_TAGS_PER_POST } from "@alook/shared"
+import { FORUM_ARCHIVE_TAG, MAX_FORUM_TAG_LENGTH, MAX_FORUM_TAGS_PER_POST } from "@alook/shared"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Input } from "@/components/ui/input"
 import { onEnterSubmit } from "@/lib/ime"
@@ -28,6 +28,7 @@ export function PostTagDialog({
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<string[]>(current)
   const [draft, setDraft] = useState("")
+  const ordinaryTagCount = selected.filter((tag) => tag !== FORUM_ARCHIVE_TAG).length
 
   useEffect(() => {
     if (!open) setSelected(current)
@@ -36,7 +37,11 @@ export function PostTagDialog({
   const toggle = (tag: string) => {
     setSelected((previous) => {
       if (previous.includes(tag)) return previous.filter((candidate) => candidate !== tag)
-      if (previous.length >= MAX_FORUM_TAGS_PER_POST || tag.length > MAX_FORUM_TAG_LENGTH) {
+      const ordinaryCount = previous.filter((candidate) => candidate !== FORUM_ARCHIVE_TAG).length
+      if (
+        (tag !== FORUM_ARCHIVE_TAG && ordinaryCount >= MAX_FORUM_TAGS_PER_POST)
+        || tag.length > MAX_FORUM_TAG_LENGTH
+      ) {
         return previous
       }
       return [...previous, tag]
@@ -47,7 +52,11 @@ export function PostTagDialog({
     const tag = draft.trim().toLowerCase()
     if (!tag || tag.length > MAX_FORUM_TAG_LENGTH) return
     setSelected((previous) => {
-      if (previous.length >= MAX_FORUM_TAGS_PER_POST || previous.includes(tag)) return previous
+      const ordinaryCount = previous.filter((candidate) => candidate !== FORUM_ARCHIVE_TAG).length
+      if (
+        previous.includes(tag)
+        || (tag !== FORUM_ARCHIVE_TAG && ordinaryCount >= MAX_FORUM_TAGS_PER_POST)
+      ) return previous
       return [...previous, tag]
     })
     setDraft("")
@@ -60,7 +69,12 @@ export function PostTagDialog({
     if (changed) onSave(selected)
   }
 
-  const chips = [...new Set([...allTags, ...selected])].sort()
+  const chips = [
+    FORUM_ARCHIVE_TAG,
+    ...[...new Set([...allTags, ...selected])]
+      .filter((tag) => tag !== FORUM_ARCHIVE_TAG)
+      .sort(),
+  ]
 
   return (
     <Popover
@@ -92,7 +106,7 @@ export function PostTagDialog({
           ) : chips.map((tag) => {
             const active = selected.includes(tag)
             const additionBlocked = !active && (
-              selected.length >= MAX_FORUM_TAGS_PER_POST
+              (tag !== FORUM_ARCHIVE_TAG && ordinaryTagCount >= MAX_FORUM_TAGS_PER_POST)
               || tag.length > MAX_FORUM_TAG_LENGTH
             )
             return (
@@ -125,7 +139,7 @@ export function PostTagDialog({
           maxLength={MAX_FORUM_TAG_LENGTH}
           placeholder="Add a tag…"
           className="h-8 text-sm"
-          disabled={saving || selected.length >= MAX_FORUM_TAGS_PER_POST}
+          disabled={saving || ordinaryTagCount >= MAX_FORUM_TAGS_PER_POST}
         />
 
         <p className="text-right text-[11px] text-muted-foreground">

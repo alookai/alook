@@ -22,6 +22,7 @@ import { VirtualRows } from "../messages/virtual-cursor-list"
 import { useVirtualCursorSentinel } from "@/hooks/community/use-virtual-cursor-sentinel"
 import { tagColorClassName, tagColorStyle } from "@/lib/community/tag-color"
 import { cn } from "@/lib/utils"
+import { FORUM_ARCHIVE_TAG } from "@alook/shared"
 
 const MAX_AVATARS = 5
 const MAX_VISIBLE_TAGS = 2
@@ -245,6 +246,11 @@ export function ForumView({
   const filterTags = availableTags.length > 0
     ? availableTags
     : [...new Set(posts.flatMap((post) => post.tags))]
+  const hasArchivedPosts = filterTags.includes(FORUM_ARCHIVE_TAG)
+  const displayFilterTags = [
+    ...filterTags.filter((candidate) => candidate !== FORUM_ARCHIVE_TAG),
+    ...(hasArchivedPosts ? [FORUM_ARCHIVE_TAG] : []),
+  ]
   const filterTagKey = filterTags.join("\0")
   const syncTagFades = useCallback(() => {
     const scroller = tagScrollerRef.current
@@ -337,7 +343,7 @@ export function ForumView({
                   syncTagFades()
                 }
               }}
-              className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar"
+              className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar scrollbar-none"
             >
               {filterTags.length > 0 && (
                 <>
@@ -353,7 +359,7 @@ export function ForumView({
                   >
                     All
                   </button>
-                  {filterTags.map((t) => (
+                  {displayFilterTags.map((t) => (
                     <button
                       key={t}
                       ref={tag === t ? activeFilterRef : undefined}
@@ -367,7 +373,7 @@ export function ForumView({
                       data-testid={tid.forumTagChip(t)}
                       onClick={() => onTagChange(t)}
                     >
-                      {`#${t}`}
+                      {t === FORUM_ARCHIVE_TAG ? "Archived" : `#${t}`}
                     </button>
                   ))}
                 </>
@@ -561,7 +567,7 @@ export function ForumViewSkeleton() {
         <div className="relative min-w-0 flex-1">
           <div
             aria-hidden
-            className="pointer-events-none flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar sm:flex-wrap sm:overflow-x-visible"
+            className="pointer-events-none flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar scrollbar-none sm:flex-wrap sm:overflow-x-visible"
           >
             <Skeleton className="h-7 w-10 shrink-0 rounded-full" />
             <Skeleton className="h-7 w-16 shrink-0 rounded-full" />

@@ -4,6 +4,7 @@ import { drizzle as drizzleProxy } from "drizzle-orm/sqlite-proxy";
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import * as threadQueries from "../../src/db/queries/community/thread";
 import { D1_MAX_BIND_PARAMS } from "../../src/db/queries/_chunk";
+import { FORUM_ARCHIVE_TAG } from "../../src/constants/community";
 
 describe("community/thread exports", () => {
   it("exports the participant CRUD", () => {
@@ -71,6 +72,7 @@ describe("listForumThreadsByCreatedAt against real SQLite", () => {
     insertChannel.run("t_tie_b", "tie b", "thread", "forum_1", "m_tie_b", 0, "2026-08-08T04:00:00.000Z", "2026-01-02T00:00:00.000Z");
     insertChannel.run("t_tie_a", "tie a", "thread", "forum_1", "m_tie_a", 0, "2026-08-08T04:00:00.000Z", "2026-01-02T00:00:00.000Z");
     insertChannel.run("t_created", "created fallback", "thread", "forum_1", "m_created", 0, null, "2026-08-08T02:00:00.000Z");
+    insertChannel.run("t_tag_archived", "tag archived", "thread", "forum_1", "m_tag_archived", 0, null, "2026-08-09T02:00:00.000Z");
     insertChannel.run("t_archived", "archived", "thread", "forum_1", "m_archived", 1, "2026-08-09T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
     insertChannel.run("t_rootless", "rootless", "thread", "forum_1", null, 0, "2026-08-09T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
     insertChannel.run("not_thread", "text child", "text", "forum_1", "m_text", 0, "2026-08-09T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
@@ -78,6 +80,8 @@ describe("listForumThreadsByCreatedAt against real SQLite", () => {
     const insertTag = sqlite.prepare("INSERT INTO community_message_tag (id, message_id, tag) VALUES (?, ?, ?)");
     insertTag.run("tag_tie", "m_tie_a", "bug");
     insertTag.run("tag_created", "m_created", "bug");
+    insertTag.run("tag_archive", "m_tag_archived", FORUM_ARCHIVE_TAG);
+    insertTag.run("tag_archive_bug", "m_tag_archived", "bug");
     insertTag.run("tag_foreign", "m_foreign", "bug");
     db = drizzle(sqlite);
   });
@@ -108,6 +112,27 @@ describe("listForumThreadsByCreatedAt against real SQLite", () => {
       limit: 5,
     });
     expect(rows.map((row) => row.id)).toEqual(["t_created", "t_tie_a"]);
+  });
+
+  it("treats the archive tag as an exclusive feed before pagination", async () => {
+    const all = await threadQueries.listForumThreadsByCreatedAt(db as never, {
+      parentChannelId: "forum_1",
+      limit: 1,
+    });
+    const ordinary = await threadQueries.listForumThreadsByCreatedAt(db as never, {
+      parentChannelId: "forum_1",
+      tag: "bug",
+      limit: 5,
+    });
+    const archived = await threadQueries.listForumThreadsByCreatedAt(db as never, {
+      parentChannelId: "forum_1",
+      tag: FORUM_ARCHIVE_TAG,
+      limit: 5,
+    });
+
+    expect(all.map((row) => row.id)).toEqual(["t_created"]);
+    expect(ordinary.map((row) => row.id)).toEqual(["t_created", "t_tie_a"]);
+    expect(archived.map((row) => row.id)).toEqual(["t_tag_archived"]);
   });
 
   it("uses the forum creation index without a temp B-tree for the untagged feed", () => {

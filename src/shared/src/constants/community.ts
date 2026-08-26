@@ -17,6 +17,7 @@ export const MAX_PROFILE_ABOUT_LENGTH = 1000
 // Short by design — this is a status term ("Vibing"), not a bio.
 export const MAX_STATUS_TEXT_LENGTH = 60
 export const MAX_MESSAGE_CONTENT_LENGTH = 4000
+export const FORUM_ARCHIVE_TAG = "archived"
 export const MAX_FORUM_TAG_LENGTH = 30
 export const MAX_FORUM_TAGS_PER_POST = 5
 
