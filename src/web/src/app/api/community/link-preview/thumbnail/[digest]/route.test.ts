@@ -420,6 +420,29 @@ describe("GET /api/community/link-preview/thumbnail/[digest]", () => {
     }))
   })
 
+  it("sanitizes an unexpected synchronous storage binding failure without negative caching", async () => {
+    mockR2Get
+      .mockResolvedValueOnce(manifestObject({ sourceDigest }))
+      .mockResolvedValueOnce(null)
+    mockR2Put.mockImplementationOnce(() => {
+      throw "raw synchronous storage failure"
+    })
+
+    const response = await request()
+
+    expect(response.status).toBe(404)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(mockKvPut).not.toHaveBeenCalled()
+    expect(mockWaitUntil).not.toHaveBeenCalled()
+    expect(mockLogError).toHaveBeenCalledWith("link_preview_thumbnail_failure", expect.objectContaining({
+      stage: "transform",
+      disposition: "transient",
+      errorCode: "transform_unknown",
+      pageDigestPrefix: DIGEST.slice(0, 12),
+    }))
+    expect(JSON.stringify(mockLogError.mock.calls)).not.toContain("raw synchronous storage failure")
+  })
+
   it("bounds R2 persistence at two seconds and safely observes late rejection", async () => {
     vi.useFakeTimers()
     mockR2Get
