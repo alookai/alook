@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   LINK_PREVIEW_THUMBNAIL_LIMITS,
+  LinkPreviewThumbnailFailure,
   fetchAndTransformLinkPreviewThumbnail,
   isFreshLinkPreviewThumbnailObject,
   linkPreviewPageDigest,
@@ -37,6 +38,8 @@ function mockImages(args: {
   height?: number
   output?: Uint8Array
   outputType?: string
+  outputError?: unknown
+  contentTypeError?: unknown
 } = {}) {
   const transform = vi.fn()
   const output = vi.fn()
@@ -47,9 +50,13 @@ function mockImages(args: {
     },
     output: async (...values: unknown[]) => {
       output(...values)
+      if (args.outputError !== undefined) throw args.outputError
       const transformed = args.output ?? new Uint8Array([1, 2, 3])
       return {
-        contentType: () => args.outputType ?? "image/webp",
+        contentType: () => {
+          if (args.contentTypeError !== undefined) throw args.contentTypeError
+          return args.outputType ?? "image/webp"
+        },
         image: () => bytesStream(transformed),
         response: () => new Response(transformed),
       }
@@ -427,12 +434,22 @@ describe("fetchAndTransformLinkPreviewThumbnail", () => {
     await expect(fetchAndTransformLinkPreviewThumbnail(
       "https://example.com/image",
       mockImages({ outputType: "image/png" }).binding,
-    )).rejects.toThrow("wrong MIME")
+    )).rejects.toMatchObject({
+      stage: "transform",
+      disposition: "deterministic",
+      code: "transform_mime",
+      message: "thumbnail transform returned wrong MIME",
+    })
 
     await expect(fetchAndTransformLinkPreviewThumbnail(
       "https://example.com/image",
       mockImages({ output: new Uint8Array(LINK_PREVIEW_THUMBNAIL_LIMITS.maxOutputBytes + 1) }).binding,
-    )).rejects.toThrow("too large")
+    )).rejects.toMatchObject({
+      stage: "transform",
+      disposition: "deterministic",
+      code: "transform_size",
+      message: "thumbnail response is too large",
+    })
   })
 
   it("rejects decoded image info without raster dimensions", async () => {
@@ -449,7 +466,7 @@ describe("fetchAndTransformLinkPreviewThumbnail", () => {
     )).rejects.toThrow("unsupported decoded thumbnail format")
   })
 
-  it("applies one three-second budget across a stalled source read", async () => {
+  it("applies the three-second budget across a stalled source read", async () => {
     vi.useFakeTimers()
     vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => Promise.resolve(new Response(
       new ReadableStream<Uint8Array>({
@@ -462,11 +479,15 @@ describe("fetchAndTransformLinkPreviewThumbnail", () => {
 
     const result = fetchAndTransformLinkPreviewThumbnail("https://example.com/slow", mockImages().binding)
       .catch((error: unknown) => error)
-    await vi.advanceTimersByTimeAsync(LINK_PREVIEW_THUMBNAIL_LIMITS.timeoutMs)
-    await expect(result).resolves.toMatchObject({ message: expect.stringMatching(/aborted|timed out/) })
+    await vi.advanceTimersByTimeAsync(LINK_PREVIEW_THUMBNAIL_LIMITS.sourceTimeoutMs)
+    await expect(result).resolves.toMatchObject({
+      stage: "source",
+      disposition: "transient",
+      code: "source_timeout",
+    })
   })
 
-  it("rejects before reading when the source fetch resolves after the total budget", async () => {
+  it("rejects before reading when source headers resolve after the source budget", async () => {
     vi.useFakeTimers()
     let resolveFetch!: (response: Response) => void
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => {
@@ -477,10 +498,165 @@ describe("fetchAndTransformLinkPreviewThumbnail", () => {
       "https://example.com/late-headers",
       mockImages().binding,
     )
-    await vi.advanceTimersByTimeAsync(LINK_PREVIEW_THUMBNAIL_LIMITS.timeoutMs)
+    await vi.advanceTimersByTimeAsync(LINK_PREVIEW_THUMBNAIL_LIMITS.sourceTimeoutMs)
     resolveFetch(response())
 
-    await expect(result).rejects.toMatchObject({ name: "AbortError" })
+    await expect(result).rejects.toMatchObject({
+      stage: "source",
+      disposition: "transient",
+      code: "source_timeout",
+    })
+  })
+
+  it("clears the source deadline before a valid Images operation uses its own five-second budget", async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => {
+      setTimeout(() => resolve(response()), LINK_PREVIEW_THUMBNAIL_LIMITS.sourceTimeoutMs - 100)
+    })))
+    const images = mockImages()
+    vi.mocked(images.binding.info).mockImplementation(() => new Promise((resolve) => {
+      setTimeout(() => resolve({ format: "image/jpeg", fileSize: 3, width: 1200, height: 630 }), 4_000)
+    }))
+
+    const result = fetchAndTransformLinkPreviewThumbnail("https://example.com/slow-valid", images.binding)
+    await vi.advanceTimersByTimeAsync(LINK_PREVIEW_THUMBNAIL_LIMITS.sourceTimeoutMs - 100)
+    await vi.advanceTimersByTimeAsync(4_000)
+
+    await expect(result).resolves.toEqual(new Uint8Array([1, 2, 3]))
+  })
+
+  it("bounds Images at five seconds and observes a late platform rejection", async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response()))
+    const images = mockImages()
+    vi.mocked(images.binding.info).mockImplementation(() => new Promise((_resolve, reject) => {
+      setTimeout(() => reject(Object.assign(new Error("late"), { code: 9523 })), 6_000)
+    }))
+
+    const result = fetchAndTransformLinkPreviewThumbnail("https://example.com/slow-images", images.binding)
+      .catch((error: unknown) => error)
+    await vi.advanceTimersByTimeAsync(LINK_PREVIEW_THUMBNAIL_LIMITS.imagesTimeoutMs)
+    await expect(result).resolves.toMatchObject({
+      stage: "inspect",
+      disposition: "transient",
+      code: "inspect_timeout",
+    })
+    await vi.advanceTimersByTimeAsync(1_000)
+  })
+
+  it("classifies deterministic input rejection and transient service failures", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(undefined, {
+      headers: { "content-type": "image/gif" },
+    })))
+    await expect(fetchAndTransformLinkPreviewThumbnail(
+      "https://example.com/wrong-mime",
+      mockImages().binding,
+    )).rejects.toMatchObject({
+      stage: "source",
+      disposition: "deterministic",
+      code: "source_mime",
+    } satisfies Partial<LinkPreviewThumbnailFailure>)
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(undefined, { status: 503 })))
+    await expect(fetchAndTransformLinkPreviewThumbnail(
+      "https://example.com/unavailable",
+      mockImages().binding,
+    )).rejects.toMatchObject({
+      stage: "source",
+      disposition: "transient",
+      code: "source_http_503",
+    } satisfies Partial<LinkPreviewThumbnailFailure>)
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(undefined, { status: 429 })))
+    await expect(fetchAndTransformLinkPreviewThumbnail(
+      "https://example.com/rate-limited",
+      mockImages().binding,
+    )).rejects.toMatchObject({
+      stage: "source",
+      disposition: "transient",
+      code: "source_http_429",
+    } satisfies Partial<LinkPreviewThumbnailFailure>)
+
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new DOMException("aborted", "AbortError")))
+    await expect(fetchAndTransformLinkPreviewThumbnail(
+      "https://example.com/aborted",
+      mockImages().binding,
+    )).rejects.toMatchObject({
+      stage: "source",
+      disposition: "transient",
+      code: "source_aborted",
+    } satisfies Partial<LinkPreviewThumbnailFailure>)
+
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue("unknown"))
+    await expect(fetchAndTransformLinkPreviewThumbnail(
+      "https://example.com/unknown",
+      mockImages().binding,
+    )).rejects.toMatchObject({
+      stage: "source",
+      disposition: "transient",
+      code: "source_error",
+    } satisfies Partial<LinkPreviewThumbnailFailure>)
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response()))
+    const images = mockImages()
+    vi.mocked(images.binding.info).mockRejectedValue(Object.assign(new Error("service"), { code: 9523 }))
+    await expect(fetchAndTransformLinkPreviewThumbnail(
+      "https://example.com/images-error",
+      images.binding,
+    )).rejects.toMatchObject({
+      stage: "inspect",
+      disposition: "transient",
+      code: "inspect_9523",
+    } satisfies Partial<LinkPreviewThumbnailFailure>)
+  })
+
+  it("classifies transform rejections, preserves typed failures, and defaults unknown errors to transient", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(response())))
+
+    await expect(fetchAndTransformLinkPreviewThumbnail(
+      "https://example.com/transform-error",
+      mockImages({ outputError: Object.assign(new Error("service"), { code: 9523 }) }).binding,
+    )).rejects.toMatchObject({
+      stage: "transform",
+      disposition: "transient",
+      code: "transform_9523",
+    } satisfies Partial<LinkPreviewThumbnailFailure>)
+
+    const typed = new LinkPreviewThumbnailFailure({
+      stage: "transform",
+      disposition: "transient",
+      code: "transform_typed",
+      elapsedMs: 1,
+      message: "typed",
+    })
+    await expect(fetchAndTransformLinkPreviewThumbnail(
+      "https://example.com/typed-transform-error",
+      mockImages({ outputError: typed }).binding,
+    )).rejects.toBe(typed)
+
+    await expect(fetchAndTransformLinkPreviewThumbnail(
+      "https://example.com/unknown-transform-error",
+      mockImages({ contentTypeError: "unknown" }).binding,
+    )).rejects.toMatchObject({
+      stage: "transform",
+      disposition: "transient",
+      code: "transform_error",
+    } satisfies Partial<LinkPreviewThumbnailFailure>)
+  })
+
+  it("classifies an invalid initial source URL before outbound work", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(fetchAndTransformLinkPreviewThumbnail(
+      "http://example.com/image.jpg",
+      mockImages().binding,
+    )).rejects.toMatchObject({
+      stage: "source",
+      disposition: "deterministic",
+      code: "source_url",
+    } satisfies Partial<LinkPreviewThumbnailFailure>)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it("builds exact 24-hour R2 object metadata", () => {

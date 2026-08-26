@@ -6,7 +6,8 @@ const MAX_SOURCE_BYTES = 5 * 1024 * 1024
 const MAX_OUTPUT_BYTES = 512 * 1024
 const MAX_MANIFEST_BYTES = 4 * 1024
 const MAX_REDIRECTS = 3
-const TOTAL_TIMEOUT_MS = 3_000
+const SOURCE_TIMEOUT_MS = 3_000
+const IMAGES_TIMEOUT_MS = 5_000
 const MAX_DIMENSION = 8_192
 const MAX_AREA = 16_000_000
 const THUMBNAIL_WIDTH = 640
@@ -23,6 +24,80 @@ export type LinkPreviewThumbnailManifest = {
   sourceUrl: string
   sourceDigest: string
   expiresAt: number
+}
+
+export type LinkPreviewThumbnailFailureStage = "source" | "inspect" | "transform" | "storage"
+export type LinkPreviewThumbnailFailureDisposition = "deterministic" | "transient"
+
+export class LinkPreviewThumbnailFailure extends Error {
+  readonly stage: LinkPreviewThumbnailFailureStage
+  readonly disposition: LinkPreviewThumbnailFailureDisposition
+  readonly code: string
+  readonly elapsedMs: number
+
+  constructor(args: {
+    stage: LinkPreviewThumbnailFailureStage
+    disposition: LinkPreviewThumbnailFailureDisposition
+    code: string
+    elapsedMs: number
+    message: string
+  }) {
+    super(args.message)
+    this.name = "LinkPreviewThumbnailFailure"
+    this.stage = args.stage
+    this.disposition = args.disposition
+    this.code = args.code
+    this.elapsedMs = args.elapsedMs
+  }
+}
+
+function failure(args: {
+  stage: LinkPreviewThumbnailFailureStage
+  disposition: LinkPreviewThumbnailFailureDisposition
+  code: string
+  startedAt: number
+  message: string
+}): LinkPreviewThumbnailFailure {
+  return new LinkPreviewThumbnailFailure({
+    stage: args.stage,
+    disposition: args.disposition,
+    code: args.code,
+    elapsedMs: Math.max(0, Date.now() - args.startedAt),
+    message: args.message,
+  })
+}
+
+function stablePlatformCode(error: unknown, fallback: string): string {
+  if (error instanceof LinkPreviewThumbnailFailure) return error.code
+  if (error instanceof DOMException && error.name === "AbortError") return `${fallback}_aborted`
+  if (typeof error === "object" && error !== null) {
+    const value = error as { code?: unknown; name?: unknown }
+    if ((typeof value.code === "string" || typeof value.code === "number")
+      && /^[a-zA-Z0-9_.-]{1,64}$/.test(String(value.code))) {
+      return `${fallback}_${String(value.code).toLowerCase()}`
+    }
+    if (typeof value.name === "string" && /^[a-zA-Z][a-zA-Z0-9_.-]{0,63}$/.test(value.name)) {
+      return `${fallback}_${value.name.toLowerCase()}`
+    }
+  }
+  return `${fallback}_error`
+}
+
+async function withDeadline<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  onTimeout: () => LinkPreviewThumbnailFailure,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(onTimeout()), timeoutMs)
+  })
+  promise.catch(() => {})
+  try {
+    return await Promise.race([promise, timeout])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
 }
 
 function streamFromBytes(bytes: Uint8Array): ReadableStream<Uint8Array> {
@@ -189,8 +264,23 @@ async function readBoundedBytes(
   body: ReadableStream<Uint8Array> | null,
   maxBytes: number,
   signal: AbortSignal,
+  args: {
+    stage: LinkPreviewThumbnailFailureStage
+    disposition: LinkPreviewThumbnailFailureDisposition
+    missingBodyCode: string
+    sizeCode: string
+    startedAt: number
+  },
 ): Promise<Uint8Array> {
-  if (!body) throw new Error("thumbnail response has no body")
+  if (!body) {
+    throw failure({
+      stage: args.stage,
+      disposition: "transient",
+      code: args.missingBodyCode,
+      startedAt: args.startedAt,
+      message: "thumbnail response has no body",
+    })
+  }
   const reader = body.getReader()
   const chunks: Uint8Array[] = []
   let total = 0
@@ -201,7 +291,13 @@ async function readBoundedBytes(
       total += value.byteLength
       if (total > maxBytes) {
         await reader.cancel().catch(() => {})
-        throw new Error("thumbnail response is too large")
+        throw failure({
+          stage: args.stage,
+          disposition: args.disposition,
+          code: args.sizeCode,
+          startedAt: args.startedAt,
+          message: "thumbnail response is too large",
+        })
       }
       chunks.push(value)
     }
@@ -211,7 +307,15 @@ async function readBoundedBytes(
   } finally {
     reader.releaseLock()
   }
-  if (total === 0) throw new Error("thumbnail response is empty")
+  if (total === 0) {
+    throw failure({
+      stage: args.stage,
+      disposition: args.disposition,
+      code: args.sizeCode,
+      startedAt: args.startedAt,
+      message: "thumbnail response is empty",
+    })
+  }
   const bytes = new Uint8Array(total)
   let offset = 0
   for (const chunk of chunks) {
@@ -232,6 +336,7 @@ async function fetchThumbnailSource(start: URL, signal: AbortSignal): Promise<{
   bytes: Uint8Array
   contentType: string
 }> {
+  const startedAt = Date.now()
   let current = start
   for (let redirects = 0; ; redirects += 1) {
     const response = await fetch(current.href, {
@@ -247,27 +352,81 @@ async function fetchThumbnailSource(start: URL, signal: AbortSignal): Promise<{
     })
     if (isRedirect(response.status)) {
       await response.body?.cancel().catch(() => {})
-      if (redirects === MAX_REDIRECTS) throw new Error("too many thumbnail redirects")
+      if (redirects === MAX_REDIRECTS) {
+        throw failure({
+          stage: "source",
+          disposition: "deterministic",
+          code: "source_redirect_limit",
+          startedAt,
+          message: "too many thumbnail redirects",
+        })
+      }
       const location = response.headers.get("location")
-      if (!location) throw new Error("invalid thumbnail redirect")
-      current = normalizePublicImageUrl(location, current)
+      if (!location) {
+        throw failure({
+          stage: "source",
+          disposition: "deterministic",
+          code: "source_redirect_missing",
+          startedAt,
+          message: "invalid thumbnail redirect",
+        })
+      }
+      try {
+        current = normalizePublicImageUrl(location, current)
+      } catch (error) {
+        throw failure({
+          stage: "source",
+          disposition: "deterministic",
+          code: "source_redirect_rejected",
+          startedAt,
+          message: error instanceof Error ? error.message : "invalid thumbnail redirect",
+        })
+      }
       continue
     }
     if (!response.ok) {
       await response.body?.cancel().catch(() => {})
-      throw new Error("thumbnail origin rejected request")
+      const deterministic = response.status >= 400
+        && response.status < 500
+        && response.status !== 408
+        && response.status !== 429
+      throw failure({
+        stage: "source",
+        disposition: deterministic ? "deterministic" : "transient",
+        code: `source_http_${response.status}`,
+        startedAt,
+        message: "thumbnail origin rejected request",
+      })
     }
     const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() ?? ""
     if (!ALLOWED_MIME.has(contentType)) {
       await response.body?.cancel().catch(() => {})
-      throw new Error("unsupported thumbnail MIME")
+      throw failure({
+        stage: "source",
+        disposition: "deterministic",
+        code: "source_mime",
+        startedAt,
+        message: "unsupported thumbnail MIME",
+      })
     }
     if ((declaredContentLength(response) ?? 0) > MAX_SOURCE_BYTES) {
       await response.body?.cancel().catch(() => {})
-      throw new Error("thumbnail response is too large")
+      throw failure({
+        stage: "source",
+        disposition: "deterministic",
+        code: "source_size",
+        startedAt,
+        message: "thumbnail response is too large",
+      })
     }
     return {
-      bytes: await readBoundedBytes(response.body, MAX_SOURCE_BYTES, signal),
+      bytes: await readBoundedBytes(response.body, MAX_SOURCE_BYTES, signal, {
+        stage: "source",
+        disposition: "deterministic",
+        missingBodyCode: "source_body_missing",
+        sizeCode: "source_size",
+        startedAt,
+      }),
       contentType,
     }
   }
@@ -323,14 +482,52 @@ async function transformThumbnail(
   images: ImagesBinding,
   bytes: Uint8Array,
   declaredMime: string,
+  activeStage: { current: "inspect" | "transform" },
   signal: AbortSignal,
 ): Promise<Uint8Array> {
-  const info = await withAbort(images.info(streamFromBytes(bytes)), signal)
-  if (!("width" in info) || !("height" in info)) throw new Error("unsupported decoded thumbnail format")
+  const startedAt = Date.now()
+  let info
+  try {
+    info = await withAbort(images.info(streamFromBytes(bytes)), signal)
+  } catch (error) {
+    if (error instanceof LinkPreviewThumbnailFailure) throw error
+    throw failure({
+      stage: "inspect",
+      disposition: "transient",
+      code: stablePlatformCode(error, "inspect"),
+      startedAt,
+      message: "thumbnail inspection failed",
+    })
+  }
+  if (!("width" in info) || !("height" in info)) {
+    throw failure({
+      stage: "inspect",
+      disposition: "deterministic",
+      code: "inspect_format",
+      startedAt,
+      message: "unsupported decoded thumbnail format",
+    })
+  }
   const actualMime = decodedMime(info.format)
-  if (!actualMime || actualMime !== declaredMime) throw new Error("thumbnail MIME mismatch")
-  if (actualMime === "image/png" && isAnimatedPng(bytes)) throw new Error("animated thumbnail rejected")
-  if (actualMime === "image/webp" && isAnimatedWebp(bytes)) throw new Error("animated thumbnail rejected")
+  if (!actualMime || actualMime !== declaredMime) {
+    throw failure({
+      stage: "inspect",
+      disposition: "deterministic",
+      code: "inspect_mime",
+      startedAt,
+      message: "thumbnail MIME mismatch",
+    })
+  }
+  if ((actualMime === "image/png" && isAnimatedPng(bytes))
+    || (actualMime === "image/webp" && isAnimatedWebp(bytes))) {
+    throw failure({
+      stage: "inspect",
+      disposition: "deterministic",
+      code: "inspect_animation",
+      startedAt,
+      message: "animated thumbnail rejected",
+    })
+  }
   if (!Number.isSafeInteger(info.width)
     || !Number.isSafeInteger(info.height)
     || info.width <= 0
@@ -338,29 +535,114 @@ async function transformThumbnail(
     || info.width > MAX_DIMENSION
     || info.height > MAX_DIMENSION
     || info.width * info.height > MAX_AREA) {
-    throw new Error("thumbnail dimensions exceed limit")
+    throw failure({
+      stage: "inspect",
+      disposition: "deterministic",
+      code: "inspect_dimensions",
+      startedAt,
+      message: "thumbnail dimensions exceed limit",
+    })
   }
 
-  const output = await withAbort(images
-    .input(streamFromBytes(bytes))
-    .transform({ width: THUMBNAIL_WIDTH, height: THUMBNAIL_HEIGHT, fit: "cover" })
-    .output({ format: "image/webp", quality: THUMBNAIL_QUALITY, anim: false }), signal)
-  if (output.contentType() !== "image/webp") throw new Error("thumbnail transform returned wrong MIME")
-  return readBoundedBytes(output.image(), MAX_OUTPUT_BYTES, signal)
+  activeStage.current = "transform"
+  const transformStartedAt = Date.now()
+  let output
+  try {
+    output = await withAbort(images
+      .input(streamFromBytes(bytes))
+      .transform({ width: THUMBNAIL_WIDTH, height: THUMBNAIL_HEIGHT, fit: "cover" })
+      .output({ format: "image/webp", quality: THUMBNAIL_QUALITY, anim: false }), signal)
+  } catch (error) {
+    if (error instanceof LinkPreviewThumbnailFailure) throw error
+    throw failure({
+      stage: "transform",
+      disposition: "transient",
+      code: stablePlatformCode(error, "transform"),
+      startedAt: transformStartedAt,
+      message: "thumbnail transform failed",
+    })
+  }
+  if (output.contentType() !== "image/webp") {
+    throw failure({
+      stage: "transform",
+      disposition: "deterministic",
+      code: "transform_mime",
+      startedAt: transformStartedAt,
+      message: "thumbnail transform returned wrong MIME",
+    })
+  }
+  return readBoundedBytes(output.image(), MAX_OUTPUT_BYTES, signal, {
+    stage: "transform",
+    disposition: "deterministic",
+    missingBodyCode: "transform_body_missing",
+    sizeCode: "transform_size",
+    startedAt: transformStartedAt,
+  })
 }
 
 export async function fetchAndTransformLinkPreviewThumbnail(
   sourceUrl: string,
   images: ImagesBinding,
 ): Promise<Uint8Array> {
-  const source = normalizePublicImageUrl(sourceUrl)
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS)
+  const sourceStartedAt = Date.now()
+  let source: URL
   try {
-    const fetched = await fetchThumbnailSource(source, controller.signal)
-    return await transformThumbnail(images, fetched.bytes, fetched.contentType, controller.signal)
+    source = normalizePublicImageUrl(sourceUrl)
+  } catch (error) {
+    throw failure({
+      stage: "source",
+      disposition: "deterministic",
+      code: "source_url",
+      startedAt: sourceStartedAt,
+      message: error instanceof Error ? error.message : "invalid thumbnail source",
+    })
+  }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), SOURCE_TIMEOUT_MS)
+  let fetched: { bytes: Uint8Array; contentType: string }
+  try {
+    fetched = await fetchThumbnailSource(source, controller.signal)
+  } catch (error) {
+    if (error instanceof LinkPreviewThumbnailFailure) throw error
+    const timeout = controller.signal.aborted
+    throw failure({
+      stage: "source",
+      disposition: "transient",
+      code: timeout ? "source_timeout" : stablePlatformCode(error, "source"),
+      startedAt: sourceStartedAt,
+      message: timeout ? "thumbnail request timed out" : "thumbnail source request failed",
+    })
   } finally {
     clearTimeout(timer)
+  }
+
+  const imagesStartedAt = Date.now()
+  const imagesController = new AbortController()
+  const activeStage: { current: "inspect" | "transform" } = { current: "inspect" }
+  try {
+    return await withDeadline(
+      transformThumbnail(images, fetched.bytes, fetched.contentType, activeStage, imagesController.signal),
+      IMAGES_TIMEOUT_MS,
+      () => {
+        queueMicrotask(() => imagesController.abort())
+        return failure({
+          stage: activeStage.current,
+          disposition: "transient",
+          code: `${activeStage.current}_timeout`,
+          startedAt: imagesStartedAt,
+          message: "thumbnail Images operation timed out",
+        })
+      },
+    )
+  } catch (error) {
+    if (error instanceof LinkPreviewThumbnailFailure) throw error
+    throw failure({
+      stage: activeStage.current,
+      disposition: "transient",
+      code: stablePlatformCode(error, activeStage.current),
+      startedAt: imagesStartedAt,
+      message: "thumbnail Images operation failed",
+    })
   }
 }
 
@@ -382,7 +664,8 @@ export const LINK_PREVIEW_THUMBNAIL_LIMITS = {
   maxSourceBytes: MAX_SOURCE_BYTES,
   maxOutputBytes: MAX_OUTPUT_BYTES,
   maxRedirects: MAX_REDIRECTS,
-  timeoutMs: TOTAL_TIMEOUT_MS,
+  sourceTimeoutMs: SOURCE_TIMEOUT_MS,
+  imagesTimeoutMs: IMAGES_TIMEOUT_MS,
   maxDimension: MAX_DIMENSION,
   maxArea: MAX_AREA,
   width: THUMBNAIL_WIDTH,
