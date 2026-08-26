@@ -1,9 +1,12 @@
 import { EventEmitter } from "node:events"
 import type { ChildProcess } from "node:child_process"
+import { createRequire } from "node:module"
 import { describe, expect, it } from "vitest"
 import {
+  E2E_WRANGLER_VERSION,
   hasExactHealth,
   readinessExitMessage,
+  resolveE2EWranglerRuntime,
   serviceDefinitions,
   waitForHealth,
   waitForServicesReady,
@@ -12,16 +15,33 @@ import {
 import { resolveMachineWsUrl, resolveWsUrl } from "./e2e-ui/_setup/paths"
 
 describe("UI E2E service definitions", () => {
+  it("isolates the exact E2E Wrangler from the normal project CLI", () => {
+    const runtime = resolveE2EWranglerRuntime()
+    const requireFromTest = createRequire(import.meta.url)
+    const normalManifest = requireFromTest("wrangler/package.json") as { version: string }
+
+    expect(runtime.version).toBe(E2E_WRANGLER_VERSION)
+    expect(runtime.version).toBe("4.113.0")
+    expect(normalManifest.version).toBe("4.125.0")
+    expect(runtime.entry).toMatch(/wrangler@4\.113\.0.*bin[/\\]wrangler\.js$/)
+  })
+
   it("uses one Wrangler runtime for web and ws-do in CI", () => {
     const definitions = serviceDefinitions(true)
+    const runtime = resolveE2EWranglerRuntime()
 
     expect(definitions).toHaveLength(1)
-    expect(definitions[0]).toMatchObject({ name: "web-ws-do" })
+    expect(definitions[0]).toMatchObject({
+      name: "web-ws-do",
+      command: process.execPath,
+    })
     expect(definitions[0]).toMatchObject({
       expectedStatus: 200,
       expectedBody: { status: "ok" },
     })
-    expect(definitions[0]?.args).toEqual(expect.arrayContaining([
+    expect(definitions[0]?.args[0]).toBe(runtime.entry)
+    expect(definitions[0]?.args.slice(1)).toEqual(expect.arrayContaining([
+      "dev",
       "src/web/wrangler.toml",
       "src/ws-do/wrangler.toml",
       "--persist-to",
@@ -30,7 +50,10 @@ describe("UI E2E service definitions", () => {
   })
 
   it("keeps the fast two-process topology for local iteration", () => {
-    expect(serviceDefinitions(false).map((definition) => definition.name)).toEqual(["web", "ws-do"])
+    expect(serviceDefinitions(false).map(({ name, command }) => ({ name, command }))).toEqual([
+      { name: "web", command: "pnpm" },
+      { name: "ws-do", command: "pnpm" },
+    ])
   })
 
   it("uses the web URL for ws-do in the CI single-runtime topology", () => {

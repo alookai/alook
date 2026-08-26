@@ -1,6 +1,7 @@
 import { spawn, spawnSync, type ChildProcess } from "child_process"
+import { createRequire } from "module"
 import { closeSync, cpSync, existsSync, mkdirSync, openSync, rmSync } from "fs"
-import { resolve } from "path"
+import { dirname, resolve } from "path"
 import { REPO_ROOT, SERVICE_LOG_DIR, SERVICE_STATE_PATH, WEB_URL, WS_URL } from "./paths"
 import {
   addServiceProcess,
@@ -20,10 +21,37 @@ export interface ManagedService {
 
 export interface ServiceDefinition {
   name: string
+  command: string
   args: string[]
   healthUrl: string
   expectedStatus: number
   expectedBody: { status: "ok" }
+}
+
+export const E2E_WRANGLER_VERSION = "4.113.0"
+
+export function resolveE2EWranglerRuntime(): {
+  command: string
+  entry: string
+  version: string
+} {
+  const requireFromWeb = createRequire(resolve(REPO_ROOT, "src/web/package.json"))
+  const packagePath = requireFromWeb.resolve("wrangler-e2e/package.json")
+  const manifest = requireFromWeb(packagePath) as {
+    version?: unknown
+    bin?: unknown
+  }
+  const entry = typeof manifest.bin === "object" && manifest.bin !== null
+    ? (manifest.bin as Record<string, unknown>).wrangler
+    : undefined
+  if (manifest.version !== E2E_WRANGLER_VERSION || typeof entry !== "string") {
+    throw new Error(`invalid E2E Wrangler runtime at ${packagePath}`)
+  }
+  return {
+    command: process.execPath,
+    entry: resolve(dirname(packagePath), entry),
+    version: manifest.version,
+  }
 }
 
 export function wranglerLogEnvironment(internalLogDirectory: string): Record<
@@ -272,6 +300,7 @@ export function serviceDefinitions(singleRuntime: boolean): ServiceDefinition[] 
     return [
       {
         name: "web",
+        command: "pnpm",
         args: ["--filter", "@alook/web", "dev"],
         healthUrl: webHealth,
         expectedStatus: 200,
@@ -279,6 +308,7 @@ export function serviceDefinitions(singleRuntime: boolean): ServiceDefinition[] 
       },
       {
         name: "ws-do",
+        command: "pnpm",
         args: ["--filter", "@alook/ws-do", "dev"],
         healthUrl: wsHealth,
         expectedStatus: 200,
@@ -287,11 +317,12 @@ export function serviceDefinitions(singleRuntime: boolean): ServiceDefinition[] 
     ]
   }
 
+  const runtime = resolveE2EWranglerRuntime()
   return [{
     name: "web-ws-do",
+    command: runtime.command,
     args: [
-      "exec",
-      "wrangler",
+      runtime.entry,
       "dev",
       "-c",
       "src/web/wrangler.toml",
@@ -316,7 +347,7 @@ function startService(definition: ServiceDefinition): ManagedService {
   mkdirSync(internalLogDirectory, { recursive: true })
   const logFd = openSync(logPath, "a")
   try {
-    const proc = spawn("pnpm", definition.args, {
+    const proc = spawn(definition.command, definition.args, {
       cwd: REPO_ROOT,
       stdio: ["ignore", logFd, logFd],
       detached: true,
