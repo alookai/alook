@@ -56,7 +56,7 @@ export function LinkPreviewCardView({ preview }: { preview: LinkPreview }) {
         href={preview.url}
         target="_blank"
         rel="noopener noreferrer"
-        className="group block w-full max-w-108 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="group block w-full max-w-96 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-label={`Open link preview: ${preview.title}`}
       >
         <Card className="relative gap-0 py-0 transition-shadow group-hover:ring-foreground/20">

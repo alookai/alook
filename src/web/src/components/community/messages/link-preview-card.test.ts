@@ -25,7 +25,7 @@ describe("LinkPreviewCardView", () => {
     expect(html).toContain('aria-label="Open link preview: Pull Request #511"')
     expect(html).toContain('data-slot="card"')
     expect(html).toContain('class="pb-2"')
-    expect(html).toContain("w-full max-w-108")
+    expect(html).toContain("w-full max-w-96")
     expect(html).toContain("pointer-events-none absolute top-2 right-2")
     expect(html).toContain('aria-hidden="true"')
     expect(html).not.toContain(">GitHub<")
