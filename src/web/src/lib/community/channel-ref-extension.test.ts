@@ -108,6 +108,18 @@ function getKeyDownCallback(
   return onKeyDown
 }
 
+function getExitCallback(
+  ext: ReturnType<typeof buildCommunityChannelRefExtension>,
+): () => void {
+  const config = (ext as unknown as { config: { addOptions?: () => { suggestion?: { render?: unknown } } } }).config
+  const opts = config.addOptions?.() ?? (ext as unknown as { options?: { suggestion?: { render?: unknown } } }).options
+  const render = (opts?.suggestion as { render?: () => { onExit?: unknown } } | undefined)?.render
+  if (!render) throw new Error("suggestion.render not found")
+  const onExit = render().onExit as (() => void) | undefined
+  if (!onExit) throw new Error("suggestion.onExit not found")
+  return onExit
+}
+
 function build(
   candidates: ChannelRefCandidate[] = [],
   popup: ChannelRefPopupState = EMPTY_CHANNEL_REF_STATE,
@@ -173,6 +185,23 @@ describe("buildCommunityChannelRefExtension — suggestion.items callback", () =
     const { ext } = build([], EMPTY_CHANNEL_REF_STATE, onIntent)
     getItemsCallback(ext)({ query: "" })
     expect(onIntent).toHaveBeenCalledTimes(1)
+  })
+
+  it("emits one directory intent per suggestion session and resets on exit", () => {
+    const onIntent = vi.fn()
+    const { ext } = build([], EMPTY_CHANNEL_REF_STATE, onIntent)
+    const items = getItemsCallback(ext)
+    const onExit = getExitCallback(ext)
+
+    items({ query: "" })
+    items({ query: "g" })
+    items({ query: "gen" })
+    expect(onIntent).toHaveBeenCalledTimes(1)
+
+    onExit()
+    items({ query: "" })
+    items({ query: "r" })
+    expect(onIntent).toHaveBeenCalledTimes(2)
   })
 })
 

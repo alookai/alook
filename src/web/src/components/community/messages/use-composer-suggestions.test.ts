@@ -43,9 +43,14 @@ type Result = ReturnType<typeof useComposerSuggestions>
 
 function Harness({
   resultRef,
+  presentationHistory,
   ...options
-}: Options & { resultRef: { current: Result | null } }) {
+}: Options & {
+  resultRef: { current: Result | null }
+  presentationHistory?: Array<Result["channelRefPresentation"]>
+}) {
   const result = useComposerSuggestions(options)
+  presentationHistory?.push(result.channelRefPresentation)
   useEffect(() => {
     resultRef.current = result
   }, [result, resultRef])
@@ -86,6 +91,14 @@ const candidateSource = (
   searchStatus: "idle" as const,
   loadMore: vi.fn(),
   search,
+  ...overrides,
+})
+
+const channelRefSource = (
+  overrides: Partial<NonNullable<Options["channelRefCandidateSource"]>> = {},
+) => ({
+  loading: false,
+  failed: false,
   ...overrides,
 })
 
@@ -604,5 +617,140 @@ describe("useComposerSuggestions", () => {
     await act(async () => resultRef.current!.resetPopups())
     expect(resultRef.current!.mentionPopup.command).toBeNull()
     expect(resultRef.current!.channelRefPopup.command).toBeNull()
+  })
+
+  it("maps the optional DM channel source without opening a closed popup", async () => {
+    const resultRef: { current: Result | null } = { current: null }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(Harness, {
+        members: [],
+        context: "dm",
+        channelRefCandidates: [],
+        channelRefCandidateSource: channelRefSource({ loading: true }),
+        resultRef,
+      }))
+    })
+    const channelOptions = mocks.buildChannel.mock.calls[0][0]
+    await act(async () => {
+      channelOptions.setPopup({
+        items: [],
+        selectedIndex: 0,
+        command: vi.fn(),
+        getRect: null,
+      })
+    })
+    expect(resultRef.current!.channelRefPresentation).toEqual({
+      status: "loading",
+    })
+
+    await act(async () => {
+      renderer.update(createElement(Harness, {
+        members: [],
+        context: "dm",
+        channelRefCandidates: [],
+        channelRefCandidateSource: channelRefSource({ failed: true }),
+        resultRef,
+      }))
+    })
+    expect(resultRef.current!.channelRefPresentation).toEqual({
+      status: "error",
+    })
+
+    await act(async () => {
+      renderer.update(createElement(Harness, {
+        members: [],
+        context: "dm",
+        channelRefCandidates: [],
+        channelRefCandidateSource: channelRefSource(),
+        resultRef,
+      }))
+    })
+    expect(resultRef.current!.channelRefPresentation).toEqual({
+      status: "empty",
+    })
+
+    const ready = channel()
+    mocks.rankChannel.mockReturnValue([ready])
+    await act(async () => {
+      renderer.update(createElement(Harness, {
+        members: [],
+        context: "dm",
+        channelRefCandidates: [ready],
+        channelRefCandidateSource: channelRefSource(),
+        resultRef,
+      }))
+    })
+    expect(resultRef.current!.channelRefPopup.items).toEqual([ready])
+    expect(resultRef.current!.channelRefPresentation).toEqual({
+      status: "ready",
+    })
+
+    await act(async () => resultRef.current!.resetPopups())
+    mocks.rankChannel.mockReturnValue([channel({ name: "late" })])
+    await act(async () => {
+      renderer.update(createElement(Harness, {
+        members: [],
+        context: "dm",
+        channelRefCandidates: [channel({ name: "late" })],
+        channelRefCandidateSource: channelRefSource(),
+        resultRef,
+      }))
+    })
+    expect(resultRef.current!.channelRefPopup.command).toBeNull()
+    expect(resultRef.current!.channelRefPopup.items).toEqual([])
+
+    await act(async () => {
+      renderer.update(createElement(Harness, {
+        members: [],
+        context: "channel",
+        channelRefCandidates: [],
+        resultRef,
+      }))
+    })
+    expect(resultRef.current!.channelRefPresentation).toBeUndefined()
+  })
+
+  it("keeps loading until newly resolved candidates are ranked into the live popup", async () => {
+    const resultRef: { current: Result | null } = { current: null }
+    const presentationHistory: Array<Result["channelRefPresentation"]> = []
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(Harness, {
+        members: [],
+        context: "dm",
+        channelRefCandidates: [],
+        channelRefCandidateSource: channelRefSource({ loading: true }),
+        presentationHistory,
+        resultRef,
+      }))
+    })
+    const channelOptions = mocks.buildChannel.mock.calls[0][0]
+    await act(async () => {
+      channelOptions.setPopup({
+        items: [],
+        selectedIndex: 0,
+        command: vi.fn(),
+        getRect: null,
+      })
+    })
+
+    const ready = channel()
+    mocks.rankChannel.mockReturnValue([ready])
+    presentationHistory.length = 0
+    await act(async () => {
+      renderer.update(createElement(Harness, {
+        members: [],
+        context: "dm",
+        channelRefCandidates: [ready],
+        channelRefCandidateSource: channelRefSource(),
+        presentationHistory,
+        resultRef,
+      }))
+    })
+
+    expect(presentationHistory.map((presentation) => presentation?.status))
+      .toEqual(["loading", "ready"])
+    expect(resultRef.current!.channelRefPopup.items).toEqual([ready])
   })
 })

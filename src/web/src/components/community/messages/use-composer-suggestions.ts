@@ -12,17 +12,22 @@ import {
   buildCommunityChannelRefExtension,
   EMPTY_CHANNEL_REF_STATE,
   rankChannelRefItems,
+  type ChannelRefCandidatePresentation,
   type ChannelRefCandidate,
   type ChannelRefPopupState,
 } from "@/lib/community/channel-ref-extension"
 import type { Member } from "@/lib/community/models/people"
-import type { MentionCandidateSource } from "./composer-types"
+import type {
+  ChannelRefCandidateSource,
+  MentionCandidateSource,
+} from "./composer-types"
 
 type ComposerSuggestionsOptions = {
   members: Member[]
   context: MentionContext
   mentionCandidates?: MentionCandidateSource
   channelRefCandidates: ChannelRefCandidate[]
+  channelRefCandidateSource?: ChannelRefCandidateSource
   onChannelRefIntent?: () => void
 }
 
@@ -70,6 +75,7 @@ export function useComposerSuggestions({
   context,
   mentionCandidates,
   channelRefCandidates,
+  channelRefCandidateSource,
   onChannelRefIntent,
 }: ComposerSuggestionsOptions) {
   const [mentionPopup, setMentionPopup] = useState<MentionPopupState>(
@@ -119,6 +125,25 @@ export function useComposerSuggestions({
   useEffect(() => {
     channelRefCandidatesRef.current = channelRefCandidates
   }, [channelRefCandidates])
+
+  const channelRefItemsAligned = !channelRefCandidateSource
+    || !channelRefPopup.command
+    || channelRefItemsEqual(
+      channelRefPopup.items,
+      rankChannelRefItems(channelRefCandidates, channelRefPopup.query ?? ""),
+    )
+  const channelRefPresentation: ChannelRefCandidatePresentation | undefined =
+    channelRefCandidateSource
+      ? {
+          status: channelRefCandidateSource.failed
+            ? "error"
+            : channelRefCandidateSource.loading || !channelRefItemsAligned
+              ? "loading"
+              : channelRefPopup.items.length > 0
+                ? "ready"
+                : "empty",
+        }
+      : undefined
   useEffect(() => {
     onChannelRefIntentRef.current = onChannelRefIntent
   }, [onChannelRefIntent])
@@ -225,6 +250,7 @@ export function useComposerSuggestions({
     mentionPopupRef,
     mentionExtension,
     channelRefPopup,
+    channelRefPresentation,
     channelRefPopupRef,
     channelRefExtension,
     resetPopups,

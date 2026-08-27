@@ -35,6 +35,7 @@ export function useComposerController(
     members,
     mentionCandidates,
     channelRefCandidates = [],
+    channelRefCandidateSource,
     onChannelRefIntent,
     sendContract,
     onAcceptSend,
@@ -105,6 +106,7 @@ export function useComposerController(
     context,
     mentionCandidates,
     channelRefCandidates,
+    channelRefCandidateSource,
     onChannelRefIntent,
   })
 
@@ -350,6 +352,7 @@ export function useComposerController(
     mentionPopup: suggestions.mentionPopup,
     mentionPresentation: suggestions.mentionPresentation,
     channelRefPopup: suggestions.channelRefPopup,
+    channelRefPresentation: suggestions.channelRefPresentation,
     replyingTo,
     onCancelReply,
     pendingFiles,

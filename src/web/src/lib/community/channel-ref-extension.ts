@@ -57,9 +57,14 @@ export function toChannelRefCommandProps(item: ChannelRefCandidate): ChannelRefC
 
 export interface ChannelRefPopupState {
   items: ChannelRefCandidate[]
+  query?: string
   selectedIndex: number
   command: ((props: ChannelRefCommandProps) => void) | null
   getRect: (() => DOMRect | null) | null
+}
+
+export type ChannelRefCandidatePresentation = {
+  status: "loading" | "ready" | "empty" | "error"
 }
 
 export const EMPTY_CHANNEL_REF_STATE: ChannelRefPopupState = {
@@ -97,6 +102,7 @@ export function rankChannelRefItems(
 
 type SuggestionProps = {
   items: ChannelRefCandidate[]
+  query?: string
   command: (props: ChannelRefCommandProps) => void
   clientRect?: (() => DOMRect | null) | null
 }
@@ -158,6 +164,7 @@ export function buildCommunityChannelRefExtension(opts: {
   queryRef?: { current: string }
 }) {
   const { candidatesRef, popupRef, onIntentRef, setPopup, queryRef } = opts
+  let intentSessionActive = false
 
   return ChannelRefNode.configure({
     HTMLAttributes: { class: "channel-ref-highlight" },
@@ -190,7 +197,10 @@ export function buildCommunityChannelRefExtension(opts: {
       char: "/",
       pluginKey: new PluginKey("channelRefSuggestion"),
       items: ({ query }: { query: string }) => {
-        onIntentRef?.current?.()
+        if (!intentSessionActive) {
+          intentSessionActive = true
+          onIntentRef?.current?.()
+        }
         if (queryRef) queryRef.current = query
         return rankChannelRefItems(candidatesRef.current, query)
       },
@@ -198,6 +208,7 @@ export function buildCommunityChannelRefExtension(opts: {
         onStart: (props: SuggestionProps) => {
           setPopup({
             items: props.items ?? [],
+            query: props.query ?? "",
             selectedIndex: 0,
             command: props.command,
             getRect: props.clientRect ?? null,
@@ -206,6 +217,7 @@ export function buildCommunityChannelRefExtension(opts: {
         onUpdate: (props: SuggestionProps) => {
           setPopup((cur) => ({
             items: props.items ?? [],
+            query: props.query ?? "",
             selectedIndex:
               cur.selectedIndex < (props.items?.length ?? 0)
                 ? cur.selectedIndex
@@ -257,7 +269,10 @@ export function buildCommunityChannelRefExtension(opts: {
           }
           return false
         },
-        onExit: () => setPopup(EMPTY_CHANNEL_REF_STATE),
+        onExit: () => {
+          intentSessionActive = false
+          setPopup(EMPTY_CHANNEL_REF_STATE)
+        },
       }),
     },
   })

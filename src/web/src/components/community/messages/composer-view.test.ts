@@ -131,6 +131,7 @@ describe("ComposerView", () => {
         },
       ],
     }
+    const channelRefPresentation = { status: "ready" as const }
     const image = new File(["image"], "photo.png", { type: "image/png" })
     const textFile = new File(["text"], "notes.txt", { type: "text/plain" })
     const pendingFiles = [
@@ -155,6 +156,7 @@ describe("ComposerView", () => {
             onDrop,
             mentionPopup,
             channelRefPopup,
+            channelRefPresentation,
           }),
         ),
       )
@@ -172,6 +174,9 @@ describe("ComposerView", () => {
     )
     expect(renderer.root.findByType("channel-popup").props.state).toBe(
       channelRefPopup,
+    )
+    expect(renderer.root.findByType("channel-popup").props.presentation).toBe(
+      channelRefPresentation,
     )
     const renderedText = renderer.root
       .findAll(() => true)

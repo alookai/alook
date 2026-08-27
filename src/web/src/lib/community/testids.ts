@@ -104,6 +104,8 @@ export const tid = {
   mentionPopup: "community-mention-popup",
   mentionStatus: "community-mention-status",
   channelRefOption: (id: string) => `community-channel-ref-option-${id}`,
+  channelRefPopup: "community-channel-ref-popup",
+  channelRefStatus: "community-channel-ref-status",
   reactionAdd: (msgId: string) => `community-reaction-add-${msgId}`,
   messageShare: (msgId: string) => `community-message-share-${msgId}`,
   messageShareCopy: `community-message-share-copy`,

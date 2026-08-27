@@ -160,9 +160,11 @@ describe("useComposerController", () => {
     }))
     mocks.useSuggestions.mockImplementation(() => ({
       mentionPopup: { items: [], selectedIndex: 0, command: null, getRect: null },
+      mentionPresentation: { status: "ready" },
       mentionPopupRef,
       mentionExtension: { name: "mention" },
       channelRefPopup: { items: [], selectedIndex: 0, command: null, getRect: null },
+      channelRefPresentation: { status: "loading" },
       channelRefPopupRef,
       channelRefExtension: { name: "channel-ref" },
       resetPopups,
@@ -203,6 +205,26 @@ describe("useComposerController", () => {
     })
     return preventDefault
   }
+
+  it("forwards the optional channel source into suggestions and its presentation into the view", async () => {
+    const channelRefCandidateSource = { loading: true, failed: false }
+    const props = {
+      ...acceptedProps(vi.fn(() => true)),
+      channelRefCandidateSource,
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(Harness, props))
+    })
+
+    expect(mocks.useSuggestions).toHaveBeenCalledWith(expect.objectContaining({
+      channelRefCandidateSource,
+    }))
+    expect(renderer.root.findByType("controller-probe").props.view)
+      .toMatchObject({
+        channelRefPresentation: { status: "loading" },
+      })
+  })
 
   it("retains everything after false/throw, unlocks, and clears only on accepted true", async () => {
     const file = new File(["x"], "notes.txt", { type: "text/plain" })

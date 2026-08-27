@@ -173,7 +173,13 @@ function DmView() {
   // channels into one cross-server candidate list so a `/`-ref can be
   // dropped into a DM (see plan community-channel-ref.md §6).
   const [channelRefDirectoryEnabled, setChannelRefDirectoryEnabled] = useState(false)
-  const { directory: channelRefDirectory } = useChannelRefDirectory(channelRefDirectoryEnabled)
+  const {
+    directory: channelRefDirectory,
+    isResolved: channelRefDirectoryResolved,
+    isLoading: channelRefDirectoryLoading,
+    isError: channelRefDirectoryError,
+    refetch: refetchChannelRefDirectory,
+  } = useChannelRefDirectory(channelRefDirectoryEnabled)
   const channelRefCandidates = useMemo(
     () =>
       channelRefDirectory.flatMap((s) =>
@@ -181,6 +187,28 @@ function DmView() {
       ),
     [channelRefDirectory],
   )
+  const channelRefCandidateSource = useMemo(() => ({
+    loading: !channelRefDirectoryResolved && (
+      !channelRefDirectoryEnabled || channelRefDirectoryLoading
+    ),
+    failed: channelRefDirectoryError,
+  }), [
+    channelRefDirectoryEnabled,
+    channelRefDirectoryError,
+    channelRefDirectoryLoading,
+    channelRefDirectoryResolved,
+  ])
+  const handleChannelRefIntent = useCallback(() => {
+    if (!channelRefDirectoryEnabled) {
+      setChannelRefDirectoryEnabled(true)
+      return
+    }
+    if (channelRefDirectoryError) void refetchChannelRefDirectory()
+  }, [
+    channelRefDirectoryEnabled,
+    channelRefDirectoryError,
+    refetchChannelRefDirectory,
+  ])
   // Anchor of the "New" divider: the first non-self message after
   // `lastReadMessageId` inside the currently-loaded window. Mirrors the
   // channel-view logic exactly — see channel page for why we skip past
@@ -487,7 +515,8 @@ function DmView() {
             // honest without shimming friends into a member shape.
             members={[]}
             channelRefCandidates={channelRefCandidates}
-            onChannelRefIntent={() => setChannelRefDirectoryEnabled(true)}
+            channelRefCandidateSource={channelRefCandidateSource}
+            onChannelRefIntent={handleChannelRefIntent}
             onAcceptSend={acceptDmSend}
             onTyping={handleTyping}
             replyingTo={replyTo?.authorName}

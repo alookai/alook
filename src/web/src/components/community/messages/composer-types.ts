@@ -23,6 +23,11 @@ export type MentionCandidateSource = {
   search: (query: string) => void
 }
 
+export type ChannelRefCandidateSource = {
+  loading: boolean
+  failed: boolean
+}
+
 export type ComposerHandle = {
   focusEditor: () => void
   submitNow: () => void
@@ -37,6 +42,7 @@ type ComposerBaseProps = {
   members: Member[]
   mentionCandidates?: MentionCandidateSource
   channelRefCandidates?: ChannelRefCandidate[]
+  channelRefCandidateSource?: ChannelRefCandidateSource
   onChannelRefIntent?: () => void
   onTyping?: () => void
   replyingTo?: string
