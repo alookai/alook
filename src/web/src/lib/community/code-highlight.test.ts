@@ -1,4 +1,45 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { ShikiLanguage } from "./attachment-presentation"
+
+const SUPPORTED_LANGUAGES = [
+  "bash",
+  "c",
+  "cpp",
+  "csharp",
+  "css",
+  "diff",
+  "dockerfile",
+  "dotenv",
+  "go",
+  "graphql",
+  "hcl",
+  "html",
+  "ini",
+  "java",
+  "javascript",
+  "json",
+  "jsonl",
+  "jsx",
+  "kotlin",
+  "log",
+  "makefile",
+  "mdx",
+  "php",
+  "proto",
+  "python",
+  "ruby",
+  "rust",
+  "scss",
+  "sql",
+  "svelte",
+  "swift",
+  "toml",
+  "tsx",
+  "typescript",
+  "vue",
+  "xml",
+  "yaml",
+] as const satisfies readonly ShikiLanguage[]
 
 const shikiMocks = vi.hoisted(() => {
   const highlighter = {
@@ -96,6 +137,16 @@ describe("highlightCode", () => {
       reason: null,
     })
     expect(second.kind).toBe("highlighted")
+  })
+
+  it("resolves every supported language through its explicit package entry", async () => {
+    shikiMocks.highlighter.codeToTokensWithThemes.mockReturnValue([])
+    const { highlightCode } = await import("./code-highlight")
+
+    await Promise.all(SUPPORTED_LANGUAGES.map((language) => highlightCode("source", language)))
+
+    expect(shikiMocks.highlighter.loadLanguage).toHaveBeenCalledTimes(SUPPORTED_LANGUAGES.length)
+    expect(shikiMocks.highlighter.codeToTokensWithThemes).toHaveBeenCalledTimes(SUPPORTED_LANGUAGES.length)
   })
 
   it("skips Shiki above the byte or line token budget", async () => {
