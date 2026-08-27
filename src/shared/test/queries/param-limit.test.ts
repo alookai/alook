@@ -8,6 +8,7 @@ import {
 } from "../../src/db/community-schema";
 import * as mentionQueries from "../../src/db/queries/community/mention";
 import * as attachmentQueries from "../../src/db/queries/community/attachment";
+import * as inboxQueries from "../../src/db/queries/community/inbox";
 import { D1_MAX_BIND_PARAMS } from "../../src/db/queries/_chunk";
 
 const fakeDb = drizzle({} as never);
@@ -145,5 +146,40 @@ describe("listByMessageIds chunking + global re-sort", () => {
     const rows = await attachmentQueries.listByMessageIds(db, ids);
     expect(callCount()).toBe(2); // 150 ids → 2 chunks (90 + 60)
     expect(rows.map((r: any) => r.position)).toEqual([1, 2]);
+  });
+});
+
+function makeD1SelectCapture() {
+  const statements: Array<{ sql: string; params: unknown[] }> = [];
+  const client = {
+    prepare(sql: string) {
+      return {
+        bind(...params: unknown[]) {
+          statements.push({ sql, params });
+          return { raw: async () => [] };
+        },
+      };
+    },
+  };
+  return { db: drizzle(client as never), statements };
+}
+
+describe("listEligibleUnreadChannels bound parameters", () => {
+  it("95 visible ids use 80-id chunks and keep every statement within D1's limit", async () => {
+    const { db, statements } = makeD1SelectCapture();
+    const visibleChannelIds = Array.from({ length: 95 }, (_, index) => `channel_${index}`);
+
+    await expect(
+      inboxQueries.listEligibleUnreadChannels(db as never, "user_1", visibleChannelIds),
+    ).resolves.toEqual([]);
+
+    expect(statements).toHaveLength(2);
+    expect(statements.map(({ params }) => params.filter(
+      (value) => typeof value === "string" && value.startsWith("channel_"),
+    ).length)).toEqual([80, 15]);
+    expect(statements.map(({ params }) => params.length)).toEqual([91, 26]);
+    for (const { params } of statements) {
+      expect(params.length).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
+    }
   });
 });
