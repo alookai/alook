@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import * as linkPreviewMobile from "link-preview-js/mobile"
 import {
   LINK_PREVIEW_LIMITS,
   fetchLinkPreview,
@@ -546,6 +547,22 @@ describe("fetchLinkPreview", () => {
         message: "preview metadata missing",
         stage: "metadata_parse",
         code: "metadata_missing",
+      })
+  })
+
+  it("classifies an HTML metadata parser failure", async () => {
+    vi.spyOn(linkPreviewMobile, "getPreviewFromContent")
+      .mockRejectedValueOnce(new Error("parser failed"))
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
+      "<html><head><title>Example</title></head></html>",
+      { headers: { "content-type": "text/html" } },
+    )))
+
+    await expect(fetchLinkPreview("https://example.com/parser-failure"))
+      .rejects.toMatchObject({
+        message: "parser failed",
+        stage: "metadata_parse",
+        code: "metadata_parse_failed",
       })
   })
 })
