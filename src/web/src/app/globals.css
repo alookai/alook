@@ -144,6 +144,7 @@
 
 .community-first-signup-guide {
   --guide-end-scale: 0.1875;
+  --guide-clearance-scale: 0.3076923077;
   position: fixed;
   top: 0;
   left: 0;
@@ -289,6 +290,22 @@
 @keyframes community-first-signup-guide-scale {
   0%, 67.5% {
     transform: scale(1);
+    animation-timing-function: var(--guide-flight-ease);
+  }
+
+  97.5%, 100% {
+    transform: scale(var(--guide-end-scale));
+  }
+}
+
+@keyframes community-first-signup-guide-scale-mobile {
+  0%, 67.5% {
+    transform: scale(1);
+    animation-timing-function: var(--guide-flight-ease);
+  }
+
+  92% {
+    transform: scale(var(--guide-clearance-scale));
     animation-timing-function: var(--guide-flight-ease);
   }
 
@@ -476,6 +493,10 @@ body.community-onboarding-active.driver-active :is(
 
   .community-first-signup-guide .alook-avatar-eyes {
     animation-name: community-first-signup-guide-eyes-mobile;
+  }
+
+  .community-first-signup-guide.is-ready .community-first-signup-guide-scale {
+    animation-name: community-first-signup-guide-scale-mobile;
   }
 
   .community-onboarding-card {

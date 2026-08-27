@@ -41,7 +41,15 @@ describe("first-signup guide avatar motion", () => {
 
     expect(geometry.startX).toBe(31.2)
     expect(geometry.startY).toBe(532)
+    expect(geometry.controlX).toBe(280)
+    expect(geometry.controlY).toBe(580)
+    expect(geometry.waypointX).toBe(280)
+    expect(geometry.waypointY).toBe(556)
     expect(geometry.endScale).toBeCloseTo(24 / 104)
+    expect(geometry.clearanceScale).toBeCloseTo(32 / 104)
+    expect(guideMotionPath(geometry)).toBe(
+      'path("M 31.2 532 Q 280 580, 280 556 L 280 410")',
+    )
   })
 
   it("waits for two animation frames so the empty state paints before motion starts", () => {
@@ -92,6 +100,8 @@ describe("first-signup guide avatar motion", () => {
     expect(styles).toContain("transform: translateX(-3px);")
     expect(styles).toContain("transform: translateX(2px);")
     expect(styles).toContain("animation-timing-function: var(--guide-flight-ease);")
+    expect(styles).toContain("animation-name: community-first-signup-guide-scale-mobile;")
+    expect(styles).toContain("transform: scale(var(--guide-clearance-scale));")
   })
 
   it("exposes stable QA targets for the travelling avatar and exact orbit landing point", async () => {

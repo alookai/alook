@@ -30,9 +30,12 @@ export type GuideMotionGeometry = {
   startY: number
   controlX: number
   controlY: number
+  waypointX?: number
+  waypointY?: number
   endX: number
   endY: number
   endScale: number
+  clearanceScale: number
 }
 
 export function guideMotionGeometry(
@@ -48,19 +51,27 @@ export function guideMotionGeometry(
   const endY = landing.top
   const distanceX = endX - startX
   const arcLift = Math.min(180, Math.max(72, Math.abs(distanceX) * 0.28))
+  const mobile = avatarSize < 128
+  const mobileControlY = Math.min(startY + 48, stage.bottom - avatarSize - 12)
 
   return {
     startX,
     startY,
-    controlX: startX + distanceX * 0.52,
-    controlY: Math.min(startY, endY) - arcLift,
+    controlX: mobile ? endX : startX + distanceX * 0.52,
+    controlY: mobile ? mobileControlY : Math.min(startY, endY) - arcLift,
+    waypointX: mobile ? endX : undefined,
+    waypointY: mobile ? startY + (mobileControlY - startY) / 2 : undefined,
     endX,
     endY,
     endScale: landing.width / avatarSize,
+    clearanceScale: Math.min(1, 32 / avatarSize),
   }
 }
 
 export function guideMotionPath(geometry: GuideMotionGeometry): string {
+  if (geometry.waypointX !== undefined && geometry.waypointY !== undefined) {
+    return `path("M ${geometry.startX} ${geometry.startY} Q ${geometry.controlX} ${geometry.controlY}, ${geometry.waypointX} ${geometry.waypointY} L ${geometry.endX} ${geometry.endY}")`
+  }
   return `path("M ${geometry.startX} ${geometry.startY} Q ${geometry.controlX} ${geometry.controlY}, ${geometry.endX} ${geometry.endY}")`
 }
 
@@ -99,6 +110,7 @@ export function GuideMeAvatarMotion({
       )
       avatar.style.offsetPath = guideMotionPath(geometry)
       avatar.style.setProperty("--guide-end-scale", String(geometry.endScale))
+      avatar.style.setProperty("--guide-clearance-scale", String(geometry.clearanceScale))
 
       setReady(true)
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
