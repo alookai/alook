@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import {
   createMessageMenuPointAnchor,
   Message,
+  messageCanShare,
   selectionBelongsToRow,
   shouldActivateMessageOverlays,
   shouldSuppressTouchMenuOpen,
@@ -52,6 +53,12 @@ function makeTree(props: Parameters<typeof Message>[0]) {
     { client: queryClient },
     React.createElement(Message, props),
   )
+}
+
+function textContent(node: TestRenderer.ReactTestInstance): string {
+  return node.children.map((child) => (
+    typeof child === "string" ? child : textContent(child)
+  )).join("")
 }
 
 beforeEach(() => {
@@ -127,6 +134,49 @@ describe("Message memo comparator", () => {
       }))
     })
     expect(resolveUserName.mock.calls.length).toBeGreaterThan(before)
+  })
+})
+
+describe("Message reply content projection", () => {
+  it("keeps the reply header and renders only the projected Markdown body", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg({
+          content: "@Bob Smith\n**visible** body",
+          replyTo: { id: "prior", authorName: "Bob Smith", text: "original" },
+        }),
+        onOpenThread: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+
+    const body = renderer!.root.findByProps({ "data-community-message-body": true })
+    expect(textContent(body)).not.toContain("@Bob Smith")
+    expect(textContent(body)).toContain("visible")
+    expect(renderer!.root.findAllByType("button").some((button) => (
+      textContent(button).includes("@Bob Smith")
+      && textContent(button).includes("original")
+    ))).toBe(true)
+  })
+
+  it("keeps a different leading mention visible and hides prefix-only reply text", () => {
+    let different: TestRenderer.ReactTestRenderer
+    act(() => {
+      different = TestRenderer.create(makeTree({
+        m: baseMsg({
+          content: "@Carol\nhello",
+          replyTo: { id: "prior", authorName: "Bob", text: "original" },
+        }),
+        onOpenThread: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+    const body = different!.root.findByProps({ "data-community-message-body": true })
+    expect(textContent(body)).toContain("@Carol")
+
+    expect(messageCanShare(baseMsg({
+      content: "@Bob\n",
+      replyTo: { id: "prior", authorName: "Bob", text: "original" },
+    }))).toBe(false)
   })
 })
 

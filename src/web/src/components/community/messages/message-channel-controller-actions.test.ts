@@ -241,4 +241,36 @@ describe("createMessageActions", () => {
     expect(harness.setReplyTo).toHaveBeenCalledWith({ id: "m2", authorName: "Latest", text: "new" })
     expect("onDelete" in harness.actions).toBe(false)
   })
+
+  it("uses projected reply text for actions and restores one canonical prefix on edit", async () => {
+    const harness = setup()
+    harness.actionContext.current.messages = [{
+      ...harness.actionContext.current.messages[0],
+      content: "@Alice Smith\n> quote\n\nbody",
+      replyTo: { id: "prior", authorName: "Alice Smith", text: "original" },
+    }]
+
+    harness.actions.onReply("m1")
+    expect(harness.setReplyTo).toHaveBeenCalledWith({
+      id: "m1",
+      authorName: "Viewer",
+      text: "> quote\n\nbody",
+    })
+
+    harness.actions.onCopy("m1")
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("> quote\n\nbody")
+
+    await harness.actions.onCreateThread("m1")
+    expect(mocks.deriveThreadName).toHaveBeenCalledWith("> quote\n\nbody", "general")
+
+    vi.stubGlobal("window", { prompt: vi.fn(() => "edited") })
+    harness.actions.onEdit("m1")
+    expect(window.prompt).toHaveBeenCalledWith("Edit message", "> quote\n\nbody")
+    expect(harness.editMessage).toHaveBeenCalledWith({
+      serverId: "server_1",
+      channelId: "channel_1",
+      messageId: "m1",
+      content: "@Alice Smith\nedited",
+    }, expect.objectContaining({ onError: expect.any(Function) }))
+  })
 })

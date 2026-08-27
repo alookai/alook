@@ -4,6 +4,7 @@ import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import type { FileAttachment, ImagePreview, Msg } from "@/lib/community/models/message"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
+import { canonicalizeReplyContent, displayReplyContent } from "@/lib/community/reply-content"
 import type {
   MessageActions,
   MessageUiHandlers,
@@ -90,7 +91,7 @@ export function createMessageActions({
         setReplyTo({
           id: message.id,
           authorName: message.authorName ?? "",
-          text: message.content ?? "",
+          text: displayReplyContent(message.content ?? "", message.replyTo),
         })
       }
     },
@@ -111,7 +112,10 @@ export function createMessageActions({
     onMark: (id) => toggleMark(channelId, id),
     onCreateThread: async (id) => {
       const message = actionContext.current.messages.find((item) => item.id === id)
-      const name = deriveThreadName(message?.content, actionContext.current.channelName)
+      const content = message
+        ? displayReplyContent(message.content ?? "", message.replyTo)
+        : undefined
+      const name = deriveThreadName(content, actionContext.current.channelName)
       try {
         const data = await createThreadAsync({ serverId, channelId, messageId: id, name })
         actionContext.current.onOpenThread(data.id)
@@ -121,15 +125,20 @@ export function createMessageActions({
     },
     onCopy: (id) => {
       const message = actionContext.current.messages.find((item) => item.id === id)
-      if (!message?.content) return
-      void navigator.clipboard?.writeText(message.content)
+      if (!message) return
+      const content = displayReplyContent(message.content ?? "", message.replyTo)
+      if (!content) return
+      void navigator.clipboard?.writeText(content)
       toast("Copied to clipboard")
     },
     onEdit: (id) => {
       const message = actionContext.current.messages.find((item) => item.id === id)
-      if (!message?.content || message.authorId !== viewerUserId || message.seq === undefined) return
-      const content = window.prompt("Edit message", message.content)
-      if (!content || content === message.content) return
+      if (!message || message.authorId !== viewerUserId || message.seq === undefined) return
+      const visibleContent = displayReplyContent(message.content ?? "", message.replyTo)
+      if (!visibleContent) return
+      const editedContent = window.prompt("Edit message", visibleContent)
+      if (!editedContent || editedContent === visibleContent) return
+      const content = canonicalizeReplyContent(editedContent, message.replyTo)
       editMessage({ serverId, channelId, messageId: id, content }, {
         onError: (error) => toastApiError(error, "Failed to edit message"),
       })

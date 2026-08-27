@@ -97,7 +97,7 @@ describe("message channel send helpers", () => {
           authorId: "viewer_1",
           authorName: "Viewer",
           authorAvatar: "V",
-          content: "hello",
+          content: "@Alice\nhello",
           createdAt: "2026-01-02T03:04:05.000Z",
           replyTo: { id: "reply_1", authorName: "Alice", text: "prior" },
         },
@@ -171,6 +171,29 @@ describe("message channel send helpers", () => {
     expect(runner).toHaveBeenCalledWith("nonce_1")
     expect(mocks.resetTyping).toHaveBeenCalledWith({ channelId: "channel_1" })
     expect(clearReply).toHaveBeenCalledOnce()
+  })
+
+  it("stores the canonical author prefix for an attachment-only reply", () => {
+    const file = new File(["abc"], "only.txt", { type: "text/plain" })
+    mocks.accept.mockReturnValue(true)
+
+    expect(acceptChannelMessage({
+      markdown: "",
+      attachments: [{ file, previewObjectUrl: "blob:provided" }],
+      messageScope: scope,
+      viewer,
+      replyTo: { id: "reply_1", authorName: "Alice Smith", text: "prior" },
+      runAcceptedIntent: vi.fn(async () => {}),
+      channelId: "channel_1",
+      clearReply: vi.fn(),
+    })).toBe(true)
+
+    expect(mocks.accept).toHaveBeenCalledWith(scope, expect.objectContaining({
+      message: expect.objectContaining({
+        content: "@Alice Smith\n",
+        replyTo: { id: "reply_1", authorName: "Alice Smith", text: "prior" },
+      }),
+    }))
   })
 
   it("reuses settled projections and dispatches all-or-nothing upload failure without sending", async () => {
@@ -351,5 +374,40 @@ describe("message channel send helpers", () => {
     }))
     expect(mocks.dispatch).not.toHaveBeenCalled()
     expect(mocks.toastApiError).not.toHaveBeenCalled()
+  })
+
+  it("sends the accepted canonical reply bytes unchanged on every retry", async () => {
+    const canonicalContent = "@Alice Smith\n> quoted\n\nbody"
+    mocks.getRetryPayload.mockReturnValue({
+      localUploads: [],
+      uploadStatus: "settled",
+      message: {
+        content: canonicalContent,
+        replyTo: { id: "reply_1", authorName: "Alice Smith", text: "prior" },
+      },
+    })
+    const sendMessageAsync = vi.fn(async () => ({}))
+    const args = {
+      messageScope: scope,
+      nonce: "nonce_retry",
+      uploadFileAsync: vi.fn(),
+      sendMessageAsync,
+      channelId: "channel_1",
+      serverId: "server_1",
+      viewer,
+    }
+
+    await runAcceptedMessageIntent(args)
+    await runAcceptedMessageIntent(args)
+
+    expect(sendMessageAsync).toHaveBeenCalledTimes(2)
+    expect(sendMessageAsync).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      content: canonicalContent,
+      replyToId: "reply_1",
+    }))
+    expect(sendMessageAsync).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      content: canonicalContent,
+      replyToId: "reply_1",
+    }))
   })
 })

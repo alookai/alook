@@ -28,6 +28,7 @@ export type OpenerPayload = {
   // shape (this payload is fed by that same endpoint, `GET /api/community/messages/:id`).
   type: "chat" | "system"
   createdAt: string
+  replyTo?: Msg["replyTo"]
   attachments?: Msg["attachments"]
   embeds?: Msg["embeds"]
   reactions?: Msg["reactions"]
