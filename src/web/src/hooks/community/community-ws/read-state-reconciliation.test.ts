@@ -73,6 +73,26 @@ describe("account read-state reconciliation", () => {
     })
   })
 
+  it("uses all surfaces when options are omitted", async () => {
+    apiFetch.mockResolvedValue({ revision: 1, readStates: [] })
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
+
+    await expect(reconcileAccountReadState(queryClient)).resolves.toEqual({
+      revision: 1,
+      readStates: [],
+    })
+
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: communityKeys.inbox(),
+      refetchType: "active",
+    }, { throwOnError: true, cancelRefetch: true })
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: communityKeys.servers(),
+      exact: true,
+      refetchType: "active",
+    }, { throwOnError: true, cancelRefetch: true })
+  })
+
   it("reprojects leaf caches when a lifecycle read returns the current revision", async () => {
     queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
       revision: 10,
@@ -277,6 +297,31 @@ describe("account read-state reconciliation", () => {
     vi.useRealTimers()
   })
 
+  it("contains a rejected snapshot retry and rearms the next backoff", async () => {
+    vi.useFakeTimers()
+    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+      revision: 4,
+      readStates: [],
+    })
+    apiFetch
+      .mockRejectedValueOnce(new Error("first snapshot failure"))
+      .mockRejectedValueOnce(new Error("second snapshot failure"))
+      .mockResolvedValueOnce({ revision: 5, readStates: [] })
+
+    await expect(reconcileAccountReadState(queryClient, {
+      invalidateSurfaces: false,
+      targetRevision: 5,
+    })).rejects.toThrow("first snapshot failure")
+    await vi.advanceTimersByTimeAsync(100)
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
+    await vi.advanceTimersByTimeAsync(200)
+    await vi.waitFor(() => expect(queryClient.getQueryData(
+      communityKeys.accountReadStateSnapshot(),
+    )).toMatchObject({ revision: 5 }))
+    expect(apiFetch).toHaveBeenCalledTimes(3)
+    vi.useRealTimers()
+  })
+
   it("cancels retained retry work on exit without another GET or projection", async () => {
     vi.useFakeTimers()
     queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
@@ -391,6 +436,86 @@ describe("account read-state reconciliation", () => {
       inboxChanged: true,
     })).toBe("stale")
     unsubscribe()
+  })
+
+  it("contains a rejected Inbox retry and rearms the next backoff", async () => {
+    vi.useFakeTimers()
+    apiFetch.mockResolvedValue({ revision: 1, readStates: [] })
+    let inboxFetches = 0
+    const inboxObserver = new QueryObserver(queryClient, {
+      queryKey: communityKeys.inbox(),
+      queryFn: async () => {
+        inboxFetches += 1
+        if (inboxFetches === 2 || inboxFetches === 3) {
+          throw new Error("temporary inbox failure")
+        }
+        return []
+      },
+    })
+    const unsubscribe = inboxObserver.subscribe(() => undefined)
+    await vi.waitFor(() => expect(inboxObserver.getCurrentResult().status).toBe("success"))
+
+    await expect(reconcileAccountReadState(queryClient, {
+      surfaceMode: "inbox-dms",
+      targetRevision: 1,
+    })).rejects.toThrow("read-state surface reconciliation failed")
+    await vi.advanceTimersByTimeAsync(100)
+    await vi.waitFor(() => expect(inboxFetches).toBe(3))
+    await vi.advanceTimersByTimeAsync(200)
+    await vi.waitFor(() => expect(inboxFetches).toBe(4))
+
+    expect(inboxObserver.getCurrentResult()).toMatchObject({ status: "success", data: [] })
+    unsubscribe()
+    vi.useRealTimers()
+  })
+
+  it("contains failed surface kicks after snapshot recovery and retries both families", async () => {
+    vi.useFakeTimers()
+    apiFetch
+      .mockRejectedValueOnce(new Error("snapshot unavailable"))
+      .mockResolvedValueOnce({ revision: 1, readStates: [] })
+    let inboxFetches = 0
+    const inboxObserver = new QueryObserver(queryClient, {
+      queryKey: communityKeys.inbox(),
+      queryFn: async () => {
+        inboxFetches += 1
+        if (inboxFetches === 2) throw new Error("inbox kick failed")
+        return []
+      },
+    })
+    let serverFetches = 0
+    const serverObserver = new QueryObserver(queryClient, {
+      queryKey: communityKeys.server("server-1"),
+      queryFn: async () => {
+        serverFetches += 1
+        if (serverFetches === 2) throw new Error("server kick failed")
+        return { id: "server-1" }
+      },
+    })
+    const unsubscribeInbox = inboxObserver.subscribe(() => undefined)
+    const unsubscribeServer = serverObserver.subscribe(() => undefined)
+    await Promise.all([
+      vi.waitFor(() => expect(inboxObserver.getCurrentResult().status).toBe("success")),
+      vi.waitFor(() => expect(serverObserver.getCurrentResult().status).toBe("success")),
+    ])
+
+    await expect(reconcileAccountReadState(queryClient, {
+      targetRevision: 1,
+    })).rejects.toThrow("snapshot unavailable")
+    await vi.advanceTimersByTimeAsync(100)
+    await vi.waitFor(() => {
+      expect(inboxFetches).toBe(2)
+      expect(serverFetches).toBe(2)
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    await vi.waitFor(() => {
+      expect(inboxFetches).toBe(3)
+      expect(serverFetches).toBe(3)
+    })
+
+    unsubscribeInbox()
+    unsubscribeServer()
+    vi.useRealTimers()
   })
 
   it("coalesces repeated live hints into one retry worker without a request storm", async () => {

@@ -310,6 +310,7 @@ class ReadCoordinator {
     drainCutoff?: number,
     options: PendingReadFlushOptions = {},
   ): Promise<ReadAttemptOutcome> {
+    /* istanbul ignore next -- private callers synchronously gate disposal before entry */
     if (this.disposed) {
       return Promise.resolve({ committed: false, reconciled: false })
     }
@@ -389,6 +390,7 @@ class ReadCoordinator {
     }
     const activeAttempt = state.inFlight?.attemptEpoch === attemptEpoch
       ? state.inFlight
+      /* istanbul ignore next -- attemptActive succeeded and no write or await can replace inFlight */
       : null
     const deferInboxDms = activeAttempt?.deferInboxDms?.() === true
       || (activeAttempt?.drainCutoff !== undefined
@@ -424,6 +426,7 @@ class ReadCoordinator {
   ) {
     const drainCutoff = state.inFlight?.attemptEpoch === attemptEpoch
       ? state.inFlight.drainCutoff
+      /* istanbul ignore next -- this reconciliation finally is the attempt's only finisher */
       : undefined
     if (state.inFlight?.attemptEpoch === attemptEpoch) state.inFlight = null
     if (this.disposed || !state.accepted || state.retryTimer !== null) return

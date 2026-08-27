@@ -248,7 +248,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       || owner.disposed
       || owner.epoch !== epoch
       || owner.current?.id !== generation.id
-    ) return
+    ) {
+      /* istanbul ignore next -- the sole timer caller validates and enters synchronously */
+      return
+    }
     let consumed = false
     let deferred = false
     try {
@@ -263,7 +266,9 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       consumed = outcome.consumed
       deferred = outcome.deferred === true
     } catch {
+      /* istanbul ignore next -- the coordinator normalizes every real failure into an outcome */
       consumed = false
+      /* istanbul ignore next -- the coordinator normalizes every real failure into an outcome */
       deferred = false
     }
     const current = inboxRefreshOwner.current

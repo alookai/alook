@@ -170,6 +170,7 @@ test("one human account converges read state across two browser profiles", async
   proxyB.replay(firstReadFrame!)
   await expectJourneyUnreadsCleared()
 
+  await gotoAfterUserWsAuth(deviceA.page, "/c/me/friends")
   await seedMessage("alice", channelId, `offline channel ${stamp}`)
   await seedDmMessage("alice", dmId, `offline dm ${stamp}`)
   await expect(deviceB.page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible({ timeout: 20_000 })

@@ -118,9 +118,12 @@ test.describe.serial("committed message delivery QA", () => {
       const data = await response.json() as { servers: Array<{ id: string; mentions: number }> }
       const authoritative = data.servers.find((server) => server.id === serverId)?.mentions ?? 0
       const badge = bob.page.getByTestId(tid.railUnreadBadge(serverId))
-      const displayed = await badge.count() === 0
+      const badgeTexts = await badge.allTextContents()
+      const displayed = badgeTexts.length === 0
         ? 0
-        : Number((await badge.textContent())?.trim())
+        : badgeTexts.length === 1
+          ? Number(badgeTexts[0]?.trim())
+          : Number.NaN
       return displayed === authoritative
     }, { timeout: 20_000 }).toBe(true)
   })

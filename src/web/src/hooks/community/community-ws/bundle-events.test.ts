@@ -96,6 +96,81 @@ function invalidationCount(queryKey: readonly unknown[]): number {
 }
 
 describe("useCommunityWs — operation bundles", () => {
+  it("merges multiple requests into one queued successor generation", async () => {
+    vi.useFakeTimers()
+    try {
+      useCommunityStore.getState().subscribe({ channelId: "ch-1" })
+      await mountHook({ viewerUserId: "viewer-1" })
+      let releaseRead!: () => void
+      const readGate = new Promise<void>((resolve) => {
+        releaseRead = resolve
+      })
+      getCommunityApiFetchMock().mockImplementation(async (url: unknown) => {
+        if (typeof url === "string" && url.endsWith("/read")) {
+          await readGate
+          return { changed: true, revision: 1, targetSeq: 1 }
+        }
+        if (url === "/api/community/users/me/read-state") {
+          return {
+            revision: 1,
+            readStates: [{
+              channelId: "ch-1",
+              lastReadMessageId: "message-1",
+              lastReadAt: "2026-08-27T00:00:00.000Z",
+              lastReadSeq: 1,
+            }],
+          }
+        }
+        throw new Error(`unexpected API fetch: ${String(url)}`)
+      })
+      vi.spyOn(capturedQueryClient, "invalidateQueries")
+      const lease = registerReadSurface(
+        capturedQueryClient,
+        "viewer-1",
+        { kind: "timeline", channelId: "ch-1" },
+      )
+
+      capturedOnMessage!({
+        type: "community:mention.create",
+        userId: "viewer-1",
+        messageId: "mention-current",
+        channelId: "ch-1",
+        authorName: "Alice",
+      })
+      expect(submitReadIntent(lease, {
+        kind: "timeline",
+        channelId: "ch-1",
+        messageId: "message-1",
+        seq: 1,
+      })).toBe(true)
+      await vi.advanceTimersByTimeAsync(500)
+      await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
+        "/api/community/channels/ch-1/read",
+        expect.anything(),
+      ))
+
+      capturedOnMessage!({
+        type: "community:mention.create",
+        userId: "viewer-1",
+        messageId: "mention-next",
+        channelId: "ch-1",
+        authorName: "Alice",
+      })
+      capturedOnMessage!({
+        ...message,
+        message: { ...message.message, id: "message-next", seq: 2 },
+      })
+      releaseRead()
+      await vi.advanceTimersByTimeAsync(500)
+
+      expect(invalidationCount(communityKeys.inbox())).toBe(1)
+      expect(invalidationCount(communityKeys.dms())).toBe(1)
+      releaseReadSurface(lease)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("carries a deferred wide generation into its narrower successor", async () => {
     vi.useFakeTimers()
     try {

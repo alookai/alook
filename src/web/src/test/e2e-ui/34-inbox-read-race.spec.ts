@@ -62,8 +62,13 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     const { context, page } = await asUser("bob")
     const proxy = await proxyCommunityWebSockets(context)
     await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelA}`)
+    const initialInbox = page.waitForResponse((response) => (
+      response.request().method() === "GET"
+      && new URL(response.url()).pathname === "/api/community/users/me/inbox/unreads"
+    ))
     await page.getByRole("button", { name: "Inbox" }).click()
-    await expect(page.getByText("Caught up", { exact: true })).toBeVisible({ timeout: 20_000 })
+    expect((await initialInbox).status()).toBe(200)
+    await expect(page.getByTestId(tid.inboxUnreadChannel(channelA))).toHaveCount(0)
 
     const stopWatchingA = await watchInboxRow(page, tid.inboxUnreadChannel(channelA))
     const requests: Array<{ method: string; path: string; at: number }> = []

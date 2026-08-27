@@ -58,14 +58,22 @@ describe("read coordinator", () => {
     vi.useRealTimers()
   })
 
-  it("is an account-owned singleton and cannot be rebuilt after disposal", () => {
+  it("is an account-owned singleton and returns an unconsumed flush before and after disposal", async () => {
     const queryClient = new QueryClient()
     expect(getReadCoordinator(queryClient, "user-1"))
       .toBe(getReadCoordinator(queryClient, "user-1"))
     expect(() => getReadCoordinator(queryClient, "user-2"))
       .toThrow("read coordinator owner mismatch")
+    await expect(flushPendingReadIntents(queryClient)).resolves.toEqual({
+      consumed: false,
+      cutoff: null,
+    })
 
     disposeReadCoordinator(queryClient)
+    await expect(flushPendingReadIntents(queryClient)).resolves.toEqual({
+      consumed: false,
+      cutoff: null,
+    })
     expect(() => getReadCoordinator(queryClient, "user-1"))
       .toThrow("read coordinator disposed")
   })
@@ -452,6 +460,38 @@ describe("read coordinator", () => {
       cutoff: 1,
     })
     expect(apiFetch).toHaveBeenCalledOnce()
+  })
+
+  it("returns unconsumed when a joined active attempt fails", async () => {
+    const queryClient = new QueryClient()
+    const lease = timelineLease(queryClient)
+    let rejectRequest!: (error: unknown) => void
+    apiFetch.mockReturnValue(new Promise((_resolve, reject) => {
+      rejectRequest = reject
+    }))
+
+    submitTimeline(lease, 4)
+    await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+    const work = flushPendingReadIntents(queryClient)
+    rejectRequest(new ApiError("busy", 503))
+
+    await expect(work).resolves.toEqual({ consumed: false, cutoff: 1 })
+    expect(apiFetch).toHaveBeenCalledOnce()
+  })
+
+  it("fences a rejected mutation completion after disposal", async () => {
+    const queryClient = new QueryClient()
+    const lease = timelineLease(queryClient)
+    let rejectRequest!: (error: unknown) => void
+    apiFetch.mockReturnValue(new Promise((_resolve, reject) => {
+      rejectRequest = reject
+    }))
+
+    submitTimeline(lease, 4)
+    await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+    disposeReadCoordinator(queryClient)
+    rejectRequest(new Error("aborted"))
+    await vi.waitFor(() => expect(reconcileAccountReadState).not.toHaveBeenCalled())
   })
 
   it("does not consume a committed read whose authoritative refresh fails", async () => {
