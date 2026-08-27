@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { queries, MAX_FOLDER_NAME_LENGTH } from "@alook/shared"
+import { projectServerRailCommit, queries, MAX_FOLDER_NAME_LENGTH } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -31,19 +31,28 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   }
 
   if (body.serverIds !== undefined) {
-    if (!Array.isArray(body.serverIds)) {
-      return writeError("serverIds must be an array", 400)
+    if (!Array.isArray(body.serverIds) || body.serverIds.length === 0) {
+      return writeError("serverIds must be a non-empty array", 400)
     }
-    if (body.serverIds.length > 0) {
-      const memberServerIds = new Set(
-        await queries.communityMember.listMemberServerIds(db, ctx.userId),
-      )
-      const stranger = body.serverIds.find((id) => !memberServerIds.has(id))
-      if (stranger) {
-        return writeError(`not a member of server ${stranger}`, 400)
-      }
+    const memberServerIds = new Set(
+      await queries.communityMember.listMemberServerIds(db, ctx.userId),
+    )
+    const stranger = body.serverIds.find((id) => !memberServerIds.has(id))
+    if (stranger) {
+      return writeError(`not a member of server ${stranger}`, 400)
     }
-    await queries.communityServerFolder.replaceFolderItems(db, folderId, body.serverIds)
+    const snapshot = await queries.communityServerRail.readServerRailSnapshot(db, ctx.userId)
+    const currentIds = snapshot.folders[folderId]?.serverIds
+    if (!currentIds) return writeError("folder not found", 404)
+    const sameItems = currentIds.length === body.serverIds.length
+      && currentIds.every((id, index) => id === body.serverIds![index])
+    if (!sameItems) {
+      const projection = projectServerRailCommit(snapshot, {
+        commands: [{ kind: "replace-folder-items", folderId, serverIds: body.serverIds }],
+      }, () => "")
+      if (!projection.ok) return writeError(projection.error, projection.status)
+      await queries.communityServerRail.applyServerRailProjection(db, ctx.userId, projection.value)
+    }
   }
 
   const updated = await queries.communityServerFolder.getFolder(db, folderId, ctx.userId)

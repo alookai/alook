@@ -99,6 +99,7 @@ describe("POST /api/community/servers/[id]/leave", () => {
       expect.anything(),
       "mem_1",
       "s1",
+      "u1",
       ["bot_1", "bot_2"],
     )
     expect(mockGetMember).toHaveBeenCalledTimes(1)

@@ -1,5 +1,10 @@
 import { eq, and, ne, inArray, count, asc, or, gt, isNull, sql } from "drizzle-orm";
-import { communityServerMember, communityUserProfile } from "../../community-schema";
+import {
+  communityServerFolder,
+  communityServerFolderItem,
+  communityServerMember,
+  communityUserProfile,
+} from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import {
@@ -43,8 +48,36 @@ export async function removeMemberAndOwnerBots(
   db: Database,
   memberId: string,
   serverId: string,
+  targetUserId: string,
   botUserIds: string[],
 ) {
+  const removedUserIds = [...new Set([targetUserId, ...botUserIds])];
+  const cleanupFolderItems = db
+    .delete(communityServerFolderItem)
+    .where(and(
+      eq(communityServerFolderItem.serverId, serverId),
+      sql`EXISTS (
+        SELECT 1
+        FROM ${communityServerFolder}
+        JOIN json_each(${JSON.stringify(removedUserIds)}) AS removed_user
+          ON CAST(removed_user.value AS TEXT) = ${communityServerFolder.userId}
+        WHERE ${communityServerFolder.id} = ${communityServerFolderItem.folderId}
+      )`,
+    ));
+  const cleanupEmptyFolders = db
+    .delete(communityServerFolder)
+    .where(and(
+      sql`EXISTS (
+        SELECT 1
+        FROM json_each(${JSON.stringify(removedUserIds)}) AS removed_user
+        WHERE CAST(removed_user.value AS TEXT) = ${communityServerFolder.userId}
+      )`,
+      sql`NOT EXISTS (
+        SELECT 1
+        FROM ${communityServerFolderItem}
+        WHERE ${communityServerFolderItem.folderId} = ${communityServerFolder.id}
+      )`,
+    ));
   const removeTarget = db
     .delete(communityServerMember)
     .where(
@@ -55,8 +88,13 @@ export async function removeMemberAndOwnerBots(
     )
     .returning();
   const removeBots = removeOwnerBotsFromServerStatement(db, serverId, botUserIds);
-  const results = (await db.batch([removeTarget, removeBots] as any)) as any[];
-  return (results[0] as Array<typeof communityServerMember.$inferSelect>)[0] ?? null;
+  const results = (await db.batch([
+    cleanupFolderItems,
+    cleanupEmptyFolders,
+    removeTarget,
+    removeBots,
+  ] as any)) as any[];
+  return (results[2] as Array<typeof communityServerMember.$inferSelect>)[0] ?? null;
 }
 
 export async function updateRole(db: Database, memberId: string, role: string) {
@@ -399,7 +437,7 @@ export async function getMemberships(db: Database, userId: string, serverIds: st
 /**
  * Owner-leaves-server cascade — SELECT the bot userIds that will be removed
  * from `serverId` because their owner is leaving. Called as step 1 of the
- * three-step leave/kick sequence (see §Owner-leaves-server in plan).
+ * leave/kick sequence (see §Owner-leaves-server in plan).
  */
 export async function listOwnerBotsInServer(
   db: Database,
@@ -443,12 +481,14 @@ export function removeOwnerBotsFromServerStatement(
   }
   return db
     .delete(communityServerMember)
-    .where(
-      and(
-        eq(communityServerMember.serverId, serverId),
-        inArray(communityServerMember.userId, botUserIds)
-      )
-    );
+    .where(and(
+      eq(communityServerMember.serverId, serverId),
+      sql`EXISTS (
+        SELECT 1
+        FROM json_each(${JSON.stringify(botUserIds)}) AS removed_bot
+        WHERE CAST(removed_bot.value AS TEXT) = ${communityServerMember.userId}
+      )`,
+    ));
 }
 
 /** Executes `removeOwnerBotsFromServerStatement` — one DELETE for all bots. */

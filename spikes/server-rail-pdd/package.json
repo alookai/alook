@@ -1,0 +1,25 @@
+{
+  "name": "@alook/server-rail-pdd-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite --host 127.0.0.1 --port 4177 --strictPort",
+    "test": "vitest run",
+    "test:browser": "playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@atlaskit/pragmatic-drag-and-drop": "3.0.0",
+    "@atlaskit/pragmatic-drag-and-drop-auto-scroll": "3.1.0",
+    "@atlaskit/pragmatic-drag-and-drop-hitbox": "2.1.0",
+    "@atlaskit/pragmatic-drag-and-drop-live-region": "2.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@types/node": "25.9.4",
+    "typescript": "6.0.3",
+    "vite": "8.2.2",
+    "vitest": "4.1.10"
+  }
+}

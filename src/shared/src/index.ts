@@ -649,6 +649,25 @@ export { createDb } from "./db/index";
 export type { Database } from "./db/index";
 export { withD1Retry, readOrStale, isRetryableD1Error } from "./db/resilience";
 export type { RetryOpts } from "./db/resilience";
+export {
+  MAX_SERVER_RAIL_COMMANDS,
+  MAX_SERVER_RAIL_FOLDERS,
+  MAX_SERVER_RAIL_REQUEST_BYTES,
+  SERVER_RAIL_SNAPSHOT_STATEMENTS,
+  SERVER_RAIL_MAX_WRITE_STATEMENTS,
+  serverRailCommandSchema,
+  serverRailCommitRequestSchema,
+  projectServerRailCommit,
+} from "./community-server-rail";
+export type {
+  ServerRailCommand,
+  ServerRailCommitRequest,
+  ServerRailCommitResponse,
+  ServerRailFolderState,
+  ServerRailState,
+  ServerRailProjection,
+  ServerRailProjectionResult,
+} from "./community-server-rail";
 export * as schema from "./db/schema";
 export * as queries from "./db/queries-index";
 export { communityServer, communityServerInvite, communityFriendship, communityServerMember, communityServerFolder, communityServerFolderItem, communityBotActivityEvent, communityBotDailyActivity } from "./db/community-schema";

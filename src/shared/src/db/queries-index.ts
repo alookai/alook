@@ -53,6 +53,7 @@ export * as communitySearch from "./queries/community/search";
 export * as communityNotificationSetting from "./queries/community/notification-setting";
 export * as communityNotificationEligibility from "./queries/community/notification-eligibility";
 export * as communityServerFolder from "./queries/community/server-folder";
+export * as communityServerRail from "./queries/community/server-rail";
 export * as communityInbox from "./queries/community/inbox";
 export * as communityMachine from "./queries/community/machine";
 export * as communityMachineSession from "./queries/community/machine-session-epoch";

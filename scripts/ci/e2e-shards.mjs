@@ -47,6 +47,7 @@ export const SPEC_SECONDS = {
   "34-inbox-read-race.spec.ts": 42,
   "35-channel-ref-directory-states.spec.ts": 60,
   "36-server-switch-pending-checkpoint.spec.ts": 60,
+  "37-server-rail-pdd.spec.ts": 10,
 }
 
 function walk(directory) {
