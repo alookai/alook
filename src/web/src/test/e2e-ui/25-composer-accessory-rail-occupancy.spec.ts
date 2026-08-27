@@ -34,7 +34,7 @@ type RailMetrics = {
 
 async function railMetrics(page: Page): Promise<RailMetrics> {
   const rail = page.getByTestId(tid.composerAccessoryRail)
-  const composer = page.locator("[data-onboarding-target='channel-composer']")
+  const composer = page.getByTestId(tid.channelComposerShell)
   return rail.evaluate((element, ids) => {
     const target = element as HTMLElement
     const find = (id: string) => target.querySelector<HTMLElement>(`[data-testid='${id}']`)
@@ -52,7 +52,7 @@ async function railMetrics(page: Page): Promise<RailMetrics> {
     return {
       layout: target.dataset.layout ?? null,
       rail: toRect(target.getBoundingClientRect()),
-      composer: toRect(document.querySelector<HTMLElement>("[data-onboarding-target='channel-composer']")!.getBoundingClientRect()),
+      composer: toRect(document.querySelector<HTMLElement>(`[data-testid='${ids.composer}']`)!.getBoundingClientRect()),
       typing: typing ? toRect(typing.getBoundingClientRect()) : null,
       center: center ? toRect(center.getBoundingClientRect()) : null,
       documentClientWidth: document.documentElement.clientWidth,
@@ -71,6 +71,7 @@ async function railMetrics(page: Page): Promise<RailMetrics> {
     typing: tid.typingIndicator,
     scroll: tid.scrollToPresent,
     selection: tid.messageSelectionToolbar,
+    composer: tid.channelComposerShell,
   }).then(async (metrics) => {
     await expect(composer).toBeVisible()
     return metrics
@@ -110,7 +111,13 @@ async function captureState(args: {
   const evidence: Record<number, RailMetrics> = {}
   for (const width of widths) {
     await page.setViewportSize({ width, height: width >= 768 ? 900 : 844 })
-    const composer = page.locator("[data-onboarding-target='channel-composer']")
+    const scrollRoot = page.getByTestId(tid.messageScroller)
+    await scrollRoot.evaluate((element, showScrollControl) => {
+      element.scrollTop = showScrollControl ? 0 : element.scrollHeight
+      element.dispatchEvent(new Event("scroll"))
+    }, center && !selection)
+    await expect(page.getByTestId(tid.scrollToPresent)).toHaveCount(center && !selection ? 1 : 0)
+    const composer = page.getByTestId(tid.channelComposerShell)
     await expect.poll(() => composer.evaluate((element, viewportWidth) => {
       const rect = element.getBoundingClientRect()
       return viewportWidth < 640
@@ -120,7 +127,6 @@ async function captureState(args: {
     const rail = page.getByTestId(tid.composerAccessoryRail)
     await expect(rail).toHaveAttribute("data-layout", layout!)
     await expect(page.getByTestId(tid.typingIndicator)).toHaveCount(typing ? 1 : 0)
-    await expect(page.getByTestId(tid.scrollToPresent)).toHaveCount(center && !selection ? 1 : 0)
     await expect(page.getByTestId(tid.messageSelectionToolbar)).toHaveCount(selection ? 1 : 0)
     const metrics = await railMetrics(page)
     expectContained(metrics, state, width)
@@ -141,8 +147,13 @@ async function captureState(args: {
 async function captureEmptyState(page: Page, testInfo: TestInfo): Promise<void> {
   for (const width of MOBILE_WIDTHS) {
     await page.setViewportSize({ width, height: 844 })
+    await page.getByTestId(tid.messageScroller).evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+      element.dispatchEvent(new Event("scroll"))
+    })
+    await expect(page.getByTestId(tid.scrollToPresent)).toHaveCount(0)
     await expect(page.getByTestId(tid.composerAccessoryRail)).toHaveCount(0)
-    await expect(page.locator("[data-onboarding-target='channel-composer']")).toBeVisible()
+    await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible()
     const documentWidths = await page.evaluate(() => ({
       client: document.documentElement.clientWidth,
       scroll: document.documentElement.scrollWidth,
@@ -184,11 +195,7 @@ test("composer accessory rail reallocates every occupied slot without overflow",
   await sendMessage(bob.page, ping)
   await expect(alice.page.getByText(ping)).toBeVisible()
 
-  const scrollRoot = alice.page
-    .locator("[data-onboarding-target='channel-composer']")
-    .locator("xpath=ancestor::main[1]")
-    .locator(".thin-scrollbar")
-    .first()
+  const scrollRoot = alice.page.getByTestId(tid.messageScroller)
   await expect.poll(() => scrollRoot.evaluate((element) => element.scrollHeight > element.clientHeight))
     .toBe(true)
   await scrollRoot.evaluate((element) => {
@@ -321,9 +328,19 @@ test("composer accessory rail reallocates every occupied slot without overflow",
   })
   await expect(alice.page.getByTestId(tid.scrollToPresent)).toBeVisible()
   await alice.page.setViewportSize({ width: 430, height: 844 })
+  await scrollRoot.evaluate((element) => {
+    element.scrollTop = 0
+    element.dispatchEvent(new Event("scroll"))
+  })
+  await expect(alice.page.getByTestId(tid.scrollToPresent)).toBeVisible()
   let metrics = await railMetrics(alice.page)
   expect(Math.abs(metrics.center!.center - metrics.composer.center)).toBeLessThanOrEqual(1)
   await alice.page.setViewportSize({ width: 1280, height: 900 })
+  await scrollRoot.evaluate((element) => {
+    element.scrollTop = 0
+    element.dispatchEvent(new Event("scroll"))
+  })
+  await expect(alice.page.getByTestId(tid.scrollToPresent)).toBeVisible()
   metrics = await railMetrics(alice.page)
   expect(Math.abs(metrics.center!.center - metrics.composer.center)).toBeLessThanOrEqual(1)
 })
