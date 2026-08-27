@@ -84,38 +84,18 @@
 }
 
 .community-ws-connecting-loader {
-  display: grid;
+  display: block;
   width: 100px;
-  aspect-ratio: 1;
-  box-sizing: border-box;
-  padding: 10px;
-  background: var(--background);
-  filter: blur(5px) contrast(10);
-  mix-blend-mode: darken;
+  height: 100px;
+  overflow: visible;
+  color: var(--primary);
+  background: transparent;
+  mix-blend-mode: normal;
 }
 
-.dark .community-ws-connecting-loader {
-  mix-blend-mode: lighten;
-}
-
-.community-ws-connecting-loader::before,
-.community-ws-connecting-loader::after {
-  grid-area: 1 / 1;
-  background:
-    linear-gradient(var(--primary) 0 0) left,
-    linear-gradient(var(--primary) 0 0) right;
-  background-size: 20px 40px;
-  background-origin: content-box;
-  background-repeat: no-repeat;
-  content: "";
-}
-
-.community-ws-connecting-loader::after {
-  width: 20px;
-  height: 20px;
-  margin: auto 0;
-  border-radius: 50%;
-  background: var(--primary);
+.community-ws-connecting-dot {
+  transform-box: fill-box;
+  transform-origin: center;
   animation: community-ws-connecting 1s infinite;
 }
 
@@ -127,12 +107,12 @@ body.driver-active .community-ws-reconnect-overlay * {
 @keyframes community-ws-connecting {
   90%,
   100% {
-    transform: translateX(300%);
+    transform: translateX(60px);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .community-ws-connecting-loader::after {
+  .community-ws-connecting-dot {
     animation: none;
   }
 }
