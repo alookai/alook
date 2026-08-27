@@ -74,9 +74,7 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
       window.dispatchEvent(new Event("online"))
     })
   }
-  const wsControls = alice.page.locator(
-    `[data-testid='${tid.wsStatus}'], [data-testid='${tid.wsRetry}']`,
-  )
+  const wsOverlay = alice.page.getByTestId(tid.wsReconnectOverlay)
 
   const initialConnectionCount = proxy.connectionCount()
   const initialTokenRequests = tokenRequests
@@ -89,7 +87,7 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
     frame.direction === "client-to-server"
     && (frame.type === "raw.ping" || frame.type === "connection.ping"),
   )).toEqual([])
-  await expect(wsControls).toHaveCount(0)
+  await expect(wsOverlay).toHaveCount(0)
 
   const healthyStart = proxy.connectionFrames.length
   await setVisibility("visible")
@@ -108,7 +106,7 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
   ).length).toBe(1)
   expect(proxy.connectionCount()).toBe(initialConnectionCount)
   expect(tokenRequests).toBe(initialTokenRequests)
-  await expect(wsControls).toHaveCount(0)
+  await expect(wsOverlay).toHaveCount(0)
   await expect(composerEditable(alice.page)).toBeVisible()
 
   await setVisibility("hidden")
@@ -124,9 +122,9 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
   ).length).toBe(1)
   proxy.sendConnectionFrame({ type: "connection.pong", nonce: "queued_stale_nonce" })
   await alice.page.waitForTimeout(WS_CONNECTION_VALIDATION_TIMEOUT_MS - 1_000)
-  await expect(wsControls).toHaveCount(0)
+  await expect(wsOverlay).toHaveCount(0)
 
-  await expect(alice.page.getByTestId(tid.wsStatus)).toHaveAttribute(
+  await expect(wsOverlay).toHaveAttribute(
     "data-ws-status",
     "reconnecting",
     { timeout: 5_000 },
@@ -145,18 +143,18 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
   expect(proxy.releaseHeldConnections((frame) =>
     frame.type === "auth.ok" && frame.connectionId === failedConnectionBaseline + 1,
   )).toBe(1)
-  await expect(wsControls).toHaveCount(0, { timeout: 10_000 })
+  await expect(wsOverlay).toHaveCount(0, { timeout: 10_000 })
   await expect(composerEditable(alice.page)).toBeVisible()
 
   try {
     await alice.context.setOffline(true)
     await proxy.disconnect()
-    await expect(alice.page.getByTestId(tid.wsStatus)).toHaveAttribute(
+    await expect(wsOverlay).toHaveAttribute(
       "data-ws-status",
       "reconnecting",
       { timeout: 10_000 },
     )
-    await expect(alice.page.getByTestId(tid.wsRetry)).toHaveAttribute(
+    await expect(wsOverlay).toHaveAttribute(
       "data-ws-status",
       "failed",
       { timeout: 40_000 },
@@ -166,7 +164,7 @@ test("mobile foreground proof is exact, bounded, and recovers through one curren
   }
 
   await alice.page.getByTestId(tid.wsRetry).click()
-  await expect(wsControls).toHaveCount(0, { timeout: 20_000 })
+  await expect(wsOverlay).toHaveCount(0, { timeout: 20_000 })
   const body = `foreground recovery ${stamp}`
   await sendMessage(bob.page, body)
   await expect(alice.page.getByText(body, { exact: true })).toBeVisible({ timeout: 20_000 })
