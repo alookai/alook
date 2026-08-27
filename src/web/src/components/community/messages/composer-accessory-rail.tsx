@@ -1,16 +1,12 @@
 "use client"
 
-import { ArrowDown, ImageIcon, Radio, WifiOff, X } from "lucide-react"
+import { ArrowDown, ImageIcon, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { NumberTicker } from "@/components/ui/number-ticker"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
-import { useCommunityWsStore } from "@/stores/community/ws"
-import {
-  allocateComposerAccessoryRail,
-  type ComposerAccessoryRailLayout,
-} from "./composer-accessory-rail-layout"
+import { allocateComposerAccessoryRail } from "./composer-accessory-rail-layout"
 import { TypingIndicator } from "./typing-indicator"
 
 export function ComposerAccessoryRail({
@@ -32,14 +28,11 @@ export function ComposerAccessoryRail({
   onCancelSelection: () => void
   onShareSelection: () => void
 }) {
-  const connectionStatus = useCommunityWsStore((state) => state.connectionStatus)
-  const reconnectNow = useCommunityWsStore((state) => state.reconnectNow)
   const hasTyping = typingNames.length > 0
   const hasScroll = scrollCount > 0
-  const hasWsStatus = connectionStatus !== "connected"
   const layout = allocateComposerAccessoryRail(selectMode
-    ? { mode: "selection", left: hasTyping, right: hasWsStatus }
-    : { mode: "normal", left: hasTyping, center: hasScroll, right: hasWsStatus })
+    ? { mode: "selection" }
+    : { mode: "normal", left: hasTyping, center: hasScroll })
 
   if (layout === "empty") return null
 
@@ -54,8 +47,7 @@ export function ComposerAccessoryRail({
         className={cn(
           "grid w-full items-end gap-1 sm:gap-2",
           layout === "centered" && "grid-cols-[minmax(0,1fr)_minmax(0,max-content)_minmax(0,1fr)]",
-          layout === "left-right" && "grid-cols-[minmax(0,1fr)_auto]",
-          (layout === "left-only" || layout === "right-only") && "grid-cols-[minmax(0,1fr)]",
+          layout === "left-only" && "grid-cols-[minmax(0,1fr)]",
         )}
       >
         {selectMode ? (
@@ -72,16 +64,11 @@ export function ComposerAccessoryRail({
                 onShare={onShareSelection}
               />
             </div>
-            {hasWsStatus && (
-              <div key="right" className="col-start-3 min-w-0 max-w-full justify-self-end">
-                <WsStatusControl status={connectionStatus} onRetry={reconnectNow} />
-              </div>
-            )}
           </>
         ) : (
           <>
             {hasTyping && (
-              <div key="left" className={normalSlotClassName(layout, "left")}>
+              <div key="left" className="col-start-1 min-w-0 max-w-full">
                 <TypingIndicator names={typingNames} className="w-fit max-w-full" />
               </div>
             )}
@@ -90,31 +77,10 @@ export function ComposerAccessoryRail({
                 <ScrollControl count={scrollCount} mode={scrollMode} onClick={onScroll} />
               </div>
             )}
-            {hasWsStatus && (
-              <div key="right" className={normalSlotClassName(layout, "right")}>
-                <WsStatusControl status={connectionStatus} onRetry={reconnectNow} />
-              </div>
-            )}
           </>
         )}
       </div>
     </div>
-  )
-}
-
-function normalSlotClassName(
-  layout: ComposerAccessoryRailLayout,
-  side: "left" | "right",
-): string {
-  const column = layout === "centered"
-    ? side === "left" ? "col-start-1" : "col-start-3"
-    : layout === "left-right"
-      ? side === "left" ? "col-start-1" : "col-start-2"
-      : "col-start-1"
-  return cn(
-    column,
-    "min-w-0 max-w-full",
-    side === "right" && "justify-self-end",
   )
 }
 
@@ -190,64 +156,5 @@ function ScrollControl({
       <ArrowDown className="size-3.5 text-muted-foreground" />
       <NumberTicker value={count} />
     </button>
-  )
-}
-
-function WsStatusControl({
-  status,
-  onRetry,
-}: {
-  status: "connected" | "reconnecting" | "failed"
-  onRetry: () => void
-}) {
-  if (status === "connected") return null
-  const failed = status === "failed"
-  const label = failed
-    ? "WebSocket connection failed. Retry now"
-    : "WebSocket reconnecting"
-  const triggerClassName = cn(
-    "pointer-events-auto relative grid size-11 place-items-center rounded-full outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 sm:size-10",
-    failed
-      ? "text-destructive hover:bg-destructive/10"
-      : "cursor-default text-warning",
-  )
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={failed ? (
-          <button
-            type="button"
-            data-testid={tid.wsRetry}
-            data-ws-status={status}
-            aria-label={label}
-            onClick={onRetry}
-            className={triggerClassName}
-          />
-        ) : (
-          <span
-            role="status"
-            aria-live="polite"
-            tabIndex={0}
-            data-testid={tid.wsStatus}
-            data-ws-status={status}
-            aria-label={label}
-            className={triggerClassName}
-          />
-        )}
-      >
-        {!failed && (
-          <span className="absolute size-8 self-end rounded-full bg-warning/10 motion-safe:animate-pulse" />
-        )}
-        <span
-          className={cn(
-            "relative grid size-8 self-end place-items-center rounded-full border bg-background/90 shadow-(--e1) backdrop-blur-sm",
-            failed ? "border-destructive/30" : "border-warning/30",
-          )}
-        >
-          {failed ? <WifiOff className="size-4" /> : <Radio className="size-4" />}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>{failed ? "Connection failed · Retry" : "Reconnecting…"}</TooltipContent>
-    </Tooltip>
   )
 }

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   fetchLatestDaemonVersion: vi.fn(),
   machinesLoading: { current: false },
+  onboardingState: { current: "done" as unknown },
 }))
 
 vi.mock("sonner", () => ({
@@ -57,6 +58,10 @@ vi.mock("@/components/ui/skeleton", () => ({
   Skeleton: (props: Record<string, unknown>) => React.createElement("skeleton-row", props),
 }))
 vi.mock("@/components/avatar", () => ({ GeneratedAvatar: () => null }))
+vi.mock("./guide-me-avatar-motion", () => ({
+  GuideMeAvatarMotion: (props: Record<string, unknown>) =>
+    React.createElement("guide-avatar-motion", props),
+}))
 vi.mock("./machine-card", () => ({ MachineCard: () => null }))
 vi.mock("./pair-machine-sheet", () => ({ PairMachineSheet: () => null }))
 vi.mock("@/components/community/onboarding-tiles/connect-tile", () => ({ ConnectTile: () => null }))
@@ -73,7 +78,7 @@ vi.mock("@/lib/community-onboarding", () => ({
   readCommunityOnboardingState: vi.fn(() => null),
   startCommunityOnboarding: vi.fn(),
   updateCommunityOnboardingResources: vi.fn(),
-  useCommunityOnboarding: () => "done",
+  useCommunityOnboarding: () => mocks.onboardingState.current,
 }))
 vi.mock("@/lib/api/config", () => ({
   fetchLatestDaemonVersion: mocks.fetchLatestDaemonVersion,
@@ -111,6 +116,29 @@ describe("machine daemon update UI", () => {
       package: "@alook/daemon",
     })
     mocks.machinesLoading.current = false
+    mocks.onboardingState.current = "done"
+  })
+
+  it("plays the guide once per empty-page mount and replays after remount", async () => {
+    mocks.onboardingState.current = null
+
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(MachineList))
+    })
+
+    const firstVisit = renderer.root.findByType("guide-avatar-motion")
+    expect(firstVisit.props.intro).toBe(true)
+    expect(firstVisit.props.seed).toMatch(/^alook-guide-/)
+
+    act(() => firstVisit.props.onIntroComplete())
+    expect(renderer.root.findByType("guide-avatar-motion").props.intro).toBe(false)
+
+    act(() => renderer.unmount())
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(MachineList))
+    })
+    expect(renderer.root.findByType("guide-avatar-motion").props.intro).toBe(true)
   })
 
   it("loads Community update eligibility from the daemon package endpoint", async () => {

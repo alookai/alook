@@ -83,6 +83,60 @@
   display: none;
 }
 
+.community-ws-connecting-loader {
+  display: grid;
+  width: 100px;
+  aspect-ratio: 1;
+  box-sizing: border-box;
+  padding: 10px;
+  background: var(--background);
+  filter: blur(5px) contrast(10);
+  mix-blend-mode: darken;
+}
+
+.dark .community-ws-connecting-loader {
+  mix-blend-mode: lighten;
+}
+
+.community-ws-connecting-loader::before,
+.community-ws-connecting-loader::after {
+  grid-area: 1 / 1;
+  background:
+    linear-gradient(var(--primary) 0 0) left,
+    linear-gradient(var(--primary) 0 0) right;
+  background-size: 20px 40px;
+  background-origin: content-box;
+  background-repeat: no-repeat;
+  content: "";
+}
+
+.community-ws-connecting-loader::after {
+  width: 20px;
+  height: 20px;
+  margin: auto 0;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: community-ws-connecting 1s infinite;
+}
+
+body.driver-active .community-ws-reconnect-overlay,
+body.driver-active .community-ws-reconnect-overlay * {
+  pointer-events: auto;
+}
+
+@keyframes community-ws-connecting {
+  90%,
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .community-ws-connecting-loader::after {
+    animation: none;
+  }
+}
+
 .community-guide-me {
   position: relative;
   display: inline-flex;
@@ -95,6 +149,25 @@
   z-index: 1;
   pointer-events: none;
   animation: community-guide-me-orbit 4.8s linear infinite;
+}
+
+.community-guide-me-orbit-holder {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.community-guide-me-orbit-holder.is-intro {
+  opacity: 0;
+}
+
+.community-guide-me-orbit-holder.is-intro.is-ready {
+  animation: community-first-signup-orbit-handoff 4s linear forwards;
+}
+
+.community-guide-me-orbit-holder.is-intro .community-guide-me-orbit,
+.community-guide-me-orbit-holder.is-intro .community-guide-me-avatar {
+  animation-play-state: paused;
 }
 
 .community-guide-me-avatar {
@@ -121,6 +194,186 @@
   to {
     transform: translateX(-50%) rotate(-360deg);
   }
+}
+
+.community-first-signup-guide {
+  --guide-end-scale: 0.1875;
+  --guide-clearance-scale: 0.3076923077;
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 40;
+  display: inline-flex;
+  width: 128px;
+  height: 128px;
+  opacity: 0;
+  pointer-events: none;
+  offset-anchor: top left;
+  offset-distance: 0%;
+  offset-rotate: 0deg;
+  will-change: offset-distance, opacity, translate;
+}
+
+.community-first-signup-guide.is-ready {
+  animation: community-first-signup-guide-travel 4s linear both;
+}
+
+.community-first-signup-guide-scale {
+  display: inline-flex;
+  width: 100%;
+  height: 100%;
+  transform-origin: top left;
+  will-change: transform;
+}
+
+.community-first-signup-guide-art {
+  display: inline-flex;
+  width: 100%;
+  height: 100%;
+  transform-origin: 50% 100%;
+  will-change: transform;
+}
+
+.community-first-signup-guide .alook-avatar-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+  will-change: transform;
+}
+
+.community-first-signup-guide.is-ready .community-first-signup-guide-art {
+  animation: community-first-signup-guide-body 4s linear both;
+}
+
+.community-first-signup-guide.is-ready .community-first-signup-guide-scale {
+  animation: community-first-signup-guide-scale 4s linear both;
+}
+
+.community-first-signup-guide.is-ready .alook-avatar-eyes {
+  animation: community-first-signup-guide-eyes 4s linear both;
+}
+
+@keyframes community-first-signup-guide-travel {
+  0% {
+    opacity: 0;
+    offset-distance: 0%;
+    translate: 0 18px;
+    animation-timing-function: var(--ease-out);
+  }
+
+  7.5%, 62.5% {
+    opacity: 1;
+    offset-distance: 0%;
+    translate: 0 0;
+  }
+
+  67.5% {
+    opacity: 1;
+    offset-distance: 0%;
+    translate: 0 0;
+    animation-timing-function: var(--guide-flight-ease);
+  }
+
+  97.5% {
+    opacity: 1;
+    offset-distance: 100%;
+    translate: 0 0;
+  }
+
+  100% {
+    opacity: 0;
+    offset-distance: 100%;
+    translate: 0 0;
+  }
+}
+
+@keyframes community-first-signup-guide-eyes {
+  0% { transform: translateX(0); }
+  11% {
+    transform: translateX(0);
+    animation-timing-function: var(--ease-in-out);
+  }
+  19% {
+    transform: translateX(-3px);
+    animation-timing-function: var(--ease-in-out);
+  }
+  30% { transform: translateX(0); }
+  36% {
+    transform: translateX(0);
+    animation-timing-function: var(--ease-in-out);
+  }
+  44% {
+    transform: translateX(3px);
+    animation-timing-function: var(--ease-in-out);
+  }
+  55%, 100% { transform: translateX(0); }
+}
+
+@keyframes community-first-signup-guide-body {
+  0%, 32%, 94%, 100% {
+    transform: none;
+  }
+
+  13%, 38% {
+    transform: none;
+    animation-timing-function: var(--ease-out);
+  }
+
+  17%, 28% {
+    transform: rotate(-5deg) scaleX(0.94) scaleY(1.04);
+  }
+
+  42%, 55% {
+    transform: rotate(5deg) scaleX(0.94) scaleY(1.04);
+  }
+
+  62.5% {
+    transform: none;
+    animation-timing-function: var(--ease-in);
+  }
+
+  67.5% {
+    transform: translateY(5px) scaleX(1.04) scaleY(0.92);
+    animation-timing-function: var(--guide-flight-ease);
+  }
+
+  74%, 88% {
+    transform: scaleX(0.96) scaleY(1.06);
+  }
+}
+
+@keyframes community-first-signup-guide-scale {
+  0%, 67.5% {
+    transform: scale(1);
+    animation-timing-function: var(--guide-flight-ease);
+  }
+
+  97.5%, 100% {
+    transform: scale(var(--guide-end-scale));
+  }
+}
+
+@keyframes community-first-signup-guide-scale-mobile {
+  0%, 67.5% {
+    transform: scale(1);
+    animation-timing-function: var(--guide-flight-ease);
+  }
+
+  82% {
+    transform: scale(var(--guide-clearance-scale));
+    animation-timing-function: var(--guide-flight-ease);
+  }
+
+  97.5%, 100% {
+    transform: scale(var(--guide-end-scale));
+  }
+}
+
+@keyframes community-first-signup-orbit-handoff {
+  0% { opacity: 0; }
+  97.4% {
+    opacity: 0;
+  }
+  97.5%, 100% { opacity: 1; }
 }
 
 .driver-popover.community-onboarding-popover .driver-popover-arrow-side-left {
@@ -287,9 +540,44 @@ body.community-onboarding-active.driver-active :is(
 }
 
 @media (max-width: 639px) {
+  .community-first-signup-guide {
+    width: 104px;
+    height: 104px;
+  }
+
+  .community-first-signup-guide .alook-avatar-eyes {
+    animation-name: community-first-signup-guide-eyes-mobile;
+  }
+
+  .community-first-signup-guide.is-ready .community-first-signup-guide-scale {
+    animation-name: community-first-signup-guide-scale-mobile;
+  }
+
   .community-onboarding-card {
     padding: 11px 12px;
   }
+}
+
+@keyframes community-first-signup-guide-eyes-mobile {
+  0% { transform: translateX(0); }
+  11% {
+    transform: translateX(0);
+    animation-timing-function: var(--ease-in-out);
+  }
+  19% {
+    transform: translateX(-2px);
+    animation-timing-function: var(--ease-in-out);
+  }
+  30% { transform: translateX(0); }
+  36% {
+    transform: translateX(0);
+    animation-timing-function: var(--ease-in-out);
+  }
+  44% {
+    transform: translateX(2px);
+    animation-timing-function: var(--ease-in-out);
+  }
+  55%, 100% { transform: translateX(0); }
 }
 
 @media (max-height: 520px) {
@@ -299,6 +587,14 @@ body.community-onboarding-active.driver-active :is(
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .community-first-signup-guide {
+    display: none;
+  }
+
+  .community-guide-me-orbit-holder.is-intro.is-ready {
+    animation: community-first-signup-orbit-reduced 120ms var(--ease-out) forwards;
+  }
+
   .community-guide-me-orbit,
   .community-guide-me-avatar {
     animation: none;
@@ -329,7 +625,16 @@ body.community-onboarding-active.driver-active :is(
   }
 }
 
+@keyframes community-first-signup-orbit-reduced {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 :root {
+  --guide-flight-ease: cubic-bezier(0.45, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in: cubic-bezier(0.8, 0, 0.8, 0.2);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --community-onboarding-overlay: oklch(0.18 0.03 230);
   --background: oklch(1 0 0);
   --app-bg: var(--background);

@@ -13,6 +13,7 @@ import { useCommunityWs } from "@/hooks/community/use-community-ws"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { PerfTraceBootstrap } from "@/components/perf/perf-trace-bootstrap"
 import { CommunityOnboardingGuide } from "@/components/community/onboarding/community-onboarding-guide"
+import { CommunityWsReconnectBoundary } from "@/components/community/shell/community-ws-reconnect-overlay"
 
 /**
  * Client wrapper that provides the QueryClient, CurrentUser, and the
@@ -88,8 +89,10 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
   return (
     <>
       <PerfTraceBootstrap />
-      <CommunityOnboardingGuide />
-      {children}
+      <CommunityWsReconnectBoundary>
+        <CommunityOnboardingGuide />
+        {children}
+      </CommunityWsReconnectBoundary>
     </>
   )
 }

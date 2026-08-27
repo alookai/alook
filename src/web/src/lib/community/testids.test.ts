@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest"
 import { tid } from "./testids"
 
 describe("community QA selectors", () => {
+  it("exposes the global reconnect overlay independently from its Retry action", () => {
+    expect(tid.wsReconnectOverlay).toBe("community-ws-reconnect-overlay")
+    expect(tid.wsRetry).toBe("community-ws-retry")
+  })
+
   it("keys forum-title read models by their stable child identity", () => {
     expect(tid.inboxUnreadChild("post_1")).toBe("community-inbox-unread-child-post_1")
     expect(tid.inboxUnreadChannel("channel_1")).toBe("community-inbox-unread-channel-channel_1")
