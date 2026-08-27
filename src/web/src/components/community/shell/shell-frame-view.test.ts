@@ -39,6 +39,9 @@ vi.mock("./shell-frame-overlays", () => ({
 vi.mock("./community-pending-frame", () => ({
   CommunityPendingFrame: (props: Record<string, unknown>) => createElement("channel-loading-frame", props),
 }))
+vi.mock("@/components/community/channels/channel-sidebar", () => ({
+  ChannelSidebarSkeleton: (props: Record<string, unknown>) => createElement("channel-sidebar-skeleton", props),
+}))
 
 const rail = { railProps: { activeServerId: "s1" } } as never
 const profile = {
@@ -404,5 +407,46 @@ describe("ShellFrameView", () => {
     expect(renderer.root.findAllByType("user-bar")).toHaveLength(0)
     expect(renderer.root.findByType("channel-loading-frame").props.reserveBackSlot).toBe(true)
     expect(renderer.root.findByType("channel-loading-frame").props.onBack).toBeUndefined()
+  })
+
+  it("replaces the committed sidebar with one target-scoped cold server checkpoint", async () => {
+    const sidebar = vi.fn(() => createElement("old-sidebar"))
+    const common = {
+      surface: "list" as const,
+      loadingHref: "/c/channels/s2",
+      cancelPendingNavigation: vi.fn(),
+      navigationPending: true,
+      serverSwitchTargetId: "s2",
+      sidebar,
+      rail,
+      profile,
+      inbox,
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(
+        ShellFrameView,
+        { ...common, breakpoint: "desktop" },
+        createElement("old-main"),
+      ), { createNodeMock: () => ({ offsetWidth: 240 }) })
+    })
+
+    expect(sidebar).not.toHaveBeenCalled()
+    expect(renderer.root.findAllByType("old-sidebar")).toHaveLength(0)
+    expect(renderer.root.findByType("channel-sidebar-skeleton").props.targetServerId).toBe("s2")
+    expect(renderer.root.findByType("channel-loading-frame").props.href).toBe("/c/channels/s2")
+
+    await act(async () => {
+      renderer.update(createElement(
+        ShellFrameView,
+        { ...common, breakpoint: "mobile" },
+        createElement("old-main"),
+      ))
+    })
+    const [sidebarPanel, mainPanel] = renderer.root.findAllByType("panel")
+    expect(sidebarPanel?.props["data-mobile-active"]).toBe(true)
+    expect(sidebarPanel?.findAllByType("channel-sidebar-skeleton")).toHaveLength(1)
+    expect(mainPanel?.props.hidden).toBe(true)
+    expect(sidebar).not.toHaveBeenCalled()
   })
 })

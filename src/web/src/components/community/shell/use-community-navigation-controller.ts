@@ -7,6 +7,7 @@ import {
   createNavigationIntentGate,
   supersedeNavigationIntent,
 } from "@/lib/community/navigation-intent"
+import { communityServerId, serverRootHref } from "@/lib/community/community-route"
 import type { ShellRouter } from "./shell-frame-types"
 
 export type CommunityNavigationController = {
@@ -18,6 +19,15 @@ export type CommunityNavigationController = {
   prefetch: (href: string) => void
   resolveAndPush: (resolve: () => Promise<string>) => Promise<boolean>
   cancelPendingNavigation: () => void
+}
+
+function hasCommittedPendingHref(currentHref: string, pendingHref: string): boolean {
+  if (currentHref === pendingHref) return true
+  const pendingServerId = communityServerId(pendingHref)
+  if (!pendingServerId) return false
+  const pendingPathname = pendingHref.split(/[?#]/, 1)[0]
+  return pendingPathname === serverRootHref(pendingServerId)
+    && communityServerId(currentHref) === pendingServerId
 }
 
 export function useCommunityNavigationController(): CommunityNavigationController {
@@ -37,10 +47,14 @@ export function useCommunityNavigationController(): CommunityNavigationControlle
   }, [])
 
   useEffect(() => {
+    // A stale route commit must not clear a newer synchronous intent. Keep the
+    // latest pending href until that exact destination becomes current; Shell
+    // navigation intent/cancellation still clears it explicitly.
+    if (pendingHref !== null && !hasCommittedPendingHref(currentHref, pendingHref)) return
     supersedeNavigationIntent(gateRef.current)
     setNavigationPending(false)
-    setPendingHref(null)
-  }, [currentHref])
+    if (pendingHref !== null) setPendingHref(null)
+  }, [currentHref, pendingHref])
 
   const push = useCallback((href: string) => {
     if (href === currentHref) return

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest"
 import {
   channelHref,
+  communityServerId,
   removeCommunityParam,
   resolveCommunityRoute,
+  resolveServerSwitchCheckpoint,
   serverModalMarkerCleanupHref,
   serverRootHref,
 } from "./community-route"
@@ -23,6 +25,55 @@ describe("community route", () => {
     expect(serverRootHref("server_1")).toBe("/c/channels/server_1")
     expect(channelHref("server_1", "channel_1")).toBe("/c/channels/server_1/channel_1")
     expect(channelHref("server_1", "child_1")).toBe("/c/channels/server_1/child_1")
+  })
+
+  it.each([
+    ["/c/channels/server_1", "server_1"],
+    ["/c/channels/server_1/channel_1?keep=1#message", "server_1"],
+    ["/c/me", null],
+    ["/not-community/channels/server_1", null],
+  ])("extracts the community server identity from %s", (href, serverId) => {
+    expect(communityServerId(href)).toBe(serverId)
+  })
+
+  it("keeps a cold target checkpoint through eager pathname publication", () => {
+    expect(resolveServerSwitchCheckpoint({
+      currentHref: "/c/channels/server_1/channel_1",
+      pendingHref: "/c/channels/server_2?settings=1",
+      hasExactServerDetail: false,
+    })).toEqual({ targetServerId: "server_2", cold: true })
+    expect(resolveServerSwitchCheckpoint({
+      currentHref: "/c/channels/server_1/channel_1",
+      pendingHref: "/c/channels/server_2",
+      hasExactServerDetail: true,
+    })).toEqual({ targetServerId: "server_2", cold: false })
+    expect(resolveServerSwitchCheckpoint({
+      currentHref: "/c/channels/server_2",
+      pendingHref: "/c/channels/server_2",
+      hasExactServerDetail: false,
+    })).toEqual({ targetServerId: "server_2", cold: true })
+    expect(resolveServerSwitchCheckpoint({
+      currentHref: "/c/channels/server_1/channel_1",
+      pendingHref: "/c/channels/server_1/channel_2#message",
+      hasExactServerDetail: true,
+    })).toBeNull()
+
+    for (const pendingHref of [
+      null,
+      "/c/me/friends",
+      "/malformed",
+    ]) {
+      expect(resolveServerSwitchCheckpoint({
+        currentHref: "/c/channels/server_1/channel_1",
+        pendingHref,
+        hasExactServerDetail: false,
+      })).toBeNull()
+    }
+    expect(resolveServerSwitchCheckpoint({
+      currentHref: "/c/me/friends",
+      pendingHref: "/c/channels/server_2",
+      hasExactServerDetail: false,
+    })).toBeNull()
   })
 
   it("removes one query key while preserving the rest and the hash", () => {

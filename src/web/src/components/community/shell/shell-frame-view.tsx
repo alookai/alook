@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react"
 import { useDefaultLayout } from "react-resizable-panels"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { AppSurface } from "@/components/ui/app-surface"
+import { ChannelSidebarSkeleton } from "@/components/community/channels/channel-sidebar"
 import { CommunityPendingFrame } from "./community-pending-frame"
 import { Shell } from "./shell"
 import { ServerRail } from "./server-rail"
@@ -28,6 +29,7 @@ type Props = Pick<ShellFrameProps, "sidebar" | "children" | "extraDialogs"> & {
   loadingHref: string
   cancelPendingNavigation: () => void
   navigationPending: boolean
+  serverSwitchTargetId?: string | null
   rail: ReturnType<typeof useShellRailController>
   profile: ReturnType<typeof useShellProfileController>
   inbox: ReturnType<typeof useShellInboxController>
@@ -44,6 +46,7 @@ export function ShellFrameView({
   extraDialogs,
   cancelPendingNavigation,
   navigationPending,
+  serverSwitchTargetId = null,
   rail,
   profile,
   inbox,
@@ -129,7 +132,11 @@ export function ShellFrameView({
               )}
             >
               <div ref={sidebarPanelRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
-                {!isMobileDetail && (isDesktop ? sidebar() : sidebar({ noHeader: false }))}
+                {!isMobileDetail && (
+                  serverSwitchTargetId
+                    ? <ChannelSidebarSkeleton targetServerId={serverSwitchTargetId} />
+                    : isDesktop ? sidebar() : sidebar({ noHeader: false })
+                )}
               </div>
             </ResizablePanel>
             <ResizableHandle className={cn("bg-transparent", !isDesktop && "hidden")} />

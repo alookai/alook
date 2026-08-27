@@ -44,6 +44,11 @@ describe("community QA selectors", () => {
     expect(tid.messageScroller).toBe("community-message-scroller")
   })
 
+  it("keys a pending channel sidebar by its target server", () => {
+    expect(tid.channelSidebarPending("server_1"))
+      .toBe("community-channel-sidebar-pending-server_1")
+  })
+
   it("exposes attachment preview selectors from one canonical map", () => {
     expect(tid.attachmentCard("notes.md")).toBe("community-attachment-card-notes.md")
     expect(tid.attachmentPreviewSheet).toBe("community-attachment-preview-sheet")

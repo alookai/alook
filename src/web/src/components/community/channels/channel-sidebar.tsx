@@ -461,15 +461,23 @@ function ForumSidebarThreadRow({
 
 // Loading placeholder for the channel sidebar. Kept colocated so changes to
 // row density or header height stay in sync with the live sidebar above.
-function ChannelSidebarSkeleton({
+export function ChannelSidebarSkeleton({
   noHeader,
-  showInviteAction,
+  showInviteAction = false,
+  targetServerId,
 }: {
   noHeader?: boolean
-  showInviteAction: boolean
+  showInviteAction?: boolean
+  targetServerId?: string
 }) {
   return (
-    <aside className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <aside
+      data-testid={targetServerId ? tid.channelSidebarPending(targetServerId) : undefined}
+      data-pending-server-id={targetServerId}
+      aria-label={targetServerId ? "Loading server channels" : undefined}
+      aria-busy={targetServerId ? true : undefined}
+      className="flex min-h-0 min-w-0 flex-1 flex-col"
+    >
       {!noHeader && (
         <header className="flex h-12 items-center gap-1 border-b border-border/40 px-2">
           <Skeleton className="ml-2 h-7 w-32 rounded" />

@@ -46,6 +46,7 @@ export const SPEC_SECONDS = {
   "33-picker-async-layout.spec.ts": 57,
   "34-inbox-read-race.spec.ts": 42,
   "35-channel-ref-directory-states.spec.ts": 60,
+  "36-server-switch-pending-checkpoint.spec.ts": 60,
 }
 
 function walk(directory) {

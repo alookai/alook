@@ -5,6 +5,40 @@ export type CommunityRoute = {
   parentPath: string | null
 }
 
+export type ServerSwitchCheckpoint = {
+  targetServerId: string
+  cold: boolean
+}
+
+export function communityServerId(href: string): string | null {
+  const pathname = href.split(/[?#]/, 1)[0]
+  const segments = pathname?.split("/").filter(Boolean) ?? []
+  return segments[0] === "c" && segments[1] === "channels" && segments[2]
+    ? segments[2]
+    : null
+}
+
+export function resolveServerSwitchCheckpoint({
+  currentHref,
+  pendingHref,
+  hasExactServerDetail,
+}: {
+  currentHref: string
+  pendingHref: string | null
+  hasExactServerDetail: boolean
+}): ServerSwitchCheckpoint | null {
+  if (!pendingHref) return null
+  const currentServerId = communityServerId(currentHref)
+  const targetServerId = communityServerId(pendingHref)
+  if (!currentServerId || !targetServerId) return null
+  // Next may publish the target pathname before the target layout's exact
+  // server detail is ready. pendingHref is still authoritative during that
+  // gap: keep the target-scoped cold checkpoint instead of exposing an empty
+  // target sidebar merely because both parsed ids now match.
+  if (currentServerId === targetServerId && hasExactServerDetail) return null
+  return { targetServerId, cold: !hasExactServerDetail }
+}
+
 export function resolveCommunityRoute(pathname: string): CommunityRoute {
   const segments = pathname.split("/").filter(Boolean)
   if (segments[0] !== "c") return { surface: "detail", parentPath: null }

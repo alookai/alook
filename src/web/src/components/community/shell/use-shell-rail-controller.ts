@@ -37,6 +37,7 @@ type Options = Pick<
   navigation: CommunityNavigationController
   queryClient: QueryClient
   breakpoint: Breakpoint
+  projectedActiveServerId?: string
 }
 
 export function useShellRailController({
@@ -45,6 +46,7 @@ export function useShellRailController({
   breakpoint,
   view,
   activeServerId,
+  projectedActiveServerId = activeServerId,
   onOpenActiveServerSettings,
   onOpenActiveServerInvite,
 }: Options) {
@@ -69,8 +71,8 @@ export function useShellRailController({
   const railServers = useMemo(
     () => servers
       .filter((server) => !folderServerIds.has(server.id))
-      .map((server) => ({ ...server, active: server.id === activeServerId })),
-    [activeServerId, folderServerIds, servers],
+      .map((server) => ({ ...server, active: server.id === projectedActiveServerId })),
+    [folderServerIds, projectedActiveServerId, servers],
   )
 
   const serverDestination = useCallback((id: string) => {
@@ -213,7 +215,7 @@ export function useShellRailController({
     railProps: {
       servers: railServers,
       folders,
-      activeServerId,
+      activeServerId: projectedActiveServerId,
       serversLoading: serversQuery.isLoading,
       view,
       onHome,

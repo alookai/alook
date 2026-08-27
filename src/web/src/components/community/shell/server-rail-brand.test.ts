@@ -33,4 +33,12 @@ describe("ServerRail Home brand mark", () => {
     expect(scrollViewport).not.toContain("flex-1")
     expect(source).not.toContain("pb-2 overflow-y-auto overflow-x-clip thin-scrollbar")
   })
+
+  it("keeps an explicit active server controlled until the route commits", () => {
+    const source = readFileSync(new URL("./server-rail.tsx", import.meta.url), "utf8")
+
+    expect(source).toContain("const activeId = activeFromProps || localActiveId")
+    expect(source).toContain("setLocalActiveId(id)")
+    expect(source).not.toContain("const [activeId, setActiveId]")
+  })
 })

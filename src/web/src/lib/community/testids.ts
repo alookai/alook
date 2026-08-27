@@ -16,6 +16,7 @@ export const tid = {
   serverAdd: "community-server-add",
   serverRailScroll: "community-server-rail-scroll",
   channelSidebarScroll: "community-channel-sidebar-scroll",
+  channelSidebarPending: (serverId: string) => `community-channel-sidebar-pending-${serverId}`,
   createServerSubmit: "community-create-server-submit",
   createServerName: "community-create-server-name",
   createChannelSubmit: "community-create-channel-submit",
