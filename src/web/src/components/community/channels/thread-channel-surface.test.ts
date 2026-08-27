@@ -9,6 +9,7 @@ import { MessageContextSheet } from "../messages/message-context-sheet"
 import { MessageList } from "../messages/message-list"
 import { ThreadOpener } from "../messages/thread-opener"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
+import { useClaimThreadOpenerReadHandoff } from "@/hooks/community/thread-opener-read-handoff"
 import type { MessageChannelControllerValue } from "../messages/message-channel-controller"
 
 const mocks = vi.hoisted(() => ({
@@ -30,6 +31,9 @@ vi.mock("@/lib/api/client", () => ({
   toastApiError: mocks.toastApiError,
 }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
+vi.mock("@/hooks/community/thread-opener-read-handoff", () => ({
+  useClaimThreadOpenerReadHandoff: vi.fn(),
+}))
 vi.mock("@/hooks/community/use-channel-message-feed", () => ({
   useChannelMessageFeed: vi.fn(),
 }))
@@ -131,6 +135,7 @@ const mockedComposer = vi.mocked(Composer)
 const mockedMessageContextSheet = vi.mocked(MessageContextSheet)
 const mockedMessageList = vi.mocked(MessageList)
 const mockedUseChannelMessageFeed = vi.mocked(useChannelMessageFeed)
+const mockedUseClaimThreadOpenerReadHandoff = vi.mocked(useClaimThreadOpenerReadHandoff)
 
 function feed(overrides: Record<string, unknown> = {}) {
   return {
@@ -198,9 +203,27 @@ function renderSurface(overrides: Record<string, unknown> = {}) {
 
 describe("ThreadChannelSurface ownership", () => {
   beforeEach(() => {
+    mockedUseClaimThreadOpenerReadHandoff.mockReset()
     mockedUseChannelMessageFeed.mockReturnValue(feed())
     mocks.apiFetch.mockResolvedValue({})
     mocks.editMessage.mockResolvedValue({})
+  })
+
+  it("installs the parent-opener claim hook before initializing the child feed", () => {
+    const order: string[] = []
+    const handoff = { nonce: "nonce-1" } as never
+    mockedUseClaimThreadOpenerReadHandoff.mockImplementation(() => { order.push("claim") })
+    mockedUseChannelMessageFeed.mockImplementation(() => {
+      order.push("feed")
+      return feed()
+    })
+
+    act(() => {
+      TestRenderer.create(renderSurface({ threadOpenerHandoff: handoff, parentIsForum: true }))
+    })
+
+    expect(order.slice(0, 2)).toEqual(["claim", "feed"])
+    expect(mockedUseClaimThreadOpenerReadHandoff).toHaveBeenCalledWith(handoff)
   })
 
   afterEach(() => {

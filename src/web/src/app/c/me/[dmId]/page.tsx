@@ -148,6 +148,9 @@ function DmView() {
     jumpToPresent,
     presentVersion,
     latestSeq,
+    isPending: messagesPending,
+    isError: messagesError,
+    refetch: refetchMessages,
   } = useDmMessages(dmId, {
     lastReadMessageId: readSnapshotFetching
       ? undefined
@@ -224,8 +227,19 @@ function DmView() {
     dmId,
     messages,
     scrollRootEl,
-    snapshotReady: !readSnapshotFetching,
+    snapshotStatus: readSnapshotFetching
+      ? "pending"
+      : readSnapshot
+        ? "ready"
+        : "error",
+    feedStatus: messagesPending
+      ? "pending"
+      : messagesError
+        ? "error"
+        : "ready",
+    tailAttached: !hasMoreNewerMessages,
     confirmedSeq: readSnapshot?.lastReadSeq ?? 0,
+    catchUp: () => refetchMessages(),
   })
 
   // `↓ N` unread count. Same math as channel: server truth is

@@ -29,7 +29,12 @@ export function buildChannelRouteModel(
   const channel = channels.find((candidate) => candidate.id === channelId) ?? null
   const isChild = !channel && !!server?.categories
   const metaSettled = !isChild || (metaState?.channelId === channelId && metaState.settled)
-  const channelMeta = !isChild || metaSettled ? currentChannelMeta : null
+  const currentMetaMatches = !currentChannelMeta
+    || !("id" in currentChannelMeta)
+    || currentChannelMeta.id === channelId
+  const channelMeta = !isChild || (metaSettled && currentMetaMatches)
+    ? currentChannelMeta
+    : null
   const parent = channelMeta?.parentChannelId
     ? channels.find((candidate) => candidate.id === channelMeta.parentChannelId) ?? null
     : null
@@ -68,6 +73,15 @@ export function useChannelRouteModel(serverId: string, serverParam: string, chan
     ),
     [channelId, currentChannelMeta, isChild, metaQuery.isVerified, server],
   )
+  const routeLifecycle = !server?.categories
+    ? "pending" as const
+    : !isChild
+      ? "ready" as const
+      : metaQuery.isError
+        ? "terminal-error" as const
+        : model.routeHydrated
+          ? "ready" as const
+          : "pending" as const
   useEffect(() => {
     useCommunityStore.getState().setCurrentChannelId(channelId)
     return () => { useCommunityStore.getState().setCurrentChannelId(null) }
@@ -98,5 +112,5 @@ export function useChannelRouteModel(serverId: string, serverParam: string, chan
       toastApiError(metaQuery.error, "Failed to load thread")
     }
   }, [channelId, isChild, metaQuery.data, metaQuery.error, metaQuery.isVerified, queryClient, router, serverId, serverParam])
-  return model
+  return { ...model, routeLifecycle }
 }

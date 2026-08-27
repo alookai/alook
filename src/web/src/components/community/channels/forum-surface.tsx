@@ -31,12 +31,28 @@ export function ForumSurface({ serverId, forumChannelId, ...props }: {
     channelId: forumChannelId,
     messages: feed.posts.flatMap((post) => (
       post.openerMessageId && post.parentSeq
-        ? [{ id: post.openerMessageId, seq: post.parentSeq, authorId: post.authorId }]
+        ? [{
+            id: post.openerMessageId,
+            seq: post.parentSeq,
+            authorId: post.authorId,
+            createdAt: post.openerCreatedAt,
+          }]
         : []
     )),
     scrollRootEl,
-    snapshotReady: !readState.isFetching,
+    snapshotStatus: readState.isFetching
+      ? "pending"
+      : readState.snapshot
+        ? "ready"
+        : "error",
+    feedStatus: feed.isPending
+      ? "pending"
+      : feed.isError
+        ? "error"
+        : "ready",
+    tailAttached: true,
     confirmedSeq: readState.snapshot?.lastReadSeq ?? 0,
+    catchUp: () => feed.refetch(),
   })
   return <ForumView
     forumChannelId={forumChannelId}

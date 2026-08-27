@@ -26,10 +26,11 @@ export const GET = withAuth(async (req, ctx) => {
   type UnreadRow = Awaited<ReturnType<typeof queries.communityInbox.listEligibleUnreadChannels>>[number]
   type UnreadDmRow = Awaited<ReturnType<typeof queries.communityInbox.listEligibleUnreadDms>>[number]
   type ForumOpenerRow = Awaited<ReturnType<typeof queries.communityInbox.listUnreadForumOpeners>>[number]
+  type ThreadOpenerRow = Awaited<ReturnType<typeof queries.communityInbox.listThreadOpenersByChildIds>>[number]
   const { value: fetched, stale } = await readOrStale<{
     unread: UnreadRow[]
     unreadDms: UnreadDmRow[]
-    forumOpeners: ForumOpenerRow[]
+    threadOpeners: Array<ThreadOpenerRow>
   }>(
     async () => {
       const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)
@@ -49,7 +50,7 @@ export const GET = withAuth(async (req, ctx) => {
           )
           .map((row) => row.channelId),
       )]
-      const unreadForumChildIds = [...new Set(
+      const unreadChildIds = [...new Set(
         unread
           .filter(
             (row) =>
@@ -57,15 +58,27 @@ export const GET = withAuth(async (req, ctx) => {
           )
           .map((row) => row.channelId),
       )]
-      const [directForumOpeners, childForumOpeners] = await Promise.all([
+      const [directForumOpeners, childThreadOpeners] = await Promise.all([
         queries.communityInbox.listUnreadForumOpeners(db, ctx.userId, forumParentIds),
-        queries.communityInbox.listForumOpenersByChildIds(db, unreadForumChildIds),
+        queries.communityInbox.listThreadOpenersByChildIds(db, ctx.userId, unreadChildIds),
       ])
-      const forumOpeners = [...new Map(
-        [...directForumOpeners, ...childForumOpeners].map((row) => [row.childChannelId, row]),
+      const directThreadOpeners: ThreadOpenerRow[] = directForumOpeners.map(
+        (row: ForumOpenerRow) => ({
+          parentChannelId: row.forumChannelId,
+          parentType: "forum",
+          openerMessageId: row.openerMessageId,
+          childChannelId: row.childChannelId,
+          title: row.title,
+          createdAt: row.createdAt,
+          openerSeq: row.openerSeq,
+          openerUnread: true,
+        }),
+      )
+      const threadOpeners = [...new Map(
+        [...childThreadOpeners, ...directThreadOpeners].map((row) => [row.childChannelId, row]),
       ).values()]
       const forumParentsWithUnread = new Set([
-        ...forumOpeners.map((row) => row.forumChannelId),
+        ...directForumOpeners.map((row) => row.forumChannelId),
         ...unread.flatMap((row) => row.parentChannelId ? [row.parentChannelId] : []),
       ])
       const withoutPhantomForumParents = unread.filter(
@@ -74,15 +87,15 @@ export const GET = withAuth(async (req, ctx) => {
           row.type !== "forum" ||
           forumParentsWithUnread.has(row.channelId),
       )
-      return { unread: withoutPhantomForumParents, unreadDms, forumOpeners }
+      return { unread: withoutPhantomForumParents, unreadDms, threadOpeners }
     },
-    { unread: [], unreadDms: [], forumOpeners: [] },
+    { unread: [], unreadDms: [], threadOpeners: [] },
     { route: "community/inbox/unreads" },
   )
   if (stale) {
     return writeJSON({ servers: [], dms: [], limit, truncated: false, stale: true })
   }
-  const { unread, unreadDms, forumOpeners } = fetched
+  const { unread, unreadDms, threadOpeners } = fetched
 
   // Split unread rows into top-level channels and child threads.
   // A child nests under its `parentChannelId`; a parent surfaces in the tree
@@ -94,6 +107,9 @@ export const GET = withAuth(async (req, ctx) => {
     lastMessageAt: string
     mentionCount: number
     openerMessageId?: string
+    parentChannelId?: string
+    openerSeq?: number
+    openerUnread?: boolean
     // Private stable-order fields. They are removed from the response below.
     sortSeq: number
     sortId: string
@@ -143,41 +159,47 @@ export const GET = withAuth(async (req, ctx) => {
     }
   }
 
-  // Project unread parent openers as post rows. An opener and unread replies
-  // for the same post share one childChannelId, so merge them into one row
-  // while retaining the opener id as the parent forum's progressive-read
-  // target. The authoritative title is supplied by the opener query.
-  for (const opener of forumOpeners) {
-    const parent = parents.get(opener.forumChannelId)
+  // Enrich already-eligible child rows with their canonical parent opener.
+  // Forum opener-only rows retain their existing nested presentation; text
+  // opener-only unread remains represented by its parent channel row.
+  for (const opener of threadOpeners) {
+    const parent = parents.get(opener.parentChannelId)
     const unreadChild = unreadByChannelId.get(opener.childChannelId)
-    if (!parent && unreadChild?.parentChannelId !== opener.forumChannelId) continue
+    if (!parent && unreadChild?.parentChannelId !== opener.parentChannelId) continue
     const serverId = parent?.serverId ?? unreadChild?.serverId
     if (!serverId) continue
 
-    const children = childrenByParent.get(opener.forumChannelId) ?? new Map<string, UnreadChild>()
+    const children = childrenByParent.get(opener.parentChannelId) ?? new Map<string, UnreadChild>()
     const existing = children.get(opener.childChannelId)
     if (existing) {
-      existing.channelName = opener.title
+      if (opener.parentType === "forum") existing.channelName = opener.title
       existing.type = existing.type ?? "thread"
+      existing.parentChannelId = opener.parentChannelId
       existing.openerMessageId = opener.openerMessageId
+      existing.openerSeq = opener.openerSeq
+      existing.openerUnread = opener.openerUnread
       if (opener.createdAt >= existing.lastMessageAt) {
         existing.lastMessageAt = opener.createdAt
         existing.sortSeq = opener.openerSeq
         existing.sortId = opener.openerMessageId
       }
     } else {
+      if (opener.parentType !== "forum" || !opener.openerUnread) continue
       children.set(opener.childChannelId, {
         channelId: opener.childChannelId,
         channelName: opener.title,
         type: "thread",
         lastMessageAt: opener.createdAt,
         mentionCount: unreadChild?.mentionCount ?? 0,
+        parentChannelId: opener.parentChannelId,
         openerMessageId: opener.openerMessageId,
+        openerSeq: opener.openerSeq,
+        openerUnread: opener.openerUnread,
         sortSeq: opener.openerSeq,
         sortId: opener.openerMessageId,
       })
     }
-    childrenByParent.set(opener.forumChannelId, children)
+    childrenByParent.set(opener.parentChannelId, children)
   }
 
   // Parents that have an unread child but no direct unread aren't in `unread`,
@@ -274,7 +296,10 @@ export const GET = withAuth(async (req, ctx) => {
           type: k.type ?? undefined,
           lastMessageAt: k.lastMessageAt,
           mentionCount: k.mentionCount,
+          ...(k.parentChannelId ? { parentChannelId: k.parentChannelId } : {}),
           ...(k.openerMessageId ? { openerMessageId: k.openerMessageId } : {}),
+          ...(k.openerSeq !== undefined ? { openerSeq: k.openerSeq } : {}),
+          ...(k.openerMessageId ? { openerUnread: k.openerUnread === true } : {}),
         })),
       })),
   }))

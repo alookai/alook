@@ -21,6 +21,7 @@ import { reconcileForumOpenerTitle } from "@/hooks/community/forum-opener-title-
 import { clearTypingIndicator, typingScopeKey } from "@/hooks/community/community-ws/typing"
 import type { MessageEventContext } from "@/hooks/community/community-ws/handler-context"
 import { scheduleFocusedMessageGapRepair } from "@/hooks/community/community-ws/reconnect-messages"
+import { armInboxReadReservationCandidate } from "@/hooks/community/inbox-read-reservation"
 import {
   projectApprovalCopies,
   projectEditedCopies,
@@ -50,6 +51,16 @@ export function handleMessageCreate(
     projection,
   }: MessageEventContext,
 ) {
+  const viewerId = viewerUserIdRef.current
+  const hasSeenMessage = wsStore.hasSeenMessage(event.message.id)
+  const isForeignFocused = event.message.authorId !== viewerId
+    && (event.channelId === sub.channelId || event.channelId === sub.dmConversationId)
+  if (isForeignFocused && !hasSeenMessage) {
+    armInboxReadReservationCandidate(queryClient, {
+      channelId: event.channelId,
+      lastMessageAt: event.message.createdAt,
+    })
+  }
   const projected = projectCommunityMessageCreate(event.message)
   if (event.channelId === sub.channelId) {
     const serverId = useCommunityStore.getState().currentServerId
@@ -76,11 +87,10 @@ export function handleMessageCreate(
       { type: "wsMessage", message: projected },
     )
   }
-  const viewerId = viewerUserIdRef.current
   if (deliveryMode === "batch" && event.message.authorId !== viewerId) {
     scheduleInboxInvalidate({ inbox: true, dms: true })
   }
-  if (wsStore.hasSeenMessage(event.message.id)) return
+  if (hasSeenMessage) return
   wsStore.markSeenMessage(event.message.id)
   // Sending a message is an implicit typing.stop for its author —
   // clear once we know this is a fresh message. Clearing before dedup

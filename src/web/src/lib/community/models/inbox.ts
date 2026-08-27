@@ -49,10 +49,13 @@ type UnreadChild = {
   type?: EntityKind
   lastMessageAt: string
   mentionCount: number
-  // Present when this row projects an unread opener from the parent forum.
-  // The child id remains the navigation target; this opener id is the parent
-  // channel's progressive-read target.
+  // Required together when canonical parent-opener metadata is available.
+  // The child id remains the navigation target; opener seq belongs to the
+  // independent parent-channel progressive read cursor.
+  parentChannelId?: string
   openerMessageId?: string
+  openerSeq?: number
+  openerUnread?: boolean
 }
 
 // "Unreads" — channels with unread messages, grouped by server. Each channel
@@ -69,6 +72,7 @@ export type UnreadServer = {
     type?: EntityKind
     lastMessageAt: string
     mentionCount: number
+    hasDirectUnread?: boolean
     children: UnreadChild[]
   }>
 }

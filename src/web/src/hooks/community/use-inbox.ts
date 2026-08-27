@@ -1,9 +1,11 @@
 "use client"
 
-import { useQuery, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
+import { useMemo } from "react"
+import { useQuery, useQueryClient, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { UnreadServer, UnreadDm, Mention, Marked } from "@/lib/community/models/inbox"
+import { reserveInboxUnreadsResponse } from "./inbox-read-reservation"
 
 class StaleReadError extends Error {
   constructor() { super("stale D1 read"); this.name = "StaleReadError" }
@@ -40,13 +42,21 @@ export const inboxUnreadsQueryFn = ({ signal }: { signal?: AbortSignal } = {}) =
     { signal },
   ).then(throwIfStale)
 
+export const inboxUnreadsReservedQueryFn = (queryClient: ReturnType<typeof useQueryClient>) => (
+  { signal }: { signal?: AbortSignal } = {},
+) => inboxUnreadsQueryFn({ signal }).then(
+  (data) => reserveInboxUnreadsResponse(queryClient, data, signal),
+)
+
 export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
   servers: UnreadServer[]
   dms: UnreadDm[]
 } {
+  const queryClient = useQueryClient()
+  const queryFn = useMemo(() => inboxUnreadsReservedQueryFn(queryClient), [queryClient])
   const query = useQuery({
     queryKey: communityKeys.inboxUnreads(),
-    queryFn: inboxUnreadsQueryFn,
+    queryFn,
     placeholderData: keepPreviousData,
   })
   return {

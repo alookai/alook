@@ -11,6 +11,10 @@ import {
   type ReadCoordinatorSnapshot,
   unregisterReadCoordinatorSnapshotProjector,
 } from "./read-coordinator-snapshot-projection"
+import {
+  disposeInboxReadReservation,
+  settleInboxReadReservationGeneration,
+} from "./inbox-read-reservation"
 
 export const READ_COORDINATOR_DEBOUNCE_MS = 500
 
@@ -27,6 +31,7 @@ type QueuedReadIntent = {
   intent: ReadIntent
   generation: number
   dueAt: number
+  ownerToken: symbol
 }
 
 export type PendingReadFlushOutcome = {
@@ -56,6 +61,7 @@ type SurfaceLease = {
   key: string
   token: symbol
   epoch: number
+  releasePolicy: "flush" | "cancel-uncommitted"
 }
 
 type ScopeState = {
@@ -117,7 +123,11 @@ class ReadCoordinator {
     readonly ownerUserId: string,
   ) {}
 
-  register(surface: ReadSurface, confirmedSeq = 0): SurfaceLease {
+  register(
+    surface: ReadSurface,
+    confirmedSeq: number,
+    releasePolicy: SurfaceLease["releasePolicy"],
+  ): SurfaceLease {
     this.assertActive()
     const key = scopeKey(surface)
     let state = this.states.get(key)
@@ -150,13 +160,50 @@ class ReadCoordinator {
       readStates: Array<{ channelId: string; lastReadSeq: number }>
     }>(communityKeys.accountReadStateSnapshot())
     if (cached) this.applySnapshot(cached)
-    return { coordinator: this, key, token, epoch: state.epoch }
+    return { coordinator: this, key, token, epoch: state.epoch, releasePolicy }
   }
 
   release(lease: SurfaceLease) {
     const state = this.validState(lease)
     if (!state) return
     state.leases.delete(lease.token)
+    if (lease.releasePolicy === "cancel-uncommitted") {
+      const canceledGenerations = new Set<number>()
+      if (state.accepted?.ownerToken === lease.token) {
+        canceledGenerations.add(state.accepted.generation)
+        state.accepted = null
+      }
+      if (state.dirty?.ownerToken === lease.token) {
+        canceledGenerations.add(state.dirty.generation)
+        state.dirty = null
+      }
+      if (
+        state.inFlight?.target.ownerToken === lease.token
+        && state.inFlight.phase === "mutation"
+      ) {
+        canceledGenerations.add(state.inFlight.target.generation)
+        state.attemptEpoch += 1
+        state.inFlight.controller.abort()
+        state.inFlight = null
+      }
+      if (!state.accepted && state.timer !== null) {
+        clearTimeout(state.timer)
+        state.timer = null
+      }
+      if (!state.dirty && state.retryTimer !== null) {
+        clearTimeout(state.retryTimer)
+        state.retryTimer = null
+      }
+      for (const generation of canceledGenerations) {
+        void settleInboxReadReservationGeneration(
+          this.queryClient,
+          generation,
+          false,
+          state.surface.channelId,
+        )
+      }
+      return
+    }
     if (state.leases.size > 0 || state.releaseTimer !== null) return
     state.releaseTimer = setTimeout(() => {
       state.releaseTimer = null
@@ -166,22 +213,30 @@ class ReadCoordinator {
     }, 0)
   }
 
-  submit(lease: SurfaceLease, intent: ReadIntent) {
+  submit(lease: SurfaceLease, intent: ReadIntent): number | null {
     const state = this.validState(lease)
-    if (!state || !this.matchesSurface(state.surface, intent)) return false
+    if (!state || !this.matchesSurface(state.surface, intent)) return null
     if (typeof document !== "undefined" && document.visibilityState !== "visible") {
-      return false
+      return null
     }
-    if (this.confirmed(state, intent)) return false
+    if (this.confirmed(state, intent)) return null
     const queued = {
       intent,
       generation: ++this.latestIntentGeneration,
       dueAt: Date.now() + READ_COORDINATOR_DEBOUNCE_MS,
+      ownerToken: lease.token,
     }
     state.accepted = laterIntent(state.accepted, queued)
     state.dirty = laterIntent(state.dirty, queued)
     this.schedule(state, READ_COORDINATOR_DEBOUNCE_MS)
-    return true
+    return queued.generation
+  }
+
+  confirm(lease: SurfaceLease, confirmedSeq: number) {
+    const state = this.validState(lease)
+    if (!state) return
+    state.confirmedSeq = Math.max(state.confirmedSeq, confirmedSeq)
+    this.cancelConfirmedWork(state)
   }
 
   resume() {
@@ -363,6 +418,12 @@ class ReadCoordinator {
       if (!this.attemptActive(state, attemptEpoch, identityEpoch)) {
         return { committed: false, reconciled: false }
       }
+      await settleInboxReadReservationGeneration(
+        this.queryClient,
+        target.generation,
+        false,
+        target.intent.channelId,
+      )
       if (!retryable(error)) {
         if (state.dirty && sameIntent(state.dirty, target)) state.dirty = null
         state.retryCount = 0
@@ -379,6 +440,15 @@ class ReadCoordinator {
       return { committed: false, reconciled: false }
     }
 
+    if (!this.attemptActive(state, attemptEpoch, identityEpoch)) {
+      return { committed: false, reconciled: false }
+    }
+    await settleInboxReadReservationGeneration(
+      this.queryClient,
+      target.generation,
+      true,
+      target.intent.channelId,
+    )
     if (!this.attemptActive(state, attemptEpoch, identityEpoch)) {
       return { committed: false, reconciled: false }
     }
@@ -516,6 +586,7 @@ export function getReadCoordinator(
 export function disposeReadCoordinator(queryClient: QueryClient) {
   disposedClients.add(queryClient)
   coordinators.get(queryClient)?.dispose()
+  disposeInboxReadReservation(queryClient)
   unregisterReadCoordinatorSnapshotProjector(queryClient)
 }
 
@@ -531,15 +602,28 @@ export function registerReadSurface(
   ownerUserId: string,
   surface: ReadSurface,
   confirmedSeq = 0,
+  releasePolicy: SurfaceLease["releasePolicy"] = "flush",
 ) {
-  return getReadCoordinator(queryClient, ownerUserId).register(surface, confirmedSeq)
+  return getReadCoordinator(queryClient, ownerUserId).register(
+    surface,
+    confirmedSeq,
+    releasePolicy,
+  )
 }
 
 export function releaseReadSurface(lease: SurfaceLease) {
   lease.coordinator.release(lease)
 }
 
+export function confirmReadSurface(lease: SurfaceLease, confirmedSeq: number) {
+  lease.coordinator.confirm(lease, confirmedSeq)
+}
+
 export function submitReadIntent(lease: SurfaceLease, intent: ReadIntent) {
+  return lease.coordinator.submit(lease, intent) !== null
+}
+
+export function submitReadIntentGeneration(lease: SurfaceLease, intent: ReadIntent) {
   return lease.coordinator.submit(lease, intent)
 }
 

@@ -8,20 +8,29 @@ export function useChannelWatermark({
   channelId,
   messages,
   scrollRootEl,
-  snapshotReady,
+  snapshotStatus,
+  feedStatus,
+  tailAttached,
   confirmedSeq,
+  catchUp,
 }: {
   channelId: string | null | undefined
   messages: Msg[]
   scrollRootEl: HTMLElement | null
-  snapshotReady: boolean
+  snapshotStatus: "pending" | "ready" | "error"
+  feedStatus: "pending" | "ready" | "error"
+  tailAttached: boolean
   confirmedSeq: number
+  catchUp: () => Promise<unknown>
 }) {
   useTimelineReadObserver({
     channelId,
     messages,
     scrollRootEl,
-    snapshotReady,
+    snapshotStatus,
+    feedStatus,
+    tailAttached,
     confirmedSeq,
+    catchUp,
   })
 }

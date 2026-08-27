@@ -8,20 +8,29 @@ export function useDmWatermark({
   dmId,
   messages,
   scrollRootEl,
-  snapshotReady,
+  snapshotStatus,
+  feedStatus,
+  tailAttached,
   confirmedSeq,
+  catchUp,
 }: {
   dmId: string | null | undefined
   messages: Msg[]
   scrollRootEl: HTMLElement | null
-  snapshotReady: boolean
+  snapshotStatus: "pending" | "ready" | "error"
+  feedStatus: "pending" | "ready" | "error"
+  tailAttached: boolean
   confirmedSeq: number
+  catchUp: () => Promise<unknown>
 }) {
   useTimelineReadObserver({
     channelId: dmId,
     messages,
     scrollRootEl,
-    snapshotReady,
+    snapshotStatus,
+    feedStatus,
+    tailAttached,
     confirmedSeq,
+    catchUp,
   })
 }

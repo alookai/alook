@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   deleteMention: vi.fn(),
   unmark: vi.fn(),
   verifyDm: vi.fn(),
+  armOpener: vi.fn(),
+  clearOpener: vi.fn(),
 }))
 
 const unreadDm = {
@@ -45,6 +47,10 @@ vi.mock("@/hooks/community/mutations", () => ({
 vi.mock("@/hooks/community/use-dm-route-verification", () => ({
   startDmRouteVerification: (...args: unknown[]) => mocks.verifyDm(...args),
 }))
+vi.mock("@/hooks/community/thread-opener-read-handoff", () => ({
+  armThreadOpenerReadHandoff: (...args: unknown[]) => mocks.armOpener(...args),
+  clearThreadOpenerReadHandoff: (...args: unknown[]) => mocks.clearOpener(...args),
+}))
 
 type Result = ReturnType<typeof useShellInboxController>
 
@@ -65,11 +71,15 @@ async function renderController(initialDmCache: DmCache = { conversations: [{
   status: "offline" as const,
   preview: "",
   unread: true,
-}] }) {
+}] }, pushError?: Error) {
   const order: string[] = []
   const pushed: string[] = []
   const router = {
-    push: (href: string) => { order.push("push"); pushed.push(href) },
+    push: (href: string) => {
+      order.push("push")
+      pushed.push(href)
+      if (pushError) throw pushError
+    },
     replace: vi.fn(),
     prefetch: vi.fn(),
   }
@@ -107,9 +117,12 @@ async function renderController(initialDmCache: DmCache = { conversations: [{
 describe("useShellInboxController", () => {
   beforeEach(() => {
     mocks.markedEnabled.length = 0
-    for (const mock of [mocks.watch, mocks.markAll, mocks.deleteMention, mocks.unmark, mocks.verifyDm]) {
+    for (const mock of [mocks.watch, mocks.markAll, mocks.deleteMention, mocks.unmark, mocks.verifyDm, mocks.armOpener, mocks.clearOpener]) {
       mock.mockReset()
     }
+    mocks.armOpener.mockImplementation(() => {
+      return "/c/channels/s1/child?inboxThreadOpener=nonce-1"
+    })
   })
 
   it("keeps Marked lazy and latches it after first selection", async () => {
@@ -167,7 +180,7 @@ describe("useShellInboxController", () => {
   it("preserves forum and mention watch keys and non-blocking routes", async () => {
     const hook = await renderController()
     hook.order.length = 0
-    await act(async () => hook.current.popoverProps.onOpenForumThread("s1", "forum", "child", "opener"))
+    await act(async () => hook.current.popoverProps.onOpenThread("s1", "forum", "child", "opener"))
     expect(hook.order).toEqual(["watch", "cancel", "push"])
     expect(mocks.watch).toHaveBeenCalledWith("channel:child")
     expect(hook.pushed.at(-1)).toBe("/c/channels/s1/child")
@@ -178,6 +191,64 @@ describe("useShellInboxController", () => {
     await act(async () => hook.current.popoverProps.onOpenMention?.({ id: "m1", serverId: "s1", channelId: "c1" } as never))
     expect(mocks.watch).toHaveBeenLastCalledWith("mention:m1")
     expect(hook.pushed.at(-1)).toBe("/c/channels/s1/c1")
+  })
+
+  it("arms a genuine unread opener after watch/cancel and before pushing its nonce URL", async () => {
+    const hook = await renderController()
+    mocks.armOpener.mockImplementation(() => {
+      hook.order.push("arm")
+      return "/c/channels/s1/child?inboxThreadOpener=nonce-1"
+    })
+    hook.order.length = 0
+
+    await act(async () => hook.current.popoverProps.onOpenThread(
+      "s1",
+      "forum",
+      "child",
+      "opener-7",
+      7,
+      true,
+    ))
+
+    expect(hook.order).toEqual(["watch", "cancel", "arm", "push"])
+    expect(mocks.armOpener).toHaveBeenCalledWith(expect.anything(), {
+      serverId: "s1",
+      parentChannelId: "forum",
+      childChannelId: "child",
+      openerMessageId: "opener-7",
+      openerSeq: 7,
+    })
+    expect(hook.pushed.at(-1)).toBe("/c/channels/s1/child?inboxThreadOpener=nonce-1")
+    expect(mocks.clearOpener).not.toHaveBeenCalled()
+  })
+
+  it("clears an obsolete handoff for an ordinary child navigation", async () => {
+    const hook = await renderController()
+    await act(async () => hook.current.popoverProps.onOpenThread(
+      "s1",
+      "forum",
+      "child",
+      "opener-7",
+      7,
+      false,
+    ))
+    expect(mocks.armOpener).not.toHaveBeenCalled()
+    expect(mocks.clearOpener).toHaveBeenCalledWith(expect.anything())
+    expect(hook.pushed.at(-1)).toBe("/c/channels/s1/child")
+  })
+
+  it("clears the armed opener when router.push fails synchronously", async () => {
+    const error = new Error("push failed")
+    const hook = await renderController(undefined, error)
+    await expect(act(async () => hook.current.popoverProps.onOpenThread(
+      "s1",
+      "forum",
+      "child",
+      "opener-7",
+      7,
+      true,
+    ))).rejects.toThrow("push failed")
+    expect(mocks.clearOpener).toHaveBeenCalledWith(expect.anything())
   })
 
   it("routes marked rows by server/DM with optional seq and exact watch keys", async () => {
