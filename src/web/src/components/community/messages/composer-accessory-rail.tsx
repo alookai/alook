@@ -41,7 +41,7 @@ export function ComposerAccessoryRail({
       data-testid={tid.composerAccessoryRail}
       data-selection={selectMode ? "active" : "inactive"}
       data-layout={layout}
-      className="pointer-events-none absolute inset-x-0 bottom-3 z-20 px-2 sm:px-4"
+      className="pointer-events-none absolute inset-x-0 bottom-2 z-20 px-2 sm:bottom-4 sm:px-4"
     >
       <div
         className={cn(

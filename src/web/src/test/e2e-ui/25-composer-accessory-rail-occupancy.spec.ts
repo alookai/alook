@@ -9,9 +9,11 @@ const LONG_TYPING_NAME = `Typing ${"occupancy ".repeat(8)}edge`
 
 type Rect = {
   left: number
+  top: number
   right: number
   bottom: number
   width: number
+  height: number
   center: number
 }
 
@@ -44,9 +46,11 @@ async function railMetrics(page: Page): Promise<RailMetrics> {
     const style = typingText ? getComputedStyle(typingText) : null
     const toRect = (value: DOMRect) => ({
       left: value.left,
+      top: value.top,
       right: value.right,
       bottom: value.bottom,
       width: value.width,
+      height: value.height,
       center: value.left + value.width / 2,
     })
     return {
@@ -85,6 +89,40 @@ function expectContained(metrics: RailMetrics, state: string, width: number): vo
     if (!control || control.width === 0) continue
     expect(control.left, evidence).toBeGreaterThanOrEqual(metrics.rail.left - 0.5)
     expect(control.right, evidence).toBeLessThanOrEqual(metrics.rail.right + 0.5)
+  }
+}
+
+function expectCheckpoint(
+  metrics: RailMetrics,
+  state: string,
+  width: number,
+  selection: boolean,
+): void {
+  const evidence = `${state}@${width}: ${JSON.stringify(metrics)}`
+  const expectedGap = width < 640 ? 8 : 16
+  for (const [name, control] of [
+    ["typing", metrics.typing],
+    [selection ? "selection" : "scroll", metrics.center],
+  ] as const) {
+    if (!control || control.width === 0) continue
+    expect(Math.abs(metrics.composer.top - control.bottom - expectedGap), `${name} ${evidence}`)
+      .toBeLessThanOrEqual(1)
+  }
+  if (metrics.typing?.width) {
+    expect(metrics.typing.height, `typing ${evidence}`).toBe(32)
+  }
+  if (metrics.center?.width) {
+    if (!selection) {
+      expect(metrics.center.height, `scroll ${evidence}`).toBe(32)
+    } else if (width === 390) {
+      expect(metrics.center.height, `selection ${evidence}`).toBe(40)
+    } else if (width === 1280) {
+      expect(metrics.center.height, `selection ${evidence}`).toBe(38)
+    }
+  }
+  if (metrics.typing?.width && metrics.center?.width) {
+    expect(Math.abs(metrics.typing.bottom - metrics.center.bottom), `shared baseline ${evidence}`)
+      .toBeLessThanOrEqual(1)
   }
 }
 
@@ -128,8 +166,14 @@ async function captureState(args: {
     await expect(rail).toHaveAttribute("data-layout", layout!)
     await expect(page.getByTestId(tid.typingIndicator)).toHaveCount(typing ? 1 : 0)
     await expect(page.getByTestId(tid.messageSelectionToolbar)).toHaveCount(selection ? 1 : 0)
+    if (selection && (width === 390 || width === 1280)) {
+      await expect.poll(() => page.getByTestId(tid.messageSelectionToolbar).evaluate(
+        (element) => element.getBoundingClientRect().height,
+      )).toBe(width === 390 ? 40 : 38)
+    }
     const metrics = await railMetrics(page)
     expectContained(metrics, state, width)
+    expectCheckpoint(metrics, state, width, selection)
     if (center) {
       expect(metrics.center, `${state}@${width}`).not.toBeNull()
       expect(Math.abs(metrics.center!.center - metrics.composer.center), `${state}@${width}`)
