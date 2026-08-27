@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -58,6 +58,7 @@ function SortableServerImpl({
 }: SortableServerProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
+  const restoreFocusAfterActivationRef = useRef(false)
   const [confirmLeave, setConfirmLeave] = useState(false);
   // Lazy-mount the row's Base UI ContextMenu + ConfirmDialog. Eagerly mounting
   // them per rail icon (one Tooltip + ContextMenu + Dialog stack × N servers)
@@ -77,10 +78,19 @@ function SortableServerImpl({
       buttonRef.current,
     )
   }, [activated, registerItem, server.id])
+  useLayoutEffect(() => {
+    if (!activated || !restoreFocusAfterActivationRef.current) return
+    restoreFocusAfterActivationRef.current = false
+    buttonRef.current?.focus()
+  }, [activated])
   const activate = activated ? undefined : () => setActivated(true);
   const activateAndPrefetch = () => {
     activate?.();
     onPrefetch?.();
+  };
+  const activateFromFocus = () => {
+    if (!activated) restoreFocusAfterActivationRef.current = true
+    activateAndPrefetch()
   };
 
   const icon = (
@@ -89,7 +99,7 @@ function SortableServerImpl({
       style={{ opacity: isDragActive ? 0.3 : 1 }}
       className="group relative flex w-full justify-center"
       onPointerEnter={activateAndPrefetch}
-      onFocusCapture={activateAndPrefetch}
+      onFocusCapture={activateFromFocus}
       onKeyDownCapture={activate}
     >
       {(preview === "reorder-before" || preview === "reorder-after") && (
