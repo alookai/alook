@@ -53,15 +53,16 @@ describe("CommunityWsReconnectBoundary", () => {
       tabIndex: -1,
     })
     expect(overlay.props.className).toContain("fixed inset-0")
-    expect(overlay.props.className).toContain("z-200")
+    expect(overlay.props.className).toContain("community-ws-reconnect-overlay")
+    expect(overlay.props.className).toContain("z-2147483647")
     expect(overlay.props.className).toContain("backdrop-blur-sm")
     expect(renderer.root.findByProps({ role: "status" }).props).toMatchObject({
       "aria-atomic": "true",
       "aria-live": "polite",
     })
     expect(renderer.root.findByType("h2").children).toEqual(["Connecting…"])
-    expect(renderer.root.findAll((node) => node.props.className?.includes("motion-safe:animate-spin")))
-      .not.toHaveLength(0)
+    const motion = renderer.root.findByProps({ "data-connecting-motion": "" })
+    expect(motion.props.className).toContain("community-ws-connecting-loader")
     expect(renderer.root.findAllByProps({ "data-testid": tid.wsRetry })).toHaveLength(0)
     expect(focus).toHaveBeenCalledOnce()
   })

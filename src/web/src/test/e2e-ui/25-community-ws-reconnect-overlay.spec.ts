@@ -34,11 +34,11 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
     const reconnectingEvidence = await overlay.evaluate((element) => {
       const rect = element.getBoundingClientRect()
       const content = element.previousElementSibling as HTMLElement | null
-      const spinner = element.querySelector<SVGElement>("svg")
+      const connectingMotion = element.querySelector<HTMLElement>("[data-connecting-motion]")
       return {
         ariaHidden: content?.getAttribute("aria-hidden"),
         inert: content?.hasAttribute("inert"),
-        animationName: spinner ? getComputedStyle(spinner).animationName : null,
+        animationName: connectingMotion ? getComputedStyle(connectingMotion).animationName : null,
         rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
         viewport: { width: innerWidth, height: innerHeight },
       }
@@ -94,5 +94,89 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
     expect(await alice.page.locator("[inert]").count()).toBe(0)
   } finally {
     await alice.context.setOffline(false)
+  }
+})
+
+test("an active onboarding guide yields visual and focus priority during outage, then resumes", async ({ browser }, testInfo) => {
+  test.setTimeout(90_000)
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } })
+  const page = await context.newPage()
+  let userWs: WebSocketRoute | null = null
+  await page.routeWebSocket((url) => url.pathname.endsWith("/user"), (ws) => {
+    userWs = ws
+    ws.connectToServer()
+  })
+
+  try {
+    await page.goto("/sign-in")
+    await page.getByRole("textbox", { name: "Email" }).fill(
+      `guide-reconnect-${process.pid}-${Date.now()}@example.com`,
+    )
+    await page.getByRole("button", { name: "Sign in", exact: true }).click()
+    await page.waitForURL("**/c/me/machines", { waitUntil: "commit" })
+    await expect(page.getByRole("heading", { name: "No machines yet" })).toBeVisible()
+    await page.getByRole("button", { name: "Guide me" }).click()
+
+    const guide = page.locator(".driver-popover.community-onboarding-popover")
+    await expect(guide).toBeVisible()
+    await expect(guide.getByRole("heading", { name: "Give your bot a place to run" })).toBeVisible()
+    await expect(page.locator("body")).toHaveClass(/community-onboarding-active/)
+
+    await context.setOffline(true)
+    expect(userWs).not.toBeNull()
+    await userWs!.close({ code: 1012, reason: "active onboarding reconnect e2e outage" })
+
+    const overlay = page.getByTestId(tid.wsReconnectOverlay)
+    await expect(overlay).toBeVisible({ timeout: 10_000 })
+    await expect(overlay).toBeFocused()
+    const stacking = await page.evaluate((overlayId) => {
+      const reconnect = document.querySelector<HTMLElement>(`[data-testid='${overlayId}']`)
+      const popover = document.querySelector<HTMLElement>(".driver-popover")
+      const activeTarget = document.querySelector<HTMLElement>(".driver-active-element")
+      if (!reconnect || !popover || !activeTarget) throw new Error("stacking targets are missing")
+      const reconnectRect = reconnect.getBoundingClientRect()
+      const topAtCenter = document.elementFromPoint(
+        reconnectRect.left + reconnectRect.width / 2,
+        reconnectRect.top + reconnectRect.height / 2,
+      )
+      return {
+        reconnect: Number.parseInt(getComputedStyle(reconnect).zIndex, 10),
+        popover: Number.parseInt(getComputedStyle(popover).zIndex, 10),
+        activeTarget: Number.parseInt(getComputedStyle(activeTarget).zIndex, 10),
+        topBelongsToReconnect: reconnect.contains(topAtCenter),
+      }
+    }, tid.wsReconnectOverlay)
+    expect(stacking.reconnect).toBeGreaterThan(stacking.popover)
+    expect(stacking.reconnect).toBeGreaterThan(stacking.activeTarget)
+    expect(stacking.topBelongsToReconnect).toBe(true)
+
+    await guide.getByRole("button", { name: "Skip guide" }).evaluate((element) => {
+      (element as HTMLElement).focus()
+    })
+    await expect(overlay).toBeFocused()
+    await page.keyboard.press("Tab")
+    expect(await page.evaluate((overlayId) => {
+      const reconnect = document.querySelector(`[data-testid='${overlayId}']`)
+      return reconnect?.contains(document.activeElement) ?? false
+    }, tid.wsReconnectOverlay)).toBe(true)
+    await testInfo.attach("390-active-onboarding-reconnecting.png", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    })
+
+    await context.setOffline(false)
+    await expect(overlay).toHaveCount(0, { timeout: 20_000 })
+    await expect(guide).toBeVisible()
+    await expect(page.locator("body")).toHaveClass(/community-onboarding-active/)
+    await guide.getByRole("button", { name: "Skip guide" }).evaluate((element) => {
+      (element as HTMLElement).click()
+    })
+    await expect(guide).toHaveCount(0)
+    await expect(page.locator("body")).not.toHaveClass(/community-onboarding-active/)
+  } finally {
+    if (!page.isClosed()) {
+      await context.setOffline(false)
+      await context.close()
+    }
   }
 })
