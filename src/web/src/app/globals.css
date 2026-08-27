@@ -84,18 +84,39 @@
 }
 
 .community-ws-connecting-loader {
-  width: 80px;
+  display: grid;
+  width: 100px;
   aspect-ratio: 1;
   box-sizing: border-box;
-  padding: 5px;
-  border: 10px solid transparent;
+  padding: 10px;
+  background: var(--background);
+  filter: blur(5px) contrast(10);
+  mix-blend-mode: darken;
+}
+
+.dark .community-ws-connecting-loader {
+  mix-blend-mode: lighten;
+}
+
+.community-ws-connecting-loader::before,
+.community-ws-connecting-loader::after {
+  grid-area: 1 / 1;
   background:
-    radial-gradient(farthest-side, var(--primary-foreground) 98%, transparent) 0 0 / 20px 20px no-repeat,
-    conic-gradient(from 90deg at 10px 10px, transparent 90deg, var(--primary-foreground) 0) content-box,
-    conic-gradient(from -90deg at 40px 40px, transparent 90deg, var(--primary-foreground) 0) content-box,
-    var(--primary);
-  filter: blur(4px) contrast(10);
-  animation: community-ws-connecting 2s infinite;
+    linear-gradient(var(--primary) 0 0) left,
+    linear-gradient(var(--primary) 0 0) right;
+  background-size: 20px 40px;
+  background-origin: content-box;
+  background-repeat: no-repeat;
+  content: "";
+}
+
+.community-ws-connecting-loader::after {
+  width: 20px;
+  height: 20px;
+  margin: auto 0;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: community-ws-connecting 1s infinite;
 }
 
 body.driver-active .community-ws-reconnect-overlay,
@@ -104,15 +125,14 @@ body.driver-active .community-ws-reconnect-overlay * {
 }
 
 @keyframes community-ws-connecting {
-  0% { background-position: 0 0; }
-  25% { background-position: 100% 0; }
-  50% { background-position: 100% 100%; }
-  75% { background-position: 0 100%; }
-  100% { background-position: 0 0; }
+  90%,
+  100% {
+    transform: translateX(300%);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .community-ws-connecting-loader {
+  .community-ws-connecting-loader::after {
     animation: none;
   }
 }

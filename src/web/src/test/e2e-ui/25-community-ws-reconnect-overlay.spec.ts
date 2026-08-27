@@ -38,7 +38,9 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
       return {
         ariaHidden: content?.getAttribute("aria-hidden"),
         inert: content?.hasAttribute("inert"),
-        animationName: connectingMotion ? getComputedStyle(connectingMotion).animationName : null,
+        animationName: connectingMotion
+          ? getComputedStyle(connectingMotion, "::after").animationName
+          : null,
         rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
         viewport: { width: innerWidth, height: innerHeight },
       }
