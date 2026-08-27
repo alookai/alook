@@ -83,6 +83,7 @@ async function renderController(overrides: Record<string, unknown> = {}) {
   const navigation = {
     currentHref: "/c/channels/s1",
     navigationPending: false,
+    pendingHref: null,
     push: router.push,
     replace: router.replace,
     prefetch: router.prefetch,
@@ -150,6 +151,22 @@ describe("useShellRailController", () => {
     expect(mocks.markSwitch).toHaveBeenNthCalledWith(1, "server", "s1")
     expect(mocks.markSwitch).toHaveBeenNthCalledWith(2, "server", "s2")
 
+  })
+
+  it("projects the pending target for every rail entry without changing committed actions", async () => {
+    const openSettings = vi.fn()
+    const hook = await renderController({
+      projectedActiveServerId: "s2",
+      onOpenActiveServerSettings: openSettings,
+    })
+
+    expect(hook.current.railProps.activeServerId).toBe("s2")
+    expect(hook.current.railProps.servers.map((server) => [server.id, server.active]))
+      .toEqual([["s1", false], ["s2", true]])
+
+    await act(async () => hook.current.railProps.onOpenSettings("s2"))
+    expect(openSettings).not.toHaveBeenCalled()
+    expect(hook.pushed).toEqual(["/c/channels/s2?settings=1"])
   })
 
   it("does not leave deferred server work that can overwrite a direct channel navigation", async () => {

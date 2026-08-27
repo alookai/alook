@@ -68,6 +68,32 @@ describe("useCommunityNavigationController", () => {
     expect(hook.current.pendingHref).toBeNull()
   })
 
+  it("keeps only rapid B pending when stale A commits before B", async () => {
+    const hook = await renderController()
+    await act(async () => {
+      hook.current.push("/c/channels/s1")
+      hook.current.push("/c/channels/s2")
+    })
+    expect(mocks.push.mock.calls.map(([href]) => href)).toEqual([
+      "/c/channels/s1",
+      "/c/channels/s2",
+    ])
+    expect(hook.current.pendingHref).toBe("/c/channels/s2")
+
+    mocks.pathname.current = "/c/channels/s1"
+    await hook.rerender()
+    expect(hook.current.navigationPending).toBe(true)
+    expect(hook.current.pendingHref).toBe("/c/channels/s2")
+
+    // The semantic server-root intent may commit through its canonical
+    // landing redirect. That leaf still commits the exact latest server
+    // target; the stale s1 leaf above must not.
+    mocks.pathname.current = "/c/channels/s2/c2"
+    await hook.rerender()
+    expect(hook.current.navigationPending).toBe(false)
+    expect(hook.current.pendingHref).toBeNull()
+  })
+
   it("uses replace for semantic parent navigation", async () => {
     const hook = await renderController()
     await act(async () => hook.current.replace("/c/channels/s1"))

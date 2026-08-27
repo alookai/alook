@@ -70,13 +70,14 @@ export const ServerRail = memo(function ServerRail({
   }
 
   const activeFromProps = activeServerIdProp ?? servers.find((s) => s.active)?.id ?? ""
-  const [activeId, setActiveId] = useState(activeFromProps)
-  useEffect(() => { if (activeFromProps) setActiveId(activeFromProps) }, [activeFromProps])
+  const [localActiveId, setLocalActiveId] = useState(activeFromProps)
+  const activeId = activeFromProps || localActiveId
+  useEffect(() => { if (activeFromProps) setLocalActiveId(activeFromProps) }, [activeFromProps])
 
   const [createOpen, setCreateOpen] = useState(false)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
-  const pickServer = (id: string) => { setActiveId(id); onServer?.(); onServerNavigate?.(id) }
+  const pickServer = (id: string) => { setLocalActiveId(id); onServer?.(); onServerNavigate?.(id) }
 
   const serverById = useMemo(() => new Map(servers.map((s) => [s.id, s])), [servers])
   const folderById = useMemo(() => new Map(folders.map((f) => [f.id, f])), [folders])

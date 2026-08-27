@@ -4,7 +4,12 @@ import { useCallback, useEffect } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useCommunityOnboarding } from "@/lib/community-onboarding"
-import { resolveCommunityRoute } from "@/lib/community/community-route"
+import {
+  communityServerId,
+  resolveCommunityRoute,
+  resolveServerSwitchCheckpoint,
+} from "@/lib/community/community-route"
+import { communityKeys } from "@/lib/query-keys"
 import { useCommunityStore } from "@/stores/community"
 import { ShellFrameView } from "./shell-frame-view"
 import { useShellRailController } from "./use-shell-rail-controller"
@@ -33,6 +38,20 @@ export function ShellFrame(props: ShellFrameProps) {
   const route = resolveCommunityRoute(pathname)
   const pendingPathname = navigation.pendingHref?.split("?")[0]
   const pendingRoute = pendingPathname ? resolveCommunityRoute(pendingPathname) : null
+  const pendingServerId = navigation.pendingHref
+    ? communityServerId(navigation.pendingHref)
+    : null
+  const serverSwitch = resolveServerSwitchCheckpoint({
+    currentHref: navigation.currentHref,
+    pendingHref: navigation.pendingHref,
+    hasExactServerDetail: pendingServerId
+      ? queryClient.getQueryData(communityKeys.server(pendingServerId)) !== undefined
+      : false,
+  })
+  const coldServerSwitchTargetId = serverSwitch?.cold
+    ? serverSwitch.targetServerId
+    : null
+  const warmServerSwitch = serverSwitch != null && !serverSwitch.cold
 
   const rail = useShellRailController({
     navigation,
@@ -40,6 +59,7 @@ export function ShellFrame(props: ShellFrameProps) {
     breakpoint,
     view,
     activeServerId,
+    projectedActiveServerId: coldServerSwitchTargetId ?? activeServerId,
     onOpenActiveServerSettings,
     onOpenActiveServerInvite,
   })
@@ -95,12 +115,15 @@ export function ShellFrame(props: ShellFrameProps) {
   return (
     <ShellFrameView
       breakpoint={breakpoint}
-      surface={pendingRoute?.surface ?? route.surface}
-      loadingHref={navigation.pendingHref ?? navigation.currentHref}
+      surface={warmServerSwitch ? route.surface : pendingRoute?.surface ?? route.surface}
+      loadingHref={warmServerSwitch
+        ? navigation.currentHref
+        : navigation.pendingHref ?? navigation.currentHref}
       sidebar={sidebar}
       extraDialogs={extraDialogs}
       cancelPendingNavigation={navigation.cancelPendingNavigation}
-      navigationPending={navigation.navigationPending}
+      navigationPending={navigation.navigationPending && !warmServerSwitch}
+      serverSwitchTargetId={coldServerSwitchTargetId}
       rail={rail}
       profile={profile}
       inbox={inbox}

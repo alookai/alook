@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => {
   return {
     currentHref: { current: "/c/channels/s1" },
     pendingHref: { current: null as string | null },
+    navigationPending: { current: false },
+    serverCache: new Set<string>(),
     breakpoint: { current: "desktop" },
     onboardingState: { current: null as Record<string, unknown> | null },
     replace: vi.fn(),
@@ -35,7 +37,13 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({}) }))
+vi.mock("@tanstack/react-query", () => ({
+  useQueryClient: () => ({
+    getQueryData: (key: unknown[]) => mocks.serverCache.has(String(key.at(-1)))
+      ? { id: key.at(-1) }
+      : undefined,
+  }),
+}))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mocks.breakpoint.current }))
 vi.mock("@/lib/community-onboarding", () => ({
   useCommunityOnboarding: () => mocks.onboardingState.current,
@@ -43,7 +51,7 @@ vi.mock("@/lib/community-onboarding", () => ({
 vi.mock("./use-community-navigation-controller", () => ({
   useCommunityNavigationController: () => ({
     currentHref: mocks.currentHref.current,
-    navigationPending: false,
+    navigationPending: mocks.navigationPending.current,
     pendingHref: mocks.pendingHref.current,
     push: mocks.push,
     replace: mocks.replace,
@@ -83,6 +91,8 @@ describe("ShellFrame orchestration", () => {
   beforeEach(() => {
     mocks.currentHref.current = "/c/channels/s1"
     mocks.pendingHref.current = null
+    mocks.navigationPending.current = false
+    mocks.serverCache.clear()
     mocks.breakpoint.current = "desktop"
     mocks.onboardingState.current = null
     mocks.registerUiHandlers.mockClear()
@@ -125,6 +135,51 @@ describe("ShellFrame orchestration", () => {
     expect(renderer.root.findByType("shell-frame-view").props.surface).toBe("detail")
     expect(renderer.root.findByType("shell-frame-view").props.loadingHref)
       .toBe("/c/me/dm_1?from=inbox")
+  })
+
+  it("projects one cold cross-server target into rail, middle, and right", async () => {
+    mocks.currentHref.current = "/c/channels/s1/c1"
+    mocks.pendingHref.current = "/c/channels/s2"
+    mocks.navigationPending.current = true
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ShellFrame, baseProps))
+    })
+
+    const view = renderer.root.findByType("shell-frame-view")
+    expect(view.props).toMatchObject({
+      surface: "list",
+      loadingHref: "/c/channels/s2",
+      navigationPending: true,
+      serverSwitchTargetId: "s2",
+    })
+    expect(mocks.railOptions).toHaveBeenLastCalledWith(expect.objectContaining({
+      activeServerId: "s1",
+      projectedActiveServerId: "s2",
+    }))
+  })
+
+  it("lets an exact warm target skip both forced checkpoints without relabeling A", async () => {
+    mocks.currentHref.current = "/c/channels/s1/c1"
+    mocks.pendingHref.current = "/c/channels/s2"
+    mocks.navigationPending.current = true
+    mocks.serverCache.add("s2")
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ShellFrame, baseProps))
+    })
+
+    const view = renderer.root.findByType("shell-frame-view")
+    expect(view.props).toMatchObject({
+      surface: "detail",
+      loadingHref: "/c/channels/s1/c1",
+      navigationPending: false,
+      serverSwitchTargetId: null,
+    })
+    expect(mocks.railOptions).toHaveBeenLastCalledWith(expect.objectContaining({
+      activeServerId: "s1",
+      projectedActiveServerId: "s1",
+    }))
   })
 
   it("replaces a mobile detail with its semantic parent", async () => {
