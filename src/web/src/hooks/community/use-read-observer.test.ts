@@ -23,10 +23,36 @@ const hookState = vi.hoisted(() => ({
     openerUnread: boolean
   },
 }))
+const refState = vi.hoisted(() => {
+  let cursor = 0
+  const slots: Array<{ current: unknown }> = []
+  return {
+    persistent: false,
+    beginRender() {
+      cursor = 0
+    },
+    next(initial: unknown) {
+      const index = cursor++
+      const existing = slots[index]
+      if (existing) return existing
+      const value = { current: initial }
+      slots[index] = value
+      return value
+    },
+    reset() {
+      this.persistent = false
+      cursor = 0
+      slots.length = 0
+    },
+  }
+})
 
 vi.mock("react", () => ({
   useCallback: (callback: unknown) => callback,
-  useRef: (initial: unknown) => ({ current: initial }),
+  useRef: (initial: unknown) => {
+    if (!refState.persistent) return { current: initial }
+    return refState.next(initial)
+  },
   useState: (initial: unknown) => initial === null
     ? [hookState.candidate, (next: unknown) => {
         hookState.candidate = typeof next === "function"
@@ -128,6 +154,7 @@ function trigger(record: ObserverRecord, target: Element, ratio = 1) {
 }
 
 function useTestRender(options: Partial<Parameters<typeof useTimelineReadObserver>[0]> = {}) {
+  if (refState.persistent) refState.beginRender()
   const row = makeRow("message-4")
   const root = makeRoot([row])
   useTimelineReadObserver({
@@ -153,6 +180,7 @@ describe("useTimelineReadObserver", () => {
     pageShowListeners = new Set()
     mutationCallback = undefined
     hookState.candidate = null
+    refState.reset()
     vi.clearAllMocks()
     vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver)
     vi.stubGlobal("MutationObserver", class {
@@ -329,19 +357,34 @@ describe("useTimelineReadObserver", () => {
     expect(reservation.negative).toHaveBeenCalledWith({ lease: "reservation" })
   })
 
-  it("starts one catch-up for a behind loaded tail and settles its fingerprint", async () => {
-    hookState.candidate = {
+  it("starts one catch-up for an unordered behind tail, then settles that fingerprint", async () => {
+    refState.persistent = true
+    const candidate = {
       channelId: "channel-1",
       lastMessageAt: "t9",
       fingerprint: "focused-t9",
       openerUnread: false,
     }
+    hookState.candidate = candidate
     const catchUp = vi.fn().mockResolvedValue(undefined)
-    useTestRender({ catchUp })
+    const messages = [
+      { id: "message-8", seq: 8, authorId: "other-1", createdAt: "t8" },
+      { id: "message-7", seq: 7, authorId: "other-1", createdAt: "t7" },
+    ] as any[]
+    useTestRender({ catchUp, messages })
     runEffects()
     expect(catchUp).toHaveBeenCalledOnce()
     expect(reservation.negative).not.toHaveBeenCalled()
+    await catchUp.mock.results[0]!.value
     await Promise.resolve()
+
+    effects.length = 0
+    hookState.candidate = candidate
+    useTestRender({ catchUp, messages })
+    runEffects()
+    expect(catchUp).toHaveBeenCalledOnce()
+    expect(reservation.negative).toHaveBeenCalledOnce()
+    expect(reservation.negative).toHaveBeenCalledWith({ lease: "reservation" })
   })
 
   it.each([

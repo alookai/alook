@@ -203,6 +203,16 @@ describe("thread opener read handoff", () => {
     await act(async () => renderer.unmount())
   })
 
+  it("keeps a nonce-free aligned route outside handoff ownership", async () => {
+    state.params = "msg=message-9&tab=all"
+    const renderer = await render("ready")
+    expect(mocks.register).not.toHaveBeenCalled()
+    expect(mocks.submit).not.toHaveBeenCalled()
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(state.queryClient!.refetchQueries).not.toHaveBeenCalled()
+    await act(async () => renderer.unmount())
+  })
+
   it("survives a real pending-to-ready rerender, then claims the exact parent and preserves child msg", async () => {
     armThreadOpenerReservationHandoff(state.queryClient!, target)
     const renderer = await render("pending")
