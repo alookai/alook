@@ -56,6 +56,7 @@ const folders = [{
   position: 0,
   servers: [{ id: "b", name: "B", initial: "B" }],
 }]
+const animationFrames: FrameRequestCallback[] = []
 
 function renderRail() {
   return TestRenderer.create(createElement(ServerRail, {
@@ -87,15 +88,33 @@ function drop(instruction: RailInstruction) {
   options.onDrop(instruction)
 }
 
+function flushAnimationFrame() {
+  const callback = animationFrames.shift()
+  if (!callback) throw new Error("Expected a queued animation frame")
+  callback(0)
+}
+
+async function expectReconciledFocus(testId: string, focus: ReturnType<typeof vi.fn>) {
+  expect(mocks.querySelector).not.toHaveBeenCalled()
+  expect(focus).not.toHaveBeenCalled()
+  await act(async () => flushAnimationFrame())
+  expect(mocks.querySelector).not.toHaveBeenCalled()
+  expect(focus).not.toHaveBeenCalled()
+  await act(async () => flushAnimationFrame())
+  expect(mocks.querySelector).toHaveBeenLastCalledWith(`[data-testid="${testId}"]`)
+  expect(focus).toHaveBeenCalledTimes(1)
+}
+
 describe("ServerRail one-in-flight structural guard", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    animationFrames.length = 0
     vi.stubGlobal("sessionStorage", { getItem: vi.fn(() => null), setItem: vi.fn() })
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true)
     vi.stubGlobal("document", { querySelector: mocks.querySelector })
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-      callback(0)
-      return 1
+      animationFrames.push(callback)
+      return animationFrames.length
     })
   })
   afterEach(() => vi.unstubAllGlobals())
@@ -131,6 +150,26 @@ describe("ServerRail one-in-flight structural guard", () => {
     },
   )
 
+  it("keeps immediate rejected-operation focus on one animation frame", async () => {
+    const focus = vi.fn()
+    mocks.querySelector.mockReturnValue({ focus })
+    await act(async () => { renderRail() })
+    await act(async () => drop({
+      operation: "reorder-after",
+      source: { kind: "server", id: "a" },
+      target: { kind: "server", id: "a" },
+    }))
+
+    expect(mocks.mutate).not.toHaveBeenCalled()
+    expect(focus).not.toHaveBeenCalled()
+    await act(async () => flushAnimationFrame())
+    expect(mocks.querySelector).toHaveBeenLastCalledWith(
+      `[data-testid="${tid.serverIcon("a")}"]`,
+    )
+    expect(focus).toHaveBeenCalledTimes(1)
+    expect(animationFrames).toHaveLength(0)
+  })
+
   it.each(["success", "error"] as const)(
     "returns Move focus only after the mutation settles: %s",
     async (outcome) => {
@@ -154,10 +193,7 @@ describe("ServerRail one-in-flight structural guard", () => {
         undefined,
         outcome === "error" ? new Error("failed") : null,
       ))
-      expect(mocks.querySelector).toHaveBeenLastCalledWith(
-        `[data-testid="${tid.serverIcon("a")}"]`,
-      )
-      expect(focus).toHaveBeenCalledTimes(1)
+      await expectReconciledFocus(tid.serverIcon("a"), focus)
     },
   )
 
@@ -187,10 +223,7 @@ describe("ServerRail one-in-flight structural guard", () => {
         undefined,
         outcome === "error" ? new Error("failed") : null,
       ))
-      expect(mocks.querySelector).toHaveBeenLastCalledWith(
-        `[data-testid="${tid.serverIcon("a")}"]`,
-      )
-      expect(focus).toHaveBeenCalledTimes(1)
+      await expectReconciledFocus(tid.serverIcon("a"), focus)
     },
   )
 
@@ -215,10 +248,10 @@ describe("ServerRail one-in-flight structural guard", () => {
         undefined,
         outcome === "error" ? new Error("failed") : null,
       ))
-      expect(mocks.querySelector).toHaveBeenLastCalledWith(
-        `[data-testid="${outcome === "success" ? tid.serverIcon("b") : tid.serverRailFolder("one")}"]`,
+      await expectReconciledFocus(
+        outcome === "success" ? tid.serverIcon("b") : tid.serverRailFolder("one"),
+        focus,
       )
-      expect(focus).toHaveBeenCalledTimes(1)
     },
   )
 })

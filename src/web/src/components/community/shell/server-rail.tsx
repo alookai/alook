@@ -162,16 +162,23 @@ export const ServerRail = memo(function ServerRail({
     [folders],
   )
 
-  const focusEntity = useCallback((entity: RailEntity, preferred?: HTMLElement) => {
-    requestAnimationFrame(() => {
-      if (preferred?.isConnected) {
-        preferred.focus()
-        return
-      }
+  const focusEntity = useCallback((
+    entity: RailEntity,
+    options?: { preferred?: HTMLElement; afterReconcile?: boolean },
+  ) => {
+    const focusCurrentEntity = () => {
       const testId = entity.kind === "server"
         ? tid.serverIcon(entity.id)
         : tid.serverRailFolder(entity.id)
       document.querySelector<HTMLElement>(`[data-testid="${testId}"]`)?.focus()
+    }
+    requestAnimationFrame(() => {
+      if (options?.afterReconcile) {
+        requestAnimationFrame(focusCurrentEntity)
+        return
+      }
+      if (options?.preferred?.isConnected) options.preferred.focus()
+      else focusCurrentEntity()
     })
   }, [])
 
@@ -192,7 +199,7 @@ export const ServerRail = memo(function ServerRail({
     const result = commitRailInstruction(before, instruction)
     if (!result.applied) {
       announce(result.reason)
-      focusEntity(instruction.source, focusTarget)
+      focusEntity(instruction.source, { preferred: focusTarget })
       return
     }
     if (!claimMutation()) return
@@ -211,7 +218,7 @@ export const ServerRail = memo(function ServerRail({
         },
         onSettled: () => {
           releaseMutation()
-          focusEntity(instruction.source, focusTarget)
+          focusEntity(instruction.source, { afterReconcile: true })
         },
       },
     )
@@ -240,7 +247,7 @@ export const ServerRail = memo(function ServerRail({
           releaseMutation()
           focusEntity(error || !firstServerId
             ? { kind: "folder", id: folderId }
-            : { kind: "server", id: firstServerId })
+            : { kind: "server", id: firstServerId }, { afterReconcile: true })
         },
       },
     )
@@ -270,7 +277,7 @@ export const ServerRail = memo(function ServerRail({
         },
         onSettled: () => {
           releaseMutation()
-          focusEntity({ kind: "server", id: serverId })
+          focusEntity({ kind: "server", id: serverId }, { afterReconcile: true })
         },
       },
     )
