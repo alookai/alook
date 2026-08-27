@@ -120,6 +120,36 @@ function getExitCallback(
   return onExit
 }
 
+function getPopupLifecycleCallbacks(
+  ext: ReturnType<typeof buildCommunityChannelRefExtension>,
+): {
+  onStart: (props: {
+    items: ChannelRefCandidate[]
+    query?: string
+    command: () => void
+    clientRect?: () => DOMRect | null
+  }) => void
+  onUpdate: (props: {
+    items: ChannelRefCandidate[]
+    query?: string
+    command: () => void
+    clientRect?: () => DOMRect | null
+  }) => void
+} {
+  const config = (ext as unknown as {
+    config: { addOptions?: () => { suggestion?: { render?: unknown } } }
+  }).config
+  const opts = config.addOptions?.()
+    ?? (ext as unknown as { options?: { suggestion?: { render?: unknown } } }).options
+  const render = (opts?.suggestion as {
+    render?: () => { onStart?: unknown; onUpdate?: unknown }
+  } | undefined)?.render
+  if (!render) throw new Error("suggestion.render not found")
+  const { onStart, onUpdate } = render()
+  if (!onStart || !onUpdate) throw new Error("suggestion popup lifecycle not found")
+  return { onStart, onUpdate } as ReturnType<typeof getPopupLifecycleCallbacks>
+}
+
 function build(
   candidates: ChannelRefCandidate[] = [],
   popup: ChannelRefPopupState = EMPTY_CHANNEL_REF_STATE,
@@ -202,6 +232,29 @@ describe("buildCommunityChannelRefExtension — suggestion.items callback", () =
     items({ query: "" })
     items({ query: "r" })
     expect(onIntent).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("buildCommunityChannelRefExtension — popup lifecycle", () => {
+  it("passes the live query through onStart/onUpdate and defaults a missing query", () => {
+    const items = [candidate("c1", "general")]
+    const command = vi.fn()
+    const { ext, setPopup } = build(items)
+    const { onStart, onUpdate } = getPopupLifecycleCallbacks(ext)
+
+    onStart({ items, query: "gen", command })
+    onStart({ items, command })
+    expect(setPopup.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ query: "gen" }))
+    expect(setPopup.mock.calls[1]?.[0]).toEqual(expect.objectContaining({ query: "" }))
+
+    setPopup.mockClear()
+    onUpdate({ items, query: "gene", command })
+    onUpdate({ items, command })
+    const current = { ...EMPTY_CHANNEL_REF_STATE, items, selectedIndex: 0 }
+    const firstUpdate = setPopup.mock.calls[0]?.[0] as (cur: ChannelRefPopupState) => ChannelRefPopupState
+    const secondUpdate = setPopup.mock.calls[1]?.[0] as (cur: ChannelRefPopupState) => ChannelRefPopupState
+    expect(firstUpdate(current)).toEqual(expect.objectContaining({ query: "gene" }))
+    expect(secondUpdate(current)).toEqual(expect.objectContaining({ query: "" }))
   })
 })
 
