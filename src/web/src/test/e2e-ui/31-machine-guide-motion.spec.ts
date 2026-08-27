@@ -163,7 +163,9 @@ test("first-signup mobile guide clears the empty-state actions across the full f
     })
     expect(report.minLargeClearance).toBeGreaterThanOrEqual(8)
     expect(report.maxBottom).toBeLessThanOrEqual(844)
-    expect(report.finalRect).toEqual(report.targetRect)
+    for (const key of ["left", "top", "right", "bottom", "width", "height"] as const) {
+      expect(report.finalRect[key]).toBeCloseTo(report.targetRect[key], 4)
+    }
   } finally {
     await context.close()
   }

@@ -30,8 +30,8 @@ export type GuideMotionGeometry = {
   startY: number
   controlX: number
   controlY: number
-  waypointX?: number
-  waypointY?: number
+  control2X?: number
+  control2Y?: number
   endX: number
   endY: number
   endScale: number
@@ -50,17 +50,19 @@ export function guideMotionGeometry(
   const endX = landing.left
   const endY = landing.top
   const distanceX = endX - startX
+  const distanceY = startY - endY
   const arcLift = Math.min(180, Math.max(72, Math.abs(distanceX) * 0.28))
   const mobile = avatarSize < 128
-  const mobileControlY = Math.min(startY + 48, stage.bottom - avatarSize - 12)
 
   return {
     startX,
     startY,
-    controlX: mobile ? endX : startX + distanceX * 0.52,
-    controlY: mobile ? mobileControlY : Math.min(startY, endY) - arcLift,
-    waypointX: mobile ? endX : undefined,
-    waypointY: mobile ? startY + (mobileControlY - startY) / 2 : undefined,
+    controlX: mobile ? startX + distanceX * 0.7 : startX + distanceX * 0.52,
+    controlY: mobile
+      ? startY - distanceY * 0.26
+      : Math.min(startY, endY) - arcLift,
+    control2X: mobile ? startX + distanceX * 0.88 : undefined,
+    control2Y: mobile ? startY - distanceY * 0.42 : undefined,
     endX,
     endY,
     endScale: landing.width / avatarSize,
@@ -69,8 +71,8 @@ export function guideMotionGeometry(
 }
 
 export function guideMotionPath(geometry: GuideMotionGeometry): string {
-  if (geometry.waypointX !== undefined && geometry.waypointY !== undefined) {
-    return `path("M ${geometry.startX} ${geometry.startY} Q ${geometry.controlX} ${geometry.controlY}, ${geometry.waypointX} ${geometry.waypointY} L ${geometry.endX} ${geometry.endY}")`
+  if (geometry.control2X !== undefined && geometry.control2Y !== undefined) {
+    return `path("M ${geometry.startX} ${geometry.startY} C ${geometry.controlX} ${geometry.controlY}, ${geometry.control2X} ${geometry.control2Y}, ${geometry.endX} ${geometry.endY}")`
   }
   return `path("M ${geometry.startX} ${geometry.startY} Q ${geometry.controlX} ${geometry.controlY}, ${geometry.endX} ${geometry.endY}")`
 }

@@ -304,7 +304,7 @@
     animation-timing-function: var(--guide-flight-ease);
   }
 
-  92% {
+  82% {
     transform: scale(var(--guide-clearance-scale));
     animation-timing-function: var(--guide-flight-ease);
   }

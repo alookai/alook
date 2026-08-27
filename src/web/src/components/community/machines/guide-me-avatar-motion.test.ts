@@ -41,14 +41,14 @@ describe("first-signup guide avatar motion", () => {
 
     expect(geometry.startX).toBe(31.2)
     expect(geometry.startY).toBe(532)
-    expect(geometry.controlX).toBe(280)
-    expect(geometry.controlY).toBe(580)
-    expect(geometry.waypointX).toBe(280)
-    expect(geometry.waypointY).toBe(556)
+    expect(geometry.controlX).toBeCloseTo(205.36)
+    expect(geometry.controlY).toBeCloseTo(500.28)
+    expect(geometry.control2X).toBeCloseTo(250.144)
+    expect(geometry.control2Y).toBeCloseTo(480.76)
     expect(geometry.endScale).toBeCloseTo(24 / 104)
     expect(geometry.clearanceScale).toBeCloseTo(32 / 104)
     expect(guideMotionPath(geometry)).toBe(
-      'path("M 31.2 532 Q 280 580, 280 556 L 280 410")',
+      'path("M 31.2 532 C 205.35999999999999 500.28, 250.144 480.76, 280 410")',
     )
   })
 
