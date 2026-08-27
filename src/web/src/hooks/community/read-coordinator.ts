@@ -430,7 +430,10 @@ class ReadCoordinator {
       : undefined
     if (state.inFlight?.attemptEpoch === attemptEpoch) state.inFlight = null
     if (this.disposed || !state.accepted || state.retryTimer !== null) return
-    if (drainCutoff === undefined || state.accepted.generation <= drainCutoff) {
+    if (
+      drainCutoff !== undefined
+      && state.accepted.generation <= drainCutoff
+    ) {
       this.schedule(state, 0)
       return
     }

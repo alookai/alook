@@ -225,8 +225,13 @@ describe("read coordinator", () => {
     submitTimeline(lease, 8)
     expect(apiFetch).toHaveBeenCalledTimes(1)
 
+    await vi.advanceTimersByTimeAsync(100)
     resolveFirst({ changed: true, revision: 5, targetSeq: 3 })
-    await vi.runAllTimersAsync()
+    await vi.advanceTimersByTimeAsync(0)
+
+    await vi.advanceTimersByTimeAsync(399)
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
 
     expect(apiFetch).toHaveBeenCalledTimes(2)
     expect(apiFetch.mock.calls[1]?.[1]).toEqual(expect.objectContaining({
