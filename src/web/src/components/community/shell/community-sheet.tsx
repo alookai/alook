@@ -27,7 +27,6 @@ type CommunitySheetProps = {
   onOpenChange: (open: boolean) => void
   title: React.ReactNode
   description?: React.ReactNode
-  headerActions?: React.ReactNode
   footer?: React.ReactNode | ((requestClose: () => void) => React.ReactNode)
   children: React.ReactNode
   bodyClassName?: string
@@ -43,16 +42,15 @@ type CommunitySheetProps = {
  * Controlled modal shell for every community right-hand surface.
  *
  * The shell owns structure, dismissal, width, and the CSS-only 640px
- * checkpoint. Callers supply business content through the title, actions,
- * body, and optional footer slots. Attachment preview is the only caller that
- * opts into the fixed internal resize policy.
+ * checkpoint. Callers supply business content through the title, body, and
+ * optional footer slots. Callers may opt into the fixed internal resize
+ * policy when their content benefits from more horizontal space.
  */
 export function CommunitySheet({
   open,
   onOpenChange,
   title,
   description,
-  headerActions,
   footer,
   children,
   bodyClassName,
@@ -78,7 +76,6 @@ export function CommunitySheet({
         <ResizableCommunitySheetContent
           title={title}
           description={description}
-          headerActions={headerActions}
           footer={footer}
           bodyClassName={bodyClassName}
           bodyRef={bodyRef}
@@ -96,7 +93,6 @@ export function CommunitySheet({
           maxWidth="80vw"
           title={title}
           description={description}
-          headerActions={headerActions}
           footer={footer}
           bodyClassName={bodyClassName}
           bodyRef={bodyRef}
@@ -116,7 +112,6 @@ type CommunitySheetContentProps = Pick<
   CommunitySheetProps,
   | "title"
   | "description"
-  | "headerActions"
   | "footer"
   | "children"
   | "bodyClassName"
@@ -137,7 +132,6 @@ function CommunitySheetContent({
   resize,
   title,
   description,
-  headerActions,
   footer,
   children,
   bodyClassName,
@@ -167,13 +161,8 @@ function CommunitySheetContent({
     >
       {resize && <SheetResizeHandle {...resize} />}
       <SheetHeader className="pr-14 sm:pr-14">
-        <div className="flex min-w-0 items-start gap-2">
-          <div className="min-w-0 flex-1">
-            <SheetTitle className="truncate">{title}</SheetTitle>
-            {description != null && <SheetDescription>{description}</SheetDescription>}
-          </div>
-          {headerActions != null && <div className="shrink-0">{headerActions}</div>}
-        </div>
+        <SheetTitle className="truncate">{title}</SheetTitle>
+        {description != null && <SheetDescription>{description}</SheetDescription>}
       </SheetHeader>
       <SheetBody ref={bodyRef} data-testid={bodyTestId} className={bodyClassName}>
         {children}

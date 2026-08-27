@@ -8,14 +8,14 @@ vi.mock("@/components/community/shell/community-sheet", () => ({
   CommunitySheet: ({
     title,
     description,
-    headerActions,
+    footer,
     children,
     bodyTestId,
     bodyClassName,
   }: {
     title: React.ReactNode
     description?: React.ReactNode
-    headerActions?: React.ReactNode
+    footer?: React.ReactNode
     children: React.ReactNode
     bodyTestId?: string
     bodyClassName?: string
@@ -24,8 +24,8 @@ vi.mock("@/components/community/shell/community-sheet", () => ({
     null,
     React.createElement("h2", null, title),
     description != null && React.createElement("p", null, description),
-    headerActions,
     React.createElement("main", { "data-testid": bodyTestId, className: bodyClassName }, children),
+    React.createElement("footer", null, footer),
   ),
 }))
 
@@ -106,6 +106,9 @@ describe("AttachmentPreviewSheet", () => {
     const download = renderer!.root.findByProps({ "data-testid": "community-attachment-preview-download" })
     expect(download.props.href).toBe("/attachments/a1")
     expect(download.props.download).toBe("notes.md")
+    expect(download.props.className).toContain("h-11")
+    expect(download.props.className).toContain("sm:h-7")
+    expect(download.parent?.type).toBe("footer")
     expect(renderer!.root.findByType("p").children.join("")).toContain("text/markdown · 128 B")
   })
 

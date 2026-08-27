@@ -103,13 +103,12 @@ describe("CommunitySheet contracts", () => {
     expect(renderer.root.findByProps({ "aria-label": "Close" }).props.className).toContain("size-11")
   })
 
-  it("owns header, body, footer, and routes every close entry through one request", () => {
+  it("keeps the header to title and description, and routes every close entry through one request", () => {
     const onOpenChange = vi.fn()
     const { renderer } = renderSheet({
       onOpenChange,
       title: "Structured title",
       description: "Structured description",
-      headerActions: React.createElement("a", { "data-action": true }, "Download"),
       bodyClassName: "body-policy",
       footer: (requestClose) => React.createElement(
         "button",
@@ -120,7 +119,9 @@ describe("CommunitySheet contracts", () => {
 
     expect(renderer.root.findByType("sheet-title").children).toEqual(["Structured title"])
     expect(renderer.root.findByType("sheet-description").children).toEqual(["Structured description"])
-    expect(renderer.root.findByProps({ "data-action": true })).toBeTruthy()
+    expect(renderer.root.findByType("sheet-header").findAllByType("a")).toHaveLength(0)
+    expect(renderer.root.findAllByType("button").filter((node) => node.props["aria-label"] === "Close"))
+      .toHaveLength(1)
     expect(renderer.root.findByType("sheet-body").props.className).toBe("body-policy")
     expect(renderer.root.findByType("sheet-footer").props.className).toContain(
       "**:data-[slot=button]:min-h-11",
