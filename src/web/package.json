@@ -1,6 +1,6 @@
 {
   "name": "@alook/web",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "private": true,
   "scripts": {
     "dev": "node ../../scripts/dev-with-wrangler-registry.mjs ../../.wrangler/registry next dev",

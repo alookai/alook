@@ -1,6 +1,6 @@
 {
   "productName": "Alook",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "identifier": "ai.alook.desktop",
   "build": {
     "devUrl": "http://localhost:3000/c",
