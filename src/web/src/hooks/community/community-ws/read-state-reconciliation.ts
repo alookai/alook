@@ -24,15 +24,25 @@ type ReconciliationState = {
   highestPendingTargetRevision: number | null
   snapshotRequestedGeneration: number
   snapshotCompletedGeneration: number
-  surfaceRequestedGeneration: number
-  surfaceCompletedGeneration: number
-  worker: Promise<AccountReadStateSnapshot> | null
-  retryTimer: ReturnType<typeof setTimeout> | null
-  retryDelayMs: number
+  inboxDmsRequestedGeneration: number
+  inboxDmsCompletedGeneration: number
+  serverRequestedGeneration: number
+  serverCompletedGeneration: number
+  snapshotWorker: Promise<AccountReadStateSnapshot> | null
+  inboxDmsWorker: Promise<void> | null
+  serverWorker: Promise<void> | null
+  snapshotRetryTimer: ReturnType<typeof setTimeout> | null
+  snapshotRetryDelayMs: number
+  inboxDmsRetryTimer: ReturnType<typeof setTimeout> | null
+  inboxDmsRetryDelayMs: number
+  serverRetryTimer: ReturnType<typeof setTimeout> | null
+  serverRetryDelayMs: number
   requestController: AbortController | null
   epoch: number
   disposed: boolean
 }
+
+export type ReadStateSurfaceMode = "all" | "inbox-dms" | "non-inbox" | "none"
 
 const INITIAL_RETRY_DELAY_MS = 100
 const MAX_RETRY_DELAY_MS = 5_000
@@ -98,7 +108,24 @@ function applyAccountReadStateSnapshot(
   return "applied" as const
 }
 
-async function invalidateReadStateSurfaces(queryClient: QueryClient) {
+async function invalidateInboxDmsSurfaces(queryClient: QueryClient) {
+  const refetchOptions = { throwOnError: true, cancelRefetch: true }
+  const settled = await Promise.allSettled([
+    queryClient.invalidateQueries(
+      { queryKey: communityKeys.inbox(), refetchType: "active" },
+      refetchOptions,
+    ),
+    queryClient.invalidateQueries(
+      { queryKey: communityKeys.dms(), refetchType: "active" },
+      refetchOptions,
+    ),
+  ])
+  if (settled.some((result) => result.status === "rejected")) {
+    throw new Error("read-state Inbox/DM reconciliation failed")
+  }
+}
+
+async function invalidateServerSurfaces(queryClient: QueryClient) {
   const serverIds = new Set<string>()
   for (const query of queryClient.getQueryCache().getAll()) {
     const key = query.queryKey
@@ -113,14 +140,6 @@ async function invalidateReadStateSurfaces(queryClient: QueryClient) {
   const refetchOptions = { throwOnError: true, cancelRefetch: true }
   const settled = await Promise.allSettled([
     queryClient.invalidateQueries(
-      { queryKey: communityKeys.inbox(), refetchType: "active" },
-      refetchOptions,
-    ),
-    queryClient.invalidateQueries(
-      { queryKey: communityKeys.dms(), refetchType: "active" },
-      refetchOptions,
-    ),
-    queryClient.invalidateQueries(
       { queryKey: communityKeys.servers(), exact: true, refetchType: "active" },
       refetchOptions,
     ),
@@ -131,13 +150,18 @@ async function invalidateReadStateSurfaces(queryClient: QueryClient) {
     }, refetchOptions)),
   ])
   if (settled.some((result) => result.status === "rejected")) {
-    throw new Error("read-state surface reconciliation failed")
+    throw new Error("read-state server reconciliation failed")
   }
 }
 
 export async function reconcileAccountReadState(
   queryClient: QueryClient,
-  options: { invalidateSurfaces?: boolean; targetRevision?: number } = {},
+  options: {
+    invalidateSurfaces?: boolean
+    surfaceMode?: ReadStateSurfaceMode
+    awaitSurfaceMode?: ReadStateSurfaceMode
+    targetRevision?: number
+  } = {},
 ) {
   if (disposedReconciliationClients.has(queryClient)) {
     throw new Error("account read-state reconciliation disposed")
@@ -161,22 +185,55 @@ export async function reconcileAccountReadState(
     state.snapshotRequestedGeneration += 1
   }
 
-  if (
-    options.invalidateSurfaces !== false
-    && state.snapshotRequestedGeneration > state.surfaceRequestedGeneration
-  ) {
-    // Bind derived work to the authoritative snapshot generation that caused
-    // it. Callers joining the same primary read coalesce, while a newer hint
-    // arriving during invalidation advances both generations and therefore
-    // receives a second surface pass after its newer snapshot lands.
-    state.surfaceRequestedGeneration = state.snapshotRequestedGeneration
+  const surfaceMode = options.invalidateSurfaces === false
+    ? "none"
+    : (options.surfaceMode ?? "all")
+  const awaitSurfaceMode = options.awaitSurfaceMode ?? surfaceMode
+  const requestedGeneration = state.snapshotRequestedGeneration
+  if (surfaceMode === "all" || surfaceMode === "inbox-dms") {
+    state.inboxDmsRequestedGeneration = Math.max(
+      state.inboxDmsRequestedGeneration,
+      requestedGeneration,
+    )
+  }
+  if (surfaceMode === "all" || surfaceMode === "non-inbox") {
+    state.serverRequestedGeneration = Math.max(
+      state.serverRequestedGeneration,
+      requestedGeneration,
+    )
   }
 
-  if (state.retryTimer !== null) {
-    clearTimeout(state.retryTimer)
-    state.retryTimer = null
+  clearReconciliationRetry(state, "snapshot")
+  if (awaitSurfaceMode === "all" || awaitSurfaceMode === "inbox-dms") {
+    clearReconciliationRetry(state, "inbox-dms")
   }
-  return ensureReconciliationWorker(queryClient, state)
+  if (awaitSurfaceMode === "all" || awaitSurfaceMode === "non-inbox") {
+    clearReconciliationRetry(state, "non-inbox")
+  }
+  await ensureSnapshotWorker(queryClient, state)
+  const inboxWorker = surfaceMode === "all" || surfaceMode === "inbox-dms"
+    ? ensureInboxDmsWorker(queryClient, state)
+    : null
+  const serverWorker = surfaceMode === "all" || surfaceMode === "non-inbox"
+    ? ensureServerWorker(queryClient, state)
+    : null
+  const awaited: Promise<void>[] = []
+  if (awaitSurfaceMode === "all" || awaitSurfaceMode === "inbox-dms") {
+    awaited.push(inboxWorker ?? ensureInboxDmsWorker(queryClient, state))
+  } else {
+    void inboxWorker?.catch(() => undefined)
+  }
+  if (awaitSurfaceMode === "all" || awaitSurfaceMode === "non-inbox") {
+    awaited.push(serverWorker ?? ensureServerWorker(queryClient, state))
+  } else {
+    void serverWorker?.catch(() => undefined)
+  }
+  await Promise.all(awaited)
+  const snapshot = queryClient.getQueryData<AccountReadStateSnapshot>(
+    communityKeys.accountReadStateSnapshot(),
+  )
+  if (!snapshot) throw new Error("account read-state reconciliation produced no snapshot")
+  return snapshot
 }
 
 function getReconciliationState(queryClient: QueryClient) {
@@ -186,11 +243,19 @@ function getReconciliationState(queryClient: QueryClient) {
     highestPendingTargetRevision: null,
     snapshotRequestedGeneration: 0,
     snapshotCompletedGeneration: 0,
-    surfaceRequestedGeneration: 0,
-    surfaceCompletedGeneration: 0,
-    worker: null,
-    retryTimer: null,
-    retryDelayMs: INITIAL_RETRY_DELAY_MS,
+    inboxDmsRequestedGeneration: 0,
+    inboxDmsCompletedGeneration: 0,
+    serverRequestedGeneration: 0,
+    serverCompletedGeneration: 0,
+    snapshotWorker: null,
+    inboxDmsWorker: null,
+    serverWorker: null,
+    snapshotRetryTimer: null,
+    snapshotRetryDelayMs: INITIAL_RETRY_DELAY_MS,
+    inboxDmsRetryTimer: null,
+    inboxDmsRetryDelayMs: INITIAL_RETRY_DELAY_MS,
+    serverRetryTimer: null,
+    serverRetryDelayMs: INITIAL_RETRY_DELAY_MS,
     requestController: null,
     epoch: 0,
     disposed: false,
@@ -213,99 +278,202 @@ function hasSnapshotWork(state: ReconciliationState, currentRevision: number) {
   )
 }
 
-function hasSurfaceWork(state: ReconciliationState) {
-  return state.surfaceCompletedGeneration < state.surfaceRequestedGeneration
+function hasInboxDmsWork(state: ReconciliationState) {
+  return state.inboxDmsCompletedGeneration < state.inboxDmsRequestedGeneration
 }
 
-function hasReconciliationWork(queryClient: QueryClient, state: ReconciliationState) {
-  return hasSnapshotWork(state, cachedAccountRevision(queryClient)) || hasSurfaceWork(state)
+function hasServerWork(state: ReconciliationState) {
+  return state.serverCompletedGeneration < state.serverRequestedGeneration
 }
 
-function scheduleReconciliationRetry(queryClient: QueryClient, state: ReconciliationState) {
-  if (
-    state.disposed
-    || state.retryTimer !== null
-    || !hasReconciliationWork(queryClient, state)
-  ) return
-  const delay = state.retryDelayMs
-  state.retryDelayMs = Math.min(delay * 2, MAX_RETRY_DELAY_MS)
-  state.retryTimer = setTimeout(() => {
-    state.retryTimer = null
-    void ensureReconciliationWorker(queryClient, state).catch(() => undefined)
-  }, delay)
+type RetryFamily = "snapshot" | "inbox-dms" | "non-inbox"
+
+function hasFamilyWork(
+  queryClient: QueryClient,
+  state: ReconciliationState,
+  family: RetryFamily,
+) {
+  if (family === "snapshot") {
+    return hasSnapshotWork(state, cachedAccountRevision(queryClient))
+  }
+  return family === "inbox-dms" ? hasInboxDmsWork(state) : hasServerWork(state)
 }
 
-function ensureReconciliationWorker(queryClient: QueryClient, state: ReconciliationState) {
-  if (state.disposed) return Promise.reject(new Error("account read-state reconciliation disposed"))
-  if (state.worker) return state.worker
-  const worker = runReconciliationWorker(queryClient, state).finally(() => {
-    if (state.worker === worker) state.worker = null
-    if (hasReconciliationWork(queryClient, state)) {
-      scheduleReconciliationRetry(queryClient, state)
+function clearReconciliationRetry(state: ReconciliationState, family: RetryFamily) {
+  const timer = family === "snapshot"
+    ? state.snapshotRetryTimer
+    : family === "inbox-dms"
+      ? state.inboxDmsRetryTimer
+      : state.serverRetryTimer
+  if (timer !== null) clearTimeout(timer)
+  if (family === "snapshot") state.snapshotRetryTimer = null
+  else if (family === "inbox-dms") state.inboxDmsRetryTimer = null
+  else state.serverRetryTimer = null
+}
+
+function scheduleReconciliationRetry(
+  queryClient: QueryClient,
+  state: ReconciliationState,
+  family: RetryFamily,
+) {
+  const timer = family === "snapshot"
+    ? state.snapshotRetryTimer
+    : family === "inbox-dms"
+      ? state.inboxDmsRetryTimer
+      : state.serverRetryTimer
+  if (state.disposed || timer !== null || !hasFamilyWork(queryClient, state, family)) return
+  const delay = family === "snapshot"
+    ? state.snapshotRetryDelayMs
+    : family === "inbox-dms"
+      ? state.inboxDmsRetryDelayMs
+      : state.serverRetryDelayMs
+  if (family === "snapshot") {
+    state.snapshotRetryDelayMs = Math.min(delay * 2, MAX_RETRY_DELAY_MS)
+  } else if (family === "inbox-dms") {
+    state.inboxDmsRetryDelayMs = Math.min(delay * 2, MAX_RETRY_DELAY_MS)
+  } else {
+    state.serverRetryDelayMs = Math.min(delay * 2, MAX_RETRY_DELAY_MS)
+  }
+  const callback = () => {
+    if (family === "snapshot") state.snapshotRetryTimer = null
+    else if (family === "inbox-dms") state.inboxDmsRetryTimer = null
+    else state.serverRetryTimer = null
+    if (family === "snapshot") {
+      void ensureSnapshotWorker(queryClient, state)
+        .then(() => kickPendingSurfaceWorkers(queryClient, state))
+        .catch(() => undefined)
+    } else if (family === "inbox-dms") {
+      void ensureInboxDmsWorker(queryClient, state).catch(() => undefined)
+    } else {
+      void ensureServerWorker(queryClient, state).catch(() => undefined)
     }
+  }
+  const nextTimer = setTimeout(callback, delay)
+  if (family === "snapshot") state.snapshotRetryTimer = nextTimer
+  else if (family === "inbox-dms") state.inboxDmsRetryTimer = nextTimer
+  else state.serverRetryTimer = nextTimer
+}
+
+function ensureSnapshotWorker(queryClient: QueryClient, state: ReconciliationState) {
+  if (state.disposed) return Promise.reject(new Error("account read-state reconciliation disposed"))
+  if (state.snapshotWorker) return state.snapshotWorker
+  const worker = runSnapshotWorker(queryClient, state).finally(() => {
+    if (state.snapshotWorker === worker) state.snapshotWorker = null
   })
-  state.worker = worker
+  state.snapshotWorker = worker
   return worker
 }
 
-async function runReconciliationWorker(
+async function runSnapshotWorker(
   queryClient: QueryClient,
   state: ReconciliationState,
 ): Promise<AccountReadStateSnapshot> {
   const epoch = state.epoch
-  while (true) {
+  while (hasSnapshotWork(state, cachedAccountRevision(queryClient))) {
     assertReconciliationActive(queryClient, state, epoch)
-    const currentRevision = cachedAccountRevision(queryClient)
-    if (hasSnapshotWork(state, currentRevision)) {
-      const requestGeneration = state.snapshotRequestedGeneration
-      let snapshot: AccountReadStateSnapshot
-      try {
-        snapshot = await startAccountReadStateRequest(state)
-      } catch (error) {
-        scheduleReconciliationRetry(queryClient, state)
-        throw error
-      }
-      assertReconciliationActive(queryClient, state, epoch)
-      applyAccountReadStateSnapshot(queryClient, snapshot)
-      state.snapshotCompletedGeneration = Math.max(
-        state.snapshotCompletedGeneration,
-        requestGeneration,
-      )
-      const appliedRevision = cachedAccountRevision(queryClient)
-      if (
-        state.highestPendingTargetRevision !== null
-        && appliedRevision >= state.highestPendingTargetRevision
-      ) {
-        state.highestPendingTargetRevision = null
-      }
-      // If this primary read was older than a live target, or another caller
-      // arrived while it was in flight, loop immediately and issue a genuinely
-      // fresh request. No timer/backoff is needed for a successful stale read.
-      continue
+    const requestGeneration = state.snapshotRequestedGeneration
+    let snapshot: AccountReadStateSnapshot
+    try {
+      snapshot = await startAccountReadStateRequest(state)
+    } catch (error) {
+      scheduleReconciliationRetry(queryClient, state, "snapshot")
+      throw error
     }
-
-    if (hasSurfaceWork(state)) {
-      const surfaceGeneration = state.surfaceRequestedGeneration
-      try {
-        await invalidateReadStateSurfaces(queryClient)
-      } catch (error) {
-        scheduleReconciliationRetry(queryClient, state)
-        throw error
-      }
-      assertReconciliationActive(queryClient, state, epoch)
-      state.surfaceCompletedGeneration = Math.max(
-        state.surfaceCompletedGeneration,
-        surfaceGeneration,
-      )
-      continue
-    }
-
-    const snapshot = queryClient.getQueryData<AccountReadStateSnapshot>(
-      communityKeys.accountReadStateSnapshot(),
+    assertReconciliationActive(queryClient, state, epoch)
+    applyAccountReadStateSnapshot(queryClient, snapshot)
+    state.snapshotCompletedGeneration = Math.max(
+      state.snapshotCompletedGeneration,
+      requestGeneration,
     )
-    if (!snapshot) throw new Error("account read-state reconciliation produced no snapshot")
-    state.retryDelayMs = INITIAL_RETRY_DELAY_MS
-    return snapshot
+    state.snapshotRetryDelayMs = INITIAL_RETRY_DELAY_MS
+    const appliedRevision = cachedAccountRevision(queryClient)
+    if (
+      state.highestPendingTargetRevision !== null
+      && appliedRevision >= state.highestPendingTargetRevision
+    ) {
+      state.highestPendingTargetRevision = null
+    }
+    // If this primary read was older than a live target, or another caller
+    // arrived while it was in flight, loop immediately and issue a genuinely
+    // fresh request. No timer/backoff is needed for a successful stale read.
+  }
+  const snapshot = queryClient.getQueryData<AccountReadStateSnapshot>(
+    communityKeys.accountReadStateSnapshot(),
+  )
+  if (!snapshot) throw new Error("account read-state reconciliation produced no snapshot")
+  return snapshot
+}
+
+function ensureInboxDmsWorker(queryClient: QueryClient, state: ReconciliationState) {
+  if (state.disposed) return Promise.reject(new Error("account read-state reconciliation disposed"))
+  if (!hasInboxDmsWork(state)) return Promise.resolve()
+  if (state.inboxDmsWorker) return state.inboxDmsWorker
+  const worker = runInboxDmsWorker(queryClient, state).finally(() => {
+    if (state.inboxDmsWorker === worker) state.inboxDmsWorker = null
+  })
+  state.inboxDmsWorker = worker
+  return worker
+}
+
+async function runInboxDmsWorker(queryClient: QueryClient, state: ReconciliationState) {
+  const epoch = state.epoch
+  while (hasInboxDmsWork(state)) {
+    await ensureSnapshotWorker(queryClient, state)
+    assertReconciliationActive(queryClient, state, epoch)
+    const surfaceGeneration = state.inboxDmsRequestedGeneration
+    try {
+      await invalidateInboxDmsSurfaces(queryClient)
+    } catch {
+      scheduleReconciliationRetry(queryClient, state, "inbox-dms")
+      throw new Error("read-state surface reconciliation failed")
+    }
+    assertReconciliationActive(queryClient, state, epoch)
+    state.inboxDmsCompletedGeneration = Math.max(
+      state.inboxDmsCompletedGeneration,
+      surfaceGeneration,
+    )
+    state.inboxDmsRetryDelayMs = INITIAL_RETRY_DELAY_MS
+  }
+}
+
+function ensureServerWorker(queryClient: QueryClient, state: ReconciliationState) {
+  if (state.disposed) return Promise.reject(new Error("account read-state reconciliation disposed"))
+  if (!hasServerWork(state)) return Promise.resolve()
+  if (state.serverWorker) return state.serverWorker
+  const worker = runServerWorker(queryClient, state).finally(() => {
+    if (state.serverWorker === worker) state.serverWorker = null
+  })
+  state.serverWorker = worker
+  return worker
+}
+
+async function runServerWorker(queryClient: QueryClient, state: ReconciliationState) {
+  const epoch = state.epoch
+  while (hasServerWork(state)) {
+    await ensureSnapshotWorker(queryClient, state)
+    assertReconciliationActive(queryClient, state, epoch)
+    const surfaceGeneration = state.serverRequestedGeneration
+    try {
+      await invalidateServerSurfaces(queryClient)
+    } catch {
+      scheduleReconciliationRetry(queryClient, state, "non-inbox")
+      throw new Error("read-state surface reconciliation failed")
+    }
+    assertReconciliationActive(queryClient, state, epoch)
+    state.serverCompletedGeneration = Math.max(
+      state.serverCompletedGeneration,
+      surfaceGeneration,
+    )
+    state.serverRetryDelayMs = INITIAL_RETRY_DELAY_MS
+  }
+}
+
+function kickPendingSurfaceWorkers(queryClient: QueryClient, state: ReconciliationState) {
+  if (state.inboxDmsRetryTimer === null && hasInboxDmsWork(state)) {
+    void ensureInboxDmsWorker(queryClient, state).catch(() => undefined)
+  }
+  if (state.serverRetryTimer === null && hasServerWork(state)) {
+    void ensureServerWorker(queryClient, state).catch(() => undefined)
   }
 }
 
@@ -340,11 +508,11 @@ export function disposeAccountReadStateReconciliation(queryClient: QueryClient) 
   state.epoch += 1
   state.highestPendingTargetRevision = null
   state.snapshotCompletedGeneration = state.snapshotRequestedGeneration
-  state.surfaceCompletedGeneration = state.surfaceRequestedGeneration
-  if (state.retryTimer !== null) {
-    clearTimeout(state.retryTimer)
-    state.retryTimer = null
-  }
+  state.inboxDmsCompletedGeneration = state.inboxDmsRequestedGeneration
+  state.serverCompletedGeneration = state.serverRequestedGeneration
+  clearReconciliationRetry(state, "snapshot")
+  clearReconciliationRetry(state, "inbox-dms")
+  clearReconciliationRetry(state, "non-inbox")
   state.requestController?.abort()
   state.requestController = null
 }
@@ -358,7 +526,7 @@ export function projectReadStateEnvelope(
   )
   if (!snapshot) return "gap" as const
   const state = reconciliationStates.get(queryClient)
-  if (state && hasSurfaceWork(state) && envelope.revision <= snapshot.revision) {
+  if (state && hasInboxDmsWork(state) && envelope.revision <= snapshot.revision) {
     return "gap" as const
   }
   if (envelope.revision <= snapshot.revision) return "stale" as const

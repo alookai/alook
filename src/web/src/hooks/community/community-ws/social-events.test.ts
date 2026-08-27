@@ -375,7 +375,7 @@ describe("useCommunityWs — message.create patches channel unread in the open s
       const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
 
       capturedOnMessage!(messageCreate("ch_focused"))
-      vi.advanceTimersByTime(500)
+      await vi.advanceTimersByTimeAsync(500)
 
       const messagesCache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
         communityKeys.channelMessages("ch_focused"),
@@ -415,22 +415,29 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
     ).toBe(true)
   })
 
-  it("mention.create invalidates communityKeys.inbox() immediately (no debounce)", async () => {
-    await mountHook()
-    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
-    const event: CommunityMentionCreate = {
-      type: "community:mention.create",
-      userId: "u_1",
-      messageId: "m_1",
-      authorName: "A",
+  it("routes mention.create through the debounced Inbox owner", async () => {
+    vi.useFakeTimers()
+    try {
+      await mountHook()
+      const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+      const event: CommunityMentionCreate = {
+        type: "community:mention.create",
+        userId: "u_1",
+        messageId: "m_1",
+        authorName: "A",
+      }
+      capturedOnMessage!(event)
+      expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.inbox() })
+      await vi.advanceTimersByTimeAsync(500)
+      expect(
+        spy.mock.calls.some((c) => {
+          const key = c[0]?.queryKey as unknown[] | undefined
+          return Array.isArray(key) && key.includes("inbox")
+        }),
+      ).toBe(true)
+    } finally {
+      vi.useRealTimers()
     }
-    capturedOnMessage!(event)
-    expect(
-      spy.mock.calls.some((c) => {
-        const key = c[0]?.queryKey as unknown[] | undefined
-        return Array.isArray(key) && key.includes("inbox")
-      }),
-    ).toBe(true)
   })
 
   it("mention.create also invalidates communityKeys.servers() so the rail badge ticks", async () => {

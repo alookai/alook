@@ -21,6 +21,11 @@ export type UseCommunityWsOptions = {
   viewerUserId?: string | null
 }
 
+export type CommunityInboxRefreshRequest = {
+  inbox: true
+  dms: boolean
+}
+
 export type CommunityWsDispatchContext = {
   deliveryMode: "single" | "batch"
   queryClient: QueryClient
@@ -29,7 +34,7 @@ export type CommunityWsDispatchContext = {
   sub: Subscription
   viewerUserIdRef: { current: string | null }
   matchesFocus: (event: { channelId?: string }) => boolean
-  scheduleInboxInvalidate: () => void
+  scheduleInboxInvalidate: (request: CommunityInboxRefreshRequest) => void
 }
 
 export type CommunityWsHandlerContext = CommunityWsDispatchContext & {
@@ -52,6 +57,7 @@ export type MembershipEventContext = Pick<
 export type SocialEventContext = Pick<
   CommunityWsHandlerContext,
   "deliveryMode" | "queryClient" | "sub" | "viewerUserIdRef" | "projection"
+  | "scheduleInboxInvalidate"
 >
 export type PresenceMachineEventContext = Pick<
   CommunityWsHandlerContext,

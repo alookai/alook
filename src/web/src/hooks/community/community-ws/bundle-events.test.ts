@@ -22,11 +22,21 @@ import {
   capturedQueryClient,
   cleanupCommunityWsHarness,
   forumSidebarFixture,
+  getCommunityApiFetchMock,
   mountHook,
   resetCommunityWsHarness,
 } from "./test-harness"
 import { useCommunityStore } from "@/stores/community"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
+import {
+  SEEN_DELIVERY_OPERATION_MAX,
+  SEEN_DELIVERY_OPERATION_TRIM_TO,
+} from "@/stores/community/ws"
+import {
+  registerReadSurface,
+  releaseReadSurface,
+  submitReadIntent,
+} from "@/hooks/community/read-coordinator"
 
 beforeEach(async () => {
   reconcileCommunityWsReconnect.mockClear()
@@ -86,46 +96,273 @@ function invalidationCount(queryKey: readonly unknown[]): number {
 }
 
 describe("useCommunityWs — operation bundles", () => {
+  it("merges multiple requests into one queued successor generation", async () => {
+    vi.useFakeTimers()
+    try {
+      useCommunityStore.getState().subscribe({ channelId: "ch-1" })
+      await mountHook({ viewerUserId: "viewer-1" })
+      let releaseRead!: () => void
+      const readGate = new Promise<void>((resolve) => {
+        releaseRead = resolve
+      })
+      getCommunityApiFetchMock().mockImplementation(async (url: unknown) => {
+        if (typeof url === "string" && url.endsWith("/read")) {
+          await readGate
+          return { changed: true, revision: 1, targetSeq: 1 }
+        }
+        if (url === "/api/community/users/me/read-state") {
+          return {
+            revision: 1,
+            readStates: [{
+              channelId: "ch-1",
+              lastReadMessageId: "message-1",
+              lastReadAt: "2026-08-27T00:00:00.000Z",
+              lastReadSeq: 1,
+            }],
+          }
+        }
+        throw new Error(`unexpected API fetch: ${String(url)}`)
+      })
+      vi.spyOn(capturedQueryClient, "invalidateQueries")
+      const lease = registerReadSurface(
+        capturedQueryClient,
+        "viewer-1",
+        { kind: "timeline", channelId: "ch-1" },
+      )
+
+      capturedOnMessage!({
+        type: "community:mention.create",
+        userId: "viewer-1",
+        messageId: "mention-current",
+        channelId: "ch-1",
+        authorName: "Alice",
+      })
+      expect(submitReadIntent(lease, {
+        kind: "timeline",
+        channelId: "ch-1",
+        messageId: "message-1",
+        seq: 1,
+      })).toBe(true)
+      await vi.advanceTimersByTimeAsync(500)
+      await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
+        "/api/community/channels/ch-1/read",
+        expect.anything(),
+      ))
+
+      capturedOnMessage!({
+        type: "community:mention.create",
+        userId: "viewer-1",
+        messageId: "mention-next",
+        channelId: "ch-1",
+        authorName: "Alice",
+      })
+      capturedOnMessage!({
+        ...message,
+        message: { ...message.message, id: "message-next", seq: 2 },
+      })
+      releaseRead()
+      await vi.advanceTimersByTimeAsync(500)
+
+      expect(invalidationCount(communityKeys.inbox())).toBe(1)
+      expect(invalidationCount(communityKeys.dms())).toBe(1)
+      releaseReadSurface(lease)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("carries a deferred wide generation into its narrower successor", async () => {
+    vi.useFakeTimers()
+    try {
+      useCommunityStore.getState().subscribe({ channelId: "ch-1" })
+      await mountHook({ viewerUserId: "viewer-1" })
+      let releaseRead!: () => void
+      const readGate = new Promise<void>((resolve) => {
+        releaseRead = resolve
+      })
+      getCommunityApiFetchMock().mockImplementation(async (url: unknown) => {
+        if (typeof url === "string" && url.endsWith("/read")) {
+          await readGate
+          return { changed: true, revision: 1, targetSeq: 1 }
+        }
+        if (url === "/api/community/users/me/read-state") {
+          return {
+            revision: 1,
+            readStates: [{
+              channelId: "ch-1",
+              lastReadMessageId: "message-1",
+              lastReadAt: "2026-08-27T00:00:00.000Z",
+              lastReadSeq: 1,
+            }],
+          }
+        }
+        throw new Error(`unexpected API fetch: ${String(url)}`)
+      })
+      vi.spyOn(capturedQueryClient, "invalidateQueries")
+      const lease = registerReadSurface(
+        capturedQueryClient,
+        "viewer-1",
+        { kind: "timeline", channelId: "ch-1" },
+      )
+
+      capturedOnMessage!(message)
+      expect(submitReadIntent(lease, {
+        kind: "timeline",
+        channelId: "ch-1",
+        messageId: "message-1",
+        seq: 1,
+      })).toBe(true)
+      await vi.advanceTimersByTimeAsync(500)
+      await vi.waitFor(() => expect(getCommunityApiFetchMock()).toHaveBeenCalledWith(
+        "/api/community/channels/ch-1/read",
+        expect.anything(),
+      ))
+
+      capturedOnMessage!({
+        type: "community:mention.create",
+        userId: "viewer-1",
+        messageId: "mention-2",
+        channelId: "ch-1",
+        authorName: "Alice",
+      })
+      releaseRead()
+      await vi.advanceTimersByTimeAsync(500)
+
+      expect(invalidationCount(communityKeys.inbox())).toBe(1)
+      expect(invalidationCount(communityKeys.dms())).toBe(1)
+      releaseReadSurface(lease)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("skips current raw refresh when a deferred later intent has no owner successor", async () => {
+    vi.useFakeTimers()
+    try {
+      useCommunityStore.getState().subscribe({ channelId: "ch-1" })
+      await mountHook({ viewerUserId: "viewer-1" })
+      let releaseFirstRead!: () => void
+      const firstReadGate = new Promise<void>((resolve) => {
+        releaseFirstRead = resolve
+      })
+      let readCalls = 0
+      getCommunityApiFetchMock().mockImplementation(async (url: unknown) => {
+        if (typeof url === "string" && url.endsWith("/read")) {
+          readCalls += 1
+          if (readCalls === 1) await firstReadGate
+          return { changed: true, revision: readCalls, targetSeq: readCalls }
+        }
+        if (url === "/api/community/users/me/read-state") {
+          return {
+            revision: readCalls,
+            readStates: [{
+              channelId: "ch-1",
+              lastReadMessageId: `message-${readCalls}`,
+              lastReadAt: "2026-08-27T00:00:00.000Z",
+              lastReadSeq: readCalls,
+            }],
+          }
+        }
+        throw new Error(`unexpected API fetch: ${String(url)}`)
+      })
+      vi.spyOn(capturedQueryClient, "invalidateQueries")
+      const lease = registerReadSurface(
+        capturedQueryClient,
+        "viewer-1",
+        { kind: "timeline", channelId: "ch-1" },
+      )
+
+      capturedOnMessage!(message)
+      expect(submitReadIntent(lease, {
+        kind: "timeline",
+        channelId: "ch-1",
+        messageId: "message-1",
+        seq: 1,
+      })).toBe(true)
+      await vi.advanceTimersByTimeAsync(500)
+      await vi.waitFor(() => expect(readCalls).toBe(1))
+
+      expect(submitReadIntent(lease, {
+        kind: "timeline",
+        channelId: "ch-1",
+        messageId: "message-2",
+        seq: 2,
+      })).toBe(true)
+      releaseFirstRead()
+      await vi.advanceTimersByTimeAsync(499)
+      expect(readCalls).toBe(1)
+      expect(invalidationCount(communityKeys.inbox())).toBe(0)
+      expect(invalidationCount(communityKeys.dms())).toBe(0)
+
+      await vi.advanceTimersByTimeAsync(1)
+      await vi.waitFor(() => expect(readCalls).toBe(2))
+      await vi.waitFor(() => {
+        expect(invalidationCount(communityKeys.inbox())).toBe(1)
+        expect(invalidationCount(communityKeys.dms())).toBe(1)
+      })
+      releaseReadSurface(lease)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("decodes all children before one dispatch, deduplicates invalidations, and suppresses same-digest replay", async () => {
-    await mountHook({ viewerUserId: "viewer-1" })
-    capturedQueryClient.setQueryData(communityKeys.servers(), {
-      servers: [{ id: "server-1", mentions: 5 }],
-    })
-    vi.spyOn(capturedQueryClient, "invalidateQueries")
-    const frame = await batchFor("message-1", mentionEvents)
+    vi.useFakeTimers()
+    try {
+      await mountHook({ viewerUserId: "viewer-1" })
+      capturedQueryClient.setQueryData(communityKeys.servers(), {
+        servers: [{ id: "server-1", mentions: 5 }],
+      })
+      vi.spyOn(capturedQueryClient, "invalidateQueries")
+      const frame = await batchFor("message-1", mentionEvents)
 
-    capturedOnMessage!(frame)
-    expect(capturedQueryClient.getQueryData<{ servers: Array<{ id: string; mentions: number }> }>(
-      communityKeys.servers(),
-    )?.servers[0]?.mentions).toBe(5)
-    expect(invalidationCount(communityKeys.inbox())).toBe(1)
-    expect(invalidationCount(communityKeys.dms())).toBe(1)
-    expect(invalidationCount(communityKeys.servers())).toBe(1)
+      capturedOnMessage!(frame)
+      expect(capturedQueryClient.getQueryData<{ servers: Array<{ id: string; mentions: number }> }>(
+        communityKeys.servers(),
+      )?.servers[0]?.mentions).toBe(5)
+      expect(invalidationCount(communityKeys.inbox())).toBe(0)
+      expect(invalidationCount(communityKeys.dms())).toBe(0)
+      expect(invalidationCount(communityKeys.servers())).toBe(1)
+      await vi.advanceTimersByTimeAsync(500)
+      expect(invalidationCount(communityKeys.inbox())).toBe(1)
+      expect(invalidationCount(communityKeys.dms())).toBe(1)
 
-    const callsAfterFirst = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
-    capturedOnMessage!(frame)
-    expect(vi.mocked(capturedQueryClient.invalidateQueries)).toHaveBeenCalledTimes(callsAfterFirst)
-    const { useCommunityWsStore } = await import("@/stores/community/ws")
-    expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
-      .toEqual({ digest: frame.operationDigest, completed: true })
+      const callsAfterFirst = vi.mocked(capturedQueryClient.invalidateQueries).mock.calls.length
+      capturedOnMessage!(frame)
+      await vi.advanceTimersByTimeAsync(500)
+      expect(vi.mocked(capturedQueryClient.invalidateQueries)).toHaveBeenCalledTimes(callsAfterFirst)
+      const { useCommunityWsStore } = await import("@/stores/community/ws")
+      expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
+        .toEqual({ digest: frame.operationDigest, completed: true })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("treats repair-then-late-bundle mention state as authoritative invalidation, never arithmetic", async () => {
-    await mountHook({ viewerUserId: "viewer-1" })
-    const { useCommunityWsStore } = await import("@/stores/community/ws")
-    useCommunityWsStore.getState().markSeenMessage(message.message.id)
-    capturedQueryClient.setQueryData(communityKeys.servers(), {
-      servers: [{ id: "server-1", mentions: 9 }],
-    })
-    vi.spyOn(capturedQueryClient, "invalidateQueries")
+    vi.useFakeTimers()
+    try {
+      await mountHook({ viewerUserId: "viewer-1" })
+      const { useCommunityWsStore } = await import("@/stores/community/ws")
+      useCommunityWsStore.getState().markSeenMessage(message.message.id)
+      capturedQueryClient.setQueryData(communityKeys.servers(), {
+        servers: [{ id: "server-1", mentions: 9 }],
+      })
+      vi.spyOn(capturedQueryClient, "invalidateQueries")
 
-    capturedOnMessage!(await batchFor("message-late", mentionEvents))
-    expect(capturedQueryClient.getQueryData<{ servers: Array<{ mentions: number }> }>(
-      communityKeys.servers(),
-    )?.servers[0]?.mentions).toBe(9)
-    expect(invalidationCount(communityKeys.inbox())).toBe(1)
-    expect(invalidationCount(communityKeys.dms())).toBe(1)
-    expect(invalidationCount(communityKeys.servers())).toBe(1)
+      capturedOnMessage!(await batchFor("message-late", mentionEvents))
+      expect(capturedQueryClient.getQueryData<{ servers: Array<{ mentions: number }> }>(
+        communityKeys.servers(),
+      )?.servers[0]?.mentions).toBe(9)
+      expect(invalidationCount(communityKeys.inbox())).toBe(0)
+      expect(invalidationCount(communityKeys.dms())).toBe(0)
+      expect(invalidationCount(communityKeys.servers())).toBe(1)
+      await vi.advanceTimersByTimeAsync(500)
+      expect(invalidationCount(communityKeys.inbox())).toBe(1)
+      expect(invalidationCount(communityKeys.dms())).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("rejects malformed children without poisoning the operation map", async () => {
@@ -406,6 +643,136 @@ describe("useCommunityWs — operation bundles", () => {
     capturedOnMessage!(frame)
     expect(vi.mocked(capturedQueryClient.invalidateQueries))
       .toHaveBeenCalledTimes(invalidationsAfterSuccess)
+  })
+
+  it.each(["before", "after"] as const)(
+    "keeps one barrier-owned refresh when an identical retry lands %s the first deadline",
+    async (retryTiming) => {
+      vi.useFakeTimers()
+      try {
+        useCommunityStore.getState().subscribe({ channelId: "ch-1" })
+        await mountHook({ viewerUserId: "viewer-1" })
+        capturedQueryClient.setQueryData(communityKeys.server("s1"), {
+          id: "s1",
+          categories: [{
+            id: "category-1",
+            channels: [{ id: "parent-1", type: "text", unread: false }],
+          }],
+        })
+        getCommunityApiFetchMock().mockImplementation(async (url: unknown) => {
+          if (typeof url === "string" && url.endsWith("/read")) {
+            return { changed: true, revision: 1, targetSeq: 1 }
+          }
+          if (url === "/api/community/users/me/read-state") {
+            return {
+              revision: 1,
+              readStates: [{
+                channelId: "ch-1",
+                lastReadMessageId: `retry-${retryTiming}`,
+                lastReadAt: "2026-08-27T00:00:00.000Z",
+                lastReadSeq: 1,
+              }],
+            }
+          }
+          throw new Error(`unexpected API fetch: ${String(url)}`)
+        })
+        const setQueryData = vi.spyOn(capturedQueryClient, "setQueryData")
+          .mockImplementationOnce(() => { throw new Error("later child fault") })
+        vi.spyOn(capturedQueryClient, "invalidateQueries")
+        const messageId = `retry-${retryTiming}`
+        const frame = await batchFor(messageId, [
+          {
+            ...message,
+            serverId: "s1",
+            parentChannelId: "parent-1",
+            message: { ...message.message, id: messageId },
+          },
+          {
+            type: "community:unread.bump",
+            userId: "viewer-1",
+            channelId: "ch-1",
+            serverId: "s1",
+            railChannelId: "parent-1",
+            isMention: false,
+          },
+        ])
+        const lease = registerReadSurface(
+          capturedQueryClient,
+          "viewer-1",
+          { kind: "timeline", channelId: "ch-1" },
+        )
+
+        capturedOnMessage!(frame)
+        expect(reconcileCommunityWsReconnect).toHaveBeenCalledWith(
+          capturedQueryClient,
+          0,
+          { excludePolicies: ["inbox-dms"] },
+        )
+        expect(invalidationCount(communityKeys.inbox())).toBe(0)
+        expect(invalidationCount(communityKeys.dms())).toBe(0)
+        expect(submitReadIntent(lease, {
+          kind: "timeline",
+          channelId: "ch-1",
+          messageId,
+          seq: 1,
+        })).toBe(true)
+
+        setQueryData.mockRestore()
+        if (retryTiming === "before") capturedOnMessage!(frame)
+        await vi.advanceTimersByTimeAsync(500)
+        expect(invalidationCount(communityKeys.inbox())).toBe(1)
+        expect(invalidationCount(communityKeys.dms())).toBe(1)
+        if (retryTiming === "after") capturedOnMessage!(frame)
+        await vi.advanceTimersByTimeAsync(500)
+
+        expect(invalidationCount(communityKeys.inbox())).toBe(1)
+        expect(invalidationCount(communityKeys.dms())).toBe(1)
+        const { useCommunityWsStore } = await import("@/stores/community/ws")
+        expect(useCommunityWsStore.getState().seenDeliveryOperations.get(frame.operationId))
+          .toEqual({ digest: frame.operationDigest, completed: true })
+        releaseReadSurface(lease)
+      } finally {
+        vi.useRealTimers()
+      }
+    },
+  )
+
+  it("bounds normal and conflict refresh keys with the delivery-operation limits", async () => {
+    vi.useFakeTimers()
+    try {
+      await mountHook({ viewerUserId: "viewer-1" })
+      vi.spyOn(capturedQueryClient, "invalidateQueries")
+      const original = await batchFor("bounded-operation", [{
+        ...message,
+        message: { ...message.message, id: "bounded-operation" },
+      }])
+      capturedOnMessage!(original)
+      const conflicts: Awaited<ReturnType<typeof batchFor>>[] = []
+      for (let index = 0; index < SEEN_DELIVERY_OPERATION_MAX; index += 1) {
+        const conflict = await batchFor("bounded-operation", [{
+          ...message,
+          message: {
+            ...message.message,
+            id: "bounded-operation",
+            content: `conflict-${index}`,
+          },
+        }])
+        conflicts.push(conflict)
+        capturedOnMessage!(conflict)
+      }
+
+      await vi.advanceTimersByTimeAsync(500)
+      expect(invalidationCount(communityKeys.inbox())).toBe(1)
+      capturedOnMessage!(conflicts[0]!)
+      await vi.advanceTimersByTimeAsync(500)
+      expect(invalidationCount(communityKeys.inbox())).toBe(2)
+      capturedOnMessage!(conflicts.at(-1)!)
+      await vi.advanceTimersByTimeAsync(500)
+      expect(invalidationCount(communityKeys.inbox())).toBe(2)
+      expect(SEEN_DELIVERY_OPERATION_TRIM_TO).toBeLessThan(SEEN_DELIVERY_OPERATION_MAX)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("reports a rejected authoritative reconciliation after a digest conflict", async () => {

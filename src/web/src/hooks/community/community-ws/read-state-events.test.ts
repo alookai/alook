@@ -10,7 +10,10 @@ vi.mock("@/lib/api/client", () => ({
 import { dispatchCommunityWsEvent } from "./registry"
 import type { CommunityWsDispatchContext } from "./handler-context"
 
-function context(queryClient: QueryClient): CommunityWsDispatchContext {
+function context(
+  queryClient: QueryClient,
+  scheduleInboxInvalidate = vi.fn(),
+): CommunityWsDispatchContext {
   return {
     deliveryMode: "single",
     queryClient,
@@ -19,7 +22,7 @@ function context(queryClient: QueryClient): CommunityWsDispatchContext {
     sub: {},
     viewerUserIdRef: { current: "u1" },
     matchesFocus: () => false,
-    scheduleInboxInvalidate: vi.fn(),
+    scheduleInboxInvalidate,
   }
 }
 
@@ -145,5 +148,46 @@ describe("same-account read-state WS events", () => {
     await Promise.resolve()
     expect(queryClient.getQueryData(communityKeys.accountReadStateSnapshot()))
       .toMatchObject({ revision: 2 })
+  })
+
+  it("schedules the owner immediately while the snapshot repairs only non-Inbox surfaces", async () => {
+    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+      revision: 2,
+      readStates: [],
+    })
+    let resolveSnapshot!: (value: unknown) => void
+    apiFetch.mockReturnValue(new Promise((resolve) => { resolveSnapshot = resolve }))
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries")
+    const scheduleInboxInvalidate = vi.fn()
+
+    dispatchCommunityWsEvent({
+      type: "community:inbox.changed",
+      revision: 3,
+      inboxChanged: true,
+      reason: "read_all",
+    }, context(queryClient, scheduleInboxInvalidate))
+
+    expect(scheduleInboxInvalidate).toHaveBeenCalledOnce()
+    expect(scheduleInboxInvalidate).toHaveBeenCalledWith({ inbox: true, dms: true })
+    expect(invalidate).not.toHaveBeenCalledWith(expect.objectContaining({
+      queryKey: communityKeys.inbox(),
+    }), expect.anything())
+    expect(invalidate).not.toHaveBeenCalledWith(expect.objectContaining({
+      queryKey: communityKeys.dms(),
+    }), expect.anything())
+
+    resolveSnapshot({ revision: 3, readStates: [] })
+    await vi.waitFor(() => {
+      expect(invalidate).toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: communityKeys.servers() }),
+        expect.anything(),
+      )
+    })
+    expect(invalidate).not.toHaveBeenCalledWith(expect.objectContaining({
+      queryKey: communityKeys.inbox(),
+    }), expect.anything())
+    expect(invalidate).not.toHaveBeenCalledWith(expect.objectContaining({
+      queryKey: communityKeys.dms(),
+    }), expect.anything())
   })
 })

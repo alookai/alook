@@ -8,10 +8,16 @@ import type {
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
 import { communityKeys } from "@/lib/query-keys"
 import {
+  registerReadSurface,
+  releaseReadSurface,
+  submitReadIntent,
+} from "@/hooks/community/read-coordinator"
+import {
   capturedOnMessage,
   capturedQueryClient,
   cleanupCommunityWsHarness,
   forumSidebarFixture,
+  getCommunityApiFetchMock,
   markReadMutate,
   messageCreate,
   mountHook,
@@ -500,12 +506,77 @@ describe("useCommunityWs — message.create", () => {
       // Before debounce window, no invalidate.
       expect(invalidateSpy).not.toHaveBeenCalled()
       // Advance past the debounce window — exactly one invalidate.
-      vi.advanceTimersByTime(500)
+      await vi.advanceTimersByTimeAsync(500)
       const inboxCalls = invalidateSpy.mock.calls.filter((c) => {
         const key = c[0]?.queryKey
         return Array.isArray(key) && key.includes("inbox")
       })
       expect(inboxCalls).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("holds a focused refresh until the visible read reconciles authoritatively", async () => {
+    vi.useFakeTimers()
+    try {
+      const order: string[] = []
+      getCommunityApiFetchMock().mockImplementation(async (url: unknown) => {
+        if (typeof url === "string" && url.endsWith("/read")) {
+          order.push("read-put")
+          return { changed: true, revision: 1, targetSeq: 1 }
+        }
+        if (url === "/api/community/users/me/read-state") {
+          order.push("read-snapshot")
+          return {
+            revision: 1,
+            readStates: [{
+              channelId: "ch_focused",
+              lastReadMessageId: "m_visible",
+              lastReadAt: "2026-08-27T00:00:00.000Z",
+              lastReadSeq: 1,
+            }],
+          }
+        }
+        throw new Error(`unexpected API fetch: ${String(url)}`)
+      })
+      await mountHook({ viewerUserId: "u_me" })
+      const { useCommunityStore } = await import("@/stores/community")
+      useCommunityStore.getState().subscribe({ channelId: "ch_focused" })
+      resetHookMemoization()
+      await mountHook({ viewerUserId: "u_me" })
+      const originalInvalidate = capturedQueryClient.invalidateQueries.bind(capturedQueryClient)
+      const invalidate = vi.spyOn(capturedQueryClient, "invalidateQueries")
+        .mockImplementation((filters, options) => {
+          const key = filters.queryKey as unknown[] | undefined
+          if (Array.isArray(key) && key.includes("inbox")) order.push("inbox-refresh")
+          return originalInvalidate(filters, options)
+        })
+      const lease = registerReadSurface(
+        capturedQueryClient,
+        "u_me",
+        { kind: "timeline", channelId: "ch_focused" },
+      )
+      const event = messageCreate("ch_focused", "m_visible")
+
+      capturedOnMessage!(event)
+      expect(submitReadIntent(lease, {
+        kind: "timeline",
+        channelId: "ch_focused",
+        messageId: "m_visible",
+        seq: 1,
+      })).toBe(true)
+      expect(invalidate).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(500)
+      await vi.waitFor(() => expect(order).toContain("inbox-refresh"))
+      expect(order.indexOf("read-put")).toBeLessThan(order.indexOf("inbox-refresh"))
+      expect(order.indexOf("read-snapshot")).toBeLessThan(order.indexOf("inbox-refresh"))
+      expect(invalidate.mock.calls.filter(([filters]) => {
+        const key = filters.queryKey as unknown[] | undefined
+        return Array.isArray(key) && key.includes("inbox")
+      })).toHaveLength(1)
+      releaseReadSurface(lease)
     } finally {
       vi.useRealTimers()
     }
@@ -758,7 +829,7 @@ describe("useCommunityWs — DM message.create", () => {
         [...getMessageOverlay({ kind: "dm", id: "dm_1" }).liveById.values()].map((message) => message.id),
       ).toEqual(["dm_m_1"])
       // The inbox + `dms()` invalidation is batched behind the inbox debounce.
-      vi.advanceTimersByTime(600)
+      await vi.advanceTimersByTimeAsync(600)
       expect(
         spy.mock.calls.some((c) => {
           const key = c[0]?.queryKey as unknown[] | undefined

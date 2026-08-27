@@ -15,6 +15,7 @@ vi.mock("./community-ws/read-state-reconciliation", () => ({
 
 import {
   disposeReadCoordinator,
+  flushPendingReadIntents,
   getReadCoordinator,
   projectReadCoordinatorSnapshot,
   READ_COORDINATOR_DEBOUNCE_MS,
@@ -57,14 +58,22 @@ describe("read coordinator", () => {
     vi.useRealTimers()
   })
 
-  it("is an account-owned singleton and cannot be rebuilt after disposal", () => {
+  it("is an account-owned singleton and returns an unconsumed flush before and after disposal", async () => {
     const queryClient = new QueryClient()
     expect(getReadCoordinator(queryClient, "user-1"))
       .toBe(getReadCoordinator(queryClient, "user-1"))
     expect(() => getReadCoordinator(queryClient, "user-2"))
       .toThrow("read coordinator owner mismatch")
+    await expect(flushPendingReadIntents(queryClient)).resolves.toEqual({
+      consumed: false,
+      cutoff: null,
+    })
 
     disposeReadCoordinator(queryClient)
+    await expect(flushPendingReadIntents(queryClient)).resolves.toEqual({
+      consumed: false,
+      cutoff: null,
+    })
     expect(() => getReadCoordinator(queryClient, "user-1"))
       .toThrow("read coordinator disposed")
   })
@@ -89,6 +98,8 @@ describe("read coordinator", () => {
       }),
     )
     expect(reconcileAccountReadState).toHaveBeenCalledWith(queryClient, {
+      awaitSurfaceMode: "inbox-dms",
+      surfaceMode: "all",
       targetRevision: 9,
     })
     expect(submitTimeline(lease, 7)).toBe(false)
@@ -134,6 +145,8 @@ describe("read coordinator", () => {
     await vi.runAllTimersAsync()
     expect(apiFetch).toHaveBeenCalledTimes(5)
     expect(reconcileAccountReadState).toHaveBeenCalledWith(queryClient, {
+      awaitSurfaceMode: "inbox-dms",
+      surfaceMode: "all",
       targetRevision: 11,
     })
   })
@@ -212,8 +225,13 @@ describe("read coordinator", () => {
     submitTimeline(lease, 8)
     expect(apiFetch).toHaveBeenCalledTimes(1)
 
+    await vi.advanceTimersByTimeAsync(100)
     resolveFirst({ changed: true, revision: 5, targetSeq: 3 })
-    await vi.runAllTimersAsync()
+    await vi.advanceTimersByTimeAsync(0)
+
+    await vi.advanceTimersByTimeAsync(399)
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
 
     expect(apiFetch).toHaveBeenCalledTimes(2)
     expect(apiFetch.mock.calls[1]?.[1]).toEqual(expect.objectContaining({
@@ -314,6 +332,8 @@ describe("read coordinator", () => {
 
     expect(apiFetch).toHaveBeenCalledOnce()
     expect(reconcileAccountReadState).toHaveBeenCalledWith(queryClient, {
+      awaitSurfaceMode: "inbox-dms",
+      surfaceMode: "all",
       targetRevision: 14,
     })
   })
@@ -332,5 +352,163 @@ describe("read coordinator", () => {
     })
     await vi.advanceTimersByTimeAsync(10_000)
     expect(apiFetch).toHaveBeenCalledOnce()
+  })
+
+  it("flushes accepted work before its debounce and consumes only after reconciliation", async () => {
+    const queryClient = new QueryClient()
+    const lease = timelineLease(queryClient)
+    apiFetch.mockResolvedValue({ changed: true, revision: 15, targetSeq: 4 })
+
+    submitTimeline(lease, 4)
+    const work = flushPendingReadIntents(queryClient)
+    expect(apiFetch).toHaveBeenCalledOnce()
+    await expect(work).resolves.toEqual({ consumed: true, cutoff: 1 })
+    expect(reconcileAccountReadState).toHaveBeenCalledWith(queryClient, {
+      awaitSurfaceMode: "inbox-dms",
+      surfaceMode: "all",
+      targetRevision: 15,
+    })
+  })
+
+  it("joins an active attempt and drains only work accepted by its cutoff", async () => {
+    const queryClient = new QueryClient()
+    const lease = timelineLease(queryClient)
+    let resolveFirst!: (value: unknown) => void
+    apiFetch
+      .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve }))
+      .mockResolvedValueOnce({ changed: true, revision: 17, targetSeq: 8 })
+
+    submitTimeline(lease, 3)
+    await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+    submitTimeline(lease, 8)
+    const work = flushPendingReadIntents(queryClient)
+    resolveFirst({ changed: true, revision: 16, targetSeq: 3 })
+
+    await expect(work).resolves.toEqual({ consumed: true, cutoff: 2 })
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    expect(apiFetch.mock.calls[1]?.[1]).toEqual(expect.objectContaining({
+      body: JSON.stringify({ lastReadMessageId: "message-8" }),
+    }))
+  })
+
+  it("freezes the cutoff and preserves a later intent's original debounce", async () => {
+    const queryClient = new QueryClient()
+    const lease = timelineLease(queryClient)
+    let resolvePut!: (value: unknown) => void
+    let resolveReconcile!: () => void
+    apiFetch
+      .mockReturnValueOnce(new Promise((resolve) => { resolvePut = resolve }))
+      .mockResolvedValueOnce({ changed: true, revision: 19, targetSeq: 9 })
+    reconcileAccountReadState
+      .mockReturnValueOnce(new Promise<void>((resolve) => { resolveReconcile = resolve }))
+      .mockResolvedValue(undefined)
+
+    submitTimeline(lease, 3)
+    const firstFlush = flushPendingReadIntents(queryClient)
+    submitTimeline(lease, 6)
+    await vi.advanceTimersByTimeAsync(100)
+    resolvePut({ changed: true, revision: 18, targetSeq: 3 })
+    await vi.waitFor(() => expect(reconcileAccountReadState).toHaveBeenCalledOnce())
+    submitTimeline(lease, 9)
+    resolveReconcile()
+
+    await expect(firstFlush).resolves.toEqual({
+      consumed: false,
+      cutoff: 1,
+      deferred: true,
+    })
+    expect(reconcileAccountReadState).toHaveBeenCalledWith(queryClient, {
+      awaitSurfaceMode: "none",
+      surfaceMode: "non-inbox",
+      targetRevision: 18,
+    })
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(499)
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    expect(apiFetch.mock.calls[1]?.[1]).toEqual(expect.objectContaining({
+      body: JSON.stringify({ lastReadMessageId: "message-9" }),
+    }))
+  })
+
+  it("defers Inbox/DM when the owner already queued a later generation", async () => {
+    const queryClient = new QueryClient()
+    const lease = timelineLease(queryClient)
+    apiFetch.mockResolvedValue({ changed: true, revision: 20, targetSeq: 4 })
+
+    submitTimeline(lease, 4)
+    const work = flushPendingReadIntents(queryClient, {
+      deferInboxDms: () => true,
+    })
+
+    await expect(work).resolves.toEqual({
+      consumed: false,
+      cutoff: 1,
+      deferred: true,
+    })
+    expect(reconcileAccountReadState).toHaveBeenCalledWith(queryClient, {
+      awaitSurfaceMode: "none",
+      surfaceMode: "non-inbox",
+      targetRevision: 20,
+    })
+  })
+
+  it("returns an unconsumed result without waiting through retry backoff", async () => {
+    const queryClient = new QueryClient()
+    const lease = timelineLease(queryClient)
+    apiFetch.mockRejectedValue(new ApiError("busy", 503))
+
+    submitTimeline(lease, 4)
+    await expect(flushPendingReadIntents(queryClient)).resolves.toEqual({
+      consumed: false,
+      cutoff: 1,
+    })
+    expect(apiFetch).toHaveBeenCalledOnce()
+  })
+
+  it("returns unconsumed when a joined active attempt fails", async () => {
+    const queryClient = new QueryClient()
+    const lease = timelineLease(queryClient)
+    let rejectRequest!: (error: unknown) => void
+    apiFetch.mockReturnValue(new Promise((_resolve, reject) => {
+      rejectRequest = reject
+    }))
+
+    submitTimeline(lease, 4)
+    await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+    const work = flushPendingReadIntents(queryClient)
+    rejectRequest(new ApiError("busy", 503))
+
+    await expect(work).resolves.toEqual({ consumed: false, cutoff: 1 })
+    expect(apiFetch).toHaveBeenCalledOnce()
+  })
+
+  it("fences a rejected mutation completion after disposal", async () => {
+    const queryClient = new QueryClient()
+    const lease = timelineLease(queryClient)
+    let rejectRequest!: (error: unknown) => void
+    apiFetch.mockReturnValue(new Promise((_resolve, reject) => {
+      rejectRequest = reject
+    }))
+
+    submitTimeline(lease, 4)
+    await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+    disposeReadCoordinator(queryClient)
+    rejectRequest(new Error("aborted"))
+    await vi.waitFor(() => expect(reconcileAccountReadState).not.toHaveBeenCalled())
+  })
+
+  it("does not consume a committed read whose authoritative refresh fails", async () => {
+    const queryClient = new QueryClient()
+    const lease = timelineLease(queryClient)
+    apiFetch.mockResolvedValue({ changed: true, revision: 20, targetSeq: 4 })
+    reconcileAccountReadState.mockRejectedValue(new Error("surface refresh failed"))
+
+    submitTimeline(lease, 4)
+    await expect(flushPendingReadIntents(queryClient)).resolves.toEqual({
+      consumed: false,
+      cutoff: 1,
+    })
   })
 })

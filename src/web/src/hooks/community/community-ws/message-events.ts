@@ -28,9 +28,7 @@ import {
 } from "@/hooks/community/community-ws/message-projections"
 import {
   invalidateChannelMembers,
-  invalidateDms,
   invalidateFriends,
-  invalidateInbox,
   invalidatePins,
 } from "@/hooks/community/community-ws/invalidation-projections"
 
@@ -80,8 +78,7 @@ export function handleMessageCreate(
   }
   const viewerId = viewerUserIdRef.current
   if (deliveryMode === "batch" && event.message.authorId !== viewerId) {
-    invalidateInbox(projection)
-    invalidateDms(projection)
+    scheduleInboxInvalidate({ inbox: true, dms: true })
   }
   if (wsStore.hasSeenMessage(event.message.id)) return
   wsStore.markSeenMessage(event.message.id)
@@ -132,7 +129,7 @@ export function handleMessageCreate(
   //    debounced inbox invalidation. Skip messages authored by the
   //    viewer since they never affect their own unreads.
   if (deliveryMode === "single" && event.message.authorId !== viewerId) {
-    scheduleInboxInvalidate()
+    scheduleInboxInvalidate({ inbox: true, dms: true })
   }
 
   // 3) Live channel-sidebar unread dot is NO LONGER flipped here.

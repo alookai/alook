@@ -7,7 +7,11 @@ import {
   type UserWsConnectionPhase,
 } from "@/lib/use-user-ws"
 import { useCommunityStore } from "@/stores/community"
-import { useCommunityWsStore } from "@/stores/community/ws"
+import {
+  SEEN_DELIVERY_OPERATION_MAX,
+  SEEN_DELIVERY_OPERATION_TRIM_TO,
+  useCommunityWsStore,
+} from "@/stores/community/ws"
 import { reconcileCommunityWsReconnect } from "@/hooks/community/community-ws/reconnect"
 import {
   dispatchCommunityWsEvent,
@@ -20,16 +24,19 @@ import {
   invalidateInbox,
 } from "@/hooks/community/community-ws/invalidation-projections"
 import type {
+  CommunityInboxRefreshRequest,
   CommunityWsDispatchContext,
   Subscription,
   UseCommunityWsOptions,
 } from "@/hooks/community/community-ws/handler-context"
+import { flushPendingReadIntents } from "@/hooks/community/read-coordinator"
 import {
   decodeCommunityBrowserEvent,
   decodeCommunityBrowserEventBatch,
   isCommunityBrowserEventBatchCandidate,
   isCommunityEventType,
   TYPING_INDICATOR_THROTTLE_MS,
+  type CommunityWsEvent,
 } from "@alook/shared"
 import { trackCommunityWsFrameDropped } from "@/lib/analytics"
 import {
@@ -68,6 +75,75 @@ export type {
 // message. 500ms matches the mark-channel-read debounce so both fire once per
 // message burst.
 const INBOX_INVALIDATE_DEBOUNCE_MS = 500
+
+type InboxRefreshGeneration = CommunityInboxRefreshRequest & {
+  id: number
+  dueAt: number
+}
+
+type InboxRefreshOwner = {
+  current: InboxRefreshGeneration | null
+  next: InboxRefreshGeneration | null
+  timer: ReturnType<typeof setTimeout> | null
+  running: boolean
+  nextGenerationId: number
+  epoch: number
+  claimedOperationKeys: Set<string>
+  claimedOperationOrder: string[]
+  disposed: boolean
+}
+
+function mergeInboxRefresh(
+  target: CommunityInboxRefreshRequest,
+  incoming: CommunityInboxRefreshRequest,
+) {
+  target.dms ||= incoming.dms
+}
+
+function deliveryInboxRefresh(
+  events: readonly CommunityWsEvent[],
+  viewerId: string | null,
+): CommunityInboxRefreshRequest | null {
+  let inbox = false
+  let dms = false
+  for (const event of events) {
+    if (
+      event.type === "community:message.create"
+      && event.message.authorId !== viewerId
+    ) {
+      inbox = true
+      dms = true
+    }
+    if (event.type === "community:mention.create") inbox = true
+  }
+  return inbox ? { inbox: true, dms } : null
+}
+
+function claimInboxRefreshOperation(owner: InboxRefreshOwner, key: string) {
+  if (owner.claimedOperationKeys.has(key)) return false
+  owner.claimedOperationKeys.add(key)
+  owner.claimedOperationOrder.push(key)
+  if (owner.claimedOperationOrder.length > SEEN_DELIVERY_OPERATION_MAX) {
+    const retained = owner.claimedOperationOrder.slice(-SEEN_DELIVERY_OPERATION_TRIM_TO)
+    owner.claimedOperationOrder = retained
+    owner.claimedOperationKeys = new Set(retained)
+  }
+  return true
+}
+
+function armInboxRefreshGeneration(
+  owner: InboxRefreshOwner,
+  generation: InboxRefreshGeneration,
+  run: (generation: InboxRefreshGeneration, epoch: number) => Promise<void>,
+) {
+  if (owner.disposed) return
+  owner.timer = setTimeout(() => {
+    if (owner.disposed) return
+    owner.timer = null
+    owner.running = true
+    void run(generation, owner.epoch)
+  }, Math.max(0, generation.dueAt - Date.now()))
+}
 
 // ── Public hook ────────────────────────────────────────────────────────────
 
@@ -143,30 +219,109 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     getConnectionController().handlePhase(phase)
   }, [getConnectionController])
   const viewerUserIdRef = useRef<string | null>(options?.viewerUserId ?? null)
+  const hasAuthenticatedRef = useRef(false)
   useEffect(() => {
     viewerUserIdRef.current = options?.viewerUserId ?? null
   })
 
-  // Debounced inbox invalidation. Grouping repeated invalidations into one
-  // refetch cycle keeps the popover from re-rendering on every message tick.
-  const inboxDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const scheduleInboxInvalidate = useCallback(() => {
-    if (inboxDebounce.current) return
-    inboxDebounce.current = setTimeout(() => {
-      inboxDebounce.current = null
-      runCommunityWsProjectionTransaction(queryClient, (projection) => {
-        invalidateInbox(projection)
-        // A DM is a channel now, so a DM message arrives as `message.create`
-        // with no discriminator distinguishing it from a channel message. Fold
-        // the old `dm.new_message` DM-sidebar refresh in here: invalidate the
-        // DM list too so an unread DM's preview/unread flag updates live. Cheap
-        // — `communityKeys.dms()` is only observed under the `/c/me` layout, so
-        // this is a no-op (marks stale, no refetch) while viewing a server
-        // channel where the DM sidebar isn't mounted.
-        invalidateDms(projection)
+  const inboxRefreshOwner = useRef<InboxRefreshOwner | null>(null)
+  if (inboxRefreshOwner.current === null) {
+    inboxRefreshOwner.current = {
+      current: null,
+      next: null,
+      timer: null,
+      running: false,
+      nextGenerationId: 0,
+      epoch: 0,
+      claimedOperationKeys: new Set(),
+      claimedOperationOrder: [],
+      disposed: false,
+    }
+  }
+  const runInboxGeneration = useCallback(async function runInboxGeneration(
+    generation: InboxRefreshGeneration,
+    epoch: number,
+  ) {
+    const owner = inboxRefreshOwner.current
+    if (
+      !owner
+      || owner.disposed
+      || owner.epoch !== epoch
+      || owner.current?.id !== generation.id
+    ) {
+      /* istanbul ignore next -- the sole timer caller validates and enters synchronously */
+      return
+    }
+    let consumed = false
+    let deferred = false
+    try {
+      const outcome = await flushPendingReadIntents(queryClient, {
+        deferInboxDms: () => {
+          const latest = inboxRefreshOwner.current
+          return latest?.epoch === epoch
+            && latest.current?.id === generation.id
+            && latest.next !== null
+        },
       })
-    }, INBOX_INVALIDATE_DEBOUNCE_MS)
+      consumed = outcome.consumed
+      deferred = outcome.deferred === true
+    } catch {
+      /* istanbul ignore next -- the coordinator normalizes every real failure into an outcome */
+      consumed = false
+      /* istanbul ignore next -- the coordinator normalizes every real failure into an outcome */
+      deferred = false
+    }
+    const current = inboxRefreshOwner.current
+    if (
+      !current
+      || current.disposed
+      || current.epoch !== epoch
+      || current.current?.id !== generation.id
+    ) return
+    if (deferred && current.next) mergeInboxRefresh(current.next, generation)
+    if (!consumed && !deferred) {
+      runCommunityWsProjectionTransaction(queryClient, (projection) => {
+        if (generation.inbox) invalidateInbox(projection)
+        if (generation.dms) invalidateDms(projection)
+      })
+    }
+    current.current = current.next
+    current.next = null
+    current.running = false
+    if (current.current) {
+      armInboxRefreshGeneration(current, current.current, runInboxGeneration)
+    }
   }, [queryClient])
+  const scheduleInboxInvalidate = useCallback((
+    request: CommunityInboxRefreshRequest,
+    operationKey?: string,
+  ) => {
+    const owner = inboxRefreshOwner.current
+    if (!owner || owner.disposed) return
+    if (operationKey && !claimInboxRefreshOperation(owner, operationKey)) return
+    if (owner.current === null) {
+      owner.current = {
+        ...request,
+        id: ++owner.nextGenerationId,
+        dueAt: Date.now() + INBOX_INVALIDATE_DEBOUNCE_MS,
+      }
+      armInboxRefreshGeneration(owner, owner.current, runInboxGeneration)
+      return
+    }
+    if (!owner.running) {
+      mergeInboxRefresh(owner.current, request)
+      return
+    }
+    if (owner.next === null) {
+      owner.next = {
+        ...request,
+        id: ++owner.nextGenerationId,
+        dueAt: Date.now() + INBOX_INVALIDATE_DEBOUNCE_MS,
+      }
+      return
+    }
+    mergeInboxRefresh(owner.next, request)
+  }, [runInboxGeneration])
 
   const handleMessage = useCallback(
     (msg: { type: string;[key: string]: unknown }) => {
@@ -184,7 +339,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         if (!e.channelId) return false
         return e.channelId === sub.channelId || e.channelId === sub.dmConversationId
       }
-      const context = (deliveryMode: "single" | "batch"): CommunityWsDispatchContext => ({
+      const context = (
+        deliveryMode: "single" | "batch",
+        requestInboxRefresh = scheduleInboxInvalidate,
+      ): CommunityWsDispatchContext => ({
         deliveryMode,
         queryClient,
         communityStore,
@@ -192,10 +350,17 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         sub,
         viewerUserIdRef,
         matchesFocus,
-        scheduleInboxInvalidate,
+        scheduleInboxInvalidate: requestInboxRefresh,
       })
-      const reconcileAfterBatchFailure = (reason: "digest-conflict" | "projection-failed") => {
-        void reconcileCommunityWsReconnect(queryClient, 0).catch(() => {
+      const reconcileAfterBatchFailure = (
+        reason: "digest-conflict" | "projection-failed",
+        inboxOwned: boolean,
+      ) => {
+        void reconcileCommunityWsReconnect(
+          queryClient,
+          0,
+          inboxOwned ? { excludePolicies: ["inbox-dms"] } : undefined,
+        ).catch(() => {
           console.warn("[ws] batch reconciliation failed", {
             event: "community_ws_batch_reconciliation_failed",
             reason,
@@ -223,6 +388,11 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
           decoded.batch.operationId,
           decoded.batch.operationDigest,
         )
+        const batchRefresh = deliveryInboxRefresh(
+          decoded.events,
+          viewerUserIdRef.current,
+        )
+        const operationKey = `delivery:${decoded.batch.operationId}:${decoded.batch.operationDigest}`
         if (operationStatus === "duplicate") return
         if (operationStatus === "conflict") {
           console.warn("[ws] delivery operation digest conflict", {
@@ -231,11 +401,28 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
             operationDigest: decoded.batch.operationDigest,
             eventCount: decoded.events.length,
           })
-          reconcileAfterBatchFailure("digest-conflict")
+          if (batchRefresh) {
+            scheduleInboxInvalidate(
+              batchRefresh,
+              `conflict:${decoded.batch.operationId}:${decoded.batch.operationDigest}`,
+            )
+          }
+          reconcileAfterBatchFailure("digest-conflict", batchRefresh !== null)
           return
         }
+        let collectedRefresh: CommunityInboxRefreshRequest | null = null
+        const collectInboxRefresh = (request: CommunityInboxRefreshRequest) => {
+          if (collectedRefresh === null) {
+            collectedRefresh = { ...request }
+          } else {
+            mergeInboxRefresh(collectedRefresh, request)
+          }
+        }
         try {
-          dispatchCommunityWsEvents(decoded.events, context("batch"))
+          dispatchCommunityWsEvents(
+            decoded.events,
+            context("batch", collectInboxRefresh),
+          )
         } catch {
           console.warn("[ws] delivery operation projection failed", {
             event: "community_ws_delivery_operation_projection_failed",
@@ -243,7 +430,8 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
             operationDigest: decoded.batch.operationDigest,
             eventCount: decoded.events.length,
           })
-          reconcileAfterBatchFailure("projection-failed")
+          if (batchRefresh) scheduleInboxInvalidate(batchRefresh, operationKey)
+          reconcileAfterBatchFailure("projection-failed", batchRefresh !== null)
           return
         }
         // Complete dedup only after every child projected successfully. The
@@ -255,6 +443,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
         // Keeping the failed operation locked but incomplete lets the
         // identical bundle retry, so idempotent child projections can finish
         // converging even when authoritative reconnect reconciliation fails.
+        if (collectedRefresh) scheduleInboxInvalidate(collectedRefresh, operationKey)
         wsStore.completeDeliveryOperation(
           decoded.batch.operationId,
           decoded.batch.operationDigest,
@@ -281,12 +470,23 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   )
 
   const handleReconnect = useCallback(async ({ reconnectDurationMs }: { reconnectDurationMs: number }) => {
-    await reconcileCommunityWsReconnect(queryClient, reconnectDurationMs)
-  }, [queryClient])
+    try {
+      await reconcileCommunityWsReconnect(queryClient, reconnectDurationMs, {
+        excludePolicies: ["inbox-dms"],
+      })
+    } finally {
+      scheduleInboxInvalidate({ inbox: true, dms: true })
+    }
+  }, [queryClient, scheduleInboxInvalidate])
   const handleAuthenticated = useCallback(async () => {
     useCommunityWsStore.getState().markAccessConnected()
-    await reconcileAccountReadState(queryClient)
-  }, [queryClient])
+    const firstAuthentication = !hasAuthenticatedRef.current
+    hasAuthenticatedRef.current = true
+    if (firstAuthentication) {
+      scheduleInboxInvalidate({ inbox: true, dms: true })
+    }
+    await reconcileAccountReadState(queryClient, { surfaceMode: "non-inbox" })
+  }, [queryClient, scheduleInboxInvalidate])
   const { send, reconnectNow } = useUserWs(handleMessage, {
     onReconnect: handleReconnect,
     onDisconnect: useCommunityWsStore.getState().markAccessDisconnected,
@@ -302,7 +502,12 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     if (typeof document === "undefined" || typeof window === "undefined") return
     const reconcileVisible = () => {
       if (document.visibilityState !== "visible") return
-      void reconcileAccountReadState(queryClient).catch(() => undefined)
+      if (useCommunityWsStore.getState().accessConnected) {
+        scheduleInboxInvalidate({ inbox: true, dms: true })
+      }
+      void reconcileAccountReadState(queryClient, {
+        surfaceMode: "non-inbox",
+      }).catch(() => undefined)
     }
     document.addEventListener("visibilitychange", reconcileVisible)
     window.addEventListener("pageshow", reconcileVisible)
@@ -310,7 +515,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       document.removeEventListener("visibilitychange", reconcileVisible)
       window.removeEventListener("pageshow", reconcileVisible)
     }
-  }, [queryClient])
+  }, [queryClient, scheduleInboxInvalidate])
 
   // Publish the send binding so free helpers (`communityWsSendTyping`) can
   // dispatch without holding a hook reference. Single-instance assumption
@@ -351,14 +556,19 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     }
   }, [getConnectionController])
 
-  // Cleanup: flush the inbox debounce if the hook unmounts mid-window so the
-  // parent surface doesn't leave a scheduled fetch dangling.
   useEffect(() => {
+    const owner = inboxRefreshOwner.current
+    if (owner) owner.disposed = false
     return () => {
-      if (inboxDebounce.current) {
-        clearTimeout(inboxDebounce.current)
-        inboxDebounce.current = null
-      }
+      const current = inboxRefreshOwner.current
+      if (!current) return
+      current.disposed = true
+      current.epoch += 1
+      if (current.timer !== null) clearTimeout(current.timer)
+      current.timer = null
+      current.current = null
+      current.next = null
+      current.running = false
     }
   }, [])
 }

@@ -2,11 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryClient, QueryObserver } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import {
+  capturedOnMessage,
   capturedOnReconnect,
   capturedQueryClient,
   cleanupCommunityWsHarness,
+  flushEffects,
+  messageCreate,
   mountHook,
+  resetHookMemoization,
   resetCommunityWsHarness,
+  unmountHook,
 } from "./test-harness"
 
 const telemetry = vi.hoisted(() => ({
@@ -31,6 +36,52 @@ async function flushMicrotasks(iterations = 12) {
 }
 
 describe("useCommunityWs — resyncs machines on WS reconnect", () => {
+  it("reactivates the Inbox owner after a Strict Effects cleanup/setup replay", async () => {
+    vi.useFakeTimers()
+    await mountHook()
+    flushEffects()
+    unmountHook()
+
+    resetHookMemoization()
+    await mountHook()
+    flushEffects()
+    const invalidate = vi.spyOn(capturedQueryClient, "invalidateQueries")
+
+    capturedOnMessage?.(messageCreate("ch_effect_replay"))
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.inbox() })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: communityKeys.dms() })
+  })
+
+  it("does not re-arm the Inbox owner when reconnect repair settles after unmount", async () => {
+    vi.useFakeTimers()
+    await mountHook()
+    flushEffects()
+    let releaseRepair!: () => void
+    const repairGate = new Promise<void>((resolve) => {
+      releaseRepair = resolve
+    })
+    const invalidate = vi.spyOn(capturedQueryClient, "invalidateQueries")
+      .mockReturnValue(repairGate)
+
+    const reconnect = capturedOnReconnect!({ reconnectDurationMs: 0 })
+    await flushMicrotasks()
+    expect(invalidate).toHaveBeenCalled()
+    unmountHook()
+    const callsAtUnmount = invalidate.mock.calls.length
+
+    releaseRepair()
+    await reconnect
+    await vi.advanceTimersByTimeAsync(500)
+
+    const lateKeys = invalidate.mock.calls.slice(callsAtUnmount).map(
+      (call) => JSON.stringify(call[0]?.queryKey),
+    )
+    expect(lateKeys).not.toContain(JSON.stringify(communityKeys.inbox()))
+    expect(lateKeys).not.toContain(JSON.stringify(communityKeys.dms()))
+  })
+
   it("invalidates communityKeys.machines() when the captured onReconnect fires", async () => {
     await mountHook()
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
@@ -52,6 +103,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
   })
 
   it("reconciles the focused channel's messages + inbox on reconnect, but NOT the read-state snapshot", async () => {
+    vi.useFakeTimers()
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().subscribe({ channelId: "ch_focus" })
 
@@ -61,7 +113,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(capturedOnReconnect).not.toBeNull()
     await capturedOnReconnect!({ reconnectDurationMs: 0 })
 
-    const invalidatedKeys = spy.mock.calls.map(
+    let invalidatedKeys = spy.mock.calls.map(
       (c) => c[0]?.queryKey as unknown[] | undefined,
     )
     // Focused channel messages use the bounded catch-up path instead of a
@@ -102,7 +154,17 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
           k[3] === "read-state-snapshot",
       ),
     ).toBe(false)
-    // Inbox
+    // Reconnect owns focused repair first; only after it completes does it
+    // schedule the single account owner generation.
+    expect(
+      invalidatedKeys.some(
+        (k) => Array.isArray(k) && k[0] === "community" && k[1] === "inbox",
+      ),
+    ).toBe(false)
+    await vi.advanceTimersByTimeAsync(500)
+    invalidatedKeys = spy.mock.calls.map(
+      (c) => c[0]?.queryKey as unknown[] | undefined,
+    )
     expect(
       invalidatedKeys.some(
         (k) => Array.isArray(k) && k[0] === "community" && k[1] === "inbox",
@@ -375,6 +437,22 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       reason: "sync-throw",
     })
     expect(JSON.stringify(telemetry.failure.mock.calls)).not.toContain("private sync detail")
+  })
+
+  it("can exclude only Inbox/DM repair while completing every other reconnect policy", async () => {
+    const { reconcileCommunityWsReconnect } = await import("./reconnect")
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+
+    const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 0, {
+      excludePolicies: ["inbox-dms"],
+    })
+
+    const keys = spy.mock.calls.map(([filters]) => JSON.stringify(filters.queryKey))
+    expect(keys).not.toContain(JSON.stringify(communityKeys.inbox()))
+    expect(keys).not.toContain(JSON.stringify(communityKeys.dms()))
+    expect(keys).toContain(JSON.stringify(communityKeys.friends()))
+    expect(keys).toContain(JSON.stringify(communityKeys.servers()))
+    expect(summary).toMatchObject({ policyCount: 13, successCount: 13, failureCount: 0 })
   })
 
   it("resets presence and status overlays before authoritative invalidation starts", async () => {
