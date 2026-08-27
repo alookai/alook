@@ -32,7 +32,7 @@ export const SPEC_SECONDS = {
   "22-committed-message-delivery.spec.ts": 85,
   "23-message-selection-context-menu.spec.ts": 10,
   "24-composer-overflow.spec.ts": 35,
-  "25-composer-accessory-rail-occupancy.spec.ts": 60,
+  "25-community-ws-reconnect-overlay.spec.ts": 60,
   "26-mobile-forum-post-actions.spec.ts": 45,
   "27-canonical-forum-post-delete.spec.ts": 30,
   "28-community-delete-media-cleanup.spec.ts": 45,

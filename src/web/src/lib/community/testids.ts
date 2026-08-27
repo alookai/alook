@@ -11,7 +11,7 @@ export const tid = {
   scrollToPresent: "community-scroll-to-present",
   messageSelectionToolbar: "community-message-selection-toolbar",
   messageScroller: "community-message-scroller",
-  wsStatus: "community-ws-status",
+  wsReconnectOverlay: "community-ws-reconnect-overlay",
   wsRetry: "community-ws-retry",
   serverAdd: "community-server-add",
   serverRailScroll: "community-server-rail-scroll",
