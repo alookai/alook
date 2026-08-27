@@ -40,6 +40,7 @@ export const SPEC_SECONDS = {
   "29-multi-device-read-state.spec.ts": 45,
   "30-bot-profile-audit-preview.spec.ts": 35,
   "31-mention-candidate-pagination.spec.ts": 10,
+  "31-machine-guide-motion.spec.ts": 10,
   "32-mobile-ws-foreground-validation.spec.ts": 80,
   "33-picker-async-layout.spec.ts": 57,
   "34-inbox-read-race.spec.ts": 42,
