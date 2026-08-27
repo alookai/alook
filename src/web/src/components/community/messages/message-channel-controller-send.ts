@@ -12,6 +12,7 @@ import {
 import { toastApiError } from "@/lib/api/client"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { communityWsResetTypingThrottle } from "@/hooks/community/use-community-ws"
+import { canonicalizeReplyContent } from "@/lib/community/reply-content"
 
 type ChannelMessageScope = {
   kind: "channel"
@@ -149,6 +150,7 @@ export function acceptChannelMessage({
   clearReply: () => void
 }): boolean {
   if (!markdown && !attachments?.length) return false
+  const content = canonicalizeReplyContent(markdown, replyTo)
   const nonce = sendNonce()
   const createdPreviewUrls: string[] = []
   const accepted = useMessageStreamStore.getState().accept(messageScope, {
@@ -159,7 +161,7 @@ export function acceptChannelMessage({
       authorId: viewer.id,
       authorName: viewer.name,
       authorAvatar: viewer.avatar,
-      content: markdown,
+      content,
       createdAt: new Date().toISOString(),
       ...(replyTo ? { replyTo: toOptimisticReplyPreview(replyTo) } : {}),
     },

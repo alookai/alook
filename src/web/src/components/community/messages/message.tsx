@@ -25,6 +25,7 @@ import type { FileAttachment, ImagePreview, RenderMsg } from "@/lib/community/mo
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { attachmentAspectRatio } from "./attachment-layout"
 import { AttachmentCard } from "./attachment-card"
+import { displayReplyContent } from "@/lib/community/reply-content"
 
 // Whether the "Share as Image" action is offered for a message. Share is
 // computed inside `Message` from the message alone (no handler is threaded in),
@@ -38,7 +39,10 @@ import { AttachmentCard } from "./attachment-card"
 export function messageCanShare(m: RenderMsg, compact?: boolean): boolean {
   return !compact
     && !m.approval
-    && (!!m.content || !!m.attachments?.some((attachment) => attachment.kind === "image"))
+    && (
+      !!displayReplyContent(m.content ?? "", m.replyTo)
+      || !!m.attachments?.some((attachment) => attachment.kind === "image")
+    )
 }
 
 export function shouldActivateMessageOverlays(target: EventTarget | null): boolean {
@@ -147,6 +151,7 @@ function MessageImpl({
   // default without subscribing at all.
   hoverCapable?: boolean
 }) {
+  const visibleContent = displayReplyContent(m.content ?? "", m.replyTo)
   // keep the hover toolbar pinned open while its ⋯ dropdown is open
   const [toolbarOpen, setToolbarOpen] = useState(false)
   // Right-click context-menu open state — tracked so the Mark/Unmark label's
@@ -369,9 +374,9 @@ function MessageImpl({
           {m.approval ? (
             <BotApprovalCard approval={m.approval} />
           ) : (
-            m.content && (
+            visibleContent && (
               <MessageBody
-                text={m.content}
+                text={visibleContent}
                 onOpenProfile={onOpenProfile}
                 enableLinkPreview={!m.embeds?.length}
                 perspective={

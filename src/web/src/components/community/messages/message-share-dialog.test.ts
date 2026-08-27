@@ -80,6 +80,35 @@ describe("MessageShareDialog message context", () => {
     ])
   })
 
+  it("keeps the reply header while sharing only projected message content", () => {
+    const renderer = renderMessage(message({
+      content: "@Bob Smith\n**visible** body",
+      replyTo: {
+        id: "original",
+        authorName: "Bob Smith",
+        text: "Original body",
+      },
+    }))
+
+    expect(renderer.root.findByType("mock-message-body").props.text).toBe("**visible** body")
+    const reply = renderer.root.findByProps({ "data-testid": "message-share-reply-m1" })
+    expect(reply.findAllByType("span").map((span) => span.children.join(""))).toEqual([
+      "@Bob Smith",
+      "Original body",
+    ])
+  })
+
+  it("omits a standalone body for an attachment-only canonical reply", () => {
+    const renderer = renderMessage(message({
+      content: "@Bob\n",
+      replyTo: { id: "original", authorName: "Bob", text: "Original body" },
+      attachments: [{ kind: "image", name: "photo.png", url: "/photo.png" }],
+    }))
+
+    expect(renderer.root.findAllByType("mock-message-body")).toHaveLength(0)
+    expect(renderer.root.findByProps({ "data-testid": "message-share-image-m1-0" })).toBeDefined()
+  })
+
   it("renders the deleted-original state without stale reply details", () => {
     const renderer = renderMessage(message({
       replyTo: {

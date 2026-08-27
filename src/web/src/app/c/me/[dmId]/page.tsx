@@ -53,6 +53,7 @@ import { useNotificationSettings } from "@/hooks/community/use-notification-sett
 import { useSetChannelNotif } from "@/hooks/community/mutations"
 import { toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
+import { displayReplyContent } from "@/lib/community/reply-content"
 
 const EMPTY_DMS: DmsResponse["conversations"] = []
 
@@ -358,11 +359,18 @@ function DmView() {
       toggleReaction({ dmId, messageId: id, emoji, userId: currentUser.id }),
     onReply: (id: string) => {
       const m = messages.find((x) => x.id === id)
-      if (m) setReplyTo({ id: m.id, authorName: m.authorName ?? "", text: m.content ?? "" })
+      if (m) {
+        setReplyTo({
+          id: m.id,
+          authorName: m.authorName ?? "",
+          text: displayReplyContent(m.content ?? "", m.replyTo),
+        })
+      }
     },
     onCopy: (id: string) => {
       const m = messages.find((x) => x.id === id)
-      if (m?.content) { navigator.clipboard?.writeText(m.content); toast("Copied to clipboard") }
+      const content = m ? displayReplyContent(m.content ?? "", m.replyTo) : ""
+      if (content) { navigator.clipboard?.writeText(content); toast("Copied to clipboard") }
     },
     // A DM is a channel (type='dm'), so its id IS the mark route's channelId.
     onMark: (id: string) => toggleMark(dmId, id),

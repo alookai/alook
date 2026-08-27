@@ -44,7 +44,7 @@ describe("useDmMessageSender", () => {
 
     const receipt = sender.accept({
       dmId: "dm_1",
-      content: "hello",
+      content: "@Peer\nhello",
       replyTo: { id: "prior", authorName: "Peer", text: "quoted" },
       author: { id: "u_me", name: "Me", avatar: "M" },
     })
@@ -54,12 +54,12 @@ describe("useDmMessageSender", () => {
     expect(intent?.message).toEqual(expect.objectContaining({
       authorId: "u_me",
       authorName: "Me",
-      content: "hello",
+      content: "@Peer\nhello",
       replyTo: { id: "prior", authorName: "Peer", text: "quoted" },
     }))
     expect(postMock).toHaveBeenCalledWith({
       dmId: "dm_1",
-      content: "hello",
+      content: "@Peer\nhello",
       replyToId: "prior",
       attachments: undefined,
       nonce: "fresh_nonce",
@@ -181,11 +181,49 @@ describe("useDmMessageSender", () => {
     if (!receipt.accepted) throw new Error("expected accepted receipt")
     await expect(receipt.committed).resolves.toEqual({ ok: false, error: expect.any(Error) })
     const expected = `${"x".repeat(MESSAGE_PREVIEW_LENGTH - 1)}…`
-    expect(getMessageOverlay({ kind: "dm", id: "dm_1" }).outboxByNonce.get("fresh_nonce")?.message.replyTo?.text).toBe(expected)
+    const intent = getMessageOverlay({ kind: "dm", id: "dm_1" }).outboxByNonce.get("fresh_nonce")
+    expect(intent?.message.replyTo?.text).toBe(expected)
+    expect(intent?.message.content).toBe("@Peer\nreplying")
 
     await expect(sender.retry("dm_1", "fresh_nonce")).resolves.toEqual({ ok: false, error: expect.any(Error) })
     expect(getMessageOverlay({ kind: "dm", id: "dm_1" }).outboxByNonce.get("fresh_nonce")?.message.replyTo?.text).toBe(expected)
-    expect(postMock).toHaveBeenNthCalledWith(2, expect.objectContaining({ replyToId: "prior", nonce: "fresh_nonce" }))
+    expect(postMock).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      content: "@Peer\nreplying", replyToId: "prior", nonce: "fresh_nonce",
+    }))
+    expect(postMock).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      content: "@Peer\nreplying", replyToId: "prior", nonce: "fresh_nonce",
+    }))
+  })
+
+  it("sends a canonical prefix for an attachment-only DM reply", async () => {
+    uploadMock.mockResolvedValueOnce({
+      id: "att_x",
+      filename: "x.txt",
+      contentType: "text/plain",
+      size: 1,
+    })
+    postMock.mockResolvedValueOnce({ message: { id: "server_file", seq: 9 } })
+    const { useDmMessageSender } = await import("./use-dm-message-sender")
+    const file = new File(["x"], "x.txt", { type: "text/plain" })
+    const receipt = useDmMessageSender().accept({
+      dmId: "dm_1",
+      content: "",
+      replyTo: { id: "prior", authorName: "Peer Name", text: "quoted" },
+      attachments: [{ file, previewObjectUrl: "blob:x" }],
+      author: { id: "u_me", name: "Me", avatar: "M" },
+    })
+
+    if (!receipt.accepted) throw new Error("expected accepted receipt")
+    await expect(receipt.committed).resolves.toEqual({
+      ok: true,
+      message: { id: "server_file", seq: 9 },
+    })
+    expect(getMessageOverlay({ kind: "dm", id: "dm_1" }).outboxByNonce.get("fresh_nonce")?.message.content)
+      .toBe("@Peer Name\n")
+    expect(postMock).toHaveBeenCalledWith(expect.objectContaining({
+      content: "@Peer Name\n",
+      replyToId: "prior",
+    }))
   })
 
   it("reuses settled remote attachments on retry without uploading twice", async () => {

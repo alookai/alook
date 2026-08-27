@@ -8,6 +8,7 @@ import { deriveThreadName } from "@alook/shared"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { MessageRow } from "./message-row"
 import { MessageShareDialog } from "./message-share-dialog"
+import { displayReplyContent } from "@/lib/community/reply-content"
 import { ChannelIcon } from "../channels/channel-icon"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch, toastApiError } from "@/lib/api/client"
@@ -251,8 +252,9 @@ export function MessageContextSheet({
 
   const onCopyId = useCallback((id: string) => {
     const m = findMessage(id)
-    if (m?.content) {
-      navigator.clipboard?.writeText(m.content)
+    const content = m ? displayReplyContent(m.content ?? "", m.replyTo) : ""
+    if (content) {
+      navigator.clipboard?.writeText(content)
       toast("Copied to clipboard")
     }
   }, [findMessage])
@@ -261,7 +263,11 @@ export function MessageContextSheet({
     if (!onReply) return
     const m = findMessage(id)
     if (!m) return
-    onReply({ id: m.id, authorName: m.authorName ?? "", text: m.content ?? "" })
+    onReply({
+      id: m.id,
+      authorName: m.authorName ?? "",
+      text: displayReplyContent(m.content ?? "", m.replyTo),
+    })
   }, [findMessage, onReply])
 
   // Mark works for both channel and DM (unlike pin) — the sheet's channelId is
@@ -292,7 +298,8 @@ export function MessageContextSheet({
     const serverId = routeParams?.serverId
     if (!serverId) return
     const m = findMessage(id)
-    const name = deriveThreadName(m?.content, "channel")
+    const content = m ? displayReplyContent(m.content ?? "", m.replyTo) : undefined
+    const name = deriveThreadName(content, "channel")
     try {
       const data = await createThreadMut.mutateAsync({ serverId, channelId, messageId: id, name })
       // Match the main-channel UX: after creating a thread the row shows

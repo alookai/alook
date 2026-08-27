@@ -13,6 +13,7 @@ import { tid } from "@/lib/community/testids"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { AttachmentCard } from "./attachment-card"
+import { displayReplyContent } from "@/lib/community/reply-content"
 
 // Thread opener — the parent message the thread was created from, pinned at
 // the top of the thread's message list. Deliberately styled like a REGULAR
@@ -67,6 +68,7 @@ export function ThreadOpener({
   }
 
   const avatarLabel = msg.authorAvatar || avatarInitial(msg.authorName)
+  const visibleContent = displayReplyContent(msg.content ?? "", msg.replyTo)
 
   return (
     <div className="group relative">
@@ -108,9 +110,9 @@ export function ThreadOpener({
             </span>
           </div>
 
-          {msg.content && (
+          {visibleContent && (
             <MessageBody
-              text={msg.content}
+              text={visibleContent}
               onOpenProfile={onOpenProfile}
               perspective={msg.authorId === viewerUserId ? "sender" : "recipient"}
             />

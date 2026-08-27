@@ -15,7 +15,44 @@ const genericMock = {
   getBoundingClientRect: () => ({ top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 }),
 }
 
+function textContent(node: TestRenderer.ReactTestInstance): string {
+  return node.children.map((child) => (
+    typeof child === "string" ? child : textContent(child)
+  )).join("")
+}
+
 describe("ThreadOpener image attachment layout", () => {
+  it("renders projected reply content in the opener", () => {
+    useMessageMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      message: {
+        id: "opener_1",
+        type: "chat",
+        authorId: "user_1",
+        authorName: "Alice",
+        content: "@Bob Smith\n**visible** body",
+        replyTo: { id: "prior", authorName: "Bob Smith", text: "original" },
+        createdAt: "2026-08-08T00:00:00.000Z",
+      },
+    })
+
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(ThreadOpener, {
+          parentMessageId: "opener_1",
+          viewerUserId: "viewer_1",
+        }),
+        { createNodeMock: () => genericMock },
+      )
+    })
+
+    const body = renderer!.root.findByProps({ "data-community-message-body": true })
+    expect(textContent(body)).not.toContain("@Bob Smith")
+    expect(textContent(body)).toContain("visible")
+  })
+
   it("keeps a known portrait image intrinsic and constrains it by message width + max height", () => {
     useMessageMock.mockReturnValue({
       isLoading: false,

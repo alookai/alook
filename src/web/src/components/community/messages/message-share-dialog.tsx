@@ -14,6 +14,7 @@ import { attachmentAspectRatio } from "./attachment-layout"
 import { tid } from "@/lib/community/testids"
 import { applyHighlightToRange, clearHighlights, hasHighlights } from "@/lib/community/highlight-range"
 import type { RenderMsg } from "@/lib/community/models/message"
+import { displayReplyContent } from "@/lib/community/reply-content"
 
 const SHARE_IMAGE_READY_TIMEOUT_MS = 5_000
 
@@ -250,8 +251,10 @@ export function MessageShareDialog({ m, open, onClose }: {
             ref={cardRef}
             className="rounded-xl bg-card p-5 shadow-(--e1)"
           >
-            {messages.map((msg) => (
-              <div key={msg.id} className={msg.grouped ? "mt-0.5" : "mt-3 first:mt-0"}>
+            {messages.map((msg) => {
+              const visibleContent = displayReplyContent(msg.content ?? "", msg.replyTo)
+              return (
+                <div key={msg.id} className={msg.grouped ? "mt-0.5" : "mt-3 first:mt-0"}>
                 {msg.replyTo && (
                   <div
                     data-testid={`message-share-reply-${msg.id}`}
@@ -292,14 +295,14 @@ export function MessageShareDialog({ m, open, onClose }: {
                         (rasterises cleanly under html-to-image — plain bg +
                         box-decoration-break, no mask). max-h ≈ 32 lines at the
                         body's 15px/leading-snug. */}
-                    {msg.content && (
+                    {visibleContent && (
                       <div
                         ref={(el) => { bodyRefs.current.set(msg.id, el) }}
                         onMouseUp={() => onBodyMouseUp(msg.id)}
                         className="max-h-164 overflow-hidden line-clamp-32 [&_mark[data-hl]]:rounded-xs [&_mark[data-hl]]:bg-[rgba(255,208,92,0.5)] [&_mark[data-hl]]:p-[0_1px] [&_mark[data-hl]]:[box-decoration-break:clone] [&_mark[data-hl]]:[-webkit-box-decoration-break:clone] [&_mark[data-hl]]:text-inherit"
                       >
                         <MessageBody
-                          text={msg.content}
+                          text={visibleContent}
                           perspective="neutral"
                           enableLinkPreview={!msg.embeds?.length}
                         />
@@ -352,8 +355,9 @@ export function MessageShareDialog({ m, open, onClose }: {
                     )}
                   </div>
                 </div>
-              </div>
-            ))}
+                </div>
+              )
+            })}
 
             {/* Brand footer — Alook logo + brand font, mirrors the marketing
                 footer treatment. One footer for the whole card, single or multi. */}

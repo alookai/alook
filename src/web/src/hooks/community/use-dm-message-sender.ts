@@ -6,6 +6,7 @@ import type { SendAttachment } from "@/lib/community/models/message"
 import { toastApiError } from "@/lib/api/client"
 import { toOptimisticReplyPreview } from "@/lib/community/reply-preview"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
+import { canonicalizeReplyContent } from "@/lib/community/reply-content"
 import {
   sendNonce,
   tempMessageId,
@@ -117,6 +118,7 @@ export function useDmMessageSender() {
 
   const accept = useCallback((args: AcceptDmMessageArgs): DmSendReceipt => {
     if (!args.content && !args.attachments?.length) return { accepted: false }
+    const content = canonicalizeReplyContent(args.content, args.replyTo)
     const nonce = args.nonce ?? sendNonce()
     const createdPreviewUrls: string[] = []
     const accepted = useMessageStreamStore.getState().accept(
@@ -129,7 +131,7 @@ export function useDmMessageSender() {
           authorId: args.author.id,
           authorName: args.author.name,
           authorAvatar: args.author.avatar,
-          content: args.content,
+          content,
           createdAt: new Date().toISOString(),
           ...(args.replyTo ? { replyTo: toOptimisticReplyPreview(args.replyTo) } : {}),
         },
