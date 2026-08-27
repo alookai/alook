@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   LINK_PREVIEW_LIMITS,
   fetchLinkPreview,
+  LinkPreviewFetchError,
   normalizePublicPreviewUrl,
 } from "./link-preview-fetch"
 
@@ -167,7 +168,25 @@ describe("fetchLinkPreview", () => {
     }), { headers: { "content-type": "application/json" } })))
 
     await expect(fetchLinkPreview("https://youtu.be/dQw4w9WgXcQ"))
-      .rejects.toThrow("YouTube oEmbed metadata missing")
+      .rejects.toMatchObject({
+        message: "YouTube oEmbed metadata missing",
+        stage: "metadata_parse",
+        code: "metadata_missing",
+        httpStatus: 200,
+      })
+  })
+
+  it("classifies malformed provider JSON as metadata parsing", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{", {
+      headers: { "content-type": "application/json" },
+    })))
+
+    await expect(fetchLinkPreview("https://youtu.be/dQw4w9WgXcQ"))
+      .rejects.toMatchObject({
+        stage: "metadata_parse",
+        code: "metadata_parse_failed",
+        httpStatus: 200,
+      })
   })
 
   it.each([
@@ -211,8 +230,15 @@ describe("fetchLinkPreview", () => {
     }))
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(fetchLinkPreview("https://youtu.be/dQw4w9WgXcQ"))
-      .rejects.toThrow("YouTube oEmbed response is not JSON")
+    const error = await fetchLinkPreview("https://youtu.be/dQw4w9WgXcQ").catch((caught) => caught)
+
+    expect(error).toBeInstanceOf(LinkPreviewFetchError)
+    expect(error).toMatchObject({
+      message: "YouTube oEmbed response is not JSON",
+      stage: "provider_metadata_fetch",
+      code: "unexpected_content_type",
+      httpStatus: 200,
+    })
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(cancel).toHaveBeenCalledOnce()
   })
@@ -243,7 +269,11 @@ describe("fetchLinkPreview", () => {
     })))
 
     const preview = fetchLinkPreview("https://youtu.be/dQw4w9WgXcQ")
-    const rejected = expect(preview).rejects.toThrow("aborted")
+    const rejected = expect(preview).rejects.toMatchObject({
+      message: "aborted",
+      stage: "provider_metadata_fetch",
+      code: "timeout",
+    })
     await vi.advanceTimersByTimeAsync(LINK_PREVIEW_LIMITS.timeoutMs)
 
     await rejected
@@ -419,7 +449,12 @@ describe("fetchLinkPreview", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { status: 503 })))
 
     await expect(fetchLinkPreview("https://example.com/unavailable"))
-      .rejects.toThrow("preview origin rejected request")
+      .rejects.toMatchObject({
+        message: "preview origin rejected request",
+        stage: "document_fetch",
+        code: "upstream_http_status",
+        httpStatus: 503,
+      })
     expect(cancel).toHaveBeenCalledOnce()
   })
 
@@ -507,6 +542,10 @@ describe("fetchLinkPreview", () => {
     )))
 
     await expect(fetchLinkPreview("https://example.com/untitled"))
-      .rejects.toThrow("preview metadata missing")
+      .rejects.toMatchObject({
+        message: "preview metadata missing",
+        stage: "metadata_parse",
+        code: "metadata_missing",
+      })
   })
 })

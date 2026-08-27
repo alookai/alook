@@ -4,6 +4,21 @@ import type { LinkPreview } from "./link-preview"
 
 export type FetchedLinkPreview = LinkPreview & { thumbnailSource?: string }
 
+export type LinkPreviewFetchStage = "provider_metadata_fetch" | "document_fetch" | "metadata_parse"
+
+export class LinkPreviewFetchError extends Error {
+  readonly name = "LinkPreviewFetchError"
+
+  constructor(
+    message: string,
+    readonly stage: LinkPreviewFetchStage,
+    readonly code: string,
+    readonly httpStatus?: number,
+  ) {
+    super(message)
+  }
+}
+
 const MAX_URL_LENGTH = 2_048
 const MAX_HTML_BYTES = 128 * 1024
 const MAX_OEMBED_BYTES = 16 * 1024
@@ -199,17 +214,45 @@ async function fetchYouTubeOEmbed(original: URL, videoId: string, signal: AbortS
   })
   if (!response.ok) {
     await response.body?.cancel().catch(() => {})
-    throw new Error("YouTube oEmbed rejected request")
+    throw new LinkPreviewFetchError(
+      "YouTube oEmbed rejected request",
+      "provider_metadata_fetch",
+      "upstream_http_status",
+      response.status,
+    )
   }
   const contentType = response.headers.get("content-type")?.toLowerCase() ?? ""
   if (!/^application\/(?:[\w.+-]+\+)?json(?:;|$)/.test(contentType)) {
     await response.body?.cancel().catch(() => {})
-    throw new Error("YouTube oEmbed response is not JSON")
+    throw new LinkPreviewFetchError(
+      "YouTube oEmbed response is not JSON",
+      "provider_metadata_fetch",
+      "unexpected_content_type",
+      response.status,
+    )
   }
 
-  const record = JSON.parse(await readBoundedText(response, MAX_OEMBED_BYTES)) as Record<string, unknown>
+  let record: Record<string, unknown>
+  try {
+    record = JSON.parse(await readBoundedText(response, MAX_OEMBED_BYTES)) as Record<string, unknown>
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "provider metadata parse failed"
+    throw new LinkPreviewFetchError(
+      message,
+      "metadata_parse",
+      signal.aborted ? "timeout" : "metadata_parse_failed",
+      response.status,
+    )
+  }
   const title = cleanText(record.title, 160)
-  if (!title) throw new Error("YouTube oEmbed metadata missing")
+  if (!title) {
+    throw new LinkPreviewFetchError(
+      "YouTube oEmbed metadata missing",
+      "metadata_parse",
+      "metadata_missing",
+      response.status,
+    )
+  }
   const siteName = cleanText(record.provider_name, 80) ?? "YouTube"
   const authorName = cleanText(record.author_name, 80)
   const thumbnailSource = cleanThumbnailSource(record.thumbnail_url, original)
@@ -274,20 +317,44 @@ async function fetchHtml(start: URL, signal: AbortSignal): Promise<{ html: strin
 
     if (isRedirect(response.status)) {
       await response.body?.cancel().catch(() => {})
-      if (redirects === MAX_REDIRECTS) throw new Error("too many preview redirects")
+      if (redirects === MAX_REDIRECTS) {
+        throw new LinkPreviewFetchError(
+          "too many preview redirects",
+          "document_fetch",
+          "redirect_limit",
+          response.status,
+        )
+      }
       const location = response.headers.get("location")
-      if (!location) throw new Error("invalid preview redirect")
+      if (!location) {
+        throw new LinkPreviewFetchError(
+          "invalid preview redirect",
+          "document_fetch",
+          "invalid_redirect",
+          response.status,
+        )
+      }
       current = normalizePublicPreviewUrl(new URL(location, current).href)
       continue
     }
     if (!response.ok) {
       await response.body?.cancel().catch(() => {})
-      throw new Error("preview origin rejected request")
+      throw new LinkPreviewFetchError(
+        "preview origin rejected request",
+        "document_fetch",
+        "upstream_http_status",
+        response.status,
+      )
     }
     const contentType = response.headers.get("content-type")?.toLowerCase() ?? ""
     if (!/^text\/html(?:;|$)|^application\/xhtml\+xml(?:;|$)/.test(contentType)) {
       await response.body?.cancel().catch(() => {})
-      throw new Error("preview response is not HTML")
+      throw new LinkPreviewFetchError(
+        "preview response is not HTML",
+        "document_fetch",
+        "unexpected_content_type",
+        response.status,
+      )
     }
     return { html: await readBoundedHtml(response), finalUrl: current, contentType }
   }
@@ -302,12 +369,16 @@ export async function fetchLinkPreview(input: string): Promise<FetchedLinkPrevie
   const original = normalizePublicPreviewUrl(input)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS)
+  let stage: LinkPreviewFetchStage = "document_fetch"
   try {
     const youtubeId = youtubeVideoId(original)
     if (youtubeId) {
+      stage = "provider_metadata_fetch"
       return await fetchYouTubeOEmbed(original, youtubeId, controller.signal)
     }
+    stage = "document_fetch"
     const { html, finalUrl, contentType } = await fetchHtml(original, controller.signal)
+    stage = "metadata_parse"
     const parsed = await getPreviewFromContent({
       url: finalUrl.href,
       data: html,
@@ -336,7 +407,9 @@ export async function fetchLinkPreview(input: string): Promise<FetchedLinkPrevie
     const thumbnailSource = Array.isArray(record.images)
       ? cleanThumbnailSource(record.images[0], finalUrl)
       : undefined
-    if (!parsedTitle && !description) throw new Error("preview metadata missing")
+    if (!parsedTitle && !description) {
+      throw new LinkPreviewFetchError("preview metadata missing", "metadata_parse", "metadata_missing")
+    }
     const title = parsedTitle ?? siteName ?? original.hostname
     return {
       url: original.href,
@@ -346,6 +419,15 @@ export async function fetchLinkPreview(input: string): Promise<FetchedLinkPrevie
       ...(siteName ? { siteName } : {}),
       ...(thumbnailSource ? { thumbnailSource } : {}),
     }
+  } catch (error) {
+    if (error instanceof LinkPreviewFetchError) throw error
+    const message = error instanceof Error ? error.message : "link preview fetch failed"
+    const code = controller.signal.aborted
+      ? "timeout"
+      : stage === "metadata_parse"
+        ? "metadata_parse_failed"
+        : "network_or_body_failed"
+    throw new LinkPreviewFetchError(message, stage, code)
   } finally {
     clearTimeout(timer)
   }

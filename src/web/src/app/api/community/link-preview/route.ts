@@ -3,7 +3,12 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { checkRateLimit } from "@/lib/rate-limit"
-import { fetchLinkPreview, normalizePublicPreviewUrl } from "@/lib/community/link-preview-fetch"
+import { log } from "@/lib/logger"
+import {
+  fetchLinkPreview,
+  LinkPreviewFetchError,
+  normalizePublicPreviewUrl,
+} from "@/lib/community/link-preview-fetch"
 import {
   linkPreviewPageDigest,
   linkPreviewThumbnailUrl,
@@ -84,6 +89,21 @@ function cacheKey(pageDigest: string): string {
   return `link-preview:v2:${pageDigest}`
 }
 
+function elapsedSince(startedAt: number): number {
+  return Math.max(0, Date.now() - startedAt)
+}
+
+function logLinkPreviewFailure(fields: {
+  stage: string
+  errorCode: string
+  elapsedMs: number
+  disposition: "negative_cache" | "text_only_recovery_ttl"
+  pageDigestPrefix: string
+  httpStatus?: number
+}) {
+  log.error("link_preview_failure", fields)
+}
+
 /**
  * Independent, authenticated URL-unfurl boundary. It is deliberately not part
  * of message list/send: text paints first, and a slow/failed origin only makes
@@ -129,11 +149,13 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   let entry: CacheEntry
+  const metadataStartedAt = Date.now()
   try {
     const fetched = await fetchLinkPreview(normalized)
     const { thumbnailSource, ...preview } = fetched
     let staleTimeSeconds: CacheEntry["staleTimeSeconds"] = POSITIVE_TTL_SECONDS
     if (thumbnailSource) {
+      const manifestStartedAt = Date.now()
       try {
         await writeLinkPreviewThumbnailManifest({
           bucket: ctx.env.COMMUNITY_MEDIA,
@@ -142,13 +164,29 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         })
         preview.thumbnailUrl = linkPreviewThumbnailUrl(pageDigest)
       } catch {
+        logLinkPreviewFailure({
+          stage: "manifest_write",
+          errorCode: "manifest_write_failed",
+          elapsedMs: elapsedSince(manifestStartedAt),
+          disposition: "text_only_recovery_ttl",
+          pageDigestPrefix: pageDigest.slice(0, 12),
+        })
         // A capability is exposed only after its strongly-consistent manifest
         // exists. Retry this degraded text-only preview after the negative TTL.
         staleTimeSeconds = NEGATIVE_TTL_SECONDS
       }
     }
     entry = { preview, staleTimeSeconds }
-  } catch {
+  } catch (error) {
+    const failure = error instanceof LinkPreviewFetchError ? error : null
+    logLinkPreviewFailure({
+      stage: failure?.stage ?? "metadata_fetch",
+      errorCode: failure?.code ?? "unexpected_error",
+      elapsedMs: elapsedSince(metadataStartedAt),
+      disposition: "negative_cache",
+      pageDigestPrefix: pageDigest.slice(0, 12),
+      ...(failure?.httpStatus === undefined ? {} : { httpStatus: failure.httpStatus }),
+    })
     entry = { preview: null, staleTimeSeconds: NEGATIVE_TTL_SECONDS }
   }
 

@@ -7,6 +7,7 @@ const mockKvGet = vi.fn()
 const mockKvPut = vi.fn()
 const mockR2Put = vi.fn()
 const mockWaitUntil = vi.fn()
+const mockLogError = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ ctx: { waitUntil: mockWaitUntil } })),
@@ -24,6 +25,10 @@ vi.mock("@/lib/community/link-preview-fetch", async () => {
 
 vi.mock("@/lib/rate-limit", () => ({
   checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+}))
+
+vi.mock("@/lib/logger", () => ({
+  log: { error: (...args: unknown[]) => mockLogError(...args) },
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
@@ -44,6 +49,7 @@ vi.mock("@/lib/middleware/helpers", () => ({
 }))
 
 import { POST } from "./route"
+import { LinkPreviewFetchError } from "@/lib/community/link-preview-fetch"
 
 function request(body: unknown): NextRequest {
   return new NextRequest("http://localhost/api/community/link-preview", {
@@ -243,10 +249,16 @@ describe("POST /api/community/link-preview", () => {
       { expirationTtl: 21_600 },
     )
     expect(mockWaitUntil).toHaveBeenCalledWith(expect.any(Promise))
+    expect(mockLogError).not.toHaveBeenCalled()
   })
 
   it("negative-caches a bounded origin failure and degrades to no card", async () => {
-    mockFetchLinkPreview.mockRejectedValue(new Error("timeout"))
+    mockFetchLinkPreview.mockRejectedValue(new LinkPreviewFetchError(
+      "origin unavailable",
+      "document_fetch",
+      "upstream_http_status",
+      503,
+    ))
 
     const response = await POST(request({ url: "https://example.com/" }))
 
@@ -256,6 +268,19 @@ describe("POST /api/community/link-preview", () => {
       JSON.stringify({ preview: null, staleTimeSeconds: 300 }),
       { expirationTtl: 300 },
     )
+    expect(mockLogError).toHaveBeenCalledOnce()
+    expect(mockLogError).toHaveBeenCalledWith("link_preview_failure", expect.objectContaining({
+      stage: "document_fetch",
+      errorCode: "upstream_http_status",
+      httpStatus: 503,
+      elapsedMs: expect.any(Number),
+      disposition: "negative_cache",
+      pageDigestPrefix: "0f115db062b7",
+    }))
+    const serialized = JSON.stringify(mockLogError.mock.calls[0]?.[1])
+    expect(serialized).not.toContain("https://example.com")
+    expect(serialized).not.toContain("origin unavailable")
+    expect(serialized).not.toContain("user_1")
   })
 
   it("swallows a background KV write failure", async () => {
@@ -295,6 +320,7 @@ describe("POST /api/community/link-preview", () => {
       expect.objectContaining({ httpMetadata: { contentType: "application/json" } }),
     )
     expect(mockR2Put.mock.invocationCallOrder[0]).toBeLessThan(mockKvPut.mock.invocationCallOrder[0]!)
+    expect(mockLogError).not.toHaveBeenCalled()
   })
 
   it("omits a thumbnail and uses the recovery TTL when the manifest write fails", async () => {
@@ -317,6 +343,18 @@ describe("POST /api/community/link-preview", () => {
       expect.stringContaining('"staleTimeSeconds":300'),
       { expirationTtl: 300 },
     )
+    expect(mockLogError).toHaveBeenCalledOnce()
+    expect(mockLogError).toHaveBeenCalledWith("link_preview_failure", expect.objectContaining({
+      stage: "manifest_write",
+      errorCode: "manifest_write_failed",
+      elapsedMs: expect.any(Number),
+      disposition: "text_only_recovery_ttl",
+      pageDigestPrefix: "0f115db062b7",
+    }))
+    const serialized = JSON.stringify(mockLogError.mock.calls[0]?.[1])
+    expect(serialized).not.toContain("https://example.com")
+    expect(serialized).not.toContain("images.example.com")
+    expect(serialized).not.toContain("R2 unavailable")
   })
 
   it("enforces the authenticated preview rate limit", async () => {
