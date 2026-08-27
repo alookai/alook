@@ -15,9 +15,8 @@ export const GET = withAuth(async (_req, ctx) => {
 
   const { value, stale } = await readOrStale(
     async () => {
-      const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)
-      const unread = (await queries.communityInbox.listEligibleUnreadChannels(db, ctx.userId, visibleChannelIds))
-        .filter((row) => row.serverId === serverId)
+      const visibleChannelIds = await queries.communityChannel.listVisibleChannelIds(db, serverId, ctx.userId)
+      const unread = await queries.communityInbox.listEligibleUnreadChannels(db, ctx.userId, visibleChannelIds)
       const forumParentIds = unread
         .filter((row) => !row.parentChannelId && row.type === "forum")
         .map((row) => row.channelId)

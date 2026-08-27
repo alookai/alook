@@ -14,6 +14,8 @@ import { listParticipatingThreadIds } from "./thread";
 import { reachIsParticipantSet } from "../../../utils/community-roles";
 import { hasUnreadAttentionSql, notificationEligibleSql } from "./notification-eligibility";
 
+const ELIGIBLE_UNREAD_CHANNEL_CHUNK_SIZE = 80;
+
 export interface UnreadChannelRow {
   channelId: string;
   channelName: string;
@@ -223,7 +225,7 @@ export async function listEligibleUnreadChannels(
 
   const rows = (
     await Promise.all(
-      chunk(visibleChannelIds, D1_MAX_IN_PARAMS).map((ids) =>
+      chunk(visibleChannelIds, ELIGIBLE_UNREAD_CHANNEL_CHUNK_SIZE).map((ids) =>
         db
           .select({
             channelId: communityChannel.id,

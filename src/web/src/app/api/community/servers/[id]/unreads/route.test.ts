@@ -3,6 +3,7 @@ import { NextRequest } from "next/server"
 
 const mockGetMember = vi.fn()
 const mockListVisibleChannelIds = vi.fn()
+const mockListVisibleChannelIdsForUser = vi.fn()
 const mockListEligibleUnreadChannels = vi.fn()
 const mockListUnreadForumOpeners = vi.fn()
 
@@ -16,7 +17,8 @@ vi.mock("@alook/shared", async () => {
       communityMember: { getMember: (...args: unknown[]) => mockGetMember(...args) },
       communityChannel: {
         ...actual.queries.communityChannel,
-        listVisibleChannelIdsForUser: (...args: unknown[]) => mockListVisibleChannelIds(...args),
+        listVisibleChannelIds: (...args: unknown[]) => mockListVisibleChannelIds(...args),
+        listVisibleChannelIdsForUser: (...args: unknown[]) => mockListVisibleChannelIdsForUser(...args),
       },
       communityInbox: {
         ...actual.queries.communityInbox,
@@ -40,11 +42,11 @@ describe("GET /api/community/servers/[id]/unreads", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetMember.mockResolvedValue({ id: "member_1", role: "member" })
-    mockListVisibleChannelIds.mockResolvedValue(["channel_1", "channel_2", "other_1"])
+    mockListVisibleChannelIds.mockResolvedValue(["channel_1", "channel_2"])
+    mockListVisibleChannelIdsForUser.mockRejectedValue(new Error("cross-server resolver must not run"))
     mockListEligibleUnreadChannels.mockResolvedValue([
       { serverId: "server_1", channelId: "channel_1" },
       { serverId: "server_1", channelId: "channel_2", parentChannelId: "channel_1" },
-      { serverId: "server_2", channelId: "other_1" },
     ])
     mockListUnreadForumOpeners.mockResolvedValue([])
   })
@@ -61,7 +63,9 @@ describe("GET /api/community/servers/[id]/unreads", () => {
       childChannels: [{ id: "channel_2", parentChannelId: "channel_1" }],
       stale: false,
     })
-    expect(mockListEligibleUnreadChannels).toHaveBeenCalledWith(expect.anything(), "user_1", ["channel_1", "channel_2", "other_1"])
+    expect(mockListVisibleChannelIds).toHaveBeenCalledWith(expect.anything(), "server_1", "user_1")
+    expect(mockListVisibleChannelIdsForUser).not.toHaveBeenCalled()
+    expect(mockListEligibleUnreadChannels).toHaveBeenCalledWith(expect.anything(), "user_1", ["channel_1", "channel_2"])
   })
 
   it("uses the shared readable, cursor, policy, and attention projection on refetch", async () => {
