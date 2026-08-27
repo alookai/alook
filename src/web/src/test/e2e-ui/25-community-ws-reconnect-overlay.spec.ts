@@ -14,7 +14,7 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
     aliceWs = ws
     ws.connectToServer()
   })
-  await alice.page.emulateMedia({ reducedMotion: "reduce" })
+  await alice.page.emulateMedia({ reducedMotion: "reduce", colorScheme: "dark" })
   await alice.page.setViewportSize({ width: 390, height: 844 })
   await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}`)
   const composer = composerEditable(alice.page)
@@ -35,12 +35,15 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
       const rect = element.getBoundingClientRect()
       const content = element.previousElementSibling as HTMLElement | null
       const connectingMotion = element.querySelector<HTMLElement>("[data-connecting-motion]")
+      const connectingDot = element.querySelector<SVGCircleElement>(".community-ws-connecting-dot")
+      const connectingStyle = connectingMotion ? getComputedStyle(connectingMotion) : null
       return {
         ariaHidden: content?.getAttribute("aria-hidden"),
         inert: content?.hasAttribute("inert"),
-        animationName: connectingMotion
-          ? getComputedStyle(connectingMotion, "::after").animationName
-          : null,
+        animationName: connectingDot ? getComputedStyle(connectingDot).animationName : null,
+        loaderBackground: connectingStyle?.backgroundColor,
+        loaderBlendMode: connectingStyle?.mixBlendMode,
+        loaderElement: connectingMotion?.tagName.toLowerCase(),
         rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
         viewport: { width: innerWidth, height: innerHeight },
       }
@@ -49,6 +52,9 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
       ariaHidden: "true",
       inert: true,
       animationName: "none",
+      loaderBackground: "rgba(0, 0, 0, 0)",
+      loaderBlendMode: "normal",
+      loaderElement: "svg",
       rect: { x: 0, y: 0, width: 390, height: 844 },
       viewport: { width: 390, height: 844 },
     })
@@ -57,22 +63,39 @@ test("real WebSocket outage blocks the whole community surface and Retry restore
       const inertRoot = document.querySelector("[inert]")
       return inertRoot?.contains(document.activeElement) ?? false
     })).toBe(false)
-    const mobileReconnectPath = testInfo.outputPath("390-reconnecting-reduced-motion.png")
+    const mobileReconnectPath = testInfo.outputPath("390-dark-reconnecting-reduced-motion.png")
     await alice.page.screenshot({ path: mobileReconnectPath })
-    await testInfo.attach("390-reconnecting-reduced-motion.png", {
+    await testInfo.attach("390-dark-reconnecting-reduced-motion.png", {
       path: mobileReconnectPath,
       contentType: "image/png",
     })
 
     await alice.page.setViewportSize({ width: 1280, height: 900 })
     expect(await overlay.boundingBox()).toMatchObject({ x: 0, y: 0, width: 1280, height: 900 })
-    const desktopReconnectPath = testInfo.outputPath("1280-reconnecting-reduced-motion.png")
+    const desktopReconnectPath = testInfo.outputPath("1280-dark-reconnecting-reduced-motion.png")
     await alice.page.screenshot({ path: desktopReconnectPath })
-    await testInfo.attach("1280-reconnecting-reduced-motion.png", {
+    await testInfo.attach("1280-dark-reconnecting-reduced-motion.png", {
       path: desktopReconnectPath,
       contentType: "image/png",
     })
+
+    await alice.page.emulateMedia({ reducedMotion: "reduce", colorScheme: "light" })
+    await expect.poll(() => alice.page.evaluate(() => document.documentElement.classList.contains("dark")))
+      .toBe(false)
+    const desktopLightReconnectPath = testInfo.outputPath("1280-light-reconnecting-reduced-motion.png")
+    await alice.page.screenshot({ path: desktopLightReconnectPath })
+    await testInfo.attach("1280-light-reconnecting-reduced-motion.png", {
+      path: desktopLightReconnectPath,
+      contentType: "image/png",
+    })
+
     await alice.page.setViewportSize({ width: 390, height: 844 })
+    const mobileLightReconnectPath = testInfo.outputPath("390-light-reconnecting-reduced-motion.png")
+    await alice.page.screenshot({ path: mobileLightReconnectPath })
+    await testInfo.attach("390-light-reconnecting-reduced-motion.png", {
+      path: mobileLightReconnectPath,
+      contentType: "image/png",
+    })
 
     const retry = alice.page.getByTestId(tid.wsRetry)
     await expect(retry).toBeVisible({ timeout: 40_000 })
