@@ -4,6 +4,21 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { AttachmentPreviewSheet, readAttachmentText } from "./attachment-preview-sheet"
 import type { FileAttachment } from "@/lib/community/models/message"
 
+const dynamicMock = vi.hoisted(() => ({
+  options: null as null | Record<string, unknown>,
+}))
+
+vi.mock("next/dynamic", () => ({
+  default: (_loader: unknown, options: Record<string, unknown>) => {
+    dynamicMock.options = options
+    return ({ content, language }: { content: string; language: string | null }) => React.createElement(
+      "pre",
+      { "data-code-language": language ?? "plain" },
+      content,
+    )
+  },
+}))
+
 vi.mock("@/components/community/shell/community-sheet", () => ({
   CommunitySheet: ({
     title,
@@ -89,6 +104,21 @@ describe("readAttachmentText", () => {
 })
 
 describe("AttachmentPreviewSheet", () => {
+  it("keeps the syntax-preview subtree client-only with a stable loading state", async () => {
+    expect(dynamicMock.options?.ssr).toBe(false)
+    const loading = dynamicMock.options?.loading as (() => React.ReactElement) | undefined
+    expect(loading).toBeTypeOf("function")
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(loading!())
+    })
+    const state = renderer!.root.findByProps({
+      "data-testid": "community-code-preview",
+    })
+    expect(state.props.role).toBe("status")
+    expect(state.children.join("")).toContain("Loading syntax highlighter")
+  })
+
   it("fetches private Markdown, renders it safely, and exposes metadata/download", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("# Hello", { status: 200 }))
     vi.stubGlobal("fetch", fetchMock)

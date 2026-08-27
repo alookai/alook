@@ -331,6 +331,18 @@ importers:
       '@opennextjs/cloudflare':
         specifier: ^1.20.2
         version: 1.20.2(next@16.3.0(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@25.9.4)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(wrangler@4.125.0(@cloudflare/workers-types@4.20260702.1))
+      '@shikijs/core':
+        specifier: 4.4.3
+        version: 4.4.3
+      '@shikijs/engine-oniguruma':
+        specifier: 4.4.3
+        version: 4.4.3
+      '@shikijs/langs':
+        specifier: 4.4.3
+        version: 4.4.3
+      '@shikijs/themes':
+        specifier: 4.4.3
+        version: 4.4.3
       '@streamdown/cjk':
         specifier: ^1.0.3
         version: 1.0.3(@types/mdast@4.0.4)(micromark-util-types@2.0.2)(micromark@4.0.2)(react@19.2.8)(unified@11.0.5)

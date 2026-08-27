@@ -13,32 +13,32 @@ const shikiMocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("shiki/core", () => ({
+vi.mock("@shikijs/core", () => ({
   createHighlighterCore: shikiMocks.createHighlighterCore,
 }))
 
-vi.mock("shiki/engine/oniguruma", () => ({
+vi.mock("@shikijs/engine-oniguruma", () => ({
   createOnigurumaEngine: shikiMocks.createOnigurumaEngine,
 }))
 
-vi.mock("shiki/wasm", () => ({ default: { wasm: true } }))
+vi.mock("@shikijs/engine-oniguruma/wasm-inlined", () => ({ default: { wasm: true } }))
 
-vi.mock("shiki/langs", () => ({
+vi.mock("@shikijs/langs", () => ({
   get bundledLanguages() {
     throw new Error("Broad language registry must not load")
   },
 }))
 
-vi.mock("shiki/themes", () => ({
+vi.mock("@shikijs/themes", () => ({
   get bundledThemes() {
     throw new Error("Broad theme registry must not load")
   },
 }))
 
-vi.mock("shiki/langs/json.mjs", () => ({ default: [{ id: "json" }] }))
-vi.mock("shiki/langs/typescript.mjs", () => ({ default: [{ id: "typescript" }] }))
-vi.mock("shiki/themes/github-light.mjs", () => ({ default: { name: "github-light" } }))
-vi.mock("shiki/themes/github-dark.mjs", () => ({ default: { name: "github-dark" } }))
+vi.mock("@shikijs/langs/json", () => ({ default: [{ id: "json" }] }))
+vi.mock("@shikijs/langs/typescript", () => ({ default: [{ id: "typescript" }] }))
+vi.mock("@shikijs/themes/github-light", () => ({ default: { name: "github-light" } }))
+vi.mock("@shikijs/themes/github-dark", () => ({ default: { name: "github-dark" } }))
 
 beforeEach(() => {
   vi.resetModules()
