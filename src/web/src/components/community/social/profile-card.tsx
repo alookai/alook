@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef, useState } from "react"
 import { Bot, MessagesSquare, Shield, UserRound } from "lucide-react"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
+import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
 import { Avatar } from "../avatar"
 import { SeededBackdrop } from "@/components/avatar"
@@ -412,16 +413,30 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
       </div>
     )
 
-  // mobile: bottom sheet (intentional mobile UX, kept manual)
   if (mobile)
     return (
-      <div className="fixed inset-0 z-30 flex flex-col justify-end" onClick={onClose}>
-        <div className="absolute inset-0 bg-foreground/30" />
-        <div className="relative flex flex-col gap-2 p-3" onClick={(e) => e.stopPropagation()}>
-          {auditPreview}
-          <div data-testid={tid.profileCard} className="overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">{card}</div>
-        </div>
-      </div>
+      <Sheet
+        open={open}
+        onOpenChange={(nowOpen) => {
+          setOpen(nowOpen)
+          if (!nowOpen) onClose()
+        }}
+        modal
+      >
+        <SheetContent
+          side="bottom"
+          showOverlay
+          showCloseButton={false}
+          className="border-0 bg-transparent p-3 shadow-none"
+        >
+          <SheetTitle className="sr-only">{data.name} profile</SheetTitle>
+          <SheetClose className="sr-only">Close profile</SheetClose>
+          <div className="flex flex-col gap-2">
+            {auditPreview}
+            <div data-testid={tid.profileCard} className="overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">{card}</div>
+          </div>
+        </SheetContent>
+      </Sheet>
     )
 
   // desktop: shadcn Popover anchored to an invisible trigger at the click point
