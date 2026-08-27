@@ -21,6 +21,67 @@ function deferred() {
   return { promise, resolve }
 }
 
+async function installReadObserverGate(
+  page: Parameters<typeof gotoAfterUserWsAuth>[0],
+) {
+  await page.addInitScript(() => {
+    const NativeIntersectionObserver = window.IntersectionObserver
+    const queued: Array<() => void> = []
+    let blocked = false
+    class GatedIntersectionObserver implements IntersectionObserver {
+      readonly root: Element | Document | null
+      readonly rootMargin: string
+      readonly scrollMargin: string
+      readonly thresholds: readonly number[]
+      private readonly observer: IntersectionObserver
+
+      constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
+        this.observer = new NativeIntersectionObserver((entries) => {
+          const deliver = () => callback(entries, this)
+          if (blocked && entries.some((entry) => (
+            (entry.target as HTMLElement).hasAttribute("data-msg-id")
+          ))) {
+            queued.push(deliver)
+            return
+          }
+          deliver()
+        }, options)
+        this.root = this.observer.root
+        this.rootMargin = this.observer.rootMargin
+        this.scrollMargin = this.observer.scrollMargin
+        this.thresholds = this.observer.thresholds
+      }
+
+      disconnect() { this.observer.disconnect() }
+      observe(target: Element) { this.observer.observe(target) }
+      takeRecords() { return this.observer.takeRecords() }
+      unobserve(target: Element) { this.observer.unobserve(target) }
+    }
+    window.IntersectionObserver = GatedIntersectionObserver
+    ;(window as unknown as Record<string, unknown>).__inboxReadObserverGate = {
+      block: () => { blocked = true },
+      pending: () => queued.length,
+      release: () => {
+        blocked = false
+        for (const deliver of queued.splice(0)) deliver()
+      },
+    }
+  })
+  const invoke = async (method: "block" | "pending" | "release") => page.evaluate((name) => {
+    const gate = (window as unknown as Record<string, {
+      block: () => void
+      pending: () => number
+      release: () => void
+    }>).__inboxReadObserverGate
+    return gate[name]()
+  }, method)
+  return {
+    block: () => invoke("block"),
+    pending: () => invoke("pending") as Promise<number>,
+    release: () => invoke("release"),
+  }
+}
+
 async function watchInboxRow(page: Parameters<typeof gotoAfterUserWsAuth>[0], testId: string) {
   const key = `__inboxRace_${testId}`
   await page.evaluate(({ key, testId }) => {
@@ -61,6 +122,7 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     await seedJoinServer("alice", "bob", serverId)
     const dmId = await seedDm("alice", userId("bob"))
     const { context, page } = await asUser("bob")
+    const readObserverGate = await installReadObserverGate(page)
     const proxy = await proxyCommunityWebSockets(context)
     await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelA}`)
     const initialInbox = page.waitForResponse((response) => (
@@ -80,14 +142,11 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     }))
     const requestStart = requests.length
     const frameStart = proxy.frames.length
-    const firstReadGate = deferred()
-    const firstReadStarted = deferred()
-    await page.route(`**/api/community/channels/${channelA}/read`, async (route) => {
-      if (route.request().method() !== "PUT") return route.continue()
-      firstReadStarted.resolve()
-      await firstReadGate.promise
-      await route.continue()
-    })
+    await readObserverGate.block()
+    const staleInboxResponse = page.waitForResponse((response) => (
+      response.request().method() === "GET"
+      && new URL(response.url()).pathname === "/api/community/users/me/inbox/unreads"
+    ))
     const readResponse = page.waitForResponse((response) => (
       response.request().method() === "PUT"
       && new URL(response.url()).pathname === `/api/community/channels/${channelA}/read`
@@ -97,10 +156,24 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     const bodyDm = `background dm ${stamp}`
     const messageA = await seedMessage("alice", channelA, bodyA)
     await expect(page.getByText(bodyA, { exact: true })).toBeVisible({ timeout: 20_000 })
-    await firstReadStarted.promise
+    const staleResponse = await staleInboxResponse
+    expect(staleResponse.status()).toBe(200)
+    const stalePayload = await staleResponse.json() as {
+      servers: Array<{ channels: Array<{
+        channelId: string
+        children: Array<{ channelId: string }>
+      }> }>
+      dms: Array<{ channelId: string }>
+    }
+    expect(stalePayload.servers.some((server) => server.channels.some((channel) => (
+      channel.channelId === channelA
+      || channel.children.some((child) => child.channelId === channelA)
+    )))).toBe(true)
+    expect(await readObserverGate.pending()).toBeGreaterThan(0)
+    await expect(page.getByTestId(tid.inboxUnreadChannel(channelA))).toHaveCount(0)
     const messageB = await seedMessage("alice", channelB, bodyB)
     const messageDm = await seedDmMessage("alice", dmId, bodyDm)
-    firstReadGate.resolve()
+    await readObserverGate.release()
     expect((await readResponse).status()).toBe(200)
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelB))).toBeVisible({ timeout: 20_000 })
     await expect(page.getByTestId(tid.inboxUnreadDm(dmId))).toBeVisible({ timeout: 20_000 })
@@ -125,7 +198,7 @@ test.describe.serial("Inbox/read refresh ownership", () => {
       && request.path === "/api/community/users/me/inbox/unreads"
     ))
     expect(readIndex).toBeGreaterThanOrEqual(0)
-    expect(inboxIndex).toBeGreaterThan(readIndex)
+    expect(inboxIndex).toBeLessThan(readIndex)
 
     const snapshot = await (await page.request.get(
       "/api/community/users/me/read-state",

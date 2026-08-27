@@ -5,6 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "../avatar"
 import type { DM } from "@/lib/community/models/people"
+import { tid } from "@/lib/community/testids"
 
 export function DmHeader({ dm, onBack, titleAs: Title = "h1", notifLevel, onSetNotifLevel }: {
   dm: DM
@@ -14,12 +15,12 @@ export function DmHeader({ dm, onBack, titleAs: Title = "h1", notifLevel, onSetN
   onSetNotifLevel?: (level: NotifLevel) => void
 }) {
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-3">
+    <header data-testid={tid.dmHeader} className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-3">
       {onBack && (
         <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
       )}
       <Avatar label={dm.avatar} seed={dm.userId} size={24} presence={dm.status} />
-      <Title className="min-w-0 truncate font-heading text-base font-medium leading-[1.15] tracking-[-0.015em]">
+      <Title data-testid={tid.dmHeaderTitle} className="min-w-0 truncate font-heading text-base font-medium leading-[1.15] tracking-[-0.015em]">
         {dm.name}
         {dm.discriminator && (
           <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">

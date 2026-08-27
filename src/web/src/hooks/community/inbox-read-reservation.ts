@@ -80,6 +80,19 @@ type LeaseState = {
   onCandidate: (candidate: InboxReadCandidate | null) => void
 }
 
+type FocusedCandidate = {
+  epoch: number
+  candidate: InboxReadCandidate
+  generation: number | null
+}
+
+type ResponsePermit = {
+  epoch: number
+  channelId: string
+  lastMessageAt: string | null
+  fingerprint: string | null
+}
+
 type ManagerState = {
   queryClient: QueryClient
   leases: Map<symbol, LeaseState>
@@ -87,7 +100,9 @@ type ManagerState = {
   nextEpoch: number
   nextResponseId: number
   held: Map<number, HeldResponse>
-  permit: { epoch: number; channelId: string; fingerprint: string | null } | null
+  focusedCandidate: FocusedCandidate | null
+  discardedCandidate: { epoch: number; candidate: InboxReadCandidate } | null
+  permit: ResponsePermit | null
   handoff: ThreadOpenerHandoff | null
   claimedOpeners: Map<number, ClaimedThreadOpener>
   routeLeases: Map<symbol, ThreadOpenerRouteLease>
@@ -107,6 +122,8 @@ function managerFor(queryClient: QueryClient) {
       nextEpoch: 0,
       nextResponseId: 0,
       held: new Map(),
+      focusedCandidate: null,
+      discardedCandidate: null,
       permit: null,
       handoff: null,
       claimedOpeners: new Map(),
@@ -215,6 +232,35 @@ function notifyActive(state: ManagerState, candidate: InboxReadCandidate | null)
   activeLease(state)?.onCandidate(candidate)
 }
 
+function candidateIdentityMatches(
+  expected: InboxReadCandidate,
+  actual: InboxReadCandidate,
+) {
+  return expected.channelId === actual.channelId
+    && expected.lastMessageAt === actual.lastMessageAt
+    && (
+      expected.openerMessageId === undefined
+      || actual.openerMessageId === undefined
+      || expected.openerMessageId === actual.openerMessageId
+    )
+    && (
+      expected.openerSeq === undefined
+      || actual.openerSeq === undefined
+      || expected.openerSeq === actual.openerSeq
+    )
+}
+
+function permitMatches(
+  permit: ResponsePermit,
+  epoch: number,
+  candidate: InboxReadCandidate,
+) {
+  return permit.epoch === epoch
+    && permit.channelId === candidate.channelId
+    && (permit.lastMessageAt === null || permit.lastMessageAt === candidate.lastMessageAt)
+    && (permit.fingerprint === null || permit.fingerprint === candidate.fingerprint)
+}
+
 function cancelHeld(state: ManagerState, held: HeldResponse) {
   if (!state.held.delete(held.id)) return
   held.removeAbort()
@@ -244,6 +290,7 @@ function releaseHeldNegative(state: ManagerState, held: HeldResponse) {
   state.permit = {
     epoch: activeLease(state)?.lease.epoch ?? state.nextEpoch,
     channelId: held.candidate.channelId,
+    lastMessageAt: held.candidate.lastMessageAt,
     fingerprint: held.candidate.fingerprint,
   }
   cancelHeld(state, held)
@@ -289,8 +336,61 @@ export function registerInboxReadReservationSurface(
   }
   state.leases.set(token, { lease, onCandidate })
   state.latestToken = token
+  if (state.focusedCandidate?.epoch !== lease.epoch) state.focusedCandidate = null
   reclassifyHeld(state)
   return lease
+}
+
+export function armInboxReadReservationCandidate(
+  queryClient: QueryClient,
+  input: {
+    channelId: string
+    lastMessageAt: string
+    openerMessageId?: string
+    openerSeq?: number
+  },
+) {
+  const state = managerFor(queryClient)
+  const lease = activeLease(state)
+  if (state.disposed || !lease || lease.lease.channelId !== input.channelId) return false
+  const candidateBase = {
+    channelId: input.channelId,
+    lastMessageAt: input.lastMessageAt,
+    ...(input.openerMessageId ? { openerMessageId: input.openerMessageId } : {}),
+    ...(input.openerSeq !== undefined ? { openerSeq: input.openerSeq } : {}),
+    openerUnread: false,
+  }
+  const candidate = { ...candidateBase, fingerprint: fingerprint(candidateBase) }
+  const current = state.focusedCandidate
+  if (
+    current?.epoch === lease.lease.epoch
+    && candidateIdentityMatches(current.candidate, candidate)
+  ) return false
+
+  if (current?.epoch === lease.lease.epoch) {
+    for (const held of [...state.held.values()]) {
+      if (candidateIdentityMatches(current.candidate, held.candidate)) cancelHeld(state, held)
+    }
+  }
+  if (
+    state.permit?.epoch === lease.lease.epoch
+    && state.permit.channelId === input.channelId
+  ) {
+    state.permit = null
+  }
+  if (
+    state.discardedCandidate?.epoch === lease.lease.epoch
+    && state.discardedCandidate.candidate.channelId === input.channelId
+  ) {
+    state.discardedCandidate = null
+  }
+  state.focusedCandidate = {
+    epoch: lease.lease.epoch,
+    candidate,
+    generation: null,
+  }
+  notifyActive(state, candidate)
+  return true
 }
 
 export function releaseInboxReadReservationSurface(lease: InboxReadReservationLease) {
@@ -299,6 +399,9 @@ export function releaseInboxReadReservationSurface(lease: InboxReadReservationLe
   state.leases.delete(lease.token)
   if (state.latestToken !== lease.token) return
   state.latestToken = null
+  if (state.focusedCandidate?.epoch === lease.epoch) state.focusedCandidate = null
+  if (state.discardedCandidate?.epoch === lease.epoch) state.discardedCandidate = null
+  if (state.permit?.epoch === lease.epoch) state.permit = null
   const epoch = ++state.nextEpoch
   queueMicrotask(() => {
     if (state.disposed || state.latestToken || state.nextEpoch !== epoch) return
@@ -313,6 +416,12 @@ export function promoteInboxReadReservation(
   const state = managers.get(lease.queryClient)
   const current = state?.leases.get(lease.token)
   if (!state || !current || current.lease.epoch !== lease.epoch) return false
+  if (
+    state.focusedCandidate?.epoch === lease.epoch
+    && state.focusedCandidate.candidate.channelId === lease.channelId
+  ) {
+    state.focusedCandidate.generation = generation
+  }
   for (const held of state.held.values()) {
     if (held.candidate.channelId === lease.channelId && !held.openerClaimLocked) {
       held.generation = generation
@@ -328,9 +437,29 @@ export function takeInboxReadReservationNegative(
   const current = state?.leases.get(lease.token)
   if (!state || !current || current.lease.epoch !== lease.epoch) return false
   if (state.handoff?.phase === "awaiting-opener-claim") return false
+  let released = false
   for (const held of [...state.held.values()]) {
     if (held.candidate.channelId === lease.channelId && held.generation === null) {
+      released = true
       void releaseHeldNegative(state, held)
+    }
+  }
+  const focused = state.focusedCandidate
+  if (
+    focused?.epoch === lease.epoch
+    && focused.candidate.channelId === lease.channelId
+    && focused.generation === null
+  ) {
+    state.focusedCandidate = null
+    if (!released) {
+      state.permit = {
+        epoch: lease.epoch,
+        channelId: focused.candidate.channelId,
+        lastMessageAt: focused.candidate.lastMessageAt,
+        fingerprint: null,
+      }
+      notifyActive(state, null)
+      void queueAuthoritativeRefetch(state)
     }
   }
   return true
@@ -355,16 +484,34 @@ export async function settleInboxReadReservationGeneration(
       state.permit = {
         epoch: lease.lease.epoch,
         channelId: permitChannelId,
+        lastMessageAt: state.focusedCandidate?.generation === generation
+          ? state.focusedCandidate.candidate.lastMessageAt
+          : null,
         fingerprint: null,
+      }
+      if (state.focusedCandidate?.generation === generation) {
+        state.focusedCandidate = null
       }
       notifyActive(state, null)
       await queueAuthoritativeRefetch(state)
       return
     }
     await Promise.all(matching.map((held) => releaseHeldNegative(state, held)))
+    if (state.focusedCandidate?.generation === generation) state.focusedCandidate = null
     return
   }
-  if (matching.length === 0 && !claimed) return
+  if (matching.length === 0 && !claimed) {
+    const focused = state.focusedCandidate
+    if (committed && focused?.generation === generation) {
+      state.discardedCandidate = {
+        epoch: focused.epoch,
+        candidate: focused.candidate,
+      }
+      state.focusedCandidate = null
+      notifyActive(state, null)
+    }
+    return
+  }
   await state.queryClient.cancelQueries({
     queryKey: communityKeys.inboxUnreads(),
     exact: true,
@@ -373,6 +520,7 @@ export async function settleInboxReadReservationGeneration(
   for (const held of [...state.held.values()]) {
     if (held.generation === generation) cancelHeld(state, held)
   }
+  if (state.focusedCandidate?.generation === generation) state.focusedCandidate = null
   notifyActive(state, null)
 }
 
@@ -387,17 +535,40 @@ export async function reserveInboxUnreadsResponse<T extends InboxResponse>(
   const candidate = candidateFor(data, lease.lease.channelId)
   if (!candidate) return data
   const claimed = claimedOpenerForCandidate(state, candidate)
+  const armed = state.focusedCandidate?.epoch === lease.lease.epoch
+    && state.focusedCandidate.candidate.channelId === candidate.channelId
+    ? state.focusedCandidate
+    : null
+  let focused = armed && candidateIdentityMatches(armed.candidate, candidate)
+    ? armed
+    : null
+  if (armed && !focused) {
+    if (candidate.lastMessageAt <= armed.candidate.lastMessageAt) {
+      throw new DOMException("Inbox response superseded", "AbortError")
+    }
+    for (const held of [...state.held.values()]) {
+      if (candidateIdentityMatches(armed.candidate, held.candidate)) cancelHeld(state, held)
+    }
+    focused = {
+      epoch: armed.epoch,
+      candidate,
+      generation: null,
+    }
+    state.focusedCandidate = focused
+  }
+  if (
+    state.discardedCandidate?.epoch === lease.lease.epoch
+    && candidateIdentityMatches(state.discardedCandidate.candidate, candidate)
+  ) {
+    throw new DOMException("Inbox response superseded", "AbortError")
+  }
   if (
     !claimed
     && state.permit
-    && state.permit.epoch === lease.lease.epoch
-    && state.permit.channelId === candidate.channelId
-    && (
-      state.permit.fingerprint === null
-      || state.permit.fingerprint === candidate.fingerprint
-    )
+    && permitMatches(state.permit, lease.lease.epoch, candidate)
   ) {
     state.permit = null
+    if (focused) state.focusedCandidate = null
     return data
   }
   if (signal?.aborted) throw new DOMException("Inbox response aborted", "AbortError")
@@ -415,12 +586,15 @@ export async function reserveInboxUnreadsResponse<T extends InboxResponse>(
       id,
       candidate,
       data,
-      generation: claimed?.generation ?? null,
+      generation: claimed?.generation ?? focused?.generation ?? null,
       openerClaimLocked: claimed !== null,
       reject,
       removeAbort: () => signal?.removeEventListener("abort", onAbort),
     }
     state.held.set(id, held)
+    if (focused) {
+      focused.candidate = candidate
+    }
     if (shouldAwaitOpenerClaim(state, candidate) && state.handoff) {
       state.handoff.phase = "awaiting-opener-claim"
     }
@@ -545,6 +719,8 @@ export function disposeInboxReadReservation(queryClient: QueryClient) {
   state.handoff = null
   state.claimedOpeners.clear()
   state.routeLeases.clear()
+  state.focusedCandidate = null
+  state.discardedCandidate = null
   state.permit = null
   state.leases.clear()
   state.latestToken = null

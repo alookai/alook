@@ -31,6 +31,8 @@ export const tid = {
   newDivider: "community-new-divider",
   typingIndicator: "community-typing-indicator",
   dmBlockedNotice: "community-dm-blocked-notice",
+  dmHeader: "community-dm-header",
+  dmHeaderTitle: "community-dm-header-title",
   profileCard: "community-profile-card",
   profileContextBadge: "community-profile-context-badge",
   profileBotBadge: "community-profile-bot-badge",

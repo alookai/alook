@@ -142,20 +142,18 @@ test.describe.serial("direct messages", () => {
 
     try {
       await alice.page.goto(`/c/me/${dmId}`)
-      await expect(alice.page.getByRole("heading", {
-        level: 1,
-        name: new RegExp(userName("bob")),
-      })).toBeVisible({ timeout: 20_000 })
+      const dmHeader = alice.page.getByTestId(tid.dmHeader)
+      const dmTitle = alice.page.getByTestId(tid.dmHeaderTitle)
+      await expect(dmHeader).toHaveCount(1, { timeout: 20_000 })
+      await expect(dmTitle).toContainText(userName("bob"))
       await expect(alice.page.getByTestId(tid.composerInput)).toBeVisible()
       await expect(alice.page.getByTestId(tid.messageScroller).locator('[data-slot="skeleton"]')).not.toHaveCount(0)
 
       releaseRead()
       await readSettled
       await messagesRequest
-      await expect(alice.page.getByRole("heading", {
-        level: 1,
-        name: new RegExp(userName("bob")),
-      })).toBeVisible()
+      await expect(dmHeader).toHaveCount(1)
+      await expect(dmTitle).toContainText(userName("bob"))
       await expect(alice.page.getByTestId(tid.composerInput)).toBeVisible()
       await expect(alice.page.getByTestId(tid.messageScroller).locator('[data-slot="skeleton"]')).not.toHaveCount(0)
       await expect.poll(() => wsProxy.heldConnectionCount()).toBe(1)

@@ -13,6 +13,13 @@ import {
   submitReadIntent,
 } from "@/hooks/community/read-coordinator"
 import {
+  promoteInboxReadReservation,
+  registerInboxReadReservationSurface,
+  releaseInboxReadReservationSurface,
+  reserveInboxUnreadsResponse,
+  settleInboxReadReservationGeneration,
+} from "@/hooks/community/inbox-read-reservation"
+import {
   capturedOnMessage,
   capturedQueryClient,
   cleanupCommunityWsHarness,
@@ -515,6 +522,103 @@ describe("useCommunityWs — message.create", () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it("arms one exact focused candidate before scheduling its inbox refresh", async () => {
+    vi.useFakeTimers()
+    try {
+      await mountHook({ viewerUserId: "u_me" })
+      const { useCommunityStore } = await import("@/stores/community")
+      useCommunityStore.getState().subscribe({ channelId: "ch_focused" })
+      const order: string[] = []
+      const lease = registerInboxReadReservationSurface(
+        capturedQueryClient,
+        "ch_focused",
+        (candidate) => {
+          if (candidate) order.push("candidate")
+        },
+      )
+      const originalInvalidate = capturedQueryClient.invalidateQueries.bind(capturedQueryClient)
+      vi.spyOn(capturedQueryClient, "invalidateQueries")
+        .mockImplementation((filters, options) => {
+          const key = filters.queryKey as unknown[] | undefined
+          if (Array.isArray(key) && key.includes("inbox")) order.push("inbox-refresh")
+          return originalInvalidate(filters, options)
+        })
+      const event = messageCreate("ch_focused", "m_focused")
+
+      capturedOnMessage!(event)
+      capturedOnMessage!(event)
+      expect(order).toEqual(["candidate"])
+
+      await vi.advanceTimersByTimeAsync(500)
+      await vi.waitFor(() => expect(order).toContain("inbox-refresh"))
+      expect(order.indexOf("candidate")).toBeLessThan(order.indexOf("inbox-refresh"))
+      releaseInboxReadReservationSurface(lease)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("does not re-arm a committed candidate when reconnect replays the seen message", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_focused" })
+    const seen = vi.fn()
+    const lease = registerInboxReadReservationSurface(
+      capturedQueryClient,
+      "ch_focused",
+      seen,
+    )
+    const event = messageCreate("ch_focused", "m_committed")
+
+    capturedOnMessage!(event)
+    expect(promoteInboxReadReservation(lease, 20)).toBe(true)
+    await settleInboxReadReservationGeneration(
+      capturedQueryClient,
+      20,
+      true,
+      "ch_focused",
+    )
+    seen.mockClear()
+
+    capturedOnMessage!(event)
+
+    expect(seen).not.toHaveBeenCalled()
+    await expect(reserveInboxUnreadsResponse(capturedQueryClient, {
+      servers: [{
+        channels: [{
+          channelId: "ch_focused",
+          lastMessageAt: event.message.createdAt,
+          hasDirectUnread: true,
+          children: [],
+        }],
+      }],
+      dms: [],
+    })).rejects.toMatchObject({ name: "AbortError" })
+    releaseInboxReadReservationSurface(lease)
+  })
+
+  it("does not arm self-authored or unfocused message candidates", async () => {
+    await mountHook({ viewerUserId: "u_author" })
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_focused" })
+    const seen: string[] = []
+    const lease = registerInboxReadReservationSurface(
+      capturedQueryClient,
+      "ch_focused",
+      (candidate) => {
+        if (candidate) seen.push(candidate.channelId)
+      },
+    )
+
+    capturedOnMessage!(messageCreate("ch_focused", "m_self"))
+    const background = messageCreate("ch_background", "m_background")
+    background.message.authorId = "u_other"
+    capturedOnMessage!(background)
+
+    expect(seen).toEqual([])
+    releaseInboxReadReservationSurface(lease)
   })
 
   it("holds a focused refresh until the visible read reconciles authoritatively", async () => {

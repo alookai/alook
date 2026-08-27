@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  armInboxReadReservationCandidate,
   armThreadOpenerReservationHandoff,
   clearThreadOpenerReservationHandoff,
   completeThreadOpenerReservationHandoff,
@@ -70,6 +71,7 @@ describe("inbox read reservation", () => {
     const unrelated = response("other")
     await expect(reserveInboxUnreadsResponse(queryClient, unrelated)).resolves.toBe(unrelated)
 
+    seen.mockClear()
     const focused = response()
     const pending = reserveInboxUnreadsResponse(queryClient, focused)
     let settled = false
@@ -77,6 +79,7 @@ describe("inbox read reservation", () => {
     await Promise.resolve()
 
     expect(settled).toBe(false)
+    expect(seen).toHaveBeenCalledTimes(1)
     expect(seen).toHaveBeenCalledWith(expect.objectContaining({
       channelId: "focused",
       lastMessageAt: "2026-08-27T01:00:00.000Z",
@@ -114,6 +117,335 @@ describe("inbox read reservation", () => {
     await expect(pending).rejects.toMatchObject({ name: "AbortError" })
     expect(queryClient.cancelQueries).toHaveBeenCalledTimes(1)
     expect(queryClient.refetchQueries).not.toHaveBeenCalled()
+  })
+
+  it("keeps a focused WS candidate classified when the response arrives later", async () => {
+    const seen = vi.fn()
+    const lease = registerInboxReadReservationSurface(queryClient, "focused", seen)
+
+    expect(armInboxReadReservationCandidate(queryClient, {
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T01:00:00.000Z",
+    })).toBe(true)
+    expect(promoteInboxReadReservation(lease, 12)).toBe(true)
+    seen.mockClear()
+    const pending = reserveInboxUnreadsResponse(queryClient, response())
+    void pending.catch(() => undefined)
+
+    expect(seen).toHaveBeenCalledTimes(1)
+    expect(seen).toHaveBeenCalledWith(expect.objectContaining({
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T01:00:00.000Z",
+    }))
+    await settleInboxReadReservationGeneration(queryClient, 12, true, "focused")
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+  })
+
+  it("discards an exact response that arrives after its committed generation", async () => {
+    const lease = registerInboxReadReservationSurface(queryClient, "focused", vi.fn())
+    armInboxReadReservationCandidate(queryClient, {
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T01:00:00.000Z",
+    })
+    promoteInboxReadReservation(lease, 13)
+
+    await settleInboxReadReservationGeneration(queryClient, 13, true, "focused")
+
+    await expect(reserveInboxUnreadsResponse(queryClient, response())).rejects.toMatchObject({
+      name: "AbortError",
+    })
+    const later = reserveInboxUnreadsResponse(
+      queryClient,
+      response("focused", "2026-08-27T01:00:01.000Z"),
+    )
+    let laterSettled = false
+    void later.then(() => { laterSettled = true }, () => { laterSettled = true })
+    await Promise.resolve()
+    expect(laterSettled).toBe(false)
+    disposeInboxReadReservation(queryClient)
+    await expect(later).rejects.toMatchObject({ name: "AbortError" })
+  })
+
+  it("grants a negative permit only to the exact armed identity", async () => {
+    const lease = registerInboxReadReservationSurface(queryClient, "focused", vi.fn())
+    const exact = response()
+    armInboxReadReservationCandidate(queryClient, {
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T01:00:00.000Z",
+    })
+
+    expect(takeInboxReadReservationNegative(lease)).toBe(true)
+    await Promise.resolve()
+    await expect(reserveInboxUnreadsResponse(queryClient, exact)).resolves.toBe(exact)
+
+    const later = response("focused", "2026-08-27T01:00:01.000Z")
+    const held = reserveInboxUnreadsResponse(queryClient, later)
+    void held.catch(() => undefined)
+    await Promise.resolve()
+    disposeInboxReadReservation(queryClient)
+    await expect(held).rejects.toMatchObject({ name: "AbortError" })
+  })
+
+  it("supersedes an old permit and ignores unfocused or released arms", async () => {
+    const seen = vi.fn()
+    const lease = registerInboxReadReservationSurface(queryClient, "focused", seen)
+    expect(armInboxReadReservationCandidate(queryClient, {
+      channelId: "other",
+      lastMessageAt: "t-other",
+    })).toBe(false)
+    armInboxReadReservationCandidate(queryClient, {
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T01:00:00.000Z",
+    })
+    takeInboxReadReservationNegative(lease)
+    armInboxReadReservationCandidate(queryClient, {
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T01:00:01.000Z",
+    })
+
+    const stale = reserveInboxUnreadsResponse(queryClient, response())
+    void stale.catch(() => undefined)
+    await Promise.resolve()
+    releaseInboxReadReservationSurface(lease)
+    expect(armInboxReadReservationCandidate(queryClient, {
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T01:00:02.000Z",
+    })).toBe(false)
+    await expect(stale).rejects.toMatchObject({ name: "AbortError" })
+  })
+
+  it("cancels a held armed identity when a newer focused candidate supersedes it", async () => {
+    registerInboxReadReservationSurface(queryClient, "focused", vi.fn())
+    armInboxReadReservationCandidate(queryClient, {
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T01:00:00.000Z",
+    })
+    const stale = reserveInboxUnreadsResponse(queryClient, response())
+    void stale.catch(() => undefined)
+
+    expect(armInboxReadReservationCandidate(queryClient, {
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T01:00:01.000Z",
+    })).toBe(true)
+
+    await expect(stale).rejects.toMatchObject({ name: "AbortError" })
+    disposeInboxReadReservation(queryClient)
+  })
+
+  it("discards a late superseded response without rebinding the newer focused generation", async () => {
+    const seen = vi.fn()
+    const lease = registerInboxReadReservationSurface(queryClient, "focused", seen)
+    armInboxReadReservationCandidate(queryClient, {
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T01:00:00.000Z",
+    })
+    promoteInboxReadReservation(lease, 18)
+    await settleInboxReadReservationGeneration(queryClient, 18, true, "focused")
+
+    armInboxReadReservationCandidate(queryClient, {
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T01:00:01.000Z",
+    })
+    seen.mockClear()
+
+    await expect(reserveInboxUnreadsResponse(queryClient, response())).rejects.toMatchObject({
+      name: "AbortError",
+    })
+    expect(seen).not.toHaveBeenCalled()
+
+    const current = reserveInboxUnreadsResponse(
+      queryClient,
+      response("focused", "2026-08-27T01:00:01.000Z"),
+    )
+    void current.catch(() => undefined)
+    expect(seen).toHaveBeenLastCalledWith(expect.objectContaining({
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T01:00:01.000Z",
+    }))
+    expect(promoteInboxReadReservation(lease, 19)).toBe(true)
+
+    await settleInboxReadReservationGeneration(queryClient, 18, true, "focused")
+    let settled = false
+    void current.then(() => { settled = true }, () => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    await settleInboxReadReservationGeneration(queryClient, 19, true, "focused")
+    await expect(current).rejects.toMatchObject({ name: "AbortError" })
+  })
+
+  it("adopts a newer response as the active identity without inheriting the older generation", async () => {
+    const seen = vi.fn()
+    const lease = registerInboxReadReservationSurface(queryClient, "focused", seen)
+    armInboxReadReservationCandidate(queryClient, {
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T01:00:01.000Z",
+    })
+    const previous = reserveInboxUnreadsResponse(
+      queryClient,
+      response("focused", "2026-08-27T01:00:01.000Z"),
+    )
+    void previous.catch(() => undefined)
+    promoteInboxReadReservation(lease, 20)
+    seen.mockClear()
+
+    const current = reserveInboxUnreadsResponse(
+      queryClient,
+      response("focused", "2026-08-27T01:00:02.000Z"),
+    )
+    void current.catch(() => undefined)
+
+    expect(seen).toHaveBeenCalledTimes(1)
+    expect(seen).toHaveBeenCalledWith(expect.objectContaining({
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T01:00:02.000Z",
+    }))
+    await expect(previous).rejects.toMatchObject({ name: "AbortError" })
+
+    await settleInboxReadReservationGeneration(queryClient, 20, true, "focused")
+    let settled = false
+    void current.then(() => { settled = true }, () => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    expect(promoteInboxReadReservation(lease, 21)).toBe(true)
+    await settleInboxReadReservationGeneration(queryClient, 21, true, "focused")
+    await expect(current).rejects.toMatchObject({ name: "AbortError" })
+  })
+
+  it("keeps an enriched thread response through a sparse replay of the same WS identity", async () => {
+    const lease = registerInboxReadReservationSurface(queryClient, "child", vi.fn())
+    armInboxReadReservationCandidate(queryClient, {
+      channelId: "child",
+      lastMessageAt: "2026-08-27T01:00:00.000Z",
+    })
+    const pending = reserveInboxUnreadsResponse(queryClient, openerResponse())
+    void pending.catch(() => undefined)
+    expect(promoteInboxReadReservation(lease, 22)).toBe(true)
+
+    expect(armInboxReadReservationCandidate(queryClient, {
+      channelId: "child",
+      lastMessageAt: "2026-08-27T01:00:00.000Z",
+    })).toBe(false)
+
+    await settleInboxReadReservationGeneration(queryClient, 22, true, "child")
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+  })
+
+  it("supersedes an enriched thread identity when opener metadata conflicts", async () => {
+    registerInboxReadReservationSurface(queryClient, "child", vi.fn())
+    armInboxReadReservationCandidate(queryClient, {
+      channelId: "child",
+      lastMessageAt: "2026-08-27T01:00:00.000Z",
+      openerMessageId: "opener-7",
+      openerSeq: 7,
+    })
+    const pending = reserveInboxUnreadsResponse(queryClient, openerResponse())
+    void pending.catch(() => undefined)
+
+    expect(armInboxReadReservationCandidate(queryClient, {
+      channelId: "child",
+      lastMessageAt: "2026-08-27T01:00:00.000Z",
+      openerMessageId: "opener-8",
+      openerSeq: 8,
+    })).toBe(true)
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+    disposeInboxReadReservation(queryClient)
+  })
+
+  it("lets a newer identity revoke a committed-response discard", async () => {
+    const lease = registerInboxReadReservationSurface(queryClient, "focused", vi.fn())
+    armInboxReadReservationCandidate(queryClient, {
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T01:00:00.000Z",
+      openerMessageId: "opener-old",
+      openerSeq: 7,
+    })
+    promoteInboxReadReservation(lease, 14)
+    await settleInboxReadReservationGeneration(queryClient, 14, true, "focused")
+
+    expect(armInboxReadReservationCandidate(queryClient, {
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T01:00:01.000Z",
+    })).toBe(true)
+    const stale = reserveInboxUnreadsResponse(queryClient, response())
+    void stale.catch(() => undefined)
+    await Promise.resolve()
+    disposeInboxReadReservation(queryClient)
+    await expect(stale).rejects.toMatchObject({ name: "AbortError" })
+  })
+
+  it("grants an exact permit when an armed generation fails before its response", async () => {
+    const lease = registerInboxReadReservationSurface(queryClient, "focused", vi.fn())
+    armInboxReadReservationCandidate(queryClient, {
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T01:00:00.000Z",
+    })
+    promoteInboxReadReservation(lease, 15)
+
+    await settleInboxReadReservationGeneration(queryClient, 15, false, "focused")
+
+    const exact = response()
+    await expect(reserveInboxUnreadsResponse(queryClient, exact)).resolves.toBe(exact)
+    expect(queryClient.refetchQueries).toHaveBeenCalledOnce()
+  })
+
+  it("clears a committed-response discard when its route lease releases", async () => {
+    const lease = registerInboxReadReservationSurface(queryClient, "focused", vi.fn())
+    armInboxReadReservationCandidate(queryClient, {
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T01:00:00.000Z",
+    })
+    promoteInboxReadReservation(lease, 16)
+    await settleInboxReadReservationGeneration(queryClient, 16, true, "focused")
+
+    releaseInboxReadReservationSurface(lease)
+
+    await Promise.resolve()
+    expect(queryClient.refetchQueries).not.toHaveBeenCalled()
+  })
+
+  it("clears an armed generation after its matching held response fails", async () => {
+    const lease = registerInboxReadReservationSurface(queryClient, "focused", vi.fn())
+    armInboxReadReservationCandidate(queryClient, {
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T01:00:00.000Z",
+    })
+    const pending = reserveInboxUnreadsResponse(queryClient, response())
+    void pending.catch(() => undefined)
+    promoteInboxReadReservation(lease, 17)
+
+    await settleInboxReadReservationGeneration(queryClient, 17, false, "focused")
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+    expect(queryClient.refetchQueries).toHaveBeenCalledOnce()
+  })
+
+  it("consumes a handoff negative permit and clears its matching focused identity", async () => {
+    registerInboxReadReservationSurface(queryClient, "child", vi.fn())
+    armInboxReadReservationCandidate(queryClient, {
+      channelId: "child",
+      lastMessageAt: "2026-08-27T01:00:00.000Z",
+    })
+    armThreadOpenerReservationHandoff(queryClient, {
+      nonce: "nonce-focused-negative",
+      serverId: "server",
+      parentChannelId: "forum",
+      childChannelId: "child",
+      openerMessageId: "opener-7",
+      openerSeq: 7,
+    })
+    const data = openerResponse()
+    const pending = reserveInboxUnreadsResponse(queryClient, data)
+    void pending.catch(() => undefined)
+
+    expect(terminateThreadOpenerReservationHandoff(
+      queryClient,
+      "nonce-focused-negative",
+    )).toBe(true)
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+    await expect(reserveInboxUnreadsResponse(queryClient, data)).resolves.toBe(data)
   })
 
   it("publishes only one matching authoritative response after a negative decision", async () => {
