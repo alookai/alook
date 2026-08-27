@@ -1,8 +1,6 @@
 "use client";
 
-import { memo, useState } from "react";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { memo, useEffect, useRef, useState } from "react";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -21,6 +19,7 @@ import { NumberTicker } from "@/components/ui/number-ticker";
 import { SeededBackdrop } from "@/components/avatar";
 import { tid } from "@/lib/community/testids";
 import type { Server } from "@/lib/community/models/navigation"
+import type { RailEntity, RailOperation } from "@/lib/community/server-rail-model"
 
 type SortableServerProps = {
   server: Server;
@@ -31,9 +30,15 @@ type SortableServerProps = {
   onOpenSettings?: () => void;
   onOpenInvitePopover?: () => void;
   onCreateFolder?: () => void;
-  groupTarget?: boolean;
   inFolder?: boolean;
   dragging?: boolean;
+  preview?: RailOperation | null;
+  registerItem?: (
+    entity: RailEntity,
+    element: HTMLElement,
+    dragHandle: HTMLElement,
+  ) => () => void;
+  onMove?: (source: RailEntity, focusTarget: HTMLElement) => void;
 };
 
 function SortableServerImpl({
@@ -45,30 +50,14 @@ function SortableServerImpl({
   onOpenSettings,
   onOpenInvitePopover,
   onCreateFolder,
-  groupTarget,
   inFolder,
   dragging: isDragActive,
+  preview,
+  registerItem,
+  onMove,
 }: SortableServerProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-    isOver,
-    activeIndex,
-    index,
-  } = useSortable({ id: server.id });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragActive ? 0.3 : 1,
-    zIndex: isDragging ? 10 : undefined,
-  };
-  const showLine = isOver && !isDragging && !isDragActive;
-  const lineSide: "top" | "bottom" =
-    activeIndex !== -1 && activeIndex < index ? "bottom" : "top";
+  const rootRef = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
   const [confirmLeave, setConfirmLeave] = useState(false);
   // Lazy-mount the row's Base UI ContextMenu + ConfirmDialog. Eagerly mounting
   // them per rail icon (one Tooltip + ContextMenu + Dialog stack × N servers)
@@ -80,6 +69,14 @@ function SortableServerImpl({
   // and a right-click is always preceded by a pointerenter so the menu is
   // mounted before it's invoked).
   const [activated, setActivated] = useState(false);
+  useEffect(() => {
+    if (!registerItem || !rootRef.current || !buttonRef.current) return
+    return registerItem(
+      { kind: "server", id: server.id },
+      rootRef.current,
+      buttonRef.current,
+    )
+  }, [activated, registerItem, server.id])
   const activate = activated ? undefined : () => setActivated(true);
   const activateAndPrefetch = () => {
     activate?.();
@@ -88,35 +85,33 @@ function SortableServerImpl({
 
   const icon = (
     <div
-      ref={setNodeRef}
-      style={style}
+      ref={rootRef}
+      style={{ opacity: isDragActive ? 0.3 : 1 }}
       className="group relative flex w-full justify-center"
       onPointerEnter={activateAndPrefetch}
       onFocusCapture={activateAndPrefetch}
       onKeyDownCapture={activate}
     >
-      {showLine && (
+      {(preview === "reorder-before" || preview === "reorder-after") && (
         <div
-          className={`pointer-events-none absolute inset-x-3 z-10 h-0.5 rounded-full bg-primary ${lineSide === "top" ? "-top-1" : "-bottom-1"}`}
+          data-testid={tid.serverRailInsert(server.id)}
+          className={`pointer-events-none absolute left-1/2 z-10 h-0.5 w-9 -translate-x-1/2 rounded-full bg-primary ${preview === "reorder-before" ? "-top-1" : "-bottom-1"}`}
         />
       )}
       <RailIndicator active={active} />
       <div
         className={[
-          "relative size-10 transition-all duration-150",
-          groupTarget ? "scale-110 rounded-xl ring-2 ring-primary" : "",
-          isDragging
-            ? "rounded-xl border-2 border-dashed border-muted-foreground/40"
-            : "",
+          "relative size-10 transition-[border-radius,background-color,border-color,opacity,transform] duration-150",
+          preview === "combine" ? "rounded-xl bg-primary/10 outline outline-2! outline-primary" : "",
+          isDragActive ? "rounded-xl border-2 border-dashed border-muted-foreground/40" : "",
         ].join(" ")}
       >
         <button
+          ref={buttonRef}
           data-testid={tid.serverIcon(server.id)}
           onClick={active ? undefined : onClick}
-          {...attributes}
-          {...listeners}
           className={[
-            "relative grid size-10 touch-none place-items-center overflow-hidden font-brand text-xl font-bold transition-all duration-150 active:cursor-grabbing",
+            "relative grid size-10 touch-manipulation place-items-center overflow-hidden font-brand text-xl font-bold transition-all duration-150 active:cursor-grabbing",
             active
               ? "cursor-default rounded-xl"
               : "cursor-pointer rounded-[18px] hover:rounded-xl",
@@ -172,6 +167,13 @@ function SortableServerImpl({
         {!inFolder && onCreateFolder && (
           <ContextMenuItem onClick={onCreateFolder}>
             Create group
+          </ContextMenuItem>
+        )}
+        {onMove && (
+          <ContextMenuItem onClick={() => {
+            if (buttonRef.current) onMove({ kind: "server", id: server.id }, buttonRef.current)
+          }}>
+            Move…
           </ContextMenuItem>
         )}
         <ContextMenuItem onClick={onOpenSettings} data-testid={tid.serverSettingsOpen}>
@@ -245,15 +247,16 @@ function serverPropsEqual(prev: SortableServerProps, next: SortableServerProps):
     a.mentions === b.mentions &&
     a.isOwner === b.isOwner &&
     prev.active === next.active &&
-    prev.groupTarget === next.groupTarget &&
     prev.inFolder === next.inFolder &&
     prev.dragging === next.dragging &&
+    prev.preview === next.preview &&
     // The presence of an optional handler flips menu items on/off, so compare
     // definedness (not identity) — a menu row appears/disappears with it.
     !!prev.onLeave === !!next.onLeave &&
     !!prev.onOpenSettings === !!next.onOpenSettings &&
     !!prev.onOpenInvitePopover === !!next.onOpenInvitePopover &&
     !!prev.onCreateFolder === !!next.onCreateFolder &&
+    !!prev.onMove === !!next.onMove &&
     !!prev.onPrefetch === !!next.onPrefetch
   );
 }

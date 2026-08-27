@@ -12,11 +12,6 @@ import {
   useCreateServer,
   useLeaveServer,
   useUploadServerIcon,
-  useDeleteServerFolder,
-  useReorderServers,
-  useReorderFolders,
-  useUpdateFolderItems,
-  useCreateServerFolderWith,
 } from "@/hooks/community/mutations"
 import { getLastChannel, pickServerLandingHref } from "@/lib/community/last-channel"
 import { getLastMeLeaf, ME_ROOT, pickMeLandingLocation } from "@/lib/community/last-me-location"
@@ -57,22 +52,10 @@ export function useShellRailController({
   const { mutateAsync: createServerAsync } = useCreateServer()
   const { mutate: leaveServerMutate } = useLeaveServer()
   const { mutate: uploadServerIconMutate } = useUploadServerIcon()
-  const { mutate: deleteFolderMutate } = useDeleteServerFolder()
-  const { mutate: reorderServersMutate } = useReorderServers()
-  const { mutate: reorderFoldersMutate } = useReorderFolders()
-  const { mutate: updateFolderItemsMutate } = useUpdateFolderItems()
-  const { mutate: createFolderWithMutate } = useCreateServerFolderWith()
-
-  const folderServerIds = useMemo(() => {
-    const ids = new Set<string>()
-    for (const folder of folders) for (const server of folder.servers) ids.add(server.id)
-    return ids
-  }, [folders])
   const railServers = useMemo(
     () => servers
-      .filter((server) => !folderServerIds.has(server.id))
       .map((server) => ({ ...server, active: server.id === projectedActiveServerId })),
-    [folderServerIds, projectedActiveServerId, servers],
+    [projectedActiveServerId, servers],
   )
 
   const serverDestination = useCallback((id: string) => {
@@ -171,37 +154,6 @@ export function useShellRailController({
     if (action.kind === "open-active") onOpenActiveServerInvite?.()
     else navigation.push(action.href)
   }, [activeServerId, navigation, onOpenActiveServerInvite])
-  const onUngroupFolder = useCallback((folderId: string) => {
-    deleteFolderMutate(
-      { folderId },
-      { onSuccess: () => toast("Group removed"), onError: (error) => toastApiError(error, "Failed to remove group") },
-    )
-  }, [deleteFolderMutate])
-  const onReorderRail = useCallback((serverIds: string[]) => {
-    reorderServersMutate(
-      { serverIds },
-      { onError: (error) => toastApiError(error, "Failed to save server order") },
-    )
-  }, [reorderServersMutate])
-  const onReorderFolders = useCallback((folderIds: string[]) => {
-    reorderFoldersMutate(
-      { folderIds },
-      { onError: (error) => toastApiError(error, "Failed to reorder groups") },
-    )
-  }, [reorderFoldersMutate])
-  const onFolderItemsChange = useCallback((folderId: string, serverIds: string[]) => {
-    updateFolderItemsMutate(
-      { folderId, serverIds },
-      { onError: (error) => toastApiError(error, "Failed to update group") },
-    )
-  }, [updateFolderItemsMutate])
-  const onDragCreateFolder = useCallback((serverIdA: string, serverIdB: string) => {
-    createFolderWithMutate(
-      { serverIdA, serverIdB },
-      { onError: (error) => toastApiError(error, "Failed to create group") },
-    )
-  }, [createFolderWithMutate])
-
   const navigate = useCallback((serverId: string, channelId?: string) => {
     markSwitch(channelId ? "channel" : "server", channelId ?? serverId)
     if (channelId) {
@@ -226,11 +178,6 @@ export function useShellRailController({
       onLeaveServer,
       onOpenSettings,
       onOpenInvitePopover,
-      onUngroupFolder,
-      onReorderRail,
-      onReorderFolders,
-      onFolderItemsChange,
-      onDragCreateFolder,
     },
     navigate,
   }

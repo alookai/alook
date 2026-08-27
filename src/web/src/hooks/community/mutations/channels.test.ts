@@ -67,68 +67,6 @@ beforeEach(() => {
   capturedQc = new QueryClient()
 })
 
-describe("useReorderServers — cancels in-flight refetches before optimistic write", () => {
-  it("calls cancelQueries with communityKeys.servers() before writing", async () => {
-    capturedQc.setQueryData(communityKeys.servers(), {
-      servers: [
-        { id: "srv_1", name: "a", initial: "A", active: false, unread: false, mentions: 0 },
-        { id: "srv_2", name: "b", initial: "B", active: false, unread: false, mentions: 0 },
-      ],
-    })
-    apiFetchMock.mockResolvedValueOnce(undefined)
-    const mod = await load()
-    mod.useReorderServers()
-
-    const cancelSpy = vi.spyOn(capturedQc, "cancelQueries")
-    let cancelledBeforeWrite = false
-    const originalSetQueryData = capturedQc.setQueryData.bind(capturedQc)
-    vi.spyOn(capturedQc, "setQueryData").mockImplementation(((...args: Parameters<typeof capturedQc.setQueryData>) => {
-      if (cancelSpy.mock.calls.length > 0) cancelledBeforeWrite = true
-      return originalSetQueryData(...args)
-    }) as typeof capturedQc.setQueryData)
-
-    await runMutation({ serverIds: ["srv_2", "srv_1"] })
-
-    expect(
-      cancelSpy.mock.calls.some((c) => {
-        const k = c[0]?.queryKey as unknown[] | undefined
-        return Array.isArray(k) && k[0] === "community" && k[1] === "servers"
-      }),
-    ).toBe(true)
-    expect(cancelledBeforeWrite).toBe(true)
-  })
-
-  it("applies the optimistic reorder to the servers cache", async () => {
-    capturedQc.setQueryData(communityKeys.servers(), {
-      servers: [
-        { id: "srv_1", name: "a", initial: "A", active: false, unread: false, mentions: 0 },
-        { id: "srv_2", name: "b", initial: "B", active: false, unread: false, mentions: 0 },
-      ],
-    })
-    apiFetchMock.mockResolvedValueOnce(undefined)
-    const mod = await load()
-    mod.useReorderServers()
-    await runMutation({ serverIds: ["srv_2", "srv_1"] })
-    const cache = capturedQc.getQueryData<{ servers: { id: string }[] }>(communityKeys.servers())
-    expect(cache?.servers.map((s) => s.id)).toEqual(["srv_2", "srv_1"])
-  })
-
-  it("rolls back to the snapshot on failure", async () => {
-    capturedQc.setQueryData(communityKeys.servers(), {
-      servers: [
-        { id: "srv_1", name: "a", initial: "A", active: false, unread: false, mentions: 0 },
-        { id: "srv_2", name: "b", initial: "B", active: false, unread: false, mentions: 0 },
-      ],
-    })
-    apiFetchMock.mockRejectedValueOnce(new Error("boom"))
-    const mod = await load()
-    mod.useReorderServers()
-    await runMutation({ serverIds: ["srv_2", "srv_1"] }).catch(() => {})
-    const cache = capturedQc.getQueryData<{ servers: { id: string }[] }>(communityKeys.servers())
-    expect(cache?.servers.map((s) => s.id)).toEqual(["srv_1", "srv_2"])
-  })
-})
-
 describe("useMoveChannel", () => {
   it("PATCHes the channel with the new categoryId and invalidates the server tree", async () => {
     apiFetchMock.mockResolvedValueOnce(undefined)

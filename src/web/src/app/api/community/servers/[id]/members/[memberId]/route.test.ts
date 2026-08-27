@@ -200,6 +200,7 @@ describe("DELETE /api/community/servers/[id]/members/[memberId]", () => {
       expect.anything(),
       "mem_target",
       "srv_1",
+      "u_target",
       [],
     )
     // Broadcast payload uses target.userId — proves the scoped helper's row
@@ -258,6 +259,7 @@ describe("DELETE /api/community/servers/[id]/members/[memberId]", () => {
       expect.anything(),
       "mem_target",
       "srv_1",
+      "u_target",
       ["bot_1"],
     )
     expect(mockBroadcastToUserSafe).toHaveBeenCalledWith(

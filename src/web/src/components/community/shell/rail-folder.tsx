@@ -1,46 +1,66 @@
 "use client"
 
-import { useSortable } from "@dnd-kit/sortable"
-import { CSS } from "@dnd-kit/utilities"
+import { useEffect, useRef } from "react"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu"
 import { RailIndicator } from "./rail-indicator"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { SeededBackdrop } from "@/components/avatar"
+import { tid } from "@/lib/community/testids"
 import type { FolderServer } from "@/lib/community/models/navigation"
+import type { RailEntity, RailOperation } from "@/lib/community/server-rail-model"
 
 export function RailFolder({
-  sortableId, open, onToggle, activeId, folderServers, onUngroup, dragging: isDragActive,
+  folderId, open, onToggle, activeId, folderServers, onUngroup, dragging: isDragActive,
+  preview, registerItem, onMove,
 }: {
   folderId: string
-  sortableId: string
   open: boolean
   onToggle: () => void
   activeId: string
   folderServers: FolderServer[]
   onUngroup?: () => void
   dragging?: boolean
+  preview?: RailOperation | null
+  registerItem?: (
+    entity: RailEntity,
+    element: HTMLElement,
+    dragHandle: HTMLElement,
+  ) => () => void
+  onMove?: (source: RailEntity, focusTarget: HTMLElement) => void
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, activeIndex, index } = useSortable({ id: sortableId })
-  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragActive ? 0.3 : 1, zIndex: isDragging ? 10 : undefined }
-  const showLine = isOver && !isDragging && !isDragActive
-  const lineSide: "top" | "bottom" = activeIndex !== -1 && activeIndex < index ? "bottom" : "top"
+  const rootRef = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!registerItem || !rootRef.current || !buttonRef.current) return
+    return registerItem(
+      { kind: "folder", id: folderId },
+      rootRef.current,
+      buttonRef.current,
+    )
+  }, [folderId, registerItem])
 
   return (
     <Tooltip>
       <TooltipTrigger render={<span className="flex w-full justify-center" />}>
         <ContextMenu>
           <ContextMenuTrigger
-            render={<div ref={setNodeRef} style={style} className="group relative flex w-full justify-center" />}
+            render={<div ref={rootRef} style={{ opacity: isDragActive ? 0.3 : 1 }} className="group relative flex w-full justify-center" />}
           >
-            {showLine && <div className={`pointer-events-none absolute inset-x-3 z-10 h-0.5 rounded-full bg-primary ${lineSide === "top" ? "-top-1" : "-bottom-1"}`} />}
+            {(preview === "reorder-before" || preview === "reorder-after") && (
+              <div
+                data-testid={tid.serverRailInsertFolder(folderId)}
+                className={`pointer-events-none absolute left-1/2 z-10 h-0.5 w-9 -translate-x-1/2 rounded-full bg-primary ${preview === "reorder-before" ? "-top-1" : "-bottom-1"}`}
+              />
+            )}
             <RailIndicator active={!open && folderServers.some((s) => s.id === activeId)} />
             <button
+              ref={buttonRef}
+              data-testid={tid.serverRailFolder(folderId)}
               onClick={onToggle}
-              {...attributes}
-              {...listeners}
               className={[
-                "grid size-10 cursor-pointer touch-none grid-cols-2 gap-1 p-2 transition-all duration-150 active:cursor-grabbing",
+                "grid size-10 cursor-pointer touch-manipulation grid-cols-2 gap-1 p-2 transition-[border-radius,background-color] duration-150 active:cursor-grabbing",
                 open ? "rounded-xl bg-primary/15" : "rounded-[18px] bg-accent hover:rounded-xl hover:bg-primary/20",
+                preview === "combine" ? "bg-primary/10 outline outline-2! outline-primary" : "",
               ].join(" ")}
             >
               {Array.from({ length: 4 }).map((_, i) => {
@@ -62,6 +82,13 @@ export function RailFolder({
             </button>
           </ContextMenuTrigger>
           <ContextMenuContent className="w-52">
+            {onMove && (
+              <ContextMenuItem onClick={() => {
+                if (buttonRef.current) onMove({ kind: "folder", id: folderId }, buttonRef.current)
+              }}>
+                Move…
+              </ContextMenuItem>
+            )}
             <ContextMenuItem onClick={onUngroup}>Ungroup</ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>

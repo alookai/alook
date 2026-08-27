@@ -27,6 +27,10 @@
   },
   "dependencies": {
     "@alook/shared": "workspace:*",
+    "@atlaskit/pragmatic-drag-and-drop": "3.0.0",
+    "@atlaskit/pragmatic-drag-and-drop-auto-scroll": "3.1.0",
+    "@atlaskit/pragmatic-drag-and-drop-hitbox": "2.1.0",
+    "@atlaskit/pragmatic-drag-and-drop-live-region": "2.0.0",
     "@base-ui/react": "^1.7.0",
     "@dagrejs/dagre": "^3.1.1",
     "@dnd-kit/core": "^6.3.1",

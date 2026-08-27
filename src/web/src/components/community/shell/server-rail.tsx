@@ -1,12 +1,9 @@
 "use client"
 
-import { memo, useEffect, useMemo, useState, type ReactNode } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Plus } from "lucide-react"
-import {
-  DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragOverlay,
-} from "@dnd-kit/core"
-import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
-import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
+import { MAX_SERVER_RAIL_FOLDERS } from "@alook/shared"
+import { announce, cleanup as cleanupLiveRegion } from "@atlaskit/pragmatic-drag-and-drop-live-region"
 import { RailIcon } from "./rail-icon"
 import { AnimatedAlookLogo } from "./animated-alook-logo"
 import { tid } from "@/lib/community/testids"
@@ -15,19 +12,64 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { SortableServer } from "./sortable-server"
 import { RailFolder } from "./rail-folder"
 import { CreateServerDialog } from "../settings/create-server-dialog"
-import { useRailOrder, isFolderKey, extractFolderId } from "./use-rail-order"
-import { SeededBackdrop } from "@/components/avatar"
-import type { Server, CommunityFolder } from "@/lib/community/models/navigation"
+import { ServerRailMoveMenu } from "./server-rail-move-menu"
+import {
+  cloneRailState,
+  commitRailInstruction,
+  planRailPersistence,
+  railMoveAnnouncement,
+  railStateFromData,
+  visibleTopLevelServers,
+  type RailEntity,
+  type RailInstruction,
+  type RailState,
+} from "@/lib/community/server-rail-model"
+import { useServerRailPdd } from "./use-server-rail-pdd"
+import { useServerRailCommit } from "@/hooks/community/mutations"
+import type { Server, CommunityFolder, FolderServer } from "@/lib/community/models/navigation"
 import type { View } from "@/components/community/shell/shell-types"
 import {
   completeCommunityOnboarding,
   isCommunityOnboardingStage,
 } from "@/lib/community-onboarding"
 
+type MoveSheetState = { source: RailEntity; focusTarget: HTMLElement } | null
+
+function reconcileCreatedFolders(
+  state: RailState,
+  createdFolderIds: Record<string, string>,
+): RailState {
+  if (Object.keys(createdFolderIds).length === 0) return state
+  return {
+    ...state,
+    folderOrder: state.folderOrder.map((id) => createdFolderIds[id] ?? id),
+    folders: Object.fromEntries(Object.entries(state.folders).map(([id, serverIds]) => [
+      createdFolderIds[id] ?? id,
+      serverIds,
+    ])),
+    expanded: [...new Set([
+      ...state.expanded.map((id) => createdFolderIds[id] ?? id),
+      ...Object.values(createdFolderIds),
+    ])],
+  }
+}
+
 export const ServerRail = memo(function ServerRail({
-  servers, folders, activeServerId: activeServerIdProp, serversLoading, view, bottomInset,
-  onHome, onHomePrefetch, onServer, onServerNavigate, onServerPrefetch, onCreateServer, onLeaveServer,
-  onOpenSettings, onOpenInvitePopover, onUngroupFolder, onReorderRail, onReorderFolders, onFolderItemsChange, onDragCreateFolder,
+  servers,
+  folders,
+  activeServerId: activeServerIdProp,
+  serversLoading,
+  view,
+  bottomInset,
+  onHome,
+  onHomePrefetch,
+  onServer,
+  onServerNavigate,
+  onServerPrefetch,
+  onCreateServer,
+  onLeaveServer,
+  onOpenSettings,
+  onOpenInvitePopover,
 }: {
   servers: Server[]
   folders: CommunityFolder[]
@@ -44,49 +86,205 @@ export const ServerRail = memo(function ServerRail({
   onLeaveServer?: (id: string) => void
   onOpenSettings?: (serverId: string) => void
   onOpenInvitePopover?: (serverId: string) => void
-  onUngroupFolder?: (folderId: string) => void
-  onReorderRail?: (serverIds: string[]) => void
-  onReorderFolders?: (folderIds: string[]) => void
-  onFolderItemsChange?: (folderId: string, serverIds: string[]) => void
-  onDragCreateFolder?: (serverIdA: string, serverIdB: string) => void
 }) {
-  const railIds = useMemo(() => servers.map((s) => s.id), [servers])
+  const [state, setState] = useState<RailState>(() =>
+    railStateFromData(servers.map((server) => server.id), folders, []),
+  )
+  const [preview, setPreview] = useState<RailInstruction | null>(null)
+  const [dragSource, setDragSource] = useState<RailEntity | null>(null)
+  const [moveSheet, setMoveSheet] = useState<MoveSheetState>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const dragSnapshotRef = useRef<RailState | null>(null)
+  const railMutation = useServerRailCommit()
 
-  const {
-    visibleItems, sortableIds, openFolders, toggleFolder,
-    onDragStart: hookDragStart, onDragOver, onDragEnd: hookDragEnd, groupTarget,
-  } = useRailOrder(railIds, folders, {
-    onReorderRail, onReorderFolders, onFolderItemsChange, onCreateFolder: onDragCreateFolder,
-  })
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem("rail-open-folders")
+      if (!saved) return
+      const expanded = JSON.parse(saved) as string[]
+      setState((current) => ({
+        ...current,
+        expanded: expanded.filter((folderId) => current.folderOrder.includes(folderId)),
+      }))
+    } catch {}
+  }, [])
 
-  const [dragActiveId, setDragActiveId] = useState<string | null>(null)
-  const onDragStart = (e: Parameters<typeof hookDragStart>[0]) => {
-    setDragActiveId(String(e.active.id))
-    hookDragStart(e)
-  }
-  const onDragEnd = (e: Parameters<typeof hookDragEnd>[0]) => {
-    hookDragEnd(e)
-    setDragActiveId(null)
-  }
+  useEffect(() => {
+    setState((current) => railStateFromData(
+      servers.map((server) => server.id),
+      folders,
+      current.expanded,
+    ))
+  }, [folders, servers])
 
-  const activeFromProps = activeServerIdProp ?? servers.find((s) => s.active)?.id ?? ""
+  useEffect(() => {
+    sessionStorage.setItem("rail-open-folders", JSON.stringify(state.expanded))
+  }, [state.expanded])
+
+  useEffect(() => () => cleanupLiveRegion(), [])
+
+  const activeFromProps = activeServerIdProp ?? servers.find((server) => server.active)?.id ?? ""
   const [localActiveId, setLocalActiveId] = useState(activeFromProps)
   const activeId = activeFromProps || localActiveId
   useEffect(() => { if (activeFromProps) setLocalActiveId(activeFromProps) }, [activeFromProps])
+  const pickServer = (id: string) => {
+    setLocalActiveId(id)
+    onServer?.()
+    onServerNavigate?.(id)
+  }
 
-  const [createOpen, setCreateOpen] = useState(false)
+  const serverById = useMemo(() => new Map(servers.map((server) => [server.id, server])), [servers])
+  const serverNames = useMemo(
+    () => new Map(servers.map((server) => [server.id, server.name])),
+    [servers],
+  )
+  const folderNames = useMemo(
+    () => new Map(folders.map((folder) => [folder.id, folder.name])),
+    [folders],
+  )
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
-  const pickServer = (id: string) => { setLocalActiveId(id); onServer?.(); onServerNavigate?.(id) }
+  const focusEntity = useCallback((entity: RailEntity, preferred?: HTMLElement) => {
+    requestAnimationFrame(() => {
+      if (preferred?.isConnected) {
+        preferred.focus()
+        return
+      }
+      const testId = entity.kind === "server"
+        ? tid.serverIcon(entity.id)
+        : tid.serverRailFolder(entity.id)
+      document.querySelector<HTMLElement>(`[data-testid="${testId}"]`)?.focus()
+    })
+  }, [])
 
-  const serverById = useMemo(() => new Map(servers.map((s) => [s.id, s])), [servers])
-  const folderById = useMemo(() => new Map(folders.map((f) => [f.id, f])), [folders])
-  // All servers in folders (for lookup by id)
-  const folderServerMap = useMemo(() => {
-    const m = new Map<string, { id: string; name: string; initial: string; icon: string | null }>()
-    for (const f of folders) for (const s of f.servers) m.set(s.id, { id: s.id, name: s.name, initial: s.initial, icon: s.icon ?? null })
-    return m
-  }, [folders])
+  const applyInstruction = useCallback((
+    rawInstruction: RailInstruction,
+    before: RailState,
+    focusTarget?: HTMLElement,
+  ) => {
+    if (railMutation.isPending) {
+      announce("A server rail move is already being saved")
+      return
+    }
+    let instruction = rawInstruction
+    if (
+      instruction.operation === "combine"
+      && instruction.source.kind === "server"
+      && instruction.target.kind === "server"
+      && !instruction.newFolderId
+    ) {
+      instruction = { ...instruction, newFolderId: `temp_${crypto.randomUUID()}` }
+    }
+    const result = commitRailInstruction(before, instruction)
+    if (!result.applied) {
+      announce(result.reason)
+      focusEntity(instruction.source, focusTarget)
+      return
+    }
+    const label = railMoveAnnouncement(instruction, { servers: serverNames, folders: folderNames })
+    setState(result.state)
+    railMutation.mutate(
+      { before, after: result.state, commands: result.commands },
+      {
+        onSuccess: (response) => {
+          setState((current) => reconcileCreatedFolders(current, response.createdFolderIds))
+          announce(label)
+          focusEntity(instruction.source, focusTarget)
+        },
+        onError: () => {
+          setState(before)
+          announce(`${label} failed and was rolled back`)
+          focusEntity(instruction.source, focusTarget)
+        },
+      },
+    )
+  }, [focusEntity, folderNames, railMutation, serverNames])
+
+  const ungroupFolder = useCallback((folderId: string) => {
+    const before = cloneRailState(state)
+    const after = cloneRailState(state)
+    delete after.folders[folderId]
+    after.folderOrder = after.folderOrder.filter((id) => id !== folderId)
+    after.expanded = after.expanded.filter((id) => id !== folderId)
+    const commands = planRailPersistence(before, after)
+    if (commands.length !== 1) return
+    setState(after)
+    railMutation.mutate(
+      { before, after, commands },
+      {
+        onSuccess: () => announce("Group removed"),
+        onError: () => {
+          setState(before)
+          announce("Removing group failed and was rolled back")
+        },
+      },
+    )
+  }, [railMutation, state])
+
+  const createSingleServerFolder = useCallback((serverId: string) => {
+    if (railMutation.isPending || state.folderOrder.length >= MAX_SERVER_RAIL_FOLDERS) return
+    const before = cloneRailState(state)
+    const after = cloneRailState(state)
+    const clientId = `temp_${crypto.randomUUID()}`
+    after.folderOrder.push(clientId)
+    after.folders[clientId] = [serverId]
+    after.expanded.push(clientId)
+    const commands = planRailPersistence(before, after)
+    setState(after)
+    railMutation.mutate(
+      { before, after, commands },
+      {
+        onSuccess: (response) => {
+          setState((current) => reconcileCreatedFolders(current, response.createdFolderIds))
+          announce("Group created")
+        },
+        onError: () => {
+          setState(before)
+          announce("Creating group failed and was rolled back")
+        },
+      },
+    )
+  }, [railMutation, state])
+
+  const { registerItem } = useServerRailPdd({
+    scrollRef,
+    onDragStart: (source) => {
+      dragSnapshotRef.current = cloneRailState(state)
+      setDragSource(source)
+    },
+    onPreview: setPreview,
+    onDrop: (instruction) => {
+      const before = dragSnapshotRef.current ?? cloneRailState(state)
+      dragSnapshotRef.current = null
+      setDragSource(null)
+      applyInstruction(instruction, before)
+    },
+    onCancel: () => {
+      dragSnapshotRef.current = null
+      setDragSource(null)
+    },
+    onHoverExpand: (folderId) => {
+      setState((current) => current.expanded.includes(folderId)
+        ? current
+        : { ...current, expanded: [...current.expanded, folderId] })
+    },
+  })
+
+  const previewFor = (entity: RailEntity) => preview?.target.kind === entity.kind
+    && preview.target.id === entity.id
+    ? preview.operation
+    : null
+  const dragging = (entity: RailEntity) => dragSource?.kind === entity.kind
+    && dragSource.id === entity.id
+  const folderServers = (folderId: string): FolderServer[] => (state.folders[folderId] ?? [])
+    .map((serverId) => serverById.get(serverId))
+    .filter((server): server is Server => !!server)
+    .map((server) => ({
+      id: server.id,
+      name: server.name,
+      initial: server.initial,
+      icon: server.icon ?? null,
+    }))
 
   return (
     <nav aria-label="Server navigation" className="flex min-h-0 w-14 shrink-0 flex-col items-center overflow-hidden pt-2">
@@ -114,145 +312,83 @@ export const ServerRail = memo(function ServerRail({
       </div>
 
       <div
+        ref={scrollRef}
         data-testid={tid.serverRailScroll}
         className="min-h-0 w-full shrink overflow-y-auto overflow-x-clip py-2 thin-scrollbar scrollbar-none"
       >
         {serversLoading && servers.length === 0 && folders.length === 0 ? (
           <ServerRailSkeleton />
         ) : (
-          <DndContext id="d-rail" sensors={sensors} collisionDetection={closestCenter} modifiers={[restrictToVerticalAxis]} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={() => setDragActiveId(null)}>
-            <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-              <div className="flex w-full flex-col items-center gap-2">
-              {(() => {
-              const elements: ReactNode[] = []
-              let i = 0
-              while (i < visibleItems.length) {
-                const id = visibleItems[i]!
-
-                if (isFolderKey(id)) {
-                  const fId = extractFolderId(id)
-                  const folder = folderById.get(fId)
-                  if (!folder) { i++; continue }
-                  const isOpen = openFolders.has(fId)
-
-                  elements.push(
-                    <RailFolder
-                      key={id}
-                      folderId={fId}
-                      sortableId={id}
-                      open={isOpen}
-                      onToggle={() => toggleFolder(fId)}
-                      activeId={activeId}
-                      folderServers={folder.servers}
-                      onUngroup={() => onUngroupFolder?.(fId)}
-                      dragging={dragActiveId === id}
-                    />
-                  )
-
-                  // Collect open folder's servers
-                  if (isOpen) {
-                    const folderItems: ReactNode[] = []
-                    let j = i + 1
-                    while (j < visibleItems.length && !isFolderKey(visibleItems[j]!) && folderServerMap.has(visibleItems[j]!)) {
-                      const sid = visibleItems[j]!
-                      const fs = folderServerMap.get(sid)!
-                      folderItems.push(
+          <div className="flex w-full flex-col items-center gap-2">
+            {visibleTopLevelServers(state).map((serverId) => {
+              const server = serverById.get(serverId)
+              if (!server) return null
+              return (
+                <SortableServer
+                  key={serverId}
+                  server={server}
+                  active={view !== "dm" && activeId === serverId}
+                  onClick={() => pickServer(serverId)}
+                  onPrefetch={() => onServerPrefetch?.(serverId)}
+                  onLeave={() => onLeaveServer?.(serverId)}
+                  onOpenSettings={() => onOpenSettings?.(serverId)}
+                  onOpenInvitePopover={onOpenInvitePopover ? () => onOpenInvitePopover(serverId) : undefined}
+                  onCreateFolder={state.folderOrder.length < MAX_SERVER_RAIL_FOLDERS ? () => createSingleServerFolder(serverId) : undefined}
+                  dragging={dragging({ kind: "server", id: serverId })}
+                  preview={previewFor({ kind: "server", id: serverId })}
+                  registerItem={registerItem}
+                  onMove={(source, focusTarget) => setMoveSheet({ source, focusTarget })}
+                />
+              )
+            })}
+            {state.folderOrder.map((folderId) => {
+              const serversInFolder = folderServers(folderId)
+              const open = state.expanded.includes(folderId)
+                && !(dragSource?.kind === "folder" && dragSource.id === folderId)
+              return (
+                <div key={folderId} className="flex w-full flex-col items-center gap-2">
+                  <RailFolder
+                    folderId={folderId}
+                    open={open}
+                    onToggle={() => setState((current) => ({
+                      ...current,
+                      expanded: current.expanded.includes(folderId)
+                        ? current.expanded.filter((id) => id !== folderId)
+                        : [...current.expanded, folderId],
+                    }))}
+                    activeId={activeId}
+                    folderServers={serversInFolder}
+                    onUngroup={() => ungroupFolder(folderId)}
+                    dragging={dragging({ kind: "folder", id: folderId })}
+                    preview={previewFor({ kind: "folder", id: folderId })}
+                    registerItem={registerItem}
+                    onMove={(source, focusTarget) => setMoveSheet({ source, focusTarget })}
+                  />
+                  {open && serversInFolder.length > 0 && (
+                    <div className="relative flex w-full flex-col items-center gap-2 py-1">
+                      <span className="pointer-events-none absolute inset-y-0 left-1/2 w-12 -translate-x-1/2 rounded-[20px] bg-primary/10" />
+                      {serversInFolder.map((server) => (
                         <SortableServer
-                          key={sid}
-                          server={{ id: fs.id, name: fs.name, initial: fs.initial, icon: fs.icon, active: false, mentions: 0, isOwner: false }}
-                          active={view !== "dm" && activeId === sid}
-                          onClick={() => pickServer(sid)}
-                          onPrefetch={() => onServerPrefetch?.(sid)}
-                          onOpenSettings={() => onOpenSettings?.(sid)}
-                          onOpenInvitePopover={onOpenInvitePopover ? () => onOpenInvitePopover(sid) : undefined}
+                          key={server.id}
+                          server={{ ...server, active: false, mentions: serverById.get(server.id)?.mentions ?? 0, isOwner: serverById.get(server.id)?.isOwner }}
+                          active={view !== "dm" && activeId === server.id}
+                          onClick={() => pickServer(server.id)}
+                          onPrefetch={() => onServerPrefetch?.(server.id)}
+                          onOpenSettings={() => onOpenSettings?.(server.id)}
+                          onOpenInvitePopover={onOpenInvitePopover ? () => onOpenInvitePopover(server.id) : undefined}
                           inFolder
-                          dragging={dragActiveId === sid}
+                          dragging={dragging({ kind: "server", id: server.id })}
+                          preview={previewFor({ kind: "server", id: server.id })}
+                          registerItem={registerItem}
+                          onMove={(source, focusTarget) => setMoveSheet({ source, focusTarget })}
                         />
-                      )
-                      j++
-                    }
-                    if (folderItems.length > 0) {
-                      elements.push(
-                        <div key={`fi-${fId}`} className="relative flex w-full flex-col items-center gap-2 py-1">
-                          <span className="pointer-events-none absolute inset-y-0 left-1/2 w-12 -translate-x-1/2 rounded-[20px] bg-primary/10" />
-                          {folderItems}
-                        </div>
-                      )
-                    }
-                    i = j
-                  } else {
-                    i++
-                  }
-                } else {
-                  // Rail server
-                  const s = serverById.get(id)
-                  if (s) {
-                    elements.push(
-                      <SortableServer
-                        key={id}
-                        server={s}
-                        active={view !== "dm" && s.active}
-                        onClick={() => pickServer(id)}
-                        onPrefetch={() => onServerPrefetch?.(id)}
-                        onLeave={() => onLeaveServer?.(id)}
-                        onOpenSettings={() => onOpenSettings?.(id)}
-                        onOpenInvitePopover={onOpenInvitePopover ? () => onOpenInvitePopover(id) : undefined}
-                        onCreateFolder={folders.length < 10 ? () => onDragCreateFolder?.(id, id) : undefined}
-                        groupTarget={groupTarget === id}
-                        dragging={dragActiveId === id}
-                      />
-                    )
-                  }
-                  i++
-                }
-              }
-              return elements
-              })()}
-              </div>
-            </SortableContext>
-            <DragOverlay dropAnimation={null}>
-              {dragActiveId && (() => {
-              if (isFolderKey(dragActiveId)) {
-              const fId = extractFolderId(dragActiveId)
-              const folder = folderById.get(fId)
-              if (!folder) return null
-              return (
-                <div className="grid size-10 grid-cols-2 gap-1 rounded-xl bg-accent p-2 shadow-(--e2)">
-                  {Array.from({ length: 4 }).map((_, idx) => {
-                    const s = folder.servers[idx]
-                    return s ? (
-                      <span
-                        key={s.id}
-                        className={[
-                          "relative grid aspect-square place-items-center overflow-hidden rounded-sm font-brand text-[10px] font-semibold",
-                          s.icon ? "bg-card text-muted-foreground" : "text-white [text-shadow:0_1px_1px_rgb(0_0_0/0.35)]",
-                        ].join(" ")}
-                      >
-                        {s.icon ? <img src={s.icon} alt={s.name} className="size-full object-cover" /> : <><SeededBackdrop seed={s.id} /><span className="relative -translate-x-0.5 [-webkit-text-stroke:0.5px_currentColor]">{s.initial}</span></>}
-                      </span>
-                    ) : (
-                      <span key={idx} className="aspect-square rounded-sm bg-card/50" />
-                    )
-                  })}
+                      ))}
+                    </div>
+                  )}
                 </div>
               )
-            }
-              const s = serverById.get(dragActiveId) ?? folderServerMap.get(dragActiveId)
-              if (!s) return null
-              const icon = s.icon
-              return (
-                <div
-                  className={[
-                    "relative grid size-10 place-items-center overflow-hidden rounded-xl font-brand text-xl font-bold shadow-(--e2)",
-                    icon ? "bg-secondary text-foreground" : "text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]",
-                  ].join(" ")}
-                >
-                  {icon ? <img src={icon} alt={s.name} className="size-full object-cover" /> : <><SeededBackdrop seed={s.id} /><span className="relative -translate-x-0.5 [-webkit-text-stroke:0.5px_currentColor]">{s.initial}</span></>}
-                </div>
-              )
-              })()}
-            </DragOverlay>
-          </DndContext>
+            })}
+          </div>
         )}
       </div>
 
@@ -272,6 +408,19 @@ export const ServerRail = memo(function ServerRail({
         />
       </div>
 
+      <ServerRailMoveMenu
+        source={moveSheet?.source ?? null}
+        state={state}
+        serverNames={serverNames}
+        folderNames={folderNames}
+        onClose={() => setMoveSheet(null)}
+        onMove={(instruction) => {
+          const focusTarget = moveSheet?.focusTarget
+          setMoveSheet(null)
+          applyInstruction(instruction, cloneRailState(state), focusTarget)
+        }}
+      />
+
       {createOpen && (
         <CreateServerDialog
           onClose={() => setCreateOpen(false)}
@@ -282,14 +431,11 @@ export const ServerRail = memo(function ServerRail({
   )
 })
 
-// Loading placeholder for the vertical server rail. Reserves the size-10
-// square footprint of each <RailIcon> so the rail's width and rhythm don't
-// change once servers arrive.
 function ServerRailSkeleton() {
   return (
     <div className="flex w-full flex-col items-center gap-2">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <Skeleton key={i} className="size-10 rounded-[20px]" />
+      {Array.from({ length: 4 }).map((_, index) => (
+        <Skeleton key={index} className="size-10 rounded-[20px]" />
       ))}
     </div>
   )

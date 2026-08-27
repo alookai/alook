@@ -320,47 +320,6 @@ export function useDeleteCategory() {
   })
 }
 
-// ── Reorders ──────────────────────────────────────────────────────────────
-
-export type ReorderServersArgs = { serverIds: string[] }
-
-/**
- * Optimistically reorder the rail; roll back on failure. The rail's order is
- * pure UX — the WS doesn't broadcast reorders, so the same-tab optimistic
- * write is the only signal cross-tab clients get.
- */
-export function useReorderServers() {
-  const queryClient = useQueryClient()
-  return useMutation<void, Error, ReorderServersArgs, { snapshot: unknown }>({
-    mutationFn: async ({ serverIds }) => {
-      await apiFetch("/api/community/servers/reorder", {
-        method: "PATCH",
-        body: JSON.stringify({ serverIds }),
-      })
-    },
-    onMutate: async (args) => {
-      const key = communityKeys.servers()
-      await queryClient.cancelQueries({ queryKey: key })
-      const snapshot = queryClient.getQueryData(key)
-      queryClient.setQueryData(key, (prev: { servers: { id: string }[] } | undefined) => {
-        if (!prev) return prev
-        const map = new Map(prev.servers.map((s) => [s.id, s]))
-        return {
-          ...prev,
-          servers: args.serverIds
-            .map((id) => map.get(id))
-            .filter((s): s is NonNullable<typeof s> => Boolean(s)),
-        }
-      })
-      return { snapshot }
-    },
-    onError: (_err, _args, ctx) => {
-      if (ctx?.snapshot) queryClient.setQueryData(communityKeys.servers(), ctx.snapshot)
-    },
-    onSettled: () => invalidateChannelRefDirectory(queryClient),
-  })
-}
-
 export type ReorderCategoriesArgs = { serverId: string; categoryIds: string[] }
 
 export function useReorderCategories() {

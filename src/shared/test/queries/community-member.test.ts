@@ -44,7 +44,9 @@ describe("community/member exports", () => {
 });
 
 describe("removeMemberAndOwnerBots", () => {
-  it("batches the target and bot deletes and returns the removed target", async () => {
+  it("batches rail cleanup with target and bot deletes and returns the removed target", async () => {
+    const cleanupStatement: any = {};
+    cleanupStatement.where = vi.fn(() => cleanupStatement);
     const targetStatement: any = {};
     targetStatement.where = vi.fn(() => targetStatement);
     targetStatement.returning = vi.fn(() => targetStatement);
@@ -53,19 +55,29 @@ describe("removeMemberAndOwnerBots", () => {
     const db: any = {
       delete: vi
         .fn()
+        .mockReturnValueOnce(cleanupStatement)
         .mockReturnValueOnce(targetStatement)
         .mockReturnValueOnce(botsStatement),
-      batch: vi.fn().mockResolvedValue([[{ id: "mem_1" }], { rowsAffected: 2 }]),
+      batch: vi.fn().mockResolvedValue([
+        { rowsAffected: 3 },
+        [{ id: "mem_1" }],
+        { rowsAffected: 2 },
+      ]),
     };
 
     await expect(memberQueries.removeMemberAndOwnerBots(
       db,
       "mem_1",
       "srv_1",
+      "user_1",
       ["bot_1", "bot_2"],
     )).resolves.toEqual({ id: "mem_1" });
 
-    expect(db.batch).toHaveBeenCalledWith([targetStatement, botsStatement]);
+    expect(db.batch).toHaveBeenCalledWith([
+      cleanupStatement,
+      targetStatement,
+      botsStatement,
+    ]);
   });
 });
 

@@ -107,6 +107,7 @@ export const DELETE = withAuth(async (_req, ctx) => {
     db,
     memberId,
     serverId,
+    target.userId,
     botIdsToCascade,
   )
   if (!removed) return writeError("member not found", 404)

@@ -1,5 +1,10 @@
 import { eq, and, ne, inArray, count, asc, or, gt, isNull, sql } from "drizzle-orm";
-import { communityServerMember, communityUserProfile } from "../../community-schema";
+import {
+  communityServerFolder,
+  communityServerFolderItem,
+  communityServerMember,
+  communityUserProfile,
+} from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import {
@@ -43,8 +48,22 @@ export async function removeMemberAndOwnerBots(
   db: Database,
   memberId: string,
   serverId: string,
+  targetUserId: string,
   botUserIds: string[],
 ) {
+  const removedUserIds = [...new Set([targetUserId, ...botUserIds])];
+  const cleanupFolderItems = db
+    .delete(communityServerFolderItem)
+    .where(and(
+      eq(communityServerFolderItem.serverId, serverId),
+      sql`EXISTS (
+        SELECT 1
+        FROM ${communityServerFolder}
+        JOIN json_each(${JSON.stringify(removedUserIds)}) AS removed_user
+          ON CAST(removed_user.value AS TEXT) = ${communityServerFolder.userId}
+        WHERE ${communityServerFolder.id} = ${communityServerFolderItem.folderId}
+      )`,
+    ));
   const removeTarget = db
     .delete(communityServerMember)
     .where(
@@ -55,8 +74,12 @@ export async function removeMemberAndOwnerBots(
     )
     .returning();
   const removeBots = removeOwnerBotsFromServerStatement(db, serverId, botUserIds);
-  const results = (await db.batch([removeTarget, removeBots] as any)) as any[];
-  return (results[0] as Array<typeof communityServerMember.$inferSelect>)[0] ?? null;
+  const results = (await db.batch([
+    cleanupFolderItems,
+    removeTarget,
+    removeBots,
+  ] as any)) as any[];
+  return (results[1] as Array<typeof communityServerMember.$inferSelect>)[0] ?? null;
 }
 
 export async function updateRole(db: Database, memberId: string, role: string) {
@@ -443,12 +466,14 @@ export function removeOwnerBotsFromServerStatement(
   }
   return db
     .delete(communityServerMember)
-    .where(
-      and(
-        eq(communityServerMember.serverId, serverId),
-        inArray(communityServerMember.userId, botUserIds)
-      )
-    );
+    .where(and(
+      eq(communityServerMember.serverId, serverId),
+      sql`EXISTS (
+        SELECT 1
+        FROM json_each(${JSON.stringify(botUserIds)}) AS removed_bot
+        WHERE CAST(removed_bot.value AS TEXT) = ${communityServerMember.userId}
+      )`,
+    ));
 }
 
 /** Executes `removeOwnerBotsFromServerStatement` — one DELETE for all bots. */

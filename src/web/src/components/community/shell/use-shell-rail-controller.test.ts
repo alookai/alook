@@ -5,15 +5,10 @@ import { useShellRailController } from "./use-shell-rail-controller"
 
 const mocks = vi.hoisted(() => ({
   servers: [{ id: "s1", name: "One" }, { id: "s2", name: "Two" }],
-  folders: [],
+  folders: [] as Array<{ id: string; name: string; position: number; servers: Array<{ id: string }> }>,
   createServer: vi.fn(),
   leaveServer: vi.fn(),
   uploadIcon: vi.fn(),
-  deleteFolder: vi.fn(),
-  reorderServers: vi.fn(),
-  reorderFolders: vi.fn(),
-  updateFolderItems: vi.fn(),
-  createFolder: vi.fn(),
   markVoluntaryLeave: vi.fn(),
   markSwitch: vi.fn(),
   toast: vi.fn(),
@@ -40,11 +35,6 @@ vi.mock("@/hooks/community/mutations", () => ({
   useCreateServer: () => ({ mutateAsync: mocks.createServer }),
   useLeaveServer: () => ({ mutate: mocks.leaveServer }),
   useUploadServerIcon: () => ({ mutate: mocks.uploadIcon }),
-  useDeleteServerFolder: () => ({ mutate: mocks.deleteFolder }),
-  useReorderServers: () => ({ mutate: mocks.reorderServers }),
-  useReorderFolders: () => ({ mutate: mocks.reorderFolders }),
-  useUpdateFolderItems: () => ({ mutate: mocks.updateFolderItems }),
-  useCreateServerFolderWith: () => ({ mutate: mocks.createFolder }),
 }))
 vi.mock("@/stores/community", () => ({
   useCommunityStore: (selector: (state: { currentServerId: string }) => unknown) =>
@@ -136,6 +126,7 @@ describe("useShellRailController", () => {
     for (const mock of Object.values(mocks)) {
       if (typeof mock === "function" && "mockReset" in mock) mock.mockReset()
     }
+    mocks.folders.length = 0
     mocks.lastMeLeaf.current = null
   })
 
@@ -363,50 +354,17 @@ describe("useShellRailController", () => {
     expect(mocks.toastApiError).toHaveBeenCalledWith(leaveError, "Failed to leave server")
   })
 
-  it("preserves folder and ordering mutation payloads and toast callbacks", async () => {
-    const hook = await renderController()
-    await act(async () => {
-      hook.current.railProps.onUngroupFolder("f1")
-      hook.current.railProps.onReorderRail(["s2", "s1"])
-      hook.current.railProps.onReorderFolders(["f2", "f1"])
-      hook.current.railProps.onFolderItemsChange("f1", ["s1", "s2"])
-      hook.current.railProps.onDragCreateFolder("s1", "s2")
+  it("passes complete memberships to the normalized rail and no legacy mutation callbacks", async () => {
+    mocks.folders.push({
+      id: "f1",
+      name: "Group",
+      position: 0,
+      servers: [{ id: "s2" }],
     })
-
-    expect(mocks.deleteFolder).toHaveBeenCalledWith(
-      { folderId: "f1" },
-      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
-    )
-    expect(mocks.reorderServers).toHaveBeenCalledWith(
-      { serverIds: ["s2", "s1"] },
-      expect.objectContaining({ onError: expect.any(Function) }),
-    )
-    expect(mocks.reorderFolders).toHaveBeenCalledWith(
-      { folderIds: ["f2", "f1"] },
-      expect.objectContaining({ onError: expect.any(Function) }),
-    )
-    expect(mocks.updateFolderItems).toHaveBeenCalledWith(
-      { folderId: "f1", serverIds: ["s1", "s2"] },
-      expect.objectContaining({ onError: expect.any(Function) }),
-    )
-    expect(mocks.createFolder).toHaveBeenCalledWith(
-      { serverIdA: "s1", serverIdB: "s2" },
-      expect.objectContaining({ onError: expect.any(Function) }),
-    )
-
-    mocks.deleteFolder.mock.calls[0]![1].onSuccess()
-    expect(mocks.toast).toHaveBeenLastCalledWith("Group removed")
-    const cases = [
-      [mocks.deleteFolder, "Failed to remove group"],
-      [mocks.reorderServers, "Failed to save server order"],
-      [mocks.reorderFolders, "Failed to reorder groups"],
-      [mocks.updateFolderItems, "Failed to update group"],
-      [mocks.createFolder, "Failed to create group"],
-    ] as const
-    for (const [mutation, message] of cases) {
-      const error = new Error(message)
-      mutation.mock.calls[0]![1].onError(error)
-      expect(mocks.toastApiError).toHaveBeenLastCalledWith(error, message)
-    }
+    const hook = await renderController()
+    expect(hook.current.railProps.servers.map((server) => server.id)).toEqual(["s1", "s2"])
+    expect(hook.current.railProps.folders).toEqual(mocks.folders)
+    expect(hook.current.railProps).not.toHaveProperty("onReorderRail")
+    expect(hook.current.railProps).not.toHaveProperty("onFolderItemsChange")
   })
 })

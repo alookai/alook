@@ -33,6 +33,7 @@ export const POST = withAuth(async (_req, ctx) => {
     db,
     member.id,
     serverId,
+    ctx.userId,
     botIdsToCascade,
   )
   if (!removed) return writeError("member not found", 404)
