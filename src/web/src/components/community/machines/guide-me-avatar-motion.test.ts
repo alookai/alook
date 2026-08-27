@@ -6,6 +6,7 @@ import { tid } from "@/lib/community/testids"
 import {
   GuideMeAvatarMotion,
   guideMotionGeometry,
+  guideMotionPath,
   scheduleAfterStablePaint,
 } from "./guide-me-avatar-motion"
 
@@ -20,12 +21,15 @@ describe("first-signup guide avatar motion", () => {
     expect(geometry).toMatchObject({
       startX: 164,
       startY: 492,
-      midX: 409.3,
+      controlX: 395.92,
       endX: 610,
       endY: 300,
       endScale: 0.1875,
     })
-    expect(geometry.midY).toBeCloseTo(246.48)
+    expect(geometry.controlY).toBeCloseTo(175.12)
+    expect(guideMotionPath(geometry)).toBe(
+      'path("M 164 492 Q 395.92 175.12, 610 300")',
+    )
   })
 
   it("uses the rendered mobile avatar size when calculating the handoff scale", () => {
@@ -80,11 +84,14 @@ describe("first-signup guide avatar motion", () => {
       "animation: community-guide-me-orbit 4.8s linear infinite;",
     )
     expect(styles).toContain(
-      "animation: community-first-signup-guide-travel 1.42s var(--ease-in-out) both;",
+      "animation: community-first-signup-guide-travel 4s linear both;",
     )
+    expect(styles).toContain("offset-distance: 100%;")
     expect(styles).toContain("animation-timing-function: var(--ease-out);")
     expect(styles).toContain("animation-timing-function: var(--ease-in);")
-    expect(styles).toContain("animation-timing-function: var(--ease-in-out);")
+    expect(styles).toContain("transform: translateX(-3px);")
+    expect(styles).toContain("transform: translateX(2px);")
+    expect(styles).toContain("animation-timing-function: var(--guide-flight-ease);")
   })
 
   it("exposes stable QA targets for the travelling avatar and exact orbit landing point", async () => {

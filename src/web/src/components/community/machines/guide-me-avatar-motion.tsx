@@ -28,8 +28,8 @@ type Rect = Pick<DOMRect, "left" | "top" | "right" | "bottom" | "width" | "heigh
 export type GuideMotionGeometry = {
   startX: number
   startY: number
-  midX: number
-  midY: number
+  controlX: number
+  controlY: number
   endX: number
   endY: number
   endScale: number
@@ -47,16 +47,21 @@ export function guideMotionGeometry(
   const endX = landing.left
   const endY = landing.top
   const distanceX = endX - startX
+  const arcLift = Math.min(180, Math.max(72, Math.abs(distanceX) * 0.28))
 
   return {
     startX,
     startY,
-    midX: startX + distanceX * 0.55,
-    midY: Math.min(startY, endY) - Math.max(48, Math.abs(distanceX) * 0.12),
+    controlX: startX + distanceX * 0.52,
+    controlY: Math.min(startY, endY) - arcLift,
     endX,
     endY,
     endScale: landing.width / avatarSize,
   }
+}
+
+export function guideMotionPath(geometry: GuideMotionGeometry): string {
+  return `path("M ${geometry.startX} ${geometry.startY} Q ${geometry.controlX} ${geometry.controlY}, ${geometry.endX} ${geometry.endY}")`
 }
 
 export function GuideMeAvatarMotion({
@@ -92,10 +97,8 @@ export function GuideMeAvatarMotion({
         landing.getBoundingClientRect(),
         avatarSize,
       )
-      for (const [name, value] of Object.entries(geometry)) {
-        const property = `--guide-${name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`
-        avatar.style.setProperty(property, name === "endScale" ? String(value) : `${value}px`)
-      }
+      avatar.style.offsetPath = guideMotionPath(geometry)
+      avatar.style.setProperty("--guide-end-scale", String(geometry.endScale))
 
       setReady(true)
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -146,13 +149,15 @@ export function GuideMeAvatarMotion({
           aria-hidden="true"
           onAnimationEnd={handleAnimationEnd}
         >
-          <span className="community-first-signup-guide-art">
-            <GeneratedAvatar
-              seed={seed}
-              size="100%"
-              motionParts
-              className="rounded-full ring-2 ring-background shadow-lg"
-            />
+          <span className="community-first-signup-guide-scale">
+            <span className="community-first-signup-guide-art">
+              <GeneratedAvatar
+                seed={seed}
+                size="100%"
+                motionParts
+                className="rounded-full ring-2 ring-background shadow-lg"
+              />
+            </span>
           </span>
         </span>
       ) : null}

@@ -108,7 +108,7 @@
 }
 
 .community-guide-me-orbit-holder.is-intro.is-ready {
-  animation: community-first-signup-orbit-handoff 1.42s var(--ease-in-out) forwards;
+  animation: community-first-signup-orbit-handoff 4s linear forwards;
 }
 
 .community-guide-me-orbit-holder.is-intro .community-guide-me-orbit,
@@ -153,12 +153,22 @@
   height: 128px;
   opacity: 0;
   pointer-events: none;
-  transform-origin: top left;
-  will-change: transform, opacity;
+  offset-anchor: top left;
+  offset-distance: 0%;
+  offset-rotate: 0deg;
+  will-change: offset-distance, opacity, translate;
 }
 
 .community-first-signup-guide.is-ready {
-  animation: community-first-signup-guide-travel 1.42s var(--ease-in-out) both;
+  animation: community-first-signup-guide-travel 4s linear both;
+}
+
+.community-first-signup-guide-scale {
+  display: inline-flex;
+  width: 100%;
+  height: 100%;
+  transform-origin: top left;
+  will-change: transform;
 }
 
 .community-first-signup-guide-art {
@@ -176,127 +186,123 @@
 }
 
 .community-first-signup-guide.is-ready .community-first-signup-guide-art {
-  animation: community-first-signup-guide-body 1.42s var(--ease-in-out) both;
+  animation: community-first-signup-guide-body 4s linear both;
+}
+
+.community-first-signup-guide.is-ready .community-first-signup-guide-scale {
+  animation: community-first-signup-guide-scale 4s linear both;
 }
 
 .community-first-signup-guide.is-ready .alook-avatar-eyes {
-  animation: community-first-signup-guide-eyes 1.42s var(--ease-in-out) both;
+  animation: community-first-signup-guide-eyes 4s linear both;
 }
 
 @keyframes community-first-signup-guide-travel {
   0% {
     opacity: 0;
-    transform: translate3d(var(--guide-start-x), calc(var(--guide-start-y) + 18px), 0);
+    offset-distance: 0%;
+    translate: 0 18px;
     animation-timing-function: var(--ease-out);
   }
 
-  8%, 54% {
+  7.5%, 62.5% {
     opacity: 1;
+    offset-distance: 0%;
+    translate: 0 0;
   }
 
-  18.3%, 23% {
-    transform: translate3d(var(--guide-start-x), var(--guide-start-y), 0);
-    animation-timing-function: var(--ease-out);
-  }
-
-  28%, 32% {
-    transform: translate3d(calc(var(--guide-start-x) - 12px), var(--guide-start-y), 0);
-  }
-
-  34% {
-    transform: translate3d(var(--guide-start-x), var(--guide-start-y), 0);
-  }
-
-  41% {
-    transform: translate3d(var(--guide-start-x), var(--guide-start-y), 0);
-    animation-timing-function: var(--ease-out);
-  }
-
-  46%, 50% {
-    transform: translate3d(calc(var(--guide-start-x) + 12px), var(--guide-start-y), 0);
-  }
-
-  52%, 54% {
-    transform: translate3d(var(--guide-start-x), var(--guide-start-y), 0);
-  }
-
-  57% {
-    transform: translate3d(var(--guide-start-x), var(--guide-start-y), 0);
-    animation-timing-function: var(--ease-in-out);
-  }
-
-  75% {
-    transform: translate3d(var(--guide-mid-x), var(--guide-mid-y), 0) scale(0.56);
-    animation-timing-function: var(--ease-in-out);
-  }
-
-  93%, 96% {
+  67.5% {
     opacity: 1;
-    transform: translate3d(var(--guide-end-x), var(--guide-end-y), 0) scale(var(--guide-end-scale));
+    offset-distance: 0%;
+    translate: 0 0;
+    animation-timing-function: var(--guide-flight-ease);
+  }
+
+  97.5% {
+    opacity: 1;
+    offset-distance: 100%;
+    translate: 0 0;
   }
 
   100% {
     opacity: 0;
-    transform: translate3d(var(--guide-end-x), var(--guide-end-y), 0) scale(var(--guide-end-scale));
+    offset-distance: 100%;
+    translate: 0 0;
   }
 }
 
 @keyframes community-first-signup-guide-eyes {
   0% { transform: translateX(0); }
-  18% {
+  11% {
     transform: translateX(0);
-    animation-timing-function: var(--ease-out);
+    animation-timing-function: var(--ease-in-out);
   }
-  23%, 29% { transform: translateX(-6px); }
-  34% { transform: translateX(0); }
+  19% {
+    transform: translateX(-3px);
+    animation-timing-function: var(--ease-in-out);
+  }
+  30% { transform: translateX(0); }
   36% {
     transform: translateX(0);
-    animation-timing-function: var(--ease-out);
+    animation-timing-function: var(--ease-in-out);
   }
-  41%, 47% { transform: translateX(6px); }
-  52%, 100% { transform: translateX(0); }
+  44% {
+    transform: translateX(3px);
+    animation-timing-function: var(--ease-in-out);
+  }
+  55%, 100% { transform: translateX(0); }
 }
 
 @keyframes community-first-signup-guide-body {
-  0%, 34%, 52%, 93%, 100% {
+  0%, 32%, 94%, 100% {
     transform: none;
   }
 
-  23%, 41% {
+  13%, 38% {
     transform: none;
     animation-timing-function: var(--ease-out);
   }
 
-  28%, 32% {
+  17%, 28% {
     transform: rotate(-5deg) scaleX(0.94) scaleY(1.04);
   }
 
-  46%, 50% {
+  42%, 55% {
     transform: rotate(5deg) scaleX(0.94) scaleY(1.04);
   }
 
-  54% {
+  62.5% {
     transform: none;
     animation-timing-function: var(--ease-in);
   }
 
-  57% {
+  67.5% {
     transform: translateY(5px) scaleX(1.04) scaleY(0.92);
-    animation-timing-function: var(--ease-in-out);
+    animation-timing-function: var(--guide-flight-ease);
   }
 
-  66%, 82% {
+  74%, 88% {
     transform: scaleX(0.96) scaleY(1.06);
+  }
+}
+
+@keyframes community-first-signup-guide-scale {
+  0%, 67.5% {
+    transform: scale(1);
+    animation-timing-function: var(--guide-flight-ease);
+  }
+
+  97.5%, 100% {
+    transform: scale(var(--guide-end-scale));
   }
 }
 
 @keyframes community-first-signup-orbit-handoff {
   0% { opacity: 0; }
-  92.9% {
+  97.4% {
     opacity: 0;
-    animation-timing-function: var(--ease-out);
   }
-  94%, 100% { opacity: 1; }
+  97.5%, 100% { opacity: 1; }
 }
 
 .driver-popover.community-onboarding-popover .driver-popover-arrow-side-left {
@@ -479,18 +485,24 @@ body.community-onboarding-active.driver-active :is(
 
 @keyframes community-first-signup-guide-eyes-mobile {
   0% { transform: translateX(0); }
-  18% {
+  11% {
     transform: translateX(0);
-    animation-timing-function: var(--ease-out);
+    animation-timing-function: var(--ease-in-out);
   }
-  23%, 29% { transform: translateX(-4px); }
-  34% { transform: translateX(0); }
+  19% {
+    transform: translateX(-2px);
+    animation-timing-function: var(--ease-in-out);
+  }
+  30% { transform: translateX(0); }
   36% {
     transform: translateX(0);
-    animation-timing-function: var(--ease-out);
+    animation-timing-function: var(--ease-in-out);
   }
-  41%, 47% { transform: translateX(4px); }
-  52%, 100% { transform: translateX(0); }
+  44% {
+    transform: translateX(2px);
+    animation-timing-function: var(--ease-in-out);
+  }
+  55%, 100% { transform: translateX(0); }
 }
 
 @media (max-height: 520px) {
@@ -544,6 +556,7 @@ body.community-onboarding-active.driver-active :is(
 }
 
 :root {
+  --guide-flight-ease: cubic-bezier(0.45, 0, 0.2, 1);
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-in: cubic-bezier(0.8, 0, 0.8, 0.2);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
