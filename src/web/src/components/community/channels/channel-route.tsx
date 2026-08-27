@@ -28,6 +28,10 @@ import { useForumOpenerHint } from "@/hooks/community/use-forum-opener-hint"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useSetChannelNotif } from "@/hooks/community/mutations"
 import { channelHref, removeCommunityParam } from "@/lib/community/community-route"
+import {
+  THREAD_OPENER_HANDOFF_PARAM,
+  useThreadOpenerRouteGate,
+} from "@/hooks/community/thread-opener-read-handoff"
 
 /**
  * /c/channels/:serverId/:channelId
@@ -75,6 +79,13 @@ export function ChannelRoute({ serverParam, channelId }: {
     currentChannelMeta?.parentMessageId,
     isForumPostChild && routeModel.routeHydrated,
   )
+  const threadOpenerHandoff = useThreadOpenerRouteGate({
+    serverId,
+    childChannelId: channelId,
+    parentChannelId: currentChannelMeta?.parentChannelId ?? null,
+    openerMessageId: currentChannelMeta?.parentMessageId ?? null,
+    lifecycle: routeModel.routeLifecycle,
+  })
   const channelName = useMemo(() => resolveChannelDisplayName({
     forumPostTitle: isForumPostChild ? forumPostOpener.data?.content : null,
     topLevelName: channelInServer?.name,
@@ -134,13 +145,15 @@ export function ChannelRoute({ serverParam, channelId }: {
   // re-trigger the jump. The frozen `jumpTargetId` still seeds the mounted
   // message controller for this mount; this only cleans the address.
   useEffect(() => {
-    if (!jumpTargetId) return
+    if (!jumpTargetId || searchParams.has(THREAD_OPENER_HANDOFF_PARAM)) return
     const search = searchParams.toString()
     const routePath = channelHref(serverParam, channelId)
     const href = `${routePath}${search ? `?${search}` : ""}`
-    router.replace(removeCommunityParam(href, "msg"), { scroll: false })
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once for this mount's jump
-  }, [])
+    router.replace(
+      removeCommunityParam(href, "msg"),
+      { scroll: false },
+    )
+  }, [channelId, jumpTargetId, router, searchParams, serverParam])
 
   const enterThread = useCallback((id: string) => {
     useCommunityStore.getState().uiHandlers.navigatePath?.(
@@ -204,6 +217,7 @@ export function ChannelRoute({ serverParam, channelId }: {
         parentMessageId={currentChannelMeta?.parentMessageId ?? null}
         parentChannelName={parentChannelInServer?.name ?? "channel"}
         parentIsForum={isForumPostChild}
+        threadOpenerHandoff={threadOpenerHandoff}
         childCreatorId={currentChannelMeta?.creatorId}
         canRenameThread={canManageServer(myRole)}
         headerServer={bp === "mobile" && currentServer

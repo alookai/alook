@@ -58,8 +58,19 @@ export function useChannelMessageFeed({
     channelId,
     messages: messagesQuery.messages,
     scrollRootEl,
-    snapshotReady: !readState.isFetching,
+    snapshotStatus: readState.isFetching
+      ? "pending"
+      : readSnapshot
+        ? "ready"
+        : "error",
+    feedStatus: messagesQuery.isPending
+      ? "pending"
+      : messagesQuery.isError
+        ? "error"
+        : "ready",
+    tailAttached: !messagesQuery.hasMoreNewer,
     confirmedSeq: readSnapshot?.lastReadSeq ?? 0,
+    catchUp: () => messagesQuery.refetch(),
   })
   const unreadCount = useMemo(() => {
     const difference = messagesQuery.latestSeq - (readSnapshot?.lastReadSeq ?? 0)

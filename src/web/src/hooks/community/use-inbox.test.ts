@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import {
+  disposeInboxReadReservation,
+  registerInboxReadReservationSurface,
+  takeInboxReadReservationNegative,
+} from "./inbox-read-reservation"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -39,6 +44,33 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
     await qc.cancelQueries({ queryKey: key, exact: true })
     expect(signal?.aborted).toBe(true)
     await pending
+  })
+
+  it("fences the production query result until a focused candidate is classified", async () => {
+    const data = {
+      servers: [{ channels: [{
+        channelId: "focused",
+        lastMessageAt: "2026-08-27T01:00:00.000Z",
+        hasDirectUnread: true,
+        children: [],
+      }] }],
+      dms: [],
+    }
+    apiFetchMock.mockResolvedValueOnce(data).mockResolvedValueOnce(data)
+    const { inboxUnreadsReservedQueryFn } = await import("./use-inbox")
+    const qc = new QueryClient()
+    const seen = vi.fn()
+    const lease = registerInboxReadReservationSurface(qc, "focused", seen)
+    const first = inboxUnreadsReservedQueryFn(qc)()
+    void first.catch(() => undefined)
+    await vi.waitFor(() => expect(seen).toHaveBeenLastCalledWith(expect.objectContaining({
+      channelId: "focused",
+    })))
+
+    takeInboxReadReservationNegative(lease)
+    await expect(first).rejects.toMatchObject({ name: "AbortError" })
+    await expect(inboxUnreadsReservedQueryFn(qc)()).resolves.toBe(data)
+    disposeInboxReadReservation(qc)
   })
 })
 

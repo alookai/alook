@@ -23,6 +23,7 @@ import {
   releaseReadSurface,
   resumeReadCoordinator,
   submitReadIntent,
+  submitReadIntentGeneration,
 } from "./read-coordinator"
 
 function timelineLease(queryClient: QueryClient, confirmedSeq = 0) {
@@ -208,6 +209,33 @@ describe("read coordinator", () => {
       "/api/community/channels/channel-1/read",
       expect.objectContaining({ body: JSON.stringify({ lastReadMessageId: "message-3" }) }),
     )
+  })
+
+  it("cancels an uncommitted navigation-owned opener without flushing it", async () => {
+    const queryClient = new QueryClient()
+    const lease = registerReadSurface(
+      queryClient,
+      "user-1",
+      { kind: "timeline", channelId: "forum-1" },
+      0,
+      "cancel-uncommitted",
+    )
+    expect(submitReadIntentGeneration(lease, {
+      kind: "timeline",
+      channelId: "forum-1",
+      messageId: "opener-7",
+      seq: 7,
+    })).toBe(1)
+
+    releaseReadSurface(lease)
+    await vi.runAllTimersAsync()
+    expect(apiFetch).not.toHaveBeenCalled()
+    expect(submitReadIntentGeneration(lease, {
+      kind: "timeline",
+      channelId: "forum-1",
+      messageId: "opener-8",
+      seq: 8,
+    })).toBeNull()
   })
 
   it("serializes a newer visible target behind the active request", async () => {

@@ -16,6 +16,10 @@ import {
 import type { InboxPopover } from "./community-inbox-popover"
 import type { QueryClient } from "@tanstack/react-query"
 import type { ShellRouter } from "./shell-frame-types"
+import {
+  armThreadOpenerReadHandoff,
+  clearThreadOpenerReadHandoff,
+} from "@/hooks/community/thread-opener-read-handoff"
 
 type Options = {
   router: ShellRouter
@@ -50,23 +54,44 @@ export function useShellInboxController({
   ) => {
     watchInboxItem(watchKey)
     cancelPendingNavigation()
+    clearThreadOpenerReadHandoff(queryClient)
     router.push(channelHref(serverId, channelId))
-  }, [cancelPendingNavigation, router, watchInboxItem])
+  }, [cancelPendingNavigation, queryClient, router, watchInboxItem])
 
-  const openForumThread = useCallback((
+  const openThread = useCallback((
     serverId: string,
     parentChannelId: string,
     childChannelId: string,
-    _openerMessageId: string,
+    openerMessageId: string,
+    openerSeq?: number,
+    openerUnread?: boolean,
   ) => {
     watchInboxItem(`channel:${childChannelId}`)
     cancelPendingNavigation()
-    router.push(channelHref(serverId, childChannelId))
-  }, [cancelPendingNavigation, router, watchInboxItem])
+    const href = openerUnread === true && openerSeq !== undefined
+      ? armThreadOpenerReadHandoff(queryClient, {
+          serverId,
+          parentChannelId: parentChannelId,
+          childChannelId,
+          openerMessageId,
+          openerSeq,
+        })
+      : channelHref(serverId, childChannelId)
+    if (openerUnread !== true || openerSeq === undefined) {
+      clearThreadOpenerReadHandoff(queryClient)
+    }
+    try {
+      router.push(href)
+    } catch (error) {
+      clearThreadOpenerReadHandoff(queryClient)
+      throw error
+    }
+  }, [cancelPendingNavigation, queryClient, router, watchInboxItem])
 
   const openMarked = useCallback((marked: Marked) => {
     watchInboxItem(`marked:${marked.id}`)
     cancelPendingNavigation()
+    clearThreadOpenerReadHandoff(queryClient)
     const seqQuery = marked.m.seq != null ? `?seq=${marked.m.seq}` : ""
     if (marked.serverId) {
       const channelPath = channelHref(marked.serverId, marked.channelId)
@@ -74,7 +99,7 @@ export function useShellInboxController({
     } else {
       router.push(`/c/me/${marked.channelId}${seqQuery}`)
     }
-  }, [cancelPendingNavigation, router, watchInboxItem])
+  }, [cancelPendingNavigation, queryClient, router, watchInboxItem])
 
   const openDm = useCallback((dm: UnreadDm) => {
     const dmId = dm.channelId
@@ -85,6 +110,7 @@ export function useShellInboxController({
     )
     watchInboxItem(`dm:${dmId}`)
     cancelPendingNavigation()
+    clearThreadOpenerReadHandoff(queryClient)
     router.push(`/c/me/${dmId}`)
     void startDmRouteVerification(queryClient, dmId).catch(() => undefined)
   }, [cancelPendingNavigation, queryClient, router, watchInboxItem])
@@ -97,7 +123,7 @@ export function useShellInboxController({
     markedLoading: inboxMarked.isLoading,
     loading,
     onOpenChannel: openServerChannel,
-    onOpenForumThread: openForumThread,
+    onOpenThread: openThread,
     onOpenDm: openDm,
     onOpenMention: (mention) => {
       if (mention.serverId && mention.channelId) {

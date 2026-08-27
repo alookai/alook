@@ -5,13 +5,23 @@ const queryClient = {}
 const coordinator = vi.hoisted(() => ({
   register: vi.fn(() => ({ lease: "timeline" })),
   release: vi.fn(),
+  confirm: vi.fn(),
   resume: vi.fn(),
-  submit: vi.fn(() => true),
+  submit: vi.fn(() => 1),
+}))
+const reservation = vi.hoisted(() => ({
+  register: vi.fn(() => ({ lease: "reservation" })),
+  release: vi.fn(),
+  promote: vi.fn(),
+  negative: vi.fn(() => true),
 }))
 
 vi.mock("react", () => ({
+  useCallback: (callback: unknown) => callback,
   useRef: (initial: unknown) => ({ current: initial }),
+  useState: (initial: unknown) => [initial, vi.fn()],
   useEffect: (effect: () => void | (() => void)) => effects.push(effect),
+  useLayoutEffect: (effect: () => void | (() => void)) => effects.push(effect),
 }))
 
 vi.mock("@tanstack/react-query", () => ({
@@ -25,8 +35,16 @@ vi.mock("@/contexts/community/current-user", () => ({
 vi.mock("./read-coordinator", () => ({
   registerReadSurface: (...args: unknown[]) => coordinator.register(...args),
   releaseReadSurface: (...args: unknown[]) => coordinator.release(...args),
+  confirmReadSurface: (...args: unknown[]) => coordinator.confirm(...args),
   resumeReadCoordinator: (...args: unknown[]) => coordinator.resume(...args),
-  submitReadIntent: (...args: unknown[]) => coordinator.submit(...args),
+  submitReadIntentGeneration: (...args: unknown[]) => coordinator.submit(...args),
+}))
+
+vi.mock("./inbox-read-reservation", () => ({
+  registerInboxReadReservationSurface: (...args: unknown[]) => reservation.register(...args),
+  releaseInboxReadReservationSurface: (...args: unknown[]) => reservation.release(...args),
+  promoteInboxReadReservation: (...args: unknown[]) => reservation.promote(...args),
+  takeInboxReadReservationNegative: (...args: unknown[]) => reservation.negative(...args),
 }))
 
 import { useTimelineReadObserver } from "./use-read-observer"
@@ -100,10 +118,13 @@ function useTestRender(options: Partial<Parameters<typeof useTimelineReadObserve
   const root = makeRoot([row])
   useTimelineReadObserver({
     channelId: "channel-1",
-    messages: [{ id: "message-4", seq: 4, authorId: "other-1" }] as any,
+    messages: [{ id: "message-4", seq: 4, authorId: "other-1", createdAt: "t4" }] as any,
     scrollRootEl: root,
-    snapshotReady: true,
+    snapshotStatus: "ready",
+    feedStatus: "ready",
+    tailAttached: true,
     confirmedSeq: 2,
+    catchUp: () => Promise.resolve(),
     ...options,
   })
   return { row, root }
@@ -153,21 +174,23 @@ describe("useTimelineReadObserver", () => {
   })
 
   it("accepts only after the snapshot-ready observer sees a visible foreign row", () => {
-    useTestRender({ snapshotReady: false })
+    useTestRender({ snapshotStatus: "pending" })
     runEffects()
-    expect(observers).toHaveLength(0)
-    expect(coordinator.register).not.toHaveBeenCalled()
+    expect(coordinator.register).toHaveBeenCalled()
+    trigger(observers[0]!, makeRow("message-4"))
+    expect(coordinator.submit).not.toHaveBeenCalled()
 
     effects.length = 0
-    const { row } = useTestRender({ snapshotReady: true })
+    vi.clearAllMocks()
+    const { row } = useTestRender({ snapshotStatus: "ready" })
     runEffects()
     expect(coordinator.register).toHaveBeenCalledWith(
       queryClient,
       "viewer-1",
       { kind: "timeline", channelId: "channel-1" },
-      2,
     )
-    trigger(observers[0]!, row)
+    expect(coordinator.confirm).toHaveBeenCalledWith({ lease: "timeline" }, 2)
+    trigger(observers.at(-1)!, row)
     expect(coordinator.submit).toHaveBeenCalledWith({ lease: "timeline" }, {
       kind: "timeline",
       channelId: "channel-1",
@@ -221,6 +244,7 @@ describe("useTimelineReadObserver", () => {
     visibility = "hidden"
     trigger(observers[0]!, row)
     expect(coordinator.submit).not.toHaveBeenCalled()
+    expect(reservation.negative).toHaveBeenCalledWith({ lease: "reservation" })
 
     visibility = "visible"
     for (const listener of visibilityListeners) listener()

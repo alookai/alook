@@ -43,6 +43,17 @@ export interface UnreadForumOpenerRow {
   openerSeq: number;
 }
 
+export interface ThreadOpenerRow {
+  parentChannelId: string;
+  parentType: string | null;
+  openerMessageId: string;
+  childChannelId: string;
+  title: string;
+  createdAt: string;
+  openerSeq: number;
+  openerUnread: boolean;
+}
+
 /**
  * Two-branch unread predicate, shared by every reader that groups channels
  * by "unread since I last looked."
@@ -405,44 +416,73 @@ export async function listUnreadForumOpeners(
 }
 
 /**
- * Resolve canonical forum opener metadata for an already-authorized set of
- * unread child channels. The caller owns visibility, participation, and mute
- * filtering; this query only validates the child → forum → opener structure.
+ * Resolve canonical parent-opener metadata for child rows that already passed
+ * Inbox visibility, participation, notification, and mute filtering. This
+ * lookup enriches those rows only; it never discovers additional children.
  */
-export async function listForumOpenersByChildIds(
+export async function listThreadOpenersByChildIds(
   db: Database,
+  userId: string,
   childIds: string[]
-): Promise<UnreadForumOpenerRow[]> {
+): Promise<ThreadOpenerRow[]> {
   if (childIds.length === 0) return [];
 
-  const childChannel = aliasedTable(communityChannel, "forum_inbox_child_lookup");
-  const parentForum = aliasedTable(communityChannel, "forum_inbox_parent_lookup");
+  const childChannel = aliasedTable(communityChannel, "thread_inbox_child_lookup");
+  const parentChannel = aliasedTable(communityChannel, "thread_inbox_parent_lookup");
   const rows = (
     await Promise.all(
       chunk(childIds, D1_MAX_IN_PARAMS).map((ids) =>
         db
           .select({
-            forumChannelId: parentForum.id,
+            parentChannelId: parentChannel.id,
+            parentType: parentChannel.type,
             openerMessageId: communityMessage.id,
             openerContent: communityMessage.content,
             openerSeq: communityMessage.seq,
             childChannelId: childChannel.id,
             childName: childChannel.name,
             createdAt: communityMessage.createdAt,
+            openerUnread: sql<number>`(
+              (
+                (${communityReadState.id} IS NOT NULL AND ${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0))
+                OR
+                (${communityReadState.id} IS NULL AND ${communityMessage.createdAt} > ${communityServerMember.joinedAt})
+              )
+              AND ${notificationEligibleSql(
+                userId,
+                {
+                  id: parentChannel.id,
+                  serverId: parentChannel.serverId,
+                  parentChannelId: parentChannel.parentChannelId,
+                },
+                { id: communityMessage.id }
+              )}
+            )`,
           })
           .from(childChannel)
           .innerJoin(
-            parentForum,
-            and(
-              eq(parentForum.id, childChannel.parentChannelId),
-              eq(parentForum.type, "forum")
-            )
+            parentChannel,
+            eq(parentChannel.id, childChannel.parentChannelId)
           )
           .innerJoin(
             communityMessage,
             and(
               eq(communityMessage.id, childChannel.parentMessageId),
-              eq(communityMessage.channelId, parentForum.id)
+              eq(communityMessage.channelId, parentChannel.id)
+            )
+          )
+          .innerJoin(
+            communityServerMember,
+            and(
+              eq(communityServerMember.serverId, parentChannel.serverId),
+              eq(communityServerMember.userId, userId)
+            )
+          )
+          .leftJoin(
+            communityReadState,
+            and(
+              eq(communityReadState.channelId, parentChannel.id),
+              eq(communityReadState.userId, userId)
             )
           )
           .where(
@@ -450,7 +490,8 @@ export async function listForumOpenersByChildIds(
               inArray(childChannel.id, ids),
               eq(childChannel.type, "thread"),
               eq(childChannel.archived, 0),
-              eq(parentForum.archived, 0)
+              eq(parentChannel.archived, 0),
+              isNull(parentChannel.parentChannelId)
             )
           )
       )
@@ -465,7 +506,8 @@ export async function listForumOpenersByChildIds(
   );
 
   return rows.map((row) => ({
-    forumChannelId: row.forumChannelId,
+    parentChannelId: row.parentChannelId,
+    parentType: row.parentType,
     openerMessageId: row.openerMessageId,
     childChannelId: row.childChannelId,
     title:
@@ -474,6 +516,7 @@ export async function listForumOpenersByChildIds(
         : row.childName?.trim() || "Thread",
     createdAt: row.createdAt,
     openerSeq: row.openerSeq,
+    openerUnread: Boolean(row.openerUnread),
   }));
 }
 

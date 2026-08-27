@@ -118,7 +118,7 @@ describe("mapForumFeedPages", () => {
         ],
         included: {
           parentMessages: [
-            { id: "m2", channelId: "forum_1", seq: 42, content: "  Opener title  ", authorId: "u2", authorName: "Alice", authorImage: null },
+            { id: "m2", channelId: "forum_1", seq: 42, content: "  Opener title  ", authorId: "u2", authorName: "Alice", authorImage: null, createdAt: "2026-08-08T00:15:00.000Z" },
           ],
           firstMessages: [{ channelId: "t2", content: "First reply preview" }],
           tags: [{ messageId: "m2", tag: "bug" }, { messageId: "m2", tag: "help" }],
@@ -155,6 +155,7 @@ describe("mapForumFeedPages", () => {
     expect(result[1]).toMatchObject({
       name: "  Opener title  ",
       parentSeq: 42,
+      openerCreatedAt: "2026-08-08T00:15:00.000Z",
       authorId: "u2",
       authorAvatar: "A",
       preview: "First reply preview",

@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
         authorId: "alice",
         authorAvatar: "A",
         openerMessageId: "opener-a",
+        openerCreatedAt: "2026-08-27T01:00:00.000Z",
         parentSeq: 3,
         tags: [],
         preview: "",
@@ -39,6 +40,9 @@ const mocks = vi.hoisted(() => ({
       },
     ],
     isLoading: false,
+    isPending: false,
+    isError: false,
+    refetch: vi.fn(() => Promise.resolve()),
     tag: "All",
     availableTags: [],
     selectTag: vi.fn(),
@@ -80,10 +84,18 @@ describe("ForumSurface generic read-row adapter", () => {
 
     expect(mocks.observe).toHaveBeenLastCalledWith({
       channelId: "forum-1",
-      messages: [{ id: "opener-a", seq: 3, authorId: "alice" }],
+      messages: [{
+        id: "opener-a",
+        seq: 3,
+        authorId: "alice",
+        createdAt: "2026-08-27T01:00:00.000Z",
+      }],
       scrollRootEl: null,
-      snapshotReady: true,
+      snapshotStatus: "ready",
+      feedStatus: "ready",
+      tailAttached: true,
       confirmedSeq: 2,
+      catchUp: expect.any(Function),
     })
 
     const root = {} as HTMLDivElement

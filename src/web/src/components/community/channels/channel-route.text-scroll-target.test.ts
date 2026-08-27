@@ -14,11 +14,15 @@ const {
   mockUiHandlers,
   mockBreakpoint,
   mockHeaderBack,
+  mockOpenerGate,
+  mockSearchParams,
 } = vi.hoisted(() => ({
   mockRouter: { push: vi.fn(), replace: vi.fn(), back: vi.fn() },
   mockUiHandlers: { replacePath: vi.fn(), goBackMobile: vi.fn() },
   mockBreakpoint: { value: "desktop" as "desktop" | "mobile" },
   mockHeaderBack: { current: undefined as undefined | (() => void) },
+  mockOpenerGate: vi.fn(() => null),
+  mockSearchParams: { value: "msg=m_target&keep=1" },
   mockRouteModel: {
     server: {
       id: "server_1",
@@ -40,6 +44,7 @@ const {
     isForumPostChild: false,
     isNotifyUnit: false,
     routeHydrated: true,
+    routeLifecycle: "ready" as "pending" | "ready" | "terminal-error",
   },
   mockMemberViewModel: {
     composerMembers: [],
@@ -54,11 +59,16 @@ const {
 vi.mock("next/navigation", () => ({
   useRouter: () => mockRouter,
   usePathname: () => "/c/channels/server_1/channel_1",
-  useSearchParams: () => new URLSearchParams("msg=m_target&keep=1"),
+  useSearchParams: () => new URLSearchParams(mockSearchParams.value),
 }))
 vi.mock("sonner", () => ({ toast: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn(), toastApiError: vi.fn() }))
 vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => mockBreakpoint.value }))
+vi.mock("@/hooks/community/thread-opener-read-handoff", () => ({
+  THREAD_OPENER_HANDOFF_PARAM: "inboxThreadOpener",
+  useClaimThreadOpenerReadHandoff: vi.fn(),
+  useThreadOpenerRouteGate: (...args: unknown[]) => mockOpenerGate(...args),
+}))
 vi.mock("@/components/community/channels/channel-header", () => ({
   ChannelHeader: ({ onBack }: { onBack?: () => void }) => {
     if (onBack) mockHeaderBack.current = onBack
@@ -232,6 +242,8 @@ describe("ChannelRoute message surface ownership", () => {
   beforeEach(() => {
     vi.useFakeTimers()
     mockedMessageList.mockClear()
+    mockOpenerGate.mockClear()
+    mockSearchParams.value = "msg=m_target&keep=1"
     mockBreakpoint.value = "desktop"
     mockHeaderBack.current = undefined
     Object.assign(mockRouteModel, {
@@ -249,7 +261,53 @@ describe("ChannelRoute message surface ownership", () => {
       isForumPostChild: false,
       isNotifyUnit: false,
       routeHydrated: true,
+      routeLifecycle: "ready",
     })
+  })
+
+  it("forwards the route lifecycle and canonical child tuple to the opener gate", () => {
+    configureThreadRoute()
+    mockRouteModel.routeLifecycle = "pending"
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    act(() => {
+      TestRenderer.create(React.createElement(ChannelRoute, {
+        serverId: "server_1",
+        serverParam: "server_1",
+        channelId: "channel_1",
+      }))
+    })
+    expect(mockOpenerGate).toHaveBeenCalledWith({
+      serverId: "server_1",
+      childChannelId: "channel_1",
+      parentChannelId: "parent_1",
+      openerMessageId: "opener_1",
+      lifecycle: "pending",
+    })
+  })
+
+  it("defers child msg cleanup until the handoff nonce has its own cleanup", () => {
+    mockSearchParams.value = "inboxThreadOpener=nonce-1&msg=m_target&keep=1"
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    let renderer!: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(ChannelRoute, {
+        serverParam: "server_1",
+        channelId: "channel_1",
+      }))
+    })
+    expect(mockRouter.replace).not.toHaveBeenCalled()
+
+    mockSearchParams.value = "msg=m_target&keep=1"
+    act(() => {
+      renderer.update(React.createElement(ChannelRoute, {
+        serverParam: "server_1",
+        channelId: "channel_1",
+      }))
+    })
+    expect(mockRouter.replace).toHaveBeenCalledWith(
+      "/c/channels/server_1/channel_1?keep=1",
+      { scroll: false },
+    )
   })
 
   afterEach(() => {

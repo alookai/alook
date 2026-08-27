@@ -34,7 +34,10 @@ function unreadFixture(): UnreadServer[] {
           type: "thread",
           lastMessageAt: "2026-08-07T10:00:00.000Z",
           mentionCount: 0,
+          parentChannelId: "f1",
           openerMessageId: "m1",
+          openerSeq: 7,
+          openerUnread: true,
         },
         {
           channelId: "t1",
@@ -48,30 +51,37 @@ function unreadFixture(): UnreadServer[] {
   }]
 }
 
-function popover(onOpenChannel: ReturnType<typeof vi.fn>, onOpenForumThread: ReturnType<typeof vi.fn>) {
+function popover(onOpenChannel: ReturnType<typeof vi.fn>, onOpenThread: ReturnType<typeof vi.fn>) {
   return React.createElement(InboxPopover, {
     unreads: unreadFixture(),
     unreadDms: [],
     mentions: [],
     marked: [],
     onOpenChannel,
-    onOpenForumThread,
+    onOpenThread,
   })
 }
 
-describe("InboxPopover forum post rows", () => {
-  it("requires the forum-thread callback so opener-backed buttons cannot be inert", () => {
+describe("InboxPopover thread opener rows", () => {
+  it("accepts the generic thread callback used by opener-backed buttons", () => {
     expectTypeOf<Parameters<typeof InboxPopover>[0]>().toMatchTypeOf<{
-      onOpenForumThread: (serverId: string, parentChannelId: string, childChannelId: string, openerMessageId: string) => void
+      onOpenThread?: (
+        serverId: string,
+        parentChannelId: string,
+        childChannelId: string,
+        openerMessageId: string,
+        openerSeq?: number,
+        openerUnread?: boolean,
+      ) => void
     }>()
   })
 
   it("renders the authoritative opener title and passes parent/opener targets", async () => {
     const onOpenChannel = vi.fn()
-    const onOpenForumThread = vi.fn()
+    const onOpenThread = vi.fn()
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
-      renderer = TestRenderer.create(popover(onOpenChannel, onOpenForumThread))
+      renderer = TestRenderer.create(popover(onOpenChannel, onOpenThread))
     })
 
     const row = renderer.root
@@ -80,16 +90,16 @@ describe("InboxPopover forum post rows", () => {
     expect(row).toBeDefined()
     await act(async () => row!.props.onClick())
 
-    expect(onOpenForumThread).toHaveBeenCalledWith("s1", "f1", "p1", "m1")
+    expect(onOpenThread).toHaveBeenCalledWith("s1", "f1", "p1", "m1", 7, true)
     expect(onOpenChannel).not.toHaveBeenCalledWith("s1", "p1")
   })
 
   it("keeps reply-only child rows on the existing channel callback", async () => {
     const onOpenChannel = vi.fn()
-    const onOpenForumThread = vi.fn()
+    const onOpenThread = vi.fn()
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
-      renderer = TestRenderer.create(popover(onOpenChannel, onOpenForumThread))
+      renderer = TestRenderer.create(popover(onOpenChannel, onOpenThread))
     })
 
     const row = renderer.root
@@ -99,7 +109,7 @@ describe("InboxPopover forum post rows", () => {
     await act(async () => row!.props.onClick())
 
     expect(onOpenChannel).toHaveBeenCalledWith("s1", "t1", "f1")
-    expect(onOpenForumThread).not.toHaveBeenCalled()
+    expect(onOpenThread).not.toHaveBeenCalled()
   })
 })
 
@@ -121,7 +131,7 @@ describe("InboxPopover DM rows", () => {
         unreadDms: [dm],
         mentions: [],
         marked: [],
-        onOpenForumThread: vi.fn(),
+        onOpenThread: vi.fn(),
         onOpenDm,
       }))
     })

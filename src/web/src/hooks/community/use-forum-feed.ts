@@ -25,6 +25,7 @@ type IncludedMessage = {
   id: string
   channelId: string
   seq: number
+  createdAt?: string
   content: string
   authorId: string
   authorName: string
@@ -148,6 +149,7 @@ export function mapForumFeedPages(pages: ForumFeedPage[]): ForumThread[] {
         authorId: opener?.authorId ?? thread.creatorId ?? "",
         authorAvatar: opener?.authorImage ?? avatarInitial(opener?.authorName ?? ""),
         openerMessageId: thread.parentMessageId ?? "",
+        ...(opener?.createdAt ? { openerCreatedAt: opener.createdAt } : {}),
         ...(opener ? { parentSeq: opener.seq } : {}),
         tags: thread.parentMessageId ? tagsByMessage.get(thread.parentMessageId) ?? [] : [],
         preview: (first?.content ?? "").slice(0, 100),

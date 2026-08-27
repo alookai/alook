@@ -19,6 +19,10 @@ import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 import type { ChannelMemberPanelProps } from "@/components/community/members/channel-member-view-model"
 import { tid } from "@/lib/community/testids"
+import {
+  useClaimThreadOpenerReadHandoff,
+  type ThreadOpenerReadHandoff,
+} from "@/hooks/community/thread-opener-read-handoff"
 
 const ignoreNestedThread = () => {}
 
@@ -33,6 +37,7 @@ export function ThreadChannelSurface({
   parentMessageId,
   parentChannelName,
   parentIsForum,
+  threadOpenerHandoff,
   childCreatorId,
   canRenameThread,
   headerServer,
@@ -59,6 +64,7 @@ export function ThreadChannelSurface({
   parentMessageId: string | null
   parentChannelName: string
   parentIsForum: boolean
+  threadOpenerHandoff?: ThreadOpenerReadHandoff | null
   childCreatorId?: string | null
   canRenameThread: boolean
   headerServer?: { id: string; name: string; icon: string | null }
@@ -84,6 +90,7 @@ export function ThreadChannelSurface({
   const [rightPanel, setRightPanel] = useState<RightPanel>(null)
   const [localName, setLocalName] = useState<string | null>(null)
   const { mutateAsync: editMessageAsync } = useEditMessage()
+  useClaimThreadOpenerReadHandoff(threadOpenerHandoff)
   const feed = useChannelMessageFeed({
     channelId,
     serverId,

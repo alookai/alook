@@ -20,12 +20,19 @@ function MentionBadge({ count }: { count: number }) {
   )
 }
 
-function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenForumThread, onOpenDm }: {
+function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenThread, onOpenDm }: {
   servers: UnreadServer[]
   dms: UnreadDm[]
   loading?: boolean
   onOpenChannel?: (serverId: string, channelId: string, parentChannelId?: string) => void
-  onOpenForumThread: (serverId: string, parentChannelId: string, childChannelId: string, openerMessageId: string) => void
+  onOpenThread: (
+    serverId: string,
+    parentChannelId: string,
+    childChannelId: string,
+    openerMessageId: string,
+    openerSeq?: number,
+    openerUnread?: boolean,
+  ) => void
   onOpenDm?: (dm: UnreadDm) => void
 }) {
   const nothingUnread = servers.length === 0 && dms.length === 0
@@ -72,7 +79,14 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenForumThread, o
                   data-testid={tid.inboxUnreadChild(child.channelId)}
                   onClick={() => {
                     if (child.openerMessageId) {
-                      onOpenForumThread(s.serverId, c.channelId, child.channelId, child.openerMessageId)
+                      onOpenThread(
+                        s.serverId,
+                        child.parentChannelId ?? c.channelId,
+                        child.channelId,
+                        child.openerMessageId,
+                        child.openerSeq,
+                        child.openerUnread,
+                      )
                     } else {
                       onOpenChannel?.(s.serverId, child.channelId, c.channelId)
                     }
@@ -191,6 +205,7 @@ export function InboxPopover({
   markedLoading,
   loading,
   onOpenChannel,
+  onOpenThread,
   onOpenForumThread,
   onOpenDm,
   onOpenMention,
@@ -207,7 +222,23 @@ export function InboxPopover({
   markedLoading?: boolean
   loading?: boolean
   onOpenChannel?: (serverId: string, channelId: string, parentChannelId?: string) => void
-  onOpenForumThread: (serverId: string, parentChannelId: string, childChannelId: string, openerMessageId: string) => void
+  onOpenThread?: (
+    serverId: string,
+    parentChannelId: string,
+    childChannelId: string,
+    openerMessageId: string,
+    openerSeq?: number,
+    openerUnread?: boolean,
+  ) => void
+  /** Compatibility for non-community showcase fixtures; product wiring uses onOpenThread. */
+  onOpenForumThread?: (
+    serverId: string,
+    parentChannelId: string,
+    childChannelId: string,
+    openerMessageId: string,
+    openerSeq?: number,
+    openerUnread?: boolean,
+  ) => void
   onOpenDm?: (dm: UnreadDm) => void
   onOpenMention?: (m: Mention) => void
   onOpenMarked?: (m: Marked) => void
@@ -255,7 +286,14 @@ export function InboxPopover({
         <TabsTrigger value="marked">Marked</TabsTrigger>
       </TabsList>
       <TabsContent value="unreads" className="min-h-0 flex-1">
-        <UnreadsTab servers={unreads} dms={unreadDms} loading={loading} onOpenChannel={onOpenChannel} onOpenForumThread={onOpenForumThread} onOpenDm={onOpenDm} />
+        <UnreadsTab
+          servers={unreads}
+          dms={unreadDms}
+          loading={loading}
+          onOpenChannel={onOpenChannel}
+          onOpenThread={onOpenThread ?? onOpenForumThread ?? (() => {})}
+          onOpenDm={onOpenDm}
+        />
       </TabsContent>
       <TabsContent value="mentions" className="min-h-0 flex-1">
         <MentionsTab mentions={mentions} loading={loading} onOpenMention={onOpenMention} onDeleteMention={onDeleteMention} />
