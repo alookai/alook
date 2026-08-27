@@ -93,9 +93,21 @@ test("server switching exposes one target-scoped cold checkpoint and skips it wh
   await page.goto(`/c/channels/${serverA}/${channelA}`)
   await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
 
+  const readOnlyPostPaths = new Set([
+    "/api/community/messages/batch",
+    "/api/community/messages/tags/batch",
+    "/api/community/channels/participants/batch",
+  ])
   const mutations: string[] = []
   page.on("request", (request) => {
-    if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) mutations.push(request.url())
+    const method = request.method()
+    const pathname = new URL(request.url()).pathname
+    if (
+      !["GET", "HEAD", "OPTIONS"].includes(method)
+      && !(method === "POST" && readOnlyPostPaths.has(pathname))
+    ) {
+      mutations.push(`${method} ${pathname}`)
+    }
   })
 
   // Install every cold gate before the first physical rail movement. Moving
