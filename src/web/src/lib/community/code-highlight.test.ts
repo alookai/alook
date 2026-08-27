@@ -1,4 +1,45 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { ShikiLanguage } from "./attachment-presentation"
+
+const SUPPORTED_LANGUAGES = [
+  "bash",
+  "c",
+  "cpp",
+  "csharp",
+  "css",
+  "diff",
+  "dockerfile",
+  "dotenv",
+  "go",
+  "graphql",
+  "hcl",
+  "html",
+  "ini",
+  "java",
+  "javascript",
+  "json",
+  "jsonl",
+  "jsx",
+  "kotlin",
+  "log",
+  "makefile",
+  "mdx",
+  "php",
+  "proto",
+  "python",
+  "ruby",
+  "rust",
+  "scss",
+  "sql",
+  "svelte",
+  "swift",
+  "toml",
+  "tsx",
+  "typescript",
+  "vue",
+  "xml",
+  "yaml",
+] as const satisfies readonly ShikiLanguage[]
 
 const shikiMocks = vi.hoisted(() => {
   const highlighter = {
@@ -13,32 +54,32 @@ const shikiMocks = vi.hoisted(() => {
   }
 })
 
-vi.mock("shiki/core", () => ({
+vi.mock("@shikijs/core", () => ({
   createHighlighterCore: shikiMocks.createHighlighterCore,
 }))
 
-vi.mock("shiki/engine/oniguruma", () => ({
+vi.mock("@shikijs/engine-oniguruma", () => ({
   createOnigurumaEngine: shikiMocks.createOnigurumaEngine,
 }))
 
-vi.mock("shiki/wasm", () => ({ default: { wasm: true } }))
+vi.mock("@shikijs/engine-oniguruma/wasm-inlined", () => ({ default: { wasm: true } }))
 
-vi.mock("shiki/langs", () => ({
+vi.mock("@shikijs/langs", () => ({
   get bundledLanguages() {
     throw new Error("Broad language registry must not load")
   },
 }))
 
-vi.mock("shiki/themes", () => ({
+vi.mock("@shikijs/themes", () => ({
   get bundledThemes() {
     throw new Error("Broad theme registry must not load")
   },
 }))
 
-vi.mock("shiki/langs/json.mjs", () => ({ default: [{ id: "json" }] }))
-vi.mock("shiki/langs/typescript.mjs", () => ({ default: [{ id: "typescript" }] }))
-vi.mock("shiki/themes/github-light.mjs", () => ({ default: { name: "github-light" } }))
-vi.mock("shiki/themes/github-dark.mjs", () => ({ default: { name: "github-dark" } }))
+vi.mock("@shikijs/langs/json", () => ({ default: [{ id: "json" }] }))
+vi.mock("@shikijs/langs/typescript", () => ({ default: [{ id: "typescript" }] }))
+vi.mock("@shikijs/themes/github-light", () => ({ default: { name: "github-light" } }))
+vi.mock("@shikijs/themes/github-dark", () => ({ default: { name: "github-dark" } }))
 
 beforeEach(() => {
   vi.resetModules()
@@ -96,6 +137,16 @@ describe("highlightCode", () => {
       reason: null,
     })
     expect(second.kind).toBe("highlighted")
+  })
+
+  it("resolves every supported language through its explicit package entry", async () => {
+    shikiMocks.highlighter.codeToTokensWithThemes.mockReturnValue([])
+    const { highlightCode } = await import("./code-highlight")
+
+    await Promise.all(SUPPORTED_LANGUAGES.map((language) => highlightCode("source", language)))
+
+    expect(shikiMocks.highlighter.loadLanguage).toHaveBeenCalledTimes(SUPPORTED_LANGUAGES.length)
+    expect(shikiMocks.highlighter.codeToTokensWithThemes).toHaveBeenCalledTimes(SUPPORTED_LANGUAGES.length)
   })
 
   it("skips Shiki above the byte or line token budget", async () => {

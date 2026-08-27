@@ -1,12 +1,12 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import dynamic from "next/dynamic"
 import { Download, Loader2 } from "lucide-react"
 import { buttonVariants } from "@/components/ui/button"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { cn } from "@/lib/utils"
 import { MessageBody } from "./message-body"
-import { CodePreview } from "./code-preview"
 import type { FileAttachment } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
 import {
@@ -14,6 +14,23 @@ import {
   MAX_TEXT_ATTACHMENT_PREVIEW_BYTES,
   resolveAttachmentPresentation,
 } from "@/lib/community/attachment-presentation"
+
+const CodePreview = dynamic(
+  () => import("./code-preview").then((module) => module.CodePreview),
+  {
+    ssr: false,
+    loading: () => (
+      <div
+        data-testid={tid.codePreview}
+        role="status"
+        className="flex min-h-40 items-center justify-center gap-2 text-sm text-muted-foreground"
+      >
+        <Loader2 className="size-4 animate-spin" />
+        Loading syntax highlighter…
+      </div>
+    ),
+  },
+)
 
 type PreviewState =
   | { status: "idle" | "loading"; content: null; error: null }
