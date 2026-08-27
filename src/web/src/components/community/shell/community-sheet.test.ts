@@ -74,12 +74,12 @@ describe("CommunitySheet contracts", () => {
     expect(resizeHandle).not.toHaveBeenCalled()
   })
 
-  it("uses the primitive resize policy only when Attachment opts in", () => {
-    const { renderer } = renderSheet({ resizable: true })
+  it("uses the primitive resize policy at the caller's desktop width", () => {
+    const { renderer } = renderSheet({ resizable: true, desktopWidth: 672 })
     const content = renderer.root.findByType("sheet-content")
     expect(content.props.style["--community-sheet-width"]).toBe("480px")
     expect(content.props.style["--community-sheet-max-width"]).toBe("80vw")
-    expect(resizeHook).toHaveBeenCalledWith({ defaultWidth: 480 })
+    expect(resizeHook).toHaveBeenCalledWith({ defaultWidth: 672 })
     expect(resizeHandle).toHaveBeenCalledOnce()
   })
 

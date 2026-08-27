@@ -2,12 +2,7 @@
 
 import { useLayoutEffect, useMemo, useRef, useEffect } from "react"
 import { AgentAvatar } from "@/components/avatar"
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog"
+import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { useOnlineUserIds } from "@/stores/community/ws"
 import {
   useBotAuditLog,
@@ -96,9 +91,9 @@ export function BotActivityModal({
     }
   }, [open, bot?.id])
 
-  // Snap to the newest event on first paint of an open cycle. The Radix
-  // Dialog mounts DialogContent inside a portal with an entrance animation,
-  // so relying on a `useLayoutEffect` that only fires when
+  // Snap to the newest event on first paint of an open cycle. CommunitySheet
+  // mounts its content inside a portal with an entrance animation, so relying
+  // on a `useLayoutEffect` that only fires when
   // `chronological.length` changes can race the portal's first layout — the
   // scroll fires before the container has its final height. Anchor + rAF
   // guarantees the browser has laid out at least once before we jump.
@@ -158,77 +153,69 @@ export function BotActivityModal({
   }, [chronological.length])
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        data-testid={tid.botActivityModal}
-        showCloseButton={false}
-        className="flex h-[72vh] max-h-170 w-full max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
-      >
-        <header className="flex shrink-0 items-center gap-3 border-b border-border/40 px-4 py-3">
+    <CommunitySheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title={(
+        <span className="flex min-w-0 items-center gap-3">
           <AgentAvatar name={bot?.name ?? ""} avatarUrl={bot?.image ?? null} seed={bot?.id} size={32} />
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <DialogTitle className="truncate text-sm font-medium">
-              {bot?.name ?? "Bot"}
-            </DialogTitle>
-            <DialogDescription className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <span
-                className={[
-                  "inline-block size-1.5 rounded-full",
-                  online ? "bg-status-online" : "bg-muted-foreground/60",
-                ].join(" ")}
-                aria-hidden
-              />
-              <span>{online ? "Live" : "Offline"}</span>
-              <span aria-hidden className="text-muted-foreground/40">·</span>
-              <span>Activity log</span>
-            </DialogDescription>
-          </div>
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            Close
-          </button>
-        </header>
-
-        <div ref={scrollRef} className="flex-1 overflow-y-auto thin-scrollbar bg-background">
-          {isLoading && chronological.length === 0 ? (
-            <SkeletonRows />
-          ) : chronological.length === 0 ? (
-            <EmptyState />
+          <span className="truncate text-sm font-medium">{bot?.name ?? "Bot"}</span>
+        </span>
+      )}
+      description={(
+        <span className="flex items-center gap-1.5 text-[11px]">
+          <span
+            className={[
+              "inline-block size-1.5 rounded-full",
+              online ? "bg-status-online" : "bg-muted-foreground/60",
+            ].join(" ")}
+            aria-hidden
+          />
+          <span>{online ? "Live" : "Offline"}</span>
+          <span aria-hidden className="text-muted-foreground/40">·</span>
+          <span>Activity log</span>
+        </span>
+      )}
+      desktopWidth={672}
+      resizable
+      contentTestId={tid.botActivityModal}
+      bodyRef={scrollRef}
+      bodyClassName="bg-background p-0"
+    >
+      {isLoading && chronological.length === 0 ? (
+        <SkeletonRows />
+      ) : chronological.length === 0 ? (
+        <EmptyState />
+      ) : (
+        <div className="pb-3">
+          {hasNextPage ? (
+            <div className="flex justify-center py-2">
+              <button
+                type="button"
+                onClick={onLoadOlder}
+                disabled={isFetchingNextPage}
+                className="rounded-md px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isFetchingNextPage ? "Loading older" : "Load older"}
+              </button>
+            </div>
           ) : (
-            <div className="pb-3">
-              {hasNextPage ? (
-                <div className="flex justify-center py-2">
-                  <button
-                    type="button"
-                    onClick={onLoadOlder}
-                    disabled={isFetchingNextPage}
-                    className="rounded-md px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70 hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isFetchingNextPage ? "Loading older" : "Load older"}
-                  </button>
-                </div>
-              ) : (
-                <div className="py-2 text-center font-mono text-[10px] uppercase tracking-wider text-muted-foreground/40">
-                  Beginning of log
-                </div>
-              )}
-              {grouped.map((group) => (
-                <section key={group.dayKey}>
-                  <DayDivider label={group.label} />
-                  {group.events.map((event) => (
-                    <BotActivityRow key={event.id} event={event} />
-                  ))}
-                </section>
-              ))}
-              <div ref={bottomAnchorRef} aria-hidden />
+            <div className="py-2 text-center font-mono text-[10px] uppercase tracking-wider text-muted-foreground/40">
+              Beginning of log
             </div>
           )}
+          {grouped.map((group) => (
+            <section key={group.dayKey}>
+              <DayDivider label={group.label} />
+              {group.events.map((event) => (
+                <BotActivityRow key={event.id} event={event} />
+              ))}
+            </section>
+          ))}
+          <div ref={bottomAnchorRef} aria-hidden />
         </div>
-      </DialogContent>
-    </Dialog>
+      )}
+    </CommunitySheet>
   )
 }
 

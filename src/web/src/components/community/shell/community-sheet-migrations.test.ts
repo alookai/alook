@@ -7,6 +7,7 @@ const migrations = [
   "../messages/attachment-preview-sheet.tsx",
   "../bots/create-bot-sheet.tsx",
   "../bots/edit-bot-sheet.tsx",
+  "../bots/bot-activity-modal.tsx",
   "../machines/pair-machine-sheet.tsx",
 ] as const
 
@@ -24,19 +25,23 @@ describe("CommunitySheet migrations", () => {
     expect(source).not.toMatch(/CommunitySheet(?:Header|Body|Footer|Title|Description|Close)/)
   })
 
-  it("allows only Attachment Preview to opt into the fixed resize policy", () => {
+  it("allows only Attachment Preview and Activity Log to opt into resize", () => {
     for (const path of migrations) {
       const source = readFileSync(new URL(path, import.meta.url), "utf8")
-      if (path.includes("attachment-preview")) expect(source).toContain("resizable")
+      if (path.includes("attachment-preview") || path.includes("bot-activity")) {
+        expect(source).toContain("resizable")
+      }
       else expect(source).not.toContain("resizable")
     }
   })
 
-  it("keeps only Members on the compact desktop width", () => {
+  it("reserves explicit desktop widths for Members and Activity Log", () => {
     for (const path of migrations) {
       const source = readFileSync(new URL(path, import.meta.url), "utf8")
       if (path === "./community-panel.tsx") {
         expect(source).toContain('desktopWidth={kind === "members" ? 380 : undefined}')
+      } else if (path.includes("bot-activity")) {
+        expect(source).toContain("desktopWidth={672}")
       } else {
         expect(source).not.toContain("desktopWidth=")
       }
