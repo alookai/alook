@@ -23,6 +23,28 @@ export type ReadIntent = {
 
 export type ReadSurface = { kind: "timeline"; channelId: string }
 
+type QueuedReadIntent = {
+  intent: ReadIntent
+  generation: number
+  dueAt: number
+}
+
+export type PendingReadFlushOutcome = {
+  consumed: boolean
+  cutoff: number | null
+  deferred?: true
+}
+
+type ReadAttemptOutcome = {
+  committed: boolean
+  reconciled: boolean
+  deferred?: true
+}
+
+type PendingReadFlushOptions = {
+  deferInboxDms?: () => boolean
+}
+
 type ReadMutationResponse = {
   changed: boolean
   revision: number
@@ -43,12 +65,16 @@ type ScopeState = {
   releaseTimer: ReturnType<typeof setTimeout> | null
   timer: ReturnType<typeof setTimeout> | null
   retryTimer: ReturnType<typeof setTimeout> | null
-  accepted: ReadIntent | null
-  dirty: ReadIntent | null
+  accepted: QueuedReadIntent | null
+  dirty: QueuedReadIntent | null
   inFlight: {
-    target: ReadIntent
+    target: QueuedReadIntent
     controller: AbortController
     attemptEpoch: number
+    phase: "mutation" | "reconciling"
+    completion: Promise<ReadAttemptOutcome>
+    drainCutoff?: number
+    deferInboxDms?: () => boolean
   } | null
   attemptEpoch: number
   retryCount: number
@@ -62,13 +88,14 @@ function scopeKey(surface: ReadSurface) {
   return `timeline:${surface.channelId}`
 }
 
-function sameIntent(left: ReadIntent, right: ReadIntent) {
-  return left.channelId === right.channelId && left.seq === right.seq
+function sameIntent(left: QueuedReadIntent, right: QueuedReadIntent) {
+  return left.intent.channelId === right.intent.channelId
+    && left.intent.seq === right.intent.seq
 }
 
-function laterIntent(current: ReadIntent | null, incoming: ReadIntent) {
+function laterIntent(current: QueuedReadIntent | null, incoming: QueuedReadIntent) {
   if (!current) return incoming
-  return incoming.seq > current.seq ? incoming : current
+  return incoming.intent.seq > current.intent.seq ? incoming : current
 }
 
 function retryable(error: unknown) {
@@ -83,6 +110,7 @@ class ReadCoordinator {
   private readonly states = new Map<string, ScopeState>()
   private disposed = false
   private identityEpoch = 0
+  private latestIntentGeneration = 0
 
   constructor(
     private readonly queryClient: QueryClient,
@@ -145,8 +173,13 @@ class ReadCoordinator {
       return false
     }
     if (this.confirmed(state, intent)) return false
-    state.accepted = laterIntent(state.accepted, intent)
-    state.dirty = laterIntent(state.dirty, intent)
+    const queued = {
+      intent,
+      generation: ++this.latestIntentGeneration,
+      dueAt: Date.now() + READ_COORDINATOR_DEBOUNCE_MS,
+    }
+    state.accepted = laterIntent(state.accepted, queued)
+    state.dirty = laterIntent(state.dirty, queued)
     this.schedule(state, READ_COORDINATOR_DEBOUNCE_MS)
     return true
   }
@@ -154,7 +187,7 @@ class ReadCoordinator {
   resume() {
     if (this.disposed) return
     for (const state of this.states.values()) {
-      if (state.dirty && !this.confirmed(state, state.dirty)) {
+      if (state.dirty && !this.confirmed(state, state.dirty.intent)) {
         state.accepted = laterIntent(state.accepted, state.dirty)
         state.retryCount = 0
         this.schedule(state, 0)
@@ -199,7 +232,7 @@ class ReadCoordinator {
     if (this.disposed || state.inFlight || state.timer !== null) return
     state.timer = setTimeout(() => {
       state.timer = null
-      void this.send(state)
+      void this.startSend(state)
     }, delay)
   }
 
@@ -208,40 +241,127 @@ class ReadCoordinator {
       clearTimeout(state.timer)
       state.timer = null
     }
-    if (state.accepted && !state.inFlight) void this.send(state)
+    if (state.accepted && !state.inFlight) void this.startSend(state)
   }
 
-  private async send(state: ScopeState) {
-    if (this.disposed || state.inFlight) return
+  async flushPending(
+    options: PendingReadFlushOptions = {},
+  ): Promise<PendingReadFlushOutcome> {
+    if (this.disposed || this.latestIntentGeneration === 0) {
+      return { consumed: false, cutoff: null }
+    }
+    const cutoff = this.latestIntentGeneration
+    const results = await Promise.all(
+      [...this.states.values()].map((state) => this.flushState(state, cutoff, options)),
+    )
+    const eligible = results.filter((result) => result.eligible)
+    const settled = eligible.length > 0
+      && eligible.every((result) => result.consumed || result.deferred)
+    const consumed = eligible.length > 0
+      && eligible.every((result) => result.consumed)
+    return {
+      consumed,
+      cutoff,
+      ...(settled && !consumed ? { deferred: true as const } : {}),
+    }
+  }
+
+  private async flushState(
+    state: ScopeState,
+    cutoff: number,
+    options: PendingReadFlushOptions,
+  ) {
+    let eligible = false
+    let deferred = false
+    while (!this.disposed) {
+      const active = state.inFlight
+      if (active) {
+        if (active.target.generation > cutoff) break
+        active.drainCutoff = Math.max(active.drainCutoff ?? cutoff, cutoff)
+        if (options.deferInboxDms) active.deferInboxDms = options.deferInboxDms
+        eligible = true
+        const outcome = await active.completion
+        if (!outcome.committed || (!outcome.reconciled && !outcome.deferred)) {
+          return { eligible, consumed: false }
+        }
+        deferred ||= outcome.deferred === true
+        continue
+      }
+
+      const target = state.accepted ?? state.dirty
+      if (!target || target.generation > cutoff) break
+      eligible = true
+      if (state.retryTimer !== null) return { eligible, consumed: false }
+      if (state.timer !== null) {
+        clearTimeout(state.timer)
+        state.timer = null
+      }
+      const outcome = await this.startSend(state, cutoff, options)
+      if (!outcome.committed || (!outcome.reconciled && !outcome.deferred)) {
+        return { eligible, consumed: false }
+      }
+      deferred ||= outcome.deferred === true
+    }
+    return { eligible, consumed: eligible && !deferred, deferred }
+  }
+
+  private startSend(
+    state: ScopeState,
+    drainCutoff?: number,
+    options: PendingReadFlushOptions = {},
+  ): Promise<ReadAttemptOutcome> {
+    if (this.disposed) {
+      return Promise.resolve({ committed: false, reconciled: false })
+    }
+    if (state.inFlight) return state.inFlight.completion
     const target = state.accepted ?? state.dirty
     /* istanbul ignore next -- reachable transitions cancel an empty target's timer eagerly */
-    if (!target || this.confirmed(state, target)) {
+    if (!target || this.confirmed(state, target.intent)) {
       this.cancelConfirmedWork(state)
-      return
+      return Promise.resolve({ committed: false, reconciled: false })
     }
     state.accepted = null
     const controller = new AbortController()
     const attemptEpoch = ++state.attemptEpoch
-    state.inFlight = { target, controller, attemptEpoch }
+    let resolveCompletion!: (outcome: ReadAttemptOutcome) => void
+    const completion = new Promise<ReadAttemptOutcome>((resolve) => {
+      resolveCompletion = resolve
+    })
+    state.inFlight = {
+      target,
+      controller,
+      attemptEpoch,
+      phase: "mutation",
+      completion,
+      drainCutoff,
+      deferInboxDms: options.deferInboxDms,
+    }
+    void this.performSend(state, target, controller, attemptEpoch)
+      .then(resolveCompletion)
+    return completion
+  }
+
+  private async performSend(
+    state: ScopeState,
+    target: QueuedReadIntent,
+    controller: AbortController,
+    attemptEpoch: number,
+  ): Promise<ReadAttemptOutcome> {
     const identityEpoch = this.identityEpoch
+    let response: ReadMutationResponse
     try {
-      const response = await apiFetch<ReadMutationResponse>(
-        `/api/community/channels/${target.channelId}/read`,
+      response = await apiFetch<ReadMutationResponse>(
+        `/api/community/channels/${target.intent.channelId}/read`,
         {
           method: "PUT",
-          body: JSON.stringify({ lastReadMessageId: target.messageId }),
+          body: JSON.stringify({ lastReadMessageId: target.intent.messageId }),
           signal: controller.signal,
         },
       )
-      if (!this.attemptActive(state, attemptEpoch, identityEpoch)) return
-      state.confirmedSeq = Math.max(state.confirmedSeq, response.targetSeq)
-      state.dirty = sameIntent(state.dirty ?? target, target) ? null : state.dirty
-      state.retryCount = 0
-      void reconcileAccountReadState(this.queryClient, {
-        targetRevision: response.revision,
-      }).catch(() => undefined)
     } catch (error) {
-      if (!this.attemptActive(state, attemptEpoch, identityEpoch)) return
+      if (!this.attemptActive(state, attemptEpoch, identityEpoch)) {
+        return { committed: false, reconciled: false }
+      }
       if (!retryable(error)) {
         if (state.dirty && sameIntent(state.dirty, target)) state.dirty = null
         state.retryCount = 0
@@ -254,18 +374,74 @@ class ReadCoordinator {
           this.schedule(state, 0)
         }, delay)
       }
-    } finally {
-      if (state.inFlight?.attemptEpoch === attemptEpoch) state.inFlight = null
-      if (!this.disposed && state.accepted && state.retryTimer === null) {
-        this.schedule(state, 0)
+      this.finishAttempt(state, attemptEpoch)
+      return { committed: false, reconciled: false }
+    }
+
+    if (!this.attemptActive(state, attemptEpoch, identityEpoch)) {
+      return { committed: false, reconciled: false }
+    }
+    state.confirmedSeq = Math.max(state.confirmedSeq, response.targetSeq)
+    state.dirty = sameIntent(state.dirty ?? target, target) ? null : state.dirty
+    state.retryCount = 0
+    if (state.inFlight?.attemptEpoch === attemptEpoch) {
+      state.inFlight.phase = "reconciling"
+    }
+    const activeAttempt = state.inFlight?.attemptEpoch === attemptEpoch
+      ? state.inFlight
+      : null
+    const deferInboxDms = activeAttempt?.deferInboxDms?.() === true
+      || (activeAttempt?.drainCutoff !== undefined
+        && state.accepted !== null
+        && state.accepted.generation > activeAttempt.drainCutoff)
+    try {
+      await reconcileAccountReadState(this.queryClient, {
+        surfaceMode: deferInboxDms ? "non-inbox" : "all",
+        awaitSurfaceMode: deferInboxDms ? "none" : "inbox-dms",
+        targetRevision: response.revision,
+      })
+      if (deferInboxDms) {
+        return {
+          committed: true,
+          reconciled: false,
+          deferred: true,
+        }
       }
+      return {
+        committed: true,
+        reconciled: this.attemptActive(state, attemptEpoch, identityEpoch),
+      }
+    } catch {
+      return { committed: true, reconciled: false }
+    } finally {
+      this.finishAttempt(state, attemptEpoch)
     }
   }
 
+  private finishAttempt(
+    state: ScopeState,
+    attemptEpoch: number,
+  ) {
+    const drainCutoff = state.inFlight?.attemptEpoch === attemptEpoch
+      ? state.inFlight.drainCutoff
+      : undefined
+    if (state.inFlight?.attemptEpoch === attemptEpoch) state.inFlight = null
+    if (this.disposed || !state.accepted || state.retryTimer !== null) return
+    if (drainCutoff === undefined || state.accepted.generation <= drainCutoff) {
+      this.schedule(state, 0)
+      return
+    }
+    this.schedule(state, Math.max(0, state.accepted.dueAt - Date.now()))
+  }
+
   private cancelConfirmedWork(state: ScopeState) {
-    if (state.accepted && this.confirmed(state, state.accepted)) state.accepted = null
-    if (state.dirty && this.confirmed(state, state.dirty)) state.dirty = null
-    if (state.inFlight && this.confirmed(state, state.inFlight.target)) {
+    if (state.accepted && this.confirmed(state, state.accepted.intent)) state.accepted = null
+    if (state.dirty && this.confirmed(state, state.dirty.intent)) state.dirty = null
+    if (
+      state.inFlight
+      && state.inFlight.phase === "mutation"
+      && this.confirmed(state, state.inFlight.target.intent)
+    ) {
       state.attemptEpoch += 1
       state.inFlight.controller.abort()
       state.inFlight = null
@@ -359,6 +535,15 @@ export function releaseReadSurface(lease: SurfaceLease) {
 
 export function submitReadIntent(lease: SurfaceLease, intent: ReadIntent) {
   return lease.coordinator.submit(lease, intent)
+}
+
+export function flushPendingReadIntents(
+  queryClient: QueryClient,
+  options?: PendingReadFlushOptions,
+): Promise<PendingReadFlushOutcome> {
+  const coordinator = coordinators.get(queryClient)
+  if (!coordinator) return Promise.resolve({ consumed: false, cutoff: null })
+  return coordinator.flushPending(options)
 }
 
 export function resumeReadCoordinator(queryClient: QueryClient) {

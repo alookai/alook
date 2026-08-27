@@ -413,7 +413,61 @@ describe("account read-state reconciliation", () => {
     expect(apiFetch).toHaveBeenCalledTimes(1)
   })
 
-  it("runs a second derived pass when a newer hint arrives during invalidation", async () => {
+  it("lets post-PUT consumption finish on Inbox/DM while server retry stays independent", async () => {
+    vi.useFakeTimers()
+    queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
+      revision: 4,
+      readStates: [],
+    })
+    apiFetch.mockResolvedValue({ revision: 5, readStates: [] })
+
+    let inboxFetches = 0
+    const inboxObserver = new QueryObserver(queryClient, {
+      queryKey: communityKeys.inbox(),
+      queryFn: async () => {
+        inboxFetches += 1
+        return []
+      },
+    })
+    const unsubscribeInbox = inboxObserver.subscribe(() => undefined)
+
+    let serverFetches = 0
+    const serverObserver = new QueryObserver(queryClient, {
+      queryKey: communityKeys.server("server-1"),
+      queryFn: async () => {
+        serverFetches += 1
+        if (serverFetches === 2) throw new Error("temporary server detail failure")
+        return { id: "server-1" }
+      },
+    })
+    const unsubscribeServer = serverObserver.subscribe(() => undefined)
+    await Promise.all([
+      vi.waitFor(() => expect(inboxObserver.getCurrentResult().status).toBe("success")),
+      vi.waitFor(() => expect(serverObserver.getCurrentResult().status).toBe("success")),
+    ])
+
+    await expect(reconcileAccountReadState(queryClient, {
+      surfaceMode: "all",
+      awaitSurfaceMode: "inbox-dms",
+      targetRevision: 5,
+    })).resolves.toMatchObject({ revision: 5 })
+    await vi.waitFor(() => expect(serverFetches).toBe(2))
+    expect(inboxFetches).toBe(2)
+    expect(projectReadStateEnvelope(queryClient, {
+      revision: 5,
+      inboxChanged: true,
+    })).toBe("stale")
+
+    await vi.advanceTimersByTimeAsync(100)
+    await vi.waitFor(() => expect(serverFetches).toBe(3))
+    expect(inboxFetches).toBe(2)
+
+    unsubscribeInbox()
+    unsubscribeServer()
+    vi.useRealTimers()
+  })
+
+  it("advances the snapshot and runs a second derived pass during invalidation", async () => {
     queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), {
       revision: 4,
       readStates: [],
@@ -431,7 +485,7 @@ describe("account read-state reconciliation", () => {
     const first = reconcileAccountReadState(queryClient, { targetRevision: 5 })
     await vi.waitFor(() => expect(invalidate).toHaveBeenCalledTimes(3))
     const second = reconcileAccountReadState(queryClient, { targetRevision: 6 })
-    expect(apiFetch).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
 
     releaseSurface()
     await expect(Promise.all([first, second])).resolves.toEqual([

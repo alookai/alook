@@ -5,6 +5,7 @@ import {
   capturedUseUserWsOptions,
   cleanupCommunityWsHarness,
   flushEffects,
+  getCommunityApiFetchMock,
   mountHook,
   resetCommunityWsHarness,
 } from "./community-ws/test-harness"
@@ -33,34 +34,39 @@ afterEach(async () => {
 })
 
 describe("community read-state lifecycle reconciliation", () => {
-  it("loads the authoritative account snapshot on authentication", async () => {
+  it("schedules the first-auth owner before non-Inbox reconciliation completes", async () => {
+    vi.useFakeTimers()
     await mountHook()
+    let releaseSnapshot!: (value: unknown) => void
+    getCommunityApiFetchMock().mockReturnValueOnce(new Promise((resolve) => {
+      releaseSnapshot = resolve
+    }))
     const invalidate = vi.spyOn(capturedQueryClient, "invalidateQueries")
-    await capturedUseUserWsOptions?.onAuthenticated?.()
-    expect(capturedQueryClient.getQueryData(
-      communityKeys.accountReadStateSnapshot(),
-    )).toEqual({ revision: 0, readStates: [] })
+    const authentication = capturedUseUserWsOptions?.onAuthenticated?.()
+
+    expect(getCommunityApiFetchMock()).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(500)
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: communityKeys.inbox(),
-      refetchType: "active",
-    }, {
-      cancelRefetch: true,
-      throwOnError: true,
     })
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: communityKeys.dms(),
-      refetchType: "active",
-    }, {
-      cancelRefetch: true,
-      throwOnError: true,
     })
+
+    releaseSnapshot({ revision: 0, readStates: [] })
+    await authentication
+    expect(capturedQueryClient.getQueryData(
+      communityKeys.accountReadStateSnapshot(),
+    )).toEqual({ revision: 0, readStates: [] })
   })
 
   it.each(["visibilitychange", "pageshow"] as const)(
-    "reconciles cached read state on %s",
+    "schedules the connected owner and reconciles non-Inbox state on %s",
     async (eventType) => {
+      vi.useFakeTimers()
       await mountHook()
       flushEffects()
+      const invalidate = vi.spyOn(capturedQueryClient, "invalidateQueries")
       const listener = eventType === "visibilitychange"
         ? documentListeners.get(eventType)
         : windowListeners.get(eventType)
@@ -69,6 +75,13 @@ describe("community read-state lifecycle reconciliation", () => {
       await vi.waitFor(() => expect(capturedQueryClient.getQueryData(
         communityKeys.accountReadStateSnapshot(),
       )).toEqual({ revision: 0, readStates: [] }))
+      expect(invalidate).not.toHaveBeenCalledWith({
+        queryKey: communityKeys.inbox(),
+      })
+      await vi.advanceTimersByTimeAsync(500)
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: communityKeys.inbox(),
+      })
     },
   )
 })

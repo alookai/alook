@@ -272,18 +272,25 @@ export type CommunityWsReconcileSummary = {
   reconnectDurationMs: number
 }
 
+type CommunityWsReconnectOptions = {
+  excludePolicies?: readonly CommunityWsReconcilePolicy[]
+}
+
 export async function reconcileCommunityWsReconnect(
   queryClient: QueryClient,
   reconnectDurationMs = 0,
+  options: CommunityWsReconnectOptions = {},
 ): Promise<CommunityWsReconcileSummary> {
   const startedAt = Date.now()
   const executors = policyExecutors(queryClient)
-  const resetPolicies = communityWsReconnectPolicies.filter((policy) => RESET_POLICIES.has(policy))
-  const focusedMessagePolicies = communityWsReconnectPolicies.filter((policy) => policy === "focused-messages")
-  const focusedRoutePolicies = communityWsReconnectPolicies.filter(
+  const excludedPolicies = new Set(options.excludePolicies ?? [])
+  const policies = communityWsReconnectPolicies.filter((policy) => !excludedPolicies.has(policy))
+  const resetPolicies = policies.filter((policy) => RESET_POLICIES.has(policy))
+  const focusedMessagePolicies = policies.filter((policy) => policy === "focused-messages")
+  const focusedRoutePolicies = policies.filter(
     (policy) => FOCUSED_POLICIES.has(policy) && policy !== "focused-messages",
   )
-  const backgroundPolicies = communityWsReconnectPolicies.filter(
+  const backgroundPolicies = policies.filter(
     (policy) => !RESET_POLICIES.has(policy) && !FOCUSED_POLICIES.has(policy),
   )
 

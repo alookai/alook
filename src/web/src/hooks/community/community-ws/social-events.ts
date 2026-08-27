@@ -22,7 +22,6 @@ import {
 import type { SocialEventContext } from "@/hooks/community/community-ws/handler-context"
 import {
   invalidateFriends,
-  invalidateInbox,
   invalidateServersList,
 } from "./invalidation-projections"
 import {
@@ -43,7 +42,9 @@ function applyReadStateEnvelope(
 ) {
   const outcome = projectReadStateEnvelope(context.queryClient, event)
   if (outcome === "gap") {
+    context.scheduleInboxInvalidate({ inbox: true, dms: true })
     void reconcileAccountReadState(context.queryClient, {
+      surfaceMode: "non-inbox",
       targetRevision: event.revision,
     }).catch(() => undefined)
   }
@@ -173,9 +174,9 @@ export function handleFriendEvent(
 
 export function handleMentionCreate(
   _event: CommunityMentionCreate,
-  { projection }: SocialEventContext,
+  { projection, scheduleInboxInvalidate }: SocialEventContext,
 ) {
-  invalidateInbox(projection)
+  scheduleInboxInvalidate({ inbox: true, dms: false })
   // The server rail badge counts unread mentions per server; refresh
   // it on every new mention. `exact: true` is essential: the mention
   // count lives in the `servers()` LIST query, but members/presence/

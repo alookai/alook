@@ -12,6 +12,10 @@ const communityApiFetch = vi.hoisted(() => vi.fn(async (...args: unknown[]) => {
   throw new Error(`unexpected API fetch: ${url}`)
 }))
 
+export function getCommunityApiFetchMock() {
+  return communityApiFetch
+}
+
 vi.mock("@/lib/api/client", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api/client")>("@/lib/api/client")
   return { ...actual, apiFetch: (...args: unknown[]) => communityApiFetch(...args) }
@@ -158,14 +162,18 @@ export async function resetCommunityWsHarness() {
 }
 
 export async function cleanupCommunityWsHarness() {
-  flushEffects()
-  for (const cleanup of effectCleanups.splice(0).reverse()) cleanup()
+  unmountHook()
   await resetStore()
   vi.clearAllTimers()
   vi.useRealTimers()
   vi.restoreAllMocks()
   vi.clearAllMocks()
   resetHarnessState()
+}
+
+export function unmountHook() {
+  flushEffects()
+  for (const cleanup of effectCleanups.splice(0).reverse()) cleanup()
 }
 
 export function messageCreate(channelId: string, msgId = "m_1"): CommunityMessageCreate {
