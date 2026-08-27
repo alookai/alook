@@ -125,7 +125,7 @@ export function AttachmentPreviewSheet({
       onOpenChange={onOpenChange}
       title={selected?.name ?? "Attachment"}
       description={[selected?.contentType || presentation?.category, size].filter(Boolean).join(" · ")}
-      headerActions={selected && (
+      footer={selected && (
         <a
           data-testid={tid.attachmentPreviewDownload}
           href={selected.url}

@@ -22,6 +22,7 @@ describe("CommunitySheet migrations", () => {
     expect(source).not.toContain("@/components/ui/sheet-resize-handle")
     expect(source).not.toMatch(/mode="(?:sidecar|task|preview)"/)
     expect(source).not.toContain("initialWidth=")
+    expect(source).not.toContain("headerActions")
     expect(source).not.toMatch(/CommunitySheet(?:Header|Body|Footer|Title|Description|Close)/)
   })
 
