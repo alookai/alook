@@ -14,6 +14,7 @@ vi.mock("./community-ws/read-state-reconciliation", () => ({
 }))
 
 import {
+  confirmReadSurface,
   disposeReadCoordinator,
   flushPendingReadIntents,
   getReadCoordinator,
@@ -236,6 +237,70 @@ describe("read coordinator", () => {
       messageId: "opener-8",
       seq: 8,
     })).toBeNull()
+  })
+
+  it("uses default registration semantics and confirms monotonically through the public adapter", async () => {
+    const queryClient = new QueryClient()
+    const lease = registerReadSurface(queryClient, "user-1", {
+      kind: "timeline",
+      channelId: "channel-1",
+    })
+    expect(submitTimeline(lease, 6)).toBe(true)
+    confirmReadSurface(lease, 6)
+    confirmReadSurface(lease, 2)
+    expect(submitTimeline(lease, 5)).toBe(false)
+    await vi.runAllTimersAsync()
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it("aborts and fences an active navigation-owned mutation on release", async () => {
+    const queryClient = new QueryClient()
+    const lease = registerReadSurface(
+      queryClient,
+      "user-1",
+      { kind: "timeline", channelId: "forum-1" },
+      0,
+      "cancel-uncommitted",
+    )
+    apiFetch.mockReturnValue(new Promise(() => undefined))
+    submitReadIntentGeneration(lease, {
+      kind: "timeline",
+      channelId: "forum-1",
+      messageId: "opener-7",
+      seq: 7,
+    })
+    await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+    const signal = apiFetch.mock.calls[0]?.[1]?.signal as AbortSignal
+
+    releaseReadSurface(lease)
+
+    expect(signal.aborted).toBe(true)
+    expect(reconcileAccountReadState).not.toHaveBeenCalled()
+  })
+
+  it("cancels a navigation-owned retry timer and dirty generation on release", async () => {
+    const queryClient = new QueryClient()
+    const lease = registerReadSurface(
+      queryClient,
+      "user-1",
+      { kind: "timeline", channelId: "forum-1" },
+      0,
+      "cancel-uncommitted",
+    )
+    apiFetch.mockRejectedValue(new ApiError("busy", 503))
+    submitReadIntentGeneration(lease, {
+      kind: "timeline",
+      channelId: "forum-1",
+      messageId: "opener-7",
+      seq: 7,
+    })
+    await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+    expect(apiFetch).toHaveBeenCalledOnce()
+
+    releaseReadSurface(lease)
+    await vi.runAllTimersAsync()
+
+    expect(apiFetch).toHaveBeenCalledOnce()
   })
 
   it("serializes a newer visible target behind the active request", async () => {

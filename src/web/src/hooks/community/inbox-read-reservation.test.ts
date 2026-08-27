@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   armThreadOpenerReservationHandoff,
+  clearThreadOpenerReservationHandoff,
   completeThreadOpenerReservationHandoff,
   disposeInboxReadReservation,
   getThreadOpenerReservationHandoff,
@@ -84,6 +85,22 @@ describe("inbox read reservation", () => {
     await expect(pending).rejects.toMatchObject({ name: "AbortError" })
   })
 
+  it("classifies and fingerprints a focused DM response", async () => {
+    const seen = vi.fn()
+    registerInboxReadReservationSurface(queryClient, "background-dm", seen)
+    const pending = reserveInboxUnreadsResponse(queryClient, response())
+    void pending.catch(() => undefined)
+
+    expect(seen).toHaveBeenCalledWith(expect.objectContaining({
+      channelId: "background-dm",
+      lastMessageAt: "2026-08-27T02:00:00.000Z",
+      openerUnread: false,
+      fingerprint: expect.stringContaining("background-dm"),
+    }))
+    disposeInboxReadReservation(queryClient)
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+  })
+
   it("promotes the held epoch to the exact committed generation", async () => {
     const lease = registerInboxReadReservationSurface(queryClient, "focused", vi.fn())
     const pending = reserveInboxUnreadsResponse(queryClient, response())
@@ -161,6 +178,57 @@ describe("inbox read reservation", () => {
     disposeInboxReadReservation(queryClient)
   })
 
+  it("negatively releases a held payload when its replacement surface has no candidate", async () => {
+    const oldLease = registerInboxReadReservationSurface(queryClient, "old", vi.fn())
+    const pending = reserveInboxUnreadsResponse(queryClient, response("old", "t-old"))
+    void pending.catch(() => undefined)
+
+    releaseInboxReadReservationSurface(oldLease)
+    registerInboxReadReservationSurface(queryClient, "missing", vi.fn())
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+    await Promise.resolve()
+
+    expect(queryClient.refetchQueries).toHaveBeenCalledOnce()
+  })
+
+  it("reclassifies old-to-target under an exact route lease before awaiting the claim", async () => {
+    armThreadOpenerReservationHandoff(queryClient, {
+      nonce: "nonce-reclassify",
+      serverId: "server",
+      parentChannelId: "forum",
+      childChannelId: "child",
+      openerMessageId: "opener-7",
+      openerSeq: 7,
+    })
+    const oldLease = registerInboxReadReservationSurface(queryClient, "old", vi.fn())
+    const data = {
+      servers: [{ channels: [
+        { channelId: "old", lastMessageAt: "t-old", hasDirectUnread: true, children: [] },
+        ...openerResponse().servers[0]!.channels,
+        { channelId: "unrelated", lastMessageAt: "t-new", hasDirectUnread: true, children: [] },
+      ] }],
+      dms: [],
+    }
+    const pending = reserveInboxUnreadsResponse(queryClient, data)
+    void pending.catch(() => undefined)
+    registerThreadOpenerRouteLease(queryClient, "nonce-reclassify", "server", "child")
+
+    releaseInboxReadReservationSurface(oldLease)
+    const childLease = registerInboxReadReservationSurface(queryClient, "child", vi.fn())
+
+    expect(getThreadOpenerReservationHandoff(queryClient, "nonce-reclassify")?.phase)
+      .toBe("awaiting-opener-claim")
+    expect(takeInboxReadReservationNegative(childLease)).toBe(false)
+    expect(completeThreadOpenerReservationHandoff(
+      queryClient,
+      "nonce-reclassify",
+      41,
+    )).toBe(true)
+    await settleInboxReadReservationGeneration(queryClient, 41, true, "forum")
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+    expect(queryClient.refetchQueries).not.toHaveBeenCalled()
+  })
+
   it("blocks child negative release until an exact opener claim transfers ownership", async () => {
     armThreadOpenerReservationHandoff(queryClient, {
       nonce: "nonce-1",
@@ -186,6 +254,43 @@ describe("inbox read reservation", () => {
 
     await settleInboxReadReservationGeneration(queryClient, 23, true, "forum")
     await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+    expect(queryClient.refetchQueries).not.toHaveBeenCalled()
+  })
+
+  it("awaits a claim when the exact route lease exists before the response", async () => {
+    armThreadOpenerReservationHandoff(queryClient, {
+      nonce: "nonce-lease-first",
+      serverId: "server",
+      parentChannelId: "forum",
+      childChannelId: "child",
+      openerMessageId: "opener-7",
+      openerSeq: 7,
+    })
+    const lease = registerInboxReadReservationSurface(queryClient, "child", vi.fn())
+    registerThreadOpenerRouteLease(queryClient, "nonce-lease-first", "server", "child")
+    const pending = reserveInboxUnreadsResponse(queryClient, openerResponse())
+    void pending.catch(() => undefined)
+
+    expect(getThreadOpenerReservationHandoff(queryClient, "nonce-lease-first")?.phase)
+      .toBe("awaiting-opener-claim")
+    expect(takeInboxReadReservationNegative(lease)).toBe(false)
+    disposeInboxReadReservation(queryClient)
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+  })
+
+  it("removes an aborted held response exactly once", async () => {
+    registerInboxReadReservationSurface(queryClient, "focused", vi.fn())
+    const controller = new AbortController()
+    const pending = reserveInboxUnreadsResponse(queryClient, response(), controller.signal)
+    controller.abort()
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+    disposeInboxReadReservation(queryClient)
+    expect(queryClient.refetchQueries).not.toHaveBeenCalled()
+  })
+
+  it("clears as a no-op when no handoff is active", () => {
+    expect(clearThreadOpenerReservationHandoff(queryClient)).toBe(false)
     expect(queryClient.refetchQueries).not.toHaveBeenCalled()
   })
 

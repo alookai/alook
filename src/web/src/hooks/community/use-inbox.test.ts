@@ -1,5 +1,7 @@
+import React from "react"
+import TestRenderer, { act } from "react-test-renderer"
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { QueryClient } from "@tanstack/react-query"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import {
   disposeInboxReadReservation,
@@ -71,6 +73,36 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
     await expect(first).rejects.toMatchObject({ name: "AbortError" })
     await expect(inboxUnreadsReservedQueryFn(qc)()).resolves.toBe(data)
     disposeInboxReadReservation(qc)
+  })
+
+  it("wires the production hook to its live QueryClient across rerenders", async () => {
+    apiFetchMock.mockResolvedValue({ servers: [], dms: [] })
+    const { useInboxUnreads } = await import("./use-inbox")
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    function Harness() {
+      const inbox = useInboxUnreads()
+      return React.createElement("span", {
+        "data-count": inbox.servers.length + inbox.dms.length,
+      })
+    }
+    const tree = React.createElement(
+      QueryClientProvider,
+      { client: qc },
+      React.createElement(Harness),
+    )
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(tree)
+    })
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+    await act(async () => {
+      renderer.update(tree)
+    })
+    expect(renderer.root.findByType("span").props["data-count"]).toBe(0)
+    expect(apiFetchMock).toHaveBeenCalledOnce()
+    await act(async () => renderer.unmount())
   })
 })
 

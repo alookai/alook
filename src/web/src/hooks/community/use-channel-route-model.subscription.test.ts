@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
   clearLastChannel: vi.fn(),
   lastChannel: null as string | null,
+  server: undefined as undefined | Record<string, unknown>,
   metaQuery: {
     data: undefined as undefined | Record<string, unknown>,
     error: null as unknown,
@@ -28,15 +29,7 @@ vi.mock("@tanstack/react-query", async () => {
   return { ...actual, useQueryClient: () => queryClient }
 })
 vi.mock("./use-servers", () => ({
-  useServer: () => ({
-    server: {
-      id: "server-1",
-      categories: [{
-        id: "cat-1",
-        channels: [{ id: "forum-1", name: "Forum", type: "forum" }],
-      }],
-    },
-  }),
+  useServer: () => ({ server: mocks.server }),
 }))
 vi.mock("./use-child-channel-meta", () => ({
   useChildChannelMeta: () => mocks.metaQuery,
@@ -53,8 +46,8 @@ vi.mock("@/lib/community/last-channel", () => ({
 
 import { buildChannelRouteModel, useChannelRouteModel } from "./use-channel-route-model"
 
-function Harness() {
-  const result = useChannelRouteModel("server-1", "server-1", "post-1")
+function Harness({ channelId = "post-1" }: { channelId?: string }) {
+  const result = useChannelRouteModel("server-1", "server-1", channelId)
   return React.createElement("span", { "data-lifecycle": result.routeLifecycle })
 }
 
@@ -69,6 +62,13 @@ beforeEach(() => {
   mocks.replace.mockClear()
   mocks.clearLastChannel.mockClear()
   mocks.lastChannel = null
+  mocks.server = {
+    id: "server-1",
+    categories: [{
+      id: "cat-1",
+      channels: [{ id: "forum-1", name: "Forum", type: "forum" }],
+    }],
+  }
   mocks.metaQuery = { data: undefined, error: null, isVerified: false, isError: false }
 })
 
@@ -77,6 +77,30 @@ afterEach(() => {
 })
 
 describe("useChannelRouteModel subscription ownership", () => {
+  it("moves a top-level channel from pending to ready when server categories hydrate", () => {
+    mocks.server = undefined
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(Harness, { channelId: "forum-1" }))
+    })
+    expect(lifecycle(renderer!)).toBe("pending")
+
+    mocks.server = {
+      id: "server-1",
+      categories: [{
+        id: "cat-1",
+        channels: [{ id: "forum-1", name: "Forum", type: "forum" }],
+      }],
+    }
+    act(() => {
+      renderer!.update(React.createElement(Harness, { channelId: "forum-1" }))
+    })
+
+    expect(lifecycle(renderer!)).toBe("ready")
+    expect(mocks.metaQuery.isVerified).toBe(false)
+    act(() => renderer!.unmount())
+  })
+
   it("does not hydrate a verified child with the previous child's store metadata", () => {
     const model = buildChannelRouteModel(
       {

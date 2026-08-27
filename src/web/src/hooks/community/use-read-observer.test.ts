@@ -15,11 +15,25 @@ const reservation = vi.hoisted(() => ({
   promote: vi.fn(),
   negative: vi.fn(() => true),
 }))
+const hookState = vi.hoisted(() => ({
+  candidate: null as null | {
+    channelId: string
+    lastMessageAt: string
+    fingerprint: string
+    openerUnread: boolean
+  },
+}))
 
 vi.mock("react", () => ({
   useCallback: (callback: unknown) => callback,
   useRef: (initial: unknown) => ({ current: initial }),
-  useState: (initial: unknown) => [initial, vi.fn()],
+  useState: (initial: unknown) => initial === null
+    ? [hookState.candidate, (next: unknown) => {
+        hookState.candidate = typeof next === "function"
+          ? (next as (value: typeof hookState.candidate) => typeof hookState.candidate)(hookState.candidate)
+          : next as typeof hookState.candidate
+      }]
+    : [initial, vi.fn()],
   useEffect: (effect: () => void | (() => void)) => effects.push(effect),
   useLayoutEffect: (effect: () => void | (() => void)) => effects.push(effect),
 }))
@@ -138,6 +152,7 @@ describe("useTimelineReadObserver", () => {
     visibilityListeners = new Set()
     pageShowListeners = new Set()
     mutationCallback = undefined
+    hookState.candidate = null
     vi.clearAllMocks()
     vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver)
     vi.stubGlobal("MutationObserver", class {
@@ -245,12 +260,117 @@ describe("useTimelineReadObserver", () => {
     trigger(observers[0]!, row)
     expect(coordinator.submit).not.toHaveBeenCalled()
     expect(reservation.negative).toHaveBeenCalledWith({ lease: "reservation" })
+    for (const listener of visibilityListeners) listener()
 
     visibility = "visible"
     for (const listener of visibilityListeners) listener()
     expect(coordinator.resume).toHaveBeenCalledWith(queryClient)
     trigger(observers[0]!, row)
     expect(coordinator.submit).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    { snapshotStatus: "error" as const },
+    { feedStatus: "error" as const },
+    { tailAttached: false },
+  ])("negatively classifies an unusable ready surface: $snapshotStatus$feedStatus$tailAttached", (options) => {
+    hookState.candidate = {
+      channelId: "channel-1",
+      lastMessageAt: "t4",
+      fingerprint: "focused-t4",
+      openerUnread: false,
+    }
+    useTestRender(options)
+    runEffects()
+    expect(reservation.negative).toHaveBeenCalledWith({ lease: "reservation" })
+  })
+
+  it("negatively classifies a hidden ready surface before correlating messages", () => {
+    hookState.candidate = {
+      channelId: "channel-1",
+      lastMessageAt: "t4",
+      fingerprint: "focused-t4",
+      openerUnread: false,
+    }
+    visibility = "hidden"
+    useTestRender()
+    runEffects()
+    expect(reservation.negative).toHaveBeenCalledWith({ lease: "reservation" })
+  })
+
+  it("correlates duplicate timestamps to the highest sequence and requires its DOM node", () => {
+    hookState.candidate = {
+      channelId: "channel-1",
+      lastMessageAt: "t4",
+      fingerprint: "focused-t4",
+      openerUnread: false,
+    }
+    const high = makeRow("message-high")
+    useTestRender({
+      messages: [
+        { id: "message-low", seq: 2, authorId: "other-1", createdAt: "t4" },
+        { id: "message-high", seq: 5, authorId: "other-1", createdAt: "t4" },
+      ],
+      scrollRootEl: makeRoot([high]),
+    })
+    runEffects()
+    expect(reservation.negative).not.toHaveBeenCalled()
+
+    effects.length = 0
+    vi.clearAllMocks()
+    hookState.candidate = {
+      channelId: "channel-1",
+      lastMessageAt: "t4",
+      fingerprint: "focused-t4",
+      openerUnread: false,
+    }
+    useTestRender({ scrollRootEl: makeRoot([]) })
+    runEffects()
+    expect(reservation.negative).toHaveBeenCalledWith({ lease: "reservation" })
+  })
+
+  it("starts one catch-up for a behind loaded tail and settles its fingerprint", async () => {
+    hookState.candidate = {
+      channelId: "channel-1",
+      lastMessageAt: "t9",
+      fingerprint: "focused-t9",
+      openerUnread: false,
+    }
+    const catchUp = vi.fn().mockResolvedValue(undefined)
+    useTestRender({ catchUp })
+    runEffects()
+    expect(catchUp).toHaveBeenCalledOnce()
+    expect(reservation.negative).not.toHaveBeenCalled()
+    await Promise.resolve()
+  })
+
+  it.each([
+    { messages: [] as any[] },
+    { messages: [{ id: "message-10", seq: 10, authorId: "other-1", createdAt: "u10" }] as any[] },
+  ])("negatively classifies a missing candidate after the loaded tail is authoritative", ({ messages }) => {
+    hookState.candidate = {
+      channelId: "channel-1",
+      lastMessageAt: "t9",
+      fingerprint: "focused-t9",
+      openerUnread: false,
+    }
+    useTestRender({ messages })
+    runEffects()
+    expect(reservation.negative).toHaveBeenCalledWith({ lease: "reservation" })
+  })
+
+  it("negatively classifies the correlated row below the visibility threshold", () => {
+    hookState.candidate = {
+      channelId: "channel-1",
+      lastMessageAt: "t4",
+      fingerprint: "focused-t4",
+      openerUnread: false,
+    }
+    const { row } = useTestRender()
+    runEffects()
+    trigger(observers[0]!, row, 0.1)
+    expect(reservation.negative).toHaveBeenCalledWith({ lease: "reservation" })
+    expect(coordinator.submit).not.toHaveBeenCalled()
   })
 
   it("fences a recycled node and a callback from a released route scope", () => {

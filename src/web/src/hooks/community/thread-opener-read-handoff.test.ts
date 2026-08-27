@@ -177,6 +177,32 @@ describe("thread opener read handoff", () => {
     expect(getThreadOpenerReservationHandoff(state.queryClient!, "nonce-fixed")).toBeNull()
   })
 
+  it("falls back to unique local nonces when randomUUID is unavailable", () => {
+    vi.stubGlobal("crypto", undefined)
+    const input = {
+      serverId: "server-1",
+      parentChannelId: "parent-1",
+      childChannelId: "child-1",
+      openerMessageId: "opener-7",
+      openerSeq: 7,
+    }
+    const first = armThreadOpenerReadHandoff(state.queryClient!, input)
+    const second = armThreadOpenerReadHandoff(state.queryClient!, input)
+    expect(first).toMatch(/inboxThreadOpener=opener-\d+$/)
+    expect(second).toMatch(/inboxThreadOpener=opener-\d+$/)
+    expect(second).not.toBe(first)
+  })
+
+  it("cleans an aligned nonce URL when no matching handoff exists", async () => {
+    const renderer = await render("ready")
+    expect(mocks.submit).not.toHaveBeenCalled()
+    expect(mocks.replace).toHaveBeenCalledWith(
+      "/c/channels/server-1/child-1?msg=message-9&tab=all",
+      { scroll: false },
+    )
+    await act(async () => renderer.unmount())
+  })
+
   it("survives a real pending-to-ready rerender, then claims the exact parent and preserves child msg", async () => {
     armThreadOpenerReservationHandoff(state.queryClient!, target)
     const renderer = await render("pending")
@@ -229,6 +255,92 @@ describe("thread opener read handoff", () => {
       messageId: "opener-7",
       seq: 7,
     })
+  })
+
+  it("releases the prior parent lease before claiming a replacement target", async () => {
+    armThreadOpenerReservationHandoff(state.queryClient!, target)
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(Claim, { handoff: target }))
+    })
+
+    const replacement = {
+      ...target,
+      nonce: "nonce-2",
+      openerMessageId: "opener-8",
+      openerSeq: 8,
+    }
+    armThreadOpenerReservationHandoff(state.queryClient!, replacement)
+    state.params = "inboxThreadOpener=nonce-2&msg=message-9&tab=all"
+    await act(async () => {
+      renderer.update(React.createElement(Claim, { handoff: replacement }))
+    })
+
+    expect(mocks.release).toHaveBeenCalledWith({ lease: "parent" })
+    expect(mocks.submit).toHaveBeenLastCalledWith({ lease: "parent" }, {
+      kind: "timeline",
+      channelId: "parent-1",
+      messageId: "opener-8",
+      seq: 8,
+    })
+    await act(async () => renderer.unmount())
+  })
+
+  it("terminates a stale claim target without submitting its parent read", async () => {
+    armThreadOpenerReservationHandoff(state.queryClient!, { ...target, openerSeq: 8 })
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(Claim, { handoff: target }))
+    })
+    expect(mocks.submit).not.toHaveBeenCalled()
+    expect(getThreadOpenerReservationHandoff(state.queryClient!, "nonce-1")).toBeNull()
+    await act(async () => renderer.unmount())
+  })
+
+  it("releases and terminates when the coordinator rejects the opener generation", async () => {
+    mocks.submit.mockReturnValue(null)
+    armThreadOpenerReservationHandoff(state.queryClient!, target)
+    const renderer = await render("ready")
+    expect(mocks.release).toHaveBeenCalledWith({ lease: "parent" })
+    expect(getThreadOpenerReservationHandoff(state.queryClient!, "nonce-1")).toBeNull()
+    await act(async () => renderer.unmount())
+  })
+
+  it("defers a claimed parent lease release until a true hook unmount", async () => {
+    armThreadOpenerReservationHandoff(state.queryClient!, target)
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(Claim, { handoff: target }))
+    })
+    expect(mocks.release).not.toHaveBeenCalled()
+    await act(async () => {
+      renderer.unmount()
+      await Promise.resolve()
+    })
+    expect(mocks.release).toHaveBeenCalledWith({ lease: "parent" })
+  })
+
+  it("fences the deferred release when the hook lifetime is replaced before its microtask", async () => {
+    const firstClient = state.queryClient!
+    armThreadOpenerReservationHandoff(firstClient, target)
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(Claim, { handoff: target }))
+    })
+
+    state.queryClient = client()
+    await act(async () => {
+      renderer.update(React.createElement(Claim, { handoff: target }))
+      await Promise.resolve()
+    })
+
+    expect(mocks.release).not.toHaveBeenCalled()
+    await act(async () => {
+      renderer.unmount()
+      await Promise.resolve()
+    })
+    expect(mocks.release).toHaveBeenCalledWith({ lease: "parent" })
+    disposeInboxReadReservation(firstClient)
   })
 
   it("settles an orphaned push when a later nonce-free direct child route matches", async () => {
