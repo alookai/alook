@@ -16,17 +16,25 @@ export const channelRefDirectoryQueryFn = async (): Promise<ChannelRefDirectory>
 
 export function useChannelRefDirectory(enabled = true): {
   directory: ChannelRefDirectory
+  isResolved: boolean
   isLoading: boolean
+  isError: boolean
+  refetch: ReturnType<typeof useQuery<ChannelRefDirectory>>["refetch"]
 } {
-  const query = useQuery({
+  const query = useQuery<ChannelRefDirectory>({
     queryKey: communityKeys.channelRefDirectory(),
     queryFn: channelRefDirectoryQueryFn,
     enabled,
     staleTime: Infinity,
     refetchOnReconnect: true,
+    retry: false,
   })
+  const isResolved = query.data !== undefined
   return {
     directory: query.data ?? EMPTY_DIRECTORY,
-    isLoading: enabled && query.isLoading,
+    isResolved,
+    isLoading: enabled && !isResolved && query.isFetching,
+    isError: enabled && !isResolved && query.isError,
+    refetch: query.refetch,
   }
 }

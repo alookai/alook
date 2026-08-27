@@ -15,4 +15,16 @@ describe("DM page loading ownership", () => {
     expect(source).not.toContain("<ComposerSkeleton")
     expect(source).not.toContain("<DmHeaderSkeleton")
   })
+
+  it("owns lazy channel-directory state and retry inside the keyed DM view", () => {
+    const source = readFileSync(new URL("./page.tsx", import.meta.url), "utf8")
+    expect(source).toContain("return <DmView key={params.dmId} />")
+    expect(source).toContain("useChannelRefDirectory(channelRefDirectoryEnabled)")
+    expect(source).toContain("loading: !channelRefDirectoryResolved")
+    expect(source).toContain("failed: channelRefDirectoryError")
+    expect(source).toContain("if (!channelRefDirectoryEnabled)")
+    expect(source).toContain("if (channelRefDirectoryError) void refetchChannelRefDirectory()")
+    expect(source).toContain("channelRefCandidateSource={channelRefCandidateSource}")
+    expect(source).toContain("onChannelRefIntent={handleChannelRefIntent}")
+  })
 })

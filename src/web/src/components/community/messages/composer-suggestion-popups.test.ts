@@ -263,6 +263,50 @@ describe("Composer suggestion popups", () => {
     }
   })
 
+  it("keeps one anchored channel frame for loading, empty, and error", async () => {
+    const state: ChannelRefPopupState = {
+      items: [],
+      selectedIndex: 0,
+      command: vi.fn(),
+      getRect: () => rect(500),
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ChannelRefList, {
+        state,
+        presentation: { status: "loading" },
+      }))
+    })
+    expect(renderer.root.findByProps({
+      "data-testid": "community-channel-ref-popup",
+    })).toBeDefined()
+    expect(renderer.root.findByProps({
+      "data-testid": "community-channel-ref-status",
+      "data-state": "loading",
+    }).children).toEqual(["Loading channels…"])
+
+    for (const [status, label] of [
+      ["empty", "No matching channels"],
+      ["error", "Couldn’t load channels"],
+    ] as const) {
+      await act(async () => {
+        renderer.update(createElement(ChannelRefList, {
+          state,
+          presentation: { status },
+        }))
+      })
+      expect(renderer.root.findByProps({
+        "data-testid": "community-channel-ref-status",
+        "data-state": status,
+      }).children).toEqual([label])
+    }
+
+    await act(async () => {
+      renderer.update(createElement(ChannelRefList, { state }))
+    })
+    expect(renderer.toJSON()).toBeNull()
+  })
+
   it("adds server prefixes only for cross-server channel results", async () => {
     const command = vi.fn()
     const state: ChannelRefPopupState = {

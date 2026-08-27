@@ -12,6 +12,7 @@ import { tid } from "@/lib/community/testids"
 import {
   toChannelRefCommandProps,
   type ChannelRefCandidate,
+  type ChannelRefCandidatePresentation,
   type ChannelRefPopupState,
 } from "@/lib/community/channel-ref-extension"
 import type {
@@ -117,23 +118,31 @@ function MentionStatus({
   )
 }
 
-export function ChannelRefList({ state }: { state: ChannelRefPopupState }) {
+export function ChannelRefList({
+  state,
+  presentation,
+}: {
+  state: ChannelRefPopupState
+  presentation?: ChannelRefCandidatePresentation
+}) {
   const listRef = useRef<HTMLDivElement>(null)
   const { items, selectedIndex, command, getRect } = state
+  const visible = command !== null && (items.length > 0 || presentation !== undefined)
   const geometry = useAnchoredPopover(
     getRect,
-    items.length > 0 && command !== null,
+    visible,
   )
   useEffect(() => {
     scrollSelectedRowIntoView(listRef.current)
   }, [selectedIndex, geometry])
-  if (!geometry || items.length === 0 || !command) return null
+  if (!geometry || !visible || !command) return null
 
   const spansMultipleServers = items.some(
     (item) => item.serverId !== items[0]?.serverId,
   )
   return createPortal(
     <div
+      data-testid={tid.channelRefPopup}
       className="fixed z-100 w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-(--e2)"
       style={anchoredPopoverStyle(
         geometry.rect,
@@ -156,9 +165,33 @@ export function ChannelRefList({ state }: { state: ChannelRefPopupState }) {
             onSelect={() => command(toChannelRefCommandProps(item))}
           />
         ))}
+        {presentation && presentation.status !== "ready" && (
+          <ChannelRefStatus status={presentation.status} />
+        )}
       </div>
     </div>,
     document.body,
+  )
+}
+
+function ChannelRefStatus({
+  status,
+}: {
+  status: Exclude<ChannelRefCandidatePresentation["status"], "ready">
+}) {
+  const label = status === "error"
+    ? "Couldn’t load channels"
+    : status === "empty"
+      ? "No matching channels"
+      : "Loading channels…"
+  return (
+    <div
+      data-testid={tid.channelRefStatus}
+      data-state={status}
+      className="px-2 py-2 text-xs text-muted-foreground"
+    >
+      {label}
+    </div>
   )
 }
 

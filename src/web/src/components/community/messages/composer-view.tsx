@@ -13,7 +13,10 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { PendingFile } from "@/hooks/use-file-attachments"
-import type { ChannelRefPopupState } from "@/lib/community/channel-ref-extension"
+import type {
+  ChannelRefCandidatePresentation,
+  ChannelRefPopupState,
+} from "@/lib/community/channel-ref-extension"
 import type {
   MentionCandidatePresentation,
   MentionPopupState,
@@ -35,6 +38,7 @@ export type ComposerViewProps = {
   mentionPopup: MentionPopupState
   mentionPresentation: MentionCandidatePresentation
   channelRefPopup: ChannelRefPopupState
+  channelRefPresentation?: ChannelRefCandidatePresentation
   replyingTo?: string
   onCancelReply?: () => void
   pendingFiles: PendingFile[]
@@ -59,6 +63,7 @@ export function ComposerView({
   mentionPopup,
   mentionPresentation,
   channelRefPopup,
+  channelRefPresentation,
   replyingTo,
   onCancelReply,
   pendingFiles,
@@ -86,7 +91,10 @@ export function ComposerView({
         state={mentionPopup}
         presentation={mentionPresentation}
       />
-      <ChannelRefList state={channelRefPopup} />
+      <ChannelRefList
+        state={channelRefPopup}
+        presentation={channelRefPresentation}
+      />
 
       {replyingTo && (
         <div className="flex items-center gap-2 rounded-t-xl border border-b-0 border-border/40 bg-muted/60 px-4 py-2 text-xs text-muted-foreground">

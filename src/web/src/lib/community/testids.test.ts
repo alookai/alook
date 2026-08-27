@@ -12,6 +12,8 @@ describe("community QA selectors", () => {
     expect(tid.inboxUnreadChannel("channel_1")).toBe("community-inbox-unread-channel-channel_1")
     expect(tid.channelRefPill("post_1")).toBe("community-channel-ref-pill-post_1")
     expect(tid.channelRefOption("channel_1")).toBe("community-channel-ref-option-channel_1")
+    expect(tid.channelRefPopup).toBe("community-channel-ref-popup")
+    expect(tid.channelRefStatus).toBe("community-channel-ref-status")
   })
 
   it("keys invite-card surfaces by their token", () => {
