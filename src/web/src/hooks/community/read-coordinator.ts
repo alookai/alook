@@ -125,8 +125,8 @@ class ReadCoordinator {
 
   register(
     surface: ReadSurface,
-    confirmedSeq = 0,
-    releasePolicy: SurfaceLease["releasePolicy"] = "flush",
+    confirmedSeq: number,
+    releasePolicy: SurfaceLease["releasePolicy"],
   ): SurfaceLease {
     this.assertActive()
     const key = scopeKey(surface)
