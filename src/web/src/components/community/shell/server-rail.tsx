@@ -204,14 +204,15 @@ export const ServerRail = memo(function ServerRail({
         onSuccess: (response) => {
           setState((current) => reconcileCreatedFolders(current, response.createdFolderIds))
           announce(label)
-          focusEntity(instruction.source, focusTarget)
         },
         onError: () => {
           setState(before)
           announce(`${label} failed and was rolled back`)
+        },
+        onSettled: () => {
+          releaseMutation()
           focusEntity(instruction.source, focusTarget)
         },
-        onSettled: releaseMutation,
       },
     )
   }, [claimMutation, focusEntity, folderNames, railMutation, releaseMutation, serverNames])
@@ -219,6 +220,7 @@ export const ServerRail = memo(function ServerRail({
   const ungroupFolder = useCallback((folderId: string) => {
     const before = cloneRailState(stateRef.current)
     const after = cloneRailState(stateRef.current)
+    const firstServerId = before.folders[folderId]?.[0]
     delete after.folders[folderId]
     after.folderOrder = after.folderOrder.filter((id) => id !== folderId)
     after.expanded = after.expanded.filter((id) => id !== folderId)
@@ -234,10 +236,15 @@ export const ServerRail = memo(function ServerRail({
           setState(before)
           announce("Removing group failed and was rolled back")
         },
-        onSettled: releaseMutation,
+        onSettled: (_data, error) => {
+          releaseMutation()
+          focusEntity(error || !firstServerId
+            ? { kind: "folder", id: folderId }
+            : { kind: "server", id: firstServerId })
+        },
       },
     )
-  }, [claimMutation, railMutation, releaseMutation])
+  }, [claimMutation, focusEntity, railMutation, releaseMutation])
 
   const createSingleServerFolder = useCallback((serverId: string) => {
     const before = cloneRailState(stateRef.current)
@@ -261,10 +268,13 @@ export const ServerRail = memo(function ServerRail({
           setState(before)
           announce("Creating group failed and was rolled back")
         },
-        onSettled: releaseMutation,
+        onSettled: () => {
+          releaseMutation()
+          focusEntity({ kind: "server", id: serverId })
+        },
       },
     )
-  }, [claimMutation, railMutation, releaseMutation])
+  }, [claimMutation, focusEntity, railMutation, releaseMutation])
 
   const { registerItem } = useServerRailPdd({
     scrollRef,
