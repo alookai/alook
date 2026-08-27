@@ -5,7 +5,7 @@ export const MAX_SERVER_RAIL_COMMANDS = 3;
 export const MAX_SERVER_RAIL_FOLDERS = 10;
 export const MAX_SERVER_RAIL_REQUEST_BYTES = 1_000_000;
 export const SERVER_RAIL_SNAPSHOT_STATEMENTS = 3;
-export const SERVER_RAIL_MAX_WRITE_STATEMENTS = 9;
+export const SERVER_RAIL_MAX_WRITE_STATEMENTS = 13;
 
 const idSchema = z.string().trim().min(1);
 const idsSchema = z.array(idSchema);
@@ -119,10 +119,15 @@ function parentByServer(state: ServerRailState): Map<string, string | null> {
   return parents;
 }
 
-function validateFinalState(state: ServerRailState): string | null {
+function validateFinalState(
+  state: ServerRailState,
+  options: { allowFolderOverflow?: boolean } = {},
+): string | null {
   if (hasDuplicates(state.serverOrder)) return "serverIds must be unique";
   if (hasDuplicates(state.folderOrder)) return "folderIds must be unique";
-  if (state.folderOrder.length > MAX_SERVER_RAIL_FOLDERS) return "folder limit reached";
+  if (!options.allowFolderOverflow && state.folderOrder.length > MAX_SERVER_RAIL_FOLDERS) {
+    return "folder limit reached";
+  }
   const membershipIds = new Set(state.serverOrder);
   const claimed = new Set<string>();
   for (const folderId of state.folderOrder) {
@@ -157,8 +162,17 @@ export function projectServerRailCommit(
   request: ServerRailCommitRequest,
   createFolderId: (clientId: string) => string,
 ): ServerRailProjectionResult {
-  const beforeError = validateFinalState(snapshot);
+  const recoveringFolderOverflow = snapshot.folderOrder.length > MAX_SERVER_RAIL_FOLDERS;
+  const beforeError = validateFinalState(snapshot, {
+    allowFolderOverflow: recoveringFolderOverflow,
+  });
   if (beforeError) return { ok: false, error: `invalid current rail: ${beforeError}`, status: 400 };
+  if (
+    recoveringFolderOverflow
+    && request.commands.some((command) => command.kind !== "delete-folder")
+  ) {
+    return { ok: false, error: "folder limit recovery only permits deleting folders", status: 400 };
+  }
 
   const after = cloneState(snapshot);
   const affectedFolderIds = new Set<string>();
@@ -233,7 +247,13 @@ export function projectServerRailCommit(
     return { ok: false, error: "folderIds must match post-command folders", status: 400 };
   }
 
-  const afterError = validateFinalState(after);
+  const folderCountImproved = after.folderOrder.length < snapshot.folderOrder.length;
+  if (recoveringFolderOverflow && !folderCountImproved) {
+    return { ok: false, error: "folder limit recovery must reduce the folder count", status: 400 };
+  }
+  const afterError = validateFinalState(after, {
+    allowFolderOverflow: recoveringFolderOverflow && folderCountImproved,
+  });
   if (afterError) return { ok: false, error: afterError, status: afterError.includes("not found") ? 404 : 400 };
   if (sameState(snapshot, after)) return { ok: false, error: "rail command is a no-op", status: 400 };
 

@@ -47,6 +47,8 @@ describe("removeMemberAndOwnerBots", () => {
   it("batches rail cleanup with target and bot deletes and returns the removed target", async () => {
     const cleanupStatement: any = {};
     cleanupStatement.where = vi.fn(() => cleanupStatement);
+    const emptyFolderStatement: any = {};
+    emptyFolderStatement.where = vi.fn(() => emptyFolderStatement);
     const targetStatement: any = {};
     targetStatement.where = vi.fn(() => targetStatement);
     targetStatement.returning = vi.fn(() => targetStatement);
@@ -56,10 +58,12 @@ describe("removeMemberAndOwnerBots", () => {
       delete: vi
         .fn()
         .mockReturnValueOnce(cleanupStatement)
+        .mockReturnValueOnce(emptyFolderStatement)
         .mockReturnValueOnce(targetStatement)
         .mockReturnValueOnce(botsStatement),
       batch: vi.fn().mockResolvedValue([
         { rowsAffected: 3 },
+        { rowsAffected: 2 },
         [{ id: "mem_1" }],
         { rowsAffected: 2 },
       ]),
@@ -75,6 +79,7 @@ describe("removeMemberAndOwnerBots", () => {
 
     expect(db.batch).toHaveBeenCalledWith([
       cleanupStatement,
+      emptyFolderStatement,
       targetStatement,
       botsStatement,
     ]);

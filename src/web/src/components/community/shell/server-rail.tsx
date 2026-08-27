@@ -96,7 +96,25 @@ export const ServerRail = memo(function ServerRail({
   const [createOpen, setCreateOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const dragSnapshotRef = useRef<RailState | null>(null)
+  const stateRef = useRef(state)
+  const mutationPendingRef = useRef(false)
   const railMutation = useServerRailCommit()
+
+  const claimMutation = useCallback(() => {
+    if (mutationPendingRef.current) {
+      announce("A server rail move is already being saved")
+      return false
+    }
+    mutationPendingRef.current = true
+    return true
+  }, [])
+  const releaseMutation = useCallback(() => {
+    mutationPendingRef.current = false
+  }, [])
+
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
 
   useEffect(() => {
     try {
@@ -162,10 +180,6 @@ export const ServerRail = memo(function ServerRail({
     before: RailState,
     focusTarget?: HTMLElement,
   ) => {
-    if (railMutation.isPending) {
-      announce("A server rail move is already being saved")
-      return
-    }
     let instruction = rawInstruction
     if (
       instruction.operation === "combine"
@@ -181,6 +195,7 @@ export const ServerRail = memo(function ServerRail({
       focusEntity(instruction.source, focusTarget)
       return
     }
+    if (!claimMutation()) return
     const label = railMoveAnnouncement(instruction, { servers: serverNames, folders: folderNames })
     setState(result.state)
     railMutation.mutate(
@@ -196,18 +211,20 @@ export const ServerRail = memo(function ServerRail({
           announce(`${label} failed and was rolled back`)
           focusEntity(instruction.source, focusTarget)
         },
+        onSettled: releaseMutation,
       },
     )
-  }, [focusEntity, folderNames, railMutation, serverNames])
+  }, [claimMutation, focusEntity, folderNames, railMutation, releaseMutation, serverNames])
 
   const ungroupFolder = useCallback((folderId: string) => {
-    const before = cloneRailState(state)
-    const after = cloneRailState(state)
+    const before = cloneRailState(stateRef.current)
+    const after = cloneRailState(stateRef.current)
     delete after.folders[folderId]
     after.folderOrder = after.folderOrder.filter((id) => id !== folderId)
     after.expanded = after.expanded.filter((id) => id !== folderId)
     const commands = planRailPersistence(before, after)
     if (commands.length !== 1) return
+    if (!claimMutation()) return
     setState(after)
     railMutation.mutate(
       { before, after, commands },
@@ -217,19 +234,21 @@ export const ServerRail = memo(function ServerRail({
           setState(before)
           announce("Removing group failed and was rolled back")
         },
+        onSettled: releaseMutation,
       },
     )
-  }, [railMutation, state])
+  }, [claimMutation, railMutation, releaseMutation])
 
   const createSingleServerFolder = useCallback((serverId: string) => {
-    if (railMutation.isPending || state.folderOrder.length >= MAX_SERVER_RAIL_FOLDERS) return
-    const before = cloneRailState(state)
-    const after = cloneRailState(state)
+    const before = cloneRailState(stateRef.current)
+    if (before.folderOrder.length >= MAX_SERVER_RAIL_FOLDERS) return
+    const after = cloneRailState(before)
     const clientId = `temp_${crypto.randomUUID()}`
     after.folderOrder.push(clientId)
     after.folders[clientId] = [serverId]
     after.expanded.push(clientId)
     const commands = planRailPersistence(before, after)
+    if (!claimMutation()) return
     setState(after)
     railMutation.mutate(
       { before, after, commands },
@@ -242,9 +261,10 @@ export const ServerRail = memo(function ServerRail({
           setState(before)
           announce("Creating group failed and was rolled back")
         },
+        onSettled: releaseMutation,
       },
     )
-  }, [railMutation, state])
+  }, [claimMutation, railMutation, releaseMutation])
 
   const { registerItem } = useServerRailPdd({
     scrollRef,

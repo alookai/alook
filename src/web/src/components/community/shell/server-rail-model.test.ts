@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   commitRailInstruction,
   planRailPersistence,
+  railStateFromData,
   railStateErrors,
   visibleTopLevelServers,
   type RailState,
@@ -17,6 +18,27 @@ function fixture(): RailState {
 }
 
 describe("server rail normalized reducer", () => {
+  it("projects legacy dangling, empty, and duplicate folders with the server snapshot ordering", () => {
+    const folder = (id: string, position: number, serverIds: string[]) => ({
+      id,
+      name: id,
+      position,
+      servers: serverIds.map((serverId) => ({ id: serverId, name: serverId, initial: serverId })),
+    })
+    expect(railStateFromData(["a", "b"], [
+      folder("empty", 0, []),
+      folder("a-locale-first", 1, ["a"]),
+      folder("Z-binary-first", 1, ["a"]),
+      folder("dangling", 2, ["foreign"]),
+      folder("valid", 3, ["b"]),
+    ], ["empty", "a-locale-first", "Z-binary-first", "valid"])).toEqual({
+      serverOrder: ["a", "b"],
+      folderOrder: ["Z-binary-first", "valid"],
+      folders: { "Z-binary-first": ["a"], valid: ["b"] },
+      expanded: ["Z-binary-first", "valid"],
+    })
+  })
+
   it("keeps the full membership order while deriving top-level servers", () => {
     expect(visibleTopLevelServers(fixture())).toEqual(["a", "b", "f"])
     expect(railStateErrors(fixture())).toEqual([])

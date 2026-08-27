@@ -231,9 +231,10 @@ function SortableServerImpl({
 // each rail item passes fresh per-render arrow callbacks, so a default shallow
 // memo would always see "new" and never bail out. We compare the `server`
 // fields that actually change plus the derived layout props, and DELIBERATELY
-// ignore the callbacks: every one closes over only a stable id + a
-// shell-frame `useCallback`'d handler, so their identity churn carries no new
-// behavior. Without this, the whole rail (N servers × their Tooltip/Avatar)
+// ignore the callbacks: navigation callbacks close over a stable id + handler,
+// while structural callbacks read current state and pending status from refs.
+// Their identity churn therefore carries no new behavior. Without this, the
+// whole rail (N servers × their Tooltip/Avatar)
 // re-renders on every tick — the SortableServer/TooltipTrigger ×N in
 // perf:switch after the lazy-overlay pass.
 function serverPropsEqual(prev: SortableServerProps, next: SortableServerProps): boolean {

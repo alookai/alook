@@ -64,6 +64,20 @@ export async function removeMemberAndOwnerBots(
         WHERE ${communityServerFolder.id} = ${communityServerFolderItem.folderId}
       )`,
     ));
+  const cleanupEmptyFolders = db
+    .delete(communityServerFolder)
+    .where(and(
+      sql`EXISTS (
+        SELECT 1
+        FROM json_each(${JSON.stringify(removedUserIds)}) AS removed_user
+        WHERE CAST(removed_user.value AS TEXT) = ${communityServerFolder.userId}
+      )`,
+      sql`NOT EXISTS (
+        SELECT 1
+        FROM ${communityServerFolderItem}
+        WHERE ${communityServerFolderItem.folderId} = ${communityServerFolder.id}
+      )`,
+    ));
   const removeTarget = db
     .delete(communityServerMember)
     .where(
@@ -76,10 +90,11 @@ export async function removeMemberAndOwnerBots(
   const removeBots = removeOwnerBotsFromServerStatement(db, serverId, botUserIds);
   const results = (await db.batch([
     cleanupFolderItems,
+    cleanupEmptyFolders,
     removeTarget,
     removeBots,
   ] as any)) as any[];
-  return (results[1] as Array<typeof communityServerMember.$inferSelect>)[0] ?? null;
+  return (results[2] as Array<typeof communityServerMember.$inferSelect>)[0] ?? null;
 }
 
 export async function updateRole(db: Database, memberId: string, role: string) {
@@ -422,7 +437,7 @@ export async function getMemberships(db: Database, userId: string, serverIds: st
 /**
  * Owner-leaves-server cascade — SELECT the bot userIds that will be removed
  * from `serverId` because their owner is leaving. Called as step 1 of the
- * three-step leave/kick sequence (see §Owner-leaves-server in plan).
+ * leave/kick sequence (see §Owner-leaves-server in plan).
  */
 export async function listOwnerBotsInServer(
   db: Database,

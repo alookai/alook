@@ -98,4 +98,37 @@ test("server rail commits one PDD drop and exposes mobile Move parity", async ({
   await page.mouse.up()
   expect(railRequests).toHaveLength(2)
   expect(await rail.evaluate((element) => element.scrollTop)).toBeGreaterThanOrEqual(beforeSwipe)
+
+  await page.setViewportSize({ width: 1280, height: 900 })
+  let releaseCommit!: () => void
+  const commitGate = new Promise<void>((resolve) => { releaseCommit = resolve })
+  let delayed = false
+  await page.route(`**${RAIL_ENDPOINT}`, async (route) => {
+    if (route.request().method() === "PATCH" && !delayed) {
+      delayed = true
+      await commitGate
+    }
+    await route.continue()
+  })
+  const pendingResponse = page.waitForResponse((response) =>
+    response.request().method() === "PATCH" && new URL(response.url()).pathname === RAIL_ENDPOINT,
+  )
+  try {
+    const topLevel = page.getByTestId(tid.serverIcon(second))
+    await topLevel.focus()
+    await expect(topLevel.locator("xpath=ancestor::*[@data-slot='context-menu-trigger'][1]")).toBeVisible()
+    await topLevel.click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Create group" }).click()
+    await expect.poll(() => railRequests.length).toBe(3)
+
+    const existingFolder = page.locator(`[data-testid^="${tid.serverRailFolder("")}"]`).first()
+    await existingFolder.click({ button: "right" })
+    await page.getByRole("menuitem", { name: "Ungroup" }).click()
+    await page.waitForTimeout(250)
+    expect(railRequests).toHaveLength(3)
+  } finally {
+    releaseCommit()
+  }
+  expect((await pendingResponse).status()).toBe(200)
+  await page.unroute(`**${RAIL_ENDPOINT}`)
 })

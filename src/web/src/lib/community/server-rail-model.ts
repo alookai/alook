@@ -39,14 +39,29 @@ export function railStateFromData(
   folders: readonly CommunityFolder[],
   expanded: readonly string[],
 ): RailState {
-  const orderedFolders = [...folders].sort((left, right) => left.position - right.position)
+  const membershipIds = new Set(serverIds)
+  const claimedServerIds = new Set<string>()
+  const projectedFolders = [...folders]
+    .sort((left, right) => left.position - right.position
+      || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+    .map((folder) => ({
+      id: folder.id,
+      serverIds: folder.servers
+        .map((server) => server.id)
+        .filter((serverId) => {
+          if (!membershipIds.has(serverId) || claimedServerIds.has(serverId)) return false
+          claimedServerIds.add(serverId)
+          return true
+        }),
+    }))
+    .filter((folder) => folder.serverIds.length > 0)
   return {
     serverOrder: [...serverIds],
-    folderOrder: orderedFolders.map((folder) => folder.id),
+    folderOrder: projectedFolders.map((folder) => folder.id),
     folders: Object.fromEntries(
-      orderedFolders.map((folder) => [folder.id, folder.servers.map((server) => server.id)]),
+      projectedFolders.map((folder) => [folder.id, folder.serverIds]),
     ),
-    expanded: expanded.filter((folderId) => orderedFolders.some((folder) => folder.id === folderId)),
+    expanded: expanded.filter((folderId) => projectedFolders.some((folder) => folder.id === folderId)),
   }
 }
 

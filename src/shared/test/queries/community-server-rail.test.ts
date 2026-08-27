@@ -108,8 +108,12 @@ describe("community server rail D1 statements", () => {
     const { statements } = runProjection(sqlite, db, state, {
       commands: [{ kind: "reorder-servers", serverIds: [...ids].reverse() }],
     });
-    expect(statements).toHaveLength(1);
-    const query = statements[0].toSQL();
+    expect(statements.length).toBeLessThanOrEqual(13);
+    const reorder = statements.find((statement) => statement.toSQL().sql.includes(
+      'update "community_server_member"',
+    ));
+    expect(reorder).toBeDefined();
+    const query = reorder!.toSQL();
     expect(query.sql).toContain("json_each");
     expect(query.params).toHaveLength(2);
     expect(query.params.every((param: unknown) => typeof param === "string")).toBe(true);
@@ -128,7 +132,7 @@ describe("community server rail D1 statements", () => {
     const { statements } = runProjection(sqlite, db, state, {
       commands: [{ kind: "create-folder", clientId: "tmp", name: "Group", serverIds: ids }],
     });
-    expect(statements.length).toBeLessThanOrEqual(9);
+    expect(statements.length).toBeLessThanOrEqual(13);
     const itemInsert = statements.find((statement) => {
       const query = statement.toSQL();
       return query.sql.includes("insert into \"community_server_folder_item\"");
@@ -163,6 +167,127 @@ describe("community server rail D1 statements", () => {
     })()).toThrow();
     expect(sqlite.prepare("SELECT COUNT(*) AS count FROM community_server_folder").get()).toEqual({ count: 0 });
     expect(sqlite.prepare("SELECT COUNT(*) AS count FROM community_server_folder_item").get()).toEqual({ count: 0 });
+  });
+
+  it("projects around legacy invalid rows and atomically self-heals only the caller on the first legal write", async () => {
+    const { sqlite, db } = createDatabase();
+    sqlite.exec(`
+      INSERT INTO community_server (id) VALUES ('a'), ('b'), ('x');
+      INSERT INTO community_server_member (id, server_id, user_id, rail_order, joined_at)
+      VALUES
+        ('u1-a', 'a', 'u1', 0, '2026-01-01T00:00:00.000Z'),
+        ('u1-b', 'b', 'u1', 1, '2026-01-01T00:00:01.000Z'),
+        ('u2-x', 'x', 'u2', 0, '2026-01-01T00:00:00.000Z');
+      INSERT INTO community_server_folder (id, user_id, name, position)
+      VALUES
+        ('u1-empty', 'u1', 'Empty', 0),
+        ('u1-a-locale-first', 'u1', 'Locale first', NULL),
+        ('u1-Z-binary-first', 'u1', 'Binary first', 0),
+        ('u1-dangling', 'u1', 'Dangling', 6),
+        ('u2-empty', 'u2', 'Foreign empty', 0),
+        ('u2-first', 'u2', 'Foreign first', 1),
+        ('u2-second', 'u2', 'Foreign second', 2);
+      INSERT INTO community_server_folder_item (folder_id, server_id, position)
+      VALUES
+        ('u1-a-locale-first', 'a', 7),
+        ('u1-Z-binary-first', 'a', 0),
+        ('u1-dangling', 'x', 0),
+        ('u2-first', 'x', 3),
+        ('u2-second', 'x', 0);
+    `);
+    const d1Db = Object.assign(db as any, {
+      batch: async (statements: any[]) => statements.map((statement) => statement.all()),
+    });
+
+    const snapshot = await readServerRailSnapshot(d1Db, "u1");
+    expect(snapshot).toEqual({
+      serverOrder: ["a", "b"],
+      folderOrder: ["u1-Z-binary-first"],
+      folders: {
+        "u1-Z-binary-first": {
+          id: "u1-Z-binary-first",
+          name: "Binary first",
+          serverIds: ["a"],
+        },
+      },
+    });
+    const projection = projectServerRailCommit(snapshot, {
+      commands: [{ kind: "reorder-servers", serverIds: ["b", "a"] }],
+    }, () => "unused");
+    expect(projection.ok).toBe(true);
+    if (!projection.ok) throw new Error(projection.error);
+    const statements = buildServerRailWriteStatements(db as any, "u1", projection.value);
+    expect(() => sqlite.transaction(() => statements.forEach((statement) => statement.run()))())
+      .not.toThrow();
+
+    expect(sqlite.prepare(`
+      SELECT id, position FROM community_server_folder WHERE user_id = 'u1' ORDER BY id
+    `).all()).toEqual([{ id: "u1-Z-binary-first", position: 0 }]);
+    expect(sqlite.prepare(`
+      SELECT folder_id AS folderId, server_id AS serverId, position
+      FROM community_server_folder_item WHERE folder_id = 'u1-Z-binary-first'
+    `).all()).toEqual([{ folderId: "u1-Z-binary-first", serverId: "a", position: 0 }]);
+    expect(sqlite.prepare(`
+      SELECT id, position FROM community_server_folder WHERE user_id = 'u2' ORDER BY id
+    `).all()).toEqual([
+      { id: "u2-empty", position: 0 },
+      { id: "u2-first", position: 1 },
+      { id: "u2-second", position: 2 },
+    ]);
+    expect(sqlite.prepare(`
+      SELECT folder_id AS folderId, server_id AS serverId, position
+      FROM community_server_folder_item WHERE folder_id LIKE 'u2-%'
+      ORDER BY folder_id
+    `).all()).toEqual([
+      { folderId: "u2-first", serverId: "x", position: 3 },
+      { folderId: "u2-second", serverId: "x", position: 0 },
+    ]);
+    expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+  });
+
+  it("recovers a legacy folder overflow through a count-reducing delete before normal mutations resume", async () => {
+    const { sqlite, db } = createDatabase();
+    const ids = Array.from({ length: 11 }, (_, index) => `s${index}`);
+    seedMemberships(sqlite, ids);
+    ids.forEach((serverId, index) => {
+      sqlite.prepare(`
+        INSERT INTO community_server_folder (id, user_id, name, position)
+        VALUES (?, 'u1', ?, ?)
+      `).run(`f${index}`, `Folder ${index}`, index);
+      sqlite.prepare(`
+        INSERT INTO community_server_folder_item (folder_id, server_id, position)
+        VALUES (?, ?, 0)
+      `).run(`f${index}`, serverId);
+    });
+    const d1Db = Object.assign(db as any, {
+      batch: async (statements: any[]) => statements.map((statement) => statement.all()),
+    });
+    const overflow = await readServerRailSnapshot(d1Db, "u1");
+    expect(overflow.folderOrder).toHaveLength(11);
+    expect(projectServerRailCommit(overflow, {
+      commands: [{ kind: "reorder-servers", serverIds: [...ids].reverse() }],
+    }, () => "unused")).toMatchObject({ ok: false });
+
+    const recovery = projectServerRailCommit(overflow, {
+      commands: [{ kind: "delete-folder", folderId: "f10" }],
+    }, () => "unused");
+    expect(recovery.ok).toBe(true);
+    if (!recovery.ok) throw new Error(recovery.error);
+    const recoveryStatements = buildServerRailWriteStatements(db as any, "u1", recovery.value);
+    sqlite.transaction(() => recoveryStatements.forEach((statement) => statement.run()))();
+    expect(sqlite.prepare(`
+      SELECT id, position FROM community_server_folder WHERE user_id = 'u1' ORDER BY position
+    `).all()).toEqual(Array.from({ length: 10 }, (_, index) => ({ id: `f${index}`, position: index })));
+
+    const recovered = await readServerRailSnapshot(d1Db, "u1");
+    const next = projectServerRailCommit(recovered, {
+      commands: [{ kind: "reorder-servers", serverIds: [...ids].reverse() }],
+    }, () => "unused");
+    expect(next.ok).toBe(true);
+    if (!next.ok) throw new Error(next.error);
+    const nextStatements = buildServerRailWriteStatements(db as any, "u1", next.value);
+    expect(() => sqlite.transaction(() => nextStatements.forEach((statement) => statement.run()))())
+      .not.toThrow();
   });
 
   it("lets a stale same-folder reorder win without leaving a duplicate in another folder", () => {
@@ -206,5 +331,88 @@ describe("community server rail D1 statements", () => {
     expect(sqlite.prepare(`
       SELECT COUNT(*) AS count FROM community_server_folder_item WHERE server_id = 'a'
     `).get()).toEqual({ count: 1 });
+  });
+
+  it.each([
+    ["first then second", ["x", "y"]],
+    ["second then first", ["y", "x"]],
+  ] as const)("removes the folder emptied by a concurrent same-server create: %s", async (_name, order) => {
+    const { sqlite, db } = createDatabase();
+    seedMemberships(sqlite, ["a", "b"]);
+    const stale: ServerRailState = { serverOrder: ["a", "b"], folderOrder: [], folders: {} };
+    const projections = Object.fromEntries(["x", "y"].map((id) => {
+      const result = projectServerRailCommit(stale, {
+        commands: [{ kind: "create-folder", clientId: id, name: id, serverIds: ["a"] }],
+      }, () => id);
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error(result.error);
+      return [id, result.value];
+    }));
+
+    for (const id of order) {
+      const statements = buildServerRailWriteStatements(db as any, "u1", projections[id]!);
+      sqlite.transaction(() => statements.forEach((statement) => statement.run()))();
+    }
+
+    const d1Db = Object.assign(db as any, {
+      batch: async (statements: any[]) => statements.map((statement) => statement.all()),
+    });
+    const snapshot = await readServerRailSnapshot(d1Db, "u1");
+    expect(snapshot.folderOrder).toEqual([order[1]]);
+    expect(snapshot.folders[order[1]]?.serverIds).toEqual(["a"]);
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM community_server_folder").get())
+      .toEqual({ count: 1 });
+
+    const next = projectServerRailCommit(snapshot, {
+      commands: [{ kind: "delete-folder", folderId: order[1] }],
+    }, () => "unused");
+    expect(next.ok).toBe(true);
+  });
+
+  it.each([
+    ["first then second", ["x", "y"]],
+    ["second then first", ["y", "x"]],
+  ] as const)("enforces the folder cap at write time for either completion order: %s", async (_name, order) => {
+    const { sqlite, db } = createDatabase();
+    const ids = [...Array.from({ length: 9 }, (_, index) => `s${index}`), "a", "b"];
+    seedMemberships(sqlite, ids);
+    for (let index = 0; index < 9; index += 1) {
+      sqlite.prepare(`
+        INSERT INTO community_server_folder (id, user_id, name, position) VALUES (?, 'u1', ?, ?)
+      `).run(`f${index}`, `Folder ${index}`, index);
+      sqlite.prepare(`
+        INSERT INTO community_server_folder_item (folder_id, server_id, position) VALUES (?, ?, 0)
+      `).run(`f${index}`, `s${index}`);
+    }
+    const d1Db = Object.assign(db as any, {
+      batch: async (statements: any[]) => statements.map((statement) => statement.all()),
+    });
+    const stale = await readServerRailSnapshot(d1Db, "u1");
+    const projections = Object.fromEntries(["x", "y"].map((id, index) => {
+      const result = projectServerRailCommit(stale, {
+        commands: [{ kind: "create-folder", clientId: id, name: id, serverIds: [index ? "b" : "a"] }],
+      }, () => id);
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error(result.error);
+      return [id, result.value];
+    }));
+
+    const firstStatements = buildServerRailWriteStatements(db as any, "u1", projections[order[0]]!);
+    sqlite.transaction(() => firstStatements.forEach((statement) => statement.run()))();
+    const secondStatements = buildServerRailWriteStatements(db as any, "u1", projections[order[1]]!);
+    expect(() => sqlite.transaction(() => secondStatements.forEach((statement) => statement.run()))())
+      .toThrow();
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM community_server_folder").get())
+      .toEqual({ count: 10 });
+
+    const finalSnapshot = await readServerRailSnapshot(d1Db, "u1");
+    const next = projectServerRailCommit(finalSnapshot, {
+      commands: [{ kind: "reorder-servers", serverIds: [...finalSnapshot.serverOrder].reverse() }],
+    }, () => "unused");
+    expect(next.ok).toBe(true);
+    if (!next.ok) throw new Error(next.error);
+    const nextStatements = buildServerRailWriteStatements(db as any, "u1", next.value);
+    expect(() => sqlite.transaction(() => nextStatements.forEach((statement) => statement.run()))())
+      .not.toThrow();
   });
 });
