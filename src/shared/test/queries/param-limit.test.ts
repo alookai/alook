@@ -9,6 +9,7 @@ import {
 import * as mentionQueries from "../../src/db/queries/community/mention";
 import * as attachmentQueries from "../../src/db/queries/community/attachment";
 import * as inboxQueries from "../../src/db/queries/community/inbox";
+import * as agentInboxQueries from "../../src/db/queries/community/agent-inbox";
 import * as readStateQueries from "../../src/db/queries/community/read-state";
 import * as channelQueries from "../../src/db/queries/community/channel";
 import * as categoryQueries from "../../src/db/queries/community/category";
@@ -209,6 +210,29 @@ describe("listEligibleUnreadChannels bound parameters", () => {
       (value) => typeof value === "string" && value.startsWith("channel_"),
     ).length)).toEqual([80, 15]);
     expect(statements.map(({ params }) => params.length)).toEqual([91, 26]);
+    for (const { params } of statements) {
+      expect(params.length).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
+    }
+  });
+});
+
+describe("listUnreadMessagesForAgent bound parameters", () => {
+  it("90 allowed channels split at the query's 13-fixed-bind budget", async () => {
+    const channelIds = Array.from({ length: 90 }, (_, index) => `channel_${index}`);
+    const typeRows = channelIds.map((id) => [id, "text"]);
+    const { db, statements } = makeD1Capture([typeRows, [], []]);
+
+    await expect(
+      agentInboxQueries.listUnreadMessagesForAgent(db as never, "user_1", {
+        max: 2,
+        visibleChannelIds: channelIds,
+      }),
+    ).resolves.toEqual([]);
+
+    expect(statements.map(({ params }) => params.filter(
+      (value) => typeof value === "string" && value.startsWith("channel_"),
+    ).length)).toEqual([90, 87, 3]);
+    expect(statements.map(({ params }) => params.length)).toEqual([90, 100, 16]);
     for (const { params } of statements) {
       expect(params.length).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
     }
