@@ -2,6 +2,7 @@ import { createElement, useState } from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ShellFrameView } from "./shell-frame-view"
+import type { CommunityCheckpointPlan, CommunitySurface } from "@/lib/community/community-route"
 
 const mocks = vi.hoisted(() => ({
   observe: vi.fn(),
@@ -42,6 +43,34 @@ vi.mock("./community-pending-frame", () => ({
 vi.mock("@/components/community/channels/channel-sidebar", () => ({
   ChannelSidebarSkeleton: (props: Record<string, unknown>) => createElement("channel-sidebar-skeleton", props),
 }))
+vi.mock("@/components/community/channels/dm-sidebar", () => ({
+  DmSidebarSkeleton: (props: Record<string, unknown>) => createElement("dm-sidebar-skeleton", props),
+}))
+
+function committedCheckpoint(
+  href: string,
+  surface: CommunitySurface,
+): CommunityCheckpointPlan {
+  return {
+    mode: "committed",
+    surface,
+    targetHref: href,
+    rail: { kind: "keep" },
+    sidebar: { kind: "keep" },
+    main: { kind: "keep" },
+  }
+}
+
+function pendingCheckpoint(
+  href: string,
+  surface: CommunitySurface,
+): CommunityCheckpointPlan {
+  return {
+    ...committedCheckpoint(href, surface),
+    mode: "same-scope-leaf",
+    main: { kind: "target-skeleton", href },
+  }
+}
 
 const rail = { railProps: { activeServerId: "s1" } } as never
 const profile = {
@@ -80,9 +109,7 @@ describe("ShellFrameView", () => {
     await act(async () => {
       renderer = TestRenderer.create(createElement(ShellFrameView, {
         breakpoint: "unknown",
-        surface: "detail",
-        loadingHref: "/c/me/dm_1",
-        navigationPending: false,
+        checkpoint: committedCheckpoint("/c/me/dm_1", "detail"),
         sidebar: () => createElement("sidebar-content"),
         cancelPendingNavigation: vi.fn(),
         rail,
@@ -106,9 +133,7 @@ describe("ShellFrameView", () => {
     await act(async () => {
       renderer = TestRenderer.create(createElement(ShellFrameView, {
         breakpoint: "unknown",
-        surface: "list",
-        loadingHref: "/c/me",
-        navigationPending: false,
+        checkpoint: committedCheckpoint("/c/me", "list"),
         sidebar: () => createElement("sidebar-content"),
         cancelPendingNavigation: vi.fn(),
         rail,
@@ -129,9 +154,7 @@ describe("ShellFrameView", () => {
     await act(async () => {
       renderer = TestRenderer.create(createElement(ShellFrameView, {
         breakpoint: "desktop",
-        surface: "detail",
-        loadingHref: "/c/channels/s1/c1",
-        navigationPending: false,
+        checkpoint: committedCheckpoint("/c/channels/s1/c1", "detail"),
         sidebar,
         cancelPendingNavigation: vi.fn(),
         rail,
@@ -181,9 +204,7 @@ describe("ShellFrameView", () => {
     await act(async () => {
       renderer = TestRenderer.create(createElement(ShellFrameView, {
         breakpoint: "desktop",
-        surface: "list",
-        loadingHref: "/c/channels/s1",
-        navigationPending: false,
+        checkpoint: committedCheckpoint("/c/channels/s1", "list"),
         sidebar,
         cancelPendingNavigation: vi.fn(),
         rail,
@@ -206,9 +227,7 @@ describe("ShellFrameView", () => {
     await act(async () => {
       renderer = TestRenderer.create(createElement(ShellFrameView, {
         breakpoint: "mobile",
-        surface: "list",
-        loadingHref: "/c/me",
-        navigationPending: false,
+        checkpoint: committedCheckpoint("/c/me", "list"),
         sidebar,
         cancelPendingNavigation: vi.fn(),
         rail,
@@ -245,9 +264,7 @@ describe("ShellFrameView", () => {
     await act(async () => {
       renderer.update(createElement(ShellFrameView, {
         breakpoint: "mobile",
-        surface: "detail",
-        loadingHref: "/c/me/dm_1",
-        navigationPending: false,
+        checkpoint: committedCheckpoint("/c/me/dm_1", "detail"),
         sidebar,
         cancelPendingNavigation: vi.fn(),
         rail,
@@ -275,9 +292,7 @@ describe("ShellFrameView", () => {
       return createElement("stateful-main", { identity })
     }
     const common = {
-      surface: "detail" as const,
-      loadingHref: "/c/me/dm_1",
-      navigationPending: false,
+      checkpoint: committedCheckpoint("/c/me/dm_1", "detail"),
       sidebar: () => createElement("sidebar-content"),
       cancelPendingNavigation: vi.fn(),
       rail,
@@ -311,9 +326,7 @@ describe("ShellFrameView", () => {
   it("disconnects and re-subscribes sidebar observation across breakpoint changes", async () => {
     const sidebar = vi.fn(() => createElement("sidebar-content"))
     const common = {
-      surface: "list" as const,
-      loadingHref: "/c/me",
-      navigationPending: false,
+      checkpoint: committedCheckpoint("/c/me", "list"),
       sidebar,
       cancelPendingNavigation: vi.fn(),
       rail,
@@ -356,9 +369,7 @@ describe("ShellFrameView", () => {
     const sidebar = vi.fn(() => createElement("sidebar-content"))
     const common = {
       sidebar,
-      loadingHref: "/c/me/friends",
       cancelPendingNavigation: vi.fn(),
-      navigationPending: true,
       rail,
       profile,
       inbox,
@@ -367,7 +378,7 @@ describe("ShellFrameView", () => {
     await act(async () => {
       renderer = TestRenderer.create(createElement(
         ShellFrameView,
-        { ...common, breakpoint: "desktop", surface: "detail" },
+        { ...common, breakpoint: "desktop", checkpoint: pendingCheckpoint("/c/me/friends", "detail") },
         createElement("main-content"),
       ), { createNodeMock: () => ({ offsetWidth: 240 }) })
     })
@@ -379,7 +390,7 @@ describe("ShellFrameView", () => {
     await act(async () => {
       renderer.update(createElement(
         ShellFrameView,
-        { ...common, breakpoint: "mobile", surface: "list" },
+        { ...common, breakpoint: "mobile", checkpoint: pendingCheckpoint("/c/me", "list") },
         createElement("main-content"),
       ))
     })
@@ -397,7 +408,7 @@ describe("ShellFrameView", () => {
     await act(async () => {
       renderer.update(createElement(
         ShellFrameView,
-        { ...common, breakpoint: "mobile", surface: "detail" },
+        { ...common, breakpoint: "mobile", checkpoint: pendingCheckpoint("/c/me/friends", "detail") },
         createElement("main-content"),
       ))
     })
@@ -412,11 +423,15 @@ describe("ShellFrameView", () => {
   it("replaces the committed sidebar with one target-scoped cold server checkpoint", async () => {
     const sidebar = vi.fn(() => createElement("old-sidebar"))
     const common = {
-      surface: "list" as const,
-      loadingHref: "/c/channels/s2",
       cancelPendingNavigation: vi.fn(),
-      navigationPending: true,
-      serverSwitchTargetId: "s2",
+      checkpoint: {
+        mode: "cold-scope",
+        surface: "list",
+        targetHref: "/c/channels/s2",
+        rail: { kind: "target", view: "server", activeServerId: "s2" },
+        sidebar: { kind: "server-skeleton", serverId: "s2" },
+        main: { kind: "target-skeleton", href: "/c/channels/s2" },
+      } satisfies CommunityCheckpointPlan,
       sidebar,
       rail,
       profile,
@@ -448,5 +463,39 @@ describe("ShellFrameView", () => {
     expect(sidebarPanel?.findAllByType("channel-sidebar-skeleton")).toHaveLength(1)
     expect(mainPanel?.props.hidden).toBe(true)
     expect(sidebar).not.toHaveBeenCalled()
+  })
+
+  it("renders an inert me sidebar checkpoint for a cold server-to-home target", async () => {
+    const sidebar = vi.fn(() => createElement("old-sidebar"))
+    const checkpoint: CommunityCheckpointPlan = {
+      mode: "cold-scope",
+      surface: "list",
+      targetHref: "/c/me",
+      rail: { kind: "target", view: "dm" },
+      sidebar: { kind: "me-skeleton" },
+      main: { kind: "target-skeleton", href: "/c/me" },
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(
+        ShellFrameView,
+        {
+          breakpoint: "desktop",
+          checkpoint,
+          sidebar,
+          cancelPendingNavigation: vi.fn(),
+          rail,
+          profile,
+          inbox,
+        },
+        createElement("old-main"),
+      ), { createNodeMock: () => ({ offsetWidth: 240 }) })
+    })
+
+    expect(sidebar).not.toHaveBeenCalled()
+    expect(renderer.root.findAllByType("old-sidebar")).toHaveLength(0)
+    expect(renderer.root.findAllByType("old-main")).toHaveLength(0)
+    expect(renderer.root.findAllByType("dm-sidebar-skeleton")).toHaveLength(1)
+    expect(renderer.root.findByType("channel-loading-frame").props.href).toBe("/c/me")
   })
 })

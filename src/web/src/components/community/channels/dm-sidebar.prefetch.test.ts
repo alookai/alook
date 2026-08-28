@@ -2,11 +2,26 @@ import { createElement } from "react"
 import TestRenderer, { act, type ReactTestRenderer } from "react-test-renderer"
 import { describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
-import { DmSidebar } from "./dm-sidebar"
+import { DmSidebar, DmSidebarSkeleton } from "./dm-sidebar"
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 describe("DmSidebar navigation intent", () => {
+  it("keeps the pending DM sidebar inert and accessible", async () => {
+    let renderer!: ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(DmSidebarSkeleton))
+    })
+    const aside = renderer.root.findByType("aside")
+    expect(aside.props).toMatchObject({
+      "data-testid": tid.dmSidebarPending,
+      "aria-label": "Loading direct messages",
+      "aria-busy": true,
+    })
+    expect(renderer.root.findAllByType("button")).toHaveLength(0)
+    act(() => renderer.unmount())
+  })
+
   it("keeps shortcuts outside the independently scrolling DM list", async () => {
     let renderer!: ReactTestRenderer
 

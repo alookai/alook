@@ -110,6 +110,28 @@ export const DmSidebar = memo(function DmSidebar({
   )
 })
 
+export function DmSidebarSkeleton() {
+  return (
+    <aside
+      data-testid={tid.dmSidebarPending}
+      aria-label="Loading direct messages"
+      aria-busy={true}
+      className="flex min-h-0 min-w-0 flex-1 flex-col"
+    >
+      <div className="shrink-0 px-2 pt-4">
+        <Skeleton className="mb-1 h-9 w-full rounded-md" />
+        <Skeleton className="mb-1 h-9 w-full rounded-md" />
+        <Skeleton className="mb-2 h-9 w-full rounded-md" />
+        <div className="my-2 h-px bg-border" />
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto thin-scrollbar px-2 pb-4">
+        <Skeleton className="mb-2 ml-2 h-3 w-24 rounded" />
+        <DmRowsSkeleton />
+      </div>
+    </aside>
+  )
+}
+
 // Loading placeholder for the DM sidebar — mirrors the Friends button + DM
 // row footprint so the column doesn't reflow when conversations arrive.
 function DmRowsSkeleton() {

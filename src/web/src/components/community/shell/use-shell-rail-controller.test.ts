@@ -71,7 +71,7 @@ async function renderController(overrides: Record<string, unknown> = {}) {
     prefetch: (href: string) => { prefetched.push(href) },
   }
   const navigation = {
-    currentHref: "/c/channels/s1",
+    publishedHref: "/c/channels/s1",
     navigationPending: false,
     pendingHref: null,
     push: router.push,
@@ -91,6 +91,7 @@ async function renderController(overrides: Record<string, unknown> = {}) {
     breakpoint: "desktop",
     view: "server",
     activeServerId: "s1",
+    projectedActiveServerId: "s1",
     ...overrides,
   } as never
   let current!: Result
@@ -158,6 +159,23 @@ describe("useShellRailController", () => {
     await act(async () => hook.current.railProps.onOpenSettings("s2"))
     expect(openSettings).not.toHaveBeenCalled()
     expect(hook.pushed).toEqual(["/c/channels/s2?settings=1"])
+  })
+
+  it("projects Home visually without changing committed server action scope", async () => {
+    const openSettings = vi.fn()
+    const hook = await renderController({
+      projectedView: "dm",
+      projectedActiveServerId: undefined,
+      onOpenActiveServerSettings: openSettings,
+    })
+
+    expect(hook.current.railProps.view).toBe("dm")
+    expect(hook.current.railProps.activeServerId).toBeUndefined()
+    expect(hook.current.railProps.servers.every((server) => !server.active)).toBe(true)
+
+    await act(async () => hook.current.railProps.onOpenSettings("s1"))
+    expect(openSettings).toHaveBeenCalledTimes(1)
+    expect(hook.pushed).toEqual([])
   })
 
   it("does not leave deferred server work that can overwrite a direct channel navigation", async () => {

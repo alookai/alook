@@ -5,6 +5,7 @@ import { useDefaultLayout } from "react-resizable-panels"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { AppSurface } from "@/components/ui/app-surface"
 import { ChannelSidebarSkeleton } from "@/components/community/channels/channel-sidebar"
+import { DmSidebarSkeleton } from "@/components/community/channels/dm-sidebar"
 import { CommunityPendingFrame } from "./community-pending-frame"
 import { Shell } from "./shell"
 import { ServerRail } from "./server-rail"
@@ -17,7 +18,7 @@ import {
   desktopUserBarOverlayWidth,
 } from "./shell-frame-geometry"
 import type { Breakpoint } from "@/hooks/use-mobile"
-import type { CommunitySurface } from "@/lib/community/community-route"
+import type { CommunityCheckpointPlan } from "@/lib/community/community-route"
 import type { ShellFrameProps } from "./shell-frame-types"
 import type { useShellRailController } from "./use-shell-rail-controller"
 import type { useShellProfileController } from "./use-shell-profile-controller"
@@ -25,11 +26,8 @@ import type { useShellInboxController } from "./use-shell-inbox-controller"
 
 type Props = Pick<ShellFrameProps, "sidebar" | "children" | "extraDialogs"> & {
   breakpoint: Breakpoint
-  surface: CommunitySurface
-  loadingHref: string
+  checkpoint: CommunityCheckpointPlan
   cancelPendingNavigation: () => void
-  navigationPending: boolean
-  serverSwitchTargetId?: string | null
   rail: ReturnType<typeof useShellRailController>
   profile: ReturnType<typeof useShellProfileController>
   inbox: ReturnType<typeof useShellInboxController>
@@ -39,18 +37,16 @@ const SHELL_SURFACE_CLASS = "rounded-tl-xl rounded-tr-none rounded-br-none round
 
 export function ShellFrameView({
   breakpoint,
-  surface,
-  loadingHref,
+  checkpoint,
   sidebar,
   children,
   extraDialogs,
   cancelPendingNavigation,
-  navigationPending,
-  serverSwitchTargetId = null,
   rail,
   profile,
   inbox,
 }: Props) {
+  const { surface } = checkpoint
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
     id: "community-shell",
     onlySaveAfterUserInteractions: true,
@@ -133,9 +129,11 @@ export function ShellFrameView({
             >
               <div ref={sidebarPanelRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
                 {!isMobileDetail && (
-                  serverSwitchTargetId
-                    ? <ChannelSidebarSkeleton targetServerId={serverSwitchTargetId} />
-                    : isDesktop ? sidebar() : sidebar({ noHeader: false })
+                  checkpoint.sidebar.kind === "server-skeleton"
+                    ? <ChannelSidebarSkeleton targetServerId={checkpoint.sidebar.serverId} />
+                    : checkpoint.sidebar.kind === "me-skeleton"
+                      ? <DmSidebarSkeleton />
+                      : isDesktop ? sidebar() : sidebar({ noHeader: false })
                 )}
               </div>
             </ResizablePanel>
@@ -151,19 +149,19 @@ export function ShellFrameView({
                 isInitialDetail && "max-sm:flex-1!",
               )}
             >
-              {navigationPending || isInitial ? (
+              {checkpoint.main.kind === "target-skeleton" || isInitial ? (
                 isInitialDetail ? (
                   <>
                     <div className="flex min-h-0 flex-1 sm:hidden">
-                      <CommunityPendingFrame href={loadingHref} reserveBackSlot />
+                      <CommunityPendingFrame href={checkpoint.targetHref} reserveBackSlot />
                     </div>
                     <div className="hidden min-h-0 flex-1 sm:flex">
-                      <CommunityPendingFrame href={loadingHref} />
+                      <CommunityPendingFrame href={checkpoint.targetHref} />
                     </div>
                   </>
                 ) : (
                   <CommunityPendingFrame
-                    href={loadingHref}
+                    href={checkpoint.targetHref}
                     reserveBackSlot={isMobileDetail}
                   />
                 )

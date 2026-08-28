@@ -47,6 +47,7 @@ describe("community QA selectors", () => {
   it("keys a pending channel sidebar by its target server", () => {
     expect(tid.channelSidebarPending("server_1"))
       .toBe("community-channel-sidebar-pending-server_1")
+    expect(tid.dmSidebarPending).toBe("community-dm-sidebar-pending")
   })
 
   it("exposes attachment preview selectors from one canonical map", () => {

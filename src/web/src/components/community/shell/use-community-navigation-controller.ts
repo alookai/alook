@@ -7,11 +7,16 @@ import {
   createNavigationIntentGate,
   supersedeNavigationIntent,
 } from "@/lib/community/navigation-intent"
-import { communityServerId, serverRootHref } from "@/lib/community/community-route"
+import {
+  isPublishedNonStructuralCommit,
+  isStructuralFrameCommit,
+  normalizeCommunityHref,
+  type CommunityCommittedFrame,
+} from "@/lib/community/community-route"
 import type { ShellRouter } from "./shell-frame-types"
 
 export type CommunityNavigationController = {
-  currentHref: string
+  publishedHref: string
   navigationPending: boolean
   pendingHref: string | null
   push: (href: string) => void
@@ -21,22 +26,17 @@ export type CommunityNavigationController = {
   cancelPendingNavigation: () => void
 }
 
-function hasCommittedPendingHref(currentHref: string, pendingHref: string): boolean {
-  if (currentHref === pendingHref) return true
-  const pendingServerId = communityServerId(pendingHref)
-  if (!pendingServerId) return false
-  const pendingPathname = pendingHref.split(/[?#]/, 1)[0]
-  return pendingPathname === serverRootHref(pendingServerId)
-    && communityServerId(currentHref) === pendingServerId
-}
-
-export function useCommunityNavigationController(): CommunityNavigationController {
+export function useCommunityNavigationController(
+  committedFrame: CommunityCommittedFrame,
+): CommunityNavigationController {
   const router = useRouter() as ShellRouter
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const search = searchParams.toString()
-  const currentHref = search ? `${pathname}?${search}` : pathname
+  const publishedHref = search ? `${pathname}?${search}` : pathname
   const gateRef = useRef(createNavigationIntentGate())
+  const pendingBaselineRevisionRef = useRef(committedFrame.revision)
+  const pendingBaselineLeafRef = useRef(committedFrame.leafKey)
   const [navigationPending, setNavigationPending] = useState(false)
   const [pendingHref, setPendingHref] = useState<string | null>(null)
 
@@ -47,37 +47,56 @@ export function useCommunityNavigationController(): CommunityNavigationControlle
   }, [])
 
   useEffect(() => {
-    // A stale route commit must not clear a newer synchronous intent. Keep the
-    // latest pending href until that exact destination becomes current; Shell
-    // navigation intent/cancellation still clears it explicitly.
-    if (pendingHref !== null && !hasCommittedPendingHref(currentHref, pendingHref)) return
+    if (pendingHref === null) return
+    const target = normalizeCommunityHref(pendingHref)
+    const settled = target.leafKey === pendingBaselineLeafRef.current
+      ? isPublishedNonStructuralCommit(committedFrame, publishedHref, pendingHref)
+      : isStructuralFrameCommit({
+          committedFrame,
+          targetHref: pendingHref,
+          baselineRevision: pendingBaselineRevisionRef.current,
+        })
+    if (!settled) return
     supersedeNavigationIntent(gateRef.current)
     setNavigationPending(false)
-    if (pendingHref !== null) setPendingHref(null)
-  }, [currentHref, pendingHref])
+    setPendingHref(null)
+  }, [committedFrame, pendingHref, publishedHref])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const onPopState = () => cancelPendingNavigation()
+    window.addEventListener("popstate", onPopState)
+    return () => window.removeEventListener("popstate", onPopState)
+  }, [cancelPendingNavigation])
 
   const push = useCallback((href: string) => {
-    if (href === currentHref) return
+    if (href === publishedHref) return
     supersedeNavigationIntent(gateRef.current)
+    pendingBaselineRevisionRef.current = committedFrame.revision
+    pendingBaselineLeafRef.current = committedFrame.leafKey
     setNavigationPending(true)
     setPendingHref(href)
     router.push(href)
-  }, [currentHref, router])
+  }, [committedFrame.leafKey, committedFrame.revision, publishedHref, router])
 
   const replace = useCallback((href: string) => {
-    if (href === currentHref) return
+    if (href === publishedHref) return
     supersedeNavigationIntent(gateRef.current)
+    pendingBaselineRevisionRef.current = committedFrame.revision
+    pendingBaselineLeafRef.current = committedFrame.leafKey
     setNavigationPending(true)
     setPendingHref(href)
     router.replace(href)
-  }, [currentHref, router])
+  }, [committedFrame.leafKey, committedFrame.revision, publishedHref, router])
 
   const resolveAndPush = useCallback(async (resolve: () => Promise<string>) => {
+    pendingBaselineRevisionRef.current = committedFrame.revision
+    pendingBaselineLeafRef.current = committedFrame.leafKey
     setNavigationPending(true)
     setPendingHref(null)
     try {
       return await commitLatestNavigationIntent(gateRef.current, resolve, (href) => {
-        if (href === currentHref) {
+        if (href === publishedHref) {
           setNavigationPending(false)
           setPendingHref(null)
           return
@@ -90,10 +109,10 @@ export function useCommunityNavigationController(): CommunityNavigationControlle
       setPendingHref(null)
       throw error
     }
-  }, [currentHref, router])
+  }, [committedFrame.leafKey, committedFrame.revision, publishedHref, router])
 
   return {
-    currentHref,
+    publishedHref,
     navigationPending,
     pendingHref,
     push,

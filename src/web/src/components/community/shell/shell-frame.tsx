@@ -1,13 +1,15 @@
 "use client"
 
-import { useCallback, useEffect } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useCommunityOnboarding } from "@/lib/community-onboarding"
 import {
-  communityServerId,
+  advanceCommunityCommittedFrame,
+  normalizeCommunityHref,
+  resolveCommunityCheckpointPlan,
   resolveCommunityRoute,
-  resolveServerSwitchCheckpoint,
+  type CommunityCommittedFrame,
 } from "@/lib/community/community-route"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityStore } from "@/stores/community"
@@ -23,6 +25,7 @@ export function ShellFrame(props: ShellFrameProps) {
   const {
     view,
     activeServerId,
+    frameHref,
     sidebar,
     children,
     extraDialogs,
@@ -32,26 +35,43 @@ export function ShellFrame(props: ShellFrameProps) {
   const queryClient = useQueryClient()
   const breakpoint = useBreakpoint()
   const onboardingState = useCommunityOnboarding()
-  const navigation = useCommunityNavigationController()
+  const initialCommittedFrame: CommunityCommittedFrame = {
+    ...normalizeCommunityHref(frameHref),
+    revision: 0,
+  }
+  const committedFrameRef = useRef(initialCommittedFrame)
+  const [committedFrame, setCommittedFrame] = useState(initialCommittedFrame)
+  const commitFrame = useCallback((href: string) => {
+    const current = committedFrameRef.current
+    const next = advanceCommunityCommittedFrame(current, href)
+    if (next === current) return
+    committedFrameRef.current = next
+    setCommittedFrame(next)
+  }, [])
+  useLayoutEffect(() => commitFrame(frameHref), [commitFrame, frameHref])
+  const navigation = useCommunityNavigationController(committedFrame)
   const replacePath = navigation.replace
-  const pathname = navigation.currentHref.split("?")[0]!
-  const route = resolveCommunityRoute(pathname)
-  const pendingPathname = navigation.pendingHref?.split("?")[0]
-  const pendingRoute = pendingPathname ? resolveCommunityRoute(pendingPathname) : null
-  const pendingServerId = navigation.pendingHref
-    ? communityServerId(navigation.pendingHref)
+  const route = resolveCommunityRoute(committedFrame.pathname)
+  const target = navigation.pendingHref
+    ? normalizeCommunityHref(navigation.pendingHref)
     : null
-  const serverSwitch = resolveServerSwitchCheckpoint({
-    currentHref: navigation.currentHref,
-    pendingHref: navigation.pendingHref,
-    hasExactServerDetail: pendingServerId
-      ? queryClient.getQueryData(communityKeys.server(pendingServerId)) !== undefined
-      : false,
+  const targetReady = target?.scope.kind === "server"
+    ? queryClient.getQueryData(communityKeys.server(target.scope.serverId)) !== undefined
+    : target?.scope.kind === "me"
+      ? queryClient.getQueryData(communityKeys.dms()) !== undefined
+      : false
+  const checkpoint = resolveCommunityCheckpointPlan({
+    committedFrame,
+    targetHref: navigation.pendingHref,
+    pending: navigation.navigationPending,
+    targetReady,
   })
-  const coldServerSwitchTargetId = serverSwitch?.cold
-    ? serverSwitch.targetServerId
-    : null
-  const warmServerSwitch = serverSwitch != null && !serverSwitch.cold
+  const projectedView = checkpoint.rail.kind === "target"
+    ? checkpoint.rail.view
+    : view
+  const projectedActiveServerId = checkpoint.rail.kind === "target"
+    ? checkpoint.rail.activeServerId
+    : activeServerId
 
   const rail = useShellRailController({
     navigation,
@@ -59,7 +79,8 @@ export function ShellFrame(props: ShellFrameProps) {
     breakpoint,
     view,
     activeServerId,
-    projectedActiveServerId: coldServerSwitchTargetId ?? activeServerId,
+    projectedView,
+    projectedActiveServerId,
     onOpenActiveServerSettings,
     onOpenActiveServerInvite,
   })
@@ -115,15 +136,10 @@ export function ShellFrame(props: ShellFrameProps) {
   return (
     <ShellFrameView
       breakpoint={breakpoint}
-      surface={warmServerSwitch ? route.surface : pendingRoute?.surface ?? route.surface}
-      loadingHref={warmServerSwitch
-        ? navigation.currentHref
-        : navigation.pendingHref ?? navigation.currentHref}
+      checkpoint={checkpoint}
       sidebar={sidebar}
       extraDialogs={extraDialogs}
       cancelPendingNavigation={navigation.cancelPendingNavigation}
-      navigationPending={navigation.navigationPending && !warmServerSwitch}
-      serverSwitchTargetId={coldServerSwitchTargetId}
       rail={rail}
       profile={profile}
       inbox={inbox}

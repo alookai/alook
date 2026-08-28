@@ -15,6 +15,7 @@ import { ShellFrame } from "@/components/community/shell/shell-frame"
 import {
   channelHref,
   serverModalMarkerCleanupHref,
+  serverRootHref,
 } from "@/lib/community/community-route"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { ChannelSidebar } from "@/components/community/channels/channel-sidebar"
@@ -575,6 +576,9 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     />
   )
 
+  const structuralFrameHref = routeChannelId
+    ? channelHref(serverId, routeChannelId)
+    : serverRootHref(serverId)
   const content = routeChannelId
     ? (
         <ChannelRoute
@@ -589,6 +593,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     <ShellFrame
       view="server"
       activeServerId={serverId}
+      frameHref={structuralFrameHref}
       sidebar={sidebar}
       extraDialogs={<>{serverSettingsDialog}{iconCropDialog}</>}
       onOpenActiveServerSettings={onSidebarOpenSettings}
