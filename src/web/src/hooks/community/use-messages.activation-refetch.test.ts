@@ -80,6 +80,26 @@ function IndependentChannelCapture({ lastReadMessageId, onRender }: {
   return null
 }
 
+function WarmReturnChannelCapture({ lastReadMessageId, onRender }: {
+  lastReadMessageId: string | null
+  onRender: (snapshot: Snapshot) => void
+}) {
+  const result = useMessages("ch_activation", {
+    serverId: "server_1",
+    lastReadMessageId,
+    waitForAnchor: false,
+    reconcileLateAnchor: false,
+    revalidateOnMount: false,
+  })
+  onRender({
+    anchorReconciled: result.anchorReconciled,
+    hasMoreNewer: result.hasMoreNewer,
+    ids: result.messages.map((message) => message.id),
+    isFetching: result.isFetching,
+  })
+  return null
+}
+
 function renderCapture(
   queryClient: QueryClient,
   element: React.ReactElement,
@@ -216,6 +236,72 @@ describe("useMessagesInner — disabled-to-enabled cache revalidation", () => {
     ])
     expect(snapshots.at(-1)?.ids).toEqual(["m_read", "m_new"])
     expect(snapshots.at(-1)?.hasMoreNewer).toBe(true)
+    renderer.unmount()
+  })
+
+  it("warm return keeps its WS-live cache without StrictMode mount refetch when the read pointer is already cached", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const key = communityKeys.channelMessages("ch_activation")
+    const page = {
+      messages: [
+        { id: "m_read", seq: 1, createdAt: "2026-08-09T00:00:01.000Z" },
+        { id: "m_new", seq: 2, createdAt: "2026-08-09T00:00:02.000Z" },
+      ],
+      hasMore: false,
+      latestSeq: 2,
+    } satisfies MessagesPage
+    queryClient.setQueryData(key, {
+      pages: [page],
+      pageParams: [{ mode: "newest" }],
+    })
+    apiFetchMock.mockResolvedValue(page)
+    const snapshots: Snapshot[] = []
+    const renderer = renderCapture(
+      queryClient,
+      React.createElement(WarmReturnChannelCapture, {
+        lastReadMessageId: "m_read",
+        onRender: (snapshot) => { snapshots.push(snapshot) },
+      }),
+    )
+
+    await act(async () => { await Promise.resolve() })
+    expect(apiFetchMock).not.toHaveBeenCalled()
+    expect(snapshots.at(-1)?.anchorReconciled).toBe(true)
+    expect(snapshots.at(-1)?.ids).toEqual(["m_read", "m_new"])
+    renderer.unmount()
+  })
+
+  it("warm return performs one anchor repair when the read pointer is genuinely absent", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const key = communityKeys.channelMessages("ch_activation")
+    queryClient.setQueryData(key, {
+      pages: [{
+        messages: [{ id: "m_new", seq: 2, createdAt: "2026-08-09T00:00:02.000Z" }],
+        hasMore: true,
+        latestSeq: 2,
+      }],
+      pageParams: [{ mode: "newest" }],
+    })
+    apiFetchMock.mockResolvedValue({
+      messages: [{ id: "m_read", seq: 1, createdAt: "2026-08-09T00:00:01.000Z" }],
+      hasMoreOlder: false,
+      hasMoreNewer: true,
+      latestSeq: 2,
+    } satisfies MessagesPage)
+    const snapshots: Snapshot[] = []
+    const renderer = renderCapture(
+      queryClient,
+      React.createElement(WarmReturnChannelCapture, {
+        lastReadMessageId: "m_read",
+        onRender: (snapshot) => { snapshots.push(snapshot) },
+      }),
+    )
+
+    await waitFor(() => snapshots.at(-1)?.anchorReconciled === true)
+    expect(apiFetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/community/channels/ch_activation/messages?anchor=m_read",
+    ])
+    expect(snapshots.at(-1)?.ids).toEqual(["m_read", "m_new"])
     renderer.unmount()
   })
 

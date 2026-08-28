@@ -14,6 +14,7 @@ import { MessageChannelController } from "@/components/community/messages/messag
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
 import { MessageList } from "@/components/community/messages/message-list"
 import { useAuthorMentionInsertion } from "@/components/community/messages/use-author-mention-insertion"
+import { readMessageScrollPosition } from "@/components/community/messages/message-scroll-memory"
 import { ThreadOpener } from "@/components/community/messages/thread-opener"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
@@ -98,12 +99,14 @@ export function ThreadChannelSurface({
   })
   const { mutateAsync: editMessageAsync } = useEditMessage()
   useClaimThreadOpenerReadHandoff(threadOpenerHandoff)
+  const scrollMemoryKey = `thread:${channelId}`
   const feed = useChannelMessageFeed({
     channelId,
     serverId,
     viewerUserId: viewer.id,
     isChildChannel: true,
     anchorMessageId,
+    preferCachedWindowOnMount: readMessageScrollPosition(scrollMemoryKey) !== undefined,
   })
   const displayName = localName ?? channelName
 
@@ -228,7 +231,7 @@ export function ThreadChannelSurface({
               <MessageList
                 key={channelId}
                 channel={displayName}
-                scrollMemoryKey={`thread:${channelId}`}
+                scrollMemoryKey={scrollMemoryKey}
                 messages={controller.feed.messages}
                 loading={controller.feed.isLoading}
                 pinnedIds={controller.pinnedIds}

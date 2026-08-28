@@ -30,6 +30,7 @@ import {
   advanceMobileReplyGesture,
   beginMobileReplyGesture,
   shouldCommitMobileReply,
+  shouldSuppressClickAfterMobileReplyGesture,
   type MobileReplyGesture,
 } from "./mobile-message-gesture"
 import { useMobileAvatarMention } from "./use-mobile-avatar-mention"
@@ -311,7 +312,8 @@ function MessageImpl({
             if (!gesture || event.pointerType !== "touch") return
             const commit = shouldCommitMobileReply(gesture)
             swipeGestureRef.current = null
-            suppressLongPressClick.current = suppressLongPressClick.current || gesture.offset > 0
+            suppressLongPressClick.current = suppressLongPressClick.current
+              || shouldSuppressClickAfterMobileReplyGesture(gesture)
             setSwipeVisual({ offset: 0, active: false, crossed: false })
             if (commit) onReply?.()
           }

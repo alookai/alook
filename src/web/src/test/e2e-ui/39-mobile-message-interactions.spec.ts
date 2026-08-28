@@ -79,6 +79,42 @@ async function dispatchSwipe(
   })
 }
 
+async function dispatchSwipePathAndClick(
+  page: Page,
+  messageId: string,
+  deltas: Array<{ x: number; y: number }>,
+): Promise<void> {
+  const message = page.getByTestId(tid.message(messageId))
+  const row = message.locator("div.group").first()
+  await expect(row).toBeVisible()
+  await row.evaluate((element) => {
+    ;(element as HTMLElement).setPointerCapture = () => {}
+  })
+  const box = await row.boundingBox()
+  if (!box) throw new Error(`message row ${messageId} has no box`)
+  const start = { x: box.x + Math.min(100, box.width / 2), y: box.y + box.height / 2 }
+  const pointer = { pointerType: "touch", pointerId: 19, isPrimary: true, button: 0 }
+  await row.dispatchEvent("pointerdown", { ...pointer, clientX: start.x, clientY: start.y })
+  for (const delta of deltas) {
+    await row.dispatchEvent("pointermove", {
+      ...pointer,
+      buttons: 1,
+      clientX: start.x + delta.x,
+      clientY: start.y + delta.y,
+    })
+  }
+  const release = deltas.at(-1) ?? { x: 0, y: 0 }
+  await row.dispatchEvent("pointerup", {
+    ...pointer,
+    clientX: start.x + release.x,
+    clientY: start.y + release.y,
+  })
+  await row.dispatchEvent("click", {
+    clientX: start.x + release.x,
+    clientY: start.y + release.y,
+  })
+}
+
 async function dispatchLongPress(page: Page, target: Locator): Promise<void> {
   const box = await target.boundingBox()
   if (!box) throw new Error("long-press target has no box")
@@ -177,6 +213,15 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
 
   const beforeRejectedSwipeSeq = await latestSeq(alice.page, channelId)
   const beforeRejectedSwipeFrames = bobProxy.frames.length
+  await dispatchSwipePathAndClick(alice.page, channelBobMessageId, [
+    { x: 76, y: 1 },
+    { x: 0, y: 1 },
+  ])
+  await expect(alice.page.getByText("Replying to", { exact: false })).toHaveCount(0)
+  await expect(alice.page.getByRole("menuitem")).toHaveCount(0)
+  await dispatchSwipePathAndClick(alice.page, channelBobMessageId, [{ x: 32, y: 1 }])
+  await expect(alice.page.getByText("Replying to", { exact: false })).toHaveCount(0)
+  await expect(alice.page.getByRole("menuitem")).toHaveCount(0)
   await dispatchSwipe(alice.page, channelBobMessageId, { x: 6, y: 48 })
   await expect(alice.page.getByText("Replying to", { exact: false })).toHaveCount(0)
   expect(await latestSeq(alice.page, channelId)).toBe(beforeRejectedSwipeSeq)
@@ -467,12 +512,19 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
     return element.scrollTop
   })
   expect(readingPosition).toBe(2200)
-  const channelMessageGets: string[] = []
+  const getObservationStartedAt = Date.now()
+  const channelMessageGets: Array<{ route: string; sinceMs: number; url: string }> = []
   alice.page.on("request", (request) => {
     if (
       request.method() === "GET"
       && new URL(request.url()).pathname === `/api/community/channels/${channelId}/messages`
-    ) channelMessageGets.push(request.url())
+    ) {
+      channelMessageGets.push({
+        route: new URL(request.frame().url()).pathname,
+        sinceMs: Date.now() - getObservationStartedAt,
+        url: request.url(),
+      })
+    }
   })
   await alice.page.getByRole("button", { name: "Back" }).click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}`)
@@ -483,7 +535,10 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   await expect(composerEditable(alice.page)).toContainText(navigationDraft)
   await alice.page.waitForTimeout(1600)
   expect(await scroller.evaluate((element) => element.scrollTop)).toBeCloseTo(readingPosition, 0)
-  expect(channelMessageGets.length).toBeLessThanOrEqual(1)
+  expect(
+    channelMessageGets.length,
+    `channel message GETs after list return: ${JSON.stringify(channelMessageGets)}`,
+  ).toBeLessThanOrEqual(1)
 })
 
 test("mobile channel scroll restoration remains stable after navigation settles", async ({ asUser }) => {

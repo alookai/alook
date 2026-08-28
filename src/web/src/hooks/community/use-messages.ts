@@ -259,6 +259,20 @@ type MessagesOpts = {
    * pointer is reconciled by the existing anchor-repair effect.
    */
   waitForAnchor?: boolean
+  /**
+   * Defaults to the inverse of `waitForAnchor`. A warm semantic return can
+   * disable the extra late-anchor window fetch when its cached messages
+   * already contain the resolved read pointer; a genuinely missing anchor
+   * still repairs once.
+   */
+  reconcileLateAnchor?: boolean
+  /**
+   * A warm same-session return can skip observer-subscribe revalidation
+   * because WS and reconnect reconciliation already keep that cache current;
+   * cold or cache-miss mounts still fetch normally. When omitted, defer to
+   * the QueryClient's existing refetch-on-mount policy.
+   */
+  revalidateOnMount?: boolean
 }
 
 type ChannelMessagesOpts = MessagesOpts & {
@@ -296,6 +310,8 @@ function useMessagesInner(
   // Jump target wins over the read pointer for the initial anchor window.
   const anchorId = opts?.anchorMessageId ?? opts?.lastReadMessageId ?? null
   const enabled = !!scopeId && anchorResolved
+  const reconcileLateAnchor = opts?.reconcileLateAnchor
+    ?? (opts?.waitForAnchor === false)
   const viewKey = useMemo(
     () => JSON.stringify([queryKey, opts?.anchorMessageId ?? null]),
     [queryKey, opts?.anchorMessageId],
@@ -348,6 +364,7 @@ function useMessagesInner(
       return { mode: "newer", cursor }
     },
     enabled,
+    ...(opts?.revalidateOnMount === false ? { refetchOnMount: false } : {}),
     refetchOnReconnect: false,
     // Message bases are persisted, while accepted/session rows live in an
     // in-memory overlay. Treat each ordinary active message query as stale so
@@ -359,7 +376,7 @@ function useMessagesInner(
     staleTime: (cachedQuery) => cachedWindowNeedsAnchorReconcile(
       cachedQuery.state.data as PageCache | undefined,
       forceNewest ? null : anchorId,
-      opts?.waitForAnchor === false,
+      reconcileLateAnchor,
     ) ? Infinity : 0,
   })
 
@@ -440,7 +457,7 @@ function useMessagesInner(
     if (!cachedWindowNeedsAnchorReconcile(
       query.data,
       anchorId,
-      opts?.waitForAnchor === false,
+      reconcileLateAnchor,
     )) return
     const resetKey = `${scopeId ?? ""}::${anchorId}`
     if (anchorResetKeyRef.current === resetKey) return
@@ -531,6 +548,7 @@ function useMessagesInner(
     queryKey,
     queryFn,
     opts?.waitForAnchor,
+    reconcileLateAnchor,
   ])
 
   const messages = useMemo<Msg[]>(() => {
@@ -612,7 +630,9 @@ function useMessagesInner(
     presentVersion: forceNewest && presentOverride?.phase === "present"
       ? presentOverride.attemptId
       : 0,
-    anchorReconciled: !anchorId || cacheHasAnchorPage(query.data, anchorId),
+    anchorReconciled: !anchorId
+      || cacheHasAnchorPage(query.data, anchorId)
+      || (!reconcileLateAnchor && !cachedWindowNeedsAnchor(query.data?.pages, anchorId)),
     hasMore: hasMoreOlder,
   }
 }

@@ -70,6 +70,12 @@ export function shouldCommitMobileReply(gesture: MobileReplyGesture | null): boo
   return gesture?.intent === "horizontal" && gesture.thresholdCrossed
 }
 
+export function shouldSuppressClickAfterMobileReplyGesture(
+  gesture: MobileReplyGesture | null,
+): boolean {
+  return gesture?.intent === "horizontal"
+}
+
 export function movedBeyondLongPressTolerance(
   startX: number,
   startY: number,

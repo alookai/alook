@@ -12,12 +12,14 @@ export function useChannelMessageFeed({
   viewerUserId,
   isChildChannel: _isChildChannel,
   anchorMessageId,
+  preferCachedWindowOnMount = false,
 }: {
   channelId: string | null
   serverId: string
   viewerUserId: string
   isChildChannel: boolean
   anchorMessageId: string | null
+  preferCachedWindowOnMount?: boolean
 }) {
   const readState = useChannelReadStateSnapshot(channelId)
   const readSnapshot = readState.snapshot
@@ -28,6 +30,8 @@ export function useChannelMessageFeed({
       : (readSnapshot?.lastReadMessageId ?? null),
     anchorMessageId,
     waitForAnchor: false,
+    reconcileLateAnchor: !preferCachedWindowOnMount,
+    revalidateOnMount: !preferCachedWindowOnMount,
   })
   const { newDividerBefore, anchorFound } = useMemo(() => {
     if (!readSnapshot) return { newDividerBefore: undefined, anchorFound: false }

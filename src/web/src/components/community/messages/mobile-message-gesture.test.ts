@@ -5,6 +5,7 @@ import {
   beginMobileReplyGesture,
   movedBeyondLongPressTolerance,
   shouldCommitMobileReply,
+  shouldSuppressClickAfterMobileReplyGesture,
 } from "./mobile-message-gesture"
 
 describe("mobile message gesture", () => {
@@ -41,6 +42,23 @@ describe("mobile message gesture", () => {
     expect(reversed.gesture.hapticFired).toBe(true)
     expect(reversed.fireHaptic).toBe(false)
     expect(shouldCommitMobileReply(reversed.gesture)).toBe(false)
+  })
+
+  it("suppresses the synthesized click after a horizontal session even when reversal returns to zero", () => {
+    const start = beginMobileReplyGesture(80, 100)!
+    const crossed = advanceMobileReplyGesture(start, 156, 101).gesture
+    const returnedToZero = advanceMobileReplyGesture(crossed, 80, 101).gesture
+    expect(returnedToZero.offset).toBe(0)
+    expect(shouldCommitMobileReply(returnedToZero)).toBe(false)
+    expect(shouldSuppressClickAfterMobileReplyGesture(returnedToZero)).toBe(true)
+  })
+
+  it("suppresses the synthesized click after a below-threshold horizontal release, but not a tap", () => {
+    const start = beginMobileReplyGesture(80, 100)!
+    const belowThreshold = advanceMobileReplyGesture(start, 112, 101).gesture
+    expect(shouldCommitMobileReply(belowThreshold)).toBe(false)
+    expect(shouldSuppressClickAfterMobileReplyGesture(belowThreshold)).toBe(true)
+    expect(shouldSuppressClickAfterMobileReplyGesture(start)).toBe(false)
   })
 
   it("uses normal touch tolerance for avatar long press cancellation", () => {
