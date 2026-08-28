@@ -88,6 +88,38 @@ describe("MessageBody — spoiler nested formatting (full Streamdown pipeline)",
 // sanitize pipeline — the mdast-only unit tests in message-markdown.test.ts
 // pass kebab props directly and can't catch this.
 describe("MessageBody — mention pill survives sanitize (full pipeline)", () => {
+  it("renders an HTML-looking member name as one literal pill and opens the tagged profile", () => {
+    const onOpenProfile = vi.fn()
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(MessageBody, { text: "hi @<b>Alice</b>#0042", onOpenProfile }),
+      )
+    })
+
+    const pill = renderer!.root.findByType("button")
+    expect(pill.children).toEqual(["@<b>Alice</b>"])
+    expect(renderer!.root.findAllByType("b")).toHaveLength(0)
+    act(() => {
+      pill.props.onClick({ preventDefault() {}, stopPropagation() {} })
+    })
+    expect(onOpenProfile).toHaveBeenCalledWith("<b>Alice</b>", expect.anything(), "0042")
+  })
+
+  it("renders an event-handler-shaped member name as text without creating an image element", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(MessageBody, { text: "@<img src=x onerror=alert(1)>#0042" }),
+      )
+    })
+
+    const pill = renderer!.root.findByType("span")
+    expect(pill.children).toEqual(["@<img src=x onerror=alert(1)>"])
+    expect(renderer!.root.findAllByType("img")).toHaveLength(0)
+    expect(renderer!.root.findAllByType("script")).toHaveLength(0)
+  })
+
   it("forwards the discriminator from a @Name#dddd handle to onOpenProfile on click", () => {
     const calls: Array<[string, unknown, string | undefined]> = []
     const onOpenProfile = (name: string, _e: React.MouseEvent, discriminator?: string) => {
