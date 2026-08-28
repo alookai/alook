@@ -283,10 +283,14 @@ function MessageImpl({
           ? (event) => {
             const selection = window.getSelection()
             const selectionInsideRow = selectionBelongsToRow(selection, event.currentTarget)
-            const nearestControl = (event.target as Element).closest(
-              "button, a, input, textarea, select, [role=button]",
+            const controlSelector = "button, a, input, textarea, select, [role=button]"
+            const nearestControl = (event.target as Element).closest(controlSelector)
+            const composedControl = event.nativeEvent?.composedPath?.().find(
+              (target) => target !== event.currentTarget
+                && !!(target as Element).matches?.(controlSelector),
             )
-            const nestedControl = !!nearestControl && nearestControl !== event.currentTarget
+            const nestedControl = !!composedControl
+              || (!!nearestControl && nearestControl !== event.currentTarget)
             const suppress = shouldSuppressTouchMenuOpen({
               nestedControl,
               selectionInsideRow,

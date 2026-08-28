@@ -282,7 +282,8 @@ describe("Message reply content projection", () => {
 })
 
 describe("Message reaction picker", () => {
-  it("opens the shared picker from the visible non-hover Add reaction button", async () => {
+  it("opens the non-hover picker and suppresses its Shadow DOM selection click at the row", async () => {
+    vi.stubGlobal("window", { getSelection: () => null })
     const onReact = vi.fn()
     let renderer: TestRenderer.ReactTestRenderer | undefined
     await act(async () => {
@@ -314,6 +315,31 @@ describe("Message reaction picker", () => {
     act(() => renderer!.root.findByType(EmojiPickerPopover).props.onPick("🎉"))
     expect(onReact).toHaveBeenCalledOnce()
     expect(onReact).toHaveBeenCalledWith("🎉")
+
+    const row = renderer!.root.find(
+      (node) => typeof node.props.className === "string"
+        && node.props.className.includes("group relative -mx-2"),
+    )
+    const rowElement = { contains: () => false }
+    await act(async () => {
+      row.props.onClick({
+        clientX: 271,
+        clientY: 603,
+        currentTarget: rowElement,
+        target: { closest: () => null },
+        nativeEvent: {
+          composedPath: () => [
+            { matches: (selector: string) => selector.includes("button") },
+            { matches: () => false },
+            rowElement,
+          ],
+        },
+      })
+    })
+    expect(renderer!.root.findAll(
+      (node) => node.props.positionMethod === "fixed" && node.props.anchor,
+    )).toHaveLength(0)
+    expect(onReact).toHaveBeenCalledOnce()
     act(() => renderer!.unmount())
   })
 
