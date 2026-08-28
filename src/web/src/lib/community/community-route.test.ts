@@ -52,6 +52,26 @@ describe("community route", () => {
       })
   })
 
+  it("keeps an unknown pending href on the committed frame", () => {
+    const committedFrame = {
+      ...normalizeCommunityHref("/c/channels/s1/c1"),
+      revision: 4,
+    }
+    expect(resolveCommunityCheckpointPlan({
+      committedFrame,
+      targetHref: "/malformed",
+      pending: true,
+      targetReady: false,
+    })).toEqual({
+      mode: "committed",
+      surface: "detail",
+      targetHref: "/malformed",
+      rail: { kind: "keep" },
+      sidebar: { kind: "keep" },
+      main: { kind: "keep" },
+    })
+  })
+
   it.each([
     ["/c/channels/s1/c1", "/c/channels/s1/c2", false, "same-scope-leaf"],
     ["/c/me/friends", "/c/me/machines", false, "same-scope-leaf"],
