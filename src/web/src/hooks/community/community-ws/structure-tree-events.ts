@@ -13,6 +13,7 @@ import type {
   CommunityServerDelete,
   CommunityServerUpdate,
 } from "@alook/shared"
+import { FORUM_ARCHIVE_TAG } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { CanonicalMessage } from "@/lib/community/message-stream"
@@ -23,6 +24,7 @@ import {
   grantForumSidebarChild,
   isForumSidebarParent,
   patchForumSidebarActivityExact,
+  reconcileForumSidebarArchiveTag,
   removeForumSidebarThreadExact,
   removeForumSidebarUnreadChild,
 } from "@/hooks/community/use-forum-sidebar-threads"
@@ -160,6 +162,13 @@ export function handleChildChannelUpdate(
       removeForumSidebarThreadExact(queryClient, sidebarServerId, event.channelId)
     } else if (changes.archived === false) {
       void grantForumSidebarChild(queryClient, sidebarServerId, event.channelId)
+    } else if (changes.tags !== undefined) {
+      void reconcileForumSidebarArchiveTag(
+        queryClient,
+        sidebarServerId,
+        event.channelId,
+        (changes.tags ?? []).includes(FORUM_ARCHIVE_TAG),
+      )
     } else if (changes.lastMessageAt) {
       patchForumSidebarActivityExact(
         queryClient,

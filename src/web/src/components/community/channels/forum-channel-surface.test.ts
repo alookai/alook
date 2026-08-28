@@ -105,6 +105,7 @@ describe("ForumChannelSurface ownership", () => {
       id: "post_1",
       authorId: "viewer_1",
       openerMessageId: "opener_1",
+      tags: ["bug"],
     } as Parameters<NonNullable<typeof forumProps.canEditPostTags>>[0]
     const otherPost = { ...ownPost, authorId: "other_1" }
     expect(forumProps.canEditPostTags?.(ownPost)).toBe(true)
@@ -134,9 +135,11 @@ describe("ForumChannelSurface ownership", () => {
       forumProps.onDeletePost?.(ownPost)
     })
     expect(mocks.updatePostTags).toHaveBeenCalledWith({
+      serverId: "srv_1",
       forumChannelId: "forum_1",
       threadId: "post_1",
       openerMessageId: "opener_1",
+      previousTags: ["bug"],
       tags: ["shipped"],
     }, expect.any(Object))
     expect(mocks.deleteForumThread).toHaveBeenCalledWith({

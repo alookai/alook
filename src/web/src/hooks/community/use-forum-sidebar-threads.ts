@@ -18,6 +18,11 @@ export type ForumSidebarThread = {
   unread: boolean
 }
 
+type ForumSidebarRetainedDisposition =
+  | "eligible"
+  | "opener-archived"
+  | "genuine-negative"
+
 export type SidebarThreadEnvelope = {
   channels: Array<{
     id: string
@@ -36,6 +41,7 @@ export type SidebarThreadEnvelope = {
   }>
   canonicalChannels?: SidebarThreadEnvelope["channels"]
   retainedChannel?: SidebarThreadEnvelope["channels"][number] | null
+  retainedDisposition?: ForumSidebarRetainedDisposition | null
   included: {
     parentMessages: Array<{ id: string; content: string; seq?: number; channelId?: string }>
   }
@@ -72,6 +78,7 @@ export type ForumOpenerHint = {
 export type NormalizedForumSidebarEnvelope = {
   base: ForumSidebarQueryData
   retained: ForumSidebarThread | null
+  retainedDisposition: ForumSidebarRetainedDisposition | null
   channelMetas: Record<string, ChildChannelMeta>
   openerHints: Record<string, ForumOpenerHint>
 }
@@ -90,18 +97,21 @@ type InflightDelta = {
   titles: Map<string, string>
   unread: Map<string, boolean>
   removed: Set<string>
+  archiveRemovals: Map<string, number>
 }
 
 type InflightRecord = {
   promise: Promise<NormalizedForumSidebarEnvelope>
   delta: InflightDelta
   candidate: string | null
+  generation: number
   controller: AbortController
   signals: Set<AbortSignal>
   abortTimer: ReturnType<typeof setTimeout> | null
 }
 
 const inflight = new Map<string, InflightRecord>()
+let nextInflightGeneration = 0
 
 function recordInflightDelta(
   serverId: string,
@@ -419,6 +429,9 @@ export function normalizeForumSidebarEnvelope(
   const retained = retainedChannel
     ? projectChannels([retainedChannel], envelope.included.parentMessages)[0] ?? null
     : null
+  const retainedDisposition = retainId
+    ? envelope.retainedDisposition ?? (retained ? "eligible" : "genuine-negative")
+    : null
   const channelMetas: Record<string, ChildChannelMeta> = {}
   for (const channel of retainedChannel
     ? [...canonicalChannels, retainedChannel]
@@ -432,7 +445,7 @@ export function normalizeForumSidebarEnvelope(
       { id, content, ...(seq === undefined ? {} : { seq }), ...(channelId ? { channelId } : {}) },
     ]),
   )
-  return { base, retained, channelMetas, openerHints }
+  return { base, retained, retainedDisposition, channelMetas, openerHints }
 }
 
 export function deriveForumSidebarProjection(
@@ -664,7 +677,7 @@ export function removeForumSidebarProjectionExact(
   serverId: string,
   childId: string,
 ) {
-  removeForumSidebarBaseProjectionExact(queryClient, serverId, childId)
+  removeForumSidebarBaseProjectionExact(queryClient, serverId, childId, "genuine")
   queryClient.removeQueries({
     queryKey: communityKeys.forumSidebarRetained(serverId, childId),
     exact: true,
@@ -675,10 +688,17 @@ function removeForumSidebarBaseProjectionExact(
   queryClient: QueryClient,
   serverId: string,
   childId: string,
+  cause: "genuine" | "archive-tag" = "genuine",
 ) {
-  recordInflightDelta(serverId, (delta) => {
-    delta.removed.add(childId)
-  })
+  const record = inflight.get(serverId)
+  if (record) {
+    record.delta.removed.add(childId)
+    if (cause === "archive-tag") {
+      record.delta.archiveRemovals.set(childId, record.generation)
+    } else {
+      record.delta.archiveRemovals.delete(childId)
+    }
+  }
   queryClient.setQueryData<ForumSidebarQueryData | undefined>(
     communityKeys.forumSidebarThreads(serverId),
     (data) => removeForumSidebarThread(data, childId),
@@ -691,7 +711,7 @@ export function restoreForumSidebarThreadInflight(
   childId: string,
 ) {
   recordInflightDelta(serverId, (delta) => {
-    delta.removed.delete(childId)
+    if (!delta.archiveRemovals.has(childId)) delta.removed.delete(childId)
   })
 }
 
@@ -760,6 +780,39 @@ export function grantForumSidebarChild(
   return invalidateForumSidebarBaseExact(queryClient, serverId)
 }
 
+export function reconcileForumSidebarArchiveTag(
+  queryClient: QueryClient,
+  serverId: string,
+  childId: string,
+  archived: boolean,
+) {
+  const retainedKey = communityKeys.forumSidebarRetained(serverId, childId)
+  if (archived) {
+    removeForumSidebarBaseProjectionExact(
+      queryClient,
+      serverId,
+      childId,
+      "archive-tag",
+    )
+    queryClient.removeQueries({ queryKey: retainedKey, exact: true })
+    return invalidateForumSidebarBaseExact(queryClient, serverId)
+  }
+  const record = inflight.get(serverId)
+  if (record && record.delta.archiveRemovals.get(childId) === record.generation) {
+    record.delta.archiveRemovals.delete(childId)
+    record.delta.removed.delete(childId)
+  }
+  const retainedState = queryClient.getQueryState<ForumSidebarThread | null>(retainedKey)
+  const resetRetained = retainedState?.data === null || retainedState?.fetchStatus === "fetching"
+    ? queryClient.cancelQueries({ queryKey: retainedKey, exact: true }).then(() => {
+      queryClient.removeQueries({ queryKey: retainedKey, exact: true })
+    })
+    : Promise.resolve()
+  return resetRetained.then(() => {
+    return invalidateForumSidebarBaseExact(queryClient, serverId)
+  })
+}
+
 function sidebarUrl(serverId: string, retainId: string | null) {
   const params = new URLSearchParams({
     type: "thread",
@@ -810,11 +863,13 @@ function fetchForumSidebar(serverId: string, retainId: string | null, signal?: A
     inflight.delete(serverId)
   }
   const controller = new AbortController()
+  const generation = ++nextInflightGeneration
   const delta: InflightDelta = {
     activity: new Map(),
     titles: new Map(),
     unread: new Map(),
     removed: new Set(),
+    archiveRemovals: new Map(),
   }
   const request = apiFetch<SidebarThreadEnvelope>(sidebarUrl(serverId, retainId), {
     signal: controller.signal,
@@ -823,6 +878,7 @@ function fetchForumSidebar(serverId: string, retainId: string | null, signal?: A
     .then((normalized) => {
       let base: ForumSidebarQueryData | undefined = normalized.base
       let retained = normalized.retained
+      let retainedDisposition = normalized.retainedDisposition
       const channelMetas = { ...normalized.channelMetas }
       const openerHints = { ...normalized.openerHints }
       for (const [childId, update] of delta.activity) {
@@ -868,12 +924,22 @@ function fetchForumSidebar(serverId: string, retainId: string | null, signal?: A
         if (meta) delete openerHints[meta.parentMessageId]
         delete channelMetas[childId]
         base = removeForumSidebarThread(base, childId)
-        if (retained?.id === childId) retained = null
+        if (retained?.id === childId) {
+          if (
+            retainedDisposition === "eligible"
+            && retainId === childId
+            && delta.archiveRemovals.get(childId) === generation
+          ) {
+            retainedDisposition = "opener-archived"
+          }
+          retained = null
+        }
       }
       return {
         ...normalized,
         base: base ?? normalized.base,
         retained,
+        retainedDisposition,
         channelMetas,
         openerHints,
       }
@@ -888,6 +954,7 @@ function fetchForumSidebar(serverId: string, retainId: string | null, signal?: A
     promise: request,
     delta,
     candidate: retainId,
+    generation,
     controller,
     signals: new Set(),
     abortTimer: null,
@@ -910,10 +977,19 @@ function seedForumSidebarResources(
     !hasForumSidebarThread(normalized.base, retainId) &&
     hasForumSidebarOwnershipEvidence(queryClient, serverId, retainId)
   ) {
-    removeForumSidebarUnreadChild(queryClient, serverId, retainId)
+    if (normalized.retainedDisposition !== "opener-archived") {
+      removeForumSidebarUnreadChild(queryClient, serverId, retainId)
+    }
     // The retained query owns its negative result. Removing that active query
     // here makes `retained=null` immediately eligible to refetch in a loop.
-    removeForumSidebarBaseProjectionExact(queryClient, serverId, retainId)
+    removeForumSidebarBaseProjectionExact(
+      queryClient,
+      serverId,
+      retainId,
+      normalized.retainedDisposition === "opener-archived"
+        ? "archive-tag"
+        : "genuine",
+    )
   }
   for (const meta of Object.values(normalized.channelMetas)) {
     queryClient.setQueryData(

@@ -96,6 +96,61 @@ function invalidationCount(queryKey: readonly unknown[]): number {
 }
 
 describe("useCommunityWs — operation bundles", () => {
+  it("applies archive and null-tag sidebar semantics inside committed batches", async () => {
+    await mountHook()
+    const baseKey = communityKeys.forumSidebarThreads("s1")
+    const metaKey = communityKeys.channelMeta("s1", "post_1")
+    const hintKey = communityKeys.forumOpenerHint("s1", "opener-post_1")
+    capturedQueryClient.setQueryData(communityKeys.server("s1"), {
+      id: "s1",
+      categories: [{ id: "cat_1", channels: [{ id: "forum_1", type: "forum" }] }],
+    })
+    capturedQueryClient.setQueryData(baseKey, forumSidebarFixture(["post_1", "post_2"]))
+    capturedQueryClient.setQueryData(metaKey, {
+      id: "post_1",
+      parentChannelId: "forum_1",
+      parentMessageId: "opener-post_1",
+    })
+    capturedQueryClient.setQueryData(hintKey, {
+      id: "opener-post_1",
+      content: "Post one",
+    })
+
+    capturedOnMessage!(await batchFor("forum-archive", [{
+      type: "community:channel.child_update",
+      parentChannelId: "forum_1",
+      channelId: "post_1",
+      changes: { tags: ["archived"] },
+    }]))
+
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(baseKey)
+      ?.threads.map(({ id }) => id)).toEqual(["post_2"])
+    expect(capturedQueryClient.getQueryData(metaKey)).toMatchObject({ id: "post_1" })
+    expect(capturedQueryClient.getQueryData(hintKey)).toEqual({
+      id: "opener-post_1",
+      content: "Post one",
+    })
+    await vi.waitFor(() => {
+      expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(true)
+    })
+
+    capturedQueryClient.setQueryData(baseKey, forumSidebarFixture(["post_2"]))
+    capturedOnMessage!(await batchFor("forum-unarchive", [{
+      type: "community:channel.child_update",
+      parentChannelId: "forum_1",
+      channelId: "post_1",
+      changes: { tags: null },
+    }]))
+
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(baseKey)
+      ?.threads.map(({ id }) => id)).toEqual(["post_2"])
+    expect(capturedQueryClient.getQueryData(metaKey)).toMatchObject({ id: "post_1" })
+    expect(capturedQueryClient.getQueryData(hintKey)).toEqual({
+      id: "opener-post_1",
+      content: "Post one",
+    })
+  })
+
   it("merges multiple requests into one queued successor generation", async () => {
     vi.useFakeTimers()
     try {
