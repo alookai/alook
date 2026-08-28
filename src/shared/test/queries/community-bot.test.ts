@@ -166,6 +166,72 @@ describe("createBot", () => {
   })
 })
 
+describe("bot runtime-config read projections", () => {
+  const storedBot = {
+    id: "bot_1",
+    name: "helper",
+    discriminator: "1234",
+    image: null,
+    ownerUserId: "owner_1",
+    description: "does things",
+    createdAt: "2026-08-29T00:00:00.000Z",
+    updatedAt: "2026-08-29T00:00:00.000Z",
+    lastRefreshContextAt: null,
+    machineId: "machine_1",
+    runtime: "codex",
+    modelName: "gpt-5",
+    reasoningEffort: "high",
+    runtimeConfigRevision: 7,
+  }
+
+  function makeOwnerListChain(rows: unknown[]) {
+    const chain: any = {}
+    chain.select = vi.fn(() => chain)
+    chain.from = vi.fn(() => chain)
+    chain.innerJoin = vi.fn(() => chain)
+    chain.where = vi.fn(() => Promise.resolve(rows))
+    return chain
+  }
+
+  function makeLimitedReadChain(rows: unknown[]) {
+    const chain: any = {}
+    chain.select = vi.fn(() => chain)
+    chain.from = vi.fn(() => chain)
+    chain.leftJoin = vi.fn(() => chain)
+    chain.where = vi.fn(() => chain)
+    chain.limit = vi.fn(() => Promise.resolve(rows))
+    return chain
+  }
+
+  it("returns reasoning effort and revision when listing an owner's bots", async () => {
+    await expect(q.listBotsForOwner(makeOwnerListChain([storedBot]), "owner_1")).resolves.toEqual([
+      storedBot,
+    ])
+  })
+
+  it("returns reasoning effort and revision from the owner-scoped lookup", async () => {
+    await expect(q.getBotOwnedBy(makeLimitedReadChain([storedBot]), "bot_1", "owner_1")).resolves.toEqual(
+      storedBot,
+    )
+  })
+
+  it("returns reasoning effort and revision in a ready wake context", async () => {
+    await expect(q.getBotWakeContext(makeLimitedReadChain([{ ...storedBot, isBot: true, deletedAt: null }]), "bot_1"))
+      .resolves.toEqual({
+        state: "ready",
+        botUserId: "bot_1",
+        name: "helper",
+        discriminator: "1234",
+        machineId: "machine_1",
+        runtime: "codex",
+        modelName: "gpt-5",
+        reasoningEffort: "high",
+        runtimeConfigRevision: 7,
+        ownerUserId: "owner_1",
+      })
+  })
+})
+
 describe("getBotBinding", () => {
   function makeSelectChain(rows: unknown[]) {
     const chain: any = {}

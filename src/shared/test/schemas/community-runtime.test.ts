@@ -122,6 +122,22 @@ describe("CommunityMachineRuntimeSchema", () => {
     });
   });
 
+  it("keeps a supported default reasoning effort", () => {
+    const parsed = CommunityMachineRuntimeSchema.parse({
+      id: "codex",
+      reasoning: {
+        updateMode: "live_next_turn",
+        models: [{
+          id: "gpt-5",
+          supportedReasoningEfforts: [{ value: "medium" }, { value: "high" }],
+          defaultReasoningEffort: "medium",
+        }],
+      },
+    });
+
+    expect(parsed.reasoning?.models[0]?.defaultReasoningEffort).toBe("medium");
+  });
+
   it("drops a malformed reasoning catalog without poisoning runtime health", () => {
     expect(CommunityMachineRuntimeSchema.parse({
       id: "codex",
