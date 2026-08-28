@@ -116,7 +116,14 @@ export function ForumChannelSurface({
             savingTagsFor={updatePostTagsMut.isPending ? updatePostTagsMut.variables?.threadId ?? null : null}
             onEditPostTags={(post, tags) => {
               updatePostTagsMut.mutate(
-                { forumChannelId: channelId, threadId: post.id, openerMessageId: post.openerMessageId, tags },
+                {
+                  serverId,
+                  forumChannelId: channelId,
+                  threadId: post.id,
+                  openerMessageId: post.openerMessageId,
+                  previousTags: post.tags ?? [],
+                  tags,
+                },
                 { onError: (error) => toastApiError(error, "Failed to update tags") },
               )
             }}

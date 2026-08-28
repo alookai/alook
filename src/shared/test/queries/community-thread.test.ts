@@ -174,6 +174,26 @@ describe("listForumThreadsByCreatedAt against real SQLite", () => {
     expect(rows.map((row) => row.userId)).toEqual(["A", "a"]);
   });
 
+  it("keeps retained disposition explicit when the participating query is disabled", async () => {
+    for (const params of [
+      { parentChannelIds: [] as string[], limitPerParent: 5 },
+      { parentChannelIds: ["forum_1"], limitPerParent: 0 },
+    ]) {
+      const result = await threadQueries.listParticipatingForumThreads(db as never, {
+        ...params,
+        userId: "viewer",
+        activeAfter: "2026-08-08T03:00:00.000Z",
+        retainId: "t_created",
+      });
+
+      expect(result).toEqual({
+        canonical: [],
+        retained: null,
+        retainedDisposition: "genuine-negative",
+      });
+    }
+  });
+
   it("returns per-forum recent notify rows and retains an older open post", async () => {
     sqlite.prepare("INSERT INTO user (id, name) VALUES (?, ?)").run("viewer", "Viewer");
     const insertMember = sqlite.prepare(`
@@ -181,9 +201,12 @@ describe("listForumThreadsByCreatedAt against real SQLite", () => {
         (id, channel_id, user_id, relation, source, added_at)
       VALUES (?, ?, 'viewer', 'notify', 'spoke', '2026-08-08T00:00:00.000Z')
     `);
-    for (const id of ["t_new", "t_tie_b", "t_tie_a", "t_created", "t_archived", "foreign"]) {
+    for (const id of ["t_new", "t_tie_b", "t_tie_a", "t_created", "t_tag_archived", "t_archived", "foreign"]) {
       insertMember.run(`member_${id}`, id);
     }
+    sqlite.prepare(
+      "INSERT INTO community_message_tag (id, message_id, tag) VALUES (?, ?, ?)",
+    ).run("tag_channel_archive", "m_archived", FORUM_ARCHIVE_TAG);
 
     const recent = await threadQueries.listParticipatingForumThreads(db as never, {
       parentChannelIds: ["forum_1", "forum_2"],
@@ -193,6 +216,7 @@ describe("listForumThreadsByCreatedAt against real SQLite", () => {
     });
     expect(recent.canonical.map((row) => row.id)).toEqual(["t_new", "t_tie_b", "foreign"]);
     expect(recent.retained).toBeNull();
+    expect(recent.retainedDisposition).toBeNull();
 
     const retained = await threadQueries.listParticipatingForumThreads(db as never, {
       parentChannelIds: ["forum_1", "forum_2"],
@@ -203,6 +227,38 @@ describe("listForumThreadsByCreatedAt against real SQLite", () => {
     });
     expect(retained.canonical.map((row) => row.id)).toEqual(["t_new", "t_tie_b", "foreign"]);
     expect(retained.retained?.id).toBe("t_created");
+    expect(retained.retainedDisposition).toBe("eligible");
+
+    const openerArchived = await threadQueries.listParticipatingForumThreads(db as never, {
+      parentChannelIds: ["forum_1"],
+      userId: "viewer",
+      activeAfter: "2026-08-08T03:00:00.000Z",
+      limitPerParent: 2,
+      retainId: "t_tag_archived",
+    });
+    expect(openerArchived.retained).toBeNull();
+    expect(openerArchived.retainedDisposition).toBe("opener-archived");
+
+    const channelArchived = await threadQueries.listParticipatingForumThreads(db as never, {
+      parentChannelIds: ["forum_1"],
+      userId: "viewer",
+      activeAfter: "2026-08-08T03:00:00.000Z",
+      limitPerParent: 2,
+      retainId: "t_archived",
+    });
+    expect(channelArchived.retained).toBeNull();
+    expect(channelArchived.retainedDisposition).toBe("genuine-negative");
+
+    sqlite.prepare("INSERT INTO user (id, name) VALUES (?, ?)").run("outsider", "Outsider");
+    const nonparticipantArchived = await threadQueries.listParticipatingForumThreads(db as never, {
+      parentChannelIds: ["forum_1"],
+      userId: "outsider",
+      activeAfter: "2026-08-08T03:00:00.000Z",
+      limitPerParent: 2,
+      retainId: "t_tag_archived",
+    });
+    expect(nonparticipantArchived.retained).toBeNull();
+    expect(nonparticipantArchived.retainedDisposition).toBe("genuine-negative");
 
     const outOfScopeRetained = await threadQueries.listParticipatingForumThreads(db as never, {
       parentChannelIds: ["forum_1"],
@@ -213,6 +269,75 @@ describe("listForumThreadsByCreatedAt against real SQLite", () => {
     });
     expect(outOfScopeRetained.canonical.map((row) => row.id)).toEqual(["t_new", "t_tie_b"]);
     expect(outOfScopeRetained.retained).toBeNull();
+    expect(outOfScopeRetained.retainedDisposition).toBe("genuine-negative");
+  });
+
+  it("filters archived openers before top-five ranking and refills from the sixth active post", async () => {
+    sqlite.prepare("INSERT INTO user (id, name) VALUES (?, ?)").run("viewer", "Viewer");
+    const insertChannel = sqlite.prepare(`
+      INSERT INTO community_channel
+        (id, name, type, parent_channel_id, parent_message_id, archived, last_message_at, created_at)
+      VALUES (?, ?, 'thread', 'forum_1', ?, 0, ?, '2026-01-01T00:00:00.000Z')
+    `);
+    insertChannel.run("t_fifth", "fifth", "m_fifth", "2026-08-08T03:30:00.000Z");
+    insertChannel.run("t_sixth", "sixth", "m_sixth", "2026-08-08T03:00:00.000Z");
+    const insertMember = sqlite.prepare(`
+      INSERT INTO community_channel_member
+        (id, channel_id, user_id, relation, source, added_at)
+      VALUES (?, ?, 'viewer', 'notify', 'spoke', '2026-08-08T00:00:00.000Z')
+    `);
+    for (const id of [
+      "t_tag_archived",
+      "t_new",
+      "t_tie_b",
+      "t_tie_a",
+      "t_fifth",
+      "t_sixth",
+      "t_created",
+    ]) {
+      insertMember.run(`member_${id}`, id);
+    }
+    sqlite.prepare("DELETE FROM community_message_tag WHERE id = 'tag_archive'").run();
+
+    const before = await threadQueries.listParticipatingForumThreads(db as never, {
+      parentChannelIds: ["forum_1"],
+      userId: "viewer",
+      activeAfter: "2026-08-08T00:00:00.000Z",
+      limitPerParent: 5,
+    });
+    expect(before.canonical.map((row) => row.id)).toEqual([
+      "t_tag_archived",
+      "t_new",
+      "t_tie_b",
+      "t_tie_a",
+      "t_fifth",
+    ]);
+
+    sqlite.prepare(
+      "INSERT INTO community_message_tag (id, message_id, tag) VALUES (?, ?, ?)",
+    ).run("tag_archive_again", "m_tag_archived", FORUM_ARCHIVE_TAG);
+    const archived = await threadQueries.listParticipatingForumThreads(db as never, {
+      parentChannelIds: ["forum_1"],
+      userId: "viewer",
+      activeAfter: "2026-08-08T00:00:00.000Z",
+      limitPerParent: 5,
+    });
+    expect(archived.canonical.map((row) => row.id)).toEqual([
+      "t_new",
+      "t_tie_b",
+      "t_tie_a",
+      "t_fifth",
+      "t_sixth",
+    ]);
+
+    sqlite.prepare("DELETE FROM community_message_tag WHERE id = 'tag_archive_again'").run();
+    const unarchived = await threadQueries.listParticipatingForumThreads(db as never, {
+      parentChannelIds: ["forum_1"],
+      userId: "viewer",
+      activeAfter: "2026-08-08T00:00:00.000Z",
+      limitPerParent: 5,
+    });
+    expect(unarchived.canonical.map((row) => row.id)).toEqual(before.canonical.map((row) => row.id));
   });
 });
 

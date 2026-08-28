@@ -1,6 +1,7 @@
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ApiError } from "@/lib/errors"
+import { communityKeys } from "@/lib/query-keys"
 
 const apiFetch = vi.hoisted(() => vi.fn())
 const reconcileAccountReadState = vi.hoisted(() => vi.fn())
@@ -26,6 +27,14 @@ import {
   submitReadIntent,
   submitReadIntentGeneration,
 } from "./read-coordinator"
+import {
+  activateInboxProjectionTicket,
+  inboxReadCandidateFingerprint,
+  registerInboxProjectionTicket,
+  registerInboxReadReservationSurface,
+  reserveInboxUnreadsResponse,
+  type InboxRowTarget,
+} from "./inbox-read-reservation"
 
 function timelineLease(queryClient: QueryClient, confirmedSeq = 0) {
   return registerReadSurface(
@@ -603,5 +612,143 @@ describe("read coordinator", () => {
       consumed: false,
       cutoff: 1,
     })
+  })
+
+  it("publishes success only after the owned Inbox reconciliation settles", async () => {
+    const queryClient = new QueryClient()
+    const data = {
+      servers: [{
+        serverId: "s1",
+        channels: [{
+          channelId: "channel-1",
+          lastMessageAt: "2026-08-27T01:00:00.000Z",
+          hasDirectUnread: true,
+          children: [],
+        }],
+      }],
+      dms: [],
+    }
+    queryClient.setQueryData(communityKeys.inboxUnreads(), data)
+    const target: InboxRowTarget = {
+      kind: "channel-direct",
+      identity: JSON.stringify(["channel-direct", "s1", "channel-1"]),
+      fingerprint: inboxReadCandidateFingerprint({
+        channelId: "channel-1",
+        lastMessageAt: "2026-08-27T01:00:00.000Z",
+        openerUnread: false,
+      }),
+      confirmationChannelId: "channel-1",
+      serverId: "s1",
+      channelId: "channel-1",
+    }
+    const receipt = vi.fn()
+    activateInboxProjectionTicket(registerInboxProjectionTicket(
+      queryClient,
+      1,
+      target,
+      receipt,
+    ))
+    const reservation = registerInboxReadReservationSurface(
+      queryClient,
+      "channel-1",
+      vi.fn(),
+    )
+    const pending = reserveInboxUnreadsResponse(queryClient, data)
+    void pending.catch(() => undefined)
+    const readLease = timelineLease(queryClient)
+    const generation = submitReadIntentGeneration(readLease, {
+      kind: "timeline",
+      channelId: "channel-1",
+      messageId: "message-4",
+      seq: 4,
+    })!
+    const { promoteInboxReadReservation } = await import("./inbox-read-reservation")
+    promoteInboxReadReservation(reservation, generation)
+    apiFetch.mockResolvedValue({ changed: true, revision: 20, targetSeq: 4 })
+    let resolveReconciliation!: () => void
+    reconcileAccountReadState.mockReturnValue(new Promise<void>((resolve) => {
+      resolveReconciliation = resolve
+    }))
+
+    const work = flushPendingReadIntents(queryClient)
+    await vi.waitFor(() => expect(reconcileAccountReadState).toHaveBeenCalled())
+    expect(receipt).not.toHaveBeenCalled()
+    queryClient.setQueryData(communityKeys.inboxUnreads(), { servers: [], dms: [] })
+    resolveReconciliation()
+    await expect(work).resolves.toEqual({ consumed: true, cutoff: generation })
+    expect(receipt).toHaveBeenCalledWith(expect.objectContaining({
+      terminal: "success",
+      disposition: "retire",
+    }))
+  })
+
+  it("publishes deferred and reconciliation-error receipts as deterministic rollback", async () => {
+    const run = async (mode: "deferred" | "error") => {
+      const queryClient = new QueryClient()
+      const data = {
+        servers: [{
+          serverId: "s1",
+          channels: [{
+            channelId: "channel-1",
+            lastMessageAt: "2026-08-27T01:00:00.000Z",
+            hasDirectUnread: true,
+            children: [],
+          }],
+        }],
+        dms: [],
+      }
+      queryClient.setQueryData(communityKeys.inboxUnreads(), data)
+      const target: InboxRowTarget = {
+        kind: "channel-direct",
+        identity: JSON.stringify(["channel-direct", "s1", "channel-1"]),
+        fingerprint: inboxReadCandidateFingerprint({
+          channelId: "channel-1",
+          lastMessageAt: "2026-08-27T01:00:00.000Z",
+          openerUnread: false,
+        }),
+        confirmationChannelId: "channel-1",
+        serverId: "s1",
+        channelId: "channel-1",
+      }
+      const receipt = vi.fn()
+      activateInboxProjectionTicket(registerInboxProjectionTicket(
+        queryClient,
+        1,
+        target,
+        receipt,
+      ))
+      const reservation = registerInboxReadReservationSurface(
+        queryClient,
+        "channel-1",
+        vi.fn(),
+      )
+      const pending = reserveInboxUnreadsResponse(queryClient, data)
+      void pending.catch(() => undefined)
+      const readLease = timelineLease(queryClient)
+      const generation = submitReadIntentGeneration(readLease, {
+        kind: "timeline",
+        channelId: "channel-1",
+        messageId: "message-4",
+        seq: 4,
+      })!
+      const { promoteInboxReadReservation } = await import("./inbox-read-reservation")
+      promoteInboxReadReservation(reservation, generation)
+      apiFetch.mockResolvedValue({ changed: true, revision: 20, targetSeq: 4 })
+      if (mode === "error") {
+        reconcileAccountReadState.mockRejectedValue(new Error("refresh failed"))
+      }
+      await flushPendingReadIntents(queryClient, mode === "deferred"
+        ? { deferInboxDms: () => true }
+        : undefined)
+      expect(receipt).toHaveBeenCalledWith(expect.objectContaining({
+        terminal: mode,
+        disposition: "rollback",
+        observedFingerprint: null,
+      }))
+    }
+    await run("deferred")
+    apiFetch.mockReset()
+    reconcileAccountReadState.mockReset().mockResolvedValue(undefined)
+    await run("error")
   })
 })

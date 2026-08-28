@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => {
       cancelPendingNavigation: handlers.cancelPendingNavigation,
     },
     railOptions: vi.fn(),
+    inboxOptions: vi.fn(),
     profile: {
       previewImage: handlers.previewImage,
       previewAttachment: handlers.previewAttachment,
@@ -75,7 +76,10 @@ vi.mock("./use-shell-profile-controller", () => ({
   useShellProfileController: () => mocks.profile,
 }))
 vi.mock("./use-shell-inbox-controller", () => ({
-  useShellInboxController: () => mocks.inbox,
+  useShellInboxController: (options: unknown) => {
+    mocks.inboxOptions(options)
+    return mocks.inbox
+  },
 }))
 vi.mock("./shell-frame-view", () => ({
   ShellFrameView: (props: Record<string, unknown>) => createElement("shell-frame-view", props),
@@ -100,6 +104,7 @@ describe("ShellFrame orchestration", () => {
     mocks.replace.mockClear()
     mocks.push.mockClear()
     mocks.railOptions.mockClear()
+    mocks.inboxOptions.mockClear()
   })
 
   afterEach(() => vi.unstubAllGlobals())
@@ -155,6 +160,11 @@ describe("ShellFrame orchestration", () => {
       targetHref: "/c/channels/s1",
       main: { kind: "keep" },
     })
+    expect(mocks.inboxOptions).toHaveBeenLastCalledWith(expect.objectContaining({
+      publishedHref: "/c/channels/s1/c1",
+      navigationPending: true,
+      pendingHref: "/c/channels/s1",
+    }))
 
     mocks.pendingHref.current = "/c/me/dm_1?from=inbox"
     await act(async () => {

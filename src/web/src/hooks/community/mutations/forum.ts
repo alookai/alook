@@ -11,7 +11,9 @@ import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { UploadedAttachment } from "@/hooks/community/mutations/uploads"
 import type { MentionType } from "@alook/shared"
+import { FORUM_ARCHIVE_TAG } from "@alook/shared"
 import {
+  reconcileForumSidebarArchiveTag,
   restoreForumSidebarThreadInflight,
 } from "@/hooks/community/use-forum-sidebar-threads"
 import {
@@ -65,12 +67,14 @@ export function useCreateForumThread() {
 }
 
 export type UpdatePostTagsArgs = {
+  serverId: string
   // The parent forum channel — the cache key the post list lives under.
   forumChannelId: string
   // The post/thread card being patched in cache.
   threadId: string
   // Tags are a resource of the forum opener message, never of the child thread.
   openerMessageId: string
+  previousTags: string[]
   tags: string[]
 }
 
@@ -84,14 +88,25 @@ export function useUpdatePostTags() {
   return useMutation<{ tags: string[] }, Error, UpdatePostTagsArgs>({
     mutationFn: async ({ openerMessageId, tags }) => {
       const normalized = [...new Set(tags.map((t) => t.trim().toLowerCase()).filter(Boolean))]
-      await apiFetch(`/api/community/messages/${openerMessageId}/tags`, {
+      const result = await apiFetch<{ tags: string[] }>(`/api/community/messages/${openerMessageId}/tags`, {
         method: "PUT",
         body: JSON.stringify({ tags: normalized }),
       })
-      return { tags: normalized }
+      return {
+        tags: [...new Set(result.tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean))],
+      }
     },
     onSuccess: (data, args) => {
-      void data
+      const wasArchived = args.previousTags.includes(FORUM_ARCHIVE_TAG)
+      const isArchived = data.tags.includes(FORUM_ARCHIVE_TAG)
+      if (wasArchived !== isArchived) {
+        void reconcileForumSidebarArchiveTag(
+          queryClient,
+          args.serverId,
+          args.threadId,
+          isArchived,
+        )
+      }
       // Prefix invalidation covers the unfiltered list and every tag variant.
       // This is required when the edited
       // post loses the currently-selected tag and must leave that result set.

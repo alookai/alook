@@ -66,12 +66,9 @@ describe("InboxPopover thread opener rows", () => {
   it("accepts the generic thread callback used by opener-backed buttons", () => {
     expectTypeOf<Parameters<typeof InboxPopover>[0]>().toMatchTypeOf<{
       onOpenThread?: (
-        serverId: string,
-        parentChannelId: string,
-        childChannelId: string,
-        openerMessageId: string,
-        openerSeq?: number,
-        openerUnread?: boolean,
+        server: UnreadServer,
+        parent: UnreadServer["channels"][number],
+        child: UnreadServer["channels"][number]["children"][number],
       ) => void
     }>()
   })
@@ -90,11 +87,15 @@ describe("InboxPopover thread opener rows", () => {
     expect(row).toBeDefined()
     await act(async () => row!.props.onClick())
 
-    expect(onOpenThread).toHaveBeenCalledWith("s1", "f1", "p1", "m1", 7, true)
-    expect(onOpenChannel).not.toHaveBeenCalledWith("s1", "p1")
+    expect(onOpenThread).toHaveBeenCalledWith(
+      unreadFixture()[0],
+      unreadFixture()[0]!.channels[0],
+      unreadFixture()[0]!.channels[0]!.children[0],
+    )
+    expect(onOpenChannel).not.toHaveBeenCalled()
   })
 
-  it("keeps reply-only child rows on the existing channel callback", async () => {
+  it("passes reply-only children through the same exact thread-row callback", async () => {
     const onOpenChannel = vi.fn()
     const onOpenThread = vi.fn()
     let renderer!: TestRenderer.ReactTestRenderer
@@ -108,8 +109,56 @@ describe("InboxPopover thread opener rows", () => {
     expect(row).toBeDefined()
     await act(async () => row!.props.onClick())
 
-    expect(onOpenChannel).toHaveBeenCalledWith("s1", "t1", "f1")
-    expect(onOpenThread).not.toHaveBeenCalled()
+    expect(onOpenThread).toHaveBeenCalledWith(
+      unreadFixture()[0],
+      unreadFixture()[0]!.channels[0],
+      unreadFixture()[0]!.channels[0]!.children[1],
+    )
+    expect(onOpenChannel).not.toHaveBeenCalled()
+  })
+
+  it("omits a structural parent button while retaining its child rows", async () => {
+    const unreads = unreadFixture()
+    unreads[0]!.channels[0]!.hasDirectUnread = false
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(InboxPopover, {
+        unreads,
+        unreadDms: [],
+        mentions: [],
+        marked: [],
+        onOpenThread: vi.fn(),
+      }))
+    })
+    expect(renderer.root.findAllByProps({
+      "data-testid": tid.inboxUnreadChannel("f1"),
+    })).toHaveLength(0)
+    expect(renderer.root.findAllByProps({
+      "data-testid": tid.inboxUnreadChild("p1"),
+    })).toHaveLength(1)
+  })
+
+  it("hides only a projected direct parent and keeps sibling children", async () => {
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(InboxPopover, {
+        unreads: unreadFixture(),
+        unreadDms: [],
+        mentions: [],
+        marked: [],
+        onOpenThread: vi.fn(),
+        isProjected: (target) => target?.kind === "channel-direct",
+      }))
+    })
+    expect(renderer.root.findAllByProps({
+      "data-testid": tid.inboxUnreadChannel("f1"),
+    })).toHaveLength(0)
+    expect(renderer.root.findAllByProps({
+      "data-testid": tid.inboxUnreadChild("p1"),
+    })).toHaveLength(1)
+    expect(renderer.root.findAllByProps({
+      "data-testid": tid.inboxUnreadChild("t1"),
+    })).toHaveLength(1)
   })
 })
 

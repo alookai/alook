@@ -13,6 +13,7 @@ import {
 } from "./read-coordinator-snapshot-projection"
 import {
   disposeInboxReadReservation,
+  publishInboxProjectionGenerationTerminal,
   settleInboxReadReservationGeneration,
 } from "./inbox-read-reservation"
 
@@ -473,17 +474,32 @@ class ReadCoordinator {
         targetRevision: response.revision,
       })
       if (deferInboxDms) {
+        publishInboxProjectionGenerationTerminal(
+          this.queryClient,
+          target.generation,
+          "deferred",
+        )
         return {
           committed: true,
           reconciled: false,
           deferred: true,
         }
       }
+      publishInboxProjectionGenerationTerminal(
+        this.queryClient,
+        target.generation,
+        "success",
+      )
       return {
         committed: true,
         reconciled: this.attemptActive(state, attemptEpoch, identityEpoch),
       }
     } catch {
+      publishInboxProjectionGenerationTerminal(
+        this.queryClient,
+        target.generation,
+        "error",
+      )
       return { committed: true, reconciled: false }
     } finally {
       this.finishAttempt(state, attemptEpoch)

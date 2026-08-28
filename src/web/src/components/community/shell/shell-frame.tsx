@@ -95,6 +95,9 @@ export function ShellFrame(props: ShellFrameProps) {
     router: navigation,
     queryClient,
     cancelPendingNavigation: navigation.cancelPendingNavigation,
+    publishedHref: navigation.publishedHref,
+    navigationPending: navigation.navigationPending,
+    pendingHref: navigation.pendingHref,
   })
   const goBackMobile = useCallback(() => {
     if (route.parentPath) navigation.replace(route.parentPath)

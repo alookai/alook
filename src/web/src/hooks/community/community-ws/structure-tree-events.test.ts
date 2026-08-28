@@ -483,6 +483,120 @@ describe("useCommunityWs — child_create patches parent thread badge with count
     }
   })
 
+  it("archive-tag updates evict only the sidebar projection and keep the active route", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    const baseKey = communityKeys.forumSidebarThreads("s1")
+    const retainedKey = communityKeys.forumSidebarRetained("s1", "post_1")
+    const metaKey = communityKeys.channelMeta("s1", "post_1")
+    const hintKey = communityKeys.forumOpenerHint("s1", "opener-post_1")
+    const fallbackKey = communityKeys.forumSidebarUnreadFallbacks("s1")
+    capturedQueryClient.setQueryData(communityKeys.server("s1"), {
+      id: "s1",
+      categories: [{ id: "cat_1", channels: [{ id: "forum_1", type: "forum" }] }],
+    })
+    const base = forumSidebarFixture(["post_1", "post_2"])
+    capturedQueryClient.setQueryData(baseKey, base)
+    capturedQueryClient.setQueryData(retainedKey, base.threads[0])
+    capturedQueryClient.setQueryData(metaKey, {
+      id: "post_1",
+      parentChannelId: "forum_1",
+      parentMessageId: "opener-post_1",
+    })
+    capturedQueryClient.setQueryData(hintKey, {
+      id: "opener-post_1",
+      content: "Post one",
+    })
+    capturedQueryClient.setQueryData(fallbackKey, {
+      forum_1: { baseUnread: false, childIds: ["post_1"] },
+    })
+    useCommunityStore.getState().setCurrentChannelId("post_1")
+    useCommunityStore.getState().setCurrentChannelMeta({
+      name: "Post one",
+      parentChannelId: "forum_1",
+      parentMessageId: "opener-post_1",
+    })
+
+    capturedOnMessage!({
+      type: "community:channel.child_update",
+      parentChannelId: "forum_1",
+      channelId: "post_1",
+      changes: { tags: ["bug", "archived"] },
+    } satisfies CommunityChildChannelUpdate)
+
+    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(baseKey)
+      ?.threads.map(({ id }) => id)).toEqual(["post_2"])
+    expect(capturedQueryClient.getQueryState(retainedKey)).toBeUndefined()
+    expect(capturedQueryClient.getQueryData(metaKey)).toMatchObject({ id: "post_1" })
+    expect(capturedQueryClient.getQueryData(hintKey)).toEqual({
+      id: "opener-post_1",
+      content: "Post one",
+    })
+    expect(capturedQueryClient.getQueryData(fallbackKey)).toEqual({
+      forum_1: { baseUnread: false, childIds: ["post_1"] },
+    })
+    expect(useCommunityStore.getState().currentChannelId).toBe("post_1")
+    expect(useCommunityStore.getState().currentChannelMeta).toMatchObject({
+      parentMessageId: "opener-post_1",
+    })
+    await vi.waitFor(() => {
+      expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(true)
+    })
+  })
+
+  it.each([
+    ["ordinary tags", ["bug"]],
+    ["null tags", null],
+  ] as const)("%s keeps the warm projection until the exact-base response", async (_label, tags) => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    const baseKey = communityKeys.forumSidebarThreads("s1")
+    const retainedKey = communityKeys.forumSidebarRetained("s1", "post_1")
+    const metaKey = communityKeys.channelMeta("s1", "post_1")
+    const hintKey = communityKeys.forumOpenerHint("s1", "opener-post_1")
+    capturedQueryClient.setQueryData(communityKeys.server("s1"), {
+      id: "s1",
+      categories: [{ id: "cat_1", channels: [{ id: "forum_1", type: "forum" }] }],
+    })
+    const base = forumSidebarFixture(["post_1", "post_2"])
+    capturedQueryClient.setQueryData(baseKey, base)
+    capturedQueryClient.setQueryData(retainedKey, base.threads[0])
+    capturedQueryClient.setQueryData(metaKey, {
+      id: "post_1",
+      parentChannelId: "forum_1",
+      parentMessageId: "opener-post_1",
+    })
+    capturedQueryClient.setQueryData(hintKey, {
+      id: "opener-post_1",
+      content: "Post one",
+    })
+    useCommunityStore.getState().setCurrentChannelId("post_1")
+    useCommunityStore.getState().setCurrentChannelMeta({
+      name: "Post one",
+      parentChannelId: "forum_1",
+      parentMessageId: "opener-post_1",
+    })
+
+    capturedOnMessage!({
+      type: "community:channel.child_update",
+      parentChannelId: "forum_1",
+      channelId: "post_1",
+      changes: { tags },
+    } satisfies CommunityChildChannelUpdate)
+
+    expect(capturedQueryClient.getQueryData(baseKey)).toEqual(base)
+    expect(capturedQueryClient.getQueryData(retainedKey)).toEqual(base.threads[0])
+    expect(capturedQueryClient.getQueryData(metaKey)).toMatchObject({ id: "post_1" })
+    expect(capturedQueryClient.getQueryData(hintKey)).toEqual({
+      id: "opener-post_1",
+      content: "Post one",
+    })
+    expect(useCommunityStore.getState().currentChannelId).toBe("post_1")
+    await vi.waitFor(() => {
+      expect(capturedQueryClient.getQueryState(baseKey)?.isInvalidated).toBe(true)
+    })
+  })
+
   it("child_update rename patches focused child metadata and its cached channel meta", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")
@@ -532,7 +646,7 @@ describe("useCommunityWs — child_create patches parent thread badge with count
       type: "community:channel.child_update",
       parentChannelId: "forum_1",
       channelId: "ch_thread",
-      changes: { archived: true },
+      changes: { archived: true, tags: ["bug"] },
     } satisfies CommunityChildChannelUpdate)
     expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(key)?.threads).toEqual([])
     expect(useCommunityStore.getState().currentChannelMeta).toBeNull()
