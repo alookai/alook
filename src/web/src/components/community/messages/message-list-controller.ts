@@ -153,8 +153,19 @@ export function useMessageListController({
         attempts += 1
         const dimensionsStable = element.clientHeight === lastClientHeight
           && element.scrollHeight === lastScrollHeight
+        const movedAwayFromTarget = Math.abs(element.scrollTop - target) > 1
         lastClientHeight = element.clientHeight
         lastScrollHeight = element.scrollHeight
+        // Once layout is stable, an offset change is the viewer taking over
+        // the viewport. Stop restoring instead of yanking them back to a
+        // snapshot captured before a same-channel reconnect/remount. A
+        // composer resize is intentionally different: its dimensions change,
+        // so the loop still corrects the resulting compensation on the next
+        // frame.
+        if (dimensionsStable && movedAwayFromTarget) {
+          restoredScrollKeyRef.current = scrollMemoryKey
+          return
+        }
         stableFrames = target === saved
           && Math.abs(element.scrollTop - target) <= 1
           && dimensionsStable

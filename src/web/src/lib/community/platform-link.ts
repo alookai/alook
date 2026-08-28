@@ -1,4 +1,5 @@
 export type PlatformLinkKind =
+  | "alook"
   | "github"
   | "x"
   | "reddit"
@@ -17,6 +18,7 @@ type PlatformDefinition = PlatformLinkMatch & {
 }
 
 const PLATFORM_DEFINITIONS: readonly PlatformDefinition[] = [
+  { kind: "alook", label: "Alook", domains: ["alook.ai"] },
   { kind: "github", label: "GitHub", domains: ["github.com"] },
   { kind: "x", label: "X", domains: ["x.com", "twitter.com"] },
   { kind: "reddit", label: "Reddit", domains: ["reddit.com", "redd.it"] },

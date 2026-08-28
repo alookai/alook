@@ -4,6 +4,28 @@ import { describe, expect, it } from "vitest"
 import { PlatformLinkBadge } from "./platform-link-badge"
 
 describe("PlatformLinkBadge", () => {
+  it("uses the existing Alook favicon for first-party links", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(
+          PlatformLinkBadge,
+          { href: "https://alook.ai/c/invite/abcdef" },
+          "https://alook.ai/c/invite/abcdef",
+        ),
+      )
+    })
+
+    const link = renderer!.root.findByType("a")
+    expect(link.props["data-platform-link"]).toBe("alook")
+    expect(link.props["aria-label"]).toBe(
+      "Alook: https://alook.ai/c/invite/abcdef",
+    )
+    const icon = renderer!.root.findByType("img")
+    expect(icon.props.src).toBe("/favicon.ico")
+    expect(icon.props.alt).toBe("")
+  })
+
   it("adds a platform icon and accessible label to a supported URL", () => {
     let renderer: TestRenderer.ReactTestRenderer
     act(() => {

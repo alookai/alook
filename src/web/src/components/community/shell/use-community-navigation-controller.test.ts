@@ -48,6 +48,9 @@ async function renderController() {
     rerender: async () => {
       await act(async () => renderer.update(createElement(Capture, { onResult })))
     },
+    unmount: async () => {
+      await act(async () => renderer.unmount())
+    },
   }
 }
 
@@ -172,13 +175,19 @@ describe("useCommunityNavigationController", () => {
 
     await act(async () => window.dispatchEvent(new Event("popstate")))
     expect(mocks.captureScroll).toHaveBeenCalledTimes(2)
+    await hook.unmount()
+    ;(window as unknown as { navigation: EventTarget }).navigation.dispatchEvent(new Event("navigate"))
+    expect(mocks.captureScroll).toHaveBeenCalledTimes(2)
   })
 
   it("captures browser history through popstate when the Navigation API is unavailable", async () => {
     delete (window as unknown as { navigation?: EventTarget }).navigation
-    await renderController()
+    const hook = await renderController()
 
     await act(async () => window.dispatchEvent(new Event("popstate")))
+    expect(mocks.captureScroll).toHaveBeenCalledOnce()
+    await hook.unmount()
+    window.dispatchEvent(new Event("popstate"))
     expect(mocks.captureScroll).toHaveBeenCalledOnce()
   })
 

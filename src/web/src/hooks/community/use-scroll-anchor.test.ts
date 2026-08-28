@@ -308,6 +308,16 @@ describe("shouldAdjustMessageScrollPosition", () => {
     expect(shouldAdjustMessageScrollPosition(item, 96, instance({ scrollDirection: "backward" }))).toBe(false)
   })
 
+  it("does not compensate later row growth after the viewer deliberately leaves the bottom", () => {
+    const measured = new Map([[item.key, item.size]])
+    expect(shouldAdjustMessageScrollPosition(
+      item,
+      240,
+      instance({ itemSizeCache: measured }),
+      true,
+    )).toBe(false)
+  })
+
   it("keeps first-measurement compensation above the fold while idle or scrolling forward", () => {
     expect(shouldAdjustMessageScrollPosition(item, 96, instance())).toBe(true)
     expect(shouldAdjustMessageScrollPosition(item, 96, instance({ scrollDirection: "forward" }))).toBe(true)

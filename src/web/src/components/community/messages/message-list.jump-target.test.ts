@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => {
     scrollToEnd,
     onScrollTargetConsumed,
     virtualizer: {
+      options: { anchorTo: "end" },
       scrollToIndex,
       scrollToEnd,
       isAtEnd: () => true,

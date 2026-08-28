@@ -951,12 +951,6 @@ describe("useComposerController", () => {
     )
 
     focus.mockClear()
-    view.onAttachOpenChange(true)
-    expect(focus).not.toHaveBeenCalled()
-    view.onAttachOpenChange(false)
-    expect(focus).toHaveBeenCalledWith()
-
-    focus.mockClear()
     view.onUploadFile()
     expect(filePickerClick).toHaveBeenCalled()
     expect(focus).toHaveBeenCalledWith()

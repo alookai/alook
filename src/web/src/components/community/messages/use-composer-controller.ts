@@ -384,9 +384,6 @@ export function useComposerController(
     sendDisabled:
       sendInFlight || (!editorHasContent && pendingFiles.length === 0),
     onSend: send,
-    onAttachOpenChange: (open) => {
-      if (!open) editor?.commands.focus()
-    },
     onUploadFile: () => {
       fileInputRef.current?.click()
       editor?.commands.focus()

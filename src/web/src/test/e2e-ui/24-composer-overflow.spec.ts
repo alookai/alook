@@ -240,9 +240,25 @@ test.describe.serial("community composer text containment", () => {
 
     await page.setViewportSize({ width: 375, height: 800 })
     const attach = page.getByTestId(tid.composerAttach)
+    const editable = composerEditable(page)
+    const beforeCancel = await editable.textContent()
+    const cancelledChooser = page.waitForEvent("filechooser")
     await attach.click()
-    await expect(page.getByRole("menuitem", { name: "Upload a File" })).toBeVisible()
-    await page.keyboard.press("Escape")
+    expect((await cancelledChooser).isMultiple()).toBe(true)
+    await expect(page.getByRole("menuitem", { name: "Upload a File" })).toHaveCount(0)
+    expect(await editable.textContent()).toBe(beforeCancel)
+
+    const selectedChooser = page.waitForEvent("filechooser")
+    await attach.click()
+    await (await selectedChooser).setFiles({
+      name: "direct-picker.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("direct native picker"),
+    })
+    await expect(page.getByText("direct-picker.txt", { exact: true })).toBeVisible()
+    await page.getByRole("button", { name: "Remove file" }).click()
+    await expect(page.getByText("direct-picker.txt", { exact: true })).toHaveCount(0)
+
     const emoji = page.getByRole("button", { name: "Emoji picker" })
     await emoji.click()
     await expect(emoji).toHaveAttribute("aria-expanded", "true")

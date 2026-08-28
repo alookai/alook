@@ -10,15 +10,8 @@ import {
   PlusCircle,
   SendHorizontal,
   Smile,
-  Upload,
   X,
 } from "lucide-react"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { PendingFile } from "@/hooks/use-file-attachments"
 import type {
@@ -59,7 +52,6 @@ export type ComposerViewProps = {
   showSend: boolean
   sendDisabled: boolean
   onSend: () => void
-  onAttachOpenChange: (open: boolean) => void
   onUploadFile: () => void
   onEmojiPick: (emoji: string) => void
 }
@@ -87,7 +79,6 @@ export function ComposerView({
   showSend,
   sendDisabled,
   onSend,
-  onAttachOpenChange,
   onUploadFile,
   onEmojiPick,
 }: ComposerViewProps) {
@@ -198,24 +189,15 @@ export function ComposerView({
           />
         </div>
         {!hideAttach && (
-          <DropdownMenu onOpenChange={onAttachOpenChange}>
-            <DropdownMenuTrigger
-              render={
-                <button
-                  data-testid={tid.composerAttach}
-                  className="absolute left-2 bottom-2 grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
-                  aria-label="Add"
-                />
-              }
-            >
-              <PlusCircle className="size-5" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="start" className="w-44">
-              <DropdownMenuItem onClick={onUploadFile}>
-                <Upload className="size-4" /> Upload a File
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <button
+            type="button"
+            data-testid={tid.composerAttach}
+            className="absolute left-2 bottom-2 grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-label="Add file"
+            onClick={onUploadFile}
+          >
+            <PlusCircle className="size-5" />
+          </button>
         )}
         {!hideEmoji && (
           <EmojiPickerPopover side="top" align="end" onPick={onEmojiPick}>

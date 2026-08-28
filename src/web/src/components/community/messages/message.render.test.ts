@@ -552,14 +552,18 @@ describe("Message touch action menu", () => {
     const avatar = renderer!.root.findByProps({
       "aria-label": "Open Alice profile; long press to mention",
     })
+    act(() => avatar.props.onPointerDown({ pointerType: "mouse", clientX: 30, clientY: 40 }))
+    act(() => avatar.props.onPointerMove({ pointerType: "mouse", clientX: 50, clientY: 40 }))
     act(() => avatar.props.onPointerDown({ pointerType: "touch", clientX: 30, clientY: 40 }))
     act(() => vi.advanceTimersByTime(500))
     expect(onMentionAuthor).toHaveBeenCalledOnce()
     const preventDefault = vi.fn()
     const stopPropagation = vi.fn()
+    act(() => avatar.props.onContextMenu({ preventDefault }))
+    expect(preventDefault).toHaveBeenCalledOnce()
     act(() => avatar.props.onClick({ preventDefault, stopPropagation }))
     expect(onOpenProfile).not.toHaveBeenCalled()
-    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(preventDefault).toHaveBeenCalledTimes(2)
 
     act(() => avatar.props.onPointerDown({ pointerType: "touch", clientX: 30, clientY: 40 }))
     act(() => avatar.props.onPointerMove({ pointerType: "touch", clientX: 50, clientY: 40 }))

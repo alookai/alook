@@ -16,24 +16,7 @@ vi.mock("lucide-react", () => ({
   SendHorizontal: (props: Record<string, unknown>) =>
     createElement("send-icon", props),
   Smile: (props: Record<string, unknown>) => createElement("smile-icon", props),
-  Upload: (props: Record<string, unknown>) =>
-    createElement("upload-icon", props),
   X: (props: Record<string, unknown>) => createElement("x-icon", props),
-}))
-vi.mock("@/components/ui/dropdown-menu", () => ({
-  DropdownMenu: (props: Record<string, unknown>) =>
-    createElement("dropdown-menu", props),
-  DropdownMenuTrigger: (props: Record<string, unknown>) =>
-    createElement(
-      "dropdown-trigger",
-      props,
-      props.render as never,
-      props.children as never,
-    ),
-  DropdownMenuContent: (props: Record<string, unknown>) =>
-    createElement("dropdown-content", props),
-  DropdownMenuItem: (props: Record<string, unknown>) =>
-    createElement("dropdown-item", props),
 }))
 vi.mock("@/components/ui/skeleton", () => ({
   Skeleton: (props: Record<string, unknown>) => createElement("skeleton", props),
@@ -84,7 +67,6 @@ function baseProps(
     showSend: false,
     sendDisabled: true,
     onSend: vi.fn(),
-    onAttachOpenChange: vi.fn(),
     onUploadFile: vi.fn(),
     onEmojiPick: vi.fn(),
     ...overrides,
@@ -244,9 +226,9 @@ describe("ComposerView", () => {
     expect(
       renderer.root.find(
         (node) => node.props["data-testid"] === tid.composerAttach,
-      ).props["aria-label"],
-    ).toBe("Add")
-    for (const label of ["Cancel reply", "Remove file", "Add", "Emoji picker"]) {
+    ).props["aria-label"],
+    ).toBe("Add file")
+    for (const label of ["Cancel reply", "Remove file", "Add file", "Emoji picker"]) {
       expect(
         renderer.root.findAll(
           (node) => node.type === "button" && node.props["aria-label"] === label,
@@ -267,7 +249,7 @@ describe("ComposerView", () => {
           node.type === "div" && node.props.className?.includes("flex-wrap"),
       ).props.className,
     ).not.toContain("rounded-t-xl")
-    expect(renderer.root.findAllByType("dropdown-menu")).toHaveLength(1)
+    expect(renderer.root.findAllByType("dropdown-menu")).toHaveLength(0)
     expect(renderer.root.findAllByType("emoji-picker")).toHaveLength(1)
 
     await act(async () => {
@@ -286,8 +268,7 @@ describe("ComposerView", () => {
     ).toContain("rounded-t-xl border-t")
   })
 
-  it("forwards only event wiring and honors forum/hide flags", async () => {
-    const onAttachOpenChange = vi.fn()
+  it("opens the file picker directly and honors forum/hide flags", async () => {
     const onUploadFile = vi.fn()
     const onEmojiPick = vi.fn()
     let renderer!: TestRenderer.ReactTestRenderer
@@ -295,20 +276,18 @@ describe("ComposerView", () => {
       renderer = TestRenderer.create(
         createElement(
           ComposerView,
-          baseProps({ onAttachOpenChange, onUploadFile, onEmojiPick }),
+          baseProps({ onUploadFile, onEmojiPick }),
         ),
       )
     })
     await act(async () =>
-      renderer.root.findByType("dropdown-menu").props.onOpenChange(false),
-    )
-    await act(async () =>
-      renderer.root.findByType("dropdown-item").props.onClick(),
+      renderer.root.findByProps({
+        "data-testid": tid.composerAttach,
+      }).props.onClick(),
     )
     await act(async () =>
       renderer.root.findByType("emoji-picker").props.onPick("🌱"),
     )
-    expect(onAttachOpenChange).toHaveBeenCalledWith(false)
     expect(onUploadFile).toHaveBeenCalledOnce()
     expect(onEmojiPick).toHaveBeenCalledWith("🌱")
     expect(
@@ -381,7 +360,7 @@ describe("ComposerView", () => {
         .findAllByType("button")
         .map((node) => node.props["aria-label"])
         .filter(Boolean),
-    ).toEqual(["Add", "Emoji picker", "Send message"])
+    ).toEqual(["Add file", "Emoji picker", "Send message"])
 
     await act(async () => {
       renderer.update(

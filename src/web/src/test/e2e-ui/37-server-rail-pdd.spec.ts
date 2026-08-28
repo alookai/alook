@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "./_fixtures/community-fixture"
 import { seedChannel, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
@@ -57,6 +57,27 @@ async function openMove(page: Page, serverId: string) {
   await expect(page.getByRole("heading", { name: "Move server" })).toBeVisible()
 }
 
+async function dragUntilNativeDrop(
+  page: Page,
+  source: Locator,
+  target: Locator,
+  hasCommitted: () => boolean,
+): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await source.dragTo(target, {
+      targetPosition: { x: 28, y: 34 },
+      force: true,
+    })
+    await page.waitForTimeout(250)
+    const dropped = await page.evaluate(() => (
+      (Reflect.get(window, "__railDragEvents") as string[]).includes("drop")
+    ))
+    // A commit without our capture listener seeing `drop` should still fail
+    // the assertions below, but it must never trigger a second PATCH.
+    if (dropped || hasCommitted()) return
+  }
+}
+
 test("server rail commits one PDD drop and exposes mobile Move parity", async ({ asUser }) => {
   test.setTimeout(150_000)
   const stamp = Date.now()
@@ -102,11 +123,7 @@ test("server rail commits one PDD drop and exposes mobile Move parity", async ({
   const targetDraggable = target.locator("xpath=ancestor::*[@draggable='true'][1]")
   await expect(sourceDraggable).toHaveCount(1)
   await expect(targetDraggable).toHaveCount(1)
-  await sourceDraggable.dragTo(targetDraggable, {
-    targetPosition: { x: 28, y: 34 },
-    force: true,
-  })
-  await page.waitForTimeout(500)
+  await dragUntilNativeDrop(page, sourceDraggable, targetDraggable, () => railRequests.length > 0)
   const dragEvents = await page.evaluate(() => Reflect.get(window, "__railDragEvents"))
   expect(dragEvents).toContain("dragstart")
   expect(dragEvents).toContain("drop")
@@ -124,6 +141,8 @@ test("server rail commits one PDD drop and exposes mobile Move parity", async ({
   await rail.evaluate((element) => { element.scrollTop = element.scrollHeight })
   await expect.poll(async () => (await railGeometry(page, tail)).railScrollTop)
     .toBeGreaterThan(0)
+  await expect.poll(async () => (await railGeometry(page, tail)).targetOwnsCenter)
+    .toBe(true)
   const mobileTail = await railGeometry(page, tail)
   expect(mobileTail.rootScrollTop).toBe(0)
   expect(mobileTail.railScrollTop).toBe(mobileTail.railMaxScrollTop)
@@ -147,6 +166,8 @@ test("server rail commits one PDD drop and exposes mobile Move parity", async ({
   await expect(page.getByTestId(tid.serverIcon(first))).toBeVisible()
   await expect(page.getByTestId(tid.serverIcon(second))).toBeVisible()
   await rail.evaluate((element) => { element.scrollTop = element.scrollHeight })
+  await expect.poll(async () => (await railGeometry(page, tail)).targetOwnsCenter)
+    .toBe(true)
   const expandedTail = await railGeometry(page, tail)
   expect(expandedTail.rootScrollTop).toBe(0)
   expect(expandedTail.target.bottom).toBeLessThanOrEqual(expandedTail.userBar.top + 0.5)

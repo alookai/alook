@@ -25,6 +25,7 @@ vi.mock("react", () => ({
 }))
 
 const virtualizer = {
+  options: { anchorTo: "end" },
   isAtEnd: vi.fn(() => true),
   scrollToEnd: vi.fn(),
   scrollToIndex: vi.fn(),
@@ -45,6 +46,7 @@ function resetHarness() {
   refIndex = 0
   layoutEffects = []
   virtualizerOptions = undefined
+  virtualizer.options.anchorTo = "end"
   virtualizer.isAtEnd.mockReturnValue(true)
   virtualizer.scrollToEnd.mockReset()
   virtualizer.scrollToIndex.mockReset()

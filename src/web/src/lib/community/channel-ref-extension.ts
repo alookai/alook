@@ -1,6 +1,10 @@
 import Mention from "@tiptap/extension-mention"
 import { PluginKey } from "@tiptap/pm/state"
 import { formatHandle } from "@alook/shared"
+import {
+  createSuggestionCaretRectResolver,
+  type SuggestionCaretAnchorProps,
+} from "@/lib/community/suggestion-caret-anchor"
 
 export type ChannelRefCandidate = {
   id: string // channelId (nanoid)
@@ -100,7 +104,7 @@ export function rankChannelRefItems(
   return [...prefix, ...substr].slice(0, CHANNEL_REF_LIMIT)
 }
 
-type SuggestionProps = {
+type SuggestionProps = SuggestionCaretAnchorProps & {
   items: ChannelRefCandidate[]
   query?: string
   command: (props: ChannelRefCommandProps) => void
@@ -211,7 +215,7 @@ export function buildCommunityChannelRefExtension(opts: {
             query: props.query ?? "",
             selectedIndex: 0,
             command: props.command,
-            getRect: props.clientRect ?? null,
+            getRect: createSuggestionCaretRectResolver(props),
           })
         },
         onUpdate: (props: SuggestionProps) => {
@@ -223,7 +227,7 @@ export function buildCommunityChannelRefExtension(opts: {
                 ? cur.selectedIndex
                 : 0,
             command: props.command,
-            getRect: props.clientRect ?? null,
+            getRect: createSuggestionCaretRectResolver(props),
           }))
         },
         onKeyDown: ({ event }: { event: KeyboardEvent }) => {

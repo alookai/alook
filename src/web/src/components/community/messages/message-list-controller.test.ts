@@ -337,6 +337,33 @@ describe("useMessageListController", () => {
     runNextFrame()
     runNextFrame()
 
+    scrollNode.scrollTop = 1880
+    runNextFrame()
+    expect(scrollNode.scrollTop).toBe(1880)
+
+    act(() => {
+      renderer!.update(React.createElement(Probe, {
+        value: props({ scrollMemoryKey: "channel:one" }),
+      }))
+    })
+    expect(mocks.virtualizer.scrollToOffset).toHaveBeenCalledTimes(3)
+
+    act(() => renderer!.unmount())
+  })
+
+  it("waits through delayed viewport resize compensation before restoring", () => {
+    writeMessageScrollPosition("channel:one", 2200)
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(Probe, { value: props({ scrollMemoryKey: "channel:one" }) }),
+        { createNodeMock },
+      )
+    })
+    scrollNode.scrollTop = 2200
+    runNextFrame()
+    runNextFrame()
+
     // A restored draft can wrap the mobile composer after the first stable
     // frames, shrinking the viewport and triggering +24px compensation.
     scrollNode.clientHeight = 668
@@ -348,13 +375,26 @@ describe("useMessageListController", () => {
     runNextFrame()
     runNextFrame()
 
+    act(() => renderer!.unmount())
+  })
+
+  it("claims an empty scroll key without starting a restore loop", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(Probe, { value: props({ scrollMemoryKey: "channel:empty" }) }),
+        { createNodeMock },
+      )
+    })
+    expect(mocks.virtualizer.scrollToOffset).not.toHaveBeenCalled()
+
     scrollNode.scrollTop = 1400
     captureActiveMessageScrollPosition()
-    expect(readMessageScrollPosition("channel:one")).toBe(1400)
+    expect(readMessageScrollPosition("channel:empty")).toBe(1400)
 
     scrollNode.scrollTop = 0
     act(() => renderer!.unmount())
-    expect(readMessageScrollPosition("channel:one")).toBe(1400)
+    expect(readMessageScrollPosition("channel:empty")).toBe(1400)
   })
 
   it("combines initial readiness with loaded-target readiness and preserves state across channel-only changes", () => {
@@ -468,6 +508,10 @@ describe("useMessageListController", () => {
     runNextFrame()
 
     expect(scrollNode.scrollTop).toBe(55.5)
+    selectedRowBottom = 692
+    runNextFrame()
+    selectionRailTop = null
+    runNextFrame()
     act(() => renderer!.unmount())
   })
 
