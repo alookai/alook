@@ -67,6 +67,58 @@ async function participantUserIds(page: Page, channelId: string): Promise<string
   return payload.members.map((member) => member.userId)
 }
 
+async function strictSidebar(page: Page, serverId: string, retainId?: string) {
+  const params = new URLSearchParams({
+    type: "thread",
+    parentType: "forum",
+    participating: "true",
+    activeWithin: "72h",
+    limitPerParent: "5",
+    include: "parentMessage",
+  })
+  if (retainId) params.set("retainId", retainId)
+  const response = await page.request.get(
+    `/api/community/servers/${serverId}/channels?${params.toString()}`,
+  )
+  expect(response.status()).toBe(200)
+  return await response.json() as {
+    canonicalChannels: Array<{ id: string }>
+    retainedChannel: { id: string } | null
+    retainedDisposition: "eligible" | "opener-archived" | "genuine-negative" | null
+  }
+}
+
+async function setForumPostArchived(
+  page: Page,
+  serverId: string,
+  forumId: string,
+  threadId: string,
+  currentlyArchived: boolean,
+) {
+  await page.goto(`/c/channels/${serverId}/${forumId}`)
+  await expect(page.getByTestId(tid.forumPostList)).toBeVisible({ timeout: 20_000 })
+  if (currentlyArchived) {
+    await expect(page.getByTestId(tid.forumTagChip("archived"))).toBeVisible({ timeout: 20_000 })
+    await page.getByTestId(tid.forumTagChip("archived")).click()
+  }
+  const card = page.getByTestId(tid.forumThreadCard(threadId))
+  await expect(card).toBeVisible({ timeout: 20_000 })
+  await card.hover()
+  await page.getByTestId(tid.forumThreadTagBtn(threadId)).click()
+  await expect(page.getByTestId(tid.forumTagDialog)).toBeVisible({ timeout: 10_000 })
+  await page.getByTestId(tid.forumTagDialogChip("archived")).click()
+  const put = page.waitForResponse((response) =>
+    response.request().method() === "PUT"
+    && new URL(response.url()).pathname.endsWith("/tags"),
+  )
+  const sidebar = page.waitForResponse((response) =>
+    response.ok() && isSidebarRequest(response.url(), serverId),
+  )
+  await page.keyboard.press("Escape")
+  expect((await put).status()).toBe(200)
+  await sidebar
+}
+
 test.describe.serial("forum sidebar Stage B request shape", () => {
   let serverId: string
   let forumId: string
@@ -389,5 +441,92 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     await expect.poll(() => new URL(page.url()).pathname).toBe(
       `/c/channels/${serverId}/${threadId}`,
     )
+  })
+})
+
+test.describe.serial("forum sidebar archived opener projection", () => {
+  test("local, remote, retained, and hard-refresh paths converge on a filled top five", async ({ asUser }) => {
+    test.setTimeout(180_000)
+    const serverId = await seedServer("alice", `Archived sidebar ${Date.now()}`)
+    const categoryId = await seedCategory("alice", serverId, "Forum group")
+    const forumId = await seedChannel("alice", serverId, "archive-ranking", "forum", categoryId)
+    const textId = await seedChannel("alice", serverId, "side-view", undefined, categoryId)
+    const titles = new Map<string, string>()
+    const bodies = new Map<string, string>()
+    const threadIds: string[] = []
+    for (let index = 0; index < 6; index++) {
+      const title = `Ranked post ${index + 1} ${Date.now()}`
+      const body = `ranked body ${index + 1}`
+      const threadId = await seedForumThread("alice", forumId, title, body)
+      threadIds.push(threadId)
+      titles.set(threadId, title)
+      bodies.set(threadId, body)
+    }
+
+    const viewer = await asUser("alice")
+    await viewer.page.goto(`/c/channels/${serverId}/${textId}`)
+    const initial = await strictSidebar(viewer.page, serverId)
+    const initialIds = initial.canonicalChannels.map(({ id }) => id)
+    expect(initialIds).toHaveLength(5)
+    const archivedId = initialIds[0]!
+    const refillId = threadIds.find((id) => !initialIds.includes(id))!
+    for (const id of initialIds) {
+      await expect(viewer.page.getByTestId(tid.forumSidebarThread(id))).toBeVisible({
+        timeout: 20_000,
+      })
+    }
+    await expect(viewer.page.getByTestId(tid.forumSidebarThread(refillId))).toHaveCount(0)
+
+    await setForumPostArchived(viewer.page, serverId, forumId, archivedId, false)
+    await expect(viewer.page.getByTestId(tid.forumSidebarThread(archivedId))).toHaveCount(0)
+    await expect(viewer.page.getByTestId(tid.forumSidebarThread(refillId))).toBeVisible({
+      timeout: 20_000,
+    })
+    const archivedProjection = await strictSidebar(viewer.page, serverId, archivedId)
+    expect(archivedProjection.retainedChannel).toBeNull()
+    expect(archivedProjection.retainedDisposition).toBe("opener-archived")
+    expect(archivedProjection.canonicalChannels.map(({ id }) => id)).toEqual(
+      initialIds.filter((id) => id !== archivedId).concat(refillId),
+    )
+    const exact = await viewer.page.request.get(`/api/community/channels/${archivedId}`)
+    expect(exact.status()).toBe(200)
+    expect((await exact.json() as { archived: boolean | number }).archived).toBeFalsy()
+
+    await viewer.page.goto(`/c/channels/${serverId}/${archivedId}`)
+    await expect(viewer.page.getByRole("heading", { name: titles.get(archivedId)! })).toBeVisible({
+      timeout: 20_000,
+    })
+    await expect(viewer.page.getByText(bodies.get(archivedId)!, { exact: true })).toBeVisible()
+    await expect(viewer.page.getByTestId(tid.channelComposerShell)).toBeVisible()
+    await expect(viewer.page.getByTestId(tid.forumSidebarThread(archivedId))).toHaveCount(0)
+
+    await viewer.page.goto(`/c/channels/${serverId}/${forumId}`)
+    await viewer.page.getByTestId(tid.forumTagChip("archived")).click()
+    await expect(viewer.page.getByTestId(tid.forumThreadCard(archivedId))).toBeVisible({
+      timeout: 20_000,
+    })
+
+    await viewer.page.goto(`/c/channels/${serverId}/${textId}`)
+    const editor = await asUser("alice")
+    await setForumPostArchived(editor.page, serverId, forumId, archivedId, true)
+    await expect(viewer.page.getByTestId(tid.forumSidebarThread(archivedId))).toBeVisible({
+      timeout: 20_000,
+    })
+    await expect(viewer.page.getByTestId(tid.forumSidebarThread(refillId))).toHaveCount(0)
+    expect((await strictSidebar(viewer.page, serverId)).canonicalChannels.map(({ id }) => id))
+      .toEqual(initialIds)
+
+    await setForumPostArchived(editor.page, serverId, forumId, archivedId, false)
+    await expect(viewer.page.getByTestId(tid.forumSidebarThread(archivedId))).toHaveCount(0)
+    await expect(viewer.page.getByTestId(tid.forumSidebarThread(refillId))).toBeVisible({
+      timeout: 20_000,
+    })
+    await viewer.page.reload({ waitUntil: "commit" })
+    for (const id of initialIds.filter((id) => id !== archivedId).concat(refillId)) {
+      await expect(viewer.page.getByTestId(tid.forumSidebarThread(id))).toBeVisible({
+        timeout: 20_000,
+      })
+    }
+    await expect(viewer.page.getByTestId(tid.forumSidebarThread(archivedId))).toHaveCount(0)
   })
 })

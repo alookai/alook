@@ -292,6 +292,11 @@ export async function listParticipatingThreadIds(
 
 export type ForumCreatedAtCursor = { createdAt: string; id: string };
 
+export type ForumSidebarRetainedDisposition =
+  | "eligible"
+  | "opener-archived"
+  | "genuine-negative";
+
 export async function listForumThreadsByCreatedAt(
   db: Database,
   params: {
@@ -388,7 +393,11 @@ export async function listParticipatingForumThreads(
 ) {
   const parentChannelIds = [...new Set(params.parentChannelIds)];
   if (parentChannelIds.length === 0 || params.limitPerParent < 1) {
-    return { canonical: [], retained: null };
+    return {
+      canonical: [],
+      retained: null,
+      retainedDisposition: params.retainId ? "genuine-negative" as const : null,
+    };
   }
 
   const activityAt = sql<string>`coalesce(${communityChannel.lastMessageAt}, ${communityChannel.createdAt})`;
@@ -409,6 +418,14 @@ export async function listParticipatingForumThreads(
     createdAt: communityChannel.createdAt,
     activityAt: activityAt.as("activity_at"),
   } as const;
+
+  const archiveTagQuery = db
+    .select({ messageId: communityMessageTag.messageId })
+    .from(communityMessageTag)
+    .where(and(
+      eq(communityMessageTag.messageId, communityChannel.parentMessageId),
+      eq(communityMessageTag.tag, FORUM_ARCHIVE_TAG)
+    ));
 
   const batches = await Promise.all(
     chunk(parentChannelIds, D1_MAX_IN_PARAMS).map((parentIds) => {
@@ -431,6 +448,7 @@ export async function listParticipatingForumThreads(
           eq(communityChannel.type, "thread"),
           eq(communityChannel.archived, 0),
           isNotNull(communityChannel.parentMessageId),
+          notExists(archiveTagQuery),
           gt(activityAt, params.activeAfter),
         ))
         .as("ranked_sidebar_threads");
@@ -460,12 +478,15 @@ export async function listParticipatingForumThreads(
   );
   const rows = batches.flat();
   let retained: (typeof rows)[number] | null = null;
+  let retainedDisposition: ForumSidebarRetainedDisposition | null = params.retainId
+    ? "genuine-negative"
+    : null;
 
   if (params.retainId) {
     // Scope the retained lookup inside the same caller-authorized parent set,
     // rather than fetching an arbitrary id first and masking it in JS. Chunking
     // preserves that structural scope without exceeding D1's bind ceiling.
-    retained = (await Promise.all(
+    const retainedCandidate = (await Promise.all(
       chunk(parentChannelIds, D1_MAX_IN_PARAMS).map((parentIds) => db
         .select(select)
         .from(communityChannel)
@@ -486,6 +507,22 @@ export async function listParticipatingForumThreads(
         ))
         .limit(1)),
     )).flat()[0] ?? null;
+    if (retainedCandidate?.parentMessageId) {
+      const archived = (await db
+        .select({ messageId: communityMessageTag.messageId })
+        .from(communityMessageTag)
+        .where(and(
+          eq(communityMessageTag.messageId, retainedCandidate.parentMessageId),
+          eq(communityMessageTag.tag, FORUM_ARCHIVE_TAG)
+        ))
+        .limit(1))[0];
+      if (archived) {
+        retainedDisposition = "opener-archived";
+      } else {
+        retained = retainedCandidate;
+        retainedDisposition = "eligible";
+      }
+    }
   }
 
   return {
@@ -495,5 +532,6 @@ export async function listParticipatingForumThreads(
       compareAsciiSqliteBinary(b.id, a.id)
     ),
     retained,
+    retainedDisposition,
   };
 }

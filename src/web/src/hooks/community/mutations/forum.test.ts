@@ -155,6 +155,21 @@ describe("useCreateForumThread", () => {
 })
 
 describe("useUpdatePostTags", () => {
+  const sidebar = (ids: string[]) => ({
+    threads: ids.map((id) => ({
+      id,
+      parentChannelId: "forum_1",
+      parentMessageId: `opener_${id}`,
+      title: id,
+      activityAt: "2026-08-28T00:00:00.000Z",
+      expiresAt: "2026-08-31T00:00:00.000Z",
+      unread: id === "p2",
+    })),
+    verifiedEpoch: 1,
+    serverNow: "2026-08-28T00:00:00.000Z",
+    serverClockOffsetMs: 0,
+  })
+
   it("PUTs normalized tags and invalidates every message-feed variant plus the forum tag list", async () => {
     const { useUpdatePostTags } = await load()
     useUpdatePostTags()
@@ -169,9 +184,11 @@ describe("useUpdatePostTags", () => {
     apiFetchMock.mockResolvedValueOnce({ tags: ["bug", "p0"] })
 
     await runMutation({
+      serverId: "server_1",
       forumChannelId: "forum_1",
       threadId: "p2",
       openerMessageId: "m_p2",
+      previousTags: ["bug"],
       tags: [" Bug ", "P0", "bug"],
     })
 
@@ -186,6 +203,85 @@ describe("useUpdatePostTags", () => {
     expect(capturedQc.getQueryState(communityKeys.forumTags("forum_1"))?.isInvalidated).toBe(true)
   })
 
+  it("evicts only the archived sidebar projection after the successful PUT", async () => {
+    const { useUpdatePostTags } = await load()
+    useUpdatePostTags()
+    const baseKey = communityKeys.forumSidebarThreads("server_1")
+    const retainedKey = communityKeys.forumSidebarRetained("server_1", "p2")
+    const metaKey = communityKeys.channelMeta("server_1", "p2")
+    const hintKey = communityKeys.forumOpenerHint("server_1", "opener_p2")
+    capturedQc.setQueryData(baseKey, sidebar(["p1", "p2", "p3"]))
+    capturedQc.setQueryData(retainedKey, sidebar(["p2"]).threads[0])
+    capturedQc.setQueryData(metaKey, { id: "p2", parentMessageId: "opener_p2" })
+    capturedQc.setQueryData(hintKey, { id: "opener_p2", content: "p2" })
+    apiFetchMock.mockResolvedValueOnce({ tags: ["bug", "archived"] })
+
+    await runMutation({
+      serverId: "server_1",
+      forumChannelId: "forum_1",
+      threadId: "p2",
+      openerMessageId: "opener_p2",
+      previousTags: ["bug"],
+      tags: ["bug", "archived"],
+    })
+
+    expect(capturedQc.getQueryData<ReturnType<typeof sidebar>>(baseKey)?.threads.map(({ id }) => id))
+      .toEqual(["p1", "p3"])
+    expect(capturedQc.getQueryState(retainedKey)).toBeUndefined()
+    expect(capturedQc.getQueryData(metaKey)).toEqual({ id: "p2", parentMessageId: "opener_p2" })
+    expect(capturedQc.getQueryData(hintKey)).toEqual({ id: "opener_p2", content: "p2" })
+    await vi.waitFor(() => {
+      expect(capturedQc.getQueryState(baseKey)?.isInvalidated).toBe(true)
+    })
+  })
+
+  it("waits for authoritative ranking on unarchive without speculative insertion", async () => {
+    const { useUpdatePostTags } = await load()
+    useUpdatePostTags()
+    const baseKey = communityKeys.forumSidebarThreads("server_1")
+    const retainedKey = communityKeys.forumSidebarRetained("server_1", "p2")
+    capturedQc.setQueryData(baseKey, sidebar(["p1", "p3"]))
+    capturedQc.setQueryData(retainedKey, null)
+    apiFetchMock.mockResolvedValueOnce({ tags: ["bug"] })
+
+    await runMutation({
+      serverId: "server_1",
+      forumChannelId: "forum_1",
+      threadId: "p2",
+      openerMessageId: "opener_p2",
+      previousTags: ["archived", "bug"],
+      tags: ["bug"],
+    })
+    expect(capturedQc.getQueryData<ReturnType<typeof sidebar>>(baseKey)?.threads.map(({ id }) => id))
+      .toEqual(["p1", "p3"])
+    await vi.waitFor(() => {
+      expect(capturedQc.getQueryState(retainedKey)).toBeUndefined()
+      expect(capturedQc.getQueryState(baseKey)?.isInvalidated).toBe(true)
+    })
+  })
+
+  it("uses normalized returned tags and leaves the sidebar neutral without a transition", async () => {
+    const { useUpdatePostTags } = await load()
+    useUpdatePostTags()
+    const baseKey = communityKeys.forumSidebarThreads("server_1")
+    const before = sidebar(["p1", "p2"])
+    capturedQc.setQueryData(baseKey, before)
+    apiFetchMock.mockResolvedValueOnce({ tags: [" BUG "] })
+
+    const result = await runMutation({
+      serverId: "server_1",
+      forumChannelId: "forum_1",
+      threadId: "p2",
+      openerMessageId: "opener_p2",
+      previousTags: ["bug"],
+      tags: ["archived"],
+    })
+
+    expect(result).toEqual({ tags: ["bug"] })
+    expect(capturedQc.getQueryData(baseKey)).toEqual(before)
+    expect(capturedQc.getQueryState(baseKey)?.isInvalidated).toBe(false)
+  })
+
   it("leaves both the message feeds and forum tag list untouched when the PUT fails", async () => {
     const { useUpdatePostTags } = await load()
     useUpdatePostTags()
@@ -194,12 +290,15 @@ describe("useUpdatePostTags", () => {
     capturedQc.setQueryData(communityKeys.channelMessages("forum_1"), feedBefore)
     capturedQc.setQueryData(communityKeys.forumFeed("forum_1", null), feedBefore)
     capturedQc.setQueryData(communityKeys.forumTags("forum_1"), tagsBefore)
+    capturedQc.setQueryData(communityKeys.forumSidebarThreads("server_1"), sidebar(["p2"]))
     apiFetchMock.mockRejectedValueOnce(new Error("500"))
 
     await runMutationExpectError({
+      serverId: "server_1",
       forumChannelId: "forum_1",
       threadId: "p2",
       openerMessageId: "m_p2",
+      previousTags: ["bug"],
       tags: [],
     })
 
@@ -208,6 +307,9 @@ describe("useUpdatePostTags", () => {
     expect(capturedQc.getQueryState(communityKeys.channelMessages("forum_1"))?.isInvalidated).toBe(false)
     expect(capturedQc.getQueryState(communityKeys.forumFeed("forum_1", null))?.isInvalidated).toBe(false)
     expect(capturedQc.getQueryState(communityKeys.forumTags("forum_1"))?.isInvalidated).toBe(false)
+    expect(capturedQc.getQueryData<ReturnType<typeof sidebar>>(
+      communityKeys.forumSidebarThreads("server_1"),
+    )?.threads.map(({ id }) => id)).toEqual(["p2"])
   })
 })
 

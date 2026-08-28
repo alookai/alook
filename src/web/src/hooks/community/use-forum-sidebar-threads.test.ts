@@ -15,6 +15,7 @@ import {
   patchForumSidebarActivity,
   patchForumSidebarUnread,
   projectForumSidebarThreads,
+  reconcileForumSidebarArchiveTag,
   reconcileForumSidebarUnreadFallbacks,
   recordForumSidebarChildUnread,
   removeForumSidebarThread,
@@ -1085,11 +1086,146 @@ describe("forum sidebar Stage B resources", () => {
     )).toEqual({ id: "post-2" })
   })
 
+  it("archive-tag eviction preserves route resources and hidden unread ownership", async () => {
+    const queryClient = new QueryClient()
+    const source = envelope(["post-1", "post-2"])
+    const normalized = normalizeForumSidebarEnvelope({
+      ...source,
+      canonicalChannels: source.channels,
+      retainedChannel: source.channels[0],
+      retainedDisposition: "eligible",
+    }, "post-1", 0)
+    const baseKey = communityKeys.forumSidebarThreads("server-1")
+    const retainedKey = communityKeys.forumSidebarRetained("server-1", "post-1")
+    const metaKey = communityKeys.channelMeta("server-1", "post-1")
+    const hintKey = communityKeys.forumOpenerHint("server-1", "opener-post-1")
+    const fallbackKey = communityKeys.forumSidebarUnreadFallbacks("server-1")
+    queryClient.setQueryData(baseKey, normalized.base)
+    queryClient.setQueryData(retainedKey, normalized.retained)
+    queryClient.setQueryData(metaKey, normalized.channelMetas["post-1"])
+    queryClient.setQueryData(hintKey, normalized.openerHints["opener-post-1"])
+    queryClient.setQueryData<ForumSidebarUnreadFallbackState>(fallbackKey, {
+      "forum-1": { baseUnread: false, childIds: ["post-1"] },
+    })
+
+    await reconcileForumSidebarArchiveTag(queryClient, "server-1", "post-1", true)
+
+    expect(queryClient.getQueryData<ForumSidebarQueryData>(baseKey)?.threads.map(({ id }) => id))
+      .toEqual(["post-2"])
+    expect(queryClient.getQueryState(retainedKey)).toBeUndefined()
+    expect(queryClient.getQueryData(metaKey)).toEqual(normalized.channelMetas["post-1"])
+    expect(queryClient.getQueryData(hintKey)).toEqual(normalized.openerHints["opener-post-1"])
+    expect(queryClient.getQueryData(fallbackKey)).toEqual({
+      "forum-1": { baseUnread: false, childIds: ["post-1"] },
+    })
+    expect(queryClient.getQueryState(baseKey)?.isInvalidated).toBe(true)
+  })
+
+  it("tag-only unarchive clears retained null and waits for authoritative ranking", async () => {
+    const queryClient = new QueryClient()
+    const source = envelope(["post-2"])
+    const normalized = normalizeForumSidebarEnvelope({
+      ...source,
+      canonicalChannels: source.channels,
+      retainedChannel: null,
+    }, null, 0)
+    const baseKey = communityKeys.forumSidebarThreads("server-1")
+    const retainedKey = communityKeys.forumSidebarRetained("server-1", "post-1")
+    const metaKey = communityKeys.channelMeta("server-1", "post-1")
+    const hintKey = communityKeys.forumOpenerHint("server-1", "opener-post-1")
+    queryClient.setQueryData(baseKey, normalized.base)
+    queryClient.setQueryData(retainedKey, null)
+    queryClient.setQueryData(metaKey, { id: "post-1", parentMessageId: "opener-post-1" })
+    queryClient.setQueryData(hintKey, { id: "opener-post-1", content: "Post one" })
+
+    await reconcileForumSidebarArchiveTag(queryClient, "server-1", "post-1", false)
+
+    expect(queryClient.getQueryData<ForumSidebarQueryData>(baseKey)?.threads.map(({ id }) => id))
+      .toEqual(["post-2"])
+    expect(queryClient.getQueryState(retainedKey)).toBeUndefined()
+    expect(queryClient.getQueryData(metaKey)).toEqual({
+      id: "post-1",
+      parentMessageId: "opener-post-1",
+    })
+    expect(queryClient.getQueryData(hintKey)).toEqual({
+      id: "opener-post-1",
+      content: "Post one",
+    })
+    expect(queryClient.getQueryState(baseKey)?.isInvalidated).toBe(true)
+  })
+
+  it("preserves hidden unread ownership for an authoritative archived-opener negative", async () => {
+    apiFetchMock.mockResolvedValue({
+      ...envelope([]),
+      canonicalChannels: [],
+      retainedChannel: null,
+      retainedDisposition: "opener-archived",
+    })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(communityKeys.server("server-1"), {
+      ...serverDetail(true),
+      forumUnreadState: {
+        "forum-1": { baseUnread: false, childIds: ["private-post"] },
+      },
+    })
+    queryClient.setQueryData<ForumSidebarUnreadFallbackState>(
+      communityKeys.forumSidebarUnreadFallbacks("server-1"),
+      { "forum-1": { baseUnread: false, childIds: ["private-post"] } },
+    )
+    queryClient.setQueryData(communityKeys.channelMeta("server-1", "private-post"), {
+      id: "private-post",
+      serverId: "server-1",
+      name: "Private post",
+      type: "thread",
+      parentChannelId: "forum-1",
+      parentMessageId: "private-opener",
+      creatorId: "user-1",
+      archived: false,
+      activityAt: "2026-08-08T00:00:00.000Z",
+      verifiedEpoch: 0,
+    })
+    queryClient.setQueryData(
+      communityKeys.forumOpenerHint("server-1", "private-opener"),
+      { id: "private-opener", content: "Private title" },
+    )
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(Capture, { retainId: "private-post", onRender: () => undefined }),
+        ),
+      )
+    })
+    await waitFor(() => queryClient.getQueryState(
+      communityKeys.forumSidebarRetained("server-1", "private-post"),
+    )?.status === "success")
+
+    expect(queryClient.getQueryData<ServerDetail>(
+      communityKeys.server("server-1"),
+    )?.forumUnreadState?.["forum-1"]).toEqual({
+      baseUnread: false,
+      childIds: ["private-post"],
+    })
+    expect(queryClient.getQueryData<ForumSidebarUnreadFallbackState>(
+      communityKeys.forumSidebarUnreadFallbacks("server-1"),
+    )).toEqual({ "forum-1": { baseUnread: false, childIds: ["private-post"] } })
+    expect(queryClient.getQueryData(
+      communityKeys.channelMeta("server-1", "private-post"),
+    )).toMatchObject({ id: "private-post" })
+    expect(queryClient.getQueryData(
+      communityKeys.forumOpenerHint("server-1", "private-opener"),
+    )).toEqual({ id: "private-opener", content: "Private title" })
+    renderer!.unmount()
+  })
+
   it("clears a negative retained projection without deleting exact route metadata", async () => {
     apiFetchMock.mockResolvedValue({
       ...envelope([]),
       canonicalChannels: [],
       retainedChannel: null,
+      retainedDisposition: "genuine-negative",
     })
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     queryClient.setQueryData(communityKeys.server("server-1"), {
@@ -1166,6 +1302,7 @@ describe("forum sidebar Stage B resources", () => {
       ...envelope([]),
       canonicalChannels: [],
       retainedChannel: null,
+      retainedDisposition: "genuine-negative",
     })
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const accessEpoch = useCommunityWsStore.getState().accessEpoch

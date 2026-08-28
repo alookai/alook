@@ -107,6 +107,7 @@ export const GET = withCommunityActor(async (req: NextRequest, ctx) => {
       channels,
       canonicalChannels,
       retainedChannel,
+      retainedDisposition: projection.retainedDisposition,
       included: { parentMessages },
       serverNow,
     })

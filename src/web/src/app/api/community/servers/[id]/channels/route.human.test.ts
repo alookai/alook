@@ -78,7 +78,11 @@ describe("GET /api/community/servers/[id]/channels — human resource", () => {
       type: "thread",
       activityAt: "2026-08-08T11:00:00.000Z",
     }
-    mockListParticipatingForumThreads.mockResolvedValue({ canonical: [thread], retained: thread })
+    mockListParticipatingForumThreads.mockResolvedValue({
+      canonical: [thread],
+      retained: thread,
+      retainedDisposition: "eligible",
+    })
     mockGetMessagesByIds.mockResolvedValue([{ id: "message_1", content: "Current title" }])
     mockListEligibleUnreadChannels.mockResolvedValue([{ channelId: "thread_1" }])
 
@@ -111,6 +115,7 @@ describe("GET /api/community/servers/[id]/channels — human resource", () => {
           expiresAt: "2026-08-11T11:00:00.000Z",
           unread: true,
         }),
+        retainedDisposition: "eligible",
         included: { parentMessages: [{ id: "message_1", content: "Current title" }] },
         serverNow: "2026-08-08T12:00:00.000Z",
       })
@@ -139,6 +144,7 @@ describe("GET /api/community/servers/[id]/channels — human resource", () => {
     mockListParticipatingForumThreads.mockResolvedValue({
       canonical: [row("z"), row("a")],
       retained: row("ä"),
+      retainedDisposition: "eligible",
     })
     mockGetMessagesByIds.mockResolvedValue([
       { id: "message_z", content: "Z" },
@@ -160,6 +166,34 @@ describe("GET /api/community/servers/[id]/channels — human resource", () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it("serializes an archived-opener retained negative without returning the child", async () => {
+    mockGetMember.mockResolvedValue({ id: "member_1", role: "member" })
+    mockListServerChannelsForViewer.mockResolvedValue([
+      { id: "forum_visible", serverId: "server_1", name: "Forum", type: "forum" },
+    ])
+    mockListParticipatingForumThreads.mockResolvedValue({
+      canonical: [],
+      retained: null,
+      retainedDisposition: "opener-archived",
+    })
+    mockGetMessagesByIds.mockResolvedValue([])
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/community/servers/server_1/channels?type=thread&parentType=forum&participating=true&activeWithin=72h&limitPerParent=5&retainId=thread_archived&include=parentMessage"),
+      { params: { id: "server_1" } } as never,
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      channels: [],
+      canonicalChannels: [],
+      retainedChannel: null,
+      retainedDisposition: "opener-archived",
+      included: { parentMessages: [] },
+    })
+    expect(mockGetMessagesByIds).toHaveBeenCalledWith(expect.anything(), [])
   })
 
   it("rejects a partial or oversized sidebar query without reading child threads", async () => {
