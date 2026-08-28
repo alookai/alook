@@ -35,7 +35,7 @@ export function PendingChannelRow({ ch }: { ch: Channel }) {
 }
 
 // A single drag-sortable channel row. The whole row is the drag surface (no handle);
-// a 5px activation distance keeps a tap = "switch channel" and a drag = reorder.
+// mouse movement or a touch long-press distinguishes navigation from reorder.
 // Right-click opens an edit/mute/delete menu.
 export function SortableChannel({ ch, active, onClick, onPrefetch, onEdit, onDelete, onManageMembers, canReorder = true }: {
   ch: Channel
@@ -63,7 +63,7 @@ export function SortableChannel({ ch, active, onClick, onPrefetch, onEdit, onDel
       {...attributes}
       {...listeners}
       className={[
-        "group relative flex h-8 w-full cursor-pointer touch-none items-center gap-2 rounded-md px-2 text-sm select-none",
+        "group relative flex h-8 w-full cursor-pointer touch-manipulation items-center gap-2 rounded-md px-2 text-sm select-none",
         canReorder ? "active:cursor-grabbing" : "",
         active
           ? "bg-sidebar-accent text-foreground"

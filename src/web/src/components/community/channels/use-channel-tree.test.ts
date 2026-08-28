@@ -1,17 +1,50 @@
+import React from "react"
+import TestRenderer, { act } from "react-test-renderer"
 import { describe, it, expect } from "vitest"
 import {
-  isCat,
   catId,
   catOf,
   moveChannelAcrossCategories,
   reorderChannelsWithin,
   reorderCategories,
   mergeChannelMetadata,
+  useChannelTree,
   type ChannelOrder,
 } from "./use-channel-tree"
 import type { Channel, Category } from "@/lib/community/models/navigation"
+import type { DragEndEvent } from "@dnd-kit/core"
 
 const ch = (id: string): Channel => ({ id, name: id, active: false, unread: false })
+const category = (id: string, channels: Channel[]): Category => ({ id, name: id, channels })
+
+type Tree = ReturnType<typeof useChannelTree>
+
+function CaptureTree({ categories, onResult }: { categories: Category[]; onResult: (tree: Tree) => void }) {
+  onResult(useChannelTree(categories))
+  return null
+}
+
+async function renderTreeHook(categories: Category[]) {
+  let current!: Tree
+  await act(async () => {
+    TestRenderer.create(
+      React.createElement(CaptureTree, { categories, onResult: (tree) => { current = tree } }),
+    )
+  })
+  return {
+    get current() {
+      return current
+    },
+    async drag(callback: (tree: Tree) => void) {
+      await act(async () => callback(current))
+    },
+  }
+}
+
+const dragEvent = (activeId: string, overId: string): DragEndEvent => ({
+  active: { id: activeId },
+  over: { id: overId },
+}) as DragEndEvent
 
 const order: ChannelOrder = {
   cat_A: [ch("a1"), ch("a2")],
@@ -19,10 +52,9 @@ const order: ChannelOrder = {
 }
 
 describe("id helpers", () => {
-  it("isCat / catId", () => {
+  it("keeps persisted category ids unchanged for dnd", () => {
     expect(catId("cat_A")).toBe("cat_A")
-    expect(isCat("cat_A")).toBe(true)
-    expect(isCat("a1")).toBe(false)
+    expect(catId("5vg7bs")).toBe("5vg7bs")
   })
 })
 
@@ -33,6 +65,10 @@ describe("catOf", () => {
   })
   it("resolves a category id to itself", () => {
     expect(catOf("cat_B", order)).toBe("cat_B")
+  })
+  it("resolves an opaque category id from the actual tree keys", () => {
+    const opaqueOrder = { "5vg7bs": [ch("a1")] }
+    expect(catOf("5vg7bs", opaqueOrder)).toBe("5vg7bs")
   })
   it("returns undefined for an unknown channel", () => {
     expect(catOf("zzz", order)).toBeUndefined()
@@ -98,6 +134,43 @@ describe("reorderCategories", () => {
   it("returns the input when a category is missing", () => {
     const cats = ["cat_A", "cat_B"]
     expect(reorderCategories(cats, "cat_Z", "cat_A")).toBe(cats)
+  })
+})
+
+describe("useChannelTree opaque category drag callbacks", () => {
+  const categories = [
+    category("5vg7bs", [ch("a1"), ch("a2")]),
+    category("9qsh2k", [ch("b1"), ch("b2")]),
+  ]
+
+  it("ignores category drag-over instead of moving a channel", async () => {
+    const hook = await renderTreeHook(categories)
+    const before = hook.current.order
+
+    await hook.drag((tree) => tree.onDragOver(dragEvent("5vg7bs", "b1")))
+
+    expect(hook.current.order).toBe(before)
+    expect(hook.current.order["5vg7bs"].map((channel) => channel.id)).toEqual(["a1", "a2"])
+    expect(hook.current.order["9qsh2k"].map((channel) => channel.id)).toEqual(["b1", "b2"])
+  })
+
+  it("reorders opaque categories through the hook drop callback", async () => {
+    const hook = await renderTreeHook(categories)
+
+    await hook.drag((tree) => tree.onDragEnd(dragEvent("5vg7bs", "9qsh2k")))
+
+    expect(hook.current.catOrder).toEqual(["9qsh2k", "5vg7bs"])
+  })
+
+  it("treats an opaque category dropped over a channel as a no-op", async () => {
+    const hook = await renderTreeHook(categories)
+    const beforeOrder = hook.current.order
+    const beforeCatOrder = hook.current.catOrder
+
+    await hook.drag((tree) => tree.onDragEnd(dragEvent("5vg7bs", "b1")))
+
+    expect(hook.current.order).toBe(beforeOrder)
+    expect(hook.current.catOrder).toBe(beforeCatOrder)
   })
 })
 

@@ -3,9 +3,10 @@
 import { Fragment, memo, useRef, useState } from "react"
 import { Settings, Users, Link2, Bell, ChevronDown, UserPlus } from "lucide-react"
 import {
-  DndContext, closestCenter, PointerSensor, useSensor, useSensors,
+  DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors,
+  type CollisionDetection,
 } from "@dnd-kit/core"
-import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
+import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -14,7 +15,7 @@ import { SortableChannel, PendingChannelRow } from "./sortable-channel"
 import { CreateChannelDialog } from "../settings/create-channel-dialog"
 import { CreateCategoryDialog } from "../settings/create-category-dialog"
 import { CategorySettingsDialog } from "../settings/category-settings-dialog"
-import { catId, catOf, isCat, reorderChannelsWithin, type ChannelTree } from "./use-channel-tree"
+import { catId, catOf, reorderChannelsWithin, type ChannelTree } from "./use-channel-tree"
 import { InviteDialog } from "../social/invite-dialog"
 import { ChannelAddMembersDialog } from "../members/channel-add-members-dialog"
 import type { Channel } from "@/lib/community/models/navigation"
@@ -31,6 +32,20 @@ type Dialog =
   | { kind: "category-settings"; categoryId: string }
   | { kind: "manage-members"; channelId: string; channelName: string }
   | null
+
+type SortableData = { kind?: "category" | "channel"; sortable?: { containerId?: string } }
+
+const channelSidebarCollisionDetection: CollisionDetection = (args) => {
+  const activeData = args.active.data.current as SortableData | undefined
+  if (args.pointerCoordinates && activeData?.kind !== "category") return closestCenter(args)
+
+  const containerId = activeData?.sortable?.containerId
+  if (!containerId) return closestCenter(args)
+
+  const sameContainer = args.droppableContainers.filter((container) =>
+    (container.data.current as SortableData | undefined)?.sortable?.containerId === containerId)
+  return closestCenter({ ...args, droppableContainers: sameContainer })
+}
 
 // The channel sidebar (server view). Category/channel reorder + add/remove/rename live in
 // useChannelTree. The category gear/right-click opens settings; "+" (or empty-space
@@ -82,7 +97,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   const dragOriginCat = useRef<string | undefined>(undefined)
   const onDragStart = (e: { active: { id: string | number } }) => {
     const activeStr = String(e.active.id)
-    dragOriginCat.current = isCat(activeStr) ? undefined : catOf(activeStr, order)
+    dragOriginCat.current = catOrder.includes(activeStr) ? undefined : catOf(activeStr, order)
   }
   const onDragEnd = (e: Parameters<typeof treeDragEnd>[0]) => {
     const originCat = dragOriginCat.current
@@ -92,7 +107,9 @@ export const ChannelSidebar = memo(function ChannelSidebar({
     if (!over || active.id === over.id) return
     const activeStr = String(active.id)
     const overStr = String(over.id)
-    if (activeStr.startsWith("cat_") && overStr.startsWith("cat_")) {
+    const activeIsCategory = catOrder.includes(activeStr)
+    const overIsCategory = catOrder.includes(overStr)
+    if (activeIsCategory && overIsCategory) {
       const reordered = catOrder.indexOf(activeStr) !== -1 ? (() => {
         const from = catOrder.indexOf(activeStr)
         const to = catOrder.indexOf(overStr)
@@ -104,13 +121,13 @@ export const ChannelSidebar = memo(function ChannelSidebar({
       })() : null
       // Never send an optimistic (pending) category id to the reorder endpoint.
       if (reordered) onReorderCategories?.(reordered.filter((cid) => !catPending[cid]))
-    } else if (!activeStr.startsWith("cat_")) {
+    } else if (!activeIsCategory) {
       // The channel's category AFTER onDragOver settled the optimistic move.
       const destCat = catOf(activeStr, order)
       // A blocked public↔private move: the cursor landed in a different-privacy
       // category, so onDragOver refused to move it and destCat === originCat.
       // Detect the attempt from the drop target and warn.
-      const dropTargetCat = isCat(overStr) ? overStr : catOf(overStr, order)
+      const dropTargetCat = overIsCategory ? overStr : catOf(overStr, order)
       if (
         originCat && dropTargetCat && dropTargetCat !== originCat &&
         destCat === originCat &&
@@ -141,7 +158,11 @@ export const ChannelSidebar = memo(function ChannelSidebar({
       onReorderChannels?.(allChannelIds)
     }
   }
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
   const [dialog, setDialog] = useState<Dialog>(null)
   const withMute = (ch: Channel): Channel => mutedChannels && ch.id in mutedChannels ? { ...ch, muted: mutedChannels[ch.id] } : ch
   const hasActiveSidebarThread = !!activeThreadId && Object.values(forumThreadsByParent)
@@ -226,7 +247,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
 
   // one DndContext spans everything: categories sort among themselves, channels across categories
   const channelTree = (
-    <DndContext id="d-channels" sensors={sensors} collisionDetection={closestCenter} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd}>
+    <DndContext id="d-channels" sensors={sensors} collisionDetection={channelSidebarCollisionDetection} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd}>
       {/* uncategorized channels (empty-name category) render bare at the top — no header */}
       {noneCatId && order[noneCatId]?.length > 0 && (
         <SortableContext items={order[noneCatId].filter((c) => !c.pending).map((c) => c.id)} strategy={verticalListSortingStrategy}>
