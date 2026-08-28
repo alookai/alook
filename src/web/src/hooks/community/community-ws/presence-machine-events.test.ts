@@ -35,6 +35,9 @@ describe("useCommunityWs — presence", () => {
     expect(capturedQueryClient.getQueryData(communityKeys.friendsPresence())).toEqual({
       online: ["friend_existing", "u_pres"],
     })
+    const patchedSnapshot = capturedQueryClient.getQueryData(communityKeys.friendsPresence())
+    capturedOnMessage!(event)
+    expect(capturedQueryClient.getQueryData(communityKeys.friendsPresence())).toBe(patchedSnapshot)
     expect(spy).not.toHaveBeenCalled()
   })
 
