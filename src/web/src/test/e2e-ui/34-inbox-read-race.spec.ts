@@ -117,7 +117,8 @@ test.describe.serial("Inbox/read refresh ownership", () => {
   test("an Inbox click closes, publishes, and hides only its exact row before read settles", async ({ asUser }) => {
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox projection ${stamp}`)
-    const channelA = await seedChannel("alice", serverId, `project-a-${stamp}`)
+    const channelAName = `project-a-${stamp}`
+    const channelA = await seedChannel("alice", serverId, channelAName)
     const channelB = await seedChannel("alice", serverId, `project-b-${stamp}`)
     await seedJoinServer("alice", "bob", serverId)
     await seedMessage("alice", channelA, `Projected A ${stamp}`)
@@ -143,6 +144,9 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     await page.getByTestId(tid.inboxUnreadChannel(channelA)).click()
     await expect(page).toHaveURL(`/c/channels/${serverId}/${channelA}`)
     await expect(page.getByRole("heading", { name: "Inbox" })).toHaveCount(0)
+    await expect(page.getByRole("heading", { name: channelAName, exact: true })).toBeVisible({
+      timeout: 20_000,
+    })
 
     await page.getByRole("button", { name: "Inbox" }).click()
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelA))).toHaveCount(0)
@@ -165,7 +169,8 @@ test.describe.serial("Inbox/read refresh ownership", () => {
   test("focused A never flashes while same-window B and DM remain unread", async ({ asUser }) => {
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox race mixed ${stamp}`)
-    const channelA = await seedChannel("alice", serverId, `focused-a-${stamp}`)
+    const channelAName = `focused-a-${stamp}`
+    const channelA = await seedChannel("alice", serverId, channelAName)
     const channelB = await seedChannel("alice", serverId, `unread-b-${stamp}`)
     await seedJoinServer("alice", "bob", serverId)
     const dmId = await seedDm("carol", userId("bob"))
@@ -177,6 +182,9 @@ test.describe.serial("Inbox/read refresh ownership", () => {
       response.request().method() === "GET"
       && new URL(response.url()).pathname === "/api/community/users/me/inbox/unreads"
     ))
+    await expect(page.getByRole("heading", { name: channelAName, exact: true })).toBeVisible({
+      timeout: 20_000,
+    })
     await page.getByRole("button", { name: "Inbox" }).click()
     expect((await initialInbox).status()).toBe(200)
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelA))).toHaveCount(0)
@@ -262,7 +270,8 @@ test.describe.serial("Inbox/read refresh ownership", () => {
   test("a failed focused read falls back once, then retry converges", async ({ asUser }) => {
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox race failure ${stamp}`)
-    const channelId = await seedChannel("alice", serverId, `failure-${stamp}`)
+    const channelName = `failure-${stamp}`
+    const channelId = await seedChannel("alice", serverId, channelName)
     await seedJoinServer("alice", "bob", serverId)
     const { page } = await asUser("bob")
     await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
@@ -270,6 +279,9 @@ test.describe.serial("Inbox/read refresh ownership", () => {
       response.request().method() === "GET"
       && new URL(response.url()).pathname === "/api/community/users/me/inbox/unreads"
     ))
+    await expect(page.getByRole("heading", { name: channelName, exact: true })).toBeVisible({
+      timeout: 20_000,
+    })
     await page.getByRole("button", { name: "Inbox" }).click()
     expect((await initialInbox).status()).toBe(200)
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
@@ -484,7 +496,8 @@ test.describe.serial("Inbox/read refresh ownership", () => {
   test("a later focused intent keeps its own 500ms generation", async ({ asUser }) => {
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox race cutoff ${stamp}`)
-    const channelId = await seedChannel("alice", serverId, `cutoff-${stamp}`)
+    const channelName = `cutoff-${stamp}`
+    const channelId = await seedChannel("alice", serverId, channelName)
     await seedJoinServer("alice", "bob", serverId)
     const { page } = await asUser("bob")
     await gotoAfterUserWsAuth(page, `/c/channels/${serverId}/${channelId}`)
@@ -492,6 +505,9 @@ test.describe.serial("Inbox/read refresh ownership", () => {
       response.request().method() === "GET"
       && new URL(response.url()).pathname === "/api/community/users/me/inbox/unreads"
     ))
+    await expect(page.getByRole("heading", { name: channelName, exact: true })).toBeVisible({
+      timeout: 20_000,
+    })
     await page.getByRole("button", { name: "Inbox" }).click()
     expect((await initialInbox).status()).toBe(200)
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
