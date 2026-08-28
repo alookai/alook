@@ -20,9 +20,12 @@ import {
   useResolveOrCreateInvite,
   useCreateOrGetDm,
 } from "@/hooks/community/mutations"
+import { useFriendsPresence } from "@/hooks/community/use-friends"
 import { useDmMessageSender } from "@/hooks/community/use-dm-message-sender"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import type { Friend } from "@/lib/community/models/people"
+import { resolveRowPresence } from "@/lib/community/presence"
+import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
 
 const INVITE_ORIGIN =
   typeof window !== "undefined" ? window.location.origin : ""
@@ -131,6 +134,8 @@ export function InviteDialog({
   serverName: string
 }) {
   const currentUser = useCurrentUser()
+  const onlineUserIds = useOnlineUserIds()
+  const { online: onlineFriendIds } = useFriendsPresence(open)
   // Only friends who are NOT already members of `serverId` — server-side
   // filter so a stale local members cache can't leak already-joined rows.
   const friendsQuery = useInvitableFriends(serverId, open)
@@ -145,6 +150,15 @@ export function InviteDialog({
   const [invitingUserIds, setInvitingUserIds] = useState<Set<string>>(new Set())
   const inFlightUserIdsRef = useRef<Set<string>>(new Set())
   const [query, setQuery] = useState("")
+
+  // A server presence snapshot contains members only and replaces the shared
+  // set, so an online friend who is not yet a member can disappear when the
+  // viewer enters the server. Re-seed that missing friend subset when the
+  // invite dialog opens; subsequent WS deltas still add/remove ids normally.
+  useEffect(() => {
+    if (!open) return
+    useCommunityWsStore.getState().mergePresence(onlineFriendIds)
+  }, [onlineFriendIds, open])
 
   // Resolve on open. Only depends on `open` + `token` — resolveOrCreate is a
   // hook that captures a fresh mutation object each render, so including it in
@@ -182,14 +196,16 @@ export function InviteDialog({
 
   const eligibleFriends = useMemo<Friend[]>(() => {
     const q = query.trim().toLowerCase()
-    return friends.filter((f) => {
-      if (!q) return true
-      return (
-        f.name.toLowerCase().includes(q) ||
-        (f.sub ?? "").toLowerCase().includes(q)
-      )
-    })
-  }, [friends, query])
+    return friends
+      .filter((f) => {
+        if (!q) return true
+        return (
+          f.name.toLowerCase().includes(q) ||
+          (f.sub ?? "").toLowerCase().includes(q)
+        )
+      })
+      .map((f) => ({ ...f, status: resolveRowPresence(f, onlineUserIds) }))
+  }, [friends, onlineUserIds, query])
 
   const pickerState = resolvePeoplePickerViewState({
     resolved: friendsQuery.data !== undefined,
