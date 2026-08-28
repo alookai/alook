@@ -189,6 +189,54 @@ describe("CodexDriver reasoning catalog probe", () => {
     expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
   });
 
+  it("normalizes missing option arrays and non-string catalog fields", async () => {
+    const proc = probingProcess((request) => request.method === "initialize"
+      ? { jsonrpc: "2.0", id: request.id, result: {} }
+      : {
+          jsonrpc: "2.0",
+          id: request.id,
+          result: {
+            data: [
+              { id: 42, supportedReasoningEfforts: [] },
+              {
+                id: "gpt-minimal",
+                supportedReasoningEfforts: "not-an-array",
+                defaultReasoningEffort: 42,
+              },
+              {
+                id: "gpt-options",
+                supportedReasoningEfforts: [
+                  { reasoningEffort: 42 },
+                  { reasoningEffort: "high", description: "" },
+                ],
+              },
+            ],
+            nextCursor: null,
+          },
+        });
+    runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
+
+    await expect(new CodexDriver().probe()).resolves.toMatchObject({
+      reasoning: {
+        models: [
+          { id: "gpt-minimal", supportedReasoningEfforts: [] },
+          { id: "gpt-options", supportedReasoningEfforts: [{ value: "high" }] },
+        ],
+      },
+    });
+  });
+
+  it("treats a non-array model/list data field as an empty catalog", async () => {
+    const proc = probingProcess((request) => request.method === "initialize"
+      ? { jsonrpc: "2.0", id: request.id, result: {} }
+      : { jsonrpc: "2.0", id: request.id, result: { data: "invalid", nextCursor: null } });
+    runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
+
+    await expect(new CodexDriver().probe()).resolves.toMatchObject({
+      reasoning: { models: [] },
+    });
+  });
+
   it("ignores malformed and unrelated lines before consuming the catalog response", async () => {
     const proc = probingProcess(() => ({ jsonrpc: "2.0", id: -1, result: {} }));
     proc.stdin.write = vi.fn((line: string) => {
@@ -246,6 +294,7 @@ describe("CodexDriver reasoning catalog probe", () => {
     const proc = simpleProcess() as ReturnType<typeof simpleProcess> & { stdout: EventEmitter; pid: number };
     proc.stdout = new EventEmitter();
     proc.pid = 42_424;
+    runtimeMocks.killProcessTree.mockRejectedValueOnce(new Error("already exited"));
     runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
 
     const pending = new CodexDriver().probe();

@@ -489,6 +489,78 @@ describe("PATCH /api/community/bots/[id]", () => {
     expect(mockPushAgentRuntimeConfigUpdateToMachine).not.toHaveBeenCalled()
   })
 
+  it("returns 500 when a reasoning-only tuple cannot be persisted", async () => {
+    mockGetBotOwnedBy.mockResolvedValue({
+      id: "b1", name: "Old", description: "old desc", machineId: "mac1", ownerUserId: "u1",
+      runtime: "codex", modelName: "gpt-5", reasoningEffort: null, runtimeConfigRevision: 3,
+    })
+    mockGetMachineForOwner.mockResolvedValue({
+      id: "mac1",
+      availableRuntimes: [{
+        id: "codex",
+        status: "healthy",
+        reasoning: {
+          updateMode: "live_next_turn",
+          models: [{ id: "gpt-5", supportedReasoningEfforts: [{ value: "high" }] }],
+        },
+      }],
+    })
+    mockUpdateBotRuntimeConfig.mockRejectedValue(new Error("d1 unavailable"))
+
+    const res = await PATCH(patchReq({ reasoningEffort: "high" }), ctx)
+
+    expect(res.status).toBe(500)
+    await expect(res.json()).resolves.toEqual({ error: "failed to persist reasoning effort" })
+    expect(mockPushAgentRuntimeConfigUpdateToMachine).not.toHaveBeenCalled()
+    expect(mockLogError).toHaveBeenCalledWith(
+      "bot_reasoning_effort_persist_failed",
+      expect.objectContaining({ botId: "b1" }),
+    )
+  })
+
+  it("keeps a persisted reasoning edit recoverable when live delivery throws", async () => {
+    mockGetBotOwnedBy.mockResolvedValue({
+      id: "b1", name: "Old", description: "old desc", machineId: "mac1", ownerUserId: "u1",
+      runtime: "codex", modelName: "gpt-5", reasoningEffort: null, runtimeConfigRevision: 3,
+    })
+    mockGetMachineForOwner.mockResolvedValue({
+      id: "mac1",
+      availableRuntimes: [{
+        id: "codex",
+        status: "healthy",
+        reasoning: {
+          updateMode: "live_next_turn",
+          models: [{ id: "gpt-5", supportedReasoningEfforts: [{ value: "high" }] }],
+        },
+      }],
+    })
+    mockUpdateBotRuntimeConfig.mockResolvedValue({ runtimeConfigRevision: 4 })
+    mockPushAgentRuntimeConfigUpdateToMachine.mockRejectedValue(new Error("ws unavailable"))
+
+    const res = await PATCH(patchReq({ reasoningEffort: "high" }), ctx)
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      applied: false,
+      deliveryError: true,
+      application: "saved_not_applied",
+      bot: { reasoningEffort: "high", runtimeConfigRevision: 4 },
+    })
+  })
+
+  it("keeps a persisted model switch recoverable when delivery throws", async () => {
+    mockPushAgentModelSwitchToMachine.mockRejectedValue(new Error("ws unavailable"))
+
+    const res = await PATCH(patchReq({ model: "claude-sonnet-4-6" }), ctx)
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({
+      applied: false,
+      deliveryError: true,
+      application: "saved_not_applied",
+    })
+  })
+
   it("falls back to Default when a model switch makes the stored effort incompatible", async () => {
     mockGetBotOwnedBy.mockResolvedValue({
       id: "b1", name: "Old", description: "old desc", machineId: "mac1", ownerUserId: "u1",

@@ -95,6 +95,10 @@ describe("CommunityMachineRuntimeSchema", () => {
             ],
             defaultReasoningEffort: "medium",
           },
+          {
+            id: "gpt-5",
+            supportedReasoningEfforts: [{ value: "high" }],
+          },
           { id: "", supportedReasoningEfforts: [{ value: "high" }] },
           null,
         ],

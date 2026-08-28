@@ -524,6 +524,102 @@ describe("AgentProcessManager runtime config revisions", () => {
     }));
   });
 
+  it("converges a newer config supplied by an idle re-registration", async () => {
+    const { mgr, session } = makeManager();
+    session.updateSettings = vi.fn(async () => ({ status: "applied" as const }));
+    mgr.register("a1", { runtimeConfig: config(1, "low") });
+    mgr.deliver("a1", { id: "root", text: "first" });
+    session.startResolver?.();
+    await vi.waitFor(() => expect(mgr.snapshot().agents.a1.execution.lease.state).toBe("active"));
+    await session.pushAgentEvent({
+      type: "turn_completed",
+      turnId: "test-turn",
+      commandIds: ["root"],
+      result: { outcome: "success", backendSessionId: "thread_1" },
+    });
+    await vi.waitFor(() => expect(mgr.snapshot().agents.a1.execution.lease.state).toBe("none"));
+
+    mgr.register("a1", { runtimeConfig: config(2, "high") });
+
+    await vi.waitFor(() => expect(session.updateSettings).toHaveBeenCalledWith({ reasoningEffort: "high" }));
+  });
+
+  it("classifies already-applied pending revisions as idempotent or stale", async () => {
+    const { mgr, session } = makeManager();
+    mgr.deliver("a1", { id: "root", text: "first" });
+    session.startResolver?.();
+    await vi.waitFor(() => expect(mgr.snapshot().agents.a1.execution.lease.state).toBe("active"));
+    await session.pushAgentEvent({
+      type: "turn_completed",
+      turnId: "test-turn",
+      commandIds: ["root"],
+      result: { outcome: "success", backendSessionId: "thread_1" },
+    });
+    const internal = mgr as unknown as {
+      appliedRuntimeConfigs: Map<string, RuntimeConfig>;
+      pendingRuntimeConfigUpdates: Map<string, RuntimeConfig>;
+      convergeRuntimeConfig(agentId: string): Promise<string>;
+    };
+    internal.appliedRuntimeConfigs.set("a1", config(4, "high"));
+
+    internal.pendingRuntimeConfigUpdates.set("a1", config(4, "high"));
+    await expect(internal.convergeRuntimeConfig("a1")).resolves.toBe("idempotent");
+
+    internal.pendingRuntimeConfigUpdates.set("a1", config(3, "medium"));
+    await expect(internal.convergeRuntimeConfig("a1")).resolves.toBe("stale");
+  });
+
+  it("saves a newer revision for the next start when the session changes during a native apply", async () => {
+    const { mgr, session } = makeManager();
+    let resolveUpdate!: (result: { status: "applied" }) => void;
+    session.updateSettings = vi.fn(() => new Promise((resolve) => {
+      resolveUpdate = resolve;
+    }));
+    mgr.register("a1", { runtimeConfig: config(1, "low") });
+    mgr.deliver("a1", { id: "root", text: "first" });
+    session.startResolver?.();
+    await vi.waitFor(() => expect(mgr.snapshot().agents.a1.execution.lease.state).toBe("active"));
+    await session.pushAgentEvent({
+      type: "turn_completed",
+      turnId: "test-turn",
+      commandIds: ["root"],
+      result: { outcome: "success", backendSessionId: "thread_1" },
+    });
+    await vi.waitFor(() => expect(mgr.snapshot().agents.a1.execution.lease.state).toBe("none"));
+
+    const updating = mgr.updateRuntimeConfig("a1", config(2, "high"));
+    await vi.waitFor(() => expect(session.updateSettings).toHaveBeenCalledOnce());
+    await expect(mgr.updateRuntimeConfig("a1", config(3, "medium"))).resolves.toBe("deferred");
+    (mgr as unknown as { sessions: Map<string, FakeSession> }).sessions.delete("a1");
+    resolveUpdate({ status: "applied" });
+
+    await expect(updating).resolves.toBe("saved_for_start");
+  });
+
+  it("recovers when boundary convergence itself rejects", async () => {
+    const logger = stubLogger();
+    const { mgr, session } = makeManager({ logger });
+    session.updateSettings = vi.fn(async () => Object.defineProperty({}, "status", {
+      get() { throw new Error("malformed settings result"); },
+    }) as never);
+    const stop = vi.spyOn(session, "stop");
+    mgr.register("a1", { runtimeConfig: config(1, "low") });
+    mgr.deliver("a1", { id: "root", text: "first" });
+    session.startResolver?.();
+    await vi.waitFor(() => expect(mgr.snapshot().agents.a1.execution.lease.state).toBe("active"));
+    await expect(mgr.updateRuntimeConfig("a1", config(2, "high"))).resolves.toBe("deferred");
+
+    await session.pushAgentEvent({
+      type: "turn_completed",
+      turnId: "test-turn",
+      commandIds: ["root"],
+      result: { outcome: "success", backendSessionId: "thread_1" },
+    });
+
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
+    expect(logger.calls.error.some(([message]) => message === "runtime config convergence failed")).toBe(true);
+  });
+
   it("falls back once at the boundary and keeps queued work recoverable when native apply is unsupported", async () => {
     const oldSession = fakeSession("reasoning-old");
     const replacementSession = fakeSession("reasoning-new");

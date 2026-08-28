@@ -318,6 +318,18 @@ describe("WebSocketDurableObject", () => {
         expect(getWebSockets).not.toHaveBeenCalled()
       })
 
+      it("rejects malformed runtime config update JSON before touching sockets", async () => {
+        const { durable, getWebSockets } = createDO()
+        const response = await durable.fetch(new Request("http://internal/push-runtime-config-update", {
+          method: "POST",
+          body: "{",
+        }))
+
+        expect(response.status).toBe(400)
+        await expect(response.json()).resolves.toEqual({ sent: 0 })
+        expect(getWebSockets).not.toHaveBeenCalled()
+      })
+
       it("returns the forward-wake send count when optimistic overlay clearing rejects", async () => {
         const { durable, getWebSockets, storage } = createDO()
         const ws = createMockWebSocket()

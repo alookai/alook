@@ -207,6 +207,42 @@ describe("getBotBinding", () => {
   })
 })
 
+describe("getMachineForOwner", () => {
+  function makeSelectChain(rows: unknown[]) {
+    const chain: any = {}
+    chain.select = vi.fn(() => chain)
+    chain.from = vi.fn(() => chain)
+    chain.where = vi.fn(() => chain)
+    chain.limit = vi.fn(() => Promise.resolve(rows))
+    return chain
+  }
+
+  it("returns null when the owner-scoped machine lookup has no row", async () => {
+    await expect(q.getMachineForOwner(makeSelectChain([]), "machine_1", "owner_1")).resolves.toBeNull()
+  })
+
+  it("normalizes legacy strings and valid objects while dropping malformed entries", async () => {
+    const db = makeSelectChain([{
+      id: "machine_1",
+      availableRuntimes: [
+        "codex",
+        "",
+        { id: "claude", status: "unhealthy", lastError: "missing credentials" },
+        { id: "bad runtime", status: "healthy" },
+        null,
+      ],
+    }])
+
+    await expect(q.getMachineForOwner(db, "machine_1", "owner_1")).resolves.toEqual({
+      id: "machine_1",
+      availableRuntimes: [
+        { id: "codex", status: "healthy" },
+        { id: "claude", status: "unhealthy", lastError: "missing credentials" },
+      ],
+    })
+  })
+})
+
 describe("updateBotRuntimeConfig", () => {
   function createDatabase() {
     const sqlite = new Sqlite(":memory:")
