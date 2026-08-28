@@ -13,6 +13,8 @@ vi.mock("lucide-react", () => ({
     createElement("image-icon", props),
   PlusCircle: (props: Record<string, unknown>) =>
     createElement("plus-icon", props),
+  SendHorizontal: (props: Record<string, unknown>) =>
+    createElement("send-icon", props),
   Smile: (props: Record<string, unknown>) => createElement("smile-icon", props),
   Upload: (props: Record<string, unknown>) =>
     createElement("upload-icon", props),
@@ -79,6 +81,9 @@ function baseProps(
     editor: null,
     hideAttach: false,
     hideEmoji: false,
+    showSend: false,
+    sendDisabled: true,
+    onSend: vi.fn(),
     onAttachOpenChange: vi.fn(),
     onUploadFile: vi.fn(),
     onEmojiPick: vi.fn(),
@@ -341,24 +346,92 @@ describe("ComposerView", () => {
     )
   })
 
+  it("renders the mobile send control after emoji with exact eligibility and padding", async () => {
+    const onSend = vi.fn()
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(
+        createElement(
+          ComposerView,
+          baseProps({ showSend: true, sendDisabled: true, onSend }),
+        ),
+      )
+    })
+    const input = renderer.root.find(
+      (node) => node.props["data-testid"] === tid.composerInput,
+    )
+    expect(input.props.className).toContain("pl-12 pr-24")
+    expect(input.props.className).not.toContain("px-12")
+    expect(
+      renderer.root.findByType("emoji-picker").findByType("button").props
+        .className,
+    ).toContain("right-12")
+    const send = renderer.root.find(
+      (node) => node.props["data-testid"] === tid.composerSend,
+    )
+    expect(send.props).toMatchObject({
+      type: "button",
+      "aria-label": "Send message",
+      disabled: true,
+    })
+    expect(send.props.className).toContain("right-2")
+    expect(renderer.root.findAllByType("send-icon")).toHaveLength(1)
+    expect(
+      renderer.root
+        .findAllByType("button")
+        .map((node) => node.props["aria-label"])
+        .filter(Boolean),
+    ).toEqual(["Add", "Emoji picker", "Send message"])
+
+    await act(async () => {
+      renderer.update(
+        createElement(
+          ComposerView,
+          baseProps({ showSend: true, sendDisabled: false, onSend }),
+        ),
+      )
+    })
+    await act(async () => {
+      renderer.root.find(
+        (node) => node.props["data-testid"] === tid.composerSend,
+      ).props.onClick()
+    })
+    expect(onSend).toHaveBeenCalledOnce()
+
+    await act(async () => {
+      renderer.update(createElement(ComposerView, baseProps()))
+    })
+    expect(
+      renderer.root.findAll(
+        (node) => node.props["data-testid"] === tid.composerSend,
+      ),
+    ).toHaveLength(0)
+    expect(
+      renderer.root.find(
+        (node) => node.props["data-testid"] === tid.composerInput,
+      ).props.className,
+    ).toContain("px-12")
+  })
+
   it("keeps the exact ComposerSkeleton footprint", async () => {
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
       renderer = TestRenderer.create(createElement(ComposerSkeleton))
     })
     const skeletons = renderer.root.findAllByType("skeleton")
-    expect(skeletons).toHaveLength(3)
+    expect(skeletons).toHaveLength(4)
     expect(skeletons.map((node) => node.props.className)).toEqual([
       "h-5 w-2/5 rounded",
       "absolute left-2 bottom-2 size-8 rounded-full",
-      "absolute right-2 bottom-2 size-8 rounded-full",
+      "absolute right-12 bottom-2 size-8 rounded-full sm:right-2",
+      "absolute right-2 bottom-2 size-8 rounded-full sm:hidden",
     ])
     expect(renderer.toJSON()).toMatchObject({
       type: "div",
       props: { className: "relative px-3 pb-3 pt-0" },
     })
     expect(JSON.stringify(renderer.toJSON())).toContain(
-      "relative rounded-xl bg-muted px-12 py-3 shadow-(--e1) ring-1 ring-border/40",
+      "relative rounded-xl bg-muted py-3 pl-12 pr-24 shadow-(--e1) ring-1 ring-border/40 sm:px-12",
     )
   })
 })
