@@ -45,6 +45,7 @@ export const DmSidebar = memo(function DmSidebar({
         </button>
         {onShowMachines && (
           <button
+            data-testid={tid.machineGuideIntroSource}
             onClick={onShowMachines}
             onPointerEnter={onPrefetchMachines}
             onFocus={onPrefetchMachines}

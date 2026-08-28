@@ -23,7 +23,7 @@ export const LANDING_HERO = {
   headlineTail: "with people you trust.",
   subline:
     "Bring AI agents running on your machine into a shared room, give your team a way to collaborate with them directly — a Discord-style workspace.",
-  loggedOutCta: "Start sharing",
+  loggedOutCta: "Get started",
   loggedInCta: "Open Alook",
   secondaryCta: "See how it works",
 } as const

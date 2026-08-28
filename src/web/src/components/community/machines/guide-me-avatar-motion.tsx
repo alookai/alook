@@ -42,15 +42,24 @@ export function guideMotionGeometry(
   stage: Rect,
   landing: Rect,
   avatarSize: number,
+  source?: Rect,
 ): GuideMotionGeometry {
+  const sourceGap = 16
   const sideInset = Math.min(96, Math.max(24, stage.width * 0.08))
   const bottomInset = Math.min(64, Math.max(24, stage.height * 0.1))
-  const startX = stage.left + sideInset
-  const startY = stage.bottom - avatarSize - bottomInset
+  const startX = source
+    ? Math.min(stage.right - avatarSize - sourceGap, source.right + sourceGap)
+    : stage.left + sideInset
+  const startY = source
+    ? Math.min(
+        stage.bottom - avatarSize - sourceGap,
+        Math.max(sourceGap, source.top),
+      )
+    : stage.bottom - avatarSize - bottomInset
   const endX = landing.left
   const endY = landing.top
   const distanceX = endX - startX
-  const distanceY = startY - endY
+  const distanceY = endY - startY
   const arcLift = Math.min(180, Math.max(72, Math.abs(distanceX) * 0.28))
   const mobile = avatarSize < 128
 
@@ -58,16 +67,40 @@ export function guideMotionGeometry(
     startX,
     startY,
     controlX: mobile ? startX + distanceX * 0.7 : startX + distanceX * 0.52,
-    controlY: mobile
-      ? startY - distanceY * 0.26
-      : Math.min(startY, endY) - arcLift,
+    controlY: source
+      ? startY + distanceY * (mobile ? 0.25 : 0.12)
+      : mobile
+        ? startY + distanceY * 0.26
+        : Math.min(startY, endY) - arcLift,
     control2X: mobile ? startX + distanceX * 0.88 : undefined,
-    control2Y: mobile ? startY - distanceY * 0.42 : undefined,
+    control2Y: mobile
+      ? startY + distanceY * (source ? 0.45 : 0.42)
+      : undefined,
     endX,
     endY,
     endScale: landing.width / avatarSize,
     clearanceScale: Math.min(1, 32 / avatarSize),
   }
+}
+
+function visibleGuideSource(): HTMLElement | null {
+  const candidates = document.querySelectorAll<HTMLElement>(
+    `[data-testid="${tid.machineGuideIntroSource}"]`,
+  )
+  for (const candidate of candidates) {
+    const rect = candidate.getBoundingClientRect()
+    if (
+      rect.width > 0 &&
+      rect.height > 0 &&
+      rect.right > 0 &&
+      rect.bottom > 0 &&
+      rect.left < window.innerWidth &&
+      rect.top < window.innerHeight
+    ) {
+      return candidate
+    }
+  }
+  return null
 }
 
 export function guideMotionPath(geometry: GuideMotionGeometry): string {
@@ -105,10 +138,12 @@ export function GuideMeAvatarMotion({
     let reducedTimer: number | undefined
     const cancelStablePaint = scheduleAfterStablePaint(() => {
       const avatarSize = avatar.getBoundingClientRect().width
+      const source = visibleGuideSource()
       const geometry = guideMotionGeometry(
         stage.getBoundingClientRect(),
         landing.getBoundingClientRect(),
         avatarSize,
+        source?.getBoundingClientRect(),
       )
       avatar.style.offsetPath = guideMotionPath(geometry)
       avatar.style.setProperty("--guide-end-scale", String(geometry.endScale))

@@ -56,6 +56,7 @@ export const tid = {
   inviteCard: (token: string) => `community-invite-card-${token}`,
   inviteCardAction: (token: string) => `community-invite-card-action-${token}`,
   machinePairOpen: "community-machine-pair-open",
+  machineGuideIntroSource: "machine-guide-intro-source",
   machineFirstSignupGuide: "machine-first-signup-guide",
   machineGuideAvatarTarget: "machine-guide-avatar-target",
   machinePairCommand: "community-machine-pair-command",

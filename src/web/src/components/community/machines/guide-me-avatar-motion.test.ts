@@ -52,6 +52,49 @@ describe("first-signup guide avatar motion", () => {
     )
   })
 
+  it("starts beside the desktop Machines tab and follows it into the guide", () => {
+    const geometry = guideMotionGeometry(
+      { left: 417, top: 0, right: 1280, bottom: 800, width: 863, height: 800 },
+      { left: 900, top: 500, right: 924, bottom: 524, width: 24, height: 24 },
+      128,
+      { left: 72, top: 64, right: 408, bottom: 100, width: 336, height: 36 },
+    )
+
+    expect(geometry).toMatchObject({
+      startX: 424,
+      startY: 64,
+      controlX: 671.52,
+      controlY: 116.32,
+      endX: 900,
+      endY: 500,
+    })
+    expect(guideMotionPath(geometry)).toBe(
+      'path("M 424 64 Q 671.52 116.32, 900 500")',
+    )
+  })
+
+  it("starts beside the mobile Machines title without leaving the viewport", () => {
+    const geometry = guideMotionGeometry(
+      { left: 0, top: 48, right: 390, bottom: 844, width: 390, height: 796 },
+      { left: 280, top: 600, right: 304, bottom: 624, width: 24, height: 24 },
+      104,
+      { left: 64, top: 17, right: 133, bottom: 34, width: 69, height: 17 },
+    )
+
+    expect(geometry).toMatchObject({
+      startX: 149,
+      startY: 17,
+      controlX: 240.7,
+      controlY: 162.75,
+      control2X: 264.28,
+      control2Y: 279.35,
+      endX: 280,
+      endY: 600,
+    })
+    expect(geometry.startX + 104).toBeLessThanOrEqual(390)
+    expect(geometry.startY).toBeGreaterThanOrEqual(0)
+  })
+
   it("waits for two animation frames so the empty state paints before motion starts", () => {
     const frames = new Map<number, FrameRequestCallback>()
     let nextFrame = 0

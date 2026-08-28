@@ -77,7 +77,12 @@ function machineBackBar(onBack?: () => void, reserveBackSlot = false) {
       ) : (
         <Skeleton data-slot="loading-back-placeholder" aria-hidden className="size-8 shrink-0 rounded-md" />
       )}
-      <span className="ml-1 truncate text-base font-semibold">Machines</span>
+      <span
+        data-testid={tid.machineGuideIntroSource}
+        className="ml-1 truncate text-base font-semibold"
+      >
+        Machines
+      </span>
     </header>
   ) : null
 }

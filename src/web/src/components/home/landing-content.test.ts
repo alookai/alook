@@ -29,7 +29,7 @@ describe("landing content contract", () => {
     expect(LANDING_HERO).toMatchObject({
       headlineLead: "Share your agents",
       headlineTail: "with people you trust.",
-      loggedOutCta: "Start sharing",
+      loggedOutCta: "Get started",
       loggedInCta: "Open Alook",
       secondaryCta: "See how it works",
     })
