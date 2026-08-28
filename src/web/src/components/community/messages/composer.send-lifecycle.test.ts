@@ -42,6 +42,10 @@ vi.mock("@/hooks/use-file-attachments", () => ({
   useFileAttachments: (...args: unknown[]) => mocks.useFileAttachments(...args),
 }))
 
+vi.mock("@/hooks/use-mobile", () => ({
+  useBreakpoint: () => "desktop",
+}))
+
 import { Composer, type ComposerProps } from "./composer"
 import type { PendingFile } from "@/hooks/use-file-attachments"
 
