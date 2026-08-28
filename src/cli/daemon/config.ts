@@ -3,6 +3,7 @@ import { join } from "path";
 import { configDir } from "../lib/config.js";
 import { getServerUrl } from "../lib/env.js";
 import { getCurrentVersion } from "../lib/version.js";
+import { MAX_POLL_TASKS } from "@alook/shared";
 
 export function pidFilePath(profile?: string): string {
   const name = profile ? `daemon_${profile}.pid` : "daemon.pid";
@@ -112,8 +113,9 @@ export function loadDaemonConfig(profile?: string): DaemonConfig {
     sweepInterval: parseDuration(process.env.ALOOK_DAEMON_SWEEP_INTERVAL || "60s"),
     agentTimeout: parseDuration(process.env.ALOOK_AGENT_TIMEOUT || "12h"),
     messageInactivityTimeout: parseDuration(process.env.ALOOK_MESSAGE_INACTIVITY_TIMEOUT || "20m"),
-    maxConcurrentTasks: parseInt(
-      process.env.ALOOK_DAEMON_MAX_CONCURRENT_TASKS || "20",
+    maxConcurrentTasks: Math.min(
+      parseInt(process.env.ALOOK_DAEMON_MAX_CONCURRENT_TASKS || "20"),
+      MAX_POLL_TASKS,
     ),
     enableSteering: process.env.ALOOK_ENABLE_STEERING === "1",
     daemonId,

@@ -1,10 +1,11 @@
-import { eq, and, desc, asc, inArray, notInArray, ne, count, lt, or, sql, exists } from "drizzle-orm";
+import { eq, and, desc, asc, inArray, ne, count, lt, or, sql, exists, notExists } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { agentTaskQueue, taskMessage, conversation } from "../schema";
 import type { Database } from "../index";
 import { ClaimedTaskRowSchema } from "../../schemas";
 import { chunk, D1_MAX_IN_PARAMS } from "./_chunk";
 import { TASK_TYPES } from "../../constants";
+import { jsonTextSet } from "./_json-set";
 
 export async function createTask(
   db: Database,
@@ -176,6 +177,18 @@ export async function claimTask(db: Database, agentId: string, workspaceId: stri
   for (const convId of steerableConvContextKeys.keys()) {
     allBlockedConvIds.push(convId);
   }
+  const uniqueBlockedConvIds = [...new Set(allBlockedConvIds)];
+  const isNotBlocked = () => {
+    if (uniqueBlockedConvIds.length === 0) return undefined;
+    const blockedId = sql<string>`CAST(blocked_conversation.value AS TEXT)`;
+    return notExists(
+      db
+        .select({ one: sql<number>`1` })
+        .from(sql`json_each(${JSON.stringify(uniqueBlockedConvIds)}) AS blocked_conversation`)
+        .where(eq(blockedId, agentTaskQueue.conversationId))
+    );
+  };
+  const initialNotBlocked = isNotBlocked();
 
   // Try non-steerable candidates first
   const candidateQuery = db
@@ -186,9 +199,7 @@ export async function claimTask(db: Database, agentId: string, workspaceId: stri
         eq(agentTaskQueue.agentId, agentId),
         eq(agentTaskQueue.workspaceId, workspaceId),
         eq(agentTaskQueue.status, "queued"),
-        ...(allBlockedConvIds.length > 0
-          ? [notInArray(agentTaskQueue.conversationId, allBlockedConvIds)]
-          : [])
+        ...(initialNotBlocked ? [initialNotBlocked] : [])
       )
     )
     .orderBy(desc(agentTaskQueue.priority), asc(agentTaskQueue.createdAt))
@@ -234,6 +245,7 @@ export async function claimTask(db: Database, agentId: string, workspaceId: stri
   // If another runtime raced us to this candidate, retry with a fresh candidate.
   const now = new Date().toISOString();
   for (let attempt = 0; attempt < 3; attempt++) {
+    const retryNotBlocked = isNotBlocked();
     const targetId = attempt === 0
       ? candidates[0].id
       : (await db
@@ -244,9 +256,7 @@ export async function claimTask(db: Database, agentId: string, workspaceId: stri
               eq(agentTaskQueue.agentId, agentId),
               eq(agentTaskQueue.workspaceId, workspaceId),
               eq(agentTaskQueue.status, "queued"),
-              ...(allBlockedConvIds.length > 0
-                ? [notInArray(agentTaskQueue.conversationId, allBlockedConvIds)]
-                : [])
+              ...(retryNotBlocked ? [retryNotBlocked] : [])
             )
           )
           .orderBy(desc(agentTaskQueue.priority), asc(agentTaskQueue.createdAt))
@@ -351,13 +361,14 @@ export async function listPendingTasksByRuntimes(
   workspaceId: string
 ) {
   if (runtimeIds.length === 0) return [];
+  const runtimes = jsonTextSet(db, [...new Set(runtimeIds)]);
   return db
     .select()
     .from(agentTaskQueue)
     .where(
       and(
         eq(agentTaskQueue.workspaceId, workspaceId),
-        inArray(agentTaskQueue.runtimeId, runtimeIds),
+        inArray(agentTaskQueue.runtimeId, runtimes),
         inArray(agentTaskQueue.status, ["queued", "dispatched"]),
         ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK)
       )
@@ -509,7 +520,7 @@ export async function listActiveTaskCountsByWorkspace(
     ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK),
   ];
   if (agentIds && agentIds.length > 0) {
-    conditions.push(inArray(agentTaskQueue.agentId, agentIds));
+    conditions.push(inArray(agentTaskQueue.agentId, jsonTextSet(db, [...new Set(agentIds)])));
   }
   if (userId) {
     conditions.push(eq(conversation.userId, userId));
@@ -538,7 +549,7 @@ export async function listActiveTasksByWorkspace(
     ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK),
   ];
   if (agentIds && agentIds.length > 0) {
-    conditions.push(inArray(agentTaskQueue.agentId, agentIds));
+    conditions.push(inArray(agentTaskQueue.agentId, jsonTextSet(db, [...new Set(agentIds)])));
   }
   if (userId) {
     conditions.push(eq(conversation.userId, userId));
@@ -618,8 +629,9 @@ export async function claimKillTasks(
   limit: number
 ) {
   if (runtimeIds.length === 0 || limit <= 0) return [];
+  const runtimes = jsonTextSet(db, [...new Set(runtimeIds)]);
 
-  const candidates = await db
+  const candidates = db
     .select({ id: agentTaskQueue.id })
     .from(agentTaskQueue)
     .where(
@@ -627,21 +639,18 @@ export async function claimKillTasks(
         eq(agentTaskQueue.workspaceId, workspaceId),
         eq(agentTaskQueue.type, TASK_TYPES.KILL_TASK),
         eq(agentTaskQueue.status, "queued"),
-        inArray(agentTaskQueue.runtimeId, runtimeIds)
+        inArray(agentTaskQueue.runtimeId, runtimes)
       )
     )
     .orderBy(asc(agentTaskQueue.createdAt))
     .limit(limit);
-
-  const ids = candidates.map(c => c.id);
-  if (ids.length === 0) return [];
 
   const rows = await db
     .update(agentTaskQueue)
     .set({ status: "dispatched", dispatchedAt: new Date().toISOString() })
     .where(
       and(
-        inArray(agentTaskQueue.id, ids),
+        inArray(agentTaskQueue.id, candidates),
         eq(agentTaskQueue.status, "queued")
       )
     )
@@ -677,7 +686,7 @@ const DEFAULT_STALE_RUNNING_SECONDS = Number(process.env.ALOOK_STALE_RUNNING_TIM
 export async function failStaleRunningTasks(db: Database, workspaceId: string, staleSeconds = DEFAULT_STALE_RUNNING_SECONDS) {
   const threshold = new Date(Date.now() - staleSeconds * 1000).toISOString();
 
-  const staleRows = await db
+  const staleRows = db
     .select({
       id: agentTaskQueue.id,
     })
@@ -694,9 +703,6 @@ export async function failStaleRunningTasks(db: Database, workspaceId: string, s
       sql`COALESCE(MAX(${taskMessage.createdAt}), ${agentTaskQueue.startedAt}) < ${threshold}`
     );
 
-  if (staleRows.length === 0) return [];
-
-  const staleIds = staleRows.map((r) => r.id);
   const rows = await db
     .update(agentTaskQueue)
     .set({
@@ -704,7 +710,7 @@ export async function failStaleRunningTasks(db: Database, workspaceId: string, s
       completedAt: new Date().toISOString(),
       error: `timed out in running state (no message activity for ${Math.round(staleSeconds / 60)} minutes)`,
     })
-    .where(and(inArray(agentTaskQueue.id, staleIds), eq(agentTaskQueue.status, "running")))
+    .where(and(inArray(agentTaskQueue.id, staleRows), eq(agentTaskQueue.status, "running")))
     .returning({ agentId: agentTaskQueue.agentId, workspaceId: agentTaskQueue.workspaceId, conversationId: agentTaskQueue.conversationId });
   return rows;
 }
@@ -953,13 +959,14 @@ export async function getTraceAgentsByTaskIds(
   workspaceId: string
 ): Promise<Map<string, string[]>> {
   if (taskIds.length === 0) return new Map();
+  const taskIdSet = jsonTextSet(db, [...new Set(taskIds)]);
 
   const taskTraces = await db
     .select({ id: agentTaskQueue.id, traceId: agentTaskQueue.traceId })
     .from(agentTaskQueue)
     .where(
       and(
-        inArray(agentTaskQueue.id, taskIds),
+        inArray(agentTaskQueue.id, taskIdSet),
         sql`${agentTaskQueue.traceId} IS NOT NULL`,
         eq(agentTaskQueue.workspaceId, workspaceId)
       )
@@ -975,6 +982,7 @@ export async function getTraceAgentsByTaskIds(
 
   const traceIds = [...traceToTaskIds.keys()];
   if (traceIds.length === 0) return new Map();
+  const traceIdSet = jsonTextSet(db, traceIds);
 
   const traceAgents = await db
     .selectDistinct({
@@ -984,7 +992,7 @@ export async function getTraceAgentsByTaskIds(
     .from(agentTaskQueue)
     .where(
       and(
-        inArray(agentTaskQueue.traceId, traceIds),
+        inArray(agentTaskQueue.traceId, traceIdSet),
         eq(agentTaskQueue.workspaceId, workspaceId),
         ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK)
       )

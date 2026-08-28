@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, isNotNull, isNull, max, inArray, count, or, sql } from "drizzle-orm";
+import { eq, and, asc, desc, isNotNull, isNull, inArray, count, or, sql } from "drizzle-orm";
 import type { SQLWrapper } from "drizzle-orm";
 import {
   communityChannel,
@@ -11,7 +11,7 @@ import {
 import type { Database } from "../../index";
 import { PARTICIPANT_SOURCE } from "../../../constants/community";
 import { canSeePrivateChannel, visibilityIsDmParticipant } from "../../../utils/community-roles";
-import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
+import { chunk, D1_MAX_IN_PARAMS, maxInParams } from "../_chunk";
 
 // Column selection shared by every read query.
 const CHANNEL_COLUMNS = {
@@ -478,22 +478,6 @@ export async function reorderChannels(
   }
 }
 
-export async function getServersLastActivity(
-  db: Database,
-  serverIds: string[]
-): Promise<Map<string, string>> {
-  if (serverIds.length === 0) return new Map();
-  const rows = await db
-    .select({
-      serverId: communityChannel.serverId,
-      latestAt: max(communityChannel.lastMessageAt),
-    })
-    .from(communityChannel)
-    .where(inArray(communityChannel.serverId, serverIds))
-    .groupBy(communityChannel.serverId);
-  return new Map(rows.filter((r) => r.latestAt).map((r) => [r.serverId, r.latestAt!]));
-}
-
 export async function getChannelsByIds(db: Database, channelIds: string[]) {
   if (channelIds.length === 0) return [];
   // Hydration on the mentions/unreads paths passes up to a full page (200) of
@@ -943,31 +927,44 @@ async function resolveVisibleChannelIdSet(
   const { serverIds } = opts;
   if (serverIds.length === 0) return visible;
 
-  const rows = await db
-    .select({
-      id: communityChannel.id,
-      type: communityChannel.type,
-      categoryId: communityChannel.categoryId,
-      categoryPrivate: communityCategory.private,
-      creatorId: communityChannel.creatorId,
-      parentChannelId: communityChannel.parentChannelId,
-    })
-    .from(communityChannel)
-    .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
-    .where(inArray(communityChannel.serverId, serverIds));
+  const uniqueServerIds = [...new Set(serverIds)];
+  const rows = (
+    await Promise.all(
+      chunk(uniqueServerIds, maxInParams(0)).map((ids) =>
+        db
+          .select({
+            id: communityChannel.id,
+            type: communityChannel.type,
+            categoryId: communityChannel.categoryId,
+            categoryPrivate: communityCategory.private,
+            creatorId: communityChannel.creatorId,
+            parentChannelId: communityChannel.parentChannelId,
+          })
+          .from(communityChannel)
+          .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
+          .where(inArray(communityChannel.serverId, ids))
+      )
+    )
+  ).flat();
 
   // The viewer's explicit channel/post member rows in these servers.
-  const memberRows = await db
-    .select({ channelId: communityChannelMember.channelId })
-    .from(communityChannelMember)
-    .innerJoin(communityChannel, eq(communityChannel.id, communityChannelMember.channelId))
-    .where(
-      and(
-        eq(communityChannelMember.userId, userId),
-        eq(communityChannelMember.relation, "access"),
-        inArray(communityChannel.serverId, serverIds)
+  const memberRows = (
+    await Promise.all(
+      chunk(uniqueServerIds, maxInParams(2)).map((ids) =>
+        db
+          .select({ channelId: communityChannelMember.channelId })
+          .from(communityChannelMember)
+          .innerJoin(communityChannel, eq(communityChannel.id, communityChannelMember.channelId))
+          .where(
+            and(
+              eq(communityChannelMember.userId, userId),
+              eq(communityChannelMember.relation, "access"),
+              inArray(communityChannel.serverId, ids)
+            )
+          )
       )
-    );
+    )
+  ).flat();
   const memberChannelIds = new Set(memberRows.map((r) => r.channelId));
 
   const byId = new Map(rows.map((r) => [r.id, r]));

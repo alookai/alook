@@ -8,7 +8,6 @@ describe("agent-link query module exports", () => {
   it("exports update", () => { expect(typeof agentLinkQueries.update).toBe("function"); });
   it("exports remove", () => { expect(typeof agentLinkQueries.remove).toBe("function"); });
   it("exports getColleaguesForAgent", () => { expect(typeof agentLinkQueries.getColleaguesForAgent).toBe("function"); });
-  it("exports getColleaguesForAgents", () => { expect(typeof agentLinkQueries.getColleaguesForAgents).toBe("function"); });
   it("exports getAllColleaguesForWorkspace", () => { expect(typeof agentLinkQueries.getAllColleaguesForWorkspace).toBe("function"); });
   it("exports getByPair", () => { expect(typeof agentLinkQueries.getByPair).toBe("function"); });
   it("exports upsertByPair", () => { expect(typeof agentLinkQueries.upsertByPair).toBe("function"); });
@@ -167,12 +166,6 @@ describe("remove", () => {
     chain.where = vi.fn(() => chain);
     chain.returning = vi.fn(() => Promise.resolve([link]));
     expect(await agentLinkQueries.remove(chain, "link_1", "w")).toEqual(link);
-  });
-});
-
-describe("getColleaguesForAgents", () => {
-  it("returns empty array for empty agentIds", async () => {
-    expect(await agentLinkQueries.getColleaguesForAgents(null as any, [], "ws_1")).toEqual([]);
   });
 });
 

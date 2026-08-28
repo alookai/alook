@@ -1,4 +1,4 @@
-import { and, eq, gt, desc, isNull, inArray } from "drizzle-orm";
+import { and, eq, gt, desc, isNull, exists, inArray, sql } from "drizzle-orm";
 import {
   communityMachineToken,
   communityMachine,
@@ -290,12 +290,38 @@ export async function reconcileBotActivityFromRunningAgents(
   });
   if (stale.length === 0) return [];
 
-  await db
+  const staleStatuses = db.$with("stale_bot_statuses").as(
+    db
+      .select({
+        userId: sql<string>`CAST(json_extract(value, '$[0]') AS TEXT)`.as("user_id"),
+        statusEmoji: sql<string>`CAST(json_extract(value, '$[1]') AS TEXT)`.as("status_emoji"),
+        statusText: sql<string>`CAST(json_extract(value, '$[2]') AS TEXT)`.as("status_text"),
+      })
+      .from(sql`json_each(${JSON.stringify(
+        stale.map((row) => [row.userId, row.statusEmoji, row.statusText])
+      )})`)
+  );
+  const updated = await db
+    .with(staleStatuses)
     .update(communityUserProfile)
     .set({ statusEmoji: idle.emoji, statusText: idle.text })
-    .where(inArray(communityUserProfile.userId, stale.map((r) => r.userId)));
+    .where(
+      exists(
+        db
+          .select({ one: sql<number>`1` })
+          .from(staleStatuses)
+          .where(
+            and(
+              eq(staleStatuses.userId, communityUserProfile.userId),
+              eq(staleStatuses.statusEmoji, communityUserProfile.statusEmoji),
+              eq(staleStatuses.statusText, communityUserProfile.statusText)
+            )
+          )
+      )
+    )
+    .returning({ userId: communityUserProfile.userId });
 
-  return stale.map((r) => ({
+  return updated.map((r) => ({
     botUserId: r.userId,
     statusEmoji: idle.emoji,
     statusText: idle.text,

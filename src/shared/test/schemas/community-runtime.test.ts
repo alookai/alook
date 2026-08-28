@@ -179,6 +179,16 @@ describe("HostReadyMessageSchema", () => {
     });
     expect(parsed.runtimeReport).toEqual([{ id: "claude", status: "healthy" }]);
   });
+
+  it.each([125, 256, 257])("accepts and de-dupes a complete %i-item runningAgents report", (count) => {
+    const ids = Array.from({ length: count }, (_, index) => `agent_${index}`);
+    const parsed = HostReadyMessageSchema.parse({
+      type: "ready",
+      runtimeReport: [],
+      runningAgents: [...ids, ids[0]],
+    });
+    expect(parsed.runningAgents).toEqual(ids);
+  });
 });
 
 describe("control-plane receipt schemas", () => {

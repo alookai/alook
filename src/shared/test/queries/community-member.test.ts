@@ -435,30 +435,3 @@ describe("getMemberById", () => {
     expect(result!.userId).toBe("u_2");
   });
 });
-
-describe("bulkUpdateRailOrder", () => {
-  function createBatchMock() {
-    const chain: any = {};
-    chain.update = vi.fn(() => chain);
-    chain.set = vi.fn(() => chain);
-    chain.where = vi.fn(() => chain);
-    chain.batch = vi.fn(() => Promise.resolve());
-    return chain;
-  }
-
-  it("calls db.batch once with a tuple whose length matches the input", async () => {
-    const db = createBatchMock();
-    await memberQueries.bulkUpdateRailOrder(db, "u_1", ["s_1", "s_2", "s_3"]);
-    expect(db.batch).toHaveBeenCalledTimes(1);
-    const arg = db.batch.mock.calls[0][0];
-    expect(Array.isArray(arg)).toBe(true);
-    expect(arg).toHaveLength(3);
-  });
-
-  it("returns early on empty input without touching db.batch", async () => {
-    const db = createBatchMock();
-    await memberQueries.bulkUpdateRailOrder(db, "u_1", []);
-    expect(db.batch).not.toHaveBeenCalled();
-    expect(db.update).not.toHaveBeenCalled();
-  });
-});

@@ -1,4 +1,4 @@
-import { eq, and, desc, isNull, inArray, ne, notExists, or } from "drizzle-orm";
+import { eq, and, asc, desc, exists, isNull, ne, notExists, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { communityChannel, communityChannelMember, communityFriendship } from "../../community-schema";
 import { user } from "../../schema";
@@ -20,51 +20,57 @@ async function findDmChannelId(
   userAId: string,
   userBId: string
 ): Promise<string | null> {
-  // Candidate DM channels the pair could share: only the DM channels userA
-  // holds an access row on (bounded to A's own DMs, not every DM in the
-  // system). A shared DM must appear here.
-  const aRows = await db
-    .select({ channelId: communityChannelMember.channelId })
-    .from(communityChannelMember)
-    .innerJoin(communityChannel, eq(communityChannel.id, communityChannelMember.channelId))
+  const selfMember = alias(communityChannelMember, "dm_self_member");
+  const peerMember = alias(communityChannelMember, "dm_peer_member");
+  const thirdMember = alias(communityChannelMember, "dm_third_member");
+  const rows = await db
+    .select({ id: communityChannel.id })
+    .from(communityChannel)
     .where(
       and(
         eq(communityChannel.type, "dm"),
-        eq(communityChannelMember.relation, "access"),
-        eq(communityChannelMember.userId, userAId)
+        exists(
+          db
+            .select({ one: sql<number>`1` })
+            .from(selfMember)
+            .where(
+              and(
+                eq(selfMember.channelId, communityChannel.id),
+                eq(selfMember.userId, userAId),
+                eq(selfMember.relation, "access")
+              )
+            )
+        ),
+        exists(
+          db
+            .select({ one: sql<number>`1` })
+            .from(peerMember)
+            .where(
+              and(
+                eq(peerMember.channelId, communityChannel.id),
+                eq(peerMember.userId, userBId),
+                eq(peerMember.relation, "access")
+              )
+            )
+        ),
+        notExists(
+          db
+            .select({ one: sql<number>`1` })
+            .from(thirdMember)
+            .where(
+              and(
+                eq(thirdMember.channelId, communityChannel.id),
+                eq(thirdMember.relation, "access"),
+                ne(thirdMember.userId, userAId),
+                ne(thirdMember.userId, userBId)
+              )
+            )
+        )
       )
-    );
-  const candidateIds = aRows.map((r) => r.channelId);
-  if (candidateIds.length === 0) return null;
-
-  // The full access-member set of A's DM channels — a pair's DM has EXACTLY
-  // {a,b} (guards against a 3rd member) and contains b.
-  const memberRows = await db
-    .select({
-      channelId: communityChannelMember.channelId,
-      userId: communityChannelMember.userId,
-    })
-    .from(communityChannelMember)
-    .where(
-      and(
-        inArray(communityChannelMember.channelId, candidateIds),
-        eq(communityChannelMember.relation, "access")
-      )
-    );
-
-  const byChannel = new Map<string, Set<string>>();
-  for (const r of memberRows) {
-    let set = byChannel.get(r.channelId);
-    if (!set) {
-      set = new Set<string>();
-      byChannel.set(r.channelId, set);
-    }
-    set.add(r.userId);
-  }
-  for (const [channelId, set] of byChannel) {
-    if (set.size === 2 && set.has(userAId) && set.has(userBId)) return channelId;
-  }
-  return null;
+    )
+    .orderBy(asc(communityChannel.id))
+    .limit(1);
+  return rows[0]?.id ?? null;
 }
 
 export async function createOrGetDM(
@@ -163,22 +169,8 @@ export async function listDmChannelIdsForUser(
 }
 
 export async function listDMs(db: Database, userId: string) {
-  // DM channels the user holds an access row on, joined to the OTHER access
-  // member → user for display. Order by last_message_at DESC.
-  const selfRows = await db
-    .select({ channelId: communityChannelMember.channelId })
-    .from(communityChannelMember)
-    .innerJoin(communityChannel, eq(communityChannel.id, communityChannelMember.channelId))
-    .where(
-      and(
-        eq(communityChannelMember.userId, userId),
-        eq(communityChannelMember.relation, "access"),
-        eq(communityChannel.type, "dm")
-      )
-    );
-  const dmIds = selfRows.map((r) => r.channelId);
-  if (dmIds.length === 0) return [];
-
+  const selfMember = alias(communityChannelMember, "dm_list_self");
+  const peerMember = alias(communityChannelMember, "dm_list_peer");
   const rows = await db
     .select({
       id: communityChannel.id,
@@ -192,20 +184,32 @@ export async function listDMs(db: Database, userId: string) {
     })
     .from(communityChannel)
     .innerJoin(
-      communityChannelMember,
+      selfMember,
       and(
-        eq(communityChannelMember.channelId, communityChannel.id),
-        eq(communityChannelMember.relation, "access")
+        eq(selfMember.channelId, communityChannel.id),
+        eq(selfMember.userId, userId),
+        eq(selfMember.relation, "access")
       )
     )
-    .innerJoin(user, eq(user.id, communityChannelMember.userId))
+    .innerJoin(
+      peerMember,
+      and(
+        eq(peerMember.channelId, communityChannel.id),
+        eq(peerMember.relation, "access"),
+        ne(peerMember.userId, userId)
+      )
+    )
+    .innerJoin(user, eq(user.id, peerMember.userId))
     .where(
       and(
-        inArray(communityChannel.id, dmIds),
+        eq(communityChannel.type, "dm"),
         isNull(user.deletedAt)
       )
     )
-    .orderBy(desc(communityChannel.lastMessageAt));
+    .orderBy(
+      desc(sql`COALESCE(${communityChannel.lastMessageAt}, ${communityChannel.createdAt})`),
+      asc(communityChannel.id)
+    );
 
   // The join above returns EVERY access member (including self). Keep only the
   // peer rows, then de-dupe defensively by peer (guards the deferred
@@ -213,7 +217,6 @@ export async function listDMs(db: Database, userId: string) {
   const seenPeers = new Set<string>();
   const result: typeof rows = [];
   for (const r of rows) {
-    if (r.otherUserId === userId) continue;
     if (seenPeers.has(r.otherUserId)) continue;
     seenPeers.add(r.otherUserId);
     result.push(r);

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { queries, PollRequestSchema, semverGte, type FileRequestItem, type PollMeetingItem } from "@alook/shared";
+import { queries, MAX_MEETING_CLAIMS_PER_POLL, MAX_POLL_TASKS, PollRequestSchema, semverGte, type FileRequestItem, type PollMeetingItem } from "@alook/shared";
 import { getDb, withD1Retry } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
@@ -32,9 +32,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   // 2. Task claiming
   const taskService = new TaskService(db);
+  const claimLimit = Math.min(body.max_tasks, MAX_POLL_TASKS);
   const claimed = await withD1Retry(() => taskService.claimTasksForRuntimes(
     runtimeIds,
-    body.max_tasks,
+    claimLimit,
     ctx.workspaceId!,
   ));
 
@@ -63,7 +64,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
     const [machineResult, meetingResult] = await Promise.allSettled([
       queries.machine.getMachineByDaemon(db, body.daemon_id, ctx.workspaceId),
-      queries.meetingSession.listScheduledMeetings(db, ctx.workspaceId, windowEnd.toISOString()),
+      queries.meetingSession.listScheduledMeetings(
+        db,
+        ctx.workspaceId,
+        windowEnd.toISOString(),
+        MAX_MEETING_CLAIMS_PER_POLL,
+      ),
     ]);
 
     if (machineResult.status === "fulfilled") {

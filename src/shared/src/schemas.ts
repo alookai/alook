@@ -136,6 +136,8 @@ export type SweepRequest = HeartbeatRequest;
 // Poll request/response (replaces heartbeat + per-runtime claim)
 // ---------------------------------------------------------------------------
 
+export const MAX_POLL_TASKS = 50;
+
 export const PollRequestSchema = z.object({
   daemon_id: z.string().min(1),
   max_tasks: z.number().int().min(1).default(1),
@@ -216,10 +218,14 @@ export const ActivateTokenRuntimeSchema = z.object({
 });
 export type ActivateTokenRuntime = z.infer<typeof ActivateTokenRuntimeSchema>;
 
+export const COMMUNITY_RUNTIME_ID_MAX = 64;
+export const COMMUNITY_RUNTIME_VERSION_MAX = 64;
+export const COMMUNITY_RUNTIME_LIST_MAX = 64;
+
 export const ActivateTokenRequestSchema = z.object({
   token: z.string().min(1),
   hostname: z.string().min(1),
-  runtimes: z.array(ActivateTokenRuntimeSchema).min(1),
+  runtimes: z.array(ActivateTokenRuntimeSchema).min(1).max(COMMUNITY_RUNTIME_LIST_MAX),
 });
 export type ActivateTokenRequest = z.infer<typeof ActivateTokenRequestSchema>;
 
@@ -229,7 +235,7 @@ export const RegisterDaemonRequestSchema = z.object({
   device_name: z.string().optional().default(""),
   cli_version: z.string().optional().default(""),
   workspaces_root: z.string().optional().default(""),
-  runtimes: z.array(DaemonRuntimeItemSchema).min(1),
+  runtimes: z.array(DaemonRuntimeItemSchema).min(1).max(COMMUNITY_RUNTIME_LIST_MAX),
 });
 export type RegisterDaemonRequest = z.infer<typeof RegisterDaemonRequestSchema>;
 
@@ -822,9 +828,6 @@ export type CreateThreadRequest = z.infer<typeof CreateThreadRequestSchema>;
 
 // Runtime id charset: alnum + `._@/-`. Length capped at 64 to match the
 // on-wire, on-disk, and DB expectations. Version optional, length-capped.
-export const COMMUNITY_RUNTIME_ID_MAX = 64;
-export const COMMUNITY_RUNTIME_VERSION_MAX = 64;
-export const COMMUNITY_RUNTIME_LIST_MAX = 64;
 const RUNTIME_ID_RE = /^[A-Za-z0-9._@/-]+$/;
 
 // Per-runtime health, reported by the daemon. `status` defaults to "healthy"
@@ -864,6 +867,17 @@ export const CommunityMachineRuntimeListSchema = z
     return out;
   });
 
+const CommunityRunningAgentListSchema = z.array(z.string()).transform((list) => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of list) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+});
+
 export const CommunityMachineSummarySchema = z.object({
   id: z.string(),
   hostname: z.string(),
@@ -901,7 +915,7 @@ export const HostReadyMessageSchema = z.object({
   type: z.literal("ready"),
   runtimeReport: CommunityMachineRuntimeListSchema,
   capabilities: z.array(z.string().min(1).max(64)).max(16).optional().default([]),
-  runningAgents: z.array(z.string()).default([]),
+  runningAgents: CommunityRunningAgentListSchema.default([]),
   hostname: z.string().optional(),
   platform: z.string().optional(),
   arch: z.string().optional(),
@@ -916,7 +930,7 @@ export type HostReadyMessage = z.infer<typeof HostReadyMessageSchema>;
  */
 export const CommunityDaemonReadySchema = z.object({
   runtimeReport: CommunityMachineRuntimeListSchema.optional(),
-  runningAgents: z.array(z.string()).default([]),
+  runningAgents: CommunityRunningAgentListSchema.default([]),
   hostname: z.string().optional(),
   os: z.string().optional(),
   arch: z.string().optional(),

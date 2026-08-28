@@ -1,13 +1,15 @@
-import { asc, eq, inArray, count } from "drizzle-orm";
+import { and, asc, eq, inArray, count, sql } from "drizzle-orm";
 import { communityCategory, communityChannel } from "../../community-schema";
 import type { Database } from "../../index";
+import { jsonTextSet } from "../_json-set";
 
 export async function getCategoriesByIds(db: Database, categoryIds: string[]) {
   if (categoryIds.length === 0) return [];
+  const ids = jsonTextSet(db, [...new Set(categoryIds)]);
   return db
     .select()
     .from(communityCategory)
-    .where(inArray(communityCategory.id, categoryIds));
+    .where(inArray(communityCategory.id, ids));
 }
 
 /**
@@ -93,16 +95,47 @@ export async function hasChannels(db: Database, categoryId: string): Promise<boo
 
 export async function reorderCategories(
   db: Database,
-  _serverId: string,
+  serverId: string,
   categoryIds: string[]
 ) {
-  const statements = categoryIds.map((id, index) =>
+  if (categoryIds.length === 0) return [];
+  const desired = db.$with("desired_category_order").as(
     db
-      .update(communityCategory)
-      .set({ position: index })
-      .where(eq(communityCategory.id, id))
+      .select({
+        id: sql<string>`CAST(value AS TEXT)`.as("id"),
+        position: sql<number>`CAST(key AS INTEGER)`.as("position"),
+      })
+      .from(sql`json_each(${JSON.stringify(categoryIds)})`)
   );
-  if (statements.length > 0) {
-    await db.batch(statements as [typeof statements[0], ...typeof statements]);
-  }
+  const desiredIds = db.select({ id: desired.id }).from(desired);
+  const submittedCount = categoryIds.length;
+  const uniqueCountMatches = sql`(
+    SELECT COUNT(DISTINCT ${desired.id}) FROM ${desired}
+  ) = ${submittedCount}`;
+  const scopedCountMatches = sql`(
+    SELECT COUNT(*)
+    FROM ${communityCategory}
+    WHERE ${communityCategory.serverId} = ${serverId}
+      AND ${communityCategory.id} IN (${desiredIds})
+  ) = ${submittedCount}`;
+
+  return db
+    .with(desired)
+    .update(communityCategory)
+    .set({
+      position: sql<number>`(
+        SELECT ${desired.position}
+        FROM ${desired}
+        WHERE ${desired.id} = ${communityCategory.id}
+      )`,
+    })
+    .where(
+      and(
+        eq(communityCategory.serverId, serverId),
+        inArray(communityCategory.id, desiredIds),
+        uniqueCountMatches,
+        scopedCountMatches
+      )
+    )
+    .returning({ id: communityCategory.id, position: communityCategory.position });
 }

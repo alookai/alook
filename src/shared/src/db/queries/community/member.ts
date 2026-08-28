@@ -15,6 +15,8 @@ import { escapeLikePattern } from "../../../utils/sql-like";
 import { canSeePrivateChannel, reachIsParticipantSet } from "../../../utils/community-roles";
 import { resolveChannelAccessContext } from "./channel";
 import { isThreadParticipant } from "./thread";
+import { chunk, maxInParams } from "../_chunk";
+import { jsonTextSet } from "../_json-set";
 
 export async function addMember(
   db: Database,
@@ -138,69 +140,39 @@ export async function getMembersByUserIds(
   userIds: string[]
 ) {
   if (userIds.length === 0) return [];
-  return db
-    .select({
-      id: communityServerMember.id,
-      serverId: communityServerMember.serverId,
-      userId: communityServerMember.userId,
-      role: communityServerMember.role,
-      joinedAt: communityServerMember.joinedAt,
-      userName: user.name,
-      userEmail: user.email,
-      userImage: user.image,
-      userIsBot: user.isBot,
-      userOwnerUserId: user.ownerUserId,
-      discriminator: user.discriminator,
-      statusEmoji: communityUserProfile.statusEmoji,
-      statusText: communityUserProfile.statusText,
-    })
-    .from(communityServerMember)
-    .innerJoin(user, eq(communityServerMember.userId, user.id))
-    .leftJoin(communityUserProfile, eq(communityUserProfile.userId, user.id))
-    .where(
-      and(
-        eq(communityServerMember.serverId, serverId),
-        inArray(communityServerMember.userId, userIds),
-        isNull(user.deletedAt)
+  const uniqueUserIds = [...new Set(userIds)];
+  return (
+    await Promise.all(
+      chunk(uniqueUserIds, maxInParams(1)).map((ids) =>
+        db
+          .select({
+            id: communityServerMember.id,
+            serverId: communityServerMember.serverId,
+            userId: communityServerMember.userId,
+            role: communityServerMember.role,
+            joinedAt: communityServerMember.joinedAt,
+            userName: user.name,
+            userEmail: user.email,
+            userImage: user.image,
+            userIsBot: user.isBot,
+            userOwnerUserId: user.ownerUserId,
+            discriminator: user.discriminator,
+            statusEmoji: communityUserProfile.statusEmoji,
+            statusText: communityUserProfile.statusText,
+          })
+          .from(communityServerMember)
+          .innerJoin(user, eq(communityServerMember.userId, user.id))
+          .leftJoin(communityUserProfile, eq(communityUserProfile.userId, user.id))
+          .where(
+            and(
+              eq(communityServerMember.serverId, serverId),
+              inArray(communityServerMember.userId, ids),
+              isNull(user.deletedAt)
+            )
+          )
       )
-    );
-}
-
-export async function updateRailOrder(
-  db: Database,
-  serverId: string,
-  userId: string,
-  railOrder: number
-) {
-  await db
-    .update(communityServerMember)
-    .set({ railOrder })
-    .where(
-      and(
-        eq(communityServerMember.serverId, serverId),
-        eq(communityServerMember.userId, userId)
-      )
-    );
-}
-
-export async function bulkUpdateRailOrder(
-  db: Database,
-  userId: string,
-  orderedServerIds: string[]
-) {
-  if (orderedServerIds.length === 0) return;
-  const statements = orderedServerIds.map((serverId, railOrder) =>
-    db
-      .update(communityServerMember)
-      .set({ railOrder })
-      .where(
-        and(
-          eq(communityServerMember.userId, userId),
-          eq(communityServerMember.serverId, serverId)
-        )
-      )
-  );
-  await db.batch(statements as [typeof statements[0], ...typeof statements]);
+    )
+  ).flat();
 }
 
 export async function listMemberServerIds(db: Database, userId: string) {
@@ -423,13 +395,14 @@ export async function getMemberById(
 
 export async function getMemberships(db: Database, userId: string, serverIds: string[]) {
   if (serverIds.length === 0) return [];
+  const ids = jsonTextSet(db, [...new Set(serverIds)]);
   return db
     .select()
     .from(communityServerMember)
     .where(
       and(
         eq(communityServerMember.userId, userId),
-        inArray(communityServerMember.serverId, serverIds)
+        inArray(communityServerMember.serverId, ids)
       )
     );
 }

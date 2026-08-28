@@ -17,6 +17,7 @@ import type {
 import { createOrGetDM } from "./dm";
 import { createMessage, listMessagesReferencingFriendship } from "./message";
 import { nanoid } from "nanoid";
+import { jsonTextSet } from "../_json-set";
 
 function newFriendshipId(): string {
   return "fr_" + nanoid();
@@ -46,6 +47,7 @@ async function loadProfiles(
 ): Promise<Map<string, ProfileWithFlags>> {
   const unique = [...new Set(ids.filter(Boolean))];
   if (unique.length === 0) return new Map();
+  const profileIds = jsonTextSet(db, unique);
   const rows = await db
     .select({
       id: user.id,
@@ -56,7 +58,7 @@ async function loadProfiles(
       ownerUserId: user.ownerUserId,
     })
     .from(user)
-    .where(inArray(user.id, unique));
+    .where(inArray(user.id, profileIds));
   return new Map(
     rows.map((r) => [
       r.id,
@@ -242,6 +244,8 @@ async function loadBotFlags(
   ids: string[]
 ): Promise<Map<string, { isBot: boolean; ownerUserId: string | null; name: string }>> {
   const unique = [...new Set(ids)];
+  if (unique.length === 0) return new Map();
+  const flagIds = jsonTextSet(db, unique);
   const rows = await db
     .select({
       id: user.id,
@@ -250,7 +254,7 @@ async function loadBotFlags(
       name: user.name,
     })
     .from(user)
-    .where(inArray(user.id, unique));
+    .where(inArray(user.id, flagIds));
   return new Map(
     rows.map((r) => [r.id, { isBot: !!r.isBot, ownerUserId: r.ownerUserId, name: r.name }])
   );
@@ -806,10 +810,11 @@ export async function getFriendUserIds(db: Database, userId: string): Promise<st
   if (otherSideIds.length === 0) {
     return [...new Set([...friendIds, ...selfBotIds])];
   }
+  const liveIds = jsonTextSet(db, [...new Set(otherSideIds)]);
   const liveOthers = await db
     .select({ id: user.id })
     .from(user)
-    .where(and(inArray(user.id, otherSideIds), isNull(user.deletedAt)));
+    .where(and(inArray(user.id, liveIds), isNull(user.deletedAt)));
   const liveOtherSet = new Set(liveOthers.map((r) => r.id));
   const liveSelfBotIds = selfBotIds.filter((id) => liveOtherSet.has(id));
   return [...new Set([...friendIds, ...liveSelfBotIds])];
@@ -988,13 +993,14 @@ export async function listPending(db: Database, userId: string) {
 
   // Own outgoing + own bots' outgoing. The peer displayed is the addressee.
   const outgoingRequesterIds = [userId, ...ownBotIds];
+  const requesterIds = jsonTextSet(db, [...new Set(outgoingRequesterIds)]);
   const outgoing = await db
     .select(rowProjection)
     .from(communityFriendship)
     .innerJoin(user, eq(user.id, communityFriendship.addresseeId))
     .where(
       and(
-        inArray(communityFriendship.requesterId, outgoingRequesterIds),
+        inArray(communityFriendship.requesterId, requesterIds),
         eq(communityFriendship.status, "pending")
       )
     );
@@ -1456,6 +1462,7 @@ export async function hydrateApprovalsForDmMessages(
 ): Promise<Map<string, FriendApprovalPayload>> {
   const out = new Map<string, FriendApprovalPayload>();
   if (dmMessageIds.length === 0) return out;
+  const messageIds = jsonTextSet(db, [...new Set(dmMessageIds)]);
 
   const rows = await db
     .select({
@@ -1473,10 +1480,11 @@ export async function hydrateApprovalsForDmMessages(
       communityFriendship,
       eq(communityFriendship.id, communityMessage.friendshipId)
     )
-    .where(inArray(communityMessage.id, dmMessageIds));
+    .where(inArray(communityMessage.id, messageIds));
 
   // Resolve each card message's DM-channel peers (relation='access' members).
   const cardChannelIds = [...new Set(rows.map((r) => r.channelId))];
+  const channelIds = cardChannelIds.length ? jsonTextSet(db, cardChannelIds) : null;
   const memberRows = cardChannelIds.length
     ? await db
         .select({
@@ -1486,7 +1494,7 @@ export async function hydrateApprovalsForDmMessages(
         .from(communityChannelMember)
         .where(
           and(
-            inArray(communityChannelMember.channelId, cardChannelIds),
+            inArray(communityChannelMember.channelId, channelIds!),
             eq(communityChannelMember.relation, "access")
           )
         )

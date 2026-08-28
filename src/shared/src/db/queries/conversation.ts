@@ -1,6 +1,7 @@
 import { eq, and, desc, ne, lt, sql, inArray, isNull, isNotNull } from "drizzle-orm";
 import { conversation, message } from "../schema";
 import type { Database } from "../index";
+import { jsonTextSet } from "./_json-set";
 import { TASK_TYPES, type TaskType } from "../../constants";
 
 
@@ -42,10 +43,11 @@ export async function getConversation(db: Database, id: string, workspaceId: str
 
 export async function getConversationsByIds(db: Database, ids: string[], workspaceId: string) {
   if (ids.length === 0) return [];
+  const conversationIds = jsonTextSet(db, [...new Set(ids)]);
   return db
     .select()
     .from(conversation)
-    .where(and(inArray(conversation.id, ids), eq(conversation.workspaceId, workspaceId)));
+    .where(and(inArray(conversation.id, conversationIds), eq(conversation.workspaceId, workspaceId)));
 }
 
 export async function listConversations(

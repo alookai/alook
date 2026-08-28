@@ -1,6 +1,8 @@
 import { eq, and, desc, lte, isNotNull, inArray } from "drizzle-orm";
 import { meetingSession, agent } from "../schema";
 import type { Database } from "../index";
+import { jsonTextSet } from "./_json-set";
+import { MAX_MEETING_CLAIMS_PER_POLL } from "../../constants";
 
 export async function createMeetingSession(
   db: Database,
@@ -127,12 +129,13 @@ export async function claimMeetingSessions(
   startedAt: string,
 ) {
   if (ids.length === 0) return [];
+  const meetingIds = jsonTextSet(db, [...new Set(ids)]);
   return db
     .update(meetingSession)
     .set({ status: "joining", startedAt, updatedAt: new Date().toISOString() })
     .where(
       and(
-        inArray(meetingSession.id, ids),
+        inArray(meetingSession.id, meetingIds),
         eq(meetingSession.workspaceId, workspaceId),
         eq(meetingSession.status, "scheduled"),
       )
@@ -157,7 +160,8 @@ export async function deleteMeetingSession(
 export async function listScheduledMeetings(
   db: Database,
   workspaceId: string,
-  beforeOrAt: string
+  beforeOrAt: string,
+  limit = MAX_MEETING_CLAIMS_PER_POLL
 ) {
   return db
     .select({
@@ -181,7 +185,8 @@ export async function listScheduledMeetings(
         lte(meetingSession.scheduledAt, beforeOrAt)
       )
     )
-    .orderBy(meetingSession.scheduledAt);
+    .orderBy(meetingSession.scheduledAt, meetingSession.id)
+    .limit(limit);
 }
 
 export async function listMeetingsWithSchedule(

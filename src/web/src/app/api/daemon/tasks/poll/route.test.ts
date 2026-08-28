@@ -79,7 +79,6 @@ vi.mock("@alook/shared", async () => {
         claimMeetingSessions: (...args: unknown[]) => mockClaimMeetingSessions(...args),
       },
       agentLink: {
-        getColleaguesForAgents: (...args: unknown[]) => mockGetAllColleaguesForWorkspace(...args),
         getAllColleaguesForWorkspace: (...args: unknown[]) => mockGetAllColleaguesForWorkspace(...args),
       },
     },
@@ -267,6 +266,27 @@ describe("POST /api/daemon/tasks/poll", () => {
     await POST(postReq({ daemon_id: "d1", max_tasks: 5 }));
 
     expect(mockClaimTasksForRuntimes).toHaveBeenCalledWith(["r1"], 5, "w1");
+  });
+
+  it.each([51, 125])("clamps legacy max_tasks=%i requests to 50", async (requested) => {
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+
+    const res = await POST(postReq({ daemon_id: "d1", max_tasks: requested }));
+
+    expect(res.status).toBe(200);
+    expect(mockClaimTasksForRuntimes).toHaveBeenCalledWith(["r1"], 50, "w1");
+  });
+
+  it("rejects max_tasks=0 before any poll work", async () => {
+    const res = await POST(postReq({ daemon_id: "d1", max_tasks: 0 }));
+
+    expect(res.status).toBe(400);
+    expect(mockGetRuntimeIdsByDaemon).not.toHaveBeenCalled();
+    expect(mockClaimTasksForRuntimes).not.toHaveBeenCalled();
+    expect(mockListScheduledMeetings).not.toHaveBeenCalled();
+    expect(mockGetPendingFileRequests).not.toHaveBeenCalled();
+    expect(mockBroadcastToUser).not.toHaveBeenCalled();
   });
 
   it("defaults max_tasks to 1", async () => {
