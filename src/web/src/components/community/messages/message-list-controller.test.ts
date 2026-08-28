@@ -135,6 +135,7 @@ describe("useMessageListController", () => {
     selectionRailTop = null
     selectedRowBottom = 20
     scrollNode.scrollTop = 0
+    scrollNode.clientHeight = 692
     clearMessageScrollPositions()
     heroNode.offsetHeight = 0
     requestFrame = vi.fn((callback: FrameRequestCallback) => {
@@ -333,6 +334,17 @@ describe("useMessageListController", () => {
     })
     expect(mocks.virtualizer.scrollToOffset).toHaveBeenCalledWith(2200, { align: "start" })
     scrollNode.scrollTop = 2200
+    runNextFrame()
+    runNextFrame()
+
+    // A restored draft can wrap the mobile composer after the first stable
+    // frames, shrinking the viewport and triggering +24px compensation.
+    scrollNode.clientHeight = 668
+    scrollNode.scrollTop = 2224
+    runNextFrame()
+    expect(scrollNode.scrollTop).toBe(2200)
+    runNextFrame()
+    runNextFrame()
     runNextFrame()
     runNextFrame()
 

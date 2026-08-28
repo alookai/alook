@@ -37,7 +37,7 @@ import { listDmChannelIdsForUser } from "./dm";
 import { listParticipatingThreadIds } from "./thread";
 import { getMessagesByIdsInScope, type MessageScope } from "./message";
 import { reachIsParticipantSet, type StoredChannelType } from "../../../utils/community-roles";
-import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
+import { chunk, D1_MAX_IN_PARAMS, maxInParams } from "../_chunk";
 import { withD1Retry } from "../../resilience";
 import { hasDirectMentionSql, notificationEligibleSql } from "./notification-eligibility";
 
@@ -572,6 +572,13 @@ export async function listUnreadMessagesForAgent(
   );
   if (allowedChannelIds.length === 0) return [];
 
+  // Besides the dynamic channel ids, the unread statement emits 13 fixed
+  // bindings (viewer predicates, notification-policy literals, and LIMIT).
+  // The generic 90-id cap therefore produces 103 bindings exactly when an
+  // agent reaches 90 allowed scopes. Give this query its own exact budget so
+  // every chunk stays within D1's hard 100-parameter ceiling.
+  const unreadChannelChunkSize = maxInParams(13);
+
   // D1 caps a statement at 100 bound params, and `allowedChannelIds` is
   // unbounded (a bot allowed into >100 channels). Chunk the `inArray` and merge:
   // each chunk runs the SAME order+limit; since chunks partition channel ids,
@@ -631,7 +638,7 @@ export async function listUnreadMessagesForAgent(
       .limit(opts.max);
 
   const merged = (
-    await Promise.all(chunk(allowedChannelIds, D1_MAX_IN_PARAMS).map(runChunk))
+    await Promise.all(chunk(allowedChannelIds, unreadChannelChunkSize).map(runChunk))
   ).flat();
   merged.sort((a, b) =>
     a.channelId === b.channelId

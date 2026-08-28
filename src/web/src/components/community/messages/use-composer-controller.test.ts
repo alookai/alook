@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   buildPasteDom: vi.fn(),
   fromSchema: vi.fn(),
   parseSlice: vi.fn(),
+  breakpoint: "desktop" as "unknown" | "desktop" | "mobile",
 }))
 
 vi.mock("@tiptap/react", () => ({
@@ -41,6 +42,9 @@ vi.mock("@/hooks/use-file-attachments", () => ({
   useFileAttachments: (...args: unknown[]) =>
     mocks.useFileAttachments(...args),
 }))
+vi.mock("@/hooks/use-mobile", () => ({
+  useBreakpoint: () => mocks.breakpoint,
+}))
 vi.mock("@/lib/community/composer-draft", () => ({
   clearComposerDraft: (...args: unknown[]) => mocks.clearDraft(...args),
   readComposerDraft: (...args: unknown[]) => mocks.readDraft(...args),
@@ -63,6 +67,7 @@ import type { PendingFile } from "@/hooks/use-file-attachments"
 
 type EditorOptions = {
   editorProps: {
+    attributes: Record<string, string>
     handleKeyDown: (_view: unknown, event: KeyboardEvent) => boolean
     handlePaste: (_view: unknown, event: ClipboardEvent) => boolean
     clipboardTextParser: (text: string, context: never) => unknown
@@ -84,6 +89,9 @@ type TestEditor = {
   }
   view: {
     dispatch: ReturnType<typeof vi.fn>
+    dom: {
+      setAttribute: ReturnType<typeof vi.fn>
+    }
   }
   commands: {
     clearContent: ReturnType<typeof vi.fn>
@@ -108,6 +116,7 @@ describe("useComposerController", () => {
   let focus: ReturnType<typeof vi.fn>
   let setContent: ReturnType<typeof vi.fn>
   let dispatch: ReturnType<typeof vi.fn>
+  let setDomAttribute: ReturnType<typeof vi.fn>
   let transaction: object
   let chainFocus: ReturnType<typeof vi.fn>
   let insertContent: ReturnType<typeof vi.fn>
@@ -128,6 +137,7 @@ describe("useComposerController", () => {
     focus = vi.fn()
     setContent = vi.fn()
     dispatch = vi.fn()
+    setDomAttribute = vi.fn()
     transaction = {}
     run = vi.fn()
     insertContent = vi.fn(() => ({ run }))
@@ -152,7 +162,7 @@ describe("useComposerController", () => {
           textBetween: vi.fn((from: number, to: number) => to === 5 ? "o" : from === 5 ? "w" : ""),
         },
       },
-      view: { dispatch },
+      view: { dispatch, dom: { setAttribute: setDomAttribute } },
       commands: {
         clearContent,
         focus,
@@ -195,6 +205,7 @@ describe("useComposerController", () => {
     }))
     mocks.detectMentionType.mockReturnValue("everyone")
     mocks.readDraft.mockReturnValue(null)
+    mocks.breakpoint = "desktop"
   })
 
   afterEach(() => {
@@ -528,6 +539,127 @@ describe("useComposerController", () => {
     expect(mocks.useEditor).toHaveBeenCalledTimes(2)
     expect(mocks.starterConfigure).toHaveBeenCalledTimes(2)
     expect(mocks.placeholderConfigure).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps one live breakpoint contract across unknown, mobile, and desktop", async () => {
+    mocks.breakpoint = "unknown"
+    const accept = vi.fn(() => true)
+    const props = acceptedProps(accept)
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(Harness, props))
+    })
+    const stableHandleKeyDown = editorOptions.editorProps.handleKeyDown
+    const key = (overrides: Partial<KeyboardEvent> = {}) => ({
+      key: "Enter",
+      shiftKey: false,
+      isComposing: false,
+      preventDefault: vi.fn(),
+      ...overrides,
+    }) as unknown as KeyboardEvent
+
+    const unknownEnter = key()
+    expect(stableHandleKeyDown({} as never, unknownEnter)).toBe(false)
+    expect(unknownEnter.preventDefault).not.toHaveBeenCalled()
+    expect(accept).not.toHaveBeenCalled()
+    expect(setDomAttribute).toHaveBeenLastCalledWith("enterkeyhint", "enter")
+    expect(renderer.root.findByType("controller-probe").props.view.showSend).toBe(false)
+
+    mocks.breakpoint = "mobile"
+    await act(async () => {
+      renderer.update(createElement(Harness, props))
+    })
+    const mobileEnter = key()
+    expect(stableHandleKeyDown({} as never, mobileEnter)).toBe(false)
+    expect(mobileEnter.preventDefault).not.toHaveBeenCalled()
+    expect(accept).not.toHaveBeenCalled()
+    expect(setDomAttribute).toHaveBeenLastCalledWith("enterkeyhint", "enter")
+    expect(renderer.root.findByType("controller-probe").props.view.showSend).toBe(true)
+
+    mocks.breakpoint = "desktop"
+    await act(async () => {
+      renderer.update(createElement(Harness, props))
+    })
+    const desktopShiftEnter = key({ shiftKey: true })
+    expect(stableHandleKeyDown({} as never, desktopShiftEnter)).toBe(false)
+    expect(desktopShiftEnter.preventDefault).not.toHaveBeenCalled()
+    const desktopEnter = key()
+    expect(stableHandleKeyDown({} as never, desktopEnter)).toBe(true)
+    expect(desktopEnter.preventDefault).toHaveBeenCalledOnce()
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(accept).toHaveBeenCalledOnce()
+    expect(setDomAttribute).toHaveBeenLastCalledWith("enterkeyhint", "send")
+    expect(renderer.root.findByType("controller-probe").props.view.showSend).toBe(false)
+
+    mocks.breakpoint = "mobile"
+    await act(async () => {
+      renderer.update(createElement(Harness, props))
+    })
+    mentionPopupRef.current = { items: [{}], command: vi.fn() }
+    const suggestionEnter = key()
+    expect(stableHandleKeyDown({} as never, suggestionEnter)).toBe(false)
+    expect(suggestionEnter.preventDefault).not.toHaveBeenCalled()
+    mentionPopupRef.current = { items: [], command: null }
+    const composingEnter = key({ isComposing: true })
+    expect(stableHandleKeyDown({} as never, composingEnter)).toBe(false)
+    expect(composingEnter.preventDefault).not.toHaveBeenCalled()
+    expect(accept).toHaveBeenCalledOnce()
+    expect(setDomAttribute).toHaveBeenLastCalledWith("enterkeyhint", "enter")
+  })
+
+  it("projects mobile send eligibility from text, pending files, and single-flight", async () => {
+    mocks.breakpoint = "mobile"
+    editor.isEmpty = true
+    let releaseFiles!: () => void
+    const fileGate = new Promise<void>((resolve) => {
+      releaseFiles = resolve
+    })
+    awaitPendingFiles.mockImplementation(async () => {
+      await fileGate
+      return pendingFiles
+    })
+    const accept = vi.fn(() => true)
+    const props = acceptedProps(accept)
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(Harness, props))
+    })
+    const view = () => renderer.root.findByType("controller-probe").props.view
+    expect(view()).toMatchObject({ showSend: true, sendDisabled: true })
+
+    editor.isEmpty = false
+    await act(async () => {
+      editorOptions.onUpdate({ editor })
+    })
+    expect(view().sendDisabled).toBe(false)
+    await act(async () => {
+      view().onSend()
+      view().onSend()
+    })
+    expect(awaitPendingFiles).toHaveBeenCalledOnce()
+    expect(view().sendDisabled).toBe(true)
+    expect(accept).not.toHaveBeenCalled()
+    await act(async () => {
+      releaseFiles()
+      await fileGate
+      await Promise.resolve()
+    })
+    expect(accept).toHaveBeenCalledOnce()
+    expect(view().sendDisabled).toBe(true)
+
+    editor.isEmpty = true
+    pendingFiles = [{
+      file: new File(["x"], "pending.txt", { type: "text/plain" }),
+      thumbnailUrl: null,
+      thumbnailBlob: null,
+    }]
+    await act(async () => {
+      renderer.update(createElement(Harness, props))
+    })
+    expect(view().sendDisabled).toBe(false)
   })
 
   it("updates the live placeholder without replacing or resetting the editor", async () => {

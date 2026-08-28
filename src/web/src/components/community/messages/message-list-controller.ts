@@ -136,6 +136,8 @@ export function useMessageListController({
     let frame = 0
     let attempts = 0
     let stableFrames = 0
+    let lastClientHeight = element.clientHeight
+    let lastScrollHeight = element.scrollHeight
     const restore = () => {
       const target = Math.min(saved, Math.max(0, element.scrollHeight - element.clientHeight))
       virtualizer.scrollToOffset(
@@ -149,10 +151,20 @@ export function useMessageListController({
       const target = restore()
       frame = window.requestAnimationFrame(() => {
         attempts += 1
-        stableFrames = target === saved && Math.abs(element.scrollTop - target) <= 1
+        const dimensionsStable = element.clientHeight === lastClientHeight
+          && element.scrollHeight === lastScrollHeight
+        lastClientHeight = element.clientHeight
+        lastScrollHeight = element.scrollHeight
+        stableFrames = target === saved
+          && Math.abs(element.scrollTop - target) <= 1
+          && dimensionsStable
           ? stableFrames + 1
           : 0
-        if (stableFrames < 2 && attempts < 120) {
+        // Draft hydration can resize the mobile composer one or two frames
+        // after the list first reaches its saved offset. Wait through that
+        // delayed viewport measurement so its normal resize compensation
+        // cannot become the final restored position.
+        if (stableFrames < 4 && attempts < 120) {
           restoreUntilSettled()
         } else {
           restoredScrollKeyRef.current = scrollMemoryKey

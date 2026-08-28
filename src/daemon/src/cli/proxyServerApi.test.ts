@@ -431,6 +431,16 @@ describe("createProxyServerApi — inbox trinity pull/snapshot/ack (retargeted t
     expect(body.agentId).toBeUndefined();
   });
 
+  it("inboxPull surfaces an upstream empty 500 as the stable non-JSON error", async () => {
+    const fetchImpl: FetchLike = vi.fn(async () => jsonBody("", { status: 500 }));
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+
+    await expect(api.inboxPull({ agentId: "a1" as never, max: 1 })).rejects.toThrow(
+      "upstream returned 500 with non-JSON body during inboxPull",
+    );
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
   it("inboxSnapshot GETs users/me/inbox/snapshot (pure peek, no body)", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {

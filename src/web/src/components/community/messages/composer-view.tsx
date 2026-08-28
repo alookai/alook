@@ -4,7 +4,15 @@ import type {
   RefObject,
 } from "react"
 import { EditorContent, type Editor } from "@tiptap/react"
-import { FileIcon, ImageIcon, PlusCircle, Smile, Upload, X } from "lucide-react"
+import {
+  FileIcon,
+  ImageIcon,
+  PlusCircle,
+  SendHorizontal,
+  Smile,
+  Upload,
+  X,
+} from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,6 +56,9 @@ export type ComposerViewProps = {
   editor: Editor | null
   hideAttach: boolean
   hideEmoji: boolean
+  showSend: boolean
+  sendDisabled: boolean
+  onSend: () => void
   onAttachOpenChange: (open: boolean) => void
   onUploadFile: () => void
   onEmojiPick: (emoji: string) => void
@@ -73,6 +84,9 @@ export function ComposerView({
   editor,
   hideAttach,
   hideEmoji,
+  showSend,
+  sendDisabled,
+  onSend,
   onAttachOpenChange,
   onUploadFile,
   onEmojiPick,
@@ -169,7 +183,13 @@ export function ComposerView({
           className="hidden"
         />
         <div
-          className={`chat-composer relative py-3 ${isForumThreadBody ? "px-2" : "px-12"}`}
+          className={`chat-composer relative py-3 ${
+            isForumThreadBody
+              ? "px-2"
+              : showSend
+                ? "pl-12 pr-24"
+                : "px-12"
+          }`}
           data-testid={tid.composerInput}
         >
           <EditorContent
@@ -200,12 +220,24 @@ export function ComposerView({
         {!hideEmoji && (
           <EmojiPickerPopover side="top" align="end" onPick={onEmojiPick}>
             <button
-              className="absolute right-2 bottom-2 grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
+              className={`absolute bottom-2 grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground ${showSend ? "right-12" : "right-2"}`}
               aria-label="Emoji picker"
             >
               <Smile className="size-5" />
             </button>
           </EmojiPickerPopover>
+        )}
+        {showSend && (
+          <button
+            type="button"
+            data-testid={tid.composerSend}
+            className="absolute right-2 bottom-2 grid size-8 place-items-center rounded-full bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted-foreground"
+            aria-label="Send message"
+            disabled={sendDisabled}
+            onClick={onSend}
+          >
+            <SendHorizontal className="size-5" />
+          </button>
         )}
       </div>
     </div>
@@ -215,10 +247,11 @@ export function ComposerView({
 export function ComposerSkeleton() {
   return (
     <div className="relative px-3 pb-3 pt-0">
-      <div className="relative rounded-xl bg-muted px-12 py-3 shadow-(--e1) ring-1 ring-border/40">
+      <div className="relative rounded-xl bg-muted py-3 pl-12 pr-24 shadow-(--e1) ring-1 ring-border/40 sm:px-12">
         <Skeleton className="h-5 w-2/5 rounded" />
         <Skeleton className="absolute left-2 bottom-2 size-8 rounded-full" />
-        <Skeleton className="absolute right-2 bottom-2 size-8 rounded-full" />
+        <Skeleton className="absolute right-12 bottom-2 size-8 rounded-full sm:right-2" />
+        <Skeleton className="absolute right-2 bottom-2 size-8 rounded-full sm:hidden" />
       </div>
     </div>
   )

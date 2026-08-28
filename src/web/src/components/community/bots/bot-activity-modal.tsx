@@ -156,14 +156,12 @@ export function BotActivityModal({
     <CommunitySheet
       open={open}
       onOpenChange={onOpenChange}
-      title={(
-        <span className="flex min-w-0 items-center gap-3">
-          <AgentAvatar name={bot?.name ?? ""} avatarUrl={bot?.image ?? null} seed={bot?.id} size={32} />
-          <span className="truncate text-sm font-medium">{bot?.name ?? "Bot"}</span>
-        </span>
+      title={bot?.name ?? "Bot"}
+      headerLeading={(
+        <AgentAvatar name={bot?.name ?? ""} avatarUrl={bot?.image ?? null} seed={bot?.id} size={32} />
       )}
       description={(
-        <span className="flex items-center gap-1.5 text-[11px]">
+        <span className="flex items-center gap-1.5">
           <span
             className={[
               "inline-block size-1.5 rounded-full",

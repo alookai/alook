@@ -4,6 +4,7 @@ import {
   useImperativeHandle,
   useLayoutEffect,
   useRef,
+  useState,
   type DragEvent,
   type ForwardedRef,
 } from "react"
@@ -13,6 +14,7 @@ import Placeholder from "@tiptap/extension-placeholder"
 import { DOMParser as PMDOMParser } from "@tiptap/pm/model"
 import { MAX_ATTACHMENT_SIZE_BYTES } from "@alook/shared"
 import { useFileAttachments } from "@/hooks/use-file-attachments"
+import { useBreakpoint } from "@/hooks/use-mobile"
 import {
   clearComposerDraft,
   readComposerDraft,
@@ -25,6 +27,7 @@ import {
   createLongPasteAttachment,
   pendingFilesToSendAttachments,
 } from "./composer-file-utils"
+import { handleComposerKeyDown } from "./composer-keydown"
 import type { ComposerHandle, ComposerProps } from "./composer-types"
 import { textNodeForCaretInsertion } from "./caret-text-insertion"
 import type { ComposerViewProps } from "./composer-view"
@@ -56,6 +59,13 @@ export function useComposerController(
   ref: ForwardedRef<ComposerHandle>,
 ): ComposerViewProps {
   const isForumThreadBody = mode === "forumThreadBody"
+  const breakpoint = useBreakpoint()
+  const breakpointRef = useRef(breakpoint)
+  const [editorHasContent, setEditorHasContent] = useState(false)
+  const [sendInFlight, setSendInFlight] = useState(false)
+  useLayoutEffect(() => {
+    breakpointRef.current = breakpoint
+  }, [breakpoint])
   const attachments = useFileAttachments({
     maxFileSize: MAX_ATTACHMENT_SIZE_BYTES,
   })
@@ -107,7 +117,6 @@ export function useComposerController(
     (context === "channel" ? `Message /${channel}` : `Message ${channel}`)
   const placeholderRef = useRef(resolvedPlaceholder)
   const resolvePlaceholder = useCallback(() => placeholderRef.current, [])
-
   const suggestions = useComposerSuggestions({
     members,
     context,
@@ -116,7 +125,6 @@ export function useComposerController(
     channelRefCandidateSource,
     onChannelRefIntent,
   })
-
   const fireTyping = () => {
     if (!onTyping || typingTimer.current) return
     onTyping()
@@ -124,7 +132,6 @@ export function useComposerController(
       typingTimer.current = null
     }, 3_000)
   }
-
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -152,39 +159,21 @@ export function useComposerController(
     editorProps: {
       attributes: {
         class: "outline-none",
-        enterkeyhint: isForumThreadBody ? "enter" : "send",
+        enterkeyhint:
+          isForumThreadBody || breakpoint !== "desktop" ? "enter" : "send",
       },
-      handleKeyDown: (_view, event) => {
-        const mentionOpen =
-          suggestions.mentionPopupRef.current.items.length > 0 &&
-          suggestions.mentionPopupRef.current.command !== null
-        const channelRefOpen =
-          suggestions.channelRefPopupRef.current.items.length > 0 &&
-          suggestions.channelRefPopupRef.current.command !== null
-        if (mentionOpen || channelRefOpen) return false
-        if (isForumThreadBody) {
-          if (
-            event.key === "Enter" &&
-            event.shiftKey &&
-            !event.isComposing
-          ) {
-            event.preventDefault()
-            sendRef.current()
-            return true
-          }
-          return false
-        }
-        if (
-          event.key === "Enter" &&
-          !event.shiftKey &&
-          !event.isComposing
-        ) {
-          event.preventDefault()
-          sendRef.current()
-          return true
-        }
-        return false
-      },
+      handleKeyDown: (_view, event) =>
+        handleComposerKeyDown(event, {
+          breakpoint: breakpointRef.current,
+          channelRefOpen:
+            suggestions.channelRefPopupRef.current.items.length > 0 &&
+            suggestions.channelRefPopupRef.current.command !== null,
+          isForumThreadBody,
+          mentionOpen:
+            suggestions.mentionPopupRef.current.items.length > 0 &&
+            suggestions.mentionPopupRef.current.command !== null,
+          send: () => sendRef.current(),
+        }),
       handlePaste: (_view, event) => {
         const files = clipboardFiles(event.clipboardData?.items)
         if (files.length > 0) {
@@ -214,6 +203,7 @@ export function useComposerController(
       },
     },
     onUpdate: ({ editor: updatedEditor }) => {
+      setEditorHasContent(!updatedEditor.isEmpty)
       if (restoringDraftRef.current) return
       fireTyping()
       emitDirtyTransition()
@@ -226,14 +216,17 @@ export function useComposerController(
       }
     },
   })
-
+  const enterKeyHint =
+    isForumThreadBody || breakpoint !== "desktop" ? "enter" : "send"
+  useLayoutEffect(() => {
+    editor?.view?.dom?.setAttribute("enterkeyhint", enterKeyHint)
+  }, [editor, enterKeyHint])
   useLayoutEffect(() => {
     if (placeholderRef.current === resolvedPlaceholder) return
     placeholderRef.current = resolvedPlaceholder
     if (!editor) return
     editor.view?.dispatch(editor.state.tr)
   }, [editor, resolvedPlaceholder])
-
   useEffect(() => {
     if (!editor || isForumThreadBody || !draftKey) return
     const doc = readComposerDraft(draftKey)
@@ -244,6 +237,7 @@ export function useComposerController(
         emitUpdate: false,
         errorOnInvalidContent: true,
       })
+      setEditorHasContent(!editor.isEmpty)
     } catch {
       clearComposerDraft(draftKey)
     } finally {
@@ -273,6 +267,8 @@ export function useComposerController(
     if (!editor || sendInFlightRef.current) return
     const attemptScopeVersion = sendScopeVersionRef.current
     const attemptLifecycle = lifecycleVersionRef.current
+    sendInFlightRef.current = Promise.resolve()
+    setSendInFlight(true)
     const attempt = (async () => {
       const preparedFiles = await awaitPendingFiles()
       if (
@@ -292,6 +288,7 @@ export function useComposerController(
       }
       if (isForumThreadBody) return
       editor.commands.clearContent()
+      setEditorHasContent(false)
       if (draftKeyRef.current) clearComposerDraft(draftKeyRef.current)
       transferPendingFiles()
       nextLongPasteIndexRef.current = 1
@@ -302,11 +299,13 @@ export function useComposerController(
       () => {
         if (sendInFlightRef.current === attempt) {
           sendInFlightRef.current = null
+          setSendInFlight(false)
         }
       },
       () => {
         if (sendInFlightRef.current === attempt) {
           sendInFlightRef.current = null
+          setSendInFlight(false)
         }
       },
     )
@@ -331,6 +330,7 @@ export function useComposerController(
     resetAfterSubmit: () => {
       if (!editor) return
       editor.commands.clearContent()
+      setEditorHasContent(false)
       setPendingFiles([])
       nextLongPasteIndexRef.current = 1
       suggestions.resetPopups()
@@ -380,6 +380,10 @@ export function useComposerController(
     editor,
     hideAttach,
     hideEmoji,
+    showSend: !isForumThreadBody && breakpoint === "mobile",
+    sendDisabled:
+      sendInFlight || (!editorHasContent && pendingFiles.length === 0),
+    onSend: send,
     onAttachOpenChange: (open) => {
       if (!open) editor?.commands.focus()
     },

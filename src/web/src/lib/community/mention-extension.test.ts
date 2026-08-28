@@ -194,6 +194,16 @@ function getItemsCallback(
   return items
 }
 
+function getAllowCallback(
+  ext: ReturnType<typeof buildCommunityMentionExtension>,
+): () => boolean {
+  const config = (ext as unknown as { config: { addOptions?: () => { suggestion?: { allow?: unknown } } } }).config
+  const opts = config.addOptions?.() ?? (ext as unknown as { options?: { suggestion?: { allow?: unknown } } }).options
+  const allow = (opts?.suggestion as { allow: () => boolean } | undefined)?.allow
+  if (!allow) throw new Error("suggestion.allow not found")
+  return allow
+}
+
 type MentionRenderProps = {
   items?: MentionPopupState["items"]
   query?: string
@@ -286,6 +296,27 @@ describe("buildCommunityMentionExtension — renderText/renderHTML", () => {
   })
 })
 
+describe("buildCommunityMentionExtension — suggestion.allow callback", () => {
+  it("reads the live context ref and disables the TipTap lifecycle only in DMs", () => {
+    const contextRef = { current: "channel" as MentionContext }
+    const ext = buildCommunityMentionExtension({
+      membersRef: { current: [] as Member[] },
+      contextRef,
+      popupRef: { current: EMPTY_MENTION_STATE as MentionPopupState },
+      setPopup: () => { },
+    })
+    const allow = getAllowCallback(ext)
+
+    expect(allow()).toBe(true)
+    contextRef.current = "thread"
+    expect(allow()).toBe(true)
+    contextRef.current = "dm"
+    expect(allow()).toBe(false)
+    contextRef.current = "channel"
+    expect(allow()).toBe(true)
+  })
+})
+
 describe("buildCommunityMentionExtension — suggestion.items callback", () => {
   it("fires onSearchMembersRef.current with the current query on each items() call", () => {
     const membersRef = { current: [] as Member[] }
@@ -329,20 +360,24 @@ describe("buildCommunityMentionExtension — suggestion.items callback", () => {
     expect(queryRef.current).toBe("hello")
   })
 
-  it("is a no-op when onSearchMembersRef is undefined (DM composer)", () => {
-    const membersRef = { current: [] as Member[] }
+  it("does not update query state, search remotely, or rank stale members in a DM", () => {
+    const membersRef = { current: [member("m1", "Alice")] as Member[] }
     const contextRef = { current: "dm" as MentionContext }
     const popupRef = { current: EMPTY_MENTION_STATE as MentionPopupState }
-    // No onSearchMembersRef, no queryRef — the mention builder must still
-    // return the DM-context ranking ([]) without throwing.
+    const search = vi.fn()
+    const queryRef = { current: "channel-query" }
     const ext = buildCommunityMentionExtension({
       membersRef,
       contextRef,
       popupRef,
       setPopup: () => { },
+      onSearchMembersRef: { current: search },
+      queryRef,
     })
     const items = getItemsCallback(ext)
     expect(items({ query: "anything" })).toEqual([])
+    expect(queryRef.current).toBe("channel-query")
+    expect(search).not.toHaveBeenCalled()
   })
 
   it("returns the ranked items straight from rankMentionItems for the live refs", () => {
@@ -372,6 +407,7 @@ describe("buildCommunityMentionExtension — suggestion.render callbacks", () =>
   function setup(queryRef?: { current: string }) {
     let popup: MentionPopupState = EMPTY_MENTION_STATE
     const popupRef = { current: popup }
+    const contextRef = { current: "channel" as MentionContext }
     const search = vi.fn()
     const setPopup = (
       next: MentionPopupState | ((cur: MentionPopupState) => MentionPopupState),
@@ -381,7 +417,7 @@ describe("buildCommunityMentionExtension — suggestion.render callbacks", () =>
     }
     const ext = buildCommunityMentionExtension({
       membersRef: { current: [] as Member[] },
-      contextRef: { current: "channel" as MentionContext },
+      contextRef,
       popupRef,
       setPopup,
       onSearchMembersRef: { current: search },
@@ -389,6 +425,7 @@ describe("buildCommunityMentionExtension — suggestion.render callbacks", () =>
     })
     return {
       callbacks: getRenderCallbacks(ext),
+      contextRef,
       popup: () => popup,
       popupRef,
       search,
@@ -552,6 +589,35 @@ describe("buildCommunityMentionExtension — suggestion.render callbacks", () =>
     expect(harness.callbacks.onKeyDown({ event: keyboardEvent("Space") })).toBe(false)
     harness.setPopup(EMPTY_MENTION_STATE)
     expect(harness.callbacks.onKeyDown({ event: keyboardEvent("Enter") })).toBe(false)
+  })
+
+  it("ignores stale lifecycle, key, insertion, and exit callbacks after a live transition to DM", () => {
+    const harness = setup()
+    const staleCommand = vi.fn()
+    harness.setPopup({
+      items,
+      query: "ad",
+      selectedIndex: 0,
+      command: staleCommand,
+      getRect: null,
+    })
+    const beforeTransition = harness.popup()
+    harness.contextRef.current = "dm"
+
+    harness.callbacks.onStart({ items, query: "new", command: vi.fn() })
+    harness.callbacks.onUpdate({ items: items.slice(0, 1), query: "updated", command: vi.fn() })
+    expect(harness.popup()).toBe(beforeTransition)
+
+    for (const key of ["Enter", "Tab", "ArrowDown", "ArrowUp", "Escape"]) {
+      const event = keyboardEvent(key)
+      expect(harness.callbacks.onKeyDown({ event })).toBe(false)
+      expect(event.preventDefault).not.toHaveBeenCalled()
+    }
+    expect(staleCommand).not.toHaveBeenCalled()
+
+    harness.callbacks.onExit()
+    expect(harness.search).not.toHaveBeenCalled()
+    expect(harness.popup()).toBe(beforeTransition)
   })
 })
 

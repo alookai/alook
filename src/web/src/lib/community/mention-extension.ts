@@ -155,7 +155,16 @@ export function buildCommunityMentionExtension(opts: {
       ["span", options.HTMLAttributes, `@${mentionDisplayLabel(node.attrs.label ?? node.attrs.id ?? "")}`],
     suggestion: {
       char: "@",
+      // The extension is intentionally built once by the Composer, so this
+      // boundary must read the live context ref. Returning no ranked items is
+      // not enough: TipTap would still start the suggestion lifecycle and
+      // capture keys for an empty popup in DMs.
+      allow: () => contextRef.current !== "dm",
       items: ({ query }: { query: string }) => {
+        // Defense-in-depth for an already-scheduled items callback during a
+        // channel -> DM transition. A DM must not update query state or start
+        // a remote member search even if TipTap invokes this stale callback.
+        if (contextRef.current === "dm") return []
         if (queryRef) queryRef.current = query
         onSearchMembersRef?.current?.(query)
         return rankMentionItems(
@@ -166,6 +175,7 @@ export function buildCommunityMentionExtension(opts: {
       },
       render: () => ({
         onStart: (props: SuggestionProps) => {
+          if (contextRef.current === "dm") return
           setPopup({
             items: props.items ?? [],
             query: queryRef?.current ?? props.query ?? "",
@@ -175,6 +185,7 @@ export function buildCommunityMentionExtension(opts: {
           })
         },
         onUpdate: (props: SuggestionProps) => {
+          if (contextRef.current === "dm") return
           setPopup((cur) => ({
             items: props.items ?? [],
             query: queryRef?.current ?? props.query ?? "",
@@ -187,6 +198,7 @@ export function buildCommunityMentionExtension(opts: {
           }))
         },
         onKeyDown: ({ event }: { event: KeyboardEvent }) => {
+          if (contextRef.current === "dm") return false
           if (event.isComposing) return false
           const cur = popupRef.current
           if (cur.items.length === 0) return false
@@ -223,6 +235,7 @@ export function buildCommunityMentionExtension(opts: {
           return false
         },
         onExit: () => {
+          if (contextRef.current === "dm") return
           onSearchMembersRef?.current?.("")
           setPopup(EMPTY_MENTION_STATE)
         },

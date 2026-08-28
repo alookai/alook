@@ -1,6 +1,10 @@
 import type { Locator, Page } from "@playwright/test"
 import { test, expect, userId } from "./_fixtures/community-fixture"
-import { composerEditable, expectMessageVisible, gotoAfterUserWsAuth } from "./_fixtures/actions"
+import {
+  composerEditable,
+  expectMessageVisible,
+  gotoAfterUserWsAuth,
+} from "./_fixtures/actions"
 import {
   memberInfo,
   seedChannel,
@@ -235,7 +239,7 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
     && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`
   ))
   await composerEditable(alice.page).fill(replyBody)
-  await alice.page.keyboard.press("Enter")
+  await alice.page.getByTestId(tid.composerSend).click()
   const replyResponse = await replyResponsePromise
   expect(replyResponse.status()).toBe(201)
   const replyPayload = await replyResponse.json() as {
@@ -287,7 +291,7 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
     response.request().method() === "POST"
     && new URL(response.url()).pathname === `/api/community/channels/${threadId}/messages`
   ))
-  await alice.page.keyboard.press("Enter")
+  await alice.page.getByTestId(tid.composerSend).click()
   const mentionResponse = await mentionResponsePromise
   expect(mentionResponse.status()).toBe(201)
   const mentionPayload = await mentionResponse.json() as {
@@ -308,7 +312,7 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
     && new URL(response.url()).pathname === `/api/community/channels/${threadId}/messages`
   ))
   await composerEditable(alice.page).fill(threadReplyBody)
-  await alice.page.keyboard.press("Enter")
+  await alice.page.getByTestId(tid.composerSend).click()
   const threadReplyResponse = await threadReplyResponsePromise
   expect(threadReplyResponse.status()).toBe(201)
   const threadReplyPayload = await threadReplyResponse.json() as {
