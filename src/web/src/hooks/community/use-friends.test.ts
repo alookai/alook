@@ -114,4 +114,29 @@ describe("useFriendsPresence / friendsPresenceQueryFn", () => {
     await TestRenderer.act(async () => renderer?.unmount())
     qc.clear()
   })
+
+  it("fetches by default when no enabled override is provided", async () => {
+    apiFetchMock.mockResolvedValue({ online: ["u1"] })
+    const { useFriendsPresence } = await import("./use-friends")
+    const TestRenderer = await import("react-test-renderer")
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    function Probe() {
+      useFriendsPresence()
+      return null
+    }
+
+    let renderer: ReturnType<typeof TestRenderer.create> | undefined
+    await TestRenderer.act(async () => {
+      renderer = TestRenderer.create(createElement(
+        QueryClientProvider,
+        { client: qc },
+        createElement(Probe),
+      ))
+    })
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+
+    await TestRenderer.act(async () => renderer?.unmount())
+    qc.clear()
+  })
 })
