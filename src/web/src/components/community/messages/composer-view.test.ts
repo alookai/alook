@@ -131,7 +131,7 @@ describe("ComposerView", () => {
         createElement(
           ComposerView,
           baseProps({
-            replyingTo: "Ada",
+            replyingTo: { authorName: "Ada", text: "First target" },
             onCancelReply,
             pendingFiles,
             removePendingFile,
@@ -172,6 +172,7 @@ describe("ComposerView", () => {
       .join(" ")
     expect(renderedText).toContain("Replying to")
     expect(renderedText).toContain("Ada")
+    expect(renderedText).toContain("First target")
     expect(renderedText).toContain("photo.png")
     expect(renderedText).toContain("notes.txt")
     expect(renderedText).toContain("Drop files here")
@@ -323,6 +324,51 @@ describe("ComposerView", () => {
     expect(renderer.root.findByType("editor-content").props.className).toContain(
       "max-h-60",
     )
+  })
+
+  it("shows the exact same-author reply target as one stripped, truncated line", async () => {
+    const first = {
+      authorName: "Ada",
+      text: "**First** target with [docs](https://example.test) " + "x".repeat(320),
+    }
+    const second = {
+      authorName: "Ada",
+      text: "_Second_ target",
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(
+        createElement(ComposerView, baseProps({ replyingTo: first })),
+      )
+    })
+
+    let preview = renderer.root.findByProps({
+      "data-slot": "composer-reply-preview",
+    })
+    expect(preview.children.join("")).toBe(
+      "First target with docs " + "x".repeat(320),
+    )
+    expect(preview.props.className).toContain("truncate")
+    expect(preview.parent?.props.className).toContain("min-w-0")
+
+    await act(async () => {
+      renderer.update(
+        createElement(ComposerView, baseProps({ replyingTo: second })),
+      )
+    })
+    preview = renderer.root.findByProps({
+      "data-slot": "composer-reply-preview",
+    })
+    expect(preview.children.join("")).toBe("Second target")
+
+    await act(async () => {
+      renderer.update(
+        createElement(ComposerView, baseProps({ replyingTo: "Legacy DM" })),
+      )
+    })
+    expect(renderer.root.findAllByProps({
+      "data-slot": "composer-reply-preview",
+    })).toHaveLength(0)
   })
 
   it("renders the mobile send control after emoji with exact eligibility and padding", async () => {

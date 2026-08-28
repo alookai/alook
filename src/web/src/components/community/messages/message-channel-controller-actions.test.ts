@@ -242,6 +242,40 @@ describe("createMessageActions", () => {
     expect("onDelete" in harness.actions).toBe(false)
   })
 
+  it("selects the exact reply content for two messages by the same author", () => {
+    const harness = setup()
+    harness.actionContext.current.messages = [
+      {
+        id: "same_author_a",
+        type: "chat",
+        authorName: "Alice",
+        content: "Target A",
+        createdAt: new Date(1).toISOString(),
+      },
+      {
+        id: "same_author_b",
+        type: "chat",
+        authorName: "Alice",
+        content: "Target B",
+        createdAt: new Date(2).toISOString(),
+      },
+    ]
+
+    harness.actions.onReply("same_author_a")
+    harness.actions.onReply("same_author_b")
+
+    expect(harness.setReplyTo).toHaveBeenNthCalledWith(1, {
+      id: "same_author_a",
+      authorName: "Alice",
+      text: "Target A",
+    })
+    expect(harness.setReplyTo).toHaveBeenNthCalledWith(2, {
+      id: "same_author_b",
+      authorName: "Alice",
+      text: "Target B",
+    })
+  })
+
   it("uses projected reply text for actions and restores one canonical prefix on edit", async () => {
     const harness = setup()
     harness.actionContext.current.messages = [{

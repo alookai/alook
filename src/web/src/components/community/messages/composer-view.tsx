@@ -12,6 +12,7 @@ import {
   Smile,
   X,
 } from "lucide-react"
+import { stripInlineMarkup } from "@alook/shared"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { PendingFile } from "@/hooks/use-file-attachments"
 import type {
@@ -28,6 +29,7 @@ import {
   ChannelRefList,
   CommunityMentionList,
 } from "./composer-suggestion-popups"
+import type { ComposerReplyTarget } from "./composer-types"
 
 export type ComposerViewProps = {
   isForumThreadBody: boolean
@@ -40,7 +42,7 @@ export type ComposerViewProps = {
   mentionPresentation: MentionCandidatePresentation
   channelRefPopup: ChannelRefPopupState
   channelRefPresentation?: ChannelRefCandidatePresentation
-  replyingTo?: string
+  replyingTo?: ComposerReplyTarget | string
   onCancelReply?: () => void
   pendingFiles: PendingFile[]
   removePendingFile: (index: number) => void
@@ -82,6 +84,15 @@ export function ComposerView({
   onUploadFile,
   onEmojiPick,
 }: ComposerViewProps) {
+  const replyAuthorName = typeof replyingTo === "string"
+    ? replyingTo
+    : replyingTo?.authorName
+  const replyPreview = typeof replyingTo === "string"
+    ? null
+    : replyingTo
+      ? stripInlineMarkup(replyingTo.text)
+      : null
+
   return (
     <div
       className={
@@ -102,11 +113,21 @@ export function ComposerView({
       />
 
       {replyingTo && (
-        <div className="flex items-center gap-2 rounded-t-xl border border-b-0 border-border/40 bg-muted/60 px-4 py-2 text-xs text-muted-foreground">
-          <span className="min-w-0 truncate">
-            Replying to{" "}
-            <span className="font-medium text-foreground">{replyingTo}</span>
-          </span>
+        <div className="flex items-start gap-2 rounded-t-xl border border-b-0 border-border/40 bg-muted/60 px-4 py-2 text-xs text-muted-foreground">
+          <div className="min-w-0 flex-1">
+            <div className="truncate">
+              Replying to{" "}
+              <span className="font-medium text-foreground">{replyAuthorName}</span>
+            </div>
+            {replyPreview !== null && (
+              <div
+                data-slot="composer-reply-preview"
+                className="mt-0.5 truncate text-foreground/70"
+              >
+                {replyPreview}
+              </div>
+            )}
+          </div>
           <button
             onClick={onCancelReply}
             className="ml-auto grid size-4 shrink-0 place-items-center rounded-full hover:bg-foreground/10 hover:text-foreground"

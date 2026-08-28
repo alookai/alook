@@ -853,7 +853,10 @@ describe("useComposerController", () => {
     expect(focus).not.toHaveBeenCalled()
     await act(async () => {
       renderer.update(
-        createElement(Harness, { ...props, replyingTo: "Ada" }),
+        createElement(Harness, {
+          ...props,
+          replyingTo: { authorName: "Ada", text: "First target" },
+        }),
       )
     })
     expect(focus).not.toHaveBeenCalled()
@@ -903,7 +906,7 @@ describe("useComposerController", () => {
           ...acceptedProps(accept),
           channel: "random",
           draftKey: "server/random",
-          replyingTo: "Ada",
+          replyingTo: { authorName: "Ada", text: "First target" },
         }),
       )
     })
@@ -915,7 +918,7 @@ describe("useComposerController", () => {
           ...acceptedProps(accept),
           channel: "random",
           draftKey: "server/random",
-          replyingTo: "Grace",
+          replyingTo: { authorName: "Grace", text: "Second target" },
         }),
       )
     })
@@ -935,7 +938,7 @@ describe("useComposerController", () => {
           ...acceptedProps(accept),
           channel: "random",
           draftKey: "server/random",
-          replyingTo: "Ada",
+          replyingTo: { authorName: "Ada", text: "First target" },
         }),
       )
     })

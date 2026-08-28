@@ -6,6 +6,11 @@ import type { Member } from "@/lib/community/models/people"
 
 type ComposerMode = "chat" | "forumThreadBody"
 
+export type ComposerReplyTarget = {
+  authorName: string
+  text: string
+}
+
 export type MentionCandidateSource = {
   loading: boolean
   loadingMore: boolean
@@ -46,7 +51,7 @@ type ComposerBaseProps = {
   channelRefCandidateSource?: ChannelRefCandidateSource
   onChannelRefIntent?: () => void
   onTyping?: () => void
-  replyingTo?: string
+  replyingTo?: ComposerReplyTarget | string
   onCancelReply?: () => void
   autoFocus?: boolean
   mode?: ComposerMode

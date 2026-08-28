@@ -297,7 +297,7 @@ describe("ThreadChannelSurface ownership", () => {
       members: props.composerMembers,
       mentionCandidates: props.composerMentionCandidates,
       channelRefCandidates: props.channelRefCandidates,
-      replyingTo: "Alice",
+      replyingTo: { id: "reply_1", authorName: "Alice", text: "hello" },
       autoFocus: true,
       draftKey: "server_1/thread_1",
       sendContract: "accepted",

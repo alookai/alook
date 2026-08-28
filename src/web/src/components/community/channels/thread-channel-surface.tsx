@@ -274,7 +274,7 @@ export function ThreadChannelSurface({
                   sendContract="accepted"
                   onAcceptSend={controller.acceptMessage}
                   onTyping={controller.handleTyping}
-                  replyingTo={controller.replyTo?.authorName}
+                  replyingTo={controller.replyTo ?? undefined}
                   onCancelReply={() => controller.setReplyTo(null)}
                   autoFocus={breakpoint === "desktop"}
                   draftKey={`${serverId}/${channelId}`}

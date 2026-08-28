@@ -136,7 +136,7 @@ describe("Composer committed send lifecycle", () => {
     await act(async () => {
       renderer.update(React.createElement(Composer, {
         ...baseProps,
-        replyingTo: "Latest reply",
+        replyingTo: { authorName: "Latest reply", text: "First target" },
         onAcceptSend: rejectLatest,
       } satisfies ComposerProps))
     })
@@ -167,7 +167,7 @@ describe("Composer committed send lifecycle", () => {
     await act(async () => {
       renderer.update(React.createElement(Composer, {
         ...baseProps,
-        replyingTo: "Latest reply",
+        replyingTo: { authorName: "Latest reply", text: "First target" },
         onAcceptSend: acceptedLatest,
       } satisfies ComposerProps))
     })
