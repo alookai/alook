@@ -27,6 +27,7 @@ type CommunitySheetProps = {
   onOpenChange: (open: boolean) => void
   title: React.ReactNode
   description?: React.ReactNode
+  headerLeading?: React.ReactNode
   footer?: React.ReactNode | ((requestClose: () => void) => React.ReactNode)
   children: React.ReactNode
   bodyClassName?: string
@@ -51,6 +52,7 @@ export function CommunitySheet({
   onOpenChange,
   title,
   description,
+  headerLeading,
   footer,
   children,
   bodyClassName,
@@ -76,6 +78,7 @@ export function CommunitySheet({
         <ResizableCommunitySheetContent
           title={title}
           description={description}
+          headerLeading={headerLeading}
           footer={footer}
           bodyClassName={bodyClassName}
           bodyRef={bodyRef}
@@ -93,6 +96,7 @@ export function CommunitySheet({
           maxWidth="80vw"
           title={title}
           description={description}
+          headerLeading={headerLeading}
           footer={footer}
           bodyClassName={bodyClassName}
           bodyRef={bodyRef}
@@ -112,6 +116,7 @@ type CommunitySheetContentProps = Pick<
   CommunitySheetProps,
   | "title"
   | "description"
+  | "headerLeading"
   | "footer"
   | "children"
   | "bodyClassName"
@@ -132,6 +137,7 @@ function CommunitySheetContent({
   resize,
   title,
   description,
+  headerLeading,
   footer,
   children,
   bodyClassName,
@@ -161,14 +167,26 @@ function CommunitySheetContent({
     >
       {resize && <SheetResizeHandle {...resize} />}
       <SheetHeader className="pr-14 sm:pr-14">
-        <SheetTitle className="truncate">{title}</SheetTitle>
-        {description != null && <SheetDescription>{description}</SheetDescription>}
+        {headerLeading == null ? (
+          <>
+            <SheetTitle className="truncate">{title}</SheetTitle>
+            {description != null && <SheetDescription>{description}</SheetDescription>}
+          </>
+        ) : (
+          <div className="flex min-w-0 items-start gap-3">
+            <div data-slot="sheet-header-leading" className="shrink-0">{headerLeading}</div>
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <SheetTitle className="truncate">{title}</SheetTitle>
+              {description != null && <SheetDescription>{description}</SheetDescription>}
+            </div>
+          </div>
+        )}
       </SheetHeader>
       <SheetBody ref={bodyRef} data-testid={bodyTestId} className={bodyClassName}>
         {children}
       </SheetBody>
       {footerContent != null && (
-        <SheetFooter className="**:data-[slot=button]:min-h-11 sm:**:data-[slot=button]:min-h-0">
+        <SheetFooter className="flex-row items-center justify-end **:data-[slot=button]:min-h-11 sm:**:data-[slot=button]:min-h-0">
           {footerContent}
         </SheetFooter>
       )}
