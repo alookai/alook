@@ -11,7 +11,108 @@ import {
   shouldActivateMessageOverlays,
   shouldSuppressTouchMenuOpen,
 } from "./message"
+import { EmojiPickerPopover } from "./emoji-picker"
 import type { RenderMsg } from "@/lib/community/models/message"
+
+vi.mock("./emoji-picker", async () => {
+  const ReactModule = await import("react")
+  function MockEmojiPickerPopover({
+    children,
+    onPick,
+    ...props
+  }: {
+    children: React.ReactElement
+    onPick: (emoji: string) => void
+    side?: string
+    align?: string
+  }) {
+    const [open, setOpen] = ReactModule.useState(false)
+    return ReactModule.createElement(
+      "mock-emoji-picker-popover",
+      { ...props, onPick, open },
+      ReactModule.cloneElement(children, {
+        "data-slot": "popover-trigger",
+        onClick: () => setOpen(true),
+      } as React.HTMLAttributes<HTMLElement>),
+      open
+        ? ReactModule.createElement("mock-emoji-picker-content", { "data-slot": "popover-content" })
+        : null,
+    )
+  }
+  return { EmojiPickerPopover: MockEmojiPickerPopover }
+})
+
+vi.mock("@/components/ui/tooltip", async () => {
+  const ReactModule = await import("react")
+  return {
+    Tooltip: ({ children }: { children: React.ReactNode }) =>
+      ReactModule.createElement("mock-tooltip", null, children),
+    TooltipTrigger: ({
+      render,
+      children,
+      ...props
+    }: {
+      render: React.ReactElement
+      children?: React.ReactNode
+    }) => ReactModule.cloneElement(render, {
+      ...props,
+      "data-slot": "tooltip-trigger",
+    } as React.HTMLAttributes<HTMLElement>, children ?? render.props.children),
+    TooltipContent: ({ children }: { children: React.ReactNode }) =>
+      ReactModule.createElement("mock-tooltip-content", null, children),
+  }
+})
+
+vi.mock("@/components/ui/context-menu", async () => {
+  const ReactModule = await import("react")
+  return {
+    ContextMenu: ({ children }: { children: React.ReactNode }) =>
+      ReactModule.createElement("mock-context-menu", null, children),
+    ContextMenuTrigger: ({
+      render,
+      ...props
+    }: {
+      render: React.ReactElement
+    }) => ReactModule.cloneElement(render, {
+      ...props,
+      "data-slot": "context-menu-trigger",
+    } as React.HTMLAttributes<HTMLElement>),
+    ContextMenuContent: ({ children }: { children: React.ReactNode }) =>
+      ReactModule.createElement("mock-context-menu-content", null, children),
+    ContextMenuItem: ({
+      children,
+      ...props
+    }: {
+      children: React.ReactNode
+    }) => ReactModule.createElement("button", { ...props, "data-slot": "context-menu-item" }, children),
+  }
+})
+
+vi.mock("@/components/ui/dropdown-menu", async (importOriginal) => {
+  const ReactModule = await import("react")
+  const actual = await importOriginal<typeof import("@/components/ui/dropdown-menu")>()
+  return {
+    ...actual,
+    DropdownMenuContent: ({
+      children,
+      ...props
+    }: {
+      children: React.ReactNode
+      [key: string]: unknown
+    }) => ReactModule.createElement(
+      "mock-dropdown-menu-positioner",
+      props,
+      ReactModule.createElement("mock-dropdown-menu-content", null, children),
+    ),
+    DropdownMenuItem: ({
+      children,
+      ...props
+    }: {
+      children: React.ReactNode
+      [key: string]: unknown
+    }) => ReactModule.createElement("button", { ...props, "data-slot": "dropdown-menu-item" }, children),
+  }
+})
 
 // WS3 render-behavior tests (see plans/community-switch-perf-optimization.md):
 // - the custom memo comparator bails out despite the per-render `m` clone,
@@ -177,6 +278,123 @@ describe("Message reply content projection", () => {
       content: "@Bob\n",
       replyTo: { id: "prior", authorName: "Bob", text: "original" },
     }))).toBe(false)
+  })
+})
+
+describe("Message reaction picker", () => {
+  it("opens the shared picker from the visible non-hover Add reaction button", async () => {
+    const onReact = vi.fn()
+    let renderer: TestRenderer.ReactTestRenderer | undefined
+    await act(async () => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg({ reactions: [{ emoji: "👍", count: 1, me: false, userIds: ["u2"] }] }),
+        hoverCapable: false,
+        onOpenThread: vi.fn(),
+        onReact,
+      }), { createNodeMock: () => genericMock })
+    })
+
+    const addButton = renderer!.root.findAllByProps({ "aria-label": "Add reaction" })
+      .find((node) => node.type === "button" && node.props.className.includes("h-6 w-7"))
+    expect(addButton?.props["data-slot"]).toBe("popover-trigger")
+    expect(renderer!.root.findAllByProps({ "data-slot": "popover-content" })).toHaveLength(0)
+
+    await act(async () => {
+      addButton!.props.onClick({
+        button: 0,
+        defaultPrevented: false,
+        currentTarget: genericMock,
+        target: genericMock,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      })
+    })
+    expect(renderer!.root.findAllByProps({ "data-slot": "popover-content" })).toHaveLength(1)
+
+    act(() => renderer!.root.findByType(EmojiPickerPopover).props.onPick("🎉"))
+    expect(onReact).toHaveBeenCalledOnce()
+    expect(onReact).toHaveBeenCalledWith("🎉")
+    act(() => renderer!.unmount())
+  })
+
+  it("keeps desktop hover activation separate from click-to-open", async () => {
+    let renderer: TestRenderer.ReactTestRenderer | undefined
+    await act(async () => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg({ reactions: [{ emoji: "👍", count: 1, me: false, userIds: ["u2"] }] }),
+        hoverCapable: true,
+        onOpenThread: vi.fn(),
+        onReact: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+
+    expect(renderer!.root.findAllByType(EmojiPickerPopover)).toHaveLength(0)
+    const row = renderer!.root.find(
+      (node) => typeof node.props.className === "string"
+        && node.props.className.includes("group relative -mx-2"),
+    )
+    act(() => row.props.onPointerEnter({ target: { closest: () => null } }))
+
+    expect(renderer!.root.findAllByType(EmojiPickerPopover)).toHaveLength(2)
+    expect(renderer!.root.findAllByProps({ "data-slot": "popover-content" })).toHaveLength(0)
+    const stripButton = renderer!.root.findAllByProps({ "aria-label": "Add reaction" })
+      .find((node) => node.type === "button" && node.props.className.includes("h-6 w-7"))
+    expect(stripButton?.props["data-slot"]).toBe("tooltip-trigger")
+
+    await act(async () => {
+      stripButton!.props.onClick({
+        button: 0,
+        defaultPrevented: false,
+        currentTarget: genericMock,
+        target: genericMock,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      })
+    })
+    expect(renderer!.root.findAllByProps({ "data-slot": "popover-content" })).toHaveLength(1)
+    act(() => renderer!.unmount())
+  })
+
+  it("keeps existing reaction chips on their exact toggle callback", () => {
+    const onToggleReaction = vi.fn()
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg({ reactions: [{ emoji: "🔥", count: 2, me: true, userIds: ["u1", "u2"] }] }),
+        hoverCapable: false,
+        onOpenThread: vi.fn(),
+        onToggleReaction,
+        onReact: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+
+    const chip = renderer!.root.findAllByType("button")
+      .find((button) => textContent(button).includes("🔥"))
+    act(() => chip!.props.onClick())
+    expect(onToggleReaction).toHaveBeenCalledOnce()
+    expect(onToggleReaction).toHaveBeenCalledWith("🔥")
+    act(() => renderer!.unmount())
+  })
+
+  it("keeps the touch action menu Add Reaction item as the direct thumbs-up shortcut", () => {
+    const onReact = vi.fn()
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg({ reactions: [] }),
+        hoverCapable: false,
+        onOpenThread: vi.fn(),
+        onReact,
+      }), { createNodeMock: () => genericMock })
+    })
+
+    const quickReaction = renderer!.root.findAllByProps({ "data-slot": "dropdown-menu-item" })
+      .find((item) => textContent(item).includes("Add Reaction"))
+    expect(quickReaction).toBeDefined()
+    act(() => quickReaction!.props.onClick())
+    expect(onReact).toHaveBeenCalledOnce()
+    expect(onReact).toHaveBeenCalledWith("👍")
+    act(() => renderer!.unmount())
   })
 })
 

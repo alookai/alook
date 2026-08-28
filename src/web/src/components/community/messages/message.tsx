@@ -214,6 +214,28 @@ function MessageImpl({
   // a leading checkbox overlay + a tint when picked. `canShare` rows only —
   // approval/attachment-only rows aren't selectable (nothing to put on the card).
   const selectable = selectMode && canShare
+  const reactionAddButton = (
+    <button className="grid h-6 w-7 place-items-center rounded-md bg-secondary text-muted-foreground hover:text-foreground" aria-label="Add reaction">
+      <SmilePlus className="size-4" />
+    </button>
+  )
+  const reactionAddPicker = (
+    <EmojiPickerPopover side="top" align="start" onPick={(emoji) => onReact?.(emoji)}>
+      {hoverCapable
+        ? <TooltipTrigger render={reactionAddButton} />
+        : reactionAddButton}
+    </EmojiPickerPopover>
+  )
+  const reactionAddControl = activated || !hoverCapable
+    ? hoverCapable
+      ? (
+          <Tooltip>
+            {reactionAddPicker}
+            <TooltipContent>Add reaction</TooltipContent>
+          </Tooltip>
+        )
+      : reactionAddPicker
+    : reactionAddButton
   const row = (
     <div
       className={[
@@ -517,20 +539,7 @@ function MessageImpl({
                   </Tooltip>
                 )
               })}
-              {activated ? (
-                <Tooltip>
-                  <EmojiPickerPopover side="top" align="start" onPick={(e) => onReact?.(e)}>
-                    <TooltipTrigger render={<button className="grid h-6 w-7 place-items-center rounded-md bg-secondary text-muted-foreground hover:text-foreground" aria-label="Add reaction" />}>
-                      <SmilePlus className="size-4" />
-                    </TooltipTrigger>
-                  </EmojiPickerPopover>
-                  <TooltipContent>Add reaction</TooltipContent>
-                </Tooltip>
-              ) : (
-                <button className="grid h-6 w-7 place-items-center rounded-md bg-secondary text-muted-foreground hover:text-foreground" aria-label="Add reaction">
-                  <SmilePlus className="size-4" />
-                </button>
-              )}
+              {reactionAddControl}
             </div>
           )}
 
