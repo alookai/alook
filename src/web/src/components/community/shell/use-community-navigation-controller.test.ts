@@ -1,7 +1,8 @@
 import { createElement } from "react"
 import TestRenderer, { act } from "react-test-renderer"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useCommunityNavigationController } from "./use-community-navigation-controller"
+import { normalizeCommunityHref, type CommunityCommittedFrame } from "@/lib/community/community-route"
 
 const mocks = vi.hoisted(() => ({
   pathname: { current: "/c/me" },
@@ -9,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   replace: vi.fn(),
   prefetch: vi.fn(),
+  frame: {
+    current: null as CommunityCommittedFrame | null,
+  },
 }))
 
 vi.mock("next/navigation", () => ({
@@ -24,7 +28,7 @@ vi.mock("next/navigation", () => ({
 type Result = ReturnType<typeof useCommunityNavigationController>
 
 function Capture({ onResult }: { onResult: (result: Result) => void }) {
-  onResult(useCommunityNavigationController())
+  onResult(useCommunityNavigationController(mocks.frame.current!))
   return null
 }
 
@@ -50,9 +54,13 @@ describe("useCommunityNavigationController", () => {
     mocks.push.mockReset()
     mocks.replace.mockReset()
     mocks.prefetch.mockReset()
+    mocks.frame.current = { ...normalizeCommunityHref("/c/me"), revision: 0 }
+    vi.stubGlobal("window", new EventTarget())
   })
 
-  it("sets pending immediately and clears it after the committed href changes", async () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("does not treat published pathname as commit and clears after frame evidence", async () => {
     const hook = await renderController()
     expect(hook.current.navigationPending).toBe(false)
     expect(hook.current.pendingHref).toBeNull()
@@ -63,6 +71,11 @@ describe("useCommunityNavigationController", () => {
     expect(hook.current.pendingHref).toBe("/c/me/friends")
 
     mocks.pathname.current = "/c/me/friends"
+    await hook.rerender()
+    expect(hook.current.navigationPending).toBe(true)
+    expect(hook.current.pendingHref).toBe("/c/me/friends")
+
+    mocks.frame.current = { ...normalizeCommunityHref("/c/me/friends"), revision: 1 }
     await hook.rerender()
     expect(hook.current.navigationPending).toBe(false)
     expect(hook.current.pendingHref).toBeNull()
@@ -81,14 +94,13 @@ describe("useCommunityNavigationController", () => {
     expect(hook.current.pendingHref).toBe("/c/channels/s2")
 
     mocks.pathname.current = "/c/channels/s1"
+    mocks.frame.current = { ...normalizeCommunityHref("/c/channels/s1"), revision: 1 }
     await hook.rerender()
     expect(hook.current.navigationPending).toBe(true)
     expect(hook.current.pendingHref).toBe("/c/channels/s2")
 
-    // The semantic server-root intent may commit through its canonical
-    // landing redirect. That leaf still commits the exact latest server
-    // target; the stale s1 leaf above must not.
     mocks.pathname.current = "/c/channels/s2/c2"
+    mocks.frame.current = { ...normalizeCommunityHref("/c/channels/s2"), revision: 2 }
     await hook.rerender()
     expect(hook.current.navigationPending).toBe(false)
     expect(hook.current.pendingHref).toBeNull()
@@ -100,6 +112,45 @@ describe("useCommunityNavigationController", () => {
     expect(mocks.replace).toHaveBeenCalledWith("/c/channels/s1")
     expect(mocks.push).not.toHaveBeenCalled()
     expect(hook.current.pendingHref).toBe("/c/channels/s1")
+  })
+
+  it("keeps a same-server root intent pending until the exact root frame commits", async () => {
+    mocks.pathname.current = "/c/channels/s1/c1"
+    mocks.frame.current = { ...normalizeCommunityHref("/c/channels/s1/c1"), revision: 6 }
+    const hook = await renderController()
+
+    await act(async () => hook.current.replace("/c/channels/s1"))
+    mocks.pathname.current = "/c/channels/s1"
+    await hook.rerender()
+    expect(hook.current.pendingHref).toBe("/c/channels/s1")
+
+    mocks.frame.current = { ...normalizeCommunityHref("/c/channels/s1/c1"), revision: 7 }
+    await hook.rerender()
+    expect(hook.current.pendingHref).toBe("/c/channels/s1")
+
+    mocks.frame.current = { ...normalizeCommunityHref("/c/channels/s1"), revision: 8 }
+    await hook.rerender()
+    expect(hook.current.pendingHref).toBeNull()
+  })
+
+  it("settles same-leaf query and hash targets without a structural frame revision", async () => {
+    mocks.pathname.current = "/c/me/friends"
+    mocks.frame.current = { ...normalizeCommunityHref("/c/me/friends"), revision: 3 }
+    const hook = await renderController()
+
+    await act(async () => hook.current.push("/c/me/friends?b=2&a=1#card"))
+    mocks.search.current = new URLSearchParams("a=1&b=2")
+    await hook.rerender()
+    expect(hook.current.pendingHref).toBeNull()
+  })
+
+  it("cancels pending on popstate without synthesizing router history", async () => {
+    const hook = await renderController()
+    await act(async () => hook.current.push("/c/me/friends"))
+    await act(async () => window.dispatchEvent(new Event("popstate")))
+    expect(hook.current.pendingHref).toBeNull()
+    expect(mocks.replace).not.toHaveBeenCalled()
+    expect(mocks.push).toHaveBeenCalledTimes(1)
   })
 
   it("commits only the latest async destination", async () => {

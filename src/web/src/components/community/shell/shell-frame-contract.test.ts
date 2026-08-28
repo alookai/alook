@@ -31,8 +31,11 @@ describe("ShellFrame public contract", () => {
     }
     expect(channels).toContain('view="server"')
     expect(channels).toContain("activeServerId={serverId}")
+    expect(channels).toContain("frameHref={structuralFrameHref}")
     expect(dm).toContain('view="dm"')
     expect(dm).toContain("activeServerId={undefined}")
+    expect(dm).toContain("useSelectedLayoutSegments")
+    expect(dm).toContain("frameHref={structuralFrameHref}")
   })
 
   it("keeps shell-frame as orchestration with one public component", () => {
@@ -42,7 +45,7 @@ describe("ShellFrame public contract", () => {
     expect(source).toContain("useShellRailController")
     expect(source).toContain("useShellProfileController")
     expect(source).toContain("useShellInboxController")
-    expect(source).toContain("resolveCommunityRoute(pathname)")
+    expect(source).toContain("resolveCommunityCheckpointPlan")
     expect(source).toContain("useCommunityNavigationController")
     expect(source).toContain("<ShellFrameView")
     expect(source).not.toContain("<ServerRail")

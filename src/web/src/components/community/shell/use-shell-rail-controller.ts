@@ -19,6 +19,7 @@ import type { Breakpoint } from "@/hooks/use-mobile"
 import { useCommunityStore } from "@/stores/community"
 import { resolveServerRailOverlayAction } from "./server-rail-actions"
 import type { ShellFrameProps } from "./shell-frame-types"
+import type { View } from "./shell-types"
 import type { CommunityNavigationController } from "./use-community-navigation-controller"
 import type { QueryClient } from "@tanstack/react-query"
 
@@ -32,7 +33,8 @@ type Options = Pick<
   navigation: CommunityNavigationController
   queryClient: QueryClient
   breakpoint: Breakpoint
-  projectedActiveServerId?: string
+  projectedView?: View
+  projectedActiveServerId: string | undefined
 }
 
 export function useShellRailController({
@@ -40,8 +42,9 @@ export function useShellRailController({
   queryClient,
   breakpoint,
   view,
+  projectedView = view,
   activeServerId,
-  projectedActiveServerId = activeServerId,
+  projectedActiveServerId,
   onOpenActiveServerSettings,
   onOpenActiveServerInvite,
 }: Options) {
@@ -169,7 +172,7 @@ export function useShellRailController({
       folders,
       activeServerId: projectedActiveServerId,
       serversLoading: serversQuery.isLoading,
-      view,
+      view: projectedView,
       onHome,
       onHomePrefetch,
       onServerNavigate,

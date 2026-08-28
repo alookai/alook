@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useMemo, type ReactNode } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { usePathname, useRouter, useParams } from "next/navigation"
+import {
+  useParams,
+  usePathname,
+  useRouter,
+  useSelectedLayoutSegments,
+} from "next/navigation"
 import { ShellFrame } from "@/components/community/shell/shell-frame"
 import { CommunityPendingFrame } from "@/components/community/shell/community-pending-frame"
 import { DmRouteErrorFrame } from "@/components/community/channels/dm-route-error-frame"
@@ -29,6 +34,10 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const params = useParams<{ dmId?: string }>()
+  const selectedSegments = useSelectedLayoutSegments()
+  const structuralFrameHref = selectedSegments.length === 0
+    ? "/c/me"
+    : `/c/me/${selectedSegments.join("/")}`
   const {
     dms: rawDms,
     isLoading: dmsLoading,
@@ -166,6 +175,7 @@ export default function MeLayout({ children }: { children: ReactNode }) {
     <ShellFrame
       view="dm"
       activeServerId={undefined}
+      frameHref={structuralFrameHref}
       sidebar={sidebar}
     >
       {params.dmId && dmRouteVerification.status === "error"

@@ -50,7 +50,7 @@ vi.mock("@/lib/community-onboarding", () => ({
 }))
 vi.mock("./use-community-navigation-controller", () => ({
   useCommunityNavigationController: () => ({
-    currentHref: mocks.currentHref.current,
+    publishedHref: mocks.currentHref.current,
     navigationPending: mocks.navigationPending.current,
     pendingHref: mocks.pendingHref.current,
     push: mocks.push,
@@ -84,6 +84,7 @@ vi.mock("./shell-frame-view", () => ({
 const baseProps = {
   view: "server" as const,
   activeServerId: "s1",
+  frameHref: "/c/channels/s1",
   sidebar: () => createElement("sidebar"),
 }
 
@@ -103,38 +104,66 @@ describe("ShellFrame orchestration", () => {
 
   afterEach(() => vi.unstubAllGlobals())
 
-  it("derives list and detail surfaces from the pathname", async () => {
+  it("does not rewrite the committed frame from an eagerly published pathname", async () => {
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
       renderer = TestRenderer.create(createElement(ShellFrame, baseProps))
     })
-    expect(renderer.root.findByType("shell-frame-view").props.surface).toBe("list")
-    expect(renderer.root.findByType("shell-frame-view").props.loadingHref).toBe("/c/channels/s1")
+    expect(renderer.root.findByType("shell-frame-view").props.checkpoint.surface).toBe("list")
+    expect(renderer.root.findByType("shell-frame-view").props.checkpoint.targetHref).toBe("/c/channels/s1")
 
     mocks.currentHref.current = "/c/channels/s1/c1?keep=1"
     await act(async () => {
       renderer.update(createElement(ShellFrame, baseProps, "next"))
     })
-    expect(renderer.root.findByType("shell-frame-view").props.surface).toBe("detail")
+    expect(renderer.root.findByType("shell-frame-view").props.checkpoint.surface).toBe("list")
+  })
+
+  it("advances the committed descriptor from layout-owned frameHref", async () => {
+    mocks.currentHref.current = "/c/channels/s1/c2"
+    mocks.pendingHref.current = "/c/channels/s1/c2"
+    mocks.navigationPending.current = true
+    const sourceProps = { ...baseProps, frameHref: "/c/channels/s1/c1" }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ShellFrame, sourceProps))
+    })
+    expect(renderer.root.findByType("shell-frame-view").props.checkpoint.mode)
+      .toBe("same-scope-leaf")
+
+    await act(async () => {
+      renderer.update(createElement(ShellFrame, {
+        ...sourceProps,
+        frameHref: "/c/channels/s1/c2",
+      }))
+    })
+    expect(renderer.root.findByType("shell-frame-view").props.checkpoint.mode)
+      .toBe("committed")
   })
 
   it("uses the pending destination surface before the committed href changes", async () => {
     mocks.currentHref.current = "/c/channels/s1/c1"
     mocks.pendingHref.current = "/c/channels/s1"
+    mocks.navigationPending.current = true
+    const sourceProps = { ...baseProps, frameHref: "/c/channels/s1/c1" }
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
-      renderer = TestRenderer.create(createElement(ShellFrame, baseProps))
+      renderer = TestRenderer.create(createElement(ShellFrame, sourceProps))
     })
-    expect(renderer.root.findByType("shell-frame-view").props.surface).toBe("list")
-    expect(renderer.root.findByType("shell-frame-view").props.loadingHref).toBe("/c/channels/s1")
+    expect(renderer.root.findByType("shell-frame-view").props.checkpoint).toMatchObject({
+      surface: "list",
+      targetHref: "/c/channels/s1",
+      main: { kind: "target-skeleton", href: "/c/channels/s1" },
+    })
 
     mocks.pendingHref.current = "/c/me/dm_1?from=inbox"
     await act(async () => {
-      renderer.update(createElement(ShellFrame, baseProps, "next"))
+      renderer.update(createElement(ShellFrame, sourceProps, "next"))
     })
-    expect(renderer.root.findByType("shell-frame-view").props.surface).toBe("detail")
-    expect(renderer.root.findByType("shell-frame-view").props.loadingHref)
-      .toBe("/c/me/dm_1?from=inbox")
+    expect(renderer.root.findByType("shell-frame-view").props.checkpoint).toMatchObject({
+      surface: "detail",
+      targetHref: "/c/me/dm_1?from=inbox",
+    })
   })
 
   it("projects one cold cross-server target into rail, middle, and right", async () => {
@@ -143,18 +172,22 @@ describe("ShellFrame orchestration", () => {
     mocks.navigationPending.current = true
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
-      renderer = TestRenderer.create(createElement(ShellFrame, baseProps))
+      renderer = TestRenderer.create(createElement(ShellFrame, {
+        ...baseProps,
+        frameHref: "/c/channels/s1/c1",
+      }))
     })
 
     const view = renderer.root.findByType("shell-frame-view")
-    expect(view.props).toMatchObject({
+    expect(view.props.checkpoint).toMatchObject({
+      mode: "cold-scope",
       surface: "list",
-      loadingHref: "/c/channels/s2",
-      navigationPending: true,
-      serverSwitchTargetId: "s2",
+      targetHref: "/c/channels/s2",
+      sidebar: { kind: "server-skeleton", serverId: "s2" },
     })
     expect(mocks.railOptions).toHaveBeenLastCalledWith(expect.objectContaining({
       activeServerId: "s1",
+      projectedView: "server",
       projectedActiveServerId: "s2",
     }))
   })
@@ -166,18 +199,22 @@ describe("ShellFrame orchestration", () => {
     mocks.serverCache.add("s2")
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
-      renderer = TestRenderer.create(createElement(ShellFrame, baseProps))
+      renderer = TestRenderer.create(createElement(ShellFrame, {
+        ...baseProps,
+        frameHref: "/c/channels/s1/c1",
+      }))
     })
 
     const view = renderer.root.findByType("shell-frame-view")
-    expect(view.props).toMatchObject({
+    expect(view.props.checkpoint).toMatchObject({
+      mode: "warm-scope",
       surface: "detail",
-      loadingHref: "/c/channels/s1/c1",
-      navigationPending: false,
-      serverSwitchTargetId: null,
+      targetHref: "/c/channels/s2",
+      main: { kind: "keep" },
     })
     expect(mocks.railOptions).toHaveBeenLastCalledWith(expect.objectContaining({
       activeServerId: "s1",
+      projectedView: "server",
       projectedActiveServerId: "s1",
     }))
   })
@@ -187,7 +224,10 @@ describe("ShellFrame orchestration", () => {
     mocks.currentHref.current = "/c/channels/s1/c1"
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
-      renderer = TestRenderer.create(createElement(ShellFrame, baseProps))
+      renderer = TestRenderer.create(createElement(ShellFrame, {
+        ...baseProps,
+        frameHref: "/c/channels/s1/c1",
+      }))
     })
     const handlers = mocks.registerUiHandlers.mock.calls.at(-1)?.[0]
     handlers.goBackMobile()
@@ -200,7 +240,12 @@ describe("ShellFrame orchestration", () => {
     mocks.onboardingState.current = { status: "active", stage: "server" }
 
     await act(async () => {
-      TestRenderer.create(createElement(ShellFrame, baseProps))
+      TestRenderer.create(createElement(ShellFrame, {
+        ...baseProps,
+        view: "dm",
+        activeServerId: undefined,
+        frameHref: "/c/me/dm_1",
+      }))
     })
 
     expect(mocks.replace).toHaveBeenCalledWith("/c/me")
@@ -212,7 +257,12 @@ describe("ShellFrame orchestration", () => {
     mocks.onboardingState.current = { status: "active", stage: "server" }
 
     await act(async () => {
-      TestRenderer.create(createElement(ShellFrame, baseProps))
+      TestRenderer.create(createElement(ShellFrame, {
+        ...baseProps,
+        view: "dm",
+        activeServerId: undefined,
+        frameHref: "/c/me",
+      }))
     })
 
     expect(mocks.replace).not.toHaveBeenCalled()
@@ -221,7 +271,10 @@ describe("ShellFrame orchestration", () => {
   it("registers the shared navigation and UI handlers", async () => {
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
-      renderer = TestRenderer.create(createElement(ShellFrame, baseProps))
+      renderer = TestRenderer.create(createElement(ShellFrame, {
+        ...baseProps,
+        frameHref: "/c/channels/s1/c1",
+      }))
     })
     const first = mocks.registerUiHandlers.mock.calls.at(-1)?.[0]
     expect(Object.keys(first).sort()).toEqual([
@@ -237,14 +290,20 @@ describe("ShellFrame orchestration", () => {
 
     mocks.currentHref.current = "/c/channels/s1/c1?msg=m1"
     await act(async () => {
-      renderer.update(createElement(ShellFrame, baseProps, "message"))
+      renderer.update(createElement(ShellFrame, {
+        ...baseProps,
+        frameHref: "/c/channels/s1/c1",
+      }, "message"))
     })
     const withMessage = mocks.registerUiHandlers.mock.calls.at(-1)?.[0]
     withMessage.goBackMobile()
     expect(mocks.replace).toHaveBeenLastCalledWith("/c/channels/s1")
 
     await act(async () => {
-      renderer.update(createElement(ShellFrame, baseProps, "rerender"))
+      renderer.update(createElement(ShellFrame, {
+        ...baseProps,
+        frameHref: "/c/channels/s1/c1",
+      }, "rerender"))
     })
     const second = mocks.registerUiHandlers.mock.calls.at(-1)?.[0]
     expect(second.navigatePath).toBe(withMessage.navigatePath)

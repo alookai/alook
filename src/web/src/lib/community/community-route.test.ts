@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest"
 import {
+  advanceCommunityCommittedFrame,
   channelHref,
+  isPublishedNonStructuralCommit,
+  isStructuralFrameCommit,
+  normalizeCommunityHref,
   communityServerId,
   removeCommunityParam,
+  resolveCommunityCheckpointPlan,
   resolveCommunityRoute,
-  resolveServerSwitchCheckpoint,
   serverModalMarkerCleanupHref,
   serverRootHref,
 } from "./community-route"
@@ -36,44 +40,91 @@ describe("community route", () => {
     expect(communityServerId(href)).toBe(serverId)
   })
 
-  it("keeps a cold target checkpoint through eager pathname publication", () => {
-    expect(resolveServerSwitchCheckpoint({
-      currentHref: "/c/channels/server_1/channel_1",
-      pendingHref: "/c/channels/server_2?settings=1",
-      hasExactServerDetail: false,
-    })).toEqual({ targetServerId: "server_2", cold: true })
-    expect(resolveServerSwitchCheckpoint({
-      currentHref: "/c/channels/server_1/channel_1",
-      pendingHref: "/c/channels/server_2",
-      hasExactServerDetail: true,
-    })).toEqual({ targetServerId: "server_2", cold: false })
-    expect(resolveServerSwitchCheckpoint({
-      currentHref: "/c/channels/server_2",
-      pendingHref: "/c/channels/server_2",
-      hasExactServerDetail: false,
-    })).toEqual({ targetServerId: "server_2", cold: true })
-    expect(resolveServerSwitchCheckpoint({
-      currentHref: "/c/channels/server_1/channel_1",
-      pendingHref: "/c/channels/server_1/channel_2#message",
-      hasExactServerDetail: true,
-    })).toBeNull()
+  it("normalizes query order and keeps structural scope independent from hash", () => {
+    expect(normalizeCommunityHref("/c/channels/server_1/channel_1?z=2&a=1#message"))
+      .toEqual({
+        href: "/c/channels/server_1/channel_1?a=1&z=2",
+        pathname: "/c/channels/server_1/channel_1",
+        search: "a=1&z=2",
+        scope: { kind: "server", serverId: "server_1" },
+        surface: "detail",
+        leafKey: "/c/channels/server_1/channel_1",
+      })
+  })
 
-    for (const pendingHref of [
-      null,
-      "/c/me/friends",
-      "/malformed",
-    ]) {
-      expect(resolveServerSwitchCheckpoint({
-        currentHref: "/c/channels/server_1/channel_1",
-        pendingHref,
-        hasExactServerDetail: false,
-      })).toBeNull()
+  it.each([
+    ["/c/channels/s1/c1", "/c/channels/s1/c2", false, "same-scope-leaf"],
+    ["/c/me/friends", "/c/me/machines", false, "same-scope-leaf"],
+    ["/c/channels/s1/c1", "/c/channels/s2/c2", false, "cold-scope"],
+    ["/c/channels/s1/c1", "/c/channels/s2/c2", true, "warm-scope"],
+    ["/c/channels/s1/c1", "/c/me/friends", false, "cold-scope"],
+    ["/c/me/friends", "/c/channels/s2", false, "cold-scope"],
+  ])("resolves %s -> %s with targetReady=%s as %s", (
+    source,
+    target,
+    targetReady,
+    mode,
+  ) => {
+    const committedFrame = { ...normalizeCommunityHref(source), revision: 4 }
+    expect(resolveCommunityCheckpointPlan({
+      committedFrame,
+      targetHref: target,
+      pending: true,
+      targetReady,
+    }).mode).toBe(mode)
+  })
+
+  it("keeps committed A as the source after the router publishes B", () => {
+    const committedFrame = {
+      ...normalizeCommunityHref("/c/channels/s1/c1"),
+      revision: 7,
     }
-    expect(resolveServerSwitchCheckpoint({
-      currentHref: "/c/me/friends",
-      pendingHref: "/c/channels/server_2",
-      hasExactServerDetail: false,
-    })).toBeNull()
+    expect(resolveCommunityCheckpointPlan({
+      committedFrame,
+      targetHref: "/c/channels/s2/c2",
+      pending: true,
+      targetReady: false,
+    })).toEqual({
+      mode: "cold-scope",
+      surface: "detail",
+      targetHref: "/c/channels/s2/c2",
+      rail: { kind: "target", view: "server", activeServerId: "s2" },
+      sidebar: { kind: "server-skeleton", serverId: "s2" },
+      main: { kind: "target-skeleton", href: "/c/channels/s2/c2" },
+    })
+  })
+
+  it("settles non-structural publication but requires newer exact frame evidence structurally", () => {
+    const c1 = { ...normalizeCommunityHref("/c/channels/s1/c1"), revision: 10 }
+    expect(isPublishedNonStructuralCommit(
+      c1,
+      "/c/channels/s1/c1?b=2&a=1",
+      "/c/channels/s1/c1?a=1&b=2#message",
+    )).toBe(true)
+    expect(isStructuralFrameCommit({
+      committedFrame: c1,
+      targetHref: "/c/channels/s1",
+      baselineRevision: 10,
+    })).toBe(false)
+    expect(isStructuralFrameCommit({
+      committedFrame: { ...normalizeCommunityHref("/c/channels/s1"), revision: 11 },
+      targetHref: "/c/channels/s1",
+      baselineRevision: 10,
+    })).toBe(true)
+    expect(isStructuralFrameCommit({
+      committedFrame: { ...normalizeCommunityHref("/c/channels/s1/c1"), revision: 11 },
+      targetHref: "/c/channels/s1",
+      baselineRevision: 10,
+    })).toBe(false)
+  })
+
+  it("advances frame revision only from a different structural commit marker", () => {
+    const c1 = { ...normalizeCommunityHref("/c/channels/s1/c1"), revision: 4 }
+    expect(advanceCommunityCommittedFrame(c1, "/c/channels/s1/c1")).toBe(c1)
+    expect(advanceCommunityCommittedFrame(c1, "/c/channels/s1/c2")).toEqual({
+      ...normalizeCommunityHref("/c/channels/s1/c2"),
+      revision: 5,
+    })
   })
 
   it("removes one query key while preserving the rest and the hash", () => {

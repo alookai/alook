@@ -23,6 +23,7 @@ export const tid = {
   serverRailMoveConfirm: "community-server-rail-move-confirm",
   channelSidebarScroll: "community-channel-sidebar-scroll",
   channelSidebarPending: (serverId: string) => `community-channel-sidebar-pending-${serverId}`,
+  dmSidebarPending: "community-dm-sidebar-pending",
   createServerSubmit: "community-create-server-submit",
   createServerName: "community-create-server-name",
   createChannelSubmit: "community-create-channel-submit",
