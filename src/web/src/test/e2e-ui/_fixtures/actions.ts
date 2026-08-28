@@ -102,12 +102,19 @@ export function composerEditable(page: Page) {
   return page.getByTestId(tid.composerInput).locator("[contenteditable='true']")
 }
 
-// Type into the TipTap composer and send with Enter. Returns after the input
-// clears (the send round-trip's observable completion).
+// Type into the TipTap composer and submit through the control for the current
+// breakpoint: the explicit send button below 640px, or Enter on desktop.
 export async function sendMessage(page: Page, text: string): Promise<void> {
   const editable = composerEditable(page)
   await editable.click()
   await editable.pressSequentially(text)
+  if ((page.viewportSize()?.width ?? 640) < 640) {
+    const sendButton = page.getByTestId(tid.composerSend)
+    await expect(sendButton).toBeVisible()
+    await expect(sendButton).toBeEnabled()
+    await sendButton.click()
+    return
+  }
   await page.keyboard.press("Enter")
 }
 
