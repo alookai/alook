@@ -56,6 +56,20 @@ function Capture({ preferCachedWindowOnMount = false }: { preferCachedWindowOnMo
   })
 }
 
+function CaptureDefaultMount() {
+  const result = useChannelMessageFeed({
+    channelId: "channel",
+    serverId: "server",
+    viewerUserId: "viewer",
+    isChildChannel: false,
+    anchorMessageId: null,
+  })
+  return createElement("output", {
+    "data-divider": result.newDividerBefore,
+    "data-unread": result.unreadCount,
+  })
+}
+
 describe("useChannelMessageFeed", () => {
   beforeEach(() => {
     mocks.useMessages.mockReset()
@@ -65,7 +79,7 @@ describe("useChannelMessageFeed", () => {
   it("revalidates a normal mount and preserves the cached window on a restored mount", () => {
     let renderer: TestRenderer.ReactTestRenderer
     act(() => {
-      renderer = TestRenderer.create(createElement(Capture))
+      renderer = TestRenderer.create(createElement(CaptureDefaultMount))
     })
     expect(mocks.useMessages).toHaveBeenLastCalledWith("channel", expect.objectContaining({
       reconcileLateAnchor: true,
