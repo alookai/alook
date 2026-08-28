@@ -64,6 +64,55 @@ export function readStateAdvancesCondition(
   return guard ? and(guard, advances)! : advances;
 }
 
+export type ReadStateAdvanceTarget = {
+  channelId: string;
+  targetSeq: number;
+};
+
+/**
+ * Set-based sibling for mass read-state mutations.
+ *
+ * D1 limits one SQL statement to 100 bound variables. Building one
+ * `readStateAdvancesCondition` per channel and joining them with `OR` makes
+ * the revision statement grow by three binds per target, even though the
+ * sibling read-state upserts are separate statements in the same batch.
+ * Encode the target set in one JSON bind instead, then correlate each JSON
+ * row against the durable read state. The explicit INTEGER cast is
+ * load-bearing: JSON extraction must compare seq numerically, never by its
+ * textual representation.
+ */
+export function readStateAdvancesAnyTargetCondition(
+  db: Database,
+  userId: string,
+  targets: readonly ReadStateAdvanceTarget[],
+): SQL<unknown> {
+  const encodedTargets = JSON.stringify(
+    targets.map(({ channelId, targetSeq }) => [channelId, targetSeq]),
+  );
+  const targetChannelId = sql<string>`CAST(json_extract(read_target.value, '$[0]') AS TEXT)`;
+  const targetSeq = sql<number>`CAST(json_extract(read_target.value, '$[1]') AS INTEGER)`;
+
+  return exists(
+    db
+      .select({ one: sql<number>`1` })
+      .from(sql`json_each(${encodedTargets}) AS read_target`)
+      .where(
+        notExists(
+          db
+            .select({ one: sql<number>`1` })
+            .from(communityReadState)
+            .where(
+              and(
+                eq(communityReadState.userId, userId),
+                eq(communityReadState.channelId, targetChannelId),
+                gte(communityReadState.lastReadSeq, targetSeq),
+              ),
+            ),
+        ),
+      ),
+  );
+}
+
 export type CanonicalReadTarget = {
   id: string;
   channelId: string;
@@ -406,16 +455,13 @@ export async function markAllServerChannelsRead(
     channelId: message.channelId,
     message,
   }));
-  const effectConditions = latest.map((message) =>
-    readStateAdvancesCondition(db, {
-      userId,
+  const effectCondition = readStateAdvancesAnyTargetCondition(
+    db,
+    userId,
+    latest.map((message) => ({
       channelId: message.channelId,
       targetSeq: message.seq,
-    })
-  );
-  const effectCondition = effectConditions.slice(1).reduce(
-    (combined, condition) => or(combined, condition)!,
-    effectConditions[0]!
+    })),
   );
   const results = await db.batch([
     advanceReadStateRevisionWhenBuilder(db, userId, effectCondition),

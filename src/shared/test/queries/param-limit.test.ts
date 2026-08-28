@@ -9,6 +9,7 @@ import {
 import * as mentionQueries from "../../src/db/queries/community/mention";
 import * as attachmentQueries from "../../src/db/queries/community/attachment";
 import * as inboxQueries from "../../src/db/queries/community/inbox";
+import * as readStateQueries from "../../src/db/queries/community/read-state";
 import { D1_MAX_BIND_PARAMS } from "../../src/db/queries/_chunk";
 
 const fakeDb = drizzle({} as never);
@@ -181,5 +182,39 @@ describe("listEligibleUnreadChannels bound parameters", () => {
     for (const { params } of statements) {
       expect(params.length).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
     }
+  });
+});
+
+describe("mark-all-read revision guard bound parameters", () => {
+  function buildGuard(targetCount: number) {
+    const targets = Array.from({ length: targetCount }, (_, index) => ({
+      channelId: `channel_${index}`,
+      targetSeq: index + 1,
+    }));
+    const condition = readStateQueries.readStateAdvancesAnyTargetCondition(
+      fakeDb as never,
+      "user_1",
+      targets,
+    );
+    return readStateQueries
+      .advanceReadStateRevisionWhenBuilder(fakeDb as never, "user_1", condition)
+      .toSQL();
+  }
+
+  it("33 and 95 targets keep one constant-size JSON guard below D1's limit", () => {
+    const thirtyThree = buildGuard(33);
+    const ninetyFive = buildGuard(95);
+
+    expect(thirtyThree.params).toHaveLength(4);
+    expect(ninetyFive.params).toHaveLength(4);
+    expect(ninetyFive.params.length).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
+    expect(ninetyFive.sql).toContain("json_each");
+    expect(ninetyFive.sql).toMatch(
+      /cast\(json_extract\(read_target\.value, '\$\[1\]'\) as integer\)/i,
+    );
+    const encodedTargets = ninetyFive.params.find(
+      (param) => typeof param === "string" && param.startsWith('[["channel_0",'),
+    );
+    expect(JSON.parse(encodedTargets as string)).toHaveLength(95);
   });
 });
