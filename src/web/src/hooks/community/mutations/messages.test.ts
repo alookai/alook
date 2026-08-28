@@ -942,6 +942,30 @@ describe("useMarkAllInboxRead", () => {
     await runMutation<void>(undefined as unknown as void).catch(() => { })
     expect(toastMock).toHaveBeenCalledWith("boom")
   })
+
+  it("retries all three idempotent routes after mentions and DMs commit before unreads fails", async () => {
+    let unreadAttempts = 0
+    apiFetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/community/users/me/inbox/unreads/read-all" && unreadAttempts++ === 0) {
+        throw new Error("channel read-all failed")
+      }
+      return undefined
+    })
+    const mod = await loadMod()
+    mod.useMarkAllInboxRead()
+
+    await runMutation<void>(undefined as unknown as void).catch(() => { })
+    await runMutation<void>(undefined as unknown as void)
+
+    for (const path of [
+      "/api/community/users/me/inbox/mentions/read-all",
+      "/api/community/users/me/inbox/unreads/read-all",
+      "/api/community/users/me/inbox/dms/read-all",
+    ]) {
+      expect(apiFetchMock.mock.calls.filter((call) => call[0] === path)).toHaveLength(2)
+    }
+    expect(toastMock).toHaveBeenCalledWith("channel read-all failed")
+  })
 })
 
 // ── useDeleteMention — rollback ──────────────────────────────────────────
