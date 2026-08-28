@@ -5,6 +5,49 @@ import { tid } from "./_fixtures/testids"
 
 const RAIL_ENDPOINT = "/api/community/users/me/server-rail"
 
+type RailGeometry = {
+  rootScrollTop: number
+  railScrollTop: number
+  railMaxScrollTop: number
+  railClientHeight: number
+  railScrollHeight: number
+  target: { top: number; bottom: number }
+  userBar: { top: number; bottom: number }
+  add: { top: number; bottom: number }
+  targetOwnsCenter: boolean
+}
+
+async function railGeometry(page: Page, serverId: string): Promise<RailGeometry> {
+  return page.getByTestId(tid.serverIcon(serverId)).evaluate((target, ids) => {
+    const nav = target.closest("nav")
+    const rail = nav?.querySelector<HTMLElement>(`[data-testid='${ids.rail}']`)
+    const userBar = document.querySelector<HTMLElement>("[data-slot='community-user-bar-overlay']")
+      ?.firstElementChild as HTMLElement | null
+    const add = nav?.querySelector<HTMLElement>(`[data-testid='${ids.add}']`)
+    let root = nav?.parentElement ?? null
+    while (root && getComputedStyle(root).position !== "fixed") root = root.parentElement
+    if (!root || !rail || !userBar || !add) throw new Error("missing server rail geometry node")
+    const targetRect = target.getBoundingClientRect()
+    const userBarRect = userBar.getBoundingClientRect()
+    const addRect = add.getBoundingClientRect()
+    const hit = document.elementFromPoint(
+      targetRect.left + targetRect.width / 2,
+      targetRect.top + targetRect.height / 2,
+    )
+    return {
+      rootScrollTop: root.scrollTop,
+      railScrollTop: rail.scrollTop,
+      railMaxScrollTop: rail.scrollHeight - rail.clientHeight,
+      railClientHeight: rail.clientHeight,
+      railScrollHeight: rail.scrollHeight,
+      target: { top: targetRect.top, bottom: targetRect.bottom },
+      userBar: { top: userBarRect.top, bottom: userBarRect.bottom },
+      add: { top: addRect.top, bottom: addRect.bottom },
+      targetOwnsCenter: target.contains(hit),
+    }
+  }, { rail: tid.serverRailScroll, add: tid.serverAdd })
+}
+
 async function openMove(page: Page, serverId: string) {
   const icon = page.getByTestId(tid.serverIcon(serverId))
   await icon.focus()
@@ -19,7 +62,11 @@ test("server rail commits one PDD drop and exposes mobile Move parity", async ({
   const stamp = Date.now()
   const first = await seedServer("alice", `Rail first ${stamp}`)
   const second = await seedServer("alice", `Rail second ${stamp}`)
-  const third = await seedServer("alice", `Rail third ${stamp}`)
+  const overflowServers: string[] = []
+  for (let index = 0; index < 12; index++) {
+    overflowServers.push(await seedServer("alice", `Rail overflow ${index} ${stamp}`))
+  }
+  const tail = overflowServers.at(-1)!
   const channel = await seedChannel("alice", first, `rail-${stamp}`)
   const { page } = await asUser("alice")
   await page.setViewportSize({ width: 1280, height: 900 })
@@ -72,7 +119,16 @@ test("server rail commits one PDD drop and exposes mobile Move parity", async ({
   await page.setViewportSize({ width: 390, height: 844 })
   await page.getByRole("button", { name: "Back" }).click()
   await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${first}`)
-  await openMove(page, third)
+  const rail = page.getByTestId(tid.serverRailScroll)
+  await rail.evaluate((element) => { element.scrollTop = element.scrollHeight })
+  await expect.poll(async () => (await railGeometry(page, tail)).railScrollTop)
+    .toBeGreaterThan(0)
+  const mobileTail = await railGeometry(page, tail)
+  expect(mobileTail.rootScrollTop).toBe(0)
+  expect(mobileTail.railScrollTop).toBe(mobileTail.railMaxScrollTop)
+  expect(mobileTail.target.bottom).toBeLessThanOrEqual(mobileTail.userBar.top + 0.5)
+  expect(mobileTail.targetOwnsCenter).toBe(true)
+  await openMove(page, tail)
   await page.getByTestId(tid.serverRailMoveDestination).selectOption("new")
   await page.getByTestId(tid.serverRailMoveTarget).selectOption(first)
   const createResponsePromise = page.waitForResponse((response) =>
@@ -83,12 +139,16 @@ test("server rail commits one PDD drop and exposes mobile Move parity", async ({
   expect(createResponse.status()).toBe(200)
   expect(railRequests).toHaveLength(2)
   expect(railRequests[1]?.body).toMatchObject({
-    commands: [{ kind: "create-folder", name: "Group", serverIds: [third, first] }],
+    commands: [{ kind: "create-folder", name: "Group", serverIds: [tail, first] }],
   })
-  await expect(page.getByTestId(tid.serverIcon(third))).toBeVisible()
+  await expect(page.getByTestId(tid.serverIcon(tail))).toBeVisible()
   await expect(page.getByTestId(tid.serverIcon(first))).toBeVisible()
   await expect(page.getByTestId(tid.serverIcon(second))).toBeVisible()
-  const rail = page.getByTestId(tid.serverRailScroll)
+  await rail.evaluate((element) => { element.scrollTop = element.scrollHeight })
+  const expandedTail = await railGeometry(page, tail)
+  expect(expandedTail.rootScrollTop).toBe(0)
+  expect(expandedTail.target.bottom).toBeLessThanOrEqual(expandedTail.userBar.top + 0.5)
+  expect(expandedTail.targetOwnsCenter).toBe(true)
   const beforeSwipe = await rail.evaluate((element) => element.scrollTop)
   const box = await page.getByTestId(tid.serverIcon(second)).boundingBox()
   expect(box).not.toBeNull()
@@ -131,4 +191,27 @@ test("server rail commits one PDD drop and exposes mobile Move parity", async ({
   }
   expect((await pendingResponse).status()).toBe(200)
   await page.unroute(`**${RAIL_ENDPOINT}`)
+})
+
+test("short server rail keeps Add adjacent and desktop geometry stable", async ({ asUser }) => {
+  const stamp = Date.now()
+  const serverId = await seedServer("carol", `Rail short ${stamp}`)
+  const { page } = await asUser("carol")
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(`/c/channels/${serverId}`)
+  await expect(page.getByTestId(tid.serverIcon(serverId))).toBeVisible({ timeout: 30_000 })
+
+  const mobile = await railGeometry(page, serverId)
+  expect(mobile.rootScrollTop).toBe(0)
+  expect(mobile.railScrollHeight).toBeLessThanOrEqual(mobile.railClientHeight)
+  expect(mobile.add.top - mobile.target.bottom).toBeGreaterThanOrEqual(0)
+  expect(mobile.add.top - mobile.target.bottom).toBeLessThanOrEqual(16)
+  expect(mobile.targetOwnsCenter).toBe(true)
+
+  await page.setViewportSize({ width: 1280, height: 844 })
+  const desktop = await railGeometry(page, serverId)
+  expect(desktop.rootScrollTop).toBe(0)
+  expect(desktop.target).toEqual(mobile.target)
+  expect(desktop.add).toEqual(mobile.add)
+  expect(desktop.targetOwnsCenter).toBe(true)
 })
