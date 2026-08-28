@@ -4,6 +4,7 @@ import {
   useQuery,
   useQueryClient,
   type QueryClient,
+  type QueryFunctionContext,
   type UseQueryResult,
 } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
@@ -28,6 +29,7 @@ type RawServerRow = {
   icon: string | null
   role?: string
   mentions?: number
+  unread?: boolean
   description?: string | null
   ownerId: string
 }
@@ -39,8 +41,12 @@ export type ServersResponse = { servers: Server[] }
 // per render (a fresh `[]` would churn the reference).
 const EMPTY_SERVERS: readonly Server[] = Object.freeze([])
 
-export const serversQueryFn = async (): Promise<ServersResponse> => {
-  const data = await apiFetch<{ servers: RawServerRow[] }>("/api/community/servers")
+export const serversQueryFn = async (
+  context?: QueryFunctionContext,
+): Promise<ServersResponse> => {
+  const data = await apiFetch<{ servers: RawServerRow[] }>("/api/community/servers", {
+    signal: context?.signal,
+  })
   const servers: Server[] = data.servers.map((s) => ({
     id: s.id,
     name: s.name,
@@ -49,6 +55,7 @@ export const serversQueryFn = async (): Promise<ServersResponse> => {
     ownerId: s.ownerId,
     initial: avatarInitial(s.name),
     active: false,
+    unread: s.unread ?? false,
     // Defensive fallback: the API always projects `mentions` now, but during
     // rolling deploys or from cached stale responses the field could still be
     // absent — treat it as 0 rather than NaN.

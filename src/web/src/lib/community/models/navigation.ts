@@ -11,6 +11,7 @@ export type Server = {
   ownerId?: string
   initial: string
   active: boolean
+  unread: boolean
   mentions: number
   isOwner?: boolean
   icon?: string | null

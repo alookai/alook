@@ -26,7 +26,7 @@ import {
 } from "@/lib/community/server-rail-model"
 import { useServerRailPdd } from "./use-server-rail-pdd"
 import { useServerRailCommit } from "@/hooks/community/mutations"
-import type { Server, CommunityFolder, FolderServer } from "@/lib/community/models/navigation"
+import type { Server, CommunityFolder } from "@/lib/community/models/navigation"
 import type { View } from "@/components/community/shell/shell-types"
 import {
   completeCommunityOnboarding,
@@ -99,6 +99,11 @@ export const ServerRail = memo(function ServerRail({
   const stateRef = useRef(state)
   const mutationPendingRef = useRef(false)
   const railMutation = useServerRailCommit()
+  const serverIdentityOrder = servers.map((server) => server.id).join("\0")
+  const serverIds = useMemo(
+    () => serverIdentityOrder ? serverIdentityOrder.split("\0") : [],
+    [serverIdentityOrder],
+  )
 
   const claimMutation = useCallback(() => {
     if (mutationPendingRef.current) {
@@ -130,11 +135,11 @@ export const ServerRail = memo(function ServerRail({
 
   useEffect(() => {
     setState((current) => railStateFromData(
-      servers.map((server) => server.id),
+      serverIds,
       folders,
       current.expanded,
     ))
-  }, [folders, servers])
+  }, [folders, serverIds])
 
   useEffect(() => {
     sessionStorage.setItem("rail-open-folders", JSON.stringify(state.expanded))
@@ -313,15 +318,9 @@ export const ServerRail = memo(function ServerRail({
     : null
   const dragging = (entity: RailEntity) => dragSource?.kind === entity.kind
     && dragSource.id === entity.id
-  const folderServers = (folderId: string): FolderServer[] => (state.folders[folderId] ?? [])
+  const folderServers = (folderId: string): Server[] => (state.folders[folderId] ?? [])
     .map((serverId) => serverById.get(serverId))
     .filter((server): server is Server => !!server)
-    .map((server) => ({
-      id: server.id,
-      name: server.name,
-      initial: server.initial,
-      icon: server.icon ?? null,
-    }))
 
   return (
     <nav aria-label="Server navigation" className="flex min-h-0 w-14 shrink-0 flex-col items-center overflow-hidden pt-2">
@@ -387,13 +386,14 @@ export const ServerRail = memo(function ServerRail({
                   <RailFolder
                     folderId={folderId}
                     open={open}
+                    active={!open && serversInFolder.some((server) => server.id === activeId)}
+                    unread={!open && serversInFolder.some((server) => server.unread)}
                     onToggle={() => setState((current) => ({
                       ...current,
                       expanded: current.expanded.includes(folderId)
                         ? current.expanded.filter((id) => id !== folderId)
                         : [...current.expanded, folderId],
                     }))}
-                    activeId={activeId}
                     folderServers={serversInFolder}
                     onUngroup={() => ungroupFolder(folderId)}
                     dragging={dragging({ kind: "folder", id: folderId })}
@@ -407,7 +407,7 @@ export const ServerRail = memo(function ServerRail({
                       {serversInFolder.map((server) => (
                         <SortableServer
                           key={server.id}
-                          server={{ ...server, active: false, mentions: serverById.get(server.id)?.mentions ?? 0, isOwner: serverById.get(server.id)?.isOwner }}
+                          server={server}
                           active={view !== "dm" && activeId === server.id}
                           onClick={() => pickServer(server.id)}
                           onPrefetch={() => onServerPrefetch?.(server.id)}

@@ -2,6 +2,7 @@ import {
   hashKey,
   notifyManager,
   type InvalidateQueryFilters,
+  type FetchQueryOptions,
   type QueryClient,
 } from "@tanstack/react-query"
 
@@ -18,10 +19,13 @@ export function getCommunityWsProjectionFlushError(error: unknown) {
 export type CommunityWsProjectionTransaction = {
   project: <T>(effect: () => T) => T
   invalidate: (owner: string, filters: InvalidateQueryFilters) => void
+  fence: (owner: string, filters: InvalidateQueryFilters) => void
 }
 
 type PendingInvalidation = {
   filters: InvalidateQueryFilters
+  cancellation?: Promise<void>
+  replacementOptions?: FetchQueryOptions
 }
 
 function createProjectionTransaction(
@@ -37,11 +41,45 @@ function createProjectionTransaction(
       const identity = hashKey([owner, filters])
       if (!pending.has(identity)) pending.set(identity, { filters })
     },
+    fence: (owner, filters) => {
+      if (flushed) throw new Error("community WS projection transaction already flushed")
+      const identity = hashKey([owner, filters])
+      const current = pending.get(identity)
+      if (current?.cancellation) return
+      const query = queryClient.getQueryCache().findAll(filters)[0]
+      const replacementOptions = query
+        ? { ...query.options, staleTime: 0 } as FetchQueryOptions
+        : undefined
+      const cancellation = queryClient.cancelQueries(filters)
+      if (current) {
+        current.cancellation = cancellation
+        current.replacementOptions = replacementOptions
+      } else {
+        pending.set(identity, { filters, cancellation, replacementOptions })
+      }
+    },
     flushInvalidations: () => {
       if (flushed) return
       flushed = true
-      for (const { filters } of pending.values()) {
-        void queryClient.invalidateQueries(filters)
+      for (const { filters, cancellation, replacementOptions } of pending.values()) {
+        if (cancellation) {
+          void cancellation.then(async () => {
+            await queryClient.invalidateQueries({
+              ...filters,
+              refetchType: "none",
+            })
+            if (replacementOptions) {
+              await queryClient.fetchQuery(replacementOptions)
+            } else {
+              await queryClient.refetchQueries({
+                ...filters,
+                type: "all",
+              })
+            }
+          })
+        } else {
+          void queryClient.invalidateQueries(filters)
+        }
       }
     },
   }

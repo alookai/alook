@@ -53,6 +53,56 @@ describe("community WS projection transaction", () => {
     ])
   })
 
+  it("upgrades a normal invalidation to one exact fence in either order", async () => {
+    for (const order of ["invalidate-first", "fence-first"] as const) {
+      const queryClient = new QueryClient()
+      const cancel = vi.spyOn(queryClient, "cancelQueries").mockResolvedValue()
+      const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue()
+      const refetch = vi.spyOn(queryClient, "refetchQueries").mockResolvedValue()
+      const filters = { queryKey: ["community", "servers"] as const, exact: true }
+
+      runCommunityWsProjectionTransaction(queryClient, (transaction) => {
+        if (order === "invalidate-first") transaction.invalidate("servers-list", filters)
+        transaction.fence("servers-list", filters)
+        if (order === "fence-first") transaction.invalidate("servers-list", filters)
+      })
+      await vi.waitFor(() => expect(refetch).toHaveBeenCalledTimes(1))
+
+      expect(cancel).toHaveBeenCalledTimes(1)
+      expect(invalidate).toHaveBeenCalledWith({ ...filters, refetchType: "none" })
+      expect(refetch).toHaveBeenCalledWith({ ...filters, type: "all" })
+    }
+  })
+
+  it("starts cancellation before projection and waits for it before refetch", async () => {
+    const queryClient = new QueryClient()
+    let release!: () => void
+    const cancellation = new Promise<void>((resolve) => { release = resolve })
+    const order: string[] = []
+    vi.spyOn(queryClient, "cancelQueries").mockImplementation(() => {
+      order.push("cancel")
+      return cancellation
+    })
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockImplementation(async () => {
+      order.push("invalidate")
+    })
+    vi.spyOn(queryClient, "refetchQueries").mockImplementation(async () => {
+      order.push("refetch")
+    })
+
+    runCommunityWsProjectionTransaction(queryClient, (transaction) => {
+      transaction.fence("servers-list", { queryKey: ["community", "servers"], exact: true })
+      transaction.project(() => order.push("project"))
+    })
+    expect(order).toEqual(["cancel", "project"])
+    expect(invalidate).not.toHaveBeenCalled()
+
+    release()
+    await vi.waitFor(() => expect(order).toContain("refetch"))
+    expect(invalidate).toHaveBeenCalledTimes(1)
+    expect(order).toEqual(["cancel", "project", "invalidate", "refetch"])
+  })
+
   it("flushes queued invalidations when projection fails", () => {
     const queryClient = new QueryClient()
     const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue()

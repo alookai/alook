@@ -11,6 +11,7 @@ import {
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { listParticipatingThreadIds } from "./thread";
+import { listVisibleChannelIdsForUser } from "./channel";
 import { reachIsParticipantSet } from "../../../utils/community-roles";
 import { hasUnreadAttentionSql, notificationEligibleSql } from "./notification-eligibility";
 
@@ -299,6 +300,15 @@ export async function listEligibleUnreadChannels(
   return rows.filter(
     (row) => !reachIsParticipantSet(row.type) || participatingIds.has(row.channelId)
   );
+}
+
+export async function listEligibleUnreadServerIds(
+  db: Database,
+  userId: string
+): Promise<string[]> {
+  const visibleChannelIds = await listVisibleChannelIdsForUser(db, userId);
+  const rows = await listEligibleUnreadChannels(db, userId, visibleChannelIds);
+  return [...new Set(rows.map((row) => row.serverId))];
 }
 
 /**
