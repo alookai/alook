@@ -119,13 +119,18 @@ describe("CommunitySheet contracts", () => {
 
     expect(renderer.root.findByType("sheet-title").children).toEqual(["Structured title"])
     expect(renderer.root.findByType("sheet-description").children).toEqual(["Structured description"])
-    expect(renderer.root.findByType("sheet-header").findAllByType("a")).toHaveLength(0)
+    const header = renderer.root.findByType("sheet-header")
+    expect(header.findAllByType("a")).toHaveLength(0)
+    expect(header.findAllByProps({ className: "flex min-w-0 items-start gap-3" })).toHaveLength(0)
     expect(renderer.root.findAllByType("button").filter((node) => node.props["aria-label"] === "Close"))
       .toHaveLength(1)
     expect(renderer.root.findByType("sheet-body").props.className).toBe("body-policy")
     expect(renderer.root.findByType("sheet-footer").props.className).toContain(
       "**:data-[slot=button]:min-h-11",
     )
+    expect(renderer.root.findByType("sheet-footer").props.className).toContain("flex-row")
+    expect(renderer.root.findByType("sheet-footer").props.className).toContain("items-center")
+    expect(renderer.root.findByType("sheet-footer").props.className).toContain("justify-end")
 
     act(() => renderer.root.findByType("sheet-root").props.onOpenChange(false))
     act(() => renderer.root.findByProps({ "aria-label": "Close" }).props.onClick())
@@ -133,5 +138,32 @@ describe("CommunitySheet contracts", () => {
     expect(onOpenChange).toHaveBeenNthCalledWith(1, false)
     expect(onOpenChange).toHaveBeenNthCalledWith(2, false)
     expect(onOpenChange).toHaveBeenNthCalledWith(3, false)
+  })
+
+  it("adds a shrink-safe leading column without replacing the standard title primitives", () => {
+    const leading = React.createElement("leading-avatar", { size: 32 })
+    const { renderer } = renderSheet({
+      title: "Bot name",
+      description: "Live · Activity log",
+      headerLeading: leading,
+      footer: React.createElement(
+        React.Fragment,
+        null,
+        React.createElement("button", { "data-action": "cancel" }, "Cancel"),
+        React.createElement("button", { "data-action": "primary" }, "Save"),
+      ),
+    })
+
+    const header = renderer.root.findByType("sheet-header")
+    expect(header.findByProps({ className: "flex min-w-0 items-start gap-3" })).toBeTruthy()
+    expect(header.findByProps({ "data-slot": "sheet-header-leading" })
+      .findByType("leading-avatar").props.size)
+      .toBe(32)
+    const textColumn = header.findByProps({ className: "flex min-w-0 flex-1 flex-col gap-1" })
+    expect(textColumn.findByType("sheet-title").children).toEqual(["Bot name"])
+    expect(textColumn.findByType("sheet-description").children).toEqual(["Live · Activity log"])
+    expect(renderer.root.findByType("sheet-footer").findAllByType("button")
+      .map((button) => button.props["data-action"]))
+      .toEqual(["cancel", "primary"])
   })
 })

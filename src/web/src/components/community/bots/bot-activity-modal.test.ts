@@ -119,6 +119,13 @@ describe("BotActivityModal CommunitySheet contract", () => {
     expect(sheet.props.resizable).toBe(true)
     expect(sheet.props.contentTestId).toBe("bot-activity-modal")
     expect(sheet.props.bodyClassName).toContain("p-0")
+    expect(sheet.props.title).toBe("Build Bot")
+    expect(sheet.props.headerLeading.props).toMatchObject({
+      name: "Build Bot",
+      seed: "bot-1",
+      size: 32,
+    })
+    expect(sheet.props.description.props.className).toBe("flex items-center gap-1.5")
     expect(sheet.props.description.props.children[1].props.children).toBe("Live")
 
     act(() => sheet.props.onOpenChange(false))
@@ -129,6 +136,8 @@ describe("BotActivityModal CommunitySheet contract", () => {
     expect(source).not.toContain("@/components/ui/dialog")
     expect(source).not.toContain("@/components/ui/sheet")
     expect(source).not.toMatch(/>\s*Close\s*</)
+    expect(source).not.toContain("truncate text-sm font-medium")
+    expect(source).not.toContain("gap-1.5 text-[11px]")
   })
 
   it("keeps loading, empty, chronological day groups, and rows in the shared body", () => {
