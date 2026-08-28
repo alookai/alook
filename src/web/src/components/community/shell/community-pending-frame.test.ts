@@ -54,7 +54,7 @@ describe("CommunityPendingFrame", () => {
     expect(friends.root.findByType("friends-skeleton").props.onBack).toBeUndefined()
   })
 
-  it("separates the neutral Me root, DM, and channel fallbacks", () => {
+  it("separates neutral Me, DM Back geometry, and server-leading channel geometry", () => {
     const root = render("/c/me")
     expect(root.root.findByProps({ "aria-label": "Loading your space" }).props["aria-busy"]).toBe("true")
 
@@ -62,7 +62,9 @@ describe("CommunityPendingFrame", () => {
     expect(dm.root.findByType("dm-skeleton").props.reserveBackSlot).toBe(true)
 
     const channel = render("/c/channels/s1/c1")
-    expect(channel.root.findByType("channel-skeleton").props.reserveBackSlot).toBe(true)
-    expect(channel.root.findByType("channel-skeleton").props.onBack).toBeUndefined()
+    expect(channel.root.findByType("channel-skeleton").props).toEqual({})
+
+    const serverRoot = render("/c/channels/s1")
+    expect(serverRoot.root.findByType("channel-skeleton").props).toEqual({})
   })
 })

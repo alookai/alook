@@ -42,5 +42,5 @@ export function CommunityPendingFrame({
   if (/^\/c\/me\/[^/]+$/.test(pathname)) {
     return <DmLoadingFrame reserveBackSlot={reserveBackSlot} />
   }
-  return <ChannelLoadingFrame reserveBackSlot={reserveBackSlot} />
+  return <ChannelLoadingFrame />
 }

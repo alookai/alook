@@ -11,7 +11,8 @@ import {
 } from "./_fixtures/seed"
 
 // Journey 8 — adaptive list/detail routing. At <640px semantic roots render
-// lists and leaf paths render detail. Header Back replaces with the parent.
+// lists and leaf paths render detail. Server and verified-parent header crumbs
+// replace directly to their canonical hierarchy targets; DM keeps Header Back.
 test.use({ viewport: { width: 390, height: 844 } })
 
 const shellGroup = (page: Page) => page.locator('[data-slot="resizable-panel-group"]')
@@ -112,17 +113,28 @@ test.describe.serial("mobile layout", () => {
     }
   })
 
-  test("a direct channel opens detail and Header Back replaces it with the server root", async ({ asUser }) => {
+  test("a direct channel opens detail and its server crumb replaces to the server root", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
     await page.waitForURL(new RegExp(channelId), { timeout: 20_000 , waitUntil: "commit" })
 
     await expect(page.getByTestId(tid.composerInput)).toBeVisible()
-    const back = page.getByRole("button", { name: "Back" })
-    await expect(back).toBeVisible()
+    const serverCrumb = page.getByTestId(tid.channelHeaderServer(serverId))
+    await expect(serverCrumb).toBeVisible()
+    await expect(page.getByRole("button", { name: "Back" })).toHaveCount(0)
+    const [controlBox, visualBox] = await Promise.all([
+      serverCrumb.boundingBox(),
+      serverCrumb.locator(":scope > span").boundingBox(),
+    ])
+    expect(controlBox).not.toBeNull()
+    expect(visualBox).not.toBeNull()
+    expect(controlBox!.width).toBe(44)
+    expect(controlBox!.height).toBe(44)
+    expect(visualBox!.width).toBe(24)
+    expect(visualBox!.height).toBe(24)
 
     const historyLength = await page.evaluate(() => history.length)
-    await back.click()
+    await serverCrumb.click()
     await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
     expect(new URL(page.url()).searchParams.has("pane")).toBe(false)
     await expect(page.getByTestId(tid.serverIcon(serverId))).toBeVisible()
@@ -196,19 +208,29 @@ test.describe.serial("mobile layout", () => {
     await expect(page.getByRole("dialog").getByText("mobile child seq target")).toBeVisible()
   })
 
-  test("a flat child derives Header Back from parent metadata", async ({ asUser }) => {
+  test("a flat child exposes direct parent and server hierarchy controls", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${childChannelId}`)
-    await expect(
-      page.getByRole("banner").getByText("mobile-child", { exact: true }),
-    ).toBeVisible()
+    const current = page.getByRole("banner").getByText("mobile-child", { exact: true })
+    await expect(current).toBeVisible()
+    expect(await current.evaluate((element) => element.tagName)).toBe("SPAN")
+    await expect(page.getByRole("button", { name: "Back" })).toHaveCount(0)
 
     const historyLength = await page.evaluate(() => history.length)
-    await page.getByRole("button", { name: "Back" }).click()
+    await page.getByTestId(tid.channelHeaderParent(channelId)).click()
     await expect.poll(() => new URL(page.url()).pathname).toBe(
       `/c/channels/${serverId}/${channelId}`,
     )
     expect(await page.evaluate(() => history.length)).toBe(historyLength)
+
+    await page.goto(`/c/channels/${serverId}/${childChannelId}`)
+    await expect(current).toBeVisible()
+    const serverHistoryLength = await page.evaluate(() => history.length)
+    await page.getByTestId(tid.channelHeaderServer(serverId)).click()
+    await expect.poll(() => new URL(page.url()).pathname).toBe(
+      `/c/channels/${serverId}`,
+    )
+    expect(await page.evaluate(() => history.length)).toBe(serverHistoryLength)
   })
 
   test("Marked opens a child message on its canonical route without losing context", async ({ asUser }) => {
@@ -330,7 +352,7 @@ test.describe.serial("mobile layout", () => {
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${channelId}`)
     await expect(page.getByTestId(tid.composerInput)).toBeVisible()
-    await page.getByRole("button", { name: "Back" }).click()
+    await page.getByTestId(tid.channelHeaderServer(serverId)).click()
     await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
     await expect(page.getByTestId(tid.channelRow(channelId))).toBeVisible()
 

@@ -30,7 +30,6 @@ export function TextChannelSurface({
   headerServer,
   notificationLevel,
   onSetNotificationLevel,
-  onBack,
   composerMembers,
   composerMentionCandidates,
   channelRefCandidates,
@@ -47,10 +46,9 @@ export function TextChannelSurface({
   channelName: string
   viewer: { id: string; name: string; discriminator?: string; avatar: string }
   anchorMessageId: string | null
-  headerServer?: { id: string; name: string; icon: string | null }
+  headerServer?: { id: string; name: string; icon: string | null; onNavigate: () => void }
   notificationLevel: ChannelNotifLevel
   onSetNotificationLevel: (level: ChannelNotifLevel) => void
-  onBack?: () => void
   composerMembers: ComponentProps<typeof Composer>["members"]
   composerMentionCandidates: ComponentProps<typeof Composer>["mentionCandidates"]
   channelRefCandidates: ComponentProps<typeof Composer>["channelRefCandidates"]
@@ -113,8 +111,7 @@ export function TextChannelSurface({
               onToggle={togglePanel}
               notifLevel={notificationLevel}
               onSetNotifLevel={onSetNotificationLevel}
-              onBack={onBack}
-              server={headerServer}
+              mobileServer={headerServer}
             />
           )}
           body={(

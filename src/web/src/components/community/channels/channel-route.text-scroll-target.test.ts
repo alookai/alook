@@ -13,14 +13,16 @@ const {
   mockRouter,
   mockUiHandlers,
   mockBreakpoint,
-  mockHeaderBack,
+  mockHeaderServerNavigate,
+  mockHeaderParentNavigate,
   mockOpenerGate,
   mockSearchParams,
 } = vi.hoisted(() => ({
   mockRouter: { push: vi.fn(), replace: vi.fn(), back: vi.fn() },
   mockUiHandlers: { replacePath: vi.fn(), goBackMobile: vi.fn() },
   mockBreakpoint: { value: "desktop" as "desktop" | "mobile" },
-  mockHeaderBack: { current: undefined as undefined | (() => void) },
+  mockHeaderServerNavigate: { current: undefined as undefined | (() => void) },
+  mockHeaderParentNavigate: { current: undefined as undefined | (() => void) },
   mockOpenerGate: vi.fn(() => null),
   mockSearchParams: { value: "msg=m_target&keep=1" },
   mockRouteModel: {
@@ -70,8 +72,15 @@ vi.mock("@/hooks/community/thread-opener-read-handoff", () => ({
   useThreadOpenerRouteGate: (...args: unknown[]) => mockOpenerGate(...args),
 }))
 vi.mock("@/components/community/channels/channel-header", () => ({
-  ChannelHeader: ({ onBack }: { onBack?: () => void }) => {
-    if (onBack) mockHeaderBack.current = onBack
+  ChannelHeader: ({
+    mobileServer,
+    breadcrumb,
+  }: {
+    mobileServer?: { onNavigate: () => void }
+    breadcrumb?: { onNavigate?: () => void }
+  }) => {
+    mockHeaderServerNavigate.current = mobileServer?.onNavigate
+    mockHeaderParentNavigate.current = breadcrumb?.onNavigate
     return null
   },
   ChannelHeaderSkeleton: () => null,
@@ -245,7 +254,8 @@ describe("ChannelRoute message surface ownership", () => {
     mockOpenerGate.mockClear()
     mockSearchParams.value = "msg=m_target&keep=1"
     mockBreakpoint.value = "desktop"
-    mockHeaderBack.current = undefined
+    mockHeaderServerNavigate.current = undefined
+    mockHeaderParentNavigate.current = undefined
     Object.assign(mockRouteModel, {
       server: {
         id: "server_1",
@@ -412,7 +422,7 @@ describe("ChannelRoute message surface ownership", () => {
     )
   })
 
-  it("derives a mobile child Back destination from fetched parent metadata", () => {
+  it("replaces directly to the verified parent from the child crumb", () => {
     configureThreadRoute()
     mockBreakpoint.value = "mobile"
     mockedUseChannelMessageFeed.mockImplementation(() => feed({ anchorInCache: true }))
@@ -422,7 +432,7 @@ describe("ChannelRoute message surface ownership", () => {
         React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
       )
     })
-    act(() => mockHeaderBack.current?.())
+    act(() => mockHeaderParentNavigate.current?.())
 
     expect(mockUiHandlers.replacePath).toHaveBeenCalledWith(
       "/c/channels/server_1/parent_1",
@@ -430,7 +440,7 @@ describe("ChannelRoute message surface ownership", () => {
     expect(mockUiHandlers.goBackMobile).not.toHaveBeenCalled()
   })
 
-  it("uses the shell mobile Back handler for a top-level channel", () => {
+  it("replaces directly to the canonical server root from a top-level channel", () => {
     mockBreakpoint.value = "mobile"
     mockedUseChannelMessageFeed.mockImplementation(() => feed())
 
@@ -439,10 +449,12 @@ describe("ChannelRoute message surface ownership", () => {
         React.createElement(ChannelRoute, { serverParam: "server_1", channelId: "channel_1" }),
       )
     })
-    act(() => mockHeaderBack.current?.())
+    act(() => mockHeaderServerNavigate.current?.())
 
-    expect(mockUiHandlers.goBackMobile).toHaveBeenCalledOnce()
-    expect(mockUiHandlers.replacePath).not.toHaveBeenCalled()
+    expect(mockUiHandlers.replacePath).toHaveBeenCalledWith(
+      "/c/channels/server_1",
+    )
+    expect(mockUiHandlers.goBackMobile).not.toHaveBeenCalled()
   })
 
   it("keeps a child target through warm cache and 5000ms until MessageList consumes it", () => {

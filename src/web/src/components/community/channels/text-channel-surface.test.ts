@@ -3,7 +3,9 @@ import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MessageChannelController } from "../messages/message-channel-controller"
 import type { MessageChannelControllerValue } from "../messages/message-channel-controller"
-import type { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
+import { ChannelHeader } from "./channel-header"
+import { TextChannelSurface } from "./text-channel-surface"
+import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
 import { buildAttachmentUploadFormData } from "@/hooks/community/mutations/uploads"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
 
@@ -25,6 +27,29 @@ vi.mock("next/navigation", () => ({
 }))
 vi.mock("sonner", () => ({ toast: vi.fn() }))
 vi.mock("@/lib/api/client", () => ({ apiFetch: vi.fn(), toastApiError: vi.fn() }))
+vi.mock("@/hooks/use-mobile", () => ({ useBreakpoint: () => "desktop" }))
+vi.mock("@/hooks/community/use-channel-message-feed", () => ({
+  useChannelMessageFeed: vi.fn(),
+}))
+vi.mock("@/components/community/channels/channel-header", () => ({
+  ChannelHeader: vi.fn(() => null),
+}))
+vi.mock("@/components/community/channels/channel-shell", () => ({
+  ChannelShell: ({ header, body }: { header: React.ReactNode; body: React.ReactNode }) =>
+    React.createElement(React.Fragment, null, header, body),
+}))
+vi.mock("@/components/community/messages/composer", () => ({
+  Composer: vi.fn(() => null),
+}))
+vi.mock("@/components/community/messages/message-list", () => ({
+  MessageList: vi.fn(() => null),
+}))
+vi.mock("@/components/community/shell/community-panel", () => ({
+  CommunityPanel: vi.fn(() => null),
+}))
+vi.mock("@/components/community/messages/message-context-sheet", () => ({
+  MessageContextSheet: vi.fn(() => null),
+}))
 vi.mock("@alook/shared", () => ({
   deriveThreadName: () => "thread",
   MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES: 50 * 1024,
@@ -74,6 +99,9 @@ function feed(overrides: Record<string, unknown> = {}) {
     ...overrides,
   } as ReturnType<typeof useChannelMessageFeed>
 }
+
+const mockedChannelHeader = vi.mocked(ChannelHeader)
+const mockedUseChannelMessageFeed = vi.mocked(useChannelMessageFeed)
 
 function renderController(
   messageFeed: ReturnType<typeof useChannelMessageFeed>,
@@ -293,5 +321,48 @@ describe("MessageChannelController scroll target ownership", () => {
       expect(args.thumbnailBlob).toBe(thumbnailBlob)
       expect((buildAttachmentUploadFormData(args).get("thumbnail") as File).size).toBe(4)
     }
+  })
+})
+
+describe("TextChannelSurface header hierarchy", () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("forwards the direct mobile server segment without a Back fallback", () => {
+    const headerServer = {
+      id: "server_1",
+      name: "Server",
+      icon: null,
+      onNavigate: vi.fn(),
+    }
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+
+    act(() => {
+      TestRenderer.create(React.createElement(TextChannelSurface, {
+        channelId: "channel_1",
+        serverId: "server_1",
+        serverParam: "server_1",
+        channelName: "general",
+        viewer: { id: "viewer_1", name: "Viewer", avatar: "V" },
+        anchorMessageId: null,
+        headerServer,
+        notificationLevel: "default",
+        onSetNotificationLevel: vi.fn(),
+        composerMembers: [],
+        composerMentionCandidates: undefined,
+        channelRefCandidates: [],
+        memberPanelProps: { members: [] },
+        manageMembersDialog: null,
+        uiHandlers: {},
+        onOpenThread: vi.fn(),
+        onOpenProfile: vi.fn(),
+        resolveUserName: (userId: string) => userId,
+      }))
+    })
+
+    const headerProps = mockedChannelHeader.mock.calls.at(-1)![0]
+    expect(headerProps.mobileServer).toBe(headerServer)
+    expect(headerProps).not.toHaveProperty("onBack")
   })
 })

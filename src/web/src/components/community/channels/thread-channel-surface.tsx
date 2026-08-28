@@ -43,9 +43,9 @@ export function ThreadChannelSurface({
   childCreatorId,
   canRenameThread,
   headerServer,
+  onNavigateParent,
   notificationLevel,
   onSetNotificationLevel,
-  onBack,
   composerMembers,
   composerMentionCandidates,
   channelRefCandidates,
@@ -69,10 +69,10 @@ export function ThreadChannelSurface({
   threadOpenerHandoff?: ThreadOpenerReadHandoff | null
   childCreatorId?: string | null
   canRenameThread: boolean
-  headerServer?: { id: string; name: string; icon: string | null }
+  headerServer?: { id: string; name: string; icon: string | null; onNavigate: () => void }
+  onNavigateParent: () => void
   notificationLevel: ChannelNotifLevel
   onSetNotificationLevel: (level: ChannelNotifLevel) => void
-  onBack?: () => void
   composerMembers: ComponentProps<typeof Composer>["members"]
   composerMentionCandidates: ComponentProps<typeof Composer>["mentionCandidates"]
   channelRefCandidates: ComponentProps<typeof Composer>["channelRefCandidates"]
@@ -119,13 +119,6 @@ export function ThreadChannelSurface({
     setRightPanel((current) => current === panel ? null : panel)
   }, [])
   const openPinned = useCallback(() => setRightPanel("pinned"), [])
-  const navigateBack = useCallback(() => {
-    if (parentChannelId) {
-      router.replace(`/c/channels/${serverParam}/${parentChannelId}`)
-      return
-    }
-    onBack?.()
-  }, [onBack, parentChannelId, router, serverParam])
   const rename = parentIsForum && parentChannelId && parentMessageId && childCreatorId === viewer.id
     ? async (name: string) => {
         try {
@@ -160,7 +153,7 @@ export function ThreadChannelSurface({
   if (feed.isLoading) {
     return (
       <>
-        <ChannelHeaderSkeleton onBack={onBack} />
+        <ChannelHeaderSkeleton />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <MessageList key={channelId} channel="" messages={[]} loading onOpenThread={ignoreNestedThread} />
           <ComposerSkeleton />
@@ -215,15 +208,15 @@ export function ThreadChannelSurface({
               onToggle={togglePanel}
               notifLevel={notificationLevel}
               onSetNotifLevel={onSetNotificationLevel}
-              onBack={onBack}
-              server={headerServer}
+              mobileServer={headerServer}
               tools={{ threads: false }}
-              breadcrumb={{
+              breadcrumb={parentChannelId ? {
+                id: parentChannelId,
                 label: displayName,
                 titleRename: parentIsForum,
-                onNavigateBack: navigateBack,
+                onNavigate: onNavigateParent,
                 onRename: rename,
-              }}
+              } : undefined}
             />
           )}
           body={(

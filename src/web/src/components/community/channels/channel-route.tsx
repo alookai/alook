@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toastApiError } from "@/lib/api/client"
-import { useBreakpoint } from "@/hooks/use-mobile"
 import { ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
 import { MessageList } from "@/components/community/messages/message-list"
 import { ComposerSkeleton } from "@/components/community/messages/composer"
@@ -27,7 +26,7 @@ import { useChannelRouteModel } from "@/hooks/community/use-channel-route-model"
 import { useForumOpenerHint } from "@/hooks/community/use-forum-opener-hint"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
 import { useSetChannelNotif } from "@/hooks/community/mutations"
-import { channelHref, removeCommunityParam } from "@/lib/community/community-route"
+import { channelHref, removeCommunityParam, serverRootHref } from "@/lib/community/community-route"
 import {
   THREAD_OPENER_HANDOFF_PARAM,
   useThreadOpenerRouteGate,
@@ -59,7 +58,6 @@ export function ChannelRoute({ serverParam, channelId }: {
   // refresh/back doesn't re-trigger the jump; this frozen copy still drives the
   // anchor + scroll for this mount.
   const [jumpTargetId] = useState<string | null>(() => searchParams.get("msg"))
-  const bp = useBreakpoint()
   const currentUser = useCurrentUser()
   const uiHandlers = useUiHandlers()
   const currentChannelId = useCurrentChannelId()
@@ -127,14 +125,14 @@ export function ChannelRoute({ serverParam, channelId }: {
   const channelNotif = notifs.channel
   const { mutate: setChannelNotif } = useSetChannelNotif()
 
-  const goBack = useCallback(() => {
+  const navigateServerRoot = useCallback(() => {
+    uiHandlers.replacePath?.(serverRootHref(serverParam))
+  }, [serverParam, uiHandlers])
+  const navigateParent = useCallback(() => {
     const parentChannelId = currentChannelMeta?.parentChannelId
-    if (isChildChannel && parentChannelId) {
-      uiHandlers.replacePath?.(channelHref(serverParam, parentChannelId))
-      return
-    }
-    uiHandlers.goBackMobile?.()
-  }, [currentChannelMeta?.parentChannelId, isChildChannel, serverParam, uiHandlers])
+    if (!parentChannelId) return
+    uiHandlers.replacePath?.(channelHref(serverParam, parentChannelId))
+  }, [currentChannelMeta?.parentChannelId, serverParam, uiHandlers])
   const setNotificationLevel = useCallback((level: ChannelNotifLevel) => {
     setChannelNotif({ channelId, level }, {
       onError: (error) => toastApiError(error, "Failed to update notification level"),
@@ -173,7 +171,7 @@ export function ChannelRoute({ serverParam, channelId }: {
     if (isForum) {
       return (
         <>
-          <ChannelHeaderSkeleton onBack={bp === "mobile" ? goBack : undefined} />
+          <ChannelHeaderSkeleton />
           <main className="flex min-h-0 min-w-0 flex-1 flex-col">
             <ForumViewSkeleton />
           </main>
@@ -182,7 +180,7 @@ export function ChannelRoute({ serverParam, channelId }: {
     }
     return (
       <>
-        <ChannelHeaderSkeleton onBack={bp === "mobile" ? goBack : undefined} />
+        <ChannelHeaderSkeleton />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/*
             `key={channelId}` MUST match the hydrated branches' key below —
@@ -220,12 +218,12 @@ export function ChannelRoute({ serverParam, channelId }: {
         threadOpenerHandoff={threadOpenerHandoff}
         childCreatorId={currentChannelMeta?.creatorId}
         canRenameThread={canManageServer(myRole)}
-        headerServer={bp === "mobile" && currentServer
-          ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon }
+        headerServer={currentServer
+          ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon, onNavigate: navigateServerRoot }
           : undefined}
+        onNavigateParent={navigateParent}
         notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
         onSetNotificationLevel={setNotificationLevel}
-        onBack={bp === "mobile" ? goBack : undefined}
         composerMembers={composerMembers}
         composerMentionCandidates={composerMentionCandidates}
         channelRefCandidates={channelRefCandidates}
@@ -248,12 +246,11 @@ export function ChannelRoute({ serverParam, channelId }: {
         channelName={channelName}
         viewer={currentUser}
         viewerRole={myRole}
-        headerServer={bp === "mobile" && currentServer
-          ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon }
+        headerServer={currentServer
+          ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon, onNavigate: navigateServerRoot }
           : undefined}
         notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
         onSetNotificationLevel={setNotificationLevel}
-        onBack={bp === "mobile" ? goBack : undefined}
         composerMembers={composerMembers}
         composerMentionCandidates={composerMentionCandidates}
         memberPanelProps={memberPanelProps}
@@ -273,12 +270,11 @@ export function ChannelRoute({ serverParam, channelId }: {
       channelName={channelName}
       viewer={currentUser}
       anchorMessageId={jumpTargetId}
-      headerServer={bp === "mobile" && currentServer
-        ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon }
+      headerServer={currentServer
+        ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon, onNavigate: navigateServerRoot }
         : undefined}
       notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
       onSetNotificationLevel={setNotificationLevel}
-      onBack={bp === "mobile" ? goBack : undefined}
       composerMembers={composerMembers}
       composerMentionCandidates={composerMentionCandidates}
       channelRefCandidates={channelRefCandidates}
