@@ -13,7 +13,6 @@ declare namespace Cloudflare {
     DB: D1Database
     EMAIL_BUCKET: R2Bucket
     COMMUNITY_MEDIA: R2Bucket
-    IMAGES: ImagesBinding
     BUG_REPORTS: R2Bucket
     WS_DO_WORKER: Fetcher
     EMAIL_WORKER: Fetcher

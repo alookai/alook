@@ -1,129 +1,20 @@
 import { describe, it, expect, vi } from "vitest"
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { MessageBody } from "./message-body"
-import { communityKeys } from "@/lib/query-keys"
-import { tid } from "@/lib/community/testids"
-import type { LinkPreview } from "@/lib/community/link-preview"
 
-const PREVIEW_URL = "https://example.com/story"
-
-function renderLinkPreviewMessage(preview?: LinkPreview | null) {
-  class MockIntersectionObserver {
-    observe = vi.fn()
-    disconnect = vi.fn()
-  }
-  vi.stubGlobal("IntersectionObserver", MockIntersectionObserver)
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  })
-  if (preview !== undefined) {
-    client.setQueryData(communityKeys.linkPreview(PREVIEW_URL), { preview })
-  }
-  let renderer: TestRenderer.ReactTestRenderer
-  act(() => {
-    renderer = TestRenderer.create(
-      React.createElement(
-        QueryClientProvider,
-        { client },
-        React.createElement(MessageBody, { text: PREVIEW_URL }),
-      ),
-    )
-  })
-  return {
-    renderer: renderer!,
-    cleanup() {
-      act(() => renderer!.unmount())
-      client.clear()
-      vi.unstubAllGlobals()
-    },
-  }
-}
-
-function previewSpacing(renderer: TestRenderer.ReactTestRenderer) {
-  return renderer.root.findAll(
-    (node) => node.type === "div" && node.props.className === "pb-2",
-  )
-}
-
-describe("MessageBody — link preview spacing", () => {
-  it("keeps a pending preview sentinel out of message layout", () => {
-    const rendered = renderLinkPreviewMessage()
-    try {
-      expect(previewSpacing(rendered.renderer)).toHaveLength(0)
-      const sentinel = rendered.renderer.root.findByType("span")
-      expect(sentinel.props.className).toContain("absolute")
-    } finally {
-      rendered.cleanup()
-    }
-  })
-
-  it("does not reserve preview spacing when the result has no safe thumbnail", () => {
-    const rendered = renderLinkPreviewMessage({
-      url: PREVIEW_URL,
-      hostname: "example.com",
-      title: "No image",
+describe("MessageBody — plain URL rendering", () => {
+  it("keeps an HTTPS URL as a normal clickable link", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(MessageBody, { text: "Visit https://example.com/story" }),
+      )
     })
-    try {
-      expect(previewSpacing(rendered.renderer)).toHaveLength(0)
-      expect(rendered.renderer.root.findAllByProps({
-        "data-testid": tid.linkPreviewCard,
-      })).toHaveLength(0)
-    } finally {
-      rendered.cleanup()
-    }
-  })
 
-  it("gives bottom spacing only to a successfully rendered preview card", () => {
-    const rendered = renderLinkPreviewMessage({
-      url: PREVIEW_URL,
-      hostname: "example.com",
-      title: "With image",
-      thumbnailUrl: "/api/community/link-preview/thumbnail/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    })
-    try {
-      expect(previewSpacing(rendered.renderer)).toHaveLength(0)
-      expect(rendered.renderer.root.findAllByProps({
-        "data-testid": tid.linkPreviewCard,
-      })).toHaveLength(0)
-      const preload = rendered.renderer.root.findByProps({
-        "data-testid": tid.linkPreviewThumbnail,
-      })
-      act(() => preload.props.onLoad())
-      expect(previewSpacing(rendered.renderer)).toHaveLength(1)
-      expect(rendered.renderer.root.findAllByProps({
-        "data-testid": tid.linkPreviewCard,
-      })).toHaveLength(1)
-    } finally {
-      rendered.cleanup()
-    }
-  })
-
-  it("removes preview spacing together with a thumbnail that fails to load", () => {
-    const rendered = renderLinkPreviewMessage({
-      url: PREVIEW_URL,
-      hostname: "example.com",
-      title: "Broken image",
-      thumbnailUrl: "/api/community/link-preview/thumbnail/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    })
-    try {
-      const preload = rendered.renderer.root.findByProps({
-        "data-testid": tid.linkPreviewThumbnail,
-      })
-      act(() => preload.props.onLoad())
-      expect(previewSpacing(rendered.renderer)).toHaveLength(1)
-      const image = rendered.renderer.root.findByProps({
-        "data-testid": tid.linkPreviewThumbnail,
-      })
-      act(() => image.props.onError())
-      expect(previewSpacing(rendered.renderer)).toHaveLength(0)
-      expect(rendered.renderer.root.findAllByProps({
-        "data-testid": tid.linkPreviewCard,
-      })).toHaveLength(0)
-    } finally {
-      rendered.cleanup()
-    }
+    const link = renderer!.root.findByType("a")
+    expect(link.props.href).toBe("https://example.com/story")
+    expect(link.children.join("")).toBe("https://example.com/story")
   })
 })
 

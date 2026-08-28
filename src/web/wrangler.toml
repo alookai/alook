@@ -1,7 +1,7 @@
 name = "alook-web"
 main = "custom-worker.ts"
 compatibility_date = "2026-04-09"
-compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
+compatibility_flags = ["nodejs_compat"]
 # Disable esbuild keep_names — otherwise __name(...) wrappers leak into
 # stringified inline scripts (ThemeScript, next-themes) and throw
 # "__name is not defined" at runtime in the browser.
@@ -61,9 +61,6 @@ bucket_name = "alook-emails"
 [[r2_buckets]]
 binding = "COMMUNITY_MEDIA"
 bucket_name = "alook-community-media"
-
-[images]
-binding = "IMAGES"
 
 [[r2_buckets]]
 binding = "BUG_REPORTS"

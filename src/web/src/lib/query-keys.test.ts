@@ -139,11 +139,6 @@ describe("communityKeys", () => {
       "message",
       "m1",
     ])
-    expect(communityKeys.linkPreview("https://example.com/")).toEqual([
-      "community",
-      "link-preview",
-      "https://example.com/",
-    ])
   })
 
   it("keeps report polling specific to one report and outside the bots-list cache", () => {
