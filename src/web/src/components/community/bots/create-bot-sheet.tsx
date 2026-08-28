@@ -3,7 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
-import { isPresenceOnline, type CommunityMachineSummary } from "@alook/shared"
+import {
+  isPresenceOnline,
+  type CommunityMachineSummary,
+  type ReasoningEffort,
+} from "@alook/shared"
 import { machineName } from "@/lib/community/machine-name"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"
@@ -14,7 +18,7 @@ import { ProviderLogo } from "@/components/provider-logo"
 import { useMachines } from "@/hooks/community/use-machines"
 import { useCreateBot, useUploadBotAvatar } from "@/hooks/community/use-bots"
 import { BotFormFields } from "./bot-form-fields"
-import { BotRuntimeFields } from "./bot-runtime-fields"
+import { BotRuntimeFields, type BotRuntimeOption } from "./bot-runtime-fields"
 import {
   type BotCreateFieldErrors,
   hasBotCreateFieldErrors,
@@ -31,7 +35,7 @@ function randomBotName(): string {
   return uniqueNamesGenerator({ dictionaries: [names], length: 1, style: "capital" })
 }
 
-type NormalizedRuntime = { id: string; unhealthy: boolean }
+type NormalizedRuntime = BotRuntimeOption
 
 /**
  * Normalize a machine's runtimes into `{ id, unhealthy }`, healthy-first.
@@ -48,7 +52,11 @@ export function normalizeRuntimes(machine: CommunityMachineSummary | undefined):
   const normalized = rt.map((r) =>
     typeof r === "string"
       ? { id: r, unhealthy: false }
-      : { id: (r as { id: string }).id, unhealthy: (r as { status?: string }).status === "unhealthy" },
+      : {
+          id: r.id,
+          ...(r.reasoning !== undefined ? { reasoning: r.reasoning } : {}),
+          unhealthy: r.status === "unhealthy",
+        },
   )
   return normalized.sort((a, b) => Number(a.unhealthy) - Number(b.unhealthy))
 }
@@ -84,6 +92,7 @@ export function CreateBotSheet({
   const [machineId, setMachineId] = useState<string>("")
   const [runtime, setRuntime] = useState<string>("")
   const [model, setModel] = useState<string | null>(null)
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | null>(null)
   const [fieldErrors, setFieldErrors] = useState<BotCreateFieldErrors>({})
   const [technicalExpanded, setTechnicalExpanded] = useState(false)
   const [avatarDraft, setAvatarDraft] = useState<AvatarDraft>({
@@ -118,6 +127,7 @@ export function CreateBotSheet({
     setMachineId("")
     setRuntime("")
     setModel(null)
+    setReasoningEffort(null)
     setFieldErrors({})
     setTechnicalExpanded(false)
   }, [open, avatarSeed])
@@ -158,6 +168,7 @@ export function CreateBotSheet({
     // A model id is runtime-specific; a machine switch can change the runtime,
     // so drop any selected model back to Default.
     setModel(null)
+    setReasoningEffort(null)
     setFieldErrors((prev) => ({ ...prev, machineId: undefined }))
   }
 
@@ -179,6 +190,7 @@ export function CreateBotSheet({
         runtime,
         image: avatarDraft.kind === "procedural" ? avatarDraft.image : undefined,
         model,
+        reasoningEffort,
       })
       // Bots don't have an id until creation resolves — the photo upload is
       // deferred until now so a cropped-then-cancelled dialog never uploads
@@ -300,8 +312,10 @@ export function CreateBotSheet({
                 options={runtimeOptions}
                 runtime={runtime}
                 model={model}
+                reasoningEffort={reasoningEffort}
                 onRuntimeChange={selectRuntime}
                 onModelChange={setModel}
+                onReasoningEffortChange={setReasoningEffort}
                 radioName="bot-runtime"
                 runtimeError={fieldErrors.runtime}
                 disableUnhealthyOptions

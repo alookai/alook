@@ -195,6 +195,7 @@ export class AgentRouter {
         status: r.status ?? "healthy",
         lastError: r.lastError,
         lastErrorAt: r.lastErrorAt,
+        reasoning: r.reasoning,
       });
     }
   }
@@ -574,6 +575,27 @@ export class AgentRouter {
           }),
         );
         break;
+      case "agent:runtime_config_update": {
+        this.log.info("agent:runtime_config_update received", {
+          agentId: cmd.agentId,
+          revision: cmd.config.runtimeConfigRevision ?? 0,
+        });
+        try {
+          const result = await this.opts.manager.updateRuntimeConfig(cmd.agentId, cmd.config);
+          this.log.info("agent:runtime_config_update accepted", {
+            agentId: cmd.agentId,
+            revision: cmd.config.runtimeConfigRevision ?? 0,
+            result,
+          });
+        } catch (err) {
+          this.log.warn("agent:runtime_config_update rejected", {
+            agentId: cmd.agentId,
+            revision: cmd.config.runtimeConfigRevision ?? 0,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        break;
+      }
       case "agent:stop":
         this.log.info("agent:stop received", { agentId: cmd.agentId });
         try {

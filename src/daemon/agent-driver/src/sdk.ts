@@ -46,7 +46,14 @@ export function createAgentDriverSdkWithRegistry<Specs>(
           ? input.command
           : undefined;
         const result = await adapter.probe(command);
-        if (result.status === "healthy") return { status: "healthy", version: result.version, capabilities };
+        if (result.status === "healthy") {
+          return {
+            status: "healthy",
+            version: result.version,
+            capabilities,
+            reasoning: result.reasoning,
+          };
+        }
         return {
           status: "unhealthy",
           error: {
@@ -56,6 +63,7 @@ export function createAgentDriverSdkWithRegistry<Specs>(
             retryable: true,
           },
           capabilities,
+          reasoning: result.reasoning,
         };
       } catch (error) {
         const contractInvalid = error instanceof Error && (

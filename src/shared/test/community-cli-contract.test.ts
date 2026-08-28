@@ -325,6 +325,31 @@ describe("HostCommand control heartbeat contract", () => {
   });
 });
 
+describe("HostCommand runtime config update contract", () => {
+  it("keeps the narrow revisioned config arm in the type and runtime schema", () => {
+    const config = {
+      version: 1,
+      runtime: "codex",
+      model: { kind: "default" as const },
+      mode: { kind: "default" as const },
+      reasoningEffort: "xhigh",
+      runtimeConfigRevision: 8,
+    };
+    type RuntimeConfigUpdate = {
+      type: "agent:runtime_config_update";
+      agentId: string;
+      config: typeof config;
+    };
+    expectTypeOf<Extract<HostCommand, { type: "agent:runtime_config_update" }>>()
+      .toMatchTypeOf<RuntimeConfigUpdate>();
+    expect(HostCommandSchema.parse({
+      type: "agent:runtime_config_update",
+      agentId: "bot_1",
+      config,
+    })).toEqual({ type: "agent:runtime_config_update", agentId: "bot_1", config });
+  });
+});
+
 describe("HostCommand machine update contract", () => {
   it("keeps the no-payload arm in the type and strict runtime schema", () => {
     type UpdateCommand = { type: "machine:update" };

@@ -10,7 +10,7 @@ import type {
 
 interface ResolvedLaunchFields {
   model?: string;
-  reasoningEffort?: "low" | "medium" | "high";
+  reasoningEffort?: ReasoningEffort;
   fastMode: boolean;
   command?: string;
   disallowedTools?: string;

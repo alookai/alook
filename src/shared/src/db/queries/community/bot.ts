@@ -38,6 +38,8 @@ import { communityBotSyntheticEmail } from "../../../constants";
 import { withUniqueDiscriminator } from "../user";
 import { nanoid } from "nanoid";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
+import type { ReasoningEffort } from "../../../runtime-config";
+import { CommunityMachineRuntimeSchema, type CommunityMachineRuntime } from "../../../schemas";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -64,6 +66,8 @@ export type BotBinding = {
   runtime: string;
   instruction: string;
   modelName: string | null;
+  reasoningEffort: ReasoningEffort | null;
+  runtimeConfigRevision: number;
   createdAt: string;
 };
 
@@ -83,7 +87,13 @@ export class OwnerHasBotsError extends Error {
 export async function listBotsForOwner(
   db: Database,
   ownerId: string
-): Promise<Array<BotRow & { machineId: string; runtime: string; modelName: string | null }>> {
+): Promise<Array<BotRow & {
+  machineId: string;
+  runtime: string;
+  modelName: string | null;
+  reasoningEffort: ReasoningEffort | null;
+  runtimeConfigRevision: number;
+}>> {
   const rows = await db
     .select({
       id: user.id,
@@ -98,6 +108,8 @@ export async function listBotsForOwner(
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
       modelName: communityBotBinding.modelName,
+      reasoningEffort: communityBotBinding.reasoningEffort,
+      runtimeConfigRevision: communityBotBinding.runtimeConfigRevision,
     })
     .from(user)
     .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
@@ -121,6 +133,8 @@ export async function listBotsForOwner(
     machineId: r.machineId,
     runtime: r.runtime,
     modelName: r.modelName ?? null,
+    reasoningEffort: r.reasoningEffort ?? null,
+    runtimeConfigRevision: r.runtimeConfigRevision ?? 0,
   }));
 }
 
@@ -132,7 +146,13 @@ export async function getBotOwnedBy(
   db: Database,
   botId: string,
   ownerId: string
-): Promise<(BotRow & { machineId: string | null; runtime: string | null; modelName: string | null }) | null> {
+): Promise<(BotRow & {
+  machineId: string | null;
+  runtime: string | null;
+  modelName: string | null;
+  reasoningEffort: ReasoningEffort | null;
+  runtimeConfigRevision: number;
+}) | null> {
   const rows = await db
     .select({
       id: user.id,
@@ -147,6 +167,8 @@ export async function getBotOwnedBy(
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
       modelName: communityBotBinding.modelName,
+      reasoningEffort: communityBotBinding.reasoningEffort,
+      runtimeConfigRevision: communityBotBinding.runtimeConfigRevision,
     })
     .from(user)
     .leftJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
@@ -174,6 +196,8 @@ export async function getBotOwnedBy(
     machineId: r.machineId ?? null,
     runtime: r.runtime ?? null,
     modelName: r.modelName ?? null,
+    reasoningEffort: r.reasoningEffort ?? null,
+    runtimeConfigRevision: r.runtimeConfigRevision ?? 0,
   };
 }
 
@@ -225,19 +249,33 @@ export async function countLiveBotsForOwner(
 export async function getBotBinding(
   db: Database,
   botId: string
-): Promise<{ machineId: string; runtime: string; modelName: string | null } | null> {
+): Promise<{
+  machineId: string;
+  runtime: string;
+  modelName: string | null;
+  reasoningEffort: ReasoningEffort | null;
+  runtimeConfigRevision: number;
+} | null> {
   const rows = await db
     .select({
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
       modelName: communityBotBinding.modelName,
+      reasoningEffort: communityBotBinding.reasoningEffort,
+      runtimeConfigRevision: communityBotBinding.runtimeConfigRevision,
     })
     .from(communityBotBinding)
     .where(eq(communityBotBinding.userId, botId))
     .limit(1);
   const r = rows[0];
   if (!r) return null;
-  return { machineId: r.machineId, runtime: r.runtime, modelName: r.modelName ?? null };
+  return {
+    machineId: r.machineId,
+    runtime: r.runtime,
+    modelName: r.modelName ?? null,
+    reasoningEffort: r.reasoningEffort ?? null,
+    runtimeConfigRevision: r.runtimeConfigRevision ?? 0,
+  };
 }
 
 /**
@@ -349,6 +387,8 @@ export type BotWakeContext =
       machineId: string;
       runtime: string;
       modelName: string | null;
+      reasoningEffort: ReasoningEffort | null;
+      runtimeConfigRevision: number;
       ownerUserId: string | null;
     };
 
@@ -364,6 +404,8 @@ export async function getBotWakeContext(db: Database, botUserId: string): Promis
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
       modelName: communityBotBinding.modelName,
+      reasoningEffort: communityBotBinding.reasoningEffort,
+      runtimeConfigRevision: communityBotBinding.runtimeConfigRevision,
     })
     .from(user)
     .leftJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
@@ -381,6 +423,8 @@ export async function getBotWakeContext(db: Database, botUserId: string): Promis
     machineId: r.machineId,
     runtime: r.runtime,
     modelName: r.modelName ?? null,
+    reasoningEffort: r.reasoningEffort ?? null,
+    runtimeConfigRevision: r.runtimeConfigRevision ?? 0,
     ownerUserId: r.ownerUserId,
   };
 }
@@ -405,6 +449,8 @@ export async function listBotsForMachine(
     ownerDiscriminator: string;
     runtime: string;
     modelName: string | null;
+    reasoningEffort: ReasoningEffort | null;
+    runtimeConfigRevision: number;
   }>
 > {
   // Guard against orphaned bots: if a future flow soft-deletes an owner user
@@ -420,6 +466,8 @@ export async function listBotsForMachine(
       ownerDiscriminator: owner.discriminator,
       runtime: communityBotBinding.runtime,
       modelName: communityBotBinding.modelName,
+      reasoningEffort: communityBotBinding.reasoningEffort,
+      runtimeConfigRevision: communityBotBinding.runtimeConfigRevision,
     })
     .from(user)
     .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
@@ -441,6 +489,8 @@ export async function listBotsForMachine(
     ownerDiscriminator: r.ownerDiscriminator,
     runtime: r.runtime,
     modelName: r.modelName ?? null,
+    reasoningEffort: r.reasoningEffort ?? null,
+    runtimeConfigRevision: r.runtimeConfigRevision ?? 0,
   }));
 }
 
@@ -497,6 +547,7 @@ export type CreateBotInput = {
   runtime: string;
   image?: string | null;
   modelName?: string | null;
+  reasoningEffort?: ReasoningEffort | null;
 };
 
 /**
@@ -542,6 +593,7 @@ export async function createBot(
         runtime: data.runtime,
         instruction: description,
         modelName: data.modelName ?? null,
+        reasoningEffort: data.reasoningEffort ?? null,
         createdAt: nowIso,
       });
       // Match updateBot's upsert semantics — reincarnation paths (nanoid collision
@@ -692,7 +744,10 @@ export async function updateBotModel(
     );
   const rows = await db
     .update(communityBotBinding)
-    .set({ modelName })
+    .set({
+      modelName,
+      runtimeConfigRevision: sql`${communityBotBinding.runtimeConfigRevision} + 1`,
+    })
     .where(inArray(communityBotBinding.userId, ownerScopedIds))
     .returning({ userId: communityBotBinding.userId });
   return rows.length > 0;
@@ -718,10 +773,48 @@ export async function updateBotRuntime(
     );
   const rows = await db
     .update(communityBotBinding)
-    .set({ runtime, modelName })
+    .set({
+      runtime,
+      modelName,
+      runtimeConfigRevision: sql`${communityBotBinding.runtimeConfigRevision} + 1`,
+    })
     .where(inArray(communityBotBinding.userId, ownerScopedIds))
     .returning({ userId: communityBotBinding.userId });
   return rows.length > 0;
+}
+
+export async function updateBotRuntimeConfig(
+  db: Database,
+  botId: string,
+  ownerId: string,
+  desired: {
+    runtime: string;
+    modelName: string | null;
+    reasoningEffort: ReasoningEffort | null;
+  },
+): Promise<{ runtimeConfigRevision: number } | null> {
+  const ownerScopedIds = db
+    .select({ id: user.id })
+    .from(user)
+    .where(
+      and(
+        eq(user.id, botId),
+        eq(user.ownerUserId, ownerId),
+        eq(user.isBot, true),
+        isNull(user.deletedAt),
+      ),
+    );
+  const rows = await db
+    .update(communityBotBinding)
+    .set({
+      runtime: desired.runtime,
+      modelName: desired.modelName,
+      reasoningEffort: desired.reasoningEffort,
+      runtimeConfigRevision: sql`${communityBotBinding.runtimeConfigRevision} + 1`,
+    })
+    .where(inArray(communityBotBinding.userId, ownerScopedIds))
+    .returning({ runtimeConfigRevision: communityBotBinding.runtimeConfigRevision });
+  return rows[0] ?? null;
 }
 
 /**
@@ -1124,13 +1217,7 @@ export async function getMachineForOwner(
   ownerId: string
 ): Promise<{
   id: string;
-  availableRuntimes: Array<{
-    id: string;
-    version?: string;
-    status?: "healthy" | "unhealthy";
-    lastError?: string;
-    lastErrorAt?: string;
-  }>;
+  availableRuntimes: CommunityMachineRuntime[];
 } | null> {
   const rows = await db
     .select({
@@ -1146,35 +1233,13 @@ export async function getMachineForOwner(
   // `{id, version?, status?, lastError?, lastErrorAt?}[]`. Drop empty ids so
   // the route's `.includes()` / `.find()` checks can't be fooled by `""`.
   const raw = (r.availableRuntimes ?? []) as Array<unknown>;
-  const normalized: Array<{
-    id: string;
-    version?: string;
-    status?: "healthy" | "unhealthy";
-    lastError?: string;
-    lastErrorAt?: string;
-  }> = [];
+  const normalized: CommunityMachineRuntime[] = [];
   for (const entry of raw) {
     if (typeof entry === "string") {
-      if (entry.length > 0) normalized.push({ id: entry });
+      if (entry.length > 0) normalized.push({ id: entry, status: "healthy" });
     } else if (entry && typeof entry === "object") {
-      const obj = entry as {
-        id?: unknown;
-        version?: unknown;
-        status?: unknown;
-        lastError?: unknown;
-        lastErrorAt?: unknown;
-      };
-      if (typeof obj.id === "string" && obj.id.length > 0) {
-        const status =
-          obj.status === "unhealthy" ? "unhealthy" : obj.status === "healthy" ? "healthy" : undefined;
-        normalized.push({
-          id: obj.id,
-          ...(typeof obj.version === "string" ? { version: obj.version } : {}),
-          ...(status ? { status } : {}),
-          ...(typeof obj.lastError === "string" ? { lastError: obj.lastError } : {}),
-          ...(typeof obj.lastErrorAt === "string" ? { lastErrorAt: obj.lastErrorAt } : {}),
-        });
-      }
+      const parsed = CommunityMachineRuntimeSchema.safeParse(entry);
+      if (parsed.success) normalized.push(parsed.data);
     }
   }
   return { id: r.id, availableRuntimes: normalized };

@@ -10,6 +10,7 @@ import {
   resolveModelConfig,
   formatHandle,
   createLogger,
+  resolveReasoningEffort,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
@@ -18,6 +19,7 @@ import {
   pushBotEventToMachine,
   pushAgentModelSwitchToMachine,
   pushAgentProviderSwitchToMachine,
+  pushAgentRuntimeConfigUpdateToMachine,
 } from "@/lib/community/bot-push"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { scheduleCommunityMediaCleanup } from "@/lib/community/community-media-cleanup"
@@ -54,22 +56,38 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
       : undefined
   const modelChanged = nextModel !== undefined && nextModel !== (before.modelName ?? null)
   const restartChanged = runtimeChanged || modelChanged
+  const configRequested = restartChanged || "reasoningEffort" in body
+  let runtimeDescriptor: import("@alook/shared").CommunityMachineRuntime | null = null
+  let botOnline = false
 
-  if (restartChanged) {
+  if (configRequested) {
     if (!before.machineId || !targetRuntime || !before.runtime) {
       return writeError("bot has no active runtime binding", 409)
     }
-    if (!(await queries.communityMachine.isBotOnline(db, id))) {
+    botOnline = await queries.communityMachine.isBotOnline(db, id)
+    if (restartChanged && !botOnline) {
       return writeError("bot is offline — bring it online before changing provider or model", 409)
     }
     const machine = await queries.communityBot.getMachineForOwner(db, before.machineId, ctx.userId)
     if (!machine) return writeError("machine not found", 404)
-    const runtime = machine.availableRuntimes.find((item) => item.id === targetRuntime)
-    if (!runtime) return writeError(`runtime ${targetRuntime} not available on this machine`, 400)
-    if (runtime.status === "unhealthy") {
+    runtimeDescriptor = machine.availableRuntimes.find((item) => item.id === targetRuntime) ?? null
+    if (!runtimeDescriptor) return writeError(`runtime ${targetRuntime} not available on this machine`, 400)
+    if (restartChanged && runtimeDescriptor.status === "unhealthy") {
       return writeError(`runtime ${targetRuntime} is currently unavailable on this machine`, 400)
     }
   }
+  const storedModel = nextModel !== undefined ? nextModel : (before.modelName ?? null)
+  const requestedEffort = "reasoningEffort" in body
+    ? (body.reasoningEffort ?? null)
+    : before.reasoningEffort
+  const effortResolution = resolveReasoningEffort(runtimeDescriptor, storedModel, requestedEffort)
+  if ("reasoningEffort" in body && requestedEffort !== null && !effortResolution.supported && !restartChanged) {
+    return writeError(`reasoning effort ${requestedEffort} is not supported by this runtime/model`, 400)
+  }
+  const storedEffort = configRequested
+    ? effortResolution.canonicalEffort
+    : before.reasoningEffort
+  const effortChanged = storedEffort !== before.reasoningEffort
   // Will we push bot:updated to the daemon? (Iff name/description changed —
   // image-only is display-only and doesn't affect the system prompt.) If so,
   // resolve the owner handle BEFORE mutating the row: the frame shape must stay
@@ -104,55 +122,132 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
 
   let applied = false
   let deliveryError = false
+  let application: "unchanged" | "next_turn" | "saved_not_applied" = "unchanged"
+  let runtimeConfigRevision = before.runtimeConfigRevision
   if (restartChanged && before.machineId && before.runtime && targetRuntime) {
-    const storedModel = nextModel !== undefined ? nextModel : (before.modelName ?? null)
+    let wrote: Awaited<ReturnType<typeof queries.communityBot.updateBotRuntimeConfig>>
+    try {
+      wrote = await queries.communityBot.updateBotRuntimeConfig(db, id, ctx.userId, {
+        runtime: targetRuntime,
+        modelName: storedModel,
+        reasoningEffort: storedEffort,
+      })
+    } catch (persistErr) {
+      log.error("bot_runtime_switch_persist_failed", {
+        botId: id,
+        persistErr: String(persistErr),
+      })
+      return writeError("failed to persist runtime configuration", 500)
+    }
+    if (!wrote) return writeError("runtime binding disappeared before persistence", 409)
+    runtimeConfigRevision = wrote.runtimeConfigRevision
     const config = makeRuntimeConfig({
       runtime: targetRuntime,
       model: resolveModelConfig(targetRuntime, storedModel),
+      reasoningEffort: storedEffort ?? undefined,
+      runtimeConfigRevision,
       agentName: updated.name,
       agentHandle: `@${formatHandle(updated.name, updated.discriminator)}`,
     })
     const launchId = nanoid()
-    const result = runtimeChanged
-      ? await pushAgentProviderSwitchToMachine(ctx.env, before.machineId, {
-          agentId: id,
-          config,
-          launchId,
-          from: before.runtime,
-          to: targetRuntime,
-        })
-      : await pushAgentModelSwitchToMachine(ctx.env, before.machineId, {
-          agentId: id,
-          config,
-          launchId,
-          from: before.modelName ?? null,
-          to: storedModel,
-        })
+    let result = { sent: 0, deliveryError: true }
+    try {
+      result = runtimeChanged
+        ? await pushAgentProviderSwitchToMachine(ctx.env, before.machineId, {
+            agentId: id,
+            config,
+            launchId,
+            from: before.runtime,
+            to: targetRuntime,
+          })
+        : await pushAgentModelSwitchToMachine(ctx.env, before.machineId, {
+            agentId: id,
+            config,
+            launchId,
+            from: before.modelName ?? null,
+            to: storedModel,
+          })
+    } catch (pushErr) {
+      log.warn("bot_runtime_switch_delivery_deferred", {
+        botId: id,
+        machineId: before.machineId,
+        runtimeConfigRevision,
+        pushErr: String(pushErr),
+      })
+    }
     deliveryError = result.deliveryError
     applied = result.sent > 0
+    application = applied ? "next_turn" : "saved_not_applied"
     if (!applied) {
-      return deliveryError
-        ? writeError("failed to reach the bot daemon", 503)
-        : writeError("bot is offline — bring it online before changing provider or model", 409)
-    }
-
-    try {
-      const wrote = runtimeChanged
-        ? await queries.communityBot.updateBotRuntime(db, id, ctx.userId, targetRuntime, storedModel)
-        : await queries.communityBot.updateBotModel(db, id, ctx.userId, storedModel)
-      if (!wrote) throw new Error("runtime binding disappeared before persistence")
-    } catch (persistErr) {
-      log.error("bot_runtime_switch_persist_failed", {
+      log.warn("bot_runtime_switch_delivery_deferred", {
         botId: id,
         machineId: before.machineId,
         runtimeFrom: before.runtime,
         runtimeTo: targetRuntime,
         modelFrom: before.modelName ?? null,
         modelTo: storedModel,
+        runtimeConfigRevision,
+        deliveryError,
+      })
+    }
+  } else if (effortChanged && before.machineId && targetRuntime) {
+    let wrote: Awaited<ReturnType<typeof queries.communityBot.updateBotRuntimeConfig>>
+    try {
+      wrote = await queries.communityBot.updateBotRuntimeConfig(db, id, ctx.userId, {
+        runtime: targetRuntime,
+        modelName: storedModel,
+        reasoningEffort: storedEffort,
+      })
+    } catch (persistErr) {
+      log.error("bot_reasoning_effort_persist_failed", {
+        botId: id,
         persistErr: String(persistErr),
       })
-      return writeError("bot switched, but its runtime binding failed to persist", 500)
+      return writeError("failed to persist reasoning effort", 500)
     }
+    if (!wrote) return writeError("runtime binding disappeared before persistence", 409)
+    runtimeConfigRevision = wrote.runtimeConfigRevision
+    if (!botOnline) {
+      return writeJSON({
+        bot: {
+          id,
+          name: updated.name,
+          description: updated.description,
+          image: updated.image,
+          runtime: targetRuntime,
+          modelName: storedModel,
+          reasoningEffort: storedEffort,
+          runtimeConfigRevision,
+        },
+        applied: false,
+        deliveryError: false,
+        application: "saved_not_applied",
+      })
+    }
+    let result = { sent: 0, deliveryError: true }
+    try {
+      result = await pushAgentRuntimeConfigUpdateToMachine(ctx.env, before.machineId, {
+        agentId: id,
+        config: makeRuntimeConfig({
+          runtime: targetRuntime,
+          model: resolveModelConfig(targetRuntime, storedModel),
+          reasoningEffort: storedEffort ?? undefined,
+          runtimeConfigRevision,
+          agentName: updated.name,
+          agentHandle: `@${formatHandle(updated.name, updated.discriminator)}`,
+        }),
+      })
+    } catch (pushErr) {
+      log.warn("bot_reasoning_effort_delivery_deferred", {
+        botId: id,
+        machineId: before.machineId,
+        runtimeConfigRevision,
+        pushErr: String(pushErr),
+      })
+    }
+    deliveryError = result.deliveryError
+    applied = result.sent > 0
+    application = applied ? "next_turn" : "saved_not_applied"
   }
 
   return writeJSON({
@@ -163,9 +258,12 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
       image: updated.image,
       runtime: targetRuntime,
       modelName: nextModel !== undefined ? nextModel : (before.modelName ?? null),
+      reasoningEffort: storedEffort,
+      runtimeConfigRevision,
     },
     applied,
     deliveryError,
+    application,
   })
 })
 

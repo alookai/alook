@@ -4,6 +4,7 @@ import {
   CommunityBotCreateRequestSchema,
   COMMUNITY_BOT_LIMIT_PER_OWNER,
   utcDayKeyDaysAgo,
+  resolveReasoningEffort,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
@@ -69,6 +70,11 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   const modelName = body.model ?? null
+  const effort = body.reasoningEffort ?? null
+  const effortResolution = resolveReasoningEffort(runtime, modelName, effort)
+  if (effort !== null && !effortResolution.supported) {
+    return writeError(`reasoning effort ${effort} is not supported by this runtime/model`, 400)
+  }
 
   const created = await queries.communityBot.createBot(db, {
     ownerId: ctx.userId,
@@ -78,6 +84,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     runtime: body.runtime,
     image: body.image ?? null,
     modelName,
+    reasoningEffort: effortResolution.canonicalEffort,
   })
 
   // The bot's owner is the authenticated caller — resolve their handle to
@@ -136,6 +143,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         machineId: body.machineId,
         runtime: body.runtime,
         modelName,
+        reasoningEffort: effortResolution.canonicalEffort,
+        runtimeConfigRevision: 0,
       },
     },
     201,

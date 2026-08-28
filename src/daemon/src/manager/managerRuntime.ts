@@ -22,6 +22,7 @@ import type {
   BuiltinBackendId,
   BuiltinBackendSpecs,
   DeliveryReceipt,
+  RuntimeSettingsUpdateResult,
 } from "@alook/agent-driver";
 import type { HostLaunchContext } from "./hostContext.js";
 import { runtimeModelName, type RuntimeConfig } from "../runtimeConfig.js";
@@ -36,6 +37,7 @@ import type { TimelineTurnOwner } from "../timeline/recorder.js";
 const SESSION_STOP_GRACE_MS = 2_000;
 export type AgentActivityState = "idle" | "starting" | "running" | "stopping";
 export type DaemonAgentSession = AgentSession<BuiltinBackendSpecs, BuiltinBackendId>;
+export type RuntimeConfigUpdateResult = "applied" | "deferred" | "saved_for_start" | "stale" | "idempotent";
 type ManagedEvent = AgentEvent<BuiltinBackendSpecs, BuiltinBackendId>;
 type TraceTerminationCause = "runtime_error" | "killed_stalled" | "other";
 type TraceSpawnFailureReason = "ENOENT" | "handshake_timeout" | "pre_handshake_exit" | "spawn_threw" | "other";
@@ -439,6 +441,9 @@ export class AgentProcessManager {
   private state: ManagerState;
   private readonly sessions = new Map<string, DaemonAgentSession>();
   private readonly runtimeConfigs = new Map<string, RuntimeConfig>();
+  private readonly appliedRuntimeConfigs = new Map<string, RuntimeConfig>();
+  private readonly pendingRuntimeConfigUpdates = new Map<string, RuntimeConfig>();
+  private readonly runtimeConfigApplyRunning = new Set<string>();
   private readonly resumeSessions = new Map<string, string>();
   private readonly launchIds = new Map<string, string>();
   private readonly liveSessions = new Map<string, string>();
@@ -513,11 +518,150 @@ export class AgentProcessManager {
       this.opts.idleResetTimeoutMs,
     );
   }
-  register(agentId: string, launch?: { runtimeConfig?: RuntimeConfig; sessionId?: string; launchId?: string }): void {
-    if (launch?.runtimeConfig) this.runtimeConfigs.set(agentId, launch.runtimeConfig);
+  register(agentId: string, launch?: {
+    runtimeConfig?: RuntimeConfig;
+    sessionId?: string;
+    launchId?: string;
+    applyRuntimeConfig?: boolean;
+  }): void {
+    const runtimeConfigAcceptance = launch?.runtimeConfig
+      ? this.acceptRuntimeConfig(agentId, launch.runtimeConfig)
+      : undefined;
     if (launch?.sessionId) this.resumeSessions.set(agentId, launch.sessionId);
     if (launch?.launchId) this.launchIds.set(agentId, launch.launchId);
     this.dispatch({ type: "register", agentId });
+    const registered = this.state.agents[agentId];
+    if (
+      launch?.runtimeConfig
+      && launch.applyRuntimeConfig !== false
+      && (runtimeConfigAcceptance === "accepted" || this.pendingRuntimeConfigUpdates.has(agentId))
+      && this.sessions.has(agentId)
+      && registered
+      && !isActivelyWorking(registered)
+    ) {
+      void this.convergeRuntimeConfig(agentId);
+    }
+  }
+
+  async updateRuntimeConfig(agentId: string, config: RuntimeConfig): Promise<RuntimeConfigUpdateResult> {
+    const accepted = this.acceptRuntimeConfig(agentId, config);
+    if (accepted === "stale" || accepted === "idempotent") return accepted;
+    const session = this.sessions.get(agentId);
+    if (!session) {
+      this.pendingRuntimeConfigUpdates.delete(agentId);
+      return "saved_for_start";
+    }
+    const agent = this.state.agents[agentId];
+    if (agent && (agent.turnActive || isActivelyWorking(agent))) return "deferred";
+    return this.convergeRuntimeConfig(agentId);
+  }
+
+  private acceptRuntimeConfig(
+    agentId: string,
+    config: RuntimeConfig,
+  ): "accepted" | "stale" | "idempotent" {
+    const desired = this.runtimeConfigs.get(agentId);
+    const revision = config.runtimeConfigRevision ?? 0;
+    const desiredRevision = desired?.runtimeConfigRevision ?? 0;
+    if (desired && revision < desiredRevision) return "stale";
+    if (desired && revision === desiredRevision) {
+      if (this.runtimeConfigTuple(desired) !== this.runtimeConfigTuple(config)) {
+        throw new Error(`Conflicting runtime config for ${agentId} at revision ${revision}`);
+      }
+      this.runtimeConfigs.set(agentId, config);
+      return "idempotent";
+    }
+    this.runtimeConfigs.set(agentId, config);
+    this.pendingRuntimeConfigUpdates.set(agentId, config);
+    return "accepted";
+  }
+
+  private runtimeConfigTuple(config: RuntimeConfig): string {
+    return JSON.stringify({
+      version: config.version,
+      runtime: config.runtime,
+      model: config.model,
+      mode: config.mode,
+      reasoningEffort: config.reasoningEffort ?? null,
+      provider: config.provider ?? null,
+      command: config.command ?? null,
+      disallowedTools: config.disallowedTools ?? null,
+      envVars: config.envVars ?? null,
+    });
+  }
+
+  private runtimeLaunchTuple(config: RuntimeConfig): string {
+    return JSON.stringify({
+      version: config.version,
+      runtime: config.runtime,
+      model: config.model,
+      mode: config.mode,
+      provider: config.provider ?? null,
+      command: config.command ?? null,
+      disallowedTools: config.disallowedTools ?? null,
+      envVars: config.envVars ?? null,
+    });
+  }
+
+  private async convergeRuntimeConfig(
+    agentId: string,
+    restartOnFailure = true,
+  ): Promise<RuntimeConfigUpdateResult> {
+    if (this.runtimeConfigApplyRunning.has(agentId)) return "deferred";
+    const session = this.sessions.get(agentId);
+    if (!session) return "saved_for_start";
+    this.runtimeConfigApplyRunning.add(agentId);
+    try {
+      while (this.sessions.get(agentId) === session) {
+        const desired = this.pendingRuntimeConfigUpdates.get(agentId) ?? this.runtimeConfigs.get(agentId);
+        if (!desired) return "idempotent";
+        const desiredRevision = desired.runtimeConfigRevision ?? 0;
+        const applied = this.appliedRuntimeConfigs.get(agentId);
+        const appliedRevision = applied?.runtimeConfigRevision ?? -1;
+        if (applied && desiredRevision <= appliedRevision) {
+          this.pendingRuntimeConfigUpdates.delete(agentId);
+          return desiredRevision === appliedRevision ? "idempotent" : "stale";
+        }
+        const canApplyNatively = applied
+          && this.runtimeLaunchTuple(applied) === this.runtimeLaunchTuple(desired)
+          && typeof session.updateSettings === "function";
+        let result: RuntimeSettingsUpdateResult = { status: "unsupported" };
+        if (canApplyNatively) {
+          result = await session.updateSettings!({
+            reasoningEffort: desired.reasoningEffort ?? null,
+          });
+        }
+        if (result.status !== "applied") {
+          this.log.warn("runtime config live apply unavailable; restarting at safe boundary", {
+            agentId,
+            revision: desiredRevision,
+            status: result.status,
+            code: result.error?.code,
+          });
+          if (restartOnFailure) await this.restartForRuntimeConfig(agentId, session);
+          return "saved_for_start";
+        }
+        this.appliedRuntimeConfigs.set(agentId, desired);
+        if ((this.pendingRuntimeConfigUpdates.get(agentId)?.runtimeConfigRevision ?? -1) === desiredRevision) {
+          this.pendingRuntimeConfigUpdates.delete(agentId);
+        }
+        const latestRevision = this.runtimeConfigs.get(agentId)?.runtimeConfigRevision ?? 0;
+        if (latestRevision <= desiredRevision) {
+          this.dispatch({ type: "runtime_config_applied", agentId });
+          return "applied";
+        }
+      }
+      return "saved_for_start";
+    } finally {
+      this.runtimeConfigApplyRunning.delete(agentId);
+    }
+  }
+
+  private async restartForRuntimeConfig(agentId: string, session: DaemonAgentSession): Promise<void> {
+    if (this.sessions.get(agentId) !== session) return;
+    this.opts.timeline?.fenceSession(agentId);
+    this.markResetting(agentId);
+    await this.stop(agentId);
   }
   deliver(agentId: string, message: AgentMsg): boolean {
     const normalized = message.id
@@ -528,6 +672,15 @@ export class AgentProcessManager {
             ? `${agentId}:source:${message.seq}`
             : `${agentId}:synthetic:${this.nextDeliveryOrdinal++}`,
         };
+    if (this.sessions.has(agentId) && this.pendingRuntimeConfigUpdates.has(agentId)) {
+      this.dispatch({
+        type: "delivery_rejected",
+        agentId,
+        message: normalized,
+        mode: "idle",
+      });
+      return this.state.agents[agentId] !== undefined;
+    }
     const effects = this.dispatch({ type: "wake", agentId, message: normalized, nowMs: this.now() });
     return effects.length > 0;
   }
@@ -609,7 +762,11 @@ export class AgentProcessManager {
       this.emitErrorAudit(agentId, "reset", "resume_control_update_failed", "Reset aborted because resume control could not be persisted");
       throw new Error("Reset aborted because resume control could not be persisted");
     }
-    this.register(agentId, { runtimeConfig: opts.runtimeConfig, launchId: opts.launchId });
+    this.register(agentId, {
+      runtimeConfig: opts.runtimeConfig,
+      launchId: opts.launchId,
+      applyRuntimeConfig: false,
+    });
     if (!opts.forgetSession) this.opts.timeline?.fenceSession(agentId);
     this.abortCurrentTurn(agentId, opts.abortCause);
     this.markResetting(agentId);
@@ -1477,6 +1634,7 @@ export class AgentProcessManager {
       if (state.session && this.sessions.get(agentId) === state.session) this.sessions.delete(agentId);
       this.liveSessions.delete(agentId);
       if (this.activeSpawnState.get(agentId) === state) {
+        this.appliedRuntimeConfigs.delete(agentId);
         this.activeSpawnState.delete(agentId);
         this.nonCleanEndMarker.delete(agentId);
       }
@@ -1527,6 +1685,13 @@ export class AgentProcessManager {
       state.session = session;
       state.sessionInstanceId = session.sessionInstanceId;
       this.sessions.set(agentId, session);
+      this.appliedRuntimeConfigs.set(agentId, runtimeConfig);
+      if (
+        (this.pendingRuntimeConfigUpdates.get(agentId)?.runtimeConfigRevision ?? -1)
+        <= (runtimeConfig.runtimeConfigRevision ?? 0)
+      ) {
+        this.pendingRuntimeConfigUpdates.delete(agentId);
+      }
       this.dispatch({
         type: "attach_session",
         agentId,
@@ -1905,27 +2070,40 @@ export class AgentProcessManager {
       this.logSessionEnded(agentId, "turn_end");
       const marker = this.nonCleanEndMarker.get(agentId);
       this.nonCleanEndMarker.delete(agentId);
-      this.dispatch(
-        marker !== undefined
-          ? {
-              type: "turn_completed",
-              agentId,
-              sessionInstanceId: event.sessionInstanceId,
-              nowMs: this.now(),
-              turnId: event.turnId,
-              endReason: "errored",
-              terminationCause: marker.cause,
-              errorDetail: marker.detail,
-            }
-          : {
-              type: "turn_completed",
-              agentId,
-              sessionInstanceId: event.sessionInstanceId,
-              nowMs: this.now(),
-              turnId: event.turnId,
-            },
-        owner,
-      );
+      const completionEvent: Extract<ManagerEvent, { type: "turn_completed" }> = marker !== undefined
+        ? {
+            type: "turn_completed",
+            agentId,
+            sessionInstanceId: event.sessionInstanceId,
+            nowMs: this.now(),
+            turnId: event.turnId,
+            endReason: "errored",
+            terminationCause: marker.cause,
+            errorDetail: marker.detail,
+          }
+        : {
+            type: "turn_completed",
+            agentId,
+            sessionInstanceId: event.sessionInstanceId,
+            nowMs: this.now(),
+            turnId: event.turnId,
+          };
+      if (this.pendingRuntimeConfigUpdates.has(agentId) && this.sessions.get(agentId) === owner.session) {
+        void this.convergeRuntimeConfig(agentId, false).then((result) => {
+          if (result === "saved_for_start" && owner.session) this.markResetting(agentId);
+          this.dispatch(completionEvent, owner);
+          if (result === "saved_for_start" && owner.session) {
+            void this.restartForRuntimeConfig(agentId, owner.session);
+          }
+        }).catch((error) => {
+          this.log.error("runtime config convergence failed", { agentId, error: String(error) });
+          if (owner.session) this.markResetting(agentId);
+          this.dispatch(completionEvent, owner);
+          if (owner.session) void this.restartForRuntimeConfig(agentId, owner.session);
+        });
+        return;
+      }
+      this.dispatch(completionEvent, owner);
     }
   }
 }

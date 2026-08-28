@@ -18,6 +18,8 @@ import type {
   PreparedExecutionResource,
   StopInput,
   StopReceipt,
+  RuntimeSettingsUpdate,
+  RuntimeSettingsUpdateResult,
 } from "../contract.js";
 import type { AgentDriverHost } from "../contract.js";
 import type {
@@ -216,6 +218,8 @@ implements AgentSession<Specs, Id> {
   private toolBoundaryFlushDisabled = false;
   private safeBoundaryFlush?: Promise<void>;
   private safeBoundaryDelivery?: SafeBoundaryDelivery;
+  private settingsUpdateTail: Promise<void> = Promise.resolve();
+  private settingsUpdatePending = false;
   private turnAdmission?: TurnAdmission;
   private instructionsMaterialized = false;
   private lifecycleGeneration = 0;
@@ -278,6 +282,35 @@ implements AgentSession<Specs, Id> {
 
   send(message: AgentMessage): Promise<DeliveryReceipt> {
     return this.admit("send", message);
+  }
+
+  updateSettings(input: RuntimeSettingsUpdate): Promise<RuntimeSettingsUpdateResult> {
+    if (this.state === "closed" || this.state === "stopping" || this.finishing) {
+      return Promise.resolve({
+        status: "failed",
+        error: driverError("process", "settings_session_closed", "Runtime session is closed", true),
+      });
+    }
+    this.settingsUpdatePending = true;
+    const operation = this.settingsUpdateTail.then(async (): Promise<RuntimeSettingsUpdateResult> => {
+      if (!this.lane?.updateSettings) return { status: "unsupported" };
+      try {
+        return await this.lane.updateSettings(input);
+      } catch (error) {
+        return {
+          status: "failed",
+          error: driverError("process", "settings_update_failed", String(error), true),
+        };
+      }
+    });
+    this.settingsUpdateTail = operation.then((result) => {
+      if (result.status === "applied") {
+        this.settingsUpdatePending = false;
+        return;
+      }
+      return new Promise<void>(() => {});
+    });
+    return operation;
   }
 
   async interrupt(input: { readonly requestId: string; readonly reason: string }): Promise<InterruptResult> {
@@ -461,7 +494,12 @@ implements AgentSession<Specs, Id> {
     }
     if (
       this.state === "idle"
-      && (this.queued.length > 0 || this.safeBoundaryFlush !== undefined || this.safeBoundaryDelivery !== undefined)
+      && (
+        this.queued.length > 0
+        || this.safeBoundaryFlush !== undefined
+        || this.safeBoundaryDelivery !== undefined
+        || this.settingsUpdatePending
+      )
     ) {
       return this.queue(message, "runtime_busy");
     }
@@ -946,6 +984,7 @@ implements AgentSession<Specs, Id> {
     } else {
       void Promise.resolve()
         .then(() => this.safeBoundaryFlush)
+        .then(() => this.settingsUpdateTail)
         .then(() => this.startNextQueued());
     }
   }

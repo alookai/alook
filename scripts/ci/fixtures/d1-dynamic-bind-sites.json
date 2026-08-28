@@ -168,6 +168,10 @@
     "strategy": "subquery"
   },
   {
+    "key": "src/shared/src/db/queries/community/bot.ts:updateBotRuntimeConfig:inArray:1",
+    "strategy": "subquery"
+  },
+  {
     "key": "src/shared/src/db/queries/community/category.ts:getCategoriesByIds:inArray:1",
     "strategy": "json-set"
   },

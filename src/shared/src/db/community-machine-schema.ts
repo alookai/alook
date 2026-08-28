@@ -262,6 +262,8 @@ export const communityBotBinding = sqliteTable(
     // stored. Hand-maintained in lockstep with migration 0063 (no drizzle-kit
     // generate in this repo).
     modelName: text("model_name"),
+    reasoningEffort: text("reasoning_effort"),
+    runtimeConfigRevision: integer("runtime_config_revision").notNull().default(0),
     createdAt: text("created_at")
       .notNull()
       .$defaultFn(() => new Date().toISOString()),

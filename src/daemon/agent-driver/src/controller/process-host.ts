@@ -23,7 +23,11 @@ import type {
   SpawnedProcess,
   SpawnedProcessHandle,
 } from "../internal/adapter.js";
-import type { BuiltinBackendId } from "../contract.js";
+import type {
+  BuiltinBackendId,
+  RuntimeSettingsUpdate,
+  RuntimeSettingsUpdateResult,
+} from "../contract.js";
 import { killProcessTree, SESSION_STOP_GRACE_MS } from "../internal/killTree.js";
 
 const DEFAULT_PROMPT_ADMISSION_TIMEOUT_MS = 60_000;
@@ -48,6 +52,7 @@ export interface ProcessAdapterPrimitives<Id extends string, Config> {
     sessionId: string | null,
     opts?: import("../internal/adapter.js").EncodeMessageOptions,
   ): string | null;
+  updateSettings?(input: RuntimeSettingsUpdate): Promise<RuntimeSettingsUpdateResult>;
 }
 
 export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendConfig> implements RuntimeLane {
@@ -238,6 +243,10 @@ export class ProcessLane<Id extends string = BuiltinBackendId, Config = BackendC
     const proc = this.process;
     if (!proc || this.closed) return false;
     return proc.kill("SIGINT");
+  }
+
+  updateSettings(input: RuntimeSettingsUpdate): Promise<RuntimeSettingsUpdateResult> {
+    return this.driver.updateSettings?.(input) ?? Promise.resolve({ status: "unsupported" });
   }
 
   /** Wire stdout line-buffering → normalizeLine → runtime_event, plus lifecycle. */

@@ -197,4 +197,52 @@ describe("ws-do router", () => {
       expect(doMock.stubFetch).not.toHaveBeenCalled()
     })
   })
+
+  describe("POST /community-machine/by-id/:machineId/forward-agent-runtime-config-update", () => {
+    const validBody = {
+      agentId: "bot-1",
+      config: {
+        version: 1,
+        runtime: "codex",
+        model: { kind: "default" },
+        mode: { kind: "default" },
+        reasoningEffort: "xhigh",
+        runtimeConfigRevision: 4,
+      },
+    }
+
+    beforeEach(() => {
+      mockGetActiveDoNamesForMachine.mockReset()
+      mockGetActiveDoNamesForMachine.mockResolvedValue([])
+    })
+
+    it("forwards the exact revisioned desired config to the machine DO", async () => {
+      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-abc"])
+      doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 1 }), { status: 200 }))
+      const res = await handler.fetch(new Request(
+        "http://localhost/community-machine/by-id/machine-1/forward-agent-runtime-config-update",
+        { method: "POST", body: JSON.stringify(validBody) },
+      ), env as any)
+
+      const stubReq = doMock.stubFetch.mock.calls[0][0] as Request
+      expect(stubReq.url).toBe("http://internal/push-runtime-config-update")
+      expect(JSON.parse(await stubReq.text())).toEqual(validBody)
+      await expect(res.json()).resolves.toEqual({ sent: 1 })
+    })
+
+    it("rejects extra keys and returns sent:0 when no live machine DO exists", async () => {
+      const invalid = await handler.fetch(new Request(
+        "http://localhost/community-machine/by-id/machine-1/forward-agent-runtime-config-update",
+        { method: "POST", body: JSON.stringify({ ...validBody, launchId: "not-allowed" }) },
+      ), env as any)
+      expect(invalid.status).toBe(400)
+
+      const absent = await handler.fetch(new Request(
+        "http://localhost/community-machine/by-id/machine-1/forward-agent-runtime-config-update",
+        { method: "POST", body: JSON.stringify(validBody) },
+      ), env as any)
+      await expect(absent.json()).resolves.toEqual({ sent: 0 })
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
+    })
+  })
 })

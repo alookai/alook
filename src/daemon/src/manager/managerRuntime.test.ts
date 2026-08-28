@@ -447,6 +447,187 @@ describe("AgentProcessManager — idle session reset", () => {
   });
 });
 
+describe("AgentProcessManager runtime config revisions", () => {
+  const config = (revision: number, reasoningEffort: RuntimeConfig["reasoningEffort"]): RuntimeConfig => ({
+    version: 1,
+    runtime: "codex",
+    model: { kind: "default" },
+    mode: { kind: "default" },
+    reasoningEffort,
+    runtimeConfigRevision: revision,
+  });
+
+  it("coalesces busy updates and applies only the newest revision after turn completion", async () => {
+    const { mgr, session } = makeManager();
+    const updateSettings = vi.fn(async () => ({ status: "applied" as const }));
+    session.updateSettings = updateSettings;
+    mgr.register("a1", { runtimeConfig: config(1, "low") });
+    mgr.deliver("a1", { id: "root", text: "work" });
+    session.startResolver?.();
+    await vi.waitFor(() => expect(mgr.snapshot().agents.a1.execution.lease.state).toBe("active"));
+
+    await expect(mgr.updateRuntimeConfig("a1", config(2, "medium"))).resolves.toBe("deferred");
+    await expect(mgr.updateRuntimeConfig("a1", config(3, "high"))).resolves.toBe("deferred");
+    expect(updateSettings).not.toHaveBeenCalled();
+
+    await session.pushAgentEvent({
+      type: "turn_completed",
+      turnId: "test-turn",
+      commandIds: ["root"],
+      result: { outcome: "success", backendSessionId: "thread_1" },
+    });
+    await vi.waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
+    expect(updateSettings).toHaveBeenCalledWith({ reasoningEffort: "high" });
+  });
+
+  it("ignores stale updates and rejects a conflicting tuple at the same revision", async () => {
+    const { mgr } = makeManager();
+    await expect(mgr.updateRuntimeConfig("offline", config(4, "high"))).resolves.toBe("saved_for_start");
+    await expect(mgr.updateRuntimeConfig("offline", config(3, "low"))).resolves.toBe("stale");
+    await expect(mgr.updateRuntimeConfig("offline", config(4, "high"))).resolves.toBe("idempotent");
+    await expect(mgr.updateRuntimeConfig("offline", config(4, "medium"))).rejects.toThrow(
+      "Conflicting runtime config",
+    );
+  });
+
+  it("holds an idle admission until an in-flight native update succeeds", async () => {
+    const { mgr, session } = makeManager();
+    let resolveUpdate!: (value: { status: "applied" }) => void;
+    const updateSettings = vi.fn(() => new Promise<{ status: "applied" }>((resolve) => {
+      resolveUpdate = resolve;
+    }));
+    session.updateSettings = updateSettings;
+    const send = vi.spyOn(session, "send");
+    mgr.register("a1", { runtimeConfig: config(1, "low") });
+    mgr.deliver("a1", { id: "root", text: "first" });
+    session.startResolver?.();
+    await vi.waitFor(() => expect(mgr.snapshot().agents.a1.execution.lease.state).toBe("active"));
+    await session.pushAgentEvent({
+      type: "turn_completed",
+      turnId: "test-turn",
+      commandIds: ["root"],
+      result: { outcome: "success", backendSessionId: "thread_1" },
+    });
+    await vi.waitFor(() => expect(mgr.snapshot().agents.a1.execution.lease.state).toBe("none"));
+
+    const updating = mgr.updateRuntimeConfig("a1", config(2, "high"));
+    await vi.waitFor(() => expect(updateSettings).toHaveBeenCalledOnce());
+    mgr.deliver("a1", { id: "after-update", text: "after update" });
+    expect(send).not.toHaveBeenCalled();
+
+    resolveUpdate({ status: "applied" });
+    await expect(updating).resolves.toBe("applied");
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      id: "after-update",
+      text: "after update",
+    }));
+  });
+
+  it("falls back once at the boundary and keeps queued work recoverable when native apply is unsupported", async () => {
+    const oldSession = fakeSession("reasoning-old");
+    const replacementSession = fakeSession("reasoning-new");
+    const created: FakeSession[] = [];
+    const factory: SessionFactory = () => {
+      const session = created.length === 0 ? oldSession : replacementSession;
+      created.push(session);
+      return session;
+    };
+    const mgr = new AgentProcessManager({
+      driverFor: () => fakeDriver("codex"),
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "a1",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      sessionFactory: factory,
+    });
+    const updateSettings = vi.fn(async () => ({ status: "unsupported" as const }));
+    oldSession.updateSettings = updateSettings;
+    const oldStop = vi.spyOn(oldSession, "stop");
+    const oldSend = vi.spyOn(oldSession, "send");
+    const replacementStart = vi.spyOn(replacementSession, "start");
+
+    mgr.register("a1", { runtimeConfig: config(1, "low") });
+    mgr.deliver("a1", { id: "root", text: "current turn" });
+    oldSession.startResolver?.();
+    await vi.waitFor(() => expect(mgr.snapshot().agents.a1.execution.lease.state).toBe("active"));
+    await expect(mgr.updateRuntimeConfig("a1", config(2, "xhigh"))).resolves.toBe("deferred");
+    mgr.deliver("a1", { id: "queued", text: "next real message" });
+    expect(oldSend).not.toHaveBeenCalled();
+
+    await oldSession.pushAgentEvent({
+      type: "turn_completed",
+      turnId: "test-turn",
+      commandIds: ["root"],
+      result: { outcome: "success", backendSessionId: "thread_1" },
+    });
+    await vi.waitFor(() => expect(oldStop).toHaveBeenCalledTimes(1));
+    expect(updateSettings).toHaveBeenCalledOnce();
+    expect(oldSend).not.toHaveBeenCalled();
+
+    await oldSession.fire("exit", { reason: "requested", code: 0, signal: null });
+    await vi.waitFor(() => expect(created).toEqual([oldSession, replacementSession]));
+    expect(replacementStart).toHaveBeenCalledTimes(1);
+    expect(replacementStart).toHaveBeenCalledWith(expect.objectContaining({
+      id: "queued",
+      text: "next real message",
+    }));
+  });
+
+  it("keeps queued work behind the revision barrier when a live apply throws", async () => {
+    const oldSession = fakeSession("reasoning-throw-old");
+    const replacementSession = fakeSession("reasoning-throw-new");
+    const created: FakeSession[] = [];
+    const mgr = new AgentProcessManager({
+      driverFor: () => fakeDriver("codex"),
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "a1",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      sessionFactory: () => {
+        const session = created.length === 0 ? oldSession : replacementSession;
+        created.push(session);
+        return session;
+      },
+    });
+    oldSession.updateSettings = vi.fn(async () => {
+      throw new Error("native settings exploded");
+    });
+    const oldStop = vi.spyOn(oldSession, "stop");
+    const oldSend = vi.spyOn(oldSession, "send");
+    const replacementStart = vi.spyOn(replacementSession, "start");
+
+    mgr.register("a1", { runtimeConfig: config(1, "low") });
+    mgr.deliver("a1", { id: "root", text: "current turn" });
+    oldSession.startResolver?.();
+    await vi.waitFor(() => expect(mgr.snapshot().agents.a1.execution.lease.state).toBe("active"));
+    await expect(mgr.updateRuntimeConfig("a1", config(2, "max"))).resolves.toBe("deferred");
+    mgr.deliver("a1", { id: "queued-after-throw", text: "must wait" });
+
+    await oldSession.pushAgentEvent({
+      type: "turn_completed",
+      turnId: "test-turn",
+      commandIds: ["root"],
+      result: { outcome: "success", backendSessionId: "thread_1" },
+    });
+    await vi.waitFor(() => expect(oldStop).toHaveBeenCalledOnce());
+    expect(oldSend).not.toHaveBeenCalled();
+
+    await oldSession.fire("exit", { reason: "requested", code: 0, signal: null });
+    await vi.waitFor(() => expect(created).toEqual([oldSession, replacementSession]));
+    expect(replacementStart).toHaveBeenCalledWith(expect.objectContaining({
+      id: "queued-after-throw",
+      text: "must wait",
+    }));
+  });
+});
+
 function recordObservedTurn(
   recorder: ReturnType<typeof createTimelineRecorder>,
   agentId: string,

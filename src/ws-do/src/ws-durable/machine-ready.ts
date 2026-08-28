@@ -31,6 +31,7 @@ function canonicalRuntimes(list: CommunityMachineRuntime[]): string {
       ...(runtime.version !== undefined ? { version: runtime.version } : {}),
       status: runtime.status ?? "healthy",
       ...(runtime.lastError !== undefined ? { lastError: runtime.lastError } : {}),
+      ...(runtime.reasoning !== undefined ? { reasoning: runtime.reasoning } : {}),
     }))
   )
 }

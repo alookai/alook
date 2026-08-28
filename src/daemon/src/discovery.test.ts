@@ -197,6 +197,30 @@ describe("detectRuntimes", () => {
     expect(result).toHaveLength(EXPECTED_RUNTIMES.length);
     expect(result[0]).toEqual({ id: EXPECTED_RUNTIMES[0], status: "healthy", version: "9.8.7" });
   });
+
+  it("carries a healthy runtime's reasoning catalog into ready discovery", async () => {
+    const reasoning = {
+      updateMode: "live_next_turn" as const,
+      defaultModelId: "gpt-5",
+      models: [{
+        id: "gpt-5",
+        supportedReasoningEfforts: [{ value: "minimal" }, { value: "xhigh" }],
+        defaultReasoningEffort: "minimal",
+      }],
+    };
+    vi.spyOn(drivers, "getDriver").mockReturnValue({
+      probe: async () => ({ status: "healthy", version: "9.8.7", reasoning }),
+    } as never);
+
+    const result = await detectRuntimes();
+
+    expect(result[0]).toEqual({
+      id: EXPECTED_RUNTIMES[0],
+      status: "healthy",
+      version: "9.8.7",
+      reasoning,
+    });
+  });
 });
 
 describe("driver registry", () => {

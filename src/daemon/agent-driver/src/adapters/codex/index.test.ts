@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { EventEmitter } from "events";
 import * as fs from "fs";
 import * as os from "os";
@@ -7,16 +7,42 @@ import { CodexDriver } from "./index.js";
 import type { AdapterLaunchContext } from "../../internal/adapter.js";
 import { fakeLaunchContext } from "../../testing/adapter-fixture.js";
 
+const runtimeMocks = vi.hoisted(() => ({
+  spawnAgentProcess: vi.fn(),
+  killProcessTree: vi.fn(async () => {}),
+  probeCliRuntime: vi.fn(async () => ({ status: "healthy" as const, version: "0.test" })),
+}));
+
 vi.mock("../../internal/killTree.js", async () => {
   const actual = await vi.importActual<typeof import("../../internal/killTree.js")>("../../internal/killTree.js");
   return {
     ...actual,
-    spawnAgentProcess: () => {
-      const proc = new EventEmitter() as EventEmitter & { stdin: { write: ReturnType<typeof vi.fn> } };
-      proc.stdin = { write: vi.fn() };
-      return proc as never;
-    },
+    spawnAgentProcess: runtimeMocks.spawnAgentProcess,
+    killProcessTree: runtimeMocks.killProcessTree,
   };
+});
+
+vi.mock("../../internal/probe.js", async () => {
+  const actual = await vi.importActual<typeof import("../../internal/probe.js")>("../../internal/probe.js");
+  return { ...actual, probeCliRuntime: runtimeMocks.probeCliRuntime };
+});
+
+function simpleProcess() {
+  const proc = new EventEmitter() as EventEmitter & {
+    stdin: { write: ReturnType<typeof vi.fn> };
+    kill: ReturnType<typeof vi.fn>;
+  };
+  proc.stdin = { write: vi.fn() };
+  proc.kill = vi.fn();
+  return proc;
+}
+
+beforeEach(() => {
+  runtimeMocks.spawnAgentProcess.mockReset();
+  runtimeMocks.spawnAgentProcess.mockImplementation(simpleProcess);
+  runtimeMocks.killProcessTree.mockClear();
+  runtimeMocks.probeCliRuntime.mockClear();
+  runtimeMocks.probeCliRuntime.mockResolvedValue({ status: "healthy", version: "0.test" });
 });
 
 function mkTmp(): string {
@@ -30,6 +56,110 @@ function baseCtx(): AdapterLaunchContext {
     prompt: "hi",
   });
 }
+
+function probingProcess(
+  respond: (request: Record<string, any>) => Record<string, unknown>,
+) {
+  const proc = simpleProcess() as ReturnType<typeof simpleProcess> & {
+    stdout: EventEmitter;
+    pid?: number;
+  };
+  proc.stdout = new EventEmitter();
+  proc.stdin.write = vi.fn((line: string) => {
+    const request = JSON.parse(line.trim()) as Record<string, any>;
+    queueMicrotask(() => {
+      proc.stdout.emit("data", Buffer.from(`${JSON.stringify(respond(request))}\n`));
+    });
+    return true;
+  });
+  return proc;
+}
+
+describe("CodexDriver reasoning catalog probe", () => {
+  it("initializes, pages model/list, preserves reported options, and tears down", async () => {
+    const proc = probingProcess((request) => {
+      if (request.method === "initialize") return { jsonrpc: "2.0", id: request.id, result: {} };
+      if (request.params.cursor === "next") {
+        return {
+          jsonrpc: "2.0",
+          id: request.id,
+          result: {
+            data: [{
+              id: "gpt-5.1",
+              isDefault: true,
+              supportedReasoningEfforts: [
+                { reasoningEffort: "xhigh", description: "Deeper reasoning" },
+                { reasoningEffort: "future_level" },
+              ],
+              defaultReasoningEffort: "xhigh",
+            }],
+            nextCursor: null,
+          },
+        };
+      }
+      return {
+        jsonrpc: "2.0",
+        id: request.id,
+        result: {
+          data: [{
+            id: "gpt-5",
+            supportedReasoningEfforts: [
+              { reasoningEffort: "minimal", description: "Fast" },
+              { reasoningEffort: "minimal", description: "duplicate" },
+              { reasoningEffort: "bad effort" },
+            ],
+            defaultReasoningEffort: "minimal",
+          }],
+          nextCursor: "next",
+        },
+      };
+    });
+    runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
+
+    await expect(new CodexDriver().probe()).resolves.toEqual({
+      status: "healthy",
+      version: "0.test",
+      reasoning: {
+        updateMode: "live_next_turn",
+        defaultModelId: "gpt-5.1",
+        models: [
+          {
+            id: "gpt-5",
+            supportedReasoningEfforts: [{ value: "minimal", description: "Fast" }],
+            defaultReasoningEffort: "minimal",
+          },
+          {
+            id: "gpt-5.1",
+            supportedReasoningEfforts: [
+              { value: "xhigh", description: "Deeper reasoning" },
+              { value: "future_level" },
+            ],
+            defaultReasoningEffort: "xhigh",
+          },
+        ],
+      },
+    });
+
+    const requests = proc.stdin.write.mock.calls.map(([line]) => JSON.parse(line.trim()));
+    expect(requests.map((request) => request.method)).toEqual(["initialize", "model/list", "model/list"]);
+    expect(requests[2].params.cursor).toBe("next");
+    expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("keeps Codex healthy when model/list is unavailable", async () => {
+    const proc = probingProcess((request) => request.method === "initialize"
+      ? { jsonrpc: "2.0", id: request.id, result: {} }
+      : { jsonrpc: "2.0", id: request.id, error: { code: -32601, message: "Method not found" } });
+    runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
+
+    await expect(new CodexDriver().probe()).resolves.toEqual({
+      status: "healthy",
+      version: "0.test",
+      reasoning: undefined,
+    });
+    expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+});
 
 describe("CodexDriver initialize payload", () => {
   it("sends alook-daemon identity via clientInfo (matches Codex's schema)", async () => {
@@ -46,6 +176,35 @@ describe("CodexDriver initialize payload", () => {
     expect(initPayload.jsonrpc).toBe("2.0");
     expect(initPayload.method).toBe("initialize");
     expect(initPayload.params.clientInfo).toEqual({ name: "alook-agent-driver", version: "0.1.14" });
+  });
+
+  it("passes an explicit effort on fresh launch and omits Default", async () => {
+    const explicit = new CodexDriver();
+    const explicitCtx = baseCtx();
+    explicitCtx.config.runtimeConfig = {
+      model: { kind: "default" },
+      mode: "default",
+      reasoningEffort: "ultra",
+    };
+    const { process: explicitProc } = await explicit.spawn(explicitCtx);
+    await Promise.resolve();
+    const explicitStart = stdinWrites(explicitProc)
+      .map((write) => JSON.parse(write.trim()))
+      .find((message) => message.method === "thread/start");
+    expect(explicitStart.params.config).toEqual({ model_reasoning_effort: "ultra" });
+
+    const defaults = new CodexDriver();
+    const defaultCtx = baseCtx();
+    defaultCtx.config.runtimeConfig = {
+      model: { kind: "default" },
+      mode: "default",
+    };
+    const { process: defaultProc } = await defaults.spawn(defaultCtx);
+    await Promise.resolve();
+    const defaultStart = stdinWrites(defaultProc)
+      .map((write) => JSON.parse(write.trim()))
+      .find((message) => message.method === "thread/start");
+    expect(defaultStart.params.config).toBeUndefined();
   });
 });
 
@@ -233,5 +392,107 @@ describe("CodexDriver encodeMessage — turn/steer expectedTurnId", () => {
     const msg = JSON.parse(encoded!);
     expect(msg.method).toBe("turn/start");
     expect(msg.params.expectedTurnId).toBeUndefined();
+  });
+});
+
+describe("CodexDriver live reasoning settings", () => {
+  it("correlates an explicit effort update by JSON-RPC id", async () => {
+    const driver = new CodexDriver();
+    const { process: proc } = await driver.spawn(baseCtx());
+    await Promise.resolve();
+    driver.normalizeLine(threadStartResult("th_settings"));
+
+    const pending = driver.updateSettings({ reasoningEffort: "xhigh" });
+    const request = stdinWrites(proc)
+      .map((write) => JSON.parse(write.trim()))
+      .find((message) => message.method === "thread/settings/update");
+    expect(request.params).toEqual({ threadId: "th_settings", effort: "xhigh" });
+    expect(driver.normalizeLine(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: {} }))).toEqual([]);
+    await expect(pending).resolves.toEqual({ status: "applied" });
+  });
+
+  it("sends null to restore Default and classifies method-not-found as unsupported", async () => {
+    const driver = new CodexDriver();
+    const { process: proc } = await driver.spawn(baseCtx());
+    await Promise.resolve();
+    driver.normalizeLine(threadStartResult("th_settings"));
+
+    const pending = driver.updateSettings({ reasoningEffort: null });
+    const request = stdinWrites(proc)
+      .map((write) => JSON.parse(write.trim()))
+      .find((message) => message.method === "thread/settings/update");
+    expect(request.params).toEqual({ threadId: "th_settings", effort: null });
+    driver.normalizeLine(JSON.stringify({
+      jsonrpc: "2.0",
+      id: request.id,
+      error: { code: -32601, message: "Method not found" },
+    }));
+    await expect(pending).resolves.toMatchObject({
+      status: "unsupported",
+      error: { code: "settings_update_unsupported" },
+    });
+  });
+
+  it("maps a non-method RPC rejection to a sanitized retryable failure", async () => {
+    const driver = new CodexDriver();
+    const { process: proc } = await driver.spawn(baseCtx());
+    await Promise.resolve();
+    driver.normalizeLine(threadStartResult("th_settings"));
+
+    const pending = driver.updateSettings({ reasoningEffort: "high" });
+    const request = stdinWrites(proc)
+      .map((write) => JSON.parse(write.trim()))
+      .find((message) => message.method === "thread/settings/update");
+    driver.normalizeLine(JSON.stringify({
+      jsonrpc: "2.0",
+      id: request.id,
+      error: { code: -32000, message: "settings rejected" },
+    }));
+
+    await expect(pending).resolves.toMatchObject({
+      status: "failed",
+      error: {
+        category: "protocol",
+        code: "settings_update_rejected",
+        message: "settings rejected",
+        retryable: true,
+      },
+    });
+  });
+
+  it("fails an in-flight update immediately when the Codex process exits", async () => {
+    const driver = new CodexDriver();
+    const { process: proc } = await driver.spawn(baseCtx());
+    await Promise.resolve();
+    driver.normalizeLine(threadStartResult("th_settings"));
+
+    const pending = driver.updateSettings({ reasoningEffort: "minimal" });
+    (proc as unknown as EventEmitter).emit("exit", 1, null);
+
+    await expect(pending).resolves.toMatchObject({
+      status: "failed",
+      error: { category: "process", code: "settings_process_exited", retryable: true },
+    });
+  });
+
+  it("times out an unacknowledged update", async () => {
+    vi.useFakeTimers();
+    try {
+      const driver = new CodexDriver();
+      const { process: proc } = await driver.spawn(baseCtx());
+      await Promise.resolve();
+      driver.normalizeLine(threadStartResult("th_settings"));
+
+      const pending = driver.updateSettings({ reasoningEffort: "minimal" });
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      await expect(pending).resolves.toMatchObject({
+        status: "failed",
+        error: { category: "timeout", code: "settings_update_timeout", retryable: true },
+      });
+      expect(proc).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

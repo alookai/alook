@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest"
 import { drizzle } from "drizzle-orm/d1"
+import { drizzle as drizzleSqlite } from "drizzle-orm/better-sqlite3"
+import Sqlite from "better-sqlite3"
 import * as q from "../../src/db/queries/community/bot"
 import {
   communityBotSyntheticEmail,
@@ -174,22 +176,116 @@ describe("getBotBinding", () => {
     return chain
   }
 
-  it("returns { machineId, runtime, modelName } when the binding exists (modelName defaults to null)", async () => {
+  it("returns the full runtime binding when it exists", async () => {
     const chain = makeSelectChain([{ machineId: "machine_1", runtime: "codex", modelName: null }])
     const result = await q.getBotBinding(chain, "bot_1")
-    expect(result).toEqual({ machineId: "machine_1", runtime: "codex", modelName: null })
+    expect(result).toEqual({
+      machineId: "machine_1",
+      runtime: "codex",
+      modelName: null,
+      reasoningEffort: null,
+      runtimeConfigRevision: 0,
+    })
   })
 
   it("surfaces a stored modelName", async () => {
     const chain = makeSelectChain([{ machineId: "machine_1", runtime: "claude", modelName: "claude-opus-4-6" }])
     const result = await q.getBotBinding(chain, "bot_1")
-    expect(result).toEqual({ machineId: "machine_1", runtime: "claude", modelName: "claude-opus-4-6" })
+    expect(result).toEqual({
+      machineId: "machine_1",
+      runtime: "claude",
+      modelName: "claude-opus-4-6",
+      reasoningEffort: null,
+      runtimeConfigRevision: 0,
+    })
   })
 
   it("returns null when no binding row matches", async () => {
     const chain = makeSelectChain([])
     const result = await q.getBotBinding(chain, "ghost_bot")
     expect(result).toBeNull()
+  })
+})
+
+describe("updateBotRuntimeConfig", () => {
+  function createDatabase() {
+    const sqlite = new Sqlite(":memory:")
+    sqlite.exec(`
+      CREATE TABLE user (
+        id TEXT PRIMARY KEY,
+        isBot INTEGER NOT NULL DEFAULT 0,
+        ownerUserId TEXT,
+        deletedAt TEXT
+      );
+      CREATE TABLE community_bot_binding (
+        user_id TEXT PRIMARY KEY,
+        machine_id TEXT NOT NULL,
+        runtime TEXT NOT NULL,
+        instruction TEXT NOT NULL DEFAULT '',
+        model_name TEXT,
+        reasoning_effort TEXT,
+        runtime_config_revision INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+      INSERT INTO user (id, isBot, ownerUserId, deletedAt)
+      VALUES ('bot_1', 1, 'owner_1', NULL);
+      INSERT INTO community_bot_binding (
+        user_id, machine_id, runtime, instruction, model_name,
+        reasoning_effort, runtime_config_revision, created_at
+      ) VALUES (
+        'bot_1', 'machine_1', 'codex', '', 'gpt-old',
+        'low', 4, '2026-08-29T00:00:00.000Z'
+      );
+    `)
+    return { sqlite, db: drizzleSqlite(sqlite) }
+  }
+
+  it("atomically replaces the full tuple and increments one server revision", async () => {
+    const { sqlite, db } = createDatabase()
+    try {
+      await expect(q.updateBotRuntimeConfig(db as never, "bot_1", "owner_1", {
+        runtime: "codex",
+        modelName: "gpt-new",
+        reasoningEffort: "xhigh",
+      })).resolves.toEqual({ runtimeConfigRevision: 5 })
+      expect(sqlite.prepare(`
+        SELECT runtime, model_name AS modelName,
+               reasoning_effort AS reasoningEffort,
+               runtime_config_revision AS runtimeConfigRevision
+        FROM community_bot_binding WHERE user_id = 'bot_1'
+      `).get()).toEqual({
+        runtime: "codex",
+        modelName: "gpt-new",
+        reasoningEffort: "xhigh",
+        runtimeConfigRevision: 5,
+      })
+    } finally {
+      sqlite.close()
+    }
+  })
+
+  it("does not change the tuple or revision for a different owner", async () => {
+    const { sqlite, db } = createDatabase()
+    try {
+      await expect(q.updateBotRuntimeConfig(db as never, "bot_1", "owner_2", {
+        runtime: "claude",
+        modelName: "foreign-model",
+        reasoningEffort: "max",
+      })).resolves.toBeNull()
+      expect(sqlite.prepare(`
+        SELECT runtime, model_name AS modelName,
+               reasoning_effort AS reasoningEffort,
+               runtime_config_revision AS runtimeConfigRevision
+        FROM community_bot_binding WHERE user_id = 'bot_1'
+      `).get()).toEqual({
+        runtime: "codex",
+        modelName: "gpt-old",
+        reasoningEffort: "low",
+        runtimeConfigRevision: 4,
+      })
+    } finally {
+      sqlite.close()
+    }
   })
 })
 
@@ -216,6 +312,8 @@ describe("listBotsForMachine", () => {
         ownerDiscriminator: "5678",
         runtime: "claude",
         modelName: "claude-opus-4-6",
+        reasoningEffort: null,
+        runtimeConfigRevision: 0,
       },
     ])
     const result = await q.listBotsForMachine(chain, "machine_1")
@@ -229,6 +327,8 @@ describe("listBotsForMachine", () => {
         ownerDiscriminator: "5678",
         runtime: "claude",
         modelName: "claude-opus-4-6",
+        reasoningEffort: null,
+        runtimeConfigRevision: 0,
       },
     ])
   })

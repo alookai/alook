@@ -266,6 +266,8 @@ export {
   DaemonPushMessageSchema,
   CommunityMachineRuntimeSchema,
   CommunityMachineRuntimeListSchema,
+  ReasoningEffortSchema,
+  RuntimeReasoningCatalogSchema,
   CommunityMachineSummarySchema,
   CommunityDaemonReadySchema,
   CommunityPairTokenResponseSchema,
@@ -286,6 +288,10 @@ export {
   COMMUNITY_RUNTIME_ID_MAX,
   COMMUNITY_RUNTIME_VERSION_MAX,
   COMMUNITY_RUNTIME_LIST_MAX,
+  COMMUNITY_REASONING_EFFORT_MAX,
+  COMMUNITY_REASONING_DESCRIPTION_MAX,
+  COMMUNITY_REASONING_OPTIONS_MAX,
+  COMMUNITY_REASONING_MODELS_MAX,
   CommunityBotCreateRequestSchema,
   CommunityBotPatchRequestSchema,
   CommunityBotAddToServerRequestSchema,
@@ -485,18 +491,26 @@ export type { CanonicalRefScope } from "./community-cli-contract";
 
 export type {
   ReasoningEffort,
+  KnownReasoningEffort,
+  ReasoningEffortOption,
+  RuntimeReasoningCatalog,
   ModelConfig,
   ProviderConfig,
   ModeConfig,
   RuntimeConfig,
 } from "./runtime-config";
-export { RUNTIME_CONFIG_VERSION, makeRuntimeConfig } from "./runtime-config";
+export { RUNTIME_CONFIG_VERSION, KNOWN_REASONING_EFFORTS, makeRuntimeConfig } from "./runtime-config";
 
 export type { RuntimeModelCatalogEntry } from "./constants/runtime-models";
 export {
   RUNTIME_MODEL_CATALOG,
   getRuntimeModelCatalog,
 } from "./constants/runtime-models";
+export type {
+  RuntimeReasoningDescriptor,
+  ReasoningEffortResolution,
+} from "./community/bot-reasoning-effort";
+export { resolveReasoningEffort } from "./community/bot-reasoning-effort";
 
 export {
   MODEL_SELECT_DEFAULT,
