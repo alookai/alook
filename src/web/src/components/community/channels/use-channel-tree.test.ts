@@ -1,6 +1,7 @@
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { describe, it, expect } from "vitest"
+import { readFileSync } from "node:fs"
 import {
   catId,
   catOf,
@@ -191,13 +192,20 @@ describe("mergeChannelMetadata", () => {
     expect(result.next.cat_A.find((c) => c.id === "a1")).toBe(order.cat_A[0])
   })
 
-  it("picks up a channel rename while ids are unchanged", () => {
-    const result = mergeChannelMetadata(order, [
-      cat("cat_A", [ch("a1"), { ...ch("a2"), name: "renamed" }]),
+  it("follows optimistic, normalized, and rollback names while ids and order stay unchanged", () => {
+    const incoming = (name: string) => [
+      cat("cat_A", [ch("a1"), { ...ch("a2"), name }]),
       cat("cat_B", [ch("b1"), ch("b2"), ch("b3")]),
-    ])
-    expect(result.changed).toBe(true)
-    expect(result.next.cat_A.find((c) => c.id === "a2")?.name).toBe("renamed")
+    ]
+    const optimistic = mergeChannelMetadata(order, incoming("General Chat"))
+    const normalized = mergeChannelMetadata(optimistic.next, incoming("General-Chat"))
+    const rolledBack = mergeChannelMetadata(optimistic.next, incoming("a2"))
+
+    expect(optimistic.next.cat_A.find((c) => c.id === "a2")?.name).toBe("General Chat")
+    expect(normalized.next.cat_A.find((c) => c.id === "a2")?.name).toBe("General-Chat")
+    expect(rolledBack.next.cat_A.find((c) => c.id === "a2")?.name).toBe("a2")
+    expect(normalized.next.cat_A.map((channel) => channel.id)).toEqual(["a1", "a2"])
+    expect(normalized.next.cat_B.map((channel) => channel.id)).toEqual(["b1", "b2", "b3"])
   })
 
   it("preserves category/channel order — only rewrites the changed field", () => {
@@ -234,5 +242,21 @@ describe("mergeChannelMetadata", () => {
     const row = result.next.cat_A.find((c) => c.id === "tmp_ch_x")
     expect(row?.pending).toBe(true)
     expect(row?.unread).toBe(true)
+  })
+})
+
+describe("ChannelSidebar rename ownership", () => {
+  it("submits through the external mutation without eagerly mutating the local tree", () => {
+    const source = readFileSync(new URL("./channel-sidebar.tsx", import.meta.url), "utf8")
+    expect(source).toContain("onCreate={({ name }) => { onRenameChannel?.(dialog.id, name) }}")
+    expect(source).not.toContain("renameChannel(dialog.id, name)")
+  })
+
+  it("keeps title, same-server refs, and member UI on reconciled server detail", () => {
+    const source = readFileSync(new URL("./channel-route.tsx", import.meta.url), "utf8")
+    expect(source).toContain("topLevelName: channelInServer?.name")
+    expect(source).toContain(".map((channel) => toChannelRefCandidate(currentServer, channel))")
+    expect(source).toContain("useChannelMemberViewModel({")
+    expect(source).toContain("channelName,\n    currentServer,")
   })
 })

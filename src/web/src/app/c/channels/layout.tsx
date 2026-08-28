@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { apiFetch, toastApiError } from "@/lib/api/client"
+import { toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { markSwitch } from "@/lib/perf/switch-mark"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -55,6 +55,7 @@ import {
 } from "@/hooks/community/use-notification-settings"
 import {
   useCreateChannel,
+  useRenameChannel,
   useDeleteChannel,
   useMoveChannel,
   useCreateCategory,
@@ -150,6 +151,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
 
   // Mutations
   const createChannelMut = useCreateChannel()
+  const renameChannelMut = useRenameChannel()
   const deleteChannelMut = useDeleteChannel()
   const moveChannelMut = useMoveChannel()
   const createCategoryMut = useCreateCategory()
@@ -389,20 +391,12 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       { onError: (e) => toastApiError(e, "Failed to create category") },
     )
   }, [createCategoryMut, serverId])
-  const onRenameChannel = useCallback(async (channelId: string, name: string) => {
-    try {
-      await apiFetch(`/api/community/channels/${channelId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ name }),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: communityKeys.channelRefDirectory(),
-        exact: true,
-      })
-    } catch (e) {
-      toastApiError(e, "Failed to rename channel")
-    }
-  }, [queryClient])
+  const onRenameChannel = useCallback((channelId: string, name: string) => {
+    renameChannelMut.mutate(
+      { serverId, channelId, name },
+      { onError: (e) => toastApiError(e, "Failed to rename channel") },
+    )
+  }, [renameChannelMut, serverId])
   const onDeleteChannelInSidebar = useCallback((channelId: string) => {
     deleteChannelMut.mutate({ serverId, channelId }, { onError: (e) => toastApiError(e, "Failed to delete channel") })
   }, [deleteChannelMut, serverId])

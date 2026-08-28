@@ -90,7 +90,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   activeThreadId?: string | null
   onSelectForumThread?: (parentId: string, id: string) => void
 }) {
-  const { collapsed, catOrder, order, catNames, catPrivate, catPending, toggleCat, removeChannel, renameChannel, renameCategory, onDragOver, onDragEnd: treeDragEnd } = tree
+  const { collapsed, catOrder, order, catNames, catPrivate, catPending, toggleCat, removeChannel, renameCategory, onDragOver, onDragEnd: treeDragEnd } = tree
   // Category the dragged channel started in — captured at drag start, because
   // `onDragOver` mutates `order` mid-drag so by drop time it already reflects
   // the destination.
@@ -401,7 +401,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
           category={catNames[dialog.categoryId] ?? ""}
           initial={{ name: dialog.name, type: dialog.type }}
           onClose={() => setDialog(null)}
-          onCreate={({ name }) => { renameChannel(dialog.id, name); onRenameChannel?.(dialog.id, name) }}
+          onCreate={({ name }) => { onRenameChannel?.(dialog.id, name) }}
         />
       )}
       {dialog?.kind === "create-category" && (

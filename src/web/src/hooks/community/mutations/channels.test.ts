@@ -67,6 +67,140 @@ beforeEach(() => {
   capturedQc = new QueryClient()
 })
 
+describe("useRenameChannel", () => {
+  type CachedChannel = { id: string; name: string; active: boolean; unread: boolean }
+  type CachedCategory = { id: string; name: string; channels: CachedChannel[] }
+  const originalServer = () => ({
+    id: "s1",
+    name: "Studio",
+    discriminator: "0042",
+    description: "",
+    icon: null,
+    ownerId: "u1",
+    categories: [{
+      id: "cat_1",
+      name: "Channels",
+      channels: [
+        { id: "c1", name: "general", active: true, unread: false },
+        { id: "c2", name: "random", active: false, unread: true },
+      ],
+    }],
+  })
+  const originalDirectory = () => [{
+    id: "s1",
+    name: "Studio",
+    discriminator: "0042",
+    channels: [
+      { id: "c1", name: "general" },
+      { id: "c2", name: "random" },
+    ],
+  }, {
+    id: "s2",
+    name: "Elsewhere",
+    discriminator: "0100",
+    channels: [{ id: "c3", name: "other" }],
+  }]
+  const seed = () => {
+    capturedQc.setQueryData(communityKeys.server("s1"), originalServer())
+    capturedQc.setQueryData(communityKeys.channelRefDirectory(), originalDirectory())
+  }
+  const serverChannels = () =>
+    capturedQc.getQueryData<{ categories: CachedCategory[] }>(communityKeys.server("s1"))!
+      .categories.flatMap((category) => category.channels)
+  const directory = () =>
+    capturedQc.getQueryData<ReturnType<typeof originalDirectory>>(communityKeys.channelRefDirectory())!
+
+  it("cancels both exact queries before optimistically patching both caches", async () => {
+    seed()
+    apiFetchMock.mockResolvedValueOnce({ id: "c1", name: "General-Chat" })
+    const mod = await load()
+    mod.useRenameChannel()
+    const cancelSpy = vi.spyOn(capturedQc, "cancelQueries")
+
+    await capturedConfig!.onMutate!({ serverId: "s1", channelId: "c1", name: "  General Chat  " })
+
+    expect(cancelSpy).toHaveBeenCalledWith({
+      queryKey: communityKeys.server("s1"),
+      exact: true,
+    })
+    expect(cancelSpy).toHaveBeenCalledWith({
+      queryKey: communityKeys.channelRefDirectory(),
+      exact: true,
+    })
+    expect(serverChannels().map((channel) => channel.name)).toEqual(["General Chat", "random"])
+    expect(directory()[0].channels.map((channel) => channel.name)).toEqual(["General Chat", "random"])
+    expect(directory()[1]).toEqual(originalDirectory()[1])
+  })
+
+  it("reconciles both caches to the PATCH response's normalized name", async () => {
+    seed()
+    apiFetchMock.mockResolvedValueOnce({ id: "c1", name: "General-Chat" })
+    const mod = await load()
+    mod.useRenameChannel()
+
+    await runMutation({ serverId: "s1", channelId: "c1", name: "General Chat" })
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/channels/c1",
+      { method: "PATCH", body: JSON.stringify({ name: "General Chat" }) },
+    )
+    expect(serverChannels().find((channel) => channel.id === "c1")?.name).toBe("General-Chat")
+    expect(directory()[0].channels.find((channel) => channel.id === "c1")?.name).toBe("General-Chat")
+  })
+
+  it("restores both snapshots on failure without optimistic residue", async () => {
+    seed()
+    apiFetchMock.mockRejectedValueOnce(new Error("duplicate"))
+    const mod = await load()
+    mod.useRenameChannel()
+
+    await runMutation({ serverId: "s1", channelId: "c1", name: "Taken Name" }).catch(() => {})
+
+    expect(serverChannels().find((channel) => channel.id === "c1")?.name).toBe("general")
+    expect(directory()[0].channels.find((channel) => channel.id === "c1")?.name).toBe("general")
+  })
+
+  it.each(["success", "error"] as const)(
+    "invalidates exact server detail and ref directory after %s",
+    async (outcome) => {
+      seed()
+      if (outcome === "success") {
+        apiFetchMock.mockResolvedValueOnce({ id: "c1", name: "renamed" })
+      } else {
+        apiFetchMock.mockRejectedValueOnce(new Error("boom"))
+      }
+      const mod = await load()
+      mod.useRenameChannel()
+      const invalidateSpy = vi.spyOn(capturedQc, "invalidateQueries")
+
+      await runMutation({ serverId: "s1", channelId: "c1", name: "renamed" }).catch(() => {})
+
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: communityKeys.server("s1"),
+        exact: true,
+      })
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: communityKeys.channelRefDirectory(),
+        exact: true,
+      })
+    },
+  )
+
+  it("leaves present caches unchanged when the channel is missing", async () => {
+    seed()
+    apiFetchMock.mockResolvedValueOnce({ id: "missing", name: "renamed" })
+    const beforeServer = capturedQc.getQueryData(communityKeys.server("s1"))
+    const beforeDirectory = capturedQc.getQueryData(communityKeys.channelRefDirectory())
+    const mod = await load()
+    mod.useRenameChannel()
+
+    await runMutation({ serverId: "s1", channelId: "missing", name: "renamed" })
+
+    expect(capturedQc.getQueryData(communityKeys.server("s1"))).toBe(beforeServer)
+    expect(capturedQc.getQueryData(communityKeys.channelRefDirectory())).toBe(beforeDirectory)
+  })
+})
+
 describe("useMoveChannel", () => {
   it("PATCHes the channel with the new categoryId and invalidates the server tree", async () => {
     apiFetchMock.mockResolvedValueOnce(undefined)

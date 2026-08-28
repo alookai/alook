@@ -238,6 +238,7 @@ describe("PATCH /channels/[id] — permission gate", () => {
     const res = await PATCH(patchReq({ name: "General Chat" }), ctx)
     expect(res.status).toBe(200)
     expect(mockUpdateChannel).toHaveBeenCalledWith(expect.anything(), "c1", { name: "General-Chat" })
+    await expect(res.json()).resolves.toEqual({ id: "c1", name: "General-Chat" })
   })
 
   it("returns 400 (and never calls updateChannel) when the renamed name is all disallowed characters", async () => {

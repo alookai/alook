@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { nanoid } from "nanoid"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
+import type { ChannelRefDirectory } from "@/lib/community/channel-ref"
 import type { ServerDetail } from "@/hooks/community/use-servers"
 import { UNCATEGORIZED_CATEGORY_ID, type ChannelType } from "@alook/shared"
 
@@ -145,6 +146,113 @@ export type MoveChannelArgs = {
   serverId: string
   channelId: string
   categoryId: string | null
+}
+
+export type RenameChannelArgs = {
+  serverId: string
+  channelId: string
+  name: string
+}
+export type RenameChannelResult = { id: string; name: string }
+
+type RenameChannelCtx = {
+  serverSnapshot?: ServerDetail
+  directorySnapshot?: ChannelRefDirectory
+}
+
+function renameServerDetailChannel(
+  detail: ServerDetail | undefined,
+  channelId: string,
+  name: string,
+): ServerDetail | undefined {
+  if (!detail) return detail
+  let changed = false
+  const categories = detail.categories.map((category) => {
+    let categoryChanged = false
+    const channels = category.channels.map((channel) => {
+      if (channel.id !== channelId || channel.name === name) return channel
+      categoryChanged = true
+      changed = true
+      return { ...channel, name }
+    })
+    return categoryChanged ? { ...category, channels } : category
+  })
+  return changed ? { ...detail, categories } : detail
+}
+
+function renameDirectoryChannel(
+  directory: ChannelRefDirectory | undefined,
+  serverId: string,
+  channelId: string,
+  name: string,
+): ChannelRefDirectory | undefined {
+  if (!directory) return directory
+  let changed = false
+  const next = directory.map((server) => {
+    if (server.id !== serverId) return server
+    let serverChanged = false
+    const channels = server.channels.map((channel) => {
+      if (channel.id !== channelId || channel.name === name) return channel
+      serverChanged = true
+      changed = true
+      return { ...channel, name }
+    })
+    return serverChanged ? { ...server, channels } : server
+  })
+  return changed ? next : directory
+}
+
+export function useRenameChannel() {
+  const queryClient = useQueryClient()
+  return useMutation<RenameChannelResult, Error, RenameChannelArgs, RenameChannelCtx>({
+    mutationFn: async ({ channelId, name }) => {
+      return apiFetch<RenameChannelResult>(`/api/community/channels/${channelId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      })
+    },
+    onMutate: async (args) => {
+      const serverKey = communityKeys.server(args.serverId)
+      const directoryKey = communityKeys.channelRefDirectory()
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: serverKey, exact: true }),
+        queryClient.cancelQueries({ queryKey: directoryKey, exact: true }),
+      ])
+      const serverSnapshot = queryClient.getQueryData<ServerDetail>(serverKey)
+      const directorySnapshot = queryClient.getQueryData<ChannelRefDirectory>(directoryKey)
+      const optimisticName = args.name.trim()
+      queryClient.setQueryData<ServerDetail>(serverKey, (prev) =>
+        renameServerDetailChannel(prev, args.channelId, optimisticName),
+      )
+      queryClient.setQueryData<ChannelRefDirectory>(directoryKey, (prev) =>
+        renameDirectoryChannel(prev, args.serverId, args.channelId, optimisticName),
+      )
+      return { serverSnapshot, directorySnapshot }
+    },
+    onSuccess: (data, args) => {
+      queryClient.setQueryData<ServerDetail>(communityKeys.server(args.serverId), (prev) =>
+        renameServerDetailChannel(prev, args.channelId, data.name),
+      )
+      queryClient.setQueryData<ChannelRefDirectory>(communityKeys.channelRefDirectory(), (prev) =>
+        renameDirectoryChannel(prev, args.serverId, args.channelId, data.name),
+      )
+    },
+    onError: (_err, args, ctx) => {
+      if (ctx?.serverSnapshot) {
+        queryClient.setQueryData(communityKeys.server(args.serverId), ctx.serverSnapshot)
+      }
+      if (ctx?.directorySnapshot) {
+        queryClient.setQueryData(communityKeys.channelRefDirectory(), ctx.directorySnapshot)
+      }
+    },
+    onSettled: (_data, _err, args) => {
+      void queryClient.invalidateQueries({
+        queryKey: communityKeys.server(args.serverId),
+        exact: true,
+      })
+      invalidateChannelRefDirectory(queryClient)
+    },
+  })
 }
 
 /**
