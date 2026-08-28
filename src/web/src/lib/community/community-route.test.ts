@@ -78,6 +78,7 @@ describe("community route", () => {
     ["/c/me/dm_1", "detail", "/c/me"],
     ["/c/channels/server_1", "list", null],
     ["/c/channels/server_1/channel_1", "detail", "/c/channels/server_1"],
+    ["/outside", "detail", null],
   ])("classifies %s", (pathname, surface, parentPath) => {
     expect(resolveCommunityRoute(pathname)).toEqual({ surface, parentPath })
   })
