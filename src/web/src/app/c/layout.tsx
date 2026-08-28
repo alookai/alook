@@ -7,15 +7,16 @@ import { CommunityShell } from "./community-shell"
 import { avatarInitial } from "@/lib/community/avatar"
 import { SignupTracker } from "@/components/signup-tracker"
 import { CommunitySessionPendingFrame } from "@/components/community/shell/community-session-pending-frame"
+import { resolveCommunityModulePlan } from "@/lib/community/community-route"
 
 // The invite landing page is preview-first: a logged-out visitor must be able
 // to see it (and only hit the login wall on Join). It's a standalone
 // full-screen page that doesn't use CommunityShell (which requires a
 // logged-in user), so it's exempt from this layout's session gate AND the
-// shell — its own middleware exemption keeps the server side public. Mirrors
-// the `PUBLIC_PREFIXES` guard in `middleware.ts`; both gates must agree.
+// shell — its own middleware exemption keeps the server side public. Keep the
+// client bypass exact so malformed invite descendants do not inherit it.
 function isPublicCommunityPath(pathname: string): boolean {
-  return pathname.startsWith("/c/invite/")
+  return resolveCommunityModulePlan(pathname).route === "public-invite"
 }
 
 export default function CommunityLayout({
@@ -38,7 +39,7 @@ export default function CommunityLayout({
   // gate, no CommunityShell (a logged-out visitor has no currentUser).
   if (isPublic) return <><SignupTracker />{children}</>
 
-  if (isPending || !session) return <CommunitySessionPendingFrame />
+  if (isPending || !session) return <CommunitySessionPendingFrame pathname={pathname} />
 
   const currentUser = {
     id: session.user.id,

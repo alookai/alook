@@ -67,10 +67,10 @@ test("community checkpoint waits for layout-owned frame commits", async ({ asUse
   await page.getByTestId(tid.channelHeaderServer(serverId)).click({ noWaitAfter: true })
   await expect.poll(rootGate.held).toBeGreaterThan(0)
   await page.setViewportSize({ width: 1280, height: 900 })
-  await expect(page.getByLabel("Loading conversation")).toBeVisible()
+  await expect(page.getByTestId(tid.pendingMain("server-landing"))).toBeVisible()
   await expect(page.getByRole("heading", { name: channelBName })).toHaveCount(0)
   await page.waitForTimeout(150)
-  await expect(page.getByLabel("Loading conversation")).toBeVisible()
+  await expect(page.getByTestId(tid.pendingMain("server-landing"))).toBeVisible()
   await rootGate.release()
   await expect(page.getByRole("heading", { name: channelBName })).toBeVisible({ timeout: 30_000 })
 

@@ -4,6 +4,7 @@ import type React from "react"
 import { Inbox, Settings } from "lucide-react"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Avatar } from "../avatar"
+import { Skeleton } from "@/components/ui/skeleton"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { resolveProfilePresence } from "@/lib/community/presence"
 import { tid } from "@/lib/community/testids"
@@ -25,6 +26,23 @@ export function UserBar({ user, onOpenProfile, onEditProfile, inbox, hasUnread, 
     <div data-testid="community-user-bar" className="w-full min-w-0 max-w-full shrink-0 overflow-hidden px-3 pb-3 pt-0">
       <div className="flex h-12 items-center gap-3 rounded-xl bg-muted px-4 ring-1 ring-border/40">
         <Inner user={user} onOpenProfile={onOpenProfile} onEditProfile={onEditProfile} inbox={inbox} hasUnread={hasUnread} inboxOpen={inboxOpen} onInboxOpenChange={onInboxOpenChange} />
+      </div>
+    </div>
+  )
+}
+
+export function UserBarSkeleton() {
+  return (
+    <div
+      data-testid={tid.initialUserBarPending}
+      aria-hidden
+      className="w-full min-w-0 max-w-full shrink-0 overflow-hidden px-3 pb-3 pt-0"
+    >
+      <div className="flex h-12 items-center gap-3 rounded-xl bg-muted px-4 ring-1 ring-border/40">
+        <Skeleton className="size-7 shrink-0 rounded-full" />
+        <Skeleton className="h-3.5 min-w-0 flex-1 rounded" />
+        <Skeleton className="size-7 shrink-0 rounded-lg" />
+        <Skeleton className="size-7 shrink-0 rounded-lg" />
       </div>
     </div>
   )

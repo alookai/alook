@@ -468,9 +468,13 @@ export const ServerRail = memo(function ServerRail({
   )
 })
 
-function ServerRailSkeleton() {
+export function ServerRailSkeleton() {
   return (
-    <div className="flex w-full flex-col items-center gap-2">
+    <div
+      data-testid={tid.initialRailPending}
+      aria-hidden
+      className="flex w-full flex-col items-center gap-2"
+    >
       {Array.from({ length: 4 }).map((_, index) => (
         <Skeleton key={index} className="size-10 rounded-[20px]" />
       ))}
