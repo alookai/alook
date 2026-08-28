@@ -63,6 +63,12 @@ function surfaceProps(overrides: Record<string, unknown> = {}) {
     channelName: "ideas",
     viewer: { id: "viewer_1" },
     viewerRole: "member" as const,
+    headerServer: {
+      id: "srv_1",
+      name: "Studio",
+      icon: null,
+      onNavigate: vi.fn(),
+    },
     notificationLevel: "Use Server Default" as const,
     onSetNotificationLevel: vi.fn(),
     composerMembers: [],
@@ -92,6 +98,10 @@ describe("ForumChannelSurface ownership", () => {
     })
 
     expect(mocks.activeMessageFeed).not.toHaveBeenCalled()
+    expect(mockedChannelHeader.mock.calls.at(-1)![0]).toEqual(expect.objectContaining({
+      mobileServer: props.headerServer,
+    }))
+    expect(mockedChannelHeader.mock.calls.at(-1)![0]).not.toHaveProperty("onBack")
     const forumProps = mockedForumSurface.mock.calls.at(-1)![0]
     expect(forumProps).toEqual(expect.objectContaining({
       forumChannelId: "forum_1",

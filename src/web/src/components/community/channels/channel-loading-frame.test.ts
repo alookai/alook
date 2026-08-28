@@ -16,17 +16,13 @@ vi.mock("@/components/community/messages/composer", () => ({
 import { ChannelLoadingFrame } from "./channel-loading-frame"
 
 describe("ChannelLoadingFrame", () => {
-  it("composes canonical detail zones and converts a legacy Back handler to inert geometry", () => {
-    const onBack = vi.fn()
+  it("composes canonical detail zones with server-leading loading geometry", () => {
     let renderer!: TestRenderer.ReactTestRenderer
     act(() => {
-      renderer = TestRenderer.create(createElement(ChannelLoadingFrame, { onBack }))
+      renderer = TestRenderer.create(createElement(ChannelLoadingFrame))
     })
 
-    expect(renderer.root.findByType("channel-header-skeleton").props).toMatchObject({
-      reserveBackSlot: true,
-    })
-    expect(renderer.root.findByType("channel-header-skeleton").props.onBack).toBeUndefined()
+    expect(renderer.root.findByType("channel-header-skeleton").props).toEqual({})
     expect(renderer.root.findByType("message-list").props).toMatchObject({
       channel: "",
       messages: [],
@@ -40,15 +36,4 @@ describe("ChannelLoadingFrame", () => {
     })
   })
 
-  it("reserves loading Back geometry without exposing an interactive handler", () => {
-    let renderer!: TestRenderer.ReactTestRenderer
-    act(() => {
-      renderer = TestRenderer.create(createElement(ChannelLoadingFrame, { reserveBackSlot: true }))
-    })
-
-    expect(renderer.root.findByType("channel-header-skeleton").props).toMatchObject({
-      reserveBackSlot: true,
-    })
-    expect(renderer.root.findByType("channel-header-skeleton").props.onBack).toBeUndefined()
-  })
 })

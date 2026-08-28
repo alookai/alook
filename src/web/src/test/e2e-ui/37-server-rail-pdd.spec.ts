@@ -118,7 +118,7 @@ test("server rail commits one PDD drop and exposes mobile Move parity", async ({
   await expect.poll(() => railRequests[0]?.status).toBe(200)
 
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.getByRole("button", { name: "Back" }).click()
+  await page.getByTestId(tid.channelHeaderServer(first)).click()
   await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${first}`)
   const rail = page.getByTestId(tid.serverRailScroll)
   await rail.evaluate((element) => { element.scrollTop = element.scrollHeight })

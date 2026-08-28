@@ -18,24 +18,23 @@ import { previewSlug } from "@/lib/community/slug-preview"
 import { SeededBackdrop } from "@/components/avatar"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 import { CreateDialogShell } from "../settings/create-dialog-shell"
+import { tid } from "@/lib/community/testids"
 
 // Skeleton header for the loading frame between route change and channel
 // metadata arriving. Same h-12 footprint as <ChannelHeader> so the body below
 // doesn't shift when the real header lands.
-export function ChannelHeaderSkeleton({
-  onBack,
-  reserveBackSlot = false,
-}: {
-  onBack?: () => void
-  reserveBackSlot?: boolean
-}) {
-  const showBackSlot = reserveBackSlot || Boolean(onBack)
+export function ChannelHeaderSkeleton() {
   return (
     <header role="banner" className="flex h-12 shrink-0 items-center gap-1 border-b border-border/40 px-3">
-      {showBackSlot && (
-        <Skeleton data-slot="loading-back-placeholder" aria-hidden className="size-8 shrink-0 rounded-md" />
-      )}
-      <Skeleton className="ml-1 size-6 rounded-md" />
+      <div
+        data-testid={tid.channelHeaderServerLoading}
+        data-slot="loading-server-leading"
+        aria-hidden
+        className="grid size-11 shrink-0 place-items-center sm:hidden"
+      >
+        <Skeleton className="size-6 rounded-md" />
+      </div>
+      <Skeleton className="size-6 rounded-md sm:ml-1" />
       <Skeleton className="h-4 w-32 rounded" />
       <div className="ml-auto flex items-center text-muted-foreground">
         <Skeleton className="size-7 rounded-md" />
@@ -53,23 +52,25 @@ export function ChannelHeaderSkeleton({
 export type ChannelNotifLevel = typeof USE_SERVER_DEFAULT | NotifLevel
 
 export function ChannelHeader({
-  channel, rightPanel, onToggle, notifLevel, onSetNotifLevel, onBack,
-  breadcrumb, forum, server, tools,
+  channel, rightPanel, onToggle, notifLevel, onSetNotifLevel,
+  breadcrumb, forum, server, mobileServer, onBack, tools,
 }: {
   channel: string
   rightPanel: RightPanel
   onToggle: (k: Exclude<RightPanel, null>) => void
   notifLevel?: ChannelNotifLevel
   onSetNotifLevel?: (l: ChannelNotifLevel) => void
-  onBack?: () => void
   forum?: boolean
   breadcrumb?: {
+    id?: string
     label: string
     onRename?: (name: string) => void | Promise<void>
     titleRename?: boolean
-    onNavigateBack?: () => void
+    onNavigate?: () => void
   }
   server?: { id: string; name: string; icon: string | null }
+  mobileServer?: { id: string; name: string; icon: string | null; onNavigate: () => void }
+  onBack?: () => void
   tools?: { threads?: boolean; pinned?: boolean; members?: boolean }
 }) {
 
@@ -90,18 +91,24 @@ export function ChannelHeader({
   )
   return (
     <header role="banner" className="flex h-12 shrink-0 items-center gap-1 border-b border-border/40 px-3">
-      {onBack && (
+      {onBack && !mobileServer && (
         <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
       )}
+      {mobileServer && <MobileServerCrumb id={mobileServer.id} name={mobileServer.name} icon={mobileServer.icon} onNavigate={mobileServer.onNavigate} />}
       {server && <ServerCrumb id={server.id} name={server.name} icon={server.icon} size={6} className="ml-1" />}
       {breadcrumb ? (
         <>
-          <button onClick={breadcrumb.onNavigateBack} className={`flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors ${server ? "" : "ml-1"}`}>
+          <button
+            type="button"
+            data-testid={breadcrumb.id ? tid.channelHeaderParent(breadcrumb.id) : undefined}
+            onClick={breadcrumb.onNavigate}
+            className={`flex min-w-0 max-w-24 items-center gap-1 text-muted-foreground transition-colors hover:text-foreground sm:max-w-none ${mobileServer ? "sm:ml-1" : server ? "" : "ml-1"}`}
+          >
             <EntityIcon kind={entityKind} className="size-4 shrink-0" />
             <span className="truncate text-base font-medium">{channel}</span>
           </button>
           <ChannelIcon className="shrink-0 text-base text-muted-foreground/60" />
-          <span className="min-w-0 truncate text-base font-medium" title={breadcrumb.label}>
+          <span className="min-w-8 truncate text-base font-medium sm:min-w-0" title={breadcrumb.label}>
             {breadcrumb.label}
           </span>
           {breadcrumb.onRename && (
@@ -110,7 +117,7 @@ export function ChannelHeader({
         </>
       ) : (
         <>
-          <div className={`grid size-6 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground ${server ? "" : "ml-1"}`}>
+          <div className={`grid size-6 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground ${mobileServer ? "sm:ml-1" : server ? "" : "ml-1"}`}>
             <EntityIcon kind={entityKind} className="size-4" />
           </div>
           <span className="truncate text-base font-semibold">{channel}</span>
@@ -181,13 +188,36 @@ function ChannelOverflowMenu({
 // follows leads with its own "/" or forum icon, which serves as the
 // separator). Tailwind only picks up complete literal class names at build
 // time, so `size` can't be interpolated — it's an explicit ternary.
+function MobileServerCrumb({ id, name, icon, onNavigate }: {
+  id: string
+  name: string
+  icon: string | null
+  onNavigate: () => void
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={tid.channelHeaderServer(id)}
+      onClick={onNavigate}
+      className="grid size-11 shrink-0 place-items-center rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:hidden"
+      aria-label={`Go to server ${name}`}
+      title={name}
+    >
+      <span
+        className={`relative grid size-6 shrink-0 place-items-center overflow-hidden rounded-md ${icon ? "bg-secondary text-[0.6875rem] font-semibold text-foreground" : "font-brand text-sm font-bold text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]"}`}
+      >
+        {icon ? <img src={icon} alt="" className="size-full object-cover" /> : <><SeededBackdrop seed={id} /><span className="relative -translate-x-px [-webkit-text-stroke:0.5px_currentColor]">{avatarInitial(name)}</span></>}
+      </span>
+    </button>
+  )
+}
+
 function ServerCrumb({ id, name, icon, size = 5, className = "" }: { id: string; name: string; icon: string | null; size?: 5 | 6 | 7; className?: string }) {
   const sizeCls = size === 7 ? "size-7" : size === 6 ? "size-6" : "size-5"
   const iconTextCls = size === 7 ? "text-xs" : size === 6 ? "text-[0.6875rem]" : "text-[0.625rem]"
   const initialTextCls = size === 7 ? "text-base" : size === 6 ? "text-sm" : "text-xs"
   return (
     <span
-      // The deterministic fallback matches the rail and folder rows.
       className={`relative grid shrink-0 place-items-center overflow-hidden rounded-md ${icon ? `font-semibold ${iconTextCls} bg-secondary text-foreground` : `font-brand font-bold ${initialTextCls} text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]`} ${sizeCls} ${className}`}
       aria-label={name}
       title={name}
