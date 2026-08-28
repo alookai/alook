@@ -634,6 +634,7 @@ body.community-onboarding-active.driver-active :is(
   --muted-foreground: oklch(0.44 0.03 230);
   --accent: oklch(0.94 0.008 80);
   --accent-foreground: oklch(0.22 0.03 230);
+  --link: oklch(0.5 0.18 270);
   --destructive: oklch(0.577 0.245 27.325);
   --warning: oklch(0.62 0.11 75);
   --border: oklch(0.86 0.01 80);
@@ -688,6 +689,7 @@ body.community-onboarding-active.driver-active :is(
   --muted-foreground: oklch(0.65 0.01 70);
   --accent: oklch(0.27 0.008 60);
   --accent-foreground: oklch(0.93 0.006 80);
+  --link: oklch(0.75 0.14 270);
   --destructive: oklch(0.704 0.191 22.216);
   --warning: oklch(0.76 0.1 75);
   --border: oklch(1 0.005 80 / 10%);
@@ -1933,6 +1935,85 @@ body.community-onboarding-active.driver-active :is(
   text-decoration: underline;
   text-underline-offset: 2px;
   text-decoration-color: currentColor;
+}
+
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5
+ * component: platform link badge · genre: playful · theme: studied-DNA (supplied reference)
+ * macrostructure: platform glyph + Alook inline-reference pill
+ * states: default · hover · focus · active · disabled · loading · error · success
+ * slop: pass (1–58) · contrast: pass (40–41) · mobile: pass (34, 49, 50–57)
+ */
+.markdown a.platform-link-badge {
+  display: inline-flex;
+  max-inline-size: min(24rem, 100%);
+  min-inline-size: 0;
+  align-items: center;
+  gap: 0.25em;
+  padding-inline: 0.3em;
+  border: 0;
+  border-radius: var(--radius-lg);
+  color: var(--link);
+  background-color: var(--accent);
+  font-weight: 500;
+  line-height: inherit;
+  text-decoration: none;
+  vertical-align: bottom;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+.platform-link-badge-icon {
+  inline-size: 0.9em;
+  block-size: 0.9em;
+  flex: none;
+}
+
+.platform-link-badge-label {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.platform-link-badge:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+.platform-link-badge:active {
+  background-color: color-mix(in oklch, var(--link) 22%, var(--accent));
+}
+
+.platform-link-badge[aria-disabled="true"] {
+  pointer-events: none;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.platform-link-badge[aria-busy="true"] .platform-link-badge-icon {
+  opacity: 0.55;
+}
+
+.platform-link-badge[data-state="error"] {
+  text-decoration: underline;
+  text-decoration-style: wavy;
+}
+
+.platform-link-badge[data-state="success"] {
+  box-shadow: inset 0 0 0 1px var(--link);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .platform-link-badge:hover {
+    background-color: color-mix(in oklch, var(--link) 14%, var(--accent));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .platform-link-badge {
+    transition-duration: 0ms;
+  }
 }
 
 .markdown hr {

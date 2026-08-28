@@ -1,0 +1,49 @@
+import React from "react"
+import TestRenderer, { act } from "react-test-renderer"
+import { describe, expect, it } from "vitest"
+import { PlatformLinkBadge } from "./platform-link-badge"
+
+describe("PlatformLinkBadge", () => {
+  it("adds a platform icon and accessible label to a supported URL", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(
+          PlatformLinkBadge,
+          { href: "https://github.com/alookai/alook/pull/598", target: "_blank" },
+          "https://github.com/alookai/alook/pull/598",
+        ),
+      )
+    })
+
+    const link = renderer!.root.findByType("a")
+    expect(link.props["data-platform-link"]).toBe("github")
+    expect(link.props["aria-label"]).toBe("GitHub: https://github.com/alookai/alook/pull/598")
+    expect(link.props.target).toBe("_blank")
+    expect(renderer!.root.findAllByType("svg")).toHaveLength(1)
+    expect(renderer!.root.findByType("span").children.join("")).toBe(
+      "https://github.com/alookai/alook/pull/598",
+    )
+  })
+
+  it("gives an unsupported URL the generic link icon and the same badge treatment", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(
+          PlatformLinkBadge,
+          { href: "https://example.com/story", className: "existing-link" },
+          "Example story",
+        ),
+      )
+    })
+
+    const link = renderer!.root.findByType("a")
+    expect(link.props.className).toContain("platform-link-badge")
+    expect(link.props.className).toContain("existing-link")
+    expect(link.props["data-platform-link"]).toBe("generic")
+    expect(link.props["aria-label"]).toBe("Link: https://example.com/story")
+    expect(renderer!.root.findAllByType("svg")).toHaveLength(1)
+    expect(renderer!.root.findByType("span").children.join("")).toBe("Example story")
+  })
+})
