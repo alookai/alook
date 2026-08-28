@@ -7,13 +7,70 @@ import {
   normalizeCommunityHref,
   communityServerId,
   removeCommunityParam,
+  resolveCommunityModulePlan,
   resolveCommunityCheckpointPlan,
   resolveCommunityRoute,
   serverModalMarkerCleanupHref,
   serverRootHref,
 } from "./community-route"
 
+const removedNestedChannelPath = (...segments: string[]) => (
+  ["", "c", "channels", ...segments].join("/")
+)
+
 describe("community route", () => {
+  it.each([
+    ["/c", "community-root-redirect", "detail", "me", "machines"],
+    ["/c/me", "me-root", "list", "me", "me-root"],
+    ["/c/me/friends", "me-friends", "detail", "me", "friends"],
+    ["/c/me/machines", "me-machines", "detail", "me", "machines"],
+    ["/c/me/bots", "me-bots", "detail", "me", "bots"],
+    ["/c/me/dm_1", "dm-detail", "detail", "me", "dm"],
+    ["/c/channels/s1", "server-root", "list", "server", "server-landing"],
+    ["/c/channels/s1/c1", "server-detail", "detail", "server", "server-conversation"],
+    ["/c/channels/s1/settings", "server-settings-redirect", "list", "server", "server-landing"],
+    ["/c/invite/token", "public-invite", "neutral", "none", "none"],
+  ])("plans route-owned modules for %s", (href, route, surface, sidebar, main) => {
+    const plan = resolveCommunityModulePlan(href)
+    expect(plan).toMatchObject({
+      route,
+      surface,
+      sidebar: { kind: sidebar },
+      main: { kind: main },
+    })
+  })
+
+  it.each([
+    "/",
+    "/c/channels",
+    removedNestedChannelPath("s1", "c1", "extra"),
+    "/c/me/dm_1/extra",
+    "/c//me",
+    "/c/me/%E0%A4%A",
+    "/c/me/dm%2Fescape",
+    "/outside/c/me",
+  ])("keeps malformed or unknown route %s neutral", (href) => {
+    expect(resolveCommunityModulePlan(href)).toEqual({
+      route: "unknown",
+      surface: "neutral",
+      rail: "none",
+      sidebar: { kind: "none" },
+      main: { kind: "route-resolution" },
+    })
+  })
+
+  it("ignores query and hash when selecting modules", () => {
+    expect(resolveCommunityModulePlan("/c/channels/s1/c1?settings=1#message"))
+      .toEqual(resolveCommunityModulePlan("/c/channels/s1/c1"))
+  })
+
+  it("publishes explicit canonical destinations only for redirect routes", () => {
+    expect(resolveCommunityModulePlan("/c").canonicalHref).toBe("/c/me/machines")
+    expect(resolveCommunityModulePlan("/c/channels/s1/settings").canonicalHref)
+      .toBe("/c/channels/s1")
+    expect(resolveCommunityModulePlan("/c/me/machines").canonicalHref).toBeUndefined()
+  })
+
   it.each([
     ["/c/me", "list", null],
     ["/c/me/friends", "detail", "/c/me"],
@@ -34,6 +91,8 @@ describe("community route", () => {
   it.each([
     ["/c/channels/server_1", "server_1"],
     ["/c/channels/server_1/channel_1?keep=1#message", "server_1"],
+    [removedNestedChannelPath("server_1", "channel_1", "extra"), null],
+    ["/c/channels/server%2Fescape/channel_1", null],
     ["/c/me", null],
     ["/not-community/channels/server_1", null],
   ])("extracts the community server identity from %s", (href, serverId) => {

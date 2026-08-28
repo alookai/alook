@@ -117,7 +117,11 @@ describe("ShellFrameView", () => {
         inbox,
       }, createElement("main-content")))
     })
-    expect(renderer.root.findAllByType("channel-loading-frame")).toHaveLength(2)
+    expect(renderer.root.findAllByType("channel-loading-frame")).toHaveLength(1)
+    expect(renderer.root.findByType("channel-loading-frame").props).toMatchObject({
+      href: "/c/me/dm_1",
+      reserveBackSlot: true,
+    })
     const initialRailWrapper = renderer.root.find((node) =>
       node.type === "div"
       && typeof node.props.className === "string"
