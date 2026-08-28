@@ -174,6 +174,26 @@ describe("listForumThreadsByCreatedAt against real SQLite", () => {
     expect(rows.map((row) => row.userId)).toEqual(["A", "a"]);
   });
 
+  it("keeps retained disposition explicit when the participating query is disabled", async () => {
+    for (const params of [
+      { parentChannelIds: [] as string[], limitPerParent: 5 },
+      { parentChannelIds: ["forum_1"], limitPerParent: 0 },
+    ]) {
+      const result = await threadQueries.listParticipatingForumThreads(db as never, {
+        ...params,
+        userId: "viewer",
+        activeAfter: "2026-08-08T03:00:00.000Z",
+        retainId: "t_created",
+      });
+
+      expect(result).toEqual({
+        canonical: [],
+        retained: null,
+        retainedDisposition: "genuine-negative",
+      });
+    }
+  });
+
   it("returns per-forum recent notify rows and retains an older open post", async () => {
     sqlite.prepare("INSERT INTO user (id, name) VALUES (?, ?)").run("viewer", "Viewer");
     const insertMember = sqlite.prepare(`
