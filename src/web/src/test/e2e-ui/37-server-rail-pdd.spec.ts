@@ -67,6 +67,7 @@ test("server rail commits one PDD drop and exposes mobile Move parity", async ({
     overflowServers.push(await seedServer("alice", `Rail overflow ${index} ${stamp}`))
   }
   const tail = overflowServers.at(-1)!
+  const swipeServer = overflowServers.at(-2)!
   const channel = await seedChannel("alice", first, `rail-${stamp}`)
   const { page } = await asUser("alice")
   await page.setViewportSize({ width: 1280, height: 900 })
@@ -137,6 +138,7 @@ test("server rail commits one PDD drop and exposes mobile Move parity", async ({
   await page.getByTestId(tid.serverRailMoveConfirm).click()
   const createResponse = await createResponsePromise
   expect(createResponse.status()).toBe(200)
+  await expect(page.getByRole("heading", { name: "Move server" })).toBeHidden()
   expect(railRequests).toHaveLength(2)
   expect(railRequests[1]?.body).toMatchObject({
     commands: [{ kind: "create-folder", name: "Group", serverIds: [tail, first] }],
@@ -150,7 +152,9 @@ test("server rail commits one PDD drop and exposes mobile Move parity", async ({
   expect(expandedTail.target.bottom).toBeLessThanOrEqual(expandedTail.userBar.top + 0.5)
   expect(expandedTail.targetOwnsCenter).toBe(true)
   const beforeSwipe = await rail.evaluate((element) => element.scrollTop)
-  const box = await page.getByTestId(tid.serverIcon(second)).boundingBox()
+  const swipeTarget = page.getByTestId(tid.serverIcon(swipeServer))
+  await expect(swipeTarget).toBeInViewport()
+  const box = await swipeTarget.boundingBox()
   expect(box).not.toBeNull()
   await page.mouse.move(box!.x + 20, box!.y + 20)
   await page.mouse.down()
