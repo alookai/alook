@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test"
 import { test, expect, userId } from "./_fixtures/community-fixture"
-import { composerEditable } from "./_fixtures/actions"
+import { composerEditable, ignoreNextDevToolsPointerCapture } from "./_fixtures/actions"
 import {
   seedChannel,
   seedDm,
@@ -33,12 +33,7 @@ async function expectExplicitMobileSend({
     ) messagePosts += 1
   })
   await page.goto(route, { waitUntil: "commit" })
-  await page.addStyleTag({
-    content: [
-      "nextjs-portal { pointer-events: none !important; }",
-      ".tsqd-parent-container { pointer-events: none !important; }",
-    ].join("\n"),
-  })
+  await ignoreNextDevToolsPointerCapture(page)
 
   const editable = composerEditable(page)
   const send = page.getByTestId(tid.composerSend)

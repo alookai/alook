@@ -1,6 +1,6 @@
 import { type Locator, type Page } from "@playwright/test"
 import { test, expect, userId } from "./_fixtures/community-fixture"
-import { composerEditable } from "./_fixtures/actions"
+import { composerEditable, ignoreNextDevToolsPointerCapture } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
 import {
   memberInfo,
@@ -122,15 +122,6 @@ async function expectChatPlaceholderAtWidths(
     expectContainedPlaceholder(metrics, expected, width)
   }
   expect(sawOverflowingSource).toBe(true)
-}
-
-async function ignoreNextDevToolsPointerCapture(page: Page): Promise<void> {
-  await page.addStyleTag({
-    content: [
-      "nextjs-portal { pointer-events: none !important; }",
-      ".tsqd-parent-container { pointer-events: none !important; }",
-    ].join("\n"),
-  })
 }
 
 async function suggestionMetrics(option: Locator): Promise<{

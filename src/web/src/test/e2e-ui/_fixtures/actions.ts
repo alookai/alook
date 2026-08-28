@@ -33,6 +33,17 @@ export async function gotoAfterUserWsAuth(page: Page, url: string): Promise<void
   }
 }
 
+// Keep Next's development-only portals from capturing pointer input intended
+// for the product UI. Production builds do not mount either overlay.
+export async function ignoreNextDevToolsPointerCapture(page: Page): Promise<void> {
+  await page.addStyleTag({
+    content: [
+      "nextjs-portal { pointer-events: none !important; }",
+      ".tsqd-parent-container { pointer-events: none !important; }",
+    ].join("\n"),
+  })
+}
+
 // Reusable UI action helpers built on the canonical testids. Journeys compose
 // these so the real user path (click → type → assert) stays readable and the
 // selectors live in one place.
@@ -112,6 +123,7 @@ export async function sendMessage(page: Page, text: string): Promise<void> {
     const sendButton = page.getByTestId(tid.composerSend)
     await expect(sendButton).toBeVisible()
     await expect(sendButton).toBeEnabled()
+    await ignoreNextDevToolsPointerCapture(page)
     await sendButton.click()
     return
   }
