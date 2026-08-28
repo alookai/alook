@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest"
 import {
-  isCat,
   catId,
   catOf,
   moveChannelAcrossCategories,
@@ -19,10 +18,9 @@ const order: ChannelOrder = {
 }
 
 describe("id helpers", () => {
-  it("isCat / catId", () => {
+  it("keeps persisted category ids unchanged for dnd", () => {
     expect(catId("cat_A")).toBe("cat_A")
-    expect(isCat("cat_A")).toBe(true)
-    expect(isCat("a1")).toBe(false)
+    expect(catId("5vg7bs")).toBe("5vg7bs")
   })
 })
 
@@ -33,6 +31,10 @@ describe("catOf", () => {
   })
   it("resolves a category id to itself", () => {
     expect(catOf("cat_B", order)).toBe("cat_B")
+  })
+  it("resolves an opaque category id from the actual tree keys", () => {
+    const opaqueOrder = { "5vg7bs": [ch("a1")] }
+    expect(catOf("5vg7bs", opaqueOrder)).toBe("5vg7bs")
   })
   it("returns undefined for an unknown channel", () => {
     expect(catOf("zzz", order)).toBeUndefined()

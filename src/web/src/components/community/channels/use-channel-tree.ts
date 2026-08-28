@@ -5,16 +5,15 @@ import { arrayMove } from "@dnd-kit/sortable"
 import type { DragEndEvent } from "@dnd-kit/core"
 import type { Category, Channel } from "@/lib/community/models/navigation"
 
-// dnd ids: category ids are used directly (they already have a "cat_" prefix);
-// channel ids are bare. We distinguish by checking the "cat_" prefix.
-export const isCat = (id: string) => id.startsWith("cat_")
+// DnD keeps the persisted opaque IDs unchanged. Category identity comes from
+// membership in `catOrder` / `order`, never from an ID prefix.
 export const catId = (id: string) => id
 
 export type ChannelOrder = Record<string, Channel[]>
 
-/** Which category currently holds a channel id (or the category itself if `id` is a cat id). */
+/** Which category currently holds a channel id (or the category itself if `id` is an order key). */
 export function catOf(id: string, order: ChannelOrder): string | undefined {
-  if (isCat(id)) return id
+  if (Object.hasOwn(order, id)) return id
   return Object.keys(order).find((cat) => order[cat].some((c) => c.id === id))
 }
 
@@ -195,7 +194,7 @@ export function useChannelTree(categories: Category[]) {
 
   const onDragOver = useCallback((e: DragEndEvent) => {
     const { active, over } = e
-    if (!over || isCat(String(active.id))) return // category drags handled on drop
+    if (!over || catOrder.includes(String(active.id))) return // category drags handled on drop
     setOrder((prev) => {
       const fromCat = catOf(String(active.id), prev)
       const toCat = catOf(String(over.id), prev)
@@ -208,18 +207,20 @@ export function useChannelTree(categories: Category[]) {
       }
       return moveChannelAcrossCategories(prev, String(active.id), String(over.id))
     })
-  }, [catPrivate])
+  }, [catOrder, catPrivate])
 
   const onDragEnd = useCallback((e: DragEndEvent) => {
     const { active, over } = e
     if (!over || active.id === over.id) return
-    if (isCat(String(active.id)) && isCat(String(over.id))) {
+    const activeIsCategory = catOrder.includes(String(active.id))
+    const overIsCategory = catOrder.includes(String(over.id))
+    if (activeIsCategory && overIsCategory) {
       setCatOrder((prev) => reorderCategories(prev, String(active.id), String(over.id)))
       return
     }
-    if (isCat(String(active.id))) return
+    if (activeIsCategory) return
     setOrder((prev) => reorderChannelsWithin(prev, String(active.id), String(over.id)))
-  }, [])
+  }, [catOrder])
 
   return useMemo(() => ({
     collapsed, catOrder, order, catNames, catPrivate, catPending, catCreators,

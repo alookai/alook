@@ -4,7 +4,6 @@ import { useState } from "react"
 import type React from "react"
 import { ChevronDown, Plus, Settings, Lock, Trash2 } from "lucide-react"
 import { useSortable } from "@dnd-kit/sortable"
-import { useDroppable } from "@dnd-kit/core"
 import { CSS } from "@dnd-kit/utilities"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -16,8 +15,8 @@ export function hasCategoryMenu(h: { onAddChannel?: () => void; onSettings?: () 
   return !!(h.onAddChannel || h.onSettings || h.onDelete)
 }
 
-// A drag-sortable category. The whole header is the drag surface (no handle) — a 5px
-// activation distance distinguishes a click (collapse) from a drag. It is also a drop
+// A drag-sortable category. The whole header is the drag surface (no handle) — mouse
+// movement or a touch long-press distinguishes collapse from reorder. It is also a drop
 // target so channels can be dropped onto it (including its empty space). Right-click
 // (or the gear) opens Settings; the "+" creates a channel; a lock shows when private.
 export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChannel, onSettings, onDelete, isPrivate, canReorder = true, pending = false, children }: {
@@ -34,18 +33,22 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
   children: React.ReactNode
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, activeIndex, index } = useSortable({ id: catDndId, disabled: !canReorder })
-  const { setNodeRef: setDropRef, isOver: isChannelOver } = useDroppable({ id: catDndId })
+  const { attributes, listeners, setActivatorNodeRef, setNodeRef, transform, transition, isDragging, isOver, activeIndex, index } = useSortable({ id: catDndId, data: { kind: "category" }, disabled: !canReorder })
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1, zIndex: isDragging ? 10 : undefined }
   const showLine = isOver && !isDragging
   const lineSide: "top" | "bottom" = activeIndex !== -1 && activeIndex < index ? "bottom" : "top"
   // The header div is the drag surface; it renders bare (no ContextMenu) when there are no
   // actions, so share its props/children across both branches to avoid drift.
   const headerProps = {
+    ref: setActivatorNodeRef,
     ...attributes,
     ...listeners,
+    onTouchStart: undefined,
+    onTouchStartCapture: listeners?.onTouchStart
+      ? (event: React.TouchEvent<HTMLDivElement>) => listeners.onTouchStart?.(event)
+      : undefined,
     onClick: onToggle,
-    className: `group flex w-full touch-none items-center gap-1 rounded px-1 py-1 text-xs font-semibold text-muted-foreground/80 select-none hover:text-foreground ${canReorder ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}`,
+    className: `group flex w-full touch-manipulation items-center gap-1 rounded px-1 py-1 text-xs font-semibold text-muted-foreground/80 select-none hover:text-foreground ${canReorder ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}`,
   }
   const headerInner = (
     <>
@@ -103,7 +106,7 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
         <div {...headerProps}>{headerInner}</div>
       )}
       {open && (
-        <div ref={setDropRef} className={`rounded-md transition-colors ${isChannelOver ? "bg-accent/40" : ""}`}>
+        <div className={`rounded-md transition-colors ${isOver ? "bg-accent/40" : ""}`}>
           {children}
         </div>
       )}
