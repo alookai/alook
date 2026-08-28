@@ -14,14 +14,6 @@ import { withCommunityActor, rejectBot } from "@/lib/middleware/community-actor"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { serverIconUrl } from "@/lib/community/storage"
 
-/**
- * GET — list "my servers", serving both a human and a bot via the unified actor
- * (plan §4 FOLD of /agent/listServers, §9 phase 4). Both list via
- * `listUserServers(actor.userId)`; the response is a superset (full server rows
- * incl. id+name+icon) — the web client uses the UI fields, the bot's daemon
- * projects each row down to `{id, name}` (the old lean listServers shape).
- * No actor.kind branch needed: `userId` is common to both callers.
- */
 export const GET = withCommunityActor(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   const rows = await withD1Retry(
@@ -29,7 +21,18 @@ export const GET = withCommunityActor(async (_req, ctx) => {
     { route: "community/servers:list" },
   )
   const servers = rows.map((row) => ({ ...row, icon: serverIconUrl(row) }))
-  return writeJSON({ servers })
+  if (ctx.actor.kind === "bot") return writeJSON({ servers })
+
+  const unreadServerIds = new Set(await withD1Retry(
+    () => queries.communityInbox.listEligibleUnreadServerIds(db, ctx.actor.userId),
+    { route: "community/servers:unread" },
+  ))
+  return writeJSON({
+    servers: servers.map((server) => ({
+      ...server,
+      unread: unreadServerIds.has(server.id),
+    })),
+  })
 })
 
 /**

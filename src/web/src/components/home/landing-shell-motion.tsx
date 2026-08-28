@@ -68,13 +68,13 @@ import styles from "./landing-shell-motion.module.css"
 import { useLandingMotionPlayback } from "./use-landing-motion-playback"
 
 const SERVERS: Server[] = [
-  { id: "gus", name: "Gus", initial: "G", active: true, mentions: 0, isOwner: true, icon: null },
+  { id: "gus", name: "Gus", initial: "G", active: true, unread: false, mentions: 0, isOwner: true, icon: null },
 ]
 
 const SPACE_SERVERS: Server[] = [
-  { id: "work", name: "Studio", initial: "S", active: true, mentions: 0, isOwner: true, icon: null },
-  { id: "life", name: "Home", initial: "H", active: false, mentions: 0, isOwner: true, icon: null },
-  { id: "play", name: "Game Night", initial: "G", active: false, mentions: 0, isOwner: true, icon: null },
+  { id: "work", name: "Studio", initial: "S", active: true, unread: false, mentions: 0, isOwner: true, icon: null },
+  { id: "life", name: "Home", initial: "H", active: false, unread: false, mentions: 0, isOwner: true, icon: null },
+  { id: "play", name: "Game Night", initial: "G", active: false, unread: false, mentions: 0, isOwner: true, icon: null },
 ]
 
 const OVERVIEW_SERVERS: Server[] = [

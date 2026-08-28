@@ -27,6 +27,7 @@ const mockFindActiveAgentRunnerKeyByBearer = vi.fn()
 const mockGetUserInternal = vi.fn()
 const mockGetBotBinding = vi.fn()
 const mockListUserServers = vi.fn()
+const mockListEligibleUnreadServerIds = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -38,6 +39,10 @@ vi.mock("@alook/shared", async () => {
       user: { getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a) },
       communityBot: { getBotBinding: (...a: unknown[]) => mockGetBotBinding(...a) },
       communityServer: { listUserServers: (...a: unknown[]) => mockListUserServers(...a) },
+      communityInbox: {
+        ...actual.queries.communityInbox,
+        listEligibleUnreadServerIds: (...a: unknown[]) => mockListEligibleUnreadServerIds(...a),
+      },
     },
   }
 })
@@ -62,6 +67,7 @@ describe("GET /api/community/servers — bot path (folded listServers)", () => {
     mockFindActiveAgentRunnerKeyByBearer.mockResolvedValue({ userId: "owner_1", machineId: "m_1", agentId: "bot_1" })
     mockGetUserInternal.mockResolvedValue({ isBot: true, deletedAt: null })
     mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude" })
+    mockListEligibleUnreadServerIds.mockRejectedValue(new Error("human unread source failed"))
   })
 
   it("401 without Authorization (no crk_ → human path, no session)", async () => {
@@ -84,6 +90,8 @@ describe("GET /api/community/servers — bot path (folded listServers)", () => {
     ])
     // Scoping red line: the bot sees only ITS OWN servers (actor.userId=bot_1).
     expect(mockListUserServers).toHaveBeenCalledWith(expect.anything(), "bot_1")
+    expect(mockListEligibleUnreadServerIds).not.toHaveBeenCalled()
+    expect(body.servers.every((server) => !("unread" in server))).toBe(true)
   })
 
   it("200 with an empty list when the bot is in no servers", async () => {
@@ -91,5 +99,6 @@ describe("GET /api/community/servers — bot path (folded listServers)", () => {
     const res = await GET(req({ Authorization: "Bearer crk_abc" }))
     expect(res.status).toBe(200)
     expect((await res.json()).servers).toEqual([])
+    expect(mockListEligibleUnreadServerIds).not.toHaveBeenCalled()
   })
 })

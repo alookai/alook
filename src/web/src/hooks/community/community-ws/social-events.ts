@@ -21,6 +21,7 @@ import {
 } from "@/hooks/community/use-forum-sidebar-threads"
 import type { SocialEventContext } from "@/hooks/community/community-ws/handler-context"
 import {
+  fenceServersList,
   invalidateFriends,
   invalidateServersList,
 } from "./invalidation-projections"
@@ -94,6 +95,20 @@ export function handleUnreadBump(
   // (its unread clears on read anyway) — compare against the ROW being
   // lit, so a thread bump whose parent is open still suppresses.
   if (event.userId === viewerId && sidebarChannelId !== sub.channelId) {
+    if (event.serverId) {
+      const serversKey = communityKeys.servers()
+      if (queryClient.getQueryState(serversKey)?.fetchStatus === "fetching") {
+        fenceServersList(projection)
+      }
+      queryClient.setQueryData<ServersResponse | undefined>(serversKey, (prev) => {
+        if (!prev) return prev
+        const index = prev.servers.findIndex((server) => server.id === event.serverId)
+        if (index < 0 || prev.servers[index]?.unread) return prev
+        const servers = [...prev.servers]
+        servers[index] = { ...servers[index]!, unread: true }
+        return { ...prev, servers }
+      })
+    }
     // Channel-tree dot: patch the RIGHT server's detail. `serverId`
     // (inbox-dot-ws-driven) lets an other-server message light its dot
     // — previously only the open server was patched, so cross-server

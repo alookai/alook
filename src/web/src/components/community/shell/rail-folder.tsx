@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { memo, useEffect, useRef } from "react"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu"
 import { RailIndicator } from "./rail-indicator"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
@@ -9,14 +9,12 @@ import { tid } from "@/lib/community/testids"
 import type { FolderServer } from "@/lib/community/models/navigation"
 import type { RailEntity, RailOperation } from "@/lib/community/server-rail-model"
 
-export function RailFolder({
-  folderId, open, onToggle, activeId, folderServers, onUngroup, dragging: isDragActive,
-  preview, registerItem, onMove,
-}: {
+type RailFolderProps = {
   folderId: string
   open: boolean
+  active: boolean
+  unread: boolean
   onToggle: () => void
-  activeId: string
   folderServers: FolderServer[]
   onUngroup?: () => void
   dragging?: boolean
@@ -27,7 +25,12 @@ export function RailFolder({
     dragHandle: HTMLElement,
   ) => () => void
   onMove?: (source: RailEntity, focusTarget: HTMLElement) => void
-}) {
+}
+
+function RailFolderImpl({
+  folderId, open, active, unread, onToggle, folderServers, onUngroup, dragging: isDragActive,
+  preview, registerItem, onMove,
+}: RailFolderProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
@@ -52,7 +55,11 @@ export function RailFolder({
                 className={`pointer-events-none absolute left-1/2 z-10 h-0.5 w-9 -translate-x-1/2 rounded-full bg-primary ${preview === "reorder-before" ? "-top-1" : "-bottom-1"}`}
               />
             )}
-            <RailIndicator active={!open && folderServers.some((s) => s.id === activeId)} />
+            <RailIndicator
+              active={active}
+              unread={unread}
+              testId={tid.serverRailFolderIndicator(folderId)}
+            />
             <button
               ref={buttonRef}
               data-testid={tid.serverRailFolder(folderId)}
@@ -97,3 +104,28 @@ export function RailFolder({
     </Tooltip>
   )
 }
+
+export function railFolderPropsEqual(prev: RailFolderProps, next: RailFolderProps) {
+  if (
+    prev.folderId !== next.folderId ||
+    prev.open !== next.open ||
+    prev.active !== next.active ||
+    prev.unread !== next.unread ||
+    prev.dragging !== next.dragging ||
+    prev.preview !== next.preview ||
+    !!prev.onUngroup !== !!next.onUngroup ||
+    !!prev.registerItem !== !!next.registerItem ||
+    !!prev.onMove !== !!next.onMove ||
+    prev.folderServers.length !== next.folderServers.length
+  ) return false
+  return prev.folderServers.every((server, index) => {
+    const other = next.folderServers[index]
+    return !!other &&
+      server.id === other.id &&
+      server.name === other.name &&
+      server.initial === other.initial &&
+      server.icon === other.icon
+  })
+}
+
+export const RailFolder = memo(RailFolderImpl, railFolderPropsEqual)
