@@ -84,7 +84,7 @@ export function ShellFrameView({
   return (
     <Shell onNavigationIntent={cancelPendingNavigation}>
       {!isMobileDetail && (
-        <div className={cn(isInitialDetail && "hidden sm:contents")}>
+        <div className={cn("flex min-h-0", isInitialDetail && "hidden sm:contents")}>
           <ServerRail {...rail.railProps} bottomInset={60} />
         </div>
       )}
