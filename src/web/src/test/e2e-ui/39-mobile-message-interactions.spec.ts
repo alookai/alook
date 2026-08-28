@@ -4,6 +4,7 @@ import {
   composerEditable,
   expectMessageVisible,
   gotoAfterUserWsAuth,
+  ignoreNextDevToolsPointerCapture,
 } from "./_fixtures/actions"
 import {
   memberInfo,
@@ -160,7 +161,8 @@ async function latestSeq(page: Page, channelId: string): Promise<number> {
 test("mobile reply, avatar mention, and typing space keep exact backend and WS identity", async ({ asUser }) => {
   test.setTimeout(240_000)
   const stamp = Date.now()
-  const serverId = await seedServer("alice", `Mobile interactions ${stamp}`)
+  const serverName = `Mobile-interactions-${stamp}`
+  const serverId = await seedServer("alice", serverName)
   const channelId = await seedChannel("alice", serverId, "mobile-interactions")
   await seedJoinServer("alice", "bob", serverId)
   const channelBobMessageId = await seedMessage("bob", channelId, `channel target ${stamp}`)
@@ -184,6 +186,8 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   const bobProxy = await proxyCommunityWebSockets(bob.context)
   await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}`)
   await gotoAfterUserWsAuth(bob.page, `/c/channels/${serverId}/${channelId}`)
+  await ignoreNextDevToolsPointerCapture(alice.page)
+  await ignoreNextDevToolsPointerCapture(bob.page)
   await expect(composerEditable(alice.page)).toBeVisible()
   await expect(composerEditable(bob.page)).toBeVisible()
   await expect(alice.page.getByTestId(tid.message(channelBobMessageId))).toBeVisible()
@@ -257,6 +261,8 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
 
   await alice.page.goto(`/c/channels/${serverId}/${threadId}`, { waitUntil: "commit" })
   await bob.page.goto(`/c/channels/${serverId}/${threadId}`, { waitUntil: "commit" })
+  await ignoreNextDevToolsPointerCapture(alice.page)
+  await ignoreNextDevToolsPointerCapture(bob.page)
   await expect(composerEditable(alice.page)).toBeVisible()
   await expect(composerEditable(bob.page)).toBeVisible()
   const threadTarget = alice.page.getByTestId(tid.message(threadBobMessageId))
@@ -329,6 +335,8 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
 
   await alice.page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
   await bob.page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
+  await ignoreNextDevToolsPointerCapture(alice.page)
+  await ignoreNextDevToolsPointerCapture(bob.page)
   await expect(composerEditable(alice.page)).toBeVisible()
   await expect(composerEditable(bob.page)).toBeVisible()
   await expect(alice.page.getByTestId(tid.message(replyPayload.message.id))).toBeVisible()
@@ -450,6 +458,8 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
 
   await alice.page.goto(`/c/me/${dmId}`, { waitUntil: "commit" })
   await bob.page.goto(`/c/me/${dmId}`, { waitUntil: "commit" })
+  await ignoreNextDevToolsPointerCapture(alice.page)
+  await ignoreNextDevToolsPointerCapture(bob.page)
   await expect(composerEditable(alice.page)).toBeVisible()
   await expect(composerEditable(bob.page)).toBeVisible()
   const dmWsReadyId = await seedMessage("bob", dmId, `dm typing ws ready ${stamp}`)
@@ -530,7 +540,7 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
       })
     }
   })
-  await alice.page.getByRole("button", { name: "Back" }).click()
+  await alice.page.getByRole("button", { name: `Go to server ${serverName}` }).click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}`)
   await alice.page.getByTestId(tid.channelRow(channelId)).evaluate((element) => (
     (element as HTMLElement).click()
@@ -547,7 +557,8 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
 
 test("mobile channel scroll restoration remains stable after navigation settles", async ({ asUser }) => {
   const stamp = Date.now()
-  const serverId = await seedServer("alice", `Mobile scroll ${stamp}`)
+  const serverName = `Mobile-scroll-${stamp}`
+  const serverId = await seedServer("alice", serverName)
   const channelId = await seedChannel("alice", serverId, "mobile-scroll")
   for (let index = 0; index < 24; index += 1) {
     await seedMessage("alice", channelId, `scroll row ${index} ${stamp}`)
@@ -563,6 +574,7 @@ test("mobile channel scroll restoration remains stable after navigation settles"
   const alice = await asUser("alice")
   await alice.page.setViewportSize({ width: 390, height: 844 })
   await alice.page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
+  await ignoreNextDevToolsPointerCapture(alice.page)
   const editable = composerEditable(alice.page)
   const scroller = alice.page.getByTestId(tid.messageScroller)
   await expect(editable).toBeVisible()
@@ -577,7 +589,7 @@ test("mobile channel scroll restoration remains stable after navigation settles"
     return element.scrollTop
   })).toBe(2200)
 
-  await alice.page.getByRole("button", { name: "Back" }).click()
+  await alice.page.getByRole("button", { name: `Go to server ${serverName}` }).click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}`)
   await alice.page.getByTestId(tid.channelRow(channelId)).click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${channelId}`)
