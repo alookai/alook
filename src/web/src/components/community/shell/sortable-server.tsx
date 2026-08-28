@@ -108,7 +108,11 @@ function SortableServerImpl({
           className={`pointer-events-none absolute left-1/2 z-10 h-0.5 w-9 -translate-x-1/2 rounded-full bg-primary ${preview === "reorder-before" ? "-top-1" : "-bottom-1"}`}
         />
       )}
-      <RailIndicator active={active} />
+      <RailIndicator
+        active={active}
+        unread={server.unread}
+        testId={tid.serverRailIndicator(server.id)}
+      />
       <div
         className={[
           "relative size-10 transition-[border-radius,background-color,border-color,opacity,transform] duration-150",
@@ -247,7 +251,7 @@ function SortableServerImpl({
 // whole rail (N servers × their Tooltip/Avatar)
 // re-renders on every tick — the SortableServer/TooltipTrigger ×N in
 // perf:switch after the lazy-overlay pass.
-function serverPropsEqual(prev: SortableServerProps, next: SortableServerProps): boolean {
+export function serverPropsEqual(prev: SortableServerProps, next: SortableServerProps): boolean {
   const a = prev.server;
   const b = next.server;
   return (
@@ -255,6 +259,7 @@ function serverPropsEqual(prev: SortableServerProps, next: SortableServerProps):
     a.name === b.name &&
     a.initial === b.initial &&
     a.icon === b.icon &&
+    a.unread === b.unread &&
     a.mentions === b.mentions &&
     a.isOwner === b.isOwner &&
     prev.active === next.active &&

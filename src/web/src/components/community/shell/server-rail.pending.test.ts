@@ -47,8 +47,8 @@ vi.mock("@/lib/community-onboarding", () => ({
 }))
 
 const servers = [
-  { id: "a", name: "A", initial: "A", active: true, mentions: 0 },
-  { id: "b", name: "B", initial: "B", active: false, mentions: 0 },
+  { id: "a", name: "A", initial: "A", active: true, unread: false, mentions: 0 },
+  { id: "b", name: "B", initial: "B", active: false, unread: false, mentions: 0 },
 ]
 const folders = [{
   id: "one",
@@ -118,6 +118,39 @@ describe("ServerRail one-in-flight structural guard", () => {
     })
   })
   afterEach(() => vi.unstubAllGlobals())
+
+  it("aggregates unread only while collapsed and preserves it on the expanded child", async () => {
+    let renderer!: TestRenderer.ReactTestRenderer
+    const unreadServers = servers.map((server) => ({
+      ...server,
+      unread: server.id === "b",
+    }))
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ServerRail, {
+        servers: unreadServers,
+        folders,
+        view: "server",
+        onHome: vi.fn(),
+      }))
+    })
+
+    expect(renderer.root.findByType("rail-folder").props).toMatchObject({
+      open: false,
+      active: false,
+      unread: true,
+    })
+
+    await act(async () => renderer.root.findByType("rail-folder").props.onToggle())
+
+    expect(renderer.root.findByType("rail-folder").props).toMatchObject({
+      open: true,
+      active: false,
+      unread: false,
+    })
+    const child = renderer.root.findAllByType("sortable-server")
+      .find((node) => node.props.server.id === "b")
+    expect(child?.props.server.unread).toBe(true)
+  })
 
   it.each(["create-first", "ungroup-first"] as const)(
     "allows one PATCH when stale create and ungroup callbacks race: %s",

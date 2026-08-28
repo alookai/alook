@@ -44,13 +44,14 @@ describe("useServers / serversQueryFn", () => {
           ownerId: "u_1",
           role: "owner",
           mentions: 3,
+          unread: true,
         },
         { id: "srv_2", name: "Beta", discriminator: "12345", icon: null, role: "member" },
       ],
     })
     const { serversQueryFn } = await import("./use-servers")
     const data = await serversQueryFn()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers")
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers", { signal: undefined })
     expect(data.servers[0].initial).toBe("A")
     expect(data.servers[0].isOwner).toBe(true)
     expect(data.servers[0].mentions).toBe(3)
@@ -58,12 +59,10 @@ describe("useServers / serversQueryFn", () => {
     expect(data.servers[0].discriminator).toBe("0042")
     expect(data.servers[0].description).toBe("Build together")
     expect(data.servers[0].ownerId).toBe("u_1")
-    // `unread` has been removed from the Server type — the mapper must not
-    // project it. Pin the invariant so a future revival gets caught.
-    expect((data.servers[0] as { unread?: boolean }).unread).toBeUndefined()
+    expect(data.servers[0].unread).toBe(true)
     expect(data.servers[1].mentions).toBe(0)
     expect(data.servers[1].isOwner).toBe(false)
-    expect((data.servers[1] as { unread?: boolean }).unread).toBeUndefined()
+    expect(data.servers[1].unread).toBe(false)
   })
 
   it("preserves mentions when provided; defaults to 0 when omitted", async () => {
@@ -77,6 +76,18 @@ describe("useServers / serversQueryFn", () => {
     const data = await serversQueryFn()
     expect(data.servers[0].mentions).toBe(7)
     expect(data.servers[1].mentions).toBe(0)
+  })
+
+  it("passes TanStack's abort signal to the canonical request", async () => {
+    apiFetchMock.mockResolvedValueOnce({ servers: [] })
+    const controller = new AbortController()
+    const { serversQueryFn } = await import("./use-servers")
+
+    await serversQueryFn({ signal: controller.signal } as never)
+
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers", {
+      signal: controller.signal,
+    })
   })
 
   it("populates queryClient at communityKeys.servers()", async () => {
@@ -116,7 +127,7 @@ describe("useServer / serverQueryFn", () => {
     })
     const { serverQueryFn } = await import("./use-servers")
     const data = await serverQueryFn(new QueryClient(), "srv_1")()
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers")
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers", expect.any(Object))
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/categories")
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/channels")
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers/srv_1/unreads")
