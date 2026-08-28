@@ -1,81 +1,197 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
-import type { Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
+import type { QueryClient } from "@tanstack/react-query"
+import {
+  activateInboxProjectionTicket,
+  cancelInboxProjectionTicket,
+  registerInboxProjectionTicket,
+  type InboxProjectionTicket,
+  type InboxRowTarget,
+} from "./inbox-read-reservation"
 
-/**
- * Inbox auto-collapse.
- *
- * The inbox popover should close by itself the moment the row the user clicked
- * leaves the list — and only then. A forum parent can remain after its own
- * opener messages are read when it still hosts unread child channels, so the
- * popover stays open while that exact `channel:<id>` row is present.
- *
- * The mechanism: record the clicked row's key (a "pending close" marker held in
- * a ref so setting it doesn't render), then watch the inbox lists. When that
- * exact key is no longer present, collapse.
- *
- * Row → key:
- *   - DM row      → `dm:<channelId>` (a DM is a channel)
- *   - channel row → `channel:<channelId>` (top-level or nested child thread)
- *   - mention row → `mention:<mention.id>`
- */
-
-export type InboxLists = {
-  unreads: UnreadServer[]
-  unreadDms: UnreadDm[]
-  mentions: Mention[]
+type ProjectionLease = {
+  epoch: number
+  target: InboxRowTarget
+  destinationHref: string
+  previousOpen: boolean
+  phase: "submitting" | "committed"
+  submitted: boolean
+  ticket: InboxProjectionTicket
 }
 
-// Pure: is the keyed row still somewhere in the inbox lists?
-export function inboxItemPresent(lists: InboxLists, key: string): boolean {
-  const sep = key.indexOf(":")
-  if (sep < 0) return false
-  const kind = key.slice(0, sep)
-  const id = key.slice(sep + 1)
-  switch (kind) {
-    case "dm":
-      return lists.unreadDms.some((d) => d.channelId === id)
-    case "channel":
-      return lists.unreads.some((s) =>
-        s.channels.some(
-          (c) => c.channelId === id || c.children.some((ch) => ch.channelId === id),
-        ),
-      )
-    case "mention":
-      return lists.mentions.some((m) => m.id === id)
-    default:
-      return false
+type Options = {
+  queryClient: QueryClient
+  publishedHref: string
+  navigationPending: boolean
+  pendingHref: string | null
+}
+
+type ProjectionStore = {
+  current: ProjectionLease | null
+  listeners: Set<() => void>
+  nextEpoch: number
+}
+
+const projectionStores = new WeakMap<QueryClient, ProjectionStore>()
+
+function projectionStoreFor(queryClient: QueryClient) {
+  let store = projectionStores.get(queryClient)
+  if (!store) {
+    store = { current: null, listeners: new Set(), nextEpoch: 0 }
+    projectionStores.set(queryClient, store)
   }
+  return store
 }
 
-export function useInboxAutoCollapse({ unreads, unreadDms, mentions }: InboxLists) {
-  const [open, setOpen] = useState(false)
-  const pendingKeyRef = useRef<string | null>(null)
+function publishProjection(store: ProjectionStore, lease: ProjectionLease | null) {
+  store.current = lease
+  for (const listener of store.listeners) listener()
+}
 
-  // Toggling the popover (open OR close, by user or by us) clears any pending
-  // marker so a stale key can never fire a surprise close later.
+function allocateProjectionEpoch(store: ProjectionStore) {
+  store.nextEpoch += 1
+  return store.nextEpoch
+}
+
+function destinationMatches(observed: string | null, expected: string) {
+  if (observed === expected) return true
+  if (!observed) return false
+  const removeHandoff = (href: string) => {
+    const [pathname, query = ""] = href.split("?")
+    const params = new URLSearchParams(query)
+    params.delete("inboxThreadOpener")
+    const search = params.toString()
+    return `${pathname}${search ? `?${search}` : ""}`
+  }
+  return removeHandoff(observed) === removeHandoff(expected)
+}
+
+export function useInboxAutoCollapse({
+  queryClient,
+  publishedHref,
+  navigationPending,
+  pendingHref,
+}: Options) {
+  const [open, setOpen] = useState(false)
+  const store = projectionStoreFor(queryClient)
+  const projection = useSyncExternalStore(
+    (listener) => {
+      store.listeners.add(listener)
+      return () => store.listeners.delete(listener)
+    },
+    () => store.current,
+    () => store.current,
+  )
+  const openRef = useRef(open)
+
+  const commitLease = useCallback((lease: ProjectionLease) => {
+    if (store.current?.epoch !== lease.epoch) return
+    const committed = { ...lease, phase: "committed" as const }
+    publishProjection(store, committed)
+    activateInboxProjectionTicket(lease.ticket)
+  }, [store])
+
+  const rollbackProjection = useCallback((epoch: number, reopen = false) => {
+    const lease = store.current
+    if (!lease || lease.epoch !== epoch) return false
+    cancelInboxProjectionTicket(lease.ticket)
+    publishProjection(store, null)
+    if (reopen) {
+      openRef.current = lease.previousOpen
+      setOpen(lease.previousOpen)
+    }
+    return true
+  }, [store])
+
+  const beginProjection = useCallback((
+    target: InboxRowTarget,
+    destinationHref: string,
+  ) => {
+    const previous = store.current
+    if (previous) cancelInboxProjectionTicket(previous.ticket)
+    const epoch = allocateProjectionEpoch(store)
+    const previousOpen = openRef.current
+    const ticket = registerInboxProjectionTicket(
+      queryClient,
+      epoch,
+      target,
+      (receipt) => {
+        const current = store.current
+        if (!current || current.epoch !== receipt.epoch) return
+        publishProjection(store, null)
+      },
+    )
+    const lease: ProjectionLease = {
+      epoch,
+      target,
+      destinationHref,
+      previousOpen,
+      phase: "submitting",
+      submitted: false,
+      ticket,
+    }
+    publishProjection(store, lease)
+    openRef.current = false
+    setOpen(false)
+    return epoch
+  }, [queryClient, store])
+
+  const markProjectionSubmitted = useCallback((epoch: number) => {
+    const lease = store.current
+    if (!lease || lease.epoch !== epoch) return false
+    const submitted = { ...lease, submitted: true }
+    publishProjection(store, submitted)
+    if (destinationMatches(publishedHref, lease.destinationHref)) {
+      commitLease(submitted)
+    }
+    return true
+  }, [commitLease, publishedHref, store])
+
+  const closeWithoutProjection = useCallback(() => {
+    const lease = store.current
+    if (lease) cancelInboxProjectionTicket(lease.ticket)
+    publishProjection(store, null)
+    const previousOpen = openRef.current
+    openRef.current = false
+    setOpen(false)
+    return previousOpen
+  }, [store])
+
   const onOpenChange = useCallback((next: boolean) => {
-    pendingKeyRef.current = null
+    openRef.current = next
     setOpen(next)
   }, [])
 
-  // Call when a row is opened AND navigation happens.
-  const watchItem = useCallback((key: string) => {
-    pendingKeyRef.current = key
-  }, [])
+  const isProjected = useCallback((target: InboxRowTarget | null) => {
+    if (!target || !projection) return false
+    return projection.target.identity === target.identity
+      && projection.target.fingerprint === target.fingerprint
+  }, [projection])
 
-  // When the watched row leaves the list, collapse. Keyed off the list arrays
-  // (stable references from React Query) so it re-checks precisely when the
-  // "row disappeared" signal lands, not on every render.
+  const isLatestProjection = useCallback((epoch: number) => (
+    store.current?.epoch === epoch
+  ), [store])
+
   useEffect(() => {
-    const key = pendingKeyRef.current
-    if (!open || !key) return
-    if (!inboxItemPresent({ unreads, unreadDms, mentions }, key)) {
-      pendingKeyRef.current = null
-      setOpen(false)
+    const lease = store.current
+    if (!lease || !lease.submitted || lease.phase !== "submitting") return
+    if (destinationMatches(publishedHref, lease.destinationHref)) {
+      commitLease(lease)
+      return
     }
-  }, [open, unreads, unreadDms, mentions])
+    if (navigationPending && destinationMatches(pendingHref, lease.destinationHref)) return
+    rollbackProjection(lease.epoch)
+  }, [commitLease, navigationPending, pendingHref, projection, publishedHref, rollbackProjection, store])
 
-  return { open, onOpenChange, watchItem }
+  return {
+    open,
+    onOpenChange,
+    beginProjection,
+    markProjectionSubmitted,
+    rollbackProjection,
+    closeWithoutProjection,
+    isProjected,
+    isLatestProjection,
+  }
 }

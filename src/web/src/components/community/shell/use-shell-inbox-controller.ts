@@ -3,11 +3,19 @@
 import { useCallback, useState, type ComponentProps } from "react"
 import { communityKeys } from "@/lib/query-keys"
 import { channelHref } from "@/lib/community/community-route"
-import type { Marked, UnreadDm } from "@/lib/community/models/inbox"
+import type { Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import { dmSummaryFromInbox, upsertDmSummary, type DmCache } from "@/lib/community/dm-cache"
 import { useInboxUnreads, useInboxMentions, useInboxMarked } from "@/hooks/community/use-inbox"
 import { startDmRouteVerification } from "@/hooks/community/use-dm-route-verification"
 import { useInboxAutoCollapse } from "@/hooks/community/use-inbox-auto-collapse"
+import {
+  inboxChannelRowTarget,
+  inboxDmRowTarget,
+  inboxMentionRowTarget,
+  inboxThreadRowTarget,
+  terminateThreadOpenerReservationHandoff,
+  type InboxRowTarget,
+} from "@/hooks/community/inbox-read-reservation"
 import {
   useMarkAllInboxRead,
   useDeleteMention,
@@ -21,16 +29,25 @@ import {
   clearThreadOpenerReadHandoff,
 } from "@/hooks/community/thread-opener-read-handoff"
 
+type UnreadChannel = UnreadServer["channels"][number]
+type UnreadChild = UnreadChannel["children"][number]
+
 type Options = {
   router: ShellRouter
   queryClient: QueryClient
   cancelPendingNavigation: () => void
+  publishedHref: string
+  navigationPending: boolean
+  pendingHref: string | null
 }
 
 export function useShellInboxController({
   router,
   queryClient,
   cancelPendingNavigation,
+  publishedHref,
+  navigationPending,
+  pendingHref,
 }: Options) {
   const inboxUnreads = useInboxUnreads()
   const inboxMentions = useInboxMentions()
@@ -43,77 +60,112 @@ export function useShellInboxController({
   const { mutate: unmarkMessageMutate } = useUnmarkMessage()
   const markAllInboxRead = useMarkAllInboxRead()
   const deleteMention = useDeleteMention()
-  const inbox = useInboxAutoCollapse({ unreads: unreadFeed, unreadDms, mentions })
-  const watchInboxItem = inbox.watchItem
+  const inbox = useInboxAutoCollapse({
+    queryClient,
+    publishedHref,
+    navigationPending,
+    pendingHref,
+  })
 
-  const openServerChannel = useCallback((
-    serverId: string,
-    channelId: string,
-    _parentChannelId?: string,
-    watchKey: string = `channel:${channelId}`,
+  const pushProjected = useCallback((
+    target: InboxRowTarget,
+    destinationHref: string,
+    prepare?: () => string | void,
+    afterPush?: () => void,
   ) => {
-    watchInboxItem(watchKey)
+    const epoch = inbox.beginProjection(target, destinationHref)
     cancelPendingNavigation()
     clearThreadOpenerReadHandoff(queryClient)
-    router.push(channelHref(serverId, channelId))
-  }, [cancelPendingNavigation, queryClient, router, watchInboxItem])
-
-  const openThread = useCallback((
-    serverId: string,
-    parentChannelId: string,
-    childChannelId: string,
-    openerMessageId: string,
-    openerSeq?: number,
-    openerUnread?: boolean,
-  ) => {
-    watchInboxItem(`channel:${childChannelId}`)
-    cancelPendingNavigation()
-    const href = openerUnread === true && openerSeq !== undefined
-      ? armThreadOpenerReadHandoff(queryClient, {
-          serverId,
-          parentChannelId: parentChannelId,
-          childChannelId,
-          openerMessageId,
-          openerSeq,
-        })
-      : channelHref(serverId, childChannelId)
-    if (openerUnread !== true || openerSeq === undefined) {
-      clearThreadOpenerReadHandoff(queryClient)
-    }
+    let pushedHref = destinationHref
     try {
-      router.push(href)
+      pushedHref = prepare?.() ?? destinationHref
+      router.push(pushedHref)
+      if (inbox.markProjectionSubmitted(epoch)) afterPush?.()
     } catch (error) {
-      clearThreadOpenerReadHandoff(queryClient)
+      const nonce = new URLSearchParams(pushedHref.split("?")[1] ?? "")
+        .get("inboxThreadOpener")
+      if (nonce) terminateThreadOpenerReservationHandoff(queryClient, nonce)
+      if (inbox.isLatestProjection(epoch)) {
+        cancelPendingNavigation()
+        inbox.rollbackProjection(epoch, true)
+      }
       throw error
     }
-  }, [cancelPendingNavigation, queryClient, router, watchInboxItem])
+  }, [cancelPendingNavigation, inbox, queryClient, router])
+
+  const openServerChannel = useCallback((
+    server: UnreadServer,
+    channel: UnreadChannel,
+  ) => {
+    const target = inboxChannelRowTarget(server, channel)
+    if (!target) return
+    const href = channelHref(server.serverId, channel.channelId)
+    pushProjected(target, href)
+  }, [pushProjected])
+
+  const openThread = useCallback((
+    server: UnreadServer,
+    parent: UnreadChannel,
+    child: UnreadChild,
+  ) => {
+    const target = inboxThreadRowTarget(server, parent, child)
+    const href = channelHref(server.serverId, child.channelId)
+    pushProjected(target, href, () => (
+      child.openerMessageId
+      && child.openerUnread === true
+      && child.openerSeq !== undefined
+        ? armThreadOpenerReadHandoff(queryClient, {
+            serverId: server.serverId,
+            parentChannelId: child.parentChannelId ?? parent.channelId,
+            childChannelId: child.channelId,
+            openerMessageId: child.openerMessageId,
+            openerSeq: child.openerSeq,
+          })
+        : href
+    ))
+  }, [pushProjected, queryClient])
 
   const openMarked = useCallback((marked: Marked) => {
-    watchInboxItem(`marked:${marked.id}`)
+    const previousOpen = inbox.closeWithoutProjection()
     cancelPendingNavigation()
     clearThreadOpenerReadHandoff(queryClient)
     const seqQuery = marked.m.seq != null ? `?seq=${marked.m.seq}` : ""
-    if (marked.serverId) {
-      const channelPath = channelHref(marked.serverId, marked.channelId)
-      router.push(`${channelPath}${seqQuery}`)
-    } else {
-      router.push(`/c/me/${marked.channelId}${seqQuery}`)
+    const href = marked.serverId
+      ? `${channelHref(marked.serverId, marked.channelId)}${seqQuery}`
+      : `/c/me/${marked.channelId}${seqQuery}`
+    try {
+      router.push(href)
+    } catch (error) {
+      cancelPendingNavigation()
+      inbox.onOpenChange(previousOpen)
+      throw error
     }
-  }, [cancelPendingNavigation, queryClient, router, watchInboxItem])
+  }, [cancelPendingNavigation, inbox, queryClient, router])
 
   const openDm = useCallback((dm: UnreadDm) => {
     const dmId = dm.channelId
-    queryClient.setQueryData(
-      communityKeys.dms(),
-      (previous: DmCache | undefined) =>
-        upsertDmSummary(previous, dmSummaryFromInbox(dm)),
+    pushProjected(
+      inboxDmRowTarget(dm),
+      `/c/me/${dmId}`,
+      () => {
+        queryClient.setQueryData(
+          communityKeys.dms(),
+          (previous: DmCache | undefined) => (
+            upsertDmSummary(previous, dmSummaryFromInbox(dm))
+          ),
+        )
+      },
+      () => {
+        void startDmRouteVerification(queryClient, dmId).catch(() => undefined)
+      },
     )
-    watchInboxItem(`dm:${dmId}`)
-    cancelPendingNavigation()
-    clearThreadOpenerReadHandoff(queryClient)
-    router.push(`/c/me/${dmId}`)
-    void startDmRouteVerification(queryClient, dmId).catch(() => undefined)
-  }, [cancelPendingNavigation, queryClient, router, watchInboxItem])
+  }, [pushProjected, queryClient])
+
+  const openMention = useCallback((mention: Mention) => {
+    const target = inboxMentionRowTarget(mention)
+    if (!target || !mention.serverId || !mention.channelId) return
+    pushProjected(target, channelHref(mention.serverId, mention.channelId))
+  }, [pushProjected])
 
   const popoverProps: ComponentProps<typeof InboxPopover> = {
     unreads: unreadFeed,
@@ -125,16 +177,13 @@ export function useShellInboxController({
     onOpenChannel: openServerChannel,
     onOpenThread: openThread,
     onOpenDm: openDm,
-    onOpenMention: (mention) => {
-      if (mention.serverId && mention.channelId) {
-        openServerChannel(mention.serverId, mention.channelId, undefined, `mention:${mention.id}`)
-      }
-    },
+    onOpenMention: openMention,
     onOpenMarked: openMarked,
     onMarkedTabSelected: () => setMarkedTabOpened(true),
     onMarkAllRead: () => { markAllInboxRead.mutate() },
     onDeleteMention: (id) => deleteMention.mutate({ mentionId: id }),
     onUnmark: (messageId) => unmarkMessageMutate({ messageId }),
+    isProjected: inbox.isProjected,
   }
 
   return {
