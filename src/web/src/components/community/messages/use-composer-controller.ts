@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
@@ -100,6 +101,11 @@ export function useComposerController(
     [],
   )
   const restoringDraftRef = useRef(false)
+  const resolvedPlaceholder =
+    placeholder ??
+    (context === "channel" ? `Message /${channel}` : `Message ${channel}`)
+  const placeholderRef = useRef(resolvedPlaceholder)
+  const resolvePlaceholder = useCallback(() => placeholderRef.current, [])
 
   const suggestions = useComposerSuggestions({
     members,
@@ -135,10 +141,9 @@ export function useComposerController(
         listItem: false,
         listKeymap: false,
       }),
+      // eslint-disable-next-line react-hooks/refs
       Placeholder.configure({
-        placeholder:
-          placeholder ??
-          (context === "channel" ? `Message /${channel}` : `Message ${channel}`),
+        placeholder: resolvePlaceholder,
       }),
       suggestions.mentionExtension,
       suggestions.channelRefExtension,
@@ -220,6 +225,13 @@ export function useComposerController(
       }
     },
   })
+
+  useLayoutEffect(() => {
+    if (placeholderRef.current === resolvedPlaceholder) return
+    placeholderRef.current = resolvedPlaceholder
+    if (!editor) return
+    editor.view?.dispatch(editor.state.tr)
+  }, [editor, resolvedPlaceholder])
 
   useEffect(() => {
     if (!editor || isForumThreadBody || !draftKey) return

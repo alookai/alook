@@ -74,6 +74,12 @@ type TestEditor = {
   isEmpty: boolean
   getText: ReturnType<typeof vi.fn>
   getJSON: ReturnType<typeof vi.fn>
+  state: {
+    tr: object
+  }
+  view: {
+    dispatch: ReturnType<typeof vi.fn>
+  }
   commands: {
     clearContent: ReturnType<typeof vi.fn>
     focus: ReturnType<typeof vi.fn>
@@ -96,6 +102,8 @@ describe("useComposerController", () => {
   let clearContent: ReturnType<typeof vi.fn>
   let focus: ReturnType<typeof vi.fn>
   let setContent: ReturnType<typeof vi.fn>
+  let dispatch: ReturnType<typeof vi.fn>
+  let transaction: object
   let chainFocus: ReturnType<typeof vi.fn>
   let insertContent: ReturnType<typeof vi.fn>
   let run: ReturnType<typeof vi.fn>
@@ -114,6 +122,8 @@ describe("useComposerController", () => {
     clearContent = vi.fn()
     focus = vi.fn()
     setContent = vi.fn()
+    dispatch = vi.fn()
+    transaction = {}
     run = vi.fn()
     insertContent = vi.fn(() => ({ run }))
     chainFocus = vi.fn(() => ({ insertContent }))
@@ -129,6 +139,8 @@ describe("useComposerController", () => {
       isEmpty: false,
       getText: vi.fn(() => "  hello @everyone  "),
       getJSON: vi.fn(() => ({ type: "doc" })),
+      state: { tr: transaction },
+      view: { dispatch },
       commands: {
         clearContent,
         focus,
@@ -496,6 +508,69 @@ describe("useComposerController", () => {
     expect(mocks.useEditor).toHaveBeenCalledTimes(2)
     expect(mocks.starterConfigure).toHaveBeenCalledTimes(2)
     expect(mocks.placeholderConfigure).toHaveBeenCalledTimes(2)
+  })
+
+  it("updates the live placeholder without replacing or resetting the editor", async () => {
+    const props = acceptedProps(() => true)
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(Harness, props))
+    })
+    const firstEditor = renderer.root.findByType("controller-probe").props.view
+      .editor
+    const livePlaceholder = mocks.placeholderConfigure.mock.calls[0]?.[0]
+      .placeholder as () => string
+    expect(livePlaceholder()).toBe("Message /general")
+    expect(dispatch).not.toHaveBeenCalled()
+
+    await act(async () => {
+      renderer.update(
+        createElement(Harness, { ...props, channel: "renamed-channel" }),
+      )
+    })
+    expect(renderer.root.findByType("controller-probe").props.view.editor).toBe(
+      firstEditor,
+    )
+    expect(livePlaceholder()).toBe("Message /renamed-channel")
+    expect(dispatch).toHaveBeenCalledTimes(1)
+    expect(dispatch).toHaveBeenLastCalledWith(transaction)
+
+    await act(async () => {
+      renderer.update(
+        createElement(Harness, {
+          ...props,
+          channel: "another-channel",
+          placeholder: "Custom composer prompt",
+        }),
+      )
+    })
+    expect(livePlaceholder()).toBe("Custom composer prompt")
+    expect(dispatch).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      renderer.update(
+        createElement(Harness, {
+          ...props,
+          channel: "final-channel",
+          placeholder: "Custom composer prompt",
+        }),
+      )
+    })
+    expect(livePlaceholder()).toBe("Custom composer prompt")
+    expect(dispatch).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      renderer.update(
+        createElement(Harness, { ...props, channel: "final-channel" }),
+      )
+    })
+    expect(livePlaceholder()).toBe("Message /final-channel")
+    expect(dispatch).toHaveBeenCalledTimes(3)
+    expect(clearContent).not.toHaveBeenCalled()
+    expect(setContent).not.toHaveBeenCalled()
+    expect(focus).not.toHaveBeenCalled()
+    expect(mocks.clearDraft).not.toHaveBeenCalled()
+    expect(mocks.writeDraft).not.toHaveBeenCalled()
   })
 
   it("restores valid JSON without typing, dirty, or draft-write side effects", async () => {
