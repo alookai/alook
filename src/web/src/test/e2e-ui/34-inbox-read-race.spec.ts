@@ -199,10 +199,23 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     const requestStart = requests.length
     const frameStart = proxy.frames.length
     await readObserverGate.block()
-    const staleInboxResponse = page.waitForResponse((response) => (
-      response.request().method() === "GET"
-      && new URL(response.url()).pathname === "/api/community/users/me/inbox/unreads"
-    ))
+    const staleInboxResponse = page.waitForResponse(async (response) => {
+      if (
+        response.request().method() !== "GET"
+        || new URL(response.url()).pathname !== "/api/community/users/me/inbox/unreads"
+        || response.status() !== 200
+      ) return false
+      const payload = await response.json() as {
+        servers: Array<{ channels: Array<{
+          channelId: string
+          children: Array<{ channelId: string }>
+        }> }>
+      }
+      return payload.servers.some((server) => server.channels.some((channel) => (
+        channel.channelId === channelA
+        || channel.children.some((child) => child.channelId === channelA)
+      )))
+    })
     const readResponse = page.waitForResponse((response) => (
       response.request().method() === "PUT"
       && new URL(response.url()).pathname === `/api/community/channels/${channelA}/read`

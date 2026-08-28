@@ -394,6 +394,44 @@ describe("useCommunityWs — operation bundles", () => {
     }
   })
 
+  it("merges a fetching unread fence with batch mention invalidations into one replacement", async () => {
+    await mountHook({ viewerUserId: "viewer-1" })
+    const key = communityKeys.servers()
+    capturedQueryClient.setQueryData(key, {
+      servers: [{ id: "server-1", unread: false, mentions: 5 }],
+    })
+    let queryCalls = 0
+    const queryFn = ({ signal }: { signal: AbortSignal }) => {
+      queryCalls += 1
+      if (queryCalls > 1) {
+        return Promise.resolve({
+          servers: [{ id: "server-1", unread: true, mentions: 6 }],
+        })
+      }
+      return new Promise<never>((_resolve, reject) => {
+        signal.addEventListener("abort", () => {
+          reject(new DOMException("aborted", "AbortError"))
+        }, { once: true })
+      })
+    }
+    const first = capturedQueryClient.fetchQuery({ queryKey: key, queryFn, staleTime: 0 })
+      .catch(() => undefined)
+    await vi.waitFor(() => expect(queryCalls).toBe(1))
+    const cancel = vi.spyOn(capturedQueryClient, "cancelQueries")
+    const invalidate = vi.spyOn(capturedQueryClient, "invalidateQueries")
+
+    capturedOnMessage!(await batchFor("message-fenced-mention", mentionEvents))
+
+    await vi.waitFor(() => expect(queryCalls).toBe(2))
+    await vi.waitFor(() => expect(capturedQueryClient.getQueryData<{
+      servers: Array<{ unread: boolean; mentions: number }>
+    }>(key)?.servers[0]).toMatchObject({ unread: true, mentions: 6 }))
+    expect(cancel).toHaveBeenCalledTimes(1)
+    expect(invalidate.mock.calls.filter(([filters]) =>
+      JSON.stringify(filters.queryKey) === JSON.stringify(key))).toHaveLength(1)
+    await first
+  })
+
   it("treats repair-then-late-bundle mention state as authoritative invalidation, never arithmetic", async () => {
     vi.useFakeTimers()
     try {

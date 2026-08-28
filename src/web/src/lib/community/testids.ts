@@ -16,6 +16,8 @@ export const tid = {
   serverAdd: "community-server-add",
   serverRailScroll: "community-server-rail-scroll",
   serverRailFolder: (id: string) => `community-server-folder-${id}`,
+  serverRailIndicator: (id: string) => `community-server-rail-indicator-${id}`,
+  serverRailFolderIndicator: (id: string) => `community-server-rail-folder-indicator-${id}`,
   serverRailInsert: (id: string) => `community-server-rail-insert-${id}`,
   serverRailInsertFolder: (id: string) => `community-server-rail-insert-folder-${id}`,
   serverRailMoveDestination: "community-server-rail-move-destination",

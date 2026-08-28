@@ -1,7 +1,10 @@
 import type { Root, PhrasingContent } from "mdast"
 import { findAndReplace } from "mdast-util-find-and-replace"
+import type { CompileContext, Extension as FromMarkdownExtension, Handle as FromMarkdownHandle } from "mdast-util-from-markdown"
 import type { Handler, Handlers } from "mdast-util-to-hast"
 import type { Element } from "hast"
+import { codes } from "micromark-util-symbol"
+import type { Construct, Effects, Extension, State, TokenizeContext } from "micromark-util-types"
 import type { Plugin } from "unified"
 import { spoilerSyntax, spoilerFromMarkdown } from "./spoiler-syntax"
 import type { SpoilerNode } from "./spoiler-syntax"
@@ -10,14 +13,12 @@ import type { SpoilerNode } from "./spoiler-syntax"
 // `/server#disc` refs), parsed as real markdown AST nodes rather than
 // string-spliced HTML tags fed through `rehype-raw`. `channelRef`/`serverRef`
 // content is a nanoid charset (`[A-Za-z0-9_-]`); a member `mention` is
-// `@<name>#dddd` where the name may contain spaces but never a markdown
-// metacharacter (validateCommunityName forbids `#`/`@`/line breaks, and the
-// composer only ever inserts names picked from the roster), so a
-// `mdast-util-find-and-replace` pass stays safe — `remark-parse` won't split
-// these tokens across sibling text nodes. `spoiler` is handled separately by
-// the micromark tokenizer extension in `spoiler-syntax.ts` — see that file's
-// comment for why find-and-replace cannot handle spoilers containing nested
-// formatting.
+// `@<name>#dddd` where the name may contain spaces, Unicode, and Markdown/HTML
+// metacharacters. Member handles are recognized by a micromark text tokenizer
+// before Markdown can split them into sibling nodes; the later find/replace
+// pass remains as a compatibility path for ordinary text-only handles and
+// handles @everyone/refs. `spoiler` uses its own micromark tokenizer extension
+// in `spoiler-syntax.ts`.
 
 // Matches a `/server#disc/channel`, `/server#disc/channel/#N` (thread), or
 // `/server#disc/channel/#N#M` (thread reply,
@@ -126,7 +127,7 @@ const SERVER_REF_RE = new RegExp(`(?<=^|\\s)/${HANDLE_SEG}(?=\\s|$|[${REF_TERM}]
 //     tag matches in full. A hand-typed bare `@Alice` (no tag) is intentionally
 //     NOT a mention — it stays text.
 const MENTION_RE =
-  /@everyone(?![\p{L}\p{N}_-])|@[^@#\n\r]*[^@#\n\r\s]#\d{4,}/gu
+  /(?<!\/)(?:@everyone(?![\p{L}\p{N}_-])|@[^@#\n\r]*[^@#\n\r\s]#\d{4,})/gu
 
 /** mdast node produced by `@name`/`@name#0042`/`@everyone`. */
 export interface MentionNode {
@@ -161,6 +162,121 @@ declare module "mdast" {
     channelRef: ChannelRefNode
     serverRef: ServerRefNode
   }
+}
+
+declare module "micromark-util-types" {
+  interface TokenTypeMap {
+    memberMention: "memberMention"
+  }
+}
+
+function memberMentionSyntax(): Extension {
+  const construct: Construct = {
+    name: "memberMention",
+    previous: (code) => code !== codes.slash,
+    tokenize: tokenizeMemberMention,
+  }
+  return { text: { [codes.atSign]: construct } }
+}
+
+function tokenizeMemberMention(this: TokenizeContext, effects: Effects, ok: State, nok: State): State {
+  let nameSize = 0
+  let previousWasWhitespace = false
+  let discriminatorSize = 0
+
+  return start
+
+  function start(code: Parameters<State>[0]): State | undefined {
+    effects.enter("memberMention")
+    effects.consume(code)
+    return name
+  }
+
+  function name(code: Parameters<State>[0]): State | undefined {
+    if (
+      code === codes.eof ||
+      code === codes.atSign ||
+      code === codes.carriageReturn ||
+      code === codes.lineFeed ||
+      code === codes.carriageReturnLineFeed
+    ) {
+      return nok(code)
+    }
+    if (code === codes.numberSign) {
+      if (nameSize === 0 || previousWasWhitespace) return nok(code)
+      effects.consume(code)
+      return discriminator
+    }
+    effects.consume(code)
+    nameSize++
+    previousWasWhitespace = code === codes.space || code === codes.horizontalTab || code === codes.virtualSpace
+    return name
+  }
+
+  function discriminator(code: Parameters<State>[0]): State | undefined {
+    if (code !== null && code >= codes.digit0 && code <= codes.digit9) {
+      effects.consume(code)
+      discriminatorSize++
+      return discriminator
+    }
+    if (discriminatorSize < 4) return nok(code)
+    effects.exit("memberMention")
+    return ok(code)
+  }
+}
+
+function memberMentionFromMarkdown(): FromMarkdownExtension {
+  return {
+    enter: { memberMention: enterMemberMention },
+    exit: { memberMention: exitMemberMention },
+  }
+}
+
+const enterMemberMention: FromMarkdownHandle = function (this: CompileContext, token) {
+  const serialized = this.sliceSerialize(token)
+  const tagStart = serialized.lastIndexOf("#")
+  this.enter({
+    type: "mention",
+    value: serialized.slice(0, tagStart),
+    everyone: false,
+    discriminator: serialized.slice(tagStart + 1),
+  }, token)
+}
+
+const exitMemberMention: FromMarkdownHandle = function (this: CompileContext, token) {
+  this.exit(token)
+}
+
+type TraversableSyntaxNode = {
+  type: string
+  children?: TraversableSyntaxNode[]
+  value?: string
+  discriminator?: string
+  everyone?: boolean
+}
+
+function restoreProtectedMemberMentions(
+  node: TraversableSyntaxNode,
+  protectedAncestor = false,
+): void {
+  if (!node.children) return
+  const childrenAreProtected = protectedAncestor || IGNORE_NODE_TYPES.includes(node.type)
+  node.children = node.children.map((child) => {
+    if (
+      childrenAreProtected
+      && child.type === "mention"
+      && !child.everyone
+      && child.value
+      && child.discriminator
+    ) {
+      return {
+        type: "text",
+        value: `${child.value}#${child.discriminator}`,
+      }
+    }
+    restoreProtectedMemberMentions(child, childrenAreProtected)
+    return child
+  })
 }
 
 // `ignore` list mirrors mdast-util-find-and-replace's own default protection
@@ -199,10 +315,13 @@ export const chatSyntaxPlugin: Plugin<[], Root> = function chatSyntaxPlugin(this
   const settings = this.data() as ProcessorData
   const micromarkExtensions = (settings.micromarkExtensions ??= [])
   const fromMarkdownExtensions = (settings.fromMarkdownExtensions ??= [])
+  micromarkExtensions.push(memberMentionSyntax())
+  fromMarkdownExtensions.push(memberMentionFromMarkdown())
   micromarkExtensions.push(spoilerSyntax())
   fromMarkdownExtensions.push(spoilerFromMarkdown())
 
   return function transform(tree: Root): void {
+    restoreProtectedMemberMentions(tree as TraversableSyntaxNode)
     findAndReplace(
       tree,
       [

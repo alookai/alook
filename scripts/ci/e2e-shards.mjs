@@ -51,6 +51,7 @@ export const SPEC_SECONDS = {
   "38-community-navigation-checkpoint-matrix.spec.ts": 60,
   "39-mobile-message-interactions.spec.ts": 20,
   "39-mobile-composer-send.spec.ts": 45,
+  "40-server-rail-unread.spec.ts": 60,
 }
 
 function walk(directory) {

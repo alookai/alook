@@ -343,6 +343,86 @@ describe("useCommunityWs — message.create patches channel unread in the open s
     expect(servers?.servers[0].mentions).toBe(3)
   })
 
+  it("projects the addressed background server row to unread without touching siblings", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const sibling = { id: "srv_y", name: "Y", initial: "Y", active: false, unread: false, mentions: 0 }
+    capturedQueryClient.setQueryData(communityKeys.servers(), {
+      servers: [
+        { id: "srv_x", name: "X", initial: "X", active: false, unread: false, mentions: 0 },
+        sibling,
+      ],
+    })
+
+    capturedOnMessage!(unreadBump("ch_a", "u_me", { serverId: "srv_x" }))
+
+    const data = capturedQueryClient.getQueryData<{
+      servers: Array<{ id: string; unread: boolean }>
+    }>(communityKeys.servers())!
+    expect(data.servers.map(({ id, unread }) => ({ id, unread }))).toEqual([
+      { id: "srv_x", unread: true },
+      { id: "srv_y", unread: false },
+    ])
+    expect(data.servers[1]).toBe(sibling)
+  })
+
+  it("preserves response/list/row identity and skips invalidation for an idle already-true row", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const row = { id: "srv_x", name: "X", initial: "X", active: false, unread: true, mentions: 0 }
+    const seeded = { servers: [row] }
+    capturedQueryClient.setQueryData(communityKeys.servers(), seeded)
+    const invalidate = vi.spyOn(capturedQueryClient, "invalidateQueries")
+
+    capturedOnMessage!(unreadBump("ch_a", "u_me", { serverId: "srv_x" }))
+
+    const data = capturedQueryClient.getQueryData(communityKeys.servers())
+    expect(data).toBe(seeded)
+    expect((data as typeof seeded).servers).toBe(seeded.servers)
+    expect((data as typeof seeded).servers[0]).toBe(row)
+    expect(invalidate).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["absent", undefined],
+    ["cached false", false],
+    ["cached true", true],
+  ] as const)("fences a %s in-flight server-list request and converges to post-commit true", async (_label, cachedUnread) => {
+    await mountHook({ viewerUserId: "u_me" })
+    const key = communityKeys.servers()
+    if (cachedUnread !== undefined) {
+      capturedQueryClient.setQueryData(key, {
+        servers: [{ id: "srv_x", name: "X", initial: "X", active: false, unread: cachedUnread, mentions: 0 }],
+      })
+    }
+    let calls = 0
+    let firstAborted = false
+    const queryFn = ({ signal }: { signal: AbortSignal }) => {
+      calls += 1
+      if (calls > 1) {
+        return Promise.resolve({
+          servers: [{ id: "srv_x", name: "X", initial: "X", active: false, unread: true, mentions: 0 }],
+        })
+      }
+      return new Promise<never>((_resolve, reject) => {
+        signal.addEventListener("abort", () => {
+          firstAborted = true
+          reject(new DOMException("aborted", "AbortError"))
+        }, { once: true })
+      })
+    }
+    const first = capturedQueryClient.fetchQuery({ queryKey: key, queryFn, staleTime: 0 })
+      .catch(() => undefined)
+    await vi.waitFor(() => expect(calls).toBe(1))
+
+    capturedOnMessage!(unreadBump("ch_a", "u_me", { serverId: "srv_x" }))
+
+    await vi.waitFor(() => expect(calls).toBe(2))
+    await vi.waitFor(() => expect(capturedQueryClient.getQueryData<{
+      servers: Array<{ unread: boolean }>
+    }>(key)?.servers[0]?.unread).toBe(true))
+    expect(firstAborted).toBe(true)
+    await first
+  })
+
   it("leaves an absent or unrelated server rail cache unchanged on a legacy mention bump", async () => {
     await mountHook({ viewerUserId: "u_me" })
 
