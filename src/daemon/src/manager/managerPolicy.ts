@@ -182,6 +182,7 @@ export type ManagerEvent =
   | { type: "idle_reset_committed"; agentId: string; nowMs: number }
   | { type: "begin_reset"; agentId: string; nowMs: number }
   | { type: "rewake_after_reset"; agentId: string; message: AgentMsg }
+  | { type: "runtime_config_queued"; agentId: string; message: AgentMsg }
   | { type: "runtime_config_applied"; agentId: string }
   | {
       type: "runtime_signal";
@@ -395,6 +396,15 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
       if (!state.agents[event.agentId]) return { state, effects: [] };
       return mutate(state, event.agentId, (a) => {
         a.inbox = [...a.inbox, event.message];
+        a.idleSince = null;
+      });
+
+    case "runtime_config_queued":
+      return mutate(state, event.agentId, (a) => {
+        if (!a.inbox.some((message) => message.id === event.message.id)) {
+          a.inbox = [...a.inbox, event.message];
+        }
+        syncExecutionProjection(a);
         a.idleSince = null;
       });
 

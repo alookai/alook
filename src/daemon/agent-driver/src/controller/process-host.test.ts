@@ -375,6 +375,29 @@ describe("ProcessLane interrupt", () => {
   });
 });
 
+describe("ProcessLane settings updates", () => {
+  it("delegates to an adapter-provided settings method", async () => {
+    const { driver } = controllableDriver(() => []);
+    const updateSettings = vi.fn(async () => ({ status: "applied" as const }));
+    driver.updateSettings = updateSettings;
+    const session = new ProcessLane(driver, minimalCtx());
+
+    await expect(session.updateSettings({ reasoningEffort: "high" })).resolves.toEqual({
+      status: "applied",
+    });
+    expect(updateSettings).toHaveBeenCalledWith({ reasoningEffort: "high" });
+  });
+
+  it("reports unsupported when the adapter has no settings method", async () => {
+    const { driver } = controllableDriver(() => []);
+    const session = new ProcessLane(driver, minimalCtx());
+
+    await expect(session.updateSettings({ reasoningEffort: "high" })).resolves.toEqual({
+      status: "unsupported",
+    });
+  });
+});
+
 describe("ProcessLane stop", () => {
   it("idempotently kills the detached process group when its root handle is already terminal", async () => {
     const { driver, process: proc, kill } = controllableDriver(() => []);

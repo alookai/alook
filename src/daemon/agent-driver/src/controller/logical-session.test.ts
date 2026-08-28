@@ -182,6 +182,47 @@ describe("LogicalAgentSession reasoning settings boundary", () => {
     await expect(settings).resolves.toEqual({ status: "applied" });
     await vi.waitFor(() => expect(sent).toHaveBeenCalledTimes(1));
   });
+
+  it("rejects settings updates after the session is closed", async () => {
+    const { session } = makeSession("codex");
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+
+    await expect(session.updateSettings!({ reasoningEffort: "high" })).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "settings_session_closed", retryable: true },
+    });
+  });
+
+  it("reports unsupported when the runtime lane has no settings method", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "codex:test:1" };
+    Object.defineProperty(lane, "updateSettings", { value: undefined });
+    const { session } = makeSession("codex", { lane });
+    await expect(session.start({ id: "first", kind: "user", text: "hello" })).resolves.toMatchObject({
+      status: "accepted",
+    });
+
+    await expect(session.updateSettings!({ reasoningEffort: "high" })).resolves.toEqual({
+      status: "unsupported",
+    });
+  });
+
+  it("normalizes a runtime lane settings throw", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "codex:test:1" };
+    lane.updateSettingsImpl = async () => {
+      throw new Error("lane settings exploded");
+    };
+    const { session } = makeSession("codex", { lane });
+    await expect(session.start({ id: "first", kind: "user", text: "hello" })).resolves.toMatchObject({
+      status: "accepted",
+    });
+
+    await expect(session.updateSettings!({ reasoningEffort: "high" })).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "settings_update_failed", retryable: true },
+    });
+  });
 });
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {

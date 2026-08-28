@@ -627,9 +627,19 @@ export class AgentProcessManager {
           && typeof session.updateSettings === "function";
         let result: RuntimeSettingsUpdateResult = { status: "unsupported" };
         if (canApplyNatively) {
-          result = await session.updateSettings!({
-            reasoningEffort: desired.reasoningEffort ?? null,
-          });
+          try {
+            result = await session.updateSettings!({
+              reasoningEffort: desired.reasoningEffort ?? null,
+            });
+          } catch (error) {
+            this.log.warn("runtime config live apply threw; restarting at safe boundary", {
+              agentId,
+              revision: desiredRevision,
+              error: String(error),
+            });
+            if (restartOnFailure) await this.restartForRuntimeConfig(agentId, session);
+            return "saved_for_start";
+          }
         }
         if (result.status !== "applied") {
           this.log.warn("runtime config live apply unavailable; restarting at safe boundary", {
@@ -674,10 +684,9 @@ export class AgentProcessManager {
         };
     if (this.sessions.has(agentId) && this.pendingRuntimeConfigUpdates.has(agentId)) {
       this.dispatch({
-        type: "delivery_rejected",
+        type: "runtime_config_queued",
         agentId,
         message: normalized,
-        mode: "idle",
       });
       return this.state.agents[agentId] !== undefined;
     }

@@ -555,7 +555,8 @@ describe("AgentProcessManager runtime config revisions", () => {
     oldSession.startResolver?.();
     await vi.waitFor(() => expect(mgr.snapshot().agents.a1.execution.lease.state).toBe("active"));
     await expect(mgr.updateRuntimeConfig("a1", config(2, "xhigh"))).resolves.toBe("deferred");
-    mgr.deliver("a1", { id: "queued", text: "next real message" });
+    mgr.deliver("a1", { id: "queued-first", text: "first queued message" });
+    mgr.deliver("a1", { id: "queued-second", text: "second queued message" });
     expect(oldSend).not.toHaveBeenCalled();
 
     await oldSession.pushAgentEvent({
@@ -572,8 +573,65 @@ describe("AgentProcessManager runtime config revisions", () => {
     await vi.waitFor(() => expect(created).toEqual([oldSession, replacementSession]));
     expect(replacementStart).toHaveBeenCalledTimes(1);
     expect(replacementStart).toHaveBeenCalledWith(expect.objectContaining({
-      id: "queued",
-      text: "next real message",
+      id: "queued-first",
+      text: "first queued message",
+    }));
+  });
+
+  it("falls back from an idle native apply throw without stranding revision-fenced unread", async () => {
+    const oldSession = fakeSession("reasoning-idle-throw-old");
+    const replacementSession = fakeSession("reasoning-idle-throw-new");
+    const created: FakeSession[] = [];
+    const mgr = new AgentProcessManager({
+      driverFor: () => fakeDriver("codex"),
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "a1",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      sessionFactory: () => {
+        const session = created.length === 0 ? oldSession : replacementSession;
+        created.push(session);
+        return session;
+      },
+    });
+    let rejectUpdate!: (error: unknown) => void;
+    oldSession.updateSettings = vi.fn(() => new Promise((_resolve, reject) => {
+      rejectUpdate = reject;
+    }));
+    const oldStop = vi.spyOn(oldSession, "stop");
+    const oldSend = vi.spyOn(oldSession, "send");
+    const replacementStart = vi.spyOn(replacementSession, "start");
+
+    mgr.register("a1", { runtimeConfig: config(1, "low") });
+    mgr.deliver("a1", { id: "root", text: "first turn" });
+    oldSession.startResolver?.();
+    await vi.waitFor(() => expect(mgr.snapshot().agents.a1.execution.lease.state).toBe("active"));
+    await oldSession.pushAgentEvent({
+      type: "turn_completed",
+      turnId: "test-turn",
+      commandIds: ["root"],
+      result: { outcome: "success", backendSessionId: "thread_1" },
+    });
+    await vi.waitFor(() => expect(mgr.snapshot().agents.a1.execution.lease.state).toBe("none"));
+
+    const updating = mgr.updateRuntimeConfig("a1", config(2, "high"));
+    await vi.waitFor(() => expect(oldSession.updateSettings).toHaveBeenCalledOnce());
+    mgr.deliver("a1", { id: "queued-idle-throw", text: "must survive" });
+    expect(oldSend).not.toHaveBeenCalled();
+
+    rejectUpdate(new Error("idle settings exploded"));
+    await expect(updating).resolves.toBe("saved_for_start");
+    expect(oldStop).toHaveBeenCalledOnce();
+    expect(oldSend).not.toHaveBeenCalled();
+
+    await oldSession.fire("exit", { reason: "requested", code: 0, signal: null });
+    await vi.waitFor(() => expect(created).toEqual([oldSession, replacementSession]));
+    expect(replacementStart).toHaveBeenCalledWith(expect.objectContaining({
+      id: "queued-idle-throw",
+      text: "must survive",
     }));
   });
 

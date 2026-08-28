@@ -10,7 +10,10 @@ import { fakeLaunchContext } from "../../testing/adapter-fixture.js";
 const runtimeMocks = vi.hoisted(() => ({
   spawnAgentProcess: vi.fn(),
   killProcessTree: vi.fn(async () => {}),
-  probeCliRuntime: vi.fn(async () => ({ status: "healthy" as const, version: "0.test" })),
+  probeCliRuntime: vi.fn(async (): Promise<
+    | { status: "healthy"; version: string }
+    | { status: "unhealthy"; lastError: string }
+  > => ({ status: "healthy", version: "0.test" })),
 }));
 
 vi.mock("../../internal/killTree.js", async () => {
@@ -76,6 +79,31 @@ function probingProcess(
 }
 
 describe("CodexDriver reasoning catalog probe", () => {
+  it("keeps an unhealthy CLI result unchanged without starting app-server", async () => {
+    runtimeMocks.probeCliRuntime.mockResolvedValueOnce({
+      status: "unhealthy",
+      lastError: "missing",
+    });
+
+    await expect(new CodexDriver().probe()).resolves.toEqual({
+      status: "unhealthy",
+      lastError: "missing",
+    });
+    expect(runtimeMocks.spawnAgentProcess).not.toHaveBeenCalled();
+  });
+
+  it("keeps Codex healthy when the catalog process cannot spawn", async () => {
+    runtimeMocks.spawnAgentProcess.mockImplementationOnce(() => {
+      throw new Error("catalog spawn failed");
+    });
+
+    await expect(new CodexDriver().probe()).resolves.toEqual({
+      status: "healthy",
+      version: "0.test",
+      reasoning: undefined,
+    });
+  });
+
   it("initializes, pages model/list, preserves reported options, and tears down", async () => {
     const proc = probingProcess((request) => {
       if (request.method === "initialize") return { jsonrpc: "2.0", id: request.id, result: {} };
@@ -104,12 +132,13 @@ describe("CodexDriver reasoning catalog probe", () => {
           data: [{
             id: "gpt-5",
             supportedReasoningEfforts: [
+              null,
               { reasoningEffort: "minimal", description: "Fast" },
               { reasoningEffort: "minimal", description: "duplicate" },
               { reasoningEffort: "bad effort" },
             ],
             defaultReasoningEffort: "minimal",
-          }],
+          }, null, { id: "", supportedReasoningEfforts: [] }],
           nextCursor: "next",
         },
       };
@@ -158,6 +187,74 @@ describe("CodexDriver reasoning catalog probe", () => {
       reasoning: undefined,
     });
     expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("ignores malformed and unrelated lines before consuming the catalog response", async () => {
+    const proc = probingProcess(() => ({ jsonrpc: "2.0", id: -1, result: {} }));
+    proc.stdin.write = vi.fn((line: string) => {
+      const request = JSON.parse(line.trim()) as Record<string, any>;
+      queueMicrotask(() => {
+        proc.stdout.emit("data", Buffer.from("not-json\n"));
+        proc.stdout.emit("data", Buffer.from(`${JSON.stringify({ jsonrpc: "2.0", id: -1, result: {} })}\n`));
+        proc.stdout.emit("data", Buffer.from(`${JSON.stringify(
+          request.method === "initialize"
+            ? { jsonrpc: "2.0", id: request.id, result: {} }
+            : { jsonrpc: "2.0", id: request.id, result: { data: [], nextCursor: null } },
+        )}\n`));
+      });
+      return true;
+    });
+    runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
+
+    await expect(new CodexDriver().probe()).resolves.toMatchObject({
+      status: "healthy",
+      reasoning: { models: [] },
+    });
+  });
+
+  it("treats initialize rejection as an unavailable catalog", async () => {
+    const proc = probingProcess((request) => ({
+      jsonrpc: "2.0",
+      id: request.id,
+      error: { code: -32000, message: "initialize rejected" },
+    }));
+    runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
+
+    await expect(new CodexDriver().probe()).resolves.toMatchObject({
+      status: "healthy",
+      reasoning: undefined,
+    });
+  });
+
+  it("times out a silent catalog process", async () => {
+    vi.useFakeTimers();
+    try {
+      const proc = simpleProcess() as ReturnType<typeof simpleProcess> & { stdout: EventEmitter };
+      proc.stdout = new EventEmitter();
+      runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
+
+      const pending = new CodexDriver().probe();
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      await expect(pending).resolves.toMatchObject({ status: "healthy", reasoning: undefined });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("settles only once when catalog process error and exit race", async () => {
+    const proc = simpleProcess() as ReturnType<typeof simpleProcess> & { stdout: EventEmitter; pid: number };
+    proc.stdout = new EventEmitter();
+    proc.pid = 42_424;
+    runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
+
+    const pending = new CodexDriver().probe();
+    await vi.waitFor(() => expect(runtimeMocks.spawnAgentProcess).toHaveBeenCalledOnce());
+    proc.emit("error", new Error("catalog failed"));
+    proc.emit("exit", 1, null);
+
+    await expect(pending).resolves.toMatchObject({ status: "healthy", reasoning: undefined });
+    expect(runtimeMocks.killProcessTree).toHaveBeenCalledWith(42_424, { graceMs: 250 });
   });
 });
 
@@ -396,6 +493,13 @@ describe("CodexDriver encodeMessage — turn/steer expectedTurnId", () => {
 });
 
 describe("CodexDriver live reasoning settings", () => {
+  it("rejects an update when no live thread is available", async () => {
+    await expect(new CodexDriver().updateSettings({ reasoningEffort: "high" })).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "settings_thread_unavailable", retryable: true },
+    });
+  });
+
   it("correlates an explicit effort update by JSON-RPC id", async () => {
     const driver = new CodexDriver();
     const { process: proc } = await driver.spawn(baseCtx());
@@ -460,6 +564,50 @@ describe("CodexDriver live reasoning settings", () => {
     });
   });
 
+  it("uses the fallback rejection message when the RPC error has no string message", async () => {
+    const driver = new CodexDriver();
+    const { process: proc } = await driver.spawn(baseCtx());
+    await Promise.resolve();
+    driver.normalizeLine(threadStartResult("th_settings"));
+
+    const pending = driver.updateSettings({ reasoningEffort: "high" });
+    const request = stdinWrites(proc)
+      .map((write) => JSON.parse(write.trim()))
+      .find((message) => message.method === "thread/settings/update");
+    driver.normalizeLine(JSON.stringify({
+      jsonrpc: "2.0",
+      id: request.id,
+      error: { code: -32000, message: 42 },
+    }));
+
+    await expect(pending).resolves.toMatchObject({
+      status: "failed",
+      error: { message: "Codex rejected the settings update" },
+    });
+  });
+
+  it("maps a synchronous settings write failure to a retryable result", async () => {
+    const driver = new CodexDriver();
+    const { process: proc } = await driver.spawn(baseCtx());
+    await Promise.resolve();
+    driver.normalizeLine(threadStartResult("th_settings"));
+    const stdin = (proc as unknown as { stdin: { write: ReturnType<typeof vi.fn> } }).stdin;
+    stdin.write.mockImplementationOnce(() => {
+      throw new Error("write exploded");
+    });
+
+    await expect(driver.updateSettings({ reasoningEffort: "high" })).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "settings_update_write_failed", retryable: true },
+    });
+  });
+
+  it("passes malformed non-settings lines through without claiming them", () => {
+    const driver = new CodexDriver();
+    expect(driver.normalizeLine("not-json")).toEqual([]);
+    expect(driver.normalizeLine("null")).toEqual([]);
+  });
+
   it("fails an in-flight update immediately when the Codex process exits", async () => {
     const driver = new CodexDriver();
     const { process: proc } = await driver.spawn(baseCtx());
@@ -491,6 +639,27 @@ describe("CodexDriver live reasoning settings", () => {
         error: { category: "timeout", code: "settings_update_timeout", retryable: true },
       });
       expect(proc).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignores a timeout after its pending correlation was already removed", async () => {
+    vi.useFakeTimers();
+    try {
+      const driver = new CodexDriver();
+      const { process: proc } = await driver.spawn(baseCtx());
+      await Promise.resolve();
+      driver.normalizeLine(threadStartResult("th_settings"));
+
+      void driver.updateSettings({ reasoningEffort: "minimal" });
+      const request = stdinWrites(proc)
+        .map((write) => JSON.parse(write.trim()))
+        .find((message) => message.method === "thread/settings/update");
+      (driver as unknown as { pendingSettingsUpdates: Map<number, unknown> })
+        .pendingSettingsUpdates.delete(request.id);
+
+      await vi.advanceTimersByTimeAsync(5_000);
     } finally {
       vi.useRealTimers();
     }
