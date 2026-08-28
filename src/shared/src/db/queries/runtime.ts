@@ -175,7 +175,7 @@ export async function deleteRuntimesByDaemonId(
   daemonId: string,
   workspaceId: string
 ) {
-  const runtimes = await db
+  const runtimeIds = db
     .select({ id: agentRuntime.id })
     .from(agentRuntime)
     .where(
@@ -185,15 +185,17 @@ export async function deleteRuntimesByDaemonId(
       )
     );
 
-  if (runtimes.length === 0) return;
-
-  const runtimeIds = runtimes.map(r => r.id);
-  await db
+  const detachAgents = db
     .update(agent)
     .set({ runtimeId: null, updatedAt: new Date().toISOString() })
-    .where(inArray(agent.runtimeId, runtimeIds));
+    .where(
+      and(
+        eq(agent.workspaceId, workspaceId),
+        inArray(agent.runtimeId, runtimeIds)
+      )
+    );
 
-  await db
+  const deleteRuntimes = db
     .delete(agentRuntime)
     .where(
       and(
@@ -201,6 +203,7 @@ export async function deleteRuntimesByDaemonId(
         eq(agentRuntime.workspaceId, workspaceId)
       )
     );
+  await db.batch([detachAgents, deleteRuntimes]);
 }
 
 export async function updateRuntimeCliVersionByDaemon(

@@ -37,7 +37,10 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     return writeError("category does not belong to this server", 400)
   }
 
-  await queries.communityCategory.reorderCategories(db, serverId, body.categoryIds)
+  const updated = await queries.communityCategory.reorderCategories(db, serverId, body.categoryIds)
+  if (updated.length !== body.categoryIds.length) {
+    return writeError("category order changed concurrently", 409)
+  }
 
   await fanOutToServerMembers(serverId, {
     type: WS_EVENTS.CATEGORY_REORDER,

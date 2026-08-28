@@ -2,6 +2,7 @@ import { eq, and, count, desc, inArray, ne, sql } from "drizzle-orm";
 import { emails, agentEmailAccount, agentTaskQueue, conversation } from "../schema";
 import type { Database } from "../index";
 import { TASK_TYPES } from "../../constants";
+import { jsonTextSet } from "./_json-set";
 
 export async function getEmailStatsByWorkspace(db: Database, workspaceId: string) {
   const [stats] = await db
@@ -70,6 +71,7 @@ export async function getRecentTerminalTasks(
   limit = 15
 ) {
   if (visibleAgentIds.length === 0) return [];
+  const agentIds = jsonTextSet(db, [...new Set(visibleAgentIds)]);
   return db
     .select({
       id: agentTaskQueue.id,
@@ -85,7 +87,7 @@ export async function getRecentTerminalTasks(
     .where(
       and(
         eq(agentTaskQueue.workspaceId, workspaceId),
-        inArray(agentTaskQueue.agentId, visibleAgentIds),
+        inArray(agentTaskQueue.agentId, agentIds),
         ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK),
         inArray(agentTaskQueue.status, ["completed", "failed", "cancelled"])
       )
@@ -96,6 +98,7 @@ export async function getRecentTerminalTasks(
 
 export async function getConversationCountsByAgent(db: Database, workspaceId: string, visibleAgentIds: string[]) {
   if (visibleAgentIds.length === 0) return [];
+  const agentIds = jsonTextSet(db, [...new Set(visibleAgentIds)]);
   return db
     .select({
       agentId: conversation.agentId,
@@ -105,7 +108,7 @@ export async function getConversationCountsByAgent(db: Database, workspaceId: st
     .where(
       and(
         eq(conversation.workspaceId, workspaceId),
-        inArray(conversation.agentId, visibleAgentIds)
+        inArray(conversation.agentId, agentIds)
       )
     )
     .groupBy(conversation.agentId);

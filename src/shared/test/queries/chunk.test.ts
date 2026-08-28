@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   chunk,
   maxRowsPerInsert,
+  maxInParams,
   D1_MAX_BIND_PARAMS,
   D1_MAX_IN_PARAMS,
 } from "../../src/db/queries/_chunk";
@@ -59,6 +60,22 @@ describe("maxRowsPerInsert", () => {
 
   it("throws on paramsPerRow < 1", () => {
     expect(() => maxRowsPerInsert(0)).toThrow();
+  });
+});
+
+describe("maxInParams", () => {
+  it.each([
+    [0, 100],
+    [1, 99],
+    [2, 98],
+    [5, 95],
+    [6, 94],
+  ])("reserves %i fixed binds", (fixed, expected) => {
+    expect(maxInParams(fixed)).toBe(expected);
+  });
+
+  it.each([-1, 1.5, 100, 101])("rejects invalid fixed bind budget %s", (fixed) => {
+    expect(() => maxInParams(fixed)).toThrow();
   });
 });
 

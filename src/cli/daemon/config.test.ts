@@ -60,6 +60,11 @@ describe("loadDaemonConfig env overrides", () => {
     expect(loadDaemonConfig().maxConcurrentTasks).toBe(10);
   });
 
+  it("caps ALOOK_DAEMON_MAX_CONCURRENT_TASKS at the server poll limit", () => {
+    process.env.ALOOK_DAEMON_MAX_CONCURRENT_TASKS = "125";
+    expect(loadDaemonConfig().maxConcurrentTasks).toBe(50);
+  });
+
   it("ALOOK_MESSAGE_INACTIVITY_TIMEOUT='10m' → 600000", () => {
     process.env.ALOOK_MESSAGE_INACTIVITY_TIMEOUT = "10m";
     expect(loadDaemonConfig().messageInactivityTimeout).toBe(600000);

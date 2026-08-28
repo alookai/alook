@@ -100,6 +100,7 @@ export const COMMUNITY_MACHINE_PAIR_TOKEN_TTL_MS = 15 * 60_000;
 export const EVENT_POLL_INTERVAL_MS = Number(process.env.EVENT_POLL_INTERVAL_MS) || 2_000;
 export const AGENT_HANDLE_MIN_LENGTH = 4;
 export const MAX_TASKS_PER_TRACE = 256;
+export const MAX_MEETING_CLAIMS_PER_POLL = 50;
 
 export const MeetingStatus = {
   PENDING: "pending",

@@ -1,6 +1,7 @@
 import { eq, and, desc, or, exists, inArray } from "drizzle-orm";
 import { agent, agentAccess } from "../schema";
 import type { Database } from "../index";
+import { jsonTextSet } from "./_json-set";
 import { isPublic } from "../../utils/visibility";
 
 export async function getAgent(db: Database, id: string, workspaceId: string, userId?: string) {
@@ -160,10 +161,11 @@ export async function getExistingHandles(db: Database, handles: string[]) {
 
 export async function getAgentsByIds(db: Database, ids: string[], workspaceId: string) {
   if (ids.length === 0) return [];
+  const agentIds = jsonTextSet(db, [...new Set(ids)]);
   return db
     .select()
     .from(agent)
-    .where(and(inArray(agent.id, ids), eq(agent.workspaceId, workspaceId)));
+    .where(and(inArray(agent.id, agentIds), eq(agent.workspaceId, workspaceId)));
 }
 
 export async function getAllAgentsForWorkspace(db: Database, workspaceId: string) {

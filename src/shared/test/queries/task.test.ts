@@ -1,3 +1,5 @@
+import Sqlite from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
 import { describe, it, expect, vi } from "vitest";
 import * as taskQueries from "../../src/db/queries/task";
 
@@ -67,6 +69,93 @@ describe("claimKillTasks", () => {
   it("returns empty array for zero limit without querying DB", async () => {
     const result = await taskQueries.claimKillTasks(null as any, ["rt_1"], "ws_1", 0);
     expect(result).toEqual([]);
+  });
+});
+
+describe("claimTask", () => {
+  it("preserves blocked-conversation filtering when retrying a lost atomic claim", async () => {
+    const sqlite = new Sqlite(":memory:");
+    try {
+      sqlite.exec(`
+        CREATE TABLE agent_task_queue (
+          id TEXT PRIMARY KEY,
+          agent_id TEXT NOT NULL,
+          runtime_id TEXT NOT NULL,
+          workspace_id TEXT NOT NULL,
+          conversation_id TEXT NOT NULL,
+          prompt TEXT NOT NULL,
+          type TEXT NOT NULL DEFAULT 'user_dm_message',
+          context_key TEXT,
+          status TEXT NOT NULL DEFAULT 'queued',
+          priority INTEGER NOT NULL DEFAULT 0,
+          result TEXT,
+          context TEXT,
+          session_id TEXT,
+          created_at TEXT NOT NULL,
+          dispatched_at TEXT,
+          started_at TEXT,
+          completed_at TEXT,
+          error TEXT,
+          trace_id TEXT,
+          parent_task_id TEXT
+        );
+      `);
+      const insert = sqlite.prepare(`
+        INSERT INTO agent_task_queue (
+          id, agent_id, runtime_id, workspace_id, conversation_id, prompt,
+          context_key, status, priority, created_at
+        ) VALUES (?, 'agent_1', 'runtime_1', 'workspace_1', ?, ?, ?, ?, ?, ?)
+      `);
+      insert.run(
+        "running_blocker",
+        "blocked_conversation",
+        "running",
+        null,
+        "running",
+        0,
+        "2026-08-28T00:00:00.000Z"
+      );
+      insert.run(
+        "queued_candidate",
+        "free_conversation",
+        "queued",
+        null,
+        "queued",
+        1,
+        "2026-08-28T00:01:00.000Z"
+      );
+
+      const realDb = drizzle(sqlite);
+      let updateCalls = 0;
+      const db = new Proxy(realDb as any, {
+        get(target, property) {
+          if (property === "update") {
+            return (...args: unknown[]) => {
+              updateCalls += 1;
+              if (updateCalls === 1) {
+                const lostClaim: any = {};
+                lostClaim.set = () => lostClaim;
+                lostClaim.where = () => lostClaim;
+                lostClaim.returning = () => Promise.resolve([]);
+                return lostClaim;
+              }
+              return target.update(...args);
+            };
+          }
+          const value = target[property];
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+
+      const claimed = await taskQueries.claimTask(db, "agent_1", "workspace_1");
+
+      expect(updateCalls).toBe(2);
+      expect(claimed?.id).toBe("queued_candidate");
+      expect(sqlite.prepare("SELECT status FROM agent_task_queue WHERE id = ?").get("running_blocker"))
+        .toEqual({ status: "running" });
+    } finally {
+      sqlite.close();
+    }
   });
 });
 

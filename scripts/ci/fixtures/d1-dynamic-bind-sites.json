@@ -1,0 +1,678 @@
+[
+  {
+    "key": "src/shared/src/db/queries/agent-skill.ts:syncAgentSkills:values:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/agent-skill.ts:syncGlobalSkills:values:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/agent.ts:getAgentsByIds:inArray:1",
+    "strategy": "json-set"
+  },
+  {
+    "key": "src/shared/src/db/queries/agent.ts:getExistingHandles:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/agent-inbox.ts:getInboxSnapshotForAgent:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/agent-inbox.ts:getInboxSnapshotForAgent:or-map:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/agent-inbox.ts:listAgentAllowedChannelIds:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/agent-inbox.ts:resolveScopeRefs:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/agent-inbox.ts:resolveScopeRefs:inArray:2",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/agent-inbox.ts:resolveScopeRefs:inArray:3",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/agent-inbox.ts:resolveScopeRefs:inArray:4",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/agent-inbox.ts:resolveScopeRefs:inArray:5",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/agent-inbox.ts:resolveScopeRefs:inArray:6",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/agent-inbox.ts:runChunk:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/agent-inbox.ts:runChunk:inArray:2",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/agent-inbox.ts:runChunk:inArray:3",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/agent-inbox.ts:toAgentMessages:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/attachment.ts:findPendingAttachmentsForSender:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/attachment.ts:listByMessageIds:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/attachment.ts:rebindPendingAttachmentsToChild:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/attachment.ts:rebindPendingAttachmentsToChild:inArray:2",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/attachment.ts:rebindPendingAttachmentsToChild:inArray:3",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/attachment.ts:rebindPendingAttachmentsToChild:inArray:4",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/attachment.ts:reserveAttachmentsForMessage:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/attachment.ts:reserveAttachmentsForMessage:sql.join:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/attachment.ts:unreserveAttachments:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/bot-audit-log.ts:pruneBotActivityEventsStatement:notInArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/bot.ts:findWakeCandidates:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/bot.ts:softDeleteBot:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/bot.ts:softDeleteBot:inArray:2",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/bot.ts:softDeleteBot:inArray:3",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/bot.ts:updateBot:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/bot.ts:updateBot:inArray:2",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/bot.ts:updateBot:inArray:3",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/bot.ts:updateBotModel:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/bot.ts:updateBotRuntime:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/category.ts:getCategoriesByIds:inArray:1",
+    "strategy": "json-set"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/category.ts:reorderCategories:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/channel.ts:deleteChannelMemberAndChildParticipants:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/channel.ts:getChannelsByIds:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/channel.ts:getDirectChildThreadsByIds:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/channel.ts:listChildChannelsByParentMessageIds:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/channel.ts:resolveVisibleChannelIdSet:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 0
+  },
+  {
+    "key": "src/shared/src/db/queries/community/channel.ts:resolveVisibleChannelIdSet:inArray:2",
+    "strategy": "exact-chunk",
+    "fixedParams": 2
+  },
+  {
+    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteChannelWithMediaAttempt:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteChannelWithMediaAttempt:inArray:2",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteChannelWithMediaAttempt:inArray:3",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteChannelWithMediaAttempt:inArray:4",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteChannelWithMediaAttempt:inArray:5",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteChannelWithMediaAttempt:inArray:6",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteServerWithMediaAttempt:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteServerWithMediaAttempt:inArray:2",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteServerWithMediaAttempt:inArray:3",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteServerWithMediaAttempt:inArray:4",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteServerWithMediaAttempt:inArray:5",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/delete-media.ts:deleteServerWithMediaAttempt:inArray:6",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/forum-post-delete.ts:deleteForumPostAttempt:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/forum-post-delete.ts:deleteForumPostAttempt:inArray:2",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/friendship.ts:findActive:inArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/friendship.ts:getFriendUserIds:inArray:1",
+    "strategy": "json-set"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/friendship.ts:hydrateApprovalsForDmMessages:inArray:1",
+    "strategy": "json-set"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/friendship.ts:hydrateApprovalsForDmMessages:inArray:2",
+    "strategy": "json-set"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/friendship.ts:listPending:inArray:1",
+    "strategy": "json-set"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/friendship.ts:loadBotFlags:inArray:1",
+    "strategy": "json-set"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/friendship.ts:loadProfiles:inArray:1",
+    "strategy": "json-set"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/friendship.ts:sendRequest:inArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/inbox.ts:listEligibleUnreadChannels:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/inbox.ts:listEligibleUnreadDms:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/inbox.ts:listThreadOpenersByChildIds:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/inbox.ts:listUnreadChannels:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/inbox.ts:listUnreadDms:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/inbox.ts:listUnreadForumOpeners:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/machine-session-epoch.ts:transitionLiveLease:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/machine.ts:revokeRunnerKeysForAgentStatement:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/mark.ts:countMarksForUser:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/mark.ts:listMarksForUser:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/member.ts:getCoMemberUserIds:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/member.ts:getMembersByUserIds:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 1
+  },
+  {
+    "key": "src/shared/src/db/queries/community/member.ts:getMemberships:inArray:1",
+    "strategy": "json-set"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/mention.ts:createMentions:values:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/mention.ts:listUnreadMentions:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/mention.ts:markChannelMentionsReadBuilder:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/message-tag.ts:filterMessageIdsByTag:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/message-tag.ts:listTagsForMessages:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/message.ts:getMessagesByIds:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/message.ts:getMessagesByIdsInScope:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/message.ts:listMessagesReferencingFriendship:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/message.ts:runChunk:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/message.ts:runChunk:inArray:2",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/notification-eligibility.ts:runChunk:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/notification-setting.ts:loadScopedSettings:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/notification-setting.ts:loadScopedSettings:inArray:2",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/reaction.ts:listReactionsByMessageIds:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 0
+  },
+  {
+    "key": "src/shared/src/db/queries/community/read-state.ts:advanceReadStateRevisionWhenAnyBuilder:or-map:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/search.ts:searchMessagesInServer:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/server-folder.ts:insertFolderItems:values:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/server.ts:getServersByIds:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/thread.ts:addThreadParticipants:values:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/thread.ts:listParticipantsForChannels:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/thread.ts:listParticipantsForChannels:inArray:2",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/thread.ts:listParticipatingForumThreads:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/thread.ts:listParticipatingForumThreads:inArray:2",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/thread.ts:listParticipatingThreadIds:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/community/thread.ts:removeParticipantFromChildChannels:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/conversation.ts:getConversationsByIds:inArray:1",
+    "strategy": "json-set"
+  },
+  {
+    "key": "src/shared/src/db/queries/conversation.ts:getThreadsByParentMessages:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/email-account.ts:getEmailAccountsByAgents:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/inbox.ts:getUnreadCount:sql.join:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/inbox.ts:listUnreadConversations:sql.join:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/issue.ts:listIssues:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/issue.ts:listIssues:inArray:2",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/meeting-session.ts:claimMeetingSessions:inArray:1",
+    "strategy": "json-set"
+  },
+  {
+    "key": "src/shared/src/db/queries/overview.ts:getConversationCountsByAgent:inArray:1",
+    "strategy": "json-set"
+  },
+  {
+    "key": "src/shared/src/db/queries/overview.ts:getRecentTerminalTasks:inArray:1",
+    "strategy": "json-set"
+  },
+  {
+    "key": "src/shared/src/db/queries/overview.ts:getRecentTerminalTasks:inArray:2",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/runtime.ts:deleteRuntimesByDaemonId:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/runtime.ts:getAgentRuntimesForWorkspace:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/task-message.ts:listTaskMessages:notInArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/task-message.ts:listTaskMessages:notInArray:2",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/task-message.ts:listTaskMessagesSince:notInArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:cancelActiveTasksByConversation:inArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:cancelTask:inArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:claimKillTasks:inArray:1",
+    "strategy": "json-set"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:claimKillTasks:inArray:2",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:claimTask:inArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:claimTask:inArray:2",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:countRunningTasks:inArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:failStaleKillTasks:inArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:failStaleRunningTasks:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:failTask:inArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:findSteerableReplacement:inArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:findSteerableReplacement:inArray:2",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:getActiveTaskByConversation:inArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:getTraceAgentsByTaskIds:inArray:1",
+    "strategy": "json-set"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:getTraceAgentsByTaskIds:inArray:2",
+    "strategy": "json-set"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:hasPendingTaskForConversation:inArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:listActiveTaskCountsByWorkspace:inArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:listActiveTaskCountsByWorkspace:inArray:2",
+    "strategy": "json-set"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:listActiveTasksByAgent:inArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:listActiveTasksByWorkspace:inArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:listActiveTasksByWorkspace:inArray:2",
+    "strategy": "json-set"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:listPendingTasksByRuntimes:inArray:1",
+    "strategy": "json-set"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:listPendingTasksByRuntimes:inArray:2",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:listTaskHistory:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:listTaskHistory:inArray:2",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:listTraces:inArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:listTraces:inArray:2",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/task.ts:supersedeTask:inArray:1",
+    "strategy": "fixed-literal"
+  },
+  {
+    "key": "src/shared/src/db/queries/user.ts:getUsersByIds:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  },
+  {
+    "key": "src/shared/src/db/queries/workspace-file-request.ts:markDispatched:inArray:1",
+    "strategy": "exact-chunk",
+    "fixedParams": 10
+  }
+]

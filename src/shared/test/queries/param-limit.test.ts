@@ -10,6 +10,16 @@ import * as mentionQueries from "../../src/db/queries/community/mention";
 import * as attachmentQueries from "../../src/db/queries/community/attachment";
 import * as inboxQueries from "../../src/db/queries/community/inbox";
 import * as readStateQueries from "../../src/db/queries/community/read-state";
+import * as channelQueries from "../../src/db/queries/community/channel";
+import * as categoryQueries from "../../src/db/queries/community/category";
+import * as memberQueries from "../../src/db/queries/community/member";
+import * as reactionQueries from "../../src/db/queries/community/reaction";
+import * as dmQueries from "../../src/db/queries/community/dm";
+import * as overviewQueries from "../../src/db/queries/overview";
+import * as taskQueries from "../../src/db/queries/task";
+import * as agentQueries from "../../src/db/queries/agent";
+import * as conversationQueries from "../../src/db/queries/conversation";
+import * as meetingQueries from "../../src/db/queries/meeting-session";
 import { D1_MAX_BIND_PARAMS } from "../../src/db/queries/_chunk";
 
 const fakeDb = drizzle({} as never);
@@ -165,6 +175,26 @@ function makeD1SelectCapture() {
   return { db: drizzle(client as never), statements };
 }
 
+function makeD1Capture(rawResponses: unknown[][][] = []) {
+  const statements: Array<{ sql: string; params: unknown[] }> = [];
+  const responses = [...rawResponses];
+  const client = {
+    prepare(sql: string) {
+      return {
+        bind(...params: unknown[]) {
+          statements.push({ sql, params });
+          return {
+            raw: async () => responses.shift() ?? [],
+            all: async () => ({ results: [] }),
+            run: async () => ({ success: true, meta: { changes: 0 } }),
+          };
+        },
+      };
+    },
+  };
+  return { db: drizzle(client as never), statements };
+}
+
 describe("listEligibleUnreadChannels bound parameters", () => {
   it("95 visible ids use 80-id chunks and keep every statement within D1's limit", async () => {
     const { db, statements } = makeD1SelectCapture();
@@ -216,5 +246,61 @@ describe("mark-all-read revision guard bound parameters", () => {
       (param) => typeof param === "string" && param.startsWith('[["channel_0",'),
     );
     expect(JSON.parse(encodedTargets as string)).toHaveLength(95);
+  });
+});
+
+describe("high-cardinality query bind matrix", () => {
+  const sizes = [33, 90, 100, 125];
+
+  it.each(sizes)("keeps JSON/subquery reads constant at %i ids", async (size) => {
+    const ids = Array.from({ length: size }, (_, index) => `id_${index}`);
+    const calls: Array<(db: ReturnType<typeof drizzle>) => Promise<unknown>> = [
+      (db) => memberQueries.getMemberships(db as never, "user_1", ids),
+      (db) => categoryQueries.getCategoriesByIds(db as never, ids),
+      (db) => agentQueries.getAgentsByIds(db as never, ids, "workspace_1"),
+      (db) => conversationQueries.getConversationsByIds(db as never, ids, "workspace_1"),
+      (db) => overviewQueries.getRecentTerminalTasks(db as never, "workspace_1", ids),
+      (db) => overviewQueries.getConversationCountsByAgent(db as never, "workspace_1", ids),
+      (db) => taskQueries.listPendingTasksByRuntimes(db as never, ids, "workspace_1"),
+      (db) => taskQueries.listActiveTaskCountsByWorkspace(db as never, "workspace_1", ids, "user_1"),
+      (db) => taskQueries.listActiveTasksByWorkspace(db as never, "workspace_1", ids, "user_1"),
+      (db) => taskQueries.getTraceAgentsByTaskIds(db as never, ids, "workspace_1"),
+      (db) => meetingQueries.claimMeetingSessions(db as never, ids, "workspace_1", "2026-01-01T00:00:00.000Z"),
+      (db) => dmQueries.listDMs(db as never, "user_1"),
+      (db) => dmQueries.getDMBetween(db as never, "user_1", "user_2"),
+    ];
+
+    for (const call of calls) {
+      const { db, statements } = makeD1Capture();
+      await call(db);
+      expect(statements.length).toBeGreaterThan(0);
+      for (const statement of statements) {
+        expect(statement.params.length).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
+      }
+      expect(statements.some(({ sql }) => sql.includes("json_each")) || call === calls.at(-2) || call === calls.at(-1)).toBe(true);
+    }
+  });
+
+  it("uses exact 99-id member chunks and 100-id reaction chunks", async () => {
+    const ids = Array.from({ length: 125 }, (_, index) => `id_${index}`);
+    const memberCapture = makeD1Capture();
+    await memberQueries.getMembersByUserIds(memberCapture.db as never, "server_1", ids);
+    expect(memberCapture.statements.map(({ params }) => params.length)).toEqual([100, 27]);
+
+    const reactionCapture = makeD1Capture();
+    await reactionQueries.listReactionsByMessageIds(reactionCapture.db as never, ids, "user_1");
+    expect(reactionCapture.statements.map(({ params }) => params.length)).toEqual([100, 25]);
+  });
+
+  it("uses 100/98 server chunks before the visibility merge", async () => {
+    const memberships = Array.from({ length: 125 }, (_, index) => [`server_${index}`]);
+    const capture = makeD1Capture([memberships, [], [], [], []]);
+
+    await channelQueries.listVisibleChannelIdsForUser(capture.db as never, "user_1");
+
+    expect(capture.statements.map(({ params }) => params.length)).toEqual([1, 100, 25, 100, 29]);
+    for (const { params } of capture.statements) {
+      expect(params.length).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
+    }
   });
 });

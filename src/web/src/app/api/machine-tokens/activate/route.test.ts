@@ -138,6 +138,27 @@ describe("POST /api/machine-tokens/activate", () => {
     );
   });
 
+  it.each([[64, 200], [65, 400]] as const)(
+    "returns %i-runtime boundary status %i",
+    async (count, status) => {
+      const POST = await loadRoute();
+      mockGetMachineTokenByToken.mockResolvedValue(pendingToken);
+      mockUpsertMachine.mockResolvedValue(undefined);
+      mockBatchUpsertAgentRuntimes.mockImplementation(async (_db, runtimes: unknown[]) =>
+        runtimes.map((_, index) => ({ id: `rt_${index}`, provider: `runtime-${index}` })),
+      );
+      mockActivateMachineToken.mockResolvedValue(undefined);
+      mockBroadcastToUser.mockResolvedValue(undefined);
+
+      const res = await POST(makeReq({
+        ...validBody,
+        runtimes: Array.from({ length: count }, (_, index) => ({ type: `runtime-${index}` })),
+      }));
+      expect(res.status).toBe(status);
+      if (status === 400) expect(mockGetMachineTokenByToken).not.toHaveBeenCalled();
+    },
+  );
+
   it("warms the token cache with the activated row (not a delete)", async () => {
     const POST = await loadRoute();
 

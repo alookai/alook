@@ -98,7 +98,7 @@ describe("getFriendUserIds", () => {
     const db = createDb({ selfBotRows: [{ id: "bot-1", ownerUserId: "owner-1" }] });
     await q.getFriendUserIds(db, "bot-1");
     expect(db.__whereCalls).toHaveLength(3);
-    expect(db.select).toHaveBeenCalledTimes(3);
+    expect(db.select).toHaveBeenCalledTimes(4);
   });
 
   it("filters out a soft-deleted OWNER from the returned audience (regression guard)", async () => {
@@ -365,17 +365,19 @@ function createBlockDb(opts: {
   memberRows?: any[]
   profiles?: any[]
 }) {
-  // `listMessagesReferencingFriendship` now runs TWO selects: the friendship's
-  // card message rows ({ messageId, channelId }), then the access-member rows
-  // of those DM channels ({ channelId, userId }) to build `peerUserIds`. It
-  // short-circuits after the first select when no card message exists, so the
-  // member-rows select only fires when `refMessages` is non-empty.
+  // `listMessagesReferencingFriendship` runs the card-message and access-member
+  // selects. `loadProfiles` then builds a JSON-set subquery before its user
+  // select, so the mock reserves one builder-only select result.
   const refMessages = opts.refMessages ?? []
   const selectReturns = [
     opts.existing ? [opts.existing] : [], // #1 findActive
     refMessages, // #2 listMessagesReferencingFriendship — card message rows
     ...(refMessages.length > 0
-      ? [opts.memberRows ?? [], opts.profiles ?? []] // #3 member rows, #4 loadProfiles
+      ? [
+          opts.memberRows ?? [],
+          [],
+          opts.profiles ?? [],
+        ]
       : []),
   ]
   let selectCall = 0

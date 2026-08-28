@@ -125,6 +125,24 @@ describe("daemon route body validation", () => {
       expect(res.status).toBe(400);
     });
 
+    it.each([[64, 200], [65, 400]] as const)(
+      "returns %i-runtime boundary status %i",
+      async (count, status) => {
+        const POST = await loadRegister();
+        const res = await POST(
+          postReq("http://localhost/api/daemon/register", {
+            workspace_id: "w1",
+            daemon_id: "d1",
+            device_name: "host",
+            runtimes: Array.from({ length: count }, (_, index) => ({
+              type: `runtime-${index}`,
+            })),
+          }),
+        );
+        expect(res.status).toBe(status);
+      },
+    );
+
     it("returns 400 on malformed JSON", async () => {
       const POST = await loadRegister();
       const res = await POST(

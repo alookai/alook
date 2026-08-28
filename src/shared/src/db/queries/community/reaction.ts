@@ -1,6 +1,7 @@
 import { eq, and, inArray } from "drizzle-orm";
 import { communityReaction } from "../../community-schema";
 import type { Database } from "../../index";
+import { chunk, maxInParams } from "../_chunk";
 
 export async function addReaction(
   db: Database,
@@ -47,8 +48,14 @@ export async function listReactionsByMessageIds(
   _currentUserId: string
 ) {
   if (messageIds.length === 0) return [];
-  return db
-    .select()
-    .from(communityReaction)
-    .where(inArray(communityReaction.messageId, messageIds));
+  return (
+    await Promise.all(
+      chunk([...new Set(messageIds)], maxInParams(0)).map((ids) =>
+        db
+          .select()
+          .from(communityReaction)
+          .where(inArray(communityReaction.messageId, ids))
+      )
+    )
+  ).flat();
 }

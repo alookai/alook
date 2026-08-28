@@ -1112,18 +1112,6 @@ export async function getApprovalRequestByDmMessageId(
   return (rows[0] as ApprovalRequestRow | undefined) ?? null;
 }
 
-/** Batch-hydrate approval-request rows for a set of DM message ids. */
-export async function listApprovalRequestsByDmMessageIds(
-  db: Database,
-  ids: string[]
-): Promise<ApprovalRequestRow[]> {
-  if (ids.length === 0) return [];
-  return (await db
-    .select()
-    .from(communityBotApprovalRequest)
-    .where(inArray(communityBotApprovalRequest.dmMessageId, ids))) as ApprovalRequestRow[];
-}
-
 // ─── Machine cascade helpers ─────────────────────────────────────────────
 
 /**

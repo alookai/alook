@@ -46,7 +46,6 @@ describe("community/bot exports", () => {
     expect(typeof q.createApprovalRequestStatement).toBe("function")
     expect(typeof q.resolveApprovalRequest).toBe("function")
     expect(typeof q.getApprovalRequestByDmMessageId).toBe("function")
-    expect(typeof q.listApprovalRequestsByDmMessageIds).toBe("function")
   })
 
   it("exports OwnerHasBotsError as a real Error subclass", () => {

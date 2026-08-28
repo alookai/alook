@@ -12,6 +12,16 @@ export const D1_MAX_BIND_PARAMS = 100;
 // arrays at this size, not at D1_MAX_BIND_PARAMS, so the fixed params fit.
 export const D1_MAX_IN_PARAMS = 90;
 
+export function maxInParams(fixedParams: number): number {
+  if (!Number.isInteger(fixedParams) || fixedParams < 0) {
+    throw new Error("fixed params must be a non-negative integer");
+  }
+  if (fixedParams >= D1_MAX_BIND_PARAMS) {
+    throw new Error("fixed params must leave room for at least one IN parameter");
+  }
+  return D1_MAX_BIND_PARAMS - fixedParams;
+}
+
 /**
  * Split `arr` into ordered slices of at most `size` elements. `chunk([], n)`
  * returns `[]`; order is preserved. `size` must be >= 1.
