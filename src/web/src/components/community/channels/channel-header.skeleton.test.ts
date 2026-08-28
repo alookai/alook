@@ -12,6 +12,7 @@ describe("ChannelHeaderSkeleton", () => {
     expect(html).toContain('data-slot="loading-server-leading"')
     expect(html).toMatch(/class="[^"]*size-11[^"]*sm:hidden[^"]*"/)
     expect(html).toMatch(/class="[^"]*size-6[^"]*rounded-md[^"]*"/)
+    expect(html).toMatch(/class="[^"]*ml-1 size-7 rounded-md"/)
     expect(html).not.toContain("<button")
     expect(html).not.toContain('aria-label="Back"')
     expect(html).not.toContain("loading-back-placeholder")

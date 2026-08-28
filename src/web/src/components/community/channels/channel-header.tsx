@@ -40,7 +40,7 @@ export function ChannelHeaderSkeleton() {
         <Skeleton className="size-7 rounded-md" />
         <span className="mx-1 h-5 w-px bg-border/60" aria-hidden />
         <Skeleton className="size-7 rounded-md" />
-        <Skeleton className="size-7 rounded-md" />
+        <Skeleton className="ml-1 size-7 rounded-md" />
       </div>
     </header>
   )
