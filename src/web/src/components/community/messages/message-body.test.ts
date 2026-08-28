@@ -4,7 +4,7 @@ import TestRenderer, { act } from "react-test-renderer"
 import { MessageBody } from "./message-body"
 
 describe("MessageBody — plain URL rendering", () => {
-  it("keeps an HTTPS URL as a normal clickable link", () => {
+  it("renders an unsupported HTTPS URL as a generic clickable link badge", () => {
     let renderer: TestRenderer.ReactTestRenderer
     act(() => {
       renderer = TestRenderer.create(
@@ -14,7 +14,26 @@ describe("MessageBody — plain URL rendering", () => {
 
     const link = renderer!.root.findByType("a")
     expect(link.props.href).toBe("https://example.com/story")
-    expect(link.children.join("")).toBe("https://example.com/story")
+    expect(link.props["data-platform-link"]).toBe("generic")
+    expect(renderer!.root.findAllByType("svg")).toHaveLength(1)
+  })
+
+  it("badges supported platform URLs without changing their href", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(MessageBody, {
+          text: "Review https://github.com/alookai/alook/pull/598 then https://example.com/story",
+        }),
+      )
+    })
+
+    const links = renderer!.root.findAllByType("a")
+    expect(links).toHaveLength(2)
+    expect(links[0].props.href).toBe("https://github.com/alookai/alook/pull/598")
+    expect(links[0].props["data-platform-link"]).toBe("github")
+    expect(links[1].props.href).toBe("https://example.com/story")
+    expect(links[1].props["data-platform-link"]).toBe("generic")
   })
 })
 

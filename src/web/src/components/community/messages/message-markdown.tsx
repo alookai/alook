@@ -2,6 +2,7 @@ import type React from "react"
 import { Spoiler, MentionPill } from "./inline-marks"
 import { ChannelRefPill } from "./channel-ref-pill"
 import { ServerRefPill } from "./server-ref-pill"
+import { PlatformLinkBadge } from "./platform-link-badge"
 
 // Match `/c/invite/<token>` — with or without an origin.
 // - token allows [A-Za-z0-9_-] (nanoid alphabet) and length 6..64 (short + old
@@ -63,6 +64,7 @@ export function mentionNameFromText(text: string): string {
 }
 
 export const MD_COMPONENTS = {
+  a: PlatformLinkBadge,
   spoiler: ({ children }: { children?: React.ReactNode }) => <Spoiler>{children}</Spoiler>,
   mention: ({ children, ...rest }: Record<string, unknown> & { children?: React.ReactNode }) => (
     <MentionPill everyone={rest["data-everyone"] === "1"}>{children}</MentionPill>
