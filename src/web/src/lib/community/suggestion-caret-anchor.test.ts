@@ -17,7 +17,8 @@ describe("createSuggestionCaretRectResolver", () => {
       clientRect: rangeRect,
     })
 
-    expect(getRect?.()).toMatchObject({
+    const initialRect = getRect?.()
+    expect(initialRect).toMatchObject({
       top: 420,
       bottom: 440,
       left: 80,
@@ -27,6 +28,12 @@ describe("createSuggestionCaretRectResolver", () => {
     })
     expect(coordsAtPos).toHaveBeenLastCalledWith(42)
     expect(rangeRect).not.toHaveBeenCalled()
+    expect(initialRect?.toJSON()).toEqual({
+      top: 420,
+      bottom: 440,
+      left: 80,
+      right: 80,
+    })
 
     selection.head = 57
     selection.to = 57
@@ -47,5 +54,14 @@ describe("createSuggestionCaretRectResolver", () => {
       clientRect,
     })
     expect(getRect?.()).toBe(fallback)
+
+    const missingPosition = createSuggestionCaretRectResolver({
+      editor: {
+        state: { selection: {} },
+        view: { coordsAtPos: vi.fn() },
+      },
+      clientRect,
+    })
+    expect(missingPosition?.()).toBe(fallback)
   })
 })

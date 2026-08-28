@@ -84,7 +84,7 @@ async function mountHook() {
 
   // The first layout effect installs the real scroll/wheel intent listeners.
   layoutEffects[0]?.()
-  return { listeners, scrollWrites }
+  return { listeners, scrollWrites, scroller }
 }
 
 function growingRow(requestFrame: (callback: FrameRequestCallback) => void) {
@@ -146,5 +146,26 @@ describe("useScrollAnchor delayed row-growth re-pin", () => {
 
     expect(scrollWrites).toEqual([])
     expect(frame).toBeUndefined()
+  })
+
+  it("switches live resize anchoring with scroll and keyboard intent", async () => {
+    const { listeners, scroller } = await mountHook()
+    expect(virtualizer.options.anchorTo).toBe("end")
+
+    virtualizer.isAtEnd.mockReturnValue(false)
+    scroller.scrollTop = 40
+    listeners.get("scroll")?.(new Event("scroll"))
+    expect(virtualizer.options.anchorTo).toBe("start")
+
+    const adjust = virtualizer.shouldAdjustScrollPositionOnItemSizeChange
+    expect(adjust).toBeTypeOf("function")
+    expect(adjust!({} as never, 20, {} as never)).toBe(false)
+
+    virtualizer.isAtEnd.mockReturnValue(true)
+    listeners.get("scroll")?.(new Event("scroll"))
+    expect(virtualizer.options.anchorTo).toBe("end")
+
+    listeners.get("keydown")?.({ key: "PageUp" } as KeyboardEvent)
+    expect(virtualizer.options.anchorTo).toBe("start")
   })
 })
