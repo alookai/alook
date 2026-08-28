@@ -89,7 +89,10 @@ const agentDriverPackage = JSON.parse(
 }
 const daemonPackage = JSON.parse(
   readFileSync(resolve(repositoryRoot, "src/daemon/package.json"), "utf8"),
-) as { devDependencies?: Record<string, string> }
+) as {
+  scripts: Record<string, string>
+  devDependencies?: Record<string, string>
+}
 const workspaceManifest = readFileSync(resolve(repositoryRoot, "pnpm-workspace.yaml"), "utf8")
 const appPackedArtifactScript = readFileSync(
   resolve(repositoryRoot, "src/app/scripts/app-packed-artifact.mjs"),
@@ -174,6 +177,33 @@ describe("Bun workflow setup", () => {
       expect(publishWorkflow).toContain("oven-sh/setup-bun")
       expect(publishWorkflow).toContain("bun-version: 1.3.11")
     }
+  })
+})
+
+describe("Local package test isolation", () => {
+  it("keeps daemon artifact writers serial without flattening ordinary tests", () => {
+    const artifactTests = [
+      "src/version.packed.test.ts",
+      "src/agent-driver-bundle.packed.test.ts",
+      "src/cli/daemonSelfUpdate.real.test.ts",
+    ]
+    expect(daemonPackage.scripts.test).toBe("pnpm test:unit && pnpm test:packed")
+    expect(daemonPackage.scripts["test:unit"]).not.toContain("--no-file-parallelism")
+    expect(daemonPackage.scripts["test:packed"]).toContain("--no-file-parallelism")
+    for (const testPath of artifactTests) {
+      expect(daemonPackage.scripts["test:unit"]).toContain(`--exclude ${testPath}`)
+      expect(daemonPackage.scripts["test:packed"]).toContain(testPath)
+    }
+
+    const rootTest = rootPackageJson.scripts.test
+    const driverBuild = rootTest.indexOf("pnpm --filter @alook/agent-driver build")
+    const workspaceTests = rootTest.indexOf("turbo run test --filter=!@alook/agent-driver")
+    const driverTests = rootTest.indexOf("pnpm --filter @alook/agent-driver test")
+    const scriptTests = rootTest.indexOf("vitest run --project ci-scripts")
+    expect(driverBuild).toBeGreaterThanOrEqual(0)
+    expect(workspaceTests).toBeGreaterThan(driverBuild)
+    expect(driverTests).toBeGreaterThan(workspaceTests)
+    expect(scriptTests).toBeGreaterThan(driverTests)
   })
 })
 
