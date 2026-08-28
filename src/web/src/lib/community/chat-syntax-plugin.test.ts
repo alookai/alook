@@ -40,6 +40,43 @@ describe("CLI prompt ref examples — tokenizer contract", () => {
 })
 
 describe("chatSyntaxPlugin — mention", () => {
+  it("recognizes a canonical handle before HTML-looking name text is split into sibling nodes", () => {
+    const children = paragraphChildren(parse("hi @<b>Alice</b>#0042 there"))
+    expect(children.map((child) => child.type)).toEqual(["text", "mention", "text"])
+    expect(children[1]).toMatchObject({
+      type: "mention",
+      value: "@<b>Alice</b>",
+      everyone: false,
+      discriminator: "0042",
+    })
+  })
+
+  it("treats markdown metacharacters inside a legal member name as literal mention text", () => {
+    const children = paragraphChildren(parse("@*[Alice](https://example.com)*#0042"))
+    expect(children).toHaveLength(1)
+    expect(children[0]).toMatchObject({
+      type: "mention",
+      value: "@*[Alice](https://example.com)*",
+      discriminator: "0042",
+    })
+  })
+
+  it("keeps an ampersand in a canonical handle", () => {
+    expect(paragraphChildren(parse("@A&B#0042"))[0]).toMatchObject({
+      type: "mention",
+      value: "@A&B",
+      discriminator: "0042",
+    })
+  })
+
+  it("captures an HTML event-handler-shaped legal name as inert mention text", () => {
+    expect(paragraphChildren(parse("@<img src=x onerror=alert(1)>#0042"))[0]).toMatchObject({
+      type: "mention",
+      value: "@<img src=x onerror=alert(1)>",
+      discriminator: "0042",
+    })
+  })
+
   it("a hand-typed bare @name (no #dddd) is NOT a mention — stays plain text", () => {
     const children = paragraphChildren(parse("hi @Lindsay"))
     expect(children).toHaveLength(1)
@@ -117,6 +154,27 @@ describe("chatSyntaxPlugin — mention", () => {
   it("leaves an @handle inside inline code literal", () => {
     const children = paragraphChildren(parse("use `@Lindsay#0001` here"))
     expect(children.map((c) => c.type)).toEqual(["text", "inlineCode", "text"])
+  })
+
+  it("leaves an HTML-looking @handle inside inline code literal", () => {
+    const children = paragraphChildren(parse("use `@<b>Alice</b>#0042` here"))
+    expect(children.map((c) => c.type)).toEqual(["text", "inlineCode", "text"])
+    expect(children[1]).toMatchObject({ type: "inlineCode", value: "@<b>Alice</b>#0042" })
+  })
+
+  it("leaves a metacharacter handle literal inside an explicit link", () => {
+    const link = paragraphChildren(parse("[profile @<b>Alice</b>#0042](https://example.com)"))[0]
+    expect(link).toMatchObject({ type: "link", url: "https://example.com" })
+    expect("children" in link && link.children.map((child) => child.type)).toEqual(["text", "text"])
+    expect("children" in link && link.children.map((child) => "value" in child ? child.value : "").join(""))
+      .toBe("profile @<b>Alice</b>#0042")
+  })
+
+  it("does not split a member-looking URL path into a mention", () => {
+    const children = paragraphChildren(parse("https://example.com/@Alice#0042"))
+    expect(children.every((child) => child.type === "text")).toBe(true)
+    expect(children.map((child) => "value" in child ? child.value : "").join(""))
+      .toBe("https://example.com/@Alice#0042")
   })
 
   it("leaves an @mention inside a fenced code block literal", () => {

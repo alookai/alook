@@ -64,6 +64,20 @@ describe("extractMentionedUserIds", () => {
     expect(extractMentionedUserIds("hi @Ünal#0002", roster)).toEqual(["u_unal"]);
   });
 
+  it("keeps notification identity exact for legal Markdown and HTML metacharacter names", () => {
+    const roster = [
+      { userId: "u_html", name: "<b>Alice</b>", discriminator: "0042" },
+      { userId: "u_amp", name: "A&B", discriminator: "0043" },
+      { userId: "u_payload", name: "<img src=x onerror=alert(1)>", discriminator: "0044" },
+    ];
+    expect(
+      extractMentionedUserIds(
+        "@<b>Alice</b>#0042 @A&B#0043 @<img src=x onerror=alert(1)>#0044",
+        roster,
+      ),
+    ).toEqual(["u_html", "u_amp", "u_payload"]);
+  });
+
   it("a hand-typed bare @name (no discriminator) is NOT a mention", () => {
     expect(extractMentionedUserIds("hi @Alice", ROSTER)).toEqual([]);
     expect(extractMentionedUserIds("hi @John Doe", ROSTER)).toEqual([]);
