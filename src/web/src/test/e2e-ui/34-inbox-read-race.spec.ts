@@ -114,6 +114,54 @@ async function watchInboxRow(page: Parameters<typeof gotoAfterUserWsAuth>[0], te
 test.describe.serial("Inbox/read refresh ownership", () => {
   test.setTimeout(180_000)
 
+  test("an Inbox click closes, publishes, and hides only its exact row before read settles", async ({ asUser }) => {
+    const stamp = Date.now()
+    const serverId = await seedServer("alice", `Inbox projection ${stamp}`)
+    const channelA = await seedChannel("alice", serverId, `project-a-${stamp}`)
+    const channelB = await seedChannel("alice", serverId, `project-b-${stamp}`)
+    await seedJoinServer("alice", "bob", serverId)
+    await seedMessage("alice", channelA, `Projected A ${stamp}`)
+    await seedMessage("alice", channelB, `Unrelated B ${stamp}`)
+
+    const { page } = await asUser("bob")
+    await gotoAfterUserWsAuth(page, "/c/me")
+    await page.getByRole("button", { name: "Inbox" }).click()
+    await expect(page.getByTestId(tid.inboxUnreadChannel(channelA))).toBeVisible()
+    await expect(page.getByTestId(tid.inboxUnreadChannel(channelB))).toBeVisible()
+
+    const readGate = deferred()
+    const readStarted = deferred()
+    const hrefsAtRead: string[] = []
+    await page.route(`**/api/community/channels/${channelA}/read`, async (route) => {
+      if (route.request().method() !== "PUT") return route.continue()
+      hrefsAtRead.push(page.url())
+      readStarted.resolve()
+      await readGate.promise
+      await route.continue()
+    })
+
+    await page.getByTestId(tid.inboxUnreadChannel(channelA)).click()
+    await expect(page).toHaveURL(`/c/channels/${serverId}/${channelA}`)
+    await expect(page.getByRole("heading", { name: "Inbox" })).toHaveCount(0)
+
+    await page.getByRole("button", { name: "Inbox" }).click()
+    await expect(page.getByTestId(tid.inboxUnreadChannel(channelA))).toHaveCount(0)
+    await expect(page.getByTestId(tid.inboxUnreadChannel(channelB))).toBeVisible()
+    await readStarted.promise
+    expect(hrefsAtRead).toEqual([
+      expect.stringContaining(`/c/channels/${serverId}/${channelA}`),
+    ])
+
+    const reconciledInbox = page.waitForResponse((response) => (
+      response.request().method() === "GET"
+      && new URL(response.url()).pathname === "/api/community/users/me/inbox/unreads"
+    ))
+    readGate.resolve()
+    expect((await reconciledInbox).status()).toBe(200)
+    await expect(page.getByTestId(tid.inboxUnreadChannel(channelA))).toHaveCount(0)
+    await expect(page.getByTestId(tid.inboxUnreadChannel(channelB))).toBeVisible()
+  })
+
   test("focused A never flashes while same-window B and DM remain unread", async ({ asUser }) => {
     const stamp = Date.now()
     const serverId = await seedServer("alice", `Inbox race mixed ${stamp}`)

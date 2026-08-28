@@ -1,13 +1,17 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  activateInboxProjectionTicket,
   armInboxReadReservationCandidate,
   armThreadOpenerReservationHandoff,
   clearThreadOpenerReservationHandoff,
   completeThreadOpenerReservationHandoff,
   disposeInboxReadReservation,
   getThreadOpenerReservationHandoff,
+  inboxReadCandidateFingerprint,
+  publishInboxProjectionGenerationTerminal,
   promoteInboxReadReservation,
+  registerInboxProjectionTicket,
   registerThreadOpenerRouteLease,
   registerInboxReadReservationSurface,
   releaseThreadOpenerRouteLease,
@@ -16,6 +20,7 @@ import {
   settleInboxReadReservationGeneration,
   takeInboxReadReservationNegative,
   terminateThreadOpenerReservationHandoff,
+  type InboxRowTarget,
 } from "./inbox-read-reservation"
 
 function client() {
@@ -28,6 +33,7 @@ function client() {
 function response(channelId = "focused", lastMessageAt = "2026-08-27T01:00:00.000Z") {
   return {
     servers: [{
+      serverId: "server",
       channels: [{
         channelId,
         lastMessageAt,
@@ -738,5 +744,250 @@ describe("inbox read reservation", () => {
     await Promise.resolve()
     expect(getThreadOpenerReservationHandoff(queryClient, "nonce-route")).toBeNull()
     expect(queryClient.refetchQueries).toHaveBeenCalledOnce()
+  })
+
+  it("keeps projection tickets dormant and emits success only for their bound generation", async () => {
+    const data = {
+      servers: [{
+        serverId: "server",
+        serverName: "Server",
+        channels: [{
+          channelId: "focused",
+          channelName: "Focused",
+          lastMessageAt: "2026-08-27T01:00:00.000Z",
+          mentionCount: 0,
+          hasDirectUnread: true,
+          children: [],
+        }],
+      }],
+      dms: [],
+    }
+    const cache = { current: data as typeof data | { servers: []; dms: [] } }
+    queryClient = {
+      ...client(),
+      getQueryData: vi.fn(() => cache.current),
+    } as unknown as QueryClient
+    const target: InboxRowTarget = {
+      kind: "channel-direct",
+      identity: JSON.stringify(["channel-direct", "server", "focused"]),
+      fingerprint: inboxReadCandidateFingerprint({
+        channelId: "focused",
+        lastMessageAt: "2026-08-27T01:00:00.000Z",
+        openerUnread: false,
+      }),
+      confirmationChannelId: "focused",
+      serverId: "server",
+      channelId: "focused",
+    }
+    const receipt = vi.fn()
+    const ticket = registerInboxProjectionTicket(queryClient, 4, target, receipt)
+    const lease = registerInboxReadReservationSurface(queryClient, "focused", vi.fn())
+    const pending = reserveInboxUnreadsResponse(queryClient, data)
+    void pending.catch(() => undefined)
+    promoteInboxReadReservation(lease, 41)
+
+    publishInboxProjectionGenerationTerminal(queryClient, 99, "success")
+    expect(receipt).not.toHaveBeenCalled()
+    activateInboxProjectionTicket(ticket)
+    expect(receipt).not.toHaveBeenCalled()
+
+    await settleInboxReadReservationGeneration(queryClient, 41, true, "focused")
+    cache.current = { servers: [], dms: [] }
+    publishInboxProjectionGenerationTerminal(queryClient, 41, "success")
+    expect(receipt).toHaveBeenCalledWith(expect.objectContaining({
+      epoch: 4,
+      terminal: "success",
+      disposition: "retire",
+      observedFingerprint: null,
+    }))
+  })
+
+  it("freezes exact retention as rollback after an owned negative refetch", async () => {
+    const data = response()
+    queryClient = {
+      ...client(),
+      getQueryData: vi.fn(() => data),
+    } as unknown as QueryClient
+    const target: InboxRowTarget = {
+      kind: "channel-direct",
+      identity: JSON.stringify(["channel-direct", "server", "focused"]),
+      fingerprint: inboxReadCandidateFingerprint({
+        channelId: "focused",
+        lastMessageAt: "2026-08-27T01:00:00.000Z",
+        openerUnread: false,
+      }),
+      confirmationChannelId: "focused",
+      serverId: "server",
+      channelId: "focused",
+    }
+    const receipt = vi.fn()
+    activateInboxProjectionTicket(registerInboxProjectionTicket(
+      queryClient,
+      5,
+      target,
+      receipt,
+    ))
+    const lease = registerInboxReadReservationSurface(queryClient, "focused", vi.fn())
+    const pending = reserveInboxUnreadsResponse(queryClient, data)
+    void pending.catch(() => undefined)
+    promoteInboxReadReservation(lease, 51)
+
+    await settleInboxReadReservationGeneration(queryClient, 51, false, "focused")
+    expect(receipt).toHaveBeenCalledWith(expect.objectContaining({
+      terminal: "negative",
+      disposition: "rollback",
+      observedFingerprint: target.fingerprint,
+    }))
+  })
+
+  it("forces Mention-negative and deferred terminals to rollback without cache authority", async () => {
+    queryClient = {
+      ...client(),
+      getQueryData: vi.fn(() => undefined),
+    } as unknown as QueryClient
+    const mentionTarget: InboxRowTarget = {
+      kind: "mention",
+      identity: JSON.stringify(["mention", "mention-1"]),
+      fingerprint: JSON.stringify(["mention-1", "message-1", 7]),
+      confirmationChannelId: "focused",
+      mentionId: "mention-1",
+    }
+    const negativeReceipt = vi.fn()
+    activateInboxProjectionTicket(registerInboxProjectionTicket(
+      queryClient,
+      6,
+      mentionTarget,
+      negativeReceipt,
+    ))
+    const lease = registerInboxReadReservationSurface(queryClient, "focused", vi.fn())
+    const pending = reserveInboxUnreadsResponse(queryClient, response())
+    void pending.catch(() => undefined)
+    promoteInboxReadReservation(lease, 61)
+    await settleInboxReadReservationGeneration(queryClient, 61, false, "focused")
+    expect(negativeReceipt).toHaveBeenCalledWith(expect.objectContaining({
+      disposition: "rollback",
+      observedFingerprint: null,
+    }))
+
+    const deferredReceipt = vi.fn()
+    const ticket = registerInboxProjectionTicket(
+      queryClient,
+      7,
+      mentionTarget,
+      deferredReceipt,
+    )
+    armInboxReadReservationCandidate(queryClient, {
+      channelId: "focused",
+      lastMessageAt: "2026-08-27T03:00:00.000Z",
+    })
+    promoteInboxReadReservation(lease, 62)
+    activateInboxProjectionTicket(ticket)
+    publishInboxProjectionGenerationTerminal(queryClient, 62, "deferred")
+    expect(deferredReceipt).toHaveBeenCalledWith(expect.objectContaining({
+      terminal: "deferred",
+      disposition: "rollback",
+    }))
+  })
+
+  it("binds an exact child target to its opener-owned parent generation", async () => {
+    const data = {
+      servers: [{
+        serverId: "server",
+        channels: [{
+          channelId: "forum",
+          lastMessageAt: "2026-08-27T01:00:00.000Z",
+          children: [{
+            channelId: "child",
+            lastMessageAt: "2026-08-27T01:00:00.000Z",
+            openerMessageId: "opener-7",
+            openerSeq: 7,
+            openerUnread: true,
+          }],
+        }],
+      }],
+      dms: [],
+    }
+    const cache = { current: data as typeof data | { servers: []; dms: [] } }
+    queryClient = {
+      ...client(),
+      getQueryData: vi.fn(() => cache.current),
+    } as unknown as QueryClient
+    const target: InboxRowTarget = {
+      kind: "thread",
+      identity: JSON.stringify(["thread", "server", "forum", "child"]),
+      fingerprint: inboxReadCandidateFingerprint({
+        channelId: "child",
+        lastMessageAt: "2026-08-27T01:00:00.000Z",
+        openerMessageId: "opener-7",
+        openerSeq: 7,
+        openerUnread: true,
+      }),
+      confirmationChannelId: "forum",
+      serverId: "server",
+      parentChannelId: "forum",
+      childChannelId: "child",
+    }
+    const receipt = vi.fn()
+    activateInboxProjectionTicket(registerInboxProjectionTicket(
+      queryClient,
+      8,
+      target,
+      receipt,
+    ))
+    armThreadOpenerReservationHandoff(queryClient, {
+      nonce: "projection-thread",
+      serverId: "server",
+      parentChannelId: "forum",
+      childChannelId: "child",
+      openerMessageId: "opener-7",
+      openerSeq: 7,
+    })
+    registerInboxReadReservationSurface(queryClient, "child", vi.fn())
+    const pending = reserveInboxUnreadsResponse(queryClient, data)
+    void pending.catch(() => undefined)
+    completeThreadOpenerReservationHandoff(queryClient, "projection-thread", 81)
+    await settleInboxReadReservationGeneration(queryClient, 81, true, "forum")
+    cache.current = { servers: [], dms: [] }
+    publishInboxProjectionGenerationTerminal(queryClient, 81, "success")
+
+    expect(receipt).toHaveBeenCalledWith(expect.objectContaining({
+      terminal: "success",
+      disposition: "retire",
+    }))
+  })
+
+  it("attaches an activated same-href ticket to a just-settled exact generation", async () => {
+    const data = response()
+    queryClient = {
+      ...client(),
+      getQueryData: vi.fn(() => ({ servers: [], dms: [] })),
+    } as unknown as QueryClient
+    const lease = registerInboxReadReservationSurface(queryClient, "focused", vi.fn())
+    const pending = reserveInboxUnreadsResponse(queryClient, data)
+    void pending.catch(() => undefined)
+    promoteInboxReadReservation(lease, 91)
+    await settleInboxReadReservationGeneration(queryClient, 91, true, "focused")
+    publishInboxProjectionGenerationTerminal(queryClient, 91, "success")
+
+    const target: InboxRowTarget = {
+      kind: "channel-direct",
+      identity: JSON.stringify(["channel-direct", "server", "focused"]),
+      fingerprint: inboxReadCandidateFingerprint({
+        channelId: "focused",
+        lastMessageAt: "2026-08-27T01:00:00.000Z",
+        openerUnread: false,
+      }),
+      confirmationChannelId: "focused",
+      serverId: "server",
+      channelId: "focused",
+    }
+    const receipt = vi.fn()
+    const ticket = registerInboxProjectionTicket(queryClient, 9, target, receipt)
+    expect(receipt).not.toHaveBeenCalled()
+    activateInboxProjectionTicket(ticket)
+    expect(receipt).toHaveBeenCalledWith(expect.objectContaining({
+      terminal: "success",
+      disposition: "retire",
+    }))
   })
 })

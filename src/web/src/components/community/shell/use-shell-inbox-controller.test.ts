@@ -2,20 +2,27 @@ import { createElement } from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { DmCache } from "@/lib/community/dm-cache"
+import type { Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import { useShellInboxController } from "./use-shell-inbox-controller"
 
+const order: string[] = []
 const mocks = vi.hoisted(() => ({
   markedEnabled: [] as boolean[],
-  watch: vi.fn(),
   markAll: vi.fn(),
   deleteMention: vi.fn(),
   unmark: vi.fn(),
   verifyDm: vi.fn(),
   armOpener: vi.fn(),
   clearOpener: vi.fn(),
+  terminateOpener: vi.fn(),
+  begin: vi.fn(),
+  submitted: vi.fn(),
+  rollback: vi.fn(),
+  close: vi.fn(),
+  latestEpoch: 0,
 }))
 
-const unreadDm = {
+const unreadDm: UnreadDm = {
   channelId: "dm1",
   otherUserId: "u2",
   otherUserName: "Peer",
@@ -24,20 +31,56 @@ const unreadDm = {
   lastMessageAt: "2026-08-24T00:00:00.000Z",
 }
 
+const server: UnreadServer = {
+  serverId: "s1",
+  serverName: "Server",
+  channels: [{
+    channelId: "c1",
+    channelName: "Channel",
+    lastMessageAt: "2026-08-24T00:00:00.000Z",
+    mentionCount: 0,
+    hasDirectUnread: true,
+    children: [{
+      channelId: "child",
+      channelName: "Child",
+      lastMessageAt: "2026-08-24T00:00:00.000Z",
+      mentionCount: 0,
+      parentChannelId: "c1",
+      openerMessageId: "opener-7",
+      openerSeq: 7,
+      openerUnread: true,
+    }],
+  }],
+}
+
+const mention: Mention = {
+  id: "m1",
+  server: "Server",
+  serverId: "s1",
+  channel: "Channel",
+  channelId: "c1",
+  m: { id: "msg1", seq: 4 } as Mention["m"],
+}
+
 vi.mock("@/hooks/community/use-inbox", () => ({
-  useInboxUnreads: () => ({
-    servers: [],
-    dms: [unreadDm],
-    isLoading: false,
-  }),
-  useInboxMentions: () => ({ mentions: [], isLoading: false }),
+  useInboxUnreads: () => ({ servers: [server], dms: [unreadDm], isLoading: false }),
+  useInboxMentions: () => ({ mentions: [mention], isLoading: false }),
   useInboxMarked: (enabled: boolean) => {
     mocks.markedEnabled.push(enabled)
     return { marked: [], isLoading: false }
   },
 }))
 vi.mock("@/hooks/community/use-inbox-auto-collapse", () => ({
-  useInboxAutoCollapse: () => ({ open: true, onOpenChange: vi.fn(), watchItem: mocks.watch }),
+  useInboxAutoCollapse: () => ({
+    open: true,
+    onOpenChange: vi.fn(),
+    beginProjection: (...args: unknown[]) => mocks.begin(...args),
+    markProjectionSubmitted: (...args: unknown[]) => mocks.submitted(...args),
+    rollbackProjection: (...args: unknown[]) => mocks.rollback(...args),
+    closeWithoutProjection: (...args: unknown[]) => mocks.close(...args),
+    isProjected: () => false,
+    isLatestProjection: (epoch: number) => epoch === mocks.latestEpoch,
+  }),
 }))
 vi.mock("@/hooks/community/mutations", () => ({
   useMarkAllInboxRead: () => ({ mutate: mocks.markAll }),
@@ -51,6 +94,13 @@ vi.mock("@/hooks/community/thread-opener-read-handoff", () => ({
   armThreadOpenerReadHandoff: (...args: unknown[]) => mocks.armOpener(...args),
   clearThreadOpenerReadHandoff: (...args: unknown[]) => mocks.clearOpener(...args),
 }))
+vi.mock("@/hooks/community/inbox-read-reservation", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/hooks/community/inbox-read-reservation")>()
+  return {
+    ...original,
+    terminateThreadOpenerReservationHandoff: (...args: unknown[]) => mocks.terminateOpener(...args),
+  }
+})
 
 type Result = ReturnType<typeof useShellInboxController>
 
@@ -62,23 +112,16 @@ function Capture({ options, onResult }: {
   return null
 }
 
-async function renderController(initialDmCache: DmCache = { conversations: [{
-  id: "dm2",
-  userId: "u3",
-  name: "Other",
-  discriminator: "3333",
-  avatar: "O",
-  status: "offline" as const,
-  preview: "",
-  unread: true,
-}] }, pushError?: Error) {
-  const order: string[] = []
+async function renderController(
+  initialDmCache: DmCache = { conversations: [] },
+  push?: (href: string) => void,
+) {
   const pushed: string[] = []
   const router = {
     push: (href: string) => {
       order.push("push")
       pushed.push(href)
-      if (pushError) throw pushError
+      push?.(href)
     },
     replace: vi.fn(),
     prefetch: vi.fn(),
@@ -91,23 +134,22 @@ async function renderController(initialDmCache: DmCache = { conversations: [{
     }),
   }
   const cancelPendingNavigation = vi.fn(() => { order.push("cancel") })
-  mocks.watch.mockImplementation(() => { order.push("watch") })
-  mocks.verifyDm.mockImplementation(() => {
-    order.push("verify")
-    return Promise.resolve("present")
-  })
   let current!: Result
-  let renderer!: TestRenderer.ReactTestRenderer
-  const options = { router, queryClient, cancelPendingNavigation } as never
   await act(async () => {
-    renderer = TestRenderer.create(createElement(Capture, {
-      options,
+    TestRenderer.create(createElement(Capture, {
+      options: {
+        router,
+        queryClient,
+        cancelPendingNavigation,
+        publishedHref: "/c/channels/s1",
+        navigationPending: false,
+        pendingHref: null,
+      } as never,
       onResult: (result) => { current = result },
     }))
   })
   return {
     get current() { return current },
-    renderer,
     order,
     pushed,
     get dmCache() { return dmCache },
@@ -116,12 +158,41 @@ async function renderController(initialDmCache: DmCache = { conversations: [{
 
 describe("useShellInboxController", () => {
   beforeEach(() => {
+    order.length = 0
     mocks.markedEnabled.length = 0
-    for (const mock of [mocks.watch, mocks.markAll, mocks.deleteMention, mocks.unmark, mocks.verifyDm, mocks.armOpener, mocks.clearOpener]) {
-      mock.mockReset()
-    }
+    for (const mock of [
+      mocks.markAll,
+      mocks.deleteMention,
+      mocks.unmark,
+      mocks.verifyDm,
+      mocks.armOpener,
+      mocks.clearOpener,
+      mocks.terminateOpener,
+      mocks.begin,
+      mocks.submitted,
+      mocks.rollback,
+      mocks.close,
+    ]) mock.mockReset()
+    mocks.latestEpoch = 0
+    mocks.begin.mockImplementation(() => {
+      order.push("project")
+      mocks.latestEpoch += 1
+      return mocks.latestEpoch
+    })
+    mocks.submitted.mockImplementation((epoch: number) => {
+      order.push("submitted")
+      return epoch === mocks.latestEpoch
+    })
+    mocks.rollback.mockImplementation(() => { order.push("rollback"); return true })
+    mocks.close.mockImplementation(() => { order.push("close"); return true })
+    mocks.clearOpener.mockImplementation(() => { order.push("clear") })
     mocks.armOpener.mockImplementation(() => {
+      order.push("arm")
       return "/c/channels/s1/child?inboxThreadOpener=nonce-1"
+    })
+    mocks.verifyDm.mockImplementation(() => {
+      order.push("verify")
+      return Promise.resolve("present")
     })
   })
 
@@ -130,156 +201,138 @@ describe("useShellInboxController", () => {
     expect(mocks.markedEnabled.at(-1)).toBe(false)
     await act(async () => hook.current.popoverProps.onMarkedTabSelected?.())
     expect(mocks.markedEnabled.at(-1)).toBe(true)
-    await act(async () => hook.current.popoverProps.onMarkedTabSelected?.())
-    expect(mocks.markedEnabled.at(-1)).toBe(true)
   })
 
-  it("provisionally upserts a missing DM before push and starts background verification", async () => {
+  it("closes/projects before cancel and pushes a direct channel without data work", async () => {
     const hook = await renderController()
-    hook.order.length = 0
+    order.length = 0
+    await act(async () => hook.current.popoverProps.onOpenChannel?.(server, server.channels[0]!))
+    expect(order).toEqual(["project", "cancel", "clear", "push", "submitted"])
+    expect(hook.pushed).toEqual(["/c/channels/s1/c1"])
+  })
+
+  it("upserts a DM only after projection/cancel and verifies only after push", async () => {
+    const hook = await renderController()
+    order.length = 0
     await act(async () => hook.current.popoverProps.onOpenDm?.(unreadDm))
-    expect(hook.order).toEqual(["query", "watch", "cancel", "push", "verify"])
-    expect(mocks.watch).toHaveBeenCalledWith("dm:dm1")
-    expect(hook.pushed).toEqual(["/c/me/dm1"])
-    expect(hook.dmCache.conversations[0]).toEqual({
-      id: "dm1",
-      userId: "u2",
-      name: "Peer",
-      discriminator: "2222",
-      avatar: "P",
-      status: "offline",
-      preview: "",
-      unread: false,
-    })
-    expect(hook.dmCache.conversations[1]?.id).toBe("dm2")
-    expect(mocks.verifyDm).toHaveBeenCalledWith(expect.anything(), "dm1")
+    expect(order).toEqual([
+      "project",
+      "cancel",
+      "clear",
+      "query",
+      "push",
+      "submitted",
+      "verify",
+    ])
+    expect(hook.dmCache.conversations[0]?.id).toBe("dm1")
   })
 
-  it("preserves an existing canonical preview and presence when verification fails transiently", async () => {
-    const canonical = {
-      id: "dm1",
-      userId: "u2",
-      name: "Peer",
-      discriminator: "2222",
-      avatar: "P",
-      status: "online" as const,
-      preview: "canonical preview",
-      unread: true,
-    }
-    const hook = await renderController({ conversations: [canonical] })
-    mocks.verifyDm.mockRejectedValueOnce(new Error("offline"))
-
-    await act(async () => hook.current.popoverProps.onOpenDm?.(unreadDm))
-
-    expect(hook.dmCache.conversations).toEqual([{
-      ...canonical,
-      unread: false,
-    }])
-  })
-
-  it("preserves forum and mention watch keys and non-blocking routes", async () => {
+  it("arms an exact unread opener after stale setup is cleared and before push", async () => {
     const hook = await renderController()
-    hook.order.length = 0
-    await act(async () => hook.current.popoverProps.onOpenThread("s1", "forum", "child", "opener"))
-    expect(hook.order).toEqual(["watch", "cancel", "push"])
-    expect(mocks.watch).toHaveBeenCalledWith("channel:child")
-    expect(hook.pushed.at(-1)).toBe("/c/channels/s1/child")
-
-    hook.order.length = 0
-    await act(async () => hook.current.popoverProps.onOpenMention?.({ id: "m1" } as never))
-    expect(hook.order).toEqual([])
-    await act(async () => hook.current.popoverProps.onOpenMention?.({ id: "m1", serverId: "s1", channelId: "c1" } as never))
-    expect(mocks.watch).toHaveBeenLastCalledWith("mention:m1")
-    expect(hook.pushed.at(-1)).toBe("/c/channels/s1/c1")
-  })
-
-  it("arms a genuine unread opener after watch/cancel and before pushing its nonce URL", async () => {
-    const hook = await renderController()
-    mocks.armOpener.mockImplementation(() => {
-      hook.order.push("arm")
-      return "/c/channels/s1/child?inboxThreadOpener=nonce-1"
-    })
-    hook.order.length = 0
-
-    await act(async () => hook.current.popoverProps.onOpenThread(
-      "s1",
-      "forum",
-      "child",
-      "opener-7",
-      7,
-      true,
+    order.length = 0
+    await act(async () => hook.current.popoverProps.onOpenThread?.(
+      server,
+      server.channels[0]!,
+      server.channels[0]!.children[0]!,
     ))
-
-    expect(hook.order).toEqual(["watch", "cancel", "arm", "push"])
-    expect(mocks.armOpener).toHaveBeenCalledWith(expect.anything(), {
-      serverId: "s1",
-      parentChannelId: "forum",
-      childChannelId: "child",
-      openerMessageId: "opener-7",
-      openerSeq: 7,
-    })
-    expect(hook.pushed.at(-1)).toBe("/c/channels/s1/child?inboxThreadOpener=nonce-1")
-    expect(mocks.clearOpener).not.toHaveBeenCalled()
+    expect(order).toEqual(["project", "cancel", "clear", "arm", "push", "submitted"])
+    expect(hook.pushed).toEqual(["/c/channels/s1/child?inboxThreadOpener=nonce-1"])
   })
 
-  it("clears an obsolete handoff for an ordinary child navigation", async () => {
+  it("leaves an invalid Mention completely untouched", async () => {
     const hook = await renderController()
-    await act(async () => hook.current.popoverProps.onOpenThread(
-      "s1",
-      "forum",
-      "child",
-      "opener-7",
-      7,
-      false,
-    ))
-    expect(mocks.armOpener).not.toHaveBeenCalled()
-    expect(mocks.clearOpener).toHaveBeenCalledWith(expect.anything())
-    expect(hook.pushed.at(-1)).toBe("/c/channels/s1/child")
+    order.length = 0
+    await act(async () => hook.current.popoverProps.onOpenMention?.({ id: "bad" } as Mention))
+    expect(order).toEqual([])
   })
 
-  it("clears the armed opener when router.push fails synchronously", async () => {
-    const error = new Error("push failed")
-    const hook = await renderController(undefined, error)
-    await expect(act(async () => hook.current.popoverProps.onOpenThread(
-      "s1",
-      "forum",
-      "child",
-      "opener-7",
-      7,
-      true,
-    ))).rejects.toThrow("push failed")
-    expect(mocks.clearOpener).toHaveBeenCalledWith(expect.anything())
-  })
-
-  it("routes marked rows by server/DM with optional seq and exact watch keys", async () => {
+  it("projects a valid Mention and submits its channel synchronously", async () => {
     const hook = await renderController()
+    order.length = 0
+    await act(async () => hook.current.popoverProps.onOpenMention?.(mention))
+    expect(order).toEqual(["project", "cancel", "clear", "push", "submitted"])
+    expect(hook.pushed).toEqual(["/c/channels/s1/c1"])
+  })
+
+  it("closes Marked without creating a projection", async () => {
+    const hook = await renderController()
+    order.length = 0
     await act(async () => hook.current.popoverProps.onOpenMarked?.({
       id: "mk1",
       serverId: "s1",
       channelId: "c1",
       m: { seq: 7 },
     } as never))
-    expect(mocks.watch).toHaveBeenLastCalledWith("marked:mk1")
-    expect(hook.pushed.at(-1)).toBe("/c/channels/s1/c1?seq=7")
+    expect(order).toEqual(["close", "cancel", "clear", "push"])
+    expect(mocks.begin).not.toHaveBeenCalled()
+  })
 
-    await act(async () => hook.current.popoverProps.onOpenMarked?.({
-      id: "mk-child",
-      serverId: "s1",
-      channelId: "child1",
-      parentChannelId: "parent1",
-      m: { seq: 8 },
-    } as never))
-    expect(mocks.watch).toHaveBeenLastCalledWith("marked:mk-child")
-    expect(hook.pushed.at(-1)).toBe("/c/channels/s1/child1?seq=8")
+  it("rolls back and reopens the latest projection when push throws", async () => {
+    const error = new Error("push failed")
+    const hook = await renderController(undefined, () => { throw error })
+    order.length = 0
+    await expect(act(async () => hook.current.popoverProps.onOpenChannel?.(
+      server,
+      server.channels[0]!,
+    ))).rejects.toThrow("push failed")
+    expect(order).toEqual([
+      "project",
+      "cancel",
+      "clear",
+      "push",
+      "cancel",
+      "rollback",
+    ])
+    expect(mocks.rollback).toHaveBeenCalledWith(1, true)
+  })
 
-    await act(async () => hook.current.popoverProps.onOpenMarked?.({
-      id: "mk2",
-      serverId: null,
-      channelId: "dm1",
-      m: {},
-    } as never))
-    expect(mocks.watch).toHaveBeenLastCalledWith("marked:mk2")
-    expect(hook.pushed.at(-1)).toBe("/c/me/dm1")
+  it("terminates only the exact thread handoff and never verifies a failed DM push", async () => {
+    const error = new Error("push failed")
+    const hook = await renderController(undefined, () => { throw error })
+    await expect(act(async () => hook.current.popoverProps.onOpenThread?.(
+      server,
+      server.channels[0]!,
+      server.channels[0]!.children[0]!,
+    ))).rejects.toThrow("push failed")
+    expect(mocks.terminateOpener).toHaveBeenCalledWith(expect.anything(), "nonce-1")
+
+    order.length = 0
+    await expect(act(async () => hook.current.popoverProps.onOpenDm?.(unreadDm)))
+      .rejects.toThrow("push failed")
+    expect(mocks.verifyDm).not.toHaveBeenCalled()
+  })
+
+  it("lets re-entrant B keep ownership when stale A throws afterward", async () => {
+    const serverB: UnreadServer = {
+      ...server,
+      channels: [{
+        ...server.channels[0]!,
+        channelId: "c2",
+        channelName: "Channel B",
+        children: [],
+      }],
+    }
+    const holder: { hook?: Awaited<ReturnType<typeof renderController>> } = {}
+    const hook = await renderController(undefined, (href) => {
+      if (href !== "/c/channels/s1/c1") return
+      holder.hook!.current.popoverProps.onOpenChannel?.(serverB, serverB.channels[0]!)
+      throw new Error("stale A failed")
+    })
+    holder.hook = hook
+    order.length = 0
+
+    await expect(act(async () => hook.current.popoverProps.onOpenChannel?.(
+      server,
+      server.channels[0]!,
+    ))).rejects.toThrow("stale A failed")
+
+    expect(hook.pushed).toEqual([
+      "/c/channels/s1/c1",
+      "/c/channels/s1/c2",
+    ])
+    expect(mocks.latestEpoch).toBe(2)
+    expect(mocks.rollback).not.toHaveBeenCalled()
+    expect(order.filter((item) => item === "cancel")).toHaveLength(2)
   })
 
   it("wires mark/delete/unmark payloads", async () => {
