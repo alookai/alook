@@ -176,9 +176,15 @@ function surfaceProps(overrides: Record<string, unknown> = {}) {
     parentIsForum: false,
     childCreatorId: "viewer_1",
     canRenameThread: true,
+    headerServer: {
+      id: "server_1",
+      name: "Server",
+      icon: null,
+      onNavigate: vi.fn(),
+    },
+    onNavigateParent: vi.fn(),
     notificationLevel: "default" as const,
     onSetNotificationLevel: vi.fn(),
-    onBack: vi.fn(),
     composerMembers: [{ id: "member_1", userId: "member_1", name: "Alice" }],
     composerMentionCandidates: undefined,
     channelRefCandidates: [{ id: "parent_1", name: "general", serverId: "server_1", serverName: "Server", serverDiscriminator: "0001" }],
@@ -293,23 +299,25 @@ describe("ThreadChannelSurface ownership", () => {
     expect(mocks.setReplyTo).toHaveBeenCalledWith(null)
   })
 
-  it("uses the same mobile Back handler while loading and after hydration", () => {
-    const onBack = vi.fn()
+  it("keeps loading inert and restores direct hierarchy controls on body error", () => {
+    const props = surfaceProps()
     mockedUseChannelMessageFeed.mockReturnValue(feed({ isLoading: true }))
     let renderer!: TestRenderer.ReactTestRenderer
     act(() => {
-      renderer = TestRenderer.create(renderSurface({ onBack }))
+      renderer = TestRenderer.create(React.createElement(ThreadChannelSurface, props))
     })
-    const loadingBack = mockedChannelHeaderSkeleton.mock.calls.at(-1)![0].onBack
-    expect(loadingBack).toBe(onBack)
-    act(() => loadingBack?.())
+    expect(mockedChannelHeaderSkeleton.mock.calls.at(-1)![0]).not.toHaveProperty("onBack")
+    expect(mockedChannelHeader).not.toHaveBeenCalled()
 
-    mockedUseChannelMessageFeed.mockReturnValue(feed({ isLoading: false }))
-    act(() => renderer.update(renderSurface({ onBack })))
-    const hydratedBack = mockedChannelHeader.mock.calls.at(-1)![0].onBack
-    expect(hydratedBack).toBe(onBack)
-    act(() => hydratedBack?.())
-    expect(onBack).toHaveBeenCalledTimes(2)
+    mockedUseChannelMessageFeed.mockReturnValue(feed({ isLoading: false, isError: true }))
+    act(() => renderer.update(React.createElement(ThreadChannelSurface, props)))
+    const headerProps = mockedChannelHeader.mock.calls.at(-1)![0]
+    expect(headerProps).not.toHaveProperty("onBack")
+    expect(headerProps.mobileServer).toBe(props.headerServer)
+    expect(headerProps.breadcrumb).toEqual(expect.objectContaining({
+      id: "parent_1",
+      onNavigate: props.onNavigateParent,
+    }))
   })
 
   it("preserves regular-thread breadcrumb, rename, panel, and dialog wiring", async () => {
@@ -324,11 +332,14 @@ describe("ThreadChannelSurface ownership", () => {
     expect(headerProps).toEqual(expect.objectContaining({
       notifLevel: "default",
       onSetNotifLevel: props.onSetNotificationLevel,
-      onBack: props.onBack,
+      mobileServer: props.headerServer,
     }))
+    expect(headerProps).not.toHaveProperty("onBack")
     expect(headerProps.breadcrumb).toEqual(expect.objectContaining({
+      id: "parent_1",
       label: "Thread name",
       titleRename: false,
+      onNavigate: props.onNavigateParent,
       onRename: expect.any(Function),
     }))
 
@@ -341,8 +352,8 @@ describe("ThreadChannelSurface ownership", () => {
     })
     headerProps = mockedChannelHeader.mock.calls.at(-1)![0]
     expect(headerProps.breadcrumb?.label).toBe("Renamed thread")
-    act(() => headerProps.breadcrumb?.onNavigateBack())
-    expect(mocks.router.replace).toHaveBeenCalledWith("/c/channels/server_1/parent_1")
+    act(() => headerProps.breadcrumb?.onNavigate?.())
+    expect(props.onNavigateParent).toHaveBeenCalledOnce()
 
     act(() => headerProps.onToggle("pinned"))
     const panelProps = mockedCommunityPanel.mock.calls.at(-1)![0]

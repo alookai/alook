@@ -28,7 +28,6 @@ export function ForumChannelSurface({
   headerServer,
   notificationLevel,
   onSetNotificationLevel,
-  onBack,
   composerMembers,
   composerMentionCandidates,
   memberPanelProps,
@@ -41,10 +40,9 @@ export function ForumChannelSurface({
   channelName: string
   viewer: { id: string }
   viewerRole: Role | undefined
-  headerServer?: { id: string; name: string; icon: string | null }
+  headerServer?: { id: string; name: string; icon: string | null; onNavigate: () => void }
   notificationLevel: ChannelNotifLevel
   onSetNotificationLevel: (level: ChannelNotifLevel) => void
-  onBack?: () => void
   composerMembers: Member[]
   composerMentionCandidates?: ComposerProps["mentionCandidates"]
   memberPanelProps: ChannelMemberPanelProps
@@ -98,8 +96,7 @@ export function ForumChannelSurface({
           onToggle={togglePanel}
           notifLevel={notificationLevel}
           onSetNotifLevel={onSetNotificationLevel}
-          onBack={onBack}
-          server={headerServer}
+          mobileServer={headerServer}
           tools={{ threads: false, pinned: false }}
         />
       )}

@@ -64,7 +64,7 @@ test("community checkpoint waits for layout-owned frame commits", async ({ asUse
 
   await page.setViewportSize({ width: 390, height: 844 })
   const rootGate = await holdRoute(page, `/c/channels/${serverId}`)
-  await page.getByRole("button", { name: "Back" }).click({ noWaitAfter: true })
+  await page.getByTestId(tid.channelHeaderServer(serverId)).click({ noWaitAfter: true })
   await expect.poll(rootGate.held).toBeGreaterThan(0)
   await page.setViewportSize({ width: 1280, height: 900 })
   await expect(page.getByLabel("Loading conversation")).toBeVisible()

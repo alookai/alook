@@ -117,9 +117,9 @@ For Community server routes, the URL owns selection and the checkpoint owns comp
 | Route | Meaning | Mobile `< 640px` | Desktop `≥ 640px` |
 | --- | --- | --- | --- |
 | `/c/channels/{serverId}` | Server list/landing | Server rail + that server's channel list; no channel detail. | Server rail + channel sidebar + main landing. Replace to the remembered channel, otherwise the first top-level channel; an empty server stays on the root. |
-| `/c/channels/{serverId}/{channelId}` | Exact channel detail | Channel detail only, with Header Back to the semantic parent route. | Server rail + channel sidebar + channel detail in one frame. |
+| `/c/channels/{serverId}/{channelId}` | Exact channel detail | Channel detail only. The leading server icon replaces directly to the server root; a visible parent breadcrumb replaces directly to that parent channel. | Server rail + channel sidebar + channel detail in one frame. |
 
-Both checkpoints share the same server-scoped data model. A detail route adds channel-scoped content queries; changing checkpoint never changes the route's business meaning or creates a device-specific query contract. Header Back uses replace-style semantic navigation, while browser Back/Forward remains browser-history owned.
+Both checkpoints share the same server-scoped data model. A detail route adds channel-scoped content queries; changing checkpoint never changes the route's business meaning or creates a device-specific query contract. Mobile server hierarchy controls use replace-style navigation to their explicit canonical URLs, while browser Back/Forward remains browser-history owned. DM/Me keeps its separate Back contract.
 
 Rules:
 - **Read the breakpoint, don't guess.** Use `useBreakpoint()` (string) or `useIsMobile()` (boolean) for any behavior that must branch by stage. Don't sprinkle raw `window.innerWidth` checks or ad-hoc `matchMedia` calls — they drift away from the shared boundary and re-mount without SSR safety.
