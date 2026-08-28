@@ -23,7 +23,7 @@
  */
 
 import { z } from "zod";
-import type { RuntimeConfig } from "./runtime-config";
+import type { RuntimeConfig, RuntimeReasoningCatalog } from "./runtime-config";
 import type { ChannelType, StoredChannelType } from "./utils/community-roles";
 import { CHANNEL_TRAITS } from "./utils/community-roles";
 import { parseNameAndTag } from "./lib/discriminator";
@@ -770,6 +770,11 @@ export type HostCommand =
    * new model, never wrong about it. See `AgentProcessManager.switchModel`.
    */
   | { type: "agent:model_switch"; agentId: AgentId; config: RuntimeConfig; launchId: string }
+  | {
+    type: "agent:runtime_config_update";
+    agentId: AgentId;
+    config: RuntimeConfig;
+  }
   /**
    * Owner-triggered BATCH reset — reset every agent bound to this machine in a
    * SINGLE command (not N fanned-out `agent:reset` frames). The server
@@ -834,6 +839,7 @@ export interface HostReadyRuntime {
   status?: "healthy" | "unhealthy";
   lastError?: string;
   lastErrorAt?: string;
+  reasoning?: RuntimeReasoningCatalog;
 }
 
 /** What the host reports to the server on connect (the registration handshake). */
@@ -1427,6 +1433,11 @@ export const HostCommandSchema = z.discriminatedUnion("type", [
     agentId: z.string().min(1),
     config: z.unknown(),
     launchId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("agent:runtime_config_update"),
+    agentId: z.string().min(1),
+    config: z.unknown(),
   }),
   z.object({
     type: z.literal("machine:reset_all"),

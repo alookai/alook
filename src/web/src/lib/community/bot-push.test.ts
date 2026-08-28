@@ -9,6 +9,7 @@ import {
   pushAgentResetToMachine,
   pushAgentModelSwitchToMachine,
   pushAgentProviderSwitchToMachine,
+  pushAgentRuntimeConfigUpdateToMachine,
   pushMachineUpdate,
 } from "./bot-push"
 
@@ -234,6 +235,63 @@ describe("pushAgentProviderSwitchToMachine", () => {
     })
     wsDoFetch.mockRejectedValue(new Error("network"))
     expect(await pushAgentProviderSwitchToMachine(FAKE_ENV, "m", args)).toEqual({
+      sent: 0,
+      deliveryError: true,
+    })
+  })
+})
+
+describe("pushAgentRuntimeConfigUpdateToMachine", () => {
+  beforeEach(() => {
+    wsDoFetch.mockReset()
+  })
+
+  const args = {
+    agentId: "bot-1",
+    config: {
+      version: 1 as const,
+      runtime: "codex",
+      model: { kind: "default" as const },
+      mode: { kind: "default" as const },
+      reasoningEffort: "xhigh",
+      runtimeConfigRevision: 4,
+    },
+  }
+
+  it("forwards the exact revisioned desired config", async () => {
+    wsDoFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 1 }), { status: 200 }))
+
+    await expect(pushAgentRuntimeConfigUpdateToMachine(FAKE_ENV, "machine/1", args)).resolves.toEqual({
+      sent: 1,
+      deliveryError: false,
+    })
+    const [, path, init, meta] = wsDoFetch.mock.calls[0]!
+    expect(path).toBe("/community-machine/by-id/machine%2F1/forward-agent-runtime-config-update")
+    expect(JSON.parse(init.body as string)).toEqual(args)
+    expect(meta).toEqual({ label: "machine/1", type: "agent:runtime_config_update" })
+  })
+
+  it("distinguishes offline from non-ok, malformed, and thrown delivery failures", async () => {
+    wsDoFetch.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
+    await expect(pushAgentRuntimeConfigUpdateToMachine(FAKE_ENV, "m", args)).resolves.toEqual({
+      sent: 0,
+      deliveryError: false,
+    })
+
+    wsDoFetch.mockResolvedValueOnce(new Response("down", { status: 503 }))
+    await expect(pushAgentRuntimeConfigUpdateToMachine(FAKE_ENV, "m", args)).resolves.toEqual({
+      sent: 0,
+      deliveryError: true,
+    })
+
+    wsDoFetch.mockResolvedValueOnce(new Response("not-json", { status: 200 }))
+    await expect(pushAgentRuntimeConfigUpdateToMachine(FAKE_ENV, "m", args)).resolves.toEqual({
+      sent: 0,
+      deliveryError: true,
+    })
+
+    wsDoFetch.mockRejectedValueOnce(new Error("network"))
+    await expect(pushAgentRuntimeConfigUpdateToMachine(FAKE_ENV, "m", args)).resolves.toEqual({
       sent: 0,
       deliveryError: true,
     })

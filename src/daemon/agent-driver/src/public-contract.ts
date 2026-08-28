@@ -1,6 +1,7 @@
 /** Consumer contract: logical SDK/session/event/result vocabulary only. */
 export type {
-  JsonPrimitive, JsonValue, JsonObject, BuiltinBackendId, ReasoningEffort, ModelSelection, DefaultProvider,
+  JsonPrimitive, JsonValue, JsonObject, BuiltinBackendId, ReasoningEffort, RuntimeReasoningCatalog,
+  RuntimeSettingsUpdate, RuntimeSettingsUpdateResult, ModelSelection, DefaultProvider,
   ClaudeProvider, PiProvider, BaseBackendConfig, ClaudeConfig, CodexConfig, ModelBackendConfig, CursorConfig,
   OpenCodeConfig, PiConfig, BackendCapabilities, ClaudeCapabilities, CodexCapabilities, CursorCapabilities,
   OpenCodeCapabilities, PiCapabilities, BackendExtensionSpec, BackendTypeSpec, BuiltinBackendSpecs, BackendId,

@@ -262,6 +262,7 @@ export interface CreateDaemonOptions {
     status?: "healthy" | "unhealthy";
     lastError?: string;
     lastErrorAt?: string;
+    reasoning?: import("@alook/shared").RuntimeReasoningCatalog;
   }>;
   /**
    * Per-agent runtime driver. `runtimeConfig` (server-pushed on

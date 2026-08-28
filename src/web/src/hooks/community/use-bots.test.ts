@@ -1,5 +1,7 @@
+import React from "react"
+import TestRenderer, { act } from "react-test-renderer"
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { QueryClient } from "@tanstack/react-query"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 
 // The React harness for the hooks themselves isn't available in the repo
@@ -61,6 +63,38 @@ describe("invalidateBotSurfaces", () => {
 })
 
 describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
+  it("useUpdateBot forwards explicit reasoning effort values and omission", async () => {
+    const { useUpdateBot } = await import("./use-bots")
+    const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    let mutation!: ReturnType<typeof useUpdateBot>
+    function Probe() {
+      mutation = useUpdateBot()
+      return null
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(Probe),
+        ),
+      )
+    })
+    apiFetchMock.mockResolvedValue({ bot: { id: "bot_1" } })
+
+    await act(async () => {
+      await mutation.mutateAsync({ id: "bot_1", reasoningEffort: "xhigh" })
+      await mutation.mutateAsync({ id: "bot_1", name: "Renamed" })
+    })
+
+    expect(JSON.parse(apiFetchMock.mock.calls[0]![1].body)).toMatchObject({
+      reasoningEffort: "xhigh",
+    })
+    expect(JSON.parse(apiFetchMock.mock.calls[1]![1].body)).not.toHaveProperty("reasoningEffort")
+    act(() => renderer.unmount())
+  })
+
   it("useUpdateBot's mutationFn PATCHes description and the response carries the id onSuccess needs", async () => {
     apiFetchMock.mockResolvedValueOnce({
       bot: { id: "bot_1", name: "Bot", description: "new description", image: null, machineId: "m_1", runtime: "node" },

@@ -3,7 +3,37 @@ export type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
 export type JsonObject = { readonly [key: string]: JsonValue };
 
 export type BuiltinBackendId = "claude" | "codex" | "cursor" | "opencode" | "pi";
-export type ReasoningEffort = "low" | "medium" | "high";
+export type ReasoningEffort =
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max"
+  | "ultra"
+  | (string & Record<never, never>);
+
+export type RuntimeSettingsUpdate = {
+  readonly reasoningEffort: ReasoningEffort | null;
+};
+
+export type RuntimeSettingsUpdateResult =
+  | { readonly status: "applied" }
+  | { readonly status: "unsupported"; readonly error?: AgentDriverError }
+  | { readonly status: "failed"; readonly error: AgentDriverError };
+
+export type RuntimeReasoningCatalog = {
+  readonly updateMode: "live_next_turn" | "context_preserving_restart" | "unsupported";
+  readonly defaultModelId?: string;
+  readonly models: readonly {
+    readonly id: string;
+    readonly supportedReasoningEfforts: readonly {
+      readonly value: ReasoningEffort;
+      readonly description?: string;
+    }[];
+    readonly defaultReasoningEffort?: ReasoningEffort;
+  }[];
+};
 
 export type ModelSelection =
   | { readonly kind: "default" }
@@ -453,6 +483,7 @@ export interface AgentSession<Specs, Id extends BackendId<Specs>> {
   start(message: AgentMessage): Promise<DeliveryReceipt>;
   send(message: AgentMessage): Promise<DeliveryReceipt>;
   interrupt(input: { readonly requestId: string; readonly reason: string }): Promise<InterruptResult>;
+  updateSettings?(input: RuntimeSettingsUpdate): Promise<RuntimeSettingsUpdateResult>;
   stop(input: StopInput): Promise<StopReceipt>;
   snapshot(): AgentSessionSnapshot;
   invokeExtension<Name extends ExtensionNames<Specs, Id>>(
@@ -467,8 +498,18 @@ export interface ProbeInput<Specs, Id extends BackendId<Specs>> {
 }
 
 export type BackendProbe<Capabilities> =
-  | { readonly status: "healthy"; readonly version?: string; readonly capabilities: Capabilities }
-  | { readonly status: "unhealthy"; readonly error: AgentDriverError; readonly capabilities: Capabilities };
+  | {
+      readonly status: "healthy";
+      readonly version?: string;
+      readonly capabilities: Capabilities;
+      readonly reasoning?: RuntimeReasoningCatalog;
+    }
+  | {
+      readonly status: "unhealthy";
+      readonly error: AgentDriverError;
+      readonly capabilities: Capabilities;
+      readonly reasoning?: RuntimeReasoningCatalog;
+    };
 
 export interface OpenSessionInput<Specs, Id extends BackendId<Specs>> {
   readonly backend: Id;

@@ -130,6 +130,16 @@ vi.mock("./model-field", () => {
       }),
   }
 })
+vi.mock("./reasoning-effort-field", () => {
+  const React = require("react")
+  return {
+    ReasoningEffortField: ({ onChange }: { onChange: (value: string | null) => void }) =>
+      React.createElement("button", {
+        "data-testid": "set-reasoning-effort",
+        onClick: () => onChange("xhigh"),
+      }),
+  }
+})
 vi.mock("@/components/avatar", () => ({
   isPhotoAvatarUrl: () => false,
 }))
@@ -223,6 +233,34 @@ describe("EditBotSheet — model switch toast (online-only)", () => {
     await flush()
     expect(toastSuccess).not.toHaveBeenCalled()
     expect(toastApiError).toHaveBeenCalled()
+  })
+})
+
+describe("EditBotSheet — reasoning effort", () => {
+  beforeEach(() => {
+    toastSuccess.mockReset()
+    toastApiError.mockReset()
+    updateMutateAsync.mockReset()
+    useMachinesMock.mockReturnValue(HEALTHY_MACHINES)
+  })
+
+  it("PATCHes the explicit effort without provider confirmation and reports next-turn application", async () => {
+    updateMutateAsync.mockResolvedValue({
+      bot: { ...BOT, reasoningEffort: "xhigh", runtimeConfigRevision: 2 },
+      application: "next_turn",
+    })
+    const renderer = renderSheet()
+    act(() => renderer.root.findByProps({ "data-testid": "set-reasoning-effort" }).props.onClick())
+    act(() => {
+      void saveButton(renderer).props.onClick()
+    })
+    await flush()
+
+    expect(updateMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "b1", reasoningEffort: "xhigh" }),
+    )
+    expect(renderer.root.findAllByProps({ "data-testid": "provider-confirm" })).toHaveLength(0)
+    expect(toastSuccess).toHaveBeenCalledWith("Reasoning effort saved. Next turn takes effect.")
   })
 })
 

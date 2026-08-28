@@ -4,18 +4,23 @@ import { ProviderLogo } from "@/components/provider-logo"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 import { ModelField } from "./model-field"
+import { ReasoningEffortField } from "./reasoning-effort-field"
+import type { CommunityMachineRuntime, ReasoningEffort } from "@alook/shared"
 
-export type BotRuntimeOption = {
-  id: string
+export type BotRuntimeOption = Pick<CommunityMachineRuntime, "id" | "reasoning"> & {
   unhealthy: boolean
 }
+
+const ignoreReasoningEffortChange = () => {}
 
 export function BotRuntimeFields({
   options,
   runtime,
   model,
+  reasoningEffort = null,
   onRuntimeChange,
   onModelChange,
+  onReasoningEffortChange = ignoreReasoningEffortChange,
   radioName = "edit-bot-runtime",
   motionTargetPrefix,
   modelMotionTarget,
@@ -27,8 +32,10 @@ export function BotRuntimeFields({
   options: BotRuntimeOption[]
   runtime: string
   model: string | null
+  reasoningEffort?: ReasoningEffort | null
   onRuntimeChange: (runtime: string) => void
   onModelChange: (model: string | null) => void
+  onReasoningEffortChange?: (effort: ReasoningEffort | null) => void
   radioName?: string
   motionTargetPrefix?: string
   modelMotionTarget?: string
@@ -41,6 +48,7 @@ export function BotRuntimeFields({
     if (next === runtime) return
     onRuntimeChange(next)
     onModelChange(null)
+    onReasoningEffortChange(null)
   }
 
   return (
@@ -98,8 +106,14 @@ export function BotRuntimeFields({
         {runtimeError ? <p className="text-xs text-destructive">{runtimeError}</p> : null}
       </div>
       {runtime ? (
-        <div data-motion-target={modelMotionTarget} className={modelClassName}>
+        <div data-motion-target={modelMotionTarget} className={cn("flex flex-col gap-4", modelClassName)}>
           <ModelField runtime={runtime} value={model} onChange={onModelChange} />
+          <ReasoningEffortField
+            runtime={options.find((option) => option.id === runtime) ?? null}
+            model={model}
+            value={reasoningEffort}
+            onChange={onReasoningEffortChange}
+          />
         </div>
       ) : null}
     </>

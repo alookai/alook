@@ -77,6 +77,73 @@ describe("CommunityMachineRuntimeSchema", () => {
       expect(CommunityMachineRuntimeSchema.parse({ id })).toEqual({ id, status: "healthy" });
     }
   });
+
+  it("keeps a healthy runtime while dropping malformed reasoning entries individually", () => {
+    const parsed = CommunityMachineRuntimeSchema.parse({
+      id: "codex",
+      reasoning: {
+        updateMode: "live_next_turn",
+        defaultModelId: "gpt-5",
+        models: [
+          {
+            id: "gpt-5",
+            supportedReasoningEfforts: [
+              { value: "minimal", description: "Fast" },
+              { value: "future_effort" },
+              { value: "bad effort" },
+              { value: "minimal", description: "duplicate" },
+            ],
+            defaultReasoningEffort: "medium",
+          },
+          {
+            id: "gpt-5",
+            supportedReasoningEfforts: [{ value: "high" }],
+          },
+          { id: "", supportedReasoningEfforts: [{ value: "high" }] },
+          null,
+        ],
+      },
+    });
+
+    expect(parsed).toEqual({
+      id: "codex",
+      status: "healthy",
+      reasoning: {
+        updateMode: "live_next_turn",
+        defaultModelId: "gpt-5",
+        models: [{
+          id: "gpt-5",
+          supportedReasoningEfforts: [
+            { value: "minimal", description: "Fast" },
+            { value: "future_effort" },
+          ],
+        }],
+      },
+    });
+  });
+
+  it("keeps a supported default reasoning effort", () => {
+    const parsed = CommunityMachineRuntimeSchema.parse({
+      id: "codex",
+      reasoning: {
+        updateMode: "live_next_turn",
+        models: [{
+          id: "gpt-5",
+          supportedReasoningEfforts: [{ value: "medium" }, { value: "high" }],
+          defaultReasoningEffort: "medium",
+        }],
+      },
+    });
+
+    expect(parsed.reasoning?.models[0]?.defaultReasoningEffort).toBe("medium");
+  });
+
+  it("drops a malformed reasoning catalog without poisoning runtime health", () => {
+    expect(CommunityMachineRuntimeSchema.parse({
+      id: "codex",
+      reasoning: { updateMode: "eventually", models: [] },
+    })).toEqual({ id: "codex", status: "healthy" });
+  });
 });
 
 describe("CommunityMachineRuntimeListSchema", () => {

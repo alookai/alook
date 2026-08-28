@@ -273,6 +273,63 @@ describe("WebSocketDurableObject", () => {
         expect(storage.put).not.toHaveBeenCalled()
       })
 
+      it("stamps and forwards a revisioned runtime config update without restart attribution", async () => {
+        const { durable, getWebSockets, storage } = createDO()
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+        })
+        getWebSockets.mockReturnValue([ws])
+        const config = {
+          version: 1,
+          runtime: "codex",
+          model: { kind: "default" },
+          mode: { kind: "default" },
+          reasoningEffort: "xhigh",
+          runtimeConfigRevision: 9,
+        }
+
+        const response = await durable.fetch(new Request("http://internal/push-runtime-config-update", {
+          method: "POST",
+          body: JSON.stringify({ agentId: "a_1", config }),
+        }))
+
+        expect(response.status).toBe(200)
+        await expect(response.json()).resolves.toEqual({ sent: 1 })
+        expect(ws.send).toHaveBeenCalledWith(JSON.stringify({
+          type: "agent:runtime_config_update",
+          agentId: "a_1",
+          config,
+        }))
+        expect(storage.put).not.toHaveBeenCalled()
+      })
+
+      it("rejects malformed runtime config update bodies before touching sockets", async () => {
+        const { durable, getWebSockets } = createDO()
+        const response = await durable.fetch(new Request("http://internal/push-runtime-config-update", {
+          method: "POST",
+          body: JSON.stringify({ agentId: "a_1", config: {}, extra: true }),
+        }))
+
+        expect(response.status).toBe(400)
+        expect(getWebSockets).not.toHaveBeenCalled()
+      })
+
+      it("rejects malformed runtime config update JSON before touching sockets", async () => {
+        const { durable, getWebSockets } = createDO()
+        const response = await durable.fetch(new Request("http://internal/push-runtime-config-update", {
+          method: "POST",
+          body: "{",
+        }))
+
+        expect(response.status).toBe(400)
+        await expect(response.json()).resolves.toEqual({ sent: 0 })
+        expect(getWebSockets).not.toHaveBeenCalled()
+      })
+
       it("returns the forward-wake send count when optimistic overlay clearing rejects", async () => {
         const { durable, getWebSockets, storage } = createDO()
         const ws = createMockWebSocket()

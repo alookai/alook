@@ -105,13 +105,14 @@ describe("firstHealthyRuntimeId", () => {
 // runtime radios, which is all this change touches.
 
 const useMachinesMock = vi.fn()
+const createMutateAsync = vi.fn()
 
 vi.mock("@/hooks/community/use-machines", () => ({
   useMachines: () => useMachinesMock(),
 }))
 
 vi.mock("@/hooks/community/use-bots", () => ({
-  useCreateBot: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useCreateBot: () => ({ mutateAsync: createMutateAsync, isPending: false }),
   useUploadBotAvatar: () => ({ mutateAsync: vi.fn() }),
 }))
 
@@ -147,6 +148,14 @@ vi.mock("./model-field", () => ({
   },
 }))
 
+vi.mock("./reasoning-effort-field", () => ({
+  ReasoningEffortField: ({ onChange }: { onChange: (value: string | null) => void }) =>
+    React.createElement("button", {
+      "data-testid": "set-reasoning-effort",
+      onClick: () => onChange("xhigh"),
+    }),
+}))
+
 vi.mock("@/components/provider-logo", () => ({
   ProviderLogo: () => React.createElement("span", { "data-mock": "provider-logo" }),
 }))
@@ -178,6 +187,8 @@ function render(props: { avatarSeed?: string } = {}): TestRenderer.ReactTestRend
 describe("CreateBotSheet — auto-select defaults", () => {
   beforeEach(() => {
     useMachinesMock.mockReset()
+    createMutateAsync.mockReset()
+    createMutateAsync.mockResolvedValue({ bot: { id: "b1", name: "MyBot" } })
     botFormFieldsRenders.length = 0
   })
 
@@ -308,6 +319,37 @@ describe("CreateBotSheet — auto-select defaults", () => {
     const last = modelFieldRenders.at(-1)!
     expect(last.runtime).toBe("codex")
     expect(last.value).toBeNull()
+  })
+
+  it("includes the selected runtime-reported reasoning effort in create", async () => {
+    useMachinesMock.mockReturnValue({
+      machines: [
+        machine({
+          id: "mac",
+          status: "online",
+          availableRuntimes: [{
+            id: "codex",
+            status: "healthy",
+            reasoning: {
+              updateMode: "live_next_turn",
+              defaultModelId: "gpt-5",
+              models: [{ id: "gpt-5", supportedReasoningEfforts: [{ value: "xhigh" }] }],
+            },
+          }] as unknown as CommunityMachineSummary["availableRuntimes"],
+        }),
+      ],
+    })
+    const renderer = render()
+    act(() => renderer.root.findByProps({ "data-testid": "set-reasoning-effort" }).props.onClick())
+    await act(async () => {
+      await renderer.root.find(
+        (node) => node.type === "button" && node.props.children === "Create bot",
+      ).props.onClick()
+    })
+
+    expect(createMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ machineId: "mac", runtime: "codex", reasoningEffort: "xhigh" }),
+    )
   })
 
   it("re-defaults the runtime when the user switches to another machine", () => {

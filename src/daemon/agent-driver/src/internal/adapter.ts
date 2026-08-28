@@ -7,6 +7,9 @@ import type {
   PiConfig,
   PreparedExecutionResource,
   JsonValue,
+  RuntimeReasoningCatalog,
+  RuntimeSettingsUpdate,
+  RuntimeSettingsUpdateResult,
 } from "../contract.js";
 
 export type BackendConfig = ClaudeConfig | CodexConfig | CursorConfig | OpenCodeConfig | PiConfig;
@@ -115,6 +118,7 @@ export interface RuntimeLane {
   start(input: LaneStartInput): Promise<LaneAdmission>;
   send(input: LaneSendInput): Promise<LaneAdmission>;
   interrupt(input: LaneInterruptInput): Promise<boolean>;
+  updateSettings?(input: RuntimeSettingsUpdate): Promise<RuntimeSettingsUpdateResult>;
   stop(input: LaneStopInput): Promise<void>;
   on<K extends keyof RuntimeLaneEventMap>(
     event: K,
@@ -177,7 +181,12 @@ export interface SpawnedProcessHandle {
 }
 
 export interface SpawnedProcess { process: SpawnedProcessHandle }
-export interface ProbeResult { status: "healthy" | "unhealthy"; version?: string; lastError?: string }
+export interface ProbeResult {
+  status: "healthy" | "unhealthy";
+  version?: string;
+  lastError?: string;
+  reasoning?: RuntimeReasoningCatalog;
+}
 
 export interface VendorSessionHandle {
   prompt(text: string): void | Promise<void>;

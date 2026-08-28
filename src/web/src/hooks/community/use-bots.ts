@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient, type UseQueryResult } from "@tan
 import { apiFetch, readUploadError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { BotActivityDay } from "@/lib/community/models/people"
+import type { ReasoningEffort } from "@alook/shared"
 
 export type BotSummary = {
   id: string
@@ -13,6 +14,8 @@ export type BotSummary = {
   machineId: string
   runtime: string
   modelName: string | null
+  reasoningEffort: ReasoningEffort | null
+  runtimeConfigRevision: number
   // Context lifecycle (my-bots #516): when the agent last refreshed its context
   // (nap, session reset, or provider switch), ISO string, null if it never has. Rendered as the
   // awake-duration "Awake 17h" (Gus #672/#674 — how long the agent has been
@@ -42,6 +45,7 @@ export type CreateBotInput = {
   runtime: string
   image?: string
   model?: string | null
+  reasoningEffort?: ReasoningEffort | null
 }
 
 // Bot identity (name, image) is projected into friends() (self-bot rows) and
@@ -83,11 +87,23 @@ export type UpdateBotInput = {
   // Explicit `null` clears a set model; `undefined` leaves it untouched.
   model?: string | null
   runtime?: string
+  reasoningEffort?: ReasoningEffort | null
 }
 export type UpdateBotResponse = {
-  bot: Pick<BotSummary, "id" | "name" | "description" | "image" | "runtime" | "modelName">
+  bot: Pick<
+    BotSummary,
+    | "id"
+    | "name"
+    | "description"
+    | "image"
+    | "runtime"
+    | "modelName"
+    | "reasoningEffort"
+    | "runtimeConfigRevision"
+  >
   applied?: boolean
   deliveryError?: boolean
+  application?: "unchanged" | "next_turn" | "saved_not_applied"
 }
 
 export function useUpdateBot() {
@@ -105,6 +121,9 @@ export function useUpdateBot() {
           // explicit key the server would read as "clear to default".
           ...("model" in input ? { model: input.model } : {}),
           ...("runtime" in input ? { runtime: input.runtime } : {}),
+          ...("reasoningEffort" in input
+            ? { reasoningEffort: input.reasoningEffort }
+            : {}),
         }),
       }),
     onSuccess: (data) => invalidateBotSurfaces(qc, data.bot.id),

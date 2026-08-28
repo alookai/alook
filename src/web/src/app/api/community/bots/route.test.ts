@@ -146,6 +146,57 @@ describe("POST /api/community/bots — model", () => {
     expect(res.status).toBe(400)
     expect(mockCreateBot).not.toHaveBeenCalled()
   })
+
+  it("persists a supported capability-backed reasoning effort", async () => {
+    mockGetMachineForOwner.mockResolvedValue({
+      id: "mac1",
+      availableRuntimes: [{
+        id: "codex",
+        status: "healthy",
+        reasoning: {
+          updateMode: "live_next_turn",
+          defaultModelId: "gpt-5",
+          models: [{
+            id: "gpt-5",
+            supportedReasoningEfforts: [
+              { value: "minimal" },
+              { value: "xhigh", description: "Deeper reasoning" },
+            ],
+          }],
+        },
+      }],
+    })
+
+    const res = await POST(postReq({ ...base("gpt-5", "codex"), reasoningEffort: "xhigh" }), ctx)
+
+    expect(res.status).toBe(201)
+    await expect(res.json()).resolves.toMatchObject({
+      bot: { runtime: "codex", modelName: "gpt-5", reasoningEffort: "xhigh", runtimeConfigRevision: 0 },
+    })
+    expect(mockCreateBot).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ reasoningEffort: "xhigh" }),
+    )
+  })
+
+  it("rejects an explicit effort the selected model did not report", async () => {
+    mockGetMachineForOwner.mockResolvedValue({
+      id: "mac1",
+      availableRuntimes: [{
+        id: "codex",
+        status: "healthy",
+        reasoning: {
+          updateMode: "live_next_turn",
+          models: [{ id: "gpt-5", supportedReasoningEfforts: [{ value: "minimal" }] }],
+        },
+      }],
+    })
+
+    const res = await POST(postReq({ ...base("gpt-5", "codex"), reasoningEffort: "ultra" }), ctx)
+
+    expect(res.status).toBe(400)
+    expect(mockCreateBot).not.toHaveBeenCalled()
+  })
 })
 
 describe("GET /api/community/bots — heatmap activity", () => {

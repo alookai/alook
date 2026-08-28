@@ -79,6 +79,7 @@ export const tid = {
   botReportProblemSubmit: "bot-report-problem-submit",
   botReportProblemStatus: "bot-report-problem-status",
   botAvatarPickerTrigger: "community-bot-avatar-picker-trigger",
+  botReasoningEffort: "community-bot-reasoning-effort",
 
   forumTagDialog: "community-forum-tag-dialog",
   forumTagDialogChip: (tag: string) => `community-forum-tag-dialog-chip-${tag}`,
