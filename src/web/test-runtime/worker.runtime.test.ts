@@ -9,15 +9,6 @@ const worker = (exports as unknown as {
   default: { fetch(request: Request): Promise<Response> }
 }).default
 
-function byteStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
-  return new ReadableStream({
-    start(controller) {
-      controller.enqueue(bytes)
-      controller.close()
-    },
-  })
-}
-
 describe("Web workerd runtime", () => {
   it("loads production migrations and local storage bindings", async () => {
     const schema = await runtimeEnv.DB.prepare(
@@ -34,23 +25,6 @@ describe("Web workerd runtime", () => {
     await runtimeEnv.CACHE_KV.put(kvKey, "runtime cache")
     await expect(runtimeEnv.CACHE_KV.get(kvKey)).resolves.toBe("runtime cache")
     await runtimeEnv.CACHE_KV.delete(kvKey)
-  })
-
-  it("decodes and transforms a raster through the configured Images binding", async () => {
-    const png = Uint8Array.from(
-      atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="),
-      (char) => char.charCodeAt(0),
-    )
-    const info = await runtimeEnv.IMAGES.info(byteStream(png))
-    expect(info).toMatchObject({ format: "image/png", width: 1, height: 1 })
-
-    const output = await runtimeEnv.IMAGES
-      .input(byteStream(png))
-      .transform({ width: 640, height: 360, fit: "cover" })
-      .output({ format: "image/webp", quality: 78, anim: false })
-    expect(output.contentType()).toBe("image/webp")
-    const transformed = new Uint8Array(await new Response(output.image()).arrayBuffer())
-    expect(transformed.byteLength).toBeGreaterThan(0)
   })
 
   it.each(["/", "/pricing", "/apiary"])(

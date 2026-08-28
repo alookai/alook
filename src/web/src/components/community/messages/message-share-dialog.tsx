@@ -304,7 +304,6 @@ export function MessageShareDialog({ m, open, onClose }: {
                         <MessageBody
                           text={visibleContent}
                           perspective="neutral"
-                          enableLinkPreview={!msg.embeds?.length}
                         />
                       </div>
                     )}
