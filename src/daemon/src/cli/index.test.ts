@@ -453,29 +453,52 @@ describe("message send --reply", () => {
 });
 
 describe("inbox pull", () => {
-  it("never acks a rejected pull and only advances the returned cursor after repair", async () => {
+  it("never partially acks a non-JSON 500 and advances the rich batch once after repair", async () => {
     const ackSpy = vi.fn(async (req: { cursors: Array<{ channel: string; seq: number }> }) => ({
       ok: true, applied: req.cursors, failed: [],
     }));
     const pullSpy = vi.fn()
-      .mockRejectedValueOnce(new Error("DM peer identity unavailable"))
+      .mockRejectedValueOnce(new Error("upstream returned 500 with non-JSON body during inboxPull"))
       .mockResolvedValueOnce({
-        messages: [{ seq: "#7", channel: "/.dm/Bob#0042", sender: "@Alice#1234", content: { text: "still owed" }, time: "" }],
+        messages: [
+          {
+            seq: "#152",
+            channel: "/.dm/Alice#0042",
+            sender: "@Alice#0042",
+            content: {
+              text: "see attached",
+              replyTo: { seq: "#147", sender: "@Alice#0042" },
+              attachments: [{ id: "att_1", filename: "proof.png", contentType: "image/png", size: 12544 }],
+            },
+            time: "",
+          },
+          { seq: "#3", channel: "/Demo#1234/support/#29", sender: "@Bob#0043", content: { text: "thread update" }, time: "" },
+          { seq: "#29", channel: "/Demo#1234/support", sender: "@Bob#0043", content: { text: "forum title" }, time: "" },
+        ],
         hasMore: false,
         markedCount: 0,
       });
     setApiForTesting(stubApi({ inboxPull: pullSpy, ack: ackSpy }));
 
     await main(["inbox", "pull"]);
-    expect(parseEnvelope(cap.lines()).error).toContain("DM peer identity unavailable");
+    expect(parseEnvelope(cap.lines()).error).toContain("upstream returned 500 with non-JSON body during inboxPull");
     expect(ackSpy).not.toHaveBeenCalled();
 
     cap.lines().length = 0;
     await main(["inbox", "pull"]);
+    const repaired = parseEnvelope(cap.lines()) as { success: { messages: Array<{ content: Record<string, unknown> }> } };
+    expect(repaired.success.messages[0]!.content).toMatchObject({
+      replyTo: { seq: "#147", sender: "@Alice#0042" },
+      attachments: [{ id: "att_1", filename: "proof.png" }],
+    });
     expect(ackSpy).toHaveBeenCalledOnce();
     expect(ackSpy).toHaveBeenCalledWith({
       agentId: expect.any(String),
-      cursors: [{ channel: "/.dm/Bob#0042", seq: 7 }],
+      cursors: [
+        { channel: "/.dm/Alice#0042", seq: 152 },
+        { channel: "/Demo#1234/support/#29", seq: 3 },
+        { channel: "/Demo#1234/support", seq: 29 },
+      ],
     });
   });
 

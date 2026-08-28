@@ -104,6 +104,63 @@ describe("POST /api/community/users/me/inbox/pull — bot arm (folds inboxPull)"
     expect(body.messages).toHaveLength(2)
   })
 
+  it("preserves a rich cross-surface batch with DM replyTo and attachments", async () => {
+    const rows = [
+      { id: "m_dm", channelId: "dm_1", seq: 152, replyToId: "m_dm_earlier" },
+      { id: "m_thread", channelId: "thread_1", seq: 3, replyToId: null },
+      { id: "m_forum", channelId: "forum_1", seq: 29, replyToId: null },
+    ]
+    const messages = [
+      {
+        seq: "#152",
+        channel: "/.dm/Alice#0042",
+        sender: "@Alice#0042",
+        content: {
+          text: "see attached",
+          replyTo: { seq: "#147", sender: "@Alice#0042" },
+          attachments: [{ id: "att_1", filename: "proof.png", contentType: "image/png", size: 12544 }],
+        },
+        time: "2026-08-28T09:34:14.873Z",
+      },
+      {
+        seq: "#3",
+        channel: "/Demo#1234/support/#29",
+        sender: "@Bob#0043",
+        content: { text: "thread update" },
+        time: "2026-08-28T09:47:02.247Z",
+      },
+      {
+        seq: "#29",
+        channel: "/Demo#1234/support",
+        sender: "@Bob#0043",
+        content: { text: "forum title" },
+        hint: "This is a forum post, please reply in /Demo#1234/support/#29.",
+        time: "2026-08-28T09:47:45.404Z",
+      },
+    ]
+    mockListUnreadMessagesForAgent.mockResolvedValue(rows)
+    mockListByMessageIds.mockResolvedValue([{
+      id: "att_1",
+      messageId: "m_dm",
+      filename: "proof.png",
+      contentType: "image/png",
+      size: 12544,
+    }])
+    mockToAgentMessages.mockResolvedValue(messages)
+
+    const res = await POST(req(JSON.stringify({ max: 3 }), { Authorization: "Bearer crk_abc" }))
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ messages, hasMore: false, markedCount: 0 })
+    expect(mockListByMessageIds).toHaveBeenCalledWith(expect.anything(), ["m_dm", "m_thread", "m_forum"])
+    const attachments = mockToAgentMessages.mock.calls[0]![3] as Map<string, unknown>
+    expect([...attachments.entries()]).toEqual([["m_dm", [{
+      id: "att_1",
+      filename: "proof.png",
+      contentType: "image/png",
+      size: 12544,
+    }]]])
+  })
+
   it("returns the numeric markedCount in the HTTP response unchanged", async () => {
     mockListUnreadMessagesForAgent.mockResolvedValue([])
     mockCountMarksForUser.mockResolvedValue(3)
