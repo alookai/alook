@@ -17,10 +17,13 @@ import {
 beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
 
-describe("useCommunityWs — presence → Zustand store, no cache", () => {
-  it("presence.update writes to useCommunityWsStore only", async () => {
+describe("useCommunityWs — presence", () => {
+  it("presence.update writes to the WS store and an existing friends snapshot", async () => {
     await mountHook()
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    capturedQueryClient.setQueryData(communityKeys.friendsPresence(), {
+      online: ["friend_existing"],
+    })
     const event: CommunityPresenceUpdate = {
       type: "community:presence.update",
       userId: "u_pres",
@@ -29,8 +32,49 @@ describe("useCommunityWs — presence → Zustand store, no cache", () => {
     capturedOnMessage!(event)
     const { useCommunityWsStore } = await import("@/stores/community/ws")
     expect(useCommunityWsStore.getState().onlineUserIds.has("u_pres")).toBe(true)
-    // No cache touched.
+    expect(capturedQueryClient.getQueryData(communityKeys.friendsPresence())).toEqual({
+      online: ["friend_existing", "u_pres"],
+    })
     expect(spy).not.toHaveBeenCalled()
+  })
+
+  it("keeps reconnect snapshot scopes combined after late server hydration, then applies exact offline", async () => {
+    await mountHook()
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+
+    // Reconnect reset, followed by friends refresh winning the race.
+    useCommunityWsStore.getState().resetPresence()
+    capturedQueryClient.setQueryData(communityKeys.friendsPresence(), {
+      online: ["friend_non_member"],
+    })
+
+    // The later server snapshot is member-scoped and replaces only the WS
+    // source. The independent friends source must retain the non-member.
+    useCommunityWsStore.getState().hydratePresence(["server_member"])
+    expect(useCommunityWsStore.getState().onlineUserIds).toEqual(new Set(["server_member"]))
+    expect(capturedQueryClient.getQueryData(communityKeys.friendsPresence())).toEqual({
+      online: ["friend_non_member"],
+    })
+
+    const offline: CommunityPresenceUpdate = {
+      type: "community:presence.update",
+      userId: "friend_non_member",
+      online: false,
+    }
+    capturedOnMessage!(offline)
+    expect(useCommunityWsStore.getState().onlineUserIds.has("friend_non_member")).toBe(false)
+    expect(capturedQueryClient.getQueryData(communityKeys.friendsPresence())).toEqual({ online: [] })
+  })
+
+  it("does not create a friends presence cache from a live delta alone", async () => {
+    await mountHook()
+    capturedOnMessage!({
+      type: "community:presence.update",
+      userId: "u_pres",
+      online: true,
+    } satisfies CommunityPresenceUpdate)
+
+    expect(capturedQueryClient.getQueryData(communityKeys.friendsPresence())).toBeUndefined()
   })
 
 })

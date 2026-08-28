@@ -25,7 +25,7 @@ import { useDmMessageSender } from "@/hooks/community/use-dm-message-sender"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import type { Friend } from "@/lib/community/models/people"
 import { resolveRowPresence } from "@/lib/community/presence"
-import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
+import { useOnlineUserIds } from "@/stores/community/ws"
 
 const INVITE_ORIGIN =
   typeof window !== "undefined" ? window.location.origin : ""
@@ -151,14 +151,16 @@ export function InviteDialog({
   const inFlightUserIdsRef = useRef<Set<string>>(new Set())
   const [query, setQuery] = useState("")
 
-  // A server presence snapshot contains members only and replaces the shared
-  // set, so an online friend who is not yet a member can disappear when the
-  // viewer enters the server. Re-seed that missing friend subset when the
-  // invite dialog opens; subsequent WS deltas still add/remove ids normally.
-  useEffect(() => {
-    if (!open) return
-    useCommunityWsStore.getState().mergePresence(onlineFriendIds)
-  }, [onlineFriendIds, open])
+  // The WS store is hydrated from the current server's member-only snapshot,
+  // while this dialog can contain friends who are not members yet. Combine
+  // both authoritative scopes at read time so a later server hydration cannot
+  // erase a non-member friend. Exact WS deltas patch both sources (see
+  // presence-machine-events.ts), so an offline delta still wins immediately.
+  const inviteOnlineUserIds = useMemo(() => {
+    const next = new Set(onlineUserIds)
+    for (const userId of onlineFriendIds) next.add(userId)
+    return next
+  }, [onlineFriendIds, onlineUserIds])
 
   // Resolve on open. Only depends on `open` + `token` — resolveOrCreate is a
   // hook that captures a fresh mutation object each render, so including it in
@@ -204,8 +206,8 @@ export function InviteDialog({
           (f.sub ?? "").toLowerCase().includes(q)
         )
       })
-      .map((f) => ({ ...f, status: resolveRowPresence(f, onlineUserIds) }))
-  }, [friends, onlineUserIds, query])
+      .map((f) => ({ ...f, status: resolveRowPresence(f, inviteOnlineUserIds) }))
+  }, [friends, inviteOnlineUserIds, query])
 
   const pickerState = resolvePeoplePickerViewState({
     resolved: friendsQuery.data !== undefined,

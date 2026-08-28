@@ -8,7 +8,6 @@ const mocks = vi.hoisted(() => ({
   toastSpy: vi.fn(),
   onlineUserIds: new Set<string>(),
   onlineFriendIds: [] as string[],
-  mergePresence: vi.fn(),
   friendsQuery: {
     friends: [] as Friend[],
     data: { friends: [] as Friend[] } as { friends: Friend[] } | undefined,
@@ -22,9 +21,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock("sonner", () => ({ toast: mocks.toastSpy }))
 vi.mock("@/stores/community/ws", () => ({
   useOnlineUserIds: () => mocks.onlineUserIds,
-  useCommunityWsStore: Object.assign(() => undefined, {
-    getState: () => ({ mergePresence: mocks.mergePresence }),
-  }),
 }))
 vi.mock("@/hooks/community/use-friends", () => ({
   useFriendsPresence: () => ({ online: mocks.onlineFriendIds }),
@@ -158,7 +154,6 @@ describe("InviteDialog presence", () => {
   beforeEach(() => {
     mocks.onlineUserIds = new Set()
     mocks.onlineFriendIds = []
-    mocks.mergePresence.mockClear()
     mocks.friendsQuery.friends = []
     mocks.friendsQuery.data = { friends: [] }
   })
@@ -187,22 +182,23 @@ describe("InviteDialog presence", () => {
     expect(renderDialog()).toContain('data-presence="offline"')
   })
 
-  it("requests a merge of the friends presence snapshot when opened", async () => {
+  it("keeps the friend online when reconnect friends refresh wins before server hydration", () => {
+    const serverMemberId = "server_member"
     mocks.onlineFriendIds = [friend.userId!]
+    mocks.friendsQuery.friends = [{ ...friend, status: "offline" }]
+    mocks.friendsQuery.data = { friends: mocks.friendsQuery.friends }
 
-    const TestRenderer = await import("react-test-renderer")
-    let renderer: ReturnType<typeof TestRenderer.create> | undefined
-    await TestRenderer.act(async () => {
-      renderer = TestRenderer.create(createElement(InviteDialog, {
-        open: true,
-        onOpenChange: () => {},
-        serverId: "server_1",
-        serverName: "Alook",
-      }))
-    })
+    // Deterministic reconnect order: reset → friends refresh contains the
+    // non-member friend → later server hydrate replaces the WS scope.
+    mocks.onlineUserIds = new Set()
+    mocks.onlineUserIds = new Set([serverMemberId])
+    expect(renderDialog()).toContain('data-presence="online"')
 
-    expect(mocks.mergePresence).toHaveBeenCalledWith([friend.userId])
-    await TestRenderer.act(async () => renderer?.unmount())
+    // An exact offline delta patches both sources, so the union does not mask
+    // the transition with the older friends snapshot.
+    mocks.onlineUserIds = new Set([serverMemberId])
+    mocks.onlineFriendIds = []
+    expect(renderDialog()).toContain('data-presence="offline"')
   })
 })
 
