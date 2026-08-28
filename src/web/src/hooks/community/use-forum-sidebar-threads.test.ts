@@ -987,6 +987,63 @@ describe("forum sidebar Stage B resources", () => {
     renderer!.unmount()
   })
 
+  it("does not let a stale eligible retained response override an in-flight archive", async () => {
+    let resolveStale: ((value: SidebarThreadEnvelope) => void) | undefined
+    apiFetchMock
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveStale = resolve }))
+      .mockResolvedValueOnce({
+        ...envelope([]),
+        canonicalChannels: [],
+        retainedChannel: null,
+        retainedDisposition: "opener-archived",
+      })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(Capture, { retainId: "post-1", onRender: () => undefined }),
+        ),
+      )
+    })
+    await waitFor(() => apiFetchMock.mock.calls.length === 1)
+
+    await act(async () => {
+      await reconcileForumSidebarArchiveTag(queryClient, "server-1", "post-1", true)
+    })
+    await waitFor(() => queryClient.getQueryState(
+      communityKeys.forumSidebarThreads("server-1"),
+    )?.status === "success")
+
+    const canonical = envelope(["post-2"])
+    const retained = envelope(["post-1"])
+    await act(async () => {
+      resolveStale?.({
+        ...canonical,
+        canonicalChannels: canonical.channels,
+        retainedChannel: retained.channels[0],
+        retainedDisposition: "eligible",
+        included: {
+          parentMessages: [
+            ...canonical.included.parentMessages,
+            ...retained.included.parentMessages,
+          ],
+        },
+      })
+      await Promise.resolve()
+    })
+
+    expect(queryClient.getQueryData<ForumSidebarQueryData>(
+      communityKeys.forumSidebarThreads("server-1"),
+    )?.threads).toEqual([])
+    expect(queryClient.getQueryData(
+      communityKeys.forumSidebarRetained("server-1", "post-1"),
+    )).toBeNull()
+    renderer!.unmount()
+  })
+
   it("allows a failed optimistic removal to accept the restored server row", async () => {
     let resolveRequest: ((value: SidebarThreadEnvelope) => void) | undefined
     apiFetchMock.mockImplementation(() => new Promise((resolve) => { resolveRequest = resolve }))
