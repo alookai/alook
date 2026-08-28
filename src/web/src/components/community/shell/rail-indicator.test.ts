@@ -1,6 +1,7 @@
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
+import { tid } from "@/lib/community/testids"
 import { RailIndicator } from "./rail-indicator"
 
 function markup(props: Parameters<typeof RailIndicator>[0]) {
@@ -29,5 +30,10 @@ describe("RailIndicator", () => {
 
   it("exposes the canonical geometry locator", () => {
     expect(markup({ testId: "indicator-id" })).toContain('data-testid="indicator-id"')
+  })
+
+  it("builds the canonical server and folder indicator locators", () => {
+    expect(tid.serverRailIndicator("server-id")).toBe("community-server-rail-indicator-server-id")
+    expect(tid.serverRailFolderIndicator("folder-id")).toBe("community-server-rail-folder-indicator-folder-id")
   })
 })
