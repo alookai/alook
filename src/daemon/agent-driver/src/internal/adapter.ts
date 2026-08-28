@@ -11,6 +11,7 @@ import type {
   RuntimeSettingsUpdate,
   RuntimeSettingsUpdateResult,
 } from "../contract.js";
+import type { ProviderQuotaObservation, TokenUsageDelta } from "../contract.js";
 
 export type BackendConfig = ClaudeConfig | CodexConfig | CursorConfig | OpenCodeConfig | PiConfig;
 
@@ -73,7 +74,8 @@ export type AdapterEvent =
   | { kind: "turn_owner"; receipt: string; nativeTurnId?: string }
   | { kind: "turn_end"; sessionId?: string; turnOwner?: string }
   | { kind: "error"; message: string }
-  | { kind: "telemetry"; name: "token_usage" | "rate_limits"; source: string; usageKind?: string; attrs: Record<string, unknown> };
+  | { kind: "telemetry"; name: "token_usage"; source: string; usage: TokenUsageDelta }
+  | { kind: "telemetry"; name: "rate_limits"; source: string; quota: ProviderQuotaObservation };
 
 export interface LaneStartInput {
   readonly text: string;

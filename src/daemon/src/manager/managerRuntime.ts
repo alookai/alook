@@ -23,6 +23,8 @@ import type {
   BuiltinBackendSpecs,
   DeliveryReceipt,
   RuntimeSettingsUpdateResult,
+  ProviderQuotaObservation,
+  TokenUsageDelta,
 } from "@alook/agent-driver";
 import type { HostLaunchContext } from "./hostContext.js";
 import { runtimeModelName, type RuntimeConfig } from "../runtimeConfig.js";
@@ -226,6 +228,8 @@ export interface ManagerRuntimeOpts {
   now?: () => number;
   onAgentSession?: (info: { agentId: string; sessionId: string; launchId: string }) => void;
   onAgentActivity?: (info: { agentId: string; state: AgentActivityState }) => void;
+  onTokenUsage?: (info: { agentId: string; backendId: BuiltinBackendId; usage: TokenUsageDelta }) => void;
+  onProviderQuota?: (info: { agentId: string; backendId: BuiltinBackendId; quota: ProviderQuotaObservation }) => void;
   onBotAuditEvent?: (
     agentId: string,
     event:
@@ -447,6 +451,7 @@ export class AgentProcessManager {
   private readonly resumeSessions = new Map<string, string>();
   private readonly launchIds = new Map<string, string>();
   private readonly liveSessions = new Map<string, string>();
+  private readonly liveBackendIds = new Map<string, BuiltinBackendId>();
   private readonly activeSpawnState = new Map<string, ActiveSpawnState>();
   private readonly publishedAgentActivity = new Map<string, AgentActivityState>();
   private readonly traceProcessNonce = randomUUID();
@@ -465,6 +470,8 @@ export class AgentProcessManager {
       | "credentialProxy"
       | "onAgentSession"
       | "onAgentActivity"
+      | "onTokenUsage"
+      | "onProviderQuota"
       | "onBotAuditEvent"
       | "onAgentLocallyStopped"
       | "onRuntimeRawLine"
@@ -483,6 +490,8 @@ export class AgentProcessManager {
       | "credentialProxy"
       | "onAgentSession"
       | "onAgentActivity"
+      | "onTokenUsage"
+      | "onProviderQuota"
       | "onBotAuditEvent"
       | "onAgentLocallyStopped"
       | "onRuntimeRawLine"
@@ -873,6 +882,9 @@ export class AgentProcessManager {
   agentActivity(agentId: string): AgentActivityState | null {
     const agent = this.state.agents[agentId];
     return agent ? this.deriveActivity(agent) : null;
+  }
+  agentBackendId(agentId: string): BuiltinBackendId | null {
+    return this.liveBackendIds.get(agentId) ?? null;
   }
   statusProjection(nowMs: number): Array<{
     agentId: string;
@@ -1502,6 +1514,7 @@ export class AgentProcessManager {
     if (!first) throw new Error(`AgentProcessManager: spawn for ${agentId} has no command`);
     const prompt = this.withFooter(first.text);
     const driver = this.opts.driverFor(agentId, this.runtimeConfigs.get(agentId));
+    this.liveBackendIds.set(agentId, driver.id);
     const base = this.opts.baseContextFor(agentId);
     const configuredRuntime = this.runtimeConfigs.get(agentId) ?? base.config?.runtimeConfig;
     this.log.info("spawning agent", {
@@ -1642,6 +1655,7 @@ export class AgentProcessManager {
       state.pendingDeliverySpans.clear();
       if (state.session && this.sessions.get(agentId) === state.session) this.sessions.delete(agentId);
       this.liveSessions.delete(agentId);
+      if (this.activeSpawnState.get(agentId) === state) this.liveBackendIds.delete(agentId);
       if (this.activeSpawnState.get(agentId) === state) {
         this.appliedRuntimeConfigs.delete(agentId);
         this.activeSpawnState.delete(agentId);
@@ -1954,6 +1968,12 @@ export class AgentProcessManager {
         sessionId: event.backendSessionId,
         runtime: runtimeId,
       });
+    }
+    if (event.type === "token_usage") {
+      this.opts.onTokenUsage?.({ agentId, backendId: runtimeId, usage: event.usage });
+    }
+    if (event.type === "rate_limits") {
+      this.opts.onProviderQuota?.({ agentId, backendId: runtimeId, quota: event.quota });
     }
     if (event.type === "turn_started") {
       const timelineTurnOwner: TimelineTurnOwner = {

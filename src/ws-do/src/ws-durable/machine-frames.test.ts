@@ -7,6 +7,7 @@ import {
   flushAsyncWork,
   mockCheckAliveFetch,
   mockCreateDb,
+  mockD1Batch,
   mockFindCredentialByHash,
   mockGetBotBinding,
   mockGetBotBindingWithOwner,
@@ -183,6 +184,127 @@ describe("WebSocketDurableObject", () => {
           availableRuntimes: [{ id: "claude", version: "1.0.0" }],
         })
         expect(credentialHash).toBe("0".repeat(64))
+      })
+
+      it("persists only valid quotas for backends present in the accepted runtime report", async () => {
+        const { durable, store } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "0".repeat(64),
+        })
+        mockUpsertMachineByMachineId.mockResolvedValue({
+          machine: {
+            id: "cm_1",
+            hostname: "host",
+            availableRuntimes: [{ id: "codex" }],
+            status: "online",
+            lastSeenAt: "2026-07-06T00:00:00.000Z",
+          },
+          priorLastSeenAt: "2026-07-05T00:00:00.000Z",
+          priorAvailableRuntimes: [{ id: "codex" }],
+          priorDaemonVersion: "0.1.0",
+          priorStatus: "online",
+        })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+        })
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "ready",
+          runtimeReport: [{ id: "codex" }],
+          capabilities: ["control-heartbeat-v1"],
+          runningAgents: [],
+          providerQuotas: [{
+            agentBackendId: "codex",
+            observation: {
+              status: "error",
+              sourceEpoch: "Q".repeat(22),
+              code: "network",
+              retryable: true,
+            },
+          }],
+        }))
+
+        expect(mockUpsertMachineByMachineId).toHaveBeenCalledOnce()
+        expect(mockD1Batch).toHaveBeenCalledOnce()
+        const statements = mockD1Batch.mock.calls[0]![0] as Array<{ sql: string; values: unknown[] }>
+        expect(statements).toHaveLength(1)
+        expect(statements[0]!.sql).toContain("community_machine_backend_quota")
+        expect(statements[0]!.values.slice(0, 4)).toEqual(["cm_1", "codex", "Q".repeat(22), "error"])
+
+        mockD1Batch.mockClear()
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "ready",
+          runtimeReport: [{ id: "codex" }],
+          capabilities: ["control-heartbeat-v1"],
+          runningAgents: [],
+          providerQuotas: [{ agentBackendId: "codex", observation: { status: "error" } }],
+        }))
+        expect(mockUpsertMachineByMachineId).toHaveBeenCalledTimes(2)
+        expect(mockD1Batch).not.toHaveBeenCalled()
+      })
+
+      it("continues core ready reconciliation when optional quota persistence fails", async () => {
+        const { durable, store, storage } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "0".repeat(64),
+        })
+        mockUpsertMachineByMachineId.mockResolvedValue({
+          machine: {
+            id: "cm_1",
+            hostname: "host",
+            availableRuntimes: [{ id: "codex" }],
+            status: "online",
+            lastSeenAt: "2026-08-08T00:00:00.000Z",
+          },
+          priorLastSeenAt: "2026-08-07T00:00:00.000Z",
+          priorAvailableRuntimes: [{ id: "codex" }],
+          priorDaemonVersion: "0.1.0",
+          priorStatus: "online",
+        })
+        mockD1Batch.mockRejectedValueOnce(new Error("quota D1 unavailable"))
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+        })
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "ready",
+          runtimeReport: [{ id: "codex" }],
+          capabilities: ["control-heartbeat-v1"],
+          runningAgents: [],
+          providerQuotas: [{
+            agentBackendId: "codex",
+            observation: {
+              status: "error",
+              sourceEpoch: "Q".repeat(22),
+              code: "network",
+              retryable: true,
+            },
+          }],
+        }))
+
+        expect(mockReconcileBotActivityFromRunningAgents).toHaveBeenCalledWith(
+          expect.anything(),
+          "cm_1",
+          [],
+        )
+        expect(storage.put).toHaveBeenCalled()
+        expect(storage.setAlarm).toHaveBeenCalled()
+        expect(mockLogWarn).toHaveBeenCalledWith(
+          "provider_quota_dropped",
+          expect.objectContaining({ frame_type: "ready", machineId: "cm_1" }),
+        )
       })
 
       it.each([

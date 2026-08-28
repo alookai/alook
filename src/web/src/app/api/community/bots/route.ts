@@ -24,9 +24,38 @@ export const GET = withAuth(async (_req, ctx) => {
     ctx.userId,
     sinceDay,
   )
+  const usageSinceDay = utcDayKeyDaysAgo(new Date(), 6)
+  const usageByBot = await queries.communityBot.getBotDailyTokenUsageForOwner(
+    db,
+    ctx.userId,
+    usageSinceDay,
+  )
+  const now = new Date()
+  const usageDays = Array.from({ length: 7 }, (_, index) =>
+    utcDayKeyDaysAgo(now, 6 - index)
+  )
   const withActivity = bots.map((bot) => ({
     ...bot,
     dailyActivity: activityByBot.get(bot.id) ?? [],
+    usage: {
+      capability: (["claude", "codex", "opencode"] as string[]).includes(bot.runtime)
+        ? "supported" as const
+        : bot.runtime === "cursor" || bot.runtime === "pi"
+          ? "unsupported" as const
+          : "unknown" as const,
+      days: usageDays.map((day, index) => {
+        const stored = usageByBot.get(bot.id)?.find((snapshot) => snapshot.day === day)
+        return {
+          day,
+          period: index === usageDays.length - 1 ? "in_progress" as const : "closed" as const,
+          metrics: stored?.metrics ?? {
+            input: null,
+            output: null,
+            cache: null,
+          },
+        }
+      }),
+    },
   }))
   return writeJSON({ bots: withActivity })
 })

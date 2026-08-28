@@ -41,7 +41,9 @@ import type { RuntimeConfig } from "../runtimeConfig.js";
 import type { HostCommand } from "../server/contract.js";
 import { formatHandle } from "@alook/shared/lib/discriminator";
 import type { DiagnosticCollectCommand } from "@alook/shared";
-import { createBuiltinAgentDriverSdk } from "@alook/agent-driver/host";
+import { createBuiltinAgentDriverSdk, readBuiltinProviderQuota } from "@alook/agent-driver/host";
+import type { BuiltinBackendId, ProviderQuotaObservation } from "@alook/agent-driver";
+import type { HostAgentActivity, ProviderQuotaSnapshot } from "@alook/shared";
 import {
   createDiagnosticsCommandListener,
   type DiagnosticFailureReport,
@@ -57,6 +59,7 @@ import {
   DaemonSelfSleepScheduler,
   type DaemonSelfSleepClock,
 } from "./daemonSelfSleep.js";
+import { DailyTokenUsageStore } from "../telemetry/index.js";
 
 // Cold-start warmup backoff schedule (ms).
 const WARMUP_BACKOFF_MS = [250, 500, 1000, 2000, 4000] as const;
@@ -325,6 +328,7 @@ export interface CreateDaemonOptions {
   reportDiagnosticFailure?: (failure: DiagnosticFailureReport) => void | Promise<void>;
   /** Injectable daemon-local reminder clock; tests only, defaults to Node timers. */
   messageReminderClock?: Pick<MessageReminderSchedulerOptions, "now" | "setTimer" | "clearTimer">;
+  providerQuotaReader?: (backend: BuiltinBackendId) => Promise<ProviderQuotaObservation | null>;
   /** Called after one continuous 15-day window with no new message and no working agent. */
   onSelfSleep?: () => void;
   /** Injectable self-sleep clock; tests only, defaults to Node timers. */
@@ -391,6 +395,29 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   const fallbackBase = (process.env.ALOOK_PROJECT_ROOT || `${homedir()}/.alook`) + "/daemon";
   const workingDirectoryBase = opts.workingDirectoryBase ?? fallbackBase;
   const workdirFor = (agentId: string) => `${workingDirectoryBase}/${agentId}`;
+  const dailyTokenUsage = new DailyTokenUsageStore(workingDirectoryBase);
+  const providerQuotaReader = opts.providerQuotaReader
+    ?? (opts.sessionFactory ? async () => null : readBuiltinProviderQuota);
+  const providerQuotaByBackend = new Map<"claude" | "codex", ProviderQuotaSnapshot>();
+  let requestReadyQuotaResend = (): void => {};
+  const recordProviderQuota = (
+    backendId: "claude" | "codex",
+    quota: ProviderQuotaObservation,
+  ): void => {
+    const previous = providerQuotaByBackend.get(backendId);
+    if (
+      previous?.observation.status === "available"
+      && quota.status === "error"
+      && previous.observation.sourceEpoch === quota.sourceEpoch
+    ) return;
+    providerQuotaByBackend.set(backendId, {
+      agentBackendId: backendId,
+      observation: structuredClone(quota) as ProviderQuotaSnapshot["observation"],
+    });
+    if (previous && previous.observation.sourceEpoch !== quota.sourceEpoch) {
+      requestReadyQuotaResend();
+    }
+  };
   void sweepTimelineHistory(workingDirectoryBase).catch(() => {
     log.warn("timeline startup sweep failed");
   });
@@ -415,6 +442,30 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   // Populated after `manager` is constructed below. Producer B reads
   // `auditContext(agentId)` off it inside `onProxyRequest`.
   let managerRef: AgentProcessManager | null = null;
+  const providerQuotaSnapshots = (): ProviderQuotaSnapshot[] =>
+    [...providerQuotaByBackend.values()].map((snapshot) => structuredClone(snapshot));
+  const activityPayload = async (
+    info: { agentId: string; state: HostAgentActivity["state"] },
+  ): Promise<HostAgentActivity> => {
+    if (info.state !== "idle") return info;
+    const backendId = managerRef?.agentBackendId(info.agentId);
+    if (backendId === "claude") {
+      const observed = await providerQuotaReader("claude");
+      if (observed) recordProviderQuota("claude", observed);
+    }
+    const quota = backendId === "claude" || backendId === "codex"
+      ? providerQuotaByBackend.get(backendId)
+      : undefined;
+    const dailyUsage = await dailyTokenUsage.snapshots(info.agentId);
+    return {
+      ...info,
+      ...(dailyUsage.length > 0 ? { dailyUsage } : {}),
+      ...(quota ? { quota: structuredClone(quota) } : {}),
+    };
+  };
+  let reportAgentActivity = (info: { agentId: string; state: HostAgentActivity["state"] }): void => {
+    void channelRef?.reportAgentActivity?.(info);
+  };
   let reminderSchedulerRef: MessageReminderScheduler | null = null;
   const selfSleepScheduler = opts.onSelfSleep
     ? new DaemonSelfSleepScheduler({
@@ -538,7 +589,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   // idle agent. Idempotent on the ws-do side (rewrites the same preset).
   function reassertAgentActivity(agentId: string): void {
     const state = managerRef?.agentActivity(agentId);
-    if (state) channel.reportAgentActivity?.({ agentId, state });
+    if (state) reportAgentActivity({ agentId, state });
   }
   function startTypingHeartbeat(agentId: string): void {
     stopTypingHeartbeat(agentId);
@@ -747,6 +798,21 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     logger: log.child("ws"),
   });
   channelRef = channel;
+  const activityReportTails = new Map<string, Promise<void>>();
+  reportAgentActivity = (info): void => {
+    const prior = activityReportTails.get(info.agentId) ?? Promise.resolve();
+    const next = prior
+      .then(async () => {
+        await channel.reportAgentActivity(await activityPayload(info));
+      })
+      .catch(() => {
+        log.warn("agent activity telemetry report failed", { agentId: info.agentId, state: info.state });
+      });
+    activityReportTails.set(info.agentId, next);
+    void next.finally(() => {
+      if (activityReportTails.get(info.agentId) === next) activityReportTails.delete(info.agentId);
+    });
+  };
 
   function restorePendingIdleResetEvents(agentId: string): void {
     for (const pending of timeline.pendingIdleResetEvents(agentId)) {
@@ -898,7 +964,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     onAgentSession: (info) => void channel.reportAgentSession(info),
     onAgentActivity: (info) => {
       selfSleepScheduler?.observeAgentActivity(info.agentId, info.state === "running");
-      void channel.reportAgentActivity?.(info);
+      reportAgentActivity(info);
       // Bot typing indicator (DM-only) — install / tear down the daemon-metered
       // heartbeat off the derived FSM activity, so the pill lifecycle exactly
       // mirrors "is this bot actively working."
@@ -915,6 +981,15 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       } else {
         emitTypingStopsAndClear(info.agentId);
       }
+    },
+    onTokenUsage: ({ agentId, usage }) => {
+      void dailyTokenUsage.record(agentId, usage).catch(() => {
+        log.warn("daily token usage persistence failed", { agentId });
+      });
+    },
+    onProviderQuota: ({ backendId, quota }) => {
+      if (backendId !== "claude" && backendId !== "codex") return;
+      recordProviderQuota(backendId, quota);
     },
     // Bot audit log — Producer A (runtime thinking + non-Bash tool_call).
     // Bash suppression + thinking truncation happen inside managerRuntime.
@@ -987,6 +1062,18 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     arch: opts.arch,
     osRelease: opts.osRelease,
     daemonVersion: opts.daemonVersion,
+    providerQuotas: providerQuotaSnapshots,
+    resyncActivities: async () => {
+      const activities = await Promise.all(
+        manager.liveAgentActivities().map((info) => activityPayload(info)),
+      );
+      // Telemetry enrichment can await local I/O (and Claude quota refresh).
+      // Do not let an activity snapshot captured at connect overwrite a newer
+      // live state transition that was sent while that work was in flight.
+      return activities.filter(
+        (activity) => manager.agentActivity(activity.agentId) === activity.state,
+      );
+    },
     typingTracker,
     logger: log.child("router"),
     // onBeforeAgent gate — reject unknown bots BEFORE enroll to keep the
@@ -1009,6 +1096,9 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       await enrollAgent(agentId);
     },
   });
+  requestReadyQuotaResend = () => {
+    if (router) channel.sendReady?.(router.buildReady());
+  };
 
   // Machine lifecycle commands are claimed before diagnostics, bot observers,
   // and AgentRouter; updates never enter agent lifecycle routing.
@@ -1049,6 +1139,10 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     void resyncPendingDiagnostics();
   });
 
+  if (opts.runtimeReport.some((runtime) => runtime.id === "claude")) {
+    const observed = await providerQuotaReader("claude");
+    if (observed) recordProviderQuota("claude", observed);
+  }
   channel.connect();
   await router!.start();
   selfSleepScheduler?.start();

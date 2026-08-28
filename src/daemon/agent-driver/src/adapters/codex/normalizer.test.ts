@@ -345,11 +345,153 @@ describe("CodexEventNormalizer — complete owned event family", () => {
     expect(n.normalizeLine(notify("item/completed", { threadId: "root", turnId: "turn", item: { type: "agentMessage", text: "final" } }))).toEqual([{ kind: "assistant_message_completed", text: "final" }]);
     expect(n.normalizeLine(notify("item/completed", { threadId: "root", turnId: "turn", item: { type: "reasoning", text: "thought" } }))).toEqual([{ kind: "assistant_reasoning_completed", text: "thought" }]);
     expect(n.normalizeLine(notify("item/completed", { threadId: "root", turnId: "turn", item: { type: "unknown" } }))).toEqual([]);
-    expect(n.normalizeLine(notify("thread/tokenUsage/updated", { threadId: "root", tokenUsage: {} }))).toHaveLength(1);
-    expect(n.normalizeLine(notify("account/rateLimits/updated", { threadId: "root", rateLimits: {} }))).toHaveLength(1);
+    expect(n.normalizeLine(notify("thread/tokenUsage/updated", { threadId: "root", tokenUsage: {} }))).toEqual([]);
+    expect(n.normalizeLine(notify("account/rateLimits/updated", { threadId: "root", rateLimits: {} }))).toEqual([]);
     expect(n.normalizeLine(notify("turn/completed", { threadId: "root", turn: { id: "turn", status: "interrupted" } }))).toEqual([
       { kind: "error", message: "Codex turn interrupted" },
       { kind: "turn_end", sessionId: "root", turnOwner: "codex:root:turn" },
     ]);
+  });
+
+  it("emits only the latest current-turn usage at terminal and maps Spark quota windows", () => {
+    const n = new CodexEventNormalizer();
+    adoptRootTurn(n, "root", "turn");
+    expect(n.normalizeLine(notify("thread/tokenUsage/updated", {
+      threadId: "root",
+      tokenUsage: {
+        last: { inputTokens: 100, cachedInputTokens: 40, outputTokens: 12 },
+        total: { inputTokens: 9_999, cachedInputTokens: 8_888, outputTokens: 7_777 },
+      },
+    }))).toEqual([]);
+    expect(n.normalizeLine(notify("thread/tokenUsage/updated", {
+      threadId: "root",
+      tokenUsage: {
+        last: { inputTokens: 120, cachedInputTokens: 50, outputTokens: 14 },
+      },
+    }))).toEqual([]);
+    const terminal = n.normalizeLine(notify("turn/completed", {
+      threadId: "root",
+      turn: { id: "turn", status: "completed" },
+    }));
+    expect(terminal).toEqual([
+      {
+        kind: "telemetry",
+        name: "token_usage",
+        source: "codex_thread_token_usage_updated",
+        usage: {
+          input: 70,
+          output: 14,
+          cache: 50,
+        },
+      },
+      { kind: "turn_end", sessionId: "root", turnOwner: "codex:root:turn" },
+    ]);
+
+    n.registerQuotaReadRequest(99);
+    const quota = n.normalizeLine(JSON.stringify({
+      id: 99,
+      result: {
+        rateLimitsByLimitId: {
+          "gpt-5.3-codex-spark": {
+        limitName: "Spark",
+        planType: "pro",
+        primary: { usedPercent: 82, windowDurationMins: 300, resetsAt: 1_800_000_000 },
+        secondary: { usedPercent: 40, windowDurationMins: 10_080, resetsAt: 1_800_604_800 },
+          },
+        },
+      },
+    }));
+    expect(quota).toHaveLength(1);
+    expect(quota[0]).toMatchObject({
+      kind: "telemetry",
+      name: "rate_limits",
+      quota: {
+        status: "available",
+        planName: "Pro",
+        limits: [
+          { bucket: { product: { id: "codex-spark" }, model: { id: "gpt-5.3-codex-spark" }, window: { kind: "rolling", durationSeconds: 18_000 } }, usedPercent: 82 },
+          { bucket: { product: { id: "codex-spark" }, model: { id: "gpt-5.3-codex-spark" }, window: { kind: "calendar", period: "week" } }, usedPercent: 40 },
+        ],
+      },
+    });
+  });
+
+  it("uses one machine-process quota source generation across Codex sessions", () => {
+    const first = new CodexEventNormalizer();
+    const second = new CodexEventNormalizer();
+    first.registerQuotaReadRequest(1);
+    second.registerQuotaReadRequest(2);
+    const firstFrame = JSON.stringify({
+      id: 1,
+      result: { rateLimits: {
+        primary: { usedPercent: 20, windowDurationMins: 300 },
+      } },
+    });
+    const secondFrame = JSON.stringify({
+      id: 2,
+      result: { rateLimits: {
+        primary: { usedPercent: 20, windowDurationMins: 300 },
+      } },
+    });
+    const firstQuota = first.normalizeLine(firstFrame)[0];
+    const secondQuota = second.normalizeLine(secondFrame)[0];
+    expect(firstQuota).toMatchObject({ kind: "telemetry", name: "rate_limits" });
+    expect(secondQuota).toMatchObject({ kind: "telemetry", name: "rate_limits" });
+    if (firstQuota?.kind !== "telemetry" || firstQuota.name !== "rate_limits") throw new Error("missing quota");
+    if (secondQuota?.kind !== "telemetry" || secondQuota.name !== "rate_limits") throw new Error("missing quota");
+    expect(firstQuota.quota.sourceEpoch).toBe(secondQuota.quota.sourceEpoch);
+  });
+
+  it("merges sparse rate-limit notifications into the complete read snapshot", () => {
+    const n = new CodexEventNormalizer();
+    n.registerQuotaReadRequest(7);
+    expect(n.normalizeLine(JSON.stringify({
+      id: 7,
+      result: {
+        rateLimits: {
+          primary: { usedPercent: 20, windowDurationMins: 300 },
+          secondary: { usedPercent: 40, windowDurationMins: 10_080 },
+        },
+      },
+    }))[0]).toMatchObject({ quota: { limits: [{ usedPercent: 20 }, { usedPercent: 40 }] } });
+
+    const updated = n.normalizeLine(notify("account/rateLimits/updated", {
+      rateLimits: { primary: { usedPercent: 25, windowDurationMins: 300 } },
+    }));
+    expect(updated[0]).toMatchObject({
+      quota: { limits: [{ usedPercent: 25 }, { usedPercent: 40 }] },
+    });
+  });
+
+  it("rotates the opaque source generation and requires a fresh snapshot after account updates", () => {
+    const n = new CodexEventNormalizer();
+    n.registerAccountReadRequest(1);
+    expect(n.normalizeLine(JSON.stringify({
+      id: 1,
+      result: { account: { type: "chatgpt", email: "first@example.test", planType: "pro" } },
+    }))).toEqual([]);
+    n.registerQuotaReadRequest(2);
+    const before = n.normalizeLine(JSON.stringify({
+      id: 2,
+      result: { rateLimits: { primary: { usedPercent: 10, windowDurationMins: 300 } } },
+    }))[0];
+    if (before?.kind !== "telemetry" || before.name !== "rate_limits") throw new Error("missing quota");
+
+    expect(n.normalizeLine(notify("account/updated", { authMode: "chatgpt", planType: "pro" }))).toEqual([]);
+    expect(n.normalizeLine(notify("account/rateLimits/updated", {
+      rateLimits: { primary: { usedPercent: 11, windowDurationMins: 300 } },
+    }))).toEqual([]);
+    n.registerAccountReadRequest(3);
+    n.normalizeLine(JSON.stringify({
+      id: 3,
+      result: { account: { type: "chatgpt", email: "second@example.test", planType: "pro" } },
+    }));
+    n.registerQuotaReadRequest(4);
+    const after = n.normalizeLine(JSON.stringify({
+      id: 4,
+      result: { rateLimits: { primary: { usedPercent: 11, windowDurationMins: 300 } } },
+    }))[0];
+    if (after?.kind !== "telemetry" || after.name !== "rate_limits") throw new Error("missing quota");
+    expect(after.quota.sourceEpoch).not.toBe(before.quota.sourceEpoch);
   });
 });

@@ -13,7 +13,6 @@ import type {
   ExtensionResult,
   HostCleanupResult,
   InterruptResult,
-  JsonObject,
   JsonValue,
   PreparedExecutionResource,
   StopInput,
@@ -833,11 +832,10 @@ implements AgentSession<Specs, Id> {
         }
         return;
       case "telemetry": {
-        const details = jsonValue(event.attrs) as JsonObject;
         if (event.name === "token_usage") {
-          this.emit({ type: "token_usage", turnId, source: event.source, usage: {}, details });
+          this.emit({ type: "token_usage", turnId, source: event.source, usage: event.usage });
         } else {
-          this.emit({ type: "rate_limits", turnId, source: event.source, details });
+          this.emit({ type: "rate_limits", turnId, source: event.source, quota: event.quota });
         }
         return;
       }

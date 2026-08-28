@@ -4,7 +4,22 @@ import { useQuery, useMutation, useQueryClient, type UseQueryResult } from "@tan
 import { apiFetch, readUploadError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { BotActivityDay } from "@/lib/community/models/people"
-import type { ReasoningEffort } from "@alook/shared"
+import type { DailyUsageMetric, ReasoningEffort } from "@alook/shared"
+
+export type BotUsageDay = {
+  day: string
+  period: "closed" | "in_progress"
+  metrics: {
+    input: DailyUsageMetric
+    output: DailyUsageMetric
+    cache: DailyUsageMetric
+  }
+}
+
+export type BotTokenUsage = {
+  capability: "supported" | "unsupported" | "unknown"
+  days: BotUsageDay[]
+}
 
 export type BotSummary = {
   id: string
@@ -25,6 +40,10 @@ export type BotSummary = {
   // Sparse — only days with activity; oldest→newest; [] for a brand-new bot.
   // The heatmap builds the full 30-day calendar and fills from this by day-key.
   dailyActivity: BotActivityDay[]
+  // Owner-only seven-day provider telemetry. Older optimistic mutation payloads
+  // can omit it until the bots query refetches, which renders the unknown-state
+  // placeholder instead of inventing zero usage.
+  usage?: BotTokenUsage
 }
 export type BotsResponse = { bots: BotSummary[] }
 

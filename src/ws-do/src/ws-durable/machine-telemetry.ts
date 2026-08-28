@@ -1,15 +1,18 @@
 import {
   AgentActivityMessageSchema,
+  DailyUsageSnapshotSchema,
   AgentTypingMessageSchema,
   AgentTypingStopMessageSchema,
   createDb,
   HostBotAuditEventFrameSchema,
   isBotActivityStatus,
   pickBotActivityPreset,
+  ProviderQuotaSnapshotSchema,
   queries,
   RUNNING_PRESETS,
   withD1Retry,
   WS_EVENTS,
+  utcDayKeyDaysAgo,
 } from "@alook/shared"
 import { handleFrameForBoundBot } from "./bound-bot-frame"
 import type { CommunityMachineIdentity, WsDurableContext } from "./internal"
@@ -19,6 +22,12 @@ import {
   fanOutTypingStop,
   notifyUserDO,
 } from "./presence-typing"
+import {
+  prepareActivityProfileUpsert,
+  prepareQuotaReplace,
+  prepareUsagePrune,
+  prepareUsageUpsert,
+} from "./provider-telemetry-persistence"
 
 const IDLE_RESET_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000
 
@@ -44,10 +53,31 @@ export async function handleActivityFrame(
   parsed: unknown,
   identity: CommunityMachineIdentity,
 ): Promise<boolean> {
-  const activityParse = AgentActivityMessageSchema.safeParse(parsed)
+  const activityParse = AgentActivityMessageSchema
+    .omit({ dailyUsage: true, quota: true })
+    .passthrough()
+    .safeParse(parsed)
   if (!activityParse.success) return false
 
   const { agentId, state } = activityParse.data
+  const raw = parsed as Record<string, unknown>
+  const now = new Date()
+  const allowedDays = new Set(Array.from({ length: 7 }, (_, offset) => utcDayKeyDaysAgo(now, offset)))
+  const usageParse = raw.dailyUsage === undefined
+    ? null
+    : DailyUsageSnapshotSchema.array().max(7).safeParse(raw.dailyUsage)
+  const parsedUsage = usageParse?.success ? usageParse.data : undefined
+  const usageDays = parsedUsage ? new Set(parsedUsage.map((snapshot) => snapshot.day)) : null
+  const validUsage = state === "idle"
+    && parsedUsage !== undefined
+    && usageDays?.size === parsedUsage.length
+    && parsedUsage.every((snapshot) => snapshot.botId === agentId && allowedDays.has(snapshot.day))
+      ? parsedUsage
+      : undefined
+  const quotaParse = raw.quota === undefined
+    ? null
+    : ProviderQuotaSnapshotSchema.safeParse(raw.quota)
+  const validQuota = quotaParse?.success ? quotaParse.data : undefined
   const db = createDb(context.env.DB)
   await handleFrameForBoundBot(context, {
     frameType: "agent_activity",
@@ -55,7 +85,7 @@ export async function handleActivityFrame(
     machineId: identity.machineId,
     resolveBinding: () => queries.communityBot.getBotBinding(db, agentId),
     isMatch: (binding) => binding.machineId === identity.machineId,
-    write: async () => {
+    write: async (binding) => {
       const prior = await withD1Retry(
         () => queries.communityUserProfile.getProfile(db, agentId),
         { route: "ws-do:agent-activity-profile-read" },
@@ -66,33 +96,80 @@ export async function handleActivityFrame(
       const priorText = prior?.statusText ? prior.statusText : null
       // This path owns only known activity pills. Any other persisted pair is
       // owner-authored and must survive activity heartbeats unchanged.
-      if (
+      const customStatus =
         (priorEmoji !== null || priorText !== null) &&
         !isBotActivityStatus(priorEmoji, priorText)
-      ) return
+      const profileWritable = !customStatus
       const priorIsRunning =
         priorEmoji !== null &&
         RUNNING_PRESETS.some((preset) => preset.emoji === priorEmoji && preset.text === priorText)
       // Reuse an existing running preset instead of rerolling on every
       // derived turn_end → idle → wake → running transition.
-      const preset =
+      const preset = profileWritable
+        ? (
         state === "running" && priorIsRunning
           ? { emoji: priorEmoji as string, text: priorText as string }
           : pickBotActivityPreset(state, Math.random())
-      if (preset.emoji === priorEmoji && preset.text === priorText) return
-      await withD1Retry(
-        () => queries.communityUserProfile.updateProfile(db, agentId, {
+        )
+        : null
+      const profileChanged = preset !== null
+        && (preset.emoji !== priorEmoji || preset.text !== priorText)
+      const quota = validQuota?.agentBackendId === binding.runtime ? validQuota : undefined
+      const hasTelemetry = (validUsage?.length ?? 0) > 0 || quota !== undefined
+      if (!hasTelemetry) {
+        if (!profileChanged || !preset) return
+        await withD1Retry(
+          () => queries.communityUserProfile.updateProfile(db, agentId, {
+            statusEmoji: preset.emoji,
+            statusText: preset.text,
+          }),
+          { route: "ws-do:agent-activity-profile" },
+        )
+        await broadcastToAudience(context, agentId, {
+          type: WS_EVENTS.STATUS_UPDATE,
+          userId: agentId,
           statusEmoji: preset.emoji,
           statusText: preset.text,
-        }),
-        { route: "ws-do:agent-activity-profile" },
-      )
-      await broadcastToAudience(context, agentId, {
-        type: WS_EVENTS.STATUS_UPDATE,
-        userId: agentId,
-        statusEmoji: preset.emoji,
-        statusText: preset.text,
-      })
+        })
+        return
+      }
+      const nowIso = now.toISOString()
+      const statements: D1PreparedStatement[] = []
+      const profileStatementIndex = profileChanged && preset ? statements.length : -1
+      if (profileChanged && preset) {
+        statements.push(prepareActivityProfileUpsert(
+          context.env.DB,
+          identity.machineId,
+          agentId,
+          preset.emoji,
+          preset.text,
+        ))
+      }
+      for (const snapshot of validUsage ?? []) {
+        statements.push(prepareUsageUpsert(context.env.DB, identity.machineId, snapshot, nowIso))
+      }
+      if (validUsage && validUsage.length > 0) {
+        statements.push(prepareUsagePrune(
+          context.env.DB,
+          identity.machineId,
+          agentId,
+          utcDayKeyDaysAgo(now, 6),
+        ))
+      }
+      if (quota) statements.push(prepareQuotaReplace(context.env.DB, identity, quota, nowIso))
+      const results = await context.env.DB.batch(statements)
+      if (
+        profileStatementIndex >= 0
+        && preset
+        && (results[profileStatementIndex]?.meta.changes ?? 0) > 0
+      ) {
+        await broadcastToAudience(context, agentId, {
+          type: WS_EVENTS.STATUS_UPDATE,
+          userId: agentId,
+          statusEmoji: preset.emoji,
+          statusText: preset.text,
+        })
+      }
     },
   })
   return true

@@ -2,6 +2,7 @@ import {
   CONTROL_HEARTBEAT_CAPABILITY,
   createDb,
   HostReadyMessageSchema,
+  ProviderQuotaSnapshotSchema,
   queries,
   WS_EVENTS,
 } from "@alook/shared"
@@ -18,6 +19,7 @@ import type {
 } from "./internal"
 import { scheduleHeartbeatAlarm } from "./machine-lifecycle"
 import { broadcastToAudience, notifyUserDO } from "./presence-typing"
+import { prepareQuotaReplace } from "./provider-telemetry-persistence"
 
 /**
  * Order-normalized runtime JSON includes status and lastError, so a health
@@ -63,9 +65,23 @@ export async function handleReadyFrame(
   identity: CommunityMachineIdentity,
   ws: WebSocket,
 ): Promise<boolean> {
-  const readyParse = HostReadyMessageSchema.safeParse(parsed)
+  const readyParse = HostReadyMessageSchema
+    .omit({ providerQuotas: true })
+    .passthrough()
+    .safeParse(parsed)
   if (!readyParse.success) return false
   const ready = readyParse.data
+  const raw = parsed as Record<string, unknown>
+  const quotaParse = raw.providerQuotas === undefined
+    ? null
+    : ProviderQuotaSnapshotSchema.array().max(2).safeParse(raw.providerQuotas)
+  const quotaBackends = quotaParse?.success
+    ? new Set(quotaParse.data.map((snapshot) => snapshot.agentBackendId))
+    : null
+  const providerQuotas = quotaParse?.success
+    && quotaBackends?.size === quotaParse.data.length
+      ? quotaParse.data
+      : []
   const controlHeartbeat = ready.capabilities.includes(CONTROL_HEARTBEAT_CAPABILITY)
   const state = ws.deserializeAttachment() as import("./internal").ConnectionState
   if (
@@ -115,6 +131,27 @@ export async function handleReadyFrame(
       return true
     }
     const { machine, priorAvailableRuntimes, priorDaemonVersion, priorStatus } = result
+    const acceptedQuotas = providerQuotas.filter((snapshot) =>
+      ready.runtimeReport.some((runtime) => runtime.id === snapshot.agentBackendId)
+    )
+    if (acceptedQuotas.length > 0) {
+      const nowIso = new Date().toISOString()
+      try {
+        await context.env.DB.batch(
+          acceptedQuotas.map((snapshot) => prepareQuotaReplace(context.env.DB, identity, snapshot, nowIso))
+        )
+      } catch (err) {
+        // Quota is an optional sibling of the existing ready lifecycle. A
+        // telemetry-only persistence failure must not strand reconciliation,
+        // heartbeat scheduling, or machine status after ready already won its
+        // authenticated session transition.
+        context.log.warn("provider_quota_dropped", {
+          frame_type: "ready",
+          machineId: identity.machineId,
+          err: err instanceof Error ? err : new Error(String(err)),
+        })
+      }
+    }
 
     // Reconciliation is the coarse safety net for an activity frame lost
     // during disconnect. It clears only stale system-owned activity pills;

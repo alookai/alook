@@ -848,12 +848,26 @@ export class OpenCodeServiceLane implements RuntimeLane {
           });
         }
         const tokens = record(data.tokens);
-        if (tokens) {
+        if (tokens && data.finish !== "tool-calls") {
+          const cache = record(tokens.cache);
+          const metric = (value: unknown) =>
+            typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+              ? value
+              : null;
+          const cacheParts = [cache?.read, cache?.write]
+            .filter((value): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0);
+          const cacheTotal = cacheParts.reduce((sum, value) => sum + value, 0);
           this.events.emit("runtime_event", {
             kind: "telemetry",
             name: "token_usage",
             source: "opencode.v2",
-            attrs: tokens,
+            usage: {
+              input: metric(tokens.input),
+              output: metric(tokens.output),
+              cache: cacheParts.length > 0 && Number.isSafeInteger(cacheTotal)
+                ? cacheTotal
+                : null,
+            },
           } satisfies AdapterEvent);
         }
         break;

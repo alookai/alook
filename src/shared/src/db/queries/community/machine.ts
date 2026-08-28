@@ -5,6 +5,7 @@ import {
   communityMachineCredential,
   communityAgentRunnerKey,
   communityBotBinding,
+  communityMachineBackendQuota,
 } from "../../community-machine-schema";
 import { user } from "../../schema";
 import { communityUserProfile } from "../../community-schema";
@@ -16,6 +17,7 @@ import type {
   CommunityMachineRuntime,
   CommunityMachineSummary,
 } from "../../../community-ws-events";
+import type { ProviderQuotaObservation, ProviderQuotaSnapshot } from "../../../provider-telemetry";
 
 // ---------------------------------------------------------------------------
 // Credential hashing
@@ -237,6 +239,49 @@ export interface MachineRow {
   lastSeenAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export async function listMachineBackendQuotasForUser(
+  db: Database,
+  userId: string,
+): Promise<Map<string, Array<{ quota: ProviderQuotaSnapshot; observedAt: string }>>> {
+  const rows = await db
+    .select({
+      machineId: communityMachineBackendQuota.machineId,
+      agentBackendId: communityMachineBackendQuota.agentBackendId,
+      status: communityMachineBackendQuota.status,
+      sourceEpoch: communityMachineBackendQuota.sourceEpoch,
+      planName: communityMachineBackendQuota.planName,
+      freshForSeconds: communityMachineBackendQuota.freshForSeconds,
+      limits: communityMachineBackendQuota.limits,
+      errorCode: communityMachineBackendQuota.errorCode,
+      retryable: communityMachineBackendQuota.retryable,
+      observedAt: communityMachineBackendQuota.observedAt,
+    })
+    .from(communityMachineBackendQuota)
+    .innerJoin(communityMachine, eq(communityMachine.id, communityMachineBackendQuota.machineId))
+    .where(eq(communityMachine.userId, userId));
+  const byMachine = new Map<string, Array<{ quota: ProviderQuotaSnapshot; observedAt: string }>>();
+  for (const row of rows) {
+    const observation: ProviderQuotaObservation = row.status === "available"
+      ? {
+          status: "available",
+          sourceEpoch: row.sourceEpoch,
+          ...(row.planName ? { planName: row.planName } : {}),
+          freshForSeconds: row.freshForSeconds ?? 1,
+          limits: row.limits ?? [],
+        }
+      : {
+          status: "error",
+          sourceEpoch: row.sourceEpoch,
+          code: (row.errorCode ?? "unavailable") as Extract<ProviderQuotaObservation, { status: "error" }>["code"],
+          retryable: row.retryable ?? false,
+        };
+    const snapshots = byMachine.get(row.machineId) ?? [];
+    snapshots.push({ quota: { agentBackendId: row.agentBackendId, observation }, observedAt: row.observedAt });
+    byMachine.set(row.machineId, snapshots);
+  }
+  return byMachine;
 }
 
 // ---------------------------------------------------------------------------
