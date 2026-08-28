@@ -26,6 +26,7 @@ import {
   pendingFilesToSendAttachments,
 } from "./composer-file-utils"
 import type { ComposerHandle, ComposerProps } from "./composer-types"
+import { textNodeForCaretInsertion } from "./caret-text-insertion"
 import type { ComposerViewProps } from "./composer-view"
 import { useComposerSuggestions } from "./use-composer-suggestions"
 
@@ -318,6 +319,11 @@ export function useComposerController(
   useImperativeHandle(ref, () => ({
     focusEditor: () => {
       editor?.commands.focus("end")
+    },
+    insertTextAtCaret: (text) => {
+      if (!editor || !text) return
+      const insertion = textNodeForCaretInsertion(text, editor.state)
+      editor.chain().focus().insertContent(insertion).run()
     },
     submitNow: () => {
       send()

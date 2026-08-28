@@ -10,6 +10,7 @@ import type { ChannelMemberPanelProps } from "@/components/community/members/cha
 import { Composer } from "@/components/community/messages/composer"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
 import { MessageList } from "@/components/community/messages/message-list"
+import { useAuthorMentionInsertion } from "@/components/community/messages/use-author-mention-insertion"
 import {
   MessageChannelController,
 } from "@/components/community/messages/message-channel-controller"
@@ -43,7 +44,7 @@ export function TextChannelSurface({
   serverId: string
   serverParam: string
   channelName: string
-  viewer: { id: string; name: string; avatar: string }
+  viewer: { id: string; name: string; discriminator?: string; avatar: string }
   anchorMessageId: string | null
   headerServer?: { id: string; name: string; icon: string | null }
   notificationLevel: ChannelNotifLevel
@@ -65,6 +66,12 @@ export function TextChannelSurface({
 }) {
   const breakpoint = useBreakpoint()
   const [rightPanel, setRightPanel] = useState<RightPanel>(null)
+  const mentionInsertion = useAuthorMentionInsertion({
+    members: composerMembers,
+    viewerUserId: viewer.id,
+    viewerName: viewer.name,
+    viewerDiscriminator: viewer.discriminator,
+  })
   const feed = useChannelMessageFeed({
     channelId,
     serverId,
@@ -112,6 +119,7 @@ export function TextChannelSurface({
               <MessageList
                 key={channelId}
                 channel={channelName}
+                scrollMemoryKey={`channel:${channelId}`}
                 messages={feed.messages}
                 loading={feed.isLoading}
                 pinnedIds={controller.pinnedIds}
@@ -121,6 +129,8 @@ export function TextChannelSurface({
                 {...controller.messageActions}
                 onOpenProfile={onOpenProfile}
                 resolveUserName={resolveUserName}
+                resolveAuthorMentionText={mentionInsertion.resolveAuthorMentionText}
+                onInsertMentionText={mentionInsertion.insertMentionText}
                 scrollToMessageId={controller.scrollTargetId}
                 onScrollRoot={feed.setScrollRootEl}
                 viewerUserId={viewer.id}
@@ -142,6 +152,7 @@ export function TextChannelSurface({
                 className="shrink-0"
               >
                 <Composer
+                  ref={mentionInsertion.composerRef}
                   channel={channelName}
                   context="channel"
                   members={composerMembers}

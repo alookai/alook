@@ -34,6 +34,7 @@ type Props = Pick<ShellFrameProps, "sidebar" | "children" | "extraDialogs"> & {
 }
 
 const SHELL_SURFACE_CLASS = "rounded-tl-xl rounded-tr-none rounded-br-none rounded-bl-none ring-0 border-l border-t border-border/40 shadow-none"
+const MOBILE_SURFACE_TRANSITION_MS = 180
 
 export function ShellFrameView({
   breakpoint,
@@ -52,6 +53,9 @@ export function ShellFrameView({
     onlySaveAfterUserInteractions: true,
   })
   const sidebarPanelRef = useRef<HTMLDivElement>(null)
+  const mainPanelRef = useRef<HTMLDivElement>(null)
+  const previousCommittedHrefRef = useRef<string | null>(null)
+  const mobileSurfaceAnimationRef = useRef<Animation | null>(null)
   const [sidebarWidth, setSidebarWidth] = useState(240)
   useEffect(() => {
     if (breakpoint !== "desktop") return
@@ -76,6 +80,32 @@ export function ShellFrameView({
   const isInitial = breakpoint === "unknown"
   const isInitialDetail = isInitial && surface === "detail"
   const showUserBar = isDesktop || isMobileList || isInitial
+  useEffect(() => {
+    if (checkpoint.mode !== "committed") return
+    const previousHref = previousCommittedHrefRef.current
+    previousCommittedHrefRef.current = checkpoint.targetHref
+    if (
+      breakpoint !== "mobile"
+      || !previousHref
+      || previousHref === checkpoint.targetHref
+      || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    ) return
+
+    const element = surface === "list" ? sidebarPanelRef.current : mainPanelRef.current
+    if (!element?.animate) return
+    mobileSurfaceAnimationRef.current?.cancel()
+    mobileSurfaceAnimationRef.current = element.animate([
+      {
+        opacity: 0.92,
+        transform: `translate3d(${surface === "list" ? -8 : 8}px, 0, 0)`,
+      },
+      { opacity: 1, transform: "translate3d(0, 0, 0)" },
+    ], {
+      duration: MOBILE_SURFACE_TRANSITION_MS,
+      easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+    })
+  }, [breakpoint, checkpoint.mode, checkpoint.targetHref, surface])
+  useEffect(() => () => mobileSurfaceAnimationRef.current?.cancel(), [])
   const initialUserBarStyle = {
     "--community-desktop-user-bar-width": `${desktopUserBarOverlayWidth(sidebarWidth)}px`,
     marginLeft: -COMMUNITY_RAIL_WIDTH,
@@ -127,7 +157,11 @@ export function ShellFrameView({
                 isInitialDetail && "max-sm:hidden",
               )}
             >
-              <div ref={sidebarPanelRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
+              <div
+                ref={sidebarPanelRef}
+                data-community-mobile-surface={isMobileList ? "list" : undefined}
+                className="flex min-h-0 min-w-0 flex-1 flex-col"
+              >
                 {!isMobileDetail && (
                   checkpoint.sidebar.kind === "server-skeleton"
                     ? <ChannelSidebarSkeleton targetServerId={checkpoint.sidebar.serverId} />
@@ -149,23 +183,29 @@ export function ShellFrameView({
                 isInitialDetail && "max-sm:flex-1!",
               )}
             >
-              {checkpoint.main.kind === "target-skeleton" || isInitial ? (
-                isInitialDetail ? (
-                  <>
-                    <div className="flex min-h-0 flex-1 sm:hidden">
-                      <CommunityPendingFrame href={checkpoint.targetHref} reserveBackSlot />
-                    </div>
-                    <div className="hidden min-h-0 flex-1 sm:flex">
-                      <CommunityPendingFrame href={checkpoint.targetHref} />
-                    </div>
-                  </>
-                ) : (
-                  <CommunityPendingFrame
-                    href={checkpoint.targetHref}
-                    reserveBackSlot={isMobileDetail}
-                  />
-                )
-              ) : children}
+              <div
+                ref={mainPanelRef}
+                data-community-mobile-surface={isMobileDetail ? "detail" : undefined}
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                {checkpoint.main.kind === "target-skeleton" || isInitial ? (
+                  isInitialDetail ? (
+                    <>
+                      <div className="flex min-h-0 flex-1 sm:hidden">
+                        <CommunityPendingFrame href={checkpoint.targetHref} reserveBackSlot />
+                      </div>
+                      <div className="hidden min-h-0 flex-1 sm:flex">
+                        <CommunityPendingFrame href={checkpoint.targetHref} />
+                      </div>
+                    </>
+                  ) : (
+                    <CommunityPendingFrame
+                      href={checkpoint.targetHref}
+                      reserveBackSlot={isMobileDetail}
+                    />
+                  )
+                ) : children}
+              </div>
             </ResizablePanel>
           </ResizablePanelGroup>
         </AppSurface>

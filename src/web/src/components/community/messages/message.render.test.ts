@@ -169,6 +169,7 @@ beforeEach(() => {
   g.IntersectionObserver = class { observe() {} disconnect() {} unobserve() {} }
 })
 afterEach(() => {
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -425,6 +426,161 @@ describe("Message reaction picker", () => {
 })
 
 describe("Message touch action menu", () => {
+  it("swipes right past threshold into the existing reply callback exactly once", async () => {
+    vi.stubGlobal("window", { getSelection: () => null })
+    const vibrate = vi.fn()
+    vi.stubGlobal("navigator", { vibrate })
+    const onReply = vi.fn()
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg(),
+        hoverCapable: false,
+        onOpenThread: vi.fn(),
+        onReply,
+      }), { createNodeMock: () => genericMock })
+    })
+    const row = renderer!.root.find(
+      (node) => typeof node.props.className === "string"
+        && node.props.className.includes("group relative -mx-2"),
+    )
+    const currentTarget = { contains: () => false, setPointerCapture: vi.fn() }
+    act(() => row.props.onPointerDown({
+      pointerType: "touch", clientX: 80, clientY: 100,
+      target: { closest: () => null }, currentTarget,
+    }))
+    act(() => row.props.onPointerMove({
+      pointerType: "touch", pointerId: 1, clientX: 148, clientY: 102,
+      currentTarget, preventDefault: vi.fn(),
+    }))
+    expect(renderer!.root.findByProps({ "data-mobile-reply-affordance": true }).props)
+      .toMatchObject({ "data-threshold-crossed": true })
+    act(() => row.props.onPointerUp({ pointerType: "touch" }))
+    expect(onReply).toHaveBeenCalledOnce()
+    expect(vibrate).toHaveBeenCalledOnce()
+    expect(currentTarget.setPointerCapture).toHaveBeenCalledWith(1)
+    expect(row.props.style).toBeUndefined()
+  })
+
+  it("rejects vertical movement without replying or vibrating", async () => {
+    vi.stubGlobal("window", { getSelection: () => null })
+    const vibrate = vi.fn()
+    vi.stubGlobal("navigator", { vibrate })
+    const onReply = vi.fn()
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg(), hoverCapable: false, onOpenThread: vi.fn(), onReply,
+      }), { createNodeMock: () => genericMock })
+    })
+    const row = renderer!.root.find(
+      (node) => typeof node.props.className === "string"
+        && node.props.className.includes("group relative -mx-2"),
+    )
+    const currentTarget = { contains: () => false, setPointerCapture: vi.fn() }
+    act(() => row.props.onPointerDown({
+      pointerType: "touch", clientX: 80, clientY: 100,
+      target: { closest: () => null }, currentTarget,
+    }))
+    act(() => row.props.onPointerMove({
+      pointerType: "touch", pointerId: 1, clientX: 86, clientY: 130,
+      currentTarget, preventDefault: vi.fn(),
+    }))
+    act(() => row.props.onPointerUp({ pointerType: "touch" }))
+    expect(onReply).not.toHaveBeenCalled()
+    expect(vibrate).not.toHaveBeenCalled()
+  })
+
+  it("cancels a pending swipe when text selection starts inside the row", async () => {
+    const selectedNode = {}
+    let selection: Pick<Selection, "isCollapsed" | "anchorNode" | "focusNode"> | null = null
+    vi.stubGlobal("window", { getSelection: () => selection })
+    const vibrate = vi.fn()
+    vi.stubGlobal("navigator", { vibrate })
+    const onReply = vi.fn()
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg(), hoverCapable: false, onOpenThread: vi.fn(), onReply,
+      }), { createNodeMock: () => genericMock })
+    })
+    const row = renderer!.root.find(
+      (node) => typeof node.props.className === "string"
+        && node.props.className.includes("group relative -mx-2"),
+    )
+    const currentTarget = {
+      contains: (node: unknown) => node === selectedNode,
+      setPointerCapture: vi.fn(),
+    }
+    act(() => row.props.onPointerDown({
+      pointerType: "touch", clientX: 80, clientY: 100,
+      target: { closest: () => null }, currentTarget,
+    }))
+    selection = {
+      isCollapsed: false,
+      anchorNode: selectedNode as Node,
+      focusNode: selectedNode as Node,
+    }
+    act(() => row.props.onPointerMove({
+      pointerType: "touch", pointerId: 1, clientX: 150, clientY: 102,
+      currentTarget, preventDefault: vi.fn(),
+    }))
+    act(() => row.props.onPointerUp({ pointerType: "touch" }))
+    expect(onReply).not.toHaveBeenCalled()
+    expect(vibrate).not.toHaveBeenCalled()
+    expect(currentTarget.setPointerCapture).not.toHaveBeenCalled()
+    expect(renderer!.root.findByProps({ "data-mobile-reply-affordance": true }).props["data-threshold-crossed"])
+      .toBeUndefined()
+  })
+
+  it("long-presses an avatar once, suppresses profile click, and cancels on movement", async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal("navigator", { vibrate: vi.fn() })
+    const onMentionAuthor = vi.fn()
+    const onOpenProfile = vi.fn()
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg(),
+        hoverCapable: false,
+        onOpenThread: vi.fn(),
+        onReply: vi.fn(),
+        onMentionAuthor,
+        onOpenProfile,
+      }), { createNodeMock: () => genericMock })
+    })
+    const avatar = renderer!.root.findByProps({
+      "aria-label": "Open Alice profile; long press to mention",
+    })
+    act(() => avatar.props.onPointerDown({ pointerType: "touch", clientX: 30, clientY: 40 }))
+    act(() => vi.advanceTimersByTime(500))
+    expect(onMentionAuthor).toHaveBeenCalledOnce()
+    const preventDefault = vi.fn()
+    const stopPropagation = vi.fn()
+    act(() => avatar.props.onClick({ preventDefault, stopPropagation }))
+    expect(onOpenProfile).not.toHaveBeenCalled()
+    expect(preventDefault).toHaveBeenCalledOnce()
+
+    act(() => avatar.props.onPointerDown({ pointerType: "touch", clientX: 30, clientY: 40 }))
+    act(() => avatar.props.onPointerMove({ pointerType: "touch", clientX: 50, clientY: 40 }))
+    act(() => vi.advanceTimersByTime(500))
+    expect(onMentionAuthor).toHaveBeenCalledOnce()
+    act(() => avatar.props.onClick({ preventDefault, stopPropagation }))
+    expect(onOpenProfile).not.toHaveBeenCalled()
+
+    act(() => avatar.props.onPointerDown({ pointerType: "touch", clientX: 30, clientY: 40 }))
+    act(() => avatar.props.onPointerCancel({ pointerType: "touch" }))
+    act(() => avatar.props.onClick({ preventDefault, stopPropagation }))
+    expect(onOpenProfile).not.toHaveBeenCalled()
+
+    act(() => avatar.props.onPointerDown({ pointerType: "touch", clientX: 30, clientY: 40 }))
+    act(() => avatar.props.onPointerUp({ pointerType: "touch" }))
+    act(() => avatar.props.onClick({ preventDefault, stopPropagation }))
+    expect(onOpenProfile).toHaveBeenCalledOnce()
+    act(() => renderer!.unmount())
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it("creates a zero-size virtual anchor at the viewport click coordinates", () => {
     const rect = createMessageMenuPointAnchor(123, 456).getBoundingClientRect()
 

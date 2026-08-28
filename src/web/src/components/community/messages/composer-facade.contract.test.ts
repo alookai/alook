@@ -12,11 +12,12 @@ const readWeb = (path: string) =>
   readFileSync(resolve(webRoot, path), "utf8")
 
 describe("Composer public facade", () => {
-  it("keeps the exact props and five-method forwarded handle", () => {
+  it("keeps the exact props and six-method forwarded handle", () => {
     expectTypeOf<ComponentProps<typeof Composer>>().toEqualTypeOf<ComposerProps>()
     expectTypeOf<ComponentRef<typeof Composer>>().toEqualTypeOf<ComposerHandle>()
     expectTypeOf<keyof ComposerHandle>().toEqualTypeOf<
       | "focusEditor"
+      | "insertTextAtCaret"
       | "submitNow"
       | "resetAfterSubmit"
       | "isEmpty"

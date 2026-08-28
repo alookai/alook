@@ -76,6 +76,11 @@ type TestEditor = {
   getJSON: ReturnType<typeof vi.fn>
   state: {
     tr: object
+    selection: { from: number; to: number }
+    doc: {
+      content: { size: number }
+      textBetween: ReturnType<typeof vi.fn>
+    }
   }
   view: {
     dispatch: ReturnType<typeof vi.fn>
@@ -139,7 +144,14 @@ describe("useComposerController", () => {
       isEmpty: false,
       getText: vi.fn(() => "  hello @everyone  "),
       getJSON: vi.fn(() => ({ type: "doc" })),
-      state: { tr: transaction },
+      state: {
+        tr: transaction,
+        selection: { from: 5, to: 5 },
+        doc: {
+          content: { size: 10 },
+          textBetween: vi.fn((from: number, to: number) => to === 5 ? "o" : from === 5 ? "w" : ""),
+        },
+      },
       view: { dispatch },
       commands: {
         clearContent,
@@ -423,6 +435,14 @@ describe("useComposerController", () => {
 
     handleRef.current?.focusEditor()
     expect(focus).toHaveBeenCalledWith("end")
+    handleRef.current?.insertTextAtCaret("@Alice Smith#0042")
+    expect(editor.chain).toHaveBeenCalled()
+    expect(chainFocus).toHaveBeenCalled()
+    expect(insertContent).toHaveBeenCalledWith({
+      type: "text",
+      text: " @Alice Smith#0042 ",
+    })
+    expect(run).toHaveBeenCalled()
     handleRef.current?.openFilePicker()
     expect(filePickerClick).toHaveBeenCalledOnce()
     expect(handleRef.current?.isEmpty()).toBe(false)

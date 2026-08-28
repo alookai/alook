@@ -13,6 +13,9 @@ export function TypingIndicator({ names, className }: { names: string[]; classNa
   return (
     <div
       data-testid={tid.typingIndicator}
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
       className={cn(
         "pointer-events-none flex h-8 min-w-0 max-w-full items-center gap-2 rounded-full border border-border bg-background/90 px-3 text-xs text-muted-foreground shadow-(--e1) backdrop-blur-sm",
         className,

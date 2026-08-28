@@ -13,6 +13,7 @@ import { Composer, ComposerSkeleton } from "@/components/community/messages/comp
 import { MessageChannelController } from "@/components/community/messages/message-channel-controller"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
 import { MessageList } from "@/components/community/messages/message-list"
+import { useAuthorMentionInsertion } from "@/components/community/messages/use-author-mention-insertion"
 import { ThreadOpener } from "@/components/community/messages/thread-opener"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
@@ -58,7 +59,7 @@ export function ThreadChannelSurface({
   serverId: string
   serverParam: string
   channelName: string
-  viewer: { id: string; name: string; avatar: string }
+  viewer: { id: string; name: string; discriminator?: string; avatar: string }
   anchorMessageId: string | null
   parentChannelId: string | null
   parentMessageId: string | null
@@ -89,6 +90,12 @@ export function ThreadChannelSurface({
   const breakpoint = useBreakpoint()
   const [rightPanel, setRightPanel] = useState<RightPanel>(null)
   const [localName, setLocalName] = useState<string | null>(null)
+  const mentionInsertion = useAuthorMentionInsertion({
+    members: composerMembers,
+    viewerUserId: viewer.id,
+    viewerName: viewer.name,
+    viewerDiscriminator: viewer.discriminator,
+  })
   const { mutateAsync: editMessageAsync } = useEditMessage()
   useClaimThreadOpenerReadHandoff(threadOpenerHandoff)
   const feed = useChannelMessageFeed({
@@ -164,6 +171,8 @@ export function ThreadChannelSurface({
       parentMessageId={parentMessageId}
       viewerUserId={viewer.id}
       onOpenProfile={onOpenProfile}
+      resolveAuthorMentionText={mentionInsertion.resolveAuthorMentionText}
+      onInsertMentionText={mentionInsertion.insertMentionText}
       onPreviewImage={(image) => uiHandlers.previewImage?.(image)}
       onPreviewAttachment={(attachment) => uiHandlers.previewAttachment?.(attachment)}
       onDownloadFile={(url, name) => {
@@ -219,6 +228,7 @@ export function ThreadChannelSurface({
               <MessageList
                 key={channelId}
                 channel={displayName}
+                scrollMemoryKey={`thread:${channelId}`}
                 messages={controller.feed.messages}
                 loading={controller.feed.isLoading}
                 pinnedIds={controller.pinnedIds}
@@ -228,6 +238,8 @@ export function ThreadChannelSurface({
                 {...controller.threadActions}
                 onOpenProfile={onOpenProfile}
                 resolveUserName={resolveUserName}
+                resolveAuthorMentionText={mentionInsertion.resolveAuthorMentionText}
+                onInsertMentionText={mentionInsertion.insertMentionText}
                 scrollToMessageId={controller.scrollTargetId}
                 hero={opener}
                 onScrollRoot={controller.feed.setScrollRootEl}
@@ -250,6 +262,7 @@ export function ThreadChannelSurface({
                 className="shrink-0"
               >
                 <Composer
+                  ref={mentionInsertion.composerRef}
                   channel={displayName}
                   context="thread"
                   members={composerMembers}

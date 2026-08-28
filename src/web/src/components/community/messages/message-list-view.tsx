@@ -4,6 +4,7 @@ import { tid } from "@/lib/community/testids"
 import { ChannelIcon } from "../channels/channel-icon"
 import { ComposerAccessoryRail } from "./composer-accessory-rail"
 import { MessageShareDialog } from "./message-share-dialog"
+import { TypingIndicator } from "./typing-indicator"
 import type { MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
 
@@ -14,18 +15,6 @@ export function renderMessageListView(
 ) {
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      {!controller.isLoading && (
-        <ComposerAccessoryRail
-          typingNames={props.typingUsers ?? []}
-          scrollCount={controller.pillCount}
-          scrollMode={controller.pillMode}
-          onScroll={controller.pillOnClick}
-          selectMode={controller.selectMode}
-          selectedCount={controller.selectedIds.size}
-          onCancelSelection={controller.exitSelect}
-          onShareSelection={() => controller.setShareOpen(true)}
-        />
-      )}
       {controller.shareOpen && controller.selectedMessages.length > 0 && (
         <MessageShareDialog
           m={controller.selectedMessages}
@@ -33,12 +22,24 @@ export function renderMessageListView(
           onClose={controller.closeShare}
         />
       )}
-      <div
-        ref={controller.scrollRef}
-        data-testid={tid.messageScroller}
-        className="flex-1 overflow-x-clip overflow-y-auto thin-scrollbar"
-      >
-        <div className="flex min-h-full flex-col justify-end px-4 py-8">
+      <div data-message-scroller-boundary className="relative min-h-0 flex-1">
+        {!controller.isLoading && (
+          <ComposerAccessoryRail
+            scrollCount={controller.pillCount}
+            scrollMode={controller.pillMode}
+            onScroll={controller.pillOnClick}
+            selectMode={controller.selectMode}
+            selectedCount={controller.selectedIds.size}
+            onCancelSelection={controller.exitSelect}
+            onShareSelection={() => controller.setShareOpen(true)}
+          />
+        )}
+        <div
+          ref={controller.scrollRef}
+          data-testid={tid.messageScroller}
+          className="h-full overflow-x-clip overflow-y-auto thin-scrollbar"
+        >
+          <div className="flex min-h-full flex-col justify-end px-4 pb-14 pt-8">
           {controller.isLoading ? (
             <MessageListSkeletonContent variant={props.variant} />
           ) : (
@@ -78,7 +79,16 @@ export function renderMessageListView(
               )}
             </>
           )}
+          </div>
         </div>
+      </div>
+      <div
+        data-message-typing-space
+        className="h-11 shrink-0 px-4 pb-2 pt-1"
+      >
+        {!controller.isLoading && (
+          <TypingIndicator names={props.typingUsers ?? []} className="w-fit max-w-full" />
+        )}
       </div>
     </div>
   )

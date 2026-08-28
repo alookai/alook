@@ -168,7 +168,7 @@ function surfaceProps(overrides: Record<string, unknown> = {}) {
     serverId: "server_1",
     serverParam: "server_1",
     channelName: "Thread name",
-    viewer: { id: "viewer_1", name: "Viewer", avatar: "V" },
+    viewer: { id: "viewer_1", name: "Viewer", discriminator: "1111", avatar: "V" },
     anchorMessageId: "m_target",
     parentChannelId: "parent_1",
     parentMessageId: "opener_1",
@@ -179,7 +179,16 @@ function surfaceProps(overrides: Record<string, unknown> = {}) {
     notificationLevel: "default" as const,
     onSetNotificationLevel: vi.fn(),
     onBack: vi.fn(),
-    composerMembers: [{ id: "member_1", userId: "member_1", name: "Alice" }],
+    composerMembers: [{
+      id: "member_1",
+      userId: "member_1",
+      name: "Alice",
+      discriminator: "0042",
+      avatar: "A",
+      status: "online",
+      sub: "",
+      role: "member",
+    }],
     composerMentionCandidates: undefined,
     channelRefCandidates: [{ id: "parent_1", name: "general", serverId: "server_1", serverName: "Server", serverDiscriminator: "0001" }],
     memberPanelProps: {
@@ -253,6 +262,8 @@ describe("ThreadChannelSurface ownership", () => {
       parentMessageId: "opener_1",
       viewerUserId: "viewer_1",
       onOpenProfile: props.onOpenProfile,
+      resolveAuthorMentionText: expect.any(Function),
+      onInsertMentionText: expect.any(Function),
     }))
     act(() => opener.props.onJump?.())
     expect(mocks.router.push).toHaveBeenCalledWith("/c/channels/server_1/parent_1?msg=opener_1")
@@ -275,6 +286,9 @@ describe("ThreadChannelSurface ownership", () => {
       onCreateThread: undefined,
       hero: expect.anything(),
     }), undefined)
+    expect(messageListProps.resolveAuthorMentionText?.("member_1")).toBe("@Alice#0042")
+    expect(messageListProps.resolveAuthorMentionText?.("viewer_1")).toBe("@Viewer#1111")
+    expect(messageListProps.onInsertMentionText).toEqual(expect.any(Function))
     const composerProps = mockedComposer.mock.calls.at(-1)![0]
     expect(composerProps).toEqual(expect.objectContaining({
       channel: "Thread name",

@@ -141,7 +141,7 @@ describe("ShellFrame orchestration", () => {
       .toBe("committed")
   })
 
-  it("uses the pending destination surface before the committed href changes", async () => {
+  it("keeps the committed surface until exact frame evidence arrives", async () => {
     mocks.currentHref.current = "/c/channels/s1/c1"
     mocks.pendingHref.current = "/c/channels/s1"
     mocks.navigationPending.current = true
@@ -151,9 +151,9 @@ describe("ShellFrame orchestration", () => {
       renderer = TestRenderer.create(createElement(ShellFrame, sourceProps))
     })
     expect(renderer.root.findByType("shell-frame-view").props.checkpoint).toMatchObject({
-      surface: "list",
+      surface: "detail",
       targetHref: "/c/channels/s1",
-      main: { kind: "target-skeleton", href: "/c/channels/s1" },
+      main: { kind: "keep" },
     })
 
     mocks.pendingHref.current = "/c/me/dm_1?from=inbox"

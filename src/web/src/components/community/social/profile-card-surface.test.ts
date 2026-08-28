@@ -85,6 +85,7 @@ describe("ProfileCard surface contracts", () => {
     expect(content.props.showOverlay).toBe(true)
     expect(content.props.showCloseButton).toBe(false)
     expect(content.props.className).toContain("bg-transparent")
+    expect(content.props.className).toContain("data-[side=bottom]:border-t-0")
     expect(content.props.className).not.toContain("bg-foreground")
     expect(profile.props.className).toContain("bg-popover")
     expect(renderer.root.findAllByType("popover-root")).toHaveLength(0)

@@ -427,7 +427,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
           side="bottom"
           showOverlay
           showCloseButton={false}
-          className="border-0 bg-transparent p-3 shadow-none"
+          className="border-0 bg-transparent p-3 shadow-none data-[side=bottom]:border-t-0"
         >
           <SheetTitle className="sr-only">{data.name} profile</SheetTitle>
           <SheetClose className="sr-only">Close profile</SheetClose>

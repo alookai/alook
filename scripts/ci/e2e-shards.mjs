@@ -49,6 +49,7 @@ export const SPEC_SECONDS = {
   "36-server-switch-pending-checkpoint.spec.ts": 60,
   "37-server-rail-pdd.spec.ts": 10,
   "38-community-navigation-checkpoint-matrix.spec.ts": 60,
+  "39-mobile-message-interactions.spec.ts": 20,
 }
 
 function walk(directory) {

@@ -30,6 +30,7 @@ export type ChannelRefCandidateSource = {
 
 export type ComposerHandle = {
   focusEditor: () => void
+  insertTextAtCaret: (text: string) => void
   submitNow: () => void
   resetAfterSubmit: () => void
   isEmpty: () => boolean

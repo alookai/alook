@@ -61,14 +61,15 @@ function committedCheckpoint(
   }
 }
 
-function pendingCheckpoint(
-  href: string,
-  surface: CommunitySurface,
+function sameScopePendingCheckpoint(
+  committedHref: string,
+  committedSurface: CommunitySurface,
+  targetHref: string,
 ): CommunityCheckpointPlan {
   return {
-    ...committedCheckpoint(href, surface),
+    ...committedCheckpoint(committedHref, committedSurface),
     mode: "same-scope-leaf",
-    main: { kind: "target-skeleton", href },
+    targetHref,
   }
 }
 
@@ -91,6 +92,7 @@ const inbox = {
 
 describe("ShellFrameView", () => {
   beforeEach(() => {
+    vi.unstubAllGlobals()
     mocks.observe.mockClear()
     mocks.disconnect.mockClear()
     mocks.resizeCallback.current = undefined
@@ -102,6 +104,7 @@ describe("ShellFrameView", () => {
       disconnect = mocks.disconnect
     }
     vi.stubGlobal("ResizeObserver", ResizeObserverMock)
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })))
   })
 
   it("keeps responsive detail shell zones while the breakpoint is unknown", async () => {
@@ -258,6 +261,8 @@ describe("ShellFrameView", () => {
     expect(renderer.root.findByType("panel-group").props.disabled).toBe(true)
     expect(renderer.root.findByType("panel-group").props.className).toContain("*:data-[mobile-active=true]:flex-1!")
     expect(renderer.root.findAllByType("shell-overlays")).toHaveLength(1)
+    const listMotion = renderer.root.findByProps({ "data-community-mobile-surface": "list" })
+    expect(listMotion.props.className).toContain("flex")
     expect("profileStatusSeeds" in renderer.root.findByType("shell-overlays").props).toBe(false)
     expect(sidebar).toHaveBeenCalledWith({ noHeader: false })
 
@@ -283,6 +288,57 @@ describe("ShellFrameView", () => {
     expect(renderer.root.findAllByType("panel")[0]?.props["data-mobile-active"]).toBeUndefined()
     expect(renderer.root.findAllByType("panel")[1]?.props["data-mobile-active"]).toBe(true)
     expect(renderer.root.findAllByType("shell-overlays")).toHaveLength(1)
+    const detailMotion = renderer.root.findByProps({ "data-community-mobile-surface": "detail" })
+    expect(detailMotion.props.className).toContain("flex")
+  })
+
+  it("animates committed mobile switches without remounting and skips reduced motion", async () => {
+    const cancel = vi.fn()
+    const animate = vi.fn(() => ({ cancel }))
+    const sidebar = () => createElement("sidebar-content")
+    const common = {
+      breakpoint: "mobile" as const,
+      sidebar,
+      cancelPendingNavigation: vi.fn(),
+      rail,
+      profile,
+      inbox,
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(
+        ShellFrameView,
+        { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c1", "detail") },
+        createElement("main-content"),
+      ), { createNodeMock: () => ({ offsetWidth: 240, animate }) })
+    })
+    expect(animate).not.toHaveBeenCalled()
+
+    await act(async () => {
+      renderer.update(createElement(
+        ShellFrameView,
+        { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c2", "detail") },
+        createElement("main-content"),
+      ))
+    })
+    expect(animate).toHaveBeenCalledOnce()
+    expect(animate).toHaveBeenLastCalledWith([
+      { opacity: 0.92, transform: "translate3d(8px, 0, 0)" },
+      { opacity: 1, transform: "translate3d(0, 0, 0)" },
+    ], {
+      duration: 180,
+      easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+    })
+
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })))
+    await act(async () => {
+      renderer.update(createElement(
+        ShellFrameView,
+        { ...common, checkpoint: committedCheckpoint("/c/channels/s1/c3", "detail") },
+        createElement("main-content"),
+      ))
+    })
+    expect(animate).toHaveBeenCalledOnce()
   })
 
   it("preserves child component identity across the 639 to 640 breakpoint", async () => {
@@ -365,7 +421,7 @@ describe("ShellFrameView", () => {
     expect(mocks.disconnect).toHaveBeenCalledTimes(2)
   })
 
-  it("replaces committed content with immediate pending feedback in every shell zone", async () => {
+  it("keeps committed content mounted while same-scope navigation is pending", async () => {
     const sidebar = vi.fn(() => createElement("sidebar-content"))
     const common = {
       sidebar,
@@ -378,46 +434,35 @@ describe("ShellFrameView", () => {
     await act(async () => {
       renderer = TestRenderer.create(createElement(
         ShellFrameView,
-        { ...common, breakpoint: "desktop", checkpoint: pendingCheckpoint("/c/me/friends", "detail") },
+        {
+          ...common,
+          breakpoint: "desktop",
+          checkpoint: sameScopePendingCheckpoint("/c/me", "list", "/c/me/friends"),
+        },
         createElement("main-content"),
       ), { createNodeMock: () => ({ offsetWidth: 240 }) })
     })
-    expect(renderer.root.findAllByType("channel-loading-frame")).toHaveLength(1)
-    expect(renderer.root.findAllByType("main-content")).toHaveLength(0)
+    expect(renderer.root.findAllByType("channel-loading-frame")).toHaveLength(0)
+    expect(renderer.root.findAllByType("main-content")).toHaveLength(1)
     expect(renderer.root.findAllByType("server-rail")).toHaveLength(1)
     expect(renderer.root.findAllByType("user-bar")).toHaveLength(1)
 
     await act(async () => {
       renderer.update(createElement(
         ShellFrameView,
-        { ...common, breakpoint: "mobile", checkpoint: pendingCheckpoint("/c/me", "list") },
+        {
+          ...common,
+          breakpoint: "mobile",
+          checkpoint: sameScopePendingCheckpoint("/c/me", "list", "/c/me/friends"),
+        },
         createElement("main-content"),
       ))
     })
-    expect(renderer.root.findAllByType("channel-loading-frame")).toHaveLength(1)
+    expect(renderer.root.findAllByType("channel-loading-frame")).toHaveLength(0)
     expect(renderer.root.findAllByType("server-rail")).toHaveLength(1)
     expect(renderer.root.findAllByType("sidebar-content")).toHaveLength(1)
     expect(renderer.root.findAllByType("user-bar")).toHaveLength(1)
-    expect(renderer.root.findAll((node) =>
-      typeof node.props.className === "string" &&
-      node.props.className.includes("absolute inset-0 z-20")))
-      .toHaveLength(0)
-    expect(renderer.root.findAllByType("panel")[1]!.findAllByType("channel-loading-frame"))
-      .toHaveLength(1)
-
-    await act(async () => {
-      renderer.update(createElement(
-        ShellFrameView,
-        { ...common, breakpoint: "mobile", checkpoint: pendingCheckpoint("/c/me/friends", "detail") },
-        createElement("main-content"),
-      ))
-    })
-    expect(renderer.root.findAllByType("channel-loading-frame")).toHaveLength(1)
-    expect(renderer.root.findAllByType("main-content")).toHaveLength(0)
-    expect(renderer.root.findAllByType("server-rail")).toHaveLength(0)
-    expect(renderer.root.findAllByType("user-bar")).toHaveLength(0)
-    expect(renderer.root.findByType("channel-loading-frame").props.reserveBackSlot).toBe(true)
-    expect(renderer.root.findByType("channel-loading-frame").props.onBack).toBeUndefined()
+    expect(renderer.root.findAllByType("main-content")).toHaveLength(1)
   })
 
   it("replaces the committed sidebar with one target-scoped cold server checkpoint", async () => {

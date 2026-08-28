@@ -132,11 +132,11 @@ export function resolveCommunityCheckpointPlan({
   if (communityScopeEqual(committedFrame.scope, target.scope)) {
     return {
       mode: "same-scope-leaf",
-      surface: target.surface,
+      surface: committedFrame.surface,
       targetHref: target.href,
       rail: { kind: "keep" },
       sidebar: { kind: "keep" },
-      main: { kind: "target-skeleton", href: target.href },
+      main: { kind: "keep" },
     }
   }
 

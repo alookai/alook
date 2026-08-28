@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 
@@ -22,6 +22,11 @@ function textContent(node: TestRenderer.ReactTestInstance): string {
 }
 
 describe("ThreadOpener image attachment layout", () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
   it("renders projected reply content in the opener", () => {
     useMessageMock.mockReturnValue({
       isLoading: false,
@@ -186,5 +191,57 @@ describe("ThreadOpener image attachment layout", () => {
     expect(renderer!.root.findByProps({ "data-testid": "community-media-block-clip.webm" }).props["data-media-kind"])
       .toBe("video")
     expect(renderer!.root.findAllByType("video")).toHaveLength(0)
+  })
+
+  it("uses the shared mobile avatar long press without leaking cancelled clicks to profile", () => {
+    vi.useFakeTimers()
+    vi.stubGlobal("navigator", { vibrate: vi.fn() })
+    useMessageMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      message: {
+        id: "opener_1",
+        type: "chat",
+        authorId: "user_1",
+        authorName: "Alice",
+        content: "Thread opener",
+        createdAt: "2026-08-08T00:00:00.000Z",
+      },
+    })
+    const onInsertMentionText = vi.fn()
+    const onOpenProfile = vi.fn()
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(ThreadOpener, {
+        parentMessageId: "opener_1",
+        viewerUserId: "viewer_1",
+        onOpenProfile,
+        resolveAuthorMentionText: () => "@Alice#0042",
+        onInsertMentionText,
+      }), { createNodeMock: () => genericMock })
+    })
+    const avatar = renderer!.root.findByProps({
+      "aria-label": "Open Alice profile; long press to mention",
+    })
+    const clickEvent = () => ({ preventDefault: vi.fn(), stopPropagation: vi.fn() })
+
+    act(() => avatar.props.onPointerDown({ pointerType: "touch", clientX: 20, clientY: 20 }))
+    act(() => vi.advanceTimersByTime(500))
+    expect(onInsertMentionText).toHaveBeenCalledOnce()
+    expect(onInsertMentionText).toHaveBeenCalledWith("@Alice#0042")
+    act(() => avatar.props.onClick(clickEvent()))
+    expect(onOpenProfile).not.toHaveBeenCalled()
+
+    act(() => avatar.props.onPointerDown({ pointerType: "touch", clientX: 20, clientY: 20 }))
+    act(() => avatar.props.onPointerCancel({ pointerType: "touch" }))
+    act(() => avatar.props.onClick(clickEvent()))
+    expect(onOpenProfile).not.toHaveBeenCalled()
+
+    act(() => avatar.props.onPointerDown({ pointerType: "touch", clientX: 20, clientY: 20 }))
+    act(() => avatar.props.onPointerUp({ pointerType: "touch" }))
+    act(() => avatar.props.onClick(clickEvent()))
+    expect(onOpenProfile).toHaveBeenCalledOnce()
+    act(() => renderer!.unmount())
+    expect(vi.getTimerCount()).toBe(0)
   })
 })

@@ -70,7 +70,7 @@ describe("planE2eShards", () => {
     expect(first).toHaveLength(E2E_SHARD_COUNT)
     expect([...assigned].sort()).toEqual(specs)
     expect(new Set(assigned).size).toBe(specs.length)
-    expect(totals.sort((left, right) => left - right)).toEqual([314, 314, 318, 318, 318])
+    expect(totals.sort((left, right) => left - right)).toEqual([319, 320, 320, 320, 323])
     expect(Math.max(...totals) / Math.min(...totals)).toBeLessThanOrEqual(1.15)
   })
 

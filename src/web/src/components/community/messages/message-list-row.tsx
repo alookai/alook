@@ -27,6 +27,10 @@ export function renderMessageListRow(
             onToggleReactionId={props.onToggleReaction}
             onReactId={props.onReact}
             onReplyId={props.onReply}
+            mentionText={item.m.authorId
+              ? props.resolveAuthorMentionText?.(item.m.authorId) ?? undefined
+              : undefined}
+            onInsertMentionText={props.onInsertMentionText}
             onPinId={props.onPin}
             onMarkId={props.onMark}
             onCreateThreadId={props.onCreateThread}
