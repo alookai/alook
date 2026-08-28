@@ -192,18 +192,49 @@ test.describe.serial("mentions — candidate scope", () => {
     await expect(page.getByTestId(tid.mentionOption(bob.id))).toBeVisible({ timeout: 15_000 })
   })
 
-  test("1:1 DM composer has no @ popup at all (no members, no everyone/here)", async ({ asUser }) => {
+  test("1:1 DM keeps @abc as plain text, never starts mention suggestions, and sends with Enter", async ({ asUser }) => {
     const dmId = await seedDm("alice", userId("bob"))
     const { page } = await asUser("alice")
+    const memberSearchRequests: string[] = []
+    const messagePosts: string[] = []
+    page.on("request", (request) => {
+      const url = new URL(request.url())
+      if (url.pathname.endsWith("/members/search")) {
+        memberSearchRequests.push(request.url())
+      }
+      if (
+        request.method() === "POST"
+        && url.pathname === `/api/community/channels/${dmId}/messages`
+      ) {
+        messagePosts.push(request.url())
+      }
+    })
     await page.goto(`/c/me/${dmId}`)
     await page.waitForURL(new RegExp(dmId), { timeout: 20_000, waitUntil: "commit" })
 
     const editable = composerEditable(page)
     await editable.click()
-    await editable.pressSequentially("@")
-    // DM context short-circuits the ranker → zero options, and no virtual rows.
+    await editable.pressSequentially("@abc")
+    await expect(editable).toHaveText("@abc")
+    await expect(editable.locator('[data-type="mention"]')).toHaveCount(0)
+    await expect(page.getByTestId(tid.mentionPopup)).toHaveCount(0)
+    await expect(page.getByTestId(tid.mentionStatus)).toHaveCount(0)
     await expect(page.getByTestId(tid.mentionOption(bob.id))).toHaveCount(0)
     await expect(page.getByTestId(tid.mentionOption("everyone"))).toHaveCount(0)
     await expect(page.getByTestId(tid.mentionOption("here"))).toHaveCount(0)
+
+    const responsePromise = page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return response.request().method() === "POST"
+        && url.pathname === `/api/community/channels/${dmId}/messages`
+    })
+    await page.keyboard.press("Enter")
+    const response = await responsePromise
+    expect(response.status()).toBe(201)
+    const payload = await response.json() as { message: { id: string } }
+    await expect(page.getByTestId(tid.message(payload.message.id))).toContainText("@abc")
+    await expect(editable).toHaveText("")
+    expect(memberSearchRequests).toHaveLength(0)
+    expect(messagePosts).toHaveLength(1)
   })
 })

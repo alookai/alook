@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import {
   buildCommunityMentionExtension,
   EMPTY_MENTION_STATE,
@@ -100,12 +100,22 @@ export function useComposerSuggestions({
   useEffect(() => {
     membersRef.current = members
   }, [members])
-  useEffect(() => {
-    contextRef.current = context
-  }, [context])
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const previousSearch = onSearchMembersRef.current
+    if (context === "dm" && mentionQueryRef.current) previousSearch?.("")
     onSearchMembersRef.current = mentionCandidates?.search
-  }, [mentionCandidates?.search])
+  }, [context, mentionCandidates?.search])
+  useLayoutEffect(() => {
+    contextRef.current = context
+    if (context !== "dm") return
+
+    // The mention extension is initialized once, so close any channel/thread
+    // lifecycle before the reused editor can handle input in a DM. Keep the
+    // channel-ref popup untouched: slash references remain supported in DMs.
+    mentionQueryRef.current = ""
+    mentionPopupRef.current = EMPTY_MENTION_STATE
+    setMentionPopup(EMPTY_MENTION_STATE)
+  }, [context])
 
   // eslint-disable-next-line react-hooks/refs -- runtime suggestion callbacks read these refs
   const [mentionExtension] = useState(() =>
@@ -160,6 +170,7 @@ export function useComposerSuggestions({
   )
 
   useEffect(() => {
+    if (context === "dm") return
     const current = mentionPopupRef.current
     if (!current.command) return
     const query = mentionQueryRef.current

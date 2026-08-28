@@ -110,7 +110,9 @@ describe("useComposerSuggestions", () => {
     mocks.rankChannel.mockReset()
     mocks.buildMention.mockImplementation((options) => ({
       name: "mention-extension",
+      allow: () => options.contextRef.current !== "dm",
       runQuery: (query: string) => {
+        if (options.contextRef.current === "dm") return []
         options.queryRef.current = query
         options.onSearchMembersRef.current?.(query)
         return mocks.rankMention(
@@ -251,6 +253,112 @@ describe("useComposerSuggestions", () => {
       "ad",
     )
     expect(mocks.rankChannel).toHaveBeenLastCalledWith(thirdChannels, "gen")
+  })
+
+  it("disables mentions across a live DM transition without rebuilding or disturbing channel refs", async () => {
+    const resultRef: { current: Result | null } = { current: null }
+    const search = vi.fn()
+    const mentionItem = {
+      kind: "member" as const,
+      id: "member-1",
+      userId: "user-1",
+      label: "Ada#0001",
+      name: "Ada",
+      discriminator: "0001",
+      avatar: "A",
+      status: "online" as const,
+    }
+    const channelItem = channel()
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(Harness, {
+        members: [member()],
+        context: "channel",
+        mentionCandidates: candidateSource(search),
+        channelRefCandidates: [channelItem],
+        resultRef,
+      }))
+    })
+    const mentionOptions = mocks.buildMention.mock.calls[0][0]
+    const channelOptions = mocks.buildChannel.mock.calls[0][0]
+    const extension = resultRef.current!.mentionExtension as unknown as {
+      allow: () => boolean
+      runQuery: (query: string) => unknown
+    }
+    const channelCommand = vi.fn()
+    await act(async () => {
+      mentionOptions.setPopup({
+        items: [mentionItem],
+        query: "ad",
+        selectedIndex: 0,
+        command: vi.fn(),
+        getRect: null,
+      })
+      channelOptions.setPopup({
+        items: [channelItem],
+        selectedIndex: 0,
+        command: channelCommand,
+        getRect: null,
+      })
+    })
+    expect(extension.allow()).toBe(true)
+
+    extension.runQuery("ad")
+    search.mockClear()
+    mocks.rankMention.mockClear()
+    mocks.rankChannel.mockReturnValue([channelItem])
+    await act(async () => {
+      renderer.update(createElement(Harness, {
+        members: [],
+        context: "dm",
+        mentionCandidates: candidateSource(search),
+        channelRefCandidates: [channelItem],
+        resultRef,
+      }))
+    })
+
+    expect(mocks.buildMention).toHaveBeenCalledOnce()
+    expect(resultRef.current!.mentionExtension).toBe(extension)
+    expect(extension.allow()).toBe(false)
+    expect(resultRef.current!.mentionPopup).toEqual({
+      items: [],
+      query: "",
+      selectedIndex: 0,
+      command: null,
+      getRect: null,
+    })
+    expect(resultRef.current!.channelRefPopup).toEqual({
+      items: [channelItem],
+      selectedIndex: 0,
+      command: channelCommand,
+      getRect: null,
+    })
+    expect(search).toHaveBeenCalledOnce()
+    expect(search).toHaveBeenLastCalledWith("")
+    search.mockClear()
+    expect(extension.runQuery("abc")).toEqual([])
+    expect(search).not.toHaveBeenCalled()
+    expect(mocks.rankMention).not.toHaveBeenCalled()
+
+    mocks.rankMention.mockReturnValue([mentionItem])
+    await act(async () => {
+      renderer.update(createElement(Harness, {
+        members: [member()],
+        context: "thread",
+        mentionCandidates: candidateSource(search),
+        channelRefCandidates: [channelItem],
+        resultRef,
+      }))
+    })
+    expect(resultRef.current!.mentionExtension).toBe(extension)
+    expect(extension.allow()).toBe(true)
+    expect(extension.runQuery("ad")).toEqual([mentionItem])
+    expect(search).toHaveBeenCalledWith("ad")
+    expect(mocks.rankMention).toHaveBeenLastCalledWith(
+      [member()],
+      "thread",
+      "ad",
+    )
   })
 
   it("reranks open mentions, preserves valid selection, and detects visual changes", async () => {
