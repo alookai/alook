@@ -260,6 +260,7 @@ describe("GET /api/community/bots — heatmap activity", () => {
       { id: "bot_cursor", runtime: "cursor" },
       { id: "bot_opencode", runtime: "opencode" },
       { id: "bot_pi", runtime: "pi" },
+      { id: "bot_unknown", runtime: "custom" },
     ])
     mockGetBotDailyActivityForOwner.mockResolvedValue(new Map())
     mockGetBotDailyTokenUsageForOwner.mockResolvedValue(new Map([
@@ -300,6 +301,7 @@ describe("GET /api/community/bots — heatmap activity", () => {
       bot_cursor: "unsupported",
       bot_opencode: "supported",
       bot_pi: "unsupported",
+      bot_unknown: "unknown",
     })
     expect(mockGetBotDailyTokenUsageForOwner).toHaveBeenCalledWith(
       expect.anything(),
