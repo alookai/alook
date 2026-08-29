@@ -105,6 +105,7 @@ function installServer(options: {
   sessionId?: string;
   loadError?: string;
   omitLoadSessionId?: boolean;
+  omitNewSessionId?: boolean;
   modelOptions?: unknown[];
 } = {}): FakeServer {
   const messages: RpcMessage[] = [];
@@ -125,7 +126,7 @@ function installServer(options: {
         break;
       case "session/new":
         respond(process, message, {
-          sessionId,
+          ...(options.omitNewSessionId ? {} : { sessionId }),
           configOptions: options.modelOptions ? [{ id: "model", options: options.modelOptions }] : [],
         });
         break;
@@ -339,6 +340,11 @@ describe("CursorDriver persistent ACP transport", () => {
     const invalid = await new CursorDriver().openLane(baseCtx());
     eventsFrom(invalid);
     await expect(invalid.start({ text: "new" })).rejects.toThrow("valid session id");
+
+    installServer({ omitNewSessionId: true });
+    const missing = await new CursorDriver().openLane(baseCtx());
+    eventsFrom(missing);
+    await expect(missing.start({ text: "new" })).rejects.toThrow("valid session id");
 
     installServer({ sessionId: "different" });
     const mismatched = await new CursorDriver().openLane(baseCtx({ config: {

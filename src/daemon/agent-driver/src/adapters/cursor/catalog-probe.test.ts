@@ -199,4 +199,57 @@ describe("Cursor ACP model catalog", () => {
     })).resolves.toBeUndefined();
     expect(timeoutCleanup).toHaveBeenCalledTimes(1);
   });
+
+  it("covers spawn, write, session-id, stderr-size, and pidless cleanup failures", async () => {
+    await expect(probeCursorAcpCatalog(undefined, {
+      spawn: () => { throw new Error("spawn failed"); },
+    })).resolves.toBeUndefined();
+
+    const unwritable = fakeProcess(() => {});
+    unwritable.stdin.write = vi.fn(() => { throw new Error("write failed"); });
+    const writeCleanup = vi.fn(async () => {});
+    await expect(probeCursorAcpCatalog(undefined, {
+      spawn: () => unwritable,
+      cleanup: writeCleanup,
+      timeoutMs: 25,
+    })).resolves.toBeUndefined();
+    expect(writeCleanup).toHaveBeenCalledTimes(1);
+
+    const invalidSessionCleanup = vi.fn(async () => {});
+    const invalidSession = fakeProcess((process, message) => {
+      if (message.method === "initialize") {
+        respond(process, message, { protocolVersion: 1, authMethods: [{ id: "cursor_login" }] });
+      } else if (message.method === "authenticate") {
+        respond(process, message, null);
+      } else if (message.method === "session/new") {
+        respond(process, message, { sessionId: "" });
+      }
+    });
+    await expect(probeCursorAcpCatalog(undefined, {
+      spawn: () => invalidSession,
+      cleanup: invalidSessionCleanup,
+      timeoutMs: 25,
+    })).resolves.toBeUndefined();
+    expect(invalidSessionCleanup).toHaveBeenCalledTimes(1);
+
+    const stderrCleanup = vi.fn(async () => {});
+    const stderrOversized = fakeProcess((process) => process.stderr.write("x".repeat(65)));
+    await expect(probeCursorAcpCatalog(undefined, {
+      spawn: () => stderrOversized,
+      cleanup: stderrCleanup,
+      timeoutMs: 25,
+      outputMaxBytes: 64,
+    })).resolves.toBeUndefined();
+    expect(stderrCleanup).toHaveBeenCalledTimes(1);
+
+    const pidless = fakeProcess((process, message) => {
+      if (message.method === "initialize") respond(process, message, { protocolVersion: 2 });
+    });
+    Object.defineProperty(pidless, "pid", { value: undefined });
+    await expect(probeCursorAcpCatalog(undefined, {
+      spawn: () => pidless,
+      timeoutMs: 25,
+    })).resolves.toBeUndefined();
+    expect(pidless.kill).toHaveBeenCalledWith("SIGTERM");
+  });
 });
