@@ -29,15 +29,6 @@ export function invalidateServersList(
   })
 }
 
-export function fenceServersList(
-  projection: CommunityWsProjectionTransaction,
-) {
-  projection.fence("servers-list", {
-    queryKey: communityKeys.servers(),
-    exact: true,
-  })
-}
-
 export function invalidateChannelMembers(
   projection: CommunityWsProjectionTransaction,
   channelId: string,

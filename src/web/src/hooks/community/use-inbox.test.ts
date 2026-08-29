@@ -104,6 +104,180 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
     expect(apiFetchMock).toHaveBeenCalledOnce()
     await act(async () => renderer.unmount())
   })
+
+  it("projects nested channel and DM reads while preserving unchanged rows", async () => {
+    const removable = {
+      serverId: "s1",
+      serverName: "One",
+      channels: [{
+        channelId: "parent",
+        channelName: "Forum",
+        lastMessageAt: "2026-08-29T00:00:00.000Z",
+        lastUnreadSeq: 2,
+        mentionCount: 0,
+        hasDirectUnread: true,
+        children: [{
+          channelId: "child",
+          channelName: "Post",
+          lastMessageAt: "2026-08-29T00:00:00.000Z",
+          lastUnreadSeq: 2,
+          mentionCount: 0,
+        }],
+      }],
+    }
+    const retained = {
+      serverId: "s2",
+      serverName: "Two",
+      channels: [{
+        channelId: "keep",
+        channelName: "General",
+        lastMessageAt: "2026-08-29T00:00:00.000Z",
+        lastUnreadSeq: 3,
+        mentionCount: 0,
+        hasDirectUnread: true,
+        children: [],
+      }],
+    }
+    const removedDm = {
+      channelId: "dm-read",
+      otherUserId: "u1",
+      otherUserName: "One",
+      otherUserDiscriminator: "0001",
+      otherUserAvatar: "",
+      otherUserAvatarVersion: 0,
+      lastMessageAt: "2026-08-29T00:00:00.000Z",
+      lastUnreadSeq: 2,
+    }
+    const keptDm = { ...removedDm, channelId: "dm-keep", lastUnreadSeq: 3 }
+    const data = { servers: [removable, retained], dms: [removedDm, keptDm], truncated: false }
+    apiFetchMock.mockResolvedValue(data)
+    const { useInboxUnreads } = await import("./use-inbox")
+    const { getActiveAccountUnreadProjection } = await import("./account-unread-projection")
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    qc.setQueryData(communityKeys.inboxUnreads(), data)
+    const projection = getActiveAccountUnreadProjection(qc)
+    projection.recordRead("parent", 2)
+    projection.recordRead("child", 2)
+    projection.recordRead("dm-read", 2)
+    let latest: ReturnType<typeof useInboxUnreads> | undefined
+    function Harness() {
+      latest = useInboxUnreads()
+      return null
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(Harness),
+      ))
+    })
+
+    expect(latest?.servers).toEqual([retained])
+    expect(latest?.servers[0]).toBe(retained)
+    expect(latest?.dms).toEqual([keptDm])
+    expect(latest?.dms[0]).toBe(keptDm)
+    expect(latest?.hasProjectedUnread).toBe(true)
+    await act(async () => renderer.unmount())
+  })
+
+  it("keeps a child-only parent and clones only its changed channel path", async () => {
+    const child = {
+      channelId: "child",
+      channelName: "Post",
+      lastMessageAt: "2026-08-29T00:00:00.000Z",
+      lastUnreadSeq: 3,
+      mentionCount: 0,
+    }
+    const channel = {
+      channelId: "parent",
+      channelName: "Forum",
+      lastMessageAt: "2026-08-29T00:00:00.000Z",
+      lastUnreadSeq: 2,
+      mentionCount: 0,
+      hasDirectUnread: true,
+      children: [child],
+    }
+    const server = { serverId: "s1", serverName: "One", channels: [channel] }
+    const data = { servers: [server], dms: [], truncated: false }
+    apiFetchMock.mockResolvedValue(data)
+    const { useInboxUnreads } = await import("./use-inbox")
+    const { getActiveAccountUnreadProjection } = await import("./account-unread-projection")
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    qc.setQueryData(communityKeys.inboxUnreads(), data)
+    getActiveAccountUnreadProjection(qc).recordRead("parent", 2)
+    let latest: ReturnType<typeof useInboxUnreads> | undefined
+    function Harness() {
+      latest = useInboxUnreads()
+      return null
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(Harness),
+      ))
+    })
+    expect(latest?.servers[0]).not.toBe(server)
+    expect(latest?.servers[0]?.channels[0]).not.toBe(channel)
+    expect(latest?.servers[0]?.channels[0]?.hasDirectUnread).toBe(false)
+    expect(latest?.servers[0]?.channels[0]?.children[0]).toBe(child)
+    await act(async () => renderer.unmount())
+  })
+
+  it("retains legacy unread evidence after an absent rolling-deploy response", async () => {
+    const data = {
+      servers: [{
+        serverId: "s1",
+        serverName: "One",
+        channels: [{
+          channelId: "parent",
+          channelName: "Forum",
+          lastMessageAt: "2026-08-29T00:00:00.000Z",
+          mentionCount: 0,
+          hasDirectUnread: true,
+          children: [{
+            channelId: "child",
+            channelName: "Post",
+            lastMessageAt: "2026-08-29T00:00:00.000Z",
+            mentionCount: 0,
+          }],
+        }],
+      }],
+      dms: [{
+        channelId: "dm",
+        otherUserId: "u1",
+        otherUserName: "One",
+        otherUserDiscriminator: "0001",
+        otherUserAvatar: "",
+        otherUserAvatarVersion: 0,
+        lastMessageAt: "2026-08-29T00:00:00.000Z",
+      }],
+    }
+    apiFetchMock.mockResolvedValue({ servers: [], dms: [] })
+    const { useInboxUnreads } = await import("./use-inbox")
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    qc.setQueryData(communityKeys.inboxUnreads(), data)
+    let latest: ReturnType<typeof useInboxUnreads> | undefined
+    function Harness() {
+      latest = useInboxUnreads()
+      return null
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(Harness),
+      ))
+    })
+    await vi.waitFor(() => expect(latest?.servers).toEqual([]))
+    expect(latest?.servers).toEqual([])
+    expect(latest?.dms).toEqual([])
+    expect(latest?.hasProjectedUnread).toBe(true)
+    await act(async () => renderer.unmount())
+  })
 })
 
 describe("useInboxMentions / inboxMentionsQueryFn", () => {
@@ -115,6 +289,90 @@ describe("useInboxMentions / inboxMentionsQueryFn", () => {
     await qc.fetchQuery({ queryKey: key, queryFn: inboxMentionsQueryFn })
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/inbox/mentions")
     expect(qc.getQueryData(key)).toEqual({ mentions: [] })
+  })
+
+  it("filters read mentions, preserves unscoped rows, and reports pending arrivals", async () => {
+    const scoped = { id: "m1", channelId: "c1", m: { seq: 2 } }
+    const unscoped = { id: "m2", m: { seq: 1 } }
+    const data = { mentions: [scoped, unscoped], truncated: false }
+    apiFetchMock.mockResolvedValue(data)
+    const { useInboxMentions } = await import("./use-inbox")
+    const { getActiveAccountUnreadProjection } = await import("./account-unread-projection")
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    qc.setQueryData(communityKeys.inboxMentions(), data)
+    const projection = getActiveAccountUnreadProjection(qc)
+    projection.recordRead("c1", 2)
+    projection.recordMentionArrival({ channelId: "pending", isMention: true })
+    let latest: ReturnType<typeof useInboxMentions> | undefined
+    function Harness() {
+      latest = useInboxMentions()
+      return null
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(Harness),
+      ))
+    })
+    expect(latest?.mentions).toEqual([unscoped])
+    expect(latest?.mentions[0]).toBe(unscoped)
+    expect(latest?.hasProjectedMention).toBe(true)
+    await act(async () => renderer.unmount())
+  })
+
+  it("returns an empty mention projection before query data arrives", async () => {
+    apiFetchMock.mockReturnValue(new Promise(() => undefined))
+    const { useInboxMentions } = await import("./use-inbox")
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    let latest: ReturnType<typeof useInboxMentions> | undefined
+    function Harness() {
+      latest = useInboxMentions()
+      return null
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(Harness),
+      ))
+    })
+    expect(latest?.mentions).toEqual([])
+    expect(latest?.hasProjectedMention).toBe(false)
+    await act(async () => renderer.unmount())
+  })
+
+  it("retains a legacy mention after it falls outside a later window", async () => {
+    const legacy = {
+      id: "legacy",
+      channelId: "c1",
+      serverId: "s1",
+      m: { id: "message" },
+    }
+    const data = { mentions: [legacy], truncated: true }
+    apiFetchMock.mockResolvedValue({ mentions: [], truncated: true })
+    const { useInboxMentions } = await import("./use-inbox")
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    qc.setQueryData(communityKeys.inboxMentions(), data)
+    let latest: ReturnType<typeof useInboxMentions> | undefined
+    function Harness() {
+      latest = useInboxMentions()
+      return null
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(Harness),
+      ))
+    })
+    await vi.waitFor(() => expect(latest?.mentions).toEqual([]))
+    expect(latest?.mentions).toEqual([])
+    expect(latest?.hasProjectedMention).toBe(true)
+    await act(async () => renderer.unmount())
   })
 })
 

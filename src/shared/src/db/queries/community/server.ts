@@ -282,6 +282,53 @@ export async function listUserServers(db: Database, userId: string) {
 }
 
 /**
+ * Exact per-channel evidence behind the human server-rail mention aggregate.
+ * Keep this separate from `listUserServers` so the bot payload remains byte
+ * compatible while the human API can expose absorption fences.
+ */
+export async function listUnreadMentionSources(db: Database, userId: string) {
+  return db
+    .select({
+      serverId: communityChannel.serverId,
+      channelId: communityChannel.id,
+      count: count().as("count"),
+      lastSeq: sql<number>`MAX(${communityMessage.seq})`.mapWith(Number),
+    })
+    .from(communityMention)
+    .innerJoin(communityMessage, eq(communityMessage.id, communityMention.messageId))
+    .innerJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
+    .leftJoin(
+      communityReadState,
+      and(
+        eq(communityReadState.userId, userId),
+        eq(communityReadState.channelId, communityChannel.id),
+      ),
+    )
+    .where(and(
+      eq(communityMention.userId, userId),
+      eq(communityMention.read, 0),
+      eq(communityMention.kind, MENTION_KIND.MENTION),
+      sql`${communityMessage.seq} > COALESCE(${communityReadState.lastReadSeq}, 0)`,
+      channelReadableSql(userId, {
+        id: communityChannel.id,
+        type: communityChannel.type,
+        serverId: communityChannel.serverId,
+        parentChannelId: communityChannel.parentChannelId,
+      }),
+      notificationEligibleSql(
+        userId,
+        {
+          id: communityChannel.id,
+          serverId: communityChannel.serverId,
+          parentChannelId: communityChannel.parentChannelId,
+        },
+        { id: communityMessage.id },
+      ),
+    ))
+    .groupBy(communityChannel.serverId, communityChannel.id)
+}
+
+/**
  * Resolve a server by unique handle, scoped to servers
  * `userId` is a member of.
  * Returns an ARRAY — the caller decides what "ambiguous" means (0 = not

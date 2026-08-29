@@ -69,7 +69,7 @@ describe("GET /api/community/users/me/inbox/mentions", () => {
     mockListUnreadMentions.mockResolvedValue([
       {
         mention: { id: "mn1", kind: "mention" },
-        message: { id: "m1", channelId: "c1", content: "@u1 hi", createdAt: "2026-06-25T10:00:00Z" },
+        message: { id: "m1", seq: 4, channelId: "c1", content: "@u1 hi", createdAt: "2026-06-25T10:00:00Z" },
         author: { id: "u-alice", name: "Alice", email: "alice@t.com", image: null },
       },
     ])
@@ -89,7 +89,7 @@ describe("GET /api/community/users/me/inbox/mentions", () => {
       // authorId is the beam-avatar seed the inbox popover renders from
       // (<Avatar seed={mn.m.authorId}>) — omitting it blanked image-less
       // authors' avatars, same bug the pins route had.
-      m: { id: "m1", authorId: "u-alice", authorName: "Alice", content: "@u1 hi" },
+      m: { id: "m1", seq: 4, authorId: "u-alice", authorName: "Alice", content: "@u1 hi" },
     })
   })
 
@@ -120,6 +120,36 @@ describe("GET /api/community/users/me/inbox/mentions", () => {
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/inbox/mentions?limit=99999"))
     const body = await res.json()
     expect(body.limit).toBe(200) // MAX_INBOX_PAGE_SIZE
-    expect(mockListUnreadMentions).toHaveBeenCalledWith({}, "u1", { limit: 200, visibleChannelIds: ["c1"] })
+    expect(mockListUnreadMentions).toHaveBeenCalledWith({}, "u1", { limit: 201, visibleChannelIds: ["c1"] })
+  })
+
+  it("uses limit+1 evidence and reports truncation without returning the sentinel row", async () => {
+    mockListUnreadMentions.mockResolvedValue([
+      ...Array.from({ length: 20 }, (_, index) => ({
+        mention: { id: `mn${index}`, kind: "mention" },
+        message: {
+          id: `m${index}`,
+          seq: index + 1,
+          channelId: "c1",
+          content: "hi",
+          createdAt: `2026-06-25T10:${String(index).padStart(2, "0")}:00Z`,
+        },
+        author: { id: "u2", name: "Alice", image: null, avatarVersion: 0 },
+      })),
+      {
+        mention: { id: "sentinel", kind: "mention" },
+        message: { id: "sentinel-message", seq: 21, channelId: "c1", content: "x", createdAt: "2026-06-25T11:00:00Z" },
+        author: { id: "u2", name: "Alice", image: null, avatarVersion: 0 },
+      },
+    ])
+    mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "general", serverId: "s1" }])
+    mockGetServersByIds.mockResolvedValue([{ id: "s1", name: "Server 1" }])
+
+    const body = await (await GET(new NextRequest(
+      "http://localhost/api/community/users/me/inbox/mentions?limit=20",
+    ))).json()
+    expect(body.truncated).toBe(true)
+    expect(body.mentions).toHaveLength(20)
+    expect(body.mentions.some((row: { id: string }) => row.id === "sentinel")).toBe(false)
   })
 })

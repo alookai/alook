@@ -7,11 +7,13 @@ import {
   type QueryFunctionContext,
   type UseQueryResult,
 } from "@tanstack/react-query"
+import { useEffect, useMemo, useSyncExternalStore } from "react"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
 import { isServerOwner, UNCATEGORIZED_CATEGORY_ID } from "@alook/shared"
 import type { Server, Category, Channel } from "@/lib/community/models/navigation"
+import { getActiveAccountUnreadProjection } from "./account-unread-projection"
 
 /**
  * Fetches the sidebar list of servers the current user is in.
@@ -32,6 +34,8 @@ type RawServerRow = {
   unread?: boolean
   description?: string | null
   ownerId: string
+  unreadSources?: Array<{ channelId: string; lastUnreadSeq: number }>
+  mentionSources?: Array<{ channelId: string; count: number; lastSeq: number }>
 }
 
 export type ServersResponse = { servers: Server[] }
@@ -62,6 +66,8 @@ export const serversQueryFn = async (
     mentions: s.mentions ?? 0,
     isOwner: isServerOwner(s.role),
     icon: s.icon ?? null,
+    ...(s.unreadSources ? { unreadSources: s.unreadSources } : {}),
+    ...(s.mentionSources ? { mentionSources: s.mentionSources } : {}),
   }))
   return { servers }
 }
@@ -91,9 +97,63 @@ export function useServers(): UseQueryResult<ServersResponse> & {
     staleTime: Infinity,
     refetchOnReconnect: true,
   })
+  const queryClient = useQueryClient()
+  const unreadProjection = useMemo(
+    () => getActiveAccountUnreadProjection(queryClient),
+    [queryClient],
+  )
+  const unreadVersion = useSyncExternalStore(
+    unreadProjection.subscribe,
+    unreadProjection.getSnapshot,
+    unreadProjection.getSnapshot,
+  )
+  useEffect(() => {
+    const sources = query.data?.servers.flatMap((server) => server.unreadSources ?? [])
+    if (sources) unreadProjection.absorbFamily("servers", sources)
+    if (!query.data) return
+    for (const server of query.data.servers) {
+      if (server.unreadSources) {
+        unreadProjection.absorbLegacyServerAggregate(server.id, server.unreadSources)
+      }
+    }
+    unreadProjection.recordLegacySnapshot(
+      query.data,
+      query.data.servers.flatMap((server) => (
+        server.unread && server.unreadSources === undefined
+          ? [{
+              family: "servers" as const,
+              channelId: `\u0000legacy-server:${server.id}`,
+              serverId: server.id,
+            }]
+          : []
+      )),
+    )
+  }, [query.data, unreadProjection])
+  const projectedServers = useMemo(() => {
+    void unreadVersion
+    const raw = query.data?.servers
+    if (!raw) return undefined
+    let changed = false
+    const projected = raw.map((server) => {
+      const unread = unreadProjection.projectServerUnread(
+        server.id,
+        server.unreadSources ?? [],
+        server.unread,
+      )
+      const mentions = unreadProjection.projectServerMentionCount(
+        server.id,
+        server.mentionSources ?? [],
+        server.mentions,
+      )
+      if (unread === server.unread && mentions === server.mentions) return server
+      changed = true
+      return { ...server, unread, mentions }
+    })
+    return changed ? projected : raw
+  }, [query.data, unreadProjection, unreadVersion])
   return {
     ...query,
-    servers: query.data?.servers ?? (EMPTY_SERVERS as Server[]),
+    servers: projectedServers ?? (EMPTY_SERVERS as Server[]),
   }
 }
 
@@ -109,6 +169,11 @@ export type ServerDetail = {
   categories: Category[]
   /** Canonical unread ownership for participating children of forum channels. */
   forumUnreadState?: ForumUnreadState
+  unreadSources?: Array<{
+    channelId: string
+    lastUnreadSeq: number
+    lastAttentionSeq: number | null
+  }>
 }
 
 type ForumUnreadState = Record<string, {
@@ -122,7 +187,17 @@ type RawChannel = Channel & { categoryId: string | null }
 type UnreadResponse = {
   stale?: boolean
   channelIds: string[]
-  childChannels?: Array<{ id: string; parentChannelId: string }>
+  sources?: Array<{
+    channelId: string
+    lastUnreadSeq: number
+    lastAttentionSeq: number | null
+  }>
+  childChannels?: Array<{
+    id: string
+    parentChannelId: string
+    lastUnreadSeq?: number
+    lastAttentionSeq?: number | null
+  }>
 }
 
 export const serverQueryFn = (
@@ -180,6 +255,7 @@ export const serverQueryFn = (
     ownerId: server.ownerId ?? "",
     categories,
     forumUnreadState,
+    ...(unreadData.sources ? { unreadSources: unreadData.sources } : {}),
   }
 }
 
@@ -192,6 +268,15 @@ export function useServer(
   serverId: string | null,
 ): UseQueryResult<ServerDetail> & { server: ServerDetail | null } {
   const queryClient = useQueryClient()
+  const unreadProjection = useMemo(
+    () => getActiveAccountUnreadProjection(queryClient),
+    [queryClient],
+  )
+  const unreadVersion = useSyncExternalStore(
+    unreadProjection.subscribe,
+    unreadProjection.getSnapshot,
+    unreadProjection.getSnapshot,
+  )
   const enabled = !!serverId
   const query = useQuery({
     queryKey: enabled ? communityKeys.server(serverId!) : communityKeys.server("__none__"),
@@ -207,8 +292,72 @@ export function useServer(
     staleTime: Infinity,
     refetchOnReconnect: true,
   })
+  useEffect(() => {
+    if (!serverId || !query.data) return
+    const family = `server-detail:${serverId}` as const
+    if (query.data.unreadSources) {
+      unreadProjection.absorbFamily(family, query.data.unreadSources)
+      return
+    }
+    unreadProjection.recordLegacySnapshot(
+      query.data,
+      query.data.categories.flatMap((category) => category.channels.flatMap((channel) => {
+        const forum = query.data?.forumUnreadState?.[channel.id]
+        if (forum) {
+          return [
+            ...(forum.baseUnread ? [{
+              family,
+              channelId: channel.id,
+              serverId,
+            }] : []),
+            ...forum.childIds.map((childId) => ({
+              family,
+              channelId: childId,
+              serverId,
+              railChannelId: channel.id,
+            })),
+          ]
+        }
+        return channel.unread ? [{ family, channelId: channel.id, serverId }] : []
+      })),
+    )
+  }, [query.data, serverId, unreadProjection])
+  const projectedServer = useMemo(() => {
+    void unreadVersion
+    if (!query.data || !serverId) return null
+    const sourceByChannel = new Map(
+      (query.data.unreadSources ?? []).map((source) => [source.channelId, source]),
+    )
+    let changed = false
+    const categories = query.data.categories.map((category) => {
+      let categoryChanged = false
+      const channels = category.channels.map((channel) => {
+        const forum = query.data?.forumUnreadState?.[channel.id]
+        const sourceIds = forum
+          ? [channel.id, ...forum.childIds]
+          : [channel.id]
+        const sources = sourceIds.flatMap((id) => {
+          const source = sourceByChannel.get(id)
+          return source ? [source] : []
+        })
+        const unread = unreadProjection.projectServerChannelUnread(
+          serverId,
+          channel.id,
+          sources,
+          channel.unread,
+        )
+        if (unread === channel.unread) return channel
+        categoryChanged = true
+        return { ...channel, unread }
+      })
+      if (!categoryChanged) return category
+      changed = true
+      return { ...category, channels }
+    })
+    return changed ? { ...query.data, categories } : query.data
+  }, [query.data, serverId, unreadProjection, unreadVersion])
   return {
     ...query,
-    server: query.data ?? null,
+    server: projectedServer,
   }
 }

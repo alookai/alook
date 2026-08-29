@@ -1,7 +1,6 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, type ReactNode } from "react"
-import { useQueryClient } from "@tanstack/react-query"
 import {
   useParams,
   usePathname,
@@ -16,7 +15,6 @@ import { useCommunityStore, useCurrentChannelId } from "@/stores/community"
 import { useDms } from "@/hooks/community/use-dms"
 import { useDmRouteVerification } from "@/hooks/community/use-dm-route-verification"
 import { useFriends, useFriendsPresence } from "@/hooks/community/use-friends"
-import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
@@ -64,7 +62,6 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   )
   const { blocked } = useFriends()
   const currentChannelId = useCurrentChannelId()
-  const queryClient = useQueryClient()
   const cancelPendingNavigation = useCallback(() => {
     useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.()
   }, [])
@@ -101,29 +98,11 @@ export default function MeLayout({ children }: { children: ReactNode }) {
     router.replace(ME_ROOT)
   }, [cancelPendingNavigation, meLocationStatus, pathname, router])
 
-  // Mirror channel sidebar-click behavior (channels/layout.tsx:226-236): do
-  // NOT eagerly mark the DM read on click. That fires a bodyless
-  // `PUT /channels/:id/read` which the server aligns to the DM's tail (see
-  // api/community/channels/[id]/read/route.ts) — the read-state snapshot then
-  // resolves at the tail on mount and `newDividerBefore` computes to
-  // `undefined`, so unread DMs open at the bottom with no NEW divider.
-  //
-  // Instead: client-only optimistic tint on the DM sidebar row so the badge
-  // fades on click (matches the pre-fix UX). The visible-row read observer
-  // advances the server pointer as the
-  // viewer actually looks at messages. If the user opens then leaves without
-  // scrolling to the new messages, the server watermark stays put and the
-  // badge re-appears on the next refetch, which is the correct behavior.
+  // Navigation is intentionally read-neutral. The visible-row observer owns
+  // both optimistic clearing and the durable cursor write.
   const enterDm = useCallback((id: string) => {
-    queryClient.setQueryData(
-      communityKeys.dms(),
-      (prev: { conversations: { id: string; unread?: boolean }[] } | undefined) =>
-        prev
-          ? { ...prev, conversations: prev.conversations.map((d) => (d.id === id ? { ...d, unread: false } : d)) }
-          : prev,
-    )
     useCommunityStore.getState().uiHandlers.navigatePath?.(`/c/me/${id}`)
-  }, [queryClient])
+  }, [])
 
   const onShowFriends = useCallback(() => {
     useCommunityStore.getState().setCurrentChannelId(null)

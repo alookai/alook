@@ -469,6 +469,45 @@ describe("listUserServers — mention aggregate for the rail badge", () => {
   });
 });
 
+describe("listUnreadMentionSources", () => {
+  it("returns grouped per-channel evidence through the policy joins", async () => {
+    const rows = [{ serverId: "srv_A", channelId: "ch_1", count: 2, lastSeq: 7 }];
+    const call: {
+      from?: unknown;
+      innerJoins: unknown[];
+      leftJoins: unknown[];
+      grouped?: unknown[];
+    } = { innerJoins: [], leftJoins: [] };
+    const chain: any = {};
+    chain.from = (table: unknown) => { call.from = table; return chain; };
+    chain.innerJoin = (table: unknown, condition: unknown) => {
+      call.innerJoins.push({ table, condition });
+      return chain;
+    };
+    chain.leftJoin = (table: unknown, condition: unknown) => {
+      call.leftJoins.push({ table, condition });
+      return chain;
+    };
+    chain.where = () => chain;
+    chain.groupBy = (...columns: unknown[]) => {
+      call.grouped = columns;
+      return Promise.resolve(rows);
+    };
+    const db = { select: vi.fn(() => chain) };
+
+    await expect(serverQueries.listUnreadMentionSources(db as any, "u_1"))
+      .resolves.toEqual(rows);
+    expect(call.from).toBe(communityMention);
+    expect(call.innerJoins.map((join: any) => join.table)).toEqual([
+      communityMessage,
+      communityChannel,
+    ]);
+    expect(call.leftJoins).toHaveLength(1);
+    expect((call.leftJoins[0] as any).table).toBe(communityReadState);
+    expect(call.grouped).toEqual([communityChannel.serverId, communityChannel.id]);
+  });
+});
+
 // The reply/DM/read exclusion semantics live in the subquery's WHERE clause.
 // We can't execute a WHERE against a mock, but we CAN pin that the subquery
 // is built with the right filter shape — a raw `sql` cast or a missing

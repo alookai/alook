@@ -103,6 +103,29 @@ describe("human account read-state writer contract", () => {
     ])
   })
 
+  it("keeps the account unread ledger synchronous and I/O-free", () => {
+    const projection = source(
+      "src/web/src/hooks/community/account-unread-projection.ts",
+    )
+    expect(projection).not.toMatch(/\b(?:apiFetch|fetch|setTimeout|setInterval)\s*\(/)
+    expect(projection).not.toMatch(
+      /queryClient\.(?:setQueryData|invalidateQueries|fetchQuery|refetchQueries|cancelQueries)\s*\(/,
+    )
+  })
+
+  it("keeps optimistic unread clearing owned by the visible-row observer", () => {
+    const webSourceRoot = resolve(repositoryRoot, "src/web/src")
+    const owners = walkTypeScript(webSourceRoot)
+      .filter((path) => !path.includes("/test/") && !path.endsWith(".test.ts"))
+      .filter((path) => /\.recordOptimisticRead\s*\(/.test(readFileSync(path, "utf8")))
+      .map((path) => relative(repositoryRoot, path).replaceAll("\\", "/"))
+      .sort()
+
+    expect(owners).toEqual([
+      "src/web/src/hooks/community/use-read-observer.ts",
+    ])
+  })
+
   it("keeps type-specific access in the adapter and the post-auth read effect generic", () => {
     const route = source("src/web/src/app/api/community/channels/[id]/read/route.ts")
     const postAuthorization = route.slice(route.indexOf("if (!auth.ok)"))

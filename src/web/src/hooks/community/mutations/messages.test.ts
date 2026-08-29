@@ -905,7 +905,7 @@ describe("useMarkAllInboxRead", () => {
     ])
   })
 
-  it("clears both inbox caches optimistically", async () => {
+  it("keeps raw inbox caches authoritative while projection fences hide the captured prefix", async () => {
     capturedQc.setQueryData(communityKeys.inboxUnreads(), {
       servers: [{ serverId: "s_1", serverName: "s", channels: [{ channelId: "ch_1" }] }],
     })
@@ -915,24 +915,40 @@ describe("useMarkAllInboxRead", () => {
     apiFetchMock.mockResolvedValue(undefined)
     const mod = await loadMod()
     mod.useMarkAllInboxRead()
-    await runMutation<void>(undefined as unknown as void)
-    expect(capturedQc.getQueryData(communityKeys.inboxUnreads())).toEqual({ servers: [], dms: [] })
-    expect(capturedQc.getQueryData(communityKeys.inboxMentions())).toEqual({ mentions: [] })
+    const cfg = capturedConfig as MutConfig<void, unknown>
+    await cfg.onMutate?.(undefined as unknown as void)
+    expect(capturedQc.getQueryData(communityKeys.inboxUnreads())).toEqual({
+      servers: [{ serverId: "s_1", serverName: "s", channels: [{ channelId: "ch_1" }] }],
+    })
+    expect(capturedQc.getQueryData(communityKeys.inboxMentions())).toEqual({
+      mentions: [{ id: "men_1" }],
+    })
+    const { getActiveAccountUnreadProjection } = await import(
+      "@/hooks/community/account-unread-projection"
+    )
+    expect(getActiveAccountUnreadProjection(capturedQc).projectUnread(
+      "inbox-unreads",
+      "ch_1",
+      true,
+      1,
+    )).toBe(false)
   })
 
-  it("onSuccess invalidates communityKeys.servers() so every rail badge drops to 0", async () => {
-    // Mark-all-read clears every unread mention row on the server — the rail
-    // aggregate must refresh across all servers, not just the inbox feeds.
-    apiFetchMock.mockResolvedValue(undefined)
+  it("reconciles fulfilled domains through the primary snapshot and server surfaces", async () => {
+    apiFetchMock.mockImplementation(async (path: string) => {
+      if (path === "/api/community/users/me/read-state") {
+        return { revision: 3, readStates: [] }
+      }
+      return { revision: 3 }
+    })
     const mod = await loadMod()
     mod.useMarkAllInboxRead()
     const spy = vi.spyOn(capturedQc, "invalidateQueries")
     await runMutation<void>(undefined as unknown as void)
-    const serversInvalidates = spy.mock.calls.filter((c) => {
+    await vi.waitFor(() => expect(spy.mock.calls.filter((c) => {
       const key = c[0]?.queryKey as unknown[] | undefined
       return Array.isArray(key) && key.length === 2 && key[0] === "community" && key[1] === "servers"
-    })
-    expect(serversInvalidates.length).toBeGreaterThanOrEqual(1)
+    }).length).toBeGreaterThanOrEqual(1))
   })
 
   it("toasts the failure reason when one of the three read-all POSTs fails", async () => {
@@ -941,6 +957,36 @@ describe("useMarkAllInboxRead", () => {
     mod.useMarkAllInboxRead()
     await runMutation<void>(undefined as unknown as void).catch(() => { })
     expect(toastMock).toHaveBeenCalledWith("boom")
+  })
+
+  it("rolls back every domain fence when all three read-all requests fail", async () => {
+    apiFetchMock.mockRejectedValue(new Error("all domains failed"))
+    const mod = await loadMod()
+    mod.useMarkAllInboxRead()
+
+    await expect(runMutation<void>(undefined as unknown as void))
+      .rejects.toThrow("all domains failed")
+
+    const { getActiveAccountUnreadProjection } = await import(
+      "@/hooks/community/account-unread-projection"
+    )
+    const projection = getActiveAccountUnreadProjection(capturedQc)
+    expect(projection.projectUnread("inbox-unreads", "channel", true, 1)).toBe(true)
+    expect(projection.projectUnread("dms", "dm", true, 1, "dms")).toBe(true)
+    expect(projection.projectUnread("inbox-mentions", "mention", true, 1, "mentions"))
+      .toBe(true)
+    expect(toastMock).toHaveBeenCalledWith("all domains failed")
+  })
+
+  it("ignores an unexpected result whose optimistic domain token is absent", async () => {
+    const mod = await loadMod()
+    mod.useMarkAllInboxRead()
+    const cfg = capturedConfig as MutConfig<void, { tokens: Map<string, unknown> }>
+    expect(() => cfg.onSuccess?.(
+      [{ domain: "channels", result: { status: "fulfilled", value: { revision: 1 } } }],
+      undefined as unknown as void,
+      { tokens: new Map() },
+    )).not.toThrow()
   })
 
   it("retries all three idempotent routes after mentions and DMs commit before unreads fails", async () => {

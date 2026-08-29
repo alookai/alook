@@ -37,6 +37,12 @@ import {
 } from "@/hooks/community/use-forum-sidebar-threads"
 import { reconcileForumOpenerTitle } from "@/hooks/community/forum-opener-title-reconciliation"
 import { isBlocked, type MentionType } from "@alook/shared"
+import {
+  getActiveAccountUnreadProjection,
+  type AccountUnreadDomain,
+  type MarkAllToken,
+} from "@/hooks/community/account-unread-projection"
+import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
 
 
 /**
@@ -802,32 +808,72 @@ export function useCreateThread() {
 
 export function useMarkAllInboxRead() {
   const queryClient = useQueryClient()
-  return useMutation<void, Error, void>({
+  const unreadProjection = getActiveAccountUnreadProjection(queryClient)
+  type ReadAllResponse = { revision: number }
+  type DomainResult = {
+    domain: AccountUnreadDomain
+    result: PromiseSettledResult<ReadAllResponse>
+  }
+  type MarkAllContext = { tokens: Map<AccountUnreadDomain, MarkAllToken> }
+  return useMutation<DomainResult[], Error, void, MarkAllContext>({
     mutationFn: async () => {
-      await Promise.all([
-        apiFetch("/api/community/users/me/inbox/mentions/read-all", { method: "POST" }),
-        apiFetch("/api/community/users/me/inbox/unreads/read-all", { method: "POST" }),
-        apiFetch("/api/community/users/me/inbox/dms/read-all", { method: "POST" }),
-      ])
+      const requests = [
+        ["mentions", "/api/community/users/me/inbox/mentions/read-all"],
+        ["channels", "/api/community/users/me/inbox/unreads/read-all"],
+        ["dms", "/api/community/users/me/inbox/dms/read-all"],
+      ] as const
+      const settled = await Promise.allSettled(requests.map(([, path]) => (
+        apiFetch<ReadAllResponse>(path, { method: "POST" })
+      )))
+      const results = requests.map(([domain], index) => ({
+        domain,
+        result: settled[index]!,
+      }))
+      const failures = results.filter(
+        (entry): entry is DomainResult & { result: PromiseRejectedResult } => (
+          entry.result.status === "rejected"
+        ),
+      )
+      if (failures.length === results.length) {
+        throw failures[0]!.result.reason
+      }
+      return results
     },
     onMutate: async () => {
-      // Clear both inbox keys so the popover's "caught up" empty state renders
-      // while the mutation is in flight. DMs live under `inboxUnreads` and are
-      // now marked read server-side too (the dms/read-all POST above).
-      queryClient.setQueryData(communityKeys.inboxUnreads(), { servers: [], dms: [] })
-      queryClient.setQueryData(communityKeys.inboxMentions(), { mentions: [] })
+      return {
+        tokens: new Map<AccountUnreadDomain, MarkAllToken>([
+          ["channels", unreadProjection.beginMarkAll("channels")],
+          ["dms", unreadProjection.beginMarkAll("dms")],
+          ["mentions", unreadProjection.beginMarkAll("mentions")],
+        ]),
+      }
     },
-    onSuccess: () => {
-      // "Mark everything read" clears every unread mention row — the rail
-      // badges across all servers must fall to 0 in one refetch.
-      void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+    onSuccess: (results, _variables, context) => {
+      let targetRevision = 0
+      let firstFailure: unknown
+      for (const { domain, result } of results) {
+        const token = context.tokens.get(domain)
+        if (!token) continue
+        if (result.status === "fulfilled") {
+          targetRevision = Math.max(targetRevision, result.value?.revision ?? 0)
+          unreadProjection.commitMarkAll(token, result.value?.revision ?? 0)
+        } else {
+          unreadProjection.rollbackMarkAll(token)
+          firstFailure ??= result.reason
+        }
+      }
+      if (firstFailure) toastApiError(firstFailure, "Some inbox items could not be marked read")
+      void reconcileAccountReadState(queryClient, {
+        surfaceMode: "all",
+        targetRevision,
+      }).catch(() => undefined)
     },
-    onError: (e) => {
+    onError: (e, _variables, context) => {
+      for (const token of context?.tokens.values() ?? []) {
+        unreadProjection.rollbackMarkAll(token)
+      }
       toastApiError(e, "Failed to mark inbox read")
       void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
-      // A partial write is possible (one of the two POSTs may have succeeded
-      // before the other failed) — refresh the rail badges too so the UI
-      // reflects whatever landed on the server.
       void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
     },
   })

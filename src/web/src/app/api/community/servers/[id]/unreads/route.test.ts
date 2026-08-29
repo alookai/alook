@@ -45,8 +45,19 @@ describe("GET /api/community/servers/[id]/unreads", () => {
     mockListVisibleChannelIds.mockResolvedValue(["channel_1", "channel_2"])
     mockListVisibleChannelIdsForUser.mockRejectedValue(new Error("cross-server resolver must not run"))
     mockListEligibleUnreadChannels.mockResolvedValue([
-      { serverId: "server_1", channelId: "channel_1" },
-      { serverId: "server_1", channelId: "channel_2", parentChannelId: "channel_1" },
+      {
+        serverId: "server_1",
+        channelId: "channel_1",
+        lastUnreadSeq: 7,
+        lastAttentionSeq: null,
+      },
+      {
+        serverId: "server_1",
+        channelId: "channel_2",
+        parentChannelId: "channel_1",
+        lastUnreadSeq: 11,
+        lastAttentionSeq: 10,
+      },
     ])
     mockListUnreadForumOpeners.mockResolvedValue([])
   })
@@ -60,7 +71,16 @@ describe("GET /api/community/servers/[id]/unreads", () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
       channelIds: ["channel_1", "channel_2"],
-      childChannels: [{ id: "channel_2", parentChannelId: "channel_1" }],
+      sources: [
+        { channelId: "channel_1", lastUnreadSeq: 7, lastAttentionSeq: null },
+        { channelId: "channel_2", lastUnreadSeq: 11, lastAttentionSeq: 10 },
+      ],
+      childChannels: [{
+        id: "channel_2",
+        parentChannelId: "channel_1",
+        lastUnreadSeq: 11,
+        lastAttentionSeq: 10,
+      }],
       stale: false,
     })
     expect(mockListVisibleChannelIds).toHaveBeenCalledWith(expect.anything(), "server_1", "user_1")
@@ -117,6 +137,11 @@ describe("GET /api/community/servers/[id]/unreads", () => {
     )
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ channelIds: [], childChannels: [], stale: true })
+    expect(await response.json()).toEqual({
+      channelIds: [],
+      sources: [],
+      childChannels: [],
+      stale: true,
+    })
   })
 })

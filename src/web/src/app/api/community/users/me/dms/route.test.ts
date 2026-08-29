@@ -6,6 +6,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockListDMs = vi.fn()
+const mockListEligibleUnreadDms = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -16,6 +17,9 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityDm: {
         listDMs: (...a: unknown[]) => mockListDMs(...a),
+      },
+      communityInbox: {
+        listEligibleUnreadDms: (...a: unknown[]) => mockListEligibleUnreadDms(...a),
       },
       communityFriendship: {
         isBlocked: vi.fn(),
@@ -53,7 +57,10 @@ function getReq() {
 }
 
 describe("GET /api/community/users/me/dms — name projection", () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockListEligibleUnreadDms.mockResolvedValue([])
+  })
 
   it("returns the counterpart's user.name verbatim (no email fallback)", async () => {
     // Post-migration 0050, user.name is CHECK-constrained non-empty. The
@@ -79,5 +86,30 @@ describe("GET /api/community/users/me/dms — name projection", () => {
     expect(body.conversations[0]?.name).toBe("Alice")
     expect(body.conversations[0]?.name).not.toContain("@")
     expect(body.conversations[0]?.avatar).toBe("A")
+  })
+
+  it("projects canonical unread state and its sequence evidence", async () => {
+    mockListDMs.mockResolvedValue([{
+      id: "d1",
+      otherUserId: "u2",
+      otherUserName: "Alice",
+      otherUserEmail: "alice@example.com",
+      otherUserImage: null,
+      otherUserAvatarVersion: 0,
+      otherUserDiscriminator: "0001",
+      lastMessageAt: "2026-06-30T00:00:00.000Z",
+      createdAt: "2026-06-30T00:00:00.000Z",
+    }])
+    mockListEligibleUnreadDms.mockResolvedValue([{
+      channelId: "d1",
+      lastUnreadSeq: 9,
+    }])
+
+    const res = await GET(getReq(), {} as any)
+    expect((await res.json()).conversations[0]).toMatchObject({
+      id: "d1",
+      unread: true,
+      lastUnreadSeq: 9,
+    })
   })
 })

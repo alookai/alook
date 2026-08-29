@@ -109,6 +109,7 @@ export type DM = CommunityUserCore & {
   status: Presence
   preview: string
   unread?: boolean
+  lastUnreadSeq?: number
 }
 
 // ── Settings rows ──────────────────────────────────────────────────────────

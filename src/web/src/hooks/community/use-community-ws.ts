@@ -18,6 +18,7 @@ import {
   dispatchCommunityWsEvents,
 } from "@/hooks/community/community-ws/registry"
 import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
+import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 import { runCommunityWsProjectionTransaction } from "@/hooks/community/community-ws/projection-transaction"
 import {
   invalidateDms,
@@ -221,6 +222,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   const viewerUserIdRef = useRef<string | null>(options?.viewerUserId ?? null)
   const hasAuthenticatedRef = useRef(false)
   const viewerUserId = options?.viewerUserId ?? null
+  if (viewerUserId) getAccountUnreadProjection(queryClient, viewerUserId)
   viewerUserIdRef.current = viewerUserId
   useEffect(() => {
     const store = useCommunityWsStore.getState()

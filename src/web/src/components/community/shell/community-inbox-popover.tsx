@@ -234,6 +234,8 @@ export function InboxPopover({
   marked,
   markedLoading,
   loading,
+  hasProjectedUnreads,
+  hasProjectedMentions,
   onOpenChannel,
   onOpenThread,
   onOpenForumThread,
@@ -252,6 +254,8 @@ export function InboxPopover({
   marked: Marked[]
   markedLoading?: boolean
   loading?: boolean
+  hasProjectedUnreads?: boolean
+  hasProjectedMentions?: boolean
   onOpenChannel?: (server: UnreadServer, channel: UnreadChannel) => void
   onOpenThread?: (server: UnreadServer, parent: UnreadChannel, child: UnreadChild) => void
   /** Compatibility for non-community showcase fixtures; product wiring uses onOpenThread. */
@@ -272,8 +276,9 @@ export function InboxPopover({
   isProjected?: (target: InboxRowTarget | null) => boolean
 }) {
   const profilesByUserId = useProfilesByUserId()
-  const hasUnreads = unreads.length > 0 || unreadDms.length > 0
-  const hasAnything = hasUnreads || mentions.length > 0
+  const hasUnreads = hasProjectedUnreads ?? (unreads.length > 0 || unreadDms.length > 0)
+  const hasMentions = hasProjectedMentions ?? mentions.length > 0
+  const hasAnything = hasUnreads || hasMentions
   return (
     <Tabs
       defaultValue="unreads"
@@ -303,7 +308,7 @@ export function InboxPopover({
         <TabsTrigger value="mentions">
           <span className="inline-flex items-center gap-2">
             Mentions
-            {mentions.length > 0 && <span className="size-1.5 rounded-full bg-primary" />}
+            {hasMentions && <span className="size-1.5 rounded-full bg-primary" />}
           </span>
         </TabsTrigger>
         <TabsTrigger value="marked">Marked</TabsTrigger>

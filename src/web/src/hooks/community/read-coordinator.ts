@@ -16,6 +16,7 @@ import {
   publishInboxProjectionGenerationTerminal,
   settleInboxReadReservationGeneration,
 } from "./inbox-read-reservation"
+import { getAccountUnreadProjection } from "./account-unread-projection"
 
 export const READ_COORDINATOR_DEBOUNCE_MS = 500
 
@@ -196,6 +197,8 @@ class ReadCoordinator {
         state.retryTimer = null
       }
       for (const generation of canceledGenerations) {
+        getAccountUnreadProjection(this.queryClient, this.ownerUserId)
+          .settleOptimisticRead(generation, false)
         void settleInboxReadReservationGeneration(
           this.queryClient,
           generation,
@@ -221,6 +224,20 @@ class ReadCoordinator {
       return null
     }
     if (this.confirmed(state, intent)) return null
+    const pendingSeq = Math.max(
+      state.accepted?.intent.seq ?? 0,
+      state.dirty?.intent.seq ?? 0,
+      state.inFlight?.target.intent.seq ?? 0,
+    )
+    if (pendingSeq >= intent.seq) return null
+    const supersededGenerations = new Set<number>()
+    for (const pending of [state.accepted, state.dirty]) {
+      if (
+        pending
+        && pending.intent.seq < intent.seq
+        && pending.generation !== state.inFlight?.target.generation
+      ) supersededGenerations.add(pending.generation)
+    }
     const queued = {
       intent,
       generation: ++this.latestIntentGeneration,
@@ -229,6 +246,10 @@ class ReadCoordinator {
     }
     state.accepted = laterIntent(state.accepted, queued)
     state.dirty = laterIntent(state.dirty, queued)
+    for (const generation of supersededGenerations) {
+      getAccountUnreadProjection(this.queryClient, this.ownerUserId)
+        .settleOptimisticRead(generation, false)
+    }
     this.schedule(state, READ_COORDINATOR_DEBOUNCE_MS)
     return queued.generation
   }
@@ -425,6 +446,8 @@ class ReadCoordinator {
         false,
         target.intent.channelId,
       )
+      getAccountUnreadProjection(this.queryClient, this.ownerUserId)
+        .settleOptimisticRead(target.generation, false)
       if (!retryable(error)) {
         if (state.dirty && sameIntent(state.dirty, target)) state.dirty = null
         state.retryCount = 0
@@ -454,15 +477,15 @@ class ReadCoordinator {
       return { committed: false, reconciled: false }
     }
     state.confirmedSeq = Math.max(state.confirmedSeq, response.targetSeq)
+    getAccountUnreadProjection(this.queryClient, this.ownerUserId)
+      .settleOptimisticRead(target.generation, true, response.targetSeq)
     state.dirty = sameIntent(state.dirty ?? target, target) ? null : state.dirty
     state.retryCount = 0
     if (state.inFlight?.attemptEpoch === attemptEpoch) {
       state.inFlight.phase = "reconciling"
     }
-    const activeAttempt = state.inFlight?.attemptEpoch === attemptEpoch
-      ? state.inFlight
-      /* istanbul ignore next -- attemptActive succeeded and no write or await can replace inFlight */
-      : null
+    // `attemptActive` succeeded after the last await, so this attempt still owns inFlight.
+    const activeAttempt = state.inFlight!
     const deferInboxDms = activeAttempt?.deferInboxDms?.() === true
       || (activeAttempt?.drainCutoff !== undefined
         && state.accepted !== null
@@ -510,11 +533,11 @@ class ReadCoordinator {
     state: ScopeState,
     attemptEpoch: number,
   ) {
-    const drainCutoff = state.inFlight?.attemptEpoch === attemptEpoch
-      ? state.inFlight.drainCutoff
-      /* istanbul ignore next -- this reconciliation finally is the attempt's only finisher */
-      : undefined
-    if (state.inFlight?.attemptEpoch === attemptEpoch) state.inFlight = null
+    let drainCutoff: number | undefined
+    if (state.inFlight?.attemptEpoch === attemptEpoch) {
+      drainCutoff = state.inFlight.drainCutoff
+      state.inFlight = null
+    }
     if (this.disposed || !state.accepted || state.retryTimer !== null) return
     if (
       drainCutoff !== undefined

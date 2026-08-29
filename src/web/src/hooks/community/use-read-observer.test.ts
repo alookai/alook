@@ -15,6 +15,9 @@ const reservation = vi.hoisted(() => ({
   promote: vi.fn(),
   negative: vi.fn(() => true),
 }))
+const projection = vi.hoisted(() => ({
+  recordOptimisticRead: vi.fn(),
+}))
 const hookState = vi.hoisted(() => ({
   candidate: null as null | {
     channelId: string
@@ -85,6 +88,10 @@ vi.mock("./inbox-read-reservation", () => ({
   releaseInboxReadReservationSurface: (...args: unknown[]) => reservation.release(...args),
   promoteInboxReadReservation: (...args: unknown[]) => reservation.promote(...args),
   takeInboxReadReservationNegative: (...args: unknown[]) => reservation.negative(...args),
+}))
+
+vi.mock("./account-unread-projection", () => ({
+  getAccountUnreadProjection: () => projection,
 }))
 
 import { useTimelineReadObserver } from "./use-read-observer"
@@ -240,6 +247,18 @@ describe("useTimelineReadObserver", () => {
       messageId: "message-4",
       seq: 4,
     })
+    expect(projection.recordOptimisticRead).toHaveBeenCalledWith("channel-1", 4, 1)
+  })
+
+  it("does not clear projection or promote an Inbox lease when the coordinator rejects intent", () => {
+    coordinator.submit.mockReturnValueOnce(null)
+    const { row } = useTestRender()
+    runEffects()
+
+    trigger(observers[0]!, row)
+
+    expect(projection.recordOptimisticRead).not.toHaveBeenCalled()
+    expect(reservation.promote).not.toHaveBeenCalled()
   })
 
   it("keeps observing visible rows when MutationObserver is unavailable", () => {

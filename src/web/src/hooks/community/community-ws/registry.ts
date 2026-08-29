@@ -116,8 +116,52 @@ export function dispatchCommunityWsEvents(
   events: readonly CommunityWsEvent[],
   context: CommunityWsDispatchContext,
 ) {
+  const createsByChannel = new Map<string, Array<Extract<CommunityWsEvent, {
+    type: "community:message.create"
+  }>>>()
+  for (const event of events) {
+    if (event.type !== "community:message.create") continue
+    const creates = createsByChannel.get(event.channelId) ?? []
+    creates.push(event)
+    createsByChannel.set(event.channelId, creates)
+  }
+  const unreadBumpEvidence = new Map<CommunityWsEvent, {
+    messageId: string
+    seq: number
+    createdAt: string
+  }>()
+  const messageEvidenceByChannel = new Map<string, {
+    messageId: string
+    seq: number
+    createdAt: string
+  }>()
+  for (const [channelId, creates] of createsByChannel) {
+    if (creates.length !== 1) continue
+    const message = creates[0]!.message
+    messageEvidenceByChannel.set(channelId, {
+      messageId: message.id,
+      seq: message.seq,
+      createdAt: message.createdAt,
+    })
+  }
+  for (const event of events) {
+    if (event.type !== "community:unread.bump") continue
+    const creates = createsByChannel.get(event.channelId) ?? []
+    if (creates.length !== 1) continue
+    const message = creates[0]!.message
+    unreadBumpEvidence.set(event, {
+      messageId: message.id,
+      seq: message.seq,
+      createdAt: message.createdAt,
+    })
+  }
   runCommunityWsProjectionTransaction(context.queryClient, (projection) => {
-    const handlerContext: CommunityWsHandlerContext = { ...context, projection }
+    const handlerContext: CommunityWsHandlerContext = {
+      ...context,
+      projection,
+      unreadBumpEvidence,
+      messageEvidenceByChannel,
+    }
     for (const event of events) {
       const entry = communityWsRegistry[event.type] as RegistryEntry<typeof event.type>
       entry.handler(event, handlerContext)

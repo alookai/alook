@@ -2,6 +2,7 @@ import { notifyManager, type QueryClient, type QueryKey } from "@tanstack/react-
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { projectReadCoordinatorSnapshot } from "@/hooks/community/read-coordinator-snapshot-projection"
+import { acceptAccountUnreadPrimarySnapshot } from "@/hooks/community/account-unread-projection"
 
 type AccountReadState = {
   channelId: string
@@ -98,12 +99,14 @@ function applyAccountReadStateSnapshot(
     // concurrent auth/live reconciliations joined the same HTTP request.
     projectReadStateRows(queryClient, snapshot)
     projectReadCoordinatorSnapshot(queryClient, snapshot)
+    acceptAccountUnreadPrimarySnapshot(queryClient, snapshot)
     return "stale" as const
   }
   notifyManager.batch(() => {
     queryClient.setQueryData(communityKeys.accountReadStateSnapshot(), snapshot)
     projectReadStateRows(queryClient, snapshot)
     projectReadCoordinatorSnapshot(queryClient, snapshot)
+    acceptAccountUnreadPrimarySnapshot(queryClient, snapshot)
   })
   return "applied" as const
 }

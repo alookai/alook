@@ -21,7 +21,13 @@ import { canonicalUserImage } from "@/lib/community/storage"
  */
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
-  const rows = await queries.communityDm.listDMs(db, ctx.userId)
+  const [rows, unreadRows] = await Promise.all([
+    queries.communityDm.listDMs(db, ctx.userId),
+    queries.communityInbox.listEligibleUnreadDms(db, ctx.userId),
+  ])
+  const unreadByChannelId = new Map(
+    unreadRows.map((row) => [row.channelId, row.lastUnreadSeq]),
+  )
   const conversations = rows.map((r) => ({
     id: r.id,
     userId: r.otherUserId,
@@ -32,6 +38,10 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
     avatarVersion: r.otherUserAvatarVersion,
     status: "offline" as const,
     preview: "",
+    unread: unreadByChannelId.has(r.id),
+    ...(unreadByChannelId.has(r.id)
+      ? { lastUnreadSeq: unreadByChannelId.get(r.id) }
+      : {}),
   }))
   return writeJSON({ conversations })
 })

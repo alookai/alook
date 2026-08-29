@@ -2,6 +2,16 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 
+vi.mock("react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react")>()
+  return {
+    ...actual,
+    useEffect: (effect: () => void) => effect(),
+    useMemo: <T,>(factory: () => T) => factory(),
+    useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) => getSnapshot(),
+  }
+})
+
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
@@ -13,6 +23,7 @@ type CapturedQueryConfig = {
 }
 let capturedQueryConfig: CapturedQueryConfig | null = null
 let capturedHookQueryClient: QueryClient
+let capturedHookQueryData: unknown
 vi.mock("@tanstack/react-query", async () => {
   const actual = await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query")
   return {
@@ -20,7 +31,7 @@ vi.mock("@tanstack/react-query", async () => {
     useQueryClient: () => capturedHookQueryClient,
     useQuery: (config: CapturedQueryConfig) => {
       capturedQueryConfig = config
-      return { data: undefined }
+      return { data: capturedHookQueryData }
     },
   }
 })
@@ -29,6 +40,7 @@ beforeEach(() => {
   apiFetchMock.mockReset()
   capturedQueryConfig = null
   capturedHookQueryClient = new QueryClient()
+  capturedHookQueryData = undefined
 })
 
 describe("useServers / serversQueryFn", () => {
@@ -98,6 +110,87 @@ describe("useServers / serversQueryFn", () => {
     await qc.fetchQuery({ queryKey: key, queryFn: serversQueryFn })
     expect(qc.getQueryData(key)).toEqual({ servers: [] })
   })
+
+  it("projects a live unread arrival and preserves unchanged server identity", async () => {
+    const changed = {
+      id: "s1",
+      unread: false,
+      mentions: 0,
+      unreadSources: [],
+      mentionSources: [],
+    }
+    const unchanged = {
+      id: "s2",
+      unread: true,
+      mentions: 2,
+      unreadSources: [{ channelId: "c2", lastUnreadSeq: 2 }],
+      mentionSources: [{ channelId: "c2", count: 2, lastSeq: 2 }],
+    }
+    const legacy = { id: "s3", unread: true, mentions: 0 }
+    const raw = [changed, unchanged, legacy]
+    capturedHookQueryData = { servers: raw }
+    const { getActiveAccountUnreadProjection } = await import("./account-unread-projection")
+    getActiveAccountUnreadProjection(capturedHookQueryClient).recordArrival({
+      channelId: "c1",
+      serverId: "s1",
+      seq: 1,
+    })
+    const { useServers } = await import("./use-servers")
+
+    const result = useServers()
+
+    expect(result.servers).not.toBe(raw)
+    expect(result.servers[0]).not.toBe(changed)
+    expect(result.servers[0]?.unread).toBe(true)
+    expect(result.servers[1]).toBe(unchanged)
+    expect(result.servers[2]).toBe(legacy)
+  })
+
+  it("returns the frozen empty server list before query data arrives", async () => {
+    const { useServers } = await import("./use-servers")
+    const first = useServers().servers
+    const second = useServers().servers
+    expect(first).toBe(second)
+    expect(first).toEqual([])
+  })
+
+  it("retains a rolling-deploy rail unread without a source vector", async () => {
+    capturedHookQueryData = {
+      servers: [{ id: "s1", unread: true, mentions: 0 }],
+    }
+    const { useServers } = await import("./use-servers")
+    expect(useServers().servers[0]?.unread).toBe(true)
+
+    capturedHookQueryData = {
+      servers: [{ id: "s1", unread: false, mentions: 0 }],
+    }
+    expect(useServers().servers[0]?.unread).toBe(true)
+  })
+
+  it("hands a rolling-deploy rail unread to exact sources once they arrive", async () => {
+    capturedHookQueryData = {
+      servers: [{ id: "s1", unread: true, mentions: 0 }],
+    }
+    const { useServers } = await import("./use-servers")
+    expect(useServers().servers[0]?.unread).toBe(true)
+
+    capturedHookQueryData = {
+      servers: [{
+        id: "s1",
+        unread: true,
+        mentions: 0,
+        unreadSources: [{ channelId: "c1", lastUnreadSeq: 4 }],
+      }],
+    }
+    expect(useServers().servers[0]?.unread).toBe(true)
+
+    const { getActiveAccountUnreadProjection } = await import("./account-unread-projection")
+    getActiveAccountUnreadProjection(capturedHookQueryClient).acceptPrimarySnapshot({
+      revision: 1,
+      readStates: [{ channelId: "c1", lastReadSeq: 4 }],
+    })
+    expect(useServers().servers[0]?.unread).toBe(false)
+  })
 })
 
 describe("useServer / serverQueryFn", () => {
@@ -111,6 +204,72 @@ describe("useServer / serverQueryFn", () => {
     expect(disabledQueryFn).toBeTypeOf("function")
     await expect(disabledQueryFn?.()).rejects.toThrow("disabled")
     expect(apiFetchMock).not.toHaveBeenCalled()
+  })
+
+  it("projects server-detail channels while preserving unchanged category paths", async () => {
+    const changedChannel = { id: "c1", unread: false }
+    const unchangedChannel = { id: "c2", unread: true }
+    const changedCategory = { id: "cat1", channels: [changedChannel] }
+    const unchangedCategory = { id: "cat2", channels: [unchangedChannel] }
+    const detail = {
+      id: "s1",
+      categories: [changedCategory, unchangedCategory],
+      unreadSources: [{ channelId: "c1", lastUnreadSeq: 1, lastAttentionSeq: null }],
+      forumUnreadState: {},
+    }
+    capturedHookQueryData = detail
+    const { getActiveAccountUnreadProjection } = await import("./account-unread-projection")
+    getActiveAccountUnreadProjection(capturedHookQueryClient).recordArrival({
+      channelId: "c1",
+      serverId: "s1",
+      seq: 1,
+    })
+    const { useServer } = await import("./use-servers")
+
+    const result = useServer("s1")
+
+    expect(result.server).not.toBe(detail)
+    expect(result.server?.categories[0]).not.toBe(changedCategory)
+    expect(result.server?.categories[0]?.channels[0]?.unread).toBe(true)
+    expect(result.server?.categories[1]).toBe(unchangedCategory)
+    expect(result.server?.categories[1]?.channels[0]).toBe(unchangedChannel)
+  })
+
+  it("retains rolling-deploy server-detail unread rows without source vectors", async () => {
+    const channel = { id: "c1", unread: true }
+    const baseUnreadForum = { id: "forum-base", unread: false }
+    const childUnreadForum = { id: "forum-child", unread: false }
+    const detail = {
+      id: "s1",
+      categories: [{
+        id: "cat1",
+        channels: [channel, baseUnreadForum, childUnreadForum],
+      }],
+      forumUnreadState: {
+        "forum-base": { baseUnread: true, childIds: [] },
+        "forum-child": { baseUnread: false, childIds: ["child"] },
+      },
+    }
+    capturedHookQueryData = detail
+    const { useServer } = await import("./use-servers")
+    const first = useServer("s1")
+    expect(first.server?.categories[0]?.channels[0]?.unread).toBe(true)
+    expect(first.server?.categories[0]?.channels[1]?.unread).toBe(true)
+    expect(first.server?.categories[0]?.channels[2]?.unread).toBe(true)
+
+    capturedHookQueryData = {
+      ...detail,
+      categories: [{
+        id: "cat1",
+        channels: [
+          { id: "c1", unread: false },
+          { id: "forum-base", unread: false },
+          { id: "forum-child", unread: false },
+        ],
+      }],
+    }
+    const second = useServer("s1")
+    expect(second.server?.categories[0]?.channels[0]?.unread).toBe(true)
   })
 
   it("composes a single server detail from canonical resources", async () => {

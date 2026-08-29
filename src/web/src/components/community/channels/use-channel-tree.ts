@@ -180,12 +180,6 @@ export function useChannelTree(categories: Category[]) {
       if (!cat) return prev
       return { ...prev, [cat]: prev[cat].map((c) => c.id === id ? { ...c, name } : c) }
     }), [])
-  const markRead = useCallback((id: string) =>
-    setOrder((prev) => {
-      const cat = catOf(id, prev)
-      if (!cat) return prev
-      return { ...prev, [cat]: prev[cat].map((c) => c.id === id ? { ...c, unread: false } : c) }
-    }), [])
   // Category delete is driven by the query cache (useDeleteCategory's optimistic
   // onMutate/onError), so the tree resettles from `categories` — no local
   // removal helper (a local one had no rollback path; see the mutation hook).
@@ -224,11 +218,11 @@ export function useChannelTree(categories: Category[]) {
 
   return useMemo(() => ({
     collapsed, catOrder, order, catNames, catPrivate, catPending, catCreators,
-    toggleCat, removeChannel, renameChannel, markRead,
+    toggleCat, removeChannel, renameChannel,
     renameCategory, onDragOver, onDragEnd,
   }), [
     collapsed, catOrder, order, catNames, catPrivate, catPending, catCreators,
-    toggleCat, removeChannel, renameChannel, markRead,
+    toggleCat, removeChannel, renameChannel,
     renameCategory, onDragOver, onDragEnd,
   ])
 }

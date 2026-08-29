@@ -37,6 +37,11 @@ export const GET = withAuth(async (_req, ctx) => {
       )
       return {
         channelIds: projectedUnread.map((row) => row.channelId),
+        sources: projectedUnread.map((row) => ({
+          channelId: row.channelId,
+          lastUnreadSeq: row.lastUnreadSeq,
+          lastAttentionSeq: row.lastAttentionSeq,
+        })),
         // Preserve the canonical child → parent attribution. The client needs
         // this even when a participating forum post is outside the sidebar's
         // 72h / top-five projection, otherwise a cold boot loses its unread
@@ -44,16 +49,31 @@ export const GET = withAuth(async (_req, ctx) => {
         // access, archive, participant, read-cursor, and policy filtering;
         // the client narrows them to parents whose canonical type is `forum`.
         childChannels: projectedUnread.flatMap((row) => row.parentChannelId
-          ? [{ id: row.channelId, parentChannelId: row.parentChannelId }]
+          ? [{
+              id: row.channelId,
+              parentChannelId: row.parentChannelId,
+              lastUnreadSeq: row.lastUnreadSeq,
+              lastAttentionSeq: row.lastAttentionSeq,
+            }]
           : []),
       }
     },
-    { channelIds: [] as string[], childChannels: [] as Array<{ id: string; parentChannelId: string }> },
+    {
+      channelIds: [] as string[],
+      sources: [] as Array<{ channelId: string; lastUnreadSeq: number; lastAttentionSeq: number | null }>,
+      childChannels: [] as Array<{
+        id: string
+        parentChannelId: string
+        lastUnreadSeq: number
+        lastAttentionSeq: number | null
+      }>,
+    },
     { route: "community/servers/:id/unreads" },
   )
 
   return NextResponse.json({
     channelIds: value.channelIds,
+    sources: value.sources,
     childChannels: value.childChannels,
     stale,
   })

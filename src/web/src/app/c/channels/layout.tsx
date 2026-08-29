@@ -2,15 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation"
-import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
-import { communityKeys } from "@/lib/query-keys"
 import { markSwitch } from "@/lib/perf/switch-mark"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { useChannelTree } from "@/components/community/channels/use-channel-tree"
-import { patchChannelUnread } from "@/hooks/community/server-detail-cache"
-import type { ServerDetail } from "@/hooks/community/use-servers"
 import { ShellFrame } from "@/components/community/shell/shell-frame"
 import {
   channelHref,
@@ -41,10 +37,7 @@ import {
 import { clearLastChannel } from "@/lib/community/last-channel"
 import { usePresence } from "@/hooks/community/use-server-panels"
 import {
-  patchForumSidebarUnreadExact,
-  removeForumSidebarUnreadChild,
   resolveForumSidebarRouteCandidate,
-  setForumSidebarParentUnreadBase,
   useForumSidebarThreads,
   type ForumSidebarThread,
 } from "@/hooks/community/use-forum-sidebar-threads"
@@ -82,7 +75,6 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const breakpoint = useBreakpoint()
 
   const router = useRouter()
-  const queryClient = useQueryClient()
   const cancelPendingNavigation = useCallback(() => {
     useCommunityStore.getState().uiHandlers.cancelPendingNavigation?.()
   }, [])
@@ -289,42 +281,12 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     // mounted ChannelView sync the store in its own useEffect keeps skeleton
     // type consistent with the target channel.
     //
-    // Also do NOT eagerly mark the channel read. The visible-row read observer
-    // advances the pointer as the user actually looks at messages. Clicking
-    // the sidebar is not "I read everything"; it's just a navigation event.
-    // `channelTree.markRead(id)` is a client-only tint (unread flag on the
-    // sidebar row) — kept so the badge fades on click as it did before. If
-    // the user then never scrolls to the new messages, the server-side
-    // watermark stays put and the badge will re-appear on next refetch,
-    // which is the correct behavior.
-    //
-    // Also patch the `ServerDetail` query cache (not just the local
-    // `channelTree` state) to `unread: false` for this channel, via the same
-    // `patchChannelUnread` helper the WS handler uses for the opposite
-    // direction. This is still just an optimistic *client-side* tint — the
-    // server-side watermark stays authoritative, and a subsequent real
-    // refetch will correctly re-flip `unread` to `true` if the user never
-    // actually scrolled into the channel. Without this cache patch, an
-    // unrelated sibling-channel WS patch would resurrect the just-cleared dot
-    // before the user even navigates away — `useChannelTree`'s metadata merge
-    // trusts the cache unconditionally, so both directions must write to it.
+    // The visible-row observer is the only optimistic/read writer. Navigation
+    // itself must leave account unread state untouched.
     markSwitch("channel", id)
     cancelPendingNavigation()
     useCommunityStore.getState().uiHandlers.navigatePath?.(channelHref(serverId, id))
-    channelTree.markRead(id)
-    const hasChildFallback = setForumSidebarParentUnreadBase(
-      queryClient,
-      serverId,
-      id,
-      false,
-    )
-    if (!hasChildFallback) {
-      queryClient.setQueryData<ServerDetail | undefined>(
-        communityKeys.server(serverId),
-        (cache) => patchChannelUnread(cache, id, false),
-      )
-    }
-  }, [cancelPendingNavigation, channelTree, queryClient, serverId])
+  }, [cancelPendingNavigation, serverId])
 
   const setActiveForumThread = useCallback((_parentId: string, id: string) => {
     markSwitch("channel", id)
@@ -332,9 +294,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     useCommunityStore.getState().uiHandlers.navigatePath?.(
       channelHref(serverId, id),
     )
-    removeForumSidebarUnreadChild(queryClient, serverId, id)
-    patchForumSidebarUnreadExact(queryClient, serverId, id, false)
-  }, [cancelPendingNavigation, queryClient, serverId])
+  }, [cancelPendingNavigation, serverId])
 
   const prefetchChannel = useCallback(
     (id: string, _parentId?: string) => router.prefetch(channelHref(serverId, id)),

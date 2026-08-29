@@ -48,6 +48,7 @@ type UnreadChild = {
   // MessagesSquare). Optional for backward-compat with cached responses.
   type?: EntityKind
   lastMessageAt: string
+  lastUnreadSeq?: number
   mentionCount: number
   // Required together when canonical parent-opener metadata is available.
   // The child id remains the navigation target; opener seq belongs to the
@@ -71,6 +72,7 @@ export type UnreadServer = {
     // channel shows the forum glyph, not a generic hash.
     type?: EntityKind
     lastMessageAt: string
+    lastUnreadSeq?: number
     mentionCount: number
     hasDirectUnread?: boolean
     children: UnreadChild[]
@@ -89,4 +91,5 @@ export type UnreadDm = {
   otherUserAvatar: string
   otherUserAvatarVersion: number
   lastMessageAt: string
+  lastUnreadSeq?: number
 }

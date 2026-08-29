@@ -133,9 +133,10 @@ test.describe.serial("invite and participant picker async states", () => {
       await dmGate.promise
       await route.continue()
     })
-    await expect(dialog.getByRole("button", { name: "Invite" })).toHaveCount(2)
     const selectedRow = dialog.getByText(bobName, { exact: true }).locator("..").locator("..")
     const otherRow = dialog.getByText(carolName, { exact: true }).locator("..").locator("..")
+    await expect(selectedRow.getByRole("button", { name: "Invite" })).toHaveCount(1)
+    await expect(otherRow.getByRole("button", { name: "Invite" })).toHaveCount(1)
     await selectedRow.getByRole("button", { name: "Invite" }).click()
     await expect.poll(() => writes.filter((path) => path === "/api/community/channels").length).toBe(1)
     await expect(selectedRow.locator("button")).toBeDisabled()
