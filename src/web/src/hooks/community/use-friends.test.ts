@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { QueryClient } from "@tanstack/react-query"
+import { createElement } from "react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 
 const apiFetchMock = vi.fn()
@@ -78,5 +79,64 @@ describe("useFriendsPresence / friendsPresenceQueryFn", () => {
     // presence key — one invalidation refreshes both.
     await qc.invalidateQueries({ queryKey: communityKeys.friends() })
     expect(qc.getQueryState(key)?.isInvalidated).toBe(true)
+  })
+
+  it("can defer the friends presence fetch until its surface opens", async () => {
+    apiFetchMock.mockResolvedValue({ online: ["u1"] })
+    const { useFriendsPresence } = await import("./use-friends")
+    const TestRenderer = await import("react-test-renderer")
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    function Probe({ enabled }: { enabled: boolean }) {
+      useFriendsPresence(enabled)
+      return null
+    }
+
+    let renderer: ReturnType<typeof TestRenderer.create> | undefined
+    await TestRenderer.act(async () => {
+      renderer = TestRenderer.create(createElement(
+        QueryClientProvider,
+        { client: qc },
+        createElement(Probe, { enabled: false }),
+      ))
+    })
+    expect(apiFetchMock).not.toHaveBeenCalled()
+
+    await TestRenderer.act(async () => {
+      renderer?.update(createElement(
+        QueryClientProvider,
+        { client: qc },
+        createElement(Probe, { enabled: true }),
+      ))
+    })
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+
+    await TestRenderer.act(async () => renderer?.unmount())
+    qc.clear()
+  })
+
+  it("fetches by default when no enabled override is provided", async () => {
+    apiFetchMock.mockResolvedValue({ online: ["u1"] })
+    const { useFriendsPresence } = await import("./use-friends")
+    const TestRenderer = await import("react-test-renderer")
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    function Probe() {
+      useFriendsPresence()
+      return null
+    }
+
+    let renderer: ReturnType<typeof TestRenderer.create> | undefined
+    await TestRenderer.act(async () => {
+      renderer = TestRenderer.create(createElement(
+        QueryClientProvider,
+        { client: qc },
+        createElement(Probe),
+      ))
+    })
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledOnce())
+
+    await TestRenderer.act(async () => renderer?.unmount())
+    qc.clear()
   })
 })

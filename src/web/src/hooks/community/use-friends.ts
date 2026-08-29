@@ -92,13 +92,14 @@ export const friendsPresenceQueryFn = () =>
 
 const EMPTY_ONLINE: readonly string[] = Object.freeze([])
 
-export function useFriendsPresence(): UseQueryResult<FriendsPresenceResponse> & {
+export function useFriendsPresence(enabled = true): UseQueryResult<FriendsPresenceResponse> & {
   online: readonly string[]
 } {
   const query = useQuery({
     queryKey: communityKeys.friendsPresence(),
     queryFn: friendsPresenceQueryFn,
     placeholderData: keepPreviousData,
+    enabled,
   })
   return {
     ...query,
