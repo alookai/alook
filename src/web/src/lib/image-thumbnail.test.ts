@@ -159,4 +159,24 @@ describe("generateThumbnail", () => {
 
     await expect(prepareCommunityImage(file)).rejects.toThrow("required image preview")
   })
+
+  it("throws when an over-byte-limit image cannot be decoded", async () => {
+    stubBrowserImageApis()
+    FakeImage.nextShouldError = true
+    const file = new File(
+      [new Uint8Array(512 * 1024 + 1)],
+      "corrupt.png",
+      { type: "image/png" },
+    )
+
+    await expect(prepareCommunityImage(file)).rejects.toThrow("required image preview")
+  })
+
+  it("returns null when an under-limit image cannot be decoded", async () => {
+    stubBrowserImageApis()
+    FakeImage.nextShouldError = true
+    const file = new File([new Uint8Array([0])], "corrupt.png", { type: "image/png" })
+
+    await expect(prepareCommunityImage(file)).resolves.toBeNull()
+  })
 })

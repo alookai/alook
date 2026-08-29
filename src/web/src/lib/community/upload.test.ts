@@ -152,6 +152,24 @@ function sofOnlyJpegFile(width = 640, height = 480) {
   }
 }
 
+function structuredJpegFile(bytes: number[]) {
+  const data = Uint8Array.from(bytes)
+  return {
+    ...fakeFile("thumbnail.jpg", "image/jpeg", data.byteLength),
+    arrayBuffer: async () => data.buffer,
+  }
+}
+
+function restartMarkerJpegFile() {
+  return structuredJpegFile([
+    0xff, 0xd8,
+    0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00,
+    0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00,
+    0x01, 0xff, 0xd0, 0x02,
+    0xff, 0xd9,
+  ])
+}
+
 describe("handleAttachmentUpload", () => {
   beforeEach(() => vi.clearAllMocks())
 
@@ -249,6 +267,52 @@ describe("handleAttachmentUpload", () => {
     if (res.ok) return
     expect(await res.response.json()).toMatchObject({ error: "invalid jpeg thumbnail" })
     expect(put).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {
+      label: "a mismatched SOF component length",
+      thumbnail: structuredJpegFile([
+        0xff, 0xd8,
+        0xff, 0xc0, 0x00, 0x0c, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00, 0x00,
+        0xff, 0xd9,
+      ]),
+    },
+    {
+      label: "a mismatched SOS component length",
+      thumbnail: structuredJpegFile([
+        0xff, 0xd8,
+        0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00,
+        0xff, 0xda, 0x00, 0x09, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00, 0x00,
+        0x01, 0xff, 0xd9,
+      ]),
+    },
+    {
+      label: "a segment stream without EOI",
+      thumbnail: structuredJpegFile([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x02]),
+    },
+  ])("rejects $label before either R2 put", async ({ thumbnail }) => {
+    const put = vi.fn()
+    const res = await handleAttachmentUpload(
+      reqWithUpload(fakeFile("hi.png", "image/png", 10), thumbnail),
+      envWithR2(put), "channel", "c1", USER_TAG,
+    )
+
+    expect(res.ok).toBe(false)
+    if (res.ok) return
+    expect(await res.response.json()).toMatchObject({ error: "invalid jpeg thumbnail" })
+    expect(put).not.toHaveBeenCalled()
+  })
+
+  it("accepts entropy data containing a JPEG restart marker", async () => {
+    const put = vi.fn().mockResolvedValue(undefined)
+    const res = await handleAttachmentUpload(
+      reqWithUpload(fakeFile("hi.png", "image/png", 10), restartMarkerJpegFile()),
+      envWithR2(put), "channel", "c1", USER_TAG,
+    )
+
+    expect(res.ok).toBe(true)
+    expect(put).toHaveBeenCalledTimes(2)
   })
 
   it("rejects a JPEG thumbnail over 1024px before either R2 put", async () => {
