@@ -260,7 +260,7 @@ test.describe.serial("account unread projection", () => {
     await gotoAfterUserWsAuth(page, `/c/channels/${backgroundServer}/${forumId}`)
     await expect(page).toHaveURL(`/c/channels/${backgroundServer}/${forumId}`)
     await expectUnreadDot(page.getByTestId(tid.forumSidebarThread(forumChild)))
-    await page.getByRole("button", { name: "Inbox" }).click()
+    await page.getByRole("button", { name: "Inbox", exact: true }).click()
     await expect(page.getByTestId(tid.inboxUnreadChannel(unreadChannel))).toBeVisible()
     await expect(page.getByTestId(tid.inboxUnreadChild(forumChild))).toBeVisible()
     await expect(page.getByTestId(tid.inboxUnreadDm(dmId))).toBeVisible()
@@ -296,7 +296,7 @@ test.describe.serial("account unread projection", () => {
 
     await page.setViewportSize({ width: 390, height: 844 })
     await gotoAfterUserWsAuth(page, "/c/me")
-    await page.getByRole("button", { name: "Inbox" }).click()
+    await page.getByRole("button", { name: "Inbox", exact: true }).click()
     await expect(page.getByTestId(tid.inboxUnreadChannel(unreadChannel))).toHaveCount(0)
     await expect(page.getByTestId(tid.inboxUnreadChild(forumChild))).toBeVisible()
     await expect(page.getByTestId(tid.inboxUnreadDm(dmId))).toBeVisible()
@@ -423,7 +423,7 @@ test.describe.serial("account unread projection", () => {
 
     const { page } = await asUser("bob")
     await gotoAfterUserWsAuth(page, "/c/me")
-    await page.getByRole("button", { name: "Inbox" }).click()
+    await page.getByRole("button", { name: "Inbox", exact: true }).click()
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible()
     await expect(page.getByTestId(tid.inboxUnreadDm(dmId))).toBeVisible()
 

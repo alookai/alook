@@ -127,7 +127,10 @@ function SortableServerImpl({
           aria-describedby={dragDescriptionId}
           aria-keyshortcuts="Space ArrowUp ArrowDown ArrowLeft ArrowRight Escape"
           onClick={active ? undefined : onClick}
-          className="group/server absolute left-1/2 top-1/2 z-1 grid size-11 -translate-x-1/2 -translate-y-1/2 place-items-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:cursor-grabbing"
+          className={[
+            "group/server absolute left-1/2 top-1/2 z-1 grid size-11 -translate-x-1/2 -translate-y-1/2 place-items-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:cursor-grabbing",
+            active ? "cursor-default" : "cursor-pointer",
+          ].join(" ")}
         >
           <span className={[
             "pointer-events-none relative grid size-10 place-items-center overflow-hidden font-brand text-xl font-bold transition-all duration-150",

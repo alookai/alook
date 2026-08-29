@@ -31,10 +31,11 @@ const server = {
   mentions: 0,
 }
 
-function renderServer() {
+function renderServer(active = false) {
   const buttonNodes: Array<{ focus: ReturnType<typeof vi.fn> }> = []
   const renderer = TestRenderer.create(createElement(SortableServer, {
     server,
+    active,
     onClick: vi.fn(),
     dragDescriptionId: "rail-help",
   }), {
@@ -84,5 +85,17 @@ describe("SortableServer lazy menu focus", () => {
     const menuText = JSON.stringify(result.renderer.toJSON())
     expect(menuText).not.toContain("Move…")
     expect(menuText).not.toContain("Create group")
+  })
+
+  it("keeps active and inactive cursor state on the actual button", async () => {
+    let active!: ReturnType<typeof renderServer>
+    let inactive!: ReturnType<typeof renderServer>
+    await act(async () => {
+      active = renderServer(true)
+      inactive = renderServer(false)
+    })
+
+    expect(active.renderer.root.findByType("button").props.className).toContain("cursor-default")
+    expect(inactive.renderer.root.findByType("button").props.className).toContain("cursor-pointer")
   })
 })
