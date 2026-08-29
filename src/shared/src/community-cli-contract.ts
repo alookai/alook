@@ -23,12 +23,16 @@
  */
 
 import { z } from "zod";
-import type { RuntimeConfig } from "./runtime-config";
+import type { RuntimeConfig, RuntimeReasoningCatalog } from "./runtime-config";
 import type { ChannelType, StoredChannelType } from "./utils/community-roles";
 import { CHANNEL_TRAITS } from "./utils/community-roles";
 import { parseNameAndTag } from "./lib/discriminator";
 import { DiagnosticCollectCommandSchema } from "./diagnostics-contract";
 import type { DiagnosticCollectCommand } from "./diagnostics-contract";
+import type {
+  DailyUsageSnapshot,
+  ProviderQuotaSnapshot,
+} from "./provider-telemetry";
 
 /* ------------------------------------------------------------------ */
 /* Identifiers                                                         */
@@ -770,6 +774,11 @@ export type HostCommand =
    * new model, never wrong about it. See `AgentProcessManager.switchModel`.
    */
   | { type: "agent:model_switch"; agentId: AgentId; config: RuntimeConfig; launchId: string }
+  | {
+    type: "agent:runtime_config_update";
+    agentId: AgentId;
+    config: RuntimeConfig;
+  }
   /**
    * Owner-triggered BATCH reset — reset every agent bound to this machine in a
    * SINGLE command (not N fanned-out `agent:reset` frames). The server
@@ -834,6 +843,7 @@ export interface HostReadyRuntime {
   status?: "healthy" | "unhealthy";
   lastError?: string;
   lastErrorAt?: string;
+  reasoning?: RuntimeReasoningCatalog;
 }
 
 /** What the host reports to the server on connect (the registration handshake). */
@@ -855,6 +865,7 @@ export interface HostReady {
   arch?: string;
   osRelease?: string;
   daemonVersion?: string;
+  providerQuotas?: ProviderQuotaSnapshot[];
 }
 
 /**
@@ -863,6 +874,13 @@ export interface HostReady {
  * `deriveActivity` in `src/daemon/src/manager/managerRuntime.ts`.
  */
 export type AgentActivityState = "idle" | "starting" | "running" | "stopping";
+
+export interface HostAgentActivity {
+  agentId: AgentId;
+  state: AgentActivityState;
+  dailyUsage?: DailyUsageSnapshot[];
+  quota?: ProviderQuotaSnapshot;
+}
 
 /**
  * Bot audit-log event kinds/payloads mirrored from the wire zod schema
@@ -977,7 +995,7 @@ export interface HostControlChannel {
    * Report a bot's derived activity state after it changes. Optional so the
    * local mock channel can omit it.
    */
-  reportAgentActivity?(info: { agentId: AgentId; state: AgentActivityState }): Promise<void>;
+  reportAgentActivity?(info: HostAgentActivity): Promise<void>;
   /**
    * Emit an `agent_typing` frame for the given (agentId, channelId) scope —
    * the daemon-metered heartbeat that keeps the "bot is typing…" pill lit for
@@ -1010,7 +1028,7 @@ export interface HostControlChannel {
   onResync?(provider: () => {
     ready: HostReady;
     sessions: AgentSessionReport[];
-    activities: Array<{ agentId: AgentId; state: AgentActivityState }>;
+    activities: HostAgentActivity[] | Promise<HostAgentActivity[]>;
   }): void;
 }
 
@@ -1427,6 +1445,11 @@ export const HostCommandSchema = z.discriminatedUnion("type", [
     agentId: z.string().min(1),
     config: z.unknown(),
     launchId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("agent:runtime_config_update"),
+    agentId: z.string().min(1),
+    config: z.unknown(),
   }),
   z.object({
     type: z.literal("machine:reset_all"),

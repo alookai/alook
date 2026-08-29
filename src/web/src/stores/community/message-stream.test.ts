@@ -61,4 +61,42 @@ describe("message stream store", () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:failed")
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1)
   })
+
+  it("projects a newer avatar across every active scope and ignores stale versions", () => {
+    const store = useMessageStreamStore.getState()
+    store.accept(channel("c1"), {
+      ...acceptedIntent("n1"),
+      message: {
+        type: "chat" as const,
+        content: "n1",
+        authorId: "u1",
+        authorAvatar: "/avatar?v=1",
+        authorAvatarVersion: 1,
+      },
+    })
+    store.accept(channel("c2"), {
+      ...acceptedIntent("n2"),
+      message: {
+        type: "chat" as const,
+        content: "n2",
+        authorId: "u1",
+        authorAvatar: "/avatar?v=1",
+        authorAvatarVersion: 1,
+      },
+    })
+
+    store.projectAvatarIdentity("u1", "/avatar?v=2", 2)
+
+    expect(getMessageOverlay(channel("c1")).outboxByNonce.get("n1")?.message).toMatchObject({
+      authorAvatar: "/avatar?v=2",
+      authorAvatarVersion: 2,
+    })
+    expect(getMessageOverlay(channel("c2")).outboxByNonce.get("n2")?.message).toMatchObject({
+      authorAvatar: "/avatar?v=2",
+      authorAvatarVersion: 2,
+    })
+    const entries = useMessageStreamStore.getState().entries
+    store.projectAvatarIdentity("u1", "/avatar?v=1", 1)
+    expect(useMessageStreamStore.getState().entries).toBe(entries)
+  })
 })

@@ -31,6 +31,7 @@ import {
   trackSettingsUpdated,
   trackCanvasLayoutChanged,
   trackCommunityWsFrameDropped,
+  trackCommunityWsLifecycleRecovery,
   trackCommunityWsReconcileComplete,
   trackCommunityWsReconcileFailure,
 } from "./analytics"
@@ -290,6 +291,26 @@ describe("analytics utility", () => {
         event: "community_ws_reconcile_failure",
         policy: "machines",
         reason: "async-rejection",
+      })
+    })
+
+    it("reports only bounded visible lifecycle recovery metadata", () => {
+      trackCommunityWsLifecycleRecovery({
+        trigger: "sentinel",
+        strategy: "replace",
+        socketReadyState: "open",
+        suspensionDuration: "over-2m",
+        userId: "user-1",
+        token: "secret",
+        nonce: "private-nonce",
+        payload: "private payload",
+      } as never)
+      expect(mockSendGTMEvent).toHaveBeenCalledWith({
+        event: "community_ws_lifecycle_recovery",
+        trigger: "sentinel",
+        strategy: "replace",
+        socketReadyState: "open",
+        suspensionDuration: "over-2m",
       })
     })
   })

@@ -12,7 +12,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { formatAwakeDuration } from "@/lib/community/format-time"
 import { tid } from "@/lib/community/testids"
-import { BotActivityHeatmap } from "./bot-activity-heatmap"
+import { MachineQuotaSummary } from "./bot-quota-summary"
+import { BotTokenUsageChart, usageDayPresentation } from "./bot-token-usage-chart"
 import type { BotListController, BotMachineGroup } from "./bot-list-types"
 
 export function renderBotMachineGroup(
@@ -22,6 +23,11 @@ export function renderBotMachineGroup(
   const machineOnline = isPresenceOnline(machine?.status)
   const collapsed = controller.collapsedMachines.has(machineId)
   const label = controller.machineName(machineId)
+  const usageScaleMax = Math.max(0, ...bots.flatMap((bot) => (
+    bot.usage?.capability === "supported"
+      ? bot.usage.days.map((day) => usageDayPresentation(day).knownTotal)
+      : []
+  )))
   return (
     <div
       key={machineId}
@@ -33,44 +39,49 @@ export function renderBotMachineGroup(
         controller.highlightId === machineId ? "bg-primary/5 ring-2 ring-primary/40" : "",
       ].join(" ")}
     >
-      <div className="flex items-center gap-2 px-1">
-        <button
-          type="button"
-          className="flex min-w-0 items-center gap-2 rounded-md text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          aria-expanded={!collapsed}
-          aria-label={`${collapsed ? "Expand" : "Collapse"} ${label}`}
-          onClick={() => {
-            controller.setCollapsedMachines((current) => {
-              const next = new Set(current)
-              if (next.has(machineId)) next.delete(machineId)
-              else next.add(machineId)
-              return next
-            })
-          }}
-        >
-          <ChevronDown
-            className={`size-3 shrink-0 text-muted-foreground transition-transform ${collapsed ? "-rotate-90" : ""}`}
-          />
-          <Monitor className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate font-mono text-xs font-medium text-muted-foreground">
-            {label}
-          </span>
-          <span
-            className={[
-              "inline-block size-1.5 shrink-0 rounded-full",
-              machineOnline ? "bg-status-online" : "bg-muted-foreground",
-            ].join(" ")}
-          />
-        </button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="ml-auto h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
-          onClick={() => controller.setConfirmResetMachine(machineId)}
-        >
-          <RotateCcw className="size-3.5" />
-          Reset all
-        </Button>
+      <div className="flex flex-col gap-1 px-1">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="flex min-w-0 items-center gap-2 rounded-md text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            aria-expanded={!collapsed}
+            aria-label={`${collapsed ? "Expand" : "Collapse"} ${label}`}
+            onClick={() => {
+              controller.setCollapsedMachines((current) => {
+                const next = new Set(current)
+                if (next.has(machineId)) next.delete(machineId)
+                else next.add(machineId)
+                return next
+              })
+            }}
+          >
+            <ChevronDown
+              className={`size-3 shrink-0 text-muted-foreground transition-transform ${collapsed ? "-rotate-90" : ""}`}
+            />
+            <Monitor className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate font-mono text-xs font-medium text-muted-foreground">
+              {label}
+            </span>
+            <span
+              className={[
+                "inline-block size-1.5 shrink-0 rounded-full",
+                machineOnline ? "bg-status-online" : "bg-muted-foreground",
+              ].join(" ")}
+            />
+          </button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => controller.setConfirmResetMachine(machineId)}
+          >
+            <RotateCcw className="size-3.5" />
+            Reset all
+          </Button>
+        </div>
+        <div className="pl-5">
+          <MachineQuotaSummary machineId={machineId} entries={machine?.quota} />
+        </div>
       </div>
       <div className="flex flex-col gap-3" hidden={collapsed}>
         {bots.map((bot) => {
@@ -79,8 +90,8 @@ export function renderBotMachineGroup(
             <Card key={bot.id} className="flex flex-col gap-3 p-4">
               <div className="flex items-start justify-between gap-3">
                 <AgentAvatar name={bot.name} avatarUrl={bot.image} seed={bot.id} size={40} />
-                <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-3 gap-y-2.5">
-                  <div className="flex min-w-55 flex-1 flex-col gap-1">
+                <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-3 gap-y-2.5 sm:items-end">
+                  <div className="flex min-w-0 flex-1 flex-col gap-1 sm:min-w-55">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-[15px] font-medium text-foreground">
                         {bot.name}
@@ -122,12 +133,12 @@ export function renderBotMachineGroup(
                       </span>
                       <span aria-hidden className="shrink-0">·</span>
                       {formatModelLabel(bot.runtime, bot.modelName) ? (
-                        <span data-testid="bot-card-model" className="font-mono">
+                        <span data-testid={tid.botCardModel} className="font-mono">
                           {formatModelLabel(bot.runtime, bot.modelName)}
                         </span>
                       ) : (
                         <span
-                          data-testid="bot-card-model"
+                          data-testid={tid.botCardModel}
                           className="font-mono text-muted-foreground/70"
                           title="No model set — uses the machine's local default"
                         >
@@ -144,7 +155,15 @@ export function renderBotMachineGroup(
                       )}
                     </span>
                   </div>
-                  <BotActivityHeatmap days={bot.dailyActivity} className="self-center" />
+                  {bot.usage?.capability === "supported" && (
+                    <div className="basis-full sm:ml-auto sm:basis-auto">
+                      <BotTokenUsageChart
+                        botId={bot.id}
+                        usage={bot.usage}
+                        scaleMaxTokens={usageScaleMax}
+                      />
+                    </div>
+                  )}
                 </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger

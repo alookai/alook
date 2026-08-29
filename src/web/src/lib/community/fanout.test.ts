@@ -43,6 +43,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityDm: {
         getDM: (...a: unknown[]) => mockGetDM(...a),
+        listDmPeerUserIds: (...a: unknown[]) => mockListDmPeerUserIds(...a),
       },
       communityFriendship: {
         getFriendUserIds: (...a: unknown[]) => mockGetFriendUserIds(...a),
@@ -68,6 +69,7 @@ const mockGetChannel = vi.fn()
 const mockIsChannelPrivate = vi.fn(() => false)
 const mockGetPrivateChannelAudienceUserIds = vi.fn(() => [] as string[])
 const mockGetDM = vi.fn()
+const mockListDmPeerUserIds = vi.fn()
 const mockListChannelMemberUserIds = vi.fn()
 const mockGetCoMemberUserIds = vi.fn()
 const mockGetFriendUserIds = vi.fn()
@@ -81,6 +83,7 @@ import {
   fanOutToChannel,
   fanOutToDM,
   fanOutStatusUpdate,
+  fanOutIdentityUpdate,
   broadcastToUserSafe,
 } from "./fanout"
 import { WS_EVENTS } from "@alook/shared"
@@ -279,6 +282,84 @@ describe("fanOutStatusUpdate", () => {
     expect(mockWarn).toHaveBeenCalledWith(
       "fanout_status_update_failed",
       expect.objectContaining({ userId: "self1", err: expect.stringContaining("db down") }),
+    )
+  })
+})
+
+describe("fanOutIdentityUpdate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetCloudflareContext.mockImplementation(() => ({
+      env: { DB: {} },
+      ctx: { waitUntil: vi.fn() },
+    }))
+    mockBroadcastToUsers.mockResolvedValue(undefined)
+  })
+
+  it("broadcasts only to self plus the deduped co-member, friend, and DM audience", async () => {
+    mockGetCoMemberUserIds.mockResolvedValue(["co-member", "shared"])
+    mockGetFriendUserIds.mockResolvedValue(["friend", "shared"])
+    mockListDmPeerUserIds.mockResolvedValue(["dm-peer", "friend"])
+
+    await fanOutIdentityUpdate("self", "/api/community/users/self/avatar?v=5", 5)
+
+    expect(mockBroadcastToUsers).toHaveBeenCalledWith(
+      ["self", "co-member", "shared", "friend", "dm-peer"],
+      {
+        type: "community:identity.update",
+        userId: "self",
+        avatar: "/api/community/users/self/avatar?v=5",
+        avatarVersion: 5,
+      },
+    )
+    expect(mockBroadcastToUsers.mock.calls[0]![0]).not.toContain("stranger")
+  })
+
+  it("retains worker lifetime while recipient resolution is pending", async () => {
+    const waitUntil = vi.fn()
+    mockGetCloudflareContext.mockImplementation(() => ({
+      env: { DB: {} },
+      ctx: { waitUntil },
+    }))
+    let release!: (ids: string[]) => void
+    mockGetCoMemberUserIds.mockReturnValue(new Promise((resolve) => { release = resolve }))
+    mockGetFriendUserIds.mockResolvedValue([])
+    mockListDmPeerUserIds.mockResolvedValue([])
+
+    const work = fanOutIdentityUpdate("self", "/avatar?v=1", 1)
+    expect(waitUntil).toHaveBeenCalledWith(work)
+    release([])
+    await work
+    expect(mockBroadcastToUsers).toHaveBeenCalledWith(
+      ["self"],
+      expect.objectContaining({ type: "community:identity.update" }),
+    )
+  })
+
+  it("absorbs an asynchronous identity audience failure", async () => {
+    mockGetCoMemberUserIds.mockRejectedValue("D1 unavailable")
+    mockGetFriendUserIds.mockResolvedValue([])
+    mockListDmPeerUserIds.mockResolvedValue([])
+
+    await expect(fanOutIdentityUpdate("self", "/avatar?v=1", 1)).resolves.toBeUndefined()
+
+    expect(mockWarn).toHaveBeenCalledWith(
+      "fanout_identity_update_failed",
+      { subjectId: "self", errorCategory: "NonError" },
+    )
+    expect(mockBroadcastToUsers).not.toHaveBeenCalled()
+  })
+
+  it("absorbs a synchronous identity fanout setup failure", async () => {
+    mockGetCloudflareContext.mockImplementation(() => {
+      throw new Error("no worker context")
+    })
+
+    await expect(fanOutIdentityUpdate("self", "/avatar?v=1", 1)).resolves.toBeUndefined()
+
+    expect(mockWarn).toHaveBeenCalledWith(
+      "fanout_identity_update_failed",
+      { subjectId: "self", errorCategory: "Error" },
     )
   })
 })

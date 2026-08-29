@@ -182,6 +182,8 @@ export type ManagerEvent =
   | { type: "idle_reset_committed"; agentId: string; nowMs: number }
   | { type: "begin_reset"; agentId: string; nowMs: number }
   | { type: "rewake_after_reset"; agentId: string; message: AgentMsg }
+  | { type: "runtime_config_queued"; agentId: string; message: AgentMsg }
+  | { type: "runtime_config_applied"; agentId: string }
   | {
       type: "runtime_signal";
       agentId: string;
@@ -396,6 +398,34 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
         a.inbox = [...a.inbox, event.message];
         a.idleSince = null;
       });
+
+    case "runtime_config_queued":
+      return mutate(state, event.agentId, (a) => {
+        if (!a.inbox.some((message) => message.id === event.message.id)) {
+          a.inbox = [...a.inbox, event.message];
+        }
+        syncExecutionProjection(a);
+        a.idleSince = null;
+      });
+
+    case "runtime_config_applied": {
+      const existing = state.agents[event.agentId];
+      if (!existing) return { state, effects: [] };
+      const agent = clone(existing);
+      if (
+        agent.status !== "running"
+        || leaseIsWorking(agent.execution.lease)
+        || agent.pendingAdmissions.length > 0
+        || agent.inbox.length === 0
+      ) return { state, effects: [] };
+      const messages = drainInbox(agent);
+      return commit(state, agent, messages.map((message) => ({
+        type: "send" as const,
+        agentId: event.agentId,
+        message,
+        mode: "idle" as const,
+      })));
+    }
 
     case "turn_started": {
       const existing = state.agents[event.agentId];
@@ -627,7 +657,7 @@ function onTurnCompleted(
   const clearEffects: ManagerEffect[] = clearedStallSessionId === null
     ? []
     : [{ type: "clear_stall_recovery", agentId, sessionId: clearedStallSessionId }];
-  if (agent.inbox.length > 0) {
+  if (agent.inbox.length > 0 && !agent.resetting) {
     const messages = drainInbox(agent);
     return commit(state, agent, [
       ...clearEffects,

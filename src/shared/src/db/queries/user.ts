@@ -38,6 +38,7 @@ const publicUserColumns = {
   email: user.email,
   emailVerified: user.emailVerified,
   image: user.image,
+  avatarVersion: user.avatarVersion,
   createdAt: user.createdAt,
   updatedAt: user.updatedAt,
   discriminator: user.discriminator,
@@ -56,6 +57,7 @@ export type PublicUser = {
   email: string;
   emailVerified: boolean | null;
   image: string | null;
+  avatarVersion: number;
   createdAt: string;
   updatedAt: string;
   discriminator: string;
@@ -66,6 +68,69 @@ export type InternalUserFields = {
   ownerUserId: string | null;
   deletedAt: string | null;
 };
+
+export type AvatarPublishState = {
+  id: string;
+  image: string | null;
+  avatarVersion: number;
+  avatarObjectKey: string | null;
+};
+
+const avatarPublishColumns = {
+  id: user.id,
+  image: user.image,
+  avatarVersion: user.avatarVersion,
+  avatarObjectKey: user.avatarObjectKey,
+} as const;
+
+export async function getLiveHumanAvatarState(
+  db: Database,
+  userId: string
+): Promise<AvatarPublishState | null> {
+  const rows = await db
+    .select(avatarPublishColumns)
+    .from(user)
+    .where(
+      and(
+        eq(user.id, userId),
+        eq(user.isBot, false),
+        isNull(user.deletedAt)
+      )
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function publishHumanAvatar(
+  db: Database,
+  userId: string,
+  input: { objectKey: string; stableUrl: string }
+): Promise<{ previous: AvatarPublishState; current: AvatarPublishState } | null> {
+  const scope = and(
+    eq(user.id, userId),
+    eq(user.isBot, false),
+    isNull(user.deletedAt)
+  );
+  const before = db.select(avatarPublishColumns).from(user).where(scope).limit(1);
+  const publish = db
+    .update(user)
+    .set({
+      image: input.stableUrl,
+      avatarVersion: sql`${user.avatarVersion} + 1`,
+      avatarObjectKey: input.objectKey,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(scope)
+    .returning(avatarPublishColumns);
+  const results = (await db.batch([before, publish] as any)) as any[];
+  const previous = (Array.isArray(results[0]) ? results[0][0] : undefined) as
+    | AvatarPublishState
+    | undefined;
+  const current = (Array.isArray(results[1]) ? results[1][0] : undefined) as
+    | AvatarPublishState
+    | undefined;
+  return previous && current ? { previous, current } : null;
+}
 
 export type InternalUser = PublicUser & InternalUserFields;
 

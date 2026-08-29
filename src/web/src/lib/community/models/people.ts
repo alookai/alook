@@ -14,6 +14,7 @@ export type CommunityUserCore = {
   name: string
   discriminator: string
   avatar: string
+  avatarVersion: number
 }
 
 export type Member = CommunityUserCore & {
@@ -52,13 +53,20 @@ export type PendingRequest = {
   userId: string
   name: string
   avatar: string
+  avatarVersion: number
   kind: "incoming" | "outgoing"
   // The gating owner id while a bot-touched row is pending; null once
   // unlocked. Drives whether Approve/Reject buttons render.
   needsOwnerApproval?: string | null
 }
 
-export type BlockedUser = { id: string; userId?: string; name: string; avatar: string }
+export type BlockedUser = {
+  id: string
+  userId?: string
+  name: string
+  avatar: string
+  avatarVersion: number
+}
 
 // DM summary shown in the DM sidebar. Actual conversation history is loaded
 // into `ctx.messages` once the user opens the DM — DM summaries don't carry

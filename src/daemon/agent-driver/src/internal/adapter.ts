@@ -7,7 +7,11 @@ import type {
   PiConfig,
   PreparedExecutionResource,
   JsonValue,
+  RuntimeReasoningCatalog,
+  RuntimeSettingsUpdate,
+  RuntimeSettingsUpdateResult,
 } from "../contract.js";
+import type { ProviderQuotaObservation, TokenUsageDelta } from "../contract.js";
 
 export type BackendConfig = ClaudeConfig | CodexConfig | CursorConfig | OpenCodeConfig | PiConfig;
 
@@ -70,7 +74,8 @@ export type AdapterEvent =
   | { kind: "turn_owner"; receipt: string; nativeTurnId?: string }
   | { kind: "turn_end"; sessionId?: string; turnOwner?: string }
   | { kind: "error"; message: string }
-  | { kind: "telemetry"; name: "token_usage" | "rate_limits"; source: string; usageKind?: string; attrs: Record<string, unknown> };
+  | { kind: "telemetry"; name: "token_usage"; source: string; usage: TokenUsageDelta }
+  | { kind: "telemetry"; name: "rate_limits"; source: string; quota: ProviderQuotaObservation };
 
 export interface LaneStartInput {
   readonly text: string;
@@ -115,6 +120,7 @@ export interface RuntimeLane {
   start(input: LaneStartInput): Promise<LaneAdmission>;
   send(input: LaneSendInput): Promise<LaneAdmission>;
   interrupt(input: LaneInterruptInput): Promise<boolean>;
+  updateSettings?(input: RuntimeSettingsUpdate): Promise<RuntimeSettingsUpdateResult>;
   stop(input: LaneStopInput): Promise<void>;
   on<K extends keyof RuntimeLaneEventMap>(
     event: K,
@@ -177,7 +183,12 @@ export interface SpawnedProcessHandle {
 }
 
 export interface SpawnedProcess { process: SpawnedProcessHandle }
-export interface ProbeResult { status: "healthy" | "unhealthy"; version?: string; lastError?: string }
+export interface ProbeResult {
+  status: "healthy" | "unhealthy";
+  version?: string;
+  lastError?: string;
+  reasoning?: RuntimeReasoningCatalog;
+}
 
 export interface VendorSessionHandle {
   prompt(text: string): void | Promise<void>;

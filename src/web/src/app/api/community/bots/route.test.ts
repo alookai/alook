@@ -8,6 +8,7 @@ const mockGetUserPublic = vi.fn()
 const mockPushBotEventToMachine = vi.fn()
 const mockListBotsForOwner = vi.fn()
 const mockGetBotDailyActivityForOwner = vi.fn()
+const mockGetBotDailyTokenUsageForOwner = vi.fn()
 const mockEnsureSiblingBotFriendship = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
@@ -27,6 +28,7 @@ vi.mock("@alook/shared", async () => {
         createBot: (...a: unknown[]) => mockCreateBot(...a),
         listBotsForOwner: (...a: unknown[]) => mockListBotsForOwner(...a),
         getBotDailyActivityForOwner: (...a: unknown[]) => mockGetBotDailyActivityForOwner(...a),
+        getBotDailyTokenUsageForOwner: (...a: unknown[]) => mockGetBotDailyTokenUsageForOwner(...a),
       },
       communityFriendship: {
         ensureSiblingBotFriendship: (...a: unknown[]) => mockEnsureSiblingBotFriendship(...a),
@@ -146,11 +148,63 @@ describe("POST /api/community/bots — model", () => {
     expect(res.status).toBe(400)
     expect(mockCreateBot).not.toHaveBeenCalled()
   })
+
+  it("persists a supported capability-backed reasoning effort", async () => {
+    mockGetMachineForOwner.mockResolvedValue({
+      id: "mac1",
+      availableRuntimes: [{
+        id: "codex",
+        status: "healthy",
+        reasoning: {
+          updateMode: "live_next_turn",
+          defaultModelId: "gpt-5",
+          models: [{
+            id: "gpt-5",
+            supportedReasoningEfforts: [
+              { value: "minimal" },
+              { value: "xhigh", description: "Deeper reasoning" },
+            ],
+          }],
+        },
+      }],
+    })
+
+    const res = await POST(postReq({ ...base("gpt-5", "codex"), reasoningEffort: "xhigh" }), ctx)
+
+    expect(res.status).toBe(201)
+    await expect(res.json()).resolves.toMatchObject({
+      bot: { runtime: "codex", modelName: "gpt-5", reasoningEffort: "xhigh", runtimeConfigRevision: 0 },
+    })
+    expect(mockCreateBot).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ reasoningEffort: "xhigh" }),
+    )
+  })
+
+  it("rejects an explicit effort the selected model did not report", async () => {
+    mockGetMachineForOwner.mockResolvedValue({
+      id: "mac1",
+      availableRuntimes: [{
+        id: "codex",
+        status: "healthy",
+        reasoning: {
+          updateMode: "live_next_turn",
+          models: [{ id: "gpt-5", supportedReasoningEfforts: [{ value: "minimal" }] }],
+        },
+      }],
+    })
+
+    const res = await POST(postReq({ ...base("gpt-5", "codex"), reasoningEffort: "ultra" }), ctx)
+
+    expect(res.status).toBe(400)
+    expect(mockCreateBot).not.toHaveBeenCalled()
+  })
 })
 
 describe("GET /api/community/bots — heatmap activity", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetBotDailyTokenUsageForOwner.mockResolvedValue(new Map())
   })
 
   it("attaches each bot's 30-day dailyActivity from the batched owner read", async () => {
@@ -186,5 +240,61 @@ describe("GET /api/community/bots — heatmap activity", () => {
     const res = await GET(getReq(), ctx)
     expect(res.status).toBe(200)
     expect((await res.json()) as { bots: unknown[] }).toEqual({ bots: [] })
+  })
+
+  it("returns seven oldest-to-newest usage days with nullable metrics and capability", async () => {
+    const today = new Date().toISOString().slice(0, 10)
+    mockListBotsForOwner.mockResolvedValue([
+      { id: "bot_claude", runtime: "claude" },
+      { id: "bot_codex", runtime: "codex" },
+      { id: "bot_cursor", runtime: "cursor" },
+      { id: "bot_opencode", runtime: "opencode" },
+      { id: "bot_pi", runtime: "pi" },
+    ])
+    mockGetBotDailyActivityForOwner.mockResolvedValue(new Map())
+    mockGetBotDailyTokenUsageForOwner.mockResolvedValue(new Map([
+      ["bot_codex", [{
+        botId: "bot_codex",
+        day: today,
+        metrics: {
+          input: 8,
+          output: 3,
+          cache: null,
+        },
+      }]],
+    ]))
+
+    const res = await GET(getReq(), ctx)
+    const body = await res.json() as {
+      bots: Array<{
+        id: string
+        usage: { capability: string; days: Array<{ day: string; period: string; metrics: unknown }> }
+      }>
+    }
+    const supported = body.bots.find((bot) => bot.id === "bot_codex")!
+    expect(supported.usage.capability).toBe("supported")
+    expect(supported.usage.days).toHaveLength(7)
+    expect(supported.usage.days.at(-1)).toEqual({
+      day: today,
+      period: "in_progress",
+      metrics: {
+        input: 8,
+        output: 3,
+        cache: null,
+      },
+    })
+    expect(supported.usage.days.slice(0, -1).every((day) => day.period === "closed")).toBe(true)
+    expect(Object.fromEntries(body.bots.map((bot) => [bot.id, bot.usage.capability]))).toEqual({
+      bot_claude: "supported",
+      bot_codex: "supported",
+      bot_cursor: "unsupported",
+      bot_opencode: "supported",
+      bot_pi: "unsupported",
+    })
+    expect(mockGetBotDailyTokenUsageForOwner).toHaveBeenCalledWith(
+      expect.anything(),
+      "u1",
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    )
   })
 })

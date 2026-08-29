@@ -20,6 +20,7 @@ export type CurrentUser = {
   name: string
   email: string
   avatar: string
+  avatarVersion?: number
   aboutMe?: string
   // 4-digit discriminator (`"0042"`). Hydrated alongside `aboutMe` from
   // /api/community/users/me/profile — see CommunityBootstrap.

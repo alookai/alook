@@ -5,7 +5,11 @@ import { afterEach, describe, expect, it } from "vitest"
 import { createDb, queries } from "@alook/shared"
 import { deleteCommunityMediaObjects } from "../src/lib/community/community-media-cleanup"
 import { persistUploadedBotAvatar } from "../src/lib/community/bot-avatar-persistence"
-import { buildBotAvatarKey, botAvatarUrl } from "../src/lib/community/storage"
+import {
+  buildBotAvatarKey,
+  buildBotAvatarObjectKey,
+  botAvatarUrl,
+} from "../src/lib/community/storage"
 
 const runtimeEnv = env as unknown as CloudflareEnv
 const createdUsers: string[] = []
@@ -140,6 +144,8 @@ describe("bot avatar query and winner semantics in real D1", () => {
     await expect(queries.communityBot.getLiveBotAvatar(db, canonicalBot)).resolves.toEqual({
       id: canonicalBot,
       image: botAvatarUrl(canonicalBot),
+      avatarVersion: 0,
+      avatarObjectKey: null,
     })
     await expect(queries.communityBot.getLiveBotAvatar(db, deletedBot)).resolves.toBeNull()
     await expect(queries.communityBot.getLiveBotAvatar(db, human)).resolves.toBeNull()
@@ -157,12 +163,13 @@ describe("bot avatar query and winner semantics in real D1", () => {
 })
 
 describe("bot avatar D1 to R2 containment in real workerd", () => {
-  it("persists a live upload and deletes only the winning bot fixed key", async () => {
+  it("publishes an immutable child and deletes only that winner plus its alias", async () => {
     const owner = await seedOwner()
     const machine = await seedMachine(owner)
     const bot = await seedBot(owner, machine)
     const unrelatedBot = await seedBot(owner, machine, { image: "avatar:beam-seed" })
     const botKey = buildBotAvatarKey(bot)
+    const botObjectKey = buildBotAvatarObjectKey(bot, "upload-1")
     const userKey = `user-avatar/${bot}`
     const unrelatedBotKey = buildBotAvatarKey(unrelatedBot)
     const attachmentKey = `channel/runtime/${bot}/attachment.png`
@@ -170,6 +177,7 @@ describe("bot avatar D1 to R2 containment in real workerd", () => {
     const bugKey = `bug-reports/${owner}/runtime-${bot}.ndjson.gz`
     for (const [key, value] of [
       [botKey, "bot"],
+      [botObjectKey, "bot-object"],
       [userKey, "human"],
       [unrelatedBotKey, "other-bot"],
       [attachmentKey, "attachment"],
@@ -184,15 +192,32 @@ describe("bot avatar D1 to R2 containment in real workerd", () => {
     await expect(persistUploadedBotAvatar(db, runtimeEnv.COMMUNITY_MEDIA, {
       botId: bot,
       ownerId: owner,
-    })).resolves.toEqual({ kind: "persisted" })
-    expect((await first<{ image: string }>("SELECT image FROM user WHERE id = ?", bot))?.image)
-      .toBe(botAvatarUrl(bot))
+      objectKey: botObjectKey,
+    })).resolves.toEqual({
+      kind: "persisted",
+      avatarVersion: 1,
+      avatarObjectKey: botObjectKey,
+      previousObjectKey: null,
+    })
+    expect(await first<{
+      image: string
+      avatarVersion: number
+      avatarObjectKey: string | null
+    }>("SELECT image, avatarVersion, avatarObjectKey FROM user WHERE id = ?", bot))
+      .toEqual({
+        image: botAvatarUrl(bot),
+        avatarVersion: 1,
+        avatarObjectKey: botObjectKey,
+      })
 
     const won = await queries.communityBot.softDeleteBot(db, bot, owner)
     expect(won).toBe(true)
-    if (won) await deleteCommunityMediaObjects(runtimeEnv.COMMUNITY_MEDIA, [botKey])
+    if (won) {
+      await deleteCommunityMediaObjects(runtimeEnv.COMMUNITY_MEDIA, [botObjectKey, botKey])
+    }
 
     expect(await runtimeEnv.COMMUNITY_MEDIA.get(botKey)).toBeNull()
+    expect(await runtimeEnv.COMMUNITY_MEDIA.get(botObjectKey)).toBeNull()
     await expect((await runtimeEnv.COMMUNITY_MEDIA.get(userKey))!.text()).resolves.toBe("human")
     await expect((await runtimeEnv.COMMUNITY_MEDIA.get(unrelatedBotKey))!.text()).resolves.toBe("other-bot")
     await expect((await runtimeEnv.COMMUNITY_MEDIA.get(attachmentKey))!.text()).resolves.toBe("attachment")
@@ -204,13 +229,14 @@ describe("bot avatar D1 to R2 containment in real workerd", () => {
     const owner = await seedOwner()
     const machine = await seedMachine(owner)
     const bot = await seedBot(owner, machine)
-    const botKey = buildBotAvatarKey(bot)
+    const botKey = buildBotAvatarObjectKey(bot, "late-upload")
     await queries.communityBot.softDeleteBot(createDb(runtimeEnv.DB), bot, owner)
     await putMedia(botKey, "late-upload")
 
     await expect(persistUploadedBotAvatar(createDb(runtimeEnv.DB), runtimeEnv.COMMUNITY_MEDIA, {
       botId: bot,
       ownerId: owner,
+      objectKey: botKey,
     })).resolves.toEqual({ kind: "not_found" })
     expect(await runtimeEnv.COMMUNITY_MEDIA.get(botKey)).toBeNull()
   })

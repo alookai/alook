@@ -291,6 +291,32 @@ export async function pushAgentModelSwitchToMachine(
   }
 }
 
+export async function pushAgentRuntimeConfigUpdateToMachine(
+  env: Env,
+  machineId: string,
+  args: { agentId: string; config: RuntimeConfig },
+): Promise<{ sent: number; deliveryError: boolean }> {
+  const path = `/community-machine/by-id/${encodeURIComponent(machineId)}/forward-agent-runtime-config-update`
+  try {
+    const res = await wsDoFetch(
+      env,
+      path,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(args),
+      },
+      { label: machineId, type: "agent:runtime_config_update" },
+    )
+    if (!res.ok) return { sent: 0, deliveryError: true }
+    const data = (await res.json()) as { sent?: number }
+    return { sent: data.sent ?? 0, deliveryError: false }
+  } catch (err) {
+    log.warn("agent:runtime_config_update push threw", { machineId, err: String(err) })
+    return { sent: 0, deliveryError: true }
+  }
+}
+
 export async function pushAgentProviderSwitchToMachine(
   env: Env,
   machineId: string,

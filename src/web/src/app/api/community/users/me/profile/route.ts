@@ -14,6 +14,7 @@ import { createAuth } from "@/lib/auth"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { fanOutStatusUpdate, fanOutToServerMembers } from "@/lib/community/fanout"
+import { canonicalUserImage } from "@/lib/community/storage"
 
 export const GET = withCommunityActor(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -29,8 +30,12 @@ export const GET = withCommunityActor(async (_req, ctx) => {
     ),
   ])
   return writeJSON({
+    id: userId,
     aboutMe: profile?.aboutMe ?? "",
-    avatar: viewer?.image ?? "",
+    avatar: viewer
+      ? canonicalUserImage(viewer.id, viewer.image, viewer.avatarVersion) ?? ""
+      : "",
+    avatarVersion: viewer?.avatarVersion ?? 0,
     bannerColor: profile?.bannerColor ?? null,
     discriminator: viewer?.discriminator ?? "0000",
     name: viewer?.name ?? "",

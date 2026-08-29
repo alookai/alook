@@ -134,6 +134,11 @@ export const mockGetProfile = vi
 export const mockReconcileBotActivityFromRunningAgents = vi
   .fn<(db: unknown, machineId: string, runningAgentIds: string[]) => Promise<Array<{ botUserId: string; statusEmoji: string; statusText: string }>>>()
   .mockResolvedValue([])
+const mockD1Prepare = vi.fn((sql: string) => ({
+  bind: (...values: unknown[]) => ({ sql, values }),
+}))
+export const mockD1Batch = vi.fn(async (statements: unknown[]) =>
+  statements.map(() => ({ success: true, meta: { changes: 1 } })))
 export const mockGetUserInternal = vi.fn<(db: unknown, id: string) => Promise<{ isBot: boolean; ownerUserId: string | null } | null>>().mockResolvedValue(null)
 // mockToSummary now returns row.status verbatim — status is the source of
 // truth on the column, not a derivation from lastSeenAt. See
@@ -189,29 +194,7 @@ vi.mock("@alook/shared", async () => {
       }
     },
   }
-  // Mirror the shared HostReadyMessageSchema: the daemon's ready frame must be
-  // FLAT (fields at top level), not wrapped in a `ready` key. A wrapped frame
-  // is rejected — regression guard against the wire-shape mismatch we hit
-  // when the daemon sent `{type:"ready", ready:{...}}` while the DO expected
-  // flat top-level fields.
-  const HostReadyMessageSchema = {
-    safeParse(v: unknown) {
-      const m = v as { type?: unknown; runtimeReport?: unknown; capabilities?: unknown; runningAgents?: unknown }
-      if (m?.type !== "ready") return { success: false } as const
-      if (!Array.isArray(m?.runtimeReport)) return { success: false } as const
-      const data: Record<string, unknown> = {
-        type: "ready",
-        runtimeReport: m.runtimeReport,
-        capabilities: Array.isArray(m.capabilities) ? m.capabilities : [],
-        runningAgents: Array.isArray(m.runningAgents) ? m.runningAgents : [],
-      }
-      for (const k of ["hostname", "platform", "arch", "osRelease", "daemonVersion"]) {
-        const val = (m as Record<string, unknown>)[k]
-        if (typeof val === "string") data[k] = val
-      }
-      return { success: true as const, data }
-    },
-  }
+  const HostReadyMessageSchema = actual.HostReadyMessageSchema
   const MachineHeartbeatAckMessageSchema = {
     safeParse(v: unknown) {
       const m = v as { type?: unknown; nonce?: unknown }
@@ -228,15 +211,7 @@ vi.mock("@alook/shared", async () => {
         : { success: false as const }
     },
   }
-  const AgentActivityMessageSchema = {
-    safeParse(v: unknown) {
-      const m = v as { type?: unknown; agentId?: unknown; state?: unknown }
-      if (m?.type !== "agent_activity") return { success: false } as const
-      if (typeof m.agentId !== "string") return { success: false } as const
-      if (!["idle", "starting", "running", "stopping"].includes(m.state as string)) return { success: false } as const
-      return { success: true as const, data: { type: "agent_activity" as const, agentId: m.agentId, state: m.state } }
-    },
-  }
+  const AgentActivityMessageSchema = actual.AgentActivityMessageSchema
   const AgentTypingMessageSchema = {
     safeParse(v: unknown) {
       const m = v as { type?: unknown; agentId?: unknown; channelId?: unknown }
@@ -516,7 +491,10 @@ export function createDO() {
   const { ctx, getWebSockets, storage, store } = createMockCtx()
   const stubGet = vi.fn().mockReturnValue({ fetch: mockStubFetch })
   const env = {
-    DB: {} as D1Database,
+    DB: {
+      prepare: (sql: string) => mockD1Prepare(sql),
+      batch: (statements: unknown[]) => mockD1Batch(statements),
+    } as unknown as D1Database,
     WS_DO: {
       idFromName: vi.fn().mockReturnValue("mock-do-id"),
       get: stubGet,
@@ -555,6 +533,11 @@ export function resetHarness() {
     mockUpdateProfile.mockResolvedValue({})
     mockGetProfile.mockResolvedValue(null)
     mockReconcileBotActivityFromRunningAgents.mockResolvedValue([])
+    mockD1Prepare.mockImplementation((sql: string) => ({
+      bind: (...values: unknown[]) => ({ sql, values }),
+    }))
+    mockD1Batch.mockImplementation(async (statements: unknown[]) =>
+      statements.map(() => ({ success: true, meta: { changes: 1 } })))
     mockTimeoutPendingDiagnosticReportsForMachine.mockResolvedValue([])
     mockGetNextPendingDiagnosticDeadlineForMachine.mockResolvedValue(null)
     // Daemon-auth binds the token to a machine row for daemonId+workspace;

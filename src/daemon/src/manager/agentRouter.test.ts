@@ -481,6 +481,57 @@ describe("AgentRouter — agent:model_switch", () => {
   });
 });
 
+describe("AgentRouter — agent:runtime_config_update", () => {
+  const CFG = {
+    version: 1 as const,
+    runtime: "codex",
+    model: { kind: "default" as const },
+    mode: { kind: "default" as const },
+    reasoningEffort: "xhigh",
+    runtimeConfigRevision: 4,
+  };
+
+  it("passes the exact desired config to the manager without a restart-family enrollment", async () => {
+    const updates: Array<{ agentId: string; config: typeof CFG }> = [];
+    const mgr = {
+      updateRuntimeConfig: async (agentId: string, config: typeof CFG) => {
+        updates.push({ agentId, config });
+        return "deferred" as const;
+      },
+      liveSessionReports: () => [],
+    } as unknown as AgentProcessManager;
+    const { ch, fire } = fakeChannel();
+    const beforeCalls: string[] = [];
+    const router = new AgentRouter({
+      manager: mgr,
+      channel: ch,
+      runtimeReport: [{ id: "codex" }],
+      onBeforeAgent: async (agentId) => { beforeCalls.push(agentId); },
+    });
+    await router.start();
+
+    await fire({ type: "agent:runtime_config_update", agentId: "a1", config: CFG });
+
+    expect(updates).toEqual([{ agentId: "a1", config: CFG }]);
+    expect(beforeCalls).toEqual([]);
+  });
+
+  it("logs a conflicting revision and keeps the control loop alive", async () => {
+    const mgr = {
+      updateRuntimeConfig: async () => { throw new Error("Conflicting runtime config"); },
+      liveSessionReports: () => [],
+    } as unknown as AgentProcessManager;
+    const { ch, fire } = fakeChannel();
+    const logger = stubLogger();
+    const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "codex" }], logger });
+    await router.start();
+
+    await fire({ type: "agent:runtime_config_update", agentId: "a1", config: CFG });
+
+    expect(logger.calls.warn.some(([message]) => message === "agent:runtime_config_update rejected")).toBe(true);
+  });
+});
+
 // B2 convergence: the RESTART-FAMILY commands (reset / nap / model_switch) all
 // route through the shared `runRestartCommand` handler. This pins that every
 // restart-family command is handled (none silently missing an arm) AND handled

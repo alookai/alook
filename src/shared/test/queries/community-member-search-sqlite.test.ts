@@ -17,6 +17,8 @@ describe("searchMembers literal prefixes against real SQLite", () => {
         name TEXT NOT NULL,
         email TEXT NOT NULL UNIQUE,
         image TEXT,
+        avatarVersion INTEGER NOT NULL DEFAULT 0,
+        avatarObjectKey TEXT,
         isBot INTEGER NOT NULL DEFAULT 0,
         ownerUserId TEXT,
         discriminator TEXT NOT NULL DEFAULT '0000'

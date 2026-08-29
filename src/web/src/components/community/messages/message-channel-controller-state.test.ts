@@ -389,11 +389,11 @@ describe("useMessageChannelController", () => {
         results: [
           {
             message: { id: "m2", content: "found", authorId: "u2", createdAt: "2026-01-02" },
-            author: { name: "Bob", image: null },
+            author: { id: "u2", name: "Bob", image: null, avatarVersion: 0 },
           },
           {
             message: { id: "m3", content: "image", authorId: "u3", createdAt: "2026-01-03" },
-            author: { name: "Carol", image: "https://example.test/carol.png" },
+            author: { id: "u3", name: "Carol", image: "https://example.test/carol.png", avatarVersion: 3 },
           },
         ],
       })
@@ -409,6 +409,7 @@ describe("useMessageChannelController", () => {
         type: "chat",
         authorName: "Bob",
         authorAvatar: avatarInitial("Bob"),
+        authorAvatarVersion: 0,
         content: "found",
         createdAt: "2026-01-02",
       },
@@ -417,6 +418,7 @@ describe("useMessageChannelController", () => {
         type: "chat",
         authorName: "Carol",
         authorAvatar: "https://example.test/carol.png",
+        authorAvatarVersion: 3,
         content: "image",
         createdAt: "2026-01-03",
       },

@@ -2,17 +2,39 @@
 
 import { useQuery, useMutation, useQueryClient, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch, readUploadError } from "@/lib/api/client"
+import { apiFetchIdentity, projectIdentityPayload } from "@/lib/community/identity-projection"
 import { communityKeys } from "@/lib/query-keys"
+import { useCommunityWsStore } from "@/stores/community/ws"
+import { useMessageStreamStore } from "@/stores/community/message-stream"
 import type { BotActivityDay } from "@/lib/community/models/people"
+import type { DailyUsageMetric, ReasoningEffort } from "@alook/shared"
+
+export type BotUsageDay = {
+  day: string
+  period: "closed" | "in_progress"
+  metrics: {
+    input: DailyUsageMetric
+    output: DailyUsageMetric
+    cache: DailyUsageMetric
+  }
+}
+
+export type BotTokenUsage = {
+  capability: "supported" | "unsupported" | "unknown"
+  days: BotUsageDay[]
+}
 
 export type BotSummary = {
   id: string
   name: string
   description: string
   image: string | null
+  avatarVersion: number
   machineId: string
   runtime: string
   modelName: string | null
+  reasoningEffort: ReasoningEffort | null
+  runtimeConfigRevision: number
   // Context lifecycle (my-bots #516): when the agent last refreshed its context
   // (nap, session reset, or provider switch), ISO string, null if it never has. Rendered as the
   // awake-duration "Awake 17h" (Gus #672/#674 — how long the agent has been
@@ -22,6 +44,10 @@ export type BotSummary = {
   // Sparse — only days with activity; oldest→newest; [] for a brand-new bot.
   // The heatmap builds the full 30-day calendar and fills from this by day-key.
   dailyActivity: BotActivityDay[]
+  // Owner-only seven-day provider telemetry. Older optimistic mutation payloads
+  // can omit it until the bots query refetches, which renders the unknown-state
+  // placeholder instead of inventing zero usage.
+  usage?: BotTokenUsage
 }
 export type BotsResponse = { bots: BotSummary[] }
 
@@ -30,7 +56,7 @@ const EMPTY_BOTS: readonly BotSummary[] = Object.freeze([])
 export function useBots(): UseQueryResult<BotsResponse> & { bots: BotSummary[] } {
   const query = useQuery({
     queryKey: communityKeys.bots(),
-    queryFn: () => apiFetch<BotsResponse>("/api/community/bots"),
+    queryFn: () => apiFetchIdentity<BotsResponse>("/api/community/bots"),
   })
   return { ...query, bots: query.data?.bots ?? (EMPTY_BOTS as BotSummary[]) }
 }
@@ -42,6 +68,7 @@ export type CreateBotInput = {
   runtime: string
   image?: string
   model?: string | null
+  reasoningEffort?: ReasoningEffort | null
 }
 
 // Bot identity (name, image) is projected into friends() (self-bot rows) and
@@ -83,11 +110,24 @@ export type UpdateBotInput = {
   // Explicit `null` clears a set model; `undefined` leaves it untouched.
   model?: string | null
   runtime?: string
+  reasoningEffort?: ReasoningEffort | null
 }
 export type UpdateBotResponse = {
-  bot: Pick<BotSummary, "id" | "name" | "description" | "image" | "runtime" | "modelName">
+  bot: Pick<
+    BotSummary,
+    | "id"
+    | "name"
+    | "description"
+    | "image"
+    | "avatarVersion"
+    | "runtime"
+    | "modelName"
+    | "reasoningEffort"
+    | "runtimeConfigRevision"
+  >
   applied?: boolean
   deliveryError?: boolean
+  application?: "unchanged" | "next_turn" | "saved_not_applied"
 }
 
 export function useUpdateBot() {
@@ -105,6 +145,9 @@ export function useUpdateBot() {
           // explicit key the server would read as "clear to default".
           ...("model" in input ? { model: input.model } : {}),
           ...("runtime" in input ? { runtime: input.runtime } : {}),
+          ...("reasoningEffort" in input
+            ? { reasoningEffort: input.reasoningEffort }
+            : {}),
         }),
       }),
     onSuccess: (data) => invalidateBotSurfaces(qc, data.bot.id),
@@ -153,7 +196,7 @@ export function useResetMachineAgents() {
 }
 
 export type UploadBotAvatarArgs = { botId: string; file: File }
-export type UploadBotAvatarResult = { url: string }
+export type UploadBotAvatarResult = { url: string; avatarVersion: number }
 
 export function useUploadBotAvatar() {
   const qc = useQueryClient()
@@ -169,6 +212,22 @@ export function useUploadBotAvatar() {
       if (!res.ok) throw await readUploadError(res, "Upload failed")
       return (await res.json()) as UploadBotAvatarResult
     },
-    onSuccess: (_data, variables) => invalidateBotSurfaces(qc, variables.botId),
+    onSuccess: (data, variables) => {
+      useCommunityWsStore.getState().observeAvatarIdentity(
+        variables.botId,
+        data.url,
+        data.avatarVersion,
+      )
+      qc.setQueriesData(
+        { queryKey: communityKeys.all },
+        (current) => projectIdentityPayload(current),
+      )
+      useMessageStreamStore.getState().projectAvatarIdentity(
+        variables.botId,
+        data.url,
+        data.avatarVersion,
+      )
+      invalidateBotSurfaces(qc, variables.botId)
+    },
   })
 }

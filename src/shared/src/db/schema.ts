@@ -32,6 +32,8 @@ export const user = sqliteTable(
     email: text("email").unique().notNull(),
     emailVerified: integer("emailVerified", { mode: "boolean" }),
     image: text("image"),
+    avatarVersion: integer("avatarVersion").notNull().default(0),
+    avatarObjectKey: text("avatarObjectKey"),
     createdAt: text("createdAt").notNull().$defaultFn(() => new Date().toISOString()),
     updatedAt: text("updatedAt").notNull().$defaultFn(() => new Date().toISOString()),
     isBot: integer("isBot", { mode: "boolean" }).notNull().default(false),

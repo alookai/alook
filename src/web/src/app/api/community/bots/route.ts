@@ -4,11 +4,13 @@ import {
   CommunityBotCreateRequestSchema,
   COMMUNITY_BOT_LIMIT_PER_OWNER,
   utcDayKeyDaysAgo,
+  resolveReasoningEffort,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers"
 import { pushBotEventToMachine } from "@/lib/community/bot-push"
+import { canonicalUserImage } from "@/lib/community/storage"
 
 export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -23,9 +25,39 @@ export const GET = withAuth(async (_req, ctx) => {
     ctx.userId,
     sinceDay,
   )
+  const usageSinceDay = utcDayKeyDaysAgo(new Date(), 6)
+  const usageByBot = await queries.communityBot.getBotDailyTokenUsageForOwner(
+    db,
+    ctx.userId,
+    usageSinceDay,
+  )
+  const now = new Date()
+  const usageDays = Array.from({ length: 7 }, (_, index) =>
+    utcDayKeyDaysAgo(now, 6 - index)
+  )
   const withActivity = bots.map((bot) => ({
     ...bot,
+    image: canonicalUserImage(bot.id, bot.image, bot.avatarVersion),
     dailyActivity: activityByBot.get(bot.id) ?? [],
+    usage: {
+      capability: (["claude", "codex", "opencode"] as string[]).includes(bot.runtime)
+        ? "supported" as const
+        : bot.runtime === "cursor" || bot.runtime === "pi"
+          ? "unsupported" as const
+          : "unknown" as const,
+      days: usageDays.map((day, index) => {
+        const stored = usageByBot.get(bot.id)?.find((snapshot) => snapshot.day === day)
+        return {
+          day,
+          period: index === usageDays.length - 1 ? "in_progress" as const : "closed" as const,
+          metrics: stored?.metrics ?? {
+            input: null,
+            output: null,
+            cache: null,
+          },
+        }
+      }),
+    },
   }))
   return writeJSON({ bots: withActivity })
 })
@@ -69,6 +101,11 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   const modelName = body.model ?? null
+  const effort = body.reasoningEffort ?? null
+  const effortResolution = resolveReasoningEffort(runtime, modelName, effort)
+  if (effort !== null && !effortResolution.supported) {
+    return writeError(`reasoning effort ${effort} is not supported by this runtime/model`, 400)
+  }
 
   const created = await queries.communityBot.createBot(db, {
     ownerId: ctx.userId,
@@ -78,6 +115,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     runtime: body.runtime,
     image: body.image ?? null,
     modelName,
+    reasoningEffort: effortResolution.canonicalEffort,
   })
 
   // The bot's owner is the authenticated caller — resolve their handle to
@@ -133,9 +171,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         name: created.name,
         description: created.description,
         image: created.image,
+        avatarVersion: 0,
         machineId: body.machineId,
         runtime: body.runtime,
         modelName,
+        reasoningEffort: effortResolution.canonicalEffort,
+        runtimeConfigRevision: 0,
       },
     },
     201,

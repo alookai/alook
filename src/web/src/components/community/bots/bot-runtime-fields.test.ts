@@ -31,6 +31,7 @@ const OPTIONS = [
 function renderFields(overrides: Partial<React.ComponentProps<typeof BotRuntimeFields>> = {}) {
   const onRuntimeChange = vi.fn()
   const onModelChange = vi.fn()
+  const onReasoningEffortChange = vi.fn()
   let renderer!: TestRenderer.ReactTestRenderer
   act(() => {
     renderer = TestRenderer.create(
@@ -38,13 +39,15 @@ function renderFields(overrides: Partial<React.ComponentProps<typeof BotRuntimeF
         options: OPTIONS,
         runtime: "claude",
         model: "claude-sonnet-4-6",
+        reasoningEffort: "high",
         onRuntimeChange,
         onModelChange,
+        onReasoningEffortChange,
         ...overrides,
       }),
     )
   })
-  return { renderer, onRuntimeChange, onModelChange }
+  return { renderer, onRuntimeChange, onModelChange, onReasoningEffortChange }
 }
 
 function radio(renderer: TestRenderer.ReactTestRenderer, value: string) {
@@ -62,10 +65,11 @@ describe("BotRuntimeFields", () => {
   })
 
   it("changes runtime and clears the previous provider model together", () => {
-    const { renderer, onRuntimeChange, onModelChange } = renderFields()
+    const { renderer, onRuntimeChange, onModelChange, onReasoningEffortChange } = renderFields()
     act(() => radio(renderer, "codex").props.onChange())
     expect(onRuntimeChange).toHaveBeenCalledWith("codex")
     expect(onModelChange).toHaveBeenCalledWith(null)
+    expect(onReasoningEffortChange).toHaveBeenCalledWith(null)
   })
 
   it("does not clear the model when the selected runtime is chosen again", () => {

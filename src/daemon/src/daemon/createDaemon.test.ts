@@ -285,6 +285,8 @@ function daemonFakeSession(options: {
         } else if (runtime.kind === "text") {
           emit({ type: "assistant_message_completed", turnId: "daemon-test-turn", text: runtime.text ?? "", truncated: false } as never);
         }
+      } else if (event === "agent_event") {
+        emit(args[0] as never);
       } else if (event === "exit") {
         const result: AgentSessionResult = { outcome: "stopped", requested: true, exitCode: null, signal: null, cleanup: { status: "released" } };
         ended = true;
@@ -315,6 +317,112 @@ function factory(sockets: FakeSocket[]) {
 }
 
 describe("createDaemon", () => {
+  it("commits terminal usage before idle and attaches the current backend quota", async () => {
+    const sockets: FakeSocket[] = [];
+    const sessions: DaemonFakeSession[] = [];
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "daemon-provider-telemetry-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    mkdirSync(join(workingDirectoryBase, "bot_1"), { recursive: true });
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/enroll-agent")) return Response.json({ runnerKey: "runner_test" });
+      if (url.includes("/daemon/bots")) {
+        return Response.json({ bots: [{ id: "bot_1", name: "Bot", discriminator: "0001" }] });
+      }
+      return Response.json({ attempted: 0 });
+    }));
+    const daemon = await createDaemon({
+      machineKey: "cmk_telemetry",
+      serverUrl: "http://server.invalid",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as never,
+      runtimeReport: [{ id: "codex" }],
+      driverFor: () => fullFakeDriver("codex"),
+      sessionFactory: () => {
+        const session = daemonFakeSession();
+        sessions.push(session);
+        return session;
+      },
+      capabilities: [],
+      workingDirectoryBase,
+    });
+
+    try {
+      sockets[0]!.emit("open");
+      sockets[0]!.emit("message", JSON.stringify({
+        type: "agent:wake",
+        agentId: "bot_1",
+        config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
+        launchId: "launch_1",
+        unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
+      }));
+      await vi.waitFor(() => expect(sessions).toHaveLength(1));
+      await sessions[0]!.fire("agent_event", {
+        type: "token_usage",
+        turnId: "daemon-test-turn",
+        source: "codex_thread_token_usage_updated",
+        usage: {
+          input: 20,
+          output: 5,
+          cache: null,
+        },
+      });
+      await sessions[0]!.fire("agent_event", {
+        type: "rate_limits",
+        source: "codex_account_rate_limits_updated",
+        quota: {
+          status: "available",
+          sourceEpoch: "A".repeat(22),
+          freshForSeconds: 300,
+          limits: [{
+            bucket: {
+              limitId: "codex",
+              product: { kind: "reported", id: "codex", displayName: "Codex" },
+              model: { kind: "not_applicable" },
+              window: { kind: "rolling", durationSeconds: 18_000, displayName: "5 hour usage limit" },
+            },
+            usedPercent: 30,
+          }],
+        },
+      });
+      await sessions[0]!.fire("runtime_event", { kind: "turn_end", sessionId: "test-session" });
+
+      const frames = () => sockets[0]!.sent.map((frame) => JSON.parse(frame) as any);
+      await vi.waitFor(() => expect(frames().some((frame) =>
+        frame.type === "agent_activity"
+        && frame.agentId === "bot_1"
+        && frame.state === "idle"
+        && frame.dailyUsage?.[0]?.metrics.input === 20
+        && frame.quota?.observation?.limits?.[0]?.usedPercent === 30
+      )).toBe(true));
+      expect(existsSync(join(workingDirectoryBase, ".telemetry", "daily-token-usage.json"))).toBe(true);
+
+      const readyBefore = frames().filter((frame) => frame.type === "ready").length;
+      await sessions[0]!.fire("agent_event", {
+        type: "rate_limits",
+        source: "codex_account_rate_limits_updated",
+        quota: {
+          status: "error",
+          sourceEpoch: "B".repeat(22),
+          code: "unauthorized",
+          retryable: false,
+        },
+      });
+      await vi.waitFor(() => expect(frames().filter((frame) => frame.type === "ready")).toHaveLength(readyBefore + 1));
+      expect(frames().filter((frame) => frame.type === "ready").at(-1)?.providerQuotas).toEqual([{
+        agentBackendId: "codex",
+        observation: {
+          status: "error",
+          sourceEpoch: "B".repeat(22),
+          code: "unauthorized",
+          retryable: false,
+        },
+      }]);
+    } finally {
+      await daemon.stop();
+    }
+  });
+
   it("opens the builtin session factory and reports host preparation failures", async () => {
     const dir = mkdtempSync(join(tmpdir(), "daemon-builtin-session-"));
     try {

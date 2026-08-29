@@ -120,7 +120,7 @@ export async function proxyCommunityWebSockets(
   let activeClient: WebSocketRoute | undefined
   let activeConnectionId: number | undefined
   let connectionCount = 0
-  await context.routeWebSocket(/.*/, (client: WebSocketRoute) => {
+  await context.routeWebSocket(/\/api\/ws\/user(?:\?|$)/, (client: WebSocketRoute) => {
     connectionCount += 1
     const connectionId = connectionCount
     activeClient = client

@@ -172,9 +172,33 @@ export type CommunityWsReconcilePolicy =
   | "friends"
   | "presence-overlay"
   | "status-overlay"
+  | "identity-surfaces"
   | "ephemeral-typing"
   | "machines"
   | "bot-audits"
+
+export type CommunityWsLifecycleRecoveryTrigger =
+  | "focus"
+  | "online"
+  | "pageshow"
+  | "resume"
+  | "sentinel"
+  | "visibility"
+
+export type CommunityWsLifecycleRecoveryStrategy = "replace" | "validate"
+
+export type CommunityWsSocketReadyState =
+  | "closed"
+  | "closing"
+  | "connecting"
+  | "none"
+  | "open"
+
+export type CommunityWsSuspensionDurationBucket =
+  | "30s-2m"
+  | "over-2m"
+  | "under-30s"
+  | "unknown"
 
 function sendCommunityWsGTMEvent(payload: Record<string, unknown>) {
   try {
@@ -222,6 +246,21 @@ export function trackCommunityWsReconcileFailure(params: {
     event: "community_ws_reconcile_failure",
     policy: params.policy,
     reason: params.reason,
+  });
+}
+
+export function trackCommunityWsLifecycleRecovery(params: {
+  trigger: CommunityWsLifecycleRecoveryTrigger
+  strategy: CommunityWsLifecycleRecoveryStrategy
+  socketReadyState: CommunityWsSocketReadyState
+  suspensionDuration: CommunityWsSuspensionDurationBucket
+}) {
+  sendCommunityWsGTMEvent({
+    event: "community_ws_lifecycle_recovery",
+    trigger: params.trigger,
+    strategy: params.strategy,
+    socketReadyState: params.socketReadyState,
+    suspensionDuration: params.suspensionDuration,
   });
 }
 

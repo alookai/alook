@@ -8,6 +8,7 @@ import * as path from "path";
 import * as fs from "fs";
 import { fileURLToPath } from "url";
 import { getDriver, listRuntimeIds, type RuntimeId } from "./drivers/index.js";
+import type { RuntimeReasoningCatalog } from "@alook/agent-driver";
 
 /* ------------------------------------------------------------------ */
 /* Agent CLI path resolution                                           */
@@ -100,6 +101,7 @@ export interface RuntimeInfo {
   lastError?: string;
   /** ISO-8601 timestamp of the last transition to unhealthy. */
   lastErrorAt?: string;
+  reasoning?: RuntimeReasoningCatalog;
 }
 
 /**
@@ -118,7 +120,12 @@ export async function detectRuntimes(): Promise<RuntimeInfo[]> {
       const driver = getDriver(id);
       const probe = await driver.probe();
       if (probe.status === "healthy") {
-        results.push({ id, status: "healthy", version: probe.version });
+        results.push({
+          id,
+          status: "healthy",
+          version: probe.version,
+          reasoning: probe.reasoning,
+        });
       } else {
         results.push({
           id,

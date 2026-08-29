@@ -1,5 +1,41 @@
 export type CommunitySurface = "list" | "detail"
 
+type CommunityModuleRoute =
+  | "community-root-redirect"
+  | "me-root"
+  | "me-friends"
+  | "me-machines"
+  | "me-bots"
+  | "dm-detail"
+  | "server-root"
+  | "server-detail"
+  | "server-settings-redirect"
+  | "public-invite"
+  | "unknown"
+
+type CommunityModuleMain =
+  | { kind: "me-root" }
+  | { kind: "friends" }
+  | { kind: "machines" }
+  | { kind: "bots" }
+  | { kind: "dm"; dmId: string }
+  | { kind: "server-landing"; serverId: string }
+  | { kind: "server-conversation"; serverId: string; leafId: string }
+  | { kind: "route-resolution" }
+  | { kind: "none" }
+
+export type CommunityModulePlan = {
+  route: CommunityModuleRoute
+  canonicalHref?: string
+  surface: CommunitySurface | "neutral"
+  rail: "community" | "none"
+  sidebar:
+    | { kind: "me" }
+    | { kind: "server"; serverId: string }
+    | { kind: "none" }
+  main: CommunityModuleMain
+}
+
 export type CommunityRoute = {
   surface: CommunitySurface
   parentPath: string | null
@@ -38,11 +74,145 @@ export type CommunityCheckpointPlan = {
 }
 
 export function communityServerId(href: string): string | null {
-  const pathname = href.split(/[?#]/, 1)[0]
-  const segments = pathname?.split("/").filter(Boolean) ?? []
-  return segments[0] === "c" && segments[1] === "channels" && segments[2]
-    ? segments[2]
-    : null
+  const sidebar = resolveCommunityModulePlan(href).sidebar
+  return sidebar.kind === "server" ? sidebar.serverId : null
+}
+
+function unknownCommunityModulePlan(): CommunityModulePlan {
+  return {
+    route: "unknown",
+    surface: "neutral",
+    rail: "none",
+    sidebar: { kind: "none" },
+    main: { kind: "route-resolution" },
+  }
+}
+
+function structuralPathname(href: string): string {
+  return href.split(/[?#]/, 1)[0] || "/"
+}
+
+function decodedPathSegments(pathname: string): string[] | null {
+  if (!pathname.startsWith("/")) return null
+  const raw = pathname.slice(1).split("/")
+  if (raw.at(-1) === "") raw.pop()
+  if (raw.some((segment) => segment.length === 0)) return null
+  try {
+    const decoded = raw.map((segment) => decodeURIComponent(segment))
+    if (decoded.some((segment) => !segment || /[/?#\\]/.test(segment))) return null
+    return decoded
+  } catch {
+    return null
+  }
+}
+
+export function resolveCommunityModulePlan(href: string): CommunityModulePlan {
+  const segments = decodedPathSegments(structuralPathname(href))
+  if (!segments || segments[0] !== "c") return unknownCommunityModulePlan()
+
+  if (segments.length === 1) {
+    return {
+      route: "community-root-redirect",
+      canonicalHref: "/c/me/machines",
+      surface: "detail",
+      rail: "community",
+      sidebar: { kind: "me" },
+      main: { kind: "machines" },
+    }
+  }
+
+  if (segments[1] === "invite" && segments.length === 3) {
+    return {
+      route: "public-invite",
+      surface: "neutral",
+      rail: "none",
+      sidebar: { kind: "none" },
+      main: { kind: "none" },
+    }
+  }
+
+  if (segments[1] === "me") {
+    if (segments.length === 2) {
+      return {
+        route: "me-root",
+        surface: "list",
+        rail: "community",
+        sidebar: { kind: "me" },
+        main: { kind: "me-root" },
+      }
+    }
+    if (segments.length !== 3) return unknownCommunityModulePlan()
+    const leaf = segments[2]!
+    if (leaf === "friends") {
+      return {
+        route: "me-friends",
+        surface: "detail",
+        rail: "community",
+        sidebar: { kind: "me" },
+        main: { kind: "friends" },
+      }
+    }
+    if (leaf === "machines") {
+      return {
+        route: "me-machines",
+        surface: "detail",
+        rail: "community",
+        sidebar: { kind: "me" },
+        main: { kind: "machines" },
+      }
+    }
+    if (leaf === "bots") {
+      return {
+        route: "me-bots",
+        surface: "detail",
+        rail: "community",
+        sidebar: { kind: "me" },
+        main: { kind: "bots" },
+      }
+    }
+    return {
+      route: "dm-detail",
+      surface: "detail",
+      rail: "community",
+      sidebar: { kind: "me" },
+      main: { kind: "dm", dmId: leaf },
+    }
+  }
+
+  if (segments[1] === "channels") {
+    if (segments.length < 3 || segments.length > 4) return unknownCommunityModulePlan()
+    const serverId = segments[2]!
+    const sidebar = { kind: "server" as const, serverId }
+    if (segments.length === 3) {
+      return {
+        route: "server-root",
+        surface: "list",
+        rail: "community",
+        sidebar,
+        main: { kind: "server-landing", serverId },
+      }
+    }
+    const leafId = segments[3]!
+    if (leafId === "settings") {
+      return {
+        route: "server-settings-redirect",
+        canonicalHref: `/c/channels/${encodeURIComponent(serverId)}`,
+        surface: "list",
+        rail: "community",
+        sidebar,
+        main: { kind: "server-landing", serverId },
+      }
+    }
+    return {
+      route: "server-detail",
+      surface: "detail",
+      rail: "community",
+      sidebar,
+      main: { kind: "server-conversation", serverId, leafId },
+    }
+  }
+
+  return unknownCommunityModulePlan()
 }
 
 export function normalizeCommunityHref(href: string): CommunityHref {
@@ -55,10 +225,10 @@ export function normalizeCommunityHref(href: string): CommunityHref {
   )
   searchParams.sort()
   const search = searchParams.toString()
-  const segments = pathname.split("/").filter(Boolean)
-  const scope: CommunityScope = segments[0] === "c" && segments[1] === "channels" && segments[2]
-    ? { kind: "server", serverId: segments[2] }
-    : segments[0] === "c" && segments[1] === "me"
+  const modulePlan = resolveCommunityModulePlan(pathname)
+  const scope: CommunityScope = modulePlan.sidebar.kind === "server"
+    ? { kind: "server", serverId: modulePlan.sidebar.serverId }
+    : modulePlan.sidebar.kind === "me"
       ? { kind: "me" }
       : { kind: "unknown" }
   return {
@@ -66,7 +236,7 @@ export function normalizeCommunityHref(href: string): CommunityHref {
     pathname,
     search,
     scope,
-    surface: resolveCommunityRoute(pathname).surface,
+    surface: modulePlan.surface === "list" ? "list" : "detail",
     leafKey: pathname,
   }
 }
@@ -178,22 +348,18 @@ function committedPlan(
 }
 
 export function resolveCommunityRoute(pathname: string): CommunityRoute {
-  const segments = pathname.split("/").filter(Boolean)
-  if (segments[0] !== "c") return { surface: "detail", parentPath: null }
-
-  if (segments[1] === "me") {
-    return segments.length === 2
-      ? { surface: "list", parentPath: null }
-      : { surface: "detail", parentPath: "/c/me" }
+  const plan = resolveCommunityModulePlan(pathname)
+  if (plan.route === "dm-detail" || plan.route.startsWith("me-")) {
+    return plan.surface === "detail"
+      ? { surface: "detail", parentPath: "/c/me" }
+      : { surface: "list", parentPath: null }
   }
-
-  if (segments[1] === "channels" && segments[2]) {
-    const serverRoot = `/c/channels/${segments[2]}`
-    if (segments.length === 3) return { surface: "list", parentPath: null }
-    return { surface: "detail", parentPath: serverRoot }
+  if (plan.sidebar.kind === "server") {
+    return plan.surface === "detail"
+      ? { surface: "detail", parentPath: serverRootHref(plan.sidebar.serverId) }
+      : { surface: "list", parentPath: null }
   }
-
-  return { surface: "detail", parentPath: null }
+  return { surface: plan.surface === "list" ? "list" : "detail", parentPath: null }
 }
 
 export function serverRootHref(serverId: string): string {

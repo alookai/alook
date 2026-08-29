@@ -4,6 +4,7 @@ import { writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
 import { avatarInitial } from "@/lib/community/avatar"
+import { canonicalUserImage } from "@/lib/community/storage"
 
 /**
  * GET /api/community/users/me/dms — the DM sidebar list, relocated from the
@@ -26,7 +27,9 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
     userId: r.otherUserId,
     name: r.otherUserName,
     discriminator: r.otherUserDiscriminator,
-    avatar: r.otherUserImage ?? avatarInitial(r.otherUserName),
+    avatar: canonicalUserImage(r.otherUserId, r.otherUserImage, r.otherUserAvatarVersion)
+      ?? avatarInitial(r.otherUserName),
+    avatarVersion: r.otherUserAvatarVersion,
     status: "offline" as const,
     preview: "",
   }))

@@ -129,6 +129,79 @@ describe("WsControlChannel — resync on (re)connect", () => {
     expect(readyIdx).toBeLessThan(activityIdx);
   });
 
+  it("replays asynchronously enriched usage and quota after sending ready immediately", async () => {
+    const { ch, sockets } = makeChannel();
+    let resolveActivities!: (activities: Array<{
+      agentId: string;
+      state: "idle";
+      dailyUsage: Array<{
+        botId: string;
+        day: string;
+        metrics: {
+          input: number;
+          output: number;
+          cache: null;
+        };
+      }>;
+      quota: {
+        agentBackendId: "codex";
+        observation: {
+          status: "error";
+          sourceEpoch: string;
+          code: "network";
+          retryable: true;
+        };
+      };
+    }>) => void;
+    const activities = new Promise<Parameters<typeof resolveActivities>[0]>((resolve) => {
+      resolveActivities = resolve;
+    });
+    ch.onResync(() => ({
+      ready: { runtimeReport: [{ id: "codex" }], runningAgents: [] },
+      sessions: [],
+      activities,
+    }));
+
+    ch.connect();
+    sockets[0].emit("open");
+    expect(sockets[0].frames()).toEqual([
+      expect.objectContaining({ type: "ready", runtimeReport: [{ id: "codex" }] }),
+    ]);
+
+    resolveActivities([{
+      agentId: "bot_1",
+      state: "idle",
+      dailyUsage: [{
+        botId: "bot_1",
+        day: "2026-08-29",
+        metrics: {
+          input: 8,
+          output: 3,
+          cache: null,
+        },
+      }],
+      quota: {
+        agentBackendId: "codex",
+        observation: {
+          status: "error",
+          sourceEpoch: "Q".repeat(22),
+          code: "network",
+          retryable: true,
+        },
+      },
+    }]);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sockets[0].frames().at(-1)).toMatchObject({
+      type: "agent_activity",
+      agentId: "bot_1",
+      state: "idle",
+      dailyUsage: [{ botId: "bot_1", metrics: { input: 8 } }],
+      quota: { agentBackendId: "codex", observation: { code: "network" } },
+    });
+  });
+
   it("2b — tolerates a resync provider that omits `activities` (no crash, still sends ready + sessions)", async () => {
     // Regression: `activities` is optional on ResyncProvider. A provider that
     // returns only { ready, sessions } must not throw "activities is not

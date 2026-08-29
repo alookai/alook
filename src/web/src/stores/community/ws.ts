@@ -55,6 +55,8 @@ export type BotAuditEventEntry = {
 }
 
 type UserStatus = { emoji: string | null; text: string | null }
+type AvatarIdentity = { avatar: string; avatarVersion: number }
+type AvatarIdentityObservation = "accepted" | "same" | "stale" | "conflict" | "unbound"
 export type CommunityWsConnectionStatus = "connected" | "reconnecting" | "failed"
 
 const NOOP_RECONNECT = () => undefined
@@ -82,6 +84,8 @@ export type CommunityWsStoreState = {
    * fetched row.
    */
   userStatuses: Map<string, UserStatus>
+  identityOwnerUserId: string | null
+  avatarIdentities: Map<string, AvatarIdentity>
   /**
    * Per-bot rings of recent audit events, each bounded by BOT_AUDIT_RING_MAX.
    * Newest first inside each bot's array. A chatty bot never evicts a quieter
@@ -119,6 +123,12 @@ export type CommunityWsStoreState = {
   completeDeliveryOperation: (operationId: string, operationDigest: string) => boolean
   setUserStatus: (userId: string, emoji: string | null, text: string | null) => void
   resetUserStatuses: () => void
+  bindIdentityOwner: (userId: string | null) => void
+  observeAvatarIdentity: (
+    userId: string,
+    avatar: string,
+    avatarVersion: number,
+  ) => AvatarIdentityObservation
   markAccessDisconnected: () => void
   markAccessConnected: () => void
   setConnectionStatus: (status: CommunityWsConnectionStatus) => void
@@ -130,6 +140,7 @@ export type CommunityWsStoreState = {
 const initialState = (): Pick<
   CommunityWsStoreState,
   "onlineUserIds" | "seenMessageIds" | "seenDeliveryOperations" | "userStatuses" | "botAuditEvents"
+  | "identityOwnerUserId" | "avatarIdentities"
   | "accessEpoch" | "accessConnected"
   | "connectionStatus" | "reconnectNow"
 > => ({
@@ -141,6 +152,8 @@ const initialState = (): Pick<
   seenMessageIds: new Set(),
   seenDeliveryOperations: new Map(),
   userStatuses: new Map(),
+  identityOwnerUserId: null,
+  avatarIdentities: new Map(),
   botAuditEvents: new Map(),
 })
 
@@ -236,6 +249,26 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => (
   resetUserStatuses: () => {
     if (get().userStatuses.size === 0) return
     set({ userStatuses: new Map() })
+  },
+
+  bindIdentityOwner: (userId) => {
+    if (get().identityOwnerUserId === userId) return
+    set({ identityOwnerUserId: userId, avatarIdentities: new Map() })
+  },
+
+  observeAvatarIdentity: (userId, avatar, avatarVersion) => {
+    if (!get().identityOwnerUserId) return "unbound"
+    const current = get().avatarIdentities.get(userId)
+    if (current) {
+      if (avatarVersion < current.avatarVersion) return "stale"
+      if (avatarVersion === current.avatarVersion) {
+        return avatar === current.avatar ? "same" : "conflict"
+      }
+    }
+    const next = new Map(get().avatarIdentities)
+    next.set(userId, { avatar, avatarVersion })
+    set({ avatarIdentities: next })
+    return "accepted"
   },
 
   markAccessDisconnected: () => set((state) => ({

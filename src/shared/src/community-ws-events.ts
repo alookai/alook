@@ -11,6 +11,7 @@ const friendApprovalProfileSchema = z.strictObject({
   name: string,
   discriminator: string,
   image: nullableString,
+  avatarVersion: z.number().int().nonnegative(),
 })
 
 export const FriendApprovalPayloadSchema = z.strictObject({
@@ -39,6 +40,7 @@ const messageSchema = z.strictObject({
   authorId: string,
   authorName: string,
   authorAvatar: string.optional(),
+  authorAvatarVersion: z.number().int().nonnegative(),
   content: string,
   type: z.enum(["chat", "system"]),
   systemKind: z.literal("thread").optional(),
@@ -271,6 +273,7 @@ const communityMemberJoinSchema = z.strictObject({
     name: string,
     discriminator: string,
     avatar: string.optional(),
+    avatarVersion: z.number().int().nonnegative(),
     role: string,
     joinedAt: string,
   }),
@@ -394,6 +397,13 @@ const communityStatusUpdateSchema = z.strictObject({
   statusText: nullableString,
 })
 
+const communityIdentityUpdateSchema = z.strictObject({
+  type: z.literal("community:identity.update"),
+  userId: string,
+  avatar: string,
+  avatarVersion: z.number().int().positive(),
+})
+
 const machineRuntimeSchema = CommunityMachineRuntimeSchema.strict()
 
 export const CommunityMachineSummarySchema = z.strictObject({
@@ -489,6 +499,7 @@ const CommunityWsEventDiscriminatedSchema = z.discriminatedUnion("type", [
   communityInboxChangedSchema,
   communityPresenceUpdateSchema,
   communityStatusUpdateSchema,
+  communityIdentityUpdateSchema,
   communityMachineCreatedSchema,
   communityMachineStatusSchema,
   communityMachineUpdatedSchema,
@@ -555,6 +566,7 @@ export type CommunityReadStateAdvanced = Extract<CommunityWsEvent, { type: "comm
 export type CommunityInboxChanged = Extract<CommunityWsEvent, { type: "community:inbox.changed" }>
 export type CommunityPresenceUpdate = Extract<CommunityWsEvent, { type: "community:presence.update" }>
 export type CommunityStatusUpdate = Extract<CommunityWsEvent, { type: "community:status.update" }>
+export type CommunityIdentityUpdate = Extract<CommunityWsEvent, { type: "community:identity.update" }>
 export type CommunityMachineCreated = Extract<CommunityWsEvent, { type: "community:machine.created" }>
 export type CommunityMachineStatus = Extract<CommunityWsEvent, { type: "community:machine.status" }>
 export type CommunityMachineUpdated = Extract<CommunityWsEvent, { type: "community:machine.updated" }>
@@ -627,6 +639,7 @@ export const WS_EVENTS = {
   INBOX_CHANGED: "community:inbox.changed",
   PRESENCE_UPDATE: "community:presence.update",
   STATUS_UPDATE: "community:status.update",
+  IDENTITY_UPDATE: "community:identity.update",
   MACHINE_CREATED: "community:machine.created",
   MACHINE_STATUS: "community:machine.status",
   MACHINE_UPDATED: "community:machine.updated",

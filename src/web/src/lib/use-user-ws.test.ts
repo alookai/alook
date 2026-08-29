@@ -5,6 +5,12 @@ import {
 } from "@alook/shared"
 import type { UseUserWsOptions } from "./use-user-ws"
 
+const mockTrackCommunityWsLifecycleRecovery = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/analytics", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/analytics")>(),
+  trackCommunityWsLifecycleRecovery: mockTrackCommunityWsLifecycleRecovery,
+}))
+
 // --- Mock WebSocket ---
 class MockWebSocket {
   static CONNECTING = 0
@@ -39,24 +45,39 @@ class MockWebSocket {
 vi.stubGlobal("WebSocket", MockWebSocket)
 
 class MockEventTarget {
-  listeners = new Map<string, Set<() => void>>()
-  addEventListener(type: string, listener: () => void) {
-    const listeners = this.listeners.get(type) ?? new Set<() => void>()
+  listeners = new Map<string, Set<(event: { target: unknown; persisted: boolean }) => void>>()
+  addEventListener(
+    type: string,
+    listener: (event: { target: unknown; persisted: boolean }) => void,
+  ) {
+    const listeners = this.listeners.get(type)
+      ?? new Set<(event: { target: unknown; persisted: boolean }) => void>()
     listeners.add(listener)
     this.listeners.set(type, listeners)
   }
-  removeEventListener(type: string, listener: () => void) {
+  removeEventListener(
+    type: string,
+    listener: (event: { target: unknown; persisted: boolean }) => void,
+  ) {
     this.listeners.get(type)?.delete(listener)
   }
-  dispatch(type: string) {
-    for (const listener of this.listeners.get(type) ?? []) listener()
+  dispatch(type: string, event: { target?: unknown; persisted?: boolean } = {}) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener({
+        target: event.target ?? this,
+        persisted: event.persisted ?? false,
+      })
+    }
   }
   reset() {
     this.listeners.clear()
   }
 }
 
-const mockDocument = Object.assign(new MockEventTarget(), { visibilityState: "visible" })
+const mockDocument = Object.assign(new MockEventTarget(), {
+  visibilityState: "visible",
+  wasDiscarded: false,
+})
 const mockWindow = Object.assign(new MockEventTarget(), { location: { origin: "http://localhost:3000" } })
 vi.stubGlobal("document", mockDocument)
 vi.stubGlobal("window", mockWindow)
@@ -164,7 +185,16 @@ function dispatchHiddenToVisible() {
   mockDocument.visibilityState = "hidden"
   mockDocument.dispatch("visibilitychange")
   mockDocument.visibilityState = "visible"
+  mockDocument.wasDiscarded = false
   mockDocument.dispatch("visibilitychange")
+}
+
+function dispatchPageShow(persisted = false) {
+  mockWindow.dispatch("pageshow", { persisted })
+}
+
+function dispatchWindowFocus() {
+  mockWindow.dispatch("focus", { target: mockWindow })
 }
 
 function resetMockState() {
@@ -178,6 +208,7 @@ function resetMockState() {
   effectMemo = new Map()
   effectCounter = 0
   latestHookResult = null
+  mockTrackCommunityWsLifecycleRecovery.mockReset()
   mockDocument.visibilityState = "visible"
   mockDocument.reset()
   mockWindow.reset()
@@ -635,6 +666,293 @@ describe("useUserWs", () => {
     expect(onConnectionStateChange).not.toHaveBeenLastCalledWith("reconnecting")
   })
 
+  it("does not recover for initial pageshow or element focus", async () => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    const fetchCount = mockFetch.mock.calls.length
+
+    dispatchPageShow(false)
+    mockWindow.dispatch("focus", { target: { tagName: "INPUT" } })
+    await flushPromises()
+
+    expect(mockFetch).toHaveBeenCalledTimes(fetchCount)
+    expect(MockWebSocket.instances).toEqual([ws])
+    expect(connectionPings(ws)).toEqual([])
+    expect(mockTrackCommunityWsLifecycleRecovery).not.toHaveBeenCalled()
+  })
+
+  it("validates once for page-level focus and coalesces the foreground event storm", async () => {
+    setupTokenFetch()
+    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    const fetchCount = mockFetch.mock.calls.length
+
+    dispatchWindowFocus()
+    mockDocument.dispatch("resume")
+    dispatchPageShow(true)
+    mockWindow.dispatch("online")
+    mockDocument.dispatch("visibilitychange")
+
+    expect(connectionPings(ws)).toHaveLength(1)
+    expect(mockFetch).toHaveBeenCalledTimes(fetchCount)
+    expect(mockTrackCommunityWsLifecycleRecovery).toHaveBeenCalledOnce()
+    expect(mockTrackCommunityWsLifecycleRecovery).toHaveBeenCalledWith({
+      trigger: "focus",
+      strategy: "validate",
+      socketReadyState: "open",
+      suspensionDuration: "unknown",
+    })
+
+    const [{ nonce }] = connectionPings(ws)
+    ws.simulateMessage({ type: "connection.pong", nonce })
+    await vi.advanceTimersByTimeAsync(mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS + 1)
+    expect(ws.closed).toBe(false)
+    expect(MockWebSocket.instances).toEqual([ws])
+  })
+
+  it("replaces expired CONNECTING and CLOSING sockets with bounded ready-state telemetry", async () => {
+    setupTokenFetch()
+    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const connecting = MockWebSocket.instances[0]!
+
+    vi.setSystemTime(Date.now() + mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS + 1)
+    dispatchWindowFocus()
+    await flushPromises()
+
+    expect(connecting.closed).toBe(true)
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(mockTrackCommunityWsLifecycleRecovery).toHaveBeenLastCalledWith({
+      trigger: "focus",
+      strategy: "replace",
+      socketReadyState: "connecting",
+      suspensionDuration: "unknown",
+    })
+
+    const closing = MockWebSocket.instances[1]!
+    closing.readyState = MockWebSocket.CLOSING
+    dispatchWindowFocus()
+    await flushPromises()
+
+    expect(closing.closed).toBe(true)
+    expect(MockWebSocket.instances).toHaveLength(3)
+    expect(mockTrackCommunityWsLifecycleRecovery).toHaveBeenLastCalledWith({
+      trigger: "focus",
+      strategy: "replace",
+      socketReadyState: "closing",
+      suspensionDuration: "unknown",
+    })
+  })
+
+  it("clears a pending reconnect when the page becomes hidden", async () => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateClose()
+
+    mockDocument.visibilityState = "hidden"
+    mockDocument.dispatch("visibilitychange")
+    const fetchCount = mockFetch.mock.calls.length
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(mockFetch).toHaveBeenCalledTimes(fetchCount)
+    expect(MockWebSocket.instances).toEqual([ws])
+  })
+
+  it("clears a pending reconnect before an immediate foreground replacement", async () => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+    first.simulateClose()
+
+    dispatchWindowFocus()
+    await flushPromises()
+
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    expect(MockWebSocket.instances).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it("retires on freeze, stays network-silent while hidden, and resumes one replacement", async () => {
+    setupTokenFetch()
+    const onDisconnect = vi.fn()
+    const onReconnect = vi.fn()
+    const mod = await mountHook(vi.fn(), {
+      onDisconnect,
+      onReconnect,
+      requestDaemonStatusOnAuth: false,
+    })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+
+    mockDocument.visibilityState = "hidden"
+    mockDocument.dispatch("visibilitychange")
+    const hiddenFetchCount = mockFetch.mock.calls.length
+    const hiddenFrameCount = first.sent.length
+    mockDocument.dispatch("freeze")
+
+    expect(first.closed).toBe(true)
+    expect(onDisconnect).toHaveBeenCalledOnce()
+    expect(mockTrackCommunityWsLifecycleRecovery).not.toHaveBeenCalled()
+
+    vi.setSystemTime(Date.now() + mod.WS_FOREGROUND_SUSPENSION_GAP_MS + 1)
+    await vi.advanceTimersByTimeAsync(mod.WS_FOREGROUND_SENTINEL_INTERVAL_MS * 2)
+    mockDocument.dispatch("resume")
+    await flushPromises()
+
+    expect(mockFetch).toHaveBeenCalledTimes(hiddenFetchCount)
+    expect(first.sent).toHaveLength(hiddenFrameCount)
+    expect(MockWebSocket.instances).toEqual([first])
+    expect(mockTrackCommunityWsLifecycleRecovery).not.toHaveBeenCalled()
+
+    mockDocument.visibilityState = "visible"
+    mockDocument.dispatch("resume")
+    dispatchPageShow(true)
+    dispatchWindowFocus()
+    mockWindow.dispatch("online")
+    await flushPromises()
+
+    expect(mockFetch).toHaveBeenCalledTimes(hiddenFetchCount + 1)
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(mockTrackCommunityWsLifecycleRecovery).toHaveBeenCalledOnce()
+    expect(mockTrackCommunityWsLifecycleRecovery).toHaveBeenCalledWith({
+      trigger: "resume",
+      strategy: "replace",
+      socketReadyState: "none",
+      suspensionDuration: "30s-2m",
+    })
+
+    const replacement = MockWebSocket.instances[1]!
+    replacement.simulateOpen()
+    const replacementFetchCount = mockFetch.mock.calls.length
+    dispatchWindowFocus()
+    mockDocument.dispatch("resume")
+    dispatchPageShow(true)
+    mockWindow.dispatch("online")
+    await flushPromises()
+
+    expect(mockFetch).toHaveBeenCalledTimes(replacementFetchCount)
+    expect(MockWebSocket.instances).toEqual([first, replacement])
+    expect(replacement.closed).toBe(false)
+    replacement.simulateMessage({ type: "auth.ok" })
+    expect(onReconnect).toHaveBeenCalledOnce()
+  })
+
+  it("recovers a focus-only zombie OPEN without close or error", async () => {
+    setupTokenFetch()
+    const onDisconnect = vi.fn()
+    const onReconnect = vi.fn()
+    const mod = await mountHook(vi.fn(), {
+      onDisconnect,
+      onReconnect,
+      requestDaemonStatusOnAuth: false,
+    })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+
+    dispatchWindowFocus()
+    const [{ nonce }] = connectionPings(first)
+    mockDocument.dispatch("resume")
+    dispatchPageShow(true)
+    mockWindow.dispatch("online")
+    expect(connectionPings(first)).toEqual([{ type: "connection.ping", nonce }])
+
+    await vi.advanceTimersByTimeAsync(mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS)
+    await flushPromises()
+
+    expect(first.closed).toBe(true)
+    expect(onDisconnect).toHaveBeenCalledOnce()
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    expect(MockWebSocket.instances).toHaveLength(2)
+
+    const replacement = MockWebSocket.instances[1]!
+    replacement.simulateOpen()
+    replacement.simulateMessage({ type: "auth.ok" })
+    expect(onReconnect).toHaveBeenCalledOnce()
+
+    first.simulateMessage({ type: "connection.pong", nonce })
+    first.simulateMessage({ type: "auth.ok" })
+    first.simulateClose()
+    expect(onDisconnect).toHaveBeenCalledOnce()
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it("uses a wall-clock gap as a local visible sentinel without ordinary polling", async () => {
+    setupTokenFetch()
+    const intervalSpy = vi.spyOn(globalThis, "setInterval")
+    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    const fetchCount = mockFetch.mock.calls.length
+
+    await vi.advanceTimersByTimeAsync(mod.WS_FOREGROUND_SENTINEL_INTERVAL_MS)
+    expect(connectionPings(ws)).toEqual([])
+    expect(mockFetch).toHaveBeenCalledTimes(fetchCount)
+
+    const sentinelTick = intervalSpy.mock.calls.find(([, delay]) =>
+      delay === mod.WS_FOREGROUND_SENTINEL_INTERVAL_MS)?.[0]
+    expect(sentinelTick).toBeTypeOf("function")
+    vi.setSystemTime(Date.now() + mod.WS_FOREGROUND_SUSPENSION_GAP_MS + 1)
+    ;(sentinelTick as () => void)()
+
+    expect(connectionPings(ws)).toHaveLength(1)
+    expect(mockFetch).toHaveBeenCalledTimes(fetchCount)
+    expect(mockTrackCommunityWsLifecycleRecovery).toHaveBeenCalledWith({
+      trigger: "sentinel",
+      strategy: "validate",
+      socketReadyState: "open",
+      suspensionDuration: "unknown",
+    })
+    intervalSpy.mockRestore()
+  })
+
+  it("keeps sentinel work local while hidden and clears it on cleanup", async () => {
+    setupTokenFetch()
+    const intervalSpy = vi.spyOn(globalThis, "setInterval")
+    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+
+    mockDocument.visibilityState = "hidden"
+    mockDocument.dispatch("visibilitychange")
+    const hiddenFetchCount = mockFetch.mock.calls.length
+    const hiddenFrameCount = ws.sent.length
+    const sentinelTick = intervalSpy.mock.calls.find(([, delay]) =>
+      delay === mod.WS_FOREGROUND_SENTINEL_INTERVAL_MS)?.[0]
+    expect(sentinelTick).toBeTypeOf("function")
+    vi.setSystemTime(Date.now() + mod.WS_FOREGROUND_SUSPENSION_GAP_MS + 1)
+    ;(sentinelTick as () => void)()
+
+    expect(mockFetch).toHaveBeenCalledTimes(hiddenFetchCount)
+    expect(ws.sent).toHaveLength(hiddenFrameCount)
+    expect(mockTrackCommunityWsLifecycleRecovery).not.toHaveBeenCalled()
+
+    effectCleanup?.()
+    mockDocument.visibilityState = "visible"
+    vi.setSystemTime(Date.now() + mod.WS_FOREGROUND_SUSPENSION_GAP_MS + 1)
+    await vi.advanceTimersByTimeAsync(mod.WS_FOREGROUND_SENTINEL_INTERVAL_MS * 2)
+
+    expect(mockFetch).toHaveBeenCalledTimes(hiddenFetchCount)
+    expect(mockDocument.listeners.get("freeze")?.size ?? 0).toBe(0)
+    expect(mockDocument.listeners.get("resume")?.size ?? 0).toBe(0)
+    expect(mockWindow.listeners.get("focus")?.size ?? 0).toBe(0)
+    intervalSpy.mockRestore()
+  })
+
   it("retires a CONNECTING socket hidden transition and ignores its late open", async () => {
     setupTokenFetch()
     const onConnectionStateChange = vi.fn()
@@ -686,6 +1004,34 @@ describe("useUserWs", () => {
     await flushPromises()
 
     expect(mockFetch).toHaveBeenCalledTimes(2)
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
+  it("keeps an OPEN pre-auth event storm inside the original auth deadline", async () => {
+    setupTokenFetch()
+    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    const fetchCount = mockFetch.mock.calls.length
+
+    await vi.advanceTimersByTimeAsync(mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS - 1)
+    dispatchWindowFocus()
+    mockDocument.dispatch("resume")
+    dispatchPageShow(true)
+    mockWindow.dispatch("online")
+    mockDocument.dispatch("visibilitychange")
+    await flushPromises()
+
+    expect(first.closed).toBe(false)
+    expect(mockFetch).toHaveBeenCalledTimes(fetchCount)
+    expect(MockWebSocket.instances).toEqual([first])
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(first.closed).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(2_000)
+    await flushPromises()
+    expect(mockFetch).toHaveBeenCalledTimes(fetchCount + 1)
     expect(MockWebSocket.instances).toHaveLength(2)
   })
 

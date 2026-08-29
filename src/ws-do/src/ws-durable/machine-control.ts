@@ -90,6 +90,34 @@ export async function handleMachineControlFetch(
     })
   }
 
+  if (url.pathname === "/push-runtime-config-update" && request.method === "POST") {
+    let payload: unknown
+    try {
+      payload = await request.json()
+    } catch {
+      return new Response(JSON.stringify({ sent: 0 }), { status: 400 })
+    }
+    const raw = payload && typeof payload === "object" ? payload as Record<string, unknown> : null
+    if (
+      !raw ||
+      Object.keys(raw).some((key) => key !== "agentId" && key !== "config") ||
+      typeof raw.agentId !== "string" ||
+      raw.agentId.length === 0 ||
+      !raw.config ||
+      typeof raw.config !== "object"
+    ) {
+      return new Response(JSON.stringify({ sent: 0 }), { status: 400 })
+    }
+    const sent = forwardToCommunityMachine(context, JSON.stringify({
+      type: "agent:runtime_config_update",
+      agentId: raw.agentId,
+      config: raw.config,
+    }))
+    return new Response(JSON.stringify({ sent }), {
+      headers: { "Content-Type": "application/json" },
+    })
+  }
+
   if (url.pathname === "/forward-agent-wake" && request.method === "POST") {
     const body = await request.text()
     const attempted = forwardToCommunityMachine(context, body)

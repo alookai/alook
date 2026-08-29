@@ -77,6 +77,69 @@ function ack(nonce = "n1", id = "m1", seq = 11, extra: Partial<Msg> = {}): Messa
 }
 
 describe("message stream monotonic visibility", () => {
+  it("projects a newer avatar through live, participant, and optimistic rows without rollback", () => {
+    const thread = {
+      id: "thread-1",
+      name: "Thread",
+      messageCount: 1,
+      participants: [
+        { id: "u1", name: "Gus", avatar: "/avatar?v=1", avatarVersion: 1 },
+        { id: "u2", name: "Peer", avatar: "/peer?v=7", avatarVersion: 7 },
+      ],
+    }
+    let state = submit(emptyMessageOverlay(), intent("avatar", 1, {
+      message: {
+        ...localMessage("optimistic"),
+        authorAvatar: "/avatar?v=1",
+        authorAvatarVersion: 1,
+        thread,
+      },
+    }))
+    state = apply(state, {
+      type: "wsMessage",
+      message: canonical("m-avatar", 20, "live-avatar", {
+        authorId: "u2",
+        authorAvatar: "/peer?v=7",
+        authorAvatarVersion: 7,
+        thread,
+      }),
+    }).state
+
+    const projected = apply(state, {
+      type: "identityUpdated",
+      userId: "u1",
+      avatar: "/avatar?v=2",
+      avatarVersion: 2,
+    }).state
+
+    expect(projected.outboxByNonce.get("avatar")?.message).toMatchObject({
+      authorAvatar: "/avatar?v=2",
+      authorAvatarVersion: 2,
+      thread: {
+        participants: [
+          { id: "u1", avatar: "/avatar?v=2", avatarVersion: 2 },
+          { id: "u2", avatar: "/peer?v=7", avatarVersion: 7 },
+        ],
+      },
+    })
+    expect(projected.liveById.get("m-avatar")).toMatchObject({
+      authorAvatar: "/peer?v=7",
+      authorAvatarVersion: 7,
+    })
+    expect(projected.liveById.get("m-avatar")?.thread?.participants?.[0]).toMatchObject({
+      id: "u1",
+      avatar: "/avatar?v=2",
+      avatarVersion: 2,
+    })
+
+    expect(apply(projected, {
+      type: "identityUpdated",
+      userId: "u1",
+      avatar: "/avatar?v=1",
+      avatarVersion: 1,
+    }).state).toBe(projected)
+  })
+
   it("removes a canonical live row after a post-unit delete", () => {
     let state = apply(emptyMessageOverlay(), {
       type: "wsMessage",

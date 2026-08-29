@@ -4,8 +4,8 @@ const approval = {
   friendshipId: "friendship-1",
   status: "pending" as const,
   waitingOn: "you" as const,
-  otherProfile: { id: "user-2", name: "Other", discriminator: "0002", image: null },
-  botProfile: { id: "bot-1", name: "Bot", discriminator: "0001", image: null },
+  otherProfile: { id: "user-2", name: "Other", discriminator: "0002", image: null, avatarVersion: 0 },
+  botProfile: { id: "bot-1", name: "Bot", discriminator: "0001", image: null, avatarVersion: 0 },
 }
 
 const machine = {
@@ -33,6 +33,7 @@ export const communityWsEventFixtures = {
       seq: 1,
       authorId: "user-1",
       authorName: "Author",
+      authorAvatarVersion: 0,
       content: "hello",
       type: "chat",
       attachments: [{
@@ -181,6 +182,7 @@ export const communityWsEventFixtures = {
       userId: "user-1",
       name: "Member",
       discriminator: "0001",
+      avatarVersion: 0,
       role: "member",
       joinedAt: "2026-01-01T00:00:00.000Z",
     },
@@ -248,6 +250,12 @@ export const communityWsEventFixtures = {
     statusEmoji: null,
     statusText: null,
   },
+  "community:identity.update": {
+    type: "community:identity.update",
+    userId: "user-1",
+    avatar: "/api/community/users/user-1/avatar?v=2",
+    avatarVersion: 2,
+  },
   "community:machine.created": {
     type: "community:machine.created",
     machine,
@@ -312,6 +320,7 @@ export const requiredFixturePaths = {
   "community:inbox.changed": ["reason"],
   "community:presence.update": ["online"],
   "community:status.update": ["statusText"],
+  "community:identity.update": ["avatarVersion"],
   "community:machine.created": ["machine"],
   "community:machine.status": ["lastSeenAt"],
   "community:machine.updated": ["machine"],

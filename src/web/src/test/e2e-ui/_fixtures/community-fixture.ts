@@ -1,4 +1,9 @@
-import { test as base, type BrowserContext, type Page } from "@playwright/test"
+import {
+  test as base,
+  type BrowserContext,
+  type BrowserContextOptions,
+  type Page,
+} from "@playwright/test"
 import { readFileSync } from "fs"
 import { resolve } from "path"
 import {
@@ -13,7 +18,10 @@ import type { UserKey } from "../_setup/users"
 // Per-user authenticated context factory. A journey calls `asUser("bob")` to
 // get Bob's own browser context + page (separate from Alice's) so multi-user
 // realtime journeys can drive two or three sessions at once.
-type AsUser = (key: UserKey) => Promise<{ context: BrowserContext; page: Page }>
+type AsUser = (
+  key: UserKey,
+  options?: Omit<BrowserContextOptions, "storageState">,
+) => Promise<{ context: BrowserContext; page: Page }>
 
 function throwOrSkipFailure(
   decision: FailureDecision,
@@ -48,9 +56,9 @@ export const test = base.extend<{ asUser: AsUser; serviceGuard: void }>({
   }, { auto: true }],
   asUser: async ({ browser }, provide) => {
     const opened: BrowserContext[] = []
-    const factory: AsUser = async (key) => {
+    const factory: AsUser = async (key, options) => {
       const statePath = resolve(AUTH_DIR, `${key}.json`)
-      const context = await browser.newContext({ storageState: statePath })
+      const context = await browser.newContext({ ...options, storageState: statePath })
       opened.push(context)
       const page = await context.newPage()
       return { context, page }

@@ -16,7 +16,11 @@ import {
   handleMachineReset,
   handleMachineUpdate,
 } from "./routes/community-machine-lifecycle"
-import { handleMachineModelSwitch, handleMachineProviderSwitch } from "./routes/community-machine-switch"
+import {
+  handleMachineModelSwitch,
+  handleMachineProviderSwitch,
+  handleMachineRuntimeConfigUpdate,
+} from "./routes/community-machine-switch"
 import { handleHealth } from "./routes/health"
 import { handleBatchPresence, handleSinglePresence } from "./routes/presence"
 import { handleRateLimit } from "./routes/rate-limit"
@@ -77,6 +81,8 @@ export default {
     response = await handleMachineModelSwitch(context)
     if (response) return response
     response = await handleMachineProviderSwitch(context)
+    if (response) return response
+    response = await handleMachineRuntimeConfigUpdate(context)
     if (response) return response
     response = await handleMachineNap(context)
     if (response) return response

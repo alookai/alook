@@ -1,7 +1,7 @@
 "use client"
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetchIdentity } from "@/lib/community/identity-projection"
 import { communityKeys } from "@/lib/query-keys"
 import type { DM } from "@/lib/community/models/people"
 
@@ -19,7 +19,7 @@ export type DmsResponse = { conversations: DM[] }
 const EMPTY_DMS: readonly DM[] = Object.freeze([])
 
 export const dmsQueryFn = () =>
-  apiFetch<DmsResponse>("/api/community/users/me/dms")
+  apiFetchIdentity<DmsResponse>("/api/community/users/me/dms")
 
 export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
   const query = useQuery({

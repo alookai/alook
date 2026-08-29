@@ -46,6 +46,7 @@ export const SPEC_SECONDS = {
   "33-picker-async-layout.spec.ts": 57,
   "34-inbox-read-race.spec.ts": 42,
   "35-channel-ref-directory-states.spec.ts": 60,
+  "35-bot-token-usage-quota.spec.ts": 45,
   "36-server-switch-pending-checkpoint.spec.ts": 60,
   "37-server-rail-pdd.spec.ts": 10,
   "38-community-navigation-checkpoint-matrix.spec.ts": 60,
@@ -53,6 +54,8 @@ export const SPEC_SECONDS = {
   "39-mobile-composer-send.spec.ts": 45,
   "40-mobile-server-header-hierarchy.spec.ts": 28,
   "40-server-rail-unread.spec.ts": 60,
+  "41-community-initial-load-module-skeletons.spec.ts": 30,
+  "42-versioned-avatar-identity.spec.ts": 50,
 }
 
 function walk(directory) {

@@ -4,6 +4,7 @@ import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { invalidateForumSidebarBaseExact } from "@/hooks/community/use-forum-sidebar-threads"
 import { clearAllTypingIndicators } from "@/hooks/community/community-ws/typing"
+import { apiFetchIdentity } from "@/lib/community/identity-projection"
 import { communityWsReconnectPolicies } from "@/hooks/community/community-ws/registry"
 import { reconcileFocusedMessageQueries } from "@/hooks/community/community-ws/reconnect-messages"
 import { reconcileAccountReadState } from "@/hooks/community/community-ws/read-state-reconciliation"
@@ -120,7 +121,10 @@ async function reconcileCachedServer(queryClient: QueryClient, serverId: string)
   }
 }
 
-function policyExecutors(queryClient: QueryClient): Record<CommunityWsReconcilePolicy, () => void | Promise<void>> {
+function policyExecutors(
+  queryClient: QueryClient,
+  identityOwnerUserId?: string | null,
+): Record<CommunityWsReconcilePolicy, () => void | Promise<void>> {
   const sub = useCommunityStore.getState().subscription
   const queryKeys = queryClient.getQueryCache().getAll().map((query) => query.queryKey)
   return {
@@ -206,6 +210,27 @@ function policyExecutors(queryClient: QueryClient): Record<CommunityWsReconcileP
     },
     "presence-overlay": () => useCommunityWsStore.getState().resetPresence(),
     "status-overlay": () => useCommunityWsStore.getState().resetUserStatuses(),
+    "identity-surfaces": async () => {
+      const hasIdentitySurface = queryClient.getQueryCache().getAll().some((query) => (
+        query.queryKey[0] === "community"
+        && ["profile", "bots", "invite-info"].includes(String(query.queryKey[1]))
+      ))
+      const settled = await Promise.allSettled([
+        ...(identityOwnerUserId
+          ? [apiFetchIdentity("/api/community/users/me/profile")]
+          : []),
+        ...(hasIdentitySurface
+          ? [queryClient.invalidateQueries({
+              predicate: (query) => query.queryKey[0] === "community"
+                && ["profile", "bots", "invite-info"].includes(String(query.queryKey[1])),
+              refetchType: "active",
+            })]
+          : []),
+      ])
+      if (settled.some((result) => result.status === "rejected")) {
+        throw new Error("identity reconciliation failed")
+      }
+    },
     "ephemeral-typing": clearAllTypingIndicators,
     "machines": async () => {
       await queryClient.invalidateQueries({ queryKey: communityKeys.machines(), refetchType: "active" })
@@ -274,6 +299,7 @@ export type CommunityWsReconcileSummary = {
 
 type CommunityWsReconnectOptions = {
   excludePolicies?: readonly CommunityWsReconcilePolicy[]
+  identityOwnerUserId?: string | null
 }
 
 export async function reconcileCommunityWsReconnect(
@@ -282,7 +308,7 @@ export async function reconcileCommunityWsReconnect(
   options: CommunityWsReconnectOptions = {},
 ): Promise<CommunityWsReconcileSummary> {
   const startedAt = Date.now()
-  const executors = policyExecutors(queryClient)
+  const executors = policyExecutors(queryClient, options.identityOwnerUserId)
   const excludedPolicies = new Set(options.excludePolicies ?? [])
   const policies = communityWsReconnectPolicies.filter((policy) => !excludedPolicies.has(policy))
   const resetPolicies = policies.filter((policy) => RESET_POLICIES.has(policy))

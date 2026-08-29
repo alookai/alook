@@ -52,6 +52,8 @@ describe("listForumThreadsByCreatedAt against real SQLite", () => {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         image TEXT
+        ,avatarVersion INTEGER NOT NULL DEFAULT 0
+        ,avatarObjectKey TEXT
       );
       CREATE TABLE community_channel_member (
         id TEXT PRIMARY KEY,

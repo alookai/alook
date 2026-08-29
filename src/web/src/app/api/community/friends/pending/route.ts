@@ -3,6 +3,7 @@ import { queries, readOrStale } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { avatarInitial } from "@/lib/community/avatar"
+import { canonicalUserImage } from "@/lib/community/storage"
 import { resolvePresence, toFriendCard } from "@/lib/community/friend-cards"
 
 /**
@@ -50,7 +51,8 @@ export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
     id: r.id,
     userId: r.userId,
     name: r.name,
-    avatar: r.image ?? avatarInitial(r.name),
+    avatar: canonicalUserImage(r.userId, r.image, r.avatarVersion) ?? avatarInitial(r.name),
+    avatarVersion: r.avatarVersion,
     kind: r.kind,
     needsOwnerApproval: r.needsOwnerApproval,
   }))

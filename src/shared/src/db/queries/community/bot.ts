@@ -30,14 +30,18 @@ import {
   communityUserProfile,
   communityReadState,
   communityBotDailyActivity,
+  communityBotDailyTokenUsage,
   communityBotActivityEvent,
 } from "../../community-schema";
+import type { DailyUsageSnapshot } from "../../../provider-telemetry";
 import { communityMachine } from "../../community-machine-schema";
 import type { Database } from "../../index";
 import { communityBotSyntheticEmail } from "../../../constants";
 import { withUniqueDiscriminator } from "../user";
 import { nanoid } from "nanoid";
 import { chunk, D1_MAX_IN_PARAMS } from "../_chunk";
+import type { ReasoningEffort } from "../../../runtime-config";
+import { CommunityMachineRuntimeSchema, type CommunityMachineRuntime } from "../../../schemas";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -46,6 +50,7 @@ export type BotRow = {
   name: string;
   discriminator: string;
   image: string | null;
+  avatarVersion: number;
   ownerUserId: string;
   description: string;
   createdAt: string;
@@ -64,6 +69,8 @@ export type BotBinding = {
   runtime: string;
   instruction: string;
   modelName: string | null;
+  reasoningEffort: ReasoningEffort | null;
+  runtimeConfigRevision: number;
   createdAt: string;
 };
 
@@ -83,13 +90,20 @@ export class OwnerHasBotsError extends Error {
 export async function listBotsForOwner(
   db: Database,
   ownerId: string
-): Promise<Array<BotRow & { machineId: string; runtime: string; modelName: string | null }>> {
+): Promise<Array<BotRow & {
+  machineId: string;
+  runtime: string;
+  modelName: string | null;
+  reasoningEffort: ReasoningEffort | null;
+  runtimeConfigRevision: number;
+}>> {
   const rows = await db
     .select({
       id: user.id,
       name: user.name,
       discriminator: user.discriminator,
       image: user.image,
+      avatarVersion: user.avatarVersion,
       ownerUserId: user.ownerUserId,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
@@ -98,6 +112,8 @@ export async function listBotsForOwner(
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
       modelName: communityBotBinding.modelName,
+      reasoningEffort: communityBotBinding.reasoningEffort,
+      runtimeConfigRevision: communityBotBinding.runtimeConfigRevision,
     })
     .from(user)
     .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
@@ -113,6 +129,7 @@ export async function listBotsForOwner(
     name: r.name,
     discriminator: r.discriminator,
     image: r.image,
+    avatarVersion: r.avatarVersion,
     ownerUserId: r.ownerUserId!,
     description: r.description ?? "",
     createdAt: r.createdAt,
@@ -121,7 +138,48 @@ export async function listBotsForOwner(
     machineId: r.machineId,
     runtime: r.runtime,
     modelName: r.modelName ?? null,
+    reasoningEffort: r.reasoningEffort ?? null,
+    runtimeConfigRevision: r.runtimeConfigRevision ?? 0,
   }));
+}
+
+export async function getBotDailyTokenUsageForOwner(
+  db: Database,
+  ownerId: string,
+  sinceDay: string,
+): Promise<Map<string, DailyUsageSnapshot[]>> {
+  const rows = await db
+    .select({
+      botId: communityBotDailyTokenUsage.botId,
+      day: communityBotDailyTokenUsage.day,
+      inputTokens: communityBotDailyTokenUsage.inputTokens,
+      outputTokens: communityBotDailyTokenUsage.outputTokens,
+      cacheTokens: communityBotDailyTokenUsage.cacheTokens,
+    })
+    .from(communityBotDailyTokenUsage)
+    .innerJoin(user, eq(user.id, communityBotDailyTokenUsage.botId))
+    .where(and(
+      eq(user.ownerUserId, ownerId),
+      eq(user.isBot, true),
+      isNull(user.deletedAt),
+      gte(communityBotDailyTokenUsage.day, sinceDay),
+    ));
+  const byBot = new Map<string, DailyUsageSnapshot[]>();
+  for (const row of rows) {
+    const snapshots = byBot.get(row.botId) ?? [];
+    snapshots.push({
+      botId: row.botId,
+      day: row.day,
+      metrics: {
+        input: row.inputTokens,
+        output: row.outputTokens,
+        cache: row.cacheTokens,
+      },
+    });
+    byBot.set(row.botId, snapshots);
+  }
+  for (const snapshots of byBot.values()) snapshots.sort((a, b) => a.day.localeCompare(b.day));
+  return byBot;
 }
 
 /**
@@ -132,13 +190,22 @@ export async function getBotOwnedBy(
   db: Database,
   botId: string,
   ownerId: string
-): Promise<(BotRow & { machineId: string | null; runtime: string | null; modelName: string | null }) | null> {
+): Promise<(BotRow & {
+  machineId: string | null;
+  runtime: string | null;
+  modelName: string | null;
+  reasoningEffort: ReasoningEffort | null;
+  runtimeConfigRevision: number;
+  avatarObjectKey: string | null;
+}) | null> {
   const rows = await db
     .select({
       id: user.id,
       name: user.name,
       discriminator: user.discriminator,
       image: user.image,
+      avatarVersion: user.avatarVersion,
+      avatarObjectKey: user.avatarObjectKey,
       ownerUserId: user.ownerUserId,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
@@ -147,6 +214,8 @@ export async function getBotOwnedBy(
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
       modelName: communityBotBinding.modelName,
+      reasoningEffort: communityBotBinding.reasoningEffort,
+      runtimeConfigRevision: communityBotBinding.runtimeConfigRevision,
     })
     .from(user)
     .leftJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
@@ -166,6 +235,8 @@ export async function getBotOwnedBy(
     name: r.name,
     discriminator: r.discriminator,
     image: r.image,
+    avatarVersion: r.avatarVersion,
+    avatarObjectKey: r.avatarObjectKey,
     ownerUserId: r.ownerUserId!,
     description: r.description ?? "",
     createdAt: r.createdAt,
@@ -174,6 +245,8 @@ export async function getBotOwnedBy(
     machineId: r.machineId ?? null,
     runtime: r.runtime ?? null,
     modelName: r.modelName ?? null,
+    reasoningEffort: r.reasoningEffort ?? null,
+    runtimeConfigRevision: r.runtimeConfigRevision ?? 0,
   };
 }
 
@@ -188,9 +261,19 @@ export async function getBotOwnedBy(
 export async function getLiveBotAvatar(
   db: Database,
   botId: string
-): Promise<{ id: string; image: string | null } | null> {
+): Promise<{
+  id: string;
+  image: string | null;
+  avatarVersion: number;
+  avatarObjectKey: string | null;
+} | null> {
   const rows = await db
-    .select({ id: user.id, image: user.image })
+    .select({
+      id: user.id,
+      image: user.image,
+      avatarVersion: user.avatarVersion,
+      avatarObjectKey: user.avatarObjectKey,
+    })
     .from(user)
     .where(
       and(
@@ -201,6 +284,60 @@ export async function getLiveBotAvatar(
     )
     .limit(1);
   return rows[0] ?? null;
+}
+
+export async function publishOwnedBotAvatar(
+  db: Database,
+  botId: string,
+  ownerId: string,
+  input: { objectKey: string; stableUrl: string },
+): Promise<{
+  previous: { avatarVersion: number; avatarObjectKey: string | null };
+  current: {
+    id: string;
+    image: string | null;
+    avatarVersion: number;
+    avatarObjectKey: string | null;
+  };
+} | null> {
+  const ownerScopedIds = db
+    .select({ id: user.id })
+    .from(user)
+    .where(
+      and(
+        eq(user.id, botId),
+        eq(user.ownerUserId, ownerId),
+        eq(user.isBot, true),
+        isNull(user.deletedAt),
+      ),
+    );
+  const before = db
+    .select({
+      avatarVersion: user.avatarVersion,
+      avatarObjectKey: user.avatarObjectKey,
+    })
+    .from(user)
+    .where(inArray(user.id, ownerScopedIds))
+    .limit(1);
+  const publish = db
+    .update(user)
+    .set({
+      image: input.stableUrl,
+      avatarVersion: sql`${user.avatarVersion} + 1`,
+      avatarObjectKey: input.objectKey,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(inArray(user.id, ownerScopedIds))
+    .returning({
+      id: user.id,
+      image: user.image,
+      avatarVersion: user.avatarVersion,
+      avatarObjectKey: user.avatarObjectKey,
+    });
+  const results = (await db.batch([before, publish] as any)) as any[];
+  const previous = Array.isArray(results[0]) ? results[0][0] : undefined;
+  const current = Array.isArray(results[1]) ? results[1][0] : undefined;
+  return previous && current ? { previous, current } : null;
 }
 
 /** Cheap ownership probe used by ack/error paths. */
@@ -225,19 +362,33 @@ export async function countLiveBotsForOwner(
 export async function getBotBinding(
   db: Database,
   botId: string
-): Promise<{ machineId: string; runtime: string; modelName: string | null } | null> {
+): Promise<{
+  machineId: string;
+  runtime: string;
+  modelName: string | null;
+  reasoningEffort: ReasoningEffort | null;
+  runtimeConfigRevision: number;
+} | null> {
   const rows = await db
     .select({
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
       modelName: communityBotBinding.modelName,
+      reasoningEffort: communityBotBinding.reasoningEffort,
+      runtimeConfigRevision: communityBotBinding.runtimeConfigRevision,
     })
     .from(communityBotBinding)
     .where(eq(communityBotBinding.userId, botId))
     .limit(1);
   const r = rows[0];
   if (!r) return null;
-  return { machineId: r.machineId, runtime: r.runtime, modelName: r.modelName ?? null };
+  return {
+    machineId: r.machineId,
+    runtime: r.runtime,
+    modelName: r.modelName ?? null,
+    reasoningEffort: r.reasoningEffort ?? null,
+    runtimeConfigRevision: r.runtimeConfigRevision ?? 0,
+  };
 }
 
 /**
@@ -349,6 +500,8 @@ export type BotWakeContext =
       machineId: string;
       runtime: string;
       modelName: string | null;
+      reasoningEffort: ReasoningEffort | null;
+      runtimeConfigRevision: number;
       ownerUserId: string | null;
     };
 
@@ -364,6 +517,8 @@ export async function getBotWakeContext(db: Database, botUserId: string): Promis
       machineId: communityBotBinding.machineId,
       runtime: communityBotBinding.runtime,
       modelName: communityBotBinding.modelName,
+      reasoningEffort: communityBotBinding.reasoningEffort,
+      runtimeConfigRevision: communityBotBinding.runtimeConfigRevision,
     })
     .from(user)
     .leftJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
@@ -381,6 +536,8 @@ export async function getBotWakeContext(db: Database, botUserId: string): Promis
     machineId: r.machineId,
     runtime: r.runtime,
     modelName: r.modelName ?? null,
+    reasoningEffort: r.reasoningEffort ?? null,
+    runtimeConfigRevision: r.runtimeConfigRevision ?? 0,
     ownerUserId: r.ownerUserId,
   };
 }
@@ -405,6 +562,8 @@ export async function listBotsForMachine(
     ownerDiscriminator: string;
     runtime: string;
     modelName: string | null;
+    reasoningEffort: ReasoningEffort | null;
+    runtimeConfigRevision: number;
   }>
 > {
   // Guard against orphaned bots: if a future flow soft-deletes an owner user
@@ -420,6 +579,8 @@ export async function listBotsForMachine(
       ownerDiscriminator: owner.discriminator,
       runtime: communityBotBinding.runtime,
       modelName: communityBotBinding.modelName,
+      reasoningEffort: communityBotBinding.reasoningEffort,
+      runtimeConfigRevision: communityBotBinding.runtimeConfigRevision,
     })
     .from(user)
     .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
@@ -441,6 +602,8 @@ export async function listBotsForMachine(
     ownerDiscriminator: r.ownerDiscriminator,
     runtime: r.runtime,
     modelName: r.modelName ?? null,
+    reasoningEffort: r.reasoningEffort ?? null,
+    runtimeConfigRevision: r.runtimeConfigRevision ?? 0,
   }));
 }
 
@@ -497,6 +660,7 @@ export type CreateBotInput = {
   runtime: string;
   image?: string | null;
   modelName?: string | null;
+  reasoningEffort?: ReasoningEffort | null;
 };
 
 /**
@@ -542,6 +706,7 @@ export async function createBot(
         runtime: data.runtime,
         instruction: description,
         modelName: data.modelName ?? null,
+        reasoningEffort: data.reasoningEffort ?? null,
         createdAt: nowIso,
       });
       // Match updateBot's upsert semantics — reincarnation paths (nanoid collision
@@ -578,14 +743,14 @@ export async function updateBot(
   botId: string,
   ownerId: string,
   data: { name?: string; description?: string; image?: string | null }
-): Promise<{ botId: string; name: string; discriminator: string; description: string; image: string | null } | null> {
+): Promise<{ botId: string; name: string; discriminator: string; description: string; image: string | null; avatarVersion: number } | null> {
   const set: { name?: string; image?: string | null; updatedAt: string } = {
     updatedAt: new Date().toISOString(),
   };
   if (data.name !== undefined) set.name = data.name;
   if (data.image !== undefined) set.image = data.image;
 
-  let rows: Array<{ id: string; name: string; discriminator: string; image: string | null }>;
+  let rows: Array<{ id: string; name: string; discriminator: string; image: string | null; avatarVersion: number }>;
   if (data.description !== undefined) {
     const ownerScopedIds = db
       .select({ id: user.id })
@@ -619,7 +784,13 @@ export async function updateBot(
           inArray(user.id, ownerScopedBindingIds)
         )
       )
-      .returning({ id: user.id, name: user.name, discriminator: user.discriminator, image: user.image });
+      .returning({
+        id: user.id,
+        name: user.name,
+        discriminator: user.discriminator,
+        image: user.image,
+        avatarVersion: user.avatarVersion,
+      });
     const results = (await db.batch([s1, s2] as any)) as any[];
     const bindingRows = Array.isArray(results?.[0]) ? results[0] : [];
     rows = Array.isArray(results?.[1]) ? results[1] : [];
@@ -636,7 +807,13 @@ export async function updateBot(
           isNull(user.deletedAt)
         )
       )
-      .returning({ id: user.id, name: user.name, discriminator: user.discriminator, image: user.image });
+      .returning({
+        id: user.id,
+        name: user.name,
+        discriminator: user.discriminator,
+        image: user.image,
+        avatarVersion: user.avatarVersion,
+      });
   }
 
   if (rows.length === 0) return null;
@@ -657,6 +834,7 @@ export async function updateBot(
     discriminator: rows[0]!.discriminator,
     description,
     image: rows[0]!.image,
+    avatarVersion: rows[0]!.avatarVersion,
   };
 }
 
@@ -692,7 +870,10 @@ export async function updateBotModel(
     );
   const rows = await db
     .update(communityBotBinding)
-    .set({ modelName })
+    .set({
+      modelName,
+      runtimeConfigRevision: sql`${communityBotBinding.runtimeConfigRevision} + 1`,
+    })
     .where(inArray(communityBotBinding.userId, ownerScopedIds))
     .returning({ userId: communityBotBinding.userId });
   return rows.length > 0;
@@ -718,10 +899,48 @@ export async function updateBotRuntime(
     );
   const rows = await db
     .update(communityBotBinding)
-    .set({ runtime, modelName })
+    .set({
+      runtime,
+      modelName,
+      runtimeConfigRevision: sql`${communityBotBinding.runtimeConfigRevision} + 1`,
+    })
     .where(inArray(communityBotBinding.userId, ownerScopedIds))
     .returning({ userId: communityBotBinding.userId });
   return rows.length > 0;
+}
+
+export async function updateBotRuntimeConfig(
+  db: Database,
+  botId: string,
+  ownerId: string,
+  desired: {
+    runtime: string;
+    modelName: string | null;
+    reasoningEffort: ReasoningEffort | null;
+  },
+): Promise<{ runtimeConfigRevision: number } | null> {
+  const ownerScopedIds = db
+    .select({ id: user.id })
+    .from(user)
+    .where(
+      and(
+        eq(user.id, botId),
+        eq(user.ownerUserId, ownerId),
+        eq(user.isBot, true),
+        isNull(user.deletedAt),
+      ),
+    );
+  const rows = await db
+    .update(communityBotBinding)
+    .set({
+      runtime: desired.runtime,
+      modelName: desired.modelName,
+      reasoningEffort: desired.reasoningEffort,
+      runtimeConfigRevision: sql`${communityBotBinding.runtimeConfigRevision} + 1`,
+    })
+    .where(inArray(communityBotBinding.userId, ownerScopedIds))
+    .returning({ runtimeConfigRevision: communityBotBinding.runtimeConfigRevision });
+  return rows[0] ?? null;
 }
 
 /**
@@ -1124,13 +1343,7 @@ export async function getMachineForOwner(
   ownerId: string
 ): Promise<{
   id: string;
-  availableRuntimes: Array<{
-    id: string;
-    version?: string;
-    status?: "healthy" | "unhealthy";
-    lastError?: string;
-    lastErrorAt?: string;
-  }>;
+  availableRuntimes: CommunityMachineRuntime[];
 } | null> {
   const rows = await db
     .select({
@@ -1146,35 +1359,13 @@ export async function getMachineForOwner(
   // `{id, version?, status?, lastError?, lastErrorAt?}[]`. Drop empty ids so
   // the route's `.includes()` / `.find()` checks can't be fooled by `""`.
   const raw = (r.availableRuntimes ?? []) as Array<unknown>;
-  const normalized: Array<{
-    id: string;
-    version?: string;
-    status?: "healthy" | "unhealthy";
-    lastError?: string;
-    lastErrorAt?: string;
-  }> = [];
+  const normalized: CommunityMachineRuntime[] = [];
   for (const entry of raw) {
     if (typeof entry === "string") {
-      if (entry.length > 0) normalized.push({ id: entry });
+      if (entry.length > 0) normalized.push({ id: entry, status: "healthy" });
     } else if (entry && typeof entry === "object") {
-      const obj = entry as {
-        id?: unknown;
-        version?: unknown;
-        status?: unknown;
-        lastError?: unknown;
-        lastErrorAt?: unknown;
-      };
-      if (typeof obj.id === "string" && obj.id.length > 0) {
-        const status =
-          obj.status === "unhealthy" ? "unhealthy" : obj.status === "healthy" ? "healthy" : undefined;
-        normalized.push({
-          id: obj.id,
-          ...(typeof obj.version === "string" ? { version: obj.version } : {}),
-          ...(status ? { status } : {}),
-          ...(typeof obj.lastError === "string" ? { lastError: obj.lastError } : {}),
-          ...(typeof obj.lastErrorAt === "string" ? { lastErrorAt: obj.lastErrorAt } : {}),
-        });
-      }
+      const parsed = CommunityMachineRuntimeSchema.safeParse(entry);
+      if (parsed.success) normalized.push(parsed.data);
     }
   }
   return { id: r.id, availableRuntimes: normalized };

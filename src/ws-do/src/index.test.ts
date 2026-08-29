@@ -92,6 +92,7 @@ describe("ws-do router", () => {
         "handleMachineBatchReset",
         "handleMachineModelSwitch",
         "handleMachineProviderSwitch",
+        "handleMachineRuntimeConfigUpdate",
         "handleMachineNap",
         "handleMachineForceClose",
       ])

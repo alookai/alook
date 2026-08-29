@@ -910,7 +910,7 @@ async function activatePairingToken(
   arch: string,
   osRelease: string,
   daemonVersion: string,
-  runtimeReport: Array<{ id: string; version?: string; status?: "healthy" | "unhealthy"; lastError?: string; lastErrorAt?: string }>,
+  runtimeReport: RuntimeInfo[],
   expectedMachineId?: string,
 ): Promise<{ credential: string; machineId: string }> {
   let res: Response;

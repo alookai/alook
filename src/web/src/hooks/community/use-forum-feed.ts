@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useInfiniteQuery, type InfiniteData } from "@tanstack/react-query"
 import { compareAsciiSqliteBinary, DEFAULT_MESSAGE_PAGE_SIZE } from "@alook/shared"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetchIdentity } from "@/lib/community/identity-projection"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
+import { canonicalUserImage } from "@/lib/community/storage"
 import { readForumTagSelection, validateForumTagSelection, writeForumTagSelection } from "@/lib/community/forum-tag-selection"
 import type { ForumThread } from "@/lib/community/models/message"
 import { useForumTags } from "./use-channel-panels"
@@ -30,6 +31,7 @@ type IncludedMessage = {
   authorId: string
   authorName: string
   authorImage: string | null
+  authorAvatarVersion: number
 }
 
 type IncludedFirstMessage = { channelId: string; content: string }
@@ -39,6 +41,7 @@ type IncludedParticipant = {
   userId: string
   userName: string | null
   userImage: string | null
+  userAvatarVersion: number
   participantCount?: number
 }
 
@@ -102,7 +105,7 @@ export function forumFeedPageQueryFn(channelId: string, tag: string | null) {
     })
     if (tag) params.set("tag", tag)
     if (pageParam) params.set("cursor", pageParam)
-    return apiFetch<ForumFeedPage>(
+    return apiFetchIdentity<ForumFeedPage>(
       `/api/community/channels/${channelId}/threads?${params.toString()}`,
     )
   }
@@ -126,7 +129,9 @@ export function mapForumFeedPages(pages: ForumFeedPage[]): ForumThread[] {
         {
           id: row.userId,
           name: row.userName ?? "",
-          avatar: row.userImage ?? avatarInitial(row.userName ?? ""),
+          avatar: canonicalUserImage(row.userId, row.userImage, row.userAvatarVersion)
+            ?? avatarInitial(row.userName ?? ""),
+          avatarVersion: row.userAvatarVersion,
         },
       ])
       participantCountByChannel.set(row.channelId, Number(row.participantCount ?? 0))
@@ -147,7 +152,11 @@ export function mapForumFeedPages(pages: ForumFeedPage[]): ForumThread[] {
           text: (first?.content ?? "").slice(0, 100),
         },
         authorId: opener?.authorId ?? thread.creatorId ?? "",
-        authorAvatar: opener?.authorImage ?? avatarInitial(opener?.authorName ?? ""),
+        authorAvatar: opener
+          ? canonicalUserImage(opener.authorId, opener.authorImage, opener.authorAvatarVersion)
+            ?? avatarInitial(opener.authorName)
+          : avatarInitial(""),
+        authorAvatarVersion: opener?.authorAvatarVersion ?? 0,
         openerMessageId: thread.parentMessageId ?? "",
         ...(opener?.createdAt ? { openerCreatedAt: opener.createdAt } : {}),
         ...(opener ? { parentSeq: opener.seq } : {}),

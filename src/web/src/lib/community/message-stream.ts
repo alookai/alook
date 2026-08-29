@@ -73,6 +73,7 @@ export type MessageOverlayEvent =
   | { type: "liveRefreshed"; message: CanonicalMessage }
   | { type: "messageEdited"; messageId: string; content: string }
   | { type: "messageRemoved"; messageId: string }
+  | { type: "identityUpdated"; userId: string; avatar: string; avatarVersion: number }
   | { type: "baseChanged"; messages: CanonicalMessage[]; latestSeq?: number }
   | { type: "dismissFailed"; nonce: string }
   | { type: "clear" }
@@ -116,6 +117,38 @@ function updateIntent(
 
 function canonicalDeltaOrder(a: CanonicalMessage, b: CanonicalMessage): number {
   return a.seq - b.seq
+}
+
+function projectMessageAvatar<T extends Msg>(
+  message: T,
+  userId: string,
+  avatar: string,
+  avatarVersion: number,
+): T {
+  let next: Msg | undefined
+  if (
+    message.authorId === userId
+    && (message.authorAvatarVersion ?? 0) < avatarVersion
+  ) {
+    next = { ...message, authorAvatar: avatar, authorAvatarVersion: avatarVersion }
+  }
+  const participants = message.thread?.participants
+  if (participants?.some(
+    (participant) => participant.id === userId && participant.avatarVersion < avatarVersion,
+  )) {
+    const current = next ?? message
+    next = {
+      ...current,
+      thread: {
+        ...current.thread!,
+        participants: participants.map((participant) =>
+          participant.id === userId && participant.avatarVersion < avatarVersion
+            ? { ...participant, avatar, avatarVersion }
+            : participant),
+      },
+    }
+  }
+  return (next ?? message) as T
 }
 
 function compoundIdentity(
@@ -468,6 +501,37 @@ export function reduceMessageOverlay(
       }
       return changed
         ? { state: { liveById, outboxByNonce }, effects }
+        : unchanged(state)
+    }
+
+    case "identityUpdated": {
+      let changed = false
+      const liveById = new Map(state.liveById)
+      for (const [id, message] of liveById) {
+        const projected = projectMessageAvatar(
+          message,
+          event.userId,
+          event.avatar,
+          event.avatarVersion,
+        )
+        if (projected === message) continue
+        liveById.set(id, projected)
+        changed = true
+      }
+      const outboxByNonce = new Map(state.outboxByNonce)
+      for (const [nonce, intent] of outboxByNonce) {
+        const message = projectMessageAvatar(
+          intent.message,
+          event.userId,
+          event.avatar,
+          event.avatarVersion,
+        )
+        if (message === intent.message) continue
+        outboxByNonce.set(nonce, { ...intent, message })
+        changed = true
+      }
+      return changed
+        ? { state: { liveById, outboxByNonce }, effects: [] }
         : unchanged(state)
     }
 

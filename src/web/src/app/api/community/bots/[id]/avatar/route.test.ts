@@ -6,6 +6,9 @@ const mockGetBotOwnedBy = vi.fn()
 const mockGetLiveBotAvatar = vi.fn()
 const mockHandleBotAvatarUpload = vi.fn()
 const mockPersistUploadedBotAvatar = vi.fn()
+const mockEnsureAvatarAliasPresent = vi.fn()
+const mockScheduleAvatarMediaReconciliation = vi.fn()
+const mockFanOutIdentityUpdate = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {}, COMMUNITY_MEDIA: { get: (...a: unknown[]) => mediaGet(...a) } } })),
@@ -32,6 +35,15 @@ vi.mock("@/lib/community/upload", () => ({
 
 vi.mock("@/lib/community/bot-avatar-persistence", () => ({
   persistUploadedBotAvatar: (...a: unknown[]) => mockPersistUploadedBotAvatar(...a),
+}))
+
+vi.mock("@/lib/community/avatar-media-reconciliation", () => ({
+  ensureAvatarAliasPresent: (...a: unknown[]) => mockEnsureAvatarAliasPresent(...a),
+  scheduleAvatarMediaReconciliation: (...a: unknown[]) => mockScheduleAvatarMediaReconciliation(...a),
+}))
+
+vi.mock("@/lib/community/fanout", () => ({
+  fanOutIdentityUpdate: (...a: unknown[]) => mockFanOutIdentityUpdate(...a),
 }))
 
 let isAuthed = true
@@ -62,8 +74,9 @@ vi.mock("@/lib/middleware/helpers", () => {
 
 import { GET, POST } from "./route"
 
-function getReq() {
-  return new NextRequest("http://localhost/api/community/bots/b1/avatar", { method: "GET" })
+function getReq(version?: number) {
+  const suffix = version === undefined ? "" : `?v=${version}`
+  return new NextRequest(`http://localhost/api/community/bots/b1/avatar${suffix}`, { method: "GET" })
 }
 function postReq() {
   return new NextRequest("http://localhost/api/community/bots/b1/avatar", { method: "POST" })
@@ -79,6 +92,8 @@ describe("GET /api/community/bots/[id]/avatar", () => {
     mockGetLiveBotAvatar.mockResolvedValue({
       id: "b1",
       image: "/api/community/bots/b1/avatar",
+      avatarVersion: 0,
+      avatarObjectKey: null,
     })
     mediaGet.mockResolvedValue({
       body: new ReadableStream(),
@@ -111,8 +126,27 @@ describe("GET /api/community/bots/[id]/avatar", () => {
   })
 
   it("returns 404 before R2 for a live bot with a noncanonical image", async () => {
-    mockGetLiveBotAvatar.mockResolvedValue({ id: "b1", image: "avatar:beam-seed" })
+    mockGetLiveBotAvatar.mockResolvedValue({
+      id: "b1",
+      image: "avatar:beam-seed",
+      avatarVersion: 0,
+      avatarObjectKey: null,
+    })
     const res = await GET(getReq(), ctx("b1"))
+    expect(res.status).toBe(404)
+    expect(mediaGet).not.toHaveBeenCalled()
+  })
+
+  it("returns 404 before R2 for an inconsistent version/object-key pair", async () => {
+    mockGetLiveBotAvatar.mockResolvedValue({
+      id: "b1",
+      image: "/api/community/bots/b1/avatar",
+      avatarVersion: 4,
+      avatarObjectKey: null,
+    })
+
+    const res = await GET(getReq(4), ctx("b1"))
+
     expect(res.status).toBe(404)
     expect(mediaGet).not.toHaveBeenCalled()
   })
@@ -127,6 +161,45 @@ describe("GET /api/community/bots/[id]/avatar", () => {
     mediaGet.mockResolvedValue(null)
     const res = await GET(getReq(), ctx("b1"))
     expect(res.status).toBe(404)
+  })
+
+  it("redirects the stable route to the authoritative immutable version", async () => {
+    mockGetLiveBotAvatar.mockResolvedValue({
+      id: "b1",
+      image: "/api/community/bots/b1/avatar",
+      avatarVersion: 4,
+      avatarObjectKey: "bot-avatar/b1/objects/object-4",
+    })
+
+    const res = await GET(getReq(), ctx("b1"))
+
+    expect(res.status).toBe(307)
+    expect(res.headers.get("Location")).toBe("/api/community/bots/b1/avatar?v=4")
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
+    expect(mediaGet).not.toHaveBeenCalled()
+  })
+
+  it("serves only the authoritative immutable child for the matching version", async () => {
+    mockGetLiveBotAvatar.mockResolvedValue({
+      id: "b1",
+      image: "/api/community/bots/b1/avatar",
+      avatarVersion: 4,
+      avatarObjectKey: "bot-avatar/b1/objects/object-4",
+    })
+
+    const res = await GET(getReq(4), ctx("b1"))
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable")
+    expect(mediaGet).toHaveBeenCalledWith("bot-avatar/b1/objects/object-4")
+  })
+
+  it("redirects a version query away from a legacy alias", async () => {
+    const res = await GET(getReq(4), ctx("b1"))
+
+    expect(res.status).toBe(307)
+    expect(res.headers.get("Location")).toBe("/api/community/bots/b1/avatar")
+    expect(mediaGet).not.toHaveBeenCalled()
   })
 
   it("serves cached bytes while revalidating the deterministic URL in the background", async () => {
@@ -152,11 +225,18 @@ describe("POST /api/community/bots/[id]/avatar", () => {
     vi.clearAllMocks()
     isAuthed = true
     mockGetBotOwnedBy.mockResolvedValue({ id: "b1", ownerId: "u1" })
-    mockPersistUploadedBotAvatar.mockResolvedValue({ kind: "persisted" })
+    mockPersistUploadedBotAvatar.mockResolvedValue({
+      kind: "persisted",
+      avatarVersion: 2,
+      avatarObjectKey: "bot-avatar/b1/objects/object-2",
+      previousObjectKey: null,
+    })
+    mockEnsureAvatarAliasPresent.mockResolvedValue(true)
+    mockScheduleAvatarMediaReconciliation.mockResolvedValue(undefined)
     mockHandleBotAvatarUpload.mockResolvedValue({
       ok: true,
       id: "b1",
-      key: "bot-avatar/b1",
+      key: "bot-avatar/b1/objects/object-2",
       url: "/api/community/media/bot-avatar/b1",
       filename: "bot.png",
       contentType: "image/png",
@@ -192,12 +272,17 @@ describe("POST /api/community/bots/[id]/avatar", () => {
   it("uploads and updates the bot's image to the routable avatar URL", async () => {
     const res = await POST(postReq(), ctx("b1"))
     expect(res.status).toBe(200)
-    const body = await res.json() as { url: string }
-    expect(body.url).toBe("/api/community/bots/b1/avatar")
+    const body = await res.json() as { url: string; avatarVersion: number }
+    expect(body).toEqual({ url: "/api/community/bots/b1/avatar?v=2", avatarVersion: 2 })
     expect(mockPersistUploadedBotAvatar).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
-      { botId: "b1", ownerId: "u1" },
+      { botId: "b1", ownerId: "u1", objectKey: "bot-avatar/b1/objects/object-2" },
+    )
+    expect(mockFanOutIdentityUpdate).toHaveBeenCalledWith(
+      "b1",
+      "/api/community/bots/b1/avatar?v=2",
+      2,
     )
   })
 
@@ -211,5 +296,15 @@ describe("POST /api/community/bots/[id]/avatar", () => {
     mockPersistUploadedBotAvatar.mockResolvedValue({ kind: "failed" })
     const res = await POST(postReq(), ctx("b1"))
     expect(res.status).toBe(500)
+  })
+
+  it("fails closed when the immutable child cannot publish its stable alias", async () => {
+    mockEnsureAvatarAliasPresent.mockResolvedValue(false)
+
+    const res = await POST(postReq(), ctx("b1"))
+
+    expect(res.status).toBe(500)
+    expect(mockScheduleAvatarMediaReconciliation).not.toHaveBeenCalled()
+    expect(mockFanOutIdentityUpdate).not.toHaveBeenCalled()
   })
 })

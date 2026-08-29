@@ -2,10 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import type { BotSummary } from "@/hooks/community/use-bots"
+import { tid } from "@/lib/community/testids"
 
 // BotList pulls in many hooks + portal-heavy children. Mock them to passthroughs
 // so we can render just the card meta row and assert the model segment. What we
-// assert is the presence/absence of `data-testid="bot-card-model"` and its text.
+// assert is the presence/absence of the canonical model test ID and its text.
 
 const useBotsMock = vi.fn()
 const bugReportDialogMock = vi.fn()
@@ -98,7 +99,7 @@ function render(): TestRenderer.ReactTestRenderer {
 
 function modelSegments(renderer: TestRenderer.ReactTestRenderer): string[] {
   return renderer.root
-    .findAll((n) => n.props?.["data-testid"] === "bot-card-model")
+    .findAll((n) => n.props?.["data-testid"] === tid.botCardModel)
     .map((n) => {
       const c = n.props.children
       return typeof c === "string" ? c : Array.isArray(c) ? c.join("") : String(c)

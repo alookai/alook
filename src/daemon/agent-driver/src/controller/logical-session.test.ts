@@ -12,6 +12,8 @@ import type {
   BuiltinBackendSpecs,
   ConfigOf,
   PreparedExecutionResource,
+  RuntimeSettingsUpdate,
+  RuntimeSettingsUpdateResult,
 } from "../contract.js";
 import type {
   BackendAdapter, BackendExecution, AdapterLaunchContext, AdapterEvent, LaneAdmission, LaneSendInput,
@@ -129,6 +131,9 @@ class ControlledRuntimeLane implements RuntimeLane {
   onSend?: (input: LaneSendInput) => void;
   readonly stop = vi.fn(async () => {});
   readonly interrupt = vi.fn(async () => false);
+  updateSettingsImpl?: (input: RuntimeSettingsUpdate) => Promise<RuntimeSettingsUpdateResult>;
+  readonly updateSettings = vi.fn((input: RuntimeSettingsUpdate) =>
+    this.updateSettingsImpl?.(input) ?? Promise.resolve({ status: "unsupported" as const }));
 
   on<K extends keyof RuntimeLaneEventMap>(
     event: K,
@@ -149,6 +154,76 @@ class ControlledRuntimeLane implements RuntimeLane {
     this.events.emit("runtime_event", event);
   }
 }
+
+describe("LogicalAgentSession reasoning settings boundary", () => {
+  it("holds an idle delivery until the settings update is applied", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "codex:test:1" };
+    lane.sendAdmission = { ok: true, acceptedAs: "prompt", receipt: "codex:test:2" };
+    const update = deferredValue<RuntimeSettingsUpdateResult>();
+    const sent = vi.fn();
+    lane.onSend = sent;
+    lane.updateSettingsImpl = () => update.promise;
+    const { session } = makeSession("codex", { lane });
+
+    await expect(session.start({ id: "first", kind: "user", text: "hello" })).resolves.toMatchObject({
+      status: "accepted",
+    });
+    const settings = session.updateSettings!({ reasoningEffort: "high" });
+    lane.emit({ kind: "turn_end", sessionId: "thread_1", turnOwner: "codex:test:1" });
+    await Promise.resolve();
+
+    await expect(session.send({ id: "second", kind: "user", text: "next" })).resolves.toMatchObject({
+      status: "queued",
+    });
+    expect(sent).toHaveBeenCalledTimes(0);
+
+    update.resolve({ status: "applied" });
+    await expect(settings).resolves.toEqual({ status: "applied" });
+    await vi.waitFor(() => expect(sent).toHaveBeenCalledTimes(1));
+  });
+
+  it("rejects settings updates after the session is closed", async () => {
+    const { session } = makeSession("codex");
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+
+    await expect(session.updateSettings!({ reasoningEffort: "high" })).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "settings_session_closed", retryable: true },
+    });
+  });
+
+  it("reports unsupported when the runtime lane has no settings method", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "codex:test:1" };
+    Object.defineProperty(lane, "updateSettings", { value: undefined });
+    const { session } = makeSession("codex", { lane });
+    await expect(session.start({ id: "first", kind: "user", text: "hello" })).resolves.toMatchObject({
+      status: "accepted",
+    });
+
+    await expect(session.updateSettings!({ reasoningEffort: "high" })).resolves.toEqual({
+      status: "unsupported",
+    });
+  });
+
+  it("normalizes a runtime lane settings throw", async () => {
+    const lane = new ControlledRuntimeLane();
+    lane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "codex:test:1" };
+    lane.updateSettingsImpl = async () => {
+      throw new Error("lane settings exploded");
+    };
+    const { session } = makeSession("codex", { lane });
+    await expect(session.start({ id: "first", kind: "user", text: "hello" })).resolves.toMatchObject({
+      status: "accepted",
+    });
+
+    await expect(session.updateSettings!({ reasoningEffort: "high" })).resolves.toMatchObject({
+      status: "failed",
+      error: { code: "settings_update_failed", retryable: true },
+    });
+  });
+});
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -1039,7 +1114,12 @@ describe("closed physical-lane tombstone", () => {
       kind: "telemetry",
       name: "rate_limits",
       source: "tail-telemetry",
-      attrs: { remaining: 1 },
+      quota: {
+        status: "error",
+        sourceEpoch: "AAAAAAAAAAAAAAAAAAAAAA",
+        code: "unavailable",
+        retryable: true,
+      },
     });
     expect(session.snapshot().activeTurn).toBeUndefined();
 
@@ -1282,7 +1362,17 @@ describe("backend-owned delivery behavior", () => {
     await emit(driver, { kind: "internal_progress", source: "pi", itemType: "working", payloadBytes: 12 });
     await emit(driver, { kind: "runtime_diagnostic", severity: "notice", source: "pi", message: "heads up" });
     await emit(driver, { kind: "telemetry", name: "token_usage", source: "pi", attrs: circular } as never);
-    await emit(driver, { kind: "telemetry", name: "rate_limits", source: "pi", attrs: { remaining: 1 } });
+    await emit(driver, {
+      kind: "telemetry",
+      name: "rate_limits",
+      source: "pi",
+      quota: {
+        status: "error",
+        sourceEpoch: "AAAAAAAAAAAAAAAAAAAAAA",
+        code: "unavailable",
+        retryable: false,
+      },
+    });
     const events = await take(iterator as never, 7);
     expect(events.map((event) => event.type)).toEqual([
       "command_accepted",

@@ -292,6 +292,48 @@ describe("useCommunityWsStore", () => {
     expect(useCommunityWsStore.getState().userStatuses.size).toBe(0)
   })
 
+  it("fences avatar identity by the bound account and highest observed version", () => {
+    const unbound = useCommunityWsStore.getState().observeAvatarIdentity("u1", "/a?v=1", 1)
+    expect(unbound).toBe("unbound")
+    expect(useCommunityWsStore.getState().avatarIdentities.size).toBe(0)
+
+    useCommunityWsStore.getState().bindIdentityOwner("account-a")
+    expect(useCommunityWsStore.getState().observeAvatarIdentity("u1", "/a?v=2", 2))
+      .toBe("accepted")
+    const accepted = useCommunityWsStore.getState().avatarIdentities
+    expect(accepted.get("u1")).toEqual({ avatar: "/a?v=2", avatarVersion: 2 })
+
+    expect(useCommunityWsStore.getState().observeAvatarIdentity("u1", "/a?v=1", 1))
+      .toBe("stale")
+    expect(useCommunityWsStore.getState().observeAvatarIdentity("u1", "/a?v=2", 2))
+      .toBe("same")
+    expect(useCommunityWsStore.getState().observeAvatarIdentity("u1", "/other?v=2", 2))
+      .toBe("conflict")
+    expect(useCommunityWsStore.getState().avatarIdentities).toBe(accepted)
+
+    expect(useCommunityWsStore.getState().observeAvatarIdentity("u1", "/a?v=3", 3))
+      .toBe("accepted")
+    expect(useCommunityWsStore.getState().avatarIdentities.get("u1"))
+      .toEqual({ avatar: "/a?v=3", avatarVersion: 3 })
+  })
+
+  it("retains the fence for the same account and clears it on account switch/reset", () => {
+    useCommunityWsStore.getState().bindIdentityOwner("account-a")
+    useCommunityWsStore.getState().observeAvatarIdentity("u1", "/a?v=4", 4)
+    const before = useCommunityWsStore.getState().avatarIdentities
+
+    useCommunityWsStore.getState().bindIdentityOwner("account-a")
+    expect(useCommunityWsStore.getState().avatarIdentities).toBe(before)
+
+    useCommunityWsStore.getState().bindIdentityOwner("account-b")
+    expect(useCommunityWsStore.getState().identityOwnerUserId).toBe("account-b")
+    expect(useCommunityWsStore.getState().avatarIdentities.size).toBe(0)
+
+    useCommunityWsStore.getState().reset()
+    expect(useCommunityWsStore.getState().identityOwnerUserId).toBeNull()
+    expect(useCommunityWsStore.getState().avatarIdentities.size).toBe(0)
+  })
+
   it("pushBotAuditEvent prepends newest-first, dedups on id, and bounds each per-bot ring", () => {
     const push = useCommunityWsStore.getState().pushBotAuditEvent
     push({

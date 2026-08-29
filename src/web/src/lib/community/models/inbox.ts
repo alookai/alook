@@ -87,5 +87,6 @@ export type UnreadDm = {
   otherUserName: string
   otherUserDiscriminator: string
   otherUserAvatar: string
+  otherUserAvatarVersion: number
   lastMessageAt: string
 }

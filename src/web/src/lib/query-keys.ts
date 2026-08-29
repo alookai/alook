@@ -105,6 +105,8 @@ export const communityKeys = {
   // Single hydrated message (opener block, deep-link previews).
   message: (messageId: string) =>
     [...communityKeys.all, "message", messageId] as const,
+  messageContext: (type: "channel" | "dm", channelId: string, targetSeq: number | null) =>
+    [...communityKeys.all, "message-context", type, channelId, targetSeq] as const,
 
   // ── Inbox ───────────────────────────────────────────────────────────────
   inbox: () => [...communityKeys.all, "inbox"] as const,

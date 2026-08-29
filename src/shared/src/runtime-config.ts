@@ -14,16 +14,40 @@
  * `ResolvedLaunchFields` stay daemon-only (host-side launch resolution, not
  * needed server-side).
  *
- * The host doesn't act on `RuntimeConfig` directly; it `resolveLaunchFields()`s
- * it into flat launch fields (CLI args + env) that each driver consumes. Config
- * is start-time: changing it means relaunching the agent with a new RuntimeConfig
- * (there is no live-reconfigure path — model/effort are spawn-time args).
+ * The host resolves launch fields from this config. Reasoning effort is also a
+ * desired live setting: a capable driver may apply it at a safe turn boundary,
+ * while other drivers relaunch with the same session context.
  */
 
 export const RUNTIME_CONFIG_VERSION = 1;
 
-/** Reasoning/thinking effort. */
-export type ReasoningEffort = "low" | "medium" | "high";
+export const KNOWN_REASONING_EFFORTS = [
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "ultra",
+] as const;
+
+export type KnownReasoningEffort = (typeof KNOWN_REASONING_EFFORTS)[number];
+export type ReasoningEffort = KnownReasoningEffort | (string & Record<never, never>);
+
+export type ReasoningEffortOption = {
+  value: ReasoningEffort;
+  description?: string;
+};
+
+export type RuntimeReasoningCatalog = {
+  readonly updateMode: "live_next_turn" | "context_preserving_restart" | "unsupported";
+  readonly defaultModelId?: string;
+  readonly models: readonly {
+    readonly id: string;
+    readonly supportedReasoningEfforts: readonly ReasoningEffortOption[];
+    readonly defaultReasoningEffort?: ReasoningEffort;
+  }[];
+};
 
 /** Model selection — structured, not a bare string. */
 export type ModelConfig =
@@ -50,6 +74,8 @@ export interface RuntimeConfig {
   model: ModelConfig;
   mode: ModeConfig;
   reasoningEffort?: ReasoningEffort;
+  /** Server-generated last-write-wins ordering token for desired runtime config. */
+  runtimeConfigRevision?: number;
   provider?: ProviderConfig;
   /** Override the runtime's default executable path. */
   command?: string;
@@ -88,6 +114,7 @@ export function makeRuntimeConfig(
     model: input.model ?? { kind: "default" },
     mode: input.mode ?? { kind: "default" },
     reasoningEffort: input.reasoningEffort,
+    runtimeConfigRevision: input.runtimeConfigRevision,
     provider: input.provider,
     command: input.command,
     disallowedTools: input.disallowedTools,

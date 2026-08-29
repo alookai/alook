@@ -2,6 +2,7 @@ import { queries } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
+import { canonicalUserImage } from "@/lib/community/storage"
 
 export const GET = withAuth(async (_req, ctx) => {
   const id = ctx.params?.userId
@@ -29,7 +30,8 @@ export const GET = withAuth(async (_req, ctx) => {
     id: profile.id,
     name: profile.name,
     discriminator: profile.discriminator,
-    image: profile.image,
+    image: canonicalUserImage(profile.id, profile.image, profile.avatarVersion),
+    avatarVersion: profile.avatarVersion,
     aboutMe: profile.aboutMe,
     bannerColor: profile.bannerColor,
     mutualServers,

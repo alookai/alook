@@ -4,11 +4,58 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import type { Friend } from "@/lib/community/models/people"
 
-const { toastSpy } = vi.hoisted(() => ({ toastSpy: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  toastSpy: vi.fn(),
+  onlineUserIds: new Set<string>(),
+  onlineFriendIds: [] as string[],
+  friendsQuery: {
+    friends: [] as Friend[],
+    data: { friends: [] as Friend[] } as { friends: Friend[] } | undefined,
+    isLoading: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  },
+}))
 
-vi.mock("sonner", () => ({ toast: toastSpy }))
+vi.mock("sonner", () => ({ toast: mocks.toastSpy }))
+vi.mock("@/stores/community/ws", () => ({
+  useOnlineUserIds: () => mocks.onlineUserIds,
+}))
+vi.mock("@/hooks/community/use-friends", () => ({
+  useFriendsPresence: () => ({ online: mocks.onlineFriendIds }),
+}))
+vi.mock("@/hooks/community/use-invitable-friends", () => ({
+  useInvitableFriends: () => mocks.friendsQuery,
+}))
+vi.mock("@/hooks/community/mutations", () => ({
+  useResolveOrCreateInvite: () => () => Promise.resolve({ token: "token" }),
+  useCreateOrGetDm: () => ({ mutateAsync: vi.fn() }),
+}))
+vi.mock("@/hooks/community/use-dm-message-sender", () => ({
+  useDmMessageSender: () => ({ accept: vi.fn() }),
+}))
+vi.mock("@/contexts/community/current-user", () => ({
+  useCurrentUser: () => ({ id: "viewer", name: "Viewer", avatar: "V" }),
+}))
+vi.mock("@/components/ui/dialog", async () => {
+  const { createElement } = await import("react")
+  return {
+    Dialog: ({ children }: { children?: React.ReactNode }) => createElement("div", null, children),
+    DialogContent: ({ children }: { children?: React.ReactNode }) => createElement("div", null, children),
+  }
+})
+vi.mock("../people-picker", async () => {
+  const { createElement } = await import("react")
+  return {
+    PeoplePickerBody: ({ children }: { children?: React.ReactNode }) => createElement("div", null, children),
+    PeoplePickerHeader: ({ title }: { title: string }) => createElement("h1", null, title),
+    PeoplePickerRowsSkeleton: () => createElement("div"),
+    resolvePeoplePickerViewState: () => "ready",
+  }
+})
 
-import { InviteFriendRow, runInviteFriend } from "./invite-dialog"
+import { InviteDialog, InviteFriendRow, runInviteFriend } from "./invite-dialog"
 
 const friend: Friend = {
   id: "friend_1",
@@ -103,9 +150,61 @@ describe("InviteFriendRow", () => {
   })
 })
 
+describe("InviteDialog presence", () => {
+  beforeEach(() => {
+    mocks.onlineUserIds = new Set()
+    mocks.onlineFriendIds = []
+    mocks.friendsQuery.friends = []
+    mocks.friendsQuery.data = { friends: [] }
+  })
+
+  function renderDialog() {
+    return renderToStaticMarkup(createElement(InviteDialog, {
+      open: true,
+      onOpenChange: () => {},
+      serverId: "server_1",
+      serverName: "Alook",
+    }))
+  }
+
+  it("overlays canonical live presence onto an offline API friend row", () => {
+    mocks.onlineUserIds = new Set([friend.userId!])
+    mocks.friendsQuery.friends = [{ ...friend, status: "offline" }]
+    mocks.friendsQuery.data = { friends: mocks.friendsQuery.friends }
+
+    expect(renderDialog()).toContain('data-presence="online"')
+  })
+
+  it("keeps a friend offline when the canonical live set does not contain them", () => {
+    mocks.friendsQuery.friends = [{ ...friend, status: "online" }]
+    mocks.friendsQuery.data = { friends: mocks.friendsQuery.friends }
+
+    expect(renderDialog()).toContain('data-presence="offline"')
+  })
+
+  it("keeps the friend online when reconnect friends refresh wins before server hydration", () => {
+    const serverMemberId = "server_member"
+    mocks.onlineFriendIds = [friend.userId!]
+    mocks.friendsQuery.friends = [{ ...friend, status: "offline" }]
+    mocks.friendsQuery.data = { friends: mocks.friendsQuery.friends }
+
+    // Deterministic reconnect order: reset → friends refresh contains the
+    // non-member friend → later server hydrate replaces the WS scope.
+    mocks.onlineUserIds = new Set()
+    mocks.onlineUserIds = new Set([serverMemberId])
+    expect(renderDialog()).toContain('data-presence="online"')
+
+    // An exact offline delta patches both sources, so the union does not mask
+    // the transition with the older friends snapshot.
+    mocks.onlineUserIds = new Set([serverMemberId])
+    mocks.onlineFriendIds = []
+    expect(renderDialog()).toContain('data-presence="offline"')
+  })
+})
+
 describe("runInviteFriend", () => {
   beforeEach(() => {
-    toastSpy.mockClear()
+    mocks.toastSpy.mockClear()
   })
 
   it("covers the complete success lifecycle", async () => {
@@ -119,7 +218,7 @@ describe("runInviteFriend", () => {
 
     expect(state.snapshots).toEqual([["user_1"], []])
     expect(onInvited).toHaveBeenCalledWith("user_1")
-    expect(toastSpy).not.toHaveBeenCalled()
+    expect(mocks.toastSpy).not.toHaveBeenCalled()
   })
 
   it("clears the row and allows retry after failure", async () => {
@@ -134,7 +233,7 @@ describe("runInviteFriend", () => {
     ).resolves.toBe(false)
     expect(inFlight).not.toContain("user_1")
     expect(state.current()).toEqual([])
-    expect(toastSpy).toHaveBeenCalledWith("network down")
+    expect(mocks.toastSpy).toHaveBeenCalledWith("network down")
 
     await expect(
       runInviteFriend("user_1", inFlight, sendInvite, vi.fn(), state.setter),

@@ -68,6 +68,16 @@ describe("ClaudeEventNormalizer.normalizeLine", () => {
     expect(kinds).toContain("turn_end");
     expect(kinds).toContain("telemetry");
     expect(out).toContainEqual({ kind: "turn_end", sessionId: "s1", turnOwner: "claude:root-1" });
+    expect(out).toContainEqual({
+      kind: "telemetry",
+      name: "token_usage",
+      source: "claude_result_usage",
+      usage: {
+        input: 3,
+        output: 5,
+        cache: null,
+      },
+    });
   });
 
   it("result with is_error → error + turn_end", () => {

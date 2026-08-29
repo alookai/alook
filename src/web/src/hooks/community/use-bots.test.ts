@@ -1,5 +1,7 @@
+import React from "react"
+import TestRenderer, { act } from "react-test-renderer"
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { QueryClient } from "@tanstack/react-query"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 
 // The React harness for the hooks themselves isn't available in the repo
@@ -61,6 +63,60 @@ describe("invalidateBotSurfaces", () => {
 })
 
 describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
+  it("useBots fetches through the identity-aware query function", async () => {
+    apiFetchMock.mockResolvedValue({ bots: [] })
+    const { useBots } = await import("./use-bots")
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    function Probe() {
+      const result = useBots()
+      return React.createElement("span", { "data-count": result.bots.length })
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(Probe),
+      ))
+    })
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/community/bots"))
+    expect(renderer.root.findByType("span").props["data-count"]).toBe(0)
+    act(() => renderer.unmount())
+  })
+
+  it("useUpdateBot forwards explicit reasoning effort values and omission", async () => {
+    const { useUpdateBot } = await import("./use-bots")
+    const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    let mutation!: ReturnType<typeof useUpdateBot>
+    function Probe() {
+      mutation = useUpdateBot()
+      return null
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          React.createElement(Probe),
+        ),
+      )
+    })
+    apiFetchMock.mockResolvedValue({ bot: { id: "bot_1" } })
+
+    await act(async () => {
+      await mutation.mutateAsync({ id: "bot_1", reasoningEffort: "xhigh" })
+      await mutation.mutateAsync({ id: "bot_1", name: "Renamed" })
+    })
+
+    expect(JSON.parse(apiFetchMock.mock.calls[0]![1].body)).toMatchObject({
+      reasoningEffort: "xhigh",
+    })
+    expect(JSON.parse(apiFetchMock.mock.calls[1]![1].body)).not.toHaveProperty("reasoningEffort")
+    act(() => renderer.unmount())
+  })
+
   it("useUpdateBot's mutationFn PATCHes description and the response carries the id onSuccess needs", async () => {
     apiFetchMock.mockResolvedValueOnce({
       bot: { id: "bot_1", name: "Bot", description: "new description", image: null, machineId: "m_1", runtime: "node" },
@@ -103,5 +159,62 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
     expect(result).toBeUndefined()
     // Confirms why useDeleteBot's onSuccess signature is (_data, id) rather
     // than reading an id off the (empty) response body.
+  })
+
+  it("useUploadBotAvatar projects the returned identity before invalidating bot surfaces", async () => {
+    const { useUploadBotAvatar } = await import("./use-bots")
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    const { useMessageStreamStore } = await import("@/stores/community/message-stream")
+    useCommunityWsStore.getState().reset()
+    useCommunityWsStore.getState().bindIdentityOwner("viewer")
+    const projectStream = vi.spyOn(
+      useMessageStreamStore.getState(),
+      "projectAvatarIdentity",
+    )
+    const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    queryClient.setQueryData(communityKeys.bots(), {
+      bots: [{ id: "bot_1", image: "/avatar?v=1", avatarVersion: 1 }],
+    })
+    const setQueriesData = vi.spyOn(queryClient, "setQueriesData")
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      url: "/api/community/bots/bot_1/avatar?v=4",
+      avatarVersion: 4,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })))
+    let mutation!: ReturnType<typeof useUploadBotAvatar>
+    function Probe() {
+      mutation = useUploadBotAvatar()
+      return null
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(Probe),
+      ))
+    })
+
+    await act(async () => {
+      await mutation.mutateAsync({
+        botId: "bot_1",
+        file: new File(["avatar"], "avatar.png", { type: "image/png" }),
+      })
+    })
+
+    expect(useCommunityWsStore.getState().avatarIdentities.get("bot_1")).toEqual({
+      avatar: "/api/community/bots/bot_1/avatar?v=4",
+      avatarVersion: 4,
+    })
+    expect(setQueriesData).toHaveBeenCalled()
+    expect(queryClient.getQueryData(communityKeys.bots())).toMatchObject({
+      bots: [{ id: "bot_1", image: "/api/community/bots/bot_1/avatar?v=4", avatarVersion: 4 }],
+    })
+    expect(projectStream).toHaveBeenCalledWith(
+      "bot_1",
+      "/api/community/bots/bot_1/avatar?v=4",
+      4,
+    )
+    act(() => renderer.unmount())
+    vi.unstubAllGlobals()
   })
 })

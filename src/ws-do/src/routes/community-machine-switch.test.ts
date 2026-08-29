@@ -197,4 +197,103 @@ describe("ws-do router", () => {
       expect(doMock.stubFetch).not.toHaveBeenCalled()
     })
   })
+
+  describe("POST /community-machine/by-id/:machineId/forward-agent-runtime-config-update", () => {
+    const validBody = {
+      agentId: "bot-1",
+      config: {
+        version: 1,
+        runtime: "codex",
+        model: { kind: "default" },
+        mode: { kind: "default" },
+        reasoningEffort: "xhigh",
+        runtimeConfigRevision: 4,
+      },
+    }
+
+    beforeEach(() => {
+      mockGetActiveDoNamesForMachine.mockReset()
+      mockGetActiveDoNamesForMachine.mockResolvedValue([])
+    })
+
+    it("forwards the exact revisioned desired config to the machine DO", async () => {
+      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-abc"])
+      doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 1 }), { status: 200 }))
+      const res = await handler.fetch(new Request(
+        "http://localhost/community-machine/by-id/machine-1/forward-agent-runtime-config-update",
+        { method: "POST", body: JSON.stringify(validBody) },
+      ), env as any)
+
+      const stubReq = doMock.stubFetch.mock.calls[0][0] as Request
+      expect(stubReq.url).toBe("http://internal/push-runtime-config-update")
+      expect(JSON.parse(await stubReq.text())).toEqual(validBody)
+      await expect(res.json()).resolves.toEqual({ sent: 1 })
+    })
+
+    it("rejects extra keys and returns sent:0 when no live machine DO exists", async () => {
+      const invalid = await handler.fetch(new Request(
+        "http://localhost/community-machine/by-id/machine-1/forward-agent-runtime-config-update",
+        { method: "POST", body: JSON.stringify({ ...validBody, launchId: "not-allowed" }) },
+      ), env as any)
+      expect(invalid.status).toBe(400)
+
+      const absent = await handler.fetch(new Request(
+        "http://localhost/community-machine/by-id/machine-1/forward-agent-runtime-config-update",
+        { method: "POST", body: JSON.stringify(validBody) },
+      ), env as any)
+      await expect(absent.json()).resolves.toEqual({ sent: 0 })
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
+    })
+
+    it("rejects malformed JSON and missing required fields before resolving a machine", async () => {
+      const malformed = await handler.fetch(new Request(
+        "http://localhost/community-machine/by-id/machine-1/forward-agent-runtime-config-update",
+        { method: "POST", body: "{" },
+      ), env as any)
+      expect(malformed.status).toBe(400)
+
+      const nullBody = await handler.fetch(new Request(
+        "http://localhost/community-machine/by-id/machine-1/forward-agent-runtime-config-update",
+        { method: "POST", body: "null" },
+      ), env as any)
+      expect(nullBody.status).toBe(400)
+
+      const missing = await handler.fetch(new Request(
+        "http://localhost/community-machine/by-id/machine-1/forward-agent-runtime-config-update",
+        { method: "POST", body: JSON.stringify({ agentId: "", config: null }) },
+      ), env as any)
+      expect(missing.status).toBe(400)
+      expect(mockGetActiveDoNamesForMachine).not.toHaveBeenCalled()
+    })
+
+    it("returns 503 when the owner-scoped machine resolution fails", async () => {
+      mockGetActiveDoNamesForMachine.mockRejectedValue(new Error("d1 unavailable"))
+
+      const res = await handler.fetch(new Request(
+        "http://localhost/community-machine/by-id/machine-1/forward-agent-runtime-config-update",
+        { method: "POST", body: JSON.stringify(validBody) },
+      ), env as any)
+
+      expect(res.status).toBe(503)
+      await expect(res.json()).resolves.toEqual({ error: "failed to resolve machine" })
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
+    })
+
+    it("returns 503 when every active machine DO response is transiently unusable", async () => {
+      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-abc"])
+      doMock.stubFetch
+        .mockResolvedValueOnce(new Response("down", { status: 503 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ sent: "one" }), { status: 200 }))
+        .mockRejectedValueOnce(new Error("do unavailable"))
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const res = await handler.fetch(new Request(
+          "http://localhost/community-machine/by-id/machine-1/forward-agent-runtime-config-update",
+          { method: "POST", body: JSON.stringify(validBody) },
+        ), env as any)
+        expect(res.status).toBe(503)
+        await expect(res.json()).resolves.toEqual({ error: "failed to forward runtime config update" })
+      }
+    })
+  })
 })

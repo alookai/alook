@@ -2,6 +2,7 @@
 
 import { useQuery, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
+import { apiFetchIdentity } from "@/lib/community/identity-projection"
 import { communityKeys } from "@/lib/query-keys"
 import type { Friend, PendingRequest, BlockedUser } from "@/lib/community/models/people"
 
@@ -46,9 +47,9 @@ export const friendsQueryFn = async (): Promise<FriendsResponse> => {
   // · friends/pending) and compose the same triad. Same query key / cache grain
   // as before, so mutations still fire one invalidation.
   const [acceptedData, blockedData, pendingData] = await Promise.all([
-    apiFetch<{ friends: Friend[]; stale?: boolean }>("/api/community/friends/accepted").then(throwIfStale),
-    apiFetch<{ blocked: BlockedUser[]; stale?: boolean }>("/api/community/friends/blocked").then(throwIfStale),
-    apiFetch<{ pending: PendingRequest[]; stale?: boolean }>("/api/community/friends/pending").then(throwIfStale),
+    apiFetchIdentity<{ friends: Friend[]; stale?: boolean }>("/api/community/friends/accepted").then(throwIfStale),
+    apiFetchIdentity<{ blocked: BlockedUser[]; stale?: boolean }>("/api/community/friends/blocked").then(throwIfStale),
+    apiFetchIdentity<{ pending: PendingRequest[]; stale?: boolean }>("/api/community/friends/pending").then(throwIfStale),
   ])
   return {
     friends: acceptedData.friends,
@@ -92,13 +93,14 @@ export const friendsPresenceQueryFn = () =>
 
 const EMPTY_ONLINE: readonly string[] = Object.freeze([])
 
-export function useFriendsPresence(): UseQueryResult<FriendsPresenceResponse> & {
+export function useFriendsPresence(enabled = true): UseQueryResult<FriendsPresenceResponse> & {
   online: readonly string[]
 } {
   const query = useQuery({
     queryKey: communityKeys.friendsPresence(),
     queryFn: friendsPresenceQueryFn,
     placeholderData: keepPreviousData,
+    enabled,
   })
   return {
     ...query,

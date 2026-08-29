@@ -6,6 +6,12 @@ const mockHandleBotAvatarUpload = vi.fn()
 const mockGetBotOwnedBy = vi.fn()
 const mockPersistUploadedBotAvatar = vi.fn()
 const mockAuthUpdateUser = vi.fn()
+const mockPublishHumanAvatar = vi.fn()
+const mockGetLiveHumanAvatarState = vi.fn()
+const mockCleanupAvatarCandidate = vi.fn()
+const mockEnsureAvatarAliasPresent = vi.fn()
+const mockScheduleAvatarMediaReconciliation = vi.fn()
+const mockFanOutIdentityUpdate = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -29,6 +35,11 @@ vi.mock("@alook/shared", async () => {
         ...actual.queries.communityBot,
         getBotOwnedBy: (...a: unknown[]) => mockGetBotOwnedBy(...a),
       },
+      user: {
+        ...actual.queries.user,
+        publishHumanAvatar: (...a: unknown[]) => mockPublishHumanAvatar(...a),
+        getLiveHumanAvatarState: (...a: unknown[]) => mockGetLiveHumanAvatarState(...a),
+      },
     },
   }
 })
@@ -40,6 +51,16 @@ vi.mock("@/lib/community/upload", () => ({
 
 vi.mock("@/lib/community/bot-avatar-persistence", () => ({
   persistUploadedBotAvatar: (...a: unknown[]) => mockPersistUploadedBotAvatar(...a),
+}))
+
+vi.mock("@/lib/community/avatar-media-reconciliation", () => ({
+  cleanupAvatarCandidate: (...a: unknown[]) => mockCleanupAvatarCandidate(...a),
+  ensureAvatarAliasPresent: (...a: unknown[]) => mockEnsureAvatarAliasPresent(...a),
+  scheduleAvatarMediaReconciliation: (...a: unknown[]) => mockScheduleAvatarMediaReconciliation(...a),
+}))
+
+vi.mock("@/lib/community/fanout", () => ({
+  fanOutIdentityUpdate: (...a: unknown[]) => mockFanOutIdentityUpdate(...a),
 }))
 
 let isAuthed = true
@@ -76,13 +97,48 @@ function postReq() {
   return new NextRequest("http://localhost/api/community/users/me/avatar", { method: "POST" })
 }
 
+function humanUpload(key = "user-avatar/u1/objects/object-1") {
+  return {
+    ok: true as const,
+    id: "u1",
+    key,
+    url: "/api/community/media/user-avatar/u1",
+    filename: "me.png",
+    contentType: "image/png",
+    size: 10,
+  }
+}
+
+function botUpload() {
+  return {
+    ok: true as const,
+    id: "b1",
+    key: "bot-avatar/b1/objects/object-2",
+    url: "/api/community/media/bot-avatar/b1",
+    filename: "bot.png",
+    contentType: "image/png",
+    size: 10,
+  }
+}
+
 describe("POST /api/community/users/me/avatar", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     isAuthed = true
     actorKind = "human"
     mockGetBotOwnedBy.mockResolvedValue({ id: "b1", ownerUserId: "u1" })
-    mockPersistUploadedBotAvatar.mockResolvedValue({ kind: "persisted" })
+    mockPersistUploadedBotAvatar.mockResolvedValue({
+      kind: "persisted",
+      avatarVersion: 2,
+      avatarObjectKey: "bot-avatar/b1/objects/object-2",
+      previousObjectKey: null,
+    })
+    mockPublishHumanAvatar.mockResolvedValue({
+      previous: { avatarVersion: 0, avatarObjectKey: null },
+      current: { avatarVersion: 1, avatarObjectKey: "user-avatar/u1/objects/object-1" },
+    })
+    mockEnsureAvatarAliasPresent.mockResolvedValue(true)
+    mockScheduleAvatarMediaReconciliation.mockResolvedValue(undefined)
     mockAuthUpdateUser.mockResolvedValue({ headers: new Headers() })
   })
 
@@ -113,7 +169,7 @@ describe("POST /api/community/users/me/avatar", () => {
     mockHandleUserAvatarUpload.mockResolvedValue({
       ok: true,
       id: "u1",
-      key: "user-avatar/u1",
+      key: "user-avatar/u1/objects/object-1",
       url: "/api/community/media/user-avatar/u1",
       filename: "me.png",
       contentType: "image/png",
@@ -121,8 +177,8 @@ describe("POST /api/community/users/me/avatar", () => {
     })
     const res = await POST(postReq(), {} as never)
     expect(res.status).toBe(200)
-    const body = await res.json() as { url: string }
-    expect(body.url).toBe("/api/community/users/u1/avatar")
+    const body = await res.json() as { url: string; avatarVersion: number }
+    expect(body).toEqual({ url: "/api/community/users/u1/avatar?v=1", avatarVersion: 1 })
 
     expect(mockHandleUserAvatarUpload).toHaveBeenCalledWith(expect.anything(), expect.anything(), "u1")
     expect(mockAuthUpdateUser).toHaveBeenCalledWith(expect.objectContaining({
@@ -137,7 +193,7 @@ describe("POST /api/community/users/me/avatar", () => {
     mockHandleUserAvatarUpload.mockResolvedValue({
       ok: true,
       id: "u1",
-      key: "user-avatar/u1",
+      key: "user-avatar/u1/objects/object-1",
       url: "/api/community/media/user-avatar/u1",
       filename: "me.png",
       contentType: "image/png",
@@ -147,7 +203,10 @@ describe("POST /api/community/users/me/avatar", () => {
     const res = await POST(postReq(), {} as never)
 
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ url: "/api/community/users/u1/avatar" })
+    expect(await res.json()).toEqual({
+      url: "/api/community/users/u1/avatar?v=1",
+      avatarVersion: 1,
+    })
     expect(res.headers.getSetCookie()).toEqual([])
   })
 
@@ -156,7 +215,7 @@ describe("POST /api/community/users/me/avatar", () => {
     mockHandleBotAvatarUpload.mockResolvedValue({
       ok: true,
       id: "b1",
-      key: "bot-avatar/b1",
+      key: "bot-avatar/b1/objects/object-2",
       url: "/api/community/bots/b1/avatar",
       filename: "bot.png",
       contentType: "image/png",
@@ -164,14 +223,17 @@ describe("POST /api/community/users/me/avatar", () => {
     })
     const res = await POST(postReq(), {} as never)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ url: "/api/community/bots/b1/avatar" })
+    expect(await res.json()).toEqual({
+      url: "/api/community/bots/b1/avatar?v=2",
+      avatarVersion: 2,
+    })
     expect(mockHandleBotAvatarUpload).toHaveBeenCalledWith(expect.anything(), expect.anything(), "b1")
     expect(mockHandleUserAvatarUpload).not.toHaveBeenCalled()
     expect(mockGetBotOwnedBy).toHaveBeenCalledWith(expect.anything(), "b1", "u1")
     expect(mockPersistUploadedBotAvatar).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
-      { botId: "b1", ownerId: "u1" },
+      { botId: "b1", ownerId: "u1", objectKey: "bot-avatar/b1/objects/object-2" },
     )
     expect(mockAuthUpdateUser).not.toHaveBeenCalled()
   })
@@ -206,7 +268,7 @@ describe("POST /api/community/users/me/avatar", () => {
     mockHandleBotAvatarUpload.mockResolvedValue({
       ok: true,
       id: "b1",
-      key: "bot-avatar/b1",
+      key: "bot-avatar/b1/objects/object-2",
       url: "/api/community/bots/b1/avatar",
       filename: "bot.png",
       contentType: "image/png",
@@ -223,7 +285,7 @@ describe("POST /api/community/users/me/avatar", () => {
     mockHandleBotAvatarUpload.mockResolvedValue({
       ok: true,
       id: "b1",
-      key: "bot-avatar/b1",
+      key: "bot-avatar/b1/objects/object-2",
       url: "/api/community/bots/b1/avatar",
       filename: "bot.png",
       contentType: "image/png",
@@ -233,5 +295,110 @@ describe("POST /api/community/users/me/avatar", () => {
 
     const res = await POST(postReq(), {} as never)
     expect(res.status).toBe(500)
+  })
+
+  it("fails closed when a persisted bot avatar cannot publish its stable alias", async () => {
+    actorKind = "bot"
+    mockHandleBotAvatarUpload.mockResolvedValue(botUpload())
+    mockEnsureAvatarAliasPresent.mockResolvedValue(false)
+
+    const res = await POST(postReq(), {} as never)
+
+    expect(res.status).toBe(500)
+    expect(mockScheduleAvatarMediaReconciliation).not.toHaveBeenCalled()
+    expect(mockFanOutIdentityUpdate).not.toHaveBeenCalled()
+  })
+
+  it("recovers an ambiguous human publish when verification finds the uploaded child current", async () => {
+    mockHandleUserAvatarUpload.mockResolvedValue(humanUpload())
+    mockPublishHumanAvatar.mockRejectedValue(new Error("D1 response lost"))
+    mockGetLiveHumanAvatarState.mockResolvedValue({
+      avatarVersion: 3,
+      avatarObjectKey: "user-avatar/u1/objects/object-1",
+    })
+
+    const res = await POST(postReq(), {} as never)
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      url: "/api/community/users/u1/avatar?v=3",
+      avatarVersion: 3,
+    })
+    expect(mockCleanupAvatarCandidate).not.toHaveBeenCalled()
+  })
+
+  it("cleans an ambiguous non-current upload and returns 500", async () => {
+    mockHandleUserAvatarUpload.mockResolvedValue(humanUpload())
+    mockPublishHumanAvatar.mockRejectedValue("D1 response lost")
+    mockGetLiveHumanAvatarState.mockResolvedValue({
+      avatarVersion: 3,
+      avatarObjectKey: "user-avatar/u1/objects/other",
+    })
+
+    const res = await POST(postReq(), {} as never)
+
+    expect(res.status).toBe(500)
+    expect(mockCleanupAvatarCandidate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { kind: "human", id: "u1" },
+      "user-avatar/u1/objects/object-1",
+    )
+  })
+
+  it("returns 500 when an ambiguous human publish cannot be verified", async () => {
+    mockHandleUserAvatarUpload.mockResolvedValue(humanUpload())
+    mockPublishHumanAvatar.mockRejectedValue(new Error("D1 response lost"))
+    mockGetLiveHumanAvatarState.mockRejectedValue("verification unavailable")
+
+    const res = await POST(postReq(), {} as never)
+
+    expect(res.status).toBe(500)
+    expect(mockCleanupAvatarCandidate).not.toHaveBeenCalled()
+  })
+
+  it("cleans the uploaded child when the human row disappears during publish", async () => {
+    mockHandleUserAvatarUpload.mockResolvedValue(humanUpload())
+    mockPublishHumanAvatar.mockResolvedValue(null)
+
+    const res = await POST(postReq(), {} as never)
+
+    expect(res.status).toBe(404)
+    expect(mockCleanupAvatarCandidate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { kind: "human", id: "u1" },
+      "user-avatar/u1/objects/object-1",
+    )
+  })
+
+  it("fails closed when a published human avatar cannot publish its stable alias", async () => {
+    mockHandleUserAvatarUpload.mockResolvedValue(humanUpload())
+    mockEnsureAvatarAliasPresent.mockResolvedValue(false)
+
+    const res = await POST(postReq(), {} as never)
+
+    expect(res.status).toBe(500)
+    expect(mockScheduleAvatarMediaReconciliation).not.toHaveBeenCalled()
+    expect(mockFanOutIdentityUpdate).not.toHaveBeenCalled()
+  })
+
+  it("keeps the published avatar when the session refresh throws", async () => {
+    mockHandleUserAvatarUpload.mockResolvedValue(humanUpload())
+    mockAuthUpdateUser.mockRejectedValue("session unavailable")
+
+    const res = await POST(postReq(), {} as never)
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      url: "/api/community/users/u1/avatar?v=1",
+      avatarVersion: 1,
+    })
+    expect(mockScheduleAvatarMediaReconciliation).toHaveBeenCalledOnce()
+    expect(mockFanOutIdentityUpdate).toHaveBeenCalledWith(
+      "u1",
+      "/api/community/users/u1/avatar?v=1",
+      1,
+    )
   })
 })

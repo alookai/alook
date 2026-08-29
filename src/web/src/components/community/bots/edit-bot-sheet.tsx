@@ -27,6 +27,7 @@ import { BotRuntimeFields } from "./bot-runtime-fields"
 import { validateBotModel } from "./bot-form-validation"
 import { uniqueNamesGenerator, names } from "unique-names-generator"
 import { normalizeRuntimes } from "./create-bot-sheet"
+import type { ReasoningEffort } from "@alook/shared"
 
 function draftFromBot(bot: BotSummary): AvatarDraft {
   if (isPhotoAvatarUrl(bot.image)) return { kind: "photo", file: null, previewUrl: bot.image! }
@@ -52,6 +53,9 @@ export function EditBotSheet({
   const [name, setName] = useState(bot?.name ?? "")
   const [description, setDescription] = useState(bot?.description ?? "")
   const [model, setModel] = useState<string | null>(bot?.modelName ?? null)
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | null>(
+    bot?.reasoningEffort ?? null,
+  )
   const [runtime, setRuntime] = useState(bot?.runtime ?? "")
   const [confirmProviderSwitch, setConfirmProviderSwitch] = useState(false)
   const [nameError, setNameError] = useState<string | undefined>(undefined)
@@ -82,6 +86,7 @@ export function EditBotSheet({
     setName(bot.name)
     setDescription(bot.description ?? "")
     setModel(bot.modelName ?? null)
+    setReasoningEffort(bot.reasoningEffort ?? null)
     setRuntime(bot.runtime)
     setAvatarDraft(draftFromBot(bot))
     setNameError(undefined)
@@ -111,11 +116,12 @@ export function EditBotSheet({
     }
     const modelChanged = model !== (bot.modelName ?? null)
     const runtimeChanged = runtime !== bot.runtime
+    const reasoningEffortChanged = reasoningEffort !== (bot.reasoningEffort ?? null)
     try {
       // Sequence matters — only attempt the avatar upload AFTER the
       // name/description update resolves, inside the same try block, so a
       // failed field update never triggers an upload.
-      await update.mutateAsync({
+      const result = await update.mutateAsync({
         id: bot.id,
         name: name.trim(),
         description: description.trim() || undefined,
@@ -124,6 +130,7 @@ export function EditBotSheet({
         // never triggers a stop-and-rewake.
         ...(modelChanged ? { model } : {}),
         ...(runtimeChanged ? { runtime } : {}),
+        ...(reasoningEffortChanged ? { reasoningEffort } : {}),
       })
       let avatarFailed = false
       if (avatarDraft.kind === "photo" && avatarDraft.file) {
@@ -135,11 +142,19 @@ export function EditBotSheet({
         }
       }
       if (!avatarFailed) {
-        if (runtimeChanged) {
+        if ((runtimeChanged || modelChanged) && result.application === "saved_not_applied") {
+          toast.success("Runtime settings saved for next start.")
+        } else if (runtimeChanged) {
           toast.success(`Provider switch to ${runtime} dispatched`)
         } else if (modelChanged) {
           const label = model ?? "the runtime default"
           toast.success(`Model switch to ${label} dispatched`)
+        } else if (reasoningEffortChanged) {
+          toast.success(
+            result.application === "next_turn"
+              ? "Reasoning effort saved. Next turn takes effect."
+              : "Reasoning effort saved for next start.",
+          )
         } else {
           toast.success("Bot updated")
         }
@@ -169,7 +184,7 @@ export function EditBotSheet({
         open={open}
         onOpenChange={onOpenChange}
         title={`Edit ${bot?.name ?? "bot"}`}
-        description="Name and description edits take effect on the next wake. Provider and model switches require the bot to be online."
+        description="Name and description edits take effect on the next wake. Reasoning effort applies on the next turn when online, or the next start when offline. Provider and model switches require the bot to be online."
         bodyClassName="flex flex-col gap-6"
         footer={(requestClose) => (
           <>
@@ -197,8 +212,10 @@ export function EditBotSheet({
               options={runtimeOptions}
               runtime={runtime}
               model={model}
+              reasoningEffort={reasoningEffort}
               onRuntimeChange={setRuntime}
               onModelChange={setModel}
+              onReasoningEffortChange={setReasoningEffort}
             />
           )}
       </CommunitySheet>

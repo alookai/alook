@@ -8,7 +8,7 @@ import {
   type QueryClient,
 } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetchIdentity } from "@/lib/community/identity-projection"
 import { communityKeys } from "@/lib/query-keys"
 import type {
   MessagesPage,
@@ -80,8 +80,8 @@ export const channelMessagesQueryFn =
       tag,
     )
     return signal
-      ? apiFetch<MessagesPage>(url, { signal })
-      : apiFetch<MessagesPage>(url)
+      ? apiFetchIdentity<MessagesPage>(url, { signal })
+      : apiFetchIdentity<MessagesPage>(url)
   }
 
 export const dmMessagesQueryFn =
@@ -98,8 +98,8 @@ export const dmMessagesQueryFn =
       pageParam,
     )
     return signal
-      ? apiFetch<MessagesPage>(url, { signal })
-      : apiFetch<MessagesPage>(url)
+      ? apiFetchIdentity<MessagesPage>(url, { signal })
+      : apiFetchIdentity<MessagesPage>(url)
   }
 
 export function messageMatchesTag(message: Msg, tag?: string | null): boolean {

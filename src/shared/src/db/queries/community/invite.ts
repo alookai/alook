@@ -172,7 +172,12 @@ export async function useInvite(
   // Join the joined-user row so WS listeners can render name/avatar without
   // waiting for the next /members refetch.
   const userRows = await db
-    .select({ name: user.name, image: user.image, discriminator: user.discriminator })
+    .select({
+      name: user.name,
+      image: user.image,
+      avatarVersion: user.avatarVersion,
+      discriminator: user.discriminator,
+    })
     .from(user)
     .where(eq(user.id, userId));
   const userRow = userRows[0];
@@ -183,6 +188,7 @@ export async function useInvite(
       ...insertedMember,
       userName: userRow?.name ?? "",
       userImage: userRow?.image ?? null,
+      userAvatarVersion: userRow?.avatarVersion ?? 0,
       discriminator: userRow?.discriminator ?? null,
     },
   };
@@ -202,6 +208,7 @@ export async function listServerInvites(db: Database, serverId: string) {
       creatorName: user.name,
       creatorEmail: user.email,
       creatorImage: user.image,
+      creatorAvatarVersion: user.avatarVersion,
     })
     .from(communityServerInvite)
     .leftJoin(user, eq(user.id, communityServerInvite.createdBy))

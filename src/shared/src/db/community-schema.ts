@@ -602,6 +602,24 @@ export const communityBotDailyActivity = sqliteTable(
   (t) => [primaryKey({ columns: [t.botId, t.day] })]
 );
 
+export const communityBotDailyTokenUsage = sqliteTable(
+  "community_bot_daily_token_usage",
+  {
+    botId: text("bot_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    day: text("day").notNull(),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    cacheTokens: integer("cache_tokens"),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.botId, t.day] }),
+    index("idx_community_bot_daily_token_usage_day").on(t.day),
+  ]
+);
+
 // 23. community_message_mark
 // Per-user private bookmark ("mark") on a message. Unlike community_pin (15),
 // which is channel-shared (everyone sees the same set), a mark is keyed by the

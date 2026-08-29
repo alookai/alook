@@ -60,6 +60,7 @@ export type Msg = {
   seq?: number // Per-scope (channel/DM) monotonic sequence number
   createdAt?: string // ISO 8601 timestamp — the UI formats for display
   authorAvatar?: string
+  authorAvatarVersion?: number
   failed?: boolean
   // Idempotency nonce (mutation-idempotency plan). Stamped on optimistic rows
   // this client created and echoed back on the WS message-create, so a
@@ -78,7 +79,7 @@ export type Msg = {
     lastReplyAt?: string
     tags?: string[]
     preview?: string
-    participants?: { id: string; name: string; avatar: string }[]
+    participants?: { id: string; name: string; avatar: string; avatarVersion: number }[]
     participantCount?: number
   }
   // Present only on a friend-approval DM card. Its presence (not the message
@@ -115,6 +116,7 @@ export type Thread = {
 export type ForumThread = Thread & {
   authorId: string
   authorAvatar: string
+  authorAvatarVersion: number
   openerMessageId: string
   openerCreatedAt?: string
   tags: string[]
@@ -123,7 +125,7 @@ export type ForumThread = Thread & {
   // spoke/was mentioned/was added. Drives the card's AvatarGroup. Always
   // present (empty for a post with no participant rows yet, e.g. one created
   // before the notify-scope change shipped).
-  participants: { id: string; name: string; avatar: string }[]
+  participants: { id: string; name: string; avatar: string; avatarVersion: number }[]
   // Total participant rows before the card-preview cap is applied.
   participantCount: number
 }

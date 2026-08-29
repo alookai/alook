@@ -128,11 +128,14 @@ describe("renderBotListView", () => {
       })).toHaveLength(1)
       expect(renderer.root.findAllByProps({ className: "flex flex-col gap-3 p-4" }))
         .toHaveLength(3)
+      expect(renderer.root.findAllByProps({
+        className: "flex min-w-0 flex-1 flex-wrap items-start gap-x-3 gap-y-2.5 sm:items-end",
+      })).toHaveLength(3)
       expect(renderer.root.findAllByProps({ className: "size-10 shrink-0 rounded-full" }))
         .toHaveLength(3)
-      expect(renderer.root.findAllByProps({ className: "h-3.5 w-28 rounded" }))
+      expect(renderer.root.findAllByProps({ className: "h-6 w-40 max-w-full rounded" }))
         .toHaveLength(3)
-      expect(renderer.root.findAllByProps({ className: "h-3 w-48 rounded" }))
+      expect(renderer.root.findAllByProps({ className: "h-4 w-48 max-w-full rounded" }))
         .toHaveLength(3)
       expect(renderer.root.findAllByProps({ className: "size-8 shrink-0 rounded-md" }))
         .toHaveLength(3)

@@ -130,6 +130,7 @@ describe("useCommunityWs — typing state is scoped per conversation", () => {
         id: "m_bot_reply",
         authorId: "u_bot",
         authorName: "bot",
+        authorAvatarVersion: 0,
         content: "done",
         type: "chat",
         seq: 1,

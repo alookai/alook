@@ -12,7 +12,7 @@ import {
 } from "@alook/shared"
 import { withCommunityActor, rejectBot } from "@/lib/middleware/community-actor"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
-import { serverIconUrl } from "@/lib/community/storage"
+import { canonicalUserImage, serverIconUrl } from "@/lib/community/storage"
 
 export const GET = withCommunityActor(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -91,7 +91,12 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
       userId: ctx.actor.userId,
       name: ownerMember.userName,
       discriminator: ownerMember.userDiscriminator,
-      avatar: ownerMember.userImage ?? undefined,
+      avatar: canonicalUserImage(
+        ownerMember.userId,
+        ownerMember.userImage,
+        ownerMember.userAvatarVersion,
+      ) ?? undefined,
+      avatarVersion: ownerMember.userAvatarVersion,
       role: ROLES.OWNER,
       joinedAt: ownerMember.joinedAt,
     },

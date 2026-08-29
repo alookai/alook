@@ -3,6 +3,10 @@ import { IssueStatus, TASK_TYPES } from "./constants";
 import { sanitizeSlug } from "./utils/slug";
 import { DiagnosticReportIdSchema } from "./diagnostics-contract";
 import {
+  DailyUsageSnapshotSchema,
+  ProviderQuotaSnapshotSchema,
+} from "./provider-telemetry";
+import {
   ALLOWED_ICON_MIME_TYPES,
   MAX_ATTACHMENTS_PER_MESSAGE,
   MAX_MESSAGE_CONTENT_LENGTH,
@@ -829,6 +833,66 @@ export type CreateThreadRequest = z.infer<typeof CreateThreadRequestSchema>;
 // Runtime id charset: alnum + `._@/-`. Length capped at 64 to match the
 // on-wire, on-disk, and DB expectations. Version optional, length-capped.
 const RUNTIME_ID_RE = /^[A-Za-z0-9._@/-]+$/;
+const REASONING_EFFORT_RE = /^[A-Za-z0-9._-]+$/;
+export const COMMUNITY_REASONING_EFFORT_MAX = 32;
+export const COMMUNITY_REASONING_DESCRIPTION_MAX = 256;
+export const COMMUNITY_REASONING_OPTIONS_MAX = 16;
+export const COMMUNITY_REASONING_MODELS_MAX = 64;
+
+export const ReasoningEffortSchema = z
+  .string()
+  .min(1)
+  .max(COMMUNITY_REASONING_EFFORT_MAX)
+  .regex(REASONING_EFFORT_RE, "invalid reasoning effort charset");
+
+const RuntimeReasoningOptionSchema = z.object({
+  value: ReasoningEffortSchema,
+  description: z.string().max(COMMUNITY_REASONING_DESCRIPTION_MAX).optional(),
+});
+
+const RuntimeReasoningModelSchema = z.object({
+  id: z.string().min(1).max(100),
+  supportedReasoningEfforts: z
+    .array(z.unknown())
+    .max(COMMUNITY_REASONING_OPTIONS_MAX)
+    .transform((options) => {
+      const seen = new Set<string>();
+      return options.flatMap((candidate) => {
+        const parsed = RuntimeReasoningOptionSchema.safeParse(candidate);
+        if (!parsed.success) return [];
+        const option = parsed.data;
+        if (seen.has(option.value)) return [];
+        seen.add(option.value);
+        return [option];
+      });
+    }),
+  defaultReasoningEffort: ReasoningEffortSchema.optional().catch(undefined),
+}).transform((model) => {
+  const { defaultReasoningEffort, ...rest } = model;
+  return defaultReasoningEffort !== undefined
+    && model.supportedReasoningEfforts.some((option) => option.value === defaultReasoningEffort)
+    ? { ...rest, defaultReasoningEffort }
+    : rest;
+});
+
+export const RuntimeReasoningCatalogSchema = z.object({
+  updateMode: z.enum(["live_next_turn", "context_preserving_restart", "unsupported"]),
+  defaultModelId: z.string().min(1).max(100).optional().catch(undefined),
+  models: z
+    .array(z.unknown())
+    .max(COMMUNITY_REASONING_MODELS_MAX)
+    .transform((models) => {
+      const seen = new Set<string>();
+      return models.flatMap((candidate) => {
+        const parsed = RuntimeReasoningModelSchema.safeParse(candidate);
+        if (!parsed.success) return [];
+        const model = parsed.data;
+        if (seen.has(model.id)) return [];
+        seen.add(model.id);
+        return [model];
+      });
+    }),
+});
 
 // Per-runtime health, reported by the daemon. `status` defaults to "healthy"
 // so an older daemon that ships {id, version} still parses; `.catch("healthy")`
@@ -846,6 +910,7 @@ export const CommunityMachineRuntimeSchema = z.object({
   status: z.enum(["healthy", "unhealthy"]).catch("healthy").default("healthy"),
   lastError: z.string().max(128).optional(),
   lastErrorAt: z.string().optional(),
+  reasoning: RuntimeReasoningCatalogSchema.optional().catch(undefined),
 });
 export type CommunityMachineRuntime = z.infer<typeof CommunityMachineRuntimeSchema>;
 
@@ -921,6 +986,7 @@ export const HostReadyMessageSchema = z.object({
   arch: z.string().optional(),
   osRelease: z.string().optional(),
   daemonVersion: z.string().optional(),
+  providerQuotas: z.array(ProviderQuotaSnapshotSchema).max(2).optional().default([]),
 });
 export type HostReadyMessage = z.infer<typeof HostReadyMessageSchema>;
 
@@ -961,6 +1027,8 @@ export const AgentActivityMessageSchema = z.object({
   type: z.literal("agent_activity"),
   agentId: z.string(),
   state: z.enum(["idle", "starting", "running", "stopping"]),
+  dailyUsage: z.array(DailyUsageSnapshotSchema).max(7).optional(),
+  quota: ProviderQuotaSnapshotSchema.optional(),
 });
 export type AgentActivityMessage = z.infer<typeof AgentActivityMessageSchema>;
 
@@ -1133,6 +1201,7 @@ export const CommunityBotCreateRequestSchema = z.object({
   // Full launchable model id, or null for the runtime's default. `undefined`
   // ⇒ untouched (default), explicit `null` ⇒ default.
   model: z.string().trim().min(1).max(100).nullable().optional(),
+  reasoningEffort: ReasoningEffortSchema.nullable().optional(),
 });
 export type CommunityBotCreateRequest = z.infer<typeof CommunityBotCreateRequestSchema>;
 
@@ -1151,6 +1220,7 @@ export const CommunityBotPatchRequestSchema = z
     // `null` clears a set model; `undefined` leaves it untouched.
     model: z.string().trim().min(1).max(100).nullable().optional(),
     runtime: z.string().trim().min(1).max(COMMUNITY_RUNTIME_ID_MAX).optional(),
+    reasoningEffort: ReasoningEffortSchema.nullable().optional(),
   })
   .refine(
     (v) =>
@@ -1158,6 +1228,7 @@ export const CommunityBotPatchRequestSchema = z
       v.description !== undefined ||
       v.image !== undefined ||
       v.runtime !== undefined ||
+      "reasoningEffort" in v ||
       // `model` alone is a valid patch. An explicit `null` must count as
       // present — hence the `in` form, not a truthiness check.
       "model" in v,

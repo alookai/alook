@@ -6,6 +6,7 @@ const mockWaitUntil = vi.fn()
 const mockMediaDelete = vi.fn()
 const mockGetMachineByIdForUser = vi.fn()
 const mockListBotsBoundToMachine = vi.fn()
+const mockGetBotOwnedBy = vi.fn()
 const mockListBotServerMemberships = vi.fn()
 const mockSoftDeleteBot = vi.fn()
 const mockRevokeCredentialsForMachine = vi.fn()
@@ -27,6 +28,7 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     queries: {
       communityBot: {
+        getBotOwnedBy: (...args: unknown[]) => mockGetBotOwnedBy(...args),
         listBotsBoundToMachine: (...args: unknown[]) => mockListBotsBoundToMachine(...args),
         listBotServerMemberships: (...args: unknown[]) => mockListBotServerMemberships(...args),
         softDeleteBot: (...args: unknown[]) => mockSoftDeleteBot(...args),
@@ -89,6 +91,10 @@ describe("DELETE /api/community/machines/[id]", () => {
     vi.clearAllMocks()
     mockGetMachineByIdForUser.mockResolvedValue({ id: "m1", userId: "u1" })
     mockListBotsBoundToMachine.mockResolvedValue([])
+    mockGetBotOwnedBy.mockImplementation(async (_db: unknown, id: string) => ({
+      id,
+      avatarObjectKey: null,
+    }))
     mockListBotServerMemberships.mockResolvedValue([])
     mockSoftDeleteBot.mockResolvedValue(true)
     mockRevokeCredentialsForMachine.mockResolvedValue({ doNames: ["do-1"] })
@@ -151,11 +157,17 @@ describe("DELETE /api/community/machines/[id]", () => {
       .mockResolvedValueOnce(["s1"])
       .mockResolvedValueOnce(["s2"])
     mockSoftDeleteBot.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+    mockGetBotOwnedBy
+      .mockResolvedValueOnce({ id: "b1", avatarObjectKey: "bot-avatar/b1/objects/current" })
+      .mockResolvedValueOnce({ id: "b2", avatarObjectKey: "bot-avatar/b2/objects/current" })
 
     const res = await DELETE(request(true), ctx)
 
     expect(res.status).toBe(204)
-    expect(mockMediaDelete).toHaveBeenCalledWith(["bot-avatar/b1"])
+    expect(mockMediaDelete).toHaveBeenCalledWith([
+      "bot-avatar/b1/objects/current",
+      "bot-avatar/b1",
+    ])
     expect(mockWaitUntil).toHaveBeenCalledOnce()
     expect(mockFanOutToServerMembers).toHaveBeenCalledOnce()
     expect(mockFanOutToServerMembers).toHaveBeenCalledWith("s1", {

@@ -1,4 +1,5 @@
 import { avatarInitial } from "./avatar"
+import { canonicalUserImage } from "./storage"
 
 // Canonical row shape the member-list queries produce. Bot columns
 // (`userIsBot`/`userOwnerUserId`) are optional — `searchMembers` doesn't select
@@ -9,6 +10,7 @@ export type MemberRow = {
   role: string | null
   userName: string | null
   userImage: string | null
+  userAvatarVersion: number
   discriminator: string | null
   statusEmoji: string | null
   statusText: string | null
@@ -22,6 +24,7 @@ export type MappedMember = {
   name: string
   discriminator: string | undefined
   avatar: string
+  avatarVersion: number
   status: "online" | "offline"
   sub: string
   role: string
@@ -57,7 +60,9 @@ export function mapMemberForApi(
     userId: row.userId,
     name: display,
     discriminator: row.discriminator ?? undefined,
-    avatar: row.userImage ?? avatarInitial(display),
+    avatar: canonicalUserImage(row.userId, row.userImage, row.userAvatarVersion)
+      ?? avatarInitial(display),
+    avatarVersion: row.userAvatarVersion,
     status: row.userId === viewerUserId ? "online" : "offline",
     sub: "",
     role: row.role ?? "member",

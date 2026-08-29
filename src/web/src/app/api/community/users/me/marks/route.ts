@@ -10,6 +10,7 @@ import {
 } from "@alook/shared"
 import { parseBoundedInt } from "@/lib/community/messages"
 import { avatarInitial } from "@/lib/community/avatar"
+import { canonicalUserImage } from "@/lib/community/storage"
 
 // Cross-channel Marked tab: every message the current user has marked, newest
 // first. Scoped to the viewer's visible channels in-query (same guard as the
@@ -121,7 +122,12 @@ export const GET = withCommunityActor(async (req, ctx) => {
         id: row.message.id,
         authorId: row.author.id,
         authorName: row.author.name,
-        authorAvatar: row.author.image ?? avatarInitial(row.author.name),
+        authorAvatar: canonicalUserImage(
+          row.author.id,
+          row.author.image,
+          row.author.avatarVersion,
+        ) ?? avatarInitial(row.author.name),
+        authorAvatarVersion: row.author.avatarVersion,
         content: row.message.content,
         // seq is the jump key (Msg.seq) — a marked message is usually outside
         // the loaded window, so a seq-less scroll silently no-ops. Lives inside

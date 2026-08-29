@@ -132,24 +132,24 @@ export class ClaudeEventNormalizer {
 
   private buildUsageTelemetry(event: any): AdapterEvent | null {
     const u = event?.usage;
-    if (!u && event?.total_cost_usd == null) return null;
+    if (!u) return null;
+    const metric = (value: unknown) =>
+      typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+        ? value
+        : null;
+    const cacheParts = [u.cache_read_input_tokens, u.cache_creation_input_tokens]
+      .filter((value): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0);
+    const cache = cacheParts.length > 0 && Number.isSafeInteger(cacheParts.reduce((sum, value) => sum + value, 0))
+      ? cacheParts.reduce((sum, value) => sum + value, 0)
+      : null;
     return {
       kind: "telemetry",
       name: "token_usage",
       source: "claude_result_usage",
-      usageKind: "per_turn",
-      attrs: {
-        inputTokens: u?.input_tokens,
-        outputTokens: u?.output_tokens,
-        cachedInputTokens: u?.cache_read_input_tokens,
-        cacheCreationInputTokens: u?.cache_creation_input_tokens,
-        totalCostUsd: event?.total_cost_usd,
-        durationMs: event?.duration_ms,
-        durationApiMs: event?.duration_api_ms,
-        numTurns: event?.num_turns,
-        resultSubtype: event?.subtype,
-        resultIsError: event?.is_error,
-        serviceTier: u?.service_tier,
+      usage: {
+        input: metric(u.input_tokens),
+        output: metric(u.output_tokens),
+        cache,
       },
     };
   }

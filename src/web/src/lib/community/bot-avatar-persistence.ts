@@ -1,97 +1,91 @@
 import { createLogger, queries, type Database } from "@alook/shared"
-import {
-  communityMediaCleanupErrorCategory,
-  deleteCommunityMediaObjects,
-} from "./community-media-cleanup"
-import { buildBotAvatarKey, botAvatarUrl } from "./storage"
+import { communityMediaCleanupErrorCategory } from "./community-media-cleanup"
+import { cleanupAvatarCandidate } from "./avatar-media-reconciliation"
+import { botAvatarUrl } from "./storage"
 
 const log = createLogger({ service: "community-bot-avatar" })
 
 export type BotAvatarPersistenceOutcome =
-  | { kind: "persisted" }
+  | {
+      kind: "persisted"
+      avatarVersion: number
+      avatarObjectKey: string
+      previousObjectKey: string | null
+    }
   | { kind: "not_found" }
   | { kind: "failed" }
 
-async function compensateBotAvatar(
+async function compensateCandidate(
+  db: Database,
   bucket: Pick<R2Bucket, "delete">,
   botId: string,
-  phase: "zero_row_delete_winner" | "d1_error_tombstoned",
+  objectKey: string,
+  phase: "zero_row" | "unknown_noncurrent",
 ): Promise<void> {
   try {
-    await deleteCommunityMediaObjects(bucket, [buildBotAvatarKey(botId)])
+    const outcome = await cleanupAvatarCandidate(
+      db,
+      bucket,
+      { kind: "bot", id: botId },
+      objectKey,
+    )
+    if (outcome === "retained_unverified") {
+      log.warn("community_bot_avatar_cleanup_unverified", {
+        phase,
+        objectState: outcome,
+      })
+    }
   } catch (error) {
     log.warn("community_bot_avatar_cleanup_failed", {
-      botId,
       phase,
-      keyCount: 1,
       errorCategory: communityMediaCleanupErrorCategory(error),
     })
   }
 }
 
-/**
- * Persist a fixed-key bot-avatar upload after R2 PUT.
- *
- * The owner-scoped live UPDATE is the linearization point. A zero-row result
- * can only mean the bot lost to delete after the caller's live-owner preflight,
- * so inline deletion is safe. A thrown write has unknown commit state: verify
- * the live row and delete only when the bot is definitely gone. R2 fixed-key
- * deletion has no CAS, so every live verification result must retain the
- * object to avoid deleting a later concurrent upload.
- */
 export async function persistUploadedBotAvatar(
   db: Database,
   bucket: Pick<R2Bucket, "delete">,
-  input: { botId: string; ownerId: string },
+  input: { botId: string; ownerId: string; objectKey: string },
 ): Promise<BotAvatarPersistenceOutcome> {
-  const url = botAvatarUrl(input.botId)
-
   try {
-    const updated = await queries.communityBot.updateBot(
+    const published = await queries.communityBot.publishOwnedBotAvatar(
       db,
       input.botId,
       input.ownerId,
-      { image: url },
+      { objectKey: input.objectKey, stableUrl: botAvatarUrl(input.botId) },
     )
-    if (updated) return { kind: "persisted" }
+    if (published) {
+      return {
+        kind: "persisted",
+        avatarVersion: published.current.avatarVersion,
+        avatarObjectKey: input.objectKey,
+        previousObjectKey: published.previous.avatarObjectKey,
+      }
+    }
   } catch (error) {
-    let live: { id: string; image: string | null } | null
     try {
-      live = await queries.communityBot.getLiveBotAvatar(db, input.botId)
+      const current = await queries.communityBot.getLiveBotAvatar(db, input.botId)
+      if (current?.avatarObjectKey === input.objectKey && current.avatarVersion > 0) {
+        return {
+          kind: "persisted",
+          avatarVersion: current.avatarVersion,
+          avatarObjectKey: input.objectKey,
+          previousObjectKey: null,
+        }
+      }
+      await compensateCandidate(db, bucket, input.botId, input.objectKey, "unknown_noncurrent")
     } catch (verificationError) {
       log.warn("community_bot_avatar_persist_verification_failed", {
-        botId: input.botId,
-        phase: "d1_error_verification",
+        phase: "unknown_commit",
         objectState: "retained_unverified",
         persistErrorCategory: communityMediaCleanupErrorCategory(error),
         verificationErrorCategory: communityMediaCleanupErrorCategory(verificationError),
       })
-      return { kind: "failed" }
     }
-
-    if (!live) {
-      await compensateBotAvatar(bucket, input.botId, "d1_error_tombstoned")
-      log.warn("community_bot_avatar_persist_failed", {
-        botId: input.botId,
-        phase: "d1_error_live_verification",
-        objectState: "compensated_tombstoned",
-        errorCategory: communityMediaCleanupErrorCategory(error),
-      })
-      return { kind: "failed" }
-    }
-
-    log.warn("community_bot_avatar_persist_failed", {
-      botId: input.botId,
-      phase: "d1_error_live_verification",
-      objectState:
-        live.image === url
-          ? "retained_live_canonical"
-          : "retained_live_noncanonical",
-      errorCategory: communityMediaCleanupErrorCategory(error),
-    })
     return { kind: "failed" }
   }
 
-  await compensateBotAvatar(bucket, input.botId, "zero_row_delete_winner")
+  await compensateCandidate(db, bucket, input.botId, input.objectKey, "zero_row")
   return { kind: "not_found" }
 }

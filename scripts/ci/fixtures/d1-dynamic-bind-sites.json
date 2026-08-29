@@ -136,6 +136,14 @@
     "fixedParams": 10
   },
   {
+    "key": "src/shared/src/db/queries/community/bot.ts:publishOwnedBotAvatar:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/bot.ts:publishOwnedBotAvatar:inArray:2",
+    "strategy": "subquery"
+  },
+  {
     "key": "src/shared/src/db/queries/community/bot.ts:softDeleteBot:inArray:1",
     "strategy": "subquery"
   },
@@ -165,6 +173,10 @@
   },
   {
     "key": "src/shared/src/db/queries/community/bot.ts:updateBotRuntime:inArray:1",
+    "strategy": "subquery"
+  },
+  {
+    "key": "src/shared/src/db/queries/community/bot.ts:updateBotRuntimeConfig:inArray:1",
     "strategy": "subquery"
   },
   {

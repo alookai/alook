@@ -34,16 +34,24 @@ describe("bot and machine-cascade avatar cleanup C2 boundary", () => {
     }
   })
 
-  it("derives every C2 cleanup key through buildBotAvatarKey", () => {
+  it("deletes only an authoritative owned child and the exact stable alias", () => {
     for (const path of c2Sources.slice(1)) {
       expect(source(path)).not.toContain("bot-avatar/")
     }
-    expect(source("src/web/src/lib/community/bot-avatar-persistence.ts"))
-      .toContain("buildBotAvatarKey(botId)")
-    expect(source("src/web/src/app/api/community/bots/[id]/route.ts"))
-      .toContain("buildBotAvatarKey(id)")
-    expect(source("src/web/src/app/api/community/machines/[id]/route.ts"))
-      .toContain("buildBotAvatarKey(bot.id)")
+    const persistence = source("src/web/src/lib/community/bot-avatar-persistence.ts")
+    expect(persistence).toContain("cleanupAvatarCandidate(")
+    expect(persistence).toContain("objectKey: input.objectKey")
+
+    for (const path of [
+      "src/web/src/app/api/community/bots/[id]/route.ts",
+      "src/web/src/app/api/community/machines/[id]/route.ts",
+    ]) {
+      const deletion = source(path)
+      expect(deletion).toContain("isOwnedBotAvatarObjectKey")
+      expect(deletion).toContain("before.avatarObjectKey")
+      expect(deletion).toContain("buildBotAvatarKey(")
+      expect(deletion).not.toContain(".list(")
+    }
   })
 
   it("keeps the human self-avatar branch on Better Auth and user storage", () => {
