@@ -17,6 +17,7 @@ import { createFakeAgentDriverHost } from "../../testing/fake-host.js";
 import type { BuiltinBackendSpecs } from "../../contract.js";
 import type { AdapterLaunchContext } from "../../internal/adapter.js";
 import { fakeLaunchContext } from "../../testing/adapter-fixture.js";
+import type { PiSdkModule } from "./sessionDeps.js";
 
 let tmpDir: string;
 
@@ -48,6 +49,64 @@ function fakeDeps() {
   const buildSpawnEnv = vi.fn().mockResolvedValue({});
   return { buildSpawnEnv, createAgentSession, session };
 }
+
+describe("PiDriver startup model catalog", () => {
+  function loader(getAvailable: () => unknown[] | Promise<unknown[]>): () => Promise<PiSdkModule> {
+    return async () => ({
+      AuthStorage: { create: () => ({ setRuntimeApiKey: vi.fn() }) },
+      ModelRegistry: { create: () => ({ find: vi.fn(), getAvailable }) },
+    }) as unknown as PiSdkModule;
+  }
+
+  it("uses authenticated ModelRegistry.getAvailable and formats provider/id", async () => {
+    const getAvailable = vi.fn(() => [
+      { provider: "google", id: "gemini-2.5-pro" },
+      { provider: "openai", id: "gpt-5" },
+    ]);
+    const result = await new PiDriver(undefined, loader(getAvailable), () => "1.2.3").probe();
+
+    expect(getAvailable).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      status: "healthy",
+      version: "1.2.3",
+      reasoning: {
+        models: [
+          { id: "google/gemini-2.5-pro", supportedReasoningEfforts: [] },
+          { id: "openai/gpt-5", supportedReasoningEfforts: [] },
+        ],
+      },
+    });
+  });
+
+  it("keeps runtime health healthy when SDK catalog discovery fails", async () => {
+    const result = await new PiDriver(
+      undefined,
+      async () => { throw new Error("catalog failed"); },
+      () => "1.2.3",
+    ).probe();
+    expect(result).toEqual({ status: "healthy", version: "1.2.3", reasoning: undefined });
+  });
+
+  it("keeps runtime health healthy when SDK catalog discovery times out", async () => {
+    vi.useFakeTimers();
+    try {
+      const result = new PiDriver(
+        undefined,
+        () => new Promise<PiSdkModule>(() => {}),
+        () => "1.2.3",
+      ).probe();
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(result).resolves.toEqual({
+        status: "healthy",
+        version: "1.2.3",
+        reasoning: undefined,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe("PiDriver.openLane — AGENTS.md packing", () => {
   it("maps SDK retry lifecycle into bounded recovery activity", () => {

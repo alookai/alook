@@ -31,7 +31,7 @@ export const POST = withAuth(async (_req, ctx) => {
 
   const config = makeRuntimeConfig({
     runtime: wakeCtx.runtime,
-    model: resolveModelConfig(wakeCtx.runtime, wakeCtx.modelName),
+    model: resolveModelConfig(wakeCtx.modelName),
     reasoningEffort: wakeCtx.reasoningEffort ?? undefined,
     runtimeConfigRevision: wakeCtx.runtimeConfigRevision,
     agentName: wakeCtx.name,

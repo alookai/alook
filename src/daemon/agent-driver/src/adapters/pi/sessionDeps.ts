@@ -42,6 +42,7 @@ export interface PiAuthStorage {
 }
 export interface PiModelRegistry {
   find(provider: string, modelId: string): unknown | undefined;
+  getAvailable(): unknown[] | Promise<unknown[]>;
 }
 interface PiBashSpawnContext {
   command: string;

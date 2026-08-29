@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { AgentRouter, UnknownRuntimeError, UnknownBotError } from "./agentRouter";
 import type { AgentProcessManager } from "./managerRuntime";
 import type { HostControlChannel, HostCommand, SessionErrorFrame } from "../server/contract";
@@ -636,6 +636,36 @@ describe("AgentRouter — buildReady runtimeReport", () => {
     const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "claude" }] });
     await router.start();
     expect(readys[0]).toMatchObject({ runtimeReport: [{ id: "claude" }] });
+  });
+
+  it("keeps the one-shot startup catalog unchanged in unhealthy → healthy ready resends", () => {
+    const { mgr } = fakeManager();
+    const { ch, readyResends } = fakeChannelWithSendReady();
+    const reasoning = {
+      updateMode: "unsupported" as const,
+      models: [{ id: "machine-model", supportedReasoningEfforts: [] }],
+    };
+    const startupProbe = vi.fn(() => reasoning);
+    const router = new AgentRouter({
+      manager: mgr,
+      channel: ch,
+      runtimeReport: [{ id: "cursor", reasoning: startupProbe() }],
+      scheduleReadyResend: (send) => send(),
+    });
+
+    router.markRuntimeUnhealthy("cursor", "ENOENT");
+    expect(readyResends[0]?.runtimeReport[0]).toMatchObject({
+      id: "cursor",
+      status: "unhealthy",
+      reasoning,
+    });
+    router.markRuntimeHealthy("cursor");
+    expect(readyResends[1]?.runtimeReport[0]).toMatchObject({
+      id: "cursor",
+      status: "healthy",
+      reasoning,
+    });
+    expect(startupProbe).toHaveBeenCalledOnce();
   });
 });
 

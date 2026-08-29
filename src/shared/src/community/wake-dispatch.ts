@@ -211,7 +211,7 @@ export async function buildUnreadWakeCommand(
   };
   const config = makeRuntimeConfig({
     runtime: botCtx.runtime,
-    model: resolveModelConfig(botCtx.runtime, botCtx.modelName),
+    model: resolveModelConfig(botCtx.modelName),
     reasoningEffort: botCtx.reasoningEffort ?? undefined,
     runtimeConfigRevision: botCtx.runtimeConfigRevision,
     agentName: botCtx.name,

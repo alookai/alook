@@ -208,8 +208,9 @@ describe("detectRuntimes", () => {
         defaultReasoningEffort: "minimal",
       }],
     };
+    const probe = vi.fn(async () => ({ status: "healthy" as const, version: "9.8.7", reasoning }));
     vi.spyOn(drivers, "getDriver").mockReturnValue({
-      probe: async () => ({ status: "healthy", version: "9.8.7", reasoning }),
+      probe,
     } as never);
 
     const result = await detectRuntimes();
@@ -220,6 +221,7 @@ describe("detectRuntimes", () => {
       version: "9.8.7",
       reasoning,
     });
+    expect(probe).toHaveBeenCalledTimes(EXPECTED_RUNTIMES.length);
   });
 });
 

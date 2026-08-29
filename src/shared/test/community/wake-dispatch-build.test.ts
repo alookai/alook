@@ -220,18 +220,17 @@ describe("buildUnreadWakeCommand", () => {
     expect(result.command.unreadNotice.channel).toBe("/srv_1/general/#3");
   });
 
-  it("ready: config.model reflects the binding's model_name (named / custom / default)", async () => {
-    // Catalog id ⇒ named.
+  it("ready: config.model maps every non-empty binding model to named and null to default", async () => {
     seedHappyPath({ bot: { modelName: "claude-opus-4-6" } });
     let result = await buildUnreadWakeCommand(fakeDb, { messageId: "msg_1", botUserId: "bot_1" });
     if (result.state !== "ready" || result.command.type !== "agent:wake") throw new Error("expected ready wake");
     expect(result.command.config.model).toEqual({ kind: "named", name: "claude-opus-4-6" });
 
-    // Non-catalog id ⇒ custom.
+    // Catalog absence is advisory; manual model names remain normally launchable.
     seedHappyPath({ bot: { modelName: "my-ft-model" } });
     result = await buildUnreadWakeCommand(fakeDb, { messageId: "msg_1", botUserId: "bot_1" });
     if (result.state !== "ready" || result.command.type !== "agent:wake") throw new Error("expected ready wake");
-    expect(result.command.config.model).toEqual({ kind: "custom", name: "my-ft-model" });
+    expect(result.command.config.model).toEqual({ kind: "named", name: "my-ft-model" });
 
     // NULL ⇒ default.
     seedHappyPath({ bot: { modelName: null } });

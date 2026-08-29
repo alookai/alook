@@ -187,6 +187,30 @@ afterEach(() => {
 });
 
 describe("CursorDriver persistent ACP transport", () => {
+  it("uses --list-models output for a non-fatal startup catalog", () => {
+    const outputProbe = vi.fn(() => ({
+      ok: true as const,
+      output: "Available models\ngpt-5.6-sol - GPT 5.6 Sol\nclaude-opus - Claude Opus\n",
+    }));
+    const result = new CursorDriver(outputProbe).probe(process.execPath);
+
+    expect(outputProbe).toHaveBeenCalledWith(process.execPath, ["--list-models"]);
+    expect(result).toMatchObject({
+      status: "healthy",
+      reasoning: {
+        models: [
+          { id: "gpt-5.6-sol", supportedReasoningEfforts: [] },
+          { id: "claude-opus", supportedReasoningEfforts: [] },
+        ],
+      },
+    });
+  });
+
+  it("keeps runtime health healthy when --list-models fails", () => {
+    expect(new CursorDriver(() => ({ ok: false, error: "ETIMEDOUT" })).probe(process.execPath))
+      .toMatchObject({ status: "healthy", reasoning: undefined });
+  });
+
   it("spawns cursor-agent acp once with piped stdin and performs the strict handshake before prompt", async () => {
     const server = installServer();
     const driver = new CursorDriver();

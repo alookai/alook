@@ -837,7 +837,7 @@ const REASONING_EFFORT_RE = /^[A-Za-z0-9._-]+$/;
 export const COMMUNITY_REASONING_EFFORT_MAX = 32;
 export const COMMUNITY_REASONING_DESCRIPTION_MAX = 256;
 export const COMMUNITY_REASONING_OPTIONS_MAX = 16;
-export const COMMUNITY_REASONING_MODELS_MAX = 64;
+export const COMMUNITY_REASONING_MODELS_MAX = 512;
 
 export const ReasoningEffortSchema = z
   .string()

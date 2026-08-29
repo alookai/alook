@@ -9,9 +9,16 @@ import type {
 import { SdkLane } from "../../controller/sdk-host.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
 import { resolveCommandOnPath, type ProbeDeps } from "../../internal/probe.js";
-import { createPiSessionDependencies, type PiSessionDependencies } from "./sessionDeps.js";
+import { parsePiModelCatalog } from "../../internal/modelCatalog.js";
+import {
+  createPiSessionDependencies,
+  loadPiSdkModule,
+  type PiSdkLoader,
+  type PiSessionDependencies,
+} from "./sessionDeps.js";
 
 const PI_SDK_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
+const PI_MODEL_PROBE_TIMEOUT_MS = 5_000;
 
 interface PiSdkAgentSession {
   prompt(text: string, options?: { streamingBehavior?: "steer" | "followUp" }): Promise<void>;
@@ -209,17 +216,37 @@ export class PiDriver implements BackendAdapter {
 
   constructor(
     private readonly dependenciesFor: (ctx: AdapterLaunchContext) => PiSessionDependencies = createPiSessionDependencies,
+    private readonly loadSdk: PiSdkLoader = loadPiSdkModule,
+    private readonly readVersion: () => string | undefined = readPiSdkVersion,
   ) {}
 
-  probe() {
-    const version = readPiSdkVersion();
+  async probe() {
+    const version = this.readVersion();
     if (!version) {
       // The Pi SDK is a native runtime — no CLI to spawn. If the npm module
       // isn't require-able, treat the runtime as unhealthy so /community
       // reflects reality and the bot picker filters it out.
       return { status: "unhealthy" as const, lastError: "sdk_not_installed" };
     }
-    return { status: "healthy" as const, version };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const reasoning = await Promise.race([
+        this.loadSdk().then(async (sdk) => {
+          const authStorage = sdk.AuthStorage.create();
+          const registry = sdk.ModelRegistry.create(authStorage);
+          return parsePiModelCatalog(await registry.getAvailable());
+        }),
+        new Promise<undefined>((resolve) => {
+          timer = setTimeout(() => resolve(undefined), PI_MODEL_PROBE_TIMEOUT_MS);
+          timer.unref?.();
+        }),
+      ]);
+      return { status: "healthy" as const, version, reasoning };
+    } catch {
+      return { status: "healthy" as const, version, reasoning: undefined };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   /**

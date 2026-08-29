@@ -4,18 +4,25 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ProbeResult } from "../../internal/adapter.js";
 import { fakeLaunchContext } from "../../testing/adapter-fixture.js";
 import { ClaudeDriver } from "./index.js";
 
 const spawnAgentProcess = vi.hoisted(() => vi.fn());
+const probeClaude = vi.hoisted(() => vi.fn<() => ProbeResult>());
 vi.mock("../../internal/killTree.js", async () => ({
   ...(await vi.importActual<typeof import("../../internal/killTree.js")>("../../internal/killTree.js")),
   spawnAgentProcess,
+}));
+vi.mock("../../internal/probe.js", async () => ({
+  ...(await vi.importActual<typeof import("../../internal/probe.js")>("../../internal/probe.js")),
+  probeClaude,
 }));
 
 const directories: string[] = [];
 afterEach(() => {
   spawnAgentProcess.mockReset();
+  probeClaude.mockReset();
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
@@ -24,6 +31,32 @@ describe("ClaudeDriver", () => {
     expect(new ClaudeDriver().probe("/definitely/missing/alook-claude")).toMatchObject({
       status: "unhealthy",
       lastError: expect.any(String),
+    });
+  });
+
+  it("reports only the three stable Claude aliases after a healthy probe", () => {
+    probeClaude.mockReturnValue({ status: "healthy", version: "1.2.3" });
+
+    expect(new ClaudeDriver().probe()).toEqual({
+      status: "healthy",
+      version: "1.2.3",
+      reasoning: {
+        updateMode: "unsupported",
+        models: [
+          { id: "opus", supportedReasoningEfforts: [] },
+          { id: "sonnet", supportedReasoningEfforts: [] },
+          { id: "haiku", supportedReasoningEfforts: [] },
+        ],
+      },
+    });
+  });
+
+  it("keeps an unhealthy default Claude probe unchanged without adding a catalog", () => {
+    probeClaude.mockReturnValue({ status: "unhealthy", lastError: "not_on_path" });
+
+    expect(new ClaudeDriver().probe()).toEqual({
+      status: "unhealthy",
+      lastError: "not_on_path",
     });
   });
 

@@ -9,7 +9,7 @@
  */
 import type {
   BackendAdapter, EncodeMessageOptions, AdapterLaunchContext, AdapterEvent, RuntimeLane,
-  RuntimeLaneOpenOptions, SpawnedProcess,
+  RuntimeLaneOpenOptions, SpawnedProcess, ProbeResult,
 } from "../../internal/adapter.js";
 import { createProcessLane } from "../../controller/process-host.js";
 import { prepareCliTransport } from "../../internal/cliTransport.js";
@@ -20,6 +20,14 @@ import { probeClaude, probeCommandVersion, resolveSpawnSpec, resolveClaudeComman
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
 import { spawnAgentProcess } from "../../internal/killTree.js";
 import { ClaudeTurnProtocol } from "./turnProtocol.js";
+
+const CLAUDE_MODEL_CATALOG = {
+  updateMode: "unsupported" as const,
+  models: ["opus", "sonnet", "haiku"].map((id) => ({
+    id,
+    supportedReasoningEfforts: [],
+  })),
+};
 
 export class ClaudeDriver implements BackendAdapter {
   readonly id = "claude";
@@ -38,13 +46,19 @@ export class ClaudeDriver implements BackendAdapter {
     return this.turnProtocol.beginTurn();
   }
 
-  probe(command?: string) {
+  probe(command?: string): ProbeResult {
     const explicit = command?.trim();
-    if (!explicit) return probeClaude();
-    const result = probeCommandVersion(explicit);
-    return result.ok
-      ? { status: "healthy" as const, version: result.version }
-      : { status: "unhealthy" as const, lastError: result.error };
+    const base: ProbeResult = explicit
+      ? (() => {
+          const result = probeCommandVersion(explicit);
+          return result.ok
+            ? { status: "healthy", version: result.version }
+            : { status: "unhealthy", lastError: result.error };
+        })()
+      : probeClaude();
+    return base.status === "healthy"
+      ? { ...base, reasoning: CLAUDE_MODEL_CATALOG }
+      : base;
   }
 
   async openLane(ctx: AdapterLaunchContext, options?: RuntimeLaneOpenOptions): Promise<RuntimeLane> {

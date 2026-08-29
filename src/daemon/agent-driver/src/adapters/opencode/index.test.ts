@@ -26,6 +26,30 @@ describe("OpenCodeDriver persistent v2 service", () => {
     driver = new OpenCodeDriver();
   });
 
+  it("uses models --pure output for a non-fatal startup catalog", () => {
+    const outputProbe = vi.fn(() => ({
+      ok: true as const,
+      output: "openai/gpt-5\nanthropic/claude-sonnet\n",
+    }));
+    const result = new OpenCodeDriver(outputProbe).probe(process.execPath);
+
+    expect(outputProbe).toHaveBeenCalledWith(process.execPath, ["models", "--pure"]);
+    expect(result).toMatchObject({
+      status: "healthy",
+      reasoning: {
+        models: [
+          { id: "openai/gpt-5", supportedReasoningEfforts: [] },
+          { id: "anthropic/claude-sonnet", supportedReasoningEfforts: [] },
+        ],
+      },
+    });
+  });
+
+  it("keeps runtime health healthy when models --pure fails", () => {
+    expect(new OpenCodeDriver(() => ({ ok: false, error: "ETIMEDOUT" })).probe(process.execPath))
+      .toMatchObject({ status: "healthy", reasoning: undefined });
+  });
+
   it("declares persistent HTTP/SSE steering with transport-owned terminal receipts", () => {
     expect(driver.execution).toEqual({
       lifetime: "session",
