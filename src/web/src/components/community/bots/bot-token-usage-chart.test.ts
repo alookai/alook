@@ -9,6 +9,12 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipContent: ({ children }: React.PropsWithChildren) =>
     React.createElement("tooltip-content", null, children),
 }))
+vi.mock("@/components/ui/popover", () => ({
+  Popover: ({ children }: React.PropsWithChildren) => React.createElement(React.Fragment, null, children),
+  PopoverTrigger: ({ render }: { render: React.ReactElement }) => React.cloneElement(render),
+  PopoverContent: ({ children, className }: React.PropsWithChildren<{ className?: string }>) =>
+    React.createElement("popover-content", { className }, children),
+}))
 
 import {
   BotTokenUsageChart,
@@ -95,8 +101,9 @@ describe("BotTokenUsageChart", () => {
     expect(targets[6]!.props["aria-label"]).toContain("Output 2")
     expect(renderer.root.findAll((node) => String(node.props.className).includes("h-10.5")))
       .not.toHaveLength(0)
-    expect(text(renderer.root)).not.toContain("8/23")
-    expect(text(renderer.root)).not.toContain("Today")
+    const desktopTargetText = targets.map(text).join(" ")
+    expect(desktopTargetText).not.toContain("8/23")
+    expect(desktopTargetText).not.toContain("Today")
     expect(text(renderer.root)).not.toContain("Tokens")
   })
 
@@ -115,6 +122,29 @@ describe("BotTokenUsageChart", () => {
     expect(heightNodes.map((node) => node.props.style.height)).toContain("50%")
     expect(renderer.root.findAll((node) => String(node.props.className).includes("ring-inset")))
       .toHaveLength(0)
+  })
+
+  it("groups seven mobile days into a four-column selector with one pressed 44px target", () => {
+    const usage: BotTokenUsage = {
+      capability: "supported",
+      days: sevenDays(usageDay(
+        "2026-08-29",
+        { input: complete(8), output: complete(2), cache: complete(0) },
+        "in_progress",
+      )),
+    }
+    const renderer = render(usage)
+    const mobileTargets = renderer.root.findAll((node) => node.props["aria-pressed"] !== undefined)
+    expect(mobileTargets).toHaveLength(7)
+    expect(mobileTargets.filter((node) => node.props["aria-pressed"])).toHaveLength(1)
+    expect(mobileTargets[6]!.props["aria-pressed"]).toBe(true)
+    expect(mobileTargets.every((node) => String(node.props.className).includes("h-11"))).toBe(true)
+    expect(String(mobileTargets[0]!.parent?.props.className)).toContain("grid-cols-4")
+
+    act(() => mobileTargets[2]!.props.onClick())
+    const updatedTargets = renderer.root.findAll((node) => node.props["aria-pressed"] !== undefined)
+    expect(updatedTargets[2]!.props["aria-pressed"]).toBe(true)
+    expect(updatedTargets.filter((node) => node.props["aria-pressed"])).toHaveLength(1)
   })
 
   it("omits missing and unsupported usage without reserving a chart slot", () => {

@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   replace: vi.fn(),
   prefetch: vi.fn(),
-  captureScroll: vi.fn(),
   frame: {
     current: null as CommunityCommittedFrame | null,
   },
@@ -25,10 +24,6 @@ vi.mock("next/navigation", () => ({
     prefetch: mocks.prefetch,
   }),
 }))
-vi.mock("@/components/community/messages/message-scroll-memory", () => ({
-  captureActiveMessageScrollPosition: mocks.captureScroll,
-}))
-
 type Result = ReturnType<typeof useCommunityNavigationController>
 
 function Capture({ onResult }: { onResult: (result: Result) => void }) {
@@ -61,7 +56,6 @@ describe("useCommunityNavigationController", () => {
     mocks.push.mockReset()
     mocks.replace.mockReset()
     mocks.prefetch.mockReset()
-    mocks.captureScroll.mockReset()
     mocks.frame.current = { ...normalizeCommunityHref("/c/me"), revision: 0 }
     const windowTarget = new EventTarget() as EventTarget & { navigation: EventTarget }
     windowTarget.navigation = new EventTarget()
@@ -161,34 +155,6 @@ describe("useCommunityNavigationController", () => {
     expect(hook.current.pendingHref).toBeNull()
     expect(mocks.replace).not.toHaveBeenCalled()
     expect(mocks.push).toHaveBeenCalledTimes(1)
-  })
-
-  it("captures scroll before imperative and browser-history navigation", async () => {
-    const hook = await renderController()
-    await act(async () => hook.current.push("/c/me/friends"))
-    expect(mocks.captureScroll).toHaveBeenCalledTimes(1)
-
-    await act(async () => (
-      window as unknown as { navigation: EventTarget }
-    ).navigation.dispatchEvent(new Event("navigate")))
-    expect(mocks.captureScroll).toHaveBeenCalledTimes(2)
-
-    await act(async () => window.dispatchEvent(new Event("popstate")))
-    expect(mocks.captureScroll).toHaveBeenCalledTimes(2)
-    await hook.unmount()
-    ;(window as unknown as { navigation: EventTarget }).navigation.dispatchEvent(new Event("navigate"))
-    expect(mocks.captureScroll).toHaveBeenCalledTimes(2)
-  })
-
-  it("captures browser history through popstate when the Navigation API is unavailable", async () => {
-    delete (window as unknown as { navigation?: EventTarget }).navigation
-    const hook = await renderController()
-
-    await act(async () => window.dispatchEvent(new Event("popstate")))
-    expect(mocks.captureScroll).toHaveBeenCalledOnce()
-    await hook.unmount()
-    window.dispatchEvent(new Event("popstate"))
-    expect(mocks.captureScroll).toHaveBeenCalledOnce()
   })
 
   it("commits only the latest async destination", async () => {

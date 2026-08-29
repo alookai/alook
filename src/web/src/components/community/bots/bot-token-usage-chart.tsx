@@ -219,7 +219,7 @@ export function BotTokenUsageChart({
               <div className="text-xs text-foreground">
                 <UsageDayDetail day={usage.days[mobileDayIndex] ?? usage.days.at(-1)!} />
               </div>
-              <div className="flex flex-col border-t border-border/60 pt-2">
+              <div className="grid grid-cols-4 gap-2 border-t border-border/60 pt-2">
                 {usage.days.map((day, index) => (
                   <button
                     key={day.day}
@@ -227,7 +227,7 @@ export function BotTokenUsageChart({
                     data-testid={tid.botUsageDay(botId, day.day)}
                     aria-pressed={index === mobileDayIndex}
                     onClick={() => setMobileDayIndex(index)}
-                    className="flex h-11 items-center rounded-md px-2 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    className="flex h-11 min-w-11 items-center justify-center rounded-md px-1 text-center text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none aria-pressed:bg-accent aria-pressed:font-semibold aria-pressed:text-foreground"
                   >
                     <span>{dayLabel(day)}</span>
                   </button>

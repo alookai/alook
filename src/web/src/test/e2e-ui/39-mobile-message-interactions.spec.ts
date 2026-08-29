@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test"
+import type { Locator, Page, Request } from "@playwright/test"
 import { test, expect, userId } from "./_fixtures/community-fixture"
 import {
   composerEditable,
@@ -158,6 +158,130 @@ async function latestSeq(page: Page, channelId: string): Promise<number> {
   return ((await response.json()) as { latestSeq: number }).latestSeq
 }
 
+type ReadState = {
+  lastReadMessageId: string | null
+  lastReadSeq: number
+}
+
+async function settledReadState(page: Page, channelId: string): Promise<ReadState> {
+  let previous: ReadState | null = null
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const response = await page.request.get(`/api/community/channels/${channelId}/read-state`)
+    expect(response.ok()).toBe(true)
+    const current = await response.json() as ReadState
+    if (
+      current.lastReadMessageId
+      && previous?.lastReadMessageId === current.lastReadMessageId
+      && previous.lastReadSeq === current.lastReadSeq
+    ) {
+      return current
+    }
+    previous = current
+    await page.waitForTimeout(100)
+  }
+  throw new Error(`read state did not settle for ${channelId}: ${JSON.stringify(previous)}`)
+}
+
+type SurfaceGetTracker = {
+  abortedMessageGets: number
+  abortedReadStateGets: number
+  failures: string[]
+  messageUrls: string[]
+  readStateUrls: string[]
+  inFlight: () => number
+  stop: () => void
+}
+
+function trackSurfaceGets(page: Page, channelId: string): SurfaceGetTracker {
+  const observedRequests = new Set<Request>()
+  const kind = (request: Request): "messages" | "read-state" | null => {
+    if (request.method() !== "GET") return null
+    const pathname = new URL(request.url()).pathname
+    if (pathname === `/api/community/channels/${channelId}/messages`) return "messages"
+    if (pathname === `/api/community/channels/${channelId}/read-state`) return "read-state"
+    return null
+  }
+  const onRequest = (request: Request) => {
+    if (kind(request)) observedRequests.add(request)
+  }
+  const tracker: SurfaceGetTracker = {
+    abortedMessageGets: 0,
+    abortedReadStateGets: 0,
+    failures: [],
+    messageUrls: [],
+    readStateUrls: [],
+    inFlight: () => observedRequests.size,
+    stop: () => {
+      page.off("request", onRequest)
+      page.off("requestfinished", onFinished)
+      page.off("requestfailed", onFailed)
+    },
+  }
+  const onFinished = (request: Request) => {
+    if (!observedRequests.delete(request)) return
+    const requestKind = kind(request)
+    if (requestKind === "messages") tracker.messageUrls.push(request.url())
+    if (requestKind === "read-state") tracker.readStateUrls.push(request.url())
+  }
+  const onFailed = (request: Request) => {
+    if (!observedRequests.delete(request)) return
+    const requestKind = kind(request)
+    if (!requestKind) return
+    const error = request.failure()?.errorText ?? "unknown request failure"
+    if (!error.includes("ERR_ABORTED")) {
+      tracker.failures.push(`${requestKind}: ${error}`)
+      return
+    }
+    if (requestKind === "messages") tracker.abortedMessageGets += 1
+    else tracker.abortedReadStateGets += 1
+  }
+  page.on("request", onRequest)
+  page.on("requestfinished", onFinished)
+  page.on("requestfailed", onFailed)
+  return tracker
+}
+
+async function expectRetainedMountGets(
+  page: Page,
+  channelId: string,
+  departureReadState: ReadState,
+  tracker: SurfaceGetTracker,
+) {
+  await expect.poll(() => tracker.readStateUrls.length).toBe(1)
+  await page.waitForTimeout(300)
+  await expect.poll(() => tracker.inFlight()).toBe(0)
+  const settledMessageCount = tracker.messageUrls.length
+  await page.waitForTimeout(300)
+  expect(tracker.inFlight()).toBe(0)
+  expect(tracker.messageUrls).toHaveLength(settledMessageCount)
+
+  expect(tracker.messageUrls.length).toBeGreaterThanOrEqual(1)
+  expect(tracker.messageUrls.length).toBeLessThanOrEqual(2)
+  const anchors = tracker.messageUrls.map((url) => new URL(url).searchParams.get("anchor"))
+  expect(anchors[0]).toBe(departureReadState.lastReadMessageId)
+  const counts = new Map<string, number>()
+  for (const anchor of anchors) {
+    const identity = anchor ?? "<newest>"
+    counts.set(identity, (counts.get(identity) ?? 0) + 1)
+  }
+  for (const count of counts.values()) expect(count).toBe(1)
+
+  if (anchors.length === 2) {
+    const newerAnchor = anchors[1]
+    expect(newerAnchor).not.toBeNull()
+    expect(newerAnchor).not.toBe(anchors[0])
+    await expect(page.getByTestId(tid.message(newerAnchor!))).toBeVisible()
+    const advancedReadState = await settledReadState(page, channelId)
+    expect(advancedReadState.lastReadSeq).toBeGreaterThan(departureReadState.lastReadSeq)
+    expect(newerAnchor).toBe(advancedReadState.lastReadMessageId)
+  }
+
+  expect(tracker.readStateUrls).toHaveLength(1)
+  expect(tracker.abortedReadStateGets).toBeLessThanOrEqual(1)
+  expect(tracker.abortedMessageGets).toBeLessThanOrEqual(1)
+  expect(tracker.failures).toEqual([])
+}
+
 test("mobile reply, avatar mention, and typing space keep exact backend and WS identity", async ({ asUser }) => {
   test.setTimeout(240_000)
   const stamp = Date.now()
@@ -175,6 +299,13 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   const threadId = await seedThread("alice", openerId, `mobile-thread-${stamp}`)
   const threadBobMessageId = await seedMessage("bob", threadId, `thread **target** ${stamp}`)
   const dmId = await seedDm("alice", userId("bob"))
+  for (let index = 0; index < 24; index += 1) {
+    await seedMessage(index % 2 === 0 ? "alice" : "bob", dmId, `dm scroll row ${index} ${stamp}`)
+  }
+  await seedMessage("bob", dmId, Array.from(
+    { length: 70 },
+    (_, index) => `dm scroll line ${index} ${stamp}`,
+  ).join("\n\n"))
   const bobInfo = await memberInfo("alice", serverId, userId("bob"))
   const aliceInfo = await memberInfo("alice", serverId, userId("alice"))
 
@@ -484,7 +615,27 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   expect(spaceAfter?.y).toBeCloseTo(spaceBefore!.y, 0)
   expect(await latestSeq(alice.page, channelId)).toBe(beforeTypingSeq)
 
-  await alice.page.goto(`/c/me/${dmId}`, { waitUntil: "commit" })
+  const dmSeqBeforeDirect = await latestSeq(alice.page, dmId)
+  const directDmBody = `profile direct dm ${stamp}`
+  await finalChannelMessage.getByRole("button", {
+    name: `Open ${bobInfo.name} profile; long press to mention`,
+  }).click()
+  const directProfileCard = alice.page.getByTestId(tid.profileCard)
+  await expect(directProfileCard).toBeVisible()
+  await directProfileCard.getByPlaceholder(`Message @${bobInfo.name}`).fill(directDmBody)
+  const directResponsePromise = alice.page.waitForResponse((response) => (
+    response.request().method() === "POST"
+    && new URL(response.url()).pathname === `/api/community/channels/${dmId}/messages`
+  ))
+  await directProfileCard.getByRole("button", { name: "Send message" }).click()
+  const directResponse = await directResponsePromise
+  expect(directResponse.status()).toBe(201)
+  const directPayload = await directResponse.json() as { message: { id: string } }
+  await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/me/${dmId}`)
+  expect(await latestSeq(alice.page, dmId)).toBe(dmSeqBeforeDirect + 1)
+  await expect.poll(() => bobProxy.frames.filter((frame) => (
+    frameHasMessage(frame, dmId, directPayload.message.id)
+  )).length).toBe(1)
   await bob.page.goto(`/c/me/${dmId}`, { waitUntil: "commit" })
   await ignoreNextDevToolsPointerCapture(alice.page)
   await ignoreNextDevToolsPointerCapture(bob.page)
@@ -545,6 +696,46 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   expect((await dmTypingSpace.boundingBox())?.height).toBe(0)
   expect(await latestSeq(alice.page, dmId)).toBe(beforeDmTypingSeq)
 
+  const dmScroller = alice.page.getByTestId(tid.messageScroller)
+  await expect.poll(() => dmScroller.evaluate((element) => (
+    element.scrollHeight - element.clientHeight
+  ))).toBeGreaterThan(1600)
+  const departedDmScrollTop = await dmScroller.evaluate((element) => {
+    element.scrollTop = 900
+    element.dispatchEvent(new Event("scroll"))
+    return element.scrollTop
+  })
+  expect(departedDmScrollTop).toBe(900)
+  const dmReadState = await settledReadState(alice.page, dmId)
+  const dmReturnGets = trackSurfaceGets(alice.page, dmId)
+  await alice.page.getByRole("button", { name: "Back" }).click()
+  await expect.poll(() => new URL(alice.page.url()).pathname).toBe("/c/me")
+  await alice.page.getByTestId(tid.dmRow(dmId)).click()
+  await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/me/${dmId}`)
+  await expect(alice.page.getByTestId(tid.message(dmReadState.lastReadMessageId!))).toBeVisible()
+  await expectRetainedMountGets(alice.page, dmId, dmReadState, dmReturnGets)
+  expect(Math.abs(await dmScroller.evaluate((element) => element.scrollTop) - departedDmScrollTop))
+    .toBeGreaterThan(50)
+  dmReturnGets.stop()
+
+  const departedDmReloadScrollTop = await dmScroller.evaluate((element) => {
+    element.scrollTop = 700
+    element.dispatchEvent(new Event("scroll"))
+    return element.scrollTop
+  })
+  expect(departedDmReloadScrollTop).toBe(700)
+  const dmReloadReadState = await settledReadState(alice.page, dmId)
+  const dmReloadGets = trackSurfaceGets(alice.page, dmId)
+  await alice.page.reload({ waitUntil: "commit" })
+  await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/me/${dmId}`)
+  await expect(alice.page.getByTestId(tid.message(dmReloadReadState.lastReadMessageId!))).toBeVisible()
+  await expectRetainedMountGets(alice.page, dmId, dmReloadReadState, dmReloadGets)
+  expect(Math.abs(
+    await dmScroller.evaluate((element) => element.scrollTop) - departedDmReloadScrollTop,
+  )).toBeGreaterThan(50)
+  expect(await latestSeq(alice.page, dmId)).toBe(beforeDmTypingSeq)
+  dmReloadGets.stop()
+
   await alice.page.emulateMedia({ reducedMotion: "reduce" })
   await alice.page.evaluate(() => {
     const original = Element.prototype.animate
@@ -575,23 +766,12 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   await navigationEditable.fill(navigationDraft)
   const readingPosition = await scroller.evaluate((element) => {
     element.scrollTop = Math.min(2200, Math.max(0, element.scrollHeight - element.clientHeight))
+    element.dispatchEvent(new Event("scroll"))
     return element.scrollTop
   })
   expect(readingPosition).toBe(2200)
-  const getObservationStartedAt = Date.now()
-  const channelMessageGets: Array<{ route: string; sinceMs: number; url: string }> = []
-  alice.page.on("request", (request) => {
-    if (
-      request.method() === "GET"
-      && new URL(request.url()).pathname === `/api/community/channels/${channelId}/messages`
-    ) {
-      channelMessageGets.push({
-        route: new URL(request.frame().url()).pathname,
-        sinceMs: Date.now() - getObservationStartedAt,
-        url: request.url(),
-      })
-    }
-  })
+  const channelReadState = await settledReadState(alice.page, channelId)
+  const channelReturnGets = trackSurfaceGets(alice.page, channelId)
   await alice.page.getByRole("button", { name: `Go to server ${serverName}` }).click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}`)
   await alice.page.getByTestId(tid.channelRow(channelId)).evaluate((element) => (
@@ -599,15 +779,14 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   ))
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${channelId}`)
   await expect(composerEditable(alice.page)).toContainText(navigationDraft)
-  await alice.page.waitForTimeout(1600)
-  expect(await scroller.evaluate((element) => element.scrollTop)).toBeCloseTo(readingPosition, 0)
-  expect(
-    channelMessageGets.length,
-    `channel message GETs after list return: ${JSON.stringify(channelMessageGets)}`,
-  ).toBeLessThanOrEqual(1)
+  await expect(alice.page.getByTestId(tid.message(channelReadState.lastReadMessageId!))).toBeVisible()
+  expect(Math.abs(await scroller.evaluate((element) => element.scrollTop) - readingPosition))
+    .toBeGreaterThan(50)
+  await expectRetainedMountGets(alice.page, channelId, channelReadState, channelReturnGets)
+  channelReturnGets.stop()
 })
 
-test("mobile channel scroll restoration remains stable after navigation settles", async ({ asUser }) => {
+test("mobile thread return uses server read state instead of tab-local pixel memory", async ({ asUser }) => {
   const stamp = Date.now()
   const serverName = `Mobile-scroll-${stamp}`
   const serverId = await seedServer("alice", serverName)
@@ -621,11 +800,19 @@ test("mobile channel scroll restoration remains stable after navigation settles"
   ).join("\n\n"))
   const openerId = await seedMessage("alice", channelId, `scroll thread opener ${stamp}`)
   const threadId = await seedThread("alice", openerId, `scroll-thread-${stamp}`)
+  for (let index = 0; index < 24; index += 1) {
+    await seedMessage("alice", threadId, `thread scroll row ${index} ${stamp}`)
+  }
+  await seedMessage("alice", threadId, Array.from(
+    { length: 70 },
+    (_, index) => `thread scroll line ${index} ${stamp}`,
+  ).join("\n\n"))
   const threadReplyId = await seedMessage("alice", threadId, `scroll thread reply ${stamp}`)
 
   const alice = await asUser("alice")
   await alice.page.setViewportSize({ width: 390, height: 844 })
   await alice.page.goto(`/c/channels/${serverId}/${channelId}`, { waitUntil: "commit" })
+  await alice.page.waitForLoadState("domcontentloaded")
   await ignoreNextDevToolsPointerCapture(alice.page)
   const editable = composerEditable(alice.page)
   const scroller = alice.page.getByTestId(tid.messageScroller)
@@ -636,38 +823,31 @@ test("mobile channel scroll restoration remains stable after navigation settles"
 
   const draft = `stable navigation draft ${stamp}`
   await editable.fill(draft)
-  expect(await scroller.evaluate((element) => {
-    element.scrollTop = 2200
-    return element.scrollTop
-  })).toBe(2200)
-
-  await alice.page.getByRole("button", { name: `Go to server ${serverName}` }).click()
-  await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}`)
-  await alice.page.getByTestId(tid.channelRow(channelId)).click()
-  await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${channelId}`)
-  await expect(composerEditable(alice.page)).toContainText(draft)
-  await alice.page.waitForTimeout(1600)
-  expect(await scroller.evaluate((element) => element.scrollTop)).toBeCloseTo(2200, 0)
-
-  await alice.page.getByTestId(tid.scrollToPresent).click()
   const threadIndicator = alice.page.getByTestId(tid.threadIndicator(openerId))
   await expect(threadIndicator).toBeVisible()
-  await alice.page.waitForTimeout(500)
-  await threadIndicator.focus()
-  await expect.poll(async () => {
-    const before = await scroller.evaluate((element) => element.scrollTop)
-    await alice.page.waitForTimeout(50)
-    const after = await scroller.evaluate((element) => element.scrollTop)
-    return after - before
-  }).toBe(0)
-  const channelBackPosition = await scroller.evaluate((element) => element.scrollTop)
-  expect(channelBackPosition).toBeGreaterThan(2200)
   await threadIndicator.click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${threadId}`)
   await expect(alice.page.getByTestId(tid.message(threadReplyId))).toBeVisible()
+  const threadScroller = alice.page.getByTestId(tid.messageScroller)
+  await expect.poll(() => threadScroller.evaluate((element) => (
+    element.scrollHeight - element.clientHeight
+  ))).toBeGreaterThan(1600)
+  const departedThreadScrollTop = await threadScroller.evaluate((element) => {
+    element.scrollTop = 900
+    element.dispatchEvent(new Event("scroll"))
+    return element.scrollTop
+  })
+  expect(departedThreadScrollTop).toBe(900)
+  const threadReadState = await settledReadState(alice.page, threadId)
+  const threadReturnGets = trackSurfaceGets(alice.page, threadId)
   await alice.page.goBack({ waitUntil: "commit" })
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${channelId}`)
   await expect(composerEditable(alice.page)).toContainText(draft)
-  await alice.page.waitForTimeout(1600)
-  expect(await scroller.evaluate((element) => element.scrollTop)).toBeCloseTo(channelBackPosition, 0)
+  await alice.page.goForward({ waitUntil: "commit" })
+  await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${threadId}`)
+  await expect(alice.page.getByTestId(tid.message(threadReadState.lastReadMessageId!))).toBeVisible()
+  await expectRetainedMountGets(alice.page, threadId, threadReadState, threadReturnGets)
+  expect(Math.abs(await threadScroller.evaluate((element) => element.scrollTop) - departedThreadScrollTop))
+    .toBeGreaterThan(50)
+  threadReturnGets.stop()
 })

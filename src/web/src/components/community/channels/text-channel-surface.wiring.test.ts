@@ -57,9 +57,6 @@ vi.mock("@/components/community/messages/use-author-mention-insertion", () => ({
     insertMentionText: vi.fn(),
   }),
 }))
-vi.mock("@/components/community/messages/message-scroll-memory", () => ({
-  readMessageScrollPosition: () => undefined,
-}))
 vi.mock("@/components/community/messages/message-channel-controller", () => ({
   MessageChannelController: ({ children }: {
     children: (value: MessageChannelControllerValue) => React.ReactNode

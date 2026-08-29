@@ -257,7 +257,7 @@ test("My Bots renders seven-day usage and replace-all quota across responsive th
   await page.waitForTimeout(300)
   await attachScreenshot(page, testInfo, "my-bots-telemetry-pc-dark")
 
-  await page.setViewportSize({ width: 390, height: 844 })
+  await page.setViewportSize({ width: 639, height: 844 })
   await page.emulateMedia({ colorScheme: "light" })
   await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains("dark"))).toBe(false)
   await page.waitForTimeout(300)
@@ -269,6 +269,28 @@ test("My Bots renders seven-day usage and replace-all quota across responsive th
   expect(mobileUsageBox?.height).toBeGreaterThanOrEqual(44)
   expect(mobileUsageBox?.width).toBeGreaterThanOrEqual(44)
   await mobileUsageTrigger.tap()
+  const mobileUsageDetail = page.locator('[data-slot="popover-content"]:visible')
+  await expect.poll(async () => (await mobileUsageDetail.boundingBox())?.height ?? 0)
+    .toBeLessThanOrEqual(260)
+  const mobileDayTargets = page.locator(
+    `[data-testid^="${tid.botUsageDay("bot_codex", "")}"]:visible`,
+  )
+  await expect(mobileDayTargets).toHaveCount(7)
+  await expect.poll(async () => {
+    const boxes = await mobileDayTargets.evaluateAll((elements) => elements.map((element) => {
+      const box = element.getBoundingClientRect()
+      return { width: box.width, height: box.height }
+    }))
+    return boxes.every((box) => box.width >= 44 && box.height >= 44)
+  }).toBe(true)
+  const mobileDayBoxes = await mobileDayTargets.evaluateAll((elements) => elements.map((element) => {
+    const box = element.getBoundingClientRect()
+    return { width: box.width, height: box.height, y: Math.round(box.y) }
+  }))
+  expect(new Set(mobileDayBoxes.map((box) => box.y)).size).toBeLessThanOrEqual(2)
+  await expect(page.locator(
+    `[data-testid^="${tid.botUsageDay("bot_codex", "")}"][aria-pressed="true"]:visible`,
+  )).toHaveCount(1)
   const mobileUsageDay = page.locator(
     `[data-testid="${tid.botUsageDay("bot_codex", "2026-08-26")}"]:visible`,
   )
@@ -277,7 +299,7 @@ test("My Bots renders seven-day usage and replace-all quota across responsive th
   await expect.poll(async () => (await mobileUsageDay.boundingBox())?.width ?? 0)
     .toBeGreaterThanOrEqual(44)
   await mobileUsageDay.tap()
-  const mobileUsageDetail = page.locator('[data-slot="popover-content"]:visible')
+  await expect(mobileUsageDay).toHaveAttribute("aria-pressed", "true")
   await expect(mobileUsageDetail).toContainText("Input700")
   await expect(mobileUsageDetail).toContainText("Output300")
   await expect(mobileUsageDetail).toContainText("CacheUnavailable")
@@ -293,4 +315,14 @@ test("My Bots renders seven-day usage and replace-all quota across responsive th
   await page.waitForTimeout(300)
   await expectNoHorizontalOverflow(page)
   await attachScreenshot(page, testInfo, "my-bots-telemetry-mobile-dark")
+
+  await page.setViewportSize({ width: 640, height: 844 })
+  await expect(mobileUsageTrigger).toBeHidden()
+  await expect(page.locator(
+    `[data-testid^="${tid.botUsageDay("bot_codex", "")}"]:visible`,
+  )).toHaveCount(7)
+  await expect.poll(async () => (await usage.boundingBox())?.height ?? 0).toBe(42)
+  const desktopBoundaryDay = page.getByTestId(tid.botUsageDay("bot_codex", "2026-08-26"))
+  await desktopBoundaryDay.hover()
+  await expect(page.locator('[data-slot="tooltip-content"]:visible')).toContainText("Input700")
 })

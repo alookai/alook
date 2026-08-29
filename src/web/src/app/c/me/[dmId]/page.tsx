@@ -480,7 +480,6 @@ function DmView() {
           key={dmId}
           variant="dm"
           channel={dm.name}
-          scrollMemoryKey={`dm:${dmId}`}
           messages={messages}
           loading={loadingOwnership.messageBodyLoading}
           newDividerBefore={newDividerBefore}

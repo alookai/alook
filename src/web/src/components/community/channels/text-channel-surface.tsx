@@ -11,7 +11,6 @@ import { Composer } from "@/components/community/messages/composer"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
 import { MessageList } from "@/components/community/messages/message-list"
 import { useAuthorMentionInsertion } from "@/components/community/messages/use-author-mention-insertion"
-import { readMessageScrollPosition } from "@/components/community/messages/message-scroll-memory"
 import {
   MessageChannelController,
 } from "@/components/community/messages/message-channel-controller"
@@ -71,14 +70,12 @@ export function TextChannelSurface({
     viewerName: viewer.name,
     viewerDiscriminator: viewer.discriminator,
   })
-  const scrollMemoryKey = `channel:${channelId}`
   const feed = useChannelMessageFeed({
     channelId,
     serverId,
     viewerUserId: viewer.id,
     isChildChannel: false,
     anchorMessageId,
-    preferCachedWindowOnMount: readMessageScrollPosition(scrollMemoryKey) !== undefined,
   })
   useEffect(() => {
     setRightPanel(null)
@@ -119,7 +116,6 @@ export function TextChannelSurface({
               <MessageList
                 key={channelId}
                 channel={channelName}
-                scrollMemoryKey={scrollMemoryKey}
                 messages={feed.messages}
                 loading={feed.isLoading}
                 pinnedIds={controller.pinnedIds}

@@ -175,10 +175,6 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     const initialCombined = page.waitForResponse((response) =>
       response.ok() && isSidebarRequest(response.url(), serverId),
     )
-    const initialNewest = page.waitForResponse((response) => {
-      if (!response.ok() || !isChannelMessagesRequest(response.url(), threadId)) return false
-      return !new URL(response.url()).searchParams.has("anchor")
-    })
     const initialAnchored = page.waitForResponse((response) => {
       if (!response.ok() || !isChannelMessagesRequest(response.url(), threadId)) return false
       return new URL(response.url()).searchParams.has("anchor")
@@ -194,7 +190,7 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     } finally {
       releaseFirstAnchor()
     }
-    await Promise.all([initialCombined, initialNewest, initialAnchored])
+    await Promise.all([initialCombined, initialAnchored])
     await expect.poll(() => new URL(page.url()).pathname).toBe(
       `/c/channels/${serverId}/${threadId}`,
     )
@@ -214,9 +210,9 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     const coldSuccessfulMessageResponses = successfulResponses.filter((url) =>
       isChannelMessagesRequest(url, threadId),
     )
-    expect(coldSuccessfulMessageResponses).toHaveLength(2)
+    expect(coldSuccessfulMessageResponses).toHaveLength(1)
     expect(coldSuccessfulMessageResponses.filter((url) => !new URL(url).searchParams.has("anchor")))
-      .toHaveLength(1)
+      .toHaveLength(0)
     expect(coldSuccessfulMessageResponses.filter((url) => new URL(url).searchParams.has("anchor")))
       .toHaveLength(1)
     expect(anchorRouteRequests).toBe(1)
@@ -253,8 +249,8 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     const refreshAnchorResponses = refreshSuccessfulMessageResponses.filter((url) =>
       new URL(url).searchParams.has("anchor"),
     )
-    expect(refreshNewestResponses.length).toBeLessThanOrEqual(1)
-    expect(refreshAnchorResponses.length).toBeLessThanOrEqual(1)
+    expect(refreshNewestResponses).toHaveLength(0)
+    expect(refreshAnchorResponses).toHaveLength(1)
     expect(new Set(refreshSuccessfulMessageResponses).size)
       .toBe(refreshSuccessfulMessageResponses.length)
   })
