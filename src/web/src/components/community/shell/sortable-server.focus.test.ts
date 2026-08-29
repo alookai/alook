@@ -36,7 +36,7 @@ function renderServer() {
   const renderer = TestRenderer.create(createElement(SortableServer, {
     server,
     onClick: vi.fn(),
-    onMove: vi.fn(),
+    dragDescriptionId: "rail-help",
   }), {
     createNodeMock: (element) => {
       if (element.type !== "button") return {}
@@ -72,5 +72,17 @@ describe("SortableServer lazy menu focus", () => {
 
     expect(result.renderer.root.findAllByType("context-menu-trigger")).toHaveLength(1)
     expect(result.buttonNodes.every((node) => node.focus.mock.calls.length === 0)).toBe(true)
+  })
+
+  it("exposes keyboard drag help without positional menu shortcuts", async () => {
+    let result!: ReturnType<typeof renderServer>
+    await act(async () => { result = renderServer() })
+    const button = result.renderer.root.findByType("button")
+    expect(button.props["aria-describedby"]).toBe("rail-help")
+    expect(button.props["aria-keyshortcuts"]).toContain("Space")
+    await act(async () => result.activationRoot().props.onPointerEnter())
+    const menuText = JSON.stringify(result.renderer.toJSON())
+    expect(menuText).not.toContain("Move…")
+    expect(menuText).not.toContain("Create group")
   })
 })

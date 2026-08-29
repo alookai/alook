@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest"
 import { attachInstruction } from "@atlaskit/pragmatic-drag-and-drop-hitbox/list-item"
-import { railEntityFromData, railInstructionFromRecords } from "./use-server-rail-pdd"
+import {
+  railEntityFromData,
+  railInstructionFromRecords,
+  railTouchMoveIntent,
+  SERVER_RAIL_TOUCH_DRIFT_PX,
+  SERVER_RAIL_TOUCH_HOLD_MS,
+} from "./use-server-rail-pdd"
 
 describe("server rail PDD record adapter", () => {
   it("reads only typed rail entities", () => {
@@ -39,5 +45,34 @@ describe("server rail PDD record adapter", () => {
 
   it("rejects self and missing targets", () => {
     expect(railInstructionFromRecords({ railKind: "server", railId: "one" }, [])).toBeNull()
+  })
+
+  it("keeps ordinary scroll outside the 450ms/10px drag intent", () => {
+    expect(SERVER_RAIL_TOUCH_HOLD_MS).toBe(450)
+    expect(SERVER_RAIL_TOUCH_DRIFT_PX).toBe(10)
+    expect(railTouchMoveIntent({
+      armed: false,
+      dragging: false,
+      distance: 10,
+      touchCount: 1,
+    })).toBe("wait")
+    expect(railTouchMoveIntent({
+      armed: false,
+      dragging: false,
+      distance: 10.1,
+      touchCount: 1,
+    })).toBe("scroll")
+    expect(railTouchMoveIntent({
+      armed: true,
+      dragging: false,
+      distance: 10.1,
+      touchCount: 1,
+    })).toBe("start-drag")
+    expect(railTouchMoveIntent({
+      armed: true,
+      dragging: true,
+      distance: 30,
+      touchCount: 2,
+    })).toBe("cancel")
   })
 })

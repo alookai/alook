@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import {
   commitRailInstruction,
   planRailPersistence,
+  railInstructionIsAvailable,
+  railOperationAvailability,
   railStateFromData,
   railStateErrors,
   visibleTopLevelServers,
@@ -124,5 +126,33 @@ describe("server rail normalized reducer", () => {
     const invalid = fixture()
     invalid.folders.two.push("c")
     expect(railStateErrors(invalid)).toContain("server c belongs to multiple folders")
+  })
+
+  it("derives exact state-aware operations for every sensor", () => {
+    expect(railOperationAvailability(
+      fixture(),
+      { kind: "folder", id: "one" },
+      { kind: "folder", id: "two" },
+    )).toEqual({ "reorder-before": false, "reorder-after": true, combine: false })
+    expect(railOperationAvailability(
+      fixture(),
+      { kind: "server", id: "c" },
+      { kind: "folder", id: "one" },
+    )).toEqual({ "reorder-before": false, "reorder-after": false, combine: false })
+    expect(railOperationAvailability(
+      fixture(),
+      { kind: "server", id: "a" },
+      { kind: "folder", id: "one" },
+    )).toEqual({ "reorder-before": false, "reorder-after": false, combine: true })
+    expect(railInstructionIsAvailable(fixture(), {
+      operation: "combine",
+      source: { kind: "server", id: "a" },
+      target: { kind: "server", id: "b" },
+    })).toBe(true)
+    expect(railInstructionIsAvailable(fixture(), {
+      operation: "reorder-before",
+      source: { kind: "server", id: "a" },
+      target: { kind: "server", id: "b" },
+    })).toBe(false)
   })
 })

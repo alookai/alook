@@ -33,7 +33,6 @@ vi.mock("./rail-folder", () => ({
 }))
 vi.mock("./rail-icon", () => ({ RailIcon: () => null }))
 vi.mock("./animated-alook-logo", () => ({ AnimatedAlookLogo: () => null }))
-vi.mock("./server-rail-move-menu", () => ({ ServerRailMoveMenu: () => null }))
 vi.mock("../settings/create-server-dialog", () => ({ CreateServerDialog: () => null }))
 vi.mock("@/components/ui/skeleton", () => ({
   Skeleton: (props: Record<string, unknown>) => createElement("skeleton", props),
@@ -51,6 +50,7 @@ vi.mock("@/lib/community-onboarding", () => ({
 const servers = [
   { id: "a", name: "A", initial: "A", active: true, unread: false, mentions: 0 },
   { id: "b", name: "B", initial: "B", active: false, unread: false, mentions: 0 },
+  { id: "c", name: "C", initial: "C", active: false, unread: false, mentions: 0 },
 ]
 const folders = [{
   id: "one",
@@ -165,21 +165,25 @@ describe("ServerRail one-in-flight structural guard", () => {
     expect(child?.props.server.unread).toBe(true)
   })
 
-  it.each(["create-first", "ungroup-first"] as const)(
-    "allows one PATCH when stale create and ungroup callbacks race: %s",
+  it.each(["drop-first", "ungroup-first"] as const)(
+    "allows one PATCH when drag-drop and ungroup callbacks race: %s",
     async (order) => {
       let renderer!: TestRenderer.ReactTestRenderer
       await act(async () => { renderer = renderRail() })
-      const create = renderer.root.findAllByType("sortable-server")[0]!.props.onCreateFolder
       const ungroup = renderer.root.findByType("rail-folder").props.onUngroup
+      const instruction = {
+        operation: "reorder-after",
+        source: { kind: "server", id: "a" },
+        target: { kind: "server", id: "c" },
+      } satisfies RailInstruction
 
       await act(async () => {
-        if (order === "create-first") {
-          create()
+        if (order === "drop-first") {
+          drop(instruction)
           ungroup()
         } else {
           ungroup()
-          create()
+          drop(instruction)
         }
       })
 
@@ -189,8 +193,8 @@ describe("ServerRail one-in-flight structural guard", () => {
       const options = mocks.mutate.mock.calls[0]![1]
       await act(async () => { options.onSettled() })
       await act(async () => {
-        if (order === "create-first") ungroup()
-        else create()
+        if (order === "drop-first") ungroup()
+        else drop(instruction)
       })
       expect(mocks.mutate).toHaveBeenCalledTimes(2)
     },
@@ -217,7 +221,7 @@ describe("ServerRail one-in-flight structural guard", () => {
   })
 
   it.each(["success", "error"] as const)(
-    "returns Move focus only after the mutation settles: %s",
+    "returns drag source focus only after the mutation settles: %s",
     async (outcome) => {
       const focus = vi.fn()
       mocks.querySelector.mockReturnValue({ focus })
@@ -244,20 +248,21 @@ describe("ServerRail one-in-flight structural guard", () => {
   )
 
   it.each(["success", "error"] as const)(
-    "returns Create group focus to its source server after settle: %s",
+    "returns combine-created-group focus to its source server after settle: %s",
     async (outcome) => {
       const focus = vi.fn()
       mocks.querySelector.mockReturnValue({ focus })
-      let renderer!: TestRenderer.ReactTestRenderer
-      await act(async () => { renderer = renderRail() })
-      const create = renderer.root.findAllByType("sortable-server")
-        .find((node) => node.props.server.id === "a")!.props.onCreateFolder
-      await act(async () => create())
+      await act(async () => { renderRail() })
+      await act(async () => drop({
+        operation: "combine",
+        source: { kind: "server", id: "a" },
+        target: { kind: "server", id: "c" },
+      }))
       const { args, callbacks } = latestMutation()
 
       await act(async () => {
         if (outcome === "success") {
-          const clientId = args.commands[0]?.clientId
+          const clientId = args.commands.find((command) => command.kind === "create-folder")?.clientId
           callbacks.onSuccess({ createdFolderIds: clientId ? { [clientId]: "created" } : {} })
         } else {
           callbacks.onError()
