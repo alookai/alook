@@ -69,10 +69,17 @@ describe("appendGeneratedThumbnail", () => {
     expect((form.get("thumbnail") as File).type).toBe("image/jpeg")
   })
 
-  it("degrades to original-only when the generated thumbnail exceeds 50 KiB", () => {
+  it("rejects a generated thumbnail over 512 KiB instead of silently dropping it", () => {
     const form = new FormData()
-    const blob = new Blob([new Uint8Array(50 * 1024 + 1)], { type: "image/jpeg" })
-    expect(appendGeneratedThumbnail(form, "image/png", blob)).toBe(false)
+    const blob = new Blob([new Uint8Array(512 * 1024 + 1)], { type: "image/jpeg" })
+    expect(() => appendGeneratedThumbnail(form, "image/png", blob)).toThrow("512 KiB")
+    expect(form.has("thumbnail")).toBe(false)
+  })
+
+  it("rejects a non-JPEG generated thumbnail", () => {
+    const form = new FormData()
+    const blob = new Blob([new Uint8Array(1)], { type: "image/png" })
+    expect(() => appendGeneratedThumbnail(form, "image/png", blob)).toThrow("image/jpeg")
     expect(form.has("thumbnail")).toBe(false)
   })
 

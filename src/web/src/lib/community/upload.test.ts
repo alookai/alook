@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
+import { readFileSync } from "node:fs"
 
 vi.mock("@/lib/middleware/helpers", () => {
   const { NextResponse } = require("next/server")
@@ -112,6 +113,63 @@ function fakeFile(name: string, type: string, size: number) {
   }
 }
 
+const DECODABLE_JPEG = Uint8Array.from(readFileSync(new URL(
+  "../../../public/blog/claude-code-dynamic-workflow-alternative/chat-interface.jpg",
+  import.meta.url,
+)))
+
+function fakeJpegFile(width = 640, height = 360) {
+  const bytes = DECODABLE_JPEG.slice()
+  for (let index = 2; index < bytes.length - 8; index++) {
+    if (bytes[index] !== 0xff || bytes[index + 1] !== 0xc0) continue
+    bytes[index + 5] = (height >> 8) & 0xff
+    bytes[index + 6] = height & 0xff
+    bytes[index + 7] = (width >> 8) & 0xff
+    bytes[index + 8] = width & 0xff
+    break
+  }
+  return {
+    ...fakeFile("thumbnail.jpg", "image/jpeg", bytes.byteLength),
+    arrayBuffer: async () => bytes.buffer,
+  }
+}
+
+function sofOnlyJpegFile(width = 640, height = 480) {
+  const bytes = Uint8Array.from([
+    0xff, 0xd8,
+    0xff, 0xc0, 0x00, 0x11, 0x08,
+    (height >> 8) & 0xff, height & 0xff,
+    (width >> 8) & 0xff, width & 0xff,
+    0x03,
+    0x01, 0x11, 0x00,
+    0x02, 0x11, 0x00,
+    0x03, 0x11, 0x00,
+    0xff, 0xd9,
+  ])
+  return {
+    ...fakeFile("thumbnail.jpg", "image/jpeg", bytes.byteLength),
+    arrayBuffer: async () => bytes.buffer,
+  }
+}
+
+function structuredJpegFile(bytes: number[]) {
+  const data = Uint8Array.from(bytes)
+  return {
+    ...fakeFile("thumbnail.jpg", "image/jpeg", data.byteLength),
+    arrayBuffer: async () => data.buffer,
+  }
+}
+
+function restartMarkerJpegFile() {
+  return structuredJpegFile([
+    0xff, 0xd8,
+    0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00,
+    0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00,
+    0x01, 0xff, 0xd0, 0x02,
+    0xff, 0xd9,
+  ])
+}
+
 describe("handleAttachmentUpload", () => {
   beforeEach(() => vi.clearAllMocks())
 
@@ -131,13 +189,40 @@ describe("handleAttachmentUpload", () => {
     expect(options.customMetadata).toMatchObject({ uploader: "user" })
   })
 
+  it("accepts an original-only image at the exact policy boundaries", async () => {
+    const put = vi.fn().mockResolvedValue(undefined)
+    const res = await handleAttachmentUpload(
+      reqWithUpload(fakeFile("edge.png", "image/png", 512 * 1024), null, "1024", "768"),
+      envWithR2(put), "channel", "c1", USER_TAG,
+    )
+
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    expect(res.thumbnailR2Key).toBeNull()
+    expect(put).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ["byte size", fakeFile("large.png", "image/png", 512 * 1024 + 1), "640", "480"],
+    ["width", fakeFile("wide.png", "image/png", 10), "1025", "480"],
+    ["height", fakeFile("tall.png", "image/png", 10), "480", "1025"],
+  ])("rejects a missing required thumbnail proved by %s before either R2 put", async (_label, file, width, height) => {
+    const put = vi.fn()
+    const res = await handleAttachmentUpload(
+      reqWithUpload(file, null, width, height), envWithR2(put), "channel", "c1", USER_TAG,
+    )
+
+    expect(res.ok).toBe(false)
+    if (res.ok) return
+    expect(res.response.status).toBe(400)
+    expect(await res.response.json()).toMatchObject({ error: "thumbnail required" })
+    expect(put).not.toHaveBeenCalled()
+  })
+
   it("stores a validated JPEG thumbnail beside the original with matching provenance", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const file = fakeFile("hi.png", "image/png", 10)
-    const thumbnail = {
-      ...fakeFile("thumbnail.jpg", "image/jpeg", 4),
-      arrayBuffer: async () => Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]).buffer,
-    }
+    const thumbnail = fakeJpegFile()
     const res = await handleAttachmentUpload(
       reqWithUpload(file, thumbnail), envWithR2(put), "channel", "c1", USER_TAG,
     )
@@ -171,21 +256,93 @@ describe("handleAttachmentUpload", () => {
     expect(put).not.toHaveBeenCalled()
   })
 
+  it("rejects a SOF-only JPEG-shaped thumbnail before either R2 put", async () => {
+    const put = vi.fn()
+    const res = await handleAttachmentUpload(
+      reqWithUpload(fakeFile("hi.png", "image/png", 10), sofOnlyJpegFile()),
+      envWithR2(put), "channel", "c1", USER_TAG,
+    )
+
+    expect(res.ok).toBe(false)
+    if (res.ok) return
+    expect(await res.response.json()).toMatchObject({ error: "invalid jpeg thumbnail" })
+    expect(put).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {
+      label: "a mismatched SOF component length",
+      thumbnail: structuredJpegFile([
+        0xff, 0xd8,
+        0xff, 0xc0, 0x00, 0x0c, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00, 0x00,
+        0xff, 0xd9,
+      ]),
+    },
+    {
+      label: "a mismatched SOS component length",
+      thumbnail: structuredJpegFile([
+        0xff, 0xd8,
+        0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00,
+        0xff, 0xda, 0x00, 0x09, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00, 0x00,
+        0x01, 0xff, 0xd9,
+      ]),
+    },
+    {
+      label: "a segment stream without EOI",
+      thumbnail: structuredJpegFile([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x02]),
+    },
+  ])("rejects $label before either R2 put", async ({ thumbnail }) => {
+    const put = vi.fn()
+    const res = await handleAttachmentUpload(
+      reqWithUpload(fakeFile("hi.png", "image/png", 10), thumbnail),
+      envWithR2(put), "channel", "c1", USER_TAG,
+    )
+
+    expect(res.ok).toBe(false)
+    if (res.ok) return
+    expect(await res.response.json()).toMatchObject({ error: "invalid jpeg thumbnail" })
+    expect(put).not.toHaveBeenCalled()
+  })
+
+  it("accepts entropy data containing a JPEG restart marker", async () => {
+    const put = vi.fn().mockResolvedValue(undefined)
+    const res = await handleAttachmentUpload(
+      reqWithUpload(fakeFile("hi.png", "image/png", 10), restartMarkerJpegFile()),
+      envWithR2(put), "channel", "c1", USER_TAG,
+    )
+
+    expect(res.ok).toBe(true)
+    expect(put).toHaveBeenCalledTimes(2)
+  })
+
+  it("rejects a JPEG thumbnail over 1024px before either R2 put", async () => {
+    const put = vi.fn()
+    const res = await handleAttachmentUpload(
+      reqWithUpload(fakeFile("hi.png", "image/png", 10), fakeJpegFile(1025, 512)),
+      envWithR2(put), "channel", "c1", USER_TAG,
+    )
+
+    expect(res.ok).toBe(false)
+    if (res.ok) return
+    expect(await res.response.json()).toMatchObject({ error: "thumbnail dimensions too large" })
+    expect(put).not.toHaveBeenCalled()
+  })
+
   it.each([
     {
       label: "non-raster original",
       file: fakeFile("doc.pdf", "application/pdf", 10),
-      thumbnail: { ...fakeFile("thumbnail.jpg", "image/jpeg", 4), arrayBuffer: async () => Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]).buffer },
+      thumbnail: fakeJpegFile(),
     },
     {
       label: "wrong thumbnail MIME",
       file: fakeFile("photo.png", "image/png", 10),
-      thumbnail: { ...fakeFile("thumbnail.png", "image/png", 4), arrayBuffer: async () => Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]).buffer },
+      thumbnail: { ...fakeJpegFile(), type: "image/png", name: "thumbnail.png" },
     },
     {
       label: "oversized thumbnail",
       file: fakeFile("photo.png", "image/png", 10),
-      thumbnail: { ...fakeFile("thumbnail.jpg", "image/jpeg", 50 * 1024 + 1), arrayBuffer: async () => new ArrayBuffer(0) },
+      thumbnail: { ...fakeFile("thumbnail.jpg", "image/jpeg", 512 * 1024 + 1), arrayBuffer: async () => new ArrayBuffer(0) },
     },
   ])("rejects $label before either R2 put", async ({ file, thumbnail }) => {
     const put = vi.fn()
@@ -206,10 +363,7 @@ describe("handleAttachmentUpload", () => {
     const put = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(thumbnailFailure)
     const cleanupSecret = "provider-secret channel/c1/original.png"
     const del = vi.fn().mockRejectedValueOnce(new TypeError(cleanupSecret))
-    const thumbnail = {
-      ...fakeFile("thumbnail.jpg", "image/jpeg", 4),
-      arrayBuffer: async () => Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]).buffer,
-    }
+    const thumbnail = fakeJpegFile()
     const upload = handleAttachmentUpload(
       reqWithUpload(fakeFile("hi.png", "image/png", 10), thumbnail),
       envWithR2(put, del), "channel", "c1", uploaderTag,
@@ -589,6 +743,7 @@ describe("runAttachmentUpload", () => {
   it("threads client-supplied image dimensions onto the pending row (single source = upload)", async () => {
     surfaceChannel("text")
     const put = vi.fn().mockResolvedValue(undefined)
+    const thumbnail = fakeJpegFile()
     // reqWithFile only stubs `get('file')`; extend it to also return w/h so the
     // form-dimension parse in readFile sees them.
     const req = reqWithFile(fakeFile("hi.png", "image/png", 10))
@@ -598,6 +753,8 @@ describe("runAttachmentUpload", () => {
         value: (key: string) =>
           key === "file"
             ? fakeFile("hi.png", "image/png", 10)
+            : key === "thumbnail"
+              ? thumbnail
             : key === "width"
               ? "1920"
               : key === "height"
@@ -669,10 +826,7 @@ describe("runAttachmentUpload", () => {
     mockCreatePendingAttachment.mockRejectedValueOnce(new Error("d1"))
     const put = vi.fn().mockResolvedValue(undefined)
     const del = vi.fn().mockResolvedValue(undefined)
-    const thumbnail = {
-      ...fakeFile("thumbnail.jpg", "image/jpeg", 4),
-      arrayBuffer: async () => Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]).buffer,
-    }
+    const thumbnail = fakeJpegFile()
     const response = await runAttachmentUpload(
       reqWithUpload(fakeFile("hi.png", "image/png", 10), thumbnail),
       ctxWith(envWithR2(put, del), { id: "c1" }),
@@ -689,10 +843,7 @@ describe("runAttachmentUpload", () => {
     mockCreatePendingAttachment.mockRejectedValueOnce(new Error("d1"))
     const put = vi.fn().mockResolvedValue(undefined)
     const del = vi.fn().mockRejectedValueOnce(new TypeError("secret provider detail"))
-    const thumbnail = {
-      ...fakeFile("thumbnail.jpg", "image/jpeg", 4),
-      arrayBuffer: async () => Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]).buffer,
-    }
+    const thumbnail = fakeJpegFile()
 
     const response = await runAttachmentUpload(
       reqWithUpload(fakeFile("hi.png", "image/png", 10), thumbnail),

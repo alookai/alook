@@ -241,6 +241,17 @@ describe("useComposerController", () => {
     return preventDefault
   }
 
+  it("enables the Community thumbnail policy at the composer boundary", async () => {
+    await act(async () => {
+      TestRenderer.create(createElement(Harness, acceptedProps(vi.fn(() => true))))
+    })
+
+    expect(mocks.useFileAttachments).toHaveBeenCalledWith({
+      maxFileSize: 25 * 1024 * 1024,
+      thumbnailPolicy: "community",
+    })
+  })
+
   it("forwards the optional channel source into suggestions and its presentation into the view", async () => {
     const channelRefCandidateSource = { loading: true, failed: false }
     const props = {
