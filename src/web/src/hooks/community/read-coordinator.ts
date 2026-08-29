@@ -446,9 +446,9 @@ class ReadCoordinator {
         false,
         target.intent.channelId,
       )
+      getAccountUnreadProjection(this.queryClient, this.ownerUserId)
+        .settleOptimisticRead(target.generation, false)
       if (!retryable(error)) {
-        getAccountUnreadProjection(this.queryClient, this.ownerUserId)
-          .settleOptimisticRead(target.generation, false)
         if (state.dirty && sameIntent(state.dirty, target)) state.dirty = null
         state.retryCount = 0
       } else if (state.retryCount < 3) {

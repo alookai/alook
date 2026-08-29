@@ -180,6 +180,26 @@ describe("read coordinator", () => {
     expect(projection.projectUnread("servers", "channel-1", false)).toBe(true)
   })
 
+  it("rolls back the matching optimistic projection while a transient retry waits", async () => {
+    const queryClient = new QueryClient()
+    const lease = timelineLease(queryClient)
+    const projection = getAccountUnreadProjection(queryClient, "user-1")
+    projection.recordArrival({ channelId: "channel-1", serverId: "server-1", seq: 4 })
+    const generation = submitReadIntentGeneration(lease, {
+      kind: "timeline",
+      channelId: "channel-1",
+      messageId: "message-4",
+      seq: 4,
+    })!
+    projection.recordOptimisticRead("channel-1", 4, generation)
+    apiFetch.mockRejectedValue(new ApiError("busy", 503))
+
+    expect(projection.projectUnread("servers", "channel-1", false)).toBe(false)
+    await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+    expect(apiFetch).toHaveBeenCalledOnce()
+    expect(projection.projectUnread("servers", "channel-1", false)).toBe(true)
+  })
+
   it("bounds transient retries, retains dirty intent, and resumes it later", async () => {
     const queryClient = new QueryClient()
     const lease = timelineLease(queryClient)
