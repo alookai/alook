@@ -829,11 +829,13 @@ export function useMarkAllInboxRead() {
         domain,
         result: settled[index]!,
       }))
-      const firstFailure = results.find(({ result }) => result.status === "rejected")
-      if (results.every(({ result }) => result.status === "rejected")) {
-        throw firstFailure?.result.status === "rejected"
-          ? firstFailure.result.reason
-          : new Error("Failed to mark inbox read")
+      const failures = results.filter(
+        (entry): entry is DomainResult & { result: PromiseRejectedResult } => (
+          entry.result.status === "rejected"
+        ),
+      )
+      if (failures.length === results.length) {
+        throw failures[0]!.result.reason
       }
       return results
     },

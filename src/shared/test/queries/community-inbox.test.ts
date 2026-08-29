@@ -453,4 +453,10 @@ describe("listUnreadDms — seq read-watermark behaviour", () => {
     const result = await inboxQueries.listUnreadDms(db, "u_viewer");
     expect(result).toEqual([]);
   });
+
+  it("returns no eligible DMs when the viewer has no DM memberships", async () => {
+    const db = createUnreadDmRowMock([]);
+
+    await expect(inboxQueries.listEligibleUnreadDms(db, "u_viewer")).resolves.toEqual([]);
+  });
 });

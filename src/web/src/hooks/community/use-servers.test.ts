@@ -242,7 +242,7 @@ describe("useServer / serverQueryFn", () => {
       id: "s1",
       categories: [{ id: "cat1", channels: [channel, forum] }],
       forumUnreadState: {
-        forum: { baseUnread: true, childIds: ["child"] },
+        forum: { baseUnread: false, childIds: ["child"] },
       },
     }
     capturedHookQueryData = detail
