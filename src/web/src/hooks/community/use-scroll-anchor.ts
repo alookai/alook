@@ -395,7 +395,6 @@ export function useScrollAnchor({
   viewerUserId,
   heroHeight,
   heroMeasured,
-  restoredScrollTop,
 }: {
   items: FlatItem[]
   newDividerBefore?: string
@@ -415,7 +414,6 @@ export function useScrollAnchor({
   // `DecideScrollActionInput.heroMeasured`'s doc comment for the bug this
   // prevents (mount firing on a stale, default-0 `scrollMargin`).
   heroMeasured: boolean
-  restoredScrollTop?: number
 }): {
   scrollRef: React.RefObject<HTMLDivElement | null>
   virtualizer: ReactVirtualizer<HTMLDivElement, Element>
@@ -428,8 +426,8 @@ export function useScrollAnchor({
   const stateRef = useRef<ScrollAnchorState>(createScrollAnchorState())
   const messages = extractScrollAnchorMessages(items)
   const tailId = messages[messages.length - 1]?.id ?? null
-  const wasAtEndRef = useRef(restoredScrollTop === undefined)
-  const userScrolledAwayRef = useRef(restoredScrollTop !== undefined)
+  const wasAtEndRef = useRef(true)
+  const userScrolledAwayRef = useRef(false)
   const measuredRowHeightsRef = useRef(new WeakMap<Element, number>())
   const bottomRepinQueuedRef = useRef(false)
 
@@ -593,7 +591,6 @@ export function useScrollAnchor({
 
     switch (action.type) {
       case "mount": {
-        if (restoredScrollTop !== undefined) return
         const idx = action.newDividerBefore ? findMountScrollTargetIndex(items, action.newDividerBefore) : null
         if (idx !== null) {
           virtualizer.scrollToIndex(idx, { align: "center" })
@@ -612,7 +609,7 @@ export function useScrollAnchor({
     // derives from items) — `items` alone is the correct dep, not a
     // secondary `messages` dep, avoiding a re-derivation-triggered re-fire.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, newDividerBefore, initialScrollReady, heroMeasured, hasMoreNewer, viewerUserId, virtualizer, restoredScrollTop])
+  }, [items, newDividerBefore, initialScrollReady, heroMeasured, hasMoreNewer, viewerUserId, virtualizer])
 
   const consumedPresentVersionRef = useRef(0)
   useLayoutEffect(() => {

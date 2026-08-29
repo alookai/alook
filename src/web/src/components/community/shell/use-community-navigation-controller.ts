@@ -14,7 +14,6 @@ import {
   type CommunityCommittedFrame,
 } from "@/lib/community/community-route"
 import type { ShellRouter } from "./shell-frame-types"
-import { captureActiveMessageScrollPosition } from "@/components/community/messages/message-scroll-memory"
 
 export type CommunityNavigationController = {
   publishedHref: string
@@ -65,27 +64,15 @@ export function useCommunityNavigationController(
 
   useEffect(() => {
     if (typeof window === "undefined") return
-    const navigationApi = (window as Window & { navigation?: EventTarget }).navigation
-    const onNavigate = () => captureActiveMessageScrollPosition()
-    const onPopStateCapture = () => captureActiveMessageScrollPosition()
     const onPopState = () => cancelPendingNavigation()
-    navigationApi?.addEventListener("navigate", onNavigate)
-    if (!navigationApi) {
-      window.addEventListener("popstate", onPopStateCapture, { capture: true })
-    }
     window.addEventListener("popstate", onPopState)
     return () => {
-      navigationApi?.removeEventListener("navigate", onNavigate)
-      if (!navigationApi) {
-        window.removeEventListener("popstate", onPopStateCapture, { capture: true })
-      }
       window.removeEventListener("popstate", onPopState)
     }
   }, [cancelPendingNavigation])
 
   const push = useCallback((href: string) => {
     if (href === publishedHref) return
-    captureActiveMessageScrollPosition()
     supersedeNavigationIntent(gateRef.current)
     pendingBaselineRevisionRef.current = committedFrame.revision
     pendingBaselineLeafRef.current = committedFrame.leafKey
@@ -96,7 +83,6 @@ export function useCommunityNavigationController(
 
   const replace = useCallback((href: string) => {
     if (href === publishedHref) return
-    captureActiveMessageScrollPosition()
     supersedeNavigationIntent(gateRef.current)
     pendingBaselineRevisionRef.current = committedFrame.revision
     pendingBaselineLeafRef.current = committedFrame.leafKey
@@ -117,7 +103,6 @@ export function useCommunityNavigationController(
           setPendingHref(null)
           return
         }
-        captureActiveMessageScrollPosition()
         setPendingHref(href)
         router.push(href)
       })

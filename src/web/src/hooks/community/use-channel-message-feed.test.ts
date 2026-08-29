@@ -41,22 +41,7 @@ vi.mock("./use-channel-panels", () => ({
   usePins: () => ({ pins: [], isLoading: false }),
 }))
 
-function Capture({ preferCachedWindowOnMount = false }: { preferCachedWindowOnMount?: boolean }) {
-  const result = useChannelMessageFeed({
-    channelId: "channel",
-    serverId: "server",
-    viewerUserId: "viewer",
-    isChildChannel: false,
-    anchorMessageId: null,
-    preferCachedWindowOnMount,
-  })
-  return createElement("output", {
-    "data-divider": result.newDividerBefore,
-    "data-unread": result.unreadCount,
-  })
-}
-
-function CaptureDefaultMount() {
+function Capture() {
   const result = useChannelMessageFeed({
     channelId: "channel",
     serverId: "server",
@@ -76,10 +61,10 @@ describe("useChannelMessageFeed", () => {
     mocks.watermark.mockReset()
   })
 
-  it("revalidates a normal mount and preserves the cached window on a restored mount", () => {
+  it("always revalidates a mount and reconciles the authoritative server anchor", () => {
     let renderer: TestRenderer.ReactTestRenderer
     act(() => {
-      renderer = TestRenderer.create(createElement(CaptureDefaultMount))
+      renderer = TestRenderer.create(createElement(Capture))
     })
     expect(mocks.useMessages).toHaveBeenLastCalledWith("channel", expect.objectContaining({
       reconcileLateAnchor: true,
@@ -89,14 +74,6 @@ describe("useChannelMessageFeed", () => {
       "data-divider": "peer",
       "data-unread": 3,
     })
-
-    act(() => {
-      renderer!.update(createElement(Capture, { preferCachedWindowOnMount: true }))
-    })
-    expect(mocks.useMessages).toHaveBeenLastCalledWith("channel", expect.objectContaining({
-      reconcileLateAnchor: false,
-      revalidateOnMount: false,
-    }))
     act(() => renderer!.unmount())
   })
 })

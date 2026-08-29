@@ -260,7 +260,6 @@ describe("ThreadChannelSurface ownership", () => {
       viewerUserId: "viewer_1",
       isChildChannel: true,
       anchorMessageId: "m_target",
-      preferCachedWindowOnMount: false,
     })
     const messageListProps = mockedMessageList.mock.calls.at(-1)![0]
     const opener = messageListProps.hero as React.ReactElement<React.ComponentProps<typeof ThreadOpener>>
