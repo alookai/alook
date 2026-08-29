@@ -61,9 +61,9 @@ describe("ClaudeEventNormalizer.normalizeLine", () => {
   });
 
   it("result → telemetry + turn_end", () => {
-    const out = new ClaudeEventNormalizer().normalizeLine(
-      J({ type: "result", subtype: "success", session_id: "s1", user_message_uuid: "root-1", usage: { input_tokens: 3, output_tokens: 5 } }),
-    );
+    const n = new ClaudeEventNormalizer();
+    const line = J({ type: "result", subtype: "success", session_id: "s1", user_message_uuid: "root-1", usage: { input_tokens: 3, output_tokens: 5 } });
+    const out = n.normalizeLine(line);
     const kinds = out.map((e) => e.kind);
     expect(kinds).toContain("turn_end");
     expect(kinds).toContain("telemetry");
@@ -78,6 +78,39 @@ describe("ClaudeEventNormalizer.normalizeLine", () => {
         cache: null,
       },
     });
+    expect(n.normalizeLine(line).filter((event) => event.kind === "telemetry")).toEqual([]);
+    n.beginTurn();
+    expect(n.normalizeLine(line).filter((event) => event.kind === "telemetry")).toHaveLength(1);
+  });
+
+  it("does not emit usage without a backend session identity", () => {
+    const out = new ClaudeEventNormalizer().normalizeLine(
+      J({ type: "result", subtype: "success", usage: { input_tokens: 3, output_tokens: 5 } }),
+    );
+    expect(out).toEqual([{ kind: "turn_end", sessionId: undefined }]);
+  });
+
+  it("uses request_id and the invocation fallback when root request identity is absent", () => {
+    const n = new ClaudeEventNormalizer();
+    const withRequestId = J({
+      type: "result",
+      subtype: "success",
+      session_id: "s1",
+      request_id: "request-1",
+      usage: { input_tokens: 2, output_tokens: 1 },
+    });
+    expect(n.normalizeLine(withRequestId).filter((event) => event.kind === "telemetry")).toHaveLength(1);
+    expect(n.normalizeLine(withRequestId).filter((event) => event.kind === "telemetry")).toEqual([]);
+
+    n.beginTurn();
+    const withoutRequestId = J({
+      type: "result",
+      subtype: "success",
+      session_id: "s1",
+      usage: { input_tokens: 3, output_tokens: 2 },
+    });
+    expect(n.normalizeLine(withoutRequestId).filter((event) => event.kind === "telemetry")).toHaveLength(1);
+    expect(n.normalizeLine(withoutRequestId).filter((event) => event.kind === "telemetry")).toEqual([]);
   });
 
   it("result with is_error → error + turn_end", () => {

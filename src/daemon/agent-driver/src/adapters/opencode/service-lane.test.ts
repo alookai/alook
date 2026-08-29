@@ -1362,6 +1362,46 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
     await lane.stop({ reason: "test", forceAfterMs: 0 });
   });
 
+  it("accounts tool-call and terminal durable steps once across frontier replay", async () => {
+    const lane = makeLane();
+    const { runtime } = collectEvents(lane);
+    await lane.start({ text: "root", terminalOwner: "msg_root" });
+    const service = factories.at(-1)!.service!;
+    const toolStep = service.appendHistoryOnly("session.next.step.ended", {
+      assistantMessageID: "msg_tool",
+      finish: "tool-calls",
+      cost: 0,
+      tokens: { input: 10, output: 2, reasoning: 1, cache: { read: 3, write: 4 } },
+    });
+    service.replayDurable(toolStep);
+    const finalStep = service.appendHistoryOnly("session.next.step.ended", {
+      assistantMessageID: "msg_final",
+      finish: "stop",
+      cost: 0,
+      tokens: { input: 5, output: 6, reasoning: 1, cache: { read: 0, write: 0 } },
+    });
+    service.replayDurable(finalStep);
+    service.replayDurable(finalStep);
+    service.active = false;
+
+    await waitForTurn(runtime, 1);
+    expect(runtime.filter((event) => event.kind === "telemetry")).toEqual([
+      {
+        kind: "telemetry",
+        name: "token_usage",
+        source: "opencode.v2",
+        usage: { input: 10, output: 3, cache: 7 },
+      },
+      {
+        kind: "telemetry",
+        name: "token_usage",
+        source: "opencode.v2",
+        usage: { input: 5, output: 7, cache: 0 },
+      },
+    ]);
+    await lane.stop({ reason: "test", forceAfterMs: 0 });
+  });
+
   it("fails closed on malformed admission and active-barrier responses", async () => {
     const admissionLane = makeLane();
     const admissionEvents = collectEvents(admissionLane);

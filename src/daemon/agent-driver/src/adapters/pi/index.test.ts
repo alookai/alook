@@ -118,6 +118,52 @@ describe("PiDriver.openLane — AGENTS.md packing", () => {
     expect(PI_IGNORED_EVENT_TYPES).not.toContain("auto_retry_end");
   });
 
+  it("accounts each assistant message_end once and releases it at the ordered turn_end", () => {
+    const state = { sawTextDelta: false };
+    const messageEnd = {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        responseId: "resp-1",
+        usage: { input: 11, output: 7, cacheRead: 3, cacheWrite: 2 },
+      },
+    };
+    expect(mapPiSdkEvent(messageEnd, "sess_1", state)).toEqual([{
+      kind: "telemetry",
+      name: "token_usage",
+      source: "pi_message_end",
+      usage: { input: 11, output: 7, cache: 5 },
+    }]);
+    expect(mapPiSdkEvent(messageEnd, "sess_1", state)).toEqual([]);
+    expect(mapPiSdkEvent({ type: "message_end", message: { role: "toolResult" } }, "sess_1", state)).toEqual([]);
+    expect(mapPiSdkEvent({ type: "turn_end", message: messageEnd.message }, "sess_1", state)).toEqual([]);
+    expect(PI_IGNORED_EVENT_TYPES).not.toContain("message_end");
+    expect(PI_IGNORED_EVENT_TYPES).not.toContain("turn_end");
+
+    expect(mapPiSdkEvent({
+      ...messageEnd,
+      message: { ...messageEnd.message, responseId: "resp-2", usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 } },
+    }, "sess_1", state)).toHaveLength(1);
+  });
+
+  it("uses a lane-local completion id when the SDK omits responseId", () => {
+    const state = { sawTextDelta: false };
+    expect(mapPiSdkEvent({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        timestamp: 123,
+        usage: { input: 4, output: 3, cacheRead: 2, cacheWrite: 1 },
+      },
+    }, "sess_1", state)).toEqual([{
+      kind: "telemetry",
+      name: "token_usage",
+      source: "pi_message_end",
+      usage: { input: 4, output: 3, cache: 3 },
+    }]);
+    expect(mapPiSdkEvent({ type: "turn_end" }, "sess_1", state)).toEqual([]);
+  });
+
   it("exposes SDK-only parser and encoder no-ops", () => {
     const driver = new PiDriver(() => fakeDeps());
     expect(driver.normalizeLine()).toEqual([]);

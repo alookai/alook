@@ -1,5 +1,6 @@
 import type { AdapterEvent } from "../../internal/adapter.js";
-import { mapCodexQuotaSnapshots, mapCodexTelemetry } from "./telemetry.js";
+import { mapCodexQuotaSnapshots, mapCodexSettledUsage } from "./telemetry.js";
+import { SettledUsageProjector } from "../../internal/token-usage.js";
 import { tryParseJsonLine } from "../../internal/utils.js";
 import { randomBytes } from "node:crypto";
 
@@ -54,7 +55,8 @@ export class CodexEventNormalizer {
   private readonly rateLimitSnapshots = new Map<string, Record<string, unknown>>();
   private quotaSnapshotInitialized = false;
   private quotaSourceGeneration = codexQuotaSourceGeneration;
-  private pendingTurnUsage: AdapterEvent | null = null;
+  private readonly usageProjector = new SettledUsageProjector();
+  private readonly usageRecordsBySessionAndTurn = new Map<string, Map<string, Set<string>>>();
   private threadId: string | null = null;
   private turnId: string | null = null;
   /**
@@ -149,7 +151,8 @@ export class CodexEventNormalizer {
     if (threadId !== this.threadId) {
       this.turnId = null;
       this.terminalTurn = null;
-      this.pendingTurnUsage = null;
+      this.usageProjector.reset();
+      this.usageRecordsBySessionAndTurn.clear();
     }
     this.threadId = threadId;
   }
@@ -202,6 +205,28 @@ export class CodexEventNormalizer {
 
   private handleNotification(method: string, params: any): AdapterEvent[] {
     const notificationThreadId = typeof params?.threadId === "string" ? params.threadId : null;
+    if (method === "rawResponse/completed") return this.handleSettledUsage(params);
+    if (
+      method === "turn/completed"
+      && notificationThreadId !== null
+      && notificationThreadId !== this.threadId
+    ) {
+      const turnId = this.notificationTurnId(params);
+      if (turnId) this.releaseUsageForTurn(notificationThreadId, turnId);
+      return [];
+    }
+    if (
+      method === "item/completed"
+      && notificationThreadId !== null
+      && notificationThreadId !== this.threadId
+    ) {
+      const turnId = this.notificationTurnId(params);
+      const itemType = params?.item?.type ?? params?.type;
+      if (turnId && itemType === "contextCompaction") {
+        this.releaseUsageForTurn(notificationThreadId, turnId);
+      }
+      return [];
+    }
     if (
       this.threadId !== null &&
       notificationThreadId !== null &&
@@ -221,7 +246,6 @@ export class CodexEventNormalizer {
         ) return [];
         this.turnId = params.turn.id;
         this.terminalTurn = null;
-        this.pendingTurnUsage = null;
         return [
           {
             kind: "turn_owner",
@@ -241,7 +265,7 @@ export class CodexEventNormalizer {
         return this.handleItemStarted(params);
 
       case "item/completed":
-        return this.handleItemCompleted(params);
+        return this.handleItemCompletedAndReleaseUsage(params);
 
       case "rawResponseItem/completed":
         return [{ kind: "internal_progress", source: "codex_raw_item", itemType: "rawResponseItem" }];
@@ -256,19 +280,17 @@ export class CodexEventNormalizer {
 
       case "turn/completed":
         if (!this.acceptRootTerminal(params)) return [];
-        const usage = this.pendingTurnUsage;
-        this.pendingTurnUsage = null;
+        this.releaseUsageForTurn(params.threadId, params.turn.id);
         if (params.turn.status === "failed") {
           return [
-            ...(usage ? [usage] : []),
             { kind: "error", message: "Codex turn failed" },
             { kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) },
           ];
         }
         if (params.turn.status === "interrupted") {
-          return [...(usage ? [usage] : []), { kind: "error", message: "Codex turn interrupted" }, { kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) }];
+          return [{ kind: "error", message: "Codex turn interrupted" }, { kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) }];
         }
-        return [...(usage ? [usage] : []), { kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) }];
+        return [{ kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) }];
 
       case "error":
         if (params?.willRetry === true) {
@@ -276,11 +298,8 @@ export class CodexEventNormalizer {
         }
         return [{ kind: "error", message: params?.error?.message ?? params?.message ?? "Codex error" }];
 
-      case "thread/tokenUsage/updated": {
-        const usage = mapCodexTelemetry(method, params, codexQuotaSourceEpoch)[0];
-        if (usage) this.pendingTurnUsage = usage;
+      case "thread/tokenUsage/updated":
         return [];
-      }
       case "account/rateLimits/updated":
         return this.mergeQuotaSnapshots(params);
       case "account/updated":
@@ -291,6 +310,55 @@ export class CodexEventNormalizer {
       default:
         return [];
     }
+  }
+
+  private handleSettledUsage(params: any): AdapterEvent[] {
+    const notificationTurnId = this.notificationTurnId(params);
+    if (
+      this.turnId === null
+      && this.terminalTurn?.state === "closed"
+      && notificationTurnId === this.terminalTurn.turnId
+      && params?.threadId === this.terminalTurn.threadId
+    ) return [];
+    const backendSessionId = params?.threadId ?? params?.thread_id;
+    const providerRecordId = params?.responseId ?? params?.response_id;
+    if (
+      !notificationTurnId
+      || typeof backendSessionId !== "string"
+      || typeof providerRecordId !== "string"
+    ) return [];
+    const usage = mapCodexSettledUsage(params, this.usageProjector);
+    if (!usage) return [];
+    const recordsByTurn = this.usageRecordsBySessionAndTurn.get(backendSessionId) ?? new Map<string, Set<string>>();
+    const recordIds = recordsByTurn.get(notificationTurnId) ?? new Set<string>();
+    recordIds.add(providerRecordId);
+    recordsByTurn.set(notificationTurnId, recordIds);
+    this.usageRecordsBySessionAndTurn.set(backendSessionId, recordsByTurn);
+    return [usage];
+  }
+
+  private releaseUsageForTurn(backendSessionId: string, turnId: string): void {
+    const recordsByTurn = this.usageRecordsBySessionAndTurn.get(backendSessionId);
+    for (const providerRecordId of recordsByTurn?.get(turnId) ?? []) {
+      this.usageProjector.release({ runtime: "codex", backendSessionId, providerRecordId });
+    }
+    recordsByTurn?.delete(turnId);
+    if (recordsByTurn?.size === 0) this.usageRecordsBySessionAndTurn.delete(backendSessionId);
+  }
+
+  private handleItemCompletedAndReleaseUsage(params: any): AdapterEvent[] {
+    const events = this.handleItemCompleted(params);
+    const turnId = this.notificationTurnId(params);
+    const itemType = params?.item?.type ?? params?.type;
+    if (
+      turnId
+      && itemType === "contextCompaction"
+      && turnId !== this.turnId
+      && typeof params?.threadId === "string"
+    ) {
+      this.releaseUsageForTurn(params.threadId, turnId);
+    }
+    return events;
   }
 
   private isRootWorkNotification(method: string): boolean {

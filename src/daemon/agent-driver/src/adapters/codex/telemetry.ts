@@ -1,24 +1,6 @@
 import type { AdapterEvent } from "../../internal/adapter.js";
-import type { QuotaLimit, QuotaWindowIdentity, TokenMetricDelta } from "../../contract.js";
-
-function metric(value: unknown): TokenMetricDelta {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
-    ? value
-    : null;
-}
-
-function nonCachedInput(input: unknown, cached: unknown): TokenMetricDelta {
-  if (
-    typeof input !== "number"
-    || !Number.isSafeInteger(input)
-    || input < 0
-    || typeof cached !== "number"
-    || !Number.isSafeInteger(cached)
-    || cached < 0
-    || cached > input
-  ) return null;
-  return input - cached;
-}
+import type { QuotaLimit, QuotaWindowIdentity } from "../../contract.js";
+import type { SettledUsageProjector } from "../../internal/token-usage.js";
 
 function canonicalId(value: unknown, fallback: string): string {
   return typeof value === "string" && value.length > 0 && new TextEncoder().encode(value).length <= 64
@@ -113,25 +95,28 @@ export function mapCodexQuotaSnapshots(snapshots: any[], sourceEpoch: string): A
   };
 }
 
-export function mapCodexTelemetry(method: string, params: any, sourceEpoch: string): AdapterEvent[] {
-  if (method === "thread/tokenUsage/updated") {
-    const u = params?.tokenUsage?.last ?? params?.token_usage?.last;
-    if (!u) return [];
-    const input = u.inputTokens ?? u.input_tokens;
-    const cached = u.cachedInputTokens ?? u.cached_input_tokens;
-    return [{
-      kind: "telemetry",
-      name: "token_usage",
-      source: "codex_thread_token_usage_updated",
-      usage: {
-        input: nonCachedInput(input, cached),
-        output: metric(u.outputTokens ?? u.output_tokens),
-        cache: metric(cached),
-      },
-    }];
-  }
-  if (method === "account/rateLimits/updated") {
-    return [mapCodexQuotaSnapshots([params?.rateLimits ?? params ?? {}], sourceEpoch)];
-  }
-  return [];
+export function mapCodexSettledUsage(
+  params: any,
+  projector: SettledUsageProjector,
+): AdapterEvent | null {
+  const backendSessionId = params?.threadId ?? params?.thread_id;
+  const providerRecordId = params?.responseId ?? params?.response_id;
+  const usage = params?.usage;
+  if (
+    typeof backendSessionId !== "string"
+    || typeof providerRecordId !== "string"
+    || !usage
+  ) return null;
+  return projector.project({
+    runtime: "codex",
+    backendSessionId,
+    providerRecordId,
+    source: "codex_raw_response_completed",
+    input: usage.inputTokens ?? usage.input_tokens,
+    output: usage.outputTokens ?? usage.output_tokens,
+    cacheRead: usage.cachedInputTokens ?? usage.cached_input_tokens,
+    cacheWrite: usage.cacheWriteInputTokens ?? usage.cache_write_input_tokens,
+    inputIncludesCache: true,
+    outputIncludesReasoning: true,
+  });
 }

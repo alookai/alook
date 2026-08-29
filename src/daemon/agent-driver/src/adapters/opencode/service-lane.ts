@@ -14,6 +14,7 @@ import type {
   SpawnedProcess,
   SpawnedProcessHandle,
 } from "../../internal/adapter.js";
+import { SettledUsageProjector } from "../../internal/token-usage.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
 import { killProcessTree, SESSION_STOP_GRACE_MS } from "../../internal/killTree.js";
 
@@ -185,6 +186,7 @@ export class OpenCodeServiceLane implements RuntimeLane {
   private lastDurableSeq = 0;
   private readonly durableSeqById = new Map<string, number>();
   private readonly durableIdBySeq = new Map<number, string>();
+  private readonly usageProjector = new SettledUsageProjector();
   private readonly toolNames = new Map<string, string>();
   private readonly handledPermissions = new Set<string>();
   private readonly permissionFlights = new Map<string, Promise<void>>();
@@ -750,8 +752,10 @@ export class OpenCodeServiceLane implements RuntimeLane {
     const event = record(value);
     const durable = record(event?.durable);
     const data = record(event?.data);
+    const backendSessionId = this.sessionId;
     if (
       !event
+      || !backendSessionId
       || typeof event.id !== "string"
       || typeof event.type !== "string"
       || !durable
@@ -848,27 +852,26 @@ export class OpenCodeServiceLane implements RuntimeLane {
           });
         }
         const tokens = record(data.tokens);
-        if (tokens && data.finish !== "tool-calls") {
+        if (tokens) {
           const cache = record(tokens.cache);
-          const metric = (value: unknown) =>
-            typeof value === "number" && Number.isSafeInteger(value) && value >= 0
-              ? value
-              : null;
-          const cacheParts = [cache?.read, cache?.write]
-            .filter((value): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0);
-          const cacheTotal = cacheParts.reduce((sum, value) => sum + value, 0);
-          this.events.emit("runtime_event", {
-            kind: "telemetry",
-            name: "token_usage",
+          const identity = {
+            runtime: "opencode",
+            backendSessionId,
+            providerRecordId: event.id,
+          } as const;
+          const usage = this.usageProjector.project({
+            ...identity,
             source: "opencode.v2",
-            usage: {
-              input: metric(tokens.input),
-              output: metric(tokens.output),
-              cache: cacheParts.length > 0 && Number.isSafeInteger(cacheTotal)
-                ? cacheTotal
-                : null,
-            },
-          } satisfies AdapterEvent);
+            input: tokens.input,
+            output: tokens.output,
+            reasoning: tokens.reasoning,
+            cacheRead: cache?.read,
+            cacheWrite: cache?.write,
+            inputIncludesCache: false,
+            outputIncludesReasoning: false,
+          });
+          if (usage) this.events.emit("runtime_event", usage);
+          this.usageProjector.release(identity);
         }
         break;
       }
