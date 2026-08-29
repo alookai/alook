@@ -43,12 +43,30 @@ describe("server rail PDD component contract", () => {
   it("separates touch scroll intent and exposes keyboard drag instructions", () => {
     const adapter = read("./use-server-rail-pdd.ts")
     const rail = read("./server-rail.tsx")
+    const server = read("./sortable-server.tsx")
+    const folder = read("./rail-folder.tsx")
     expect(adapter).toContain("SERVER_RAIL_TOUCH_HOLD_MS = 450")
     expect(adapter).toContain("SERVER_RAIL_TOUCH_DRIFT_PX = 10")
-    expect(adapter).toContain('addEventListener("touchstart", onTouchStart, { passive: false })')
+    const touchStart = adapter.slice(
+      adapter.indexOf("const onTouchStart"),
+      adapter.indexOf("const onTouchMove"),
+    )
+    const preArmScroll = adapter.slice(
+      adapter.indexOf('if (exactIntent === "scroll")'),
+      adapter.indexOf('if (exactIntent === "wait")'),
+    )
+    expect(touchStart).not.toContain("preventDefault")
+    expect(preArmScroll).toContain("clearTouch()")
+    expect(preArmScroll).not.toContain("preventDefault")
+    expect(adapter).toContain('addEventListener("touchstart", onTouchStart, { passive: true })')
     expect(adapter).toContain("event.preventDefault()")
     expect(adapter).toContain('addEventListener("touchmove", onTouchMove, { passive: false })')
-    expect(adapter).toContain("scroll.scrollTop -= touch.clientY - previousY")
+    expect(adapter).toContain('addEventListener("touchend", onTouchEnd, { passive: false })')
+    expect(adapter).not.toContain("scroll.scrollTop -=")
+    expect(adapter).not.toContain("pending.scrolling")
+    expect(adapter).toContain('addEventListener("scroll", cancelPendingTouchForNativeScroll')
+    expect(server).not.toContain("touch-none")
+    expect(folder).not.toContain("touch-none")
     expect(adapter).toContain("requestAnimationFrame(runTouchFrame)")
     expect(adapter).not.toContain("matchMedia")
     expect(rail).toContain("Press Space to pick up a server or group")

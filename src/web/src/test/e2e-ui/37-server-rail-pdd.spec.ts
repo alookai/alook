@@ -129,6 +129,45 @@ async function dispatchTouchGesture(
   }
 }
 
+async function dispatchNativeTouchSwipe(
+  page: Page,
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+) {
+  const session = await page.context().newCDPSession(page)
+  try {
+    const point = (x: number, y: number) => [{
+      x,
+      y,
+      radiusX: 1,
+      radiusY: 1,
+      force: 1,
+      id: 1,
+    }]
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: point(start.x, start.y),
+    })
+    for (let step = 1; step <= 8; step += 1) {
+      const ratio = step / 8
+      await session.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: point(
+          start.x + (end.x - start.x) * ratio,
+          start.y + (end.y - start.y) * ratio,
+        ),
+      })
+      await page.waitForTimeout(20)
+    }
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchEnd",
+      touchPoints: [],
+    })
+  } finally {
+    await session.detach()
+  }
+}
+
 async function touchDrag(
   page: Page,
   source: Locator,
@@ -316,18 +355,16 @@ test("server rail keeps scroll separate from native, touch, and keyboard drag", 
   await expect(swipeTarget).toBeInViewport()
   const swipeBox = await swipeTarget.boundingBox()
   expect(swipeBox).not.toBeNull()
-  const swipe = await dispatchTouchGesture(
+  await expect(swipeTarget).toHaveCSS("touch-action", "auto")
+  await dispatchNativeTouchSwipe(
     page,
-    swipeTarget,
     { x: swipeBox!.x + 22, y: swipeBox!.y + 22 },
     { x: swipeBox!.x + 22, y: Math.max(20, swipeBox!.y - 120) },
-    0,
   )
-  expect(swipe.events).toContain("touchmove")
-  expect(swipe.events).toContain("touchend")
   expect(railRequests).toHaveLength(1)
   await expect.poll(() => rail.evaluate((element) => element.scrollTop))
     .toBeGreaterThan(beforeSwipe)
+  expect(new URL(page.url()).pathname).toBe(`/c/channels/${first}`)
   await page.waitForTimeout(300)
 
   await rail.evaluate((element) => { element.scrollTop = element.scrollHeight })
@@ -340,9 +377,7 @@ test("server rail keeps scroll separate from native, touch, and keyboard drag", 
       Reflect.set(window, "__railTapClicks", Number(Reflect.get(window, "__railTapClicks")) + 1)
     })
   })
-  const endTap = await startStationaryTouch(page, tapTarget)
-  await page.waitForTimeout(100)
-  await endTap()
+  await tapTarget.tap()
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__railTapClicks"))).toBe(1)
   await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${tail}`)
   expect(railRequests).toHaveLength(1)

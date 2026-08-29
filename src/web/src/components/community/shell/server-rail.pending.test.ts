@@ -60,13 +60,17 @@ const folders = [{
 }]
 const animationFrames: FrameRequestCallback[] = []
 
-function renderRail() {
-  return TestRenderer.create(createElement(ServerRail, {
+function railElement(currentFolders = folders) {
+  return createElement(ServerRail, {
     servers,
-    folders,
+    folders: currentFolders,
     view: "server",
     onHome: vi.fn(),
-  }))
+  })
+}
+
+function renderRail() {
+  return TestRenderer.create(railElement())
 }
 
 type MutationCallbacks = {
@@ -277,6 +281,77 @@ describe("ServerRail one-in-flight structural guard", () => {
       await expectReconciledFocus(tid.serverIcon("a"), focus)
     },
   )
+
+  it("preserves a user collapse while a created group id is reconciling", async () => {
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => { renderer = renderRail() })
+    await act(async () => drop({
+      operation: "combine",
+      source: { kind: "server", id: "a" },
+      target: { kind: "server", id: "c" },
+    }))
+    const { args, callbacks } = latestMutation()
+    const clientId = args.commands.find((command) => command.kind === "create-folder")?.clientId
+    expect(clientId).toBeDefined()
+    const optimisticFolder = renderer.root.findAllByType("rail-folder")
+      .find((folder) => folder.props.folderId === clientId)
+    expect(optimisticFolder?.props.open).toBe(true)
+
+    await act(async () => optimisticFolder?.props.onToggle())
+    expect(optimisticFolder?.props.open).toBe(false)
+    await act(async () => renderer.update(railElement([
+      ...folders,
+      {
+        id: "created",
+        name: "Group",
+        position: 1,
+        servers: [
+          { id: "a", name: "A", initial: "A" },
+          { id: "c", name: "C", initial: "C" },
+        ],
+      },
+    ])))
+    await act(async () => callbacks.onSuccess({
+      createdFolderIds: clientId ? { [clientId]: "created" } : {},
+    }))
+
+    const reconciledFolder = renderer.root.findAllByType("rail-folder")
+      .find((folder) => folder.props.folderId === "created")
+    expect(reconciledFolder?.props.open).toBe(false)
+  })
+
+  it("keeps a created group expanded when cache reconciliation replaces its id", async () => {
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => { renderer = renderRail() })
+    await act(async () => drop({
+      operation: "combine",
+      source: { kind: "server", id: "a" },
+      target: { kind: "server", id: "c" },
+    }))
+    const { args, callbacks } = latestMutation()
+    const clientId = args.commands.find((command) => command.kind === "create-folder")?.clientId
+    expect(clientId).toBeDefined()
+
+    await act(async () => renderer.update(railElement([
+      ...folders,
+      {
+        id: "created",
+        name: "Group",
+        position: 1,
+        servers: [
+          { id: "a", name: "A", initial: "A" },
+          { id: "c", name: "C", initial: "C" },
+        ],
+      },
+    ])))
+    await act(async () => callbacks.onSuccess({
+      createdFolderIds: clientId ? { [clientId]: "created" } : {},
+    }))
+
+    const reconciledFolder = renderer.root.findAllByType("rail-folder")
+      .find((folder) => folder.props.folderId === "created")
+    expect(reconciledFolder?.props.open).toBe(true)
+  })
 
   it.each(["success", "error"] as const)(
     "returns Ungroup focus after settle to a surviving entity: %s",

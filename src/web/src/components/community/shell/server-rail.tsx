@@ -36,8 +36,15 @@ const DRAG_INSTRUCTIONS_ID = "server-rail-drag-instructions"
 function reconcileCreatedFolders(
   state: RailState,
   createdFolderIds: Record<string, string>,
+  explicitlyCollapsed: ReadonlySet<string>,
 ): RailState {
   if (Object.keys(createdFolderIds).length === 0) return state
+  const expanded = new Set(state.expanded.map((id) => createdFolderIds[id] ?? id))
+  for (const [clientId, folderId] of Object.entries(createdFolderIds)) {
+    if (!explicitlyCollapsed.has(clientId) && !explicitlyCollapsed.has(folderId)) {
+      expanded.add(folderId)
+    }
+  }
   return {
     ...state,
     folderOrder: state.folderOrder.map((id) => createdFolderIds[id] ?? id),
@@ -45,10 +52,7 @@ function reconcileCreatedFolders(
       createdFolderIds[id] ?? id,
       serverIds,
     ])),
-    expanded: [...new Set([
-      ...state.expanded.map((id) => createdFolderIds[id] ?? id),
-      ...Object.values(createdFolderIds),
-    ])],
+    expanded: [...expanded],
   }
 }
 
@@ -95,6 +99,7 @@ export const ServerRail = memo(function ServerRail({
   const dragSnapshotRef = useRef<RailState | null>(null)
   const stateRef = useRef(state)
   const mutationPendingRef = useRef(false)
+  const collapsedPendingFolderIdsRef = useRef(new Set<string>())
   const railMutation = useServerRailCommit()
   const serverIdentityOrder = servers.map((server) => server.id).join("\0")
   const serverIds = useMemo(
@@ -112,6 +117,7 @@ export const ServerRail = memo(function ServerRail({
   }, [])
   const releaseMutation = useCallback(() => {
     mutationPendingRef.current = false
+    collapsedPendingFolderIdsRef.current.clear()
   }, [])
 
   useEffect(() => {
@@ -211,7 +217,11 @@ export const ServerRail = memo(function ServerRail({
       { before, after: result.state, commands: result.commands },
       {
         onSuccess: (response) => {
-          setState((current) => reconcileCreatedFolders(current, response.createdFolderIds))
+          setState((current) => reconcileCreatedFolders(
+            current,
+            response.createdFolderIds,
+            collapsedPendingFolderIdsRef.current,
+          ))
           announce(label)
         },
         onError: () => {
@@ -365,12 +375,19 @@ export const ServerRail = memo(function ServerRail({
                     open={open}
                     active={!open && serversInFolder.some((server) => server.id === activeId)}
                     unread={!open && serversInFolder.some((server) => server.unread)}
-                    onToggle={() => setState((current) => ({
-                      ...current,
-                      expanded: current.expanded.includes(folderId)
-                        ? current.expanded.filter((id) => id !== folderId)
-                        : [...current.expanded, folderId],
-                    }))}
+                    onToggle={() => setState((current) => {
+                      const collapsing = current.expanded.includes(folderId)
+                      if (mutationPendingRef.current) {
+                        if (collapsing) collapsedPendingFolderIdsRef.current.add(folderId)
+                        else collapsedPendingFolderIdsRef.current.delete(folderId)
+                      }
+                      return {
+                        ...current,
+                        expanded: collapsing
+                          ? current.expanded.filter((id) => id !== folderId)
+                          : [...current.expanded, folderId],
+                      }
+                    })}
                     folderServers={serversInFolder}
                     onUngroup={() => ungroupFolder(folderId)}
                     dragging={dragging({ kind: "folder", id: folderId })}
