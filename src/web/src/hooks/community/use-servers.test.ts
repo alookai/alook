@@ -296,8 +296,8 @@ describe("useServer / serverQueryFn", () => {
     ], forumUnreadState: {} })
   })
 
-  it("joins the canonical servers request on cold concurrency and reuses warm caches", async () => {
-    let releaseServers!: (value: {
+  it("resolves cold server detail without joining an in-flight rail replacement", async () => {
+    let releaseRail!: (value: {
       servers: Array<{
         id: string
         name: string
@@ -307,22 +307,30 @@ describe("useServer / serverQueryFn", () => {
         ownerId: string
       }>
     }) => void
-    const pendingServers = new Promise<Parameters<typeof releaseServers>[0]>((resolve) => {
-      releaseServers = resolve
+    const pendingRail = new Promise<Parameters<typeof releaseRail>[0]>((resolve) => {
+      releaseRail = resolve
     })
+    const identity = {
+      id: "srv_1",
+      name: "Alook",
+      discriminator: "0001",
+      description: "Build together",
+      icon: null,
+      ownerId: "u_1",
+    }
     apiFetchMock.mockImplementation(async (url: string) => {
-      if (url === "/api/community/servers") return pendingServers
+      if (url === "/api/community/servers") return { servers: [identity] }
       if (url.endsWith("/categories")) return { categories: [] }
       if (url.endsWith("/channels")) return { channels: [] }
       if (url.endsWith("/unreads")) return { channelIds: [] }
       throw new Error(`unexpected ${url}`)
     })
-    const { serverQueryFn, serversQueryFn } = await import("./use-servers")
+    const { serverQueryFn } = await import("./use-servers")
     const qc = new QueryClient()
-    const list = qc.fetchQuery({
+    const railReplacement = qc.fetchQuery({
       queryKey: communityKeys.servers(),
-      queryFn: serversQueryFn,
-      staleTime: Infinity,
+      queryFn: () => pendingRail,
+      staleTime: 0,
     })
     const detail = qc.fetchQuery({
       queryKey: communityKeys.server("srv_1"),
@@ -330,41 +338,44 @@ describe("useServer / serverQueryFn", () => {
       staleTime: Infinity,
     })
 
-    await vi.waitFor(() => {
-      expect(apiFetchMock.mock.calls.filter(([url]) => url === "/api/community/servers")).toHaveLength(1)
-    })
-    releaseServers({
-      servers: [{
-        id: "srv_1",
-        name: "Alook",
-        discriminator: "0001",
-        description: "Build together",
-        icon: null,
-        ownerId: "u_1",
-      }],
-    })
-    await Promise.all([list, detail])
-    expect(apiFetchMock).toHaveBeenCalledTimes(4)
-    for (const resource of ["categories", "channels", "unreads"]) {
-      expect(apiFetchMock.mock.calls.filter(
-        ([url]) => url === `/api/community/servers/srv_1/${resource}`,
-      )).toHaveLength(1)
+    try {
+      await vi.waitFor(() => {
+        expect(apiFetchMock.mock.calls.filter(
+          ([url]) => url === "/api/community/servers",
+        )).toHaveLength(1)
+      })
+      await expect(detail).resolves.toMatchObject(identity)
+      expect(qc.getQueryState(communityKeys.servers())?.fetchStatus).toBe("fetching")
+      expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers", { signal: undefined })
+    } finally {
+      releaseRail({ servers: [identity] })
+      await Promise.allSettled([railReplacement, detail])
     }
+  })
 
-    apiFetchMock.mockClear()
-    await Promise.all([
-      qc.fetchQuery({
-        queryKey: communityKeys.servers(),
-        queryFn: serversQueryFn,
-        staleTime: Infinity,
-      }),
-      qc.fetchQuery({
-        queryKey: communityKeys.server("srv_1"),
-        queryFn: serverQueryFn(qc, "srv_1"),
-        staleTime: Infinity,
-      }),
-    ])
-    expect(apiFetchMock).not.toHaveBeenCalled()
+  it("reads warm server identity without issuing another list request", async () => {
+    const identity = {
+      id: "srv_1",
+      name: "Alook",
+      discriminator: "0001",
+      description: "Build together",
+      icon: null,
+      ownerId: "u_1",
+    }
+    apiFetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/categories")) return { categories: [] }
+      if (url.endsWith("/channels")) return { channels: [] }
+      if (url.endsWith("/unreads")) return { channelIds: [] }
+      throw new Error(`unexpected ${url}`)
+    })
+    const { serverQueryFn } = await import("./use-servers")
+    const qc = new QueryClient()
+    qc.setQueryData(communityKeys.servers(), { servers: [identity] })
+
+    await expect(serverQueryFn(qc, "srv_1")()).resolves.toMatchObject(identity)
+
+    expect(apiFetchMock.mock.calls.filter(([url]) => url === "/api/community/servers")).toHaveLength(0)
+    expect(apiFetchMock).toHaveBeenCalledTimes(3)
   })
 
   it("cold-boots a forum fallback from a canonical unread child outside the sidebar projection", async () => {
