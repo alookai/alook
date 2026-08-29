@@ -528,6 +528,7 @@ describe("Turbo CI execution", () => {
       "RUN_COVERAGE: ${{ github.event_name != 'push' || startsWith(github.event.head_commit.message, 'release:') }}",
     )
     expect(linux.match(/pnpm vitest run --coverage/g)).toHaveLength(1)
+    expect(linux).toContain("VITEST_MAX_WORKERS: 2")
     expect(linux.match(/codecov\/codecov-action/g)).toHaveLength(1)
     expect(linux).toContain("if: env.RUN_COVERAGE == 'true'")
     expect(linux).toContain("if: env.RUN_COVERAGE != 'true'")
