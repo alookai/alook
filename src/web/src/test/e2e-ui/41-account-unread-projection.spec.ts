@@ -1,12 +1,13 @@
-import type { Page } from "@playwright/test"
+import type { Page, Request } from "@playwright/test"
 import { expect, test, userId } from "./_fixtures/community-fixture"
-import { gotoAfterUserWsAuth } from "./_fixtures/actions"
+import { composerEditable, gotoAfterUserWsAuth } from "./_fixtures/actions"
 import {
   communityFrameEvents,
   proxyCommunityWebSockets,
   type CapturedCommunityFrame,
 } from "./_fixtures/community-ws-proxy"
 import {
+  memberInfo,
   seedChannel,
   seedDm,
   seedDmMessage,
@@ -17,11 +18,11 @@ import {
 } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
-async function installReadObserverGate(page: Page) {
-  await page.addInitScript(() => {
+async function installReadObserverGate(page: Page, initiallyBlocked = false) {
+  await page.addInitScript((blockInitially) => {
     const NativeIntersectionObserver = window.IntersectionObserver
     const queued: Array<() => void> = []
-    let blocked = false
+    let blocked = blockInitially
     class GatedIntersectionObserver implements IntersectionObserver {
       readonly root: Element | Document | null
       readonly rootMargin: string
@@ -60,7 +61,7 @@ async function installReadObserverGate(page: Page) {
         for (const deliver of queued.splice(0)) deliver()
       },
     }
-  })
+  }, initiallyBlocked)
   const invoke = async (method: "block" | "pending" | "release") => page.evaluate((name) => {
     const gate = (window as unknown as Record<string, {
       block: () => void
@@ -97,6 +98,102 @@ function hasCorrelatedBundle(
 
 async function expectUnreadDot(row: ReturnType<Page["getByTestId"]>) {
   await expect(row.locator("span.rounded-full.bg-primary")).toHaveCount(1)
+}
+
+async function readSeq(page: Page, channelId: string): Promise<number> {
+  const response = await page.request.get("/api/community/users/me/read-state")
+  expect(response.ok()).toBe(true)
+  const snapshot = await response.json() as {
+    readStates: Array<{ channelId: string; lastReadSeq: number }>
+  }
+  return snapshot.readStates.find((row) => row.channelId === channelId)?.lastReadSeq ?? 0
+}
+
+async function expectRailReplacementDoesNotBlockMessages({
+  page,
+  observerGate,
+  href,
+  channelId,
+  latestText,
+  inboxRowTestId,
+  triggerUnread,
+}: {
+  page: Page
+  observerGate: Awaited<ReturnType<typeof installReadObserverGate>>
+  href: string
+  channelId: string
+  latestText: string
+  inboxRowTestId: string
+  triggerUnread: () => Promise<string>
+}) {
+  const beforeReadSeq = await readSeq(page, channelId)
+  let releaseRail!: () => void
+  const railRelease = new Promise<void>((resolve) => { releaseRail = resolve })
+  let markRailHeld!: () => void
+  const railHeld = new Promise<void>((resolve) => { markRailHeld = resolve })
+  let serverListRequests = 0
+  let messagesRequests = 0
+
+  await page.route("**/api/community/servers", async (route) => {
+    if (new URL(route.request().url()).pathname !== "/api/community/servers") {
+      await route.continue()
+      return
+    }
+    serverListRequests += 1
+    if (serverListRequests === 1) {
+      markRailHeld()
+      await railRelease
+    }
+    await route.continue()
+  })
+  const countMessagesRequest = (request: Request) => {
+    if (
+      request.method() === "GET"
+      && new URL(request.url()).pathname === `/api/community/channels/${channelId}/messages`
+    ) messagesRequests += 1
+  }
+  page.on("request", countMessagesRequest)
+
+  try {
+    const latestId = await triggerUnread()
+    await railHeld
+    await page.getByRole("button", { name: "Inbox" }).click()
+    const inboxRow = page.getByTestId(inboxRowTestId)
+    await expect(inboxRow).toBeVisible({ timeout: 30_000 })
+    const messagesResponse = page.waitForResponse((response) => (
+      response.request().method() === "GET"
+      && new URL(response.url()).pathname === `/api/community/channels/${channelId}/messages`
+      && response.status() === 200
+    ), { timeout: 30_000 })
+    await inboxRow.click()
+
+    const response = await messagesResponse
+    expect(serverListRequests).toBeGreaterThanOrEqual(1)
+    expect(messagesRequests).toBeGreaterThanOrEqual(1)
+    expect(await readSeq(page, channelId)).toBe(beforeReadSeq)
+    releaseRail()
+
+    const body = await response.json() as { messages: Array<{ id: string; seq: number }> }
+    expect(body.messages.at(-1)?.id).toBe(latestId)
+    await expect(page).toHaveURL(href)
+    await expect(page.getByText(latestText, { exact: true })).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByText(latestText, { exact: true })).toHaveCount(1)
+    await expect.poll(observerGate.pending, { timeout: 20_000 }).toBeGreaterThan(0)
+    expect(await readSeq(page, channelId)).toBe(beforeReadSeq)
+
+    const readResponse = page.waitForResponse((candidate) => (
+      candidate.request().method() === "PUT"
+      && new URL(candidate.url()).pathname === `/api/community/channels/${channelId}/read`
+    ))
+    await observerGate.release()
+    expect((await readResponse).status()).toBe(200)
+    await expect.poll(() => readSeq(page, channelId), { timeout: 20_000 })
+      .toBeGreaterThan(beforeReadSeq)
+  } finally {
+    releaseRail()
+    page.off("request", countMessagesRequest)
+    await page.unroute("**/api/community/servers")
+  }
 }
 
 test.describe.serial("account unread projection", () => {
@@ -217,6 +314,102 @@ test.describe.serial("account unread projection", () => {
     expect(cursor(unreadChannel)).toBeGreaterThan(beforeCursor(unreadChannel))
     expect(cursor(forumChild)).toBe(beforeCursor(forumChild))
     expect(cursor(dmId)).toBe(beforeCursor(dmId))
+  })
+
+  test("a held rail server-list request does not block channel or child messages", async ({ asUser }) => {
+    const stamp = Date.now()
+    const foregroundServer = await seedServer("alice", `Rail foreground ${stamp}`)
+    const foregroundChannel = await seedChannel("alice", foregroundServer, `foreground-${stamp}`)
+    await seedJoinServer("alice", "bob", foregroundServer)
+
+    const channelServer = await seedServer("alice", `Rail channel target ${stamp}`)
+    const channelId = await seedChannel("alice", channelServer, `channel-${stamp}`)
+    await seedJoinServer("alice", "bob", channelServer)
+    const childServer = await seedServer("alice", `Rail child target ${stamp}`)
+    const forumId = await seedChannel("alice", childServer, `forum-${stamp}`, "forum")
+    await seedJoinServer("alice", "bob", childServer)
+    const childId = await seedForumThread(
+      "bob",
+      forumId,
+      `Child ${stamp}`,
+      `Child participation ${stamp}`,
+    )
+    const railTriggerServer = await seedServer("alice", `Rail mention trigger ${stamp}`)
+    const railTriggerChannel = await seedChannel(
+      "alice",
+      railTriggerServer,
+      `mention-trigger-${stamp}`,
+    )
+    await seedJoinServer("alice", "bob", railTriggerServer)
+    const bobInfo = await memberInfo("alice", railTriggerServer, userId("bob"))
+    const channelText = `Rail-independent channel ${stamp}`
+    const childText = `Rail-independent child ${stamp}`
+
+    const { context, page } = await asUser("bob")
+    await page.setViewportSize({ width: 1280, height: 900 })
+    const channelObserverGate = await installReadObserverGate(page, true)
+    const childPage = await context.newPage()
+    await childPage.setViewportSize({ width: 390, height: 844 })
+    const childObserverGate = await installReadObserverGate(childPage, true)
+    await Promise.all([
+      gotoAfterUserWsAuth(page, `/c/channels/${foregroundServer}/${foregroundChannel}`),
+      gotoAfterUserWsAuth(childPage, `/c/channels/${foregroundServer}/${foregroundChannel}`),
+    ])
+    await Promise.all([
+      expect(page.getByTestId(tid.serverIcon(channelServer))).toBeVisible({ timeout: 30_000 }),
+      expect(page.getByTestId(tid.serverIcon(childServer))).toBeVisible({ timeout: 30_000 }),
+      expect(page.getByTestId(tid.channelComposerShell)).toBeVisible({ timeout: 30_000 }),
+      expect(childPage.getByTestId(tid.channelComposerShell)).toBeVisible({ timeout: 30_000 }),
+    ])
+
+    const alice = await asUser("alice")
+    await gotoAfterUserWsAuth(
+      alice.page,
+      `/c/channels/${railTriggerServer}/${railTriggerChannel}`,
+    )
+    const triggerComposer = composerEditable(alice.page)
+    await expect(triggerComposer).toBeVisible({ timeout: 30_000 })
+    const sendRailMention = async (label: string) => {
+      const response = alice.page.waitForResponse((candidate) => (
+        candidate.request().method() === "POST"
+        && new URL(candidate.url()).pathname
+          === `/api/community/channels/${railTriggerChannel}/messages`
+      ))
+      await triggerComposer.click()
+      await triggerComposer.pressSequentially(`@${bobInfo.name.slice(0, 3)}`)
+      await alice.page.getByTestId(tid.mentionOption(bobInfo.id)).click()
+      await triggerComposer.pressSequentially(` ${label}`)
+      await alice.page.keyboard.press("Enter")
+      expect((await response).status()).toBe(201)
+    }
+
+    await expectRailReplacementDoesNotBlockMessages({
+      page,
+      observerGate: channelObserverGate,
+      href: `/c/channels/${channelServer}/${channelId}`,
+      channelId,
+      latestText: channelText,
+      inboxRowTestId: tid.inboxUnreadChannel(channelId),
+      triggerUnread: async () => {
+        await sendRailMention(`channel rail ${stamp}`)
+        return seedMessage("alice", channelId, channelText)
+      },
+    })
+
+    await gotoAfterUserWsAuth(childPage, "/c/me")
+    await expectRailReplacementDoesNotBlockMessages({
+      page: childPage,
+      observerGate: childObserverGate,
+      href: `/c/channels/${childServer}/${childId}`,
+      channelId: childId,
+      latestText: childText,
+      inboxRowTestId: tid.inboxUnreadChild(childId),
+      triggerUnread: async () => {
+        await sendRailMention(`child rail ${stamp}`)
+        return seedMessage("alice", childId, childText)
+      },
+    })
+    await childPage.close()
   })
 
   test("mark all settles three domains and rolls back only the failed domain", async ({ asUser }) => {

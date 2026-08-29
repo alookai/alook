@@ -200,18 +200,30 @@ type UnreadResponse = {
   }>
 }
 
+async function resolveServerIdentity(
+  queryClient: QueryClient,
+  serverId: string,
+): Promise<Server | undefined> {
+  const cached = queryClient
+    .getQueryData<ServersResponse>(communityKeys.servers())
+    ?.servers.find((server) => server.id === serverId)
+  if (cached) return cached
+
+  const fetched = await serversQueryFn()
+  return fetched.servers.find((server) => server.id === serverId)
+}
+
 export const serverQueryFn = (
   queryClient: QueryClient,
   serverId: string,
 ) => async (): Promise<ServerDetail> => {
-  const [serverData, categoryData, channelData, unreadData] = await Promise.all([
-    queryClient.fetchQuery(serversQueryOptions()),
+  const [server, categoryData, channelData, unreadData] = await Promise.all([
+    resolveServerIdentity(queryClient, serverId),
     apiFetch<{ categories: Array<Omit<Category, "channels"> & { serverId?: string }> }>(`/api/community/servers/${serverId}/categories`),
     apiFetch<{ channels: RawChannel[] }>(`/api/community/servers/${serverId}/channels`),
     apiFetch<UnreadResponse>(`/api/community/servers/${serverId}/unreads`),
   ])
   if (unreadData.stale) throw new Error("stale D1 read")
-  const server = serverData.servers.find((row) => row.id === serverId)
   if (!server) throw new Error("server not found")
   const unreadIds = new Set(unreadData.channelIds)
   const forumParentIds = new Set(
