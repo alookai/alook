@@ -126,7 +126,7 @@ test.describe.serial("Inbox/read refresh ownership", () => {
 
     const { page } = await asUser("bob")
     await gotoAfterUserWsAuth(page, "/c/me")
-    await page.getByRole("button", { name: "Inbox" }).click()
+    await page.getByRole("button", { name: "Inbox", exact: true }).click()
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelA))).toBeVisible()
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelB))).toBeVisible()
 
@@ -143,12 +143,12 @@ test.describe.serial("Inbox/read refresh ownership", () => {
 
     await page.getByTestId(tid.inboxUnreadChannel(channelA)).click()
     await expect(page).toHaveURL(`/c/channels/${serverId}/${channelA}`)
-    await expect(page.getByRole("heading", { name: "Inbox" })).toHaveCount(0)
+    await expect(page.getByRole("heading", { name: "Inbox", exact: true })).toHaveCount(0)
     await expect(page.getByRole("heading", { name: channelAName, exact: true })).toBeVisible({
       timeout: 20_000,
     })
 
-    await page.getByRole("button", { name: "Inbox" }).click()
+    await page.getByRole("button", { name: "Inbox", exact: true }).click()
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelA))).toHaveCount(0)
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelB))).toBeVisible()
     await readStarted.promise
@@ -185,7 +185,7 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     await expect(page.getByRole("heading", { name: channelAName, exact: true })).toBeVisible({
       timeout: 20_000,
     })
-    await page.getByRole("button", { name: "Inbox" }).click()
+    await page.getByRole("button", { name: "Inbox", exact: true }).click()
     expect((await initialInbox).status()).toBe(200)
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelA))).toHaveCount(0)
 
@@ -295,7 +295,7 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     await expect(page.getByRole("heading", { name: channelName, exact: true })).toBeVisible({
       timeout: 20_000,
     })
-    await page.getByRole("button", { name: "Inbox" }).click()
+    await page.getByRole("button", { name: "Inbox", exact: true }).click()
     expect((await initialInbox).status()).toBe(200)
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
 
@@ -376,7 +376,7 @@ test.describe.serial("Inbox/read refresh ownership", () => {
       if (path === `/api/community/channels/${firstChildId}/read`) childTargets.push(target)
     })
 
-    await page.getByRole("button", { name: "Inbox" }).click()
+    await page.getByRole("button", { name: "Inbox", exact: true }).click()
     await expect(page.getByTestId(tid.inboxUnreadChild(firstChildId))).toBeVisible()
     const parentRead = page.waitForResponse((response) => (
       response.request().method() === "PUT"
@@ -388,7 +388,7 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     expect(parentTargets).toEqual([first!.openerMessageId])
     expect(childTargets).toEqual([])
 
-    await page.getByRole("button", { name: "Inbox" }).click()
+    await page.getByRole("button", { name: "Inbox", exact: true }).click()
     await expect(page.getByTestId(tid.inboxUnreadChild(firstChildId))).toHaveCount(0)
     await expect(page.getByTestId(tid.inboxUnreadChild(laterChildId))).toBeVisible()
     const snapshot = await (await page.request.get(
@@ -465,7 +465,7 @@ test.describe.serial("Inbox/read refresh ownership", () => {
       if (match?.[1] && target) puts.push({ channelId: match[1], target })
     })
 
-    await page.getByRole("button", { name: "Inbox" }).click()
+    await page.getByRole("button", { name: "Inbox", exact: true }).click()
     await expect(page.getByTestId(tid.inboxUnreadChild(readChildId))).toBeVisible()
     const readChildPut = page.waitForResponse((response) => (
       response.request().method() === "PUT"
@@ -476,7 +476,7 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     await page.waitForTimeout(700)
     expect(puts.filter((put) => put.channelId === parentId)).toEqual([])
 
-    await page.getByRole("button", { name: "Inbox" }).click()
+    await page.getByRole("button", { name: "Inbox", exact: true }).click()
     await expect(page.getByTestId(tid.inboxUnreadChild(unreadChildId))).toBeVisible()
     const parentPut = page.waitForResponse((response) => (
       response.request().method() === "PUT"
@@ -501,7 +501,7 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     expect(cursor(parentId)).toBe(unreadChild!.openerSeq)
     expect(cursor(readChildId)).toBeGreaterThan(0)
     expect(cursor(unreadChildId)).toBeGreaterThan(0)
-    await page.getByRole("button", { name: "Inbox" }).click()
+    await page.getByRole("button", { name: "Inbox", exact: true }).click()
     await expect(page.getByTestId(tid.inboxUnreadChannel(parentId))).toBeVisible()
     await expect(page.getByTestId(tid.inboxUnreadChild(nonParticipantChildId))).toHaveCount(0)
   })
@@ -521,7 +521,7 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     await expect(page.getByRole("heading", { name: channelName, exact: true })).toBeVisible({
       timeout: 20_000,
     })
-    await page.getByRole("button", { name: "Inbox" }).click()
+    await page.getByRole("button", { name: "Inbox", exact: true }).click()
     expect((await initialInbox).status()).toBe(200)
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelId))).toHaveCount(0)
     const stopWatching = await watchInboxRow(page, tid.inboxUnreadChannel(channelId))

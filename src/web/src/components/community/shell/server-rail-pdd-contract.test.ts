@@ -29,15 +29,47 @@ describe("server rail PDD component contract", () => {
     expect(adapter).toContain("}, 500)")
   })
 
-  it("keeps Move behind contextual actions and uses a compact two-step sheet", () => {
+  it("uses drag as the only spatial model and retains only Ungroup", () => {
     const server = read("./sortable-server.tsx")
     const folder = read("./rail-folder.tsx")
-    const move = read("./server-rail-move-menu.tsx")
-    expect(server).toContain("Move…")
-    expect(folder).toContain("Move…")
-    expect(move).toContain("Choose a destination, then its exact position.")
-    expect(move).toContain('side="bottom"')
-    expect(move).toContain("tid.serverRailMoveDestination")
-    expect(move).not.toContain("fixed right-")
+    const rail = read("./server-rail.tsx")
+    expect(server).not.toContain("Move…")
+    expect(server).not.toContain("Create group")
+    expect(folder).not.toContain("Move…")
+    expect(folder).toContain("Ungroup")
+    expect(rail).not.toContain("ServerRailMoveMenu")
+  })
+
+  it("separates touch scroll intent and exposes keyboard drag instructions", () => {
+    const adapter = read("./use-server-rail-pdd.ts")
+    const rail = read("./server-rail.tsx")
+    const server = read("./sortable-server.tsx")
+    const folder = read("./rail-folder.tsx")
+    expect(adapter).toContain("SERVER_RAIL_TOUCH_HOLD_MS = 450")
+    expect(adapter).toContain("SERVER_RAIL_TOUCH_DRIFT_PX = 10")
+    const touchStart = adapter.slice(
+      adapter.indexOf("const onTouchStart"),
+      adapter.indexOf("const onTouchMove"),
+    )
+    const preArmScroll = adapter.slice(
+      adapter.indexOf('if (exactIntent === "scroll")'),
+      adapter.indexOf('if (exactIntent === "wait")'),
+    )
+    expect(touchStart).not.toContain("preventDefault")
+    expect(preArmScroll).toContain("clearTouch()")
+    expect(preArmScroll).not.toContain("preventDefault")
+    expect(adapter).toContain('addEventListener("touchstart", onTouchStart, { passive: true })')
+    expect(adapter).toContain("event.preventDefault()")
+    expect(adapter).toContain('addEventListener("touchmove", onTouchMove, { passive: false })')
+    expect(adapter).toContain('addEventListener("touchend", onTouchEnd, { passive: false })')
+    expect(adapter).not.toContain("scroll.scrollTop -=")
+    expect(adapter).not.toContain("pending.scrolling")
+    expect(adapter).toContain('addEventListener("scroll", cancelPendingTouchForNativeScroll')
+    expect(server).not.toContain("touch-none")
+    expect(folder).not.toContain("touch-none")
+    expect(adapter).toContain("requestAnimationFrame(runTouchFrame)")
+    expect(adapter).not.toContain("matchMedia")
+    expect(rail).toContain("Press Space to pick up a server or group")
+    expect(rail).toContain("onAnnounce: announce")
   })
 })

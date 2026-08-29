@@ -11,6 +11,7 @@ import type { RailEntity, RailOperation } from "@/lib/community/server-rail-mode
 
 type RailFolderProps = {
   folderId: string
+  name: string
   open: boolean
   active: boolean
   unread: boolean
@@ -24,12 +25,12 @@ type RailFolderProps = {
     element: HTMLElement,
     dragHandle: HTMLElement,
   ) => () => void
-  onMove?: (source: RailEntity, focusTarget: HTMLElement) => void
+  dragDescriptionId?: string
 }
 
 function RailFolderImpl({
-  folderId, open, active, unread, onToggle, folderServers, onUngroup, dragging: isDragActive,
-  preview, registerItem, onMove,
+  folderId, name, open, active, unread, onToggle, folderServers, onUngroup, dragging: isDragActive,
+  preview, registerItem, dragDescriptionId,
 }: RailFolderProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
@@ -63,44 +64,45 @@ function RailFolderImpl({
             <button
               ref={buttonRef}
               data-testid={tid.serverRailFolder(folderId)}
+              data-dragging={isDragActive || undefined}
+              data-rail-preview={preview ?? undefined}
+              aria-label={name}
+              aria-describedby={dragDescriptionId}
+              aria-keyshortcuts="Space ArrowUp ArrowDown Escape"
               onClick={onToggle}
-              className={[
-                "grid size-10 cursor-pointer touch-manipulation grid-cols-2 gap-1 p-2 transition-[border-radius,background-color] duration-150 active:cursor-grabbing",
-                open ? "rounded-xl bg-primary/15" : "rounded-[18px] bg-accent hover:rounded-xl hover:bg-primary/20",
+              className="group/folder grid size-11 cursor-pointer place-items-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:cursor-grabbing"
+            >
+              <span className={[
+                "pointer-events-none grid size-10 grid-cols-2 gap-1 p-2 transition-[border-radius,background-color] duration-150",
+                open ? "rounded-xl bg-primary/15" : "rounded-[18px] bg-accent group-hover/folder:rounded-xl group-hover/folder:bg-primary/20",
                 preview === "combine" ? "bg-primary/10 outline outline-2! outline-primary" : "",
               ].join(" ")}
-            >
-              {Array.from({ length: 4 }).map((_, i) => {
-                const s = folderServers[i]
-                return s ? (
-                  <span
-                    key={s.id}
-                    className={[
-                      "relative grid aspect-square place-items-center overflow-hidden rounded-sm text-[7px] font-semibold",
-                      s.icon ? "bg-card text-muted-foreground" : "text-white [text-shadow:0_1px_1px_rgb(0_0_0/0.35)]",
-                    ].join(" ")}
-                  >
-                    {s.icon ? <img src={s.icon} alt={s.name} className="size-full object-cover" /> : <><SeededBackdrop seed={s.id} /><span className="relative">{s.initial}</span></>}
-                  </span>
-                ) : (
-                  <span key={i} className="aspect-square rounded-sm bg-card/50" />
-                )
-              })}
+              >
+                {Array.from({ length: 4 }).map((_, i) => {
+                  const s = folderServers[i]
+                  return s ? (
+                    <span
+                      key={s.id}
+                      className={[
+                        "relative grid aspect-square place-items-center overflow-hidden rounded-sm text-[7px] font-semibold",
+                        s.icon ? "bg-card text-muted-foreground" : "text-white [text-shadow:0_1px_1px_rgb(0_0_0/0.35)]",
+                      ].join(" ")}
+                    >
+                      {s.icon ? <img src={s.icon} alt={s.name} className="size-full object-cover" /> : <><SeededBackdrop seed={s.id} /><span className="relative">{s.initial}</span></>}
+                    </span>
+                  ) : (
+                    <span key={i} className="aspect-square rounded-sm bg-card/50" />
+                  )
+                })}
+              </span>
             </button>
           </ContextMenuTrigger>
           <ContextMenuContent className="w-52">
-            {onMove && (
-              <ContextMenuItem onClick={() => {
-                if (buttonRef.current) onMove({ kind: "folder", id: folderId }, buttonRef.current)
-              }}>
-                Move…
-              </ContextMenuItem>
-            )}
             <ContextMenuItem onClick={onUngroup}>Ungroup</ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
       </TooltipTrigger>
-      <TooltipContent side="right" sideOffset={8}>Group</TooltipContent>
+      <TooltipContent side="right" sideOffset={8}>{name}</TooltipContent>
     </Tooltip>
   )
 }
@@ -108,6 +110,7 @@ function RailFolderImpl({
 export function railFolderPropsEqual(prev: RailFolderProps, next: RailFolderProps) {
   if (
     prev.folderId !== next.folderId ||
+    prev.name !== next.name ||
     prev.open !== next.open ||
     prev.active !== next.active ||
     prev.unread !== next.unread ||
@@ -115,7 +118,7 @@ export function railFolderPropsEqual(prev: RailFolderProps, next: RailFolderProp
     prev.preview !== next.preview ||
     !!prev.onUngroup !== !!next.onUngroup ||
     !!prev.registerItem !== !!next.registerItem ||
-    !!prev.onMove !== !!next.onMove ||
+    prev.dragDescriptionId !== next.dragDescriptionId ||
     prev.folderServers.length !== next.folderServers.length
   ) return false
   return prev.folderServers.every((server, index) => {

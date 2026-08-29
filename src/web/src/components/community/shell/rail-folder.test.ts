@@ -3,6 +3,7 @@ import { railFolderPropsEqual } from "./rail-folder"
 
 const base = {
   folderId: "folder",
+  name: "Group",
   open: false,
   active: false,
   unread: false,
@@ -16,6 +17,7 @@ describe("RailFolder memo boundary", () => {
     expect(railFolderPropsEqual(base, { ...base, unread: true })).toBe(false)
     expect(railFolderPropsEqual(base, { ...base, open: true })).toBe(false)
     expect(railFolderPropsEqual(base, { ...base, active: true })).toBe(false)
+    expect(railFolderPropsEqual(base, { ...base, name: "Team" })).toBe(false)
   })
 
   it("rerenders only when thumbnail presentation changes", () => {
@@ -27,5 +29,10 @@ describe("RailFolder memo boundary", () => {
       ...base,
       folderServers: [{ ...base.folderServers[0]!, icon: "/new.png" }],
     })).toBe(false)
+  })
+
+
+  it("rerenders when the shared drag description changes", () => {
+    expect(railFolderPropsEqual(base, { ...base, dragDescriptionId: "rail-help" })).toBe(false)
   })
 })

@@ -8,6 +8,8 @@ export type RailEntity =
 
 export type RailOperation = "reorder-before" | "reorder-after" | "combine"
 
+export type RailOperationAvailability = Record<RailOperation, boolean>
+
 export type RailInstruction = {
   operation: RailOperation
   source: RailEntity
@@ -76,7 +78,7 @@ export function cloneRailState(state: RailState): RailState {
   }
 }
 
-export function folderForServer(state: RailState, serverId: string): string | null {
+function folderForServer(state: RailState, serverId: string): string | null {
   for (const folderId of state.folderOrder) {
     if (state.folders[folderId]?.includes(serverId)) return folderId
   }
@@ -299,6 +301,52 @@ export function commitRailInstruction(
   if (commands.length === 0) return { applied: false, state: before, reason: "instruction is a no-op" }
   if (commands.length > 3) return { applied: false, state: before, reason: "instruction exceeds command budget" }
   return { applied: true, state: next, commands }
+}
+
+function previewInstruction(instruction: RailInstruction, state: RailState): RailInstruction {
+  if (
+    instruction.operation !== "combine"
+    || instruction.source.kind !== "server"
+    || instruction.target.kind !== "server"
+    || instruction.newFolderId
+  ) return instruction
+  let suffix = 0
+  let newFolderId = "__rail_preview_folder__"
+  while (state.folders[newFolderId]) {
+    suffix += 1
+    newFolderId = `__rail_preview_folder_${suffix}__`
+  }
+  return { ...instruction, newFolderId }
+}
+
+export function railInstructionIsAvailable(
+  state: RailState,
+  instruction: RailInstruction,
+): boolean {
+  return commitRailInstruction(state, previewInstruction(instruction, state)).applied
+}
+
+export function railOperationAvailability(
+  state: RailState,
+  source: RailEntity | null,
+  target: RailEntity,
+): RailOperationAvailability {
+  if (!source) {
+    return { "reorder-before": false, "reorder-after": false, combine: false }
+  }
+  return {
+    "reorder-before": railInstructionIsAvailable(state, {
+      operation: "reorder-before",
+      source,
+      target,
+    }),
+    "reorder-after": railInstructionIsAvailable(state, {
+      operation: "reorder-after",
+      source,
+      target,
+    }),
+    combine: railInstructionIsAvailable(state, { operation: "combine", source, target }),
+  }
 }
 
 export function railMoveAnnouncement(

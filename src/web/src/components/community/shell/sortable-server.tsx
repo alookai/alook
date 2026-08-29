@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useLayoutEffect, useRef, useState } from "react";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -29,7 +29,6 @@ type SortableServerProps = {
   onLeave?: () => void;
   onOpenSettings?: () => void;
   onOpenInvitePopover?: () => void;
-  onCreateFolder?: () => void;
   inFolder?: boolean;
   dragging?: boolean;
   preview?: RailOperation | null;
@@ -38,7 +37,7 @@ type SortableServerProps = {
     element: HTMLElement,
     dragHandle: HTMLElement,
   ) => () => void;
-  onMove?: (source: RailEntity, focusTarget: HTMLElement) => void;
+  dragDescriptionId?: string;
 };
 
 function SortableServerImpl({
@@ -49,12 +48,11 @@ function SortableServerImpl({
   onLeave,
   onOpenSettings,
   onOpenInvitePopover,
-  onCreateFolder,
   inFolder,
   dragging: isDragActive,
   preview,
   registerItem,
-  onMove,
+  dragDescriptionId,
 }: SortableServerProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
@@ -70,7 +68,7 @@ function SortableServerImpl({
   // and a right-click is always preceded by a pointerenter so the menu is
   // mounted before it's invoked).
   const [activated, setActivated] = useState(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!registerItem || !rootRef.current || !buttonRef.current) return
     return registerItem(
       { kind: "server", id: server.id },
@@ -123,33 +121,44 @@ function SortableServerImpl({
         <button
           ref={buttonRef}
           data-testid={tid.serverIcon(server.id)}
+          data-dragging={isDragActive || undefined}
+          data-rail-preview={preview ?? undefined}
+          aria-label={server.name}
+          aria-describedby={dragDescriptionId}
+          aria-keyshortcuts="Space ArrowUp ArrowDown ArrowLeft ArrowRight Escape"
           onClick={active ? undefined : onClick}
           className={[
-            "relative grid size-10 touch-manipulation place-items-center overflow-hidden font-brand text-xl font-bold transition-all duration-150 active:cursor-grabbing",
+            "group/server absolute left-1/2 top-1/2 z-1 grid size-11 -translate-x-1/2 -translate-y-1/2 place-items-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:cursor-grabbing",
+            active ? "cursor-default" : "cursor-pointer",
+          ].join(" ")}
+        >
+          <span className={[
+            "pointer-events-none relative grid size-10 place-items-center overflow-hidden font-brand text-xl font-bold transition-all duration-150",
             active
               ? "cursor-default rounded-xl"
-              : "cursor-pointer rounded-[18px] hover:rounded-xl",
+              : "cursor-pointer rounded-[18px] group-hover/server:rounded-xl",
             server.icon
               ? active
                 ? "bg-primary text-primary-foreground"
-                : "bg-card hover:bg-primary hover:text-primary-foreground"
-              : "text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)] hover:brightness-110",
+                : "bg-card group-hover/server:bg-primary group-hover/server:text-primary-foreground"
+              : "text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)] group-hover/server:brightness-110",
           ].join(" ")}
-        >
-          {server.icon ? (
-            <img
-              src={server.icon}
-              alt={server.name}
-              className="size-full object-cover"
-            />
-          ) : (
-            <>
-              <SeededBackdrop seed={server.id} />
-              <span className="relative -translate-x-0.5 [-webkit-text-stroke:0.5px_currentColor]">
-                {server.initial}
-              </span>
-            </>
-          )}
+          >
+            {server.icon ? (
+              <img
+                src={server.icon}
+                alt={server.name}
+                className="size-full object-cover"
+              />
+            ) : (
+              <>
+                <SeededBackdrop seed={server.id} />
+                <span className="relative -translate-x-0.5 [-webkit-text-stroke:0.5px_currentColor]">
+                  {server.initial}
+                </span>
+              </>
+            )}
+          </span>
         </button>
         {server.mentions > 0 && (
           <span
@@ -176,18 +185,6 @@ function SortableServerImpl({
         {onOpenInvitePopover && (
           <ContextMenuItem onClick={onOpenInvitePopover}>
             Invite to Server
-          </ContextMenuItem>
-        )}
-        {!inFolder && onCreateFolder && (
-          <ContextMenuItem onClick={onCreateFolder}>
-            Create group
-          </ContextMenuItem>
-        )}
-        {onMove && (
-          <ContextMenuItem onClick={() => {
-            if (buttonRef.current) onMove({ kind: "server", id: server.id }, buttonRef.current)
-          }}>
-            Move…
           </ContextMenuItem>
         )}
         <ContextMenuItem onClick={onOpenSettings} data-testid={tid.serverSettingsOpen}>
@@ -271,8 +268,7 @@ export function serverPropsEqual(prev: SortableServerProps, next: SortableServer
     !!prev.onLeave === !!next.onLeave &&
     !!prev.onOpenSettings === !!next.onOpenSettings &&
     !!prev.onOpenInvitePopover === !!next.onOpenInvitePopover &&
-    !!prev.onCreateFolder === !!next.onCreateFolder &&
-    !!prev.onMove === !!next.onMove &&
+    prev.dragDescriptionId === next.dragDescriptionId &&
     !!prev.onPrefetch === !!next.onPrefetch
   );
 }

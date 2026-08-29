@@ -31,12 +31,13 @@ const server = {
   mentions: 0,
 }
 
-function renderServer() {
+function renderServer(active = false) {
   const buttonNodes: Array<{ focus: ReturnType<typeof vi.fn> }> = []
   const renderer = TestRenderer.create(createElement(SortableServer, {
     server,
+    active,
     onClick: vi.fn(),
-    onMove: vi.fn(),
+    dragDescriptionId: "rail-help",
   }), {
     createNodeMock: (element) => {
       if (element.type !== "button") return {}
@@ -72,5 +73,29 @@ describe("SortableServer lazy menu focus", () => {
 
     expect(result.renderer.root.findAllByType("context-menu-trigger")).toHaveLength(1)
     expect(result.buttonNodes.every((node) => node.focus.mock.calls.length === 0)).toBe(true)
+  })
+
+  it("exposes keyboard drag help without positional menu shortcuts", async () => {
+    let result!: ReturnType<typeof renderServer>
+    await act(async () => { result = renderServer() })
+    const button = result.renderer.root.findByType("button")
+    expect(button.props["aria-describedby"]).toBe("rail-help")
+    expect(button.props["aria-keyshortcuts"]).toContain("Space")
+    await act(async () => result.activationRoot().props.onPointerEnter())
+    const menuText = JSON.stringify(result.renderer.toJSON())
+    expect(menuText).not.toContain("Move…")
+    expect(menuText).not.toContain("Create group")
+  })
+
+  it("keeps active and inactive cursor state on the actual button", async () => {
+    let active!: ReturnType<typeof renderServer>
+    let inactive!: ReturnType<typeof renderServer>
+    await act(async () => {
+      active = renderServer(true)
+      inactive = renderServer(false)
+    })
+
+    expect(active.renderer.root.findByType("button").props.className).toContain("cursor-default")
+    expect(inactive.renderer.root.findByType("button").props.className).toContain("cursor-pointer")
   })
 })

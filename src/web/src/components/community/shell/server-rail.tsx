@@ -2,7 +2,6 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Plus } from "lucide-react"
-import { MAX_SERVER_RAIL_FOLDERS } from "@alook/shared"
 import { announce, cleanup as cleanupLiveRegion } from "@atlaskit/pragmatic-drag-and-drop-live-region"
 import { RailIcon } from "./rail-icon"
 import { AnimatedAlookLogo } from "./animated-alook-logo"
@@ -12,7 +11,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { SortableServer } from "./sortable-server"
 import { RailFolder } from "./rail-folder"
 import { CreateServerDialog } from "../settings/create-server-dialog"
-import { ServerRailMoveMenu } from "./server-rail-move-menu"
 import {
   cloneRailState,
   commitRailInstruction,
@@ -33,13 +31,20 @@ import {
   isCommunityOnboardingStage,
 } from "@/lib/community-onboarding"
 
-type MoveSheetState = { source: RailEntity; focusTarget: HTMLElement } | null
+const DRAG_INSTRUCTIONS_ID = "server-rail-drag-instructions"
 
 function reconcileCreatedFolders(
   state: RailState,
   createdFolderIds: Record<string, string>,
+  explicitlyCollapsed: ReadonlySet<string>,
 ): RailState {
   if (Object.keys(createdFolderIds).length === 0) return state
+  const expanded = new Set(state.expanded.map((id) => createdFolderIds[id] ?? id))
+  for (const [clientId, folderId] of Object.entries(createdFolderIds)) {
+    if (!explicitlyCollapsed.has(clientId) && !explicitlyCollapsed.has(folderId)) {
+      expanded.add(folderId)
+    }
+  }
   return {
     ...state,
     folderOrder: state.folderOrder.map((id) => createdFolderIds[id] ?? id),
@@ -47,10 +52,7 @@ function reconcileCreatedFolders(
       createdFolderIds[id] ?? id,
       serverIds,
     ])),
-    expanded: [...new Set([
-      ...state.expanded.map((id) => createdFolderIds[id] ?? id),
-      ...Object.values(createdFolderIds),
-    ])],
+    expanded: [...expanded],
   }
 }
 
@@ -92,12 +94,12 @@ export const ServerRail = memo(function ServerRail({
   )
   const [preview, setPreview] = useState<RailInstruction | null>(null)
   const [dragSource, setDragSource] = useState<RailEntity | null>(null)
-  const [moveSheet, setMoveSheet] = useState<MoveSheetState>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const dragSnapshotRef = useRef<RailState | null>(null)
   const stateRef = useRef(state)
   const mutationPendingRef = useRef(false)
+  const collapsedPendingFolderIdsRef = useRef(new Set<string>())
   const railMutation = useServerRailCommit()
   const serverIdentityOrder = servers.map((server) => server.id).join("\0")
   const serverIds = useMemo(
@@ -115,6 +117,7 @@ export const ServerRail = memo(function ServerRail({
   }, [])
   const releaseMutation = useCallback(() => {
     mutationPendingRef.current = false
+    collapsedPendingFolderIdsRef.current.clear()
   }, [])
 
   useEffect(() => {
@@ -214,7 +217,11 @@ export const ServerRail = memo(function ServerRail({
       { before, after: result.state, commands: result.commands },
       {
         onSuccess: (response) => {
-          setState((current) => reconcileCreatedFolders(current, response.createdFolderIds))
+          setState((current) => reconcileCreatedFolders(
+            current,
+            response.createdFolderIds,
+            collapsedPendingFolderIdsRef.current,
+          ))
           announce(label)
         },
         onError: () => {
@@ -258,40 +265,15 @@ export const ServerRail = memo(function ServerRail({
     )
   }, [claimMutation, focusEntity, railMutation, releaseMutation])
 
-  const createSingleServerFolder = useCallback((serverId: string) => {
-    const before = cloneRailState(stateRef.current)
-    if (before.folderOrder.length >= MAX_SERVER_RAIL_FOLDERS) return
-    const after = cloneRailState(before)
-    const clientId = `temp_${crypto.randomUUID()}`
-    after.folderOrder.push(clientId)
-    after.folders[clientId] = [serverId]
-    after.expanded.push(clientId)
-    const commands = planRailPersistence(before, after)
-    if (!claimMutation()) return
-    setState(after)
-    railMutation.mutate(
-      { before, after, commands },
-      {
-        onSuccess: (response) => {
-          setState((current) => reconcileCreatedFolders(current, response.createdFolderIds))
-          announce("Group created")
-        },
-        onError: () => {
-          setState(before)
-          announce("Creating group failed and was rolled back")
-        },
-        onSettled: () => {
-          releaseMutation()
-          focusEntity({ kind: "server", id: serverId }, { afterReconcile: true })
-        },
-      },
-    )
-  }, [claimMutation, focusEntity, railMutation, releaseMutation])
-
   const { registerItem } = useServerRailPdd({
     scrollRef,
+    getState: () => stateRef.current,
+    canStart: () => !mutationPendingRef.current,
+    getEntityLabel: (entity) => entity.kind === "server"
+      ? serverNames.get(entity.id) ?? "Server"
+      : folderNames.get(entity.id) ?? "Group",
     onDragStart: (source) => {
-      dragSnapshotRef.current = cloneRailState(state)
+      dragSnapshotRef.current = cloneRailState(stateRef.current)
       setDragSource(source)
     },
     onPreview: setPreview,
@@ -310,6 +292,7 @@ export const ServerRail = memo(function ServerRail({
         ? current
         : { ...current, expanded: [...current.expanded, folderId] })
     },
+    onAnnounce: announce,
   })
 
   const previewFor = (entity: RailEntity) => preview?.target.kind === entity.kind
@@ -324,6 +307,10 @@ export const ServerRail = memo(function ServerRail({
 
   return (
     <nav aria-label="Server navigation" className="flex min-h-0 w-14 shrink-0 flex-col items-center overflow-hidden pt-2">
+      <span id={DRAG_INSTRUCTIONS_ID} className="sr-only">
+        Press Space to pick up a server or group. Use the arrow keys to choose a position,
+        Space or Enter to drop, and Escape to cancel.
+      </span>
       <div className="flex w-full shrink-0 flex-col items-center gap-2">
         <Tooltip>
           <TooltipTrigger render={<div className="group relative flex w-full justify-center" />}>
@@ -369,11 +356,10 @@ export const ServerRail = memo(function ServerRail({
                   onLeave={() => onLeaveServer?.(serverId)}
                   onOpenSettings={() => onOpenSettings?.(serverId)}
                   onOpenInvitePopover={onOpenInvitePopover ? () => onOpenInvitePopover(serverId) : undefined}
-                  onCreateFolder={state.folderOrder.length < MAX_SERVER_RAIL_FOLDERS ? () => createSingleServerFolder(serverId) : undefined}
                   dragging={dragging({ kind: "server", id: serverId })}
                   preview={previewFor({ kind: "server", id: serverId })}
                   registerItem={registerItem}
-                  onMove={(source, focusTarget) => setMoveSheet({ source, focusTarget })}
+                  dragDescriptionId={DRAG_INSTRUCTIONS_ID}
                 />
               )
             })}
@@ -385,21 +371,29 @@ export const ServerRail = memo(function ServerRail({
                 <div key={folderId} className="flex w-full flex-col items-center gap-2">
                   <RailFolder
                     folderId={folderId}
+                    name={folderNames.get(folderId) ?? "Group"}
                     open={open}
                     active={!open && serversInFolder.some((server) => server.id === activeId)}
                     unread={!open && serversInFolder.some((server) => server.unread)}
-                    onToggle={() => setState((current) => ({
-                      ...current,
-                      expanded: current.expanded.includes(folderId)
-                        ? current.expanded.filter((id) => id !== folderId)
-                        : [...current.expanded, folderId],
-                    }))}
+                    onToggle={() => setState((current) => {
+                      const collapsing = current.expanded.includes(folderId)
+                      if (mutationPendingRef.current) {
+                        if (collapsing) collapsedPendingFolderIdsRef.current.add(folderId)
+                        else collapsedPendingFolderIdsRef.current.delete(folderId)
+                      }
+                      return {
+                        ...current,
+                        expanded: collapsing
+                          ? current.expanded.filter((id) => id !== folderId)
+                          : [...current.expanded, folderId],
+                      }
+                    })}
                     folderServers={serversInFolder}
                     onUngroup={() => ungroupFolder(folderId)}
                     dragging={dragging({ kind: "folder", id: folderId })}
                     preview={previewFor({ kind: "folder", id: folderId })}
                     registerItem={registerItem}
-                    onMove={(source, focusTarget) => setMoveSheet({ source, focusTarget })}
+                    dragDescriptionId={DRAG_INSTRUCTIONS_ID}
                   />
                   {open && serversInFolder.length > 0 && (
                     <div className="relative flex w-full flex-col items-center gap-2 py-1">
@@ -417,7 +411,7 @@ export const ServerRail = memo(function ServerRail({
                           dragging={dragging({ kind: "server", id: server.id })}
                           preview={previewFor({ kind: "server", id: server.id })}
                           registerItem={registerItem}
-                          onMove={(source, focusTarget) => setMoveSheet({ source, focusTarget })}
+                          dragDescriptionId={DRAG_INSTRUCTIONS_ID}
                         />
                       ))}
                     </div>
@@ -444,19 +438,6 @@ export const ServerRail = memo(function ServerRail({
           }}
         />
       </div>
-
-      <ServerRailMoveMenu
-        source={moveSheet?.source ?? null}
-        state={state}
-        serverNames={serverNames}
-        folderNames={folderNames}
-        onClose={() => setMoveSheet(null)}
-        onMove={(instruction) => {
-          const focusTarget = moveSheet?.focusTarget
-          setMoveSheet(null)
-          applyInstruction(instruction, cloneRailState(state), focusTarget)
-        }}
-      />
 
       {createOpen && (
         <CreateServerDialog

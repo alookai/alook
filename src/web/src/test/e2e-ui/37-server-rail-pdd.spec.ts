@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test"
+import { devices, type Locator, type Page } from "@playwright/test"
 import { expect, test } from "./_fixtures/community-fixture"
 import { seedChannel, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
@@ -48,13 +48,210 @@ async function railGeometry(page: Page, serverId: string): Promise<RailGeometry>
   }, { rail: tid.serverRailScroll, add: tid.serverAdd })
 }
 
-async function openMove(page: Page, serverId: string) {
-  const icon = page.getByTestId(tid.serverIcon(serverId))
-  await icon.focus()
-  await expect(icon.locator("xpath=ancestor::*[@data-slot='context-menu-trigger'][1]")).toBeVisible()
-  await icon.click({ button: "right" })
-  await page.getByRole("menuitem", { name: "Move…" }).click()
-  await expect(page.getByRole("heading", { name: "Move server" })).toBeVisible()
+async function dispatchTouchGesture(
+  page: Page,
+  origin: Locator,
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  holdMs: number,
+  probe?: { source: Locator; target: Locator },
+  liveTargetRatio = 0.5,
+  previewScreenshotPath?: string,
+) {
+  await page.evaluate(() => {
+    Reflect.set(window, "__railTouchEvents", [])
+    if (Reflect.get(window, "__railTouchProbeInstalled")) return
+    Reflect.set(window, "__railTouchProbeInstalled", true)
+    for (const type of ["touchstart", "touchmove", "touchend", "touchcancel", "contextmenu"]) {
+      document.addEventListener(type, () => {
+        const events = Reflect.get(window, "__railTouchEvents") as string[] | undefined
+        events?.push(type)
+      }, { capture: true })
+    }
+  })
+  const dispatch = (type: "touchstart" | "touchmove" | "touchend", point: { x: number; y: number }) =>
+    origin.evaluate((element, args) => {
+      const touch = new Touch({
+        identifier: 1,
+        target: element,
+        clientX: args.point.x,
+        clientY: args.point.y,
+        screenX: args.point.x,
+        screenY: args.point.y,
+      })
+      element.dispatchEvent(new TouchEvent(args.type, {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        touches: args.type === "touchend" ? [] : [touch],
+        targetTouches: args.type === "touchend" ? [] : [touch],
+        changedTouches: [touch],
+      }))
+    }, { type, point })
+  await dispatch("touchstart", start)
+  await page.waitForTimeout(20)
+  if (holdMs > 0) await page.waitForTimeout(holdMs)
+  let sawDragging = false
+  let sawPreview = false
+  let capturedPreview = false
+  let currentEnd = end
+  for (let step = 1; step <= 8; step += 1) {
+    const ratio = step / 8
+    if (probe) {
+      const liveTarget = await probe.target.boundingBox()
+      if (liveTarget) {
+        currentEnd = {
+          x: liveTarget.x + liveTarget.width / 2,
+          y: liveTarget.y + liveTarget.height * liveTargetRatio,
+        }
+      }
+    }
+    await dispatch("touchmove", {
+      x: start.x + (currentEnd.x - start.x) * ratio,
+      y: start.y + (currentEnd.y - start.y) * ratio,
+    })
+    await page.waitForTimeout(20)
+    if (probe) {
+      sawDragging ||= await probe.source.getAttribute("data-dragging") === "true"
+      sawPreview ||= await probe.target.getAttribute("data-rail-preview") !== null
+      if (sawPreview && previewScreenshotPath && !capturedPreview) {
+        capturedPreview = true
+        await page.screenshot({ path: previewScreenshotPath })
+      }
+    }
+  }
+  await dispatch("touchend", currentEnd)
+  await page.waitForTimeout(20)
+  return {
+    events: await page.evaluate(() => Reflect.get(window, "__railTouchEvents") as string[]),
+    sawDragging,
+    sawPreview,
+  }
+}
+
+async function dispatchNativeTouchSwipe(
+  page: Page,
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+) {
+  const session = await page.context().newCDPSession(page)
+  try {
+    const point = (x: number, y: number) => [{
+      x,
+      y,
+      radiusX: 1,
+      radiusY: 1,
+      force: 1,
+      id: 1,
+    }]
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: point(start.x, start.y),
+    })
+    for (let step = 1; step <= 8; step += 1) {
+      const ratio = step / 8
+      await session.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: point(
+          start.x + (end.x - start.x) * ratio,
+          start.y + (end.y - start.y) * ratio,
+        ),
+      })
+      await page.waitForTimeout(20)
+    }
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchEnd",
+      touchPoints: [],
+    })
+  } finally {
+    await session.detach()
+  }
+}
+
+async function touchDrag(
+  page: Page,
+  source: Locator,
+  target: Locator,
+  targetRatio = 0.5,
+  previewScreenshotPath?: string,
+) {
+  const scrollIntoView = async (locator: Locator) => {
+    let lastError: unknown
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        await locator.scrollIntoViewIfNeeded()
+        await expect(locator).toBeVisible()
+        return
+      } catch (error) {
+        lastError = error
+        await page.waitForTimeout(50)
+      }
+    }
+    throw lastError
+  }
+  await scrollIntoView(source)
+  await scrollIntoView(target)
+  const sourceTestId = await source.getAttribute("data-testid")
+  const sourceBox = await source.boundingBox()
+  const targetBox = await target.boundingBox()
+  if (!sourceBox || !targetBox) throw new Error("touch drag target is outside the viewport")
+  const result = await dispatchTouchGesture(
+    page,
+    source,
+    { x: sourceBox.x + sourceBox.width / 2, y: sourceBox.y + sourceBox.height / 2 },
+    { x: targetBox.x + targetBox.width / 2, y: targetBox.y + targetBox.height * targetRatio },
+    460,
+    { source, target },
+    targetRatio,
+    previewScreenshotPath,
+  )
+  return { ...result, sourceTestId }
+}
+
+async function startStationaryTouch(page: Page, origin: Locator) {
+  const box = await origin.boundingBox()
+  if (!box) throw new Error("touch target is outside the viewport")
+  const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+  const dispatch = (type: "touchstart" | "touchend") => origin.evaluate((element, args) => {
+    const touch = new Touch({
+      identifier: 2,
+      target: element,
+      clientX: args.point.x,
+      clientY: args.point.y,
+      screenX: args.point.x,
+      screenY: args.point.y,
+    })
+    element.dispatchEvent(new TouchEvent(args.type, {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      touches: args.type === "touchend" ? [] : [touch],
+      targetTouches: args.type === "touchend" ? [] : [touch],
+      changedTouches: [touch],
+    }))
+  }, { type, point })
+  await dispatch("touchstart")
+  return () => dispatch("touchend")
+}
+
+async function expectTouchPatch(
+  page: Page,
+  action: () => Promise<{ sourceTestId: string | null }>,
+) {
+  const response = page.waitForResponse((candidate) => (
+    candidate.request().method() === "PATCH"
+    && new URL(candidate.url()).pathname === RAIL_ENDPOINT
+  ), { timeout: 15_000 })
+  const reconcile = Promise.all([
+    page.waitForResponse((candidate) => candidate.request().method() === "GET"
+      && new URL(candidate.url()).pathname === "/api/community/servers"),
+    page.waitForResponse((candidate) => candidate.request().method() === "GET"
+      && new URL(candidate.url()).pathname === "/api/community/users/me/server-folders"),
+  ])
+  const { sourceTestId } = await action()
+  expect((await response).status()).toBe(200)
+  expect((await reconcile).every((candidate) => candidate.status() === 200)).toBe(true)
+  if (sourceTestId) await expect(page.getByTestId(sourceTestId)).toBeFocused()
 }
 
 async function dragUntilNativeDrop(
@@ -78,19 +275,23 @@ async function dragUntilNativeDrop(
   }
 }
 
-test("server rail commits one PDD drop and exposes mobile Move parity", async ({ asUser }) => {
+test("server rail keeps scroll separate from native, touch, and keyboard drag", async ({ asUser }, testInfo) => {
   test.setTimeout(150_000)
   const stamp = Date.now()
   const first = await seedServer("alice", `Rail first ${stamp}`)
   const second = await seedServer("alice", `Rail second ${stamp}`)
   const overflowServers: string[] = []
-  for (let index = 0; index < 12; index++) {
+  for (let index = 0; index < 18; index++) {
     overflowServers.push(await seedServer("alice", `Rail overflow ${index} ${stamp}`))
   }
   const tail = overflowServers.at(-1)!
   const swipeServer = overflowServers.at(-2)!
+  const scrollSwipeServer = overflowServers.at(-5)!
   const channel = await seedChannel("alice", first, `rail-${stamp}`)
-  const { page } = await asUser("alice")
+  const { page } = await asUser("alice", {
+    ...devices["Pixel 7"],
+    viewport: { width: 1280, height: 900 },
+  })
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto(`/c/channels/${first}/${channel}`)
   await expect(page.getByTestId(tid.serverIcon(first))).toBeVisible({ timeout: 30_000 })
@@ -148,43 +349,182 @@ test("server rail commits one PDD drop and exposes mobile Move parity", async ({
   expect(mobileTail.railScrollTop).toBe(mobileTail.railMaxScrollTop)
   expect(mobileTail.target.bottom).toBeLessThanOrEqual(mobileTail.userBar.top + 0.5)
   expect(mobileTail.targetOwnsCenter).toBe(true)
-  await openMove(page, tail)
-  await page.getByTestId(tid.serverRailMoveDestination).selectOption("new")
-  await page.getByTestId(tid.serverRailMoveTarget).selectOption(first)
-  const createResponsePromise = page.waitForResponse((response) =>
-    response.request().method() === "PATCH" && new URL(response.url()).pathname === RAIL_ENDPOINT,
+  await rail.evaluate((element) => { element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 120) })
+  const beforeSwipe = await rail.evaluate((element) => element.scrollTop)
+  const swipeTarget = page.getByTestId(tid.serverIcon(scrollSwipeServer))
+  await expect(swipeTarget).toBeInViewport()
+  const swipeBox = await swipeTarget.boundingBox()
+  expect(swipeBox).not.toBeNull()
+  await expect(swipeTarget).toHaveCSS("touch-action", "auto")
+  await dispatchNativeTouchSwipe(
+    page,
+    { x: swipeBox!.x + 22, y: swipeBox!.y + 22 },
+    { x: swipeBox!.x + 22, y: Math.max(20, swipeBox!.y - 120) },
   )
-  await page.getByTestId(tid.serverRailMoveConfirm).click()
+  expect(railRequests).toHaveLength(1)
+  await expect.poll(() => rail.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(beforeSwipe)
+  expect(new URL(page.url()).pathname).toBe(`/c/channels/${first}`)
+  await page.waitForTimeout(300)
+
+  await rail.evaluate((element) => { element.scrollTop = element.scrollHeight })
+  await expect(page.getByTestId(tid.serverIcon(tail))).toBeInViewport()
+  await expect(page.getByTestId(tid.serverIcon(swipeServer))).toBeInViewport()
+  const tapTarget = page.getByTestId(tid.serverIcon(tail))
+  await tapTarget.evaluate((element) => {
+    Reflect.set(window, "__railTapClicks", 0)
+    element.addEventListener("click", () => {
+      Reflect.set(window, "__railTapClicks", Number(Reflect.get(window, "__railTapClicks")) + 1)
+    })
+  })
+  await tapTarget.tap()
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__railTapClicks"))).toBe(1)
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${tail}`)
+  expect(railRequests).toHaveLength(1)
+  await page.goto(`/c/channels/${first}/${channel}`)
+  await page.getByTestId(tid.channelHeaderServer(first)).click()
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${first}`)
+  await expect(page.getByTestId(tid.serverIcon(first))).toBeVisible({ timeout: 30_000 })
+  await rail.evaluate((element) => { element.scrollTop = element.scrollHeight })
+  await expect(page.getByTestId(tid.serverIcon(tail))).toBeInViewport()
+  await expect(page.getByTestId(tid.serverIcon(swipeServer))).toBeInViewport()
+  const createResponsePromise = page.waitForResponse((response) => (
+    response.request().method() === "PATCH"
+    && new URL(response.url()).pathname === RAIL_ENDPOINT
+  ), { timeout: 15_000 })
+  const createReconcilePromise = Promise.all([
+    page.waitForResponse((response) => response.request().method() === "GET"
+      && new URL(response.url()).pathname === "/api/community/servers"),
+    page.waitForResponse((response) => response.request().method() === "GET"
+      && new URL(response.url()).pathname === "/api/community/users/me/server-folders"),
+  ])
+  const firstTouch = await touchDrag(
+    page,
+    page.getByTestId(tid.serverIcon(tail)),
+    page.getByTestId(tid.serverIcon(swipeServer)),
+    0.5,
+    testInfo.outputPath("server-rail-touch-preview-390-light.png"),
+  )
+  expect(firstTouch.events).toContain("touchstart")
+  expect(firstTouch.events).toContain("touchmove")
+  expect(firstTouch.events).toContain("touchend")
+  expect(firstTouch.events).not.toContain("contextmenu")
+  expect(firstTouch.sawDragging).toBe(true)
+  expect(firstTouch.sawPreview).toBe(true)
   const createResponse = await createResponsePromise
   expect(createResponse.status()).toBe(200)
-  await expect(page.getByRole("heading", { name: "Move server" })).toBeHidden()
+  expect((await createReconcilePromise).every((response) => response.status() === 200)).toBe(true)
+  if (firstTouch.sourceTestId) {
+    await expect(page.getByTestId(firstTouch.sourceTestId)).toBeFocused()
+  }
   expect(railRequests).toHaveLength(2)
   expect(railRequests[1]?.body).toMatchObject({
-    commands: [{ kind: "create-folder", name: "Group", serverIds: [tail, first] }],
+    commands: [{ kind: "create-folder", name: "Group", serverIds: [tail, swipeServer] }],
+  })
+  const folderSelector = `[data-testid^="${tid.serverRailFolder("")}"]`
+  const firstFolder = page.locator(folderSelector).first()
+  await expect(firstFolder).toBeVisible()
+
+  await expectTouchPatch(page, () => touchDrag(
+    page,
+    page.getByTestId(tid.serverIcon(tail)),
+    page.getByTestId(tid.serverIcon(swipeServer)),
+    0.85,
+  ))
+  expect(railRequests[2]?.body).toMatchObject({
+    commands: [{ kind: "replace-folder-items" }],
+  })
+
+  const nearbyTopLevel = overflowServers.at(-3)!
+  await expectTouchPatch(page, () => touchDrag(
+    page,
+    page.getByTestId(tid.serverIcon(tail)),
+    page.getByTestId(tid.serverIcon(nearbyTopLevel)),
+    0.15,
+  ))
+  expect(railRequests[3]?.body).toMatchObject({
+    commands: [
+      { kind: "reorder-servers" },
+      { kind: "replace-folder-items" },
+    ],
+  })
+
+  await expectTouchPatch(page, () => touchDrag(
+    page,
+    page.getByTestId(tid.serverIcon(tail)),
+    firstFolder,
+  ))
+  expect(railRequests[4]?.body).toMatchObject({
+    commands: [{ kind: "replace-folder-items" }],
+  })
+
+  const secondGroupSource = overflowServers.at(-4)!
+  await expectTouchPatch(page, () => touchDrag(
+    page,
+    page.getByTestId(tid.serverIcon(secondGroupSource)),
+    page.getByTestId(tid.serverIcon(nearbyTopLevel)),
+  ))
+  expect(railRequests[5]?.body).toMatchObject({
+    commands: [{ kind: "create-folder" }],
+  })
+  const secondFolder = page.locator(folderSelector).nth(1)
+  await expect(secondFolder).toBeVisible()
+
+  await expectTouchPatch(page, () => touchDrag(
+    page,
+    page.getByTestId(tid.serverIcon(tail)),
+    secondFolder,
+  ))
+  expect(railRequests[6]?.body).toMatchObject({
+    commands: [
+      { kind: "replace-folder-items" },
+      { kind: "replace-folder-items" },
+    ],
+  })
+
+  await expectTouchPatch(page, () => touchDrag(page, secondFolder, firstFolder, 0.15))
+  expect(railRequests[7]?.body).toMatchObject({
+    commands: [{ kind: "reorder-folders" }],
   })
   await expect(page.getByTestId(tid.serverIcon(tail))).toBeVisible()
   await expect(page.getByTestId(tid.serverIcon(first))).toBeVisible()
   await expect(page.getByTestId(tid.serverIcon(second))).toBeVisible()
-  await rail.evaluate((element) => { element.scrollTop = element.scrollHeight })
+  const beforeLongPress = railRequests.length
+  await firstFolder.scrollIntoViewIfNeeded()
+  const endLongPress = await startStationaryTouch(page, firstFolder)
+  await page.waitForTimeout(700)
+  await expect(page.getByRole("menuitem", { name: "Ungroup" })).toBeVisible()
+  await expect(page.getByRole("menuitem", { name: "Move…" })).toHaveCount(0)
+  await expect(page.getByRole("menuitem", { name: "Create group" })).toHaveCount(0)
+  await endLongPress()
+  expect(railRequests).toHaveLength(beforeLongPress)
+  await page.keyboard.press("Escape")
+  await expect(page.getByRole("menuitem", { name: "Ungroup" })).toHaveCount(0)
+  await page.getByTestId(tid.serverIcon(tail)).scrollIntoViewIfNeeded()
   await expect.poll(async () => (await railGeometry(page, tail)).targetOwnsCenter)
     .toBe(true)
   const expandedTail = await railGeometry(page, tail)
   expect(expandedTail.rootScrollTop).toBe(0)
   expect(expandedTail.target.bottom).toBeLessThanOrEqual(expandedTail.userBar.top + 0.5)
   expect(expandedTail.targetOwnsCenter).toBe(true)
-  const beforeSwipe = await rail.evaluate((element) => element.scrollTop)
-  const swipeTarget = page.getByTestId(tid.serverIcon(swipeServer))
-  await expect(swipeTarget).toBeInViewport()
-  const box = await swipeTarget.boundingBox()
-  expect(box).not.toBeNull()
-  await page.mouse.move(box!.x + 20, box!.y + 20)
-  await page.mouse.down()
-  await page.mouse.move(box!.x + 20, Math.max(10, box!.y - 100), { steps: 8 })
-  await page.mouse.up()
-  expect(railRequests).toHaveLength(2)
-  expect(await rail.evaluate((element) => element.scrollTop)).toBeGreaterThanOrEqual(beforeSwipe)
+  await page.screenshot({ path: testInfo.outputPath("server-rail-touch-combine-390.png") })
 
   await page.setViewportSize({ width: 1280, height: 900 })
+  await page.emulateMedia({ colorScheme: "dark" })
+  await expect(page.locator("html")).toHaveClass(/dark/)
+  const darkKeyboardSource = page.getByTestId(tid.serverIcon(first))
+  await darkKeyboardSource.focus()
+  await page.keyboard.press("Space")
+  await expect(darkKeyboardSource).toBeFocused()
+  await expect(darkKeyboardSource).toHaveAttribute("data-dragging", "true")
+  await page.keyboard.press("ArrowDown")
+  const keyboardInsert = page.locator(`[data-testid^="${tid.serverRailInsert("")}"]`).first()
+  await expect(keyboardInsert).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath("server-rail-keyboard-preview-1280-dark.png") })
+  await page.keyboard.press("Escape")
+  await expect(keyboardInsert).toHaveCount(0)
+  await page.emulateMedia({ colorScheme: "light" })
+  await expect(page.locator("html")).not.toHaveClass(/dark/)
   let releaseCommit!: () => void
   const commitGate = new Promise<void>((resolve) => { releaseCommit = resolve })
   let delayed = false
@@ -199,23 +539,27 @@ test("server rail commits one PDD drop and exposes mobile Move parity", async ({
     response.request().method() === "PATCH" && new URL(response.url()).pathname === RAIL_ENDPOINT,
   )
   try {
-    const topLevel = page.getByTestId(tid.serverIcon(second))
-    await topLevel.focus()
-    await expect(topLevel.locator("xpath=ancestor::*[@data-slot='context-menu-trigger'][1]")).toBeVisible()
-    await topLevel.click({ button: "right" })
-    await page.getByRole("menuitem", { name: "Create group" }).click()
-    await expect.poll(() => railRequests.length).toBe(3)
+    const keyboardSource = page.getByTestId(tid.serverIcon(first))
+    await keyboardSource.focus()
+    await page.keyboard.press("Space")
+    await page.keyboard.press("ArrowDown")
+    await expect(page.locator(`[data-testid^="${tid.serverRailInsert("")}"]`).first()).toBeVisible()
+    await page.keyboard.press("Enter")
+    await expect.poll(() => railRequests.length).toBe(9)
 
     const existingFolder = page.locator(`[data-testid^="${tid.serverRailFolder("")}"]`).first()
     await existingFolder.click({ button: "right" })
+    await expect(page.getByRole("menuitem", { name: "Move…" })).toHaveCount(0)
+    await expect(page.getByRole("menuitem", { name: "Create group" })).toHaveCount(0)
     await page.getByRole("menuitem", { name: "Ungroup" }).click()
     await page.waitForTimeout(250)
-    expect(railRequests).toHaveLength(3)
+    expect(railRequests).toHaveLength(9)
   } finally {
     releaseCommit()
   }
   expect((await pendingResponse).status()).toBe(200)
   await page.unroute(`**${RAIL_ENDPOINT}`)
+  await page.screenshot({ path: testInfo.outputPath("server-rail-keyboard-1280.png") })
 })
 
 test("short server rail keeps Add adjacent and desktop geometry stable", async ({ asUser }) => {
