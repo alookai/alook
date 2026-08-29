@@ -327,6 +327,7 @@ export async function createMessageWithThread(params: {
   attachmentIds?: string[]
   pendingAttachmentIdsToRebind?: string[]
   clientNonce?: string
+  expectedSeq?: number
   source?: "cli" | "daemon-http" | "web"
 }): Promise<CreateMessageWithThreadResult> {
   const { db, authorId, parentChannelId, serverId } = params
@@ -340,6 +341,7 @@ export async function createMessageWithThread(params: {
     source: params.source,
     attachmentIds: params.attachmentIds,
     clientNonce: params.clientNonce,
+    expectedSeq: params.expectedSeq,
     suppressBroadcast: params.suppressBroadcast,
     deferBroadcast: true,
   })
