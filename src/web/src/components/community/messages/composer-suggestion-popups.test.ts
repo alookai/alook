@@ -120,6 +120,61 @@ describe("Composer suggestion popups", () => {
 
   })
 
+  it("projects mention and channel popups through the same add-once viewport geometry", async () => {
+    Object.assign(window, {
+      visualViewport: {
+        offsetTop: 100,
+        offsetLeft: 20,
+        width: 320,
+        height: 500,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    })
+    const mentionState: MentionPopupState = {
+      items: [{ kind: "everyone", id: "everyone", label: "everyone" }],
+      query: "",
+      selectedIndex: 0,
+      command: vi.fn(),
+      getRect: () => rect(400),
+    }
+    const channelState: ChannelRefPopupState = {
+      items: [{
+        id: "channel-1",
+        name: "general",
+        serverId: "server-1",
+        serverName: "One",
+        serverDiscriminator: "0001",
+      }],
+      selectedIndex: 0,
+      command: vi.fn(),
+      getRect: () => rect(400),
+    }
+    let mention!: TestRenderer.ReactTestRenderer
+    let channel!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      mention = TestRenderer.create(createElement(CommunityMentionList, {
+        state: mentionState,
+        presentation: { status: "ready" },
+      }))
+      channel = TestRenderer.create(createElement(ChannelRefList, {
+        state: channelState,
+      }))
+    })
+
+    const expectedProjection = expect.objectContaining({
+      left: 60,
+      top: 496,
+      transform: "translateY(-100%)",
+    })
+    expect(mention.root.findByProps({
+      "data-testid": "community-mention-popup",
+    }).props.style).toEqual(expectedProjection)
+    expect(channel.root.findByProps({
+      "data-testid": "community-channel-ref-popup",
+    }).props.style).toEqual(expectedProjection)
+  })
+
   it("renders virtual/member rows in order and selects on mousedown", async () => {
     const command = vi.fn()
     const state: MentionPopupState = {

@@ -28,7 +28,7 @@ function candidate(prefix: string, index: number): Candidate {
   }
 }
 
-test("@ candidates page to completion, expose first search page, and keep status anchored on mobile", async ({ asUser }) => {
+test("@ candidates page to completion and shared popups stay anchored through viewport resize signals", async ({ asUser }) => {
   const serverId = await seedServer("alice", `Mention pages ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "mention-pages")
   const { page } = await asUser("alice")
@@ -52,7 +52,7 @@ test("@ candidates page to completion, expose first search page, and keep status
       configurable: true,
       value: viewport,
     })
-    Object.defineProperty(window, "__setMentionTestVisualViewport", {
+    Object.defineProperty(window, "__setSuggestionTestViewportSize", {
       configurable: true,
       value: (next: Partial<typeof geometry>) => {
         Object.assign(geometry, next)
@@ -186,11 +186,16 @@ test("@ candidates page to completion, expose first search page, and keep status
 
   expectAnchoredToCaret(await readBounds(tid.mentionPopup))
   await page.evaluate(() => {
-    const setViewport = Reflect.get(window, "__setMentionTestVisualViewport") as
-      | ((geometry: { offsetTop: number; height: number }) => void)
+    const setViewport = Reflect.get(window, "__setSuggestionTestViewportSize") as
+      | ((geometry: { height: number }) => void)
       | undefined
     if (!setViewport) throw new Error("Missing controlled visual viewport")
-    setViewport({ offsetTop: 364, height: 480 })
+    // Chromium does not reproduce iOS Safari's fixed/layout viewport split.
+    // Keep this automated journey to resize/scroll refresh and containment,
+    // using a height that still contains Chromium's unpanned caret. Non-zero
+    // offset projection is locked by the geometry unit contract and verified
+    // with the real software keyboard in device QA.
+    setViewport({ height: 820 })
   })
   await page.evaluate(() => new Promise<void>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()))

@@ -14,16 +14,18 @@ function rect(top: number, left: number, height = 16): AnchorRect {
 }
 
 describe("anchoredPopoverStyle", () => {
-  it("keeps layout coordinates unchanged inside a non-zero visual viewport", () => {
+  it("projects visual-local coordinates into fixed layout coordinates exactly once", () => {
     const style = anchoredPopoverStyle(rect(400, 40), VIEWPORT, 256, 240)
-    expect(style.top).toBe(396)
-    expect(style.left).toBe(40)
+    expect(style.top).toBe(496)
+    expect(style.left).toBe(60)
+    expect(Number(style.top) - VIEWPORT.top).toBe(396)
+    expect(Number(style.left) - VIEWPORT.left).toBe(40)
     expect(style.transform).toBe("translateY(-100%)")
     expect(style["--anchored-popover-max-height"]).toBe("240px")
   })
 
   it("flips below a caret near the visual viewport top", () => {
-    const style = anchoredPopoverStyle(rect(120, 40), VIEWPORT, 256, 240)
+    const style = anchoredPopoverStyle(rect(20, 40), VIEWPORT, 256, 240)
     expect(style.top).toBe(140)
     expect(Number(style.top) - VIEWPORT.top).toBe(40)
     expect(style.transform).toBeUndefined()
@@ -36,24 +38,57 @@ describe("anchoredPopoverStyle", () => {
 
   it("uses the roomier side and reduces list height when neither side fully fits", () => {
     const shortViewport = { top: 100, left: 0, width: 320, height: 220 }
-    const style = anchoredPopoverStyle(rect(180, 20), shortViewport, 256, 240)
+    const style = anchoredPopoverStyle(rect(80, 20), shortViewport, 256, 240)
     expect(style.transform).toBeUndefined()
     expect(style["--anchored-popover-max-height"]).toBe("102px")
   })
 
-  it("does not add the keyboard-panned viewport offset to the fixed anchor", () => {
+  it("keeps the visible caret gap stable when the keyboard pans the viewport", () => {
     const keyboardViewport = { top: 364, left: 0, width: 390, height: 480 }
-    const style = anchoredPopoverStyle(rect(797, 76, 21), keyboardViewport, 256, 240)
+    const style = anchoredPopoverStyle(rect(433, 76, 21), keyboardViewport, 256, 240)
     expect(style.top).toBe(793)
     expect(style.left).toBe(76)
+    expect(Number(style.top) - keyboardViewport.top).toBe(429)
+    expect(433 - (Number(style.top) - keyboardViewport.top)).toBe(4)
     expect(style.transform).toBe("translateY(-100%)")
   })
 
   it("keeps the left margin when the visible viewport is narrower than the popup", () => {
     const narrowViewport = { top: 100, left: 50, width: 200, height: 300 }
-    const style = anchoredPopoverStyle(rect(220, 200), narrowViewport, 256, 240)
+    const style = anchoredPopoverStyle(rect(120, 200), narrowViewport, 256, 240)
     expect(style.left).toBe(58)
+    expect(Number(style.left) - narrowViewport.left).toBe(8)
     expect(style.maxWidth).toBe(184)
+  })
+
+  it("reprojects current offsets after hide and reopen without retaining or doubling them", () => {
+    const anchor = rect(400, 70)
+    const hidden = anchoredPopoverStyle(
+      anchor,
+      { top: 0, left: 0, width: 390, height: 844 },
+      256,
+      240,
+    )
+    const open = anchoredPopoverStyle(
+      anchor,
+      { top: 300, left: 12, width: 390, height: 480 },
+      256,
+      240,
+    )
+    const reopened = anchoredPopoverStyle(
+      anchor,
+      { top: 364, left: 20, width: 390, height: 480 },
+      256,
+      240,
+    )
+
+    expect(Number(hidden.top)).toBe(396)
+    expect(Number(open.top)).toBe(696)
+    expect(Number(reopened.top)).toBe(760)
+    expect(Number(open.top) - 300).toBe(Number(hidden.top))
+    expect(Number(reopened.top) - 364).toBe(Number(hidden.top))
+    expect(Number(open.left) - 12).toBe(Number(hidden.left))
+    expect(Number(reopened.left) - 20).toBe(Number(hidden.left))
   })
 
   it("keeps zero-offset desktop geometry unchanged", () => {
