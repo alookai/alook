@@ -8,31 +8,6 @@ import type { MessagesPage, Msg } from "@/lib/community/models/message"
 export type PageCache = InfiniteData<MessagesPage>
 
 /**
- * Patch every cached message authored by `userId` to the renamed
- * `authorName` — `authorName` is a snapshot field written at send time
- * (`communityMessage` doesn't store it; the live JOIN is `message.ts`'s
- * `authorName: user.name`), so nothing else updates already-loaded message
- * rows after a self-rename. Only touches rows that are actually cached in
- * this client (open/previously-open channels & DMs) — a channel never
- * loaded this session picks up the new name for free on its first real
- * fetch, since that IS the live JOIN.
- */
-export function patchAuthorNameInCache(cache: PageCache | undefined, userId: string, newName: string): PageCache | undefined {
-  if (!cache) return cache
-  let touched = false
-  const pages = cache.pages.map((p) => {
-    if (!p.messages.some((m) => m.authorId === userId)) return p
-    touched = true
-    return {
-      ...p,
-      messages: p.messages.map((m) => (m.authorId === userId ? { ...m, authorName: newName } : m)),
-    }
-  })
-  if (!touched) return cache
-  return { ...cache, pages }
-}
-
-/**
  * Patch the `approval` payload of a single cached message — the client-side
  * effect of a `MESSAGE_UPDATED` event. The card re-renders in its new
  * state (approved/denied/superseded/waiting) without a refetch.

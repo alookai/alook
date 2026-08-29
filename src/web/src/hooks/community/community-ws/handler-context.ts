@@ -52,7 +52,7 @@ export type StructureTreeEventContext = Pick<
 >
 export type MembershipEventContext = Pick<
   CommunityWsHandlerContext,
-  "queryClient" | "viewerUserIdRef" | "projection"
+  "queryClient" | "viewerUserIdRef" | "projection" | "wsStore"
 >
 export type SocialEventContext = Pick<
   CommunityWsHandlerContext,

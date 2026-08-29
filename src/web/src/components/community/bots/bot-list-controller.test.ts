@@ -83,9 +83,9 @@ vi.mock("@/hooks/community/use-machines", () => ({
   },
 }))
 vi.mock("@/stores/community/ws", () => ({
-  useOnlineUserIds: () => {
-    mocks.hookOrder.push("online")
-    return mocks.online
+  useProfilesByUserId: () => {
+    mocks.hookOrder.push("profiles")
+    return new Map([...mocks.online].map((id) => [id, { id, presence: "online" }]))
   },
 }))
 vi.mock("@/hooks/community/mutations", () => ({
@@ -181,7 +181,7 @@ describe("useBotListController", () => {
       "searchParams",
       "bots",
       "machines",
-      "online",
+      "profiles",
       "delete",
       "resetBot",
       "resetMachine",
@@ -198,7 +198,7 @@ describe("useBotListController", () => {
       "const searchParams = useSearchParams()",
       "const botsQuery = useBots()",
       "const { machines, isLoading: machinesLoading } = useMachines()",
-      "const onlineUserIds = useOnlineUserIds()",
+      "const profilesByUserId = useProfilesByUserId()",
       "const [createOpen",
       "const [editingBot",
       "const [editOpen",

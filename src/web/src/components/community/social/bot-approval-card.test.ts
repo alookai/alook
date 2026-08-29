@@ -1,15 +1,32 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import type { FriendApprovalPayload } from "@alook/shared"
 import { serializeBeamSeed } from "@/lib/avatar/seed-url"
 import { BotApprovalCard } from "./bot-approval-card"
+import { avatarInitial } from "@/lib/community/avatar"
 
-const OTHER = { id: "u_alice", name: "Alice", discriminator: "0042", image: null }
-const BOT = { id: "bot_zoe", name: "Zoe", discriminator: "0007", image: null }
+const profileState = vi.hoisted(() => ({ map: new Map<string, Record<string, unknown>>() }))
+vi.mock("@/stores/community/ws", () => ({
+  useCommunityProfile: (id?: string) => id ? profileState.map.get(id) : undefined,
+}))
+
+const OTHER = { id: "u_alice", name: "Alice", discriminator: "0042", image: null, avatarVersion: 0 }
+const BOT = { id: "bot_zoe", name: "Zoe", discriminator: "0007", image: null, avatarVersion: 0 }
 
 function render(approval: FriendApprovalPayload): string {
+  profileState.map = new Map([
+    approval.otherProfile,
+    approval.botProfile,
+    approval.waitingOnProfile,
+  ].flatMap((profile) => profile ? [[profile.id, {
+    id: profile.id,
+    name: profile.name,
+    discriminator: profile.discriminator,
+    avatar: profile.image ?? avatarInitial(profile.name),
+    avatarVersion: profile.avatarVersion,
+  }] as const] : []))
   const client = new QueryClient()
   return renderToStaticMarkup(
     createElement(QueryClientProvider, { client }, createElement(BotApprovalCard, { approval })),

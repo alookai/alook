@@ -19,7 +19,6 @@ type MessageStreamStoreState = {
   nextOrdinal: number
   accept: (scope: MessageScope, intent: Omit<NewOutboxIntent, "localOrdinal">) => boolean
   dispatch: (scope: MessageScope, event: MessageOverlayEvent) => void
-  projectAvatarIdentity: (userId: string, avatar: string, avatarVersion: number) => void
   getRetryPayload: (scope: MessageScope, nonce: string) => OutboxRetryPayload | undefined
   removeScope: (scope: MessageScope) => void
   removeServer: (serverId: string) => void
@@ -67,24 +66,6 @@ export const useMessageStreamStore = create<MessageStreamStoreState>((set, get) 
       set({ entries })
     }
     executeEffects(transition.effects)
-  },
-
-  projectAvatarIdentity: (userId, avatar, avatarVersion) => {
-    const current = get()
-    const entries = new Map(current.entries)
-    let changed = false
-    for (const [key, entry] of current.entries) {
-      const transition = reduceMessageOverlay(entry.state, {
-        type: "identityUpdated",
-        userId,
-        avatar,
-        avatarVersion,
-      })
-      if (transition.state === entry.state) continue
-      entries.set(key, { ...entry, state: transition.state })
-      changed = true
-    }
-    if (changed) set({ entries })
   },
 
   getRetryPayload: (scope, nonce) => {

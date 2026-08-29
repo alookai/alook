@@ -49,7 +49,7 @@ function controller(overrides: Partial<BotListController> = {}): BotListControll
     isLoading: false,
     machines: [],
     machinesLoading: false,
-    onlineUserIds: new Set(),
+    profilesByUserId: new Map(),
     createOpen: false,
     setCreateOpen: noop,
     editingBot: null,

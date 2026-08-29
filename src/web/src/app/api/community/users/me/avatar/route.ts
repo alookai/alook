@@ -45,7 +45,12 @@ export const POST = withCommunityActor(async (req: NextRequest, ctx) => {
       candidates: [persisted.previousObjectKey, persisted.avatarObjectKey],
     })
     const url = botAvatarUrl(userId, persisted.avatarVersion)
-    void fanOutIdentityUpdate(userId, url, persisted.avatarVersion)
+    void fanOutIdentityUpdate(
+      userId,
+      url,
+      persisted.avatarVersion,
+      ctx.actor.ownerUserId,
+    )
     return writeJSON({ url, avatarVersion: persisted.avatarVersion })
   }
 

@@ -2,6 +2,7 @@
 
 import { useQuery, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
+import { loadAndSeedProfiles } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { InviteRow } from "@/lib/community/models/people"
 
@@ -80,13 +81,17 @@ export function useInvites(
 /**
  * Fetches the presence roster for a server — the list of online user ids
  * cached at `communityKeys.presence(serverId)`. WS `presence.update` events
- * live-patch the `useCommunityWsStore.onlineUserIds` set (Step 3); this
- * initial load seeds the same set on server switch.
+ * live-patch the global profile map; this initial load seeds the same map.
  */
 export type PresenceResponse = { online: string[]; truncated?: boolean; limit?: number }
 
 export const presenceQueryFn = (serverId: string) => () =>
-  apiFetch<PresenceResponse & { stale?: boolean }>(`/api/community/servers/${serverId}/presence`).then(throwIfStale)
+  loadAndSeedProfiles(
+    () => apiFetch<PresenceResponse & { stale?: boolean }>(
+      `/api/community/servers/${serverId}/presence`,
+    ).then(throwIfStale),
+    (data) => data.online.map((id) => ({ id, presence: "online" })),
+  )
 
 const EMPTY_ONLINE: readonly string[] = Object.freeze([])
 export function usePresence(

@@ -1,44 +1,36 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import type { CommunityWsHandlerContext } from "./handler-context"
-import { handleIdentityUpdate } from "./identity-events"
+import { handleIdentityUpdate, handleProfileUpdate } from "./identity-events"
 
 function harness() {
   const queryClient = new QueryClient()
-  const invalidate = vi.fn()
-  const context = {
+  return {
     queryClient,
-    wsStore: useCommunityWsStore.getState(),
-    projection: {
-      project: (project: () => void) => project(),
-      invalidate,
-    },
-  } as unknown as CommunityWsHandlerContext
-  return { queryClient, invalidate, context }
+    context: {
+      queryClient,
+      wsStore: useCommunityWsStore.getState(),
+    } as unknown as CommunityWsHandlerContext,
+  }
 }
 
 beforeEach(() => {
   useCommunityWsStore.getState().reset()
-  useCommunityWsStore.getState().bindIdentityOwner("viewer")
-  useMessageStreamStore.getState().resetAll()
+  useCommunityWsStore.getState().activateProfileAccount("viewer")
 })
 
-describe("handleIdentityUpdate", () => {
-  it("patches all cached projections and the detached message stream", () => {
-    const { queryClient, context, invalidate } = harness()
-    queryClient.setQueryData(communityKeys.message("m1"), {
+describe("profile identity events", () => {
+  it("updates only the canonical avatar and leaves raw query snapshots untouched", () => {
+    const { queryClient, context } = harness()
+    const cached = {
       id: "m1",
       authorId: "u1",
       authorAvatar: "/avatar?v=1",
       authorAvatarVersion: 1,
-    })
-    const projectStream = vi.spyOn(
-      useMessageStreamStore.getState(),
-      "projectAvatarIdentity",
-    )
+    }
+    queryClient.setQueryData(communityKeys.message("m1"), cached)
 
     handleIdentityUpdate({
       type: "community:identity.update",
@@ -47,64 +39,60 @@ describe("handleIdentityUpdate", () => {
       avatarVersion: 4,
     }, context)
 
-    expect(queryClient.getQueryData(communityKeys.message("m1"))).toMatchObject({
-      authorAvatar: "/avatar?v=4",
-      authorAvatarVersion: 4,
+    expect(queryClient.getQueryData(communityKeys.message("m1"))).toBe(cached)
+    expect(useCommunityWsStore.getState().profilesByUserId.get("u1")).toMatchObject({
+      avatar: "/avatar?v=4",
+      avatarVersion: 4,
     })
-    expect(projectStream).toHaveBeenCalledWith("u1", "/avatar?v=4", 4)
-    expect(invalidate).not.toHaveBeenCalled()
   })
 
-  it("drops stale/same frames and invalidates a same-version conflict", () => {
-    const { context, invalidate } = harness()
-    const store = useCommunityWsStore.getState()
-    store.observeAvatarIdentity("u1", "/avatar?v=5", 5)
-
-    handleIdentityUpdate({
-      type: "community:identity.update",
-      userId: "u1",
-      avatar: "/avatar?v=4",
-      avatarVersion: 4,
-    }, context)
+  it("retains the current avatar for stale and equal-version conflicting frames", () => {
+    const { context } = harness()
     handleIdentityUpdate({
       type: "community:identity.update",
       userId: "u1",
       avatar: "/avatar?v=5",
       avatarVersion: 5,
     }, context)
-    expect(invalidate).not.toHaveBeenCalled()
-
     handleIdentityUpdate({
       type: "community:identity.update",
       userId: "u1",
-      avatar: "/different?v=5",
+      avatar: "/stale?v=4",
+      avatarVersion: 4,
+    }, context)
+    handleIdentityUpdate({
+      type: "community:identity.update",
+      userId: "u1",
+      avatar: "/conflict?v=5",
       avatarVersion: 5,
     }, context)
-    expect(invalidate).toHaveBeenCalledWith("identity-conflict", {
-      queryKey: communityKeys.all,
-      refetchType: "active",
+
+    expect(useCommunityWsStore.getState().profilesByUserId.get("u1")).toMatchObject({
+      avatar: "/avatar?v=5",
+      avatarVersion: 5,
     })
   })
 
-  it("invalidates when a cached payload conflicts with the accepted frame version", () => {
-    const { queryClient, context, invalidate } = harness()
-    queryClient.setQueryData(communityKeys.message("m1"), {
-      id: "m1",
-      authorId: "u1",
-      authorAvatar: "/cached-different?v=4",
-      authorAvatarVersion: 4,
-    })
-
-    handleIdentityUpdate({
-      type: "community:identity.update",
-      userId: "u1",
-      avatar: "/authoritative?v=4",
-      avatarVersion: 4,
+  it("writes authoritative nullable profile fields to the canonical map", () => {
+    const { context } = harness()
+    handleProfileUpdate({
+      type: "community:profile.update",
+      userId: "bot-1",
+      name: "Bot",
+      discriminator: "0042",
+      aboutMe: "",
+      bannerColor: null,
+      kind: "bot",
+      ownerUserId: "owner-1",
     }, context)
 
-    expect(invalidate).toHaveBeenCalledWith("identity-cache-conflict", {
-      queryKey: communityKeys.all,
-      refetchType: "active",
+    expect(useCommunityWsStore.getState().profilesByUserId.get("bot-1")).toMatchObject({
+      name: "Bot",
+      discriminator: "0042",
+      aboutMe: "",
+      bannerColor: null,
+      kind: "bot",
+      ownerUserId: "owner-1",
     })
   })
 })

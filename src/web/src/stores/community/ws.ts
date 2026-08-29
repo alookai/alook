@@ -1,6 +1,11 @@
 "use client"
 
 import { create } from "zustand"
+import type {
+  CommunityProfile,
+  CommunityProfilePatch,
+  CommunityProfileSnapshot,
+} from "@/lib/community/models/people"
 
 /**
  * Zustand store for community WS-live-patched state.
@@ -12,10 +17,8 @@ import { create } from "zustand"
  * only cares about the current channel id.
  *
  * Loop-breaker rules (short version — full rulebook lives in `./index.ts`):
- * - Setters no-op on identical state (`hydratePresence` / `resetPresence`
- *   below). Zustand notifies every subscriber on every `set(...)`; guard
- *   writes with a content-equality check so a redundant seed doesn't cascade
- *   into every subscriber and shift a dep that re-fires the seeder.
+ * - Setters no-op on identical projected values. Zustand notifies every
+ *   subscriber on every `set(...)`; redundant seeds keep the map reference.
  * - Effect writers into this store must pass reference-stable arguments —
  *   a fresh `[]` fallback per render will trigger the seeder each pass and
  *   without the guards above would loop.
@@ -54,9 +57,8 @@ export type BotAuditEventEntry = {
   createdAt: string
 }
 
-type UserStatus = { emoji: string | null; text: string | null }
-type AvatarIdentity = { avatar: string; avatarVersion: number }
-type AvatarIdentityObservation = "accepted" | "same" | "stale" | "conflict" | "unbound"
+type ProfileRevisions = { identityAbout: number; status: number; presence: number }
+type ProfileWriteMode = "seed" | "patch" | "commit"
 export type CommunityWsConnectionStatus = "connected" | "reconnecting" | "failed"
 
 const NOOP_RECONNECT = () => undefined
@@ -66,26 +68,13 @@ export type CommunityWsStoreState = {
   accessConnected: boolean
   connectionStatus: CommunityWsConnectionStatus
   reconnectNow: () => void
-  /**
-   * Everyone online right now — human or bot. The server pushes
-   * `community:presence.update` identically for both (see
-   * plans/community-account-debt-fixes.md Fix 3: a bot's bound-machine
-   * connect/disconnect fans out through the same audience-based pipeline as
-   * a human WS connect/disconnect), so there's a single stream to store.
-   */
-  onlineUserIds: Set<string>
+  profileViewerId: string | null
+  profileAccountEpoch: number
+  profileRevision: number
+  profilesByUserId: Map<string, CommunityProfile>
+  profileRevisionsByUserId: Map<string, ProfileRevisions>
   seenMessageIds: Set<string>
   seenDeliveryOperations: Map<string, DeliveryOperationState>
-  /**
-   * Live status deltas learned via `community:status.update` after the
-   * initial member/friend fetch — see plans/profile-card.md's "overlay
-   * pattern, not cache-patching" section. Only ever holds users who changed
-   * status since page load; everyone else's status comes straight off the
-   * fetched row.
-   */
-  userStatuses: Map<string, UserStatus>
-  identityOwnerUserId: string | null
-  avatarIdentities: Map<string, AvatarIdentity>
   /**
    * Per-bot rings of recent audit events, each bounded by BOT_AUDIT_RING_MAX.
    * Newest first inside each bot's array. A chatty bot never evicts a quieter
@@ -93,27 +82,20 @@ export type CommunityWsStoreState = {
    */
   botAuditEvents: Map<string, BotAuditEventEntry[]>
 
-  setPresence: (userId: string, online: boolean) => void
-  /**
-   * Atomic bulk REPLACE — one notification for N users. Use on server switch,
-   * where it must PRUNE: a peer who was online in the previous server but isn't
-   * in the new server's snapshot has to drop to offline. The WS presence
-   * snapshot only emits `online:true`, so this destructive replace is the only
-   * thing that clears a stale-online peer on a switch.
-   */
-  hydratePresence: (userIds: readonly string[]) => void
-  /**
-   * Additive bulk MERGE — union `userIds` into the current set, one
-   * notification. Use for a re-seed that carries only a SUBSET of the audience
-   * (the friends-presence fetch), where a destructive replace would evict
-   * WS-delivered co-members the fetch never knew about (the DM online→offline
-   * flicker bug). Accepted trade-off: because it never prunes and the WS
-   * snapshot is `online:true`-only, a peer who went offline while we were
-   * disconnected stays "online" until the next live `online:false` delta — the
-   * far rarer, less-jarring inverse of the flicker it fixes.
-   */
-  mergePresence: (userIds: readonly string[]) => void
-  resetPresence: () => void
+  activateProfileAccount: (viewerId: string | null) => number
+  beginProfileSnapshot: () => CommunityProfileSnapshot
+  seedProfiles: (
+    snapshot: CommunityProfileSnapshot,
+    patches: readonly CommunityProfilePatch[],
+  ) => boolean
+  commitProfiles: (
+    snapshot: CommunityProfileSnapshot,
+    patches: readonly CommunityProfilePatch[],
+  ) => boolean
+  patchProfiles: (
+    snapshot: Pick<CommunityProfileSnapshot, "viewerId" | "accountEpoch">,
+    patches: readonly CommunityProfilePatch[],
+  ) => boolean
   hasSeenMessage: (id: string) => boolean
   markSeenMessage: (id: string) => void
   observeDeliveryOperation: (
@@ -121,14 +103,6 @@ export type CommunityWsStoreState = {
     operationDigest: string,
   ) => DeliveryOperationObservationResult
   completeDeliveryOperation: (operationId: string, operationDigest: string) => boolean
-  setUserStatus: (userId: string, emoji: string | null, text: string | null) => void
-  resetUserStatuses: () => void
-  bindIdentityOwner: (userId: string | null) => void
-  observeAvatarIdentity: (
-    userId: string,
-    avatar: string,
-    avatarVersion: number,
-  ) => AvatarIdentityObservation
   markAccessDisconnected: () => void
   markAccessConnected: () => void
   setConnectionStatus: (status: CommunityWsConnectionStatus) => void
@@ -139,8 +113,9 @@ export type CommunityWsStoreState = {
 
 const initialState = (): Pick<
   CommunityWsStoreState,
-  "onlineUserIds" | "seenMessageIds" | "seenDeliveryOperations" | "userStatuses" | "botAuditEvents"
-  | "identityOwnerUserId" | "avatarIdentities"
+  "profileViewerId" | "profileAccountEpoch" | "profileRevision"
+  | "profilesByUserId" | "profileRevisionsByUserId"
+  | "seenMessageIds" | "seenDeliveryOperations" | "botAuditEvents"
   | "accessEpoch" | "accessConnected"
   | "connectionStatus" | "reconnectNow"
 > => ({
@@ -148,49 +123,133 @@ const initialState = (): Pick<
   accessConnected: false,
   connectionStatus: "connected",
   reconnectNow: NOOP_RECONNECT,
-  onlineUserIds: new Set(),
+  profileViewerId: null,
+  profileAccountEpoch: 0,
+  profileRevision: 0,
+  profilesByUserId: new Map(),
+  profileRevisionsByUserId: new Map(),
   seenMessageIds: new Set(),
   seenDeliveryOperations: new Map(),
-  userStatuses: new Map(),
-  identityOwnerUserId: null,
-  avatarIdentities: new Map(),
   botAuditEvents: new Map(),
 })
 
-export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => ({
-  ...initialState(),
+const ZERO_REVISIONS: ProfileRevisions = { identityAbout: 0, status: 0, presence: 0 }
 
-  setPresence: (userId, online) => {
-    const next = new Set(get().onlineUserIds)
-    if (online) next.add(userId)
-    else next.delete(userId)
-    set({ onlineUserIds: next })
-  },
+function mergeIdentityAbout(
+  profile: CommunityProfile,
+  patch: CommunityProfilePatch["identityAbout"],
+) {
+  if (!patch) return profile
+  return { ...profile, ...patch }
+}
 
-  hydratePresence: (userIds) => {
-    const current = get().onlineUserIds
-    // Fast-path: same members, same size → no store write, no notification.
-    // Prevents render loops when a caller re-runs seeding with the same list
-    // (e.g., an effect that re-fires because a dep re-renders identically).
-    if (current.size === userIds.length && userIds.every((id) => current.has(id))) {
-      return
+function mergeAvatar(profile: CommunityProfile, patch: CommunityProfilePatch["avatar"]) {
+  if (!patch || !Number.isSafeInteger(patch.avatarVersion) || patch.avatarVersion < 0) {
+    return profile
+  }
+  if (profile.avatarVersion !== undefined && patch.avatarVersion <= profile.avatarVersion) {
+    return profile
+  }
+  return { ...profile, ...patch }
+}
+
+function profileChanged(previous: CommunityProfile, next: CommunityProfile) {
+  const keys = new Set([...Object.keys(previous), ...Object.keys(next)])
+  for (const key of keys) {
+    if (previous[key as keyof CommunityProfile] !== next[key as keyof CommunityProfile]) return true
+  }
+  return false
+}
+
+export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => {
+  const writeProfiles = (
+    snapshot: CommunityProfileSnapshot,
+    patches: readonly CommunityProfilePatch[],
+    mode: ProfileWriteMode,
+  ) => {
+    const state = get()
+    if (
+      !snapshot.viewerId
+      || snapshot.viewerId !== state.profileViewerId
+      || snapshot.accountEpoch !== state.profileAccountEpoch
+    ) return false
+    const revision = state.profileRevision + 1
+    const guardsRevision = mode !== "patch"
+    const advancesRevisionForGroups = mode !== "seed"
+    let profiles: Map<string, CommunityProfile> | null = null
+    let revisions: Map<string, ProfileRevisions> | null = null
+    let advancesRevision = false
+    for (const patch of patches) {
+      const previous = (profiles ?? state.profilesByUserId).get(patch.id) ?? { id: patch.id }
+      const previousRevisions = (revisions ?? state.profileRevisionsByUserId)
+        .get(patch.id) ?? ZERO_REVISIONS
+      let next = previous
+      const identityAbout = patch.identityAbout !== undefined
+        && (!guardsRevision || previousRevisions.identityAbout <= snapshot.revision)
+      const status = patch.status !== undefined
+        && (!guardsRevision || previousRevisions.status <= snapshot.revision)
+      const presence = patch.presence !== undefined
+        && (!guardsRevision || previousRevisions.presence <= snapshot.revision)
+      if (identityAbout) next = mergeIdentityAbout(next, patch.identityAbout)
+      next = mergeAvatar(next, patch.avatar)
+      if (status) next = { ...next, ...patch.status }
+      if (presence) next = { ...next, presence: patch.presence }
+      if (profileChanged(previous, next)) {
+        profiles ??= new Map(state.profilesByUserId)
+        profiles.set(patch.id, next)
+      }
+      if (advancesRevisionForGroups && (identityAbout || status || presence)) {
+        advancesRevision = true
+        revisions ??= new Map(state.profileRevisionsByUserId)
+        revisions.set(patch.id, {
+          identityAbout: identityAbout ? revision : previousRevisions.identityAbout,
+          status: status ? revision : previousRevisions.status,
+          presence: presence ? revision : previousRevisions.presence,
+        })
+      }
     }
-    set({ onlineUserIds: new Set(userIds) })
-  },
+    if (profiles || advancesRevision) {
+      set({
+        ...(profiles ? { profilesByUserId: profiles } : {}),
+        ...(advancesRevision ? {
+          profileRevision: revision,
+          profileRevisionsByUserId: revisions!,
+        } : {}),
+      })
+    }
+    return true
+  }
 
-  mergePresence: (userIds) => {
-    const current = get().onlineUserIds
-    // Fast-path: every incoming id already present → no write, no notification.
-    if (userIds.every((id) => current.has(id))) return
-    const next = new Set(current)
-    for (const id of userIds) next.add(id)
-    set({ onlineUserIds: next })
-  },
+  return {
+    ...initialState(),
 
-  resetPresence: () => {
-    if (get().onlineUserIds.size === 0) return
-    set({ onlineUserIds: new Set() })
-  },
+    activateProfileAccount: (viewerId) => {
+      const state = get()
+      if (state.profileViewerId === viewerId) return state.profileAccountEpoch
+      const profileAccountEpoch = state.profileAccountEpoch + 1
+      set({
+        profileViewerId: viewerId,
+        profileAccountEpoch,
+        profileRevision: 0,
+        profilesByUserId: new Map(),
+        profileRevisionsByUserId: new Map(),
+      })
+      return profileAccountEpoch
+    },
+
+    beginProfileSnapshot: () => ({
+      viewerId: get().profileViewerId,
+      accountEpoch: get().profileAccountEpoch,
+      revision: get().profileRevision,
+    }),
+
+    seedProfiles: (snapshot, patches) => writeProfiles(snapshot, patches, "seed"),
+    commitProfiles: (snapshot, patches) => writeProfiles(snapshot, patches, "commit"),
+    patchProfiles: (snapshot, patches) => writeProfiles(
+      { ...snapshot, revision: get().profileRevision },
+      patches,
+      "patch",
+    ),
 
   hasSeenMessage: (id) => get().seenMessageIds.has(id),
 
@@ -240,37 +299,6 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => (
     return true
   },
 
-  setUserStatus: (userId, emoji, text) => {
-    const next = new Map(get().userStatuses)
-    next.set(userId, { emoji, text })
-    set({ userStatuses: next })
-  },
-
-  resetUserStatuses: () => {
-    if (get().userStatuses.size === 0) return
-    set({ userStatuses: new Map() })
-  },
-
-  bindIdentityOwner: (userId) => {
-    if (get().identityOwnerUserId === userId) return
-    set({ identityOwnerUserId: userId, avatarIdentities: new Map() })
-  },
-
-  observeAvatarIdentity: (userId, avatar, avatarVersion) => {
-    if (!get().identityOwnerUserId) return "unbound"
-    const current = get().avatarIdentities.get(userId)
-    if (current) {
-      if (avatarVersion < current.avatarVersion) return "stale"
-      if (avatarVersion === current.avatarVersion) {
-        return avatar === current.avatar ? "same" : "conflict"
-      }
-    }
-    const next = new Map(get().avatarIdentities)
-    next.set(userId, { avatar, avatarVersion })
-    set({ avatarIdentities: next })
-    return "accepted"
-  },
-
   markAccessDisconnected: () => set((state) => ({
     accessEpoch: state.accessEpoch + 1,
     accessConnected: false,
@@ -299,19 +327,23 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => (
     set({ botAuditEvents: next })
   },
 
-  reset: () => set(initialState()),
-}))
+    reset: () => set({
+      ...initialState(),
+      profileAccountEpoch: get().profileAccountEpoch + 1,
+    }),
+  }
+})
 
 // ── Selectors ────────────────────────────────────────────────────────────────
 
-/**
- * Every consumer that asks "is X online?" reads this — the server already
- * pushes bot presence into the same `onlineUserIds` stream as human
- * presence (see the store-level comment above), so this is a direct
- * passthrough, not a union of two sources.
- */
-export const useOnlineUserIds = (): ReadonlySet<string> => {
-  return useCommunityWsStore((s) => s.onlineUserIds)
+export function useCommunityProfile(userId: string | null | undefined) {
+  return useCommunityWsStore((state) =>
+    userId ? state.profilesByUserId.get(userId) : undefined,
+  )
+}
+
+export function useProfilesByUserId(): ReadonlyMap<string, CommunityProfile> {
+  return useCommunityWsStore((state) => state.profilesByUserId)
 }
 
 const EMPTY_AUDIT_EVENTS: BotAuditEventEntry[] = []

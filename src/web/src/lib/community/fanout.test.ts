@@ -69,7 +69,7 @@ const mockGetChannel = vi.fn()
 const mockIsChannelPrivate = vi.fn(() => false)
 const mockGetPrivateChannelAudienceUserIds = vi.fn(() => [] as string[])
 const mockGetDM = vi.fn()
-const mockListDmPeerUserIds = vi.fn()
+const mockListDmPeerUserIds = vi.fn(() => Promise.resolve([] as string[]))
 const mockListChannelMemberUserIds = vi.fn()
 const mockGetCoMemberUserIds = vi.fn()
 const mockGetFriendUserIds = vi.fn()
@@ -245,7 +245,7 @@ describe("fanOutStatusUpdate", () => {
     mockGetChannelType.mockResolvedValue("text")
   })
 
-  it("broadcasts to the deduped union of co-members and friends", async () => {
+  it("broadcasts to self plus the deduped union of co-members and friends", async () => {
     mockGetCoMemberUserIds.mockResolvedValue(["u1", "u2"])
     mockGetFriendUserIds.mockResolvedValue(["u2", "u3"])
 
@@ -255,7 +255,7 @@ describe("fanOutStatusUpdate", () => {
     expect(mockGetFriendUserIds).toHaveBeenCalledWith(expect.anything(), "self1")
     expect(mockBroadcastToUsers).toHaveBeenCalledTimes(1)
     expect(mockBroadcastToUsers).toHaveBeenCalledWith(
-      ["u1", "u2", "u3"],
+      ["self1", "u1", "u2", "u3"],
       {
         type: "community:status.update",
         userId: "self1",
@@ -265,13 +265,16 @@ describe("fanOutStatusUpdate", () => {
     )
   })
 
-  it("does not broadcast when the audience is empty", async () => {
+  it("still broadcasts to the author's other tabs when no peer audience exists", async () => {
     mockGetCoMemberUserIds.mockResolvedValue([])
     mockGetFriendUserIds.mockResolvedValue([])
 
     await fanOutStatusUpdate("self1", null, null)
 
-    expect(mockBroadcastToUsers).not.toHaveBeenCalled()
+    expect(mockBroadcastToUsers).toHaveBeenCalledWith(
+      ["self1"],
+      expect.objectContaining({ type: "community:status.update" }),
+    )
   })
 
   it("never throws — absorbs a DB error and logs a warning", async () => {

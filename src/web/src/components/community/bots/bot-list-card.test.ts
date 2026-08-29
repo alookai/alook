@@ -28,7 +28,7 @@ vi.mock("@/hooks/community/mutations", () => ({
   useCreateOrGetDm: () => ({ mutateAsync: vi.fn() }),
 }))
 vi.mock("@/stores/community/ws", () => ({
-  useOnlineUserIds: () => new Set<string>(),
+  useProfilesByUserId: () => new Map(),
 }))
 
 function passthrough(name: string) {

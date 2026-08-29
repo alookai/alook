@@ -2,7 +2,7 @@
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
-import { apiFetchIdentity } from "@/lib/community/identity-projection"
+import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { Thread, Msg } from "@/lib/community/models/message"
 
@@ -96,7 +96,11 @@ export const threadsQueryFn = (channelId: string) => async ({ signal }: { signal
           : thread.name,
         messageCount: thread.messageCount ?? 0,
         lastMessageAt: thread.lastMessageAt ?? thread.createdAt,
-        parent: { authorName: opener?.authorName ?? "", text: (opener?.content ?? first?.content ?? "").slice(0, 100) },
+        parent: {
+          authorId: opener?.authorId,
+          authorName: opener?.authorName ?? "",
+          text: (opener?.content ?? first?.content ?? "").slice(0, 100),
+        },
         ...(opener ? { parentSeq: opener.seq } : {}),
         ...(thread.parentMessageId ? { openerMessageId: thread.parentMessageId } : {}),
       }
@@ -137,7 +141,10 @@ export function useForumTags(channelId: string | null, enabled: boolean) {
 export type PinsResponse = { pins: Msg[] }
 
 export const pinsQueryFn = (channelId: string) => () =>
-  apiFetchIdentity<PinsResponse>(`/api/community/channels/${channelId}/pins`)
+  apiFetchProfiles<PinsResponse>(
+    `/api/community/channels/${channelId}/pins`,
+    (data) => messageProfilePatches(data.pins),
+  )
 
 export function usePins(channelId: string | null): UseQueryResult<PinsResponse> & {
   pins: Msg[]

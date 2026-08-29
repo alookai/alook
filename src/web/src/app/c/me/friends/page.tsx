@@ -5,8 +5,8 @@ import { FriendsPage } from "@/components/community/social/friends-page"
 import { useMemo } from "react"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useUiHandlers } from "@/stores/community"
-import { useOnlineUserIds, useCommunityWsStore } from "@/stores/community/ws"
-import { resolveRowPresence } from "@/lib/community/presence"
+import { useCommunityWsStore } from "@/stores/community/ws"
+import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
   useSendFriendRequest,
   useAcceptFriendRequest,
@@ -24,20 +24,24 @@ export default function MeFriendsPage() {
   const bp = useBreakpoint()
   const { friends: rawFriends, pending, blocked, isLoading } = useFriends()
   const uiHandlers = useUiHandlers()
-  const onlineUserIds = useOnlineUserIds()
-  const userStatuses = useCommunityWsStore((s) => s.userStatuses)
+  const profilesByUserId = useCommunityWsStore((s) => s.profilesByUserId)
   const friends = useMemo(
     () =>
       rawFriends.map((f) => {
-        const liveStatus = userStatuses.get(f.userId ?? f.id)
+        const userId = f.userId ?? f.id
+        const profile = readCommunityProfile(profilesByUserId.get(userId), userId)
         return {
           ...f,
-          status: resolveRowPresence(f, onlineUserIds),
-          statusEmoji: liveStatus ? liveStatus.emoji : f.statusEmoji,
-          statusText: liveStatus ? liveStatus.text : f.statusText,
+          name: profile.name,
+          discriminator: profile.discriminator,
+          avatar: profile.avatar,
+          avatarVersion: profile.avatarVersion,
+          status: profile.presence,
+          statusEmoji: profile.statusEmoji,
+          statusText: profile.statusText,
         }
       }),
-    [rawFriends, onlineUserIds, userStatuses],
+    [profilesByUserId, rawFriends],
   )
 
   const sendFriendRequest = useSendFriendRequest()

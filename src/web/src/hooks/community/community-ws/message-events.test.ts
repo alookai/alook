@@ -819,6 +819,19 @@ describe("useCommunityWs — message.updated", () => {
         message: { id: "m_dm", seq: 4, type: "chat", content: "approval" },
       },
     )
+    capturedQueryClient.setQueryData(communityKeys.dmMessages("dm_1"), {
+      pages: [{
+        messages: [{
+          id: "m_dm",
+          type: "chat",
+          authorId: "raw_author",
+          authorName: "Raw Author",
+          content: "approval",
+        }],
+        hasMore: false,
+      }],
+      pageParams: [null],
+    })
     const profile = { id: "u_other", name: "Other", discriminator: "0001", image: null, avatarVersion: 0 }
     const approval = {
       friendshipId: "friendship_1",
@@ -826,6 +839,7 @@ describe("useCommunityWs — message.updated", () => {
       waitingOn: null,
       otherProfile: profile,
       botProfile: { ...profile, id: "bot_1", name: "Bot" },
+      waitingOnProfile: { ...profile, id: "waiting_1", name: "Waiting" },
     }
 
     capturedOnMessage!({
@@ -836,6 +850,21 @@ describe("useCommunityWs — message.updated", () => {
     })
 
     expect(getMessageOverlay({ kind: "dm", id: "dm_1" }).liveById.get("m_dm")?.approval).toEqual(approval)
+    const cache = capturedQueryClient.getQueryData<{
+      pages: { messages: Array<{ authorName?: string; approval?: unknown }> }[]
+    }>(communityKeys.dmMessages("dm_1"))
+    expect(cache?.pages[0].messages[0]).toMatchObject({
+      authorName: "Raw Author",
+      approval,
+    })
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    expect([...useCommunityWsStore.getState().profilesByUserId.values()]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "u_other", name: "Other", avatar: "O" }),
+        expect.objectContaining({ id: "bot_1", name: "Bot", avatar: "B" }),
+        expect.objectContaining({ id: "waiting_1", name: "Waiting", avatar: "W" }),
+      ]),
+    )
   })
 
   it("refreshes approval fields on a focused channel row that exists only in the overlay", async () => {

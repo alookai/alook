@@ -63,7 +63,7 @@ describe("invalidateBotSurfaces", () => {
 })
 
 describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
-  it("useBots fetches through the identity-aware query function", async () => {
+  it("useBots fetches through the profile-seeding query function", async () => {
     apiFetchMock.mockResolvedValue({ bots: [] })
     const { useBots } = await import("./use-bots")
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -103,7 +103,20 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
         ),
       )
     })
-    apiFetchMock.mockResolvedValue({ bot: { id: "bot_1" } })
+    apiFetchMock.mockResolvedValue({
+      bot: {
+        id: "bot_1",
+        name: "Bot",
+        image: null,
+        avatarVersion: 0,
+        description: "",
+        machineId: null,
+        runtime: null,
+        modelName: null,
+        lastRefreshContextAt: null,
+        dailyActivity: [],
+      },
+    })
 
     await act(async () => {
       await mutation.mutateAsync({ id: "bot_1", reasoningEffort: "xhigh" })
@@ -161,21 +174,15 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
     // than reading an id off the (empty) response body.
   })
 
-  it("useUploadBotAvatar projects the returned identity before invalidating bot surfaces", async () => {
+  it("useUploadBotAvatar patches the canonical avatar without rewriting raw caches", async () => {
     const { useUploadBotAvatar } = await import("./use-bots")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
-    const { useMessageStreamStore } = await import("@/stores/community/message-stream")
     useCommunityWsStore.getState().reset()
-    useCommunityWsStore.getState().bindIdentityOwner("viewer")
-    const projectStream = vi.spyOn(
-      useMessageStreamStore.getState(),
-      "projectAvatarIdentity",
-    )
+    useCommunityWsStore.getState().activateProfileAccount("viewer")
     const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
     queryClient.setQueryData(communityKeys.bots(), {
       bots: [{ id: "bot_1", image: "/avatar?v=1", avatarVersion: 1 }],
     })
-    const setQueriesData = vi.spyOn(queryClient, "setQueriesData")
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       url: "/api/community/bots/bot_1/avatar?v=4",
       avatarVersion: 4,
@@ -201,19 +208,13 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
       })
     })
 
-    expect(useCommunityWsStore.getState().avatarIdentities.get("bot_1")).toEqual({
+    expect(useCommunityWsStore.getState().profilesByUserId.get("bot_1")).toMatchObject({
       avatar: "/api/community/bots/bot_1/avatar?v=4",
       avatarVersion: 4,
     })
-    expect(setQueriesData).toHaveBeenCalled()
     expect(queryClient.getQueryData(communityKeys.bots())).toMatchObject({
-      bots: [{ id: "bot_1", image: "/api/community/bots/bot_1/avatar?v=4", avatarVersion: 4 }],
+      bots: [{ id: "bot_1", image: "/avatar?v=1", avatarVersion: 1 }],
     })
-    expect(projectStream).toHaveBeenCalledWith(
-      "bot_1",
-      "/api/community/bots/bot_1/avatar?v=4",
-      4,
-    )
     act(() => renderer.unmount())
     vi.unstubAllGlobals()
   })

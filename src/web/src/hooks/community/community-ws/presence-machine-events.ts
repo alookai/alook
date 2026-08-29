@@ -11,38 +11,29 @@ import type {
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore } from "@/stores/community/ws"
-import type { FriendsPresenceResponse } from "@/hooks/community/use-friends"
 import type { MachinesResponse } from "@/hooks/community/use-machines"
 import type { PresenceMachineEventContext } from "@/hooks/community/community-ws/handler-context"
 
-// The WS store carries the current server-member overlay. The friends snapshot
-// is a second presence scope used by the DM shell and invite picker, so patch
-// it too when it is mounted. Keeping exact deltas in both sources lets readers
-// safely combine them without a stale online snapshot masking an offline event.
 export function handlePresenceUpdate(
   event: CommunityPresenceUpdate,
-  { queryClient }: PresenceMachineEventContext,
 ) {
-  useCommunityWsStore.getState().setPresence(event.userId, event.online)
-  queryClient.setQueryData<FriendsPresenceResponse | undefined>(
-    communityKeys.friendsPresence(),
-    (prev) => {
-      if (!prev) return prev
-      const currentlyOnline = prev.online.includes(event.userId)
-      if (currentlyOnline === event.online) return prev
-      return {
-        ...prev,
-        online: event.online
-          ? [...prev.online, event.userId]
-          : prev.online.filter((userId) => userId !== event.userId),
-      }
-    },
-  )
+  const profiles = useCommunityWsStore.getState()
+  profiles.patchProfiles(profiles.beginProfileSnapshot(), [{
+    id: event.userId,
+    presence: event.online ? "online" : "offline",
+  }])
 }
 
 // Status uses the same WS-store overlay pattern as presence.
 export function handleStatusUpdate(event: CommunityStatusUpdate) {
-  useCommunityWsStore.getState().setUserStatus(event.userId, event.statusEmoji, event.statusText)
+  const profiles = useCommunityWsStore.getState()
+  profiles.patchProfiles(profiles.beginProfileSnapshot(), [{
+    id: event.userId,
+    status: {
+      statusEmoji: event.statusEmoji,
+      statusText: event.statusText,
+    },
+  }])
 }
 
 // Push audit events into the bounded ring; the audit-log hook filters and

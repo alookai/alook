@@ -12,6 +12,8 @@ import {
 } from "@/lib/query-persister"
 import { disposeAccountReadStateReconciliation } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { disposeReadCoordinator } from "@/hooks/community/read-coordinator"
+import { useCommunityWsStore } from "@/stores/community/ws"
+import { seedPersistedMessageProfiles } from "@/lib/community/profile-seed"
 
 /**
  * Owns the TanStack QueryClient for the community subtree.
@@ -34,6 +36,9 @@ export function QueryProvider({
   children: ReactNode
   userId: string | null
 }) {
+  const profiles = useCommunityWsStore.getState()
+  profiles.activateProfileAccount(userId)
+  const restoreProfileSnapshot = useRef(profiles.beginProfileSnapshot()).current
   const [queryClient] = useState(() => createQueryClient())
   // Persister is bound to the userId at construction; on account switch the
   // whole community subtree unmounts and the shell re-renders with the new
@@ -59,6 +64,7 @@ export function QueryProvider({
   return (
     <PersistQueryClientProvider
       client={queryClient}
+      onSuccess={() => seedPersistedMessageProfiles(queryClient, restoreProfileSnapshot)}
       persistOptions={{
         persister,
         maxAge: PERSIST_MAX_AGE_MS,

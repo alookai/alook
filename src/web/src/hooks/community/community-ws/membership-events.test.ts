@@ -2,8 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { QueryObserver } from "@tanstack/react-query"
 import type { CommunityMemberJoin, CommunityMemberLeave, CommunityMemberUpdate } from "@alook/shared"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
-import { useCommunityWsStore } from "@/stores/community/ws"
-import { resolveRowPresence } from "@/lib/community/presence"
 import type { PresenceResponse } from "@/hooks/community/use-server-panels"
 import { communityKeys } from "@/lib/query-keys"
 import {
@@ -76,6 +74,20 @@ describe("useCommunityWs — member events", () => {
     }>(communityKeys.members("srv_1"))
     expect(cache?.pages[0].members.map((m) => m.userId)).toEqual(["u_1"])
     expect(cache?.pages[0].total).toBe(1)
+    expect(cache?.pages[0].members[0]).toMatchObject({
+      userId: "u_1",
+      name: "n",
+      discriminator: "0000",
+      avatarVersion: 0,
+      sub: "",
+    })
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    expect(useCommunityWsStore.getState().profilesByUserId.get("u_1")).toMatchObject({
+      name: "n",
+      discriminator: "0000",
+      avatar: "N",
+      avatarVersion: 0,
+    })
   })
 
   it("exact-refetches only the joined server's active presence seed", async () => {
@@ -146,11 +158,6 @@ describe("useCommunityWs — member events", () => {
     })
     const refreshedSeed = capturedQueryClient.getQueryData<PresenceResponse>(affectedKey)
     expect(refreshedSeed).toEqual({ online: ["u_online"] })
-    if (!refreshedSeed) throw new Error("missing refreshed presence seed")
-    useCommunityWsStore.getState().hydratePresence(refreshedSeed.online)
-    const onlineUserIds = useCommunityWsStore.getState().onlineUserIds
-    expect(resolveRowPresence({ userId: "u_online" }, onlineUserIds)).toBe("online")
-    expect(resolveRowPresence({ userId: "u_offline" }, onlineUserIds)).toBe("offline")
     expect(otherQuery).toHaveBeenCalledTimes(1)
     expect(capturedQueryClient.getQueryData(otherKey)).toEqual({
       online: ["u_other"],
@@ -216,7 +223,7 @@ describe("useCommunityWs — member events", () => {
     ])
   })
 
-  it("a self-rename (member.update with userId + changes.nickname) patches authorName in every cached channel/DM message list", async () => {
+  it("keeps message snapshots raw when member.update carries a rename", async () => {
     await mountHook()
     useMessageStreamStore.getState().dispatch(
       { kind: "dm", id: "dm_overlay" },
@@ -233,9 +240,6 @@ describe("useCommunityWs — member events", () => {
       },
     )
 
-    // Two message caches — one channel, one DM — each with a message
-    // authored by the renamed user and one by someone else. Both should
-    // update; the other author's row must stay untouched.
     capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_1"), {
       pages: [{
         messages: [
@@ -269,7 +273,7 @@ describe("useCommunityWs — member events", () => {
       pages: { messages: { id: string; authorName: string }[] }[]
     }>(communityKeys.channelMessages("ch_1"))
     expect(channelCache?.pages[0].messages).toEqual([
-      { id: "m_1", authorId: "u_renamed", authorName: "NewName", content: "hi" },
+      { id: "m_1", authorId: "u_renamed", authorName: "OldName", content: "hi" },
       { id: "m_2", authorId: "u_other", authorName: "Someone Else", content: "yo" },
     ])
 
@@ -277,11 +281,11 @@ describe("useCommunityWs — member events", () => {
       pages: { messages: { id: string; authorName: string }[] }[]
     }>(communityKeys.dmMessages("dm_1"))
     expect(dmCache?.pages[0].messages).toEqual([
-      { id: "m_3", authorId: "u_renamed", authorName: "NewName", content: "sup" },
+      { id: "m_3", authorId: "u_renamed", authorName: "OldName", content: "sup" },
     ])
     expect(
       getMessageOverlay({ kind: "dm", id: "dm_overlay" }).liveById.get("m_overlay")?.authorName,
-    ).toBe("NewName")
+    ).toBe("OldName")
   })
 
   it("a role-only member.update (no userId/nickname) does not touch any message cache", async () => {

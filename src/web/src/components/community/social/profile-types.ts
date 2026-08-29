@@ -3,7 +3,7 @@ import type { Presence } from "@/lib/community/models/people"
 
 // ── Profile ──────────────────────────────────────────────────────────────────
 export type Profile = {
-  name: string
+  name?: string
   // Stable user id of the profile's owner — the exact-match key for DM-target
   // resolution and self-detection (never match by non-unique display name).
   // Optional so mock/older Profile-constructing sites keep type-checking.
@@ -13,14 +13,13 @@ export type Profile = {
   // flight. Shown at its true width, never re-padded. See computeDiscriminator
   // in @alook/shared.
   discriminator?: string
-  avatar: string
+  avatar?: string
   avatarVersion?: number
   contextLabel?: string
-  about: string
-  mutual: number
-  // Live online/offline dot on the card's avatar — undefined when no
-  // member/friend match could be resolved (e.g. a stale mention). See
-  // `resolveProfilePresence` in shell-frame.tsx.
+  about?: string
+  mutual?: number
+  // Static-only fallback. Live cards read presence from the global profile
+  // map by `userId` inside `ProfileCard`.
   presence?: Presence
   // Hydrated API identity. Seeded cards intentionally omit this so the main
   // profile can paint before the public profile request resolves.

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useInfiniteQuery, type InfiniteData } from "@tanstack/react-query"
 import { compareAsciiSqliteBinary, DEFAULT_MESSAGE_PAGE_SIZE } from "@alook/shared"
-import { apiFetchIdentity } from "@/lib/community/identity-projection"
+import { apiFetchProfiles } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
 import { canonicalUserImage } from "@/lib/community/storage"
@@ -105,8 +105,36 @@ export function forumFeedPageQueryFn(channelId: string, tag: string | null) {
     })
     if (tag) params.set("tag", tag)
     if (pageParam) params.set("cursor", pageParam)
-    return apiFetchIdentity<ForumFeedPage>(
+    return apiFetchProfiles<ForumFeedPage>(
       `/api/community/channels/${channelId}/threads?${params.toString()}`,
+      (page) => [
+        ...page.included.parentMessages.map((message) => ({
+          id: message.authorId,
+          identityAbout: { name: message.authorName },
+          avatar: {
+            avatar: canonicalUserImage(
+              message.authorId,
+              message.authorImage,
+              message.authorAvatarVersion,
+            ) ?? avatarInitial(message.authorName),
+            avatarVersion: message.authorAvatarVersion,
+          },
+        })),
+        ...page.included.participants.map((participant) => ({
+          id: participant.userId,
+          ...(participant.userName !== null
+            ? { identityAbout: { name: participant.userName } }
+            : {}),
+          avatar: {
+            avatar: canonicalUserImage(
+              participant.userId,
+              participant.userImage,
+              participant.userAvatarVersion,
+            ) ?? avatarInitial(participant.userName ?? "Unknown"),
+            avatarVersion: participant.userAvatarVersion,
+          },
+        })),
+      ],
     )
   }
 }
@@ -148,6 +176,7 @@ export function mapForumFeedPages(pages: ForumFeedPage[]): ForumThread[] {
         messageCount: thread.messageCount ?? 0,
         lastMessageAt: thread.activityAt,
         parent: {
+          authorId: opener?.authorId,
           authorName: opener?.authorName ?? "",
           text: (first?.content ?? "").slice(0, 100),
         },

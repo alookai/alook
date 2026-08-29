@@ -15,15 +15,10 @@ type ProfileController = ReturnType<typeof useShellProfileController>
 export function ShellFrameOverlays({
   controller,
   breakpoint,
-  profileStatusSeeds,
   extraDialogs,
 }: {
   controller: ProfileController
   breakpoint: Breakpoint
-  profileStatusSeeds?: {
-    initialStatusEmoji: string | null
-    initialStatusText: string | null
-  }
   extraDialogs?: ReactNode
 }) {
   const { profile, currentUser } = controller
@@ -43,9 +38,6 @@ export function ShellFrameOverlays({
           onUpdateStatus={controller.updateOwnStatus}
           onOpenOwnerProfile={controller.openOwnerProfile}
           onOpenBotAudit={controller.openBotAudit}
-          activityStatusEmoji={profile.initialStatusEmoji}
-          activityStatusText={profile.initialStatusText}
-          {...profileStatusSeeds}
         />
       )}
       {controller.preview && (

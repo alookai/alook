@@ -103,6 +103,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   })
 
   const url = botAvatarUrl(botId, persisted.avatarVersion)
-  void fanOutIdentityUpdate(botId, url, persisted.avatarVersion)
+  void fanOutIdentityUpdate(botId, url, persisted.avatarVersion, ctx.userId)
   return writeJSON({ url, avatarVersion: persisted.avatarVersion })
 })

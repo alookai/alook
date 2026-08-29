@@ -235,12 +235,6 @@ export function ShellFrameView({
         <ShellFrameOverlays
           controller={profile}
           breakpoint={breakpoint}
-          {...(isDesktop && profile.profile ? {
-            profileStatusSeeds: {
-              initialStatusEmoji: profile.profile.initialStatusEmoji,
-              initialStatusText: profile.profile.initialStatusText,
-            },
-          } : {})}
           extraDialogs={extraDialogs}
         />
       )}

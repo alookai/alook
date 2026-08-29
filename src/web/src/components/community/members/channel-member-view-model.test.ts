@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   addableRefetch: vi.fn(),
   onlineUserIds: new Set<string>(),
   userStatuses: new Map<string, { emoji: string | null; text: string }>(),
+  profileAboutMe: new Map<string, string>(),
   serverSearch: vi.fn(),
   loadMore: vi.fn(),
   addChannelMember: vi.fn(),
@@ -92,9 +93,30 @@ vi.mock("@/hooks/community/mutations", () => ({
   useKickMember: () => ({ mutateAsync: mocks.kickMember }),
 }))
 vi.mock("@/stores/community/ws", () => ({
-  useOnlineUserIds: () => mocks.onlineUserIds,
-  useCommunityWsStore: (selector: (state: { userStatuses: typeof mocks.userStatuses }) => unknown) =>
-    selector({ userStatuses: mocks.userStatuses }),
+  useCommunityWsStore: (selector: (state: { profilesByUserId: Map<string, unknown> }) => unknown) => {
+    const rows = [
+      ...mocks.serverMembers,
+      ...[...mocks.channelMembers.values()].flat(),
+      ...mocks.addableMembers,
+    ]
+    const profilesByUserId = new Map(rows.flatMap((row) => {
+      const userId = row.userId as string | undefined
+      if (!userId) return []
+      const status = mocks.userStatuses.get(userId)
+      return [[userId, {
+        id: userId,
+        name: row.name,
+        discriminator: row.discriminator,
+        avatar: row.avatar,
+        avatarVersion: row.avatarVersion ?? 0,
+        aboutMe: mocks.profileAboutMe.get(userId) ?? "",
+        presence: mocks.onlineUserIds.has(userId) ? "online" : "offline",
+        statusEmoji: status?.emoji,
+        statusText: status?.text,
+      }]]
+    }))
+    return selector({ profilesByUserId })
+  },
 }))
 vi.mock("@/components/community/members/add-members-dialog", () => ({
   AddMembersDialog: vi.fn(() => null),
@@ -178,6 +200,7 @@ describe("useChannelMemberViewModel", () => {
     mocks.addableRefetch.mockResolvedValue({})
     mocks.onlineUserIds = new Set()
     mocks.userStatuses = new Map()
+    mocks.profileAboutMe = new Map()
     mocks.addChannelMember.mockResolvedValue({})
     mocks.removeChannelMember.mockResolvedValue({})
     mocks.addThreadParticipant.mockResolvedValue({})
@@ -220,6 +243,11 @@ describe("useChannelMemberViewModel", () => {
   })
 
   it("uses the public server roster, excludes self, and keeps the raw-roster resolver stable across presence ticks", () => {
+    mocks.serverMembers = [
+      member("viewer_1", "Viewer", { role: "admin" }),
+      member("alice_1", "Alice", { sub: "raw presentation" }),
+    ]
+    mocks.profileAboutMe = new Map([["alice_1", "private profile about"]])
     const modelProps = props()
     let renderer: TestRenderer.ReactTestRenderer
     act(() => {
@@ -227,6 +255,8 @@ describe("useChannelMemberViewModel", () => {
     })
 
     expect(latestModel().memberPanelProps.members.map((row) => row.userId)).toEqual(["viewer_1", "alice_1"])
+    expect(latestModel().memberPanelProps.members.find((row) => row.userId === "alice_1")?.sub)
+      .toBe("raw presentation")
     expect(latestModel().composerMembers.map((row) => row.userId)).toEqual(["alice_1"])
     expect(latestModel().memberPanelProps.onSearchMembers).toBe(mocks.serverSearch)
     expect(latestModel().memberPanelProps.onAddMember).toBeUndefined()

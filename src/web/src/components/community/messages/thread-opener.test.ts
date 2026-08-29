@@ -6,6 +6,11 @@ const useMessageMock = vi.fn()
 vi.mock("@/hooks/community/use-message", () => ({
   useMessage: (...args: unknown[]) => useMessageMock(...args),
 }))
+vi.mock("@/stores/community/ws", () => ({
+  useCommunityProfile: (userId?: string) => userId
+    ? { id: userId, name: "Alice", avatar: "A" }
+    : undefined,
+}))
 
 import { ThreadOpener } from "./thread-opener"
 
@@ -35,7 +40,7 @@ describe("ThreadOpener image attachment layout", () => {
         id: "opener_1",
         type: "chat",
         authorId: "user_1",
-        authorName: "Alice",
+        authorName: "Stale Alice",
         content: "@Bob Smith\n**visible** body",
         replyTo: { id: "prior", authorName: "Bob Smith", text: "original" },
         createdAt: "2026-08-08T00:00:00.000Z",

@@ -9,7 +9,7 @@ import type { Member } from "@/lib/community/models/people"
 import type { ComposerProps } from "@/components/community/messages/composer"
 import { toastApiError } from "@/lib/api/client"
 import { makeUserNameResolver } from "@/lib/community/display-name"
-import { resolveRowPresence } from "@/lib/community/presence"
+import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
   useAddableMembers,
   useAddChannelMember,
@@ -22,7 +22,7 @@ import {
   useRemoveThreadParticipant,
 } from "@/hooks/community/use-thread-participants"
 import { useKickMember, useSetMemberRole } from "@/hooks/community/mutations"
-import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
+import { useCommunityWsStore } from "@/stores/community/ws"
 
 type MentionCandidateSource = NonNullable<ComposerProps["mentionCandidates"]>
 
@@ -89,8 +89,7 @@ export function useChannelMemberViewModel({
   myRole: Role | undefined
 } {
   const membersHook = useServerMembers(serverId)
-  const onlineUserIds = useOnlineUserIds()
-  const userStatuses = useCommunityWsStore((state) => state.userStatuses)
+  const profilesByUserId = useCommunityWsStore((state) => state.profilesByUserId)
   const [memberUi, setMemberUi] = useState({ channelId, query: "", dialogOpen: false })
   const memberQuery = memberUi.channelId === channelId ? memberUi.query : ""
   const manageMembersOpen = memberUi.channelId === channelId && memberUi.dialogOpen
@@ -105,15 +104,22 @@ export function useChannelMemberViewModel({
 
   const members = useMemo(
     () => membersHook.members.map((member) => {
-      const liveStatus = userStatuses.get(member.userId)
+      const profile = readCommunityProfile(
+        profilesByUserId.get(member.userId),
+        member.userId,
+      )
       return {
         ...member,
-        status: resolveRowPresence(member, onlineUserIds, currentUser.id),
-        statusEmoji: liveStatus ? liveStatus.emoji : member.statusEmoji,
-        statusText: liveStatus ? liveStatus.text : member.statusText,
+        name: profile.name,
+        discriminator: profile.discriminator,
+        avatar: profile.avatar,
+        avatarVersion: profile.avatarVersion,
+        status: member.userId === currentUser.id ? "online" as const : profile.presence,
+        statusEmoji: profile.statusEmoji,
+        statusText: profile.statusText,
       }
     }),
-    [currentUser.id, membersHook.members, onlineUserIds, userStatuses],
+    [currentUser.id, membersHook.members, profilesByUserId],
   )
 
   const currentChannelPrivate = useMemo(() => {
@@ -202,28 +208,26 @@ export function useChannelMemberViewModel({
       !query || name.toLowerCase().includes(query) || (discriminator ?? "").toLowerCase().includes(query)
     const withPresence = (member: {
       userId: string
-      name: string
-      discriminator: string
-      avatar: string
-      avatarVersion: number
-      statusEmoji?: string | null
-      statusText?: string | null
+      sub: string
       isCreator?: boolean
       source?: "explicit" | "inherited" | "admin"
     }): Member => {
-      const liveStatus = userStatuses.get(member.userId)
+      const profile = readCommunityProfile(
+        profilesByUserId.get(member.userId),
+        member.userId,
+      )
       return {
         id: member.userId,
         userId: member.userId,
-        name: member.name,
-        discriminator: member.discriminator,
-        avatar: member.avatar,
-        avatarVersion: member.avatarVersion,
-        sub: "",
+        name: profile.name,
+        discriminator: profile.discriminator,
+        avatar: profile.avatar,
+        avatarVersion: profile.avatarVersion,
+        sub: member.sub,
         role: "member",
-        status: resolveRowPresence(member, onlineUserIds, currentUser.id),
-        statusEmoji: liveStatus ? liveStatus.emoji : (member.statusEmoji ?? null),
-        statusText: liveStatus ? liveStatus.text : (member.statusText ?? ""),
+        status: member.userId === currentUser.id ? "online" : profile.presence,
+        statusEmoji: profile.statusEmoji,
+        statusText: profile.statusText,
         isCreator: member.isCreator,
         source: member.source,
       }
@@ -231,13 +235,13 @@ export function useChannelMemberViewModel({
 
     if (isNotifyUnit) {
       return channelMembersHook.members
-        .filter((member) => matches(member.name, member.discriminator))
         .map((member) => withPresence({ ...member, source: undefined }))
+        .filter((member) => matches(member.name, member.discriminator))
     }
     if (!currentChannelPrivate) return members
     return channelMembersHook.members
-      .filter((member) => matches(member.name, member.discriminator))
       .map(withPresence)
+      .filter((member) => matches(member.name, member.discriminator))
   }, [
     channelMembersHook.members,
     currentChannelPrivate,
@@ -245,8 +249,7 @@ export function useChannelMemberViewModel({
     isNotifyUnit,
     memberQuery,
     members,
-    onlineUserIds,
-    userStatuses,
+    profilesByUserId,
   ])
 
   const composerMembers = useMemo(() => {
@@ -257,12 +260,19 @@ export function useChannelMemberViewModel({
     return roster
       .filter((member) => member.userId !== currentUser.id)
       .map((member) => {
-        const liveStatus = userStatuses.get(member.userId)
+        const profile = readCommunityProfile(
+          profilesByUserId.get(member.userId),
+          member.userId,
+        )
         return {
           ...member,
-          status: resolveRowPresence(member, onlineUserIds, currentUser.id),
-          statusEmoji: liveStatus ? liveStatus.emoji : member.statusEmoji,
-          statusText: liveStatus ? liveStatus.text : member.statusText,
+          name: profile.name,
+          discriminator: profile.discriminator,
+          avatar: profile.avatar,
+          avatarVersion: profile.avatarVersion,
+          status: profile.presence,
+          statusEmoji: profile.statusEmoji,
+          statusText: profile.statusText,
         }
       })
   }, [
@@ -271,9 +281,8 @@ export function useChannelMemberViewModel({
     currentUser.id,
     isNotifyUnit,
     members,
-    onlineUserIds,
     parentChannelMembersHook.members,
-    userStatuses,
+    profilesByUserId,
   ])
 
   const composerMentionCandidates = useMemo<MentionCandidateSource | undefined>(

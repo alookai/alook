@@ -10,19 +10,29 @@ export type UpdateProfileArgs = {
   statusText?: string | null
 }
 
+export type UpdateProfileResult = {
+  id: string
+  name: string
+  discriminator: string
+  avatar: string
+  avatarVersion: number
+  aboutMe: string
+  bannerColor: string | null
+  statusEmoji: string | null
+  statusText: string | null
+}
+
 /**
- * PATCH the current user's profile card. Consumers apply the returned payload
- * to their own local user state (the current-user identity lives outside the
- * community query cache).
+ * PATCH the current user's profile card. The shell applies the canonical
+ * response to the global profile map without rewriting query data.
  */
 export function useUpdateProfile() {
-  return useMutation<void, Error, UpdateProfileArgs>({
-    mutationFn: async (patch) => {
-      await apiFetch("/api/community/users/me/profile", {
+  return useMutation<UpdateProfileResult, Error, UpdateProfileArgs>({
+    mutationFn: (patch) =>
+      apiFetch<UpdateProfileResult>("/api/community/users/me/profile", {
         method: "PATCH",
         body: JSON.stringify(patch),
-      })
-    },
+      }),
   })
 }
 
@@ -31,9 +41,8 @@ export type UploadUserAvatarResult = { url: string; avatarVersion: number }
 
 /**
  * Uploads the current user's avatar. Mirrors `useUploadServerIcon`'s raw
- * `fetch`-with-`FormData` pattern. Consumers apply the returned URL to their
- * own local `CurrentUser` state — the identity lives outside the community
- * query cache (see `contexts/community/current-user.tsx`).
+ * `fetch`-with-`FormData` pattern. The shell applies the versioned result to
+ * the global profile map.
  */
 export function useUploadUserAvatar() {
   return useMutation<UploadUserAvatarResult, Error, UploadUserAvatarArgs>({

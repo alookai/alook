@@ -283,6 +283,7 @@ describe("POST /api/community/bots/[id]/avatar", () => {
       "b1",
       "/api/community/bots/b1/avatar?v=2",
       2,
+      "u1",
     )
   })
 

@@ -5,6 +5,8 @@ import type { FriendApprovalPayload } from "@alook/shared"
 import { useOwnerDecision } from "@/hooks/community/mutations/friends"
 import { Button } from "@/components/ui/button"
 import { ProfileAvatar } from "@/components/avatar"
+import { useCommunityProfile } from "@/stores/community/ws"
+import { readCommunityProfile } from "@/lib/community/profile-read"
 
 /**
  * Inline friend-approval card, rendered in a bot owner's DM with their bot when
@@ -16,8 +18,18 @@ import { ProfileAvatar } from "@/components/avatar"
 export function BotApprovalCard({ approval }: { approval: FriendApprovalPayload }) {
   const decide = useOwnerDecision()
   const { status, waitingOn, otherProfile, botProfile, waitingOnProfile } = approval
-
-  const other = otherProfile
+  const other = readCommunityProfile(
+    useCommunityProfile(otherProfile.id),
+    otherProfile.id,
+  )
+  const bot = readCommunityProfile(
+    useCommunityProfile(botProfile.id),
+    botProfile.id,
+  )
+  const waiting = readCommunityProfile(
+    useCommunityProfile(waitingOnProfile?.id),
+    waitingOnProfile?.id ?? "",
+  )
   const otherHandle = `${other.name}#${other.discriminator}`
 
   const onDecide = async (decision: "approve" | "deny") => {
@@ -38,14 +50,14 @@ export function BotApprovalCard({ approval }: { approval: FriendApprovalPayload 
       <ProfileAvatar
         label={other.name}
         seed={other.id}
-        src={other.image}
+        src={other.avatar}
         size={40}
         data-testid="bot-approval-avatar"
       />
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{otherHandle}</div>
         <div className="text-xs text-muted-foreground">
-          {other.name} wants to be friends with {botProfile.name}.
+          {other.name} wants to be friends with {bot.name}.
         </div>
       </div>
     </div>
@@ -68,7 +80,7 @@ export function BotApprovalCard({ approval }: { approval: FriendApprovalPayload 
 
   // status === "pending"
   if (waitingOn === "addressee" || waitingOn === "other-owner") {
-    const name = waitingOnProfile?.name ?? "them"
+    const name = waitingOnProfile ? waiting.name : "them"
     return chip(`Approved — waiting on ${name}`)
   }
 

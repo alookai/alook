@@ -16,7 +16,7 @@ import {
   type BotSummary,
 } from "@/hooks/community/use-bots"
 import { useCreateOrGetDm } from "@/hooks/community/mutations"
-import { useOnlineUserIds } from "@/stores/community/ws"
+import { useProfilesByUserId } from "@/stores/community/ws"
 import {
   advanceCommunityOnboarding,
   readCommunityOnboardingState,
@@ -33,7 +33,7 @@ export function useBotListController(): BotListController {
   const { bots, isLoading } = botsQuery
   const botsResolved = botsQuery.data !== undefined
   const { machines, isLoading: machinesLoading } = useMachines()
-  const onlineUserIds = useOnlineUserIds()
+  const profilesByUserId = useProfilesByUserId()
   const [createOpen, setCreateOpen] = useState(false)
   const [editingBot, setEditingBot] = useState<BotSummary | null>(null)
   const [editOpen, setEditOpen] = useState(false)
@@ -256,7 +256,7 @@ export function useBotListController(): BotListController {
     isLoading,
     machines,
     machinesLoading,
-    onlineUserIds,
+    profilesByUserId,
     createOpen,
     setCreateOpen,
     editingBot,

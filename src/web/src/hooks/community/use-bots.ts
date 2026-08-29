@@ -2,12 +2,14 @@
 
 import { useQuery, useMutation, useQueryClient, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch, readUploadError } from "@/lib/api/client"
-import { apiFetchIdentity, projectIdentityPayload } from "@/lib/community/identity-projection"
+import { apiFetchProfiles } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore } from "@/stores/community/ws"
-import { useMessageStreamStore } from "@/stores/community/message-stream"
-import type { BotActivityDay } from "@/lib/community/models/people"
+import type { BotActivityDay, CommunityProfilePatch } from "@/lib/community/models/people"
+import { avatarInitial } from "@/lib/community/avatar"
 import type { DailyUsageMetric, ReasoningEffort } from "@alook/shared"
+import { useMemo } from "react"
+import { readCommunityProfile } from "@/lib/community/profile-read"
 
 export type BotUsageDay = {
   day: string
@@ -53,12 +55,45 @@ export type BotsResponse = { bots: BotSummary[] }
 
 const EMPTY_BOTS: readonly BotSummary[] = Object.freeze([])
 
+function botProfilePatch(bot: Pick<
+  BotSummary,
+  "id" | "name" | "image" | "avatarVersion"
+>): CommunityProfilePatch {
+  return {
+    id: bot.id,
+    identityAbout: {
+      name: bot.name,
+      kind: "bot",
+    },
+    avatar: {
+      avatar: bot.image ?? avatarInitial(bot.name),
+      avatarVersion: bot.avatarVersion,
+    },
+  }
+}
+
 export function useBots(): UseQueryResult<BotsResponse> & { bots: BotSummary[] } {
   const query = useQuery({
     queryKey: communityKeys.bots(),
-    queryFn: () => apiFetchIdentity<BotsResponse>("/api/community/bots"),
+    queryFn: () => apiFetchProfiles<BotsResponse>(
+      "/api/community/bots",
+      (data) => data.bots.map(botProfilePatch),
+    ),
   })
-  return { ...query, bots: query.data?.bots ?? (EMPTY_BOTS as BotSummary[]) }
+  const profilesByUserId = useCommunityWsStore((state) => state.profilesByUserId)
+  const bots = useMemo(
+    () => (query.data?.bots ?? EMPTY_BOTS).map((bot) => {
+      const profile = readCommunityProfile(profilesByUserId.get(bot.id), bot.id)
+      return {
+        ...bot,
+        name: profile.name,
+        image: profile.avatar,
+        avatarVersion: profile.avatarVersion,
+      }
+    }),
+    [profilesByUserId, query.data?.bots],
+  )
+  return { ...query, bots }
 }
 
 export type CreateBotInput = {
@@ -71,9 +106,8 @@ export type CreateBotInput = {
   reasoningEffort?: ReasoningEffort | null
 }
 
-// Bot identity (name, image) is projected into friends() (self-bot rows) and
-// dms() (DM peer avatars). Invalidate all three whenever the owner mutates
-// a bot so open DM/friends pages re-render without a hard refresh.
+// Bot identity (name, image) is read from the global profile map. These query
+// invalidations refresh the remaining bot/friend/DM relationship metadata.
 //
 // The profile card fetches/caches a bot's aboutMe separately under
 // communityKeys.profile(botId) with its own 5-minute staleTime
@@ -98,7 +132,11 @@ export function useCreateBot() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(input),
       }),
-    onSuccess: (data) => invalidateBotSurfaces(qc, data.bot.id),
+    onSuccess: (data) => {
+      const profiles = useCommunityWsStore.getState()
+      profiles.patchProfiles(profiles.beginProfileSnapshot(), [botProfilePatch(data.bot)])
+      invalidateBotSurfaces(qc, data.bot.id)
+    },
   })
 }
 
@@ -150,7 +188,11 @@ export function useUpdateBot() {
             : {}),
         }),
       }),
-    onSuccess: (data) => invalidateBotSurfaces(qc, data.bot.id),
+    onSuccess: (data) => {
+      const profiles = useCommunityWsStore.getState()
+      profiles.patchProfiles(profiles.beginProfileSnapshot(), [botProfilePatch(data.bot)])
+      invalidateBotSurfaces(qc, data.bot.id)
+    },
   })
 }
 
@@ -213,20 +255,11 @@ export function useUploadBotAvatar() {
       return (await res.json()) as UploadBotAvatarResult
     },
     onSuccess: (data, variables) => {
-      useCommunityWsStore.getState().observeAvatarIdentity(
-        variables.botId,
-        data.url,
-        data.avatarVersion,
-      )
-      qc.setQueriesData(
-        { queryKey: communityKeys.all },
-        (current) => projectIdentityPayload(current),
-      )
-      useMessageStreamStore.getState().projectAvatarIdentity(
-        variables.botId,
-        data.url,
-        data.avatarVersion,
-      )
+      const profiles = useCommunityWsStore.getState()
+      profiles.patchProfiles(profiles.beginProfileSnapshot(), [{
+        id: variables.botId,
+        avatar: { avatar: data.url, avatarVersion: data.avatarVersion },
+      }])
       invalidateBotSurfaces(qc, variables.botId)
     },
   })

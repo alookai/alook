@@ -407,6 +407,7 @@ describe("useMessageChannelController", () => {
       {
         id: "m2",
         type: "chat",
+        authorId: "u2",
         authorName: "Bob",
         authorAvatar: avatarInitial("Bob"),
         authorAvatarVersion: 0,
@@ -416,6 +417,7 @@ describe("useMessageChannelController", () => {
       {
         id: "m3",
         type: "chat",
+        authorId: "u3",
         authorName: "Carol",
         authorAvatar: "https://example.test/carol.png",
         authorAvatarVersion: 3,

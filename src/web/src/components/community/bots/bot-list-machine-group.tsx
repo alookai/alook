@@ -85,7 +85,7 @@ export function renderBotMachineGroup(
       </div>
       <div className="flex flex-col gap-3" hidden={collapsed}>
         {bots.map((bot) => {
-          const online = controller.onlineUserIds.has(bot.id)
+          const online = controller.profilesByUserId.get(bot.id)?.presence === "online"
           return (
             <Card key={bot.id} className="flex flex-col gap-3 p-4">
               <div className="flex items-start justify-between gap-3">

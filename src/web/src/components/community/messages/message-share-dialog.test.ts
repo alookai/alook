@@ -8,6 +8,11 @@ import {
 } from "./message-share-dialog"
 import type { RenderMsg } from "@/lib/community/models/message"
 
+const profileState = vi.hoisted(() => ({ map: new Map<string, Record<string, unknown>>() }))
+vi.mock("@/stores/community/ws", () => ({
+  useProfilesByUserId: () => profileState.map,
+}))
+
 vi.mock("html-to-image", () => ({ toBlob: vi.fn() }))
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock("next/image", () => ({ default: "img" }))
@@ -41,6 +46,15 @@ function message(overrides: Partial<RenderMsg> = {}): RenderMsg {
 }
 
 function renderMessage(m: RenderMsg) {
+  profileState.map = new Map()
+  if (m.authorId) {
+    profileState.map.set(m.authorId, {
+      id: m.authorId,
+      name: m.authorName,
+      ...(m.authorAvatar ? { avatar: m.authorAvatar } : {}),
+      avatarVersion: m.authorAvatarVersion ?? 0,
+    })
+  }
   let renderer: TestRenderer.ReactTestRenderer
   act(() => {
     renderer = TestRenderer.create(React.createElement(MessageShareDialog, {

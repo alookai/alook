@@ -192,7 +192,7 @@ describe("resolveProfileBackdropSeed", () => {
 
 describe("resolveCardStatus — WS overlay wins over row seed", () => {
   it("uses the overlay entry when one exists", () => {
-    const out = resolveCardStatus({ emoji: "🎧", text: "Vibing" }, "📚", "Reading")
+    const out = resolveCardStatus({ statusEmoji: "🎧", statusText: "Vibing" }, "📚", "Reading")
     expect(out).toEqual({ emoji: "🎧", text: "Vibing" })
   })
 
@@ -207,9 +207,7 @@ describe("resolveCardStatus — WS overlay wins over row seed", () => {
   })
 
   it("lets the overlay clear a seed (emoji: null overrides seed emoji)", () => {
-    // When someone clears their status, the WS store's setUserStatus writes
-    // { emoji: null, text: null }. That must win over any lingering row seed.
-    const out = resolveCardStatus({ emoji: null, text: null }, "📚", "Reading")
+    const out = resolveCardStatus({ statusEmoji: null, statusText: null }, "📚", "Reading")
     expect(out).toEqual({ emoji: null, text: null })
   })
 
@@ -217,7 +215,7 @@ describe("resolveCardStatus — WS overlay wins over row seed", () => {
     // Overlay carries a text-only status (no emoji). Seed offers an emoji.
     // The overlay's presence — not its individual field values — is what
     // decides the source, so the seed's emoji does NOT leak in.
-    const out = resolveCardStatus({ emoji: null, text: "AFK" }, "🎧", "Vibing")
+    const out = resolveCardStatus({ statusEmoji: null, statusText: "AFK" }, "🎧", "Vibing")
     expect(out).toEqual({ emoji: null, text: "AFK" })
   })
 })

@@ -1,11 +1,10 @@
 "use client"
 
-import { useCallback, useEffect, useState, type ComponentProps } from "react"
+import { useCallback, useState, type ComponentProps } from "react"
 import { parseNameAndTag } from "@alook/shared"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import { projectIdentityPayload } from "@/lib/community/identity-projection"
 import { userProfileQueryFn, PROFILE_STALE_TIME_MS } from "@/hooks/community/use-user-profile"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
@@ -18,43 +17,64 @@ import {
   resolveProfileServerId,
   resolveProfileTarget,
   resolveProfileUserId,
-  buildSelfProfile,
 } from "@/components/community/social/profile-lookup"
-import { resolveProfilePresence } from "@/lib/community/presence"
-import { avatarInitial } from "@/lib/community/avatar"
 import { signOut } from "@/lib/auth-client"
 import { clearPersistedCache } from "@/lib/query-persister"
 import { disposeAccountReadStateReconciliation } from "@/hooks/community/community-ws/read-state-reconciliation"
 import { disposeReadCoordinator } from "@/hooks/community/read-coordinator"
 import { useCommunityStore } from "@/stores/community"
-import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
+import { useCommunityWsStore } from "@/stores/community/ws"
 import { useMessageStreamStore } from "@/stores/community/message-stream"
-import { useCurrentUser, useSetCurrentUser } from "@/contexts/community/current-user"
+import { useCurrentUser } from "@/contexts/community/current-user"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useServerMembers } from "@/hooks/community/use-server-members"
 import {
   useCreateOrGetDm,
   useUpdateProfile,
   useUploadUserAvatar,
+  type UpdateProfileResult,
 } from "@/hooks/community/mutations"
 import { useDmMessageSender } from "@/hooks/community/use-dm-message-sender"
 import type { UserSettings } from "@/components/community/settings/user-settings"
 import type { ImageCropDialog } from "@/components/community/image-crop-dialog"
 import type { QueryClient } from "@tanstack/react-query"
+import type { CommunityProfileSnapshot } from "@/lib/community/models/people"
 import type { ShellFrameProps, ShellRouter } from "./shell-frame-types"
 
 export type ShellProfileState = {
   data: Profile
   x: number
   y: number
-  initialStatusEmoji: string | null
-  initialStatusText: string | null
 }
 
 type Options = Pick<ShellFrameProps, "view" | "activeServerId"> & {
   router: ShellRouter
   queryClient: QueryClient
   cancelPendingNavigation: () => void
+}
+
+function commitCanonicalSelfProfile(
+  snapshot: CommunityProfileSnapshot,
+  profile: UpdateProfileResult,
+) {
+  const profiles = useCommunityWsStore.getState()
+  profiles.commitProfiles(snapshot, [{
+    id: profile.id,
+    identityAbout: {
+      name: profile.name,
+      discriminator: profile.discriminator,
+      aboutMe: profile.aboutMe,
+      bannerColor: profile.bannerColor,
+    },
+    avatar: {
+      avatar: profile.avatar,
+      avatarVersion: profile.avatarVersion,
+    },
+    status: {
+      statusEmoji: profile.statusEmoji,
+      statusText: profile.statusText,
+    },
+  }])
 }
 
 export function useShellProfileController({
@@ -65,9 +85,6 @@ export function useShellProfileController({
   activeServerId,
 }: Options) {
   const currentUser = useCurrentUser()
-  const setCurrentUser = useSetCurrentUser()
-  const avatarIdentities = useCommunityWsStore((state) => state.avatarIdentities)
-  const onlineUserIds = useOnlineUserIds()
   const { friends } = useFriends()
   const profileServerId = resolveProfileServerId(view, activeServerId)
   const { members } = useServerMembers(profileServerId)
@@ -98,15 +115,14 @@ export function useShellProfileController({
         ? members.find((member) => member.userId === currentUser.id)
         : undefined
       setProfile({
-        data: buildSelfProfile(
-          currentUser,
-          onlineUserIds,
-          resolveProfileContextLabel(profileServerId, selfMember),
-        ),
+        data: {
+          userId: currentUser.id,
+          contextLabel: resolveProfileContextLabel(profileServerId, selfMember),
+          mutual: 0,
+          identity: { kind: "human" },
+        },
         x,
         y,
-        initialStatusEmoji: currentUser.statusEmoji ?? null,
-        initialStatusText: currentUser.statusText ?? null,
       })
       return
     }
@@ -116,23 +132,15 @@ export function useShellProfileController({
       discriminator,
       userId: targetUserId,
     })
-    const about = member?.sub ?? ""
     const userId = resolveProfileUserId(member, targetUserId)
     setProfile({
       data: {
-        name,
-        userId,
-        avatar: member?.avatar ?? avatarInitial(name),
-        avatarVersion: member?.avatarVersion ?? 0,
+        ...(userId ? { userId } : { name, discriminator }),
         contextLabel: resolveProfileContextLabel(profileServerId, member),
-        about,
         mutual: 0,
-        presence: resolveProfilePresence(false, userId, onlineUserIds),
       },
       x,
       y,
-      initialStatusEmoji: member?.statusEmoji ?? null,
-      initialStatusText: member?.statusText ?? null,
     })
     if (userId) {
       queryClient
@@ -148,16 +156,7 @@ export function useShellProfileController({
                 ...previous,
                 data: {
                   ...previous.data,
-                  about: profileResponse.aboutMe ?? previous.data.about,
                   mutual: profileResponse.mutualServers ?? 0,
-                  discriminator: profileResponse.discriminator ?? previous.data.discriminator,
-                  avatar: profileResponse.avatarVersion >= (previous.data.avatarVersion ?? 0)
-                    ? profileResponse.image ?? previous.data.avatar
-                    : previous.data.avatar,
-                  avatarVersion: Math.max(
-                    previous.data.avatarVersion ?? 0,
-                    profileResponse.avatarVersion,
-                  ),
                   identity: profileResponse.kind === "bot"
                     ? {
                         kind: "bot",
@@ -166,34 +165,13 @@ export function useShellProfileController({
                       }
                     : { kind: "human" },
                 },
-                initialStatusEmoji: profileResponse.statusEmoji,
-                initialStatusText: profileResponse.statusText,
               }
               : previous,
           )
         })
         .catch((error) => toastApiError(error, "Failed to load profile"))
     }
-  }, [currentUser, friends, members, onlineUserIds, profileServerId, queryClient])
-
-  useEffect(() => {
-    setProfile((previous) => {
-      const userId = previous?.data.userId
-      if (!previous || !userId) return previous
-      const identity = avatarIdentities.get(userId)
-      if (!identity || identity.avatarVersion <= (previous.data.avatarVersion ?? 0)) {
-        return previous
-      }
-      return {
-        ...previous,
-        data: {
-          ...previous.data,
-          avatar: identity.avatar,
-          avatarVersion: identity.avatarVersion,
-        },
-      }
-    })
-  }, [avatarIdentities])
+  }, [currentUser, friends, members, profileServerId, queryClient])
 
   const openProfile = useCallback((
     name: string,
@@ -231,13 +209,9 @@ export function useShellProfileController({
 
   const updateOwnStatus = async (statusEmoji: string | null, statusText: string | null) => {
     try {
-      await updateProfile.mutateAsync({ statusEmoji, statusText })
-      setCurrentUser((user) => ({ ...user, statusEmoji, statusText }))
-      useCommunityWsStore.getState().setUserStatus(
-        currentUser.id,
-        statusEmoji,
-        statusText,
-      )
+      const snapshot = useCommunityWsStore.getState().beginProfileSnapshot()
+      const profile = await updateProfile.mutateAsync({ statusEmoji, statusText })
+      commitCanonicalSelfProfile(snapshot, profile)
     } catch (error) {
       toastApiError(error, "Failed to update status")
     }
@@ -296,21 +270,9 @@ export function useShellProfileController({
 
   const onSaveProfile: ComponentProps<typeof UserSettings>["onSave"] = async (data) => {
     try {
-      await updateProfile.mutateAsync(data)
-      setCurrentUser((user) => ({
-        ...user,
-        ...(data.name ? { name: data.name } : {}),
-        ...(data.aboutMe !== undefined ? { aboutMe: data.aboutMe } : {}),
-        ...(data.statusEmoji !== undefined ? { statusEmoji: data.statusEmoji } : {}),
-        ...(data.statusText !== undefined ? { statusText: data.statusText } : {}),
-      }))
-      if (data.statusEmoji !== undefined || data.statusText !== undefined) {
-        useCommunityWsStore.getState().setUserStatus(
-          currentUser.id,
-          data.statusEmoji ?? null,
-          data.statusText ?? null,
-        )
-      }
+      const snapshot = useCommunityWsStore.getState().beginProfileSnapshot()
+      const profile = await updateProfile.mutateAsync(data)
+      commitCanonicalSelfProfile(snapshot, profile)
     } catch (error) {
       toastApiError(error, "Failed to save profile")
     }
@@ -352,23 +314,11 @@ export function useShellProfileController({
           { file },
           {
             onSuccess: (data) => {
-              const store = useCommunityWsStore.getState()
-              store.observeAvatarIdentity(currentUser.id, data.url, data.avatarVersion)
-              queryClient.setQueriesData(
-                { queryKey: communityKeys.all },
-                (cached) => projectIdentityPayload(cached),
-              )
-              useMessageStreamStore.getState().projectAvatarIdentity(
-                currentUser.id,
-                data.url,
-                data.avatarVersion,
-              )
-              const identity = useCommunityWsStore.getState().avatarIdentities.get(currentUser.id)
-              if (identity) {
-                setCurrentUser((user) => identity.avatarVersion > (user.avatarVersion ?? 0)
-                  ? { ...user, avatar: identity.avatar, avatarVersion: identity.avatarVersion }
-                  : user)
-              }
+              const profiles = useCommunityWsStore.getState()
+              profiles.patchProfiles(profiles.beginProfileSnapshot(), [{
+                id: currentUser.id,
+                avatar: { avatar: data.url, avatarVersion: data.avatarVersion },
+              }])
               toast("Avatar updated")
             },
             onError: (error) => toastApiError(error, "Failed to upload avatar"),

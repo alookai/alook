@@ -2,7 +2,10 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
-import { apiFetchIdentity } from "@/lib/community/identity-projection"
+import {
+  apiFetchProfiles,
+  communityUserProfilePatch,
+} from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { CommunityRole } from "@alook/shared"
 import type { CommunityUserCore } from "@/lib/community/models/people"
@@ -41,7 +44,11 @@ const EMPTY_ADDABLE: readonly AddableMember[] = Object.freeze([])
 export async function addableMembersQueryFn(serverId: string, channelId: string): Promise<{ members: AddableMember[] }> {
   const [serverMembers, channelData] = await Promise.all([
     fetchAllServerMembers(serverId),
-    apiFetchIdentity<{ members: ChannelMember[] }>(`/api/community/channels/${encodeURIComponent(channelId)}/members`),
+    apiFetchProfiles<{ members: ChannelMember[] }>(
+      `/api/community/channels/${encodeURIComponent(channelId)}/members`,
+      (data) => data.members.map((member) =>
+        communityUserProfilePatch(member.userId, member)),
+    ),
   ])
   const present = new Set(channelData.members.map((member) => member.userId))
   return {
@@ -65,8 +72,10 @@ export function useChannelMembers(
   const query = useQuery({
     queryKey: communityKeys.channelMembers(channelId),
     queryFn: () =>
-      apiFetchIdentity<{ members: ChannelMember[] }>(
+      apiFetchProfiles<{ members: ChannelMember[] }>(
         `/api/community/channels/${encodeURIComponent(channelId)}/members`,
+        (data) => data.members.map((member) =>
+          communityUserProfilePatch(member.userId, member)),
       ),
     enabled: enabled && !!channelId,
   })

@@ -20,7 +20,21 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("sonner", () => ({ toast: mocks.toastSpy }))
 vi.mock("@/stores/community/ws", () => ({
-  useOnlineUserIds: () => mocks.onlineUserIds,
+  useCommunityWsStore: (selector: (state: { profilesByUserId: Map<string, unknown> }) => unknown) => {
+    const profilesByUserId = new Map(mocks.friendsQuery.friends.flatMap((friend) =>
+      friend.userId ? [[friend.userId, {
+        id: friend.userId,
+        name: friend.name,
+        discriminator: friend.discriminator,
+        avatar: friend.avatar,
+        avatarVersion: friend.avatarVersion,
+        aboutMe: friend.sub,
+        presence: mocks.onlineUserIds.has(friend.userId) || mocks.onlineFriendIds.includes(friend.userId)
+          ? "online"
+          : "offline",
+      }]] : []))
+    return selector({ profilesByUserId })
+  },
 }))
 vi.mock("@/hooks/community/use-friends", () => ({
   useFriendsPresence: () => ({ online: mocks.onlineFriendIds }),

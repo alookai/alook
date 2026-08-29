@@ -98,13 +98,14 @@ function currentUser(overrides: Partial<CurrentUser> = {}): CurrentUser {
     discriminator: overrides.discriminator,
     statusEmoji: overrides.statusEmoji,
     statusText: overrides.statusText,
+    presence: overrides.presence,
   }
 }
 
 describe("buildSelfProfile", () => {
   it("builds the viewer's own card from currentUser, independent of any member/friend list — regression for the /c/me UserBar bug where a same-named friend was shown instead of the viewer", () => {
     const me = currentUser({ id: "user_self", name: "Ren", discriminator: "0001", aboutMe: "hi" })
-    const profile = buildSelfProfile(me, new Set())
+    const profile = buildSelfProfile(me)
 
     expect(profile.userId).toBe("user_self")
     expect(profile.name).toBe("Ren")
@@ -113,18 +114,18 @@ describe("buildSelfProfile", () => {
     expect(profile.contextLabel).toBeUndefined()
   })
 
-  it("always resolves self presence to online, even when the viewer's id is absent from the online set", () => {
-    const profile = buildSelfProfile(currentUser({ id: "user_self" }), new Set())
+  it("uses the canonical self presence supplied by currentUser", () => {
+    const profile = buildSelfProfile(currentUser({ id: "user_self", presence: "online" }))
     expect(profile.presence).toBe("online")
   })
 
   it("falls back to an avatar initial when the viewer has no avatar", () => {
-    const profile = buildSelfProfile(currentUser({ name: "alice", avatar: "" }), new Set())
+    const profile = buildSelfProfile(currentUser({ name: "alice", avatar: "" }))
     expect(profile.avatar).toBe("A")
   })
 
   it("uses the viewer's real server role when the caller provides one", () => {
-    const profile = buildSelfProfile(currentUser(), new Set(), "Admin")
+    const profile = buildSelfProfile(currentUser(), "Admin")
 
     expect(profile.contextLabel).toBe("Admin")
   })

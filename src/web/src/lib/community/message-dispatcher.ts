@@ -149,10 +149,16 @@ export async function planCommittedMessage(
       .filter((id) => notifyContentSet.has(id) && allowed(id)),
   )
 
-  const replyMap = new Map<string, { id: string; authorName: string; content: string | null }>()
+  const replyMap = new Map<string, {
+    id: string
+    authorId: string
+    authorName: string
+    content: string | null
+  }>()
   if (replyTarget) {
     replyMap.set(replyTarget.id, {
       id: replyTarget.id,
+      authorId: replyTarget.authorId,
       authorName: replyTarget.authorName,
       content: replyTarget.content,
     })

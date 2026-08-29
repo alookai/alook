@@ -9,6 +9,7 @@ const mockUpdateBotRuntimeConfig = vi.fn()
 const mockGetMachineForOwner = vi.fn()
 const mockIsBotOnline = vi.fn()
 const mockGetUserPublic = vi.fn()
+const mockGetProfile = vi.fn()
 const mockPushBotEventToMachine = vi.fn()
 const mockPushAgentModelSwitchToMachine = vi.fn()
 const mockPushAgentProviderSwitchToMachine = vi.fn()
@@ -17,6 +18,7 @@ const mockLogError = vi.fn()
 const mockListBotServerMemberships = vi.fn()
 const mockSoftDeleteBot = vi.fn()
 const mockFanOutToServerMembers = vi.fn()
+const mockFanOutProfileUpdate = vi.fn()
 const mockGetCloudflareContext = vi.fn()
 const mockWaitUntil = vi.fn()
 const mockMediaDelete = vi.fn()
@@ -54,6 +56,9 @@ vi.mock("@alook/shared", async () => {
       user: {
         getUserPublic: (...a: unknown[]) => mockGetUserPublic(...a),
       },
+      communityUserProfile: {
+        getProfile: (...a: unknown[]) => mockGetProfile(...a),
+      },
     },
   }
 })
@@ -69,6 +74,7 @@ vi.mock("@/lib/broadcast", () => ({
 }))
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: (...a: unknown[]) => mockFanOutToServerMembers(...a),
+  fanOutProfileUpdate: (...a: unknown[]) => mockFanOutProfileUpdate(...a),
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
@@ -146,6 +152,8 @@ describe("PATCH /api/community/bots/[id]", () => {
       id: "b1", name: "New", discriminator: "0001", description: "new desc", image: null,
     })
     mockGetUserPublic.mockResolvedValue({ id: "u1", name: "Owner", discriminator: "9999" })
+    mockGetProfile.mockResolvedValue({ aboutMe: "bot bio", bannerColor: null })
+    mockFanOutProfileUpdate.mockResolvedValue(undefined)
     mockIsBotOnline.mockResolvedValue(true)
     mockGetMachineForOwner.mockResolvedValue({
       id: "mac1",

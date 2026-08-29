@@ -30,8 +30,6 @@ const controller = {
     data: { userId: "remote", name: "Remote" },
     x: 12,
     y: 34,
-    initialStatusEmoji: "🌱",
-    initialStatusText: "Growing",
   },
   closeProfile: vi.fn(),
   profileMessage: vi.fn(),
@@ -68,10 +66,6 @@ describe("ShellFrameOverlays", () => {
       renderer = TestRenderer.create(createElement(ShellFrameOverlays, {
         controller,
         breakpoint: "desktop",
-        profileStatusSeeds: {
-          initialStatusEmoji: "🌱",
-          initialStatusText: "Growing",
-        },
         extraDialogs: createElement("extra-dialog"),
       }))
     })
@@ -92,10 +86,8 @@ describe("ShellFrameOverlays", () => {
     expect(types.indexOf("crop-dialog")).toBeLessThan(types.indexOf("extra-dialog"))
 
     const profileCard = renderer.root.findByType("profile-card")
-    expect(profileCard.props.initialStatusEmoji).toBe("🌱")
-    expect(profileCard.props.initialStatusText).toBe("Growing")
-    expect(profileCard.props.activityStatusEmoji).toBe("🌱")
-    expect(profileCard.props.activityStatusText).toBe("Growing")
+    expect("initialStatusEmoji" in profileCard.props).toBe(false)
+    expect("initialStatusText" in profileCard.props).toBe(false)
     expect(profileCard.props.onOpenOwnerProfile).toBe(controller.openOwnerProfile)
     expect(profileCard.props.onOpenBotAudit).toBe(controller.openBotAudit)
     expect(renderer.root.findByType("crop-dialog").props.maskShape).toBe("circle")
@@ -119,8 +111,8 @@ describe("ShellFrameOverlays", () => {
     const profileCard = renderer.root.findByType("profile-card")
     expect("initialStatusEmoji" in profileCard.props).toBe(false)
     expect("initialStatusText" in profileCard.props).toBe(false)
-    expect(profileCard.props.activityStatusEmoji).toBe("🌱")
-    expect(profileCard.props.activityStatusText).toBe("Growing")
+    expect("activityStatusEmoji" in profileCard.props).toBe(false)
+    expect("activityStatusText" in profileCard.props).toBe(false)
   })
 
   it("omits nullable overlays while keeping closed sheet and settings wiring", async () => {

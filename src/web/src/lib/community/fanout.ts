@@ -150,34 +150,37 @@ export function fanOutToDM(
  * separate `ws-do` worker and isn't reachable from `src/web`'s API routes,
  * but it's built from the same two shared query functions used here.
  */
-async function getProfileAudience(db: Database, userId: string): Promise<string[]> {
-  const [coMembers, friends] = await Promise.all([
-    queries.communityMember.getCoMemberUserIds(db, userId),
-    queries.communityFriendship.getFriendUserIds(db, userId),
-  ])
-  return [...new Set([...coMembers, ...friends])]
-}
-
-async function getIdentityAudience(db: Database, userId: string): Promise<string[]> {
+async function getProfileAudience(
+  db: Database,
+  userId: string,
+  ownerUserId?: string | null,
+): Promise<string[]> {
   const [coMembers, friends, dmPeers] = await Promise.all([
     queries.communityMember.getCoMemberUserIds(db, userId),
     queries.communityFriendship.getFriendUserIds(db, userId),
     queries.communityDm.listDmPeerUserIds(db, userId),
   ])
-  return [...new Set([userId, ...coMembers, ...friends, ...dmPeers])]
+  return [...new Set([
+    userId,
+    ...coMembers,
+    ...friends,
+    ...dmPeers,
+    ...(ownerUserId ? [ownerUserId] : []),
+  ])]
 }
 
 export function fanOutIdentityUpdate(
   userId: string,
   avatar: string,
   avatarVersion: number,
+  ownerUserId?: string | null,
 ): Promise<void> {
   try {
     const { env, ctx } = getCloudflareContext()
     const db = getDb((env as Env).DB)
     const work = (async () => {
       try {
-        const audience = await getIdentityAudience(db, userId)
+        const audience = await getProfileAudience(db, userId, ownerUserId)
         await broadcastToRecipients(audience, {
           type: WS_EVENTS.IDENTITY_UPDATE,
           userId,
@@ -203,21 +206,19 @@ export function fanOutIdentityUpdate(
 }
 
 /**
- * Fan out a status change to everyone who can currently see the user
- * (server co-members + friends). Self is intentionally excluded from their
- * own audience — the caller updates the local WS store directly on save
- * success instead (see `setUserStatus` call sites in `shell-frame.tsx` /
- * `settings/user-settings.tsx`).
+ * Fan out a status change to every visible surface, including the author's
+ * other tabs and devices.
  */
 export async function fanOutStatusUpdate(
   userId: string,
   statusEmoji: string | null,
   statusText: string | null,
+  ownerUserId?: string | null,
 ): Promise<void> {
   try {
     const { env } = getCloudflareContext()
     const db = getDb((env as Env).DB)
-    const audience = await getProfileAudience(db, userId)
+    const audience = await getProfileAudience(db, userId, ownerUserId)
     await broadcastToRecipients(audience, {
       type: WS_EVENTS.STATUS_UPDATE,
       userId,
@@ -226,6 +227,38 @@ export async function fanOutStatusUpdate(
     })
   } catch (err) {
     log.warn("fanout_status_update_failed", { userId, err: String(err) })
+  }
+}
+
+export async function fanOutProfileUpdate(profile: {
+  id: string
+  name: string
+  discriminator: string
+  aboutMe: string
+  bannerColor: string | null
+  identity: { kind: "human" } | {
+    kind: "bot"
+    ownerProfile: { id: string }
+  }
+}): Promise<void> {
+  try {
+    const { env } = getCloudflareContext()
+    const db = getDb((env as Env).DB)
+    const kind = profile.identity.kind
+    const ownerUserId = kind === "bot" ? profile.identity.ownerProfile.id : null
+    const audience = await getProfileAudience(db, profile.id, ownerUserId)
+    await broadcastToRecipients(audience, {
+      type: WS_EVENTS.PROFILE_UPDATE,
+      userId: profile.id,
+      name: profile.name,
+      discriminator: profile.discriminator,
+      aboutMe: profile.aboutMe,
+      bannerColor: profile.bannerColor,
+      kind,
+      ownerUserId,
+    })
+  } catch (err) {
+    log.warn("fanout_profile_update_failed", { userId: profile.id, err: String(err) })
   }
 }
 

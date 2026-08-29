@@ -150,6 +150,7 @@ async function resetStore() {
   useCommunityStore.getState().setCurrentServerId("s1")
   const { useCommunityWsStore } = await import("@/stores/community/ws")
   useCommunityWsStore.getState().reset()
+  useCommunityWsStore.getState().activateProfileAccount("viewer")
   useCommunityWsStore.getState().markAccessConnected()
   useMessageStreamStore.getState().resetAll()
   const mod = await import("../use-community-ws")

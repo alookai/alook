@@ -40,7 +40,7 @@ vi.mock("@/components/avatar", () => ({
 }))
 
 vi.mock("@/stores/community/ws", () => ({
-  useOnlineUserIds: () => new Set(["bot-1"]),
+  useCommunityProfile: () => ({ presence: "online" }),
 }))
 
 vi.mock("@/hooks/community/use-bot-audit-log", () => ({

@@ -37,8 +37,7 @@ import type { FileAttachment, ImagePreview } from "@/lib/community/models/messag
  * 2. Store setters should no-op on identical state.
  *    Zustand notifies every subscriber on `set(...)` regardless of whether
  *    the value actually changed. Guard writes with a content-equality
- *    check (see `subscribe` / `unsubscribe` below, and `hydratePresence` /
- *    `resetPresence` in `./ws.ts`). Otherwise a subscriber in the same
+ *    check (see `subscribe` / `unsubscribe` below). Otherwise a subscriber in the same
  *    subtree re-renders, shifts a dep, and re-invokes the setter — loop.
  *
  * 3. Selectors for "handler-shaped" state should return a module-scoped

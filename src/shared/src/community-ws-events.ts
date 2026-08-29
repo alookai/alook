@@ -48,6 +48,7 @@ const messageSchema = z.strictObject({
   replyToId: nullableString.optional(),
   replyTo: z.strictObject({
     id: string,
+    authorId: string.optional(),
     authorName: string,
     text: string,
     deleted: z.boolean().optional(),
@@ -404,6 +405,17 @@ const communityIdentityUpdateSchema = z.strictObject({
   avatarVersion: z.number().int().positive(),
 })
 
+const communityProfileUpdateSchema = z.strictObject({
+  type: z.literal("community:profile.update"),
+  userId: string,
+  name: string,
+  discriminator: string,
+  aboutMe: string,
+  bannerColor: nullableString,
+  kind: z.enum(["human", "bot"]),
+  ownerUserId: nullableString,
+})
+
 const machineRuntimeSchema = CommunityMachineRuntimeSchema.strict()
 
 export const CommunityMachineSummarySchema = z.strictObject({
@@ -500,6 +512,7 @@ const CommunityWsEventDiscriminatedSchema = z.discriminatedUnion("type", [
   communityPresenceUpdateSchema,
   communityStatusUpdateSchema,
   communityIdentityUpdateSchema,
+  communityProfileUpdateSchema,
   communityMachineCreatedSchema,
   communityMachineStatusSchema,
   communityMachineUpdatedSchema,
@@ -567,6 +580,7 @@ export type CommunityInboxChanged = Extract<CommunityWsEvent, { type: "community
 export type CommunityPresenceUpdate = Extract<CommunityWsEvent, { type: "community:presence.update" }>
 export type CommunityStatusUpdate = Extract<CommunityWsEvent, { type: "community:status.update" }>
 export type CommunityIdentityUpdate = Extract<CommunityWsEvent, { type: "community:identity.update" }>
+export type CommunityProfileUpdate = Extract<CommunityWsEvent, { type: "community:profile.update" }>
 export type CommunityMachineCreated = Extract<CommunityWsEvent, { type: "community:machine.created" }>
 export type CommunityMachineStatus = Extract<CommunityWsEvent, { type: "community:machine.status" }>
 export type CommunityMachineUpdated = Extract<CommunityWsEvent, { type: "community:machine.updated" }>
@@ -640,6 +654,7 @@ export const WS_EVENTS = {
   PRESENCE_UPDATE: "community:presence.update",
   STATUS_UPDATE: "community:status.update",
   IDENTITY_UPDATE: "community:identity.update",
+  PROFILE_UPDATE: "community:profile.update",
   MACHINE_CREATED: "community:machine.created",
   MACHINE_STATUS: "community:machine.status",
   MACHINE_UPDATED: "community:machine.updated",

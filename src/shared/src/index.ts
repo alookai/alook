@@ -603,6 +603,7 @@ export type {
   CommunityPresenceUpdate,
   CommunityStatusUpdate,
   CommunityIdentityUpdate,
+  CommunityProfileUpdate,
   CommunityMentionCreate,
   CommunityUnreadBump,
   CommunityReadStateAdvanced,

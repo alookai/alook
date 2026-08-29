@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
 const getProfile = vi.fn()
+const getPublicProfileForViewer = vi.fn()
 const updateProfile = vi.fn()
 const getUser = vi.fn()
 const listMemberServerIds = vi.fn()
@@ -9,6 +10,7 @@ const getMemberships = vi.fn()
 const authApiUpdateUser = vi.fn()
 const fanOutToServerMembers = vi.fn()
 const fanOutStatusUpdate = vi.fn()
+const fanOutProfileUpdate = vi.fn()
 let actorKind: "human" | "bot" = "human"
 
 vi.mock("@opennextjs/cloudflare", () => ({
@@ -24,8 +26,8 @@ vi.mock("@/lib/auth", () => ({
 }))
 
 vi.mock("@/lib/community/fanout", () => ({
-  fanOutToServerMembers: (...a: unknown[]) => fanOutToServerMembers(...a),
   fanOutStatusUpdate: (...a: unknown[]) => fanOutStatusUpdate(...a),
+  fanOutProfileUpdate: (...a: unknown[]) => fanOutProfileUpdate(...a),
 }))
 
 vi.mock("@alook/shared", async () => {
@@ -35,6 +37,7 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityUserProfile: {
         getProfile: (...a: unknown[]) => getProfile(...a),
+        getPublicProfileForViewer: (...a: unknown[]) => getPublicProfileForViewer(...a),
         updateProfile: (...a: unknown[]) => updateProfile(...a),
       },
       user: {
@@ -131,7 +134,7 @@ describe("GET /api/community/users/me/profile", () => {
     expect(await res.json()).toEqual({
       id: "u1",
       aboutMe: "",
-      avatar: "",
+      avatar: "?",
       avatarVersion: 0,
       bannerColor: null,
       discriminator: "0000",
@@ -150,12 +153,31 @@ describe("PATCH /api/community/users/me/profile", () => {
     listMemberServerIds.mockResolvedValue([])
     getMemberships.mockResolvedValue([])
     fanOutStatusUpdate.mockResolvedValue(undefined)
+    fanOutProfileUpdate.mockResolvedValue(undefined)
     updateProfile.mockImplementation(async (_db, _u, data) => ({
       aboutMe: data.aboutMe ?? null,
       bannerColor: data.bannerColor ?? null,
       statusEmoji: data.statusEmoji ?? null,
       statusText: data.statusText ?? null,
     }))
+    getPublicProfileForViewer.mockImplementation(async (_db, id: string) => {
+      const data = updateProfile.mock.calls.at(-1)?.[2] ?? {}
+      const rename = authApiUpdateUser.mock.calls.at(-1)?.[0]?.body?.name
+      return {
+        id,
+        name: rename ?? (id === "b1" ? "Bot" : "Jane Roe"),
+        discriminator: "4242",
+        image: null,
+        avatarVersion: 0,
+        aboutMe: data.aboutMe ?? "",
+        bannerColor: data.bannerColor ?? null,
+        statusEmoji: data.statusEmoji ?? null,
+        statusText: data.statusText ?? "",
+        identity: id === "b1"
+          ? { kind: "bot", ownerProfile: { id: "u1" } }
+          : { kind: "human" },
+      }
+    })
   })
 
   it("accepts a valid hex bannerColor", async () => {
@@ -223,36 +245,18 @@ describe("PATCH /api/community/users/me/profile", () => {
     )
   })
 
-  it("rename broadcasts MEMBER_UPDATE with userId + the new nickname to every server the user belongs to", async () => {
-    listMemberServerIds.mockResolvedValue(["srv_a", "srv_b"])
-    getMemberships.mockResolvedValue([
-      { id: "mem_a", serverId: "srv_a", userId: "u1" },
-      { id: "mem_b", serverId: "srv_b", userId: "u1" },
-    ])
-
+  it("rename broadcasts the canonical profile update", async () => {
     const res = await PATCH(patchReq({ name: "New" }), {} as never)
     expect(res.status).toBe(200)
-    expect(fanOutToServerMembers).toHaveBeenCalledTimes(2)
-    expect(fanOutToServerMembers).toHaveBeenCalledWith("srv_a", expect.objectContaining({
-      type: "community:member.update",
-      serverId: "srv_a",
-      memberId: "mem_a",
-      userId: "u1",
-      changes: { nickname: "New" },
-    }))
-    expect(fanOutToServerMembers).toHaveBeenCalledWith("srv_b", expect.objectContaining({
-      type: "community:member.update",
-      serverId: "srv_b",
-      memberId: "mem_b",
-      userId: "u1",
-      changes: { nickname: "New" },
-    }))
+    expect(fanOutProfileUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "u1", name: "New" }),
+    )
   })
 
-  it("rename with no server memberships broadcasts nothing", async () => {
-    const res = await PATCH(patchReq({ name: "New" }), {} as never)
+  it("status-only updates do not broadcast a profile frame", async () => {
+    const res = await PATCH(patchReq({ statusText: "Busy" }), {} as never)
     expect(res.status).toBe(200)
-    expect(fanOutToServerMembers).not.toHaveBeenCalled()
+    expect(fanOutProfileUpdate).not.toHaveBeenCalled()
   })
 
   it("forwards the Set-Cookie headers from auth.api.updateUser on the response", async () => {
@@ -273,16 +277,31 @@ describe("PATCH /api/community/users/me/profile", () => {
   })
 
   it("returns shape consistent with GET (no userId leak)", async () => {
-    updateProfile.mockResolvedValue({
+    getPublicProfileForViewer.mockResolvedValue({
+      id: "u1",
+      name: "Jane Roe",
+      discriminator: "4242",
+      image: null,
+      avatarVersion: 0,
       aboutMe: "hi",
       bannerColor: "#aabbcc",
       statusEmoji: null,
-      statusText: null,
-      userId: "u1",
+      statusText: "",
+      identity: { kind: "human" },
     })
     const res = await PATCH(patchReq({ aboutMe: "hi" }), {} as never)
     const body = await res.json()
-    expect(body).toEqual({ aboutMe: "hi", bannerColor: "#aabbcc", statusEmoji: null, statusText: "" })
+    expect(body).toEqual({
+      id: "u1",
+      name: "Jane Roe",
+      discriminator: "4242",
+      avatar: "J",
+      avatarVersion: 0,
+      aboutMe: "hi",
+      bannerColor: "#aabbcc",
+      statusEmoji: null,
+      statusText: "",
+    })
     expect(body).not.toHaveProperty("userId")
   })
 
@@ -322,7 +341,7 @@ describe("PATCH /api/community/users/me/profile", () => {
   it("calls fanOutStatusUpdate when statusEmoji/statusText change", async () => {
     const res = await PATCH(patchReq({ statusEmoji: "🎧", statusText: "Vibing" }), {} as never)
     expect(res.status).toBe(200)
-    expect(fanOutStatusUpdate).toHaveBeenCalledWith("u1", "🎧", "Vibing")
+    expect(fanOutStatusUpdate).toHaveBeenCalledWith("u1", "🎧", "Vibing", null)
   })
 
   it("allows a bot to update only its own public bio", async () => {
