@@ -27,6 +27,8 @@ export interface MessageRowProps {
   onToggleReactionId?: (id: string, emoji: string) => void
   onReactId?: (id: string, emoji: string) => void
   onReplyId?: (id: string) => void
+  mentionText?: string
+  onInsertMentionText?: (text: string) => void
   onPinId?: (id: string) => void
   onMarkId?: (id: string) => void
   onCreateThreadId?: (id: string) => void
@@ -55,7 +57,7 @@ export interface MessageRowProps {
 function MessageRowImpl(props: MessageRowProps) {
   const {
     m, viewerUserId, hoverCapable, pinned, highlighted, onOpenThread, onOpenProfile,
-    onToggleReactionId, onReactId, onReplyId, onPinId, onMarkId, onCreateThreadId,
+    onToggleReactionId, onReactId, onReplyId, mentionText, onInsertMentionText, onPinId, onMarkId, onCreateThreadId,
     onCopyId, onEditId, onRetryId, onDismissId, onJumpToId, onPreviewImage, onPreviewAttachment, onDownloadFile,
     resolveUserName, onImageLoad,
     selectMode, selected, onToggleSelectId, onEnterSelectId, onShareSingleId,
@@ -72,6 +74,9 @@ function MessageRowImpl(props: MessageRowProps) {
   const onToggleReaction = useCallback((emoji: string) => onToggleReactionId?.(id, emoji), [onToggleReactionId, id])
   const onReact = useCallback((emoji: string) => onReactId?.(id, emoji), [onReactId, id])
   const onReply = useCallback(() => onReplyId?.(id), [onReplyId, id])
+  const onMentionAuthor = useCallback(() => {
+    if (mentionText) onInsertMentionText?.(mentionText)
+  }, [mentionText, onInsertMentionText])
   const onPin = useCallback(() => onPinId?.(id), [onPinId, id])
   const onMark = useCallback(() => onMarkId?.(id), [onMarkId, id])
   const onCreateThread = useCallback(() => onCreateThreadId?.(id), [onCreateThreadId, id])
@@ -102,6 +107,7 @@ function MessageRowImpl(props: MessageRowProps) {
       onToggleReaction={onToggleReactionId ? onToggleReaction : undefined}
       onReact={onReactId ? onReact : undefined}
       onReply={onReplyId ? onReply : undefined}
+      onMentionAuthor={mentionText && onInsertMentionText ? onMentionAuthor : undefined}
       onPin={onPinId ? onPin : undefined}
       onMark={onMarkId ? onMark : undefined}
       onCreateThread={onCreateThreadId ? onCreateThread : undefined}

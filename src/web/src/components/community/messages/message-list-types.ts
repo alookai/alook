@@ -4,6 +4,7 @@ import type { OpenProfile } from "@/components/community/social/profile-types"
 
 export type MessageListProps = {
   channel: string
+  scrollMemoryKey?: string
   messages: Msg[]
   loading?: boolean
   pinnedIds?: Set<string>
@@ -14,6 +15,8 @@ export type MessageListProps = {
   onToggleReaction?: (id: string, emoji: string) => void
   onReact?: (id: string, emoji: string) => void
   onReply?: (id: string) => void
+  resolveAuthorMentionText?: (authorId: string) => string | null
+  onInsertMentionText?: (text: string) => void
   onPin?: (id: string) => void
   onMark?: (id: string) => void
   onCreateThread?: (id: string) => void

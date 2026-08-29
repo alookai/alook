@@ -24,7 +24,7 @@ async function holdRoute(page: Page, pathname: string) {
   }
 }
 
-test("community checkpoint waits for layout-owned frame commits", async ({ asUser }) => {
+test("community checkpoint keeps the committed frame live until navigation commits", async ({ asUser }) => {
   test.setTimeout(120_000)
   const stamp = Date.now()
   const serverId = await seedServer("alice", `Frame Gate ${stamp}`)
@@ -55,10 +55,11 @@ test("community checkpoint waits for layout-owned frame commits", async ({ asUse
   const leafGate = await holdRoute(page, `/c/channels/${serverId}/${channelB}`)
   await page.getByTestId(tid.channelRow(channelB)).click({ noWaitAfter: true })
   await expect.poll(leafGate.held).toBeGreaterThan(0)
-  await expect(page.getByLabel("Loading conversation")).toBeVisible()
-  await expect(page.getByRole("heading", { name: channelAName })).toHaveCount(0)
+  await expect(page.getByLabel("Loading conversation")).toHaveCount(0)
+  await expect(page.getByRole("heading", { name: channelAName })).toBeVisible()
   await page.waitForTimeout(150)
-  await expect(page.getByLabel("Loading conversation")).toBeVisible()
+  await expect(page.getByLabel("Loading conversation")).toHaveCount(0)
+  await expect(page.getByRole("heading", { name: channelAName })).toBeVisible()
   await leafGate.release()
   await expect(page.getByRole("heading", { name: channelBName })).toBeVisible({ timeout: 30_000 })
 
@@ -67,10 +68,11 @@ test("community checkpoint waits for layout-owned frame commits", async ({ asUse
   await page.getByTestId(tid.channelHeaderServer(serverId)).click({ noWaitAfter: true })
   await expect.poll(rootGate.held).toBeGreaterThan(0)
   await page.setViewportSize({ width: 1280, height: 900 })
-  await expect(page.getByTestId(tid.pendingMain("server-landing"))).toBeVisible()
-  await expect(page.getByRole("heading", { name: channelBName })).toHaveCount(0)
+  await expect(page.getByLabel("Loading conversation")).toHaveCount(0)
+  await expect(page.getByRole("heading", { name: channelBName })).toBeVisible()
   await page.waitForTimeout(150)
-  await expect(page.getByTestId(tid.pendingMain("server-landing"))).toBeVisible()
+  await expect(page.getByLabel("Loading conversation")).toHaveCount(0)
+  await expect(page.getByRole("heading", { name: channelBName })).toBeVisible()
   await rootGate.release()
   await expect(page.getByRole("heading", { name: channelBName })).toBeVisible({ timeout: 30_000 })
 
@@ -80,11 +82,9 @@ test("community checkpoint waits for layout-owned frame commits", async ({ asUse
   await page.getByRole("button", { name: "Machines", exact: true }).click({ noWaitAfter: true })
   await expect.poll(machinesGate.held).toBeGreaterThan(0)
   await expect(page.getByLabel("Loading conversation")).toHaveCount(0)
-  await expect(page.getByRole("button", { name: "Machines", exact: true }))
-    .toHaveClass(/bg-sidebar-accent/)
-  await expect(page.getByPlaceholder("Search friends")).toHaveCount(0)
+  await expect(page.getByPlaceholder("Search friends")).toBeVisible()
   await page.waitForTimeout(150)
-  await expect(page.getByPlaceholder("Search friends")).toHaveCount(0)
+  await expect(page.getByPlaceholder("Search friends")).toBeVisible()
   await machinesGate.release()
   await expect(page.getByRole("heading", { name: "No machines yet", exact: true }))
     .toBeVisible({ timeout: 30_000 })

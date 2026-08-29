@@ -3,6 +3,8 @@ import { matchPlatformLink } from "./platform-link"
 
 describe("matchPlatformLink", () => {
   it.each([
+    ["https://alook.ai/c/invite/abcdef", "alook", "Alook"],
+    ["https://www.alook.ai/c/invite/abcdef", "alook", "Alook"],
     ["https://github.com/alookai/alook/pull/598", "github", "GitHub"],
     ["https://gist.github.com/alookai/abc", "github", "GitHub"],
     ["https://x.com/alookai/status/1", "x", "X"],
@@ -21,6 +23,7 @@ describe("matchPlatformLink", () => {
   it.each([
     "https://github.com.evil.example/alookai/alook",
     "https://notgithub.com/alookai/alook",
+    "https://alook.ai.evil.example/c/invite/abcdef",
     "https://example.com/story",
     "ftp://github.com/alookai/alook",
     "/c/invite/abcdef",

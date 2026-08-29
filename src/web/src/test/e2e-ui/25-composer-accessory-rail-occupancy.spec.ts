@@ -19,7 +19,9 @@ type Rect = {
 
 type RailMetrics = {
   layout: string | null
-  rail: Rect
+  rail: Rect | null
+  scroller: Rect
+  typingSpace: Rect
   composer: Rect
   typing: Rect | null
   center: Rect | null
@@ -35,11 +37,10 @@ type RailMetrics = {
 }
 
 async function railMetrics(page: Page): Promise<RailMetrics> {
-  const rail = page.getByTestId(tid.composerAccessoryRail)
   const composer = page.getByTestId(tid.channelComposerShell)
-  return rail.evaluate((element, ids) => {
-    const target = element as HTMLElement
-    const find = (id: string) => target.querySelector<HTMLElement>(`[data-testid='${id}']`)
+  return page.evaluate((ids) => {
+    const find = (id: string) => document.querySelector<HTMLElement>(`[data-testid='${id}']`)
+    const rail = find(ids.rail)
     const typing = find(ids.typing)
     const center = find(ids.scroll) ?? find(ids.selection)
     const typingText = typing?.querySelector<HTMLElement>("span.min-w-0.truncate") ?? null
@@ -54,9 +55,11 @@ async function railMetrics(page: Page): Promise<RailMetrics> {
       center: value.left + value.width / 2,
     })
     return {
-      layout: target.dataset.layout ?? null,
-      rail: toRect(target.getBoundingClientRect()),
-      composer: toRect(document.querySelector<HTMLElement>(`[data-testid='${ids.composer}']`)!.getBoundingClientRect()),
+      layout: rail?.dataset.layout ?? null,
+      rail: rail ? toRect(rail.getBoundingClientRect()) : null,
+      scroller: toRect(find(ids.scroller)!.getBoundingClientRect()),
+      typingSpace: toRect(document.querySelector<HTMLElement>("[data-message-typing-space]")!.getBoundingClientRect()),
+      composer: toRect(find(ids.composer)!.getBoundingClientRect()),
       typing: typing ? toRect(typing.getBoundingClientRect()) : null,
       center: center ? toRect(center.getBoundingClientRect()) : null,
       documentClientWidth: document.documentElement.clientWidth,
@@ -72,9 +75,11 @@ async function railMetrics(page: Page): Promise<RailMetrics> {
         : null,
     }
   }, {
+    rail: tid.composerAccessoryRail,
     typing: tid.typingIndicator,
     scroll: tid.scrollToPresent,
     selection: tid.messageSelectionToolbar,
+    scroller: tid.messageScroller,
     composer: tid.channelComposerShell,
   }).then(async (metrics) => {
     await expect(composer).toBeVisible()
@@ -87,8 +92,12 @@ function expectContained(metrics: RailMetrics, state: string, width: number): vo
   expect(metrics.documentScrollWidth, evidence).toBe(metrics.documentClientWidth)
   for (const control of [metrics.typing, metrics.center]) {
     if (!control || control.width === 0) continue
-    expect(control.left, evidence).toBeGreaterThanOrEqual(metrics.rail.left - 0.5)
-    expect(control.right, evidence).toBeLessThanOrEqual(metrics.rail.right + 0.5)
+    expect(control.left, evidence).toBeGreaterThanOrEqual(-0.5)
+    expect(control.right, evidence).toBeLessThanOrEqual(metrics.documentClientWidth + 0.5)
+  }
+  if (metrics.rail && metrics.center) {
+    expect(metrics.center.left, evidence).toBeGreaterThanOrEqual(metrics.rail.left - 0.5)
+    expect(metrics.center.right, evidence).toBeLessThanOrEqual(metrics.rail.right + 0.5)
   }
 }
 
@@ -97,21 +106,24 @@ function expectCheckpoint(
   state: string,
   width: number,
   selection: boolean,
+  typing: boolean,
 ): void {
   const evidence = `${state}@${width}: ${JSON.stringify(metrics)}`
   const expectedGap = width < 640 ? 8 : 16
-  for (const [name, control] of [
-    ["typing", metrics.typing],
-    [selection ? "selection" : "scroll", metrics.center],
-  ] as const) {
-    if (!control || control.width === 0) continue
-    expect(Math.abs(metrics.composer.top - control.bottom - expectedGap), `${name} ${evidence}`)
-      .toBeLessThanOrEqual(1)
-  }
+  expect(metrics.typingSpace.height, evidence).toBe(typing ? 44 : 0)
+  expect(metrics.scroller.bottom, evidence).toBeLessThanOrEqual(metrics.typingSpace.top + 1)
+  expect(metrics.typingSpace.bottom, evidence).toBeLessThanOrEqual(metrics.composer.top + 1)
   if (metrics.typing?.width) {
     expect(metrics.typing.height, `typing ${evidence}`).toBe(32)
+    expect(metrics.typing.top, evidence).toBeGreaterThanOrEqual(metrics.typingSpace.top - 1)
+    expect(metrics.typing.bottom, evidence).toBeLessThanOrEqual(metrics.typingSpace.bottom + 1)
   }
   if (metrics.center?.width) {
+    expect(metrics.rail, evidence).not.toBeNull()
+    expect(Math.abs(metrics.scroller.bottom - metrics.center.bottom - expectedGap), evidence)
+      .toBeLessThanOrEqual(1)
+    expect(metrics.rail!.bottom, evidence).toBeLessThanOrEqual(metrics.typingSpace.top + 1)
+    expect(metrics.center.bottom, evidence).toBeLessThanOrEqual(metrics.typingSpace.top + 1)
     if (!selection) {
       expect(metrics.center.height, `scroll ${evidence}`).toBe(32)
     } else if (width === 390) {
@@ -119,10 +131,6 @@ function expectCheckpoint(
     } else if (width === 1280) {
       expect(metrics.center.height, `selection ${evidence}`).toBe(38)
     }
-  }
-  if (metrics.typing?.width && metrics.center?.width) {
-    expect(Math.abs(metrics.typing.bottom - metrics.center.bottom), `shared baseline ${evidence}`)
-      .toBeLessThanOrEqual(1)
   }
 }
 
@@ -163,7 +171,8 @@ async function captureState(args: {
         : rect.left > 1 && Math.abs(rect.right - viewportWidth) <= 1
     }, width)).toBe(true)
     const rail = page.getByTestId(tid.composerAccessoryRail)
-    await expect(rail).toHaveAttribute("data-layout", layout!)
+    await expect(rail).toHaveCount(center ? 1 : 0)
+    if (center) await expect(rail).toHaveAttribute("data-layout", layout!)
     await expect(page.getByTestId(tid.typingIndicator)).toHaveCount(typing ? 1 : 0)
     await expect(page.getByTestId(tid.messageSelectionToolbar)).toHaveCount(selection ? 1 : 0)
     if (selection && (width === 390 || width === 1280)) {
@@ -173,7 +182,7 @@ async function captureState(args: {
     }
     const metrics = await railMetrics(page)
     expectContained(metrics, state, width)
-    expectCheckpoint(metrics, state, width, selection)
+    expectCheckpoint(metrics, state, width, selection, typing)
     if (center) {
       expect(metrics.center, `${state}@${width}`).not.toBeNull()
       expect(Math.abs(metrics.center!.center - metrics.composer.center), `${state}@${width}`)
@@ -198,6 +207,7 @@ async function captureEmptyState(page: Page, testInfo: TestInfo): Promise<void> 
     await expect(page.getByTestId(tid.scrollToPresent)).toHaveCount(0)
     await expect(page.getByTestId(tid.composerAccessoryRail)).toHaveCount(0)
     await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible()
+    expect((await page.locator("[data-message-typing-space]").boundingBox())?.height).toBe(0)
     const documentWidths = await page.evaluate(() => ({
       client: document.documentElement.clientWidth,
       scroll: document.documentElement.scrollWidth,
@@ -310,7 +320,7 @@ test("composer accessory rail reallocates every occupied slot without overflow",
     page: alice.page,
     testInfo,
     state: "l-only",
-    layout: "left-only",
+    layout: null,
     center: false,
     typing: true,
   })

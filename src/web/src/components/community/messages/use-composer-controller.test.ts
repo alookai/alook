@@ -81,6 +81,11 @@ type TestEditor = {
   getJSON: ReturnType<typeof vi.fn>
   state: {
     tr: object
+    selection: { from: number; to: number }
+    doc: {
+      content: { size: number }
+      textBetween: ReturnType<typeof vi.fn>
+    }
   }
   view: {
     dispatch: ReturnType<typeof vi.fn>
@@ -149,7 +154,14 @@ describe("useComposerController", () => {
       isEmpty: false,
       getText: vi.fn(() => "  hello @everyone  "),
       getJSON: vi.fn(() => ({ type: "doc" })),
-      state: { tr: transaction },
+      state: {
+        tr: transaction,
+        selection: { from: 5, to: 5 },
+        doc: {
+          content: { size: 10 },
+          textBetween: vi.fn((from: number, to: number) => to === 5 ? "o" : from === 5 ? "w" : ""),
+        },
+      },
       view: { dispatch, dom: { setAttribute: setDomAttribute } },
       commands: {
         clearContent,
@@ -434,6 +446,26 @@ describe("useComposerController", () => {
 
     handleRef.current?.focusEditor()
     expect(focus).toHaveBeenCalledWith("end")
+    handleRef.current?.insertTextAtCaret("@Alice Smith#0042")
+    expect(editor.chain).toHaveBeenCalled()
+    expect(chainFocus).toHaveBeenCalled()
+    expect(insertContent).toHaveBeenCalledWith({
+      type: "text",
+      text: " @Alice Smith#0042 ",
+    })
+    handleRef.current?.insertMentionAtCaret({
+      id: "member_1",
+      label: "Alice Smith#0042",
+    })
+    expect(insertContent).toHaveBeenLastCalledWith([
+      { type: "text", text: " " },
+      {
+        type: "mention",
+        attrs: { id: "member_1", label: "Alice Smith#0042" },
+      },
+      { type: "text", text: " " },
+    ])
+    expect(run).toHaveBeenCalled()
     handleRef.current?.openFilePicker()
     expect(filePickerClick).toHaveBeenCalledOnce()
     expect(handleRef.current?.isEmpty()).toBe(false)
@@ -833,7 +865,10 @@ describe("useComposerController", () => {
     expect(focus).not.toHaveBeenCalled()
     await act(async () => {
       renderer.update(
-        createElement(Harness, { ...props, replyingTo: "Ada" }),
+        createElement(Harness, {
+          ...props,
+          replyingTo: { authorName: "Ada", text: "First target" },
+        }),
       )
     })
     expect(focus).not.toHaveBeenCalled()
@@ -883,7 +918,7 @@ describe("useComposerController", () => {
           ...acceptedProps(accept),
           channel: "random",
           draftKey: "server/random",
-          replyingTo: "Ada",
+          replyingTo: { authorName: "Ada", text: "First target" },
         }),
       )
     })
@@ -895,7 +930,7 @@ describe("useComposerController", () => {
           ...acceptedProps(accept),
           channel: "random",
           draftKey: "server/random",
-          replyingTo: "Grace",
+          replyingTo: { authorName: "Grace", text: "Second target" },
         }),
       )
     })
@@ -915,7 +950,7 @@ describe("useComposerController", () => {
           ...acceptedProps(accept),
           channel: "random",
           draftKey: "server/random",
-          replyingTo: "Ada",
+          replyingTo: { authorName: "Ada", text: "First target" },
         }),
       )
     })
@@ -929,12 +964,6 @@ describe("useComposerController", () => {
     expect(handleDropRaw.mock.invocationCallOrder[0]).toBeLessThan(
       focus.mock.invocationCallOrder[0],
     )
-
-    focus.mockClear()
-    view.onAttachOpenChange(true)
-    expect(focus).not.toHaveBeenCalled()
-    view.onAttachOpenChange(false)
-    expect(focus).toHaveBeenCalledWith()
 
     focus.mockClear()
     view.onUploadFile()

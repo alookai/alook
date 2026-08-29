@@ -14,6 +14,7 @@ import type { FileAttachment, ImagePreview } from "@/lib/community/models/messag
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { AttachmentCard } from "./attachment-card"
 import { displayReplyContent } from "@/lib/community/reply-content"
+import { useMobileAvatarMention } from "./use-mobile-avatar-mention"
 
 // Thread opener — the parent message the thread was created from, pinned at
 // the top of the thread's message list. Deliberately styled like a REGULAR
@@ -37,6 +38,8 @@ export function ThreadOpener({
   onPreviewAttachment,
   onDownloadFile,
   onJump,
+  resolveAuthorMentionText,
+  onInsertMentionText,
 }: {
   parentMessageId: string
   viewerUserId: string
@@ -44,11 +47,22 @@ export function ThreadOpener({
   onPreviewImage?: (image: ImagePreview) => void
   onPreviewAttachment?: (attachment: FileAttachment) => void
   onDownloadFile?: (url: string, name: string) => void
+  resolveAuthorMentionText?: (authorId: string) => string | null
+  onInsertMentionText?: (text: string) => void
   // Jump to the parent message in its channel. When provided, a hover-revealed
   // "Jump" button appears in the opener's top-right.
   onJump?: () => void
 }) {
   const { message: msg, isLoading, isError } = useMessage(parentMessageId)
+  const mentionText = msg ? resolveAuthorMentionText?.(msg.authorId) ?? null : null
+  const avatarMention = useMobileAvatarMention({
+    onMention: mentionText && onInsertMentionText
+      ? () => onInsertMentionText(mentionText)
+      : undefined,
+    onProfileClick: (event) => {
+      if (msg) onOpenProfile?.(msg.authorName, event, undefined, msg.authorId)
+    },
+  })
 
   if (isLoading) return <ThreadOpenerSkeleton />
 
@@ -71,7 +85,7 @@ export function ThreadOpener({
   const visibleContent = displayReplyContent(msg.content ?? "", msg.replyTo)
 
   return (
-    <div className="group relative">
+    <div data-thread-opener className="group relative">
       <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <MessagesSquare className="size-3.5" />
         <span>Thread started from</span>
@@ -92,8 +106,11 @@ export function ThreadOpener({
 
       <div className="flex gap-3">
         <button
-          onClick={(e) => onOpenProfile?.(msg.authorName, e, undefined, msg.authorId)}
+          {...avatarMention}
           className="shrink-0 self-start"
+          aria-label={mentionText && onInsertMentionText
+            ? `Open ${msg.authorName} profile; long press to mention`
+            : undefined}
         >
           <Avatar label={avatarLabel} seed={msg.authorId} size={40} />
         </button>

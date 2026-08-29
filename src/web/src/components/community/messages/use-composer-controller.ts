@@ -29,6 +29,7 @@ import {
 } from "./composer-file-utils"
 import { handleComposerKeyDown } from "./composer-keydown"
 import type { ComposerHandle, ComposerProps } from "./composer-types"
+import { mentionNodesForCaretInsertion, textNodeForCaretInsertion } from "./caret-text-insertion"
 import type { ComposerViewProps } from "./composer-view"
 import { useComposerSuggestions } from "./use-composer-suggestions"
 
@@ -116,7 +117,6 @@ export function useComposerController(
     (context === "channel" ? `Message /${channel}` : `Message ${channel}`)
   const placeholderRef = useRef(resolvedPlaceholder)
   const resolvePlaceholder = useCallback(() => placeholderRef.current, [])
-
   const suggestions = useComposerSuggestions({
     members,
     context,
@@ -125,7 +125,6 @@ export function useComposerController(
     channelRefCandidateSource,
     onChannelRefIntent,
   })
-
   const fireTyping = () => {
     if (!onTyping || typingTimer.current) return
     onTyping()
@@ -133,7 +132,6 @@ export function useComposerController(
       typingTimer.current = null
     }, 3_000)
   }
-
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -218,20 +216,17 @@ export function useComposerController(
       }
     },
   })
-
   const enterKeyHint =
     isForumThreadBody || breakpoint !== "desktop" ? "enter" : "send"
   useLayoutEffect(() => {
     editor?.view?.dom?.setAttribute("enterkeyhint", enterKeyHint)
   }, [editor, enterKeyHint])
-
   useLayoutEffect(() => {
     if (placeholderRef.current === resolvedPlaceholder) return
     placeholderRef.current = resolvedPlaceholder
     if (!editor) return
     editor.view?.dispatch(editor.state.tr)
   }, [editor, resolvedPlaceholder])
-
   useEffect(() => {
     if (!editor || isForumThreadBody || !draftKey) return
     const doc = readComposerDraft(draftKey)
@@ -324,6 +319,14 @@ export function useComposerController(
     focusEditor: () => {
       editor?.commands.focus("end")
     },
+    insertTextAtCaret: (text) => {
+      if (!editor || !text) return
+      const insertion = textNodeForCaretInsertion(text, editor.state)
+      editor.chain().focus().insertContent(insertion).run()
+    },
+    insertMentionAtCaret: (mention) => {
+      if (editor && mention.id && mention.label) editor.chain().focus().insertContent(mentionNodesForCaretInsertion(mention, editor.state)).run()
+    },
     submitNow: () => {
       send()
     },
@@ -384,9 +387,6 @@ export function useComposerController(
     sendDisabled:
       sendInFlight || (!editorHasContent && pendingFiles.length === 0),
     onSend: send,
-    onAttachOpenChange: (open) => {
-      if (!open) editor?.commands.focus()
-    },
     onUploadFile: () => {
       fileInputRef.current?.click()
       editor?.commands.focus()

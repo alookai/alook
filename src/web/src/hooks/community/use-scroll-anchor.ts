@@ -87,7 +87,9 @@ export function shouldAdjustMessageScrollPosition(
   item: VirtualItem,
   _delta: number,
   instance: SizeAdjustmentVirtualizer,
+  userScrolledAway = false,
 ): boolean {
+  if (userScrolledAway) return false
   if (instance.scrollDirection === "backward") return false
 
   const offset = (instance.scrollOffset ?? 0) + instance.scrollAdjustments
@@ -393,6 +395,7 @@ export function useScrollAnchor({
   viewerUserId,
   heroHeight,
   heroMeasured,
+  restoredScrollTop,
 }: {
   items: FlatItem[]
   newDividerBefore?: string
@@ -412,6 +415,7 @@ export function useScrollAnchor({
   // `DecideScrollActionInput.heroMeasured`'s doc comment for the bug this
   // prevents (mount firing on a stale, default-0 `scrollMargin`).
   heroMeasured: boolean
+  restoredScrollTop?: number
 }): {
   scrollRef: React.RefObject<HTMLDivElement | null>
   virtualizer: ReactVirtualizer<HTMLDivElement, Element>
@@ -424,8 +428,8 @@ export function useScrollAnchor({
   const stateRef = useRef<ScrollAnchorState>(createScrollAnchorState())
   const messages = extractScrollAnchorMessages(items)
   const tailId = messages[messages.length - 1]?.id ?? null
-  const wasAtEndRef = useRef(true)
-  const userScrolledAwayRef = useRef(false)
+  const wasAtEndRef = useRef(restoredScrollTop === undefined)
+  const userScrolledAwayRef = useRef(restoredScrollTop !== undefined)
   const measuredRowHeightsRef = useRef(new WeakMap<Element, number>())
   const bottomRepinQueuedRef = useRef(false)
 
@@ -501,8 +505,26 @@ export function useScrollAnchor({
   // it is already installed when React attaches row refs in the commit.
   // Cast: our helper takes a structural subset; Virtualizer keeps some of
   // those fields private in the public type.
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
-    shouldAdjustMessageScrollPosition as unknown as typeof virtualizer.shouldAdjustScrollPositionOnItemSizeChange
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = ((item, delta, instance) => {
+    return shouldAdjustMessageScrollPosition(
+      item,
+      delta,
+      instance as unknown as SizeAdjustmentVirtualizer,
+      userScrolledAwayRef.current,
+    )
+  }) as typeof virtualizer.shouldAdjustScrollPositionOnItemSizeChange
+
+  // `anchorTo: "end"` is still needed while React applies edge-key changes:
+  // that is what preserves the visible row across an older-page prepend.
+  // Between renders, however, virtual-core also uses `anchorTo: "end"` to
+  // decide whether a row resize should keep the viewport pinned. Its internal
+  // distance excludes `scrollMargin` (the hero) while its scroll offset
+  // includes it, so a viewer who moved upward by less than the hero height can
+  // be mistaken for still-at-end and yanked down by the resize delta. Switch
+  // only that between-render mode to `start` once the user has moved away;
+  // the next render's `setOptions({ anchorTo: "end" })` still performs prepend
+  // anchoring before this assignment restores the live resize mode.
+  virtualizer.options.anchorTo = userScrolledAwayRef.current ? "start" : "end"
 
   // Whether the viewer was within NEAR_BOTTOM_PX of the end BEFORE this
   // commit's append — the semantics `decideScrollAction` documents for its
@@ -522,17 +544,27 @@ export function useScrollAnchor({
     const onScroll = () => {
       const nextScrollTop = el.scrollTop
       const isAtEnd = virtualizer.isAtEnd(NEAR_BOTTOM_PX)
+      const leftEnd = wasAtEndRef.current && !isAtEnd
       wasAtEndRef.current = isAtEnd
-      if (isAtEnd) userScrolledAwayRef.current = false
-      else if (nextScrollTop < lastScrollTop - 1) userScrolledAwayRef.current = true
+      if (isAtEnd) {
+        userScrolledAwayRef.current = false
+        virtualizer.options.anchorTo = "end"
+      } else if (leftEnd || nextScrollTop < lastScrollTop - 1) {
+        userScrolledAwayRef.current = true
+        virtualizer.options.anchorTo = "start"
+      }
       lastScrollTop = nextScrollTop
     }
     const onWheel = (event: WheelEvent) => {
-      if (event.deltaY < 0) userScrolledAwayRef.current = true
+      if (event.deltaY < 0) {
+        userScrolledAwayRef.current = true
+        virtualizer.options.anchorTo = "start"
+      }
     }
     const onKeyDown = (event: KeyboardEvent) => {
       if (["ArrowUp", "PageUp", "Home"].includes(event.key)) {
         userScrolledAwayRef.current = true
+        virtualizer.options.anchorTo = "start"
       }
     }
     el.addEventListener("scroll", onScroll, { passive: true })
@@ -561,6 +593,7 @@ export function useScrollAnchor({
 
     switch (action.type) {
       case "mount": {
+        if (restoredScrollTop !== undefined) return
         const idx = action.newDividerBefore ? findMountScrollTargetIndex(items, action.newDividerBefore) : null
         if (idx !== null) {
           virtualizer.scrollToIndex(idx, { align: "center" })
@@ -579,7 +612,7 @@ export function useScrollAnchor({
     // derives from items) — `items` alone is the correct dep, not a
     // secondary `messages` dep, avoiding a re-derivation-triggered re-fire.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, newDividerBefore, initialScrollReady, heroMeasured, hasMoreNewer, viewerUserId, virtualizer])
+  }, [items, newDividerBefore, initialScrollReady, heroMeasured, hasMoreNewer, viewerUserId, virtualizer, restoredScrollTop])
 
   const consumedPresentVersionRef = useRef(0)
   useLayoutEffect(() => {

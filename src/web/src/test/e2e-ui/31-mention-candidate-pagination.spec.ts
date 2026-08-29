@@ -125,7 +125,12 @@ test("@ candidates page to completion, expose first search page, and keep status
   const editable = composerEditable(page)
   await expect(editable).toBeVisible({ timeout: 20_000 })
   await editable.click()
-  await editable.pressSequentially("@")
+  const wrappedPrefix = Array.from(
+    { length: 6 },
+    (_, index) => `wrapped composer line ${index + 1} keeps the terminal caret moving`,
+  ).join(" ")
+  await editable.fill(wrappedPrefix)
+  await editable.pressSequentially(" @")
   await expect(page.getByTestId(tid.mentionOption(browse[11]!.id))).toHaveCount(1)
 
   await editable.pressSequentially("CapMatch")
@@ -138,7 +143,7 @@ test("@ candidates page to completion, expose first search page, and keep status
   await expect(page.getByTestId(tid.mentionOption(matches[204]!.id))).toHaveCount(1)
   await expect(mentionOptions).toHaveCount(205)
 
-  const readBounds = () => page.getByTestId(tid.mentionPopup).evaluate((element) => {
+  const readBounds = (popupTestId: string) => page.getByTestId(popupTestId).evaluate((element) => {
     const popup = element.getBoundingClientRect()
     const selection = window.getSelection()
     if (!selection || selection.rangeCount === 0) throw new Error("Missing composer caret")
@@ -161,18 +166,25 @@ test("@ candidates page to completion, expose first search page, and keep status
     }
   })
 
-  const expectAnchoredAbove = (bounds: Awaited<ReturnType<typeof readBounds>>) => {
+  const expectAnchoredToCaret = (bounds: Awaited<ReturnType<typeof readBounds>>) => {
+    const margin = 8
     expect(bounds.caret.top).toBeGreaterThanOrEqual(bounds.viewport.top)
     expect(bounds.caret.bottom).toBeLessThanOrEqual(bounds.viewport.bottom)
-    expect(bounds.popup.top).toBeGreaterThanOrEqual(bounds.viewport.top)
-    expect(bounds.popup.bottom).toBeLessThanOrEqual(bounds.viewport.bottom)
-    expect(bounds.popup.left).toBeGreaterThanOrEqual(bounds.viewport.left)
-    expect(bounds.popup.right).toBeLessThanOrEqual(bounds.viewport.right)
-    expect(bounds.popup.bottom - bounds.caret.top).toBeGreaterThanOrEqual(-5)
-    expect(bounds.popup.bottom - bounds.caret.top).toBeLessThanOrEqual(-3)
+    expect(bounds.popup.top).toBeGreaterThanOrEqual(bounds.viewport.top + margin - 0.5)
+    expect(bounds.popup.bottom).toBeLessThanOrEqual(bounds.viewport.bottom - margin + 0.5)
+    expect(bounds.popup.left).toBeGreaterThanOrEqual(bounds.viewport.left + margin - 0.5)
+    expect(bounds.popup.right).toBeLessThanOrEqual(bounds.viewport.right - margin + 0.5)
+    const nearestEdgeGaps = [
+      bounds.caret.top - bounds.popup.bottom,
+      bounds.popup.top - bounds.caret.bottom,
+    ]
+    expect(
+      nearestEdgeGaps.some((gap) => gap >= 3 && gap <= 5),
+      `popup did not stay 4px from terminal caret: ${JSON.stringify(bounds)}`,
+    ).toBe(true)
   }
 
-  expectAnchoredAbove(await readBounds())
+  expectAnchoredToCaret(await readBounds(tid.mentionPopup))
   await page.evaluate(() => {
     const setViewport = Reflect.get(window, "__setMentionTestVisualViewport") as
       | ((geometry: { offsetTop: number; height: number }) => void)
@@ -183,9 +195,21 @@ test("@ candidates page to completion, expose first search page, and keep status
   await page.evaluate(() => new Promise<void>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
   }))
-  expectAnchoredAbove(await readBounds())
+  expectAnchoredToCaret(await readBounds(tid.mentionPopup))
   await page.waitForTimeout(250)
-  expectAnchoredAbove(await readBounds())
+  expectAnchoredToCaret(await readBounds(tid.mentionPopup))
+
+  await page.keyboard.press("Escape")
+  await editable.press("ControlOrMeta+A")
+  await editable.press("Backspace")
+  await editable.fill(wrappedPrefix)
+  await editable.pressSequentially(" /")
+  await expect(page.getByTestId(tid.channelRefPopup)).toBeVisible()
+  expectAnchoredToCaret(await readBounds(tid.channelRefPopup))
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  }))
+  expectAnchoredToCaret(await readBounds(tid.channelRefPopup))
 
   await page.keyboard.press("Escape")
   await editable.press("ControlOrMeta+A")

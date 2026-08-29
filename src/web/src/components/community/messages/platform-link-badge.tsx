@@ -1,4 +1,5 @@
 import type { ComponentPropsWithoutRef } from "react"
+import Image from "next/image"
 import { Link2 } from "lucide-react"
 import {
   SiDiscord,
@@ -21,7 +22,7 @@ const ICONS = {
   figma: SiFigma,
   notion: SiNotion,
   discord: SiDiscord,
-} satisfies Record<PlatformLinkKind, typeof SiGithub>
+} satisfies Record<Exclude<PlatformLinkKind, "alook">, typeof SiGithub>
 
 type PlatformLinkBadgeProps = ComponentPropsWithoutRef<"a"> & {
   node?: unknown
@@ -51,7 +52,22 @@ export function PlatformLinkBadge({
     )
   }
 
-  const Icon = ICONS[platform.kind]
+  const icon = platform.kind === "alook"
+    ? (
+        <Image
+          src="/favicon.ico"
+          alt=""
+          width={16}
+          height={16}
+          unoptimized
+          className="platform-link-badge-icon"
+          aria-hidden="true"
+        />
+      )
+    : (() => {
+        const Icon = ICONS[platform.kind]
+        return <Icon className="platform-link-badge-icon" aria-hidden="true" />
+      })()
   return (
     <a
       {...props}
@@ -60,7 +76,7 @@ export function PlatformLinkBadge({
       data-platform-link={platform.kind}
       aria-label={props["aria-label"] ?? `${platform.label}: ${href}`}
     >
-      <Icon className="platform-link-badge-icon" aria-hidden="true" />
+      {icon}
       <span className="platform-link-badge-label">{children}</span>
     </a>
   )

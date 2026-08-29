@@ -6,6 +6,12 @@ import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useMessageListController, type MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
+import {
+  clearMessageScrollPositions,
+  captureActiveMessageScrollPosition,
+  readMessageScrollPosition,
+  writeMessageScrollPosition,
+} from "./message-scroll-memory"
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..")
 const readWebSource = (path: string) => readFileSync(resolve(webRoot, path), "utf8")
@@ -16,7 +22,7 @@ const mocks = vi.hoisted(() => ({
   sentinelInputs: [] as unknown[],
   sentinelRefs: [] as Array<{ current: null }>,
   scrollRef: { current: null as HTMLDivElement | null },
-  virtualizer: {},
+  virtualizer: { scrollToOffset: vi.fn(), containerRef: { current: null } },
   jumpToIndex: vi.fn(),
   scrollToBottom: vi.fn(),
   onImageLoad: vi.fn(),
@@ -91,12 +97,23 @@ describe("useMessageListController", () => {
   let requestFrame: ReturnType<typeof vi.fn>
   let cancelFrame: ReturnType<typeof vi.fn>
   let visibleMessageIds: string[]
+  let selectionRailTop: number | null
+  let selectedRowBottom: number
   const disconnect = vi.fn()
   const heroNode = { offsetHeight: 0 }
   const scrollNode = {
+    scrollTop: 0,
+    scrollHeight: 3206,
+    clientHeight: 692,
+    isConnected: true,
+    parentElement: {
+      querySelector: () => selectionRailTop === null ? null : ({
+        getBoundingClientRect: () => ({ top: selectionRailTop }),
+      }),
+    },
     querySelectorAll: () => visibleMessageIds.map((id) => ({
       dataset: { msgId: id },
-      getBoundingClientRect: () => ({ top: 10, bottom: 20 }),
+      getBoundingClientRect: () => ({ top: 10, bottom: selectedRowBottom }),
     })),
     getBoundingClientRect: () => ({ top: 0, bottom: 100 }),
   }
@@ -111,9 +128,15 @@ describe("useMessageListController", () => {
     mocks.scrollRef.current = null
     mocks.jumpToIndex.mockClear()
     mocks.scrollToBottom.mockClear()
+    mocks.virtualizer.scrollToOffset.mockClear()
     nextFrameId = 0
     frameCallbacks = new Map()
     visibleMessageIds = ["m1"]
+    selectionRailTop = null
+    selectedRowBottom = 20
+    scrollNode.scrollTop = 0
+    scrollNode.clientHeight = 692
+    clearMessageScrollPositions()
     heroNode.offsetHeight = 0
     requestFrame = vi.fn((callback: FrameRequestCallback) => {
       const id = ++nextFrameId
@@ -129,6 +152,7 @@ describe("useMessageListController", () => {
     })
     vi.stubGlobal("window", {
       setTimeout,
+      clearTimeout,
       requestAnimationFrame: requestFrame,
       cancelAnimationFrame: cancelFrame,
     })
@@ -170,6 +194,7 @@ describe("useMessageListController", () => {
       viewerUserId: undefined,
       heroHeight: 0,
       heroMeasured: false,
+      restoredScrollTop: undefined,
     })
     expect(mocks.sentinelInputs.slice(0, 2)).toEqual([
       {
@@ -235,6 +260,7 @@ describe("useMessageListController", () => {
       viewerUserId: "viewer_1",
       heroHeight: 0,
       heroMeasured: true,
+      restoredScrollTop: undefined,
     })
     expect(mocks.sentinelInputs.slice(-2)).toEqual([
       {
@@ -295,6 +321,80 @@ describe("useMessageListController", () => {
     expect((mocks.scrollInputs.at(-1) as { heroMeasured: boolean }).heroMeasured).toBe(true)
     act(() => renderer!.unmount())
     expect(disconnect).toHaveBeenCalled()
+  })
+
+  it("restores through the virtualizer and captures scroll before route teardown", () => {
+    writeMessageScrollPosition("channel:one", 2200)
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(Probe, { value: props({ scrollMemoryKey: "channel:one" }) }),
+        { createNodeMock },
+      )
+    })
+    expect(mocks.virtualizer.scrollToOffset).toHaveBeenCalledWith(2200, { align: "start" })
+    scrollNode.scrollTop = 2200
+    runNextFrame()
+    runNextFrame()
+
+    scrollNode.scrollTop = 1880
+    runNextFrame()
+    expect(scrollNode.scrollTop).toBe(1880)
+
+    act(() => {
+      renderer!.update(React.createElement(Probe, {
+        value: props({ scrollMemoryKey: "channel:one" }),
+      }))
+    })
+    expect(mocks.virtualizer.scrollToOffset).toHaveBeenCalledTimes(3)
+
+    act(() => renderer!.unmount())
+  })
+
+  it("waits through delayed viewport resize compensation before restoring", () => {
+    writeMessageScrollPosition("channel:one", 2200)
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(Probe, { value: props({ scrollMemoryKey: "channel:one" }) }),
+        { createNodeMock },
+      )
+    })
+    scrollNode.scrollTop = 2200
+    runNextFrame()
+    runNextFrame()
+
+    // A restored draft can wrap the mobile composer after the first stable
+    // frames, shrinking the viewport and triggering +24px compensation.
+    scrollNode.clientHeight = 668
+    scrollNode.scrollTop = 2224
+    runNextFrame()
+    expect(scrollNode.scrollTop).toBe(2200)
+    runNextFrame()
+    runNextFrame()
+    runNextFrame()
+    runNextFrame()
+
+    act(() => renderer!.unmount())
+  })
+
+  it("claims an empty scroll key without starting a restore loop", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(Probe, { value: props({ scrollMemoryKey: "channel:empty" }) }),
+        { createNodeMock },
+      )
+    })
+    expect(mocks.virtualizer.scrollToOffset).not.toHaveBeenCalled()
+
+    scrollNode.scrollTop = 1400
+    captureActiveMessageScrollPosition()
+    expect(readMessageScrollPosition("channel:empty")).toBe(1400)
+
+    scrollNode.scrollTop = 0
+    act(() => renderer!.unmount())
+    expect(readMessageScrollPosition("channel:empty")).toBe(1400)
   })
 
   it("combines initial readiness with loaded-target readiness and preserves state across channel-only changes", () => {
@@ -391,6 +491,28 @@ describe("useMessageListController", () => {
     })
     expect(latest.selectedMessages.map((message) => [message.id, message.grouped]))
       .toEqual([["ordinary", false], ["reply", false]])
+  })
+
+  it("minimally scrolls a selected row above the active accessory rail", () => {
+    selectionRailTop = 692
+    selectedRowBottom = 747.5
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(Probe, { value: props() }),
+        { createNodeMock },
+      )
+    })
+
+    act(() => latest.onEnterSelectId("m1"))
+    runNextFrame()
+
+    expect(scrollNode.scrollTop).toBe(55.5)
+    selectedRowBottom = 692
+    runNextFrame()
+    selectionRailTop = null
+    runNextFrame()
+    act(() => renderer!.unmount())
   })
 
   it("closes the share dialog before exiting selection mode", () => {

@@ -1,6 +1,10 @@
 import Mention from "@tiptap/extension-mention"
 import { MENTION_TYPES, type MentionType } from "@alook/shared"
 import type { Member } from "@/lib/community/models/people"
+import {
+  createSuggestionCaretRectResolver,
+  type SuggestionCaretAnchorProps,
+} from "@/lib/community/suggestion-caret-anchor"
 
 export type MentionContext = "channel" | "thread" | "dm"
 
@@ -110,7 +114,7 @@ export const EMPTY_MENTION_STATE: MentionPopupState = {
   getRect: null,
 }
 
-type SuggestionProps = {
+type SuggestionProps = SuggestionCaretAnchorProps & {
   items: MentionItem[]
   query?: string
   command: (props: { id: string; label: string }) => void
@@ -181,7 +185,7 @@ export function buildCommunityMentionExtension(opts: {
             query: queryRef?.current ?? props.query ?? "",
             selectedIndex: 0,
             command: props.command,
-            getRect: props.clientRect ?? null,
+            getRect: createSuggestionCaretRectResolver(props),
           })
         },
         onUpdate: (props: SuggestionProps) => {
@@ -194,7 +198,7 @@ export function buildCommunityMentionExtension(opts: {
                 ? cur.selectedIndex
                 : 0,
             command: props.command,
-            getRect: props.clientRect ?? null,
+            getRect: createSuggestionCaretRectResolver(props),
           }))
         },
         onKeyDown: ({ event }: { event: KeyboardEvent }) => {

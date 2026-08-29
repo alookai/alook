@@ -154,6 +154,26 @@ describe("community route", () => {
     }).mode).toBe(mode)
   })
 
+  it("keeps the committed surface and child alive during same-scope navigation", () => {
+    const committedFrame = {
+      ...normalizeCommunityHref("/c/channels/s1"),
+      revision: 4,
+    }
+    expect(resolveCommunityCheckpointPlan({
+      committedFrame,
+      targetHref: "/c/channels/s1/c1",
+      pending: true,
+      targetReady: true,
+    })).toEqual({
+      mode: "same-scope-leaf",
+      surface: "list",
+      targetHref: "/c/channels/s1/c1",
+      rail: { kind: "keep" },
+      sidebar: { kind: "keep" },
+      main: { kind: "keep" },
+    })
+  })
+
   it("keeps committed A as the source after the router publishes B", () => {
     const committedFrame = {
       ...normalizeCommunityHref("/c/channels/s1/c1"),

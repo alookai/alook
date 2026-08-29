@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 import type { ComponentProps, ComponentRef } from "react"
 import { describe, expect, expectTypeOf, it } from "vitest"
 import { Composer } from "./composer"
-import type { ComposerHandle, ComposerProps } from "./composer"
+import type { ComposerHandle, ComposerMention, ComposerProps } from "./composer"
 
 const messagesDirectory = dirname(fileURLToPath(import.meta.url))
 const webRoot = resolve(messagesDirectory, "../../../..")
@@ -12,11 +12,14 @@ const readWeb = (path: string) =>
   readFileSync(resolve(webRoot, path), "utf8")
 
 describe("Composer public facade", () => {
-  it("keeps the exact props and five-method forwarded handle", () => {
+  it("keeps the exact props and seven-method forwarded handle", () => {
     expectTypeOf<ComponentProps<typeof Composer>>().toEqualTypeOf<ComposerProps>()
     expectTypeOf<ComponentRef<typeof Composer>>().toEqualTypeOf<ComposerHandle>()
+    expectTypeOf<ComposerMention>().toEqualTypeOf<{ id: string; label: string }>()
     expectTypeOf<keyof ComposerHandle>().toEqualTypeOf<
       | "focusEditor"
+      | "insertTextAtCaret"
+      | "insertMentionAtCaret"
       | "submitNow"
       | "resetAfterSubmit"
       | "isEmpty"
@@ -24,7 +27,7 @@ describe("Composer public facade", () => {
     >()
   })
 
-  it("retains the original-path seven-export facade", () => {
+  it("retains the original-path eight-export facade", () => {
     const source = readWeb("src/components/community/messages/composer.tsx")
     const namesFromBlocks = (pattern: RegExp) =>
       [...source.matchAll(pattern)].flatMap((match) =>
@@ -41,7 +44,7 @@ describe("Composer public facade", () => {
       ),
     ]
     expect(new Set(typeExports)).toEqual(
-      new Set(["ComposerHandle", "ComposerProps", "SendAttachment"]),
+      new Set(["ComposerHandle", "ComposerMention", "ComposerProps", "SendAttachment"]),
     )
     expect(new Set(valueExports)).toEqual(
       new Set([

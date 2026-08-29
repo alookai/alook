@@ -23,7 +23,6 @@ vi.mock("@/components/ui/tooltip", () => ({
 }))
 
 const baseProps = {
-  typingNames: ["A very long teammate name that must not cover the center control"],
   scrollCount: 4,
   scrollMode: "jump" as const,
   onScroll: vi.fn(),
@@ -66,32 +65,26 @@ describe("ComposerAccessoryRail", () => {
   }
 
   it.each([
-    [false, false, "empty"],
-    [true, false, "left-only"],
-    [false, true, "centered"],
-    [true, true, "centered"],
+    [false, "empty"],
+    [true, "centered"],
   ] as const)(
-    "renders normal DOM matrix left=%s center=%s as %s",
-    (left, center, layout) => {
+    "renders scroll=%s as %s",
+    (center, layout) => {
       const renderer = render({
-        typingNames: left ? ["Alice"] : [],
         scrollCount: center ? 2 : 0,
       })
       const rails = renderer.root.findAllByProps({ "data-testid": tid.composerAccessoryRail })
       expect(rails).toHaveLength(layout === "empty" ? 0 : 1)
-      expect(renderer.root.findAllByProps({ "data-testid": tid.typingIndicator }))
-        .toHaveLength(left ? 1 : 0)
       expect(renderer.root.findAllByProps({ "data-testid": tid.scrollToPresent }))
         .toHaveLength(center ? 1 : 0)
       if (layout === "empty") return
 
       expect(rails[0].props["data-layout"]).toBe(layout)
-      if (left) expect(slotClassName(renderer, tid.typingIndicator)).toContain("col-start-1")
       if (center) expect(slotClassName(renderer, tid.scrollToPresent)).toContain("col-start-2")
     },
   )
 
-  it("keeps selection centered, hides typing on mobile, and wires its actions", () => {
+  it("keeps selection centered and wires its actions", () => {
     const renderer = render({ selectMode: true, selectedCount: 12 })
     const rail = renderer.root.findByProps({ "data-testid": tid.composerAccessoryRail })
     expect(rail.props).toMatchObject({
@@ -100,10 +93,6 @@ describe("ComposerAccessoryRail", () => {
     })
     expect(renderer.root.findAllByProps({ "data-testid": tid.scrollToPresent })).toHaveLength(0)
     expect(slotClassName(renderer, tid.messageSelectionToolbar)).toContain("col-start-2")
-
-    const typingSlotClassName = slotClassName(renderer, tid.typingIndicator)
-    expect(typingSlotClassName).toContain("hidden")
-    expect(typingSlotClassName).toContain("sm:block")
 
     const toolbar = renderer.root.findByProps({ "data-testid": tid.messageSelectionToolbar })
     expect(toolbar.props.className).toContain("h-10")
@@ -140,14 +129,13 @@ describe("ComposerAccessoryRail", () => {
 
   it("never reserves composer space for WebSocket state", () => {
     useCommunityWsStore.getState().setConnectionStatus("reconnecting")
-    const empty = render({ typingNames: [], scrollCount: 0 })
+    const empty = render({ scrollCount: 0 })
     expect(empty.root.findAllByProps({ "data-testid": tid.composerAccessoryRail })).toHaveLength(0)
 
     useCommunityWsStore.getState().setConnectionStatus("failed")
-    const typing = render({ scrollCount: 0 })
-    expect(typing.root.findByProps({ "data-testid": tid.composerAccessoryRail }).props["data-layout"])
-      .toBe("left-only")
-    expect(typing.root.findAllByProps({ "data-testid": tid.wsRetry })).toHaveLength(0)
+    const failed = render({ scrollCount: 0 })
+    expect(failed.root.findAllByProps({ "data-testid": tid.composerAccessoryRail })).toHaveLength(0)
+    expect(failed.root.findAllByProps({ "data-testid": tid.wsRetry })).toHaveLength(0)
   })
 
   it("does not reintroduce WS ownership or a viewport-derived width cap", () => {

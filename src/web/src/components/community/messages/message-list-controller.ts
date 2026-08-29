@@ -1,14 +1,19 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { RenderMsg } from "@/lib/community/models/message"
 import { flattenMessageItems } from "@/lib/community/message-list-items"
 import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
 import { useVirtualCursorSentinel } from "@/hooks/community/use-virtual-cursor-sentinel"
 import type { ResolvedMessageListProps } from "./message-list-types"
+import {
+  readMessageScrollPosition,
+  registerActiveMessageScrollCapture,
+} from "./message-scroll-memory"
 
 export function useMessageListController({
   messages,
+  scrollMemoryKey,
   loading,
   newDividerBefore,
   scrollToMessageId,
@@ -80,6 +85,9 @@ export function useMessageListController({
   const [heroHeight, setHeroHeight] = useState(0)
   const [heroMeasured, setHeroMeasured] = useState(false)
   const isLoading = !!loading && messages.length === 0
+  const rememberedScrollTop = scrollMemoryKey && !scrollToMessageId
+    ? readMessageScrollPosition(scrollMemoryKey)
+    : undefined
   useEffect(() => {
     const element = heroRef.current
     if (!element) return
@@ -110,7 +118,129 @@ export function useMessageListController({
     viewerUserId,
     heroHeight,
     heroMeasured,
+    restoredScrollTop: rememberedScrollTop,
   })
+
+  const restoredScrollKeyRef = useRef<string | null>(null)
+  useLayoutEffect(() => {
+    const element = scrollRef.current
+    if (!element || !scrollMemoryKey || isLoading) return
+    if (!scrollAnchorReady || !heroMeasured || scrollToMessageId) return
+    if (restoredScrollKeyRef.current === scrollMemoryKey) return
+    const saved = rememberedScrollTop
+    if (saved === undefined) {
+      restoredScrollKeyRef.current = scrollMemoryKey
+      return
+    }
+
+    let frame = 0
+    let attempts = 0
+    let stableFrames = 0
+    let lastClientHeight = element.clientHeight
+    let lastScrollHeight = element.scrollHeight
+    const restore = () => {
+      const target = Math.min(saved, Math.max(0, element.scrollHeight - element.clientHeight))
+      virtualizer.scrollToOffset(
+        target,
+        { align: "start" },
+      )
+      element.scrollTop = target
+      return target
+    }
+    const restoreUntilSettled = () => {
+      const target = restore()
+      frame = window.requestAnimationFrame(() => {
+        attempts += 1
+        const dimensionsStable = element.clientHeight === lastClientHeight
+          && element.scrollHeight === lastScrollHeight
+        const movedAwayFromTarget = Math.abs(element.scrollTop - target) > 1
+        lastClientHeight = element.clientHeight
+        lastScrollHeight = element.scrollHeight
+        // Once layout is stable, an offset change is the viewer taking over
+        // the viewport. Stop restoring instead of yanking them back to a
+        // snapshot captured before a same-channel reconnect/remount. A
+        // composer resize is intentionally different: its dimensions change,
+        // so the loop still corrects the resulting compensation on the next
+        // frame.
+        if (dimensionsStable && movedAwayFromTarget) {
+          restoredScrollKeyRef.current = scrollMemoryKey
+          return
+        }
+        stableFrames = target === saved
+          && Math.abs(element.scrollTop - target) <= 1
+          && dimensionsStable
+          ? stableFrames + 1
+          : 0
+        // Draft hydration can resize the mobile composer one or two frames
+        // after the list first reaches its saved offset. Wait through that
+        // delayed viewport measurement so its normal resize compensation
+        // cannot become the final restored position.
+        if (stableFrames < 4 && attempts < 120) {
+          restoreUntilSettled()
+        } else {
+          restoredScrollKeyRef.current = scrollMemoryKey
+        }
+      })
+    }
+    restoreUntilSettled()
+    return () => {
+      window.cancelAnimationFrame(frame)
+    }
+  }, [
+    heroMeasured,
+    isLoading,
+    rememberedScrollTop,
+    scrollAnchorReady,
+    scrollMemoryKey,
+    scrollRef,
+    scrollToMessageId,
+    virtualizer,
+  ])
+  useLayoutEffect(() => {
+    const element = scrollRef.current
+    if (!element || !scrollMemoryKey) return
+    return registerActiveMessageScrollCapture(scrollMemoryKey, element)
+  }, [scrollMemoryKey, scrollRef])
+
+  useLayoutEffect(() => {
+    const element = scrollRef.current
+    if (!element || !selectMode || selectedIds.size === 0) return
+
+    let frame = 0
+    let attempts = 0
+    let stableFrames = 0
+    const keepSelectionClearOfRail = () => {
+      frame = window.requestAnimationFrame(() => {
+        attempts += 1
+        const rail = element.parentElement?.querySelector<HTMLElement>(
+          '[data-selection="active"]',
+        )
+        const selectedRows = Array.from(
+          element.querySelectorAll<HTMLElement>("[data-msg-id]"),
+        ).filter((row) => selectedIds.has(row.dataset.msgId ?? ""))
+
+        if (rail && selectedRows.length > 0) {
+          const railTop = rail.getBoundingClientRect().top
+          const lowestSelectedBottom = Math.max(...selectedRows.map(
+            (row) => row.getBoundingClientRect().bottom,
+          ))
+          const overlap = lowestSelectedBottom - railTop
+          if (overlap > 1) {
+            element.scrollTop += overlap
+            stableFrames = 0
+          } else {
+            stableFrames += 1
+          }
+        } else {
+          stableFrames = 0
+        }
+
+        if (stableFrames < 2 && attempts < 120) keepSelectionClearOfRail()
+      })
+    }
+    keepSelectionClearOfRail()
+    return () => window.cancelAnimationFrame(frame)
+  }, [selectMode, selectedIds, scrollRef])
 
   useEffect(() => {
     if (!onScrollRoot) return

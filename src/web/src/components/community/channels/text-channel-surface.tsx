@@ -10,6 +10,8 @@ import type { ChannelMemberPanelProps } from "@/components/community/members/cha
 import { Composer } from "@/components/community/messages/composer"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
 import { MessageList } from "@/components/community/messages/message-list"
+import { useAuthorMentionInsertion } from "@/components/community/messages/use-author-mention-insertion"
+import { readMessageScrollPosition } from "@/components/community/messages/message-scroll-memory"
 import {
   MessageChannelController,
 } from "@/components/community/messages/message-channel-controller"
@@ -42,7 +44,7 @@ export function TextChannelSurface({
   serverId: string
   serverParam: string
   channelName: string
-  viewer: { id: string; name: string; avatar: string }
+  viewer: { id: string; name: string; discriminator?: string; avatar: string }
   anchorMessageId: string | null
   headerServer?: { id: string; name: string; icon: string | null; onNavigate: () => void }
   notificationLevel: ChannelNotifLevel
@@ -63,12 +65,20 @@ export function TextChannelSurface({
 }) {
   const breakpoint = useBreakpoint()
   const [rightPanel, setRightPanel] = useState<RightPanel>(null)
+  const mentionInsertion = useAuthorMentionInsertion({
+    members: composerMembers,
+    viewerUserId: viewer.id,
+    viewerName: viewer.name,
+    viewerDiscriminator: viewer.discriminator,
+  })
+  const scrollMemoryKey = `channel:${channelId}`
   const feed = useChannelMessageFeed({
     channelId,
     serverId,
     viewerUserId: viewer.id,
     isChildChannel: false,
     anchorMessageId,
+    preferCachedWindowOnMount: readMessageScrollPosition(scrollMemoryKey) !== undefined,
   })
   useEffect(() => {
     setRightPanel(null)
@@ -109,6 +119,7 @@ export function TextChannelSurface({
               <MessageList
                 key={channelId}
                 channel={channelName}
+                scrollMemoryKey={scrollMemoryKey}
                 messages={feed.messages}
                 loading={feed.isLoading}
                 pinnedIds={controller.pinnedIds}
@@ -118,6 +129,8 @@ export function TextChannelSurface({
                 {...controller.messageActions}
                 onOpenProfile={onOpenProfile}
                 resolveUserName={resolveUserName}
+                resolveAuthorMentionText={mentionInsertion.resolveAuthorMentionText}
+                onInsertMentionText={mentionInsertion.insertMentionText}
                 scrollToMessageId={controller.scrollTargetId}
                 onScrollRoot={feed.setScrollRootEl}
                 viewerUserId={viewer.id}
@@ -139,6 +152,7 @@ export function TextChannelSurface({
                 className="shrink-0"
               >
                 <Composer
+                  ref={mentionInsertion.composerRef}
                   channel={channelName}
                   context="channel"
                   members={composerMembers}
@@ -147,7 +161,7 @@ export function TextChannelSurface({
                   sendContract="accepted"
                   onAcceptSend={controller.acceptMessage}
                   onTyping={controller.handleTyping}
-                  replyingTo={controller.replyTo?.authorName}
+                  replyingTo={controller.replyTo ?? undefined}
                   onCancelReply={() => controller.setReplyTo(null)}
                   autoFocus={breakpoint === "desktop"}
                   draftKey={`${serverId}/${channelId}`}

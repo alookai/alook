@@ -6,6 +6,16 @@ import type { Member } from "@/lib/community/models/people"
 
 type ComposerMode = "chat" | "forumThreadBody"
 
+export type ComposerReplyTarget = {
+  authorName: string
+  text: string
+}
+
+export type ComposerMention = {
+  id: string
+  label: string
+}
+
 export type MentionCandidateSource = {
   loading: boolean
   loadingMore: boolean
@@ -30,6 +40,8 @@ export type ChannelRefCandidateSource = {
 
 export type ComposerHandle = {
   focusEditor: () => void
+  insertTextAtCaret: (text: string) => void
+  insertMentionAtCaret: (mention: ComposerMention) => void
   submitNow: () => void
   resetAfterSubmit: () => void
   isEmpty: () => boolean
@@ -45,7 +57,7 @@ type ComposerBaseProps = {
   channelRefCandidateSource?: ChannelRefCandidateSource
   onChannelRefIntent?: () => void
   onTyping?: () => void
-  replyingTo?: string
+  replyingTo?: ComposerReplyTarget | string
   onCancelReply?: () => void
   autoFocus?: boolean
   mode?: ComposerMode

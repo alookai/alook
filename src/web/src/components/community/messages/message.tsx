@@ -26,6 +26,14 @@ import type { OpenProfile } from "@/components/community/social/profile-types"
 import { attachmentAspectRatio } from "./attachment-layout"
 import { AttachmentCard } from "./attachment-card"
 import { displayReplyContent } from "@/lib/community/reply-content"
+import {
+  advanceMobileReplyGesture,
+  beginMobileReplyGesture,
+  shouldCommitMobileReply,
+  shouldSuppressClickAfterMobileReplyGesture,
+  type MobileReplyGesture,
+} from "./mobile-message-gesture"
+import { useMobileAvatarMention } from "./use-mobile-avatar-mention"
 
 // Whether the "Share as Image" action is offered for a message. Share is
 // computed inside `Message` from the message alone (no handler is threaded in),
@@ -100,7 +108,7 @@ export function createMessageMenuPointAnchor(clientX: number, clientY: number) {
 
 function MessageImpl({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
-  onToggleReaction, onReact, onReply, onPin, onMark, onCreateThread, onCopy, onEdit, onRetry, onDismiss,
+  onToggleReaction, onReact, onReply, onMentionAuthor, onPin, onMark, onCreateThread, onCopy, onEdit, onRetry, onDismiss,
   onPreviewImage, onPreviewAttachment, onDownloadFile, highlighted, resolveUserName, onImageLoad,
   selectMode, selected, onToggleSelect, onEnterSelect, onShareSingle,
   viewerUserId, hoverCapable = true,
@@ -114,6 +122,7 @@ function MessageImpl({
   onToggleReaction?: (emoji: string) => void
   onReact?: (emoji: string) => void
   onReply?: () => void
+  onMentionAuthor?: () => void
   onPin?: () => void
   // Toggle this message in the viewer's private saved ("marked") set. The
   // Mark/Unmark label is driven by a lazy per-message read (see `marked`
@@ -163,6 +172,14 @@ function MessageImpl({
   const [touchMenuAnchor, setTouchMenuAnchor] = useState<ReturnType<typeof createMessageMenuPointAnchor> | null>(null)
   const touchStartedAt = useRef<number | null>(null)
   const suppressLongPressClick = useRef(false)
+  const swipeGestureRef = useRef<MobileReplyGesture | null>(null)
+  const [swipeVisual, setSwipeVisual] = useState({ offset: 0, active: false, crossed: false })
+  const avatarMention = useMobileAvatarMention({
+    onMention: onMentionAuthor,
+    onProfileClick: (event) => {
+      onOpenProfile?.(m.authorName ?? "", event, undefined, m.authorId)
+    },
+  })
   // The Mark/Unmark label needs to know if THIS message is already in the
   // viewer's saved set. That's a single indexed row read, fired lazily only
   // while a menu that shows the item is open (never per-row on mount) — so a
@@ -205,6 +222,7 @@ function MessageImpl({
   }
   const showMenu = hasMessageMenu(menuHandlers)
   const interactive = !compact && !m.failed && showMenu
+  const swipeReplyEnabled = interactive && !hoverCapable && !selectMode && !!onReply
   const activate = interactive && hoverCapable && !activated
     ? (event: React.SyntheticEvent<HTMLElement>) => {
         if (shouldActivateMessageOverlays(event.target)) setActivated(true)
@@ -240,11 +258,73 @@ function MessageImpl({
     <div
       className={[
         "group relative -mx-2 flex gap-2 rounded px-2 transition-colors",
+        swipeReplyEnabled ? "z-10 touch-pan-y bg-background" : "",
+        swipeVisual.active ? "transition-none" : "transition-transform duration-150 ease-out",
         m.grouped ? "py-0" : "mt-3 pt-1.5 pb-0",
         selectable ? "cursor-pointer pl-9" : "",
         selected ? "bg-primary/10" : highlighted ? "bg-primary/10" : selectable ? "hover:bg-accent/40" : "hover:bg-accent/40",
       ].join(" ")}
+      style={swipeVisual.offset > 0
+        ? { transform: `translate3d(${swipeVisual.offset}px, 0, 0)` }
+        : undefined}
       onPointerEnter={activate}
+      onPointerDown={swipeReplyEnabled
+        ? (event) => {
+            if (event.pointerType !== "touch") return
+            const nested = (event.target as Element).closest?.(
+              "button, a, input, textarea, select, [role=button]",
+            )
+            if (nested || selectionBelongsToRow(window.getSelection(), event.currentTarget)) return
+            const gesture = beginMobileReplyGesture(event.clientX, event.clientY)
+            if (!gesture) return
+            swipeGestureRef.current = gesture
+            setSwipeVisual({ offset: 0, active: true, crossed: false })
+          }
+        : undefined}
+      onPointerMove={swipeReplyEnabled
+        ? (event) => {
+            const current = swipeGestureRef.current
+            if (!current || event.pointerType !== "touch") return
+            if (selectionBelongsToRow(window.getSelection(), event.currentTarget)) {
+              swipeGestureRef.current = null
+              setSwipeVisual({ offset: 0, active: false, crossed: false })
+              return
+            }
+            const next = advanceMobileReplyGesture(current, event.clientX, event.clientY)
+            swipeGestureRef.current = next.gesture
+            if (next.gesture.intent === "horizontal") {
+              if (current.intent !== "horizontal") {
+                event.currentTarget.setPointerCapture?.(event.pointerId)
+              }
+              event.preventDefault()
+            }
+            if (next.fireHaptic) navigator.vibrate?.(10)
+            setSwipeVisual({
+              offset: next.gesture.offset,
+              active: next.gesture.intent !== "rejected",
+              crossed: next.gesture.thresholdCrossed,
+            })
+          }
+        : undefined}
+      onPointerUp={swipeReplyEnabled
+        ? (event) => {
+            const gesture = swipeGestureRef.current
+            if (!gesture || event.pointerType !== "touch") return
+            const commit = shouldCommitMobileReply(gesture)
+            swipeGestureRef.current = null
+            suppressLongPressClick.current = suppressLongPressClick.current
+              || shouldSuppressClickAfterMobileReplyGesture(gesture)
+            setSwipeVisual({ offset: 0, active: false, crossed: false })
+            if (commit) onReply?.()
+          }
+        : undefined}
+      onPointerCancel={swipeReplyEnabled
+        ? () => {
+            swipeGestureRef.current = null
+            suppressLongPressClick.current = true
+            setSwipeVisual({ offset: 0, active: false, crossed: false })
+          }
+        : undefined}
       onFocusCapture={activate}
       onKeyDownCapture={activate}
       onContextMenuCapture={interactive && hoverCapable
@@ -266,8 +346,9 @@ function MessageImpl({
       onTouchEnd={interactive && !hoverCapable
         ? () => {
             const startedAt = touchStartedAt.current
-            suppressLongPressClick.current = startedAt !== null
-              && performance.now() - startedAt >= 500
+            suppressLongPressClick.current = suppressLongPressClick.current || (
+              startedAt !== null && performance.now() - startedAt >= 500
+            )
             touchStartedAt.current = null
           }
         : undefined}
@@ -380,7 +461,13 @@ function MessageImpl({
         {m.grouped ? (
           <div className="w-10 shrink-0" />
         ) : (
-          <button onClick={(e) => onOpenProfile?.(m.authorName ?? "", e, undefined, m.authorId)} className="shrink-0 self-start">
+          <button
+            {...avatarMention}
+            className="shrink-0 self-start"
+            aria-label={onMentionAuthor
+              ? `Open ${m.authorName ?? "member"} profile; long press to mention`
+              : undefined}
+          >
             <Avatar label={m.authorAvatar ?? "?"} seed={m.authorId} size={40} />
           </button>
         )}
@@ -594,6 +681,17 @@ function MessageImpl({
     return (
       <DropdownMenu open={touchMenuOpen} onOpenChange={setTouchMenuOpen}>
         <div className="relative">
+          {swipeReplyEnabled && (
+            <div
+              aria-hidden
+              data-mobile-reply-affordance
+              data-threshold-crossed={swipeVisual.crossed || undefined}
+              className="absolute inset-y-0 left-0 z-0 flex w-14 items-center justify-center text-muted-foreground"
+              style={{ opacity: Math.min(1, swipeVisual.offset / 48) }}
+            >
+              <Reply className="size-5" />
+            </div>
+          )}
           {row}
           <DropdownMenuTrigger
             render={(
@@ -687,6 +785,7 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
     prev.onToggleReaction === next.onToggleReaction &&
     prev.onReact === next.onReact &&
     prev.onReply === next.onReply &&
+    prev.onMentionAuthor === next.onMentionAuthor &&
     prev.onPin === next.onPin &&
     prev.onMark === next.onMark &&
     prev.onCreateThread === next.onCreateThread &&
