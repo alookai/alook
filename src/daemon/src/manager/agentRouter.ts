@@ -303,11 +303,10 @@ export class AgentRouter {
     const existing = this.runtimes.get(id);
     if (!existing) return;
     if (existing.status === "healthy" && !existing.lastError && !existing.lastErrorAt) return;
-    this.runtimes.set(id, {
-      id: existing.id,
-      version: existing.version,
-      status: "healthy",
-    });
+    const healthy = { ...existing, status: "healthy" as const };
+    delete healthy.lastError;
+    delete healthy.lastErrorAt;
+    this.runtimes.set(id, healthy);
     this.log.info("runtime marked healthy again", { runtimeId: id });
     this.scheduleReadyFrameResend();
   }

@@ -120,14 +120,20 @@ vi.mock("@/lib/utils", () => ({
 vi.mock("./bot-form-fields", () => ({
   BotFormFields: () => require("react").createElement("div"),
 }))
+const modelFieldRenders: Array<{ runtime: { id: string; reasoning?: unknown } | null }> = []
 vi.mock("./model-field", () => {
   const React = require("react")
   return {
-    ModelField: ({ onChange }: { onChange: (v: string | null) => void }) =>
-      React.createElement("button", {
+    ModelField: ({ runtime, onChange }: {
+      runtime: { id: string; reasoning?: unknown } | null
+      onChange: (v: string | null) => void
+    }) => {
+      modelFieldRenders.push({ runtime })
+      return React.createElement("button", {
         "data-testid": "set-model",
         onClick: () => onChange("claude-sonnet-4-6"),
-      }),
+      })
+    },
   }
 })
 vi.mock("./reasoning-effort-field", () => {
@@ -205,6 +211,22 @@ describe("EditBotSheet — model switch toast (online-only)", () => {
     toastApiError.mockReset()
     updateMutateAsync.mockReset()
     useMachinesMock.mockReturnValue(HEALTHY_MACHINES)
+  })
+
+  it("uses only the bot machine's catalog when another machine reports the same runtime", () => {
+    const reasoning = (id: string) => ({
+      updateMode: "unsupported",
+      models: [{ id, supportedReasoningEfforts: [] }],
+    })
+    useMachinesMock.mockReturnValue({
+      machines: [
+        { id: "mac1", availableRuntimes: [{ id: "claude", status: "healthy", reasoning: reasoning("mac-model") }] },
+        { id: "mac2", availableRuntimes: [{ id: "claude", status: "healthy", reasoning: reasoning("other-model") }] },
+      ],
+    })
+    modelFieldRenders.length = 0
+    renderSheet()
+    expect(modelFieldRenders.at(-1)?.runtime?.reasoning).toEqual(reasoning("mac-model"))
   })
 
   it("PATCH success → 'Model switch to <new> dispatched'", async () => {

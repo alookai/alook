@@ -8,6 +8,7 @@ import {
   SessionErrorFrameSchema,
   COMMUNITY_RUNTIME_ID_MAX,
   COMMUNITY_RUNTIME_LIST_MAX,
+  COMMUNITY_REASONING_MODELS_MAX,
 } from "../../src/schemas";
 
 describe("CommunityMachineRuntimeSchema", () => {
@@ -143,6 +144,28 @@ describe("CommunityMachineRuntimeSchema", () => {
       id: "codex",
       reasoning: { updateMode: "eventually", models: [] },
     })).toEqual({ id: "codex", status: "healthy" });
+  });
+
+  it("accepts the full 512-model startup snapshot", () => {
+    const models = Array.from({ length: COMMUNITY_REASONING_MODELS_MAX }, (_, index) => ({
+      id: `provider/model-${index}`,
+      supportedReasoningEfforts: [],
+    }));
+    expect(CommunityMachineRuntimeSchema.parse({
+      id: "opencode",
+      reasoning: { updateMode: "unsupported", models },
+    }).reasoning?.models).toHaveLength(COMMUNITY_REASONING_MODELS_MAX);
+  });
+
+  it("drops only an overflowing optional catalog and keeps the runtime", () => {
+    const models = Array.from({ length: COMMUNITY_REASONING_MODELS_MAX + 1 }, (_, index) => ({
+      id: `provider/model-${index}`,
+      supportedReasoningEfforts: [],
+    }));
+    expect(CommunityMachineRuntimeSchema.parse({
+      id: "opencode",
+      reasoning: { updateMode: "unsupported", models },
+    })).toEqual({ id: "opencode", status: "healthy" });
   });
 });
 

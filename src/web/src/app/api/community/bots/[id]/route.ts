@@ -182,7 +182,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     runtimeConfigRevision = wrote.runtimeConfigRevision
     const config = makeRuntimeConfig({
       runtime: targetRuntime,
-      model: resolveModelConfig(targetRuntime, storedModel),
+      model: resolveModelConfig(storedModel),
       reasoningEffort: storedEffort ?? undefined,
       runtimeConfigRevision,
       agentName: updated.name,
@@ -270,7 +270,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
         agentId: id,
         config: makeRuntimeConfig({
           runtime: targetRuntime,
-          model: resolveModelConfig(targetRuntime, storedModel),
+          model: resolveModelConfig(storedModel),
           reasoningEffort: storedEffort ?? undefined,
           runtimeConfigRevision,
           agentName: updated.name,

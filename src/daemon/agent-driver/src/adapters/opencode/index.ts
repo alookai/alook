@@ -16,7 +16,13 @@ import type {
 import { prepareCliTransport } from "../../internal/cliTransport.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
 import { spawnAgentProcess } from "../../internal/killTree.js";
-import { probeCliRuntime, resolveSpawnSpec } from "../../internal/probe.js";
+import {
+  probeCliRuntime,
+  probeCommandOutput,
+  resolveSpawnSpec,
+  type CommandOutputProbeResult,
+} from "../../internal/probe.js";
+import { parseOpenCodeModelCatalog } from "../../internal/modelCatalog.js";
 import {
   OpenCodeServiceLane,
   type OpenCodeServiceProcessFactory,
@@ -36,8 +42,19 @@ export class OpenCodeDriver implements BackendAdapter, OpenCodeServiceProcessFac
     terminalOwnership: "transport_request",
   } as const;
 
+  constructor(
+    private readonly outputProbe: (command: string, args: string[]) => CommandOutputProbeResult = probeCommandOutput,
+  ) {}
+
   probe(command?: string) {
-    return probeCliRuntime("opencode", {}, command);
+    const result = probeCliRuntime("opencode", {}, command);
+    if (result.status !== "healthy") return result;
+    const spec = resolveSpawnSpec("opencode", ["models", "--pure"], command);
+    const output = this.outputProbe(spec.command, spec.args);
+    return {
+      ...result,
+      reasoning: output.ok ? parseOpenCodeModelCatalog(output.output) : undefined,
+    };
   }
 
   beginTurn(): string {

@@ -21,6 +21,24 @@ describe("resolveLaunchFieldsOrDefault", () => {
     });
   });
 
+  it("sets the Claude custom-endpoint model option for a named model", () => {
+    expect(resolveLaunchFieldsOrDefault({
+      model: { kind: "named", name: "sonnet" },
+      provider: { kind: "custom_endpoint", apiUrl: "https://example.invalid", apiKey: "secret" },
+    }).providerEnv).toEqual({
+      ANTHROPIC_CUSTOM_MODEL_OPTION: "sonnet",
+      ANTHROPIC_BASE_URL: "https://example.invalid",
+      ANTHROPIC_API_KEY: "secret",
+    });
+  });
+
+  it.each(["opus", "sonnet", "haiku"])("passes the Claude %s alias to launch verbatim", (alias) => {
+    expect(resolveLaunchFieldsOrDefault({
+      model: { kind: "named", name: alias },
+      provider: { kind: "default" },
+    })).toMatchObject({ model: alias, providerEnv: {} });
+  });
+
   it("maps known Pi providers and ignores unknown provider ids", () => {
     expect(resolveLaunchFieldsOrDefault({
       model: { kind: "default" },

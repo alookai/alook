@@ -109,6 +109,16 @@ describe("POST /api/community/bots — model", () => {
     )
   })
 
+  it.each(["opus", "sonnet", "haiku"])("persists the Claude %s alias verbatim", async (alias) => {
+    const res = await POST(postReq(base(alias)), ctx)
+    expect(res.status).toBe(201)
+    expect((await res.json()).bot.modelName).toBe(alias)
+    expect(mockCreateBot).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ modelName: alias }),
+    )
+  })
+
   it("omitting model leaves modelName null", async () => {
     const res = await POST(postReq(base()), ctx)
     expect(res.status).toBe(201)

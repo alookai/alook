@@ -140,9 +140,9 @@ vi.mock("./bot-form-fields", () => ({
 
 // Capture ModelField's incoming `value` so we can assert the create sheet
 // resets the model to null (Default) on a runtime change.
-const modelFieldRenders: Array<{ runtime: string | null; value: string | null }> = []
+const modelFieldRenders: Array<{ runtime: { id: string; reasoning?: unknown } | null; value: string | null }> = []
 vi.mock("./model-field", () => ({
-  ModelField: ({ runtime, value }: { runtime: string | null; value: string | null }) => {
+  ModelField: ({ runtime, value }: { runtime: { id: string; reasoning?: unknown } | null; value: string | null }) => {
     modelFieldRenders.push({ runtime, value })
     return React.createElement("div", { "data-mock": "model-field", "data-value": value ?? "" })
   },
@@ -317,8 +317,44 @@ describe("CreateBotSheet — auto-select defaults", () => {
       serverRadio.props.onChange()
     })
     const last = modelFieldRenders.at(-1)!
-    expect(last.runtime).toBe("codex")
+    expect(last.runtime?.id).toBe("codex")
     expect(last.value).toBeNull()
+  })
+
+  it("passes only the selected machine's same-runtime catalog to ModelField", () => {
+    const catalog = (id: string) => ({
+      updateMode: "unsupported" as const,
+      models: [{ id, supportedReasoningEfforts: [] }],
+    })
+    useMachinesMock.mockReturnValue({
+      machines: [
+        machine({
+          id: "machine-a",
+          status: "online",
+          availableRuntimes: [{ id: "codex", status: "healthy", reasoning: catalog("a-model") }],
+        }),
+        machine({
+          id: "machine-b",
+          status: "online",
+          availableRuntimes: [{ id: "codex", status: "healthy", reasoning: catalog("b-model") }],
+        }),
+      ],
+    })
+    modelFieldRenders.length = 0
+    const renderer = render()
+    expect(modelFieldRenders.at(-1)?.runtime?.reasoning).toEqual(catalog("a-model"))
+
+    const machineB = renderer.root.find(
+      (node) => node.type === "input" && node.props.name === "bot-machine" && node.props.value === "machine-b",
+    )
+    act(() => machineB.props.onChange())
+    expect(modelFieldRenders.at(-1)?.runtime?.reasoning).toEqual(catalog("b-model"))
+
+    const machineA = renderer.root.find(
+      (node) => node.type === "input" && node.props.name === "bot-machine" && node.props.value === "machine-a",
+    )
+    act(() => machineA.props.onChange())
+    expect(modelFieldRenders.at(-1)?.runtime?.reasoning).toEqual(catalog("a-model"))
   })
 
   it("includes the selected runtime-reported reasoning effort in create", async () => {

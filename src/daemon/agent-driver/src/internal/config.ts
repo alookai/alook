@@ -48,8 +48,8 @@ export function resolveLaunchFieldsOrDefault(
   );
   const providerEnv: Record<string, string> = {};
   const model = normalized.model.kind === "default" ? undefined : normalized.model.name;
-  if (normalized.model.kind === "custom" && normalized.provider?.kind === "custom_endpoint") {
-    providerEnv.ANTHROPIC_CUSTOM_MODEL_OPTION = normalized.model.name;
+  if (model && normalized.provider?.kind === "custom_endpoint") {
+    providerEnv.ANTHROPIC_CUSTOM_MODEL_OPTION = model;
   }
   if (normalized.provider?.kind === "custom_endpoint") {
     providerEnv.ANTHROPIC_BASE_URL = normalized.provider.apiUrl;

@@ -226,15 +226,13 @@ describe("CodexDriver reasoning catalog probe", () => {
     });
   });
 
-  it("treats a non-array model/list data field as an empty catalog", async () => {
+  it("treats a non-array model/list data field as an unavailable catalog", async () => {
     const proc = probingProcess((request) => request.method === "initialize"
       ? { jsonrpc: "2.0", id: request.id, result: {} }
       : { jsonrpc: "2.0", id: request.id, result: { data: "invalid", nextCursor: null } });
     runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
 
-    await expect(new CodexDriver().probe()).resolves.toMatchObject({
-      reasoning: { models: [] },
-    });
+    await expect(new CodexDriver().probe()).resolves.toMatchObject({ reasoning: undefined });
   });
 
   it("ignores malformed and unrelated lines before consuming the catalog response", async () => {
@@ -256,8 +254,55 @@ describe("CodexDriver reasoning catalog probe", () => {
 
     await expect(new CodexDriver().probe()).resolves.toMatchObject({
       status: "healthy",
-      reasoning: { models: [] },
+      reasoning: undefined,
     });
+  });
+
+  it("returns no catalog rather than a truncated list when pagination exceeds 512 models", async () => {
+    const models = Array.from({ length: 512 }, (_, index) => ({
+      id: `gpt-model-${index}`,
+      supportedReasoningEfforts: [],
+    }));
+    const proc = probingProcess((request) => request.method === "initialize"
+      ? { jsonrpc: "2.0", id: request.id, result: {} }
+      : { jsonrpc: "2.0", id: request.id, result: { data: models, nextCursor: "more" } });
+    runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
+
+    await expect(new CodexDriver().probe()).resolves.toMatchObject({
+      status: "healthy",
+      reasoning: undefined,
+    });
+  });
+
+  it("returns no catalog when a producer ignores the page limit and sends 513 unique models", async () => {
+    const models = Array.from({ length: 513 }, (_, index) => ({
+      id: `gpt-model-${index}`,
+      supportedReasoningEfforts: [],
+    }));
+    const proc = probingProcess((request) => request.method === "initialize"
+      ? { jsonrpc: "2.0", id: request.id, result: {} }
+      : { jsonrpc: "2.0", id: request.id, result: { data: models, nextCursor: null } });
+    runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
+
+    await expect(new CodexDriver().probe()).resolves.toMatchObject({ reasoning: undefined });
+  });
+
+  it("returns no catalog when app-server output exceeds the byte bound", async () => {
+    const proc = probingProcess(() => ({ jsonrpc: "2.0", id: -1, result: {} }));
+    proc.stdin.write = vi.fn((line: string) => {
+      const request = JSON.parse(line.trim()) as Record<string, any>;
+      queueMicrotask(() => {
+        if (request.method === "initialize") {
+          proc.stdout.emit("data", Buffer.from(`${JSON.stringify({ id: request.id, result: {} })}\n`));
+        } else {
+          proc.stdout.emit("data", Buffer.alloc(1024 * 1024 + 1, "x"));
+        }
+      });
+      return true;
+    });
+    runtimeMocks.spawnAgentProcess.mockReturnValueOnce(proc as never);
+
+    await expect(new CodexDriver().probe()).resolves.toMatchObject({ reasoning: undefined });
   });
 
   it("treats initialize rejection as an unavailable catalog", async () => {

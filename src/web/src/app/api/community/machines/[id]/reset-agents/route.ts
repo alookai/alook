@@ -42,7 +42,7 @@ export const POST = withAuth(async (_req, ctx) => {
     agentId: bot.id,
     config: makeRuntimeConfig({
       runtime: bot.runtime,
-      model: resolveModelConfig(bot.runtime, bot.modelName),
+      model: resolveModelConfig(bot.modelName),
       reasoningEffort: bot.reasoningEffort ?? undefined,
       runtimeConfigRevision: bot.runtimeConfigRevision,
       agentName: bot.name,

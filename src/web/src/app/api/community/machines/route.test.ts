@@ -39,6 +39,32 @@ describe("GET /api/community/machines — provider quota", () => {
     vi.clearAllMocks()
   })
 
+  it("keeps same-runtime catalogs isolated between machine rows", async () => {
+    const runtime = (modelId: string) => ({
+      id: "codex",
+      status: "healthy",
+      reasoning: {
+        updateMode: "unsupported",
+        models: [{ id: modelId, supportedReasoningEfforts: [] }],
+      },
+    })
+    mockListMachinesForUser.mockResolvedValue([
+      { id: "machine-a", status: "online", availableRuntimes: [runtime("a-model")] },
+      { id: "machine-b", status: "online", availableRuntimes: [runtime("b-model")] },
+    ])
+    mockListMachineBackendQuotasForUser.mockResolvedValue(new Map())
+
+    const response = await GET(new NextRequest("http://localhost/api/community/machines"))
+    const body = await response.json() as { machines: Array<{ id: string; availableRuntimes: any[] }> }
+    expect(body.machines.map((machine) => ({
+      id: machine.id,
+      models: machine.availableRuntimes[0]?.reasoning?.models.map((model: any) => model.id),
+    }))).toEqual([
+      { id: "machine-a", models: ["a-model"] },
+      { id: "machine-b", models: ["b-model"] },
+    ])
+  })
+
   it("projects one safe machine/backend quota entry per reported runtime", async () => {
     const observedAt = new Date().toISOString()
     mockListMachinesForUser.mockResolvedValue([{

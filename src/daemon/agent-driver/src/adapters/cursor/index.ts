@@ -17,7 +17,13 @@ import type {
 import { prepareCliTransport } from "../../internal/cliTransport.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
 import { spawnAgentProcess } from "../../internal/killTree.js";
-import { probeCliRuntime, resolveSpawnSpec } from "../../internal/probe.js";
+import {
+  probeCliRuntime,
+  probeCommandOutput,
+  resolveSpawnSpec,
+  type CommandOutputProbeResult,
+} from "../../internal/probe.js";
+import { parseCursorModelCatalog } from "../../internal/modelCatalog.js";
 import { CursorAcpLane, type CursorAcpProcessFactory } from "./acp-lane.js";
 
 export class CursorDriver implements BackendAdapter, CursorAcpProcessFactory {
@@ -30,8 +36,19 @@ export class CursorDriver implements BackendAdapter, CursorAcpProcessFactory {
     terminalOwnership: "transport_request",
   } as const;
 
+  constructor(
+    private readonly outputProbe: (command: string, args: string[]) => CommandOutputProbeResult = probeCommandOutput,
+  ) {}
+
   probe(command?: string) {
-    return probeCliRuntime("cursor-agent", {}, command);
+    const result = probeCliRuntime("cursor-agent", {}, command);
+    if (result.status !== "healthy") return result;
+    const spec = resolveSpawnSpec("cursor-agent", ["--list-models"], command);
+    const output = this.outputProbe(spec.command, spec.args);
+    return {
+      ...result,
+      reasoning: output.ok ? parseCursorModelCatalog(output.output) : undefined,
+    };
   }
 
   async openLane(ctx: AdapterLaunchContext, options?: RuntimeLaneOpenOptions): Promise<RuntimeLane> {

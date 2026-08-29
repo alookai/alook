@@ -16,8 +16,8 @@ vi.mock("@/lib/utils", () => ({
 }))
 
 vi.mock("./model-field", () => ({
-  ModelField: ({ runtime, value }: { runtime: string; value: string | null }) =>
-    React.createElement("div", { "data-runtime": runtime, "data-model": value }),
+  ModelField: ({ runtime, value }: { runtime: { id: string } | null; value: string | null }) =>
+    React.createElement("div", { "data-runtime": runtime?.id, "data-model": value }),
 }))
 
 import { BotRuntimeFields } from "./bot-runtime-fields"

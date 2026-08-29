@@ -73,9 +73,17 @@ function stubLogger(): Logger & { calls: Record<"debug" | "info" | "warn" | "err
 describe("WsControlChannel — resync on (re)connect", () => {
   it("re-announces ready + live sessions on the new socket after a reconnect", async () => {
     const { ch, sockets } = makeChannel();
-    const ready: HostReady = { runtimeReport: [{ id: "mock" }], runningAgents: ["a1"] };
+    const reasoning = {
+      updateMode: "unsupported" as const,
+      models: [{ id: "startup-model", supportedReasoningEfforts: [] }],
+    };
+    const ready: HostReady = {
+      runtimeReport: [{ id: "mock", reasoning }],
+      runningAgents: ["a1"],
+    };
     const sessions: AgentSessionReport[] = [{ agentId: "a1", sessionId: "s1", launchId: "l1" }];
-    ch.onResync(() => ({ ready, sessions, activities: [] }));
+    const resync = vi.fn(() => ({ ready, sessions, activities: [] }));
+    ch.onResync(resync);
 
     ch.connect();
     sockets[0].emit("open");
@@ -83,6 +91,7 @@ describe("WsControlChannel — resync on (re)connect", () => {
     // so the shape matches HostReadyMessageSchema in @alook/shared.
     let f = sockets[0].frames();
     expect(f[0]).toMatchObject({ type: "ready", runningAgents: ["a1"] });
+    expect(f[0].runtimeReport[0].reasoning).toEqual(reasoning);
     expect(f[1]).toMatchObject({ type: "agent_session", agentId: "a1", sessionId: "s1" });
 
     // Drop the socket → channel schedules a reconnect → new socket created.
@@ -93,8 +102,9 @@ describe("WsControlChannel — resync on (re)connect", () => {
 
     // The NEW socket must carry a fresh ready + session (state recovered).
     f = sockets[1].frames();
-    expect(f.some((x) => x.type === "ready")).toBe(true);
+    expect(f.find((x) => x.type === "ready")?.runtimeReport[0].reasoning).toEqual(reasoning);
     expect(f.some((x) => x.type === "agent_session" && x.agentId === "a1")).toBe(true);
+    expect(resync).toHaveBeenCalledTimes(2);
   });
 
   it("2a — replays each live agent's current activity on (re)connect, recovering a frame dropped mid-disconnect", async () => {
@@ -295,7 +305,14 @@ describe("WsControlChannel — ready frame", () => {
   it("round-trips runtimeReport on the ready frame", async () => {
     const { ch, sockets } = makeChannel();
     const ready: HostReady = {
-      runtimeReport: [{ id: "claude", version: "1.0.0" }],
+      runtimeReport: [{
+        id: "claude",
+        version: "1.0.0",
+        reasoning: {
+          updateMode: "unsupported",
+          models: [{ id: "opus", supportedReasoningEfforts: [] }],
+        },
+      }],
       runningAgents: [],
     };
     ch.onResync(() => ({ ready, sessions: [], activities: [] }));
@@ -304,7 +321,14 @@ describe("WsControlChannel — ready frame", () => {
     const frames = sockets[0].frames();
     expect(frames[0]).toMatchObject({
       type: "ready",
-      runtimeReport: [{ id: "claude", version: "1.0.0" }],
+      runtimeReport: [{
+        id: "claude",
+        version: "1.0.0",
+        reasoning: {
+          updateMode: "unsupported",
+          models: [{ id: "opus", supportedReasoningEfforts: [] }],
+        },
+      }],
     });
   });
 });

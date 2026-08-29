@@ -32,10 +32,15 @@ import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
 import { killProcessTree, spawnAgentProcess } from "../../internal/killTree.js";
 import { jsonRpcRequest, tryParseJsonLine } from "../../internal/utils.js";
 import { scrubDriverErrorMessage } from "../../internal/errors.js";
+import {
+  normalizeRuntimeModelId,
+  RUNTIME_MODEL_CATALOG_MAX,
+} from "../../internal/modelCatalog.js";
 
 const SETTINGS_UPDATE_TIMEOUT_MS = 5_000;
 const MODEL_LIST_TIMEOUT_MS = 5_000;
-const MODEL_LIST_MAX = 64;
+const MODEL_LIST_OUTPUT_MAX_BYTES = 1024 * 1024;
+const MODEL_LIST_MAX = RUNTIME_MODEL_CATALOG_MAX;
 const MODEL_EFFORT_MAX = 16;
 
 /** True when Codex cannot resume because the prior thread rollout is gone. */
@@ -152,11 +157,13 @@ export class CodexDriver implements BackendAdapter {
     return new Promise((resolve) => {
       let settled = false;
       let buffer = "";
+      let outputBytes = 0;
       let nextId = 0;
       let initializeId = 0;
       let listId = 0;
       const models: RuntimeReasoningCatalog["models"][number][] = [];
       const seenModels = new Set<string>();
+      let overflow = false;
       let defaultModelId: string | undefined;
       const finish = (catalog?: RuntimeReasoningCatalog) => {
         if (settled) return;
@@ -176,10 +183,14 @@ export class CodexDriver implements BackendAdapter {
         ) + "\n");
       };
       const consumeModel = (value: unknown) => {
-        if (!value || typeof value !== "object" || models.length >= MODEL_LIST_MAX) return;
+        if (!value || typeof value !== "object") return;
         const model = value as Record<string, unknown>;
-        const id = typeof model.id === "string" ? model.id.trim() : "";
-        if (!id || id.length > 100 || seenModels.has(id)) return;
+        const id = normalizeRuntimeModelId(model.id);
+        if (!id || seenModels.has(id)) return;
+        if (models.length >= MODEL_LIST_MAX) {
+          overflow = true;
+          return;
+        }
         const rawOptions = Array.isArray(model.supportedReasoningEfforts)
           ? model.supportedReasoningEfforts
           : [];
@@ -226,8 +237,11 @@ export class CodexDriver implements BackendAdapter {
         if (message.error || !message.result || typeof message.result !== "object") return finish();
         const result = message.result as Record<string, unknown>;
         for (const model of Array.isArray(result.data) ? result.data : []) consumeModel(model);
+        if (overflow) return finish();
         const cursor = typeof result.nextCursor === "string" ? result.nextCursor : undefined;
-        if (cursor && models.length < MODEL_LIST_MAX) return requestModelPage(cursor);
+        if (cursor && models.length >= MODEL_LIST_MAX) return finish();
+        if (cursor) return requestModelPage(cursor);
+        if (models.length === 0) return finish();
         finish({
           updateMode: "live_next_turn",
           ...(defaultModelId ? { defaultModelId } : {}),
@@ -237,7 +251,10 @@ export class CodexDriver implements BackendAdapter {
       const timer = setTimeout(() => finish(), MODEL_LIST_TIMEOUT_MS);
       timer.unref?.();
       proc.stdout?.on("data", (chunk) => {
-        buffer += chunk.toString();
+        const text = chunk.toString();
+        outputBytes += Buffer.byteLength(text);
+        if (outputBytes > MODEL_LIST_OUTPUT_MAX_BYTES) return finish();
+        buffer += text;
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
         for (const line of lines) if (line.trim()) onLine(line);

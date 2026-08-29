@@ -160,7 +160,14 @@ describe("WebSocketDurableObject", () => {
         // The wire frame the daemon actually sends — see WsControlChannel.reportReady.
         const frame = JSON.stringify({
           type: "ready",
-          runtimeReport: [{ id: "claude", version: "1.0.0" }],
+          runtimeReport: [{
+            id: "claude",
+            version: "1.0.0",
+            reasoning: {
+              updateMode: "unsupported",
+              models: [{ id: "opus", supportedReasoningEfforts: [] }],
+            },
+          }],
           capabilities: ["control-heartbeat-v1"],
           runningAgents: [],
           hostname: "my-mac",
@@ -181,9 +188,111 @@ describe("WebSocketDurableObject", () => {
           arch: "arm64",
           osRelease: "23.0.0",
           daemonVersion: "0.1.0",
-          availableRuntimes: [{ id: "claude", version: "1.0.0" }],
+          availableRuntimes: [{
+            id: "claude",
+            version: "1.0.0",
+            reasoning: {
+              updateMode: "unsupported",
+              models: [{ id: "opus", supportedReasoningEfforts: [] }],
+            },
+          }],
         })
         expect(credentialHash).toBe("0".repeat(64))
+      })
+
+      it("replaces an older catalog with an honestly absent current snapshot", async () => {
+        const { durable, store } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "0".repeat(64),
+        })
+        mockUpsertMachineByMachineId.mockResolvedValue({
+          machine: { id: "cm_1", availableRuntimes: [{ id: "codex" }], status: "online" },
+          priorAvailableRuntimes: [{
+            id: "codex",
+            reasoning: {
+              updateMode: "unsupported",
+              models: [{ id: "old-model", supportedReasoningEfforts: [] }],
+            },
+          }],
+          priorStatus: "online",
+        })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({
+          type: "community-machine",
+          machineId: "cm_1",
+          userId: "u_1",
+          authenticated: true,
+        })
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "ready",
+          runtimeReport: [{ id: "codex", status: "healthy" }],
+          capabilities: ["control-heartbeat-v1"],
+          runningAgents: [],
+        }))
+
+        expect(mockUpsertMachineByMachineId.mock.calls[0]?.[3]).toMatchObject({
+          availableRuntimes: [{ id: "codex", status: "healthy" }],
+        })
+        expect(mockUpsertMachineByMachineId.mock.calls[0]?.[3].availableRuntimes[0].reasoning)
+          .toBeUndefined()
+      })
+
+      it("keeps same-runtime catalogs distinct in two machine persistence writes", async () => {
+        const first = createDO()
+        const second = createDO()
+        first.store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "machine-a",
+          credentialHash: "a".repeat(64),
+        })
+        second.store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "machine-b",
+          credentialHash: "b".repeat(64),
+        })
+        mockUpsertMachineByMachineId
+          .mockResolvedValueOnce({ machine: { id: "machine-a" }, priorStatus: "online" })
+          .mockResolvedValueOnce({ machine: { id: "machine-b" }, priorStatus: "online" })
+        const socketA = createMockWebSocket()
+        const socketB = createMockWebSocket()
+        socketA.serializeAttachment({
+          type: "community-machine",
+          machineId: "machine-a",
+          userId: "u_1",
+          authenticated: true,
+        })
+        socketB.serializeAttachment({
+          type: "community-machine",
+          machineId: "machine-b",
+          userId: "u_1",
+          authenticated: true,
+        })
+        const frame = (modelId: string) => JSON.stringify({
+          type: "ready",
+          capabilities: ["control-heartbeat-v1"],
+          runtimeReport: [{
+            id: "codex",
+            reasoning: {
+              updateMode: "unsupported",
+              models: [{ id: modelId, supportedReasoningEfforts: [] }],
+            },
+          }],
+          runningAgents: [],
+        })
+
+        await first.durable.webSocketMessage(socketA as any, frame("a-model"))
+        await second.durable.webSocketMessage(socketB as any, frame("b-model"))
+
+        expect(mockUpsertMachineByMachineId.mock.calls.map((call) => ({
+          machineId: call[2],
+          modelId: call[3].availableRuntimes[0].reasoning.models[0].id,
+        }))).toEqual([
+          { machineId: "machine-a", modelId: "a-model" },
+          { machineId: "machine-b", modelId: "b-model" },
+        ])
       })
 
       it("persists only valid quotas for backends present in the accepted runtime report", async () => {

@@ -14,6 +14,7 @@ import type { ProbeResult } from "./adapter.js";
  * every second here is a second of user-visible wait.
  */
 const PROBE_TIMEOUT_MS = 5000;
+const PROBE_OUTPUT_MAX_BYTES = 1024 * 1024;
 
 export interface ProbeDeps {
   homeDir?: string;
@@ -50,6 +51,10 @@ function firstExistingPath(candidates: string[]): string | null {
 
 type VersionProbeResult =
   | { ok: true; version: string }
+  | { ok: false; error: string };
+
+export type CommandOutputProbeResult =
+  | { ok: true; output: string }
   | { ok: false; error: string };
 
 /**
@@ -125,6 +130,28 @@ export function probeCommandVersion(
       (err as NodeJS.ErrnoException | undefined)?.code ??
       (err as { code?: string } | undefined)?.code ??
       "version_probe_failed";
+    return { ok: false, error: String(code) };
+  }
+}
+
+export function probeCommandOutput(
+  command: string,
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+): CommandOutputProbeResult {
+  try {
+    const output = execFileSync(command, args, {
+      encoding: "utf8",
+      timeout: PROBE_TIMEOUT_MS,
+      maxBuffer: PROBE_OUTPUT_MAX_BYTES,
+      shell: needsWindowsShimShell(command, platform),
+      stdio: ["pipe", "pipe", "ignore"],
+      input: "",
+      env: { ...process.env, CI: "1" },
+    });
+    return { ok: true, output };
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException | undefined)?.code ?? "command_probe_failed";
     return { ok: false, error: String(code) };
   }
 }

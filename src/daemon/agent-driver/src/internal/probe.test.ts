@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import { execFileSync } from "child_process";
-import { resolveClaudeCommand, resolveSpawnSpec, probeCliRuntime, probeCommandVersion } from "./probe.js";
+import {
+  resolveClaudeCommand,
+  resolveSpawnSpec,
+  probeCliRuntime,
+  probeCommandOutput,
+  probeCommandVersion,
+} from "./probe.js";
 
 vi.mock("child_process", () => ({ execFileSync: vi.fn() }));
 
@@ -218,6 +224,42 @@ describe("probeCliRuntime command override", () => {
       "/custom/runtime",
       ["--version"],
       expect.any(Object),
+    );
+  });
+});
+
+describe("probeCommandOutput", () => {
+  it("runs the exact command and args with bounded, non-interactive options", () => {
+    vi.mocked(execFileSync).mockReturnValue("provider/model\n");
+
+    expect(probeCommandOutput("/custom/opencode", ["models", "--pure"], "darwin"))
+      .toEqual({ ok: true, output: "provider/model\n" });
+    expect(execFileSync).toHaveBeenCalledWith(
+      "/custom/opencode",
+      ["models", "--pure"],
+      expect.objectContaining({
+        timeout: 5000,
+        maxBuffer: 1024 * 1024,
+        input: "",
+        shell: false,
+        env: expect.objectContaining({ CI: "1" }),
+      }),
+    );
+  });
+
+  it("uses a shell for Windows shims and converts failures to a non-throwing result", () => {
+    vi.mocked(execFileSync).mockImplementation(() => {
+      const error = new Error("timed out") as NodeJS.ErrnoException;
+      error.code = "ETIMEDOUT";
+      throw error;
+    });
+
+    expect(probeCommandOutput("C:\\tools\\cursor-agent.cmd", ["--list-models"], "win32"))
+      .toEqual({ ok: false, error: "ETIMEDOUT" });
+    expect(execFileSync).toHaveBeenCalledWith(
+      "C:\\tools\\cursor-agent.cmd",
+      ["--list-models"],
+      expect.objectContaining({ shell: true }),
     );
   });
 });

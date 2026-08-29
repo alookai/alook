@@ -259,7 +259,12 @@ export function CreateBotSheet({
                 No paired machines — pair one first.
               </p>
             ) : (
-              <div className="flex flex-col gap-2" role="radiogroup" aria-label="Machine">
+              <div
+                className="flex flex-col gap-2"
+                role="radiogroup"
+                aria-label="Machine"
+                data-testid="bot-machine-picker"
+              >
                 {machines.map((m) => {
                   const online = isPresenceOnline(m.status)
                   const selected = machineId === m.id

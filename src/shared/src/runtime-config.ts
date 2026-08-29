@@ -39,6 +39,11 @@ export type ReasoningEffortOption = {
   description?: string;
 };
 
+/**
+ * Machine/runtime-scoped startup catalog. The historical `reasoning` wire
+ * field jointly carries model IDs and any model-specific reasoning metadata;
+ * models with no effort metadata use an empty options array.
+ */
 export type RuntimeReasoningCatalog = {
   readonly updateMode: "live_next_turn" | "context_preserving_restart" | "unsupported";
   readonly defaultModelId?: string;
@@ -52,8 +57,8 @@ export type RuntimeReasoningCatalog = {
 /** Model selection — structured, not a bare string. */
 export type ModelConfig =
   | { kind: "default" } // use the runtime's default model
-  | { kind: "named"; name: string } // a specific catalog model
-  | { kind: "custom"; name: string }; // a custom/BYO model id
+  | { kind: "named"; name: string } // any explicit launchable model name
+  | { kind: "custom"; name: string }; // legacy-compatible custom/BYO shape
 
 /**
  * Provider / endpoint selection — distinct from model. Lets a host point a

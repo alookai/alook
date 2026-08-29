@@ -504,11 +504,6 @@ export type {
 } from "./runtime-config";
 export { RUNTIME_CONFIG_VERSION, KNOWN_REASONING_EFFORTS, makeRuntimeConfig } from "./runtime-config";
 
-export type { RuntimeModelCatalogEntry } from "./constants/runtime-models";
-export {
-  RUNTIME_MODEL_CATALOG,
-  getRuntimeModelCatalog,
-} from "./constants/runtime-models";
 export type {
   RuntimeReasoningDescriptor,
   ReasoningEffortResolution,

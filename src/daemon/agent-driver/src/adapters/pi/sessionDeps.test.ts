@@ -70,7 +70,7 @@ function fakeSdk(opts: {
 
   const sdk: PiSdkModule = {
     AuthStorage: { create: () => ({ setRuntimeApiKey }) },
-    ModelRegistry: { create: () => ({ find: findModel }) },
+    ModelRegistry: { create: () => ({ find: findModel, getAvailable: () => [] }) },
     SessionManager: {
       create: sessionManagerCreate,
       open: sessionManagerOpen,

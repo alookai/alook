@@ -44,6 +44,8 @@ export function BotRuntimeFields({
   runtimeError?: string
   disableUnhealthyOptions?: boolean
 }) {
+  const selectedRuntime = options.find((option) => option.id === runtime) ?? null
+
   function selectRuntime(next: string) {
     if (next === runtime) return
     onRuntimeChange(next)
@@ -107,9 +109,9 @@ export function BotRuntimeFields({
       </div>
       {runtime ? (
         <div data-motion-target={modelMotionTarget} className={cn("flex flex-col gap-4", modelClassName)}>
-          <ModelField runtime={runtime} value={model} onChange={onModelChange} />
+          <ModelField runtime={selectedRuntime} value={model} onChange={onModelChange} />
           <ReasoningEffortField
-            runtime={options.find((option) => option.id === runtime) ?? null}
+            runtime={selectedRuntime}
             model={model}
             value={reasoningEffort}
             onChange={onReasoningEffortChange}
