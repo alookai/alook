@@ -7,7 +7,7 @@ import { useComposerController } from "./use-composer-controller"
 import type { ComposerHandle, ComposerProps } from "./composer-types"
 
 export type { SendAttachment }
-export type { ComposerHandle, ComposerProps } from "./composer-types"
+export type { ComposerHandle, ComposerMention, ComposerProps } from "./composer-types"
 export {
   clipboardFiles,
   pendingFilesToSendAttachments,

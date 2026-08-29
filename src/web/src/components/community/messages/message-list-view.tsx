@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
+import { cn } from "@/lib/utils"
 import { ChannelIcon } from "../channels/channel-icon"
 import { ComposerAccessoryRail } from "./composer-accessory-rail"
 import { MessageShareDialog } from "./message-share-dialog"
@@ -13,6 +14,9 @@ export function renderMessageListView(
   controller: MessageListController,
   renderRows: () => ReactNode,
 ) {
+  const showTyping = !controller.isLoading && (props.typingUsers?.length ?? 0) > 0
+  const needsSelectionClearance = !controller.isLoading && controller.selectMode
+
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       {controller.shareOpen && controller.selectedMessages.length > 0 && (
@@ -39,7 +43,13 @@ export function renderMessageListView(
           data-testid={tid.messageScroller}
           className="h-full overflow-x-clip overflow-y-auto thin-scrollbar"
         >
-          <div className="flex min-h-full flex-col justify-end px-4 pb-14 pt-8">
+          <div
+            data-message-list-content
+            className={cn(
+              "flex min-h-full flex-col justify-end px-4 pt-8",
+              needsSelectionClearance ? "pb-14" : "pb-8",
+            )}
+          >
           {controller.isLoading ? (
             <MessageListSkeletonContent variant={props.variant} />
           ) : (
@@ -84,9 +94,13 @@ export function renderMessageListView(
       </div>
       <div
         data-message-typing-space
-        className="h-11 shrink-0 px-4 pb-2 pt-1"
+        data-occupied={showTyping ? "typing" : "idle"}
+        className={cn(
+          "shrink-0",
+          showTyping ? "h-11 px-4 pb-2 pt-1" : "h-0",
+        )}
       >
-        {!controller.isLoading && (
+        {showTyping && (
           <TypingIndicator names={props.typingUsers ?? []} className="w-fit max-w-full" />
         )}
       </div>

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest"
 import { extractMentionedUserIds } from "@alook/shared"
-import { textNodeForCaretInsertion } from "./caret-text-insertion"
+import {
+  mentionNodesForCaretInsertion,
+  textNodeForCaretInsertion,
+} from "./caret-text-insertion"
 
 const ALICE = { userId: "alice_1", name: "Alice", discriminator: "0042" }
 const TOKEN = "@Alice#0042"
@@ -34,5 +37,26 @@ describe("caret text boundaries", () => {
     expect(insertAtCaret("hello world", 6)).toBe("hello @Alice#0042 world")
     expect(insertAtCaret("hello,world", 6)).toBe("hello,@Alice#0042 world")
     expect(insertAtCaret("hello , world", 7)).toBe("hello ,@Alice#0042 world")
+  })
+
+  it("wraps a structured mention in the same caret-aware boundaries", () => {
+    const content = "helloworld"
+    expect(mentionNodesForCaretInsertion({
+      id: "member_1",
+      label: "Alice#0042",
+    }, {
+      selection: { from: 5, to: 5 },
+      doc: {
+        content: { size: content.length },
+        textBetween: (from, to) => content.slice(from, to),
+      },
+    })).toEqual([
+      { type: "text", text: " " },
+      {
+        type: "mention",
+        attrs: { id: "member_1", label: "Alice#0042" },
+      },
+      { type: "text", text: " " },
+    ])
   })
 })

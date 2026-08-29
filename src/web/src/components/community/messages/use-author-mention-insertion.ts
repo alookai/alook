@@ -3,9 +3,9 @@
 import { useCallback, useMemo, useRef } from "react"
 import { formatHandle } from "@alook/shared"
 import type { Member } from "@/lib/community/models/people"
-import type { ComposerHandle } from "./composer"
+import type { ComposerHandle, ComposerMention } from "./composer"
 
-type MentionIdentity = Pick<Member, "userId" | "name" | "discriminator">
+type MentionIdentity = Pick<Member, "id" | "userId" | "name" | "discriminator">
 
 export function canonicalAuthorMentionText(
   identity: Pick<MentionIdentity, "name" | "discriminator">,
@@ -25,10 +25,11 @@ export function useAuthorMentionInsertion({
   viewerDiscriminator?: string
 }) {
   const composerRef = useRef<ComposerHandle>(null)
-  const mentionTextByUserId = useMemo(() => {
+  const mentionByUserId = useMemo(() => {
     const identities: MentionIdentity[] = [...members]
-    if (viewerDiscriminator) {
+    if (viewerDiscriminator && !identities.some(({ userId }) => userId === viewerUserId)) {
       identities.push({
+        id: viewerUserId,
         userId: viewerUserId,
         name: viewerName,
         discriminator: viewerDiscriminator,
@@ -36,16 +37,25 @@ export function useAuthorMentionInsertion({
     }
     return new Map(identities.map((identity) => [
       identity.userId,
-      canonicalAuthorMentionText(identity),
+      {
+        id: identity.id,
+        label: formatHandle(identity.name, identity.discriminator),
+      } satisfies ComposerMention,
     ]))
   }, [members, viewerDiscriminator, viewerName, viewerUserId])
   const resolveAuthorMentionText = useCallback(
-    (authorId: string) => mentionTextByUserId.get(authorId) ?? null,
-    [mentionTextByUserId],
+    (authorId: string) => {
+      const mention = mentionByUserId.get(authorId)
+      return mention ? `@${mention.label}` : null
+    },
+    [mentionByUserId],
   )
   const insertMentionText = useCallback((text: string) => {
-    composerRef.current?.insertTextAtCaret(text)
-  }, [])
+    const mention = Array.from(mentionByUserId.values()).find(
+      (candidate) => `@${candidate.label}` === text,
+    )
+    if (mention) composerRef.current?.insertMentionAtCaret(mention)
+  }, [mentionByUserId])
 
   return { composerRef, resolveAuthorMentionText, insertMentionText }
 }

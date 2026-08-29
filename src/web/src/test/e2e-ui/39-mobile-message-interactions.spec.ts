@@ -267,6 +267,17 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   await expect(composerEditable(bob.page)).toBeVisible()
   const threadTarget = alice.page.getByTestId(tid.message(threadBobMessageId))
   await expect(threadTarget).toBeVisible()
+  const restingThreadGap = await alice.page.evaluate(({ targetId, composerId }) => {
+    const target = document.querySelector(`[data-testid="${targetId}"]`)?.getBoundingClientRect()
+    const composer = document.querySelector(`[data-testid="${composerId}"]`)?.getBoundingClientRect()
+    return target && composer ? composer.top - target.bottom : null
+  }, {
+    targetId: tid.message(threadBobMessageId),
+    composerId: tid.channelComposerShell,
+  })
+  expect(restingThreadGap).not.toBeNull()
+  expect(restingThreadGap!).toBeGreaterThanOrEqual(0)
+  expect(restingThreadGap!).toBeLessThanOrEqual(40)
   const threadWsReadyId = await seedMessage("alice", threadId, `thread ws ready ${stamp}`)
   await expect.poll(() => bobProxy.frames.some((frame) => (
     frameHasMessage(frame, threadId, threadWsReadyId)
@@ -281,7 +292,8 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
       name: `Open ${aliceInfo.name} profile; long press to mention`,
     }),
   )
-  await expect(editable).toHaveText(`opener @${aliceInfo.name}#${aliceInfo.discriminator} here`)
+  await expect(editable).toHaveText(`opener @${aliceInfo.name} here`)
+  await expect(editable.locator(".mention-highlight")).toHaveText(`@${aliceInfo.name}`)
 
   await editable.fill("helloworld")
   await editable.click()
@@ -291,7 +303,14 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   })
   await dispatchLongPress(alice.page, avatar)
   const mentionBody = `hello @${bobInfo.name}#${bobInfo.discriminator} world`
-  await expect(editable).toHaveText(mentionBody)
+  await expect(editable).toHaveText(`hello @${bobInfo.name} world`)
+  const insertedMention = editable.locator(".mention-highlight")
+  await expect(insertedMention).toHaveText(`@${bobInfo.name}`)
+  await expect(insertedMention).toHaveAttribute("data-id", bobInfo.id)
+  await expect(insertedMention).toHaveAttribute(
+    "data-label",
+    `${bobInfo.name}#${bobInfo.discriminator}`,
+  )
 
   const mentionResponsePromise = alice.page.waitForResponse((response) => (
     response.request().method() === "POST"
@@ -346,7 +365,7 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   )), { timeout: 20_000 }).toBe(true)
   const typingSpace = alice.page.locator("[data-message-typing-space]")
   const spaceBefore = await typingSpace.boundingBox()
-  expect(spaceBefore?.height).toBe(44)
+  expect(spaceBefore?.height).toBe(0)
   const beforeTypingSeq = await latestSeq(alice.page, channelId)
   const bobEditable = composerEditable(bob.page)
   await expect(async () => {
@@ -382,6 +401,7 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
     replyMessageTestId: tid.message(replyPayload.message.id),
   })
   expect(geometry.scroller!.bottom).toBeLessThanOrEqual(geometry.space!.top + 1)
+  expect(geometry.space!.height).toBe(44)
   expect(geometry.space!.bottom).toBeLessThanOrEqual(geometry.composer!.top + 1)
   expect(geometry.indicator!.top).toBeGreaterThanOrEqual(geometry.space!.top - 1)
   expect(geometry.indicator!.bottom).toBeLessThanOrEqual(geometry.space!.bottom + 1)
@@ -452,7 +472,7 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   await bobEditable.fill("")
   await expect(alice.page.getByTestId(tid.typingIndicator)).toBeHidden({ timeout: 15_000 })
   const spaceAfter = await typingSpace.boundingBox()
-  expect(spaceAfter?.height).toBe(spaceBefore?.height)
+  expect(spaceAfter?.height).toBe(0)
   expect(spaceAfter?.y).toBeCloseTo(spaceBefore!.y, 0)
   expect(await latestSeq(alice.page, channelId)).toBe(beforeTypingSeq)
 
@@ -469,7 +489,7 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   const beforeDmTypingSeq = await latestSeq(alice.page, dmId)
   const dmTypingSpace = alice.page.locator("[data-message-typing-space]")
   const dmSpaceBefore = await dmTypingSpace.boundingBox()
-  expect(dmSpaceBefore?.height).toBe(44)
+  expect(dmSpaceBefore?.height).toBe(0)
   const bobDmEditable = composerEditable(bob.page)
   await expect(async () => {
     await bobDmEditable.fill("")
@@ -486,11 +506,12 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
     }
   }, { scrollerId: tid.messageScroller, indicatorId: tid.typingIndicator })
   expect(dmGeometry.scroller!.bottom).toBeLessThanOrEqual(dmGeometry.space!.top + 1)
+  expect(dmGeometry.space!.height).toBe(44)
   expect(dmGeometry.indicator!.bottom).toBeLessThanOrEqual(dmGeometry.space!.bottom + 1)
   expect(dmGeometry.horizontalOverflow).toBeLessThanOrEqual(0)
   await bobDmEditable.fill("")
   await expect(alice.page.getByTestId(tid.typingIndicator)).toBeHidden({ timeout: 15_000 })
-  expect((await dmTypingSpace.boundingBox())?.height).toBe(dmSpaceBefore?.height)
+  expect((await dmTypingSpace.boundingBox())?.height).toBe(0)
   expect(await latestSeq(alice.page, dmId)).toBe(beforeDmTypingSeq)
 
   await alice.page.emulateMedia({ reducedMotion: "reduce" })

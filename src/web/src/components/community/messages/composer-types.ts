@@ -11,6 +11,11 @@ export type ComposerReplyTarget = {
   text: string
 }
 
+export type ComposerMention = {
+  id: string
+  label: string
+}
+
 export type MentionCandidateSource = {
   loading: boolean
   loadingMore: boolean
@@ -36,6 +41,7 @@ export type ChannelRefCandidateSource = {
 export type ComposerHandle = {
   focusEditor: () => void
   insertTextAtCaret: (text: string) => void
+  insertMentionAtCaret: (mention: ComposerMention) => void
   submitNow: () => void
   resetAfterSubmit: () => void
   isEmpty: () => boolean

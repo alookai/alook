@@ -29,7 +29,7 @@ import {
 } from "./composer-file-utils"
 import { handleComposerKeyDown } from "./composer-keydown"
 import type { ComposerHandle, ComposerProps } from "./composer-types"
-import { textNodeForCaretInsertion } from "./caret-text-insertion"
+import { mentionNodesForCaretInsertion, textNodeForCaretInsertion } from "./caret-text-insertion"
 import type { ComposerViewProps } from "./composer-view"
 import { useComposerSuggestions } from "./use-composer-suggestions"
 
@@ -323,6 +323,9 @@ export function useComposerController(
       if (!editor || !text) return
       const insertion = textNodeForCaretInsertion(text, editor.state)
       editor.chain().focus().insertContent(insertion).run()
+    },
+    insertMentionAtCaret: (mention) => {
+      if (editor && mention.id && mention.label) editor.chain().focus().insertContent(mentionNodesForCaretInsertion(mention, editor.state)).run()
     },
     submitNow: () => {
       send()

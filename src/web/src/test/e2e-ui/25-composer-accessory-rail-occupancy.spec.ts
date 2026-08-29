@@ -106,10 +106,11 @@ function expectCheckpoint(
   state: string,
   width: number,
   selection: boolean,
+  typing: boolean,
 ): void {
   const evidence = `${state}@${width}: ${JSON.stringify(metrics)}`
   const expectedGap = width < 640 ? 8 : 16
-  expect(metrics.typingSpace.height, evidence).toBe(44)
+  expect(metrics.typingSpace.height, evidence).toBe(typing ? 44 : 0)
   expect(metrics.scroller.bottom, evidence).toBeLessThanOrEqual(metrics.typingSpace.top + 1)
   expect(metrics.typingSpace.bottom, evidence).toBeLessThanOrEqual(metrics.composer.top + 1)
   if (metrics.typing?.width) {
@@ -181,7 +182,7 @@ async function captureState(args: {
     }
     const metrics = await railMetrics(page)
     expectContained(metrics, state, width)
-    expectCheckpoint(metrics, state, width, selection)
+    expectCheckpoint(metrics, state, width, selection, typing)
     if (center) {
       expect(metrics.center, `${state}@${width}`).not.toBeNull()
       expect(Math.abs(metrics.center!.center - metrics.composer.center), `${state}@${width}`)
@@ -206,6 +207,7 @@ async function captureEmptyState(page: Page, testInfo: TestInfo): Promise<void> 
     await expect(page.getByTestId(tid.scrollToPresent)).toHaveCount(0)
     await expect(page.getByTestId(tid.composerAccessoryRail)).toHaveCount(0)
     await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible()
+    expect((await page.locator("[data-message-typing-space]").boundingBox())?.height).toBe(0)
     const documentWidths = await page.evaluate(() => ({
       client: document.documentElement.clientWidth,
       scroll: document.documentElement.scrollWidth,

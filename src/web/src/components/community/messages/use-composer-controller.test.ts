@@ -453,6 +453,18 @@ describe("useComposerController", () => {
       type: "text",
       text: " @Alice Smith#0042 ",
     })
+    handleRef.current?.insertMentionAtCaret({
+      id: "member_1",
+      label: "Alice Smith#0042",
+    })
+    expect(insertContent).toHaveBeenLastCalledWith([
+      { type: "text", text: " " },
+      {
+        type: "mention",
+        attrs: { id: "member_1", label: "Alice Smith#0042" },
+      },
+      { type: "text", text: " " },
+    ])
     expect(run).toHaveBeenCalled()
     handleRef.current?.openFilePicker()
     expect(filePickerClick).toHaveBeenCalledOnce()

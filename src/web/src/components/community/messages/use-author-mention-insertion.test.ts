@@ -15,11 +15,11 @@ describe("author mention insertion", () => {
     })).toBe("@Alice Smith#0042")
   })
 
-  it("resolves roster and viewer authors and forwards text unchanged to the live composer", () => {
+  it("resolves roster and viewer authors and inserts the exact structured mention", () => {
     let latest!: ReturnType<typeof useAuthorMentionInsertion>
     function Probe() {
       latest = useAuthorMentionInsertion({
-        members: [{ userId: "alice_1", name: "Alice Smith", discriminator: "0042" }],
+        members: [{ id: "member_1", userId: "alice_1", name: "Alice Smith", discriminator: "0042" }],
         viewerUserId: "viewer_1",
         viewerName: "Viewer",
         viewerDiscriminator: "1111",
@@ -34,10 +34,13 @@ describe("author mention insertion", () => {
     expect(latest.resolveAuthorMentionText("viewer_1")).toBe("@Viewer#1111")
     expect(latest.resolveAuthorMentionText("missing")).toBeNull()
 
-    const insertTextAtCaret = vi.fn()
-    latest.composerRef.current = { insertTextAtCaret } as unknown as ComposerHandle
+    const insertMentionAtCaret = vi.fn()
+    latest.composerRef.current = { insertMentionAtCaret } as unknown as ComposerHandle
     act(() => latest.insertMentionText("@Alice Smith#0042"))
-    expect(insertTextAtCaret).toHaveBeenCalledOnce()
-    expect(insertTextAtCaret).toHaveBeenCalledWith("@Alice Smith#0042")
+    expect(insertMentionAtCaret).toHaveBeenCalledOnce()
+    expect(insertMentionAtCaret).toHaveBeenCalledWith({
+      id: "member_1",
+      label: "Alice Smith#0042",
+    })
   })
 })
