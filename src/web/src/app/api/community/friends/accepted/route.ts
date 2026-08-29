@@ -3,6 +3,7 @@ import { queries, readOrStale } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { avatarInitial } from "@/lib/community/avatar"
+import { canonicalUserImage } from "@/lib/community/storage"
 import { resolvePresence, toFriendCard } from "@/lib/community/friend-cards"
 
 /**
@@ -46,7 +47,9 @@ export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
     userId: f.friendUserId,
     name: f.friendName,
     discriminator: f.friendDiscriminator,
-    avatar: f.friendImage ?? avatarInitial(f.friendName),
+    avatar: canonicalUserImage(f.friendUserId, f.friendImage, f.friendAvatarVersion)
+      ?? avatarInitial(f.friendName),
+    avatarVersion: f.friendAvatarVersion,
     status: "offline" as const,
     sub: "",
     statusEmoji: f.statusEmoji ?? null,

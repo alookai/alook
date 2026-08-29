@@ -7,6 +7,7 @@ type TestUser = {
   name: string
   email: string
   avatar: string
+  avatarVersion?: number
   aboutMe?: string
   discriminator?: string
   statusEmoji?: string | null
@@ -14,8 +15,10 @@ type TestUser = {
 }
 
 type ProfileResponse = {
+  id?: string
   aboutMe: string
   avatar: string
+  avatarVersion: number
   discriminator: string
   name: string
   statusEmoji: string | null
@@ -31,6 +34,14 @@ const { apiFetch } = vi.hoisted(() => ({
 const setCurrentUser = vi.fn((updater: (user: TestUser) => TestUser) => {
   activeUser = updater(activeUser)
 })
+const queryClient = {
+  setQueriesData: vi.fn(),
+  invalidateQueries: vi.fn(),
+}
+
+vi.mock("@tanstack/react-query", () => ({
+  useQueryClient: () => queryClient,
+}))
 
 vi.mock("./QueryProvider", () => ({
   QueryProvider: ({ children, userId }: { children: React.ReactNode; userId: string | null }) => {
@@ -55,6 +66,7 @@ vi.mock("@/components/community/onboarding/community-onboarding-guide", () => ({
 }))
 
 import { CommunityShell } from "./community-shell"
+import { useCommunityWsStore } from "@/stores/community/ws"
 
 beforeEach(() => {
   activeUser = { id: "user-a", name: "A", email: "a@example.com", avatar: "A" }
@@ -63,6 +75,9 @@ beforeEach(() => {
   apiFetch.mockReset()
   apiFetch.mockImplementation(() => new Promise(() => undefined))
   setCurrentUser.mockClear()
+  queryClient.setQueriesData.mockReset()
+  queryClient.invalidateQueries.mockReset()
+  useCommunityWsStore.getState().reset()
 })
 
 describe("CommunityShell identity boundary", () => {
@@ -96,6 +111,7 @@ describe("CommunityShell identity boundary", () => {
     apiFetch.mockResolvedValueOnce({
       aboutMe: "hello",
       avatar: "new-avatar",
+      avatarVersion: 3,
       discriminator: "4242",
       name: "Jane Roe",
       statusEmoji: "🌱",
@@ -118,6 +134,7 @@ describe("CommunityShell identity boundary", () => {
       name: "Jane Roe",
       aboutMe: "hello",
       avatar: "new-avatar",
+      avatarVersion: 3,
       discriminator: "4242",
       statusEmoji: "🌱",
       statusText: "Growing",
@@ -130,6 +147,7 @@ describe("CommunityShell identity boundary", () => {
     apiFetch.mockResolvedValueOnce({
       aboutMe: "hello",
       avatar: "",
+      avatarVersion: 0,
       discriminator: "4242",
       name: "",
       statusEmoji: null,
@@ -153,6 +171,48 @@ describe("CommunityShell identity boundary", () => {
       discriminator: "4242",
       statusEmoji: null,
       statusText: "",
+    })
+    renderer.unmount()
+  })
+
+  it("projects an identity discovered by HTTP across already-cached messages", async () => {
+    useCommunityWsStore.getState().bindIdentityOwner("user-a")
+    const cached = {
+      id: "m1",
+      authorId: "user-a",
+      authorAvatar: "/api/community/users/user-a/avatar?v=1",
+      authorAvatarVersion: 1,
+    }
+    let projected: unknown
+    queryClient.setQueriesData.mockImplementation((_filters, updater) => {
+      projected = updater(cached)
+      return []
+    })
+    apiFetch.mockResolvedValueOnce({
+      id: "user-a",
+      aboutMe: "hello",
+      avatar: "/api/community/users/user-a/avatar?v=6",
+      avatarVersion: 6,
+      discriminator: "4242",
+      name: "Alice",
+      statusEmoji: null,
+      statusText: "",
+    })
+
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(
+        CommunityShell,
+        { currentUser: activeUser },
+        React.createElement("span", null, "content"),
+      ))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(projected).toMatchObject({
+      authorAvatar: "/api/community/users/user-a/avatar?v=6",
+      authorAvatarVersion: 6,
     })
     renderer.unmount()
   })

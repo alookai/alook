@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
+import { canonicalUserImage } from "@/lib/community/storage"
 
 /**
  * Approve a pending bot approval request. After migration 0065 only the
@@ -50,7 +51,8 @@ export const POST = withAuth(async (_req, ctx) => {
         userId: botId,
         name: bot.name,
         discriminator: bot.discriminator,
-        avatar: bot.image ?? undefined,
+        avatar: canonicalUserImage(bot.id, bot.image, bot.avatarVersion) ?? undefined,
+        avatarVersion: bot.avatarVersion,
         role: added.role ?? ROLES.MEMBER,
         joinedAt: added.joinedAt,
       },

@@ -1,5 +1,5 @@
 import type { InfiniteData, QueryClient, QueryKey } from "@tanstack/react-query"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetchIdentity } from "@/lib/community/identity-projection"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
@@ -212,7 +212,7 @@ async function fetchCurrentWindow(
   pageParam: MessagesPageParam,
   tag: string | null,
 ): Promise<MessagesPage> {
-  return apiFetch<MessagesPage>(buildMessagesUrl(scopeId, pageParam, tag))
+  return apiFetchIdentity<MessagesPage>(buildMessagesUrl(scopeId, pageParam, tag))
 }
 
 async function fetchCatchUp(
@@ -229,7 +229,7 @@ async function fetchCatchUp(
   for (let pageIndex = 0; pageIndex < MAX_CATCH_UP_PAGES; pageIndex += 1) {
     const params = new URLSearchParams({ since: nextCursor })
     if (tag) params.set("tag", tag)
-    const page = await apiFetch<MessagesPage>(
+    const page = await apiFetchIdentity<MessagesPage>(
       `/api/community/channels/${scopeId}/messages?${params}`,
     )
     messages.push(...page.messages)

@@ -55,23 +55,56 @@ export function isOwnedServerIconKey(key: string, serverId: string): boolean {
   return suffix.length > 0 && !suffix.includes("/")
 }
 
-// Deterministic keys — unlike server icons (random `fileId`, old key deleted
-// on replace), user/bot avatars overwrite the same R2 object in place, so the
-// routable URL stored on the DB row never changes across re-uploads.
+// Stable aliases remain deterministic for rollback compatibility. New avatar
+// publications write immutable `/objects/<uuid>` children and D1 points at
+// exactly one child; the canonical read URL carries that D1 version.
 export function buildUserAvatarKey(userId: string): string {
   return `user-avatar/${userId}`
 }
 
-export function userAvatarUrl(userId: string): string {
-  return `/api/community/users/${userId}/avatar`
+export function buildUserAvatarObjectKey(userId: string, fileId: string): string {
+  return `${buildUserAvatarKey(userId)}/objects/${fileId}`
+}
+
+export function isOwnedUserAvatarObjectKey(key: string, userId: string): boolean {
+  const prefix = `${buildUserAvatarKey(userId)}/objects/`
+  const suffix = key.startsWith(prefix) ? key.slice(prefix.length) : ""
+  return suffix.length > 0 && !suffix.includes("/")
+}
+
+export function userAvatarUrl(userId: string, avatarVersion?: number): string {
+  const base = `/api/community/users/${userId}/avatar`
+  return avatarVersion && avatarVersion > 0 ? `${base}?v=${avatarVersion}` : base
 }
 
 export function buildBotAvatarKey(botId: string): string {
   return `bot-avatar/${botId}`
 }
 
-export function botAvatarUrl(botId: string): string {
-  return `/api/community/bots/${botId}/avatar`
+export function buildBotAvatarObjectKey(botId: string, fileId: string): string {
+  return `${buildBotAvatarKey(botId)}/objects/${fileId}`
+}
+
+export function isOwnedBotAvatarObjectKey(key: string, botId: string): boolean {
+  const prefix = `${buildBotAvatarKey(botId)}/objects/`
+  const suffix = key.startsWith(prefix) ? key.slice(prefix.length) : ""
+  return suffix.length > 0 && !suffix.includes("/")
+}
+
+export function botAvatarUrl(botId: string, avatarVersion?: number): string {
+  const base = `/api/community/bots/${botId}/avatar`
+  return avatarVersion && avatarVersion > 0 ? `${base}?v=${avatarVersion}` : base
+}
+
+export function canonicalUserImage(
+  userId: string,
+  image: string | null,
+  avatarVersion: number,
+): string | null {
+  if (!image) return null
+  if (image === userAvatarUrl(userId)) return userAvatarUrl(userId, avatarVersion)
+  if (image === botAvatarUrl(userId)) return botAvatarUrl(userId, avatarVersion)
+  return image
 }
 
 /**

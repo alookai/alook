@@ -12,6 +12,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { createCommunityMessage } from "@/lib/community/message-handler"
+import { canonicalUserImage } from "@/lib/community/storage"
 
 const log = createLogger({ service: "community-bots-server-add" })
 
@@ -62,7 +63,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         userId: botId,
         name: bot?.name ?? "",
         discriminator: bot?.discriminator ?? "0000",
-        avatar: bot?.image ?? undefined,
+        avatar: bot
+          ? canonicalUserImage(bot.id, bot.image, bot.avatarVersion) ?? undefined
+          : undefined,
+        avatarVersion: bot?.avatarVersion ?? 0,
         role: added.role ?? ROLES.MEMBER,
         joinedAt: added.joinedAt,
       },

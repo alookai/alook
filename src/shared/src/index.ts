@@ -602,6 +602,7 @@ export type {
   FriendApprovalProfile,
   CommunityPresenceUpdate,
   CommunityStatusUpdate,
+  CommunityIdentityUpdate,
   CommunityMentionCreate,
   CommunityUnreadBump,
   CommunityReadStateAdvanced,

@@ -125,6 +125,7 @@ export async function listMembers(db: Database, serverId: string) {
       userName: user.name,
       userEmail: user.email,
       userImage: user.image,
+      userAvatarVersion: user.avatarVersion,
       userIsBot: user.isBot,
       userOwnerUserId: user.ownerUserId,
       discriminator: user.discriminator,
@@ -154,6 +155,7 @@ export async function getMembersByUserIds(
             userName: user.name,
             userEmail: user.email,
             userImage: user.image,
+            userAvatarVersion: user.avatarVersion,
             userIsBot: user.isBot,
             userOwnerUserId: user.ownerUserId,
             discriminator: user.discriminator,
@@ -216,6 +218,7 @@ export async function listMembersPaginated(
     userName: string | null;
     userEmail: string;
     userImage: string | null;
+    userAvatarVersion: number;
     userIsBot: boolean;
     userOwnerUserId: string | null;
     discriminator: string | null;
@@ -256,6 +259,7 @@ export async function listMembersPaginated(
       userName: user.name,
       userEmail: user.email,
       userImage: user.image,
+      userAvatarVersion: user.avatarVersion,
       userIsBot: user.isBot,
       userOwnerUserId: user.ownerUserId,
       discriminator: user.discriminator,
@@ -327,6 +331,7 @@ export async function searchMembers(
       userName: user.name,
       userEmail: user.email,
       userImage: user.image,
+      userAvatarVersion: user.avatarVersion,
       discriminator: user.discriminator,
       statusEmoji: communityUserProfile.statusEmoji,
       statusText: communityUserProfile.statusText,
@@ -381,6 +386,7 @@ export async function getMemberById(
       userName: user.name,
       userEmail: user.email,
       userImage: user.image,
+      userAvatarVersion: user.avatarVersion,
     })
     .from(communityServerMember)
     .innerJoin(user, eq(communityServerMember.userId, user.id))

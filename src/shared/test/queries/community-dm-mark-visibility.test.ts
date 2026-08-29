@@ -2,7 +2,10 @@ import Sqlite from "better-sqlite3"
 import { drizzle } from "drizzle-orm/better-sqlite3"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import type { Database } from "../../src/db"
-import { listDmChannelIdsForUser } from "../../src/db/queries/community/dm"
+import {
+  listDmChannelIdsForUser,
+  listDmPeerUserIds,
+} from "../../src/db/queries/community/dm"
 
 describe("listDmChannelIdsForUser — readable mark scope", () => {
   let sqlite: Sqlite.Database
@@ -25,6 +28,10 @@ describe("listDmChannelIdsForUser — readable mark scope", () => {
         addressee_id TEXT NOT NULL,
         status TEXT NOT NULL
       );
+      CREATE TABLE user (
+        id TEXT PRIMARY KEY,
+        deletedAt TEXT
+      );
       INSERT INTO community_channel (id, type) VALUES
         ('dm_open', 'dm'),
         ('dm_peer_blocked_me', 'dm'),
@@ -39,6 +46,11 @@ describe("listDmChannelIdsForUser — readable mark scope", () => {
       INSERT INTO community_friendship (requester_id, addressee_id, status) VALUES
         ('peer_blocker', 'me', 'blocked'),
         ('me', 'peer_blocked', 'blocked');
+      INSERT INTO user (id, deletedAt) VALUES
+        ('me', NULL),
+        ('open_peer', NULL),
+        ('peer_blocker', NULL),
+        ('peer_blocked', NULL);
     `)
     db = drizzle(sqlite) as unknown as Database
   })
@@ -47,5 +59,9 @@ describe("listDmChannelIdsForUser — readable mark scope", () => {
 
   it("excludes both peer-to-viewer and viewer-to-peer blocks with one batched anti-join", async () => {
     await expect(listDmChannelIdsForUser(db, "me")).resolves.toEqual(["dm_open"])
+  })
+
+  it("uses the same readable-DM boundary for identity fanout peers", async () => {
+    await expect(listDmPeerUserIds(db, "me")).resolves.toEqual(["open_peer"])
   })
 })

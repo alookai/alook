@@ -44,6 +44,7 @@ import {
   handlePresenceUpdate,
   handleStatusUpdate,
 } from "@/hooks/community/community-ws/presence-machine-events"
+import { handleIdentityUpdate } from "@/hooks/community/community-ws/identity-events"
 
 type CommunityEventType = CommunityWsEvent["type"]
 type CommunityEventFor<T extends CommunityEventType> = Extract<CommunityWsEvent, { type: T }>
@@ -92,6 +93,7 @@ export const communityWsRegistry = {
   "community:inbox.changed": { handler: handleInboxChanged, reconnectPolicies: ["cached-read-state", "inbox-dms", "all-cached-servers"] },
   "community:presence.update": { handler: handlePresenceUpdate, reconnectPolicies: ["presence-overlay", "all-cached-servers"] },
   "community:status.update": { handler: (event) => handleStatusUpdate(event), reconnectPolicies: ["status-overlay"] },
+  "community:identity.update": { handler: handleIdentityUpdate, reconnectPolicies: ["identity-surfaces"] },
   "community:machine.created": { handler: handleMachineCreated, reconnectPolicies: ["machines"] },
   "community:machine.status": { handler: handleMachineStatus, reconnectPolicies: ["machines"] },
   "community:machine.updated": { handler: handleMachineUpdated, reconnectPolicies: ["machines"] },

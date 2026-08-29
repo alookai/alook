@@ -819,7 +819,7 @@ describe("useCommunityWs — message.updated", () => {
         message: { id: "m_dm", seq: 4, type: "chat", content: "approval" },
       },
     )
-    const profile = { id: "u_other", name: "Other", discriminator: "0001", image: null }
+    const profile = { id: "u_other", name: "Other", discriminator: "0001", image: null, avatarVersion: 0 }
     const approval = {
       friendshipId: "friendship_1",
       status: "approved" as const,
@@ -847,7 +847,7 @@ describe("useCommunityWs — message.updated", () => {
       type: "wsMessage",
       message: { id: "m_channel", seq: 4, type: "chat", content: "approval" },
     })
-    const profile = { id: "u_other", name: "Other", discriminator: "0001", image: null }
+    const profile = { id: "u_other", name: "Other", discriminator: "0001", image: null, avatarVersion: 0 }
     const approval = {
       friendshipId: "friendship_1",
       status: "approved" as const,
@@ -917,6 +917,7 @@ describe("useCommunityWs — DM message.create", () => {
           seq: 1,
           authorId: "u_a",
           authorName: "a",
+          authorAvatarVersion: 0,
           content: "hi",
           type: "chat",
           seq: 1,
@@ -960,6 +961,7 @@ describe("useCommunityWs — DM message.create", () => {
         seq: 12,
         authorId: "u_a",
         authorName: "a",
+        authorAvatarVersion: 0,
         content: "replay",
         type: "chat",
         createdAt: "2026-07-03T00:00:00.000Z",

@@ -10,6 +10,7 @@ import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers"
 import { pushBotEventToMachine } from "@/lib/community/bot-push"
+import { canonicalUserImage } from "@/lib/community/storage"
 
 export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -36,6 +37,7 @@ export const GET = withAuth(async (_req, ctx) => {
   )
   const withActivity = bots.map((bot) => ({
     ...bot,
+    image: canonicalUserImage(bot.id, bot.image, bot.avatarVersion),
     dailyActivity: activityByBot.get(bot.id) ?? [],
     usage: {
       capability: (["claude", "codex", "opencode"] as string[]).includes(bot.runtime)
@@ -169,6 +171,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         name: created.name,
         description: created.description,
         image: created.image,
+        avatarVersion: 0,
         machineId: body.machineId,
         runtime: body.runtime,
         modelName,

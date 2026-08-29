@@ -3,6 +3,7 @@
 import { useMemo } from "react"
 import { useQuery, useQueryClient, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
+import { apiFetchIdentity } from "@/lib/community/identity-projection"
 import { communityKeys } from "@/lib/query-keys"
 import type { UnreadServer, UnreadDm, Mention, Marked } from "@/lib/community/models/inbox"
 import { reserveInboxUnreadsResponse } from "./inbox-read-reservation"
@@ -69,7 +70,7 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
 export type MentionsResponse = { mentions: Mention[] }
 
 export const inboxMentionsQueryFn = () =>
-  apiFetch<MentionsResponse & { stale?: boolean }>("/api/community/users/me/inbox/mentions").then(throwIfStale)
+  apiFetchIdentity<MentionsResponse & { stale?: boolean }>("/api/community/users/me/inbox/mentions").then(throwIfStale)
 
 export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
   mentions: Mention[]
@@ -88,7 +89,7 @@ export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
 export type MarkedResponse = { marked: Marked[] }
 
 const inboxMarkedQueryFn = () =>
-  apiFetch<MarkedResponse & { stale?: boolean }>("/api/community/users/me/marks").then(throwIfStale)
+  apiFetchIdentity<MarkedResponse & { stale?: boolean }>("/api/community/users/me/marks").then(throwIfStale)
 
 /**
  * The Marked feed is lazy — unlike unreads/mentions (which the shell reads

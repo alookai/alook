@@ -172,6 +172,7 @@ export type CommunityWsReconcilePolicy =
   | "friends"
   | "presence-overlay"
   | "status-overlay"
+  | "identity-surfaces"
   | "ephemeral-typing"
   | "machines"
   | "bot-audits"

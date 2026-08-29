@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest"
 import {
   buildMediaKey,
   buildUserAvatarKey,
+  buildUserAvatarObjectKey,
   buildBotAvatarKey,
+  buildBotAvatarObjectKey,
   attachmentUrl,
   attachmentThumbnailUrl,
   buildAttachmentThumbnailKey,
@@ -11,6 +13,9 @@ import {
   userAvatarUrl,
   botAvatarUrl,
   isOwnedServerIconKey,
+  isOwnedUserAvatarObjectKey,
+  isOwnedBotAvatarObjectKey,
+  canonicalUserImage,
 } from "./storage"
 
 describe("buildUserAvatarKey", () => {
@@ -20,6 +25,16 @@ describe("buildUserAvatarKey", () => {
 
   it("has the correct format", () => {
     expect(buildUserAvatarKey("u1")).toBe("user-avatar/u1")
+  })
+})
+
+describe("user avatar object ownership", () => {
+  it("separates the fixed alias from one owned immutable child", () => {
+    expect(buildUserAvatarObjectKey("u1", "v1")).toBe("user-avatar/u1/objects/v1")
+    expect(isOwnedUserAvatarObjectKey("user-avatar/u1/objects/v1", "u1")).toBe(true)
+    expect(isOwnedUserAvatarObjectKey(buildUserAvatarKey("u1"), "u1")).toBe(false)
+    expect(isOwnedUserAvatarObjectKey("user-avatar/u2/objects/v1", "u1")).toBe(false)
+    expect(isOwnedUserAvatarObjectKey("user-avatar/u1/objects/nested/v1", "u1")).toBe(false)
   })
 })
 
@@ -33,15 +48,36 @@ describe("buildBotAvatarKey", () => {
   })
 })
 
+describe("bot avatar object ownership", () => {
+  it("separates the fixed alias from one owned immutable child", () => {
+    expect(buildBotAvatarObjectKey("b1", "v1")).toBe("bot-avatar/b1/objects/v1")
+    expect(isOwnedBotAvatarObjectKey("bot-avatar/b1/objects/v1", "b1")).toBe(true)
+    expect(isOwnedBotAvatarObjectKey(buildBotAvatarKey("b1"), "b1")).toBe(false)
+    expect(isOwnedBotAvatarObjectKey("bot-avatar/b2/objects/v1", "b1")).toBe(false)
+  })
+})
+
 describe("userAvatarUrl", () => {
   it("has the correct format", () => {
     expect(userAvatarUrl("u1")).toBe("/api/community/users/u1/avatar")
+    expect(userAvatarUrl("u1", 2)).toBe("/api/community/users/u1/avatar?v=2")
   })
 })
 
 describe("botAvatarUrl", () => {
   it("has the correct format", () => {
     expect(botAvatarUrl("b1")).toBe("/api/community/bots/b1/avatar")
+    expect(botAvatarUrl("b1", 3)).toBe("/api/community/bots/b1/avatar?v=3")
+  })
+})
+
+describe("canonicalUserImage", () => {
+  it("versions owned avatar routes and leaves external images unchanged", () => {
+    expect(canonicalUserImage("u1", userAvatarUrl("u1"), 4)).toBe(userAvatarUrl("u1", 4))
+    expect(canonicalUserImage("b1", botAvatarUrl("b1"), 5)).toBe(botAvatarUrl("b1", 5))
+    expect(canonicalUserImage("u1", "https://cdn.example/avatar.png", 6)).toBe(
+      "https://cdn.example/avatar.png",
+    )
   })
 })
 

@@ -14,6 +14,7 @@ export type Profile = {
   // in @alook/shared.
   discriminator?: string
   avatar: string
+  avatarVersion?: number
   contextLabel?: string
   about: string
   mutual: number

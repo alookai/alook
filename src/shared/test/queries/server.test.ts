@@ -162,6 +162,7 @@ describe("createServer", () => {
       joinedAt: memberRow.joinedAt,
       userName: "Alice",
       userImage: "https://avatars/alice.png",
+      userAvatarVersion: 0,
       userDiscriminator: "0042",
     });
   });

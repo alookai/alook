@@ -96,8 +96,10 @@ describe("GET /api/community/users/me/profile", () => {
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/profile"), {} as never)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
+      id: "u1",
       aboutMe: "",
       avatar: "/api/community/users/u1/avatar",
+      avatarVersion: 0,
       bannerColor: null,
       discriminator: "4242",
       name: "Jane Roe",
@@ -110,8 +112,10 @@ describe("GET /api/community/users/me/profile", () => {
     getProfile.mockResolvedValue({ aboutMe: "hi", bannerColor: "#aabbcc", statusEmoji: "🎧", statusText: "Vibing" })
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/profile"), {} as never)
     expect(await res.json()).toEqual({
+      id: "u1",
       aboutMe: "hi",
       avatar: "/api/community/users/u1/avatar",
+      avatarVersion: 0,
       bannerColor: "#aabbcc",
       discriminator: "4242",
       name: "Jane Roe",
@@ -125,8 +129,10 @@ describe("GET /api/community/users/me/profile", () => {
     getUser.mockResolvedValue(null)
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/profile"), {} as never)
     expect(await res.json()).toEqual({
+      id: "u1",
       aboutMe: "",
       avatar: "",
+      avatarVersion: 0,
       bannerColor: null,
       discriminator: "0000",
       name: "",

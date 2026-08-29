@@ -2,6 +2,7 @@
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
+import { apiFetchIdentity } from "@/lib/community/identity-projection"
 import { communityKeys } from "@/lib/query-keys"
 import type { Thread, Msg } from "@/lib/community/models/message"
 
@@ -136,7 +137,7 @@ export function useForumTags(channelId: string | null, enabled: boolean) {
 export type PinsResponse = { pins: Msg[] }
 
 export const pinsQueryFn = (channelId: string) => () =>
-  apiFetch<PinsResponse>(`/api/community/channels/${channelId}/pins`)
+  apiFetchIdentity<PinsResponse>(`/api/community/channels/${channelId}/pins`)
 
 export function usePins(channelId: string | null): UseQueryResult<PinsResponse> & {
   pins: Msg[]

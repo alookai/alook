@@ -124,6 +124,7 @@ describe("WebSocketDurableObject", () => {
           seq: 1,
           authorId: "author",
           authorName: "Alice",
+          authorAvatarVersion: 0,
           content: "hello",
           type: "chat",
           createdAt: "2026-08-18T00:00:00.000Z",

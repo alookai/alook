@@ -1,6 +1,11 @@
 import { NextRequest } from "next/server"
 import { NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
+import {
+  buildBotAvatarKey,
+  canonicalUserImage,
+  isOwnedBotAvatarObjectKey,
+} from "@/lib/community/storage"
 import { nanoid } from "nanoid"
 import {
   queries,
@@ -23,7 +28,6 @@ import {
 } from "@/lib/community/bot-push"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { scheduleCommunityMediaCleanup } from "@/lib/community/community-media-cleanup"
-import { buildBotAvatarKey } from "@/lib/community/storage"
 
 const log = createLogger({ service: "community-bot-update" })
 
@@ -32,7 +36,25 @@ export const GET = withAuth(async (_req, ctx) => {
   const id = ctx.params?.id as string
   const bot = await queries.communityBot.getBotOwnedBy(db, id, ctx.userId)
   if (!bot) return writeError("bot not found", 404)
-  return writeJSON({ bot })
+  return writeJSON({
+    bot: {
+      id: bot.id,
+      name: bot.name,
+      discriminator: bot.discriminator,
+      image: canonicalUserImage(bot.id, bot.image, bot.avatarVersion),
+      avatarVersion: bot.avatarVersion,
+      ownerUserId: bot.ownerUserId,
+      description: bot.description,
+      createdAt: bot.createdAt,
+      updatedAt: bot.updatedAt,
+      lastRefreshContextAt: bot.lastRefreshContextAt,
+      machineId: bot.machineId,
+      runtime: bot.runtime,
+      modelName: bot.modelName,
+      reasoningEffort: bot.reasoningEffort,
+      runtimeConfigRevision: bot.runtimeConfigRevision,
+    },
+  })
 })
 
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {
@@ -213,7 +235,8 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
           id,
           name: updated.name,
           description: updated.description,
-          image: updated.image,
+          image: canonicalUserImage(id, updated.image, updated.avatarVersion),
+          avatarVersion: updated.avatarVersion,
           runtime: targetRuntime,
           modelName: storedModel,
           reasoningEffort: storedEffort,
@@ -255,7 +278,8 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
       id,
       name: updated.name,
       description: updated.description,
-      image: updated.image,
+      image: canonicalUserImage(id, updated.image, updated.avatarVersion),
+      avatarVersion: updated.avatarVersion,
       runtime: targetRuntime,
       modelName: nextModel !== undefined ? nextModel : (before.modelName ?? null),
       reasoningEffort: storedEffort,
@@ -296,7 +320,12 @@ export const DELETE = withAuth(async (_req, ctx) => {
   if (!ok) return writeError("bot not found", 404)
 
   scheduleCommunityMediaCleanup(ctx.env.COMMUNITY_MEDIA, executionContext, {
-    keys: [buildBotAvatarKey(id)],
+    keys: [
+      ...(before.avatarObjectKey && isOwnedBotAvatarObjectKey(before.avatarObjectKey, id)
+        ? [before.avatarObjectKey]
+        : []),
+      buildBotAvatarKey(id),
+    ],
     warning: {
       event: "community_bot_avatar_cleanup_failed",
       fields: { botId: id, phase: "bot_delete" },

@@ -1,6 +1,6 @@
 "use client"
 
-import { apiFetch } from "@/lib/api/client"
+import { apiFetchIdentity } from "@/lib/community/identity-projection"
 
 /**
  * Fetches a public user profile card (avatar, name, aboutMe, mutual-server
@@ -15,6 +15,7 @@ type UserProfileBase = {
   name: string
   discriminator: string
   image: string | null
+  avatarVersion: number
   aboutMe: string
   bannerColor: string | null
   mutualServers: number
@@ -32,7 +33,7 @@ export type UserProfile = UserProfileBase & (
 )
 
 export const userProfileQueryFn = (userId: string) => () =>
-  apiFetch<UserProfile>(`/api/community/users/${userId}/profile`)
+  apiFetchIdentity<UserProfile>(`/api/community/users/${userId}/profile`)
 
 // How long a fetched profile card is considered fresh before a re-click
 // triggers a background refetch (`queryClient.fetchQuery`'s `staleTime`).

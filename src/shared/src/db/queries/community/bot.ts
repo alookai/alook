@@ -50,6 +50,7 @@ export type BotRow = {
   name: string;
   discriminator: string;
   image: string | null;
+  avatarVersion: number;
   ownerUserId: string;
   description: string;
   createdAt: string;
@@ -102,6 +103,7 @@ export async function listBotsForOwner(
       name: user.name,
       discriminator: user.discriminator,
       image: user.image,
+      avatarVersion: user.avatarVersion,
       ownerUserId: user.ownerUserId,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
@@ -127,6 +129,7 @@ export async function listBotsForOwner(
     name: r.name,
     discriminator: r.discriminator,
     image: r.image,
+    avatarVersion: r.avatarVersion,
     ownerUserId: r.ownerUserId!,
     description: r.description ?? "",
     createdAt: r.createdAt,
@@ -193,6 +196,7 @@ export async function getBotOwnedBy(
   modelName: string | null;
   reasoningEffort: ReasoningEffort | null;
   runtimeConfigRevision: number;
+  avatarObjectKey: string | null;
 }) | null> {
   const rows = await db
     .select({
@@ -200,6 +204,8 @@ export async function getBotOwnedBy(
       name: user.name,
       discriminator: user.discriminator,
       image: user.image,
+      avatarVersion: user.avatarVersion,
+      avatarObjectKey: user.avatarObjectKey,
       ownerUserId: user.ownerUserId,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
@@ -229,6 +235,8 @@ export async function getBotOwnedBy(
     name: r.name,
     discriminator: r.discriminator,
     image: r.image,
+    avatarVersion: r.avatarVersion,
+    avatarObjectKey: r.avatarObjectKey,
     ownerUserId: r.ownerUserId!,
     description: r.description ?? "",
     createdAt: r.createdAt,
@@ -253,9 +261,19 @@ export async function getBotOwnedBy(
 export async function getLiveBotAvatar(
   db: Database,
   botId: string
-): Promise<{ id: string; image: string | null } | null> {
+): Promise<{
+  id: string;
+  image: string | null;
+  avatarVersion: number;
+  avatarObjectKey: string | null;
+} | null> {
   const rows = await db
-    .select({ id: user.id, image: user.image })
+    .select({
+      id: user.id,
+      image: user.image,
+      avatarVersion: user.avatarVersion,
+      avatarObjectKey: user.avatarObjectKey,
+    })
     .from(user)
     .where(
       and(
@@ -266,6 +284,60 @@ export async function getLiveBotAvatar(
     )
     .limit(1);
   return rows[0] ?? null;
+}
+
+export async function publishOwnedBotAvatar(
+  db: Database,
+  botId: string,
+  ownerId: string,
+  input: { objectKey: string; stableUrl: string },
+): Promise<{
+  previous: { avatarVersion: number; avatarObjectKey: string | null };
+  current: {
+    id: string;
+    image: string | null;
+    avatarVersion: number;
+    avatarObjectKey: string | null;
+  };
+} | null> {
+  const ownerScopedIds = db
+    .select({ id: user.id })
+    .from(user)
+    .where(
+      and(
+        eq(user.id, botId),
+        eq(user.ownerUserId, ownerId),
+        eq(user.isBot, true),
+        isNull(user.deletedAt),
+      ),
+    );
+  const before = db
+    .select({
+      avatarVersion: user.avatarVersion,
+      avatarObjectKey: user.avatarObjectKey,
+    })
+    .from(user)
+    .where(inArray(user.id, ownerScopedIds))
+    .limit(1);
+  const publish = db
+    .update(user)
+    .set({
+      image: input.stableUrl,
+      avatarVersion: sql`${user.avatarVersion} + 1`,
+      avatarObjectKey: input.objectKey,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(inArray(user.id, ownerScopedIds))
+    .returning({
+      id: user.id,
+      image: user.image,
+      avatarVersion: user.avatarVersion,
+      avatarObjectKey: user.avatarObjectKey,
+    });
+  const results = (await db.batch([before, publish] as any)) as any[];
+  const previous = Array.isArray(results[0]) ? results[0][0] : undefined;
+  const current = Array.isArray(results[1]) ? results[1][0] : undefined;
+  return previous && current ? { previous, current } : null;
 }
 
 /** Cheap ownership probe used by ack/error paths. */
@@ -671,14 +743,14 @@ export async function updateBot(
   botId: string,
   ownerId: string,
   data: { name?: string; description?: string; image?: string | null }
-): Promise<{ botId: string; name: string; discriminator: string; description: string; image: string | null } | null> {
+): Promise<{ botId: string; name: string; discriminator: string; description: string; image: string | null; avatarVersion: number } | null> {
   const set: { name?: string; image?: string | null; updatedAt: string } = {
     updatedAt: new Date().toISOString(),
   };
   if (data.name !== undefined) set.name = data.name;
   if (data.image !== undefined) set.image = data.image;
 
-  let rows: Array<{ id: string; name: string; discriminator: string; image: string | null }>;
+  let rows: Array<{ id: string; name: string; discriminator: string; image: string | null; avatarVersion: number }>;
   if (data.description !== undefined) {
     const ownerScopedIds = db
       .select({ id: user.id })
@@ -712,7 +784,13 @@ export async function updateBot(
           inArray(user.id, ownerScopedBindingIds)
         )
       )
-      .returning({ id: user.id, name: user.name, discriminator: user.discriminator, image: user.image });
+      .returning({
+        id: user.id,
+        name: user.name,
+        discriminator: user.discriminator,
+        image: user.image,
+        avatarVersion: user.avatarVersion,
+      });
     const results = (await db.batch([s1, s2] as any)) as any[];
     const bindingRows = Array.isArray(results?.[0]) ? results[0] : [];
     rows = Array.isArray(results?.[1]) ? results[1] : [];
@@ -729,7 +807,13 @@ export async function updateBot(
           isNull(user.deletedAt)
         )
       )
-      .returning({ id: user.id, name: user.name, discriminator: user.discriminator, image: user.image });
+      .returning({
+        id: user.id,
+        name: user.name,
+        discriminator: user.discriminator,
+        image: user.image,
+        avatarVersion: user.avatarVersion,
+      });
   }
 
   if (rows.length === 0) return null;
@@ -750,6 +834,7 @@ export async function updateBot(
     discriminator: rows[0]!.discriminator,
     description,
     image: rows[0]!.image,
+    avatarVersion: rows[0]!.avatarVersion,
   };
 }
 

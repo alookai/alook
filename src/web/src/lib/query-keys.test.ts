@@ -26,6 +26,7 @@ describe("communityKeys", () => {
     expect(communityKeys.machines()[0]).toBe("community")
     expect(communityKeys.channelMessages("c1")[0]).toBe("community")
     expect(communityKeys.message("m1")[0]).toBe("community")
+    expect(communityKeys.messageContext("channel", "c1", 7)[0]).toBe("community")
   })
 
   it("nests server-scoped keys under communityKeys.server(id)", () => {
@@ -138,6 +139,13 @@ describe("communityKeys", () => {
       "community",
       "message",
       "m1",
+    ])
+    expect(communityKeys.messageContext("dm", "d1", 7)).toEqual([
+      "community",
+      "message-context",
+      "dm",
+      "d1",
+      7,
     ])
   })
 

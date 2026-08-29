@@ -3,6 +3,7 @@ import type { getDb } from "@/lib/db"
 import { groupAttachments, groupReactions } from "@/lib/community/messages"
 import { mapMessageForApi } from "@/lib/community/message-payload"
 import { avatarInitial } from "@/lib/community/avatar"
+import { canonicalUserImage } from "@/lib/community/storage"
 
 // Message enrichment shared by the channel messages route, the channel
 // bootstrap route, and the DM messages route (previously three near-identical
@@ -72,7 +73,12 @@ export async function enrichMessages(
     tagsByMessage.set(row.messageId, [...(tagsByMessage.get(row.messageId) ?? []), row.tag])
   }
   const firstByChannel = new Map(forumFirstMessages.map((message) => [message.channelId, message]))
-  const participantsByChannel = new Map<string, Array<{ id: string; name: string; avatar: string }>>()
+  const participantsByChannel = new Map<string, Array<{
+    id: string
+    name: string
+    avatar: string
+    avatarVersion: number
+  }>>()
   const participantCountByChannel = new Map<string, number>()
   for (const row of forumParticipants) {
     participantCountByChannel.set(
@@ -84,7 +90,9 @@ export async function enrichMessages(
       {
         id: row.userId,
         name: row.userName ?? "",
-        avatar: row.userImage ?? avatarInitial(row.userName ?? ""),
+        avatar: canonicalUserImage(row.userId, row.userImage, row.userAvatarVersion)
+          ?? avatarInitial(row.userName ?? ""),
+        avatarVersion: row.userAvatarVersion,
       },
     ])
   }

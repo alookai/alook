@@ -3,7 +3,8 @@
 import { useState, useEffect, useMemo, useRef } from "react"
 import type React from "react"
 import { Users, MessagesSquare, ChevronLeft, Check, X, AtSign, UserMinus, Ban, UserPlus, Search } from "lucide-react"
-import { apiFetch, toastApiError } from "@/lib/api/client"
+import { toastApiError } from "@/lib/api/client"
+import { apiFetchIdentity } from "@/lib/community/identity-projection"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -64,7 +65,7 @@ export function FriendsPage({
   }, [friends, filter])
 
   const [addValue, setAddValue] = useState("")
-  const [searchResults, setSearchResults] = useState<{ id: string; name: string; image: string | null; discriminator: string }[]>([])
+  const [searchResults, setSearchResults] = useState<{ id: string; name: string; image: string | null; avatarVersion: number; discriminator: string }[]>([])
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
 
   // Relationship state by user id, so search results can show Friends/Pending/
@@ -90,7 +91,7 @@ export function FriendsPage({
     if (q.length < MIN_SEARCH_LENGTH) { setSearchResults([]); return }
     debounceRef.current = setTimeout(async () => {
       try {
-        const data = await apiFetch<{ users: { id: string; name: string; image: string | null; discriminator: string }[] }>(`/api/community/users/search?q=${encodeURIComponent(q)}`)
+        const data = await apiFetchIdentity<{ users: { id: string; name: string; image: string | null; avatarVersion: number; discriminator: string }[] }>(`/api/community/users/search?q=${encodeURIComponent(q)}`)
         setSearchResults(data.users)
       } catch (e) {
         setSearchResults([])

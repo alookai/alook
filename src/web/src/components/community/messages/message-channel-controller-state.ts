@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import type { MentionType } from "@alook/shared"
-import { apiFetch, toastApiError } from "@/lib/api/client"
+import { toastApiError } from "@/lib/api/client"
+import { apiFetchIdentity } from "@/lib/community/identity-projection"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { Msg } from "@/lib/community/models/message"
 import type { SendAttachment } from "./composer"
@@ -101,10 +102,10 @@ export function useMessageChannelController({
     }
     try {
       const params = new URLSearchParams({ q: query, channelId })
-      const data = await apiFetch<{
+      const data = await apiFetchIdentity<{
         results: Array<{
           message: { id: string; content: string; authorId: string; createdAt: string }
-          author: { name: string; image: string | null }
+          author: { id: string; name: string; image: string | null; avatarVersion: number }
         }>
       }>(`/api/community/messages/search?${params}`)
       setSearchResults(data.results.map((result) => ({
@@ -112,6 +113,7 @@ export function useMessageChannelController({
         type: "chat" as const,
         authorName: result.author.name,
         authorAvatar: result.author.image ?? avatarInitial(result.author.name),
+        authorAvatarVersion: result.author.avatarVersion,
         content: result.message.content,
         createdAt: result.message.createdAt,
       })))

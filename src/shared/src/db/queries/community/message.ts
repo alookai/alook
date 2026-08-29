@@ -485,6 +485,7 @@ const listedMessageProjection = {
   authorName: user.name,
   authorEmail: user.email,
   authorImage: user.image,
+  authorAvatarVersion: user.avatarVersion,
 } as const;
 
 export type ListedMessageRow = {
@@ -503,6 +504,7 @@ export type ListedMessageRow = {
   authorName: string;
   authorEmail: string;
   authorImage: string | null;
+  authorAvatarVersion: number;
 };
 
 function parseEmbeds(r: { id: string; embeds: string | null } & Record<string, unknown>): ListedMessageRow {
@@ -969,6 +971,7 @@ export async function getMessage(db: Database, messageId: string) {
       authorName: user.name,
       authorEmail: user.email,
       authorImage: user.image,
+      authorAvatarVersion: user.avatarVersion,
     })
     .from(communityMessage)
     .innerJoin(user, eq(communityMessage.authorId, user.id))
@@ -1022,6 +1025,7 @@ export async function getMessageByAuthorAndNonce(
       authorName: user.name,
       authorEmail: user.email,
       authorImage: user.image,
+      authorAvatarVersion: user.avatarVersion,
     })
     .from(communityMessage)
     .innerJoin(user, eq(communityMessage.authorId, user.id))
@@ -1079,6 +1083,7 @@ export async function getMessagesByIds(db: Database, ids: string[]) {
             authorName: user.name,
             authorEmail: user.email,
             authorImage: user.image,
+            authorAvatarVersion: user.avatarVersion,
           })
           .from(communityMessage)
           .innerJoin(user, eq(communityMessage.authorId, user.id))
@@ -1168,6 +1173,7 @@ export async function getMessageInScope(db: Database, messageId: string, scope: 
       authorName: user.name,
       authorEmail: user.email,
       authorImage: user.image,
+      authorAvatarVersion: user.avatarVersion,
     })
     .from(communityMessage)
     .innerJoin(user, eq(communityMessage.authorId, user.id))
@@ -1201,6 +1207,7 @@ export async function getMessagesByIdsInScope(db: Database, ids: string[], scope
             discriminator: user.discriminator,
             authorEmail: user.email,
             authorImage: user.image,
+            authorAvatarVersion: user.avatarVersion,
           })
           .from(communityMessage)
           .innerJoin(user, eq(communityMessage.authorId, user.id))

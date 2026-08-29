@@ -4,6 +4,7 @@ import { avatarInitial } from "@/lib/community/avatar"
 import { isInlineAttachmentContentType } from "@/lib/community/attachment-content-type"
 import { formatAttachmentSize } from "@/lib/community/attachment-presentation"
 import type { CanonicalMessage } from "@/lib/community/message-stream"
+import { canonicalUserImage } from "@/lib/community/storage"
 
 type UiEmbed = NonNullable<Msg["embeds"]>[number]
 
@@ -15,6 +16,7 @@ export type PostedMessage = {
   authorId: string
   authorName: string
   authorImage: string | null
+  authorAvatarVersion: number
   type: string | null
   embeds: unknown
 }
@@ -126,6 +128,7 @@ export function projectCommunityMessageCreate(
     authorId: message.authorId,
     authorName: message.authorName,
     authorAvatar: message.authorAvatar || avatarInitial(message.authorName),
+    authorAvatarVersion: message.authorAvatarVersion,
     content: message.content,
     createdAt: message.createdAt,
     ...(message.clientNonce ? { clientNonce: message.clientNonce } : {}),
@@ -157,7 +160,12 @@ export function projectPostedMessage(
     ...type,
     authorId: message.authorId,
     authorName: message.authorName,
-    authorAvatar: message.authorImage || avatarInitial(message.authorName),
+    authorAvatar: canonicalUserImage(
+      message.authorId,
+      message.authorImage,
+      message.authorAvatarVersion,
+    ) || avatarInitial(message.authorName),
+    authorAvatarVersion: message.authorAvatarVersion,
     content: message.content ?? "",
     createdAt: message.createdAt,
     clientNonce,

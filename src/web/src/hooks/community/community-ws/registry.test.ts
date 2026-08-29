@@ -62,6 +62,9 @@ vi.mock("./presence-machine-events", () => ({
   handlePresenceUpdate: handlers.handlePresenceUpdate,
   handleStatusUpdate: handlers.handleStatusUpdate,
 }))
+vi.mock("./identity-events", () => ({
+  handleIdentityUpdate: handlers.handleIdentityUpdate,
+}))
 
 function dispatchContext(queryClient = new QueryClient()): CommunityWsDispatchContext {
   return {
@@ -77,10 +80,10 @@ function dispatchContext(queryClient = new QueryClient()): CommunityWsDispatchCo
 }
 
 describe("community WebSocket registry", () => {
-  it("has exactly one entry for each of the 43 runtime event types", () => {
+  it("has exactly one entry for each of the 44 runtime event types", () => {
     const eventTypes = Object.values(WS_EVENTS).sort()
     const registryTypes = Object.keys(communityWsRegistry).sort()
-    expect(eventTypes).toHaveLength(43)
+    expect(eventTypes).toHaveLength(44)
     expect(registryTypes).toEqual(eventTypes)
   })
 
@@ -92,8 +95,8 @@ describe("community WebSocket registry", () => {
   })
 
   it("deduplicates the complete policy set", () => {
-    expect(communityWsReconnectPolicies).toHaveLength(14)
-    expect(new Set(communityWsReconnectPolicies).size).toBe(14)
+    expect(communityWsReconnectPolicies).toHaveLength(15)
+    expect(new Set(communityWsReconnectPolicies).size).toBe(15)
   })
 
   it.each([

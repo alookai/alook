@@ -7,6 +7,7 @@ import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireChannelMember, requireServerAdmin } from "@/lib/community/permissions"
 import { requirePinnableSurface } from "@/lib/community/channel-write-guard"
 import { avatarInitial } from "@/lib/community/avatar"
+import { canonicalUserImage } from "@/lib/community/storage"
 
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -31,7 +32,9 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
     // why the pinned panel showed no avatar for image-less authors.
     authorId: r.author.id,
     authorName: r.author.name,
-    authorAvatar: r.author.image ?? avatarInitial(r.author.name),
+    authorAvatar: canonicalUserImage(r.author.id, r.author.image, r.author.avatarVersion)
+      ?? avatarInitial(r.author.name),
+    authorAvatarVersion: r.author.avatarVersion,
     content: r.message.content,
     createdAt: r.message.createdAt,
   }))

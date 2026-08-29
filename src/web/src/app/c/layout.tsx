@@ -46,6 +46,7 @@ export default function CommunityLayout({
     name: session.user.name,
     email: session.user.email,
     avatar: session.user.image || avatarInitial(session.user.name),
+    avatarVersion: 0,
   }
 
   return (

@@ -4,6 +4,7 @@ import { queries, ROLES, WS_EVENTS, isUniqueConstraintError } from "@alook/share
 import type { CommunityMemberJoin } from "@alook/shared"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { fanOutToServerMembers, broadcastToUserSafe } from "@/lib/community/fanout"
+import { canonicalUserImage } from "@/lib/community/storage"
 
 /**
  * POST /api/community/invites/[token]/join — the unified join route (plan §4
@@ -70,7 +71,12 @@ export const POST = withCommunityActor(async (_req, ctx) => {
       userId: result.member.userId,
       name: result.member.userName ?? "",
       discriminator: result.member.discriminator ?? undefined,
-      avatar: result.member.userImage ?? undefined,
+      avatar: canonicalUserImage(
+        result.member.userId,
+        result.member.userImage,
+        result.member.userAvatarVersion,
+      ) ?? undefined,
+      avatarVersion: result.member.userAvatarVersion,
       role: result.member.role ?? ROLES.MEMBER,
       joinedAt: result.member.joinedAt,
     },

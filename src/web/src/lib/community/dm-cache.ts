@@ -10,6 +10,7 @@ export function dmSummaryFromInbox(unread: UnreadDm): DM {
     name: unread.otherUserName,
     discriminator: unread.otherUserDiscriminator,
     avatar: unread.otherUserAvatar,
+    avatarVersion: unread.otherUserAvatarVersion,
     status: "offline",
     preview: "",
     unread: false,

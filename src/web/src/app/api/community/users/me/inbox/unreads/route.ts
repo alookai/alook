@@ -10,6 +10,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { parseBoundedInt } from "@/lib/community/messages"
 import { avatarInitial } from "@/lib/community/avatar"
+import { canonicalUserImage } from "@/lib/community/storage"
 
 export const GET = withAuth(async (req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -349,7 +350,12 @@ export const GET = withAuth(async (req, ctx) => {
       otherUserId: d.otherUserId,
       otherUserName: d.otherUserName,
       otherUserDiscriminator: d.otherUserDiscriminator,
-      otherUserAvatar: d.otherUserImage ?? avatarInitial(d.otherUserName),
+      otherUserAvatar: canonicalUserImage(
+        d.otherUserId,
+        d.otherUserImage,
+        d.otherUserAvatarVersion,
+      ) ?? avatarInitial(d.otherUserName),
+      otherUserAvatarVersion: d.otherUserAvatarVersion,
       lastMessageAt: d.lastMessageAt,
     }))
     .sort((a, b) => (a.lastMessageAt < b.lastMessageAt ? 1 : -1))

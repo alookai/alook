@@ -185,6 +185,7 @@ export function messageCreate(channelId: string, msgId = "m_1"): CommunityMessag
       type: "chat",
       authorId: "u_author",
       authorName: "author",
+      authorAvatarVersion: 0,
       content: "hi",
       seq: 1,
       createdAt: "2026-07-03T00:00:00.000Z",

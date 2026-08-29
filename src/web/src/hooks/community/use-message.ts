@@ -1,7 +1,7 @@
 "use client"
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetchIdentity } from "@/lib/community/identity-projection"
 import { communityKeys } from "@/lib/query-keys"
 import type { Msg } from "@/lib/community/models/message"
 
@@ -23,6 +23,7 @@ export type OpenerPayload = {
   authorId: string
   authorName: string
   authorAvatar: string
+  authorAvatarVersion: number
   content: string
   // Required, exhaustive (#12) — matches `mapMessageForApi`'s new output
   // shape (this payload is fed by that same endpoint, `GET /api/community/messages/:id`).
@@ -35,7 +36,7 @@ export type OpenerPayload = {
 }
 
 export const messageQueryFn = (messageId: string) => () =>
-  apiFetch<OpenerPayload>(`/api/community/messages/${messageId}`)
+  apiFetchIdentity<OpenerPayload>(`/api/community/messages/${messageId}`)
 
 export function useMessage(
   messageId: string | null | undefined,

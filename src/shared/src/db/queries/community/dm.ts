@@ -168,6 +168,52 @@ export async function listDmChannelIdsForUser(
   return rows.map((r) => r.channelId);
 }
 
+export async function listDmPeerUserIds(
+  db: Database,
+  userId: string,
+): Promise<string[]> {
+  const self = alias(communityChannelMember, "identity_dm_self")
+  const peer = alias(communityChannelMember, "identity_dm_peer")
+  const block = alias(communityFriendship, "identity_dm_block")
+  const rows = await db
+    .selectDistinct({ userId: user.id })
+    .from(communityChannel)
+    .innerJoin(
+      self,
+      and(
+        eq(self.channelId, communityChannel.id),
+        eq(self.userId, userId),
+        eq(self.relation, "access"),
+      ),
+    )
+    .innerJoin(
+      peer,
+      and(
+        eq(peer.channelId, communityChannel.id),
+        ne(peer.userId, userId),
+        eq(peer.relation, "access"),
+      ),
+    )
+    .innerJoin(user, eq(user.id, peer.userId))
+    .where(and(
+      eq(communityChannel.type, "dm"),
+      isNull(user.deletedAt),
+      notExists(
+        db
+          .select({ requesterId: block.requesterId })
+          .from(block)
+          .where(and(
+            eq(block.status, "blocked"),
+            or(
+              and(eq(block.requesterId, userId), eq(block.addresseeId, peer.userId)),
+              and(eq(block.requesterId, peer.userId), eq(block.addresseeId, userId)),
+            ),
+          )),
+      ),
+    ))
+  return rows.map((row) => row.userId)
+}
+
 export async function listDMs(db: Database, userId: string) {
   const selfMember = alias(communityChannelMember, "dm_list_self");
   const peerMember = alias(communityChannelMember, "dm_list_peer");
@@ -178,6 +224,7 @@ export async function listDMs(db: Database, userId: string) {
       otherUserName: user.name,
       otherUserEmail: user.email,
       otherUserImage: user.image,
+      otherUserAvatarVersion: user.avatarVersion,
       otherUserDiscriminator: user.discriminator,
       lastMessageAt: communityChannel.lastMessageAt,
       createdAt: communityChannel.createdAt,

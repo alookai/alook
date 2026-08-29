@@ -17,6 +17,7 @@ const mockCreateOrGetDM = vi.fn()
 const mockCreateApprovalRequestStatement = vi.fn()
 const mockHardDeleteMessage = vi.fn()
 const mockLogError = vi.fn()
+const mockFanOutToServerMembers = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -55,7 +56,7 @@ vi.mock("@alook/shared", async () => {
 })
 
 vi.mock("@/lib/community/fanout", () => ({
-  fanOutToServerMembers: vi.fn(),
+  fanOutToServerMembers: (...a: unknown[]) => mockFanOutToServerMembers(...a),
   broadcastToUserSafe: vi.fn(),
 }))
 
@@ -153,5 +154,77 @@ describe("POST /servers/[id]/bots — approval-request rollback failure", () => 
     expect(res.status).toBe(200)
     expect(order).toEqual(["approval", "dispatch"])
     expect(broadcast).toHaveBeenCalledTimes(1)
+  })
+
+  it("owner-add fans out the bot's canonical versioned identity", async () => {
+    mockGetMember
+      .mockResolvedValueOnce({ id: "caller-member", nickname: "Owner" })
+      .mockResolvedValueOnce(null)
+    mockGetUserInternal.mockResolvedValue({
+      id: "bot1",
+      isBot: true,
+      deletedAt: null,
+      ownerUserId: "u1",
+      name: "Bot",
+    })
+    mockAddMember.mockResolvedValue({
+      id: "bot-member",
+      role: "member",
+      joinedAt: "2026-01-02T00:00:00Z",
+    })
+    mockGetUserSelf.mockResolvedValue({
+      id: "bot1",
+      name: "Bot",
+      discriminator: "0042",
+      image: "/api/community/bots/bot1/avatar",
+      avatarVersion: 5,
+    })
+
+    const res = await POST(req({ botId: "bot1" }), ctx)
+
+    expect(res.status).toBe(201)
+    expect(mockFanOutToServerMembers).toHaveBeenCalledWith("s1", {
+      type: "community:member.join",
+      serverId: "s1",
+      member: expect.objectContaining({
+        userId: "bot1",
+        avatar: "/api/community/bots/bot1/avatar?v=5",
+        avatarVersion: 5,
+      }),
+    })
+  })
+
+  it("owner-add falls back to an empty identity when the bot profile disappears", async () => {
+    mockGetMember
+      .mockResolvedValueOnce({ id: "caller-member", nickname: "Owner" })
+      .mockResolvedValueOnce(null)
+    mockGetUserInternal.mockResolvedValue({
+      id: "bot1",
+      isBot: true,
+      deletedAt: null,
+      ownerUserId: "u1",
+      name: "Bot",
+    })
+    mockAddMember.mockResolvedValue({
+      id: "bot-member",
+      role: "member",
+      joinedAt: "2026-01-02T00:00:00Z",
+    })
+    mockGetUserSelf.mockResolvedValue(null)
+
+    const res = await POST(req({ botId: "bot1" }), ctx)
+
+    expect(res.status).toBe(201)
+    expect(mockFanOutToServerMembers).toHaveBeenCalledWith("s1", {
+      type: "community:member.join",
+      serverId: "s1",
+      member: expect.objectContaining({
+        userId: "bot1",
+        name: "",
+        discriminator: "0000",
+        avatar: undefined,
+        avatarVersion: 0,
+      }),
+    })
   })
 })
