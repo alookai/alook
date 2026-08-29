@@ -41,6 +41,35 @@ describe("ChannelHeader hierarchy navigation", () => {
     expect(renderer.root.findAllByProps({ "aria-label": "Back" })).toHaveLength(0)
   })
 
+  it("replaces the mobile child server control with one narrow direct-parent Back", () => {
+    const onNavigateServer = vi.fn()
+    const onNavigateParent = vi.fn()
+    const renderer = render({
+      mobileServer: { id: "s1", name: "Studio", icon: null, onNavigate: onNavigateServer },
+      onBack: onNavigateParent,
+      breadcrumb: {
+        id: "c1",
+        label: "Thread title",
+        onNavigate: onNavigateParent,
+        onRename: vi.fn(),
+      },
+    })
+
+    expect(renderer.root.findAllByProps({
+      "data-testid": tid.channelHeaderServer("s1"),
+    })).toHaveLength(0)
+    const back = renderer.root.findByProps({ "aria-label": "Back" })
+    expect(back.props.className).toContain("h-11")
+    expect(back.props.className).toContain("w-8")
+    expect(back.props.className).toContain("sm:hidden")
+    const rename = renderer.root.findByProps({ "aria-label": "Rename" })
+    expect(rename.props.className).toContain("hidden")
+    expect(rename.props.className).toContain("sm:inline-flex")
+    act(() => back.props.onClick())
+    expect(onNavigateParent).toHaveBeenCalledOnce()
+    expect(onNavigateServer).not.toHaveBeenCalled()
+  })
+
   it("preserves an uploaded server image inside the 24px mobile visual", () => {
     const renderer = render({
       mobileServer: {

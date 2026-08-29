@@ -326,7 +326,7 @@ describe("ThreadChannelSurface ownership", () => {
     mockedUseChannelMessageFeed.mockReturnValue(feed({ isLoading: false, isError: true }))
     act(() => renderer.update(React.createElement(ThreadChannelSurface, props)))
     const headerProps = mockedChannelHeader.mock.calls.at(-1)![0]
-    expect(headerProps).not.toHaveProperty("onBack")
+    expect(headerProps.onBack).toBe(props.onNavigateParent)
     expect(headerProps.mobileServer).toBe(props.headerServer)
     expect(headerProps.breadcrumb).toEqual(expect.objectContaining({
       id: "parent_1",
@@ -347,8 +347,8 @@ describe("ThreadChannelSurface ownership", () => {
       notifLevel: "default",
       onSetNotifLevel: props.onSetNotificationLevel,
       mobileServer: props.headerServer,
+      onBack: props.onNavigateParent,
     }))
-    expect(headerProps).not.toHaveProperty("onBack")
     expect(headerProps.breadcrumb).toEqual(expect.objectContaining({
       id: "parent_1",
       label: "Thread name",

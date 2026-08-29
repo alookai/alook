@@ -208,16 +208,18 @@ test.describe.serial("mobile layout", () => {
     await expect(page.getByRole("dialog").getByText("mobile child seq target")).toBeVisible()
   })
 
-  test("a flat child exposes direct parent and server hierarchy controls", async ({ asUser }) => {
+  test("a flat child exposes direct parent breadcrumb and Back controls", async ({ asUser }) => {
     const { page } = await asUser("alice")
     await page.goto(`/c/channels/${serverId}/${childChannelId}`)
     const current = page.getByRole("banner").getByText("mobile-child", { exact: true })
     await expect(current).toBeVisible()
     expect(await current.evaluate((element) => element.tagName)).toBe("SPAN")
-    await expect(page.getByRole("button", { name: "Back" })).toHaveCount(0)
+    const back = page.getByRole("button", { name: "Back" })
+    await expect(back).toBeVisible()
+    await expect(page.getByTestId(tid.channelHeaderServer(serverId))).toHaveCount(0)
 
     const historyLength = await page.evaluate(() => history.length)
-    await page.getByTestId(tid.channelHeaderParent(channelId)).click()
+    await back.click()
     await expect.poll(() => new URL(page.url()).pathname).toBe(
       `/c/channels/${serverId}/${channelId}`,
     )
@@ -225,12 +227,13 @@ test.describe.serial("mobile layout", () => {
 
     await page.goto(`/c/channels/${serverId}/${childChannelId}`)
     await expect(current).toBeVisible()
-    const serverHistoryLength = await page.evaluate(() => history.length)
-    await page.getByTestId(tid.channelHeaderServer(serverId)).click()
+    const parentHistoryLength = await page.evaluate(() => history.length)
+    await page.getByTestId(tid.channelHeaderParent(channelId)).click()
     await expect.poll(() => new URL(page.url()).pathname).toBe(
-      `/c/channels/${serverId}`,
+      `/c/channels/${serverId}/${channelId}`,
     )
-    expect(await page.evaluate(() => history.length)).toBe(serverHistoryLength)
+    expect(await page.evaluate(() => history.length)).toBe(parentHistoryLength)
+
   })
 
   test("Marked opens a child message on its canonical route without losing context", async ({ asUser }) => {

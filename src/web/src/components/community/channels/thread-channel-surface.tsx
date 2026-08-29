@@ -206,6 +206,7 @@ export function ThreadChannelSurface({
               notifLevel={notificationLevel}
               onSetNotifLevel={onSetNotificationLevel}
               mobileServer={headerServer}
+              onBack={onNavigateParent}
               tools={{ threads: false }}
               breadcrumb={parentChannelId ? {
                 id: parentChannelId,

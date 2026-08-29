@@ -24,6 +24,14 @@ async function expectServerControl(page: Page, serverId: string) {
   return control
 }
 
+async function expectParentBack(page: Page, serverId: string) {
+  const back = page.getByRole("button", { name: "Back" })
+  await expect(back).toBeVisible()
+  await expect(page.getByTestId(tid.channelHeaderServer(serverId))).toHaveCount(0)
+  expect(await back.boundingBox()).toMatchObject({ width: 32, height: 44 })
+  return back
+}
+
 test.describe.serial("mobile server header direct hierarchy", () => {
   let serverId: string
   let textId: string
@@ -53,20 +61,28 @@ test.describe.serial("mobile server header direct hierarchy", () => {
     }
   })
 
-  test("thread and forum post expose direct parent, direct root, and inert current labels", async ({ asUser }) => {
+  test("thread and forum post expose direct parent Back and inert current labels", async ({ asUser }) => {
     const { page } = await asUser("alice")
     for (const child of [
       { id: threadId, parentId: textId },
       { id: postId, parentId: forumId },
     ]) {
       await page.goto(`/c/channels/${serverId}/${child.id}`, { waitUntil: "commit" })
-      await expectServerControl(page, serverId)
+      const back = await expectParentBack(page, serverId)
       const parent = page.getByTestId(tid.channelHeaderParent(child.parentId))
       await expect(parent).toBeVisible()
       const current = page.getByRole("banner").locator("span[title]").first()
       await expect(current).toBeVisible()
       expect(await current.evaluate((element) => element.tagName)).toBe("SPAN")
 
+      const backHistoryLength = await page.evaluate(() => history.length)
+      await back.click()
+      await expect.poll(() => new URL(page.url()).pathname).toBe(
+        `/c/channels/${serverId}/${child.parentId}`,
+      )
+      expect(await page.evaluate(() => history.length)).toBe(backHistoryLength)
+
+      await page.goto(`/c/channels/${serverId}/${child.id}`, { waitUntil: "commit" })
       const parentHistoryLength = await page.evaluate(() => history.length)
       await parent.click()
       await expect.poll(() => new URL(page.url()).pathname).toBe(
@@ -74,11 +90,6 @@ test.describe.serial("mobile server header direct hierarchy", () => {
       )
       expect(await page.evaluate(() => history.length)).toBe(parentHistoryLength)
 
-      await page.goto(`/c/channels/${serverId}/${child.id}`, { waitUntil: "commit" })
-      const rootHistoryLength = await page.evaluate(() => history.length)
-      await page.getByTestId(tid.channelHeaderServer(serverId)).click()
-      await expect.poll(() => new URL(page.url()).pathname).toBe(`/c/channels/${serverId}`)
-      expect(await page.evaluate(() => history.length)).toBe(rootHistoryLength)
     }
   })
 
@@ -87,16 +98,15 @@ test.describe.serial("mobile server header direct hierarchy", () => {
     await page.setViewportSize({ width: 639, height: 844 })
     await page.goto(`/c/channels/${serverId}/${threadId}`, { waitUntil: "commit" })
     await expect(page.getByTestId(tid.composerInput)).toBeVisible({ timeout: 20_000 })
-    await expectServerControl(page, serverId)
+    await expectParentBack(page, serverId)
     await page.waitForTimeout(200)
 
-    await page.evaluate(({ composerTestId, serverTestId }) => {
-      const serverControl = document.querySelector(`[data-testid="${serverTestId}"]`)
-      Reflect.set(window, "__headerHierarchyBanner", serverControl?.closest("header[role=banner]"))
+    await page.evaluate(({ composerTestId }) => {
+      const backControl = document.querySelector('button[aria-label="Back"]')
+      Reflect.set(window, "__headerHierarchyBanner", backControl?.closest("header[role=banner]"))
       Reflect.set(window, "__headerHierarchyComposer", document.querySelector(`[data-testid="${composerTestId}"]`))
     }, {
       composerTestId: tid.channelComposerShell,
-      serverTestId: tid.channelHeaderServer(serverId),
     })
     let communityRequests = 0
     let newSockets = 0
@@ -107,24 +117,24 @@ test.describe.serial("mobile server header direct hierarchy", () => {
     const pathname = new URL(page.url()).pathname
 
     await page.setViewportSize({ width: 640, height: 844 })
-    await expect(page.getByTestId(tid.channelHeaderServer(serverId))).toBeHidden()
+    await expect(page.getByRole("button", { name: "Back" })).toBeHidden()
+    await expect(page.getByTestId(tid.channelHeaderServer(serverId))).toHaveCount(0)
     await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible()
-    expect(await page.evaluate(({ composerTestId, serverTestId }) => ({
-      banner: Reflect.get(window, "__headerHierarchyBanner") === document.querySelector(`[data-testid="${serverTestId}"]`)?.closest("header[role=banner]"),
+    expect(await page.evaluate(({ composerTestId }) => ({
+      banner: Reflect.get(window, "__headerHierarchyBanner") === document.querySelector('button[aria-label="Back"]')?.closest("header[role=banner]"),
       composer: Reflect.get(window, "__headerHierarchyComposer") === document.querySelector(`[data-testid="${composerTestId}"]`),
     }), {
       composerTestId: tid.channelComposerShell,
-      serverTestId: tid.channelHeaderServer(serverId),
     })).toEqual({ banner: true, composer: true })
 
     await page.setViewportSize({ width: 639, height: 844 })
-    await expect(page.getByTestId(tid.channelHeaderServer(serverId))).toBeVisible()
-    expect(await page.evaluate(({ composerTestId, serverTestId }) => ({
-      banner: Reflect.get(window, "__headerHierarchyBanner") === document.querySelector(`[data-testid="${serverTestId}"]`)?.closest("header[role=banner]"),
+    await expect(page.getByRole("button", { name: "Back" })).toBeVisible()
+    await expect(page.getByTestId(tid.channelHeaderServer(serverId))).toHaveCount(0)
+    expect(await page.evaluate(({ composerTestId }) => ({
+      banner: Reflect.get(window, "__headerHierarchyBanner") === document.querySelector('button[aria-label="Back"]')?.closest("header[role=banner]"),
       composer: Reflect.get(window, "__headerHierarchyComposer") === document.querySelector(`[data-testid="${composerTestId}"]`),
     }), {
       composerTestId: tid.channelComposerShell,
-      serverTestId: tid.channelHeaderServer(serverId),
     })).toEqual({ banner: true, composer: true })
     expect(new URL(page.url()).pathname).toBe(pathname)
     expect(communityRequests).toBe(0)

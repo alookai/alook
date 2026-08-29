@@ -78,6 +78,7 @@ export function ChannelHeader({
   // is `<EntityIcon kind={...}>`. The `<ChannelIcon>` breadcrumb SEPARATOR
   // below is a different glyph — leave it.
   const entityKind = forum ? "forum" : "text"
+  const usesMobileParentBack = Boolean(onBack && mobileServer && breadcrumb)
   const tool = (k: Exclude<RightPanel, null>, Icon: LucideIcon, label: string) => (
     <Button
       variant="ghost"
@@ -94,7 +95,18 @@ export function ChannelHeader({
       {onBack && !mobileServer && (
         <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
       )}
-      {mobileServer && <MobileServerCrumb id={mobileServer.id} name={mobileServer.name} icon={mobileServer.icon} onNavigate={mobileServer.onNavigate} />}
+      {usesMobileParentBack && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onBack}
+          className="h-11 w-8 shrink-0 text-muted-foreground hover:text-foreground sm:hidden"
+          aria-label="Back"
+        >
+          <ChevronLeft className="size-5" />
+        </Button>
+      )}
+      {mobileServer && !usesMobileParentBack && <MobileServerCrumb id={mobileServer.id} name={mobileServer.name} icon={mobileServer.icon} onNavigate={mobileServer.onNavigate} />}
       {server && <ServerCrumb id={server.id} name={server.name} icon={server.icon} size={6} className="ml-1" />}
       {breadcrumb ? (
         <>
@@ -112,7 +124,12 @@ export function ChannelHeader({
             {breadcrumb.label}
           </span>
           {breadcrumb.onRename && (
-            <BreadcrumbRename label={breadcrumb.label} onRename={breadcrumb.onRename} titleMode={breadcrumb.titleRename} />
+            <BreadcrumbRename
+              label={breadcrumb.label}
+              onRename={breadcrumb.onRename}
+              titleMode={breadcrumb.titleRename}
+              className={usesMobileParentBack ? "hidden sm:inline-flex" : undefined}
+            />
           )}
         </>
       ) : (
@@ -267,7 +284,12 @@ function ChannelNotifDropdown({ level, onSetLevel }: {
   )
 }
 
-function BreadcrumbRename({ label, onRename, titleMode = false }: { label: string; onRename: (name: string) => void | Promise<void>; titleMode?: boolean }) {
+function BreadcrumbRename({ label, onRename, titleMode = false, className = "" }: {
+  label: string
+  onRename: (name: string) => void | Promise<void>
+  titleMode?: boolean
+  className?: string
+}) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(label)
   const [saving, setSaving] = useState(false)
@@ -302,7 +324,7 @@ function BreadcrumbRename({ label, onRename, titleMode = false }: { label: strin
   }
   return (
     <>
-      <Button variant="ghost" size="icon-sm" onClick={() => { setDraft(label); setOpen(true) }} className="text-muted-foreground hover:text-foreground" aria-label={titleMode ? "Edit post title" : "Rename"}>
+      <Button variant="ghost" size="icon-sm" onClick={() => { setDraft(label); setOpen(true) }} className={`text-muted-foreground hover:text-foreground ${className}`} aria-label={titleMode ? "Edit post title" : "Rename"}>
         <Pencil className="size-3.5" />
       </Button>
       {open && (
