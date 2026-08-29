@@ -127,10 +127,17 @@ async function expectRailReplacementDoesNotBlockMessages({
   triggerUnread: () => Promise<string>
 }) {
   const beforeReadSeq = await readSeq(page, channelId)
-  let releaseRail!: () => void
-  const railRelease = new Promise<void>((resolve) => { releaseRail = resolve })
+  let releaseRailGate!: () => void
+  const railRelease = new Promise<void>((resolve) => { releaseRailGate = resolve })
   let markRailHeld!: () => void
   const railHeld = new Promise<void>((resolve) => { markRailHeld = resolve })
+  let markRailSettled!: () => void
+  const railSettled = new Promise<void>((resolve) => { markRailSettled = resolve })
+  let railRequestHeld = false
+  const releaseRail = async () => {
+    releaseRailGate()
+    if (railRequestHeld) await railSettled
+  }
   let serverListRequests = 0
   let messagesRequests = 0
 
@@ -141,8 +148,15 @@ async function expectRailReplacementDoesNotBlockMessages({
     }
     serverListRequests += 1
     if (serverListRequests === 1) {
+      railRequestHeld = true
       markRailHeld()
       await railRelease
+      try {
+        await route.continue()
+      } finally {
+        markRailSettled()
+      }
+      return
     }
     await route.continue()
   })
@@ -157,7 +171,7 @@ async function expectRailReplacementDoesNotBlockMessages({
   try {
     const latestId = await triggerUnread()
     await railHeld
-    await page.getByRole("button", { name: "Inbox" }).click()
+    await page.getByRole("button", { name: "Inbox", exact: true }).click()
     const inboxRow = page.getByTestId(inboxRowTestId)
     await expect(inboxRow).toBeVisible({ timeout: 30_000 })
     const messagesResponse = page.waitForResponse((response) => (
@@ -171,7 +185,7 @@ async function expectRailReplacementDoesNotBlockMessages({
     expect(serverListRequests).toBeGreaterThanOrEqual(1)
     expect(messagesRequests).toBeGreaterThanOrEqual(1)
     expect(await readSeq(page, channelId)).toBe(beforeReadSeq)
-    releaseRail()
+    await releaseRail()
 
     const body = await response.json() as { messages: Array<{ id: string; seq: number }> }
     expect(body.messages.at(-1)?.id).toBe(latestId)
@@ -190,7 +204,7 @@ async function expectRailReplacementDoesNotBlockMessages({
     await expect.poll(() => readSeq(page, channelId), { timeout: 20_000 })
       .toBeGreaterThan(beforeReadSeq)
   } finally {
-    releaseRail()
+    await releaseRail()
     page.off("request", countMessagesRequest)
     await page.unroute("**/api/community/servers")
   }
