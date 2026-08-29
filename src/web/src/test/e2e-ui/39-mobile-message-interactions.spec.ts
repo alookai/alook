@@ -645,7 +645,11 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   await expect.poll(() => aliceProxy.frames.some((frame) => (
     frameHasMessage(frame, dmId, dmWsReadyId)
   )), { timeout: 20_000 }).toBe(true)
-  await expect(alice.page.getByTestId(tid.message(dmWsReadyId))).toBeVisible()
+  const dmReplyTarget = alice.page.getByTestId(tid.message(dmWsReadyId))
+  const dmScrollToPresent = alice.page.getByTestId(tid.scrollToPresent)
+  await expect(dmReplyTarget.or(dmScrollToPresent).first()).toBeVisible()
+  if (await dmScrollToPresent.isVisible()) await dmScrollToPresent.click()
+  await expect(dmReplyTarget).toBeVisible()
   await dispatchSwipe(alice.page, dmWsReadyId, { x: 72, y: 1 })
   await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · dm reply target ${stamp}`)
   await expect(composerEditable(alice.page)).toBeFocused()

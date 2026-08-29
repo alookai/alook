@@ -448,6 +448,28 @@ describe("useServerRailPdd behavior", () => {
     )
   })
 
+  it("falls back across keyboard combine and relative-order availability", async () => {
+    const hook = await renderHook()
+    const b = register(hook.current, { kind: "server", id: "b" }, rect(0, 40))
+    register(hook.current, { kind: "server", id: "a" }, rect(80, 120))
+
+    expect(key(b.handle, " ").defaultPrevented).toBe(true)
+    expect(key(b.handle, "ArrowDown").defaultPrevented).toBe(true)
+    expect(hook.callbacks.onAnnounce).toHaveBeenLastCalledWith("B will move into A")
+
+    expect(key(b.handle, "ArrowLeft").defaultPrevented).toBe(true)
+    expect(hook.callbacks.onAnnounce).toHaveBeenLastCalledWith("B will move before A")
+
+    hook.callbacks.getState.mockReturnValue({
+      serverOrder: ["c", "d"],
+      folderOrder: [],
+      folders: {},
+      expanded: [],
+    })
+    expect(key(b.handle, "ArrowLeft").defaultPrevented).toBe(false)
+    expect(key(b.handle, "Escape").defaultPrevented).toBe(true)
+  })
+
   it("separates taps, scroll, context menu, multi-touch, and cancellation", async () => {
     const hook = await renderHook()
     const a = register(hook.current, { kind: "server", id: "a" }, rect(0, 40))

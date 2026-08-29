@@ -36,6 +36,7 @@ export async function gotoAfterUserWsAuth(page: Page, url: string): Promise<void
 // Keep Next's development-only portals from capturing pointer input intended
 // for the product UI. Production builds do not mount either overlay.
 export async function ignoreNextDevToolsPointerCapture(page: Page): Promise<void> {
+  await page.locator("head").waitFor({ state: "attached" })
   await page.addStyleTag({
     content: [
       "nextjs-portal { pointer-events: none !important; }",
