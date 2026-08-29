@@ -351,9 +351,9 @@ export function useComposerController(
 
   const previousReplyingToRef = useRef(replyingTo)
   useEffect(() => {
-    const opened = !previousReplyingToRef.current && !!replyingTo
+    const targetChanged = previousReplyingToRef.current !== replyingTo
     previousReplyingToRef.current = replyingTo
-    if (opened && editor && !isForumThreadBody) {
+    if (targetChanged && replyingTo && editor && !isForumThreadBody) {
       editor.commands.focus("end")
     }
   }, [replyingTo, editor, isForumThreadBody])
