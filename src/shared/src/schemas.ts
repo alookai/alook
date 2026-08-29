@@ -852,6 +852,7 @@ const RuntimeReasoningOptionSchema = z.object({
 
 const RuntimeReasoningModelSchema = z.object({
   id: z.string().min(1).max(100),
+  displayName: z.string().min(1).max(COMMUNITY_REASONING_DESCRIPTION_MAX).optional().catch(undefined),
   supportedReasoningEfforts: z
     .array(z.unknown())
     .max(COMMUNITY_REASONING_OPTIONS_MAX)

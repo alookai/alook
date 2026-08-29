@@ -14,6 +14,7 @@ import type {
 } from "../../internal/adapter.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
 import { killProcessTree, SESSION_STOP_GRACE_MS } from "../../internal/killTree.js";
+import { flattenCursorAcpSelectOptions } from "./catalog-probe.js";
 
 const ACP_PROTOCOL_VERSION = 1;
 const HANDSHAKE_TIMEOUT_MS = 15_000;
@@ -101,24 +102,6 @@ function isMissingSessionError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /\bsession\b.*\b(not found|missing|unknown|invalid)\b/i.test(message)
     || /\b(not found|missing|unknown|invalid)\b.*\bsession\b/i.test(message);
-}
-
-function flattenSelectOptions(value: unknown): Array<{ value: string; name?: string }> {
-  if (!Array.isArray(value)) return [];
-  const out: Array<{ value: string; name?: string }> = [];
-  for (const item of value) {
-    if (Array.isArray(item)) {
-      out.push(...flattenSelectOptions(item));
-      continue;
-    }
-    const candidate = record(item);
-    if (!candidate) continue;
-    if (typeof candidate.value === "string") {
-      out.push({ value: candidate.value, ...(typeof candidate.name === "string" ? { name: candidate.name } : {}) });
-    }
-    if (Array.isArray(candidate.options)) out.push(...flattenSelectOptions(candidate.options));
-  }
-  return out;
 }
 
 export class CursorAcpLane implements RuntimeLane {
@@ -287,15 +270,25 @@ export class CursorAcpLane implements RuntimeLane {
     } else {
       session = record(await this.call("session/new", { cwd: ctx.workingDirectory, mcpServers: [] }));
     }
-    if (!session || typeof session.sessionId !== "string" || !session.sessionId.trim()) {
+    if (!session) throw new Error("Cursor ACP did not return a valid session response");
+    const returnedSessionId = session.sessionId;
+    if (returnedSessionId !== undefined
+      && (typeof returnedSessionId !== "string" || !returnedSessionId.trim())) {
       throw new Error("Cursor ACP did not return a valid session id");
     }
-    if (ctx.config.sessionId && session.sessionId !== ctx.config.sessionId) {
-      throw new CursorAcpResetRequiredError(
-        "Cursor ACP loaded a different session; reset this agent before continuing",
-      );
+    if (ctx.config.sessionId) {
+      if (returnedSessionId !== undefined && returnedSessionId !== ctx.config.sessionId) {
+        throw new CursorAcpResetRequiredError(
+          "Cursor ACP loaded a different session; reset this agent before continuing",
+        );
+      }
+      this.sessionId = ctx.config.sessionId;
+    } else {
+      if (typeof returnedSessionId !== "string") {
+        throw new Error("Cursor ACP did not return a valid session id");
+      }
+      this.sessionId = returnedSessionId;
     }
-    this.sessionId = session.sessionId;
     await this.configureModel(session, ctx);
   }
 
@@ -307,20 +300,25 @@ export class CursorAcpLane implements RuntimeLane {
     if (!modelConfig) {
       throw new CursorAcpIncompatibleError("Installed Cursor ACP does not support model configuration");
     }
-    const options = flattenSelectOptions(modelConfig.options);
-    const match = options.find((option) => option.value === requestedModel)
-      ?? options.find((option) => option.name === requestedModel);
+    const options = flattenCursorAcpSelectOptions(modelConfig.options);
+    const match = options.find((option) => option.value === requestedModel);
     if (!match) {
       throw new CursorAcpIncompatibleError(`Configured Cursor model is unavailable through ACP: ${requestedModel}`);
     }
+    let response: JsonRecord | null;
     try {
-      await this.call("session/set_config_option", {
+      response = record(await this.call("session/set_config_option", {
         sessionId: this.sessionId,
         configId: "model",
         value: match.value,
-      });
+      }));
     } catch {
       throw new CursorAcpIncompatibleError("Installed Cursor ACP rejected model configuration");
+    }
+    const confirmedOptions = Array.isArray(response?.configOptions) ? response.configOptions : [];
+    const confirmedModel = confirmedOptions.map(record).find((option) => option?.id === "model") ?? null;
+    if (confirmedModel?.currentValue !== match.value) {
+      throw new CursorAcpIncompatibleError("Cursor ACP did not confirm the exact configured model");
     }
   }
 

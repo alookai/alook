@@ -104,7 +104,9 @@ interface FakeServer {
 function installServer(options: {
   sessionId?: string;
   loadError?: string;
-  modelOptions?: Array<{ value: string; name: string }>;
+  omitLoadSessionId?: boolean;
+  omitNewSessionId?: boolean;
+  modelOptions?: unknown[];
 } = {}): FakeServer {
   const messages: RpcMessage[] = [];
   const prompts: RpcMessage[] = [];
@@ -124,19 +126,24 @@ function installServer(options: {
         break;
       case "session/new":
         respond(process, message, {
-          sessionId,
+          ...(options.omitNewSessionId ? {} : { sessionId }),
           configOptions: options.modelOptions ? [{ id: "model", options: options.modelOptions }] : [],
         });
         break;
       case "session/load":
         if (options.loadError) fail(process, message, "Invalid params", { message: options.loadError });
         else respond(process, message, {
-          sessionId,
+          ...(options.omitLoadSessionId ? {} : { sessionId }),
           configOptions: options.modelOptions ? [{ id: "model", options: options.modelOptions }] : [],
         });
         break;
       case "session/set_config_option":
-        respond(process, message, { configOptions: [] });
+        respond(process, message, {
+          configOptions: [{
+            id: "model",
+            currentValue: (message.params as { value?: unknown } | undefined)?.value,
+          }],
+        });
         break;
       case "session/prompt":
         prompts.push(message);
@@ -187,28 +194,34 @@ afterEach(() => {
 });
 
 describe("CursorDriver persistent ACP transport", () => {
-  it("uses --list-models output for a non-fatal startup catalog", () => {
-    const outputProbe = vi.fn(() => ({
-      ok: true as const,
-      output: "Available models\ngpt-5.6-sol - GPT 5.6 Sol\nclaude-opus - Claude Opus\n",
+  it("uses the ACP session/new probe for a non-fatal startup catalog", async () => {
+    const catalogProbe = vi.fn(async () => ({
+      updateMode: "unsupported" as const,
+      models: [{
+        id: "grok-4.6[effort=high,fast=true]",
+        displayName: "grok-4.6",
+        supportedReasoningEfforts: [] as const,
+      }],
     }));
-    const result = new CursorDriver(outputProbe).probe(process.execPath);
+    const result = await new CursorDriver(catalogProbe).probe(process.execPath);
 
-    expect(outputProbe).toHaveBeenCalledWith(process.execPath, ["--list-models"]);
-    expect(result).toMatchObject({
+    expect(catalogProbe).toHaveBeenCalledWith(process.execPath);
+    expect(result).toEqual(expect.objectContaining({
       status: "healthy",
       reasoning: {
-        models: [
-          { id: "gpt-5.6-sol", supportedReasoningEfforts: [] },
-          { id: "claude-opus", supportedReasoningEfforts: [] },
-        ],
+        updateMode: "unsupported",
+        models: [{
+          id: "grok-4.6[effort=high,fast=true]",
+          displayName: "grok-4.6",
+          supportedReasoningEfforts: [],
+        }],
       },
-    });
+    }));
   });
 
-  it("keeps runtime health healthy when --list-models fails", () => {
-    expect(new CursorDriver(() => ({ ok: false, error: "ETIMEDOUT" })).probe(process.execPath))
-      .toMatchObject({ status: "healthy", reasoning: undefined });
+  it("keeps runtime health healthy when ACP catalog discovery fails", async () => {
+    await expect(new CursorDriver(async () => { throw new Error("ETIMEDOUT"); }).probe(process.execPath))
+      .resolves.toMatchObject({ status: "healthy", reasoning: undefined });
   });
 
   it("spawns cursor-agent acp once with piped stdin and performs the strict handshake before prompt", async () => {
@@ -285,6 +298,34 @@ describe("CursorDriver persistent ACP transport", () => {
     expect(exits).toEqual([]);
   });
 
+  it("keeps the requested id when a successful ACP session/load response does not echo it", async () => {
+    const server = installServer({
+      sessionId: "persistent-session",
+      omitLoadSessionId: true,
+      modelOptions: [{ value: "composer-2.5[fast=true]", name: "composer-2.5" }],
+    });
+    const lane = await new CursorDriver().openLane(baseCtx({ config: {
+      sessionId: "persistent-session",
+      runtimeConfig: { model: { kind: "named", name: "composer-2.5[fast=true]" } },
+    } }));
+    eventsFrom(lane);
+
+    await expect(lane.start({ text: "resume", sessionId: "persistent-session" })).resolves.toMatchObject({
+      ok: true,
+    });
+    expect(lane.currentSessionId).toBe("persistent-session");
+    expect(server.messages.map((message) => message.method)).toEqual([
+      "initialize",
+      "authenticate",
+      "session/load",
+      "session/set_config_option",
+      "session/prompt",
+    ]);
+    expect(server.messages.find((message) => message.method === "session/load")?.params).toMatchObject({
+      sessionId: "persistent-session",
+    });
+  });
+
   it("rejects non-missing load failures, invalid new ids, and mismatched resumed ids", async () => {
     installServer({ sessionId: "legacy", loadError: "Permission denied" });
     const loadFailure = await new CursorDriver().openLane(baseCtx({ config: {
@@ -299,6 +340,11 @@ describe("CursorDriver persistent ACP transport", () => {
     const invalid = await new CursorDriver().openLane(baseCtx());
     eventsFrom(invalid);
     await expect(invalid.start({ text: "new" })).rejects.toThrow("valid session id");
+
+    installServer({ omitNewSessionId: true });
+    const missing = await new CursorDriver().openLane(baseCtx());
+    eventsFrom(missing);
+    await expect(missing.start({ text: "new" })).rejects.toThrow("valid session id");
 
     installServer({ sessionId: "different" });
     const mismatched = await new CursorDriver().openLane(baseCtx({ config: {
@@ -416,31 +462,37 @@ describe("CursorDriver persistent ACP transport", () => {
     expect(messages.map((message) => message.method)).toEqual(["initialize"]);
   });
 
-  it("maps a configured model through ACP config options and fails closed when unavailable", async () => {
+  it("launches only an exact ACP option value and never maps its display name", async () => {
+    const exactValue = "gpt-5.6-sol[reasoning=medium]";
     const server = installServer({
-      modelOptions: [[{ value: "gpt-5.6-sol[reasoning=medium]", name: "gpt-5.6-sol" }]] as never,
+      modelOptions: [[{ value: exactValue, name: "gpt-5.6-sol" }]],
     });
     const lane = await new CursorDriver().openLane(baseCtx({
-      config: { runtimeConfig: { model: { kind: "named", name: "gpt-5.6-sol" } } },
+      config: { runtimeConfig: { model: { kind: "named", name: exactValue } } },
     }));
     eventsFrom(lane);
     await expect(lane.start({ text: "configured" })).resolves.toMatchObject({ ok: true });
     expect(server.messages.find((message) => message.method === "session/set_config_option")?.params).toEqual({
       sessionId: "cursor-acp-session",
       configId: "model",
-      value: "gpt-5.6-sol[reasoning=medium]",
+      value: exactValue,
     });
+    expect(server.prompts).toHaveLength(1);
 
-    installServer({ modelOptions: [{ value: "default[]", name: "Auto" }] });
-    const incompatible = await new CursorDriver().openLane(baseCtx({
-      config: { runtimeConfig: { model: { kind: "named", name: "missing-model" } } },
+    const bareNameServer = installServer({
+      modelOptions: [{ value: exactValue, name: "gpt-5.6-sol" }],
+    });
+    const bareName = await new CursorDriver().openLane(baseCtx({
+      config: { runtimeConfig: { model: { kind: "named", name: "gpt-5.6-sol" } } },
     }));
-    eventsFrom(incompatible);
-    await expect(incompatible.start({ text: "configured" })).resolves.toMatchObject({
+    eventsFrom(bareName);
+    await expect(bareName.start({ text: "configured" })).resolves.toMatchObject({
       ok: false,
       reason: "incompatible_configuration",
-      error: expect.stringContaining("missing-model"),
+      error: expect.stringContaining("gpt-5.6-sol"),
     });
+    expect(bareNameServer.messages.some((message) => message.method === "session/set_config_option")).toBe(false);
+    expect(bareNameServer.prompts).toHaveLength(0);
   });
 
   it("fails closed when requested model configuration is absent or rejected", async () => {
@@ -455,7 +507,7 @@ describe("CursorDriver persistent ACP transport", () => {
       error: expect.stringContaining("does not support model configuration"),
     });
 
-    installServer({ modelOptions: [{ value: "gpt-5.6-sol", name: "gpt-5.6-sol" }] });
+    const rejectedServer = installServer({ modelOptions: [{ value: "gpt-5.6-sol", name: "gpt-5.6-sol" }] });
     const original = onClientMessage;
     onClientMessage = (process, message) => {
       if (message.method === "session/set_config_option") fail(process, message, "rejected");
@@ -470,6 +522,29 @@ describe("CursorDriver persistent ACP transport", () => {
       reason: "incompatible_configuration",
       error: expect.stringContaining("rejected model configuration"),
     });
+    expect(rejectedServer.prompts).toHaveLength(0);
+  });
+
+  it.each([
+    { name: "missing", result: { configOptions: [] } },
+    { name: "mismatched", result: { configOptions: [{ id: "model", currentValue: "other-model" }] } },
+  ])("fails before prompt when set_config_option confirmation is $name", async ({ result }) => {
+    const server = installServer({ modelOptions: [{ value: "gpt-5.6-sol", name: "GPT" }] });
+    const original = onClientMessage;
+    onClientMessage = (process, message) => {
+      if (message.method === "session/set_config_option") respond(process, message, result);
+      else original(process, message);
+    };
+    const lane = await new CursorDriver().openLane(baseCtx({
+      config: { runtimeConfig: { model: { kind: "named", name: "gpt-5.6-sol" } } },
+    }));
+    eventsFrom(lane);
+    await expect(lane.start({ text: "must not prompt" })).resolves.toMatchObject({
+      ok: false,
+      reason: "incompatible_configuration",
+      error: expect.stringContaining("confirm"),
+    });
+    expect(server.prompts).toHaveLength(0);
   });
 
   it("settles malformed and failed prompt responses without leaking ownership", async () => {

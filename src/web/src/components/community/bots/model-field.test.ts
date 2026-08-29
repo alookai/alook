@@ -11,12 +11,13 @@ const selectCalls: Array<{
   value: string
   onValueChange: (v: string | null) => void
   onOpenChange?: (open: boolean) => void
+  items?: Array<{ value: string; label: string }>
 }> = []
 vi.mock("@/components/ui/select", () => {
   const React = require("react")
   return {
-    Select: ({ value, onValueChange, onOpenChange, children }: any) => {
-      selectCalls.push({ value, onValueChange, onOpenChange })
+    Select: ({ value, onValueChange, onOpenChange, items, children }: any) => {
+      selectCalls.push({ value, onValueChange, onOpenChange, items })
       return React.createElement("div", { "data-mock": "select", "data-value": value }, children)
     },
     SelectTrigger: ({ children, ...props }: any) =>
@@ -49,6 +50,16 @@ function itemValues(renderer: TestRenderer.ReactTestRenderer): string[] {
     .map((n) => n.props["data-value"] as string)
 }
 
+function itemText(renderer: TestRenderer.ReactTestRenderer, value: string): string {
+  const item = renderer.root.find(
+    (node) => node.props?.["data-mock"] === "item" && node.props?.["data-value"] === value,
+  )
+  const visit = (node: TestRenderer.ReactTestInstance | string): string => typeof node === "string"
+    ? node
+    : node.children.map((child) => visit(child as TestRenderer.ReactTestInstance | string)).join("")
+  return visit(item)
+}
+
 function render(props: {
   runtime: Pick<CommunityMachineRuntime, "id" | "reasoning"> | null
   value: string | null
@@ -69,6 +80,14 @@ describe("ModelField", () => {
     reasoning: {
       updateMode: "unsupported" as const,
       models: models.map((modelId) => ({ id: modelId, supportedReasoningEfforts: [] })),
+    },
+  })
+
+  const labeledRuntime = (models: Array<{ id: string; displayName?: string }>) => ({
+    id: "cursor",
+    reasoning: {
+      updateMode: "unsupported" as const,
+      models: models.map((model) => ({ ...model, supportedReasoningEfforts: [] })),
     },
   })
 
@@ -141,6 +160,41 @@ describe("ModelField", () => {
     expect(onChange).toHaveBeenLastCalledWith("opus")
     act(() => selectCalls.at(-1)!.onValueChange("__default__"))
     expect(onChange).toHaveBeenLastCalledWith(null)
+  })
+
+  it("keeps same-name ACP values distinct in rows, trigger labels, filtering, and onChange", () => {
+    const high = "grok-4.6[effort=high,fast=true]"
+    const max = "grok-4.6[effort=max,fast=true]"
+    const onChange = vi.fn()
+    selectCalls.length = 0
+    const renderer = render({
+      runtime: labeledRuntime([
+        { id: high, displayName: "grok-4.6" },
+        { id: max, displayName: "grok-4.6" },
+      ]),
+      value: high,
+      onChange,
+    })
+
+    expect(itemValues(renderer)).toEqual(["__default__", "__custom__", high, max])
+    expect(itemText(renderer, high)).toContain("grok-4.6")
+    expect(itemText(renderer, high)).toContain(high)
+    expect(itemText(renderer, max)).toContain(max)
+    expect(selectCalls.at(-1)?.items).toEqual(expect.arrayContaining([
+      { value: high, label: `${high} — grok-4.6` },
+      { value: max, label: `${max} — grok-4.6` },
+    ]))
+
+    act(() => selectCalls.at(-1)!.onValueChange(max))
+    expect(onChange).toHaveBeenLastCalledWith(max)
+    act(() => selectCalls.at(-1)!.onValueChange(high))
+    expect(onChange).toHaveBeenLastCalledWith(high)
+
+    const filter = renderer.root.findByProps({ "data-testid": "bot-model-filter-input" })
+    act(() => filter.props.onChange({ target: { value: "EFFORT=MAX" } }))
+    expect(itemValues(renderer)).toEqual(["__default__", "__custom__", max])
+    act(() => filter.props.onChange({ target: { value: "GROK-4.6" } }))
+    expect(itemValues(renderer)).toEqual(["__default__", "__custom__", high, max])
   })
 
   it("Custom… reveals the input; typing emits the raw string; clearing emits null", () => {
