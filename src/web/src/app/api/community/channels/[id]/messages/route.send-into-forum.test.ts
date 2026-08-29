@@ -10,6 +10,11 @@ vi.mock("@/lib/db", () => ({
 const mockCreateMessageWithThread = vi.fn()
 const mockResolveTargetForMember = vi.fn()
 const mockRequireMessageSurfaceAccess = vi.fn()
+const mockGetLatestSeqForScope = vi.fn()
+const mockHasDeliverableUnreadForAgentScope = vi.fn()
+const mockGetReadState = vi.fn()
+const mockFindPendingAttachmentsForSender = vi.fn()
+const mockGetCommunityMessageReplay = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -19,7 +24,17 @@ vi.mock("@alook/shared", async () => {
       ...actual.queries,
       communityAgentInbox: {
         ...actual.queries.communityAgentInbox,
+        getLatestSeqForScope: (...args: unknown[]) => mockGetLatestSeqForScope(...args),
+        hasDeliverableUnreadForAgentScope: (...args: unknown[]) => mockHasDeliverableUnreadForAgentScope(...args),
         toAgentMessage: vi.fn(async (_db, row) => ({ id: row.id, content: row.content, seq: row.seq ?? 1 })),
+      },
+      communityReadState: {
+        ...actual.queries.communityReadState,
+        getReadState: (...args: unknown[]) => mockGetReadState(...args),
+      },
+      communityAttachment: {
+        ...actual.queries.communityAttachment,
+        findPendingAttachmentsForSender: (...args: unknown[]) => mockFindPendingAttachmentsForSender(...args),
       },
     },
   }
@@ -27,6 +42,10 @@ vi.mock("@alook/shared", async () => {
 vi.mock("@/lib/community/resolve-ref", () => ({ resolveTargetForMember: (...args: unknown[]) => mockResolveTargetForMember(...args) }))
 vi.mock("@/lib/community/permissions", () => ({ requireMessageSurfaceAccess: (...args: unknown[]) => mockRequireMessageSurfaceAccess(...args) }))
 vi.mock("@/lib/community/create-channels", () => ({ createMessageWithThread: (...args: unknown[]) => mockCreateMessageWithThread(...args) }))
+vi.mock("@/lib/community/message-handler", () => ({
+  createCommunityMessage: vi.fn(),
+  getCommunityMessageReplay: (...args: unknown[]) => mockGetCommunityMessageReplay(...args),
+}))
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: vi.fn(async () => ({ allowed: true })) }))
 vi.mock("@/lib/middleware/community-actor", () => ({
   withCommunityActor: (handler: any) => async (req: any, ctx?: any) => handler(req, {
@@ -66,6 +85,11 @@ describe("forum sends open a thread through the canonical message route", () => 
       attachments: [],
       thread: { id: "thread_1" },
     })
+    mockGetCommunityMessageReplay.mockResolvedValue(null)
+    mockGetLatestSeqForScope.mockResolvedValue(4)
+    mockGetReadState.mockResolvedValue({ lastReadSeq: 4 })
+    mockHasDeliverableUnreadForAgentScope.mockResolvedValue(false)
+    mockFindPendingAttachmentsForSender.mockResolvedValue([{ id: "attachment_1" }])
   })
 
   it("creates only the opener and structural child thread", async () => {
@@ -79,6 +103,7 @@ describe("forum sends open a thread through the canonical message route", () => 
       body: { content: "Title" },
       pendingAttachmentIdsToRebind: [],
       clientNonce: "command:opener",
+      expectedSeq: 4,
     }))
     expect(await response.json()).toEqual(expect.objectContaining({ state: "sent", threadId: "thread_1" }))
   })
@@ -88,11 +113,14 @@ describe("forum sends open a thread through the canonical message route", () => 
 
     expect(mockCreateMessageWithThread).toHaveBeenCalledWith(expect.objectContaining({
       pendingAttachmentIdsToRebind: ["attachment_1"],
-      attachmentIds: undefined,
     }))
   })
 
   it("accepts a deduped opener replay without a pending-attachment precheck", async () => {
+    mockGetCommunityMessageReplay.mockResolvedValueOnce({
+      row: { id: "message_1", content: "Title", seq: 5 },
+      attachments: [],
+    })
     mockCreateMessageWithThread.mockResolvedValueOnce({
       ok: true,
       deduped: true,
@@ -105,6 +133,51 @@ describe("forum sends open a thread through the canonical message route", () => 
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual(expect.objectContaining({ deduped: true, threadId: "thread_1" }))
+    expect(mockGetLatestSeqForScope).not.toHaveBeenCalled()
+    expect(mockHasDeliverableUnreadForAgentScope).not.toHaveBeenCalled()
+    expect(mockFindPendingAttachmentsForSender).not.toHaveBeenCalled()
+  })
+
+  it("blocks an unread forum parent before opener or attachment side effects", async () => {
+    mockGetLatestSeqForScope.mockResolvedValueOnce(5)
+    mockGetReadState.mockResolvedValueOnce({ lastReadSeq: 4 })
+    mockHasDeliverableUnreadForAgentScope.mockResolvedValueOnce(true)
+
+    const response = await POST(request({
+      channel: "/demo/forum",
+      content: { text: "Blind post" },
+      attachments: ["attachment_1"],
+    }), ctx)
+
+    expect(await response.json()).toEqual({
+      state: "blocked",
+      reason: "unaligned",
+      unreadCount: 1,
+      latestSeq: 5,
+    })
+    expect(mockCreateMessageWithThread).not.toHaveBeenCalled()
+    expect(mockFindPendingAttachmentsForSender).not.toHaveBeenCalled()
+  })
+
+  it("returns the fresh forum waterline when the opener loses the seq CAS", async () => {
+    mockGetLatestSeqForScope
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce(5)
+    mockCreateMessageWithThread.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      error: "seq_conflict",
+    })
+
+    const response = await POST(request({ channel: "/demo/forum", content: { text: "Lost race" } }), ctx)
+
+    expect(await response.json()).toEqual({
+      state: "blocked",
+      reason: "unaligned",
+      unreadCount: 1,
+      latestSeq: 5,
+    })
+    expect(mockCreateMessageWithThread).toHaveBeenCalledWith(expect.objectContaining({ expectedSeq: 4 }))
   })
 
   it("does not open a nested thread for an ordinary thread target", async () => {

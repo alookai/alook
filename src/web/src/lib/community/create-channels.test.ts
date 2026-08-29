@@ -321,6 +321,26 @@ describe("createMessageWithThread (phase2 forum≡thread — atomic-by-compensat
     expect(mockCreateChannel).not.toHaveBeenCalled()
   })
 
+  it("forwards the parent expectedSeq and leaves no thread side effects when the opener loses the CAS", async () => {
+    mockCreateCommunityMessage.mockResolvedValue({ ok: false, status: 409, error: "seq_conflict" })
+
+    const res = await createMessageWithThread({
+      db: {} as any,
+      authorId: "bot_1",
+      authorKind: "bot",
+      parentChannelId: "forum_1",
+      serverId: "s1",
+      body: { content: "lost race" },
+      expectedSeq: 9,
+    })
+
+    expect(res).toEqual({ ok: false, status: 409, error: "seq_conflict" })
+    expect(mockCreateCommunityMessage).toHaveBeenCalledWith(expect.objectContaining({ expectedSeq: 9 }))
+    expect(mockCreateChannel).not.toHaveBeenCalled()
+    expect(mockAddThreadParticipants).not.toHaveBeenCalled()
+    expect(mockFanOutToChannel).not.toHaveBeenCalled()
+  })
+
   it("compensates with hardDeleteMessage when the thread-open throws unrecoverably (no orphan message left behind)", async () => {
     mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "msg_1", content: "hi", channelId: "forum_1" }, attachments: [] })
     mockCreateChannel.mockRejectedValue(new Error("D1 outage"))

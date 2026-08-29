@@ -343,43 +343,19 @@ async function handleBotSend(
   }
   const target = resolved.value.target
   const channelId = target.channelId
-
-  // Sending into a forum's top level always opens a thread on the opener
-  // message — a forum is a browsable topic list, so every message landing
-  // there needs its own thread the same way a post always did. This branches
-  // on the TARGET's resolved kind (set by resolveMessageTarget from the
-  // channel's own stored type), never on a body field's presence — a forum
-  // message always gets this treatment regardless of what fields the client
-  // happened to send, and a plain channel/thread/DM never does regardless of
-  // what fields it sends either. A thread can't nest another thread and a DM
-  // has no thread axis, which is
-  // exactly why this path is only reachable when the target's kind is
-  // "forum". No alignment/hasUnread gate on this branch — opening a
-  // brand-new thread is a fresh scope with no seq contention to align
-  // against.
-  if (target.kind === "forum") {
-    const created = await createMessageWithThread({
+  const createForumOpener = (serverId: string, expectedSeq?: number) =>
+    createMessageWithThread({
       db,
       authorId: botUserId,
       authorKind: "bot",
       parentChannelId: channelId,
-      serverId: target.serverId,
+      serverId,
       body: { content: body.content.text },
-      attachmentIds: undefined,
       pendingAttachmentIdsToRebind: body.attachments,
       clientNonce: body.nonce,
+      ...(expectedSeq !== undefined ? { expectedSeq } : {}),
       source: "cli",
     })
-    if (!created.ok) return NextResponse.json({ error: created.error }, { status: created.status })
-    const message = await queries.communityAgentInbox.toAgentMessage(db, created.message, botUserId)
-    return NextResponse.json({
-      state: "sent",
-      message,
-      threadId: created.thread.id,
-      deduped: created.deduped,
-    })
-  }
-
 
   const replay = await getCommunityMessageReplay({
     db,
@@ -388,6 +364,17 @@ async function handleBotSend(
     clientNonce: body.nonce,
   })
   if (replay) {
+    if (target.kind === "forum") {
+      const created = await createForumOpener(target.serverId)
+      if (!created.ok) return NextResponse.json({ error: created.error }, { status: created.status })
+      const message = await queries.communityAgentInbox.toAgentMessage(db, created.message, botUserId)
+      return NextResponse.json({
+        state: "sent",
+        message,
+        threadId: created.thread.id,
+        deduped: created.deduped,
+      })
+    }
     const orderedAttachments = replay.attachments.map((a) => ({ id: a.id, filename: a.filename, contentType: a.contentType, size: a.size }))
     const message = await queries.communityAgentInbox.toAgentMessage(db, replay.row, botUserId, orderedAttachments)
     return NextResponse.json({ state: "sent", message, deduped: true })
@@ -438,6 +425,32 @@ async function handleBotSend(
     if (rows.length !== body.attachments.length) {
       return NextResponse.json({ error: "attachment not found or not attachable to this target" }, { status: 400 })
     }
+  }
+
+  if (target.kind === "forum") {
+    const created = await createForumOpener(target.serverId, latestSeq)
+    if (!created.ok) {
+      if (created.status === 409) {
+        const freshLatestSeq = await withD1Retry(
+          () => queries.communityAgentInbox.getLatestSeqForScope(db, channelId),
+          { route: "community/messages:forum-fresh-latest-seq" },
+        )
+        return NextResponse.json({
+          state: "blocked",
+          reason: "unaligned",
+          unreadCount: Math.max(0, freshLatestSeq - seen),
+          latestSeq: freshLatestSeq,
+        })
+      }
+      return NextResponse.json({ error: created.error }, { status: created.status })
+    }
+    const message = await queries.communityAgentInbox.toAgentMessage(db, created.message, botUserId)
+    return NextResponse.json({
+      state: "sent",
+      message,
+      threadId: created.thread.id,
+      deduped: created.deduped,
+    })
   }
 
   let replyToId: string | undefined
