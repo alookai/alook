@@ -493,6 +493,31 @@ describe("useMessageListController", () => {
       .toEqual([["ordinary", false], ["reply", false]])
   })
 
+  it("regroups selected messages by stable author id despite stale raw names", () => {
+    const first = { ...baseMessage, id: "first", authorName: "Old Alice" }
+    const second = {
+      ...baseMessage,
+      id: "second",
+      authorName: "New Alice",
+      createdAt: new Date(1000).toISOString(),
+    }
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(Probe, { value: props({ messages: [first, second] }) }),
+        { createNodeMock },
+      )
+    })
+    act(() => {
+      latest.onEnterSelectId("first")
+      latest.onToggleSelectId("second")
+    })
+
+    expect(latest.selectedMessages.map((message) => [message.id, message.grouped]))
+      .toEqual([["first", false], ["second", true]])
+    act(() => renderer.unmount())
+  })
+
   it("minimally scrolls a selected row above the active accessory rail", () => {
     selectionRailTop = 692
     selectedRowBottom = 747.5

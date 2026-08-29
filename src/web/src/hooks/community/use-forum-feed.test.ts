@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { useCommunityWsStore } from "@/stores/community/ws"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -20,7 +21,11 @@ const emptyIncluded = {
 }
 
 describe("forumFeedPageQueryFn", () => {
-  beforeEach(() => apiFetchMock.mockReset())
+  beforeEach(() => {
+    apiFetchMock.mockReset()
+    useCommunityWsStore.getState().reset()
+    useCommunityWsStore.getState().activateProfileAccount("viewer")
+  })
 
   it("requests the canonical created-order collection with includes, tag, and cursor", async () => {
     apiFetchMock.mockResolvedValue({ threads: [], included: emptyIncluded, hasMore: false })
@@ -41,6 +46,49 @@ describe("forumFeedPageQueryFn", () => {
 
     const url = apiFetchMock.mock.calls[0]![0] as string
     expect(new URL(url, "http://localhost").searchParams.get("tag")).toBe("archived")
+  })
+
+  it("seeds opener and participant profiles while returning the raw page", async () => {
+    const page = {
+      threads: [],
+      included: {
+        parentMessages: [{
+          id: "m1",
+          channelId: "forum_one",
+          seq: 1,
+          content: "post",
+          authorId: "author_1",
+          authorName: "Alice",
+          authorImage: null,
+          authorAvatarVersion: 2,
+        }],
+        firstMessages: [],
+        tags: [],
+        participants: [
+          { channelId: "thread_1", userId: "participant_1", userName: "Bob", userImage: "bob.png", userAvatarVersion: 3 },
+          { channelId: "thread_1", userId: "participant_2", userName: null, userImage: null, userAvatarVersion: 0 },
+        ],
+      },
+      hasMore: false,
+    }
+    apiFetchMock.mockResolvedValue(page)
+
+    const result = await forumFeedPageQueryFn("forum_one", null)({ pageParam: null })
+
+    expect(result).toBe(page)
+    expect(useCommunityWsStore.getState().profilesByUserId.get("author_1")).toMatchObject({
+      name: "Alice",
+      avatar: "A",
+      avatarVersion: 2,
+    })
+    expect(useCommunityWsStore.getState().profilesByUserId.get("participant_1")).toMatchObject({
+      name: "Bob",
+      avatar: "bob.png",
+      avatarVersion: 3,
+    })
+    const anonymousParticipant = useCommunityWsStore.getState().profilesByUserId.get("participant_2")
+    expect(anonymousParticipant).toMatchObject({ avatarVersion: 0 })
+    expect(anonymousParticipant).not.toHaveProperty("name")
   })
 })
 

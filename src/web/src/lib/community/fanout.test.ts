@@ -84,6 +84,7 @@ import {
   fanOutToDM,
   fanOutStatusUpdate,
   fanOutIdentityUpdate,
+  fanOutProfileUpdate,
   broadcastToUserSafe,
 } from "./fanout"
 import { WS_EVENTS } from "@alook/shared"
@@ -363,6 +364,60 @@ describe("fanOutIdentityUpdate", () => {
     expect(mockWarn).toHaveBeenCalledWith(
       "fanout_identity_update_failed",
       { subjectId: "self", errorCategory: "Error" },
+    )
+  })
+})
+
+describe("fanOutProfileUpdate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetCloudflareContext.mockImplementation(() => ({ env: { DB: {} } }))
+    mockBroadcastToUsers.mockResolvedValue(undefined)
+    mockGetCoMemberUserIds.mockResolvedValue(["co-member", "shared"])
+    mockGetFriendUserIds.mockResolvedValue(["friend", "shared"])
+    mockListDmPeerUserIds.mockResolvedValue(["dm-peer"])
+  })
+
+  it("broadcasts the canonical bot profile to self, peers, and its owner", async () => {
+    await fanOutProfileUpdate({
+      id: "bot_1",
+      name: "Bot",
+      discriminator: "0042",
+      aboutMe: "Helper",
+      bannerColor: "#123456",
+      identity: { kind: "bot", ownerProfile: { id: "owner_1" } },
+    })
+
+    expect(mockBroadcastToUsers).toHaveBeenCalledWith(
+      ["bot_1", "co-member", "shared", "friend", "dm-peer", "owner_1"],
+      {
+        type: "community:profile.update",
+        userId: "bot_1",
+        name: "Bot",
+        discriminator: "0042",
+        aboutMe: "Helper",
+        bannerColor: "#123456",
+        kind: "bot",
+        ownerUserId: "owner_1",
+      },
+    )
+  })
+
+  it("uses no owner for humans and contains audience failures", async () => {
+    mockGetCoMemberUserIds.mockRejectedValueOnce(new Error("db down"))
+
+    await expect(fanOutProfileUpdate({
+      id: "human_1",
+      name: "Human",
+      discriminator: "0001",
+      aboutMe: "",
+      bannerColor: null,
+      identity: { kind: "human" },
+    })).resolves.toBeUndefined()
+
+    expect(mockWarn).toHaveBeenCalledWith(
+      "fanout_profile_update_failed",
+      expect.objectContaining({ userId: "human_1", err: expect.stringContaining("db down") }),
     )
   })
 })
