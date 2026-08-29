@@ -1,11 +1,9 @@
 import type { ReactNode } from "react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
-import { cn } from "@/lib/utils"
 import { ChannelIcon } from "../channels/channel-icon"
 import { ComposerAccessoryRail } from "./composer-accessory-rail"
 import { MessageShareDialog } from "./message-share-dialog"
-import { TypingIndicator } from "./typing-indicator"
 import type { MessageListController } from "./message-list-controller"
 import type { ResolvedMessageListProps } from "./message-list-types"
 
@@ -14,9 +12,6 @@ export function renderMessageListView(
   controller: MessageListController,
   renderRows: () => ReactNode,
 ) {
-  const showTyping = !controller.isLoading && (props.typingUsers?.length ?? 0) > 0
-  const needsSelectionClearance = !controller.isLoading && controller.selectMode
-
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       {controller.shareOpen && controller.selectedMessages.length > 0 && (
@@ -29,6 +24,7 @@ export function renderMessageListView(
       <div data-message-scroller-boundary className="relative min-h-0 flex-1">
         {!controller.isLoading && (
           <ComposerAccessoryRail
+            typingNames={props.typingUsers ?? []}
             scrollCount={controller.pillCount}
             scrollMode={controller.pillMode}
             onScroll={controller.pillOnClick}
@@ -45,10 +41,7 @@ export function renderMessageListView(
         >
           <div
             data-message-list-content
-            className={cn(
-              "flex min-h-full flex-col justify-end px-4 pt-8",
-              needsSelectionClearance ? "pb-14" : "pb-8",
-            )}
+            className="flex min-h-full flex-col justify-end px-4 pb-14 pt-8 sm:pb-18"
           >
           {controller.isLoading ? (
             <MessageListSkeletonContent variant={props.variant} />
@@ -91,18 +84,6 @@ export function renderMessageListView(
           )}
           </div>
         </div>
-      </div>
-      <div
-        data-message-typing-space
-        data-occupied={showTyping ? "typing" : "idle"}
-        className={cn(
-          "shrink-0",
-          showTyping ? "h-11 px-4 pb-2 pt-1" : "h-0",
-        )}
-      >
-        {showTyping && (
-          <TypingIndicator names={props.typingUsers ?? []} className="w-fit max-w-full" />
-        )}
       </div>
     </div>
   )

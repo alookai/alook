@@ -7,8 +7,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
 import { allocateComposerAccessoryRail } from "./composer-accessory-rail-layout"
+import { TypingIndicator } from "./typing-indicator"
 
 export function ComposerAccessoryRail({
+  typingNames,
   scrollCount,
   scrollMode,
   onScroll,
@@ -17,6 +19,7 @@ export function ComposerAccessoryRail({
   onCancelSelection,
   onShareSelection,
 }: {
+  typingNames: string[]
   scrollCount: number
   scrollMode: "scroll" | "jump"
   onScroll: () => void
@@ -25,10 +28,11 @@ export function ComposerAccessoryRail({
   onCancelSelection: () => void
   onShareSelection: () => void
 }) {
+  const hasTyping = typingNames.length > 0
   const hasScroll = scrollCount > 0
   const layout = allocateComposerAccessoryRail(selectMode
     ? { mode: "selection" }
-    : { mode: "normal", left: false, center: hasScroll })
+    : { mode: "normal", left: hasTyping, center: hasScroll })
 
   if (layout === "empty") return null
 
@@ -47,19 +51,33 @@ export function ComposerAccessoryRail({
         )}
       >
         {selectMode ? (
-          <div key="center" className="col-start-2 min-w-0 max-w-full justify-self-center">
-            <SelectionToolbar
-              selectedCount={selectedCount}
-              onCancel={onCancelSelection}
-              onShare={onShareSelection}
-            />
-          </div>
-        ) : (
-          hasScroll && (
+          <>
+            {hasTyping && (
+              <div key="left" className="hidden min-w-0 max-w-full sm:col-start-1 sm:block">
+                <TypingIndicator names={typingNames} className="w-fit max-w-full" />
+              </div>
+            )}
             <div key="center" className="col-start-2 min-w-0 max-w-full justify-self-center">
-              <ScrollControl count={scrollCount} mode={scrollMode} onClick={onScroll} />
+              <SelectionToolbar
+                selectedCount={selectedCount}
+                onCancel={onCancelSelection}
+                onShare={onShareSelection}
+              />
             </div>
-          )
+          </>
+        ) : (
+          <>
+            {hasTyping && (
+              <div key="left" className="col-start-1 min-w-0 max-w-full">
+                <TypingIndicator names={typingNames} className="w-fit max-w-full" />
+              </div>
+            )}
+            {hasScroll && (
+              <div key="center" className="col-start-2 min-w-0 max-w-full justify-self-center">
+                <ScrollControl count={scrollCount} mode={scrollMode} onClick={onScroll} />
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

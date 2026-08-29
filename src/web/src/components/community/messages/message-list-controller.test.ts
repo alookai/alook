@@ -460,7 +460,7 @@ describe("useMessageListController", () => {
     act(() => renderer.unmount())
   })
 
-  it("minimally scrolls a selected row above the active accessory rail", () => {
+  it("minimally scrolls an overlapping selected row above the active accessory rail", () => {
     selectionRailTop = 692
     selectedRowBottom = 747.5
     let renderer: TestRenderer.ReactTestRenderer
@@ -474,11 +474,34 @@ describe("useMessageListController", () => {
     act(() => latest.onEnterSelectId("m1"))
     runNextFrame()
 
-    expect(scrollNode.scrollTop).toBe(55.5)
-    selectedRowBottom = 692
+    expect(scrollNode.scrollTop).toBe(63.5)
+    selectedRowBottom = 684
     runNextFrame()
     selectionRailTop = null
     runNextFrame()
+    act(() => renderer!.unmount())
+  })
+
+  it("minimally scrolls a selected row when its non-overlapping rail gap is under 8px", () => {
+    selectionRailTop = 692
+    selectedRowBottom = 688
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(Probe, { value: props() }),
+        { createNodeMock },
+      )
+    })
+
+    act(() => latest.onEnterSelectId("m1"))
+    runNextFrame()
+
+    expect(scrollNode.scrollTop).toBe(4)
+    selectedRowBottom = 684
+    runNextFrame()
+    expect(scrollNode.scrollTop).toBe(4)
+    runNextFrame()
+    expect(frameCallbacks.size).toBe(0)
     act(() => renderer!.unmount())
   })
 

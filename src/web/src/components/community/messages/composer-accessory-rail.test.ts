@@ -23,6 +23,7 @@ vi.mock("@/components/ui/tooltip", () => ({
 }))
 
 const baseProps = {
+  typingNames: [] as string[],
   scrollCount: 4,
   scrollMode: "jump" as const,
   onScroll: vi.fn(),
@@ -65,27 +66,37 @@ describe("ComposerAccessoryRail", () => {
   }
 
   it.each([
-    [false, "empty"],
-    [true, "centered"],
+    [false, false, "empty"],
+    [true, false, "left-only"],
+    [false, true, "centered"],
+    [true, true, "centered"],
   ] as const)(
-    "renders scroll=%s as %s",
-    (center, layout) => {
+    "renders typing=%s scroll=%s as %s",
+    (typing, center, layout) => {
       const renderer = render({
+        typingNames: typing ? ["Alice"] : [],
         scrollCount: center ? 2 : 0,
       })
       const rails = renderer.root.findAllByProps({ "data-testid": tid.composerAccessoryRail })
       expect(rails).toHaveLength(layout === "empty" ? 0 : 1)
       expect(renderer.root.findAllByProps({ "data-testid": tid.scrollToPresent }))
         .toHaveLength(center ? 1 : 0)
+      expect(renderer.root.findAllByProps({ "data-testid": tid.typingIndicator }))
+        .toHaveLength(typing ? 1 : 0)
       if (layout === "empty") return
 
       expect(rails[0].props["data-layout"]).toBe(layout)
       if (center) expect(slotClassName(renderer, tid.scrollToPresent)).toContain("col-start-2")
+      if (typing) expect(slotClassName(renderer, tid.typingIndicator)).toContain("col-start-1")
     },
   )
 
-  it("keeps selection centered and wires its actions", () => {
-    const renderer = render({ selectMode: true, selectedCount: 12 })
+  it("keeps selection centered, hides typing only on mobile with CSS, and wires its actions", () => {
+    const renderer = render({
+      typingNames: ["Alice"],
+      selectMode: true,
+      selectedCount: 12,
+    })
     const rail = renderer.root.findByProps({ "data-testid": tid.composerAccessoryRail })
     expect(rail.props).toMatchObject({
       "data-layout": "centered",
@@ -93,6 +104,9 @@ describe("ComposerAccessoryRail", () => {
     })
     expect(renderer.root.findAllByProps({ "data-testid": tid.scrollToPresent })).toHaveLength(0)
     expect(slotClassName(renderer, tid.messageSelectionToolbar)).toContain("col-start-2")
+    const typingSlot = slotClassName(renderer, tid.typingIndicator)
+    expect(typingSlot).toContain("hidden")
+    expect(typingSlot).toContain("sm:block")
 
     const toolbar = renderer.root.findByProps({ "data-testid": tid.messageSelectionToolbar })
     expect(toolbar.props.className).toContain("h-10")
