@@ -7,6 +7,8 @@ import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
 import { useVirtualCursorSentinel } from "@/hooks/community/use-virtual-cursor-sentinel"
 import type { ResolvedMessageListProps } from "./message-list-types"
 
+const SELECTION_RAIL_GAP_PX = 8
+
 export function useMessageListController({
   messages,
   loading,
@@ -136,9 +138,9 @@ export function useMessageListController({
           const lowestSelectedBottom = Math.max(...selectedRows.map(
             (row) => row.getBoundingClientRect().bottom,
           ))
-          const overlap = lowestSelectedBottom - railTop
-          if (overlap > 1) {
-            element.scrollTop += overlap
+          const gapShortfall = lowestSelectedBottom + SELECTION_RAIL_GAP_PX - railTop
+          if (gapShortfall > 1) {
+            element.scrollTop += gapShortfall
             stableFrames = 0
           } else {
             stableFrames += 1
