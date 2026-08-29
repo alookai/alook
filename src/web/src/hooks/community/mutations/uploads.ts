@@ -51,9 +51,16 @@ export function appendGeneratedThumbnail(
 ): boolean {
   if (
     !isInlineAttachmentContentType(originalContentType) ||
-    !thumbnailBlob ||
-    thumbnailBlob.size > MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES
+    !thumbnailBlob
   ) return false
+  if (thumbnailBlob.type !== "image/jpeg") {
+    throw new Error("Generated thumbnail must be image/jpeg")
+  }
+  if (thumbnailBlob.size > MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES) {
+    throw new Error(
+      `Generated thumbnail exceeds ${MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES / 1024} KiB`,
+    )
+  }
   formData.append("thumbnail", thumbnailBlob, "thumbnail.jpg")
   return true
 }

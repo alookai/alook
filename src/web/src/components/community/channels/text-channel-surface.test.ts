@@ -52,7 +52,7 @@ vi.mock("@/components/community/messages/message-context-sheet", () => ({
 }))
 vi.mock("@alook/shared", () => ({
   deriveThreadName: () => "thread",
-  MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES: 50 * 1024,
+  MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES: 512 * 1024,
 }))
 vi.mock("@/stores/community", () => {
   const state = {

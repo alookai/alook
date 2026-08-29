@@ -9,12 +9,18 @@ import { useFileAttachments, type PendingFile } from "./use-file-attachments"
 // hook's result, not `generateThumbnail` itself, which has its own direct
 // unit tests in `lib/image-thumbnail.test.ts`).
 const generateThumbnailMock = vi.fn()
+const prepareCommunityImageMock = vi.fn()
+const toastErrorMock = vi.fn()
 vi.mock("../lib/image-thumbnail", () => ({
   generateThumbnail: (...args: unknown[]) => generateThumbnailMock(...args),
+  prepareCommunityImage: (...args: unknown[]) => prepareCommunityImageMock(...args),
 }))
+vi.mock("sonner", () => ({ toast: { error: (...args: unknown[]) => toastErrorMock(...args) } }))
 
 beforeEach(() => {
   generateThumbnailMock.mockReset()
+  prepareCommunityImageMock.mockReset()
+  toastErrorMock.mockReset()
   vi.stubGlobal("URL", { createObjectURL: vi.fn(() => "blob:fake"), revokeObjectURL: vi.fn() })
 })
 
@@ -25,17 +31,23 @@ afterEach(() => {
 // Renders the hook via a tiny consumer component — this repo's existing
 // pattern for testing hooks without @testing-library (see
 // use-messages.loading-state.test.ts).
-function Capture({ onResult }: { onResult: (r: ReturnType<typeof useFileAttachments>) => void }) {
-  const result = useFileAttachments()
+function Capture({
+  onResult,
+  options,
+}: {
+  onResult: (r: ReturnType<typeof useFileAttachments>) => void
+  options?: Parameters<typeof useFileAttachments>[0]
+}) {
+  const result = useFileAttachments(options)
   onResult(result)
   return null
 }
 
-async function renderCapture() {
+async function renderCapture(options?: Parameters<typeof useFileAttachments>[0]) {
   let latest!: ReturnType<typeof useFileAttachments>
   await act(async () => {
     TestRenderer.create(
-      React.createElement(Capture, { onResult: (r) => { latest = r } }),
+      React.createElement(Capture, { onResult: (r) => { latest = r }, options }),
     )
   })
   return {
@@ -123,5 +135,46 @@ describe("useFileAttachments — PendingFile width/height", () => {
     expect(snapshot[0].file).toBe(file)
     expect(snapshot[0].thumbnailBlob).toBe(thumbnailBlob)
     expect(hook.current.pendingFiles[0]).toBe(snapshot[0])
+  })
+
+  it("uses the original file as the Community preview when no thumbnail is required", async () => {
+    prepareCommunityImageMock.mockResolvedValue({ blob: null, width: 1024, height: 768 })
+    const hook = await renderCapture({ thumbnailPolicy: "community" })
+    const file = new File([new Uint8Array(1)], "photo.png", { type: "image/png" })
+
+    await hook.addFiles([file])
+
+    expect(URL.createObjectURL).toHaveBeenCalledWith(file)
+    expect(hook.current.pendingFiles[0]).toMatchObject({
+      file,
+      thumbnailUrl: "blob:fake",
+      thumbnailBlob: null,
+      width: 1024,
+      height: 768,
+    })
+    expect(generateThumbnailMock).not.toHaveBeenCalled()
+  })
+
+  it("uses the generated Community JPEG for preview and upload", async () => {
+    const thumbnail = new Blob([new Uint8Array(10)], { type: "image/jpeg" })
+    prepareCommunityImageMock.mockResolvedValue({ blob: thumbnail, width: 2048, height: 1024 })
+    const hook = await renderCapture({ thumbnailPolicy: "community" })
+    const file = new File([new Uint8Array(1)], "photo.png", { type: "image/png" })
+
+    await hook.addFiles([file])
+
+    expect(URL.createObjectURL).toHaveBeenCalledWith(thumbnail)
+    expect(hook.current.pendingFiles[0]?.thumbnailBlob).toBe(thumbnail)
+  })
+
+  it("rejects a Community image when a required preview cannot be prepared", async () => {
+    prepareCommunityImageMock.mockRejectedValue(new Error("required image preview"))
+    const hook = await renderCapture({ thumbnailPolicy: "community" })
+    const file = new File([new Uint8Array(1)], "photo.png", { type: "image/png" })
+
+    await hook.addFiles([file])
+
+    expect(hook.current.pendingFiles).toEqual([])
+    expect(toastErrorMock).toHaveBeenCalledWith('Could not prepare "photo.png" for upload')
   })
 })

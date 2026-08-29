@@ -6,9 +6,20 @@ import {
   ICON_CROP_OUTPUT_SIZE,
   MAX_ICON_SOURCE_FILE_SIZE_BYTES,
   ALLOWED_ICON_SOURCE_MIME_TYPES,
+  MAX_ATTACHMENT_THUMBNAIL_EDGE_PX,
+  MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES,
   MESSAGE_PREVIEW_LENGTH,
   truncateMessagePreview,
 } from "./community"
+
+describe("Community attachment thumbnail constants", () => {
+  it("locks the 1024px and 512 KiB policy through both export surfaces", () => {
+    expect(MAX_ATTACHMENT_THUMBNAIL_EDGE_PX).toBe(1024)
+    expect(MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES).toBe(512 * 1024)
+    expect(alook.MAX_ATTACHMENT_THUMBNAIL_EDGE_PX).toBe(MAX_ATTACHMENT_THUMBNAIL_EDGE_PX)
+    expect(alook.MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES).toBe(MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES)
+  })
+})
 
 describe("icon-crop constants", () => {
   it("ICON_CROP_MIN_ZOOM is less than ICON_CROP_MAX_ZOOM", () => {
