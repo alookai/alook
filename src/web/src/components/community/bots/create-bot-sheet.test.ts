@@ -141,6 +141,7 @@ vi.mock("./bot-form-fields", () => ({
 // Capture ModelField's incoming `value` so we can assert the create sheet
 // resets the model to null (Default) on a runtime change.
 const modelFieldRenders: Array<{ runtime: { id: string; reasoning?: unknown } | null; value: string | null }> = []
+const reasoningDaemonVersionRenders: Array<string | undefined> = []
 vi.mock("./model-field", () => ({
   ModelField: ({ runtime, value }: { runtime: { id: string; reasoning?: unknown } | null; value: string | null }) => {
     modelFieldRenders.push({ runtime, value })
@@ -149,11 +150,16 @@ vi.mock("./model-field", () => ({
 }))
 
 vi.mock("./reasoning-effort-field", () => ({
-  ReasoningEffortField: ({ onChange }: { onChange: (value: string | null) => void }) =>
-    React.createElement("button", {
+  ReasoningEffortField: ({ onChange, daemonVersion }: {
+    onChange: (value: string | null) => void
+    daemonVersion?: string
+  }) => {
+    reasoningDaemonVersionRenders.push(daemonVersion)
+    return React.createElement("button", {
       "data-testid": "set-reasoning-effort",
       onClick: () => onChange("xhigh"),
-    }),
+    })
+  },
 }))
 
 vi.mock("@/components/provider-logo", () => ({
@@ -190,6 +196,7 @@ describe("CreateBotSheet — auto-select defaults", () => {
     createMutateAsync.mockReset()
     createMutateAsync.mockResolvedValue({ bot: { id: "b1", name: "MyBot" } })
     botFormFieldsRenders.length = 0
+    reasoningDaemonVersionRenders.length = 0
   })
 
   it("uses the guide companion seed for a guided bot avatar", () => {
@@ -200,20 +207,19 @@ describe("CreateBotSheet — auto-select defaults", () => {
   })
 
   it("pre-checks the machine and runtime with one online machine + one healthy runtime", () => {
-    useMachinesMock.mockReturnValue({
-      machines: [
-        machine({
-          id: "mac",
-          status: "online",
-          availableRuntimes: [
-            { id: "claude", status: "healthy" },
-          ] as unknown as CommunityMachineSummary["availableRuntimes"],
-        }),
-      ],
+    const selectedMachine = machine({
+      id: "mac",
+      status: "online",
+      daemonVersion: "0.1.24",
+      availableRuntimes: [
+        { id: "claude", status: "healthy" },
+      ] as unknown as CommunityMachineSummary["availableRuntimes"],
     })
+    useMachinesMock.mockReturnValue({ machines: [selectedMachine] })
     const renderer = render()
     expect(checkedValue(renderer, "bot-machine")).toBe("mac")
     expect(checkedValue(renderer, "bot-runtime")).toBe("claude")
+    expect(reasoningDaemonVersionRenders).toContain("0.1.24")
   })
 
   it("resolves the [] → populated async race by auto-selecting once data arrives", () => {

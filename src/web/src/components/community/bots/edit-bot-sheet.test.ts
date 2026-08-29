@@ -36,6 +36,7 @@ const HEALTHY_MACHINES = {
   machines: [
     {
       id: "mac1",
+      daemonVersion: "0.1.24",
       availableRuntimes: [
         { id: "claude", status: "healthy" },
         { id: "codex", status: "healthy" },
@@ -43,6 +44,11 @@ const HEALTHY_MACHINES = {
     },
   ],
 }
+
+const reasoningFieldRenders: Array<{
+  daemonVersion: string | undefined
+  value: string | null
+}> = []
 
 vi.mock("@/components/community/shell/community-sheet", () => {
   const React = require("react")
@@ -118,7 +124,11 @@ vi.mock("@/lib/utils", () => ({
 }))
 
 vi.mock("./bot-form-fields", () => ({
-  BotFormFields: () => require("react").createElement("div"),
+  BotFormFields: ({ setDescription }: { setDescription: (value: string) => void }) =>
+    require("react").createElement("button", {
+      "data-testid": "set-description",
+      onClick: () => setDescription("Updated description"),
+    }),
 }))
 const modelFieldRenders: Array<{ runtime: { id: string; reasoning?: unknown } | null }> = []
 vi.mock("./model-field", () => {
@@ -139,11 +149,17 @@ vi.mock("./model-field", () => {
 vi.mock("./reasoning-effort-field", () => {
   const React = require("react")
   return {
-    ReasoningEffortField: ({ onChange }: { onChange: (value: string | null) => void }) =>
-      React.createElement("button", {
+    ReasoningEffortField: ({ onChange, daemonVersion, value }: {
+      onChange: (value: string | null) => void
+      daemonVersion?: string
+      value: string | null
+    }) => {
+      reasoningFieldRenders.push({ daemonVersion, value })
+      return React.createElement("button", {
         "data-testid": "set-reasoning-effort",
         onClick: () => onChange("xhigh"),
-      }),
+      })
+    },
   }
 })
 vi.mock("@/components/avatar", () => ({
@@ -260,10 +276,55 @@ describe("EditBotSheet — model switch toast (online-only)", () => {
 
 describe("EditBotSheet — reasoning effort", () => {
   beforeEach(() => {
+    reasoningFieldRenders.length = 0
     toastSuccess.mockReset()
     toastApiError.mockReset()
     updateMutateAsync.mockReset()
     useMachinesMock.mockReturnValue(HEALTHY_MACHINES)
+  })
+
+  it("passes only the bot daemon version into the shared field", () => {
+    renderSheet()
+    expect(reasoningFieldRenders).toContainEqual({
+      daemonVersion: "0.1.24",
+      value: null,
+    })
+  })
+
+  it("does not PATCH reasoning effort when stored Default remains unchanged", async () => {
+    updateMutateAsync.mockResolvedValue({ bot: BOT })
+    const renderer = renderSheet({ ...BOT, reasoningEffort: null })
+    act(() => {
+      void saveButton(renderer).props.onClick()
+    })
+    await flush()
+
+    expect(updateMutateAsync).toHaveBeenCalledOnce()
+    expect(updateMutateAsync.mock.calls[0]?.[0]).not.toHaveProperty("reasoningEffort")
+  })
+
+  it("preserves stored Low on an old daemon when saving an unrelated field", async () => {
+    const bot = { ...BOT, reasoningEffort: "low" as const }
+    updateMutateAsync.mockResolvedValue({
+      bot: { ...bot, description: "Updated description" },
+    })
+    const renderer = renderSheet(bot)
+    expect(reasoningFieldRenders).toContainEqual({
+      daemonVersion: "0.1.24",
+      value: "low",
+    })
+
+    act(() => renderer.root.findByProps({ "data-testid": "set-description" }).props.onClick())
+    act(() => {
+      void saveButton(renderer).props.onClick()
+    })
+    await flush()
+
+    expect(updateMutateAsync).toHaveBeenCalledOnce()
+    expect(updateMutateAsync.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ id: "b1", description: "Updated description" }),
+    )
+    expect(updateMutateAsync.mock.calls[0]?.[0]).not.toHaveProperty("reasoningEffort")
   })
 
   it("PATCHes the explicit effort without provider confirmation and reports next-turn application", async () => {

@@ -20,6 +20,15 @@ vi.mock("./model-field", () => ({
     React.createElement("div", { "data-runtime": runtime?.id, "data-model": value }),
 }))
 
+vi.mock("./reasoning-effort-field", () => ({
+  ReasoningEffortField: ({ daemonVersion }: {
+    daemonVersion?: string
+  }) => React.createElement("div", {
+    "data-testid": "reasoning-effort-field",
+    "data-daemon-version": daemonVersion,
+  }),
+}))
+
 import { BotRuntimeFields } from "./bot-runtime-fields"
 
 const OPTIONS = [
@@ -91,5 +100,14 @@ describe("BotRuntimeFields", () => {
       renderer.root.find((node) => node.props["data-motion-target"] === "model"),
     ).toBeTruthy()
     expect(radio(renderer, "codex").props.name).toBe("edit-bot-runtime")
+  })
+
+  it("forwards only the selected daemon version to reasoning effort", () => {
+    const { renderer } = renderFields({ daemonVersion: "0.1.24" })
+    expect(renderer.root.findByProps({
+      "data-testid": "reasoning-effort-field",
+    }).props).toMatchObject({
+      "data-daemon-version": "0.1.24",
+    })
   })
 })

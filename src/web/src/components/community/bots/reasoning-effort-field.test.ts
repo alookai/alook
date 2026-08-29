@@ -48,6 +48,7 @@ function renderField(props: Partial<React.ComponentProps<typeof ReasoningEffortF
     renderer = TestRenderer.create(React.createElement(ReasoningEffortField, {
       runtime: RUNTIME,
       model: "gpt-5",
+      daemonVersion: "0.1.25",
       value: null,
       onChange,
       ...props,
@@ -57,12 +58,12 @@ function renderField(props: Partial<React.ComponentProps<typeof ReasoningEffortF
 }
 
 describe("ReasoningEffortField", () => {
-  it("shows Default plus the exact runtime-reported options and default", () => {
-    const { renderer } = renderField()
+  it("shows exact Default without claiming the catalog default or changing storage", () => {
+    const { renderer, onChange } = renderField()
     const select = renderer.root.findByType("select")
     expect(select.props.disabled).toBe(false)
     expect(select.props.items).toEqual([
-      { value: "__default__", label: "Default (Minimal)" },
+      { value: "__default__", label: "Default" },
       { value: "minimal", label: "Minimal" },
       { value: "future_level", label: "Future_level" },
     ])
@@ -71,14 +72,47 @@ describe("ReasoningEffortField", () => {
       "minimal",
       "future_level",
     ])
+    expect(renderer.root.findAllByType("p")[0]?.children.join("")).toBe(
+      "Default sends no override. Your runtime or user configuration stays in control.",
+    )
+    expect(onChange).not.toHaveBeenCalled()
   })
 
-  it("renders disabled Default-only help when no catalog is reported", () => {
+  it("keeps genuine current-daemon unavailability distinct from upgrade guidance", () => {
     const { renderer } = renderField({ runtime: { reasoning: undefined } })
     expect(renderer.root.findByType("select").props.disabled).toBe(true)
     expect(renderer.root.findAllByType("p")[0]?.children.join("")).toBe(
       "This runtime/model does not report reasoning effort options.",
     )
+  })
+
+  it("preserves an explicit effort when an old daemon has no catalog evidence", () => {
+    const { renderer, onChange } = renderField({
+      runtime: { reasoning: undefined },
+      daemonVersion: "0.1.24",
+      value: "low",
+    })
+    expect(renderer.root.findByType("select").props.items).toEqual([
+      { value: "__default__", label: "Default" },
+      { value: "low", label: "Low" },
+    ])
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it("shows only the Machines guidance when an old daemon has no catalog", () => {
+    const { renderer } = renderField({
+      runtime: { reasoning: undefined },
+      daemonVersion: "0.1.24",
+    })
+    expect(renderer.root.findAllByType("p")[0]?.children.join("")).toBe(
+      "Check the daemon version in Machines, then update and restart it there.",
+    )
+    expect(renderer.root.findAllByType("code")).toHaveLength(0)
+    expect(renderer.root.findAll(
+      (node) => node.type === "button" && node.children.join("") === "Update daemon…",
+    )).toHaveLength(0)
+    expect(renderer.root.findAllByProps({ "data-testid": "machine-update-confirm" }))
+      .toHaveLength(0)
   })
 
   it("resets an incompatible selected value to Default", () => {
