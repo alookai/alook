@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
   MAX_ATTACHMENT_SIZE_BYTES,
+  MAX_ATTACHMENT_THUMBNAIL_EDGE_PX,
   MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES,
   MAX_SERVER_ICON_SIZE_BYTES,
   ALLOWED_ICON_MIME_TYPES,
@@ -109,6 +110,106 @@ function parseDimension(raw: FormDataEntryValue | null): number | undefined {
   return Number.isInteger(n) && n >= 0 ? n : undefined
 }
 
+const JPEG_SOF_MARKERS = new Set([
+  0xc0, 0xc1, 0xc2, 0xc3,
+  0xc5, 0xc6, 0xc7,
+  0xc9, 0xca, 0xcb,
+  0xcd, 0xce, 0xcf,
+])
+
+function jpegDimensions(bytes: Uint8Array): { width: number; height: number } | null {
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null
+  let offset = 2
+  let dimensions: { width: number; height: number } | null = null
+  let frameComponentIds: Set<number> | null = null
+  let sawScan = false
+
+  while (offset < bytes.length) {
+    if (bytes[offset] !== 0xff) return null
+    while (bytes[offset] === 0xff) offset++
+    const marker = bytes[offset++]
+    if (marker === undefined || marker === 0x00 || marker === 0xd8) return null
+    if (marker === 0xd9) {
+      return sawScan && dimensions && offset === bytes.length ? dimensions : null
+    }
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) return null
+    if (offset + 1 >= bytes.length) return null
+    const length = (bytes[offset]! << 8) | bytes[offset + 1]!
+    if (length < 2 || offset + length > bytes.length) return null
+
+    if (JPEG_SOF_MARKERS.has(marker)) {
+      if (dimensions || length < 11) return null
+      const height = (bytes[offset + 3]! << 8) | bytes[offset + 4]!
+      const width = (bytes[offset + 5]! << 8) | bytes[offset + 6]!
+      const componentCount = bytes[offset + 7]!
+      if (
+        width === 0 || height === 0 || componentCount === 0 || componentCount > 4
+        || length !== 8 + 3 * componentCount
+      ) return null
+
+      frameComponentIds = new Set<number>()
+      for (let index = 0; index < componentCount; index++) {
+        const componentOffset = offset + 8 + index * 3
+        const id = bytes[componentOffset]!
+        const sampling = bytes[componentOffset + 1]!
+        if (frameComponentIds.has(id) || sampling === 0) return null
+        frameComponentIds.add(id)
+      }
+      dimensions = { width, height }
+    }
+
+    if (marker === 0xda) {
+      if (!dimensions || !frameComponentIds || length < 8) return null
+      const scanComponentCount = bytes[offset + 2]!
+      if (
+        scanComponentCount === 0 || scanComponentCount > frameComponentIds.size
+        || length !== 6 + 2 * scanComponentCount
+      ) return null
+
+      const scanComponentIds = new Set<number>()
+      for (let index = 0; index < scanComponentCount; index++) {
+        const id = bytes[offset + 3 + index * 2]!
+        if (!frameComponentIds.has(id) || scanComponentIds.has(id)) return null
+        scanComponentIds.add(id)
+      }
+
+      offset += length
+      let sawEntropyData = false
+      while (offset < bytes.length) {
+        if (bytes[offset] !== 0xff) {
+          sawEntropyData = true
+          offset++
+          continue
+        }
+
+        const markerOffset = offset
+        while (bytes[offset] === 0xff) offset++
+        const scanMarker = bytes[offset]
+        if (scanMarker === undefined) return null
+        if (scanMarker === 0x00) {
+          sawEntropyData = true
+          offset++
+          continue
+        }
+        if (scanMarker >= 0xd0 && scanMarker <= 0xd7) {
+          offset++
+          continue
+        }
+        if (!sawEntropyData) return null
+
+        sawScan = true
+        offset = markerOffset
+        break
+      }
+      if (!sawScan) return null
+      continue
+    }
+
+    offset += length
+  }
+  return null
+}
+
 async function readFile(req: NextRequest): Promise<ParsedUpload | UploadErr> {
   let formData: FormData
   try {
@@ -165,6 +266,15 @@ export async function handleAttachmentUpload(
     }
   }
   const contentType = file.type || "application/octet-stream"
+  const thumbnailRequired = isInlineAttachmentContentType(contentType) && (
+    file.size > MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES
+    || (width !== undefined && width > MAX_ATTACHMENT_THUMBNAIL_EDGE_PX)
+    || (height !== undefined && height > MAX_ATTACHMENT_THUMBNAIL_EDGE_PX)
+  )
+
+  if (thumbnailRequired && !thumbnail) {
+    return { ok: false, response: writeError("thumbnail required", 400) }
+  }
 
   if (thumbnail) {
     if (!isInlineAttachmentContentType(contentType)) {
@@ -177,14 +287,12 @@ export async function handleAttachmentUpload(
       return { ok: false, response: writeError("thumbnail too large", 400) }
     }
     const signature = new Uint8Array(await thumbnail.arrayBuffer())
-    if (
-      signature.length < 4 ||
-      signature[0] !== 0xff ||
-      signature[1] !== 0xd8 ||
-      signature.at(-2) !== 0xff ||
-      signature.at(-1) !== 0xd9
-    ) {
+    const dimensions = jpegDimensions(signature)
+    if (!dimensions) {
       return { ok: false, response: writeError("invalid jpeg thumbnail", 400) }
+    }
+    if (Math.max(dimensions.width, dimensions.height) > MAX_ATTACHMENT_THUMBNAIL_EDGE_PX) {
+      return { ok: false, response: writeError("thumbnail dimensions too large", 400) }
     }
   }
 

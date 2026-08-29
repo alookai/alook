@@ -66,9 +66,7 @@ export function useComposerController(
   useLayoutEffect(() => {
     breakpointRef.current = breakpoint
   }, [breakpoint])
-  const attachments = useFileAttachments({
-    maxFileSize: MAX_ATTACHMENT_SIZE_BYTES,
-  })
+  const attachments = useFileAttachments({ maxFileSize: MAX_ATTACHMENT_SIZE_BYTES, thumbnailPolicy: "community" })
   const {
     pendingFiles,
     setPendingFiles,

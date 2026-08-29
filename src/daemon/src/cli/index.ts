@@ -27,13 +27,13 @@ import { armMessageReminderFromEnv, parseRemindAfter } from "./messageReminderCl
 import { parseInviteToken } from "@alook/shared/lib/invite-link";
 import {
   ALLOWED_ICON_MIME_TYPES,
-  MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES,
   MAX_EMOJI_BYTES,
   MAX_PROFILE_ABOUT_LENGTH,
   MAX_SERVER_ICON_SIZE_BYTES,
 } from "@alook/shared/constants/community";
 import { nowLocalISO, toLocalISO } from "../util/localTime.js";
 import { MESSAGE_SEND_STDIN_POLICY } from "../drivers/systemPrompt.js";
+import { prepareCommunityImageUpload } from "./imageThumbnail.js";
 
 /**
  * Rewrite every message's UTC `.time` (server-stamped) into local-tz ISO with
@@ -489,26 +489,20 @@ async function cmdAttachmentUpload(opts: Record<string, unknown>): Promise<unkno
   let height: number | undefined;
   if (["image/png", "image/jpeg", "image/webp", "image/gif"].includes(contentType)) {
     try {
-      const { default: sharp } = await import("sharp");
-      const image = sharp(bytes, { failOn: "error" });
-      const metadata = await image.metadata();
-      if (metadata.width && metadata.height) {
-        width = metadata.width;
-        height = metadata.height;
-      }
-      const jpeg = await image
-        .resize({ width: 200, height: 200, fit: "inside", withoutEnlargement: true })
-        .jpeg({ quality: 70 })
-        .toBuffer();
-      if (jpeg.byteLength <= MAX_ATTACHMENT_THUMBNAIL_SIZE_BYTES) {
+      const prepared = await prepareCommunityImageUpload(bytes, contentType);
+      width = prepared.width;
+      height = prepared.height;
+      if (prepared.thumbnail) {
         thumbnail = {
-          data: new Uint8Array(jpeg),
+          data: prepared.thumbnail,
           filename: "thumbnail.jpg",
           contentType: "image/jpeg",
         };
       }
-    } catch {
-      // Thumbnailing is an optimization. Corrupt/unsupported images still upload.
+    } catch (error) {
+      throw new CliError(
+        `message attachment upload: ${(error as Error).message}`,
+      );
     }
   }
 

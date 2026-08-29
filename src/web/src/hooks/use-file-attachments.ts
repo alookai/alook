@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { generateThumbnail } from "../lib/image-thumbnail";
+import { generateThumbnail, prepareCommunityImage } from "../lib/image-thumbnail";
 
 const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
@@ -15,6 +15,7 @@ export type PendingFile = {
 export type UseFileAttachmentsOptions = {
   /** Per-file byte ceiling. Defaults to 10 MB. */
   maxFileSize?: number;
+  thumbnailPolicy?: "legacy" | "community";
 };
 
 function revokeThumbnailUrls(files: PendingFile[]) {
@@ -25,11 +26,12 @@ function revokeThumbnailUrls(files: PendingFile[]) {
 
 export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
   const maxFileSize = opts.maxFileSize ?? DEFAULT_MAX_FILE_SIZE;
+  const thumbnailPolicy = opts.thumbnailPolicy ?? "legacy";
   // Options are read via ref so `addPendingFiles`'s stable identity survives
   // caller re-renders while still observing an updated size limit.
-  const optsRef = useRef({ maxFileSize });
+  const optsRef = useRef({ maxFileSize, thumbnailPolicy });
   useEffect(() => {
-    optsRef.current = { maxFileSize };
+    optsRef.current = { maxFileSize, thumbnailPolicy };
   });
   const [pendingFiles, _setPendingFiles] = useState<PendingFile[]>([]);
   const pendingFilesRef = useRef(pendingFiles);
@@ -59,7 +61,7 @@ export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
   const addPendingFiles = useCallback(async (files: File[]) => {
     const prior = preparationTailRef.current;
     const preparation = prior.then(async () => {
-      const { maxFileSize: maxSize } = optsRef.current;
+      const { maxFileSize: maxSize, thumbnailPolicy: policy } = optsRef.current;
       const valid: File[] = [];
       for (const file of files) {
         if (file.size > maxSize) {
@@ -71,8 +73,24 @@ export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
       }
       if (valid.length === 0) return;
 
-      const pending: PendingFile[] = await Promise.all(
-        valid.map(async (file) => {
+      const prepared = await Promise.all(
+        valid.map(async (file): Promise<PendingFile | null> => {
+          if (policy === "community") {
+            try {
+              const image = await prepareCommunityImage(file);
+              const previewSource = image?.blob ?? (image ? file : null);
+              return {
+                file,
+                thumbnailUrl: previewSource ? URL.createObjectURL(previewSource) : null,
+                thumbnailBlob: image?.blob ?? null,
+                width: image?.width,
+                height: image?.height,
+              } satisfies PendingFile;
+            } catch {
+              toast.error(`Could not prepare "${file.name}" for upload`);
+              return null;
+            }
+          }
           const thumbnail = await generateThumbnail(file);
           const thumbnailUrl = thumbnail ? URL.createObjectURL(thumbnail.blob) : null;
           return {
@@ -84,6 +102,8 @@ export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
           };
         }),
       );
+      const pending = prepared.filter((file): file is PendingFile => file !== null);
+      if (pending.length === 0) return;
 
       const next = [...pendingFilesRef.current, ...pending];
       pendingFilesRef.current = next;
