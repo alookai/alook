@@ -165,11 +165,6 @@ jobs:
         run: pnpm --filter @alook/agent-driver build
       - name: Run full tests with coverage
         if: env.RUN_COVERAGE == 'true'
-        env:
-          # Istanbul's per-worker maps peak above the hosted runner's memory
-          # when daemon-heavy files overlap. Keep enough parallelism to stay
-          # inside the job timeout without letting the runner be reclaimed.
-          VITEST_MAX_WORKERS: 2
         run: |
           pnpm vitest run --coverage --coverage.reporter=json --coverage.reporter=text \
             --exclude src/daemon/agent-driver/src/pack.test.ts \

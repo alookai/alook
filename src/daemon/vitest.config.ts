@@ -8,5 +8,9 @@ export default defineConfig({
     include: ["src/**/*.test.ts"],
     environment: "node",
     testTimeout: 10_000,
+    // Process-authority fixtures send real signals. Keep daemon files serial
+    // and out of the root workspace's concurrent project group.
+    maxWorkers: 1,
+    sequence: { groupOrder: 2 },
   },
 });

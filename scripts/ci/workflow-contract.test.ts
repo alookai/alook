@@ -41,6 +41,10 @@ const rootVitestConfig = readFileSync(
   resolve(import.meta.dirname, "../../vitest.config.ts"),
   "utf8",
 )
+const daemonVitestConfig = readFileSync(
+  resolve(import.meta.dirname, "../../src/daemon/vitest.config.ts"),
+  "utf8",
+)
 const rootPackageJson = JSON.parse(
   readFileSync(resolve(import.meta.dirname, "../../package.json"), "utf8"),
 ) as {
@@ -458,9 +462,13 @@ describe("Turbo CI execution", () => {
     expect(windows).toContain(
       "run: pnpm turbo run test --filter=@alook/cli --filter=@alook/app --filter=@alook/shared",
     )
-    for (const definition of [linux, windows]) {
-      expect(definition.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(1)
-    }
+    expect(linux.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(1)
+    expect(windows.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(1)
+  })
+
+  it("isolates daemon process-authority tests in root workspace runs", () => {
+    expect(daemonVitestConfig).toContain("maxWorkers: 1")
+    expect(daemonVitestConfig).toContain("sequence: { groupOrder: 2 }")
   })
 
   it("runs each direct Worker Node and runtime project once through its standard test task", () => {
@@ -528,7 +536,6 @@ describe("Turbo CI execution", () => {
       "RUN_COVERAGE: ${{ github.event_name != 'push' || startsWith(github.event.head_commit.message, 'release:') }}",
     )
     expect(linux.match(/pnpm vitest run --coverage/g)).toHaveLength(1)
-    expect(linux).toContain("VITEST_MAX_WORKERS: 2")
     expect(linux.match(/codecov\/codecov-action/g)).toHaveLength(1)
     expect(linux).toContain("if: env.RUN_COVERAGE == 'true'")
     expect(linux).toContain("if: env.RUN_COVERAGE != 'true'")
