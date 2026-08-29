@@ -196,6 +196,7 @@ export class AccountUnreadProjection {
       )
       return
     }
+    if (seq! <= (this.readSeq.get(arrival.channelId) ?? 0)) return
     const key = arrival.messageId
       ? `${arrival.channelId}:${arrival.messageId}`
       : `${arrival.channelId}:seq:${seq}`

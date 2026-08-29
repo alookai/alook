@@ -80,6 +80,26 @@ describe("AccountUnreadProjection", () => {
     expect(projection.projectUnread("inbox-mentions", "c1", false)).toBe(true)
   })
 
+  it("does not retain an exact replay already covered by the primary cursor", () => {
+    const projection = new AccountUnreadProjection("u1")
+    projection.acceptPrimarySnapshot({
+      revision: 1,
+      readStates: [{ channelId: "c1", lastReadSeq: 4 }],
+    })
+
+    projection.recordArrival({
+      channelId: "c1",
+      serverId: "s1",
+      messageId: "m4",
+      seq: 4,
+      isMention: true,
+    })
+
+    expect(projection.hasPending()).toBe(false)
+    expect(projection.projectUnread("servers", "c1", false)).toBe(false)
+    expect(projection.projectUnread("inbox-mentions", "c1", false)).toBe(false)
+  })
+
   it("keeps an exact arrival until matching family evidence absorbs it", () => {
     const projection = new AccountUnreadProjection("u1")
     projection.recordArrival({ channelId: "c1", serverId: "s1", messageId: "m2", seq: 2 })
