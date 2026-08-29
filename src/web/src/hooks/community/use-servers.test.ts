@@ -237,12 +237,17 @@ describe("useServer / serverQueryFn", () => {
 
   it("retains rolling-deploy server-detail unread rows without source vectors", async () => {
     const channel = { id: "c1", unread: true }
-    const forum = { id: "forum", unread: false }
+    const baseUnreadForum = { id: "forum-base", unread: false }
+    const childUnreadForum = { id: "forum-child", unread: false }
     const detail = {
       id: "s1",
-      categories: [{ id: "cat1", channels: [channel, forum] }],
+      categories: [{
+        id: "cat1",
+        channels: [channel, baseUnreadForum, childUnreadForum],
+      }],
       forumUnreadState: {
-        forum: { baseUnread: false, childIds: ["child"] },
+        "forum-base": { baseUnread: true, childIds: [] },
+        "forum-child": { baseUnread: false, childIds: ["child"] },
       },
     }
     capturedHookQueryData = detail
@@ -250,12 +255,17 @@ describe("useServer / serverQueryFn", () => {
     const first = useServer("s1")
     expect(first.server?.categories[0]?.channels[0]?.unread).toBe(true)
     expect(first.server?.categories[0]?.channels[1]?.unread).toBe(true)
+    expect(first.server?.categories[0]?.channels[2]?.unread).toBe(true)
 
     capturedHookQueryData = {
       ...detail,
       categories: [{
         id: "cat1",
-        channels: [{ id: "c1", unread: false }, { id: "forum", unread: false }],
+        channels: [
+          { id: "c1", unread: false },
+          { id: "forum-base", unread: false },
+          { id: "forum-child", unread: false },
+        ],
       }],
     }
     const second = useServer("s1")
