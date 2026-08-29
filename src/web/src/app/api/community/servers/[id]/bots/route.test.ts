@@ -193,4 +193,38 @@ describe("POST /servers/[id]/bots — approval-request rollback failure", () => 
       }),
     })
   })
+
+  it("owner-add falls back to an empty identity when the bot profile disappears", async () => {
+    mockGetMember
+      .mockResolvedValueOnce({ id: "caller-member", nickname: "Owner" })
+      .mockResolvedValueOnce(null)
+    mockGetUserInternal.mockResolvedValue({
+      id: "bot1",
+      isBot: true,
+      deletedAt: null,
+      ownerUserId: "u1",
+      name: "Bot",
+    })
+    mockAddMember.mockResolvedValue({
+      id: "bot-member",
+      role: "member",
+      joinedAt: "2026-01-02T00:00:00Z",
+    })
+    mockGetUserSelf.mockResolvedValue(null)
+
+    const res = await POST(req({ botId: "bot1" }), ctx)
+
+    expect(res.status).toBe(201)
+    expect(mockFanOutToServerMembers).toHaveBeenCalledWith("s1", {
+      type: "community:member.join",
+      serverId: "s1",
+      member: expect.objectContaining({
+        userId: "bot1",
+        name: "",
+        discriminator: "0000",
+        avatar: undefined,
+        avatarVersion: 0,
+      }),
+    })
+  })
 })

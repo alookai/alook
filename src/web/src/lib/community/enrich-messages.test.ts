@@ -184,4 +184,57 @@ describe("enrichMessages attachment projection", () => {
       },
     })
   })
+
+  it("falls back to initials for forum participants without an avatar", async () => {
+    mocks.listAttachments.mockResolvedValue([])
+    mocks.getReplies.mockResolvedValue([])
+    mocks.listForumChildren.mockResolvedValue([{
+      id: "thread-1",
+      parentMessageId: "m1",
+      name: "Topic",
+      messageCount: 1,
+      lastMessageAt: null,
+      createdAt: "2026-08-13T00:00:00.000Z",
+    }])
+    mocks.getFirstMessages.mockResolvedValue([])
+    mocks.listParticipants.mockResolvedValue([{
+      channelId: "thread-1",
+      userId: "u2",
+      userName: "Bob",
+      userImage: null,
+      userAvatarVersion: 0,
+      participantCount: 1,
+    }])
+
+    const result = await enrichMessages(
+      {} as never,
+      "u1",
+      { channelId: "forum-1", isForum: true },
+      [{
+        id: "m1",
+        seq: 9,
+        authorId: "u1",
+        authorName: "Alice",
+        authorImage: null,
+        authorAvatarVersion: 0,
+        content: "topic",
+        type: "default",
+        mentionType: null,
+        replyToId: null,
+        embeds: null,
+        createdAt: "2026-08-13T00:00:00.000Z",
+        channelId: "forum-1",
+      }],
+    )
+
+    expect(result.messages[0]).toMatchObject({
+      thread: {
+        participants: [{
+          id: "u2",
+          avatar: "B",
+          avatarVersion: 0,
+        }],
+      },
+    })
+  })
 })
