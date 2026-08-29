@@ -27,7 +27,7 @@ export function useChannelMessageFeed({
       ? undefined
       : (readSnapshot?.lastReadMessageId ?? null),
     anchorMessageId,
-    waitForAnchor: false,
+    waitForAnchor: true,
     reconcileLateAnchor: true,
     revalidateOnMount: true,
   })

@@ -5,12 +5,16 @@ import { useChannelMessageFeed } from "./use-channel-message-feed"
 
 const mocks = vi.hoisted(() => ({
   readState: {
-    snapshot: { lastReadMessageId: null as string | null, lastReadSeq: 2 },
+    snapshot: {
+      lastReadMessageId: "authoritative-anchor" as string | null,
+      lastReadSeq: 2,
+    } as { lastReadMessageId: string | null; lastReadSeq: number } | null,
     isFetching: false,
   },
   messages: {
     messages: [
       { id: "self", authorId: "viewer" },
+      { id: "authoritative-anchor", authorId: "viewer" },
       { id: "peer", authorId: "peer" },
     ],
     anchorReconciled: true,
@@ -57,6 +61,11 @@ function Capture() {
 
 describe("useChannelMessageFeed", () => {
   beforeEach(() => {
+    mocks.readState.snapshot = {
+      lastReadMessageId: "authoritative-anchor",
+      lastReadSeq: 2,
+    }
+    mocks.readState.isFetching = false
     mocks.useMessages.mockReset()
     mocks.watermark.mockReset()
   })
@@ -67,6 +76,8 @@ describe("useChannelMessageFeed", () => {
       renderer = TestRenderer.create(createElement(Capture))
     })
     expect(mocks.useMessages).toHaveBeenLastCalledWith("channel", expect.objectContaining({
+      lastReadMessageId: "authoritative-anchor",
+      waitForAnchor: true,
       reconcileLateAnchor: true,
       revalidateOnMount: true,
     }))
@@ -74,6 +85,33 @@ describe("useChannelMessageFeed", () => {
       "data-divider": "peer",
       "data-unread": 3,
     })
+    act(() => renderer!.unmount())
+  })
+
+  it("gates the messages request until the mount-owned server anchor resolves", () => {
+    mocks.readState.snapshot = null
+    mocks.readState.isFetching = true
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(createElement(Capture))
+    })
+    expect(mocks.useMessages).toHaveBeenLastCalledWith("channel", expect.objectContaining({
+      lastReadMessageId: undefined,
+      waitForAnchor: true,
+      reconcileLateAnchor: true,
+      revalidateOnMount: true,
+    }))
+
+    mocks.readState.snapshot = {
+      lastReadMessageId: "resolved-anchor",
+      lastReadSeq: 7,
+    }
+    mocks.readState.isFetching = false
+    act(() => renderer!.update(createElement(Capture)))
+    expect(mocks.useMessages).toHaveBeenLastCalledWith("channel", expect.objectContaining({
+      lastReadMessageId: "resolved-anchor",
+      waitForAnchor: true,
+    }))
     act(() => renderer!.unmount())
   })
 })

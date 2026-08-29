@@ -188,6 +188,7 @@ type SurfaceGetTracker = {
   failures: string[]
   messageUrls: string[]
   readStateUrls: string[]
+  inFlight: () => number
   stop: () => void
 }
 
@@ -209,6 +210,7 @@ function trackSurfaceGets(page: Page, channelId: string): SurfaceGetTracker {
     failures: [],
     messageUrls: [],
     readStateUrls: [],
+    inFlight: () => observedRequests.size,
     stop: () => {
       page.off("request", onRequest)
       page.off("requestfinished", onFinished)
@@ -237,6 +239,47 @@ function trackSurfaceGets(page: Page, channelId: string): SurfaceGetTracker {
   page.on("requestfinished", onFinished)
   page.on("requestfailed", onFailed)
   return tracker
+}
+
+async function expectRetainedMountGets(
+  page: Page,
+  channelId: string,
+  departureReadState: ReadState,
+  tracker: SurfaceGetTracker,
+) {
+  await expect.poll(() => tracker.readStateUrls.length).toBe(1)
+  await page.waitForTimeout(300)
+  await expect.poll(() => tracker.inFlight()).toBe(0)
+  const settledMessageCount = tracker.messageUrls.length
+  await page.waitForTimeout(300)
+  expect(tracker.inFlight()).toBe(0)
+  expect(tracker.messageUrls).toHaveLength(settledMessageCount)
+
+  expect(tracker.messageUrls.length).toBeGreaterThanOrEqual(1)
+  expect(tracker.messageUrls.length).toBeLessThanOrEqual(2)
+  const anchors = tracker.messageUrls.map((url) => new URL(url).searchParams.get("anchor"))
+  expect(anchors[0]).toBe(departureReadState.lastReadMessageId)
+  const counts = new Map<string, number>()
+  for (const anchor of anchors) {
+    const identity = anchor ?? "<newest>"
+    counts.set(identity, (counts.get(identity) ?? 0) + 1)
+  }
+  for (const count of counts.values()) expect(count).toBe(1)
+
+  if (anchors.length === 2) {
+    const newerAnchor = anchors[1]
+    expect(newerAnchor).not.toBeNull()
+    expect(newerAnchor).not.toBe(anchors[0])
+    await expect(page.getByTestId(tid.message(newerAnchor!))).toBeVisible()
+    const advancedReadState = await settledReadState(page, channelId)
+    expect(advancedReadState.lastReadSeq).toBeGreaterThan(departureReadState.lastReadSeq)
+    expect(newerAnchor).toBe(advancedReadState.lastReadMessageId)
+  }
+
+  expect(tracker.readStateUrls).toHaveLength(1)
+  expect(tracker.abortedReadStateGets).toBeLessThanOrEqual(1)
+  expect(tracker.abortedMessageGets).toBeLessThanOrEqual(1)
+  expect(tracker.failures).toEqual([])
 }
 
 test("mobile reply, avatar mention, and typing space keep exact backend and WS identity", async ({ asUser }) => {
@@ -670,11 +713,7 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   await alice.page.getByTestId(tid.dmRow(dmId)).click()
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/me/${dmId}`)
   await expect(alice.page.getByTestId(tid.message(dmReadState.lastReadMessageId!))).toBeVisible()
-  await expect.poll(() => dmReturnGets.readStateUrls.length).toBe(1)
-  expect(dmReturnGets.messageUrls.length).toBeLessThanOrEqual(1)
-  expect(dmReturnGets.abortedReadStateGets).toBeLessThanOrEqual(1)
-  expect(dmReturnGets.abortedMessageGets).toBeLessThanOrEqual(1)
-  expect(dmReturnGets.failures).toEqual([])
+  await expectRetainedMountGets(alice.page, dmId, dmReadState, dmReturnGets)
   expect(Math.abs(await dmScroller.evaluate((element) => element.scrollTop) - departedDmScrollTop))
     .toBeGreaterThan(50)
   dmReturnGets.stop()
@@ -690,11 +729,7 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   await alice.page.reload({ waitUntil: "commit" })
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/me/${dmId}`)
   await expect(alice.page.getByTestId(tid.message(dmReloadReadState.lastReadMessageId!))).toBeVisible()
-  await expect.poll(() => dmReloadGets.readStateUrls.length).toBe(1)
-  expect(dmReloadGets.messageUrls.length).toBeLessThanOrEqual(1)
-  expect(dmReloadGets.abortedReadStateGets).toBeLessThanOrEqual(1)
-  expect(dmReloadGets.abortedMessageGets).toBeLessThanOrEqual(1)
-  expect(dmReloadGets.failures).toEqual([])
+  await expectRetainedMountGets(alice.page, dmId, dmReloadReadState, dmReloadGets)
   expect(Math.abs(
     await dmScroller.evaluate((element) => element.scrollTop) - departedDmReloadScrollTop,
   )).toBeGreaterThan(50)
@@ -745,16 +780,9 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${channelId}`)
   await expect(composerEditable(alice.page)).toContainText(navigationDraft)
   await expect(alice.page.getByTestId(tid.message(channelReadState.lastReadMessageId!))).toBeVisible()
-  await expect.poll(() => channelReturnGets.readStateUrls.length).toBe(1)
   expect(Math.abs(await scroller.evaluate((element) => element.scrollTop) - readingPosition))
     .toBeGreaterThan(50)
-  expect(
-    channelReturnGets.messageUrls.length,
-    `retained channel message GETs after list return: ${JSON.stringify(channelReturnGets)}`,
-  ).toBeLessThanOrEqual(1)
-  expect(channelReturnGets.abortedReadStateGets).toBeLessThanOrEqual(1)
-  expect(channelReturnGets.abortedMessageGets).toBeLessThanOrEqual(1)
-  expect(channelReturnGets.failures).toEqual([])
+  await expectRetainedMountGets(alice.page, channelId, channelReadState, channelReturnGets)
   channelReturnGets.stop()
 })
 
@@ -818,11 +846,7 @@ test("mobile thread return uses server read state instead of tab-local pixel mem
   await alice.page.goForward({ waitUntil: "commit" })
   await expect.poll(() => new URL(alice.page.url()).pathname).toBe(`/c/channels/${serverId}/${threadId}`)
   await expect(alice.page.getByTestId(tid.message(threadReadState.lastReadMessageId!))).toBeVisible()
-  await expect.poll(() => threadReturnGets.readStateUrls.length).toBe(1)
-  expect(threadReturnGets.messageUrls.length).toBeLessThanOrEqual(1)
-  expect(threadReturnGets.abortedReadStateGets).toBeLessThanOrEqual(1)
-  expect(threadReturnGets.abortedMessageGets).toBeLessThanOrEqual(1)
-  expect(threadReturnGets.failures).toEqual([])
+  await expectRetainedMountGets(alice.page, threadId, threadReadState, threadReturnGets)
   expect(Math.abs(await threadScroller.evaluate((element) => element.scrollTop) - departedThreadScrollTop))
     .toBeGreaterThan(50)
   threadReturnGets.stop()
