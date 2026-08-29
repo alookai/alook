@@ -3,6 +3,10 @@ import { IssueStatus, TASK_TYPES } from "./constants";
 import { sanitizeSlug } from "./utils/slug";
 import { DiagnosticReportIdSchema } from "./diagnostics-contract";
 import {
+  DailyUsageSnapshotSchema,
+  ProviderQuotaSnapshotSchema,
+} from "./provider-telemetry";
+import {
   ALLOWED_ICON_MIME_TYPES,
   MAX_ATTACHMENTS_PER_MESSAGE,
   MAX_MESSAGE_CONTENT_LENGTH,
@@ -982,6 +986,7 @@ export const HostReadyMessageSchema = z.object({
   arch: z.string().optional(),
   osRelease: z.string().optional(),
   daemonVersion: z.string().optional(),
+  providerQuotas: z.array(ProviderQuotaSnapshotSchema).max(2).optional().default([]),
 });
 export type HostReadyMessage = z.infer<typeof HostReadyMessageSchema>;
 
@@ -1022,6 +1027,8 @@ export const AgentActivityMessageSchema = z.object({
   type: z.literal("agent_activity"),
   agentId: z.string(),
   state: z.enum(["idle", "starting", "running", "stopping"]),
+  dailyUsage: z.array(DailyUsageSnapshotSchema).max(7).optional(),
+  quota: ProviderQuotaSnapshotSchema.optional(),
 });
 export type AgentActivityMessage = z.infer<typeof AgentActivityMessageSchema>;
 

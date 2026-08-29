@@ -30,7 +30,7 @@ import { probeCliRuntime, resolveSpawnSpec } from "../../internal/probe.js";
 import { resolveCodexHomeRootFromEnv } from "./home.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
 import { killProcessTree, spawnAgentProcess } from "../../internal/killTree.js";
-import { jsonRpcRequest } from "../../internal/utils.js";
+import { jsonRpcRequest, tryParseJsonLine } from "../../internal/utils.js";
 import { scrubDriverErrorMessage } from "../../internal/errors.js";
 
 const SETTINGS_UPDATE_TIMEOUT_MS = 5_000;
@@ -65,6 +65,7 @@ export class CodexDriver implements BackendAdapter {
   } as const;
 
   private readonly eventNormalizer = new CodexEventNormalizer();
+  private readonly pendingAccountReadRequestIds = new Set<number>();
   private requestId = 0;
   /** Resolved Codex home root (CODEX_HOME or ~/.codex); set on spawn. */
   private codexHomeRoot: string | null = null;
@@ -97,6 +98,25 @@ export class CodexDriver implements BackendAdapter {
   }>();
   private nextRequestId(): number {
     return ++this.requestId;
+  }
+
+  private requestAccountQuotaSnapshot(): void {
+    if (!this.proc?.stdin || this.proc.stdin.destroyed) return;
+    const accountReadRequestId = this.nextRequestId();
+    this.pendingAccountReadRequestIds.add(accountReadRequestId);
+    this.eventNormalizer.registerAccountReadRequest(accountReadRequestId);
+    this.proc.stdin.write(jsonRpcRequest(
+      "account/read",
+      { refreshToken: false },
+      accountReadRequestId,
+    ) + "\n");
+  }
+
+  private requestQuotaSnapshot(): void {
+    if (!this.proc?.stdin || this.proc.stdin.destroyed) return;
+    const quotaReadRequestId = this.nextRequestId();
+    this.eventNormalizer.registerQuotaReadRequest(quotaReadRequestId);
+    this.proc.stdin.write(jsonRpcRequest("account/rateLimits/read", {}, quotaReadRequestId) + "\n");
   }
 
   /** Resolved Codex home root (CODEX_HOME or ~/.codex). Null until spawned. */
@@ -301,6 +321,7 @@ export class CodexDriver implements BackendAdapter {
       } else {
         proc.stdin?.write(jsonRpcRequest("thread/start", freshParams, this.nextRequestId()) + "\n");
       }
+      this.requestAccountQuotaSnapshot();
     });
 
     return { process: proc };
@@ -329,7 +350,18 @@ export class CodexDriver implements BackendAdapter {
   normalizeLine(line: string): AdapterEvent[] {
     const settingsResponse = this.consumeSettingsUpdateResponse(line);
     if (settingsResponse) return [];
+    const parsed = tryParseJsonLine(line) as { id?: unknown; method?: unknown } | null;
     const events = this.eventNormalizer.normalizeLine(line);
+    if (
+      typeof parsed?.id === "number"
+      && this.pendingAccountReadRequestIds.delete(parsed.id)
+    ) {
+      // Establish (and, if needed, rotate) the account-scoped source epoch
+      // before asking for limits. Issuing both RPCs concurrently can associate
+      // a fast quota response with the previous account after an account swap.
+      this.requestQuotaSnapshot();
+    }
+    if (parsed?.method === "account/updated") this.requestAccountQuotaSnapshot();
 
     // Missing-rollout resume recovery — before any session_init is adopted.
     if (this.pendingResumeFallbackParams && this.proc?.stdin && !this.proc.stdin.destroyed) {

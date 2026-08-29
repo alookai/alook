@@ -352,6 +352,26 @@ describe("CodexDriver initialize payload", () => {
       .find((message) => message.method === "thread/start");
     expect(defaultStart.params.config).toBeUndefined();
   });
+
+  it("reads the account before requesting its quota snapshot", async () => {
+    const driver = new CodexDriver();
+    const { process: proc } = await driver.spawn(baseCtx());
+    await Promise.resolve();
+
+    const beforeAccount = stdinWrites(proc).map((line) => JSON.parse(line.trim()));
+    const accountRead = beforeAccount.find((message) => message.method === "account/read");
+    expect(accountRead).toBeDefined();
+    expect(beforeAccount.some((message) => message.method === "account/rateLimits/read")).toBe(false);
+
+    driver.normalizeLine(JSON.stringify({
+      jsonrpc: "2.0",
+      id: accountRead.id,
+      result: { account: { type: "chatgpt", email: "user@example.com", planType: "pro" } },
+    }));
+
+    const afterAccount = stdinWrites(proc).map((line) => JSON.parse(line.trim()));
+    expect(afterAccount.filter((message) => message.method === "account/rateLimits/read")).toHaveLength(1);
+  });
 });
 
 // The `thread/start` (or resume) RESULT line carries the new thread id and is

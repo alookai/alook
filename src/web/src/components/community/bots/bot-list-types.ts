@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from "react"
-import type { CommunityMachineSummary } from "@alook/shared"
 import type { BotSummary } from "@/hooks/community/use-bots"
+import type { MachineSummary } from "@/hooks/community/use-machines"
 
 export type BotListProps = {
   onBack?: () => void
@@ -8,14 +8,14 @@ export type BotListProps = {
 
 export type BotMachineGroup = {
   machineId: string
-  machine: CommunityMachineSummary | null
+  machine: MachineSummary | null
   bots: BotSummary[]
 }
 
 export type BotListController = {
   bots: BotSummary[]
   isLoading: boolean
-  machines: CommunityMachineSummary[]
+  machines: MachineSummary[]
   machinesLoading: boolean
   onlineUserIds: ReadonlySet<string>
   createOpen: boolean

@@ -18,7 +18,8 @@
  * `agent:wake`/`agent:stop` outcomes, and supplies a resync snapshot so the
  * server recovers this host's state after a dropped control connection.
  */
-import type { HostCommand, HostControlChannel, HostReady, HostReadyRuntime, UnreadNotice, AgentSessionReport, SessionErrorFrame, AgentId } from "../server/contract.js";
+import type { HostCommand, HostControlChannel, HostReady, HostReadyRuntime, UnreadNotice, AgentSessionReport, SessionErrorFrame, AgentId, HostAgentActivity } from "../server/contract.js";
+import type { ProviderQuotaSnapshot } from "@alook/shared";
 import { CONTROL_HEARTBEAT_CAPABILITY } from "../server/contract.js";
 import type { AgentProcessManager } from "./managerRuntime.js";
 import type { TypingScopeTracker } from "./typingScopeTracker.js";
@@ -83,6 +84,8 @@ export interface AgentRouterOpts {
   arch?: string;
   osRelease?: string;
   daemonVersion?: string;
+  providerQuotas?: () => ProviderQuotaSnapshot[];
+  resyncActivities?: () => HostAgentActivity[] | Promise<HostAgentActivity[]>;
   /**
    * Called before registering/delivering to an agent. The daemon uses this to
    * enroll the agent (fetch its runner key) so the credential proxy can swap
@@ -211,7 +214,9 @@ export class AgentRouter {
     this.opts.channel.onResync?.(() => ({
       ready: this.buildReady(),
       sessions: this.opts.manager.liveSessionReports() as AgentSessionReport[],
-      activities: this.opts.manager.liveAgentActivities(),
+      activities: this.opts.resyncActivities
+        ? this.opts.resyncActivities()
+        : this.opts.manager.liveAgentActivities(),
     }));
     await this.opts.channel.reportReady(this.buildReady());
   }
@@ -230,6 +235,7 @@ export class AgentRouter {
       arch: this.opts.arch,
       osRelease: this.opts.osRelease,
       daemonVersion: this.opts.daemonVersion,
+      ...(this.opts.providerQuotas ? { providerQuotas: this.opts.providerQuotas() } : {}),
     };
   }
 

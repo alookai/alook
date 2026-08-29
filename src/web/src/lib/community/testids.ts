@@ -84,6 +84,11 @@ export const tid = {
   botReportProblemStatus: "bot-report-problem-status",
   botAvatarPickerTrigger: "community-bot-avatar-picker-trigger",
   botReasoningEffort: "community-bot-reasoning-effort",
+  botCardModel: "bot-card-model",
+  botUsage: (botId: string) => `community-bot-usage-${botId}`,
+  botUsageDay: (botId: string, day: string) => `community-bot-usage-day-${botId}-${day}`,
+  machineQuota: (machineId: string) => `community-machine-quota-${machineId}`,
+  machineQuotaDetail: (machineId: string) => `community-machine-quota-detail-${machineId}`,
 
   forumTagDialog: "community-forum-tag-dialog",
   forumTagDialogChip: (tag: string) => `community-forum-tag-dialog-chip-${tag}`,

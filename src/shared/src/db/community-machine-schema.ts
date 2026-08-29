@@ -1,8 +1,9 @@
-import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { user } from "./schema";
 import type { CommunityMachineRuntime } from "../community-ws-events";
+import type { QuotaLimit } from "../provider-telemetry";
 
 export const DIAGNOSTIC_REPORT_FAILURE_CODES = [
   "offline",
@@ -269,6 +270,28 @@ export const communityBotBinding = sqliteTable(
       .$defaultFn(() => new Date().toISOString()),
   },
   (t) => [index("idx_community_bot_binding_machine").on(t.machineId)]
+);
+
+export type MachineBackendQuotaStatus = "available" | "error";
+
+export const communityMachineBackendQuota = sqliteTable(
+  "community_machine_backend_quota",
+  {
+    machineId: text("machine_id")
+      .notNull()
+      .references(() => communityMachine.id, { onDelete: "cascade" }),
+    agentBackendId: text("agent_backend_id").$type<"claude" | "codex">().notNull(),
+    sourceEpoch: text("source_epoch").notNull(),
+    status: text("status").$type<MachineBackendQuotaStatus>().notNull(),
+    planName: text("plan_name"),
+    freshForSeconds: integer("fresh_for_seconds"),
+    limits: text("limits", { mode: "json" }).$type<QuotaLimit[]>(),
+    errorCode: text("error_code"),
+    retryable: integer("retryable", { mode: "boolean" }),
+    observedAt: text("observed_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.machineId, t.agentBackendId] })]
 );
 
 // community_agent_runner_key — per-agent runner key. Same hashing shape

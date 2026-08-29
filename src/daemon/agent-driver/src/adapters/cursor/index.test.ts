@@ -473,14 +473,11 @@ describe("CursorDriver persistent ACP transport", () => {
     expect(events).toContainEqual({ kind: "error", message: "Cursor ACP response omitted result" });
 
     await lane.send({ text: "fourth", mode: "idle" });
-    respond(process, server.prompts[3]!, { stopReason: "end_turn", usage: { inputTokens: 2, outputTokens: 3 } });
-    await settle();
-    expect(events).toContainEqual({
-      kind: "telemetry",
-      name: "token_usage",
-      source: "cursor.acp",
-      attrs: { inputTokens: 2, outputTokens: 3 },
+    respond(process, server.prompts[3]!, {
+      stopReason: "end_turn",
     });
+    await settle();
+    expect(events.filter((event) => event.kind === "telemetry")).toEqual([]);
     expect(events.filter((event) => event.kind === "turn_end")).toHaveLength(4);
   });
 

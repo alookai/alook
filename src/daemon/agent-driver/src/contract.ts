@@ -293,13 +293,65 @@ export type AgentTurnResult =
   | { readonly outcome: "interrupted"; readonly backendSessionId?: string }
   | { readonly outcome: "failed"; readonly backendSessionId?: string; readonly error: AgentDriverError };
 
-export interface TokenUsage {
-  readonly inputTokens?: number;
-  readonly cachedInputTokens?: number;
-  readonly outputTokens?: number;
-  readonly reasoningTokens?: number;
-  readonly totalTokens?: number;
+export type TokenMetricDelta = number | null;
+
+export interface TokenUsageDelta {
+  readonly input: TokenMetricDelta;
+  readonly output: TokenMetricDelta;
+  readonly cache: TokenMetricDelta;
 }
+
+export type QuotaErrorCode =
+  | "unavailable"
+  | "unauthorized"
+  | "network"
+  | "provider_error"
+  | "invalid_response";
+
+export type QuotaProductIdentity =
+  | { readonly kind: "reported"; readonly id: string; readonly displayName: string }
+  | { readonly kind: "unknown"; readonly displayName: string };
+
+export type QuotaModelIdentity =
+  | { readonly kind: "reported"; readonly id: string }
+  | { readonly kind: "not_applicable" }
+  | { readonly kind: "unknown" };
+
+export type QuotaWindowIdentity =
+  | { readonly kind: "rolling"; readonly durationSeconds: number; readonly displayName: string }
+  | { readonly kind: "calendar"; readonly period: "day" | "week" | "month"; readonly displayName: string }
+  | {
+      readonly kind: "provider_defined";
+      readonly id: string;
+      readonly durationSeconds?: number;
+      readonly displayName: string;
+    };
+
+export interface QuotaLimit {
+  readonly bucket: {
+    readonly limitId: string;
+    readonly product: QuotaProductIdentity;
+    readonly model: QuotaModelIdentity;
+    readonly window: QuotaWindowIdentity;
+  };
+  readonly usedPercent: number;
+  readonly resetsAt?: string;
+}
+
+export type ProviderQuotaObservation =
+  | {
+      readonly status: "available";
+      readonly sourceEpoch: string;
+      readonly planName?: string;
+      readonly freshForSeconds: number;
+      readonly limits: readonly QuotaLimit[];
+    }
+  | {
+      readonly status: "error";
+      readonly sourceEpoch: string;
+      readonly code: QuotaErrorCode;
+      readonly retryable: boolean;
+    };
 
 export type CoreAgentEventPayload =
   | { readonly type: "session_started"; readonly backendSessionId: string }
@@ -377,14 +429,13 @@ export type CoreAgentEventPayload =
       readonly type: "token_usage";
       readonly turnId?: string;
       readonly source: string;
-      readonly usage: TokenUsage;
-      readonly details: JsonObject;
+      readonly usage: TokenUsageDelta;
     }
   | {
       readonly type: "rate_limits";
       readonly turnId?: string;
       readonly source: string;
-      readonly details: JsonObject;
+      readonly quota: ProviderQuotaObservation;
     }
   | {
       readonly type: "turn_completed";

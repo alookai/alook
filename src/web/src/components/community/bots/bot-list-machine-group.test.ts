@@ -2,9 +2,10 @@ import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { BotSummary } from "@/hooks/community/use-bots"
+import { tid } from "@/lib/community/testids"
 import type { BotListController, BotMachineGroup } from "./bot-list-types"
 
-const mocks = vi.hoisted(() => ({ heatmap: vi.fn() }))
+const mocks = vi.hoisted(() => ({ usage: vi.fn(), quota: vi.fn() }))
 
 vi.mock("lucide-react", () => ({
   Activity: "activity-icon",
@@ -19,10 +20,22 @@ vi.mock("@/components/avatar", () => ({
 vi.mock("@/components/provider-logo", () => ({
   ProviderLogo: (props: unknown) => React.createElement("provider", props as Record<string, unknown>),
 }))
-vi.mock("./bot-activity-heatmap", () => ({
-  BotActivityHeatmap: (props: unknown) => {
-    mocks.heatmap(props)
-    return React.createElement("heatmap", props as Record<string, unknown>)
+vi.mock("./bot-token-usage-chart", () => ({
+  usageDayPresentation: (day: NonNullable<BotSummary["usage"]>["days"][number]) => ({
+    knownTotal: Object.values(day.metrics).reduce(
+      (sum, metric) => sum + (metric ?? 0),
+      0,
+    ),
+  }),
+  BotTokenUsageChart: (props: unknown) => {
+    mocks.usage(props)
+    return React.createElement("usage-chart", props as Record<string, unknown>)
+  },
+}))
+vi.mock("./bot-quota-summary", () => ({
+  MachineQuotaSummary: (props: unknown) => {
+    mocks.quota(props)
+    return React.createElement("quota-summary", props as Record<string, unknown>)
   },
 }))
 vi.mock("@/components/ui/card", () => ({
@@ -108,13 +121,18 @@ describe("renderBotMachineGroup", () => {
     expect(element.props.className).toBe(
       "flex flex-col gap-3 rounded-lg p-1 transition-colors duration-500 ",
     )
-    expect(renderer.root.findAllByProps({ className: "flex items-center gap-2 px-1" }))
+    expect(renderer.root.findAllByProps({ className: "flex flex-col gap-1 px-1" }))
       .toHaveLength(1)
     expect(renderer.root.findAllByProps({ className: "flex flex-col gap-3" }))
       .toHaveLength(1)
     expect(renderer.root.findByType("card").props.className).toBe("flex flex-col gap-3 p-4")
     expect(renderer.root.findAllByProps({ className: "flex items-start justify-between gap-3" }))
       .toHaveLength(1)
+    expect(renderer.root.findAllByProps({
+      className: "flex min-w-0 flex-1 flex-wrap items-start gap-x-3 gap-y-2.5 sm:items-end",
+    })).toHaveLength(1)
+    expect(renderer.root.findAllByProps({ className: "basis-full sm:ml-auto sm:basis-auto" }))
+      .toHaveLength(0)
     expect(renderer.root.findByProps({ "aria-label": "Collapse My Mac" }).props["aria-expanded"])
       .toBe(true)
     expect(renderer.root.findByType("avatar").props).toEqual(expect.objectContaining({
@@ -124,8 +142,9 @@ describe("renderBotMachineGroup", () => {
       size: 40,
     }))
     expect(renderer.root.findByType("provider").props.provider).toBe("claude")
-    expect(renderer.root.findByProps({ "data-testid": "bot-card-model" }).children).toEqual(["opus-4-6"])
-    expect(mocks.heatmap).toHaveBeenCalledWith({ days: [], className: "self-center" })
+    expect(renderer.root.findByProps({ "data-testid": tid.botCardModel }).children).toEqual(["opus-4-6"])
+    expect(mocks.usage).not.toHaveBeenCalled()
+    expect(mocks.quota).toHaveBeenCalledWith({ machineId: "mac1", entries: undefined })
 
     const reconnect = renderer.root.findAllByType("button").find((node) =>
       node.children.includes("Bring online"))!
@@ -162,6 +181,80 @@ describe("renderBotMachineGroup", () => {
     expect(renderer.root.findAll((node) =>
       node.props.className === "inline-block size-1.5 shrink-0 rounded-full bg-muted-foreground"))
       .toHaveLength(1)
+  })
+
+  it("projects bot-owned usage on one machine scale and machine-scoped quota once", () => {
+    const usage = {
+      capability: "supported" as const,
+      days: [{
+        day: "2026-08-29",
+        period: "closed" as const,
+        metrics: {
+          input: 20,
+          output: 10,
+          cache: 0,
+        },
+      }],
+    }
+    const largerUsage = {
+      capability: "supported" as const,
+      days: [{
+        day: "2026-08-29",
+        period: "closed" as const,
+        metrics: {
+          input: 50,
+          output: 20,
+          cache: 30,
+        },
+      }],
+    }
+    const codexQuota = {
+      scope: { kind: "machine_backend" as const, machineId: "mac1", agentBackendId: "codex" },
+      capability: "supported" as const,
+      runtimeState: "healthy" as const,
+      snapshot: { status: "pending" as const },
+    }
+    const claudeQuota = {
+      scope: { kind: "machine_backend" as const, machineId: "mac1", agentBackendId: "claude" },
+      capability: "supported" as const,
+      runtimeState: "healthy" as const,
+      snapshot: { status: "pending" as const },
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(renderBotMachineGroup(
+        group({
+          machine: {
+            id: "mac1",
+            displayName: "My Mac",
+            status: "online",
+            quota: [codexQuota, claudeQuota],
+          } as BotMachineGroup["machine"],
+          bots: [
+            bot({ id: "smaller", runtime: "codex", usage }),
+            bot({ id: "larger", runtime: "claude", usage: largerUsage }),
+          ],
+        }),
+        controller(),
+      ))
+    })
+    expect(mocks.usage).toHaveBeenNthCalledWith(1, {
+      botId: "smaller",
+      usage,
+      scaleMaxTokens: 100,
+    })
+    expect(mocks.usage).toHaveBeenNthCalledWith(2, {
+      botId: "larger",
+      usage: largerUsage,
+      scaleMaxTokens: 100,
+    })
+    expect(renderer.root.findAllByProps({ className: "basis-full sm:ml-auto sm:basis-auto" }))
+      .toHaveLength(2)
+    expect(mocks.quota).toHaveBeenCalledTimes(1)
+    expect(mocks.quota).toHaveBeenCalledWith({
+      machineId: "mac1",
+      entries: [codexQuota, claudeQuota],
+    })
   })
 
   it("omits reconnect for an online bot even when its machine resolves", () => {

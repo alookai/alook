@@ -186,6 +186,7 @@ export {
   CACHE_REVALIDATE,
 } from "./constants/community";
 export type { NotifLevel, NotificationLevelValue, ParticipantSource, MentionKind } from "./constants/community";
+export * from "./provider-telemetry";
 
 export type {
   AgentStatusType,
@@ -475,6 +476,7 @@ export type {
   AgentSessionReport,
   ParsedRef as CommunityCliParsedRef,
   AgentActivityState,
+  HostAgentActivity,
   HostBotAuditEventFrame,
   BotAuditEventPayload,
 } from "./community-cli-contract";

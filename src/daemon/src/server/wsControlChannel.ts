@@ -32,7 +32,7 @@ import type {
   SessionErrorFrame,
   WebSocketLike,
   WebSocketFactory,
-  AgentActivityState,
+  HostAgentActivity,
   HostBotAuditEventFrame,
 } from "./contract.js";
 import { HostCommandSchema } from "./contract.js";
@@ -125,7 +125,7 @@ export type AgentCommandAckError = { code: string; message: string };
 type OutboundFrame =
   | ({ type: "ready" } & HostReady)
   | { type: "agent_session"; agentId: AgentId; sessionId: string; launchId: string }
-  | { type: "agent_activity"; agentId: AgentId; state: AgentActivityState }
+  | ({ type: "agent_activity" } & HostAgentActivity)
   | { type: "agent_typing"; agentId: AgentId; channelId: string }
   | { type: "agent_typing_stop"; agentId: AgentId; channelId: string }
   | {
@@ -146,11 +146,10 @@ type OutboundFrame =
   | HostBotAuditEventFrame
   | SessionErrorFrame;
 
-type AgentActivityReport = { agentId: AgentId; state: AgentActivityState };
 type ResyncProvider = () => {
   ready: HostReady;
   sessions: AgentSessionReport[];
-  activities?: AgentActivityReport[];
+  activities?: HostAgentActivity[] | Promise<HostAgentActivity[]>;
 };
 
 function describeErr(err: unknown): string {
@@ -292,7 +291,7 @@ export class WsControlChannel implements HostControlChannel {
     this.sendFrame({ type: "agent_session", ...info });
   }
 
-  async reportAgentActivity(info: { agentId: AgentId; state: AgentActivityState }): Promise<void> {
+  async reportAgentActivity(info: HostAgentActivity): Promise<void> {
     this.wakeCoordinator.recordAgentActivity(info.agentId, info.state);
     this.sendFrame({ type: "agent_activity", ...info });
   }
@@ -401,23 +400,49 @@ export class WsControlChannel implements HostControlChannel {
    * what lets the server recover this host after a dropped connection.
    */
   private resyncOnConnect(): void {
+    const sendActivities = (
+      activities: HostAgentActivity[],
+      counts: { ready: number; sessions: number },
+    ): void => {
+      for (const activity of activities) {
+        this.sendFrame({ type: "agent_activity", ...activity });
+      }
+      this.log.info("resync sent", {
+        ready: counts.ready,
+        sessions: counts.sessions,
+        activities: activities.length,
+        pendingAuditEvents: this.pendingBotAuditEvents.size,
+      });
+    };
+
     if (this.resyncProvider) {
-      const { ready, sessions, activities } = this.resyncProvider();
-      this.sendFrame({ type: "ready", ...ready });
-      for (const s of sessions) this.sendFrame({ type: "agent_session", ...s });
+      const socketAtStart = this.ws;
+      const snapshot = this.resyncProvider();
+      this.sendFrame({ type: "ready", ...snapshot.ready });
+      for (const session of snapshot.sessions) {
+        this.sendFrame({ type: "agent_session", ...session });
+      }
       // Re-assert each live agent's current activity: `agent_activity` is
       // edge-triggered, so a frame dropped during the disconnect window is
       // otherwise lost forever, stranding the pill on a stale state.
-      const liveActivities = activities ?? [];
-      for (const a of liveActivities) this.sendFrame({ type: "agent_activity", ...a });
       for (const frame of this.pendingBotAuditEvents.values()) this.sendFrame(frame);
       this.scheduleAuditRetry();
-      this.log.info("resync sent", {
-        ready: ready.runtimeReport.length,
-        sessions: sessions.length,
-        activities: liveActivities.length,
-        pendingAuditEvents: this.pendingBotAuditEvents.size,
-      });
+      const activities = snapshot.activities ?? [];
+      const counts = {
+        ready: snapshot.ready.runtimeReport.length,
+        sessions: snapshot.sessions.length,
+      };
+      if (activities instanceof Promise) {
+        void activities.then((resolved) => {
+          if (this.ws === socketAtStart && this.statusValue === "open") {
+            sendActivities(resolved, counts);
+          }
+        }).catch((err: unknown) => {
+          this.log.warn("resync provider failed", { err: describeErr(err) });
+        });
+      } else {
+        sendActivities(activities, counts);
+      }
     }
     for (const hook of this.resyncHooks) {
       try {

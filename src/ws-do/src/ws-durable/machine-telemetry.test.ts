@@ -7,6 +7,7 @@ import {
   flushAsyncWork,
   mockCheckAliveFetch,
   mockCreateDb,
+  mockD1Batch,
   mockFindCredentialByHash,
   mockGetBotBinding,
   mockGetBotBindingWithOwner,
@@ -278,6 +279,113 @@ describe("WebSocketDurableObject", () => {
         expect(mockStubFetch).not.toHaveBeenCalled()
         // Socket didn't close — the DO doesn't touch ws.close() on any per-frame D1 error.
         expect(ws.close as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
+      })
+
+      it("persists an idle bot's usage and matching backend quota in one D1 batch", async () => {
+        const { durable, store } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "0".repeat(64),
+        })
+        mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "codex" })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "agent_activity",
+          agentId: "bot_1",
+          state: "idle",
+          dailyUsage: [{
+            botId: "bot_1",
+            day: new Date().toISOString().slice(0, 10),
+            metrics: {
+              input: 12,
+              output: 7,
+              cache: null,
+            },
+          }],
+          quota: {
+            agentBackendId: "codex",
+            observation: {
+              status: "available",
+              sourceEpoch: "A".repeat(22),
+              freshForSeconds: 300,
+              limits: [{
+                bucket: {
+                  limitId: "primary",
+                  product: { kind: "reported", id: "codex", displayName: "Codex" },
+                  model: { kind: "not_applicable" },
+                  window: { kind: "rolling", durationSeconds: 18_000, displayName: "5 hours" },
+                },
+                usedPercent: 25,
+              }],
+            },
+          },
+        }))
+
+        expect(mockD1Batch).toHaveBeenCalledOnce()
+        const statements = mockD1Batch.mock.calls[0]![0] as Array<{ sql: string; values: unknown[] }>
+        expect(statements.map((statement) => statement.sql)).toEqual([
+          expect.stringContaining("community_user_profile"),
+          expect.stringContaining("community_bot_daily_token_usage"),
+          expect.stringContaining("DELETE FROM community_bot_daily_token_usage"),
+          expect.stringContaining("community_machine_backend_quota"),
+        ])
+        expect(statements[1]!.values).toMatchObject({ 0: "bot_1", 2: 12, 3: 7, 4: null })
+      })
+
+      it("persists each valid telemetry section when the sibling section is malformed", async () => {
+        const { durable, store } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "0".repeat(64),
+        })
+        mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "codex" })
+        mockGetProfile.mockResolvedValue({ statusEmoji: "💤", statusText: "Idle" })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
+        const day = new Date().toISOString().slice(0, 10)
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "agent_activity",
+          agentId: "bot_1",
+          state: "idle",
+          dailyUsage: [{
+            botId: "bot_1",
+            day,
+            metrics: {
+              input: 3,
+              output: null,
+              cache: null,
+            },
+          }],
+          quota: { agentBackendId: "codex", observation: { status: "error" } },
+        }))
+        let statements = mockD1Batch.mock.calls[0]![0] as Array<{ sql: string }>
+        expect(statements.some((statement) => statement.sql.includes("community_bot_daily_token_usage"))).toBe(true)
+        expect(statements.some((statement) => statement.sql.includes("community_machine_backend_quota"))).toBe(false)
+
+        mockD1Batch.mockClear()
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "agent_activity",
+          agentId: "bot_1",
+          state: "idle",
+          dailyUsage: [{ botId: "another_bot", day, metrics: {} }],
+          quota: {
+            agentBackendId: "codex",
+            observation: {
+              status: "error",
+              sourceEpoch: "B".repeat(22),
+              code: "network",
+              retryable: true,
+            },
+          },
+        }))
+        statements = mockD1Batch.mock.calls[0]![0] as Array<{ sql: string }>
+        expect(statements.some((statement) => statement.sql.includes("community_bot_daily_token_usage"))).toBe(false)
+        expect(statements.some((statement) => statement.sql.includes("community_machine_backend_quota"))).toBe(true)
       })
     })
 

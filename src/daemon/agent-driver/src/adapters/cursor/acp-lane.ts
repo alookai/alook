@@ -362,15 +362,6 @@ export class CursorAcpLane implements RuntimeLane {
     }
     this.activePrompt = null;
     this.openToolCalls.clear();
-    const usage = record(result.usage);
-    if (usage) {
-      this.events.emit("runtime_event", {
-        kind: "telemetry",
-        name: "token_usage",
-        source: "cursor.acp",
-        attrs: usage,
-      } satisfies AdapterEvent);
-    }
     this.events.emit("runtime_event", {
       kind: "turn_end",
       sessionId: this.sessionId ?? undefined,

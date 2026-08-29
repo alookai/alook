@@ -29,6 +29,10 @@ import { CHANNEL_TRAITS } from "./utils/community-roles";
 import { parseNameAndTag } from "./lib/discriminator";
 import { DiagnosticCollectCommandSchema } from "./diagnostics-contract";
 import type { DiagnosticCollectCommand } from "./diagnostics-contract";
+import type {
+  DailyUsageSnapshot,
+  ProviderQuotaSnapshot,
+} from "./provider-telemetry";
 
 /* ------------------------------------------------------------------ */
 /* Identifiers                                                         */
@@ -861,6 +865,7 @@ export interface HostReady {
   arch?: string;
   osRelease?: string;
   daemonVersion?: string;
+  providerQuotas?: ProviderQuotaSnapshot[];
 }
 
 /**
@@ -869,6 +874,13 @@ export interface HostReady {
  * `deriveActivity` in `src/daemon/src/manager/managerRuntime.ts`.
  */
 export type AgentActivityState = "idle" | "starting" | "running" | "stopping";
+
+export interface HostAgentActivity {
+  agentId: AgentId;
+  state: AgentActivityState;
+  dailyUsage?: DailyUsageSnapshot[];
+  quota?: ProviderQuotaSnapshot;
+}
 
 /**
  * Bot audit-log event kinds/payloads mirrored from the wire zod schema
@@ -983,7 +995,7 @@ export interface HostControlChannel {
    * Report a bot's derived activity state after it changes. Optional so the
    * local mock channel can omit it.
    */
-  reportAgentActivity?(info: { agentId: AgentId; state: AgentActivityState }): Promise<void>;
+  reportAgentActivity?(info: HostAgentActivity): Promise<void>;
   /**
    * Emit an `agent_typing` frame for the given (agentId, channelId) scope —
    * the daemon-metered heartbeat that keeps the "bot is typing…" pill lit for
@@ -1016,7 +1028,7 @@ export interface HostControlChannel {
   onResync?(provider: () => {
     ready: HostReady;
     sessions: AgentSessionReport[];
-    activities: Array<{ agentId: AgentId; state: AgentActivityState }>;
+    activities: HostAgentActivity[] | Promise<HostAgentActivity[]>;
   }): void;
 }
 

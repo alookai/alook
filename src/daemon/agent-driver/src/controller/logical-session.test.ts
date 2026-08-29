@@ -1114,7 +1114,12 @@ describe("closed physical-lane tombstone", () => {
       kind: "telemetry",
       name: "rate_limits",
       source: "tail-telemetry",
-      attrs: { remaining: 1 },
+      quota: {
+        status: "error",
+        sourceEpoch: "AAAAAAAAAAAAAAAAAAAAAA",
+        code: "unavailable",
+        retryable: true,
+      },
     });
     expect(session.snapshot().activeTurn).toBeUndefined();
 
@@ -1357,7 +1362,17 @@ describe("backend-owned delivery behavior", () => {
     await emit(driver, { kind: "internal_progress", source: "pi", itemType: "working", payloadBytes: 12 });
     await emit(driver, { kind: "runtime_diagnostic", severity: "notice", source: "pi", message: "heads up" });
     await emit(driver, { kind: "telemetry", name: "token_usage", source: "pi", attrs: circular } as never);
-    await emit(driver, { kind: "telemetry", name: "rate_limits", source: "pi", attrs: { remaining: 1 } });
+    await emit(driver, {
+      kind: "telemetry",
+      name: "rate_limits",
+      source: "pi",
+      quota: {
+        status: "error",
+        sourceEpoch: "AAAAAAAAAAAAAAAAAAAAAA",
+        code: "unavailable",
+        retryable: false,
+      },
+    });
     const events = await take(iterator as never, 7);
     expect(events.map((event) => event.type)).toEqual([
       "command_accepted",

@@ -1,6 +1,32 @@
 import type { AdapterEvent } from "../../internal/adapter.js";
-import { mapCodexTelemetry } from "./telemetry.js";
+import { mapCodexQuotaSnapshots, mapCodexTelemetry } from "./telemetry.js";
 import { tryParseJsonLine } from "../../internal/utils.js";
+import { randomBytes } from "node:crypto";
+
+let codexQuotaSourceEpoch = randomBytes(16).toString("base64url");
+let codexQuotaSourceGeneration = 0;
+let codexAccountFingerprint: string | null = null;
+
+function rotateCodexQuotaSource(): void {
+  codexQuotaSourceEpoch = randomBytes(16).toString("base64url");
+  codexQuotaSourceGeneration += 1;
+  codexAccountFingerprint = null;
+}
+
+function observeCodexAccount(result: any): void {
+  const account = result?.account;
+  const fingerprint = account && typeof account === "object"
+    ? JSON.stringify([
+        account.type ?? "unknown",
+        account.email ?? null,
+        account.planType ?? account.plan_type ?? null,
+      ])
+    : "none";
+  if (codexAccountFingerprint !== null && codexAccountFingerprint !== fingerprint) {
+    rotateCodexQuotaSource();
+  }
+  codexAccountFingerprint = fingerprint;
+}
 
 function normalizeFileChangeInput(item: any): { path?: string } {
   const paths: string[] = [];
@@ -23,6 +49,12 @@ function normalizeFileChangeInput(item: any): { path?: string } {
 }
 
 export class CodexEventNormalizer {
+  private readonly quotaReadRequestIds = new Set<number>();
+  private readonly accountReadRequestIds = new Set<number>();
+  private readonly rateLimitSnapshots = new Map<string, Record<string, unknown>>();
+  private quotaSnapshotInitialized = false;
+  private quotaSourceGeneration = codexQuotaSourceGeneration;
+  private pendingTurnUsage: AdapterEvent | null = null;
   private threadId: string | null = null;
   private turnId: string | null = null;
   /**
@@ -48,10 +80,76 @@ export class CodexEventNormalizer {
     return this.turnId;
   }
 
+  registerQuotaReadRequest(requestId: number): void {
+    this.quotaReadRequestIds.add(requestId);
+  }
+
+  registerAccountReadRequest(requestId: number): void {
+    this.accountReadRequestIds.add(requestId);
+  }
+
+  private syncQuotaSourceGeneration(): void {
+    if (this.quotaSourceGeneration === codexQuotaSourceGeneration) return;
+    this.quotaSourceGeneration = codexQuotaSourceGeneration;
+    this.rateLimitSnapshots.clear();
+    this.quotaSnapshotInitialized = false;
+  }
+
+  private quotaSnapshots(value: any): Array<[string, Record<string, unknown>]> {
+    const byLimitId = value?.rateLimitsByLimitId ?? value?.rate_limits_by_limit_id;
+    if (byLimitId && typeof byLimitId === "object" && !Array.isArray(byLimitId)) {
+      return Object.entries(byLimitId).flatMap(([key, snapshot]) => {
+        if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return [];
+        return [[key, {
+          ...(snapshot as Record<string, unknown>),
+          limitId: (snapshot as Record<string, unknown>).limitId
+            ?? (snapshot as Record<string, unknown>).limit_id
+            ?? key,
+        }]];
+      });
+    }
+    const snapshot = value?.rateLimits ?? value?.rate_limits ?? value;
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return [];
+    const record = snapshot as Record<string, unknown>;
+    const key = typeof record.limitId === "string"
+      ? record.limitId
+      : typeof record.limit_id === "string"
+        ? record.limit_id
+        : "codex";
+    return [[key, { ...record, limitId: key }]];
+  }
+
+  private replaceQuotaSnapshots(value: any): AdapterEvent[] {
+    this.syncQuotaSourceGeneration();
+    this.rateLimitSnapshots.clear();
+    for (const [key, snapshot] of this.quotaSnapshots(value)) {
+      this.rateLimitSnapshots.set(key, snapshot);
+    }
+    this.quotaSnapshotInitialized = true;
+    return [mapCodexQuotaSnapshots([...this.rateLimitSnapshots.values()], codexQuotaSourceEpoch)];
+  }
+
+  private mergeQuotaSnapshots(value: any): AdapterEvent[] {
+    this.syncQuotaSourceGeneration();
+    for (const [key, update] of this.quotaSnapshots(value)) {
+      const merged: Record<string, unknown> = {
+        ...(this.rateLimitSnapshots.get(key) ?? {}),
+        limitId: key,
+      };
+      for (const [field, fieldValue] of Object.entries(update)) {
+        if (fieldValue !== undefined && fieldValue !== null) merged[field] = fieldValue;
+      }
+      this.rateLimitSnapshots.set(key, merged);
+    }
+    if (!this.quotaSnapshotInitialized) return [];
+    return [mapCodexQuotaSnapshots([...this.rateLimitSnapshots.values()], codexQuotaSourceEpoch)];
+  }
+
   adoptThreadId(threadId: string | null): void {
     if (threadId !== this.threadId) {
       this.turnId = null;
       this.terminalTurn = null;
+      this.pendingTurnUsage = null;
     }
     this.threadId = threadId;
   }
@@ -68,6 +166,27 @@ export class CodexEventNormalizer {
   normalizeLine(line: string): AdapterEvent[] {
     const msg = tryParseJsonLine(line) as any;
     if (!msg) return [];
+
+    if (msg?.id !== undefined && this.accountReadRequestIds.delete(msg.id)) {
+      if (!msg.error) {
+        observeCodexAccount(msg.result);
+        this.syncQuotaSourceGeneration();
+      }
+      return [];
+    }
+
+    if (msg?.id !== undefined && this.quotaReadRequestIds.delete(msg.id)) {
+      this.syncQuotaSourceGeneration();
+      if (msg.error) {
+        return [{
+          kind: "telemetry",
+          name: "rate_limits",
+          source: "codex_account_rate_limits_read",
+          quota: { status: "error", sourceEpoch: codexQuotaSourceEpoch, code: "provider_error", retryable: true },
+        }];
+      }
+      return this.replaceQuotaSnapshots(msg.result ?? {});
+    }
 
     if (msg?.error && msg.id !== undefined) {
       return [{ kind: "error", message: msg.error?.message ?? "Codex RPC error" }];
@@ -102,6 +221,7 @@ export class CodexEventNormalizer {
         ) return [];
         this.turnId = params.turn.id;
         this.terminalTurn = null;
+        this.pendingTurnUsage = null;
         return [
           {
             kind: "turn_owner",
@@ -136,16 +256,19 @@ export class CodexEventNormalizer {
 
       case "turn/completed":
         if (!this.acceptRootTerminal(params)) return [];
+        const usage = this.pendingTurnUsage;
+        this.pendingTurnUsage = null;
         if (params.turn.status === "failed") {
           return [
+            ...(usage ? [usage] : []),
             { kind: "error", message: "Codex turn failed" },
             { kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) },
           ];
         }
         if (params.turn.status === "interrupted") {
-          return [{ kind: "error", message: "Codex turn interrupted" }, { kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) }];
+          return [...(usage ? [usage] : []), { kind: "error", message: "Codex turn interrupted" }, { kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) }];
         }
-        return [{ kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) }];
+        return [...(usage ? [usage] : []), { kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) }];
 
       case "error":
         if (params?.willRetry === true) {
@@ -153,9 +276,17 @@ export class CodexEventNormalizer {
         }
         return [{ kind: "error", message: params?.error?.message ?? params?.message ?? "Codex error" }];
 
-      case "thread/tokenUsage/updated":
+      case "thread/tokenUsage/updated": {
+        const usage = mapCodexTelemetry(method, params, codexQuotaSourceEpoch)[0];
+        if (usage) this.pendingTurnUsage = usage;
+        return [];
+      }
       case "account/rateLimits/updated":
-        return mapCodexTelemetry(method, params);
+        return this.mergeQuotaSnapshots(params);
+      case "account/updated":
+        rotateCodexQuotaSource();
+        this.syncQuotaSourceGeneration();
+        return [];
 
       default:
         return [];

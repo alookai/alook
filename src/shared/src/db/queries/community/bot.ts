@@ -30,8 +30,10 @@ import {
   communityUserProfile,
   communityReadState,
   communityBotDailyActivity,
+  communityBotDailyTokenUsage,
   communityBotActivityEvent,
 } from "../../community-schema";
+import type { DailyUsageSnapshot } from "../../../provider-telemetry";
 import { communityMachine } from "../../community-machine-schema";
 import type { Database } from "../../index";
 import { communityBotSyntheticEmail } from "../../../constants";
@@ -136,6 +138,45 @@ export async function listBotsForOwner(
     reasoningEffort: r.reasoningEffort ?? null,
     runtimeConfigRevision: r.runtimeConfigRevision ?? 0,
   }));
+}
+
+export async function getBotDailyTokenUsageForOwner(
+  db: Database,
+  ownerId: string,
+  sinceDay: string,
+): Promise<Map<string, DailyUsageSnapshot[]>> {
+  const rows = await db
+    .select({
+      botId: communityBotDailyTokenUsage.botId,
+      day: communityBotDailyTokenUsage.day,
+      inputTokens: communityBotDailyTokenUsage.inputTokens,
+      outputTokens: communityBotDailyTokenUsage.outputTokens,
+      cacheTokens: communityBotDailyTokenUsage.cacheTokens,
+    })
+    .from(communityBotDailyTokenUsage)
+    .innerJoin(user, eq(user.id, communityBotDailyTokenUsage.botId))
+    .where(and(
+      eq(user.ownerUserId, ownerId),
+      eq(user.isBot, true),
+      isNull(user.deletedAt),
+      gte(communityBotDailyTokenUsage.day, sinceDay),
+    ));
+  const byBot = new Map<string, DailyUsageSnapshot[]>();
+  for (const row of rows) {
+    const snapshots = byBot.get(row.botId) ?? [];
+    snapshots.push({
+      botId: row.botId,
+      day: row.day,
+      metrics: {
+        input: row.inputTokens,
+        output: row.outputTokens,
+        cache: row.cacheTokens,
+      },
+    });
+    byBot.set(row.botId, snapshots);
+  }
+  for (const snapshots of byBot.values()) snapshots.sort((a, b) => a.day.localeCompare(b.day));
+  return byBot;
 }
 
 /**
