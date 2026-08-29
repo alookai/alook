@@ -111,6 +111,11 @@ export function useServers(): UseQueryResult<ServersResponse> & {
     const sources = query.data?.servers.flatMap((server) => server.unreadSources ?? [])
     if (sources) unreadProjection.absorbFamily("servers", sources)
     if (!query.data) return
+    for (const server of query.data.servers) {
+      if (server.unreadSources) {
+        unreadProjection.absorbLegacyServerAggregate(server.id, server.unreadSources)
+      }
+    }
     unreadProjection.recordLegacySnapshot(
       query.data,
       query.data.servers.flatMap((server) => (

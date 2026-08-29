@@ -168,6 +168,18 @@ export class AccountUnreadProjection {
     }
   }
 
+  absorbLegacyServerAggregate(
+    serverId: string,
+    sources: readonly AccountUnreadSource[],
+  ) {
+    if (sources.length === 0) return
+    const channelId = `\u0000legacy-server:${serverId}`
+    const unknown = this.sticky.get(channelId)
+    if (!unknown?.families.delete("servers")) return
+    if (unknown.families.size === 0) this.sticky.delete(channelId)
+    this.publish()
+  }
+
   private recordArrivalForFamilies(
     arrival: AccountUnreadArrival,
     families: AccountUnreadFamily[],

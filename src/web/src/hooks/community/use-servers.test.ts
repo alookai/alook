@@ -166,6 +166,31 @@ describe("useServers / serversQueryFn", () => {
     }
     expect(useServers().servers[0]?.unread).toBe(true)
   })
+
+  it("hands a rolling-deploy rail unread to exact sources once they arrive", async () => {
+    capturedHookQueryData = {
+      servers: [{ id: "s1", unread: true, mentions: 0 }],
+    }
+    const { useServers } = await import("./use-servers")
+    expect(useServers().servers[0]?.unread).toBe(true)
+
+    capturedHookQueryData = {
+      servers: [{
+        id: "s1",
+        unread: true,
+        mentions: 0,
+        unreadSources: [{ channelId: "c1", lastUnreadSeq: 4 }],
+      }],
+    }
+    expect(useServers().servers[0]?.unread).toBe(true)
+
+    const { getActiveAccountUnreadProjection } = await import("./account-unread-projection")
+    getActiveAccountUnreadProjection(capturedHookQueryClient).acceptPrimarySnapshot({
+      revision: 1,
+      readStates: [{ channelId: "c1", lastReadSeq: 4 }],
+    })
+    expect(useServers().servers[0]?.unread).toBe(false)
+  })
 })
 
 describe("useServer / serverQueryFn", () => {
