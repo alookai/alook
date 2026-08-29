@@ -27,7 +27,7 @@ export function useUpdateProfile() {
 }
 
 export type UploadUserAvatarArgs = { file: File }
-export type UploadUserAvatarResult = { url: string }
+export type UploadUserAvatarResult = { url: string; avatarVersion: number }
 
 /**
  * Uploads the current user's avatar. Mirrors `useUploadServerIcon`'s raw

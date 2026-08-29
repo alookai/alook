@@ -18,6 +18,7 @@ export type PublicProfileForViewer = {
   name: string;
   discriminator: string;
   image: string | null;
+  avatarVersion: number;
   aboutMe: string;
   bannerColor: string | null;
   statusEmoji: string | null;
@@ -48,6 +49,7 @@ export async function getPublicProfileForViewer(
       name: target.name,
       discriminator: target.discriminator,
       image: target.image,
+      avatarVersion: target.avatarVersion,
       isBot: target.isBot,
       aboutMe: communityUserProfile.aboutMe,
       bannerColor: communityUserProfile.bannerColor,
@@ -92,6 +94,7 @@ export async function getPublicProfileForViewer(
     name: row.name,
     discriminator: row.discriminator,
     image: row.image,
+    avatarVersion: row.avatarVersion,
     aboutMe: row.aboutMe ?? "",
     bannerColor: row.bannerColor ?? null,
     statusEmoji: row.statusEmoji ?? null,

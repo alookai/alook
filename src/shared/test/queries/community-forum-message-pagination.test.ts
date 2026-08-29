@@ -17,6 +17,8 @@ describe("forum opener message pagination against real SQLite", () => {
         name TEXT NOT NULL,
         email TEXT NOT NULL,
         image TEXT
+        ,avatarVersion INTEGER NOT NULL DEFAULT 0
+        ,avatarObjectKey TEXT
       );
       CREATE TABLE community_message (
         id TEXT PRIMARY KEY,

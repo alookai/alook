@@ -16,6 +16,8 @@ describe("bot owner instruction updates", () => {
         email TEXT NOT NULL UNIQUE,
         emailVerified INTEGER,
         image TEXT,
+        avatarVersion INTEGER NOT NULL DEFAULT 0,
+        avatarObjectKey TEXT,
         createdAt TEXT NOT NULL,
         updatedAt TEXT NOT NULL,
         isBot INTEGER NOT NULL DEFAULT 0,

@@ -12,6 +12,7 @@ import { displayReplyContent } from "@/lib/community/reply-content"
 import { ChannelIcon } from "../channels/channel-icon"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch, toastApiError } from "@/lib/api/client"
+import { apiFetchIdentity } from "@/lib/community/identity-projection"
 import { ApiError } from "@/lib/errors"
 import { formatDateLabel } from "@/lib/community/format-time"
 import { DateDivider } from "../dividers"
@@ -22,6 +23,7 @@ import type { FileAttachment, ImagePreview, MessagesPage, Msg, Reaction, RenderM
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { useHoverCapable } from "@/hooks/use-hover-capable"
 import { channelHref } from "@/lib/community/community-route"
+import { communityKeys } from "@/lib/query-keys"
 
 export type ReplyTarget = { id: string; authorName: string; text: string }
 
@@ -173,7 +175,7 @@ export function MessageContextSheet({
   const toggleMark = useToggleMark()
 
   const queryKey = useMemo(
-    () => ["messageContext", type, channelId, targetSeq] as const,
+    () => communityKeys.messageContext(type, channelId, targetSeq),
     [type, channelId, targetSeq],
   )
 
@@ -192,7 +194,7 @@ export function MessageContextSheet({
         if (e instanceof ApiError && e.status === 404) return { notFound: true }
         throw e
       }
-      const page = await apiFetch<MessagesPage>(
+      const page = await apiFetchIdentity<MessagesPage>(
         anchorFetchUrl(type, channelId, lookup.id, CONTEXT_LIMIT),
         { signal },
       )

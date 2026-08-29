@@ -14,6 +14,8 @@ describe("community invite quota consumption", () => {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         image TEXT,
+        avatarVersion INTEGER NOT NULL DEFAULT 0,
+        avatarObjectKey TEXT,
         discriminator TEXT
       );
       CREATE TABLE community_server_invite (

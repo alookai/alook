@@ -220,9 +220,15 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   }, [getConnectionController])
   const viewerUserIdRef = useRef<string | null>(options?.viewerUserId ?? null)
   const hasAuthenticatedRef = useRef(false)
+  const viewerUserId = options?.viewerUserId ?? null
+  viewerUserIdRef.current = viewerUserId
   useEffect(() => {
-    viewerUserIdRef.current = options?.viewerUserId ?? null
-  })
+    useCommunityWsStore.getState().bindIdentityOwner(viewerUserId)
+    return () => {
+      const store = useCommunityWsStore.getState()
+      if (store.identityOwnerUserId === viewerUserId) store.bindIdentityOwner(null)
+    }
+  }, [viewerUserId])
 
   const inboxRefreshOwner = useRef<InboxRefreshOwner | null>(null)
   if (inboxRefreshOwner.current === null) {
@@ -473,6 +479,7 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     try {
       await reconcileCommunityWsReconnect(queryClient, reconnectDurationMs, {
         excludePolicies: ["inbox-dms"],
+        identityOwnerUserId: viewerUserIdRef.current,
       })
     } finally {
       scheduleInboxInvalidate({ inbox: true, dms: true })

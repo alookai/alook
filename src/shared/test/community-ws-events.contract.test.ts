@@ -65,13 +65,13 @@ describe("Community browser event runtime contract", () => {
   const fixtures = Object.values(communityWsEventFixtures)
   const names = Object.values(WS_EVENTS).sort()
 
-  it("locks the exact 43-event inventory", () => {
-    expect(names).toHaveLength(43)
+  it("locks the exact 44-event inventory", () => {
+    expect(names).toHaveLength(44)
     expect(Object.keys(communityWsEventFixtures).sort()).toEqual(names)
     expect(Object.keys(requiredFixturePaths).sort()).toEqual(names)
   })
 
-  it("decodes and canonically encodes all 43 current event fixtures", () => {
+  it("decodes and canonically encodes all 44 current event fixtures", () => {
     for (const fixture of fixtures) {
       expect(decodeCommunityBrowserEvent(fixture)).toEqual({ ok: true, event: fixture })
       const encoded = encodeCommunityBrowserEvent(fixture)

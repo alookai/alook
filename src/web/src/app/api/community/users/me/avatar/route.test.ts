@@ -6,6 +6,12 @@ const mockHandleBotAvatarUpload = vi.fn()
 const mockGetBotOwnedBy = vi.fn()
 const mockPersistUploadedBotAvatar = vi.fn()
 const mockAuthUpdateUser = vi.fn()
+const mockPublishHumanAvatar = vi.fn()
+const mockGetLiveHumanAvatarState = vi.fn()
+const mockCleanupAvatarCandidate = vi.fn()
+const mockEnsureAvatarAliasPresent = vi.fn()
+const mockScheduleAvatarMediaReconciliation = vi.fn()
+const mockFanOutIdentityUpdate = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -29,6 +35,11 @@ vi.mock("@alook/shared", async () => {
         ...actual.queries.communityBot,
         getBotOwnedBy: (...a: unknown[]) => mockGetBotOwnedBy(...a),
       },
+      user: {
+        ...actual.queries.user,
+        publishHumanAvatar: (...a: unknown[]) => mockPublishHumanAvatar(...a),
+        getLiveHumanAvatarState: (...a: unknown[]) => mockGetLiveHumanAvatarState(...a),
+      },
     },
   }
 })
@@ -40,6 +51,16 @@ vi.mock("@/lib/community/upload", () => ({
 
 vi.mock("@/lib/community/bot-avatar-persistence", () => ({
   persistUploadedBotAvatar: (...a: unknown[]) => mockPersistUploadedBotAvatar(...a),
+}))
+
+vi.mock("@/lib/community/avatar-media-reconciliation", () => ({
+  cleanupAvatarCandidate: (...a: unknown[]) => mockCleanupAvatarCandidate(...a),
+  ensureAvatarAliasPresent: (...a: unknown[]) => mockEnsureAvatarAliasPresent(...a),
+  scheduleAvatarMediaReconciliation: (...a: unknown[]) => mockScheduleAvatarMediaReconciliation(...a),
+}))
+
+vi.mock("@/lib/community/fanout", () => ({
+  fanOutIdentityUpdate: (...a: unknown[]) => mockFanOutIdentityUpdate(...a),
 }))
 
 let isAuthed = true
@@ -82,7 +103,18 @@ describe("POST /api/community/users/me/avatar", () => {
     isAuthed = true
     actorKind = "human"
     mockGetBotOwnedBy.mockResolvedValue({ id: "b1", ownerUserId: "u1" })
-    mockPersistUploadedBotAvatar.mockResolvedValue({ kind: "persisted" })
+    mockPersistUploadedBotAvatar.mockResolvedValue({
+      kind: "persisted",
+      avatarVersion: 2,
+      avatarObjectKey: "bot-avatar/b1/objects/object-2",
+      previousObjectKey: null,
+    })
+    mockPublishHumanAvatar.mockResolvedValue({
+      previous: { avatarVersion: 0, avatarObjectKey: null },
+      current: { avatarVersion: 1, avatarObjectKey: "user-avatar/u1/objects/object-1" },
+    })
+    mockEnsureAvatarAliasPresent.mockResolvedValue(true)
+    mockScheduleAvatarMediaReconciliation.mockResolvedValue(undefined)
     mockAuthUpdateUser.mockResolvedValue({ headers: new Headers() })
   })
 
@@ -113,7 +145,7 @@ describe("POST /api/community/users/me/avatar", () => {
     mockHandleUserAvatarUpload.mockResolvedValue({
       ok: true,
       id: "u1",
-      key: "user-avatar/u1",
+      key: "user-avatar/u1/objects/object-1",
       url: "/api/community/media/user-avatar/u1",
       filename: "me.png",
       contentType: "image/png",
@@ -121,8 +153,8 @@ describe("POST /api/community/users/me/avatar", () => {
     })
     const res = await POST(postReq(), {} as never)
     expect(res.status).toBe(200)
-    const body = await res.json() as { url: string }
-    expect(body.url).toBe("/api/community/users/u1/avatar")
+    const body = await res.json() as { url: string; avatarVersion: number }
+    expect(body).toEqual({ url: "/api/community/users/u1/avatar?v=1", avatarVersion: 1 })
 
     expect(mockHandleUserAvatarUpload).toHaveBeenCalledWith(expect.anything(), expect.anything(), "u1")
     expect(mockAuthUpdateUser).toHaveBeenCalledWith(expect.objectContaining({
@@ -137,7 +169,7 @@ describe("POST /api/community/users/me/avatar", () => {
     mockHandleUserAvatarUpload.mockResolvedValue({
       ok: true,
       id: "u1",
-      key: "user-avatar/u1",
+      key: "user-avatar/u1/objects/object-1",
       url: "/api/community/media/user-avatar/u1",
       filename: "me.png",
       contentType: "image/png",
@@ -147,7 +179,10 @@ describe("POST /api/community/users/me/avatar", () => {
     const res = await POST(postReq(), {} as never)
 
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ url: "/api/community/users/u1/avatar" })
+    expect(await res.json()).toEqual({
+      url: "/api/community/users/u1/avatar?v=1",
+      avatarVersion: 1,
+    })
     expect(res.headers.getSetCookie()).toEqual([])
   })
 
@@ -156,7 +191,7 @@ describe("POST /api/community/users/me/avatar", () => {
     mockHandleBotAvatarUpload.mockResolvedValue({
       ok: true,
       id: "b1",
-      key: "bot-avatar/b1",
+      key: "bot-avatar/b1/objects/object-2",
       url: "/api/community/bots/b1/avatar",
       filename: "bot.png",
       contentType: "image/png",
@@ -164,14 +199,17 @@ describe("POST /api/community/users/me/avatar", () => {
     })
     const res = await POST(postReq(), {} as never)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ url: "/api/community/bots/b1/avatar" })
+    expect(await res.json()).toEqual({
+      url: "/api/community/bots/b1/avatar?v=2",
+      avatarVersion: 2,
+    })
     expect(mockHandleBotAvatarUpload).toHaveBeenCalledWith(expect.anything(), expect.anything(), "b1")
     expect(mockHandleUserAvatarUpload).not.toHaveBeenCalled()
     expect(mockGetBotOwnedBy).toHaveBeenCalledWith(expect.anything(), "b1", "u1")
     expect(mockPersistUploadedBotAvatar).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
-      { botId: "b1", ownerId: "u1" },
+      { botId: "b1", ownerId: "u1", objectKey: "bot-avatar/b1/objects/object-2" },
     )
     expect(mockAuthUpdateUser).not.toHaveBeenCalled()
   })
@@ -206,7 +244,7 @@ describe("POST /api/community/users/me/avatar", () => {
     mockHandleBotAvatarUpload.mockResolvedValue({
       ok: true,
       id: "b1",
-      key: "bot-avatar/b1",
+      key: "bot-avatar/b1/objects/object-2",
       url: "/api/community/bots/b1/avatar",
       filename: "bot.png",
       contentType: "image/png",
@@ -223,7 +261,7 @@ describe("POST /api/community/users/me/avatar", () => {
     mockHandleBotAvatarUpload.mockResolvedValue({
       ok: true,
       id: "b1",
-      key: "bot-avatar/b1",
+      key: "bot-avatar/b1/objects/object-2",
       url: "/api/community/bots/b1/avatar",
       filename: "bot.png",
       contentType: "image/png",

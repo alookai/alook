@@ -53,6 +53,7 @@ const message = {
     seq: 1,
     authorId: "author-1",
     authorName: "Alice",
+    authorAvatarVersion: 0,
     content: "hello",
     type: "chat" as const,
     createdAt: "2026-08-21T00:00:00.000Z",

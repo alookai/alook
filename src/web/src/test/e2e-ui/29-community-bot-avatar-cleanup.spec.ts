@@ -51,18 +51,25 @@ async function createBot(machineId: string, name: string): Promise<string> {
   return body.bot.id
 }
 
-async function uploadAvatar(page: import("@playwright/test").Page, botId: string): Promise<number> {
+async function uploadAvatar(
+  page: import("@playwright/test").Page,
+  botId: string,
+): Promise<{ status: number; url: string; avatarVersion: number }> {
   return page.evaluate(async (
     { id, base64 }: { id: string; base64: string },
   ) => {
     const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0))
     const form = new FormData()
     form.append("file", new File([bytes], "avatar.png", { type: "image/png" }))
-    return (await fetch(`/api/community/bots/${id}/avatar`, {
+    const response = await fetch(`/api/community/bots/${id}/avatar`, {
       method: "POST",
       body: form,
       credentials: "include",
-    })).status
+    })
+    return {
+      status: response.status,
+      ...await response.json() as { url: string; avatarVersion: number },
+    }
   }, { id: botId, base64: ONE_PIXEL_PNG_BASE64 })
 }
 
@@ -75,12 +82,12 @@ test("real bot avatars become unreadable after single delete and authenticated m
   const alice = await asUser("alice")
 
   await gotoAfterUserWsAuth(alice.page, "/c/me/bots")
-  const uploadStatus = await uploadAvatar(alice.page, botId)
-  expect(uploadStatus).toBe(200)
+  const upload = await uploadAvatar(alice.page, botId)
+  expect(upload.status).toBe(200)
 
   await alice.page.reload()
   await expect(alice.page.getByText(botName, { exact: true })).toBeVisible()
-  const avatar = alice.page.locator(`img[src="${avatarPath}"]`)
+  const avatar = alice.page.locator(`img[src="${upload.url}"]`)
   await expect(avatar).toBeVisible()
   await expect.poll(() => avatar.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth)).toBe(1)
   expect(await alice.page.evaluate(async (path) => (
@@ -101,7 +108,7 @@ test("real bot avatars become unreadable after single delete and authenticated m
 
   await alice.page.reload()
   await expect(alice.page.getByText(botName, { exact: true })).toHaveCount(0)
-  await expect(alice.page.locator(`img[src="${avatarPath}"]`)).toHaveCount(0)
+  await expect(alice.page.locator(`img[src="${upload.url}"]`)).toHaveCount(0)
   expect(await alice.page.evaluate(async (path) => (
     await fetch(`${path}?reload=${crypto.randomUUID()}`, { cache: "no-store" })
   ).status, avatarPath)).toBe(404)
@@ -116,7 +123,8 @@ test("real bot avatars become unreadable after single delete and authenticated m
   const cascadeBotName = `Cascade ${Date.now()}`
   const cascadeBotId = await createBot(cascadeMachineId, cascadeBotName)
   const cascadeAvatarPath = `/api/community/bots/${cascadeBotId}/avatar`
-  expect(await uploadAvatar(alice.page, cascadeBotId)).toBe(200)
+  const cascadeUpload = await uploadAvatar(alice.page, cascadeBotId)
+  expect(cascadeUpload.status).toBe(200)
   await alice.page.reload()
   await expect(alice.page.getByText(cascadeBotName, { exact: true })).toBeVisible()
   expect(await alice.page.evaluate(async (path) => (

@@ -2,10 +2,27 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
 const mediaGet = vi.fn()
+const mockGetLiveHumanAvatarState = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {}, COMMUNITY_MEDIA: { get: (...a: unknown[]) => mediaGet(...a) } } })),
 }))
+
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
+  return {
+    ...actual,
+    queries: {
+      ...actual.queries,
+      user: {
+        ...actual.queries.user,
+        getLiveHumanAvatarState: (...a: unknown[]) => mockGetLiveHumanAvatarState(...a),
+      },
+    },
+  }
+})
 
 let isAuthed = true
 
@@ -34,8 +51,9 @@ vi.mock("@/lib/middleware/helpers", () => {
 
 import { GET } from "./route"
 
-function getReq() {
-  return new NextRequest("http://localhost/api/community/users/u1/avatar", { method: "GET" })
+function getReq(version?: number) {
+  const suffix = version === undefined ? "" : `?v=${version}`
+  return new NextRequest(`http://localhost/api/community/users/u1/avatar${suffix}`, { method: "GET" })
 }
 function ctx(userId?: string) {
   return { params: Promise.resolve(userId ? { userId } : {}) } as any
@@ -45,6 +63,10 @@ describe("GET /api/community/users/[userId]/avatar", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     isAuthed = true
+    mockGetLiveHumanAvatarState.mockResolvedValue({
+      avatarVersion: 0,
+      avatarObjectKey: null,
+    })
     mediaGet.mockResolvedValue({
       body: new ReadableStream(),
       httpMetadata: { contentType: "image/webp" },
@@ -76,6 +98,41 @@ describe("GET /api/community/users/[userId]/avatar", () => {
     mediaGet.mockResolvedValue(null)
     const res = await GET(getReq(), ctx("u1"))
     expect(res.status).toBe(404)
+  })
+
+  it("redirects a stable versioned URL to the authoritative immutable version", async () => {
+    mockGetLiveHumanAvatarState.mockResolvedValue({
+      avatarVersion: 3,
+      avatarObjectKey: "user-avatar/u1/objects/object-3",
+    })
+
+    const res = await GET(getReq(), ctx("u1"))
+
+    expect(res.status).toBe(307)
+    expect(res.headers.get("Location")).toBe("/api/community/users/u1/avatar?v=3")
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store")
+    expect(mediaGet).not.toHaveBeenCalled()
+  })
+
+  it("serves only the authoritative immutable child for the matching version", async () => {
+    mockGetLiveHumanAvatarState.mockResolvedValue({
+      avatarVersion: 3,
+      avatarObjectKey: "user-avatar/u1/objects/object-3",
+    })
+
+    const res = await GET(getReq(3), ctx("u1"))
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable")
+    expect(mediaGet).toHaveBeenCalledWith("user-avatar/u1/objects/object-3")
+  })
+
+  it("redirects a version query away from a legacy alias", async () => {
+    const res = await GET(getReq(3), ctx("u1"))
+
+    expect(res.status).toBe(307)
+    expect(res.headers.get("Location")).toBe("/api/community/users/u1/avatar")
+    expect(mediaGet).not.toHaveBeenCalled()
   })
 
   it("serves cached bytes while revalidating the deterministic URL in the background", async () => {

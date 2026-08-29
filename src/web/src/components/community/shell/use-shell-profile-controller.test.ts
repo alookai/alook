@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
     id: "self",
     name: "Self",
     avatar: "S",
+    avatarVersion: 0,
     aboutMe: "About",
     statusEmoji: "🙂",
     statusText: "Here",
@@ -21,6 +22,9 @@ const mocks = vi.hoisted(() => ({
   setUserStatus: vi.fn(),
   communityReset: vi.fn(),
   wsReset: vi.fn(),
+  observeAvatarIdentity: vi.fn(),
+  avatarIdentities: new Map<string, { avatar: string; avatarVersion: number }>(),
+  projectAvatarIdentity: vi.fn(),
   streamReset: vi.fn(),
   clearCache: vi.fn(),
   signOut: vi.fn(),
@@ -49,12 +53,20 @@ vi.mock("@/stores/community", () => ({
 vi.mock("@/stores/community/ws", () => ({
   useOnlineUserIds: () => new Set(["self", "remote"]),
   useCommunityWsStore: Object.assign(vi.fn(), {
-    getState: () => ({ setUserStatus: mocks.setUserStatus, reset: mocks.wsReset }),
+    getState: () => ({
+      setUserStatus: mocks.setUserStatus,
+      reset: mocks.wsReset,
+      observeAvatarIdentity: mocks.observeAvatarIdentity,
+      avatarIdentities: mocks.avatarIdentities,
+    }),
   }),
 }))
 vi.mock("@/stores/community/message-stream", () => ({
   useMessageStreamStore: Object.assign(vi.fn(), {
-    getState: () => ({ resetAll: mocks.streamReset }),
+    getState: () => ({
+      resetAll: mocks.streamReset,
+      projectAvatarIdentity: mocks.projectAvatarIdentity,
+    }),
   }),
 }))
 vi.mock("@/hooks/community/use-friends", () => ({
@@ -113,7 +125,7 @@ async function renderController() {
     prefetch: vi.fn(),
   }
   const cancelPendingNavigation = vi.fn()
-  const queryClient = { fetchQuery: mocks.fetchQuery, clear: vi.fn() }
+  const queryClient = { fetchQuery: mocks.fetchQuery, clear: vi.fn(), setQueriesData: vi.fn() }
   let current!: Result
   let renderer!: TestRenderer.ReactTestRenderer
   await act(async () => {
@@ -146,6 +158,10 @@ describe("useShellProfileController", () => {
     mocks.updateProfile.mockResolvedValue({})
     mocks.clearCache.mockResolvedValue(undefined)
     mocks.signOut.mockResolvedValue(undefined)
+    mocks.avatarIdentities.clear()
+    mocks.observeAvatarIdentity.mockImplementation((userId: string, avatar: string, avatarVersion: number) => {
+      mocks.avatarIdentities.set(userId, { avatar, avatarVersion })
+    })
   })
 
   afterEach(() => {
@@ -425,11 +441,14 @@ describe("useShellProfileController", () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1)
     expect(hook.current.pendingAvatarCrop).toBeNull()
 
-    vi.spyOn(Date, "now").mockReturnValue(123)
     const uploadOptions = mocks.uploadAvatar.mock.calls[0]![1]
-    await act(async () => uploadOptions.onSuccess({ url: "/avatar.png" }))
+    await act(async () => uploadOptions.onSuccess({ url: "/avatar.png?v=4", avatarVersion: 4 }))
     const avatarUpdater = mocks.setCurrentUser.mock.calls.at(-1)![0]
-    expect(avatarUpdater(mocks.currentUser).avatar).toBe("/avatar.png?t=123")
+    expect(avatarUpdater(mocks.currentUser)).toMatchObject({
+      avatar: "/avatar.png?v=4",
+      avatarVersion: 4,
+    })
+    expect(mocks.observeAvatarIdentity).toHaveBeenCalledWith("self", "/avatar.png?v=4", 4)
     expect(mocks.toast).toHaveBeenLastCalledWith("Avatar updated")
 
     const uploadError = new Error("upload")

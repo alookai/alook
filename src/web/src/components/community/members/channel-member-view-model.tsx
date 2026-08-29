@@ -205,6 +205,7 @@ export function useChannelMemberViewModel({
       name: string
       discriminator: string
       avatar: string
+      avatarVersion: number
       statusEmoji?: string | null
       statusText?: string | null
       isCreator?: boolean
@@ -217,6 +218,7 @@ export function useChannelMemberViewModel({
         name: member.name,
         discriminator: member.discriminator,
         avatar: member.avatar,
+        avatarVersion: member.avatarVersion,
         sub: "",
         role: "member",
         status: resolveRowPresence(member, onlineUserIds, currentUser.id),

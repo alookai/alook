@@ -3,6 +3,7 @@ import { queries, readOrStale } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityActor, rejectBot } from "@/lib/middleware/community-actor"
 import { avatarInitial } from "@/lib/community/avatar"
+import { canonicalUserImage } from "@/lib/community/storage"
 
 /**
  * GET /api/community/friends/blocked — the blocked bucket (route/disc trunk,
@@ -30,7 +31,9 @@ export const GET = withCommunityActor(async (_req: NextRequest, ctx) => {
     id: b.id,
     userId: b.blockedUserId,
     name: b.blockedName,
-    avatar: b.blockedImage ?? avatarInitial(b.blockedName),
+    avatar: canonicalUserImage(b.blockedUserId, b.blockedImage, b.blockedAvatarVersion)
+      ?? avatarInitial(b.blockedName),
+    avatarVersion: b.blockedAvatarVersion,
   }))
   return NextResponse.json(stale ? { blocked, stale: true } : { blocked })
 })

@@ -11,6 +11,7 @@ const messageEvent = {
     seq: 4,
     authorId: "u1",
     authorName: "Alice",
+    authorAvatarVersion: 0,
     content: "hello",
     type: "chat" as const,
     createdAt: "2026-08-18T00:00:00.000Z",

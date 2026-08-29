@@ -64,7 +64,7 @@ describe("CommunityMessageEdited address contract", () => {
 
 describe("isCommunityEvent", () => {
   it("accepts every exact event declared by WS_EVENTS", () => {
-    expect(Object.values(WS_EVENTS)).toHaveLength(43);
+    expect(Object.values(WS_EVENTS)).toHaveLength(44);
     for (const type of Object.values(WS_EVENTS)) {
       expect(isCommunityEvent({ type })).toBe(true);
     }

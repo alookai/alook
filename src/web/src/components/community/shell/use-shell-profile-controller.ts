@@ -1,10 +1,11 @@
 "use client"
 
-import { useCallback, useState, type ComponentProps } from "react"
+import { useCallback, useEffect, useState, type ComponentProps } from "react"
 import { parseNameAndTag } from "@alook/shared"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
+import { projectIdentityPayload } from "@/lib/community/identity-projection"
 import { userProfileQueryFn, PROFILE_STALE_TIME_MS } from "@/hooks/community/use-user-profile"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
@@ -65,6 +66,7 @@ export function useShellProfileController({
 }: Options) {
   const currentUser = useCurrentUser()
   const setCurrentUser = useSetCurrentUser()
+  const avatarIdentities = useCommunityWsStore((state) => state.avatarIdentities)
   const onlineUserIds = useOnlineUserIds()
   const { friends } = useFriends()
   const profileServerId = resolveProfileServerId(view, activeServerId)
@@ -121,6 +123,7 @@ export function useShellProfileController({
         name,
         userId,
         avatar: member?.avatar ?? avatarInitial(name),
+        avatarVersion: member?.avatarVersion ?? 0,
         contextLabel: resolveProfileContextLabel(profileServerId, member),
         about,
         mutual: 0,
@@ -148,6 +151,13 @@ export function useShellProfileController({
                   about: profileResponse.aboutMe ?? previous.data.about,
                   mutual: profileResponse.mutualServers ?? 0,
                   discriminator: profileResponse.discriminator ?? previous.data.discriminator,
+                  avatar: profileResponse.avatarVersion >= (previous.data.avatarVersion ?? 0)
+                    ? profileResponse.image ?? previous.data.avatar
+                    : previous.data.avatar,
+                  avatarVersion: Math.max(
+                    previous.data.avatarVersion ?? 0,
+                    profileResponse.avatarVersion,
+                  ),
                   identity: profileResponse.kind === "bot"
                     ? {
                         kind: "bot",
@@ -165,6 +175,25 @@ export function useShellProfileController({
         .catch((error) => toastApiError(error, "Failed to load profile"))
     }
   }, [currentUser, friends, members, onlineUserIds, profileServerId, queryClient])
+
+  useEffect(() => {
+    setProfile((previous) => {
+      const userId = previous?.data.userId
+      if (!previous || !userId) return previous
+      const identity = avatarIdentities.get(userId)
+      if (!identity || identity.avatarVersion <= (previous.data.avatarVersion ?? 0)) {
+        return previous
+      }
+      return {
+        ...previous,
+        data: {
+          ...previous.data,
+          avatar: identity.avatar,
+          avatarVersion: identity.avatarVersion,
+        },
+      }
+    })
+  }, [avatarIdentities])
 
   const openProfile = useCallback((
     name: string,
@@ -323,7 +352,23 @@ export function useShellProfileController({
           { file },
           {
             onSuccess: (data) => {
-              setCurrentUser((user) => ({ ...user, avatar: `${data.url}?t=${Date.now()}` }))
+              const store = useCommunityWsStore.getState()
+              store.observeAvatarIdentity(currentUser.id, data.url, data.avatarVersion)
+              queryClient.setQueriesData(
+                { queryKey: communityKeys.all },
+                (cached) => projectIdentityPayload(cached),
+              )
+              useMessageStreamStore.getState().projectAvatarIdentity(
+                currentUser.id,
+                data.url,
+                data.avatarVersion,
+              )
+              const identity = useCommunityWsStore.getState().avatarIdentities.get(currentUser.id)
+              if (identity) {
+                setCurrentUser((user) => identity.avatarVersion > (user.avatarVersion ?? 0)
+                  ? { ...user, avatar: identity.avatar, avatarVersion: identity.avatarVersion }
+                  : user)
+              }
               toast("Avatar updated")
             },
             onError: (error) => toastApiError(error, "Failed to upload avatar"),

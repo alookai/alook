@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const mockUpdateBot = vi.fn()
-const mockGetLiveBotAvatar = vi.fn()
-const mockWarn = vi.fn()
+const publishOwnedBotAvatar = vi.fn()
+const getLiveBotAvatar = vi.fn()
+const warn = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -10,7 +10,7 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     createLogger: () => ({
       info: vi.fn(),
-      warn: (...args: unknown[]) => mockWarn(...args),
+      warn: (...args: unknown[]) => warn(...args),
       error: vi.fn(),
       debug: vi.fn(),
     }),
@@ -18,8 +18,8 @@ vi.mock("@alook/shared", async () => {
       ...actual.queries,
       communityBot: {
         ...actual.queries.communityBot,
-        updateBot: (...args: unknown[]) => mockUpdateBot(...args),
-        getLiveBotAvatar: (...args: unknown[]) => mockGetLiveBotAvatar(...args),
+        publishOwnedBotAvatar: (...args: unknown[]) => publishOwnedBotAvatar(...args),
+        getLiveBotAvatar: (...args: unknown[]) => getLiveBotAvatar(...args),
       },
     },
   }
@@ -28,140 +28,112 @@ vi.mock("@alook/shared", async () => {
 import { persistUploadedBotAvatar } from "./bot-avatar-persistence"
 
 const db = {} as never
+const objectKey = "bot-avatar/b1/objects/new-object"
+
+function persist(remove = vi.fn()) {
+  return {
+    remove,
+    result: persistUploadedBotAvatar(db, { delete: remove }, {
+      botId: "b1",
+      ownerId: "u1",
+      objectKey,
+    }),
+  }
+}
 
 describe("persistUploadedBotAvatar", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
+  beforeEach(() => vi.clearAllMocks())
 
-  it("returns persisted when the live owner-scoped update wins", async () => {
-    mockUpdateBot.mockResolvedValue({ botId: "b1" })
-    const remove = vi.fn()
-
-    await expect(persistUploadedBotAvatar(db, { delete: remove }, {
-      botId: "b1",
-      ownerId: "u1",
-    })).resolves.toEqual({ kind: "persisted" })
-
-    expect(mockUpdateBot).toHaveBeenCalledWith(db, "b1", "u1", {
-      image: "/api/community/bots/b1/avatar",
+  it("returns the atomic publication version and displaced pointer", async () => {
+    publishOwnedBotAvatar.mockResolvedValue({
+      previous: { avatarVersion: 4, avatarObjectKey: "bot-avatar/b1/objects/old" },
+      current: { avatarVersion: 5, avatarObjectKey: objectKey },
     })
-    expect(mockGetLiveBotAvatar).not.toHaveBeenCalled()
+    const { result, remove } = persist()
+
+    await expect(result).resolves.toEqual({
+      kind: "persisted",
+      avatarVersion: 5,
+      avatarObjectKey: objectKey,
+      previousObjectKey: "bot-avatar/b1/objects/old",
+    })
+    expect(publishOwnedBotAvatar).toHaveBeenCalledWith(db, "b1", "u1", {
+      objectKey,
+      stableUrl: "/api/community/bots/b1/avatar",
+    })
     expect(remove).not.toHaveBeenCalled()
   })
 
-  it("inline-compensates and returns not_found when delete won before the update", async () => {
-    mockUpdateBot.mockResolvedValue(null)
+  it("deletes only the uploaded owned child when publication loses to delete", async () => {
+    publishOwnedBotAvatar.mockResolvedValue(null)
+    getLiveBotAvatar.mockResolvedValue(null)
     const remove = vi.fn().mockResolvedValue(undefined)
 
-    await expect(persistUploadedBotAvatar(db, { delete: remove }, {
-      botId: "b1",
-      ownerId: "u1",
-    })).resolves.toEqual({ kind: "not_found" })
-
-    expect(remove).toHaveBeenCalledWith(["bot-avatar/b1"])
-    expect(mockGetLiveBotAvatar).not.toHaveBeenCalled()
+    await expect(persist(remove).result).resolves.toEqual({ kind: "not_found" })
+    expect(remove).toHaveBeenCalledWith(objectKey)
   })
 
-  it("keeps the 404 outcome when zero-row compensation rejects and logs no raw error or key", async () => {
-    mockUpdateBot.mockResolvedValue(null)
-    const remove = vi.fn().mockRejectedValue(new TypeError("secret bot-avatar/b1"))
+  it("retains a zero-row candidate when the authoritative reread fails", async () => {
+    publishOwnedBotAvatar.mockResolvedValue(null)
+    getLiveBotAvatar.mockRejectedValue(new TypeError("secret key"))
+    const { result, remove } = persist()
 
-    await expect(persistUploadedBotAvatar(db, { delete: remove }, {
-      botId: "b1",
-      ownerId: "u1",
-    })).resolves.toEqual({ kind: "not_found" })
-
-    expect(mockWarn).toHaveBeenCalledWith("community_bot_avatar_cleanup_failed", {
-      botId: "b1",
-      phase: "zero_row_delete_winner",
-      keyCount: 1,
-      errorCategory: "TypeError",
+    await expect(result).resolves.toEqual({ kind: "not_found" })
+    expect(remove).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith("community_bot_avatar_cleanup_unverified", {
+      phase: "zero_row",
+      objectState: "retained_unverified",
     })
-    expect(JSON.stringify(mockWarn.mock.calls)).not.toContain("secret")
-    expect(JSON.stringify(mockWarn.mock.calls)).not.toContain("bot-avatar/b1")
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("secret")
   })
 
-  it("compensates only after a thrown update verifies the bot is missing", async () => {
-    mockUpdateBot.mockRejectedValue(new Error("secret ambiguous commit"))
-    mockGetLiveBotAvatar.mockResolvedValue(null)
-    const remove = vi.fn().mockResolvedValue(undefined)
-
-    await expect(persistUploadedBotAvatar(db, { delete: remove }, {
-      botId: "b1",
-      ownerId: "u1",
-    })).resolves.toEqual({ kind: "failed" })
-
-    expect(remove).toHaveBeenCalledWith(["bot-avatar/b1"])
-    expect(mockWarn).toHaveBeenCalledWith("community_bot_avatar_persist_failed", {
-      botId: "b1",
-      phase: "d1_error_live_verification",
-      objectState: "compensated_tombstoned",
-      errorCategory: "Error",
-    })
-    expect(JSON.stringify(mockWarn.mock.calls)).not.toContain("secret")
-    expect(JSON.stringify(mockWarn.mock.calls)).not.toContain("bot-avatar/b1")
-  })
-
-  it("retains after a thrown update verifies a live canonical row", async () => {
-    mockUpdateBot.mockRejectedValue(new Error("ambiguous commit"))
-    mockGetLiveBotAvatar.mockResolvedValue({
+  it("recognizes an unknown commit when D1 now points at the uploaded child", async () => {
+    publishOwnedBotAvatar.mockRejectedValue(new Error("ambiguous commit"))
+    getLiveBotAvatar.mockResolvedValue({
       id: "b1",
       image: "/api/community/bots/b1/avatar",
+      avatarVersion: 7,
+      avatarObjectKey: objectKey,
     })
-    const remove = vi.fn()
+    const { result, remove } = persist()
 
-    await expect(persistUploadedBotAvatar(db, { delete: remove }, {
-      botId: "b1",
-      ownerId: "u1",
-    })).resolves.toEqual({ kind: "failed" })
-
+    await expect(result).resolves.toEqual({
+      kind: "persisted",
+      avatarVersion: 7,
+      avatarObjectKey: objectKey,
+      previousObjectKey: null,
+    })
     expect(remove).not.toHaveBeenCalled()
-    expect(mockWarn).toHaveBeenCalledWith("community_bot_avatar_persist_failed", {
-      botId: "b1",
-      phase: "d1_error_live_verification",
-      objectState: "retained_live_canonical",
-      errorCategory: "Error",
-    })
   })
 
-  it("retains a live noncanonical fixed key because R2 delete has no CAS", async () => {
-    mockUpdateBot.mockRejectedValue(new Error("ambiguous commit"))
-    mockGetLiveBotAvatar.mockResolvedValue({ id: "b1", image: "avatar:beam-seed" })
-    const remove = vi.fn()
-
-    await expect(persistUploadedBotAvatar(db, { delete: remove }, {
-      botId: "b1",
-      ownerId: "u1",
-    })).resolves.toEqual({ kind: "failed" })
-
-    expect(remove).not.toHaveBeenCalled()
-    expect(mockWarn).toHaveBeenCalledWith("community_bot_avatar_persist_failed", {
-      botId: "b1",
-      phase: "d1_error_live_verification",
-      objectState: "retained_live_noncanonical",
-      errorCategory: "Error",
+  it("cleans an unknown noncurrent candidate only after a second authoritative reread", async () => {
+    publishOwnedBotAvatar.mockRejectedValue(new Error("ambiguous commit"))
+    getLiveBotAvatar.mockResolvedValue({
+      id: "b1",
+      image: "/api/community/bots/b1/avatar",
+      avatarVersion: 8,
+      avatarObjectKey: "bot-avatar/b1/objects/newer",
     })
+    const remove = vi.fn().mockResolvedValue(undefined)
+
+    await expect(persist(remove).result).resolves.toEqual({ kind: "failed" })
+    expect(getLiveBotAvatar).toHaveBeenCalledTimes(2)
+    expect(remove).toHaveBeenCalledWith(objectKey)
   })
 
-  it("retains unverified bytes when both update and verification throw", async () => {
-    mockUpdateBot.mockRejectedValue(new Error("persist secret"))
-    mockGetLiveBotAvatar.mockRejectedValue(new TypeError("verify secret"))
-    const remove = vi.fn()
+  it("never deletes unverified bytes after an unknown commit", async () => {
+    publishOwnedBotAvatar.mockRejectedValue(new Error("persist secret"))
+    getLiveBotAvatar.mockRejectedValue(new TypeError("verify secret"))
+    const { result, remove } = persist()
 
-    await expect(persistUploadedBotAvatar(db, { delete: remove }, {
-      botId: "b1",
-      ownerId: "u1",
-    })).resolves.toEqual({ kind: "failed" })
-
+    await expect(result).resolves.toEqual({ kind: "failed" })
     expect(remove).not.toHaveBeenCalled()
-    expect(mockWarn).toHaveBeenCalledWith("community_bot_avatar_persist_verification_failed", {
-      botId: "b1",
-      phase: "d1_error_verification",
+    expect(warn).toHaveBeenCalledWith("community_bot_avatar_persist_verification_failed", {
+      phase: "unknown_commit",
       objectState: "retained_unverified",
       persistErrorCategory: "Error",
       verificationErrorCategory: "TypeError",
     })
-    expect(JSON.stringify(mockWarn.mock.calls)).not.toContain("secret")
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("secret")
   })
 })

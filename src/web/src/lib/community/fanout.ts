@@ -158,6 +158,50 @@ async function getProfileAudience(db: Database, userId: string): Promise<string[
   return [...new Set([...coMembers, ...friends])]
 }
 
+async function getIdentityAudience(db: Database, userId: string): Promise<string[]> {
+  const [coMembers, friends, dmPeers] = await Promise.all([
+    queries.communityMember.getCoMemberUserIds(db, userId),
+    queries.communityFriendship.getFriendUserIds(db, userId),
+    queries.communityDm.listDmPeerUserIds(db, userId),
+  ])
+  return [...new Set([userId, ...coMembers, ...friends, ...dmPeers])]
+}
+
+export function fanOutIdentityUpdate(
+  userId: string,
+  avatar: string,
+  avatarVersion: number,
+): Promise<void> {
+  try {
+    const { env, ctx } = getCloudflareContext()
+    const db = getDb((env as Env).DB)
+    const work = (async () => {
+      try {
+        const audience = await getIdentityAudience(db, userId)
+        await broadcastToRecipients(audience, {
+          type: WS_EVENTS.IDENTITY_UPDATE,
+          userId,
+          avatar,
+          avatarVersion,
+        })
+      } catch (error) {
+        log.warn("fanout_identity_update_failed", {
+          subjectId: userId,
+          errorCategory: error instanceof Error ? error.name : "NonError",
+        })
+      }
+    })()
+    try { ctx.waitUntil(work) } catch { }
+    return work
+  } catch (error) {
+    log.warn("fanout_identity_update_failed", {
+      subjectId: userId,
+      errorCategory: error instanceof Error ? error.name : "NonError",
+    })
+    return Promise.resolve()
+  }
+}
+
 /**
  * Fan out a status change to everyone who can currently see the user
  * (server co-members + friends). Self is intentionally excluded from their

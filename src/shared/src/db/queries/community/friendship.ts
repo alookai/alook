@@ -54,6 +54,7 @@ async function loadProfiles(
       name: user.name,
       discriminator: user.discriminator,
       image: user.image,
+      avatarVersion: user.avatarVersion,
       isBot: user.isBot,
       ownerUserId: user.ownerUserId,
     })
@@ -67,6 +68,7 @@ async function loadProfiles(
         name: r.name,
         discriminator: r.discriminator,
         image: r.image,
+        avatarVersion: r.avatarVersion,
         isBot: !!r.isBot,
         ownerUserId: r.ownerUserId,
       },
@@ -83,7 +85,13 @@ function toCardStatus(status: string): FriendApprovalPayload["status"] {
 }
 
 function toProfile(p: ProfileWithFlags): FriendApprovalProfile {
-  return { id: p.id, name: p.name, discriminator: p.discriminator, image: p.image };
+  return {
+    id: p.id,
+    name: p.name,
+    discriminator: p.discriminator,
+    image: p.image,
+    avatarVersion: p.avatarVersion,
+  };
 }
 
 /**
@@ -441,6 +449,7 @@ export async function sendRequest(
           seq: msg.seq,
           authorId: botId,
           authorName: botP?.name ?? "",
+          authorAvatarVersion: botP?.avatarVersion ?? 0,
           content: msg.content,
           type: "chat",
           createdAt: msg.createdAt,
@@ -675,6 +684,7 @@ export async function listFriends(db: Database, userId: string) {
       friendName: user.name,
       friendEmail: user.email,
       friendImage: user.image,
+      friendAvatarVersion: user.avatarVersion,
       friendDiscriminator: user.discriminator,
       statusEmoji: communityUserProfile.statusEmoji,
       statusText: communityUserProfile.statusText,
@@ -697,6 +707,7 @@ export async function listFriends(db: Database, userId: string) {
       friendName: user.name,
       friendEmail: user.email,
       friendImage: user.image,
+      friendAvatarVersion: user.avatarVersion,
       friendDiscriminator: user.discriminator,
       statusEmoji: communityUserProfile.statusEmoji,
       statusText: communityUserProfile.statusText,
@@ -723,6 +734,7 @@ export async function listFriends(db: Database, userId: string) {
       botName: user.name,
       botEmail: user.email,
       botImage: user.image,
+      botAvatarVersion: user.avatarVersion,
       botDiscriminator: user.discriminator,
       statusEmoji: communityUserProfile.statusEmoji,
       statusText: communityUserProfile.statusText,
@@ -742,6 +754,7 @@ export async function listFriends(db: Database, userId: string) {
     friendName: b.botName,
     friendEmail: b.botEmail,
     friendImage: b.botImage,
+    friendAvatarVersion: b.botAvatarVersion,
     friendDiscriminator: b.botDiscriminator,
     statusEmoji: b.statusEmoji,
     statusText: b.statusText,
@@ -910,6 +923,7 @@ export async function listBlocked(db: Database, userId: string) {
       blockedUserId: user.id,
       blockedName: user.name,
       blockedImage: user.image,
+      blockedAvatarVersion: user.avatarVersion,
     })
     .from(communityFriendship)
     .innerJoin(user, eq(user.id, communityFriendship.addresseeId))
@@ -927,6 +941,7 @@ export async function listBlocked(db: Database, userId: string) {
       blockedUserId: user.id,
       blockedName: user.name,
       blockedImage: user.image,
+      blockedAvatarVersion: user.avatarVersion,
     })
     .from(communityFriendship)
     .innerJoin(user, eq(user.id, communityFriendship.requesterId))
@@ -974,6 +989,7 @@ export async function listPending(db: Database, userId: string) {
     userId: user.id,
     name: user.name,
     image: user.image,
+    avatarVersion: user.avatarVersion,
     createdAt: communityFriendship.createdAt,
     needsOwnerApproval: communityFriendship.needsOwnerApproval,
     requesterId: communityFriendship.requesterId,
@@ -1103,6 +1119,7 @@ export async function ownerDecideOnRow(
                 seq: msg.seq,
                 authorId: row.addresseeId,
                 authorName: botP?.name ?? "",
+                authorAvatarVersion: botP?.avatarVersion ?? 0,
                 content: msg.content,
                 type: "chat",
                 createdAt: msg.createdAt,
@@ -1355,6 +1372,7 @@ export type AgentFriendPeerRow = {
   name: string;
   discriminator: string;
   image: string | null;
+  avatarVersion: number;
   aboutMe: string | null;
   statusEmoji: string | null;
   statusText: string | null;
@@ -1383,6 +1401,7 @@ export async function listAgentFriends(
     name: user.name,
     discriminator: user.discriminator,
     image: user.image,
+    avatarVersion: user.avatarVersion,
     aboutMe: communityUserProfile.aboutMe,
     statusEmoji: communityUserProfile.statusEmoji,
     statusText: communityUserProfile.statusText,

@@ -9,6 +9,7 @@ import {
   DEFAULT_USER_SEARCH_LIMIT,
   parseNameAndTag,
 } from "@alook/shared"
+import { canonicalUserImage } from "@/lib/community/storage"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const url = new URL(req.url)
@@ -42,7 +43,8 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     users: users.map((u) => ({
       id: u.id,
       name: u.name,
-      image: u.image,
+      image: canonicalUserImage(u.id, u.image, u.avatarVersion),
+      avatarVersion: u.avatarVersion,
       discriminator: u.discriminator,
     })),
   })

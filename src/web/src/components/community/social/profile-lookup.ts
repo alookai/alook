@@ -25,6 +25,7 @@ export function buildSelfProfile(
     userId: currentUser.id,
     discriminator: currentUser.discriminator,
     avatar: currentUser.avatar || avatarInitial(currentUser.name),
+    avatarVersion: currentUser.avatarVersion,
     contextLabel,
     about: currentUser.aboutMe ?? "",
     mutual: 0,

@@ -2,7 +2,10 @@
 
 import { useQuery, useMutation, useQueryClient, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch, readUploadError } from "@/lib/api/client"
+import { apiFetchIdentity, projectIdentityPayload } from "@/lib/community/identity-projection"
 import { communityKeys } from "@/lib/query-keys"
+import { useCommunityWsStore } from "@/stores/community/ws"
+import { useMessageStreamStore } from "@/stores/community/message-stream"
 import type { BotActivityDay } from "@/lib/community/models/people"
 import type { DailyUsageMetric, ReasoningEffort } from "@alook/shared"
 
@@ -26,6 +29,7 @@ export type BotSummary = {
   name: string
   description: string
   image: string | null
+  avatarVersion: number
   machineId: string
   runtime: string
   modelName: string | null
@@ -52,7 +56,7 @@ const EMPTY_BOTS: readonly BotSummary[] = Object.freeze([])
 export function useBots(): UseQueryResult<BotsResponse> & { bots: BotSummary[] } {
   const query = useQuery({
     queryKey: communityKeys.bots(),
-    queryFn: () => apiFetch<BotsResponse>("/api/community/bots"),
+    queryFn: () => apiFetchIdentity<BotsResponse>("/api/community/bots"),
   })
   return { ...query, bots: query.data?.bots ?? (EMPTY_BOTS as BotSummary[]) }
 }
@@ -115,6 +119,7 @@ export type UpdateBotResponse = {
     | "name"
     | "description"
     | "image"
+    | "avatarVersion"
     | "runtime"
     | "modelName"
     | "reasoningEffort"
@@ -191,7 +196,7 @@ export function useResetMachineAgents() {
 }
 
 export type UploadBotAvatarArgs = { botId: string; file: File }
-export type UploadBotAvatarResult = { url: string }
+export type UploadBotAvatarResult = { url: string; avatarVersion: number }
 
 export function useUploadBotAvatar() {
   const qc = useQueryClient()
@@ -207,6 +212,22 @@ export function useUploadBotAvatar() {
       if (!res.ok) throw await readUploadError(res, "Upload failed")
       return (await res.json()) as UploadBotAvatarResult
     },
-    onSuccess: (_data, variables) => invalidateBotSurfaces(qc, variables.botId),
+    onSuccess: (data, variables) => {
+      useCommunityWsStore.getState().observeAvatarIdentity(
+        variables.botId,
+        data.url,
+        data.avatarVersion,
+      )
+      qc.setQueriesData(
+        { queryKey: communityKeys.all },
+        (current) => projectIdentityPayload(current),
+      )
+      useMessageStreamStore.getState().projectAvatarIdentity(
+        variables.botId,
+        data.url,
+        data.avatarVersion,
+      )
+      invalidateBotSurfaces(qc, variables.botId)
+    },
   })
 }

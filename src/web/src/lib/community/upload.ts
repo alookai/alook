@@ -19,8 +19,8 @@ import {
   buildMediaKey,
   buildAttachmentThumbnailKey,
   buildServerIconKey,
-  buildUserAvatarKey,
-  buildBotAvatarKey,
+  buildUserAvatarObjectKey,
+  buildBotAvatarObjectKey,
   serverIconUrl,
   userAvatarUrl,
   botAvatarUrl,
@@ -286,13 +286,7 @@ export async function handleServerIconUpload(
   }
 }
 
-/**
- * Validate + upload a user/bot avatar to a deterministic key — unlike server
- * icons, there's no `fileId`/old-key-delete dance since R2 `.put()` overwrites
- * the same object in place on every re-upload. Shared by
- * `handleUserAvatarUpload` and `handleBotAvatarUpload`, which only differ in
- * key/URL builder.
- */
+/** Validate and upload one immutable user/bot avatar object. */
 async function handleAvatarUpload(
   req: NextRequest,
   env: Env,
@@ -338,7 +332,13 @@ export function handleUserAvatarUpload(
   env: Env,
   userId: string,
 ): Promise<UploadResult> {
-  return handleAvatarUpload(req, env, userId, buildUserAvatarKey(userId), userAvatarUrl(userId))
+  return handleAvatarUpload(
+    req,
+    env,
+    userId,
+    buildUserAvatarObjectKey(userId, crypto.randomUUID()),
+    userAvatarUrl(userId),
+  )
 }
 
 export function handleBotAvatarUpload(
@@ -346,7 +346,13 @@ export function handleBotAvatarUpload(
   env: Env,
   botId: string,
 ): Promise<UploadResult> {
-  return handleAvatarUpload(req, env, botId, buildBotAvatarKey(botId), botAvatarUrl(botId))
+  return handleAvatarUpload(
+    req,
+    env,
+    botId,
+    buildBotAvatarObjectKey(botId, crypto.randomUUID()),
+    botAvatarUrl(botId),
+  )
 }
 
 /**

@@ -77,4 +77,36 @@ describe("GET /api/community/messages/search — server scope", () => {
       expect.anything(), "s1", "u1",
     )
   })
+
+  it("returns only canonical versioned author identity fields", async () => {
+    mockSearchMessagesInServer.mockResolvedValue([{
+      message: { id: "message-1", content: "hello" },
+      author: {
+        id: "author-1",
+        name: "Alice",
+        discriminator: "0001",
+        image: "/api/community/users/author-1/avatar",
+        avatarVersion: 4,
+        avatarObjectKey: "user-avatar/author-1/objects/private-key",
+      },
+    }])
+
+    const res = await GET(
+      new NextRequest("http://localhost/api/community/messages/search?q=hello&serverId=s1"),
+      { params: {} } as any,
+    )
+
+    expect(await res.json()).toEqual({
+      results: [{
+        message: { id: "message-1", content: "hello" },
+        author: {
+          id: "author-1",
+          name: "Alice",
+          discriminator: "0001",
+          image: "/api/community/users/author-1/avatar?v=4",
+          avatarVersion: 4,
+        },
+      }],
+    })
+  })
 })

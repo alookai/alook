@@ -9,6 +9,7 @@ import {
 } from "@alook/shared"
 import { parseBoundedInt } from "@/lib/community/messages"
 import { avatarInitial } from "@/lib/community/avatar"
+import { canonicalUserImage } from "@/lib/community/storage"
 
 export const GET = withAuth(async (req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -75,7 +76,12 @@ export const GET = withAuth(async (req, ctx) => {
         // a blank avatar — same fix as the pins route.
         authorId: row.author.id,
         authorName: row.author.name,
-        authorAvatar: row.author.image ?? avatarInitial(row.author.name),
+        authorAvatar: canonicalUserImage(
+          row.author.id,
+          row.author.image,
+          row.author.avatarVersion,
+        ) ?? avatarInitial(row.author.name),
+        authorAvatarVersion: row.author.avatarVersion,
         content: row.message.content,
         createdAt: row.message.createdAt,
       },

@@ -8,7 +8,7 @@ import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { broadcastToUserSafe, fanOutToServerMembers } from "@/lib/community/fanout"
 import { forceCloseCommunityMachinesByDoNames } from "@/lib/community/machine-disconnect"
 import { scheduleCommunityMediaCleanup } from "@/lib/community/community-media-cleanup"
-import { buildBotAvatarKey } from "@/lib/community/storage"
+import { buildBotAvatarKey, isOwnedBotAvatarObjectKey } from "@/lib/community/storage"
 
 export const DELETE = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -49,10 +49,18 @@ export const DELETE = withAuth(async (req: NextRequest, ctx) => {
   const avatarKeys: string[] = []
   try {
     for (const bot of bots) {
+      const before = await queries.communityBot.getBotOwnedBy(db, bot.id, ctx.userId)
+      if (!before) continue
       const priorMemberships =
         await queries.communityBot.listBotServerMemberships(db, bot.id, ctx.userId)
       const deleted = await queries.communityBot.softDeleteBot(db, bot.id, ctx.userId)
       if (!deleted) continue
+      if (
+        before.avatarObjectKey
+        && isOwnedBotAvatarObjectKey(before.avatarObjectKey, bot.id)
+      ) {
+        avatarKeys.push(before.avatarObjectKey)
+      }
       avatarKeys.push(buildBotAvatarKey(bot.id))
       for (const serverId of priorMemberships) {
         fanOutToServerMembers(serverId, {

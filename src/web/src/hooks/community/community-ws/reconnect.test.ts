@@ -7,6 +7,7 @@ import {
   capturedQueryClient,
   cleanupCommunityWsHarness,
   flushEffects,
+  getCommunityApiFetchMock,
   messageCreate,
   mountHook,
   resetHookMemoization,
@@ -36,6 +37,34 @@ async function flushMicrotasks(iterations = 12) {
 }
 
 describe("useCommunityWs — resyncs machines on WS reconnect", () => {
+  it("re-reads the authoritative self identity after a reconnect gap", async () => {
+    const apiFetch = getCommunityApiFetchMock()
+    apiFetch.mockImplementation(async (url: unknown) => {
+      if (url === "/api/community/users/me/read-state") {
+        return { revision: 0, readStates: [] }
+      }
+      if (url === "/api/community/users/me/profile") {
+        return {
+          id: "self",
+          avatar: "/api/community/users/self/avatar?v=7",
+          avatarVersion: 7,
+        }
+      }
+      throw new Error(`unexpected API fetch: ${String(url)}`)
+    })
+    await mountHook({ viewerUserId: "self" })
+    flushEffects()
+
+    await capturedOnReconnect!({ reconnectDurationMs: 1_000 })
+
+    expect(apiFetch).toHaveBeenCalledWith("/api/community/users/me/profile")
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    expect(useCommunityWsStore.getState().avatarIdentities.get("self")).toEqual({
+      avatar: "/api/community/users/self/avatar?v=7",
+      avatarVersion: 7,
+    })
+  })
+
   it("reactivates the Inbox owner after a Strict Effects cleanup/setup replay", async () => {
     vi.useFakeTimers()
     await mountHook()
@@ -400,8 +429,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 900)
 
     expect(summary).toMatchObject({
-      policyCount: 14,
-      successCount: 13,
+      policyCount: 15,
+      successCount: 14,
       failureCount: 1,
       reconnectDurationMs: 900,
     })
@@ -431,7 +460,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 10)
     useCommunityWsStore.setState({ resetPresence: originalResetPresence })
 
-    expect(summary).toMatchObject({ policyCount: 14, successCount: 13, failureCount: 1 })
+    expect(summary).toMatchObject({ policyCount: 15, successCount: 14, failureCount: 1 })
     expect(telemetry.failure).toHaveBeenCalledWith({
       policy: "presence-overlay",
       reason: "sync-throw",
@@ -452,7 +481,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(keys).not.toContain(JSON.stringify(communityKeys.dms()))
     expect(keys).toContain(JSON.stringify(communityKeys.friends()))
     expect(keys).toContain(JSON.stringify(communityKeys.servers()))
-    expect(summary).toMatchObject({ policyCount: 13, successCount: 13, failureCount: 0 })
+    expect(summary).toMatchObject({ policyCount: 14, successCount: 14, failureCount: 0 })
   })
 
   it("resets presence and status overlays before authoritative invalidation starts", async () => {

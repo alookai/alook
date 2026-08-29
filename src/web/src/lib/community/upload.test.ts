@@ -384,13 +384,13 @@ describe("handleServerIconUpload", () => {
 describe("handleUserAvatarUpload", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("uploads a valid png avatar under the deterministic user-avatar/{userId} key", async () => {
+  it("uploads a valid png avatar under an immutable user-avatar child key", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const file = fakeFile("me.png", "image/png", 10)
     const res = await handleUserAvatarUpload(reqWithFile(file), envWithR2(put), "u1")
     expect(res.ok).toBe(true)
     if (!res.ok) return
-    expect(res.key).toBe("user-avatar/u1")
+    expect(res.key).toMatch(/^user-avatar\/u1\/objects\/[0-9a-f-]+$/)
   })
 
   it("returns the routable avatar route URL, not the (404-ing) media catch-all shape", async () => {
@@ -402,7 +402,7 @@ describe("handleUserAvatarUpload", () => {
     expect(res.url).toBe("/api/community/users/u1/avatar")
   })
 
-  it("re-uploading the same user overwrites the same key (no fileId)", async () => {
+  it("re-uploading the same user allocates a distinct immutable child", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const first = await handleUserAvatarUpload(
       reqWithFile(fakeFile("a.png", "image/png", 10)),
@@ -416,7 +416,9 @@ describe("handleUserAvatarUpload", () => {
     )
     expect(first.ok && second.ok).toBe(true)
     if (!first.ok || !second.ok) return
-    expect(first.key).toBe(second.key)
+    expect(first.key).not.toBe(second.key)
+    expect(first.key).toMatch(/^user-avatar\/u1\/objects\/[0-9a-f-]+$/)
+    expect(second.key).toMatch(/^user-avatar\/u1\/objects\/[0-9a-f-]+$/)
   })
 
   it("rejects oversize avatars with 413", async () => {
@@ -450,13 +452,13 @@ describe("handleUserAvatarUpload", () => {
 describe("handleBotAvatarUpload", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("uploads a valid png avatar under the deterministic bot-avatar/{botId} key", async () => {
+  it("uploads a valid png avatar under an immutable bot-avatar child key", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const file = fakeFile("bot.png", "image/png", 10)
     const res = await handleBotAvatarUpload(reqWithFile(file), envWithR2(put), "b1")
     expect(res.ok).toBe(true)
     if (!res.ok) return
-    expect(res.key).toBe("bot-avatar/b1")
+    expect(res.key).toMatch(/^bot-avatar\/b1\/objects\/[0-9a-f-]+$/)
   })
 
   it("returns the routable avatar route URL, not the (404-ing) media catch-all shape", async () => {

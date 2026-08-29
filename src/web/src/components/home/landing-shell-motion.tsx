@@ -186,7 +186,7 @@ const CONTINUITY_CHANNELS: Record<LandingRoom, Category[]> = {
 }
 
 const DMS: DM[] = [
-  { id: "dm-alli", userId: "alli", name: "Alli", discriminator: "8145", avatar: "avatar:beam:alli", status: "online", preview: "Available" },
+  { id: "dm-alli", userId: "alli", name: "Alli", discriminator: "8145", avatar: "avatar:beam:alli", avatarVersion: 0, status: "online", preview: "Available" },
 ]
 
 const MESSAGES: RenderMsg[] = [

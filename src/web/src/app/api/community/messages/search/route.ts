@@ -3,6 +3,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, MIN_SEARCH_LENGTH, MAX_SEARCH_LENGTH } from "@alook/shared"
+import { canonicalUserImage } from "@/lib/community/storage"
 import {
   requireServerMember,
   requireChannelMember,
@@ -44,7 +45,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       serverId,
       visibleChannelIds,
     })
-    return writeJSON({ results })
+    return writeJSON({ results: projectResults(results) })
   }
 
   if (channelId) {
@@ -54,7 +55,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       query: q,
       channelId,
     })
-    return writeJSON({ results })
+    return writeJSON({ results: projectResults(results) })
   }
 
   // A DM is a `type=dm` channel now; the `dmConversationId` query param IS the
@@ -66,5 +67,18 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     query: q,
     channelId: dmConversationId!,
   })
-  return writeJSON({ results })
+  return writeJSON({ results: projectResults(results) })
 })
+
+function projectResults(results: Awaited<ReturnType<typeof queries.communitySearch.searchMessages>>) {
+  return results.map(({ message, author }) => ({
+    message,
+    author: {
+      id: author.id,
+      name: author.name,
+      discriminator: author.discriminator,
+      image: canonicalUserImage(author.id, author.image, author.avatarVersion),
+      avatarVersion: author.avatarVersion,
+    },
+  }))
+}

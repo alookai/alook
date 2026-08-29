@@ -2,7 +2,7 @@ import { withOptionalAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
-import { serverIconUrl } from "@/lib/community/storage"
+import { canonicalUserImage, serverIconUrl } from "@/lib/community/storage"
 import { avatarInitial } from "@/lib/community/avatar"
 
 // How many member avatars the landing page previews. A small strip ("who's
@@ -57,7 +57,9 @@ export const GET = withOptionalAuth(async (_req, ctx) => {
   const members = await queries.communityMember.listMembers(db, invite.serverId)
   const memberPreview = members.slice(0, MEMBER_PREVIEW_LIMIT).map((m) => ({
     id: m.userId,
-    avatar: m.userImage ?? avatarInitial(m.userName),
+    avatar: canonicalUserImage(m.userId, m.userImage, m.userAvatarVersion)
+      ?? avatarInitial(m.userName),
+    avatarVersion: m.userAvatarVersion,
   }))
 
   return writeJSON({
@@ -68,7 +70,13 @@ export const GET = withOptionalAuth(async (_req, ctx) => {
     memberCount,
     memberPreview,
     inviter: inviter
-      ? { id: inviter.id, name: inviter.name, avatar: inviter.image ?? avatarInitial(inviter.name) }
+      ? {
+          id: inviter.id,
+          name: inviter.name,
+          avatar: canonicalUserImage(inviter.id, inviter.image, inviter.avatarVersion)
+            ?? avatarInitial(inviter.name),
+          avatarVersion: inviter.avatarVersion,
+        }
       : null,
   })
 })

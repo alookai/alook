@@ -542,6 +542,7 @@ export interface UnreadDmRow {
   otherUserName: string;
   otherUserDiscriminator: string;
   otherUserImage: string | null;
+  otherUserAvatarVersion: number;
   lastMessageAt: string;
 }
 
@@ -600,6 +601,7 @@ export async function listUnreadDms(
       otherUserName: user.name,
       otherUserDiscriminator: user.discriminator,
       otherUserImage: user.image,
+      otherUserAvatarVersion: user.avatarVersion,
     })
     .from(communityChannel)
     .innerJoin(
@@ -646,6 +648,7 @@ export async function listUnreadDms(
       otherUserName: r.otherUserName,
       otherUserDiscriminator: r.otherUserDiscriminator,
       otherUserImage: r.otherUserImage,
+      otherUserAvatarVersion: r.otherUserAvatarVersion,
       lastMessageAt: r.lastMessageAt!,
     }));
 }
@@ -679,6 +682,7 @@ export async function listEligibleUnreadDms(
             otherUserName: user.name,
             otherUserDiscriminator: user.discriminator,
             otherUserImage: user.image,
+            otherUserAvatarVersion: user.avatarVersion,
             lastMessageAt: sql<string>`MAX(${communityMessage.createdAt})`,
           })
           .from(communityMessage)

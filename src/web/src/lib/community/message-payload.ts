@@ -17,6 +17,7 @@
 import { truncateMessagePreview, type MentionType } from "@alook/shared"
 import type { FriendApprovalPayload } from "@alook/shared"
 import { avatarInitial } from "@/lib/community/avatar"
+import { canonicalUserImage } from "@/lib/community/storage"
 
 // The subset of fields on rows returned by
 // queries.communityMessage.{listMessages, getMessage, getMessagesByIds} that
@@ -30,6 +31,7 @@ export type MessageRow = {
   authorId: string
   authorName: string
   authorImage: string | null
+  authorAvatarVersion: number
   content: string | null
   type: string | null
   mentionType: string | null
@@ -57,7 +59,7 @@ type ThreadPreview = {
   lastReplyAt?: string
   tags?: string[]
   preview?: string
-  participants?: { id: string; name: string; avatar: string }[]
+  participants?: { id: string; name: string; avatar: string; avatarVersion: number }[]
   participantCount?: number
 }
 
@@ -67,7 +69,9 @@ function coreFields(row: MessageRow) {
     id: row.id,
     authorId: row.authorId,
     authorName: row.authorName,
-    authorAvatar: row.authorImage ?? avatarInitial(row.authorName),
+    authorAvatar: canonicalUserImage(row.authorId, row.authorImage, row.authorAvatarVersion)
+      ?? avatarInitial(row.authorName),
+    authorAvatarVersion: row.authorAvatarVersion,
     // `content` is nullable in the DB (empty message with attachments) but
     // both the API response and the WS payload treat it as string; coerce
     // once here so downstream consumers don't have to null-check.
