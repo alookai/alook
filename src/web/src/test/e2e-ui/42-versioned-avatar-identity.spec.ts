@@ -98,7 +98,11 @@ test("versioned avatars converge across live, stale, reconnect, cold, and concur
   const uploader = await asUser("alice")
   const sameAccount = await asUser("alice")
   const observer = await asUser("bob")
-  const stranger = await asUser("carol")
+  // Dave is reserved for this final audience-isolation check. Carol already
+  // shares a server with Alice after earlier serial specs, so she is an
+  // authorized identity observer in a full-shard run even though this spec
+  // does not create that relationship itself.
+  const stranger = await asUser("dave")
   await sameAccount.page.setViewportSize({ width: 390, height: 844 })
   await observer.page.setViewportSize({ width: 1280, height: 900 })
 

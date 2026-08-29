@@ -28,6 +28,7 @@ function batch(): MessageDeliveryBatch {
         seq: 3,
         authorId: "author",
         authorName: "Author",
+        authorAvatarVersion: 0,
         content: "failed-only retry",
         type: "chat",
         createdAt: "2026-08-18T00:00:00.000Z",
