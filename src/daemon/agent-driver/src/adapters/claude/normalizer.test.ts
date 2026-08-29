@@ -83,6 +83,13 @@ describe("ClaudeEventNormalizer.normalizeLine", () => {
     expect(n.normalizeLine(line).filter((event) => event.kind === "telemetry")).toHaveLength(1);
   });
 
+  it("does not emit usage without a backend session identity", () => {
+    const out = new ClaudeEventNormalizer().normalizeLine(
+      J({ type: "result", subtype: "success", usage: { input_tokens: 3, output_tokens: 5 } }),
+    );
+    expect(out).toEqual([{ kind: "turn_end", sessionId: undefined }]);
+  });
+
   it("result with is_error → error + turn_end", () => {
     const out = new ClaudeEventNormalizer().normalizeLine(
       J({ type: "result", is_error: true, result: "boom", session_id: "s1" }),

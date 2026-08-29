@@ -146,6 +146,24 @@ describe("PiDriver.openLane — AGENTS.md packing", () => {
     }, "sess_1", state)).toHaveLength(1);
   });
 
+  it("uses a lane-local completion id when the SDK omits responseId", () => {
+    const state = { sawTextDelta: false };
+    expect(mapPiSdkEvent({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        timestamp: 123,
+        usage: { input: 4, output: 3, cacheRead: 2, cacheWrite: 1 },
+      },
+    }, "sess_1", state)).toEqual([{
+      kind: "telemetry",
+      name: "token_usage",
+      source: "pi_message_end",
+      usage: { input: 4, output: 3, cache: 3 },
+    }]);
+    expect(mapPiSdkEvent({ type: "turn_end" }, "sess_1", state)).toEqual([]);
+  });
+
   it("exposes SDK-only parser and encoder no-ops", () => {
     const driver = new PiDriver(() => fakeDeps());
     expect(driver.normalizeLine()).toEqual([]);

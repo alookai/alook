@@ -334,6 +334,56 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
       { kind: "turn_end", sessionId: "root-thread", turnOwner: "codex:root-thread:shared-turn-id" },
     ]);
   });
+
+  it("releases child usage at a child compaction completion", () => {
+    const n = new CodexEventNormalizer();
+    adoptRootTurn(n, "root-thread", "root-turn");
+    const childUsage = notify("rawResponse/completed", {
+      threadId: "child-thread",
+      turnId: "child-turn",
+      responseId: "child-response",
+      usage: { inputTokens: 9, cachedInputTokens: 4, outputTokens: 2 },
+    });
+
+    expect(n.normalizeLine(childUsage)).toHaveLength(1);
+    expect(n.normalizeLine(childUsage)).toEqual([]);
+    expect(n.normalizeLine(notify("item/completed", {
+      threadId: "child-thread",
+      turnId: "child-turn",
+      item: { type: "contextCompaction" },
+    }))).toEqual([]);
+    expect(n.normalizeLine(childUsage)).toHaveLength(1);
+  });
+
+  it("rejects incomplete settlements and releases late root compaction usage", () => {
+    const n = new CodexEventNormalizer();
+    adoptRootTurn(n, "root-thread", "root-turn");
+    expect(n.normalizeLine(notify("rawResponse/completed", {
+      threadId: "root-thread",
+      turnId: "root-turn",
+      responseId: "missing-usage",
+    }))).toEqual([]);
+    expect(n.normalizeLine(notify("rawResponse/completed", {
+      threadId: "root-thread",
+      turnId: "root-turn",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    }))).toEqual([]);
+    expect(n.normalizeLine(notify("rawResponse/completed", {
+      threadId: "root-thread",
+      responseId: "missing-turn",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    }))).toEqual([]);
+
+    expect(n.normalizeLine(notify("turn/completed", {
+      threadId: "root-thread",
+      turn: { id: "root-turn", status: "completed" },
+    }))).toHaveLength(1);
+    expect(n.normalizeLine(notify("item/completed", {
+      threadId: "root-thread",
+      turnId: "root-turn",
+      item: { type: "contextCompaction" },
+    }))).toEqual([{ kind: "compaction_finished" }]);
+  });
 });
 
 describe("CodexEventNormalizer — session_init dedup (result + thread/started notification)", () => {
