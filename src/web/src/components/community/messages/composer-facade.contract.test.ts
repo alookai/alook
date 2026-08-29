@@ -16,6 +16,10 @@ describe("Composer public facade", () => {
     expectTypeOf<ComponentProps<typeof Composer>>().toEqualTypeOf<ComposerProps>()
     expectTypeOf<ComponentRef<typeof Composer>>().toEqualTypeOf<ComposerHandle>()
     expectTypeOf<ComposerMention>().toEqualTypeOf<{ id: string; label: string }>()
+    expectTypeOf<NonNullable<ComposerProps["replyingTo"]>>().toEqualTypeOf<{
+      authorName: string
+      text: string
+    }>()
     expectTypeOf<keyof ComposerHandle>().toEqualTypeOf<
       | "focusEditor"
       | "insertTextAtCaret"
@@ -25,6 +29,17 @@ describe("Composer public facade", () => {
       | "isEmpty"
       | "openFilePicker"
     >()
+  })
+
+  it("keeps DM, channel, and thread on the structured reply-target contract", () => {
+    const dm = readWeb("src/app/c/me/[dmId]/page.tsx")
+    const channel = readWeb("src/components/community/channels/text-channel-surface.tsx")
+    const thread = readWeb("src/components/community/channels/thread-channel-surface.tsx")
+
+    expect(dm).toContain("replyingTo={replyTo ?? undefined}")
+    expect(dm).not.toContain("replyingTo={replyTo?.authorName}")
+    expect(channel).toContain("replyingTo={controller.replyTo ?? undefined}")
+    expect(thread).toContain("replyingTo={controller.replyTo ?? undefined}")
   })
 
   it("retains the original-path eight-export facade", () => {

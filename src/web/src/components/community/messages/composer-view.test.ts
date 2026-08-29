@@ -44,6 +44,12 @@ import {
 import { EMPTY_MENTION_STATE } from "@/lib/community/mention-extension"
 import { tid } from "@/lib/community/testids"
 
+function textContent(node: TestRenderer.ReactTestInstance): string {
+  return node.children
+    .map((child) => typeof child === "string" ? child : textContent(child))
+    .join("")
+}
+
 function baseProps(
   overrides: Partial<ComposerViewProps> = {},
 ): ComposerViewProps {
@@ -326,7 +332,7 @@ describe("ComposerView", () => {
     )
   })
 
-  it("shows the exact same-author reply target as one stripped, truncated line", async () => {
+  it("shows the exact same-author reply target as one stripped, whole-row-truncated line", async () => {
     const first = {
       authorName: "Ada",
       text: "**First** target with [docs](https://example.test) " + "x".repeat(320),
@@ -345,11 +351,12 @@ describe("ComposerView", () => {
     let preview = renderer.root.findByProps({
       "data-slot": "composer-reply-preview",
     })
-    expect(preview.children.join("")).toBe(
-      "First target with docs " + "x".repeat(320),
+    expect(textContent(preview)).toBe(
+      "Replying to Ada · First target with docs " + "x".repeat(320),
     )
     expect(preview.props.className).toContain("truncate")
-    expect(preview.parent?.props.className).toContain("min-w-0")
+    expect(preview.props.className).toContain("min-w-0")
+    expect(preview.parent?.props.className).toContain("items-center")
 
     await act(async () => {
       renderer.update(
@@ -359,16 +366,7 @@ describe("ComposerView", () => {
     preview = renderer.root.findByProps({
       "data-slot": "composer-reply-preview",
     })
-    expect(preview.children.join("")).toBe("Second target")
-
-    await act(async () => {
-      renderer.update(
-        createElement(ComposerView, baseProps({ replyingTo: "Legacy DM" })),
-      )
-    })
-    expect(renderer.root.findAllByProps({
-      "data-slot": "composer-reply-preview",
-    })).toHaveLength(0)
+    expect(textContent(preview)).toBe("Replying to Ada · Second target")
   })
 
   it("renders the mobile send control after emoji with exact eligibility and padding", async () => {
