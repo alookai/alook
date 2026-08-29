@@ -715,6 +715,74 @@ describe("useUserWs", () => {
     expect(MockWebSocket.instances).toEqual([ws])
   })
 
+  it("replaces expired CONNECTING and CLOSING sockets with bounded ready-state telemetry", async () => {
+    setupTokenFetch()
+    const mod = await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const connecting = MockWebSocket.instances[0]!
+
+    vi.setSystemTime(Date.now() + mod.WS_CONNECTION_VALIDATION_TIMEOUT_MS + 1)
+    dispatchWindowFocus()
+    await flushPromises()
+
+    expect(connecting.closed).toBe(true)
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(mockTrackCommunityWsLifecycleRecovery).toHaveBeenLastCalledWith({
+      trigger: "focus",
+      strategy: "replace",
+      socketReadyState: "connecting",
+      suspensionDuration: "unknown",
+    })
+
+    const closing = MockWebSocket.instances[1]!
+    closing.readyState = MockWebSocket.CLOSING
+    dispatchWindowFocus()
+    await flushPromises()
+
+    expect(closing.closed).toBe(true)
+    expect(MockWebSocket.instances).toHaveLength(3)
+    expect(mockTrackCommunityWsLifecycleRecovery).toHaveBeenLastCalledWith({
+      trigger: "focus",
+      strategy: "replace",
+      socketReadyState: "closing",
+      suspensionDuration: "unknown",
+    })
+  })
+
+  it("clears a pending reconnect when the page becomes hidden", async () => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const ws = MockWebSocket.instances[0]!
+    ws.simulateOpen()
+    ws.simulateMessage({ type: "auth.ok" })
+    ws.simulateClose()
+
+    mockDocument.visibilityState = "hidden"
+    mockDocument.dispatch("visibilitychange")
+    const fetchCount = mockFetch.mock.calls.length
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    expect(mockFetch).toHaveBeenCalledTimes(fetchCount)
+    expect(MockWebSocket.instances).toEqual([ws])
+  })
+
+  it("clears a pending reconnect before an immediate foreground replacement", async () => {
+    setupTokenFetch()
+    await mountHook(vi.fn(), { requestDaemonStatusOnAuth: false })
+    const first = MockWebSocket.instances[0]!
+    first.simulateOpen()
+    first.simulateMessage({ type: "auth.ok" })
+    first.simulateClose()
+
+    dispatchWindowFocus()
+    await flushPromises()
+
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    expect(MockWebSocket.instances).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+    expect(MockWebSocket.instances).toHaveLength(2)
+  })
+
   it("retires on freeze, stays network-silent while hidden, and resumes one replacement", async () => {
     setupTokenFetch()
     const onDisconnect = vi.fn()
