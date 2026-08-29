@@ -13,18 +13,16 @@ const mocks = vi.hoisted(() => ({
     statusEmoji: "🙂",
     statusText: "Here",
   },
-  setCurrentUser: vi.fn(),
   fetchQuery: vi.fn(),
   createDm: vi.fn(),
   acceptDm: vi.fn(),
   updateProfile: vi.fn(),
   uploadAvatar: vi.fn(),
-  setUserStatus: vi.fn(),
+  beginProfileSnapshot: vi.fn(),
+  commitProfiles: vi.fn(),
+  patchProfiles: vi.fn(),
   communityReset: vi.fn(),
   wsReset: vi.fn(),
-  observeAvatarIdentity: vi.fn(),
-  avatarIdentities: new Map<string, { avatar: string; avatarVersion: number }>(),
-  projectAvatarIdentity: vi.fn(),
   streamReset: vi.fn(),
   clearCache: vi.fn(),
   signOut: vi.fn(),
@@ -43,7 +41,6 @@ vi.mock("@/hooks/community/use-user-profile", () => ({
 vi.mock("@/lib/community/image-crop", () => ({ validateIconSourceFile: mocks.validate }))
 vi.mock("@/contexts/community/current-user", () => ({
   useCurrentUser: () => mocks.currentUser,
-  useSetCurrentUser: () => mocks.setCurrentUser,
 }))
 vi.mock("@/stores/community", () => ({
   useCommunityStore: Object.assign(vi.fn(), {
@@ -51,14 +48,12 @@ vi.mock("@/stores/community", () => ({
   }),
 }))
 vi.mock("@/stores/community/ws", () => ({
-  useOnlineUserIds: () => new Set(["self", "remote"]),
-  useCommunityWsStore: Object.assign(vi.fn((selector: (state: { avatarIdentities: typeof mocks.avatarIdentities }) => unknown) =>
-    selector({ avatarIdentities: mocks.avatarIdentities })), {
+  useCommunityWsStore: Object.assign(vi.fn(), {
     getState: () => ({
-      setUserStatus: mocks.setUserStatus,
       reset: mocks.wsReset,
-      observeAvatarIdentity: mocks.observeAvatarIdentity,
-      avatarIdentities: mocks.avatarIdentities,
+      beginProfileSnapshot: mocks.beginProfileSnapshot,
+      commitProfiles: mocks.commitProfiles,
+      patchProfiles: mocks.patchProfiles,
     }),
   }),
 }))
@@ -66,7 +61,6 @@ vi.mock("@/stores/community/message-stream", () => ({
   useMessageStreamStore: Object.assign(vi.fn(), {
     getState: () => ({
       resetAll: mocks.streamReset,
-      projectAvatarIdentity: mocks.projectAvatarIdentity,
     }),
   }),
 }))
@@ -100,8 +94,6 @@ vi.mock("@/components/community/social/profile-lookup", () => ({
     identity: { kind: "human" },
   }),
 }))
-vi.mock("@/lib/community/presence", () => ({ resolveProfilePresence: () => "online" }))
-vi.mock("@/lib/community/avatar", () => ({ avatarInitial: () => "?" }))
 vi.mock("@/lib/query-persister", () => ({ clearPersistedCache: mocks.clearCache }))
 vi.mock("@/hooks/community/community-ws/read-state-reconciliation", () => ({
   disposeAccountReadStateReconciliation: mocks.disposeReconciliation,
@@ -165,19 +157,20 @@ describe("useShellProfileController", () => {
       if (typeof mock === "function" && "mockReset" in mock) mock.mockReset()
     }
     mocks.validate.mockReturnValue({ ok: true })
-    mocks.updateProfile.mockResolvedValue({})
+    mocks.updateProfile.mockResolvedValue({
+      id: "self",
+      name: "Self",
+      discriminator: "0001",
+      avatar: "S",
+      avatarVersion: 0,
+      aboutMe: "About",
+      bannerColor: null,
+      statusEmoji: "🙂",
+      statusText: "Here",
+    })
+    mocks.beginProfileSnapshot.mockReturnValue({ viewerId: "self", accountEpoch: 1, revision: 0 })
     mocks.clearCache.mockResolvedValue(undefined)
     mocks.signOut.mockResolvedValue(undefined)
-    mocks.avatarIdentities.clear()
-    mocks.observeAvatarIdentity.mockImplementation((userId: string, avatar: string, avatarVersion: number) => {
-      const current = mocks.avatarIdentities.get(userId)
-      if (current?.avatarVersion === avatarVersion) {
-        return current.avatar === avatar ? "duplicate" : "conflict"
-      }
-      if (current && current.avatarVersion > avatarVersion) return "stale"
-      mocks.avatarIdentities.set(userId, { avatar, avatarVersion })
-      return "updated"
-    })
   })
 
   afterEach(() => {
@@ -203,7 +196,6 @@ describe("useShellProfileController", () => {
 
     expect(hook.current.profile?.data.name).toBe("Self")
     expect(hook.current.profile?.data.userId).toBeUndefined()
-    expect(hook.current.profile?.initialStatusEmoji).toBeNull()
     expect(mocks.fetchQuery).not.toHaveBeenCalled()
   })
 
@@ -220,7 +212,10 @@ describe("useShellProfileController", () => {
     mocks.fetchQuery.mockReturnValue(response.promise)
     const hook = await renderController()
     await act(async () => hook.current.openProfile("Remote", { clientX: 4, clientY: 5 } as never, undefined, "remote"))
-    expect(hook.current.profile?.data.about).toBe("seed")
+    expect(hook.current.profile?.data).toMatchObject({
+      userId: "remote",
+      contextLabel: "Server member",
+    })
     expect(mocks.fetchQuery).toHaveBeenCalledWith(expect.objectContaining({
       staleTime: 300_000,
     }))
@@ -235,15 +230,12 @@ describe("useShellProfileController", () => {
       kind: "human",
     }))
     expect(hook.current.profile?.data).toMatchObject({
-      about: "hydrated",
       mutual: 3,
-      discriminator: "1234",
+      identity: { kind: "human" },
     })
-    expect(hook.current.profile?.initialStatusEmoji).toBe("🌱")
-    expect(mocks.setUserStatus).not.toHaveBeenCalled()
   })
 
-  it("retains the seeded avatar when an authoritative profile has a newer version but no image", async () => {
+  it("keeps identity fields out of controller state after an authoritative profile fetch", async () => {
     mocks.fetchQuery.mockResolvedValue({
       id: "remote",
       aboutMe: "hydrated",
@@ -265,12 +257,15 @@ describe("useShellProfileController", () => {
     ))
 
     expect(hook.current.profile?.data).toMatchObject({
-      avatar: "R",
-      avatarVersion: 4,
+      userId: "remote",
+      mutual: 1,
+      identity: { kind: "human" },
     })
+    expect(hook.current.profile?.data).not.toHaveProperty("avatar")
+    expect(hook.current.profile?.data).not.toHaveProperty("name")
   })
 
-  it("projects a newer WS identity into an already-open profile card", async () => {
+  it("keeps open-card state limited to target and context metadata", async () => {
     mocks.fetchQuery.mockReturnValue(new Promise(() => {}))
     const hook = await renderController()
     await act(async () => hook.current.openProfile(
@@ -279,27 +274,11 @@ describe("useShellProfileController", () => {
       undefined,
       "remote",
     ))
-    expect(hook.current.profile?.data.avatar).toBe("R")
-
-    mocks.avatarIdentities = new Map([
-      ["remote", { avatar: "/avatar?v=7", avatarVersion: 7 }],
-    ])
-    await hook.rerender()
-
     expect(hook.current.profile?.data).toMatchObject({
-      avatar: "/avatar?v=7",
-      avatarVersion: 7,
+      userId: "remote",
+      contextLabel: "Server member",
     })
-
-    mocks.avatarIdentities = new Map([
-      ["remote", { avatar: "/avatar?v=6", avatarVersion: 6 }],
-    ])
-    await hook.rerender()
-
-    expect(hook.current.profile?.data).toMatchObject({
-      avatar: "/avatar?v=7",
-      avatarVersion: 7,
-    })
+    expect(hook.current.profile?.data).not.toHaveProperty("avatar")
   })
 
   it("does not let a slow profile response overwrite the next opened card", async () => {
@@ -343,9 +322,8 @@ describe("useShellProfileController", () => {
 
     expect(hook.current.profile?.data).toMatchObject({
       userId: "next",
-      name: "Next",
-      about: "next hydrated",
-      discriminator: "9001",
+      mutual: 1,
+      identity: { kind: "human" },
     })
   })
 
@@ -387,7 +365,7 @@ describe("useShellProfileController", () => {
     expect(hook.current.profile).toMatchObject({
       x: 4,
       y: 5,
-      data: { userId: "owner", name: "Owner", discriminator: "0042" },
+      data: { userId: "owner" },
     })
 
     act(() => hook.current.openBotAudit("remote"))
@@ -415,46 +393,28 @@ describe("useShellProfileController", () => {
     expect(hook.pushed).toEqual(["/c/me/dm1"])
   })
 
-  it("writes own status and UserSettings saves to current-user and WS state after mutation", async () => {
-    const order: string[] = []
-    mocks.updateProfile.mockImplementation(async () => { order.push("mutate") })
-    mocks.setCurrentUser.mockImplementation(() => { order.push("current-user") })
-    mocks.setUserStatus.mockImplementation(() => { order.push("ws") })
+  it("seeds canonical mutation responses through the captured request snapshot", async () => {
     const hook = await renderController()
 
     await act(async () => hook.current.updateOwnStatus("🌱", "Growing"))
-    expect(order).toEqual(["mutate", "current-user", "ws"])
     expect(mocks.updateProfile).toHaveBeenLastCalledWith({
       statusEmoji: "🌱",
       statusText: "Growing",
     })
-    const statusUpdater = mocks.setCurrentUser.mock.calls.at(-1)![0]
-    expect(statusUpdater(mocks.currentUser)).toMatchObject({
-      statusEmoji: "🌱",
-      statusText: "Growing",
-    })
-    expect(mocks.setUserStatus).toHaveBeenLastCalledWith("self", "🌱", "Growing")
+    expect(mocks.commitProfiles).toHaveBeenCalledWith(
+      { viewerId: "self", accountEpoch: 1, revision: 0 },
+      [expect.objectContaining({ id: "self" })],
+    )
 
-    order.length = 0
     await act(async () => hook.current.userSettingsProps.onSave({
       name: "Renamed",
       aboutMe: "Updated",
       statusEmoji: "🚀",
       statusText: "Shipping",
     }))
-    expect(order).toEqual(["mutate", "current-user", "ws"])
-    const settingsUpdater = mocks.setCurrentUser.mock.calls.at(-1)![0]
-    expect(settingsUpdater(mocks.currentUser)).toMatchObject({
-      name: "Renamed",
-      aboutMe: "Updated",
-      statusEmoji: "🚀",
-      statusText: "Shipping",
-    })
-    expect(mocks.setUserStatus).toHaveBeenLastCalledWith("self", "🚀", "Shipping")
-
-    mocks.setUserStatus.mockClear()
+    expect(mocks.commitProfiles).toHaveBeenCalledTimes(2)
     await act(async () => hook.current.userSettingsProps.onSave({ aboutMe: "About only" }))
-    expect(mocks.setUserStatus).not.toHaveBeenCalled()
+    expect(mocks.commitProfiles).toHaveBeenCalledTimes(3)
 
     const statusError = new Error("status")
     mocks.updateProfile.mockRejectedValueOnce(statusError)
@@ -504,8 +464,6 @@ describe("useShellProfileController", () => {
     })
     mocks.uploadAvatar.mockImplementation(() => { order.push("upload") })
     const hook = await renderController()
-    hook.queryClient.setQueriesData.mockImplementation((_filters: unknown, updater: (value: unknown) => unknown) =>
-      updater({ id: "self", image: "/old?v=1", avatarVersion: 1 }))
     await act(async () => hook.current.userSettingsProps.onUploadAvatar())
     input!.files = [new File(["image"], "avatar.png", { type: "image/png" })]
     await act(async () => input!.onchange?.())
@@ -520,20 +478,13 @@ describe("useShellProfileController", () => {
 
     const uploadOptions = mocks.uploadAvatar.mock.calls[0]![1]
     await act(async () => uploadOptions.onSuccess({ url: "/avatar.png?v=4", avatarVersion: 4 }))
-    expect(mocks.avatarIdentities.get("self")).toEqual({
-      avatar: "/avatar.png?v=4",
-      avatarVersion: 4,
-    })
-    expect(mocks.setCurrentUser).toHaveBeenCalledTimes(1)
-    const avatarUpdater = mocks.setCurrentUser.mock.calls.at(-1)![0]
-    const staleUser = { ...mocks.currentUser, avatar: "/old?v=1", avatarVersion: 1 }
-    expect(avatarUpdater(staleUser)).toMatchObject({
-      avatar: "/avatar.png?v=4",
-      avatarVersion: 4,
-    })
-    const newerUser = { ...mocks.currentUser, avatar: "/avatar.png?v=9", avatarVersion: 9 }
-    expect(avatarUpdater(newerUser)).toBe(newerUser)
-    expect(mocks.observeAvatarIdentity).toHaveBeenCalledWith("self", "/avatar.png?v=4", 4)
+    expect(mocks.patchProfiles).toHaveBeenCalledWith(
+      { viewerId: "self", accountEpoch: 1, revision: 0 },
+      [{
+        id: "self",
+        avatar: { avatar: "/avatar.png?v=4", avatarVersion: 4 },
+      }],
+    )
     expect(mocks.toast).toHaveBeenLastCalledWith("Avatar updated")
 
     const uploadError = new Error("upload")

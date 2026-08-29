@@ -25,7 +25,7 @@ import { ImageCropDialog } from "@/components/community/image-crop-dialog"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
 import type { SettingsSection } from "@/components/community/settings/settings-types"
 import { canManageServer, isForum, notifLevelDisplay, type ChannelType } from "@alook/shared"
-import { resolveRowPresence } from "@/lib/community/presence"
+import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
   useCommunityStore,
   useCurrentChannelId,
@@ -48,7 +48,7 @@ import {
   useForumSidebarThreads,
   type ForumSidebarThread,
 } from "@/hooks/community/use-forum-sidebar-threads"
-import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
+import { useCommunityWsStore } from "@/stores/community/ws"
 import {
   resolveServerNotificationDisplayLevel,
   useNotificationSettings,
@@ -89,27 +89,29 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const currentUser = useCurrentUser()
   const { server: currentServer } = useServer(serverId)
   const membersHook = useServerMembers(serverId)
-  const onlineUserIds = useOnlineUserIds()
-  const userStatuses = useCommunityWsStore((s) => s.userStatuses)
+  const profilesByUserId = useCommunityWsStore((s) => s.profilesByUserId)
   const enrichedMembers = useMemo(
     () =>
       membersHook.members.map((m) => {
-        const liveStatus = userStatuses.get(m.userId)
+        const profile = readCommunityProfile(profilesByUserId.get(m.userId), m.userId)
         return {
           ...m,
-          status: resolveRowPresence(m, onlineUserIds, currentUser.id),
-          statusEmoji: liveStatus ? liveStatus.emoji : m.statusEmoji,
-          statusText: liveStatus ? liveStatus.text : m.statusText,
+          name: profile.name,
+          discriminator: profile.discriminator,
+          avatar: profile.avatar,
+          avatarVersion: profile.avatarVersion,
+          status: m.userId === currentUser.id ? "online" as const : profile.presence,
+          statusEmoji: profile.statusEmoji,
+          statusText: profile.statusText,
         }
       }),
-    [membersHook.members, onlineUserIds, currentUser.id, userStatuses],
+    [currentUser.id, membersHook.members, profilesByUserId],
   )
   // `myMember` comes from the raw (not enriched) members list so this stays
   // stable across presence ticks.
   const myMember = membersHook.members.find((m) => m.userId === currentUser.id)
   const isAdmin = canManageServer(myMember?.role)
-  const presence = usePresence(serverId)
-  const { online: initialOnline } = presence
+  usePresence(serverId)
   const notifs = useNotificationSettings()
   const notifLevel = resolveServerNotificationDisplayLevel(notifs.server[serverId])
   const channelNotif = notifs.channel
@@ -209,23 +211,6 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     ejectedRef.current = false
   }, [serverId])
-
-  // Seed the presence set on server switch — WS `presence.update` keeps it
-  // fresh after this initial hydration. `hydratePresence` is an atomic
-  // one-shot replacement AND no-ops when the incoming list matches current
-  // state — critical to avoid a render loop when `initialOnline`'s reference
-  // shifts on re-render (loading state, cache tick) without semantic change.
-  //
-  // Guard against seeding from a non-authoritative snapshot: while the query
-  // is still fetching, or when the presence route degraded to `stale: true`
-  // (retry-exhaust on D1 → `keepPreviousData` bubbles a StaleReadError, so
-  // `presence.data` is `undefined` on first-load-during-outage), we must NOT
-  // atomically wipe the WS-populated set to an empty list.
-  useEffect(() => {
-    if (presence.isFetching) return
-    if (presence.data === undefined) return
-    useCommunityWsStore.getState().hydratePresence(initialOnline)
-  }, [presence.isFetching, presence.data, initialOnline])
 
   const [serverSettingsOpen, setServerSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("overview")

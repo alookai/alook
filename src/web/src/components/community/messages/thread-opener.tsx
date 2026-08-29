@@ -15,6 +15,7 @@ import type { OpenProfile } from "@/components/community/social/profile-types"
 import { AttachmentCard } from "./attachment-card"
 import { displayReplyContent } from "@/lib/community/reply-content"
 import { useMobileAvatarMention } from "./use-mobile-avatar-mention"
+import { useCommunityProfile } from "@/stores/community/ws"
 
 // Thread opener — the parent message the thread was created from, pinned at
 // the top of the thread's message list. Deliberately styled like a REGULAR
@@ -54,13 +55,19 @@ export function ThreadOpener({
   onJump?: () => void
 }) {
   const { message: msg, isLoading, isError } = useMessage(parentMessageId)
+  const authorProfile = useCommunityProfile(msg?.authorId)
   const mentionText = msg ? resolveAuthorMentionText?.(msg.authorId) ?? null : null
   const avatarMention = useMobileAvatarMention({
     onMention: mentionText && onInsertMentionText
       ? () => onInsertMentionText(mentionText)
       : undefined,
     onProfileClick: (event) => {
-      if (msg) onOpenProfile?.(msg.authorName, event, undefined, msg.authorId)
+      if (msg) {
+        const name = msg.authorId
+          ? (authorProfile?.name ?? "Unknown")
+          : (msg.authorName ?? "Unknown")
+        onOpenProfile?.(name, event, undefined, msg.authorId)
+      }
     },
   })
 
@@ -81,7 +88,12 @@ export function ThreadOpener({
     )
   }
 
-  const avatarLabel = msg.authorAvatar || avatarInitial(msg.authorName)
+  const authorName = msg.authorId
+    ? (authorProfile?.name ?? "Unknown")
+    : (msg.authorName ?? "Unknown")
+  const avatarLabel = msg.authorId
+    ? (authorProfile?.avatar ?? avatarInitial(authorName))
+    : (msg.authorAvatar ?? avatarInitial(authorName))
   const visibleContent = displayReplyContent(msg.content ?? "", msg.replyTo)
 
   return (
@@ -109,7 +121,7 @@ export function ThreadOpener({
           {...avatarMention}
           className="shrink-0 self-start"
           aria-label={mentionText && onInsertMentionText
-            ? `Open ${msg.authorName} profile; long press to mention`
+            ? `Open ${authorName} profile; long press to mention`
             : undefined}
         >
           <Avatar label={avatarLabel} seed={msg.authorId} size={40} />
@@ -117,10 +129,10 @@ export function ThreadOpener({
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <button
-              onClick={(e) => onOpenProfile?.(msg.authorName, e, undefined, msg.authorId)}
+              onClick={(e) => onOpenProfile?.(authorName, e, undefined, msg.authorId)}
               className="text-[15px] font-semibold hover:underline"
             >
-              {msg.authorName}
+              {authorName}
             </button>
             <span className="text-xs text-muted-foreground" suppressHydrationWarning>
               {formatMessageTime(msg.createdAt)}

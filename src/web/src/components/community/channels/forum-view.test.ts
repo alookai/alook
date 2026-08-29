@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
@@ -10,6 +10,11 @@ import {
 } from "./forum-view"
 import { tid } from "@/lib/community/testids"
 import type { ForumThread } from "@/lib/community/models/message"
+
+const profileState = vi.hoisted(() => ({ map: new Map<string, Record<string, unknown>>() }))
+vi.mock("@/stores/community/ws", () => ({
+  useProfilesByUserId: () => profileState.map,
+}))
 
 const LAST_AT = "2020-01-01T00:00:00.000Z"
 
@@ -32,6 +37,22 @@ function makePost(over: Partial<ForumThread> = {}): ForumThread {
 }
 
 function render(posts: ForumThread[]): string {
+  profileState.map = new Map(posts.flatMap((post) => [
+    ...(post.authorId && post.parent.authorName
+      ? [[post.authorId, {
+          id: post.authorId,
+          name: post.parent.authorName,
+          avatar: post.authorAvatar ?? post.parent.authorName,
+          avatarVersion: 0,
+        }] as const]
+      : []),
+    ...(post.participants ?? []).map((participant) => [participant.id, {
+      id: participant.id,
+      name: participant.name,
+      avatar: participant.avatar,
+      avatarVersion: participant.avatarVersion ?? 0,
+    }] as const),
+  ]))
   return renderToStaticMarkup(
     createElement(ForumView, {
       forumChannelId: "cha_forum",
@@ -147,9 +168,9 @@ describe("ForumView post card header", () => {
     expect(html.indexOf('aria-hidden="true">·</span>')).toBeLessThan(html.indexOf(groupTid))
   })
 
-  it("falls back to \"Unknown\" when the creator name is empty (deleted creator)", () => {
+  it("uses canonical participant identity when the opener snapshot name is empty", () => {
     const html = render([makePost({ parent: { authorName: "", text: "root" } })])
-    expect(html).toContain(">Unknown<")
+    expect(html).toContain(">Alice<")
   })
 
   it("renders the time separator for both a solo post and a post with others", () => {

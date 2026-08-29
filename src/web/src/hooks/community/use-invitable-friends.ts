@@ -1,7 +1,10 @@
 "use client"
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query"
-import { apiFetchIdentity } from "@/lib/community/identity-projection"
+import {
+  apiFetchProfiles,
+  communityUserProfilePatch,
+} from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { Friend } from "@/lib/community/models/people"
 import { fetchAllServerMembers } from "./fetch-all-server-members"
@@ -23,7 +26,12 @@ const EMPTY: readonly Friend[] = Object.freeze([])
 
 export async function invitableFriendsQueryFn(serverId: string): Promise<InvitableFriendsResponse> {
   const [accepted, members] = await Promise.all([
-    apiFetchIdentity<{ friends: Friend[]; stale?: boolean }>("/api/community/friends/accepted"),
+    apiFetchProfiles<{ friends: Friend[]; stale?: boolean }>(
+      "/api/community/friends/accepted",
+      (data) => data.friends.flatMap((friend) => friend.userId
+        ? [communityUserProfilePatch(friend.userId, friend)]
+        : []),
+    ),
     fetchAllServerMembers(serverId),
   ])
   if (accepted.stale) throw new Error("stale D1 read")

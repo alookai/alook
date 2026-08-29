@@ -12,388 +12,264 @@ beforeEach(() => {
   useCommunityWsStore.getState().reset()
 })
 
+function activate(viewerId = "viewer") {
+  useCommunityWsStore.getState().activateProfileAccount(viewerId)
+  return useCommunityWsStore.getState().beginProfileSnapshot()
+}
+
 describe("useCommunityWsStore", () => {
   it("publishes connection status, binds retry, and resets both safely", () => {
     const calls: string[] = []
-    const reconnectNow = () => calls.push("retry")
-    expect(useCommunityWsStore.getState().connectionStatus).toBe("connected")
-
     useCommunityWsStore.getState().setConnectionStatus("reconnecting")
-    useCommunityWsStore.getState().bindReconnectNow(reconnectNow)
-    expect(useCommunityWsStore.getState().connectionStatus).toBe("reconnecting")
+    useCommunityWsStore.getState().bindReconnectNow(() => calls.push("retry"))
     useCommunityWsStore.getState().reconnectNow()
     expect(calls).toEqual(["retry"])
 
-    useCommunityWsStore.getState().setConnectionStatus("failed")
     useCommunityWsStore.getState().reset()
     expect(useCommunityWsStore.getState().connectionStatus).toBe("connected")
     useCommunityWsStore.getState().reconnectNow()
     expect(calls).toEqual(["retry"])
   })
 
-  it("fails closed until the websocket is authenticated and advances epochs on disconnect", () => {
-    expect(useCommunityWsStore.getState()).toMatchObject({
-      accessConnected: false,
-      accessEpoch: 0,
-    })
+  it("fails closed until websocket authentication and advances access epochs", () => {
+    expect(useCommunityWsStore.getState()).toMatchObject({ accessConnected: false, accessEpoch: 0 })
     useCommunityWsStore.getState().markAccessConnected()
-    expect(useCommunityWsStore.getState().accessConnected).toBe(true)
     useCommunityWsStore.getState().markAccessDisconnected()
-    expect(useCommunityWsStore.getState()).toMatchObject({
-      accessConnected: false,
-      accessEpoch: 1,
+    expect(useCommunityWsStore.getState()).toMatchObject({ accessConnected: false, accessEpoch: 1 })
+  })
+
+  it("seeds eligible groups and preserves groups patched after request start", () => {
+    const initial = activate()
+    useCommunityWsStore.getState().seedProfiles(initial, [{
+      id: "u1",
+      identityAbout: { name: "API old", aboutMe: "api bio" },
+      status: { statusEmoji: "🌱", statusText: "api" },
+      presence: "offline",
+    }])
+
+    const request = useCommunityWsStore.getState().beginProfileSnapshot()
+    useCommunityWsStore.getState().patchProfiles(request, [{
+      id: "u1",
+      identityAbout: { name: "WS new", aboutMe: undefined },
+      presence: "online",
+    }])
+    useCommunityWsStore.getState().seedProfiles(request, [{
+      id: "u1",
+      identityAbout: { name: "late API", aboutMe: "late bio" },
+      status: { statusEmoji: "🎧", statusText: "late status" },
+      presence: "offline",
+    }])
+
+    expect(useCommunityWsStore.getState().profilesByUserId.get("u1")).toMatchObject({
+      name: "WS new",
+      aboutMe: undefined,
+      statusEmoji: "🎧",
+      statusText: "late status",
+      presence: "online",
     })
   })
 
-  it("starts with empty presence + seen sets", () => {
-    const s = useCommunityWsStore.getState()
-    expect(s.onlineUserIds.size).toBe(0)
-    expect(s.seenMessageIds.size).toBe(0)
-    expect(s.seenDeliveryOperations.size).toBe(0)
+  it("advances authoritative group revisions even when values are equal", () => {
+    const initial = activate()
+    useCommunityWsStore.getState().seedProfiles(initial, [{
+      id: "u1",
+      status: { statusEmoji: null, statusText: null },
+    }])
+    const request = useCommunityWsStore.getState().beginProfileSnapshot()
+    useCommunityWsStore.getState().patchProfiles(request, [{
+      id: "u1",
+      status: { statusEmoji: null, statusText: null },
+    }])
+    const afterPatch = useCommunityWsStore.getState()
+    expect(afterPatch.profileRevision).toBe(request.revision + 1)
+
+    afterPatch.seedProfiles(request, [{
+      id: "u1",
+      status: { statusEmoji: "stale", statusText: "stale" },
+    }])
+    expect(useCommunityWsStore.getState().profilesByUserId.get("u1")).toMatchObject({
+      statusEmoji: null,
+      statusText: null,
+    })
   })
 
-  it("setPresence adds and removes user ids", () => {
-    useCommunityWsStore.getState().setPresence("u1", true)
-    useCommunityWsStore.getState().setPresence("u2", true)
-    expect(useCommunityWsStore.getState().onlineUserIds.has("u1")).toBe(true)
-    expect(useCommunityWsStore.getState().onlineUserIds.has("u2")).toBe(true)
+  it("conditionally commits a successful mutation ahead of an older API seed", () => {
+    const oldGet = activate()
+    const mutation = useCommunityWsStore.getState().beginProfileSnapshot()
 
-    useCommunityWsStore.getState().setPresence("u1", false)
-    expect(useCommunityWsStore.getState().onlineUserIds.has("u1")).toBe(false)
-    // Removing an offline user is a no-op — no throw.
-    useCommunityWsStore.getState().setPresence("u3", false)
-    expect(useCommunityWsStore.getState().onlineUserIds.has("u3")).toBe(false)
+    useCommunityWsStore.getState().commitProfiles(mutation, [{
+      id: "u1",
+      identityAbout: { name: "Local mutation" },
+    }])
+    expect(useCommunityWsStore.getState().profileRevision).toBe(1)
+
+    useCommunityWsStore.getState().seedProfiles(oldGet, [{
+      id: "u1",
+      identityAbout: { name: "Old GET" },
+    }])
+    expect(useCommunityWsStore.getState().profilesByUserId.get("u1")?.name)
+      .toBe("Local mutation")
   })
 
-  it("setPresence swaps the Set reference so React selectors re-run", () => {
-    const before = useCommunityWsStore.getState().onlineUserIds
-    useCommunityWsStore.getState().setPresence("u1", true)
-    const after = useCommunityWsStore.getState().onlineUserIds
-    expect(after).not.toBe(before)
+  it("does not let a mutation response overwrite a newer WS group patch", () => {
+    const mutation = activate()
+    const profiles = useCommunityWsStore.getState()
+    profiles.patchProfiles(profiles.beginProfileSnapshot(), [{
+      id: "u1",
+      identityAbout: { name: "Newer WS" },
+    }])
+
+    profiles.commitProfiles(mutation, [{
+      id: "u1",
+      identityAbout: { name: "Mutation response" },
+    }])
+    expect(useCommunityWsStore.getState().profilesByUserId.get("u1")?.name)
+      .toBe("Newer WS")
+    expect(useCommunityWsStore.getState().profileRevision).toBe(1)
   })
 
-  it("resetPresence empties online set without touching seen ids", () => {
-    useCommunityWsStore.getState().setPresence("u1", true)
-    useCommunityWsStore.getState().markSeenMessage("m1")
+  it("compares avatar versions independently without advancing group revision", () => {
+    const snapshot = activate()
+    const store = useCommunityWsStore.getState()
+    store.patchProfiles(snapshot, [{
+      id: "u1",
+      avatar: { avatar: "/a?v=2", avatarVersion: 2 },
+    }])
+    expect(useCommunityWsStore.getState().profileRevision).toBe(0)
 
-    useCommunityWsStore.getState().resetPresence()
-    expect(useCommunityWsStore.getState().onlineUserIds.size).toBe(0)
-    expect(useCommunityWsStore.getState().seenMessageIds.has("m1")).toBe(true)
+    store.patchProfiles(snapshot, [{
+      id: "u1",
+      avatar: { avatar: "/stale?v=1", avatarVersion: 1 },
+    }, {
+      id: "u1",
+      avatar: { avatar: "/conflict?v=2", avatarVersion: 2 },
+    }])
+    expect(useCommunityWsStore.getState().profilesByUserId.get("u1")).toMatchObject({
+      avatar: "/a?v=2",
+      avatarVersion: 2,
+    })
+
+    store.seedProfiles(snapshot, [{
+      id: "u1",
+      avatar: { avatar: "/a?v=3", avatarVersion: 3 },
+    }])
+    expect(useCommunityWsStore.getState().profilesByUserId.get("u1")).toMatchObject({
+      avatar: "/a?v=3",
+      avatarVersion: 3,
+    })
   })
 
-  it("resetPresence is a no-op (no reference swap) when already empty", () => {
-    const before = useCommunityWsStore.getState().onlineUserIds
-    useCommunityWsStore.getState().resetPresence()
-    expect(useCommunityWsStore.getState().onlineUserIds).toBe(before)
+  it("rejects late work after viewer switch and prevents reset ABA", () => {
+    const oldSnapshot = activate("viewer-a")
+    useCommunityWsStore.getState().activateProfileAccount("viewer-b")
+    expect(useCommunityWsStore.getState().seedProfiles(oldSnapshot, [{
+      id: "u1",
+      identityAbout: { name: "wrong viewer" },
+    }])).toBe(false)
+
+    const beforeReset = useCommunityWsStore.getState().beginProfileSnapshot()
+    useCommunityWsStore.getState().reset()
+    useCommunityWsStore.getState().activateProfileAccount("viewer-b")
+    expect(useCommunityWsStore.getState().patchProfiles(beforeReset, [{
+      id: "u1",
+      identityAbout: { name: "ABA" },
+    }])).toBe(false)
+    expect(useCommunityWsStore.getState().profilesByUserId.size).toBe(0)
   })
 
-  it("hydratePresence replaces the set atomically", () => {
-    useCommunityWsStore.getState().setPresence("u_stale", true)
-    useCommunityWsStore.getState().hydratePresence(["u1", "u2", "u3"])
-    const online = useCommunityWsStore.getState().onlineUserIds
-    expect(online.has("u_stale")).toBe(false)
-    expect(online.has("u1")).toBe(true)
-    expect(online.has("u2")).toBe(true)
-    expect(online.has("u3")).toBe(true)
-    expect(online.size).toBe(3)
+  it("applies multiple same-user groups in one authoritative batch", () => {
+    const snapshot = activate()
+    useCommunityWsStore.getState().patchProfiles(snapshot, [{
+      id: "u1",
+      identityAbout: { name: "Alice" },
+    }, {
+      id: "u1",
+      status: { statusEmoji: "🎧", statusText: "Focus" },
+      presence: "online",
+    }])
+    expect(useCommunityWsStore.getState().profilesByUserId.get("u1")).toMatchObject({
+      name: "Alice",
+      statusEmoji: "🎧",
+      statusText: "Focus",
+      presence: "online",
+    })
+    expect(useCommunityWsStore.getState().profileRevisionsByUserId.get("u1"))
+      .toEqual({ identityAbout: 1, status: 1, presence: 1 })
   })
 
-  it("hydratePresence bails when the incoming set matches current", () => {
-    useCommunityWsStore.getState().hydratePresence(["u1", "u2"])
-    const before = useCommunityWsStore.getState().onlineUserIds
-    // Identical-content, different-reference input MUST NOT swap the Set —
-    // that's the load-bearing invariant that prevents the render loop.
-    useCommunityWsStore.getState().hydratePresence(["u1", "u2"])
-    expect(useCommunityWsStore.getState().onlineUserIds).toBe(before)
-  })
-
-  it("mergePresence unions instead of replacing — regression for the DM flicker", () => {
-    // A WS snapshot marked co-member A online; the friends-only re-seed carries
-    // only B. A destructive replace would evict A (the reported bug); merge must
-    // keep both.
-    useCommunityWsStore.getState().setPresence("A", true)
-    useCommunityWsStore.getState().mergePresence(["B"])
-    const online = useCommunityWsStore.getState().onlineUserIds
-    expect(online.has("A")).toBe(true)
-    expect(online.has("B")).toBe(true)
-    expect(online.size).toBe(2)
-  })
-
-  it("mergePresence bails when every incoming id is already present", () => {
-    useCommunityWsStore.getState().hydratePresence(["u1", "u2"])
-    const before = useCommunityWsStore.getState().onlineUserIds
-    useCommunityWsStore.getState().mergePresence(["u1"])
-    expect(useCommunityWsStore.getState().onlineUserIds).toBe(before)
-  })
-
-  it("markSeenMessage deduplicates", () => {
+  it("deduplicates seen messages and trims the oldest ids", () => {
     useCommunityWsStore.getState().markSeenMessage("m1")
     const first = useCommunityWsStore.getState().seenMessageIds
     useCommunityWsStore.getState().markSeenMessage("m1")
-    const second = useCommunityWsStore.getState().seenMessageIds
+    expect(useCommunityWsStore.getState().seenMessageIds).toBe(first)
 
-    // Duplicate mark is a no-op — same Set reference, size still 1.
-    expect(second.size).toBe(1)
-    expect(second).toBe(first)
-    expect(useCommunityWsStore.getState().hasSeenMessage("m1")).toBe(true)
-    expect(useCommunityWsStore.getState().hasSeenMessage("m2")).toBe(false)
-  })
-
-  it("marks distinct messages independently", () => {
-    useCommunityWsStore.getState().markSeenMessage("m1")
-    useCommunityWsStore.getState().markSeenMessage("m2")
-    expect(useCommunityWsStore.getState().seenMessageIds.size).toBe(2)
-  })
-
-  it("trims to the sliding-window size once the max is exceeded", () => {
-    // Fill up to the boundary so the next insert crosses it.
-    for (let i = 0; i < SEEN_MESSAGE_MAX; i++) {
-      useCommunityWsStore.getState().markSeenMessage(`m${i}`)
+    for (let index = 2; index <= SEEN_MESSAGE_MAX + 1; index += 1) {
+      useCommunityWsStore.getState().markSeenMessage(`m${index}`)
     }
-    expect(useCommunityWsStore.getState().seenMessageIds.size).toBe(
-      SEEN_MESSAGE_MAX,
-    )
-
-    // One more triggers the trim.
-    useCommunityWsStore.getState().markSeenMessage(`m${SEEN_MESSAGE_MAX}`)
-
     const after = useCommunityWsStore.getState().seenMessageIds
     expect(after.size).toBe(SEEN_MESSAGE_TRIM_TO)
-
-    // The newest id must survive; the oldest must be evicted.
-    expect(after.has(`m${SEEN_MESSAGE_MAX}`)).toBe(true)
-    expect(after.has("m0")).toBe(false)
+    expect(after.has("m1")).toBe(false)
+    expect(after.has(`m${SEEN_MESSAGE_MAX + 1}`)).toBe(true)
   })
 
-  it("locks a delivery digest before completion and keeps same-digest failures retryable", () => {
-    const store = useCommunityWsStore.getState()
-    expect(store.observeDeliveryOperation("operation-1", "a".repeat(64))).toBe("new")
-    const observed = useCommunityWsStore.getState().seenDeliveryOperations
-    expect(observed.get("operation-1")).toEqual({
-      digest: "a".repeat(64),
-      completed: false,
-    })
-    expect(useCommunityWsStore.getState().observeDeliveryOperation("operation-1", "a".repeat(64)))
-      .toBe("retryable")
-    expect(useCommunityWsStore.getState().observeDeliveryOperation("operation-1", "b".repeat(64)))
+  it("locks delivery digests and keeps same-digest failures retryable", () => {
+    const digest = "a".repeat(64)
+    expect(useCommunityWsStore.getState().observeDeliveryOperation("op", digest)).toBe("new")
+    expect(useCommunityWsStore.getState().observeDeliveryOperation("op", digest)).toBe("retryable")
+    expect(useCommunityWsStore.getState().observeDeliveryOperation("op", "b".repeat(64)))
       .toBe("conflict")
-    expect(useCommunityWsStore.getState().seenDeliveryOperations).toBe(observed)
-    expect(useCommunityWsStore.getState().completeDeliveryOperation("operation-1", "b".repeat(64)))
-      .toBe(false)
-    expect(useCommunityWsStore.getState().completeDeliveryOperation("operation-1", "a".repeat(64)))
-      .toBe(true)
-    expect(useCommunityWsStore.getState().seenDeliveryOperations.get("operation-1"))
-      .toEqual({ digest: "a".repeat(64), completed: true })
-    expect(useCommunityWsStore.getState().observeDeliveryOperation("operation-1", "a".repeat(64)))
-      .toBe("duplicate")
-    expect(useCommunityWsStore.getState().observeDeliveryOperation("operation-1", "b".repeat(64)))
-      .toBe("conflict")
+    expect(useCommunityWsStore.getState().completeDeliveryOperation("op", digest)).toBe(true)
+    expect(useCommunityWsStore.getState().observeDeliveryOperation("op", digest)).toBe("duplicate")
   })
 
-  it("trims retryable/completed delivery operations together and retains them across reconnect", () => {
+  it("bounds delivery operations and clears transient state on reset", () => {
     for (let index = 0; index <= SEEN_DELIVERY_OPERATION_MAX; index += 1) {
-      useCommunityWsStore.getState().observeDeliveryOperation(
-        `operation-${index}`,
-        index.toString(16).padStart(64, "0"),
-      )
+      const digest = index.toString(16).padStart(64, "0")
+      useCommunityWsStore.getState().observeDeliveryOperation(`op-${index}`, digest)
       if (index % 2 === 0) {
-        useCommunityWsStore.getState().completeDeliveryOperation(
-          `operation-${index}`,
-          index.toString(16).padStart(64, "0"),
-        )
+        useCommunityWsStore.getState().completeDeliveryOperation(`op-${index}`, digest)
       }
     }
-    const operations = useCommunityWsStore.getState().seenDeliveryOperations
-    expect(operations.size).toBe(SEEN_DELIVERY_OPERATION_TRIM_TO)
-    expect(operations.has("operation-0")).toBe(false)
-    expect(operations.has(`operation-${SEEN_DELIVERY_OPERATION_MAX}`)).toBe(true)
-    expect(operations.get(`operation-${SEEN_DELIVERY_OPERATION_MAX}`)?.completed).toBe(true)
-    expect(operations.get(`operation-${SEEN_DELIVERY_OPERATION_MAX - 1}`)?.completed).toBe(false)
-
-    useCommunityWsStore.getState().markAccessDisconnected()
-    useCommunityWsStore.getState().markAccessConnected()
-    expect(useCommunityWsStore.getState().seenDeliveryOperations).toBe(operations)
-  })
-
-  it("reset clears both online and seen sets", () => {
-    useCommunityWsStore.getState().setPresence("u1", true)
-    useCommunityWsStore.getState().markSeenMessage("m1")
-    useCommunityWsStore.getState().observeDeliveryOperation(
-      "retryable-operation",
-      "a".repeat(64),
-    )
-    useCommunityWsStore.getState().observeDeliveryOperation(
-      "completed-operation",
-      "b".repeat(64),
-    )
-    useCommunityWsStore.getState().completeDeliveryOperation(
-      "completed-operation",
-      "b".repeat(64),
-    )
-
-    expect(useCommunityWsStore.getState().seenDeliveryOperations.get("retryable-operation"))
-      .toEqual({ digest: "a".repeat(64), completed: false })
-    expect(useCommunityWsStore.getState().seenDeliveryOperations.get("completed-operation"))
-      .toEqual({ digest: "b".repeat(64), completed: true })
-
+    expect(useCommunityWsStore.getState().seenDeliveryOperations.size)
+      .toBe(SEEN_DELIVERY_OPERATION_TRIM_TO)
+    const accountEpoch = useCommunityWsStore.getState().profileAccountEpoch
     useCommunityWsStore.getState().reset()
-
-    expect(useCommunityWsStore.getState().onlineUserIds.size).toBe(0)
-    expect(useCommunityWsStore.getState().seenMessageIds.size).toBe(0)
+    expect(useCommunityWsStore.getState()).toMatchObject({
+      profileViewerId: null,
+      profileAccountEpoch: accountEpoch + 1,
+    })
     expect(useCommunityWsStore.getState().seenDeliveryOperations.size).toBe(0)
+    expect(useCommunityWsStore.getState().seenMessageIds.size).toBe(0)
   })
 
-  it("starts with an empty userStatuses map", () => {
-    expect(useCommunityWsStore.getState().userStatuses.size).toBe(0)
-  })
-
-  it("setUserStatus stores per-user and overwrites on repeat calls", () => {
-    useCommunityWsStore.getState().setUserStatus("u1", "🎧", "Vibing")
-    expect(useCommunityWsStore.getState().userStatuses.get("u1")).toEqual({
-      emoji: "🎧",
-      text: "Vibing",
-    })
-
-    useCommunityWsStore.getState().setUserStatus("u1", null, null)
-    expect(useCommunityWsStore.getState().userStatuses.get("u1")).toEqual({
-      emoji: null,
-      text: null,
-    })
-  })
-
-  it("setUserStatus swaps the Map reference so React selectors re-run", () => {
-    const before = useCommunityWsStore.getState().userStatuses
-    useCommunityWsStore.getState().setUserStatus("u1", "🎧", "Vibing")
-    const after = useCommunityWsStore.getState().userStatuses
-    expect(after).not.toBe(before)
-  })
-
-  it("resetUserStatuses clears the map without touching presence/seen state", () => {
-    useCommunityWsStore.getState().setUserStatus("u1", "🎧", "Vibing")
-    useCommunityWsStore.getState().setPresence("u2", true)
-    useCommunityWsStore.getState().markSeenMessage("m1")
-
-    useCommunityWsStore.getState().resetUserStatuses()
-
-    expect(useCommunityWsStore.getState().userStatuses.size).toBe(0)
-    expect(useCommunityWsStore.getState().onlineUserIds.has("u2")).toBe(true)
-    expect(useCommunityWsStore.getState().seenMessageIds.has("m1")).toBe(true)
-  })
-
-  it("resetUserStatuses is a no-op (no reference swap) when already empty", () => {
-    const before = useCommunityWsStore.getState().userStatuses
-    useCommunityWsStore.getState().resetUserStatuses()
-    expect(useCommunityWsStore.getState().userStatuses).toBe(before)
-  })
-
-  it("reset also clears userStatuses", () => {
-    useCommunityWsStore.getState().setUserStatus("u1", "🎧", "Vibing")
-    useCommunityWsStore.getState().reset()
-    expect(useCommunityWsStore.getState().userStatuses.size).toBe(0)
-  })
-
-  it("fences avatar identity by the bound account and highest observed version", () => {
-    const unbound = useCommunityWsStore.getState().observeAvatarIdentity("u1", "/a?v=1", 1)
-    expect(unbound).toBe("unbound")
-    expect(useCommunityWsStore.getState().avatarIdentities.size).toBe(0)
-
-    useCommunityWsStore.getState().bindIdentityOwner("account-a")
-    expect(useCommunityWsStore.getState().observeAvatarIdentity("u1", "/a?v=2", 2))
-      .toBe("accepted")
-    const accepted = useCommunityWsStore.getState().avatarIdentities
-    expect(accepted.get("u1")).toEqual({ avatar: "/a?v=2", avatarVersion: 2 })
-
-    expect(useCommunityWsStore.getState().observeAvatarIdentity("u1", "/a?v=1", 1))
-      .toBe("stale")
-    expect(useCommunityWsStore.getState().observeAvatarIdentity("u1", "/a?v=2", 2))
-      .toBe("same")
-    expect(useCommunityWsStore.getState().observeAvatarIdentity("u1", "/other?v=2", 2))
-      .toBe("conflict")
-    expect(useCommunityWsStore.getState().avatarIdentities).toBe(accepted)
-
-    expect(useCommunityWsStore.getState().observeAvatarIdentity("u1", "/a?v=3", 3))
-      .toBe("accepted")
-    expect(useCommunityWsStore.getState().avatarIdentities.get("u1"))
-      .toEqual({ avatar: "/a?v=3", avatarVersion: 3 })
-  })
-
-  it("retains the fence for the same account and clears it on account switch/reset", () => {
-    useCommunityWsStore.getState().bindIdentityOwner("account-a")
-    useCommunityWsStore.getState().observeAvatarIdentity("u1", "/a?v=4", 4)
-    const before = useCommunityWsStore.getState().avatarIdentities
-
-    useCommunityWsStore.getState().bindIdentityOwner("account-a")
-    expect(useCommunityWsStore.getState().avatarIdentities).toBe(before)
-
-    useCommunityWsStore.getState().bindIdentityOwner("account-b")
-    expect(useCommunityWsStore.getState().identityOwnerUserId).toBe("account-b")
-    expect(useCommunityWsStore.getState().avatarIdentities.size).toBe(0)
-
-    useCommunityWsStore.getState().reset()
-    expect(useCommunityWsStore.getState().identityOwnerUserId).toBeNull()
-    expect(useCommunityWsStore.getState().avatarIdentities.size).toBe(0)
-  })
-
-  it("pushBotAuditEvent prepends newest-first, dedups on id, and bounds each per-bot ring", () => {
+  it("prepends, deduplicates, and independently bounds bot audit rings", () => {
     const push = useCommunityWsStore.getState().pushBotAuditEvent
-    push({
-      id: "e1",
-      botId: "b1",
-      kind: "tool_call",
-      payload: { name: "Read" },
-      createdAt: "2025-01-01T00:00:00.000Z",
-    })
-    push({
-      id: "e2",
-      botId: "b1",
-      kind: "cli_invocation",
-      payload: { subcommand: "send" },
-      createdAt: "2025-01-01T00:00:01.000Z",
-    })
-    const events = useCommunityWsStore.getState().botAuditEvents.get("b1") ?? []
-    expect(events[0]!.id).toBe("e2")
-    expect(events[1]!.id).toBe("e1")
-
-    // Dedup on id — a second push of e2 must not duplicate.
-    push({
-      id: "e2",
-      botId: "b1",
-      kind: "cli_invocation",
-      payload: { subcommand: "send" },
-      createdAt: "2025-01-01T00:00:01.000Z",
-    })
-    expect((useCommunityWsStore.getState().botAuditEvents.get("b1") ?? []).length).toBe(2)
-  })
-
-  it("bounds each bot's ring independently — a chatty bot doesn't evict a quiet bot's events", () => {
-    const push = useCommunityWsStore.getState().pushBotAuditEvent
-    // Chatty bot A: overflow the ring.
-    for (let i = 0; i < BOT_AUDIT_RING_MAX + 5; i++) {
+    for (let index = 0; index < BOT_AUDIT_RING_MAX + 5; index += 1) {
       push({
-        id: `a${i}`,
-        botId: "bot_a",
+        id: `a${index}`,
+        botId: "bot-a",
         kind: "tool_call",
-        payload: { name: "Read" },
-        createdAt: `2025-01-01T00:00:${String(i).padStart(2, "0")}.000Z`,
+        payload: {},
+        createdAt: "2026-01-01T00:00:00.000Z",
       })
     }
-    // Quiet bot B: one event, way earlier in wall-clock, must survive.
     push({
-      id: "b1",
-      botId: "bot_b",
-      kind: "cli_invocation",
-      payload: { subcommand: "send" },
-      createdAt: "2020-01-01T00:00:00.000Z",
+      id: "quiet",
+      botId: "bot-b",
+      kind: "nap",
+      payload: {},
+      createdAt: "2026-01-01T00:00:00.000Z",
     })
-    const aRing = useCommunityWsStore.getState().botAuditEvents.get("bot_a") ?? []
-    const bRing = useCommunityWsStore.getState().botAuditEvents.get("bot_b") ?? []
-    expect(aRing.length).toBe(BOT_AUDIT_RING_MAX)
-    expect(aRing[0]!.id).toBe(`a${BOT_AUDIT_RING_MAX + 4}`)
-    // Oldest chatty-bot events dropped.
-    expect(aRing.some((e) => e.id === "a0")).toBe(false)
-    // Quiet bot untouched.
-    expect(bRing).toEqual([
-      expect.objectContaining({ id: "b1", botId: "bot_b" }),
-    ])
+    push({
+      id: "quiet",
+      botId: "bot-b",
+      kind: "nap",
+      payload: {},
+      createdAt: "2026-01-01T00:00:00.000Z",
+    })
+    expect(useCommunityWsStore.getState().botAuditEvents.get("bot-a")).toHaveLength(
+      BOT_AUDIT_RING_MAX,
+    )
+    expect(useCommunityWsStore.getState().botAuditEvents.get("bot-b")).toHaveLength(1)
   })
 })

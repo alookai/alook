@@ -69,7 +69,7 @@ const mockGetChannel = vi.fn()
 const mockIsChannelPrivate = vi.fn(() => false)
 const mockGetPrivateChannelAudienceUserIds = vi.fn(() => [] as string[])
 const mockGetDM = vi.fn()
-const mockListDmPeerUserIds = vi.fn()
+const mockListDmPeerUserIds = vi.fn(() => Promise.resolve([] as string[]))
 const mockListChannelMemberUserIds = vi.fn()
 const mockGetCoMemberUserIds = vi.fn()
 const mockGetFriendUserIds = vi.fn()
@@ -84,6 +84,7 @@ import {
   fanOutToDM,
   fanOutStatusUpdate,
   fanOutIdentityUpdate,
+  fanOutProfileUpdate,
   broadcastToUserSafe,
 } from "./fanout"
 import { WS_EVENTS } from "@alook/shared"
@@ -245,7 +246,7 @@ describe("fanOutStatusUpdate", () => {
     mockGetChannelType.mockResolvedValue("text")
   })
 
-  it("broadcasts to the deduped union of co-members and friends", async () => {
+  it("broadcasts to self plus the deduped union of co-members and friends", async () => {
     mockGetCoMemberUserIds.mockResolvedValue(["u1", "u2"])
     mockGetFriendUserIds.mockResolvedValue(["u2", "u3"])
 
@@ -255,7 +256,7 @@ describe("fanOutStatusUpdate", () => {
     expect(mockGetFriendUserIds).toHaveBeenCalledWith(expect.anything(), "self1")
     expect(mockBroadcastToUsers).toHaveBeenCalledTimes(1)
     expect(mockBroadcastToUsers).toHaveBeenCalledWith(
-      ["u1", "u2", "u3"],
+      ["self1", "u1", "u2", "u3"],
       {
         type: "community:status.update",
         userId: "self1",
@@ -265,13 +266,16 @@ describe("fanOutStatusUpdate", () => {
     )
   })
 
-  it("does not broadcast when the audience is empty", async () => {
+  it("still broadcasts to the author's other tabs when no peer audience exists", async () => {
     mockGetCoMemberUserIds.mockResolvedValue([])
     mockGetFriendUserIds.mockResolvedValue([])
 
     await fanOutStatusUpdate("self1", null, null)
 
-    expect(mockBroadcastToUsers).not.toHaveBeenCalled()
+    expect(mockBroadcastToUsers).toHaveBeenCalledWith(
+      ["self1"],
+      expect.objectContaining({ type: "community:status.update" }),
+    )
   })
 
   it("never throws — absorbs a DB error and logs a warning", async () => {
@@ -360,6 +364,60 @@ describe("fanOutIdentityUpdate", () => {
     expect(mockWarn).toHaveBeenCalledWith(
       "fanout_identity_update_failed",
       { subjectId: "self", errorCategory: "Error" },
+    )
+  })
+})
+
+describe("fanOutProfileUpdate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetCloudflareContext.mockImplementation(() => ({ env: { DB: {} } }))
+    mockBroadcastToUsers.mockResolvedValue(undefined)
+    mockGetCoMemberUserIds.mockResolvedValue(["co-member", "shared"])
+    mockGetFriendUserIds.mockResolvedValue(["friend", "shared"])
+    mockListDmPeerUserIds.mockResolvedValue(["dm-peer"])
+  })
+
+  it("broadcasts the canonical bot profile to self, peers, and its owner", async () => {
+    await fanOutProfileUpdate({
+      id: "bot_1",
+      name: "Bot",
+      discriminator: "0042",
+      aboutMe: "Helper",
+      bannerColor: "#123456",
+      identity: { kind: "bot", ownerProfile: { id: "owner_1" } },
+    })
+
+    expect(mockBroadcastToUsers).toHaveBeenCalledWith(
+      ["bot_1", "co-member", "shared", "friend", "dm-peer", "owner_1"],
+      {
+        type: "community:profile.update",
+        userId: "bot_1",
+        name: "Bot",
+        discriminator: "0042",
+        aboutMe: "Helper",
+        bannerColor: "#123456",
+        kind: "bot",
+        ownerUserId: "owner_1",
+      },
+    )
+  })
+
+  it("uses no owner for humans and contains audience failures", async () => {
+    mockGetCoMemberUserIds.mockRejectedValueOnce(new Error("db down"))
+
+    await expect(fanOutProfileUpdate({
+      id: "human_1",
+      name: "Human",
+      discriminator: "0001",
+      aboutMe: "",
+      bannerColor: null,
+      identity: { kind: "human" },
+    })).resolves.toBeUndefined()
+
+    expect(mockWarn).toHaveBeenCalledWith(
+      "fanout_profile_update_failed",
+      expect.objectContaining({ userId: "human_1", err: expect.stringContaining("db down") }),
     )
   })
 })

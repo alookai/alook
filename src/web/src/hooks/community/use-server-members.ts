@@ -7,7 +7,10 @@ import {
   type InfiniteData,
 } from "@tanstack/react-query"
 import { toastApiError } from "@/lib/api/client"
-import { apiFetchIdentity } from "@/lib/community/identity-projection"
+import {
+  apiFetchProfiles,
+  communityUserProfilePatch,
+} from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { Member } from "@/lib/community/models/people"
 import type {
@@ -123,7 +126,11 @@ export const membersPageQueryFn =
       const params = new URLSearchParams()
       if (pageParam) params.set("cursor", pageParam)
       const url = `/api/community/servers/${serverId}/members${params.toString() ? `?${params}` : ""}`
-      return apiFetchIdentity<MembersEnvelope>(url)
+      return apiFetchProfiles<MembersEnvelope>(
+        url,
+        (data) => data.members.map((member) =>
+          communityUserProfilePatch(member.userId, member)),
+      )
     }
 
 // ── Cache mutation helpers (also used by the WS handler in Step 3) ──────────
@@ -425,8 +432,10 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
       try {
         const params = new URLSearchParams({ q })
         if (cursor) params.set("cursor", cursor)
-        const data = await apiFetchIdentity<SearchEnvelope>(
+        const data = await apiFetchProfiles<SearchEnvelope>(
           `/api/community/servers/${serverId}/members/search?${params}`,
+          (page) => page.members.map((member) =>
+            communityUserProfilePatch(member.userId, member)),
         )
         if (searchSeq.current !== seq) return
         setSearchOverlay((current) => {

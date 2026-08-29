@@ -1,10 +1,17 @@
 "use client"
 
 import { useQuery, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
+import { useMemo } from "react"
 import { apiFetch } from "@/lib/api/client"
-import { apiFetchIdentity } from "@/lib/community/identity-projection"
+import {
+  apiFetchProfiles,
+  communityUserProfilePatch,
+  loadAndSeedProfiles,
+} from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { Friend, PendingRequest, BlockedUser } from "@/lib/community/models/people"
+import { useProfilesByUserId } from "@/stores/community/ws"
+import { readCommunityProfile } from "@/lib/community/profile-read"
 
 /**
  * The community read routes wrap their D1 hits in `readOrStale` (see
@@ -47,9 +54,44 @@ export const friendsQueryFn = async (): Promise<FriendsResponse> => {
   // · friends/pending) and compose the same triad. Same query key / cache grain
   // as before, so mutations still fire one invalidation.
   const [acceptedData, blockedData, pendingData] = await Promise.all([
-    apiFetchIdentity<{ friends: Friend[]; stale?: boolean }>("/api/community/friends/accepted").then(throwIfStale),
-    apiFetchIdentity<{ blocked: BlockedUser[]; stale?: boolean }>("/api/community/friends/blocked").then(throwIfStale),
-    apiFetchIdentity<{ pending: PendingRequest[]; stale?: boolean }>("/api/community/friends/pending").then(throwIfStale),
+    apiFetchProfiles<{ friends: Friend[]; stale?: boolean }>(
+      "/api/community/friends/accepted",
+      (data) => {
+        throwIfStale(data)
+        return data.friends.flatMap((friend) =>
+          friend.userId ? [communityUserProfilePatch(friend.userId, friend)] : [])
+      },
+    ),
+    apiFetchProfiles<{ blocked: BlockedUser[]; stale?: boolean }>(
+      "/api/community/friends/blocked",
+      (data) => {
+        throwIfStale(data)
+        return data.blocked.flatMap((blocked) => blocked.userId
+          ? [{
+              id: blocked.userId,
+              identityAbout: { name: blocked.name },
+              avatar: {
+                avatar: blocked.avatar,
+                avatarVersion: blocked.avatarVersion,
+              },
+            }]
+          : [])
+      },
+    ),
+    apiFetchProfiles<{ pending: PendingRequest[]; stale?: boolean }>(
+      "/api/community/friends/pending",
+      (data) => {
+        throwIfStale(data)
+        return data.pending.map((pending) => ({
+          id: pending.userId,
+          identityAbout: { name: pending.name },
+          avatar: {
+            avatar: pending.avatar,
+            avatarVersion: pending.avatarVersion,
+          },
+        }))
+      },
+    ),
   ])
   return {
     friends: acceptedData.friends,
@@ -68,11 +110,63 @@ export function useFriends(): UseQueryResult<FriendsResponse> & {
     queryFn: friendsQueryFn,
     placeholderData: keepPreviousData,
   })
+  const profilesByUserId = useProfilesByUserId()
+  const friends = useMemo(
+    () => (query.data?.friends ?? EMPTY_FRIENDS).map((friend) => {
+      if (!friend.userId) return friend
+      const profile = readCommunityProfile(
+        profilesByUserId.get(friend.userId),
+        friend.userId,
+      )
+      return {
+        ...friend,
+        name: profile.name,
+        discriminator: profile.discriminator,
+        avatar: profile.avatar,
+        avatarVersion: profile.avatarVersion,
+        status: profile.presence,
+        statusEmoji: profile.statusEmoji,
+        statusText: profile.statusText,
+      }
+    }),
+    [profilesByUserId, query.data?.friends],
+  )
+  const pending = useMemo(
+    () => (query.data?.pending ?? EMPTY_PENDING).map((request) => {
+      const profile = readCommunityProfile(
+        profilesByUserId.get(request.userId),
+        request.userId,
+      )
+      return {
+        ...request,
+        name: profile.name,
+        avatar: profile.avatar,
+        avatarVersion: profile.avatarVersion,
+      }
+    }),
+    [profilesByUserId, query.data?.pending],
+  )
+  const blocked = useMemo(
+    () => (query.data?.blocked ?? EMPTY_BLOCKED).map((entry) => {
+      if (!entry.userId) return entry
+      const profile = readCommunityProfile(
+        profilesByUserId.get(entry.userId),
+        entry.userId,
+      )
+      return {
+        ...entry,
+        name: profile.name,
+        avatar: profile.avatar,
+        avatarVersion: profile.avatarVersion,
+      }
+    }),
+    [profilesByUserId, query.data?.blocked],
+  )
   return {
     ...query,
-    friends: query.data?.friends ?? (EMPTY_FRIENDS as Friend[]),
-    pending: query.data?.pending ?? (EMPTY_PENDING as PendingRequest[]),
-    blocked: query.data?.blocked ?? (EMPTY_BLOCKED as BlockedUser[]),
+    friends,
+    pending,
+    blocked,
   }
 }
 
@@ -81,15 +175,19 @@ export function useFriends(): UseQueryResult<FriendsResponse> & {
  * friends-list analogue of `usePresence(serverId)` in `use-server-panels.ts`.
  *
  * Friends can be online without ever sharing a server, so the co-member-
- * scoped WS presence snapshot alone never learns about them. This seeds
- * `useCommunityWsStore`'s `onlineUserIds` on mount (see
- * `app/c/me/layout.tsx`); WS `community:presence.update` events
- * keep it fresh afterward.
+ * scoped WS presence snapshot alone never learns about them. This seeds the
+ * global profile map on mount; WS `community:presence.update` events keep it
+ * fresh afterward.
  */
 export type FriendsPresenceResponse = { online: string[] }
 
 export const friendsPresenceQueryFn = () =>
-  apiFetch<FriendsPresenceResponse & { stale?: boolean }>("/api/community/friends/presence").then(throwIfStale)
+  loadAndSeedProfiles(
+    () => apiFetch<FriendsPresenceResponse & { stale?: boolean }>(
+      "/api/community/friends/presence",
+    ).then(throwIfStale),
+    (data) => data.online.map((id) => ({ id, presence: "online" })),
+  )
 
 const EMPTY_ONLINE: readonly string[] = Object.freeze([])
 

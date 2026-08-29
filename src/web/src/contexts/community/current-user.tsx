@@ -1,6 +1,17 @@
 "use client"
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react"
+import {
+  createContext,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  type ReactNode,
+} from "react"
+import type { Presence } from "@/lib/community/models/people"
+import {
+  useCommunityProfile,
+  useCommunityWsStore,
+} from "@/stores/community/ws"
 
 /**
  * Thin context that carries the viewer's identity down the community tree.
@@ -30,14 +41,10 @@ export type CurrentUser = {
   // status set" check — don't test either field's truthiness alone.
   statusEmoji?: string | null
   statusText?: string | null
+  presence?: Presence
 }
 
-type CurrentUserContextValue = {
-  currentUser: CurrentUser
-  setCurrentUser: (fn: (u: CurrentUser) => CurrentUser) => void
-}
-
-const CurrentUserContext = createContext<CurrentUserContextValue | null>(null)
+const CurrentUserContext = createContext<CurrentUser | null>(null)
 
 export function CurrentUserProvider({
   initialUser,
@@ -46,21 +53,25 @@ export function CurrentUserProvider({
   initialUser: CurrentUser
   children: ReactNode
 }) {
-  const [currentUser, setCurrentUserState] = useState<CurrentUser>(initialUser)
-  // `setCurrentUser` MUST keep a stable identity across renders. If it
-  // changes each render (e.g., inlined into `useMemo` deps on `currentUser`),
-  // consumers that put it in a dep array — like `CommunityShell`'s aboutMe
-  // hydration effect — will re-fire on every state change and can loop.
-  const setCurrentUser = useCallback(
-    (fn: (u: CurrentUser) => CurrentUser) => setCurrentUserState((u) => fn(u)),
-    [],
-  )
-  const value = useMemo<CurrentUserContextValue>(
-    () => ({ currentUser, setCurrentUser }),
-    [currentUser, setCurrentUser],
-  )
+  const current = useCommunityProfile(initialUser.id)
+  useLayoutEffect(() => {
+    if (current?.name !== undefined && current.avatarVersion !== undefined) return
+    const profiles = useCommunityWsStore.getState()
+    profiles.seedProfiles(profiles.beginProfileSnapshot(), [{
+      id: initialUser.id,
+      ...(current?.name === undefined
+        ? { identityAbout: { name: initialUser.name } }
+        : {}),
+      ...(current?.avatarVersion === undefined
+        ? { avatar: {
+            avatar: initialUser.avatar,
+            avatarVersion: initialUser.avatarVersion ?? 0,
+          } }
+        : {}),
+    }])
+  }, [current?.avatarVersion, current?.name, initialUser])
   return (
-    <CurrentUserContext.Provider value={value}>
+    <CurrentUserContext.Provider value={initialUser}>
       {children}
     </CurrentUserContext.Provider>
   )
@@ -68,14 +79,19 @@ export function CurrentUserProvider({
 
 export function useCurrentUser(): CurrentUser {
   const ctx = useContext(CurrentUserContext)
+  const profile = useCommunityProfile(ctx?.id)
   if (!ctx)
     throw new Error("useCurrentUser must be used within CurrentUserProvider")
-  return ctx.currentUser
-}
-
-export function useSetCurrentUser(): (fn: (u: CurrentUser) => CurrentUser) => void {
-  const ctx = useContext(CurrentUserContext)
-  if (!ctx)
-    throw new Error("useSetCurrentUser must be used within CurrentUserProvider")
-  return ctx.setCurrentUser
+  return useMemo(() => ({
+    id: ctx.id,
+    email: ctx.email,
+    name: profile?.name ?? ctx.name,
+    avatar: profile?.avatar ?? ctx.avatar,
+    avatarVersion: profile?.avatarVersion ?? ctx.avatarVersion,
+    aboutMe: profile?.aboutMe,
+    discriminator: profile?.discriminator,
+    statusEmoji: profile?.statusEmoji,
+    statusText: profile?.statusText,
+    presence: profile?.presence,
+  }), [ctx, profile])
 }

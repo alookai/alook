@@ -17,6 +17,9 @@ import {
   type InboxRowTarget,
 } from "@/hooks/community/inbox-read-reservation"
 import { tid } from "@/lib/community/testids"
+import type { CommunityProfile } from "@/lib/community/models/people"
+import { useProfilesByUserId } from "@/stores/community/ws"
+import { readCommunityProfile } from "@/lib/community/profile-read"
 
 type UnreadChannel = UnreadServer["channels"][number]
 type UnreadChild = UnreadChannel["children"][number]
@@ -30,7 +33,7 @@ function MentionBadge({ count }: { count: number }) {
   )
 }
 
-function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenThread, onOpenDm, isProjected }: {
+function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenThread, onOpenDm, isProjected, profilesByUserId }: {
   servers: UnreadServer[]
   dms: UnreadDm[]
   loading?: boolean
@@ -38,6 +41,7 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenThread, onOpen
   onOpenThread: (server: UnreadServer, parent: UnreadChannel, child: UnreadChild) => void
   onOpenDm?: (dm: UnreadDm) => void
   isProjected: (target: InboxRowTarget | null) => boolean
+  profilesByUserId: ReadonlyMap<string, CommunityProfile>
 }) {
   const visibleDms = dms.filter((dm) => !isProjected(inboxDmRowTarget(dm)))
   const visibleServers = servers.map((server) => ({
@@ -59,18 +63,24 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenThread, onOpen
       {visibleDms.length > 0 && (
         <div className="mb-3">
           <div className="px-2 pb-1 text-xs font-semibold text-muted-foreground">Direct Messages</div>
-          {visibleDms.map((d) => (
+          {visibleDms.map((d) => {
+            const profile = readCommunityProfile(
+              profilesByUserId.get(d.otherUserId),
+              d.otherUserId,
+            )
+            return (
             <button
               key={d.channelId}
               data-testid={tid.inboxUnreadDm(d.channelId)}
               onClick={() => onOpenDm?.(d)}
               className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
             >
-              <Avatar label={d.otherUserAvatar} seed={d.otherUserId} size={24} />
-              <span className="min-w-0 flex-1 truncate">{d.otherUserName}</span>
+              <Avatar label={profile.avatar} seed={d.otherUserId} size={24} />
+              <span className="min-w-0 flex-1 truncate">{profile.name}</span>
               <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
             </button>
-          ))}
+            )
+          })}
         </div>
       )}
       {visibleServers.map(({ server, channels }) => (
@@ -109,12 +119,13 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenThread, onOpen
   )
 }
 
-function MentionsTab({ mentions, loading, onOpenMention, onDeleteMention, isProjected }: {
+function MentionsTab({ mentions, loading, onOpenMention, onDeleteMention, isProjected, profilesByUserId }: {
   mentions: Mention[]
   loading?: boolean
   onOpenMention?: (m: Mention) => void
   onDeleteMention?: (id: string) => void
   isProjected: (target: InboxRowTarget | null) => boolean
+  profilesByUserId: ReadonlyMap<string, CommunityProfile>
 }) {
   const visibleMentions = mentions.filter((mention) => (
     !isProjected(inboxMentionRowTarget(mention))
@@ -123,13 +134,18 @@ function MentionsTab({ mentions, loading, onOpenMention, onDeleteMention, isProj
     <div className="h-full overflow-y-auto thin-scrollbar p-3">
       {loading && visibleMentions.length === 0 && <InboxRowsSkeleton />}
       {!loading && visibleMentions.length === 0 && <EmptyState icon={Inbox} label="No mentions" />}
-      {visibleMentions.map((mn) => (
+      {visibleMentions.map((mn) => {
+        const author = readCommunityProfile(
+          mn.m.authorId ? profilesByUserId.get(mn.m.authorId) : undefined,
+          mn.m.authorId ?? "",
+        )
+        return (
         <div key={mn.id} className="group flex w-full items-start gap-3 rounded-md p-2 text-left hover:bg-accent">
           <button onClick={() => onOpenMention?.(mn)} className="flex min-w-0 flex-1 items-start gap-3 text-left">
-            <Avatar label={mn.m.authorAvatar ?? "?"} seed={mn.m.authorId} size={36} />
+            <Avatar label={author.avatar} seed={mn.m.authorId} size={36} />
             <div className="min-w-0 flex-1">
               <div className="text-sm">
-                <span className="font-medium">{mn.m.authorName}</span>{" "}
+                <span className="font-medium">{author.name}</span>{" "}
                 <span className="text-xs text-muted-foreground">
                   {mn.kind === "reply" ? "replied to you" : "mentioned you"} in {mn.server} · <ChannelIcon className="inline h-[1em] w-auto align-[-0.1em]" />{mn.channel}
                 </span>
@@ -151,28 +167,35 @@ function MentionsTab({ mentions, loading, onOpenMention, onDeleteMention, isProj
             </DropdownMenu>
           )}
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
 
-function MarkedTab({ marked, loading, onOpenMarked, onUnmark }: {
+function MarkedTab({ marked, loading, onOpenMarked, onUnmark, profilesByUserId }: {
   marked: Marked[]
   loading?: boolean
   onOpenMarked?: (m: Marked) => void
   onUnmark?: (messageId: string) => void
+  profilesByUserId: ReadonlyMap<string, CommunityProfile>
 }) {
   return (
     <div className="h-full overflow-y-auto thin-scrollbar p-3">
       {loading && marked.length === 0 && <InboxRowsSkeleton />}
       {!loading && marked.length === 0 && <EmptyState icon={Bookmark} label="No marked messages" />}
-      {marked.map((mk) => (
+      {marked.map((mk) => {
+        const author = readCommunityProfile(
+          mk.m.authorId ? profilesByUserId.get(mk.m.authorId) : undefined,
+          mk.m.authorId ?? "",
+        )
+        return (
         <div key={mk.id} className="group flex w-full items-start gap-3 rounded-md p-2 text-left hover:bg-accent">
           <button onClick={() => onOpenMarked?.(mk)} className="flex min-w-0 flex-1 items-start gap-3 text-left">
-            <Avatar label={mk.m.authorAvatar ?? "?"} seed={mk.m.authorId} size={36} />
+            <Avatar label={author.avatar} seed={mk.m.authorId} size={36} />
             <div className="min-w-0 flex-1">
               <div className="text-sm">
-                <span className="font-medium">{mk.m.authorName}</span>{" "}
+                <span className="font-medium">{author.name}</span>{" "}
                 <span className="text-xs text-muted-foreground">
                   in{" "}
                   {mk.serverId
@@ -198,7 +221,8 @@ function MarkedTab({ marked, loading, onOpenMarked, onUnmark }: {
             </DropdownMenu>
           )}
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -247,6 +271,7 @@ export function InboxPopover({
   onMarkAllRead?: () => void
   isProjected?: (target: InboxRowTarget | null) => boolean
 }) {
+  const profilesByUserId = useProfilesByUserId()
   const hasUnreads = unreads.length > 0 || unreadDms.length > 0
   const hasAnything = hasUnreads || mentions.length > 0
   return (
@@ -292,13 +317,14 @@ export function InboxPopover({
           onOpenThread={onOpenThread ?? onOpenForumThread ?? (() => {})}
           onOpenDm={onOpenDm}
           isProjected={isProjected}
+          profilesByUserId={profilesByUserId}
         />
       </TabsContent>
       <TabsContent value="mentions" className="min-h-0 flex-1">
-        <MentionsTab mentions={mentions} loading={loading} onOpenMention={onOpenMention} onDeleteMention={onDeleteMention} isProjected={isProjected} />
+        <MentionsTab mentions={mentions} loading={loading} onOpenMention={onOpenMention} onDeleteMention={onDeleteMention} isProjected={isProjected} profilesByUserId={profilesByUserId} />
       </TabsContent>
       <TabsContent value="marked" className="min-h-0 flex-1">
-        <MarkedTab marked={marked} loading={markedLoading} onOpenMarked={onOpenMarked} onUnmark={onUnmark} />
+        <MarkedTab marked={marked} loading={markedLoading} onOpenMarked={onOpenMarked} onUnmark={onUnmark} profilesByUserId={profilesByUserId} />
       </TabsContent>
     </Tabs>
   )

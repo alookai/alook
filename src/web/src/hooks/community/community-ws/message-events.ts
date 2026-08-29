@@ -23,6 +23,10 @@ import type { MessageEventContext } from "@/hooks/community/community-ws/handler
 import { scheduleFocusedMessageGapRepair } from "@/hooks/community/community-ws/reconnect-messages"
 import { armInboxReadReservationCandidate } from "@/hooks/community/inbox-read-reservation"
 import {
+  approvalProfilePatches,
+  messageProfilePatches,
+} from "@/lib/community/profile-seed"
+import {
   projectApprovalCopies,
   projectEditedCopies,
   projectReactionCopies,
@@ -62,6 +66,10 @@ export function handleMessageCreate(
     })
   }
   const projected = projectCommunityMessageCreate(event.message)
+  wsStore.patchProfiles(
+    wsStore.beginProfileSnapshot(),
+    messageProfilePatches([projected]),
+  )
   if (event.channelId === sub.channelId) {
     const serverId = useCommunityStore.getState().currentServerId
     if (serverId) {
@@ -176,6 +184,10 @@ export function handleMessageUpdated(
   event: CommunityMessageUpdated,
   context: MessageEventContext,
 ) {
+  context.wsStore.patchProfiles(
+    context.wsStore.beginProfileSnapshot(),
+    approvalProfilePatches(event.approval),
+  )
   projectApprovalCopies(event, context)
   // When a card resolves (accepted/denied/superseded), the friend graph
   // changed — invalidate friends + pending so the owner's lists reflect

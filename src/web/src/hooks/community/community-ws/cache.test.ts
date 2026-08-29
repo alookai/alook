@@ -9,7 +9,6 @@ import {
   applyReactionToMessage,
   findCachedMessage,
   patchApprovalInCache,
-  patchAuthorNameInCache,
   patchMessageContentInCache,
   removeThreadFromCache,
   type PageCache,
@@ -25,25 +24,8 @@ function pageCache(...pages: Msg[][]): PageCache {
 describe("community WS cache helpers", () => {
   it("preserves identity for undefined caches and misses", () => {
     const cache = pageCache([{ id: "m_1", content: "one" }])
-    expect(patchAuthorNameInCache(undefined, "u_1", "New")).toBeUndefined()
-    expect(patchAuthorNameInCache(cache, "u_missing", "New")).toBe(cache)
     expect(patchMessageContentInCache(cache, "m_missing", "New")).toBe(cache)
     expect(removeThreadFromCache(cache, "thread_missing")).toBe(cache)
-  })
-
-  it("patches author names across pages without changing unrelated rows", () => {
-    const untouched = { id: "m_2", authorId: "u_2", authorName: "Other", content: "two" }
-    const cache = pageCache(
-      [{ id: "m_1", authorId: "u_1", authorName: "Old", content: "one" }, untouched],
-      [{ id: "m_3", authorId: "u_1", authorName: "Old", content: "three" }],
-    )
-
-    const result = patchAuthorNameInCache(cache, "u_1", "New")!
-
-    expect(result).not.toBe(cache)
-    expect(result.pages[0].messages[0].authorName).toBe("New")
-    expect(result.pages[0].messages[1]).toBe(untouched)
-    expect(result.pages[1].messages[0].authorName).toBe("New")
   })
 
   it("patches approval and content while preserving non-target rows", () => {

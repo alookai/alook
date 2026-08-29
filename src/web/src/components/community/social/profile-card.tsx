@@ -14,25 +14,27 @@ import type {
   Profile,
 } from "@/components/community/social/profile-types"
 import type { Breakpoint } from "@/hooks/use-mobile"
-import { useCommunityWsStore } from "@/stores/community/ws"
+import { useCommunityProfile } from "@/stores/community/ws"
+import { avatarInitial } from "@/lib/community/avatar"
 import { tid } from "@/lib/community/testids"
 import { BotAuditPreview, isBotActivityActive } from "./bot-audit-preview"
 
-// Merge rule for the card's status pill: overlay wins over seed. The overlay
-// (`useCommunityWsStore.userStatuses`) is the same live source the member
-// list and friend rows consume, so an entry there is always fresher than a
-// row-fetched seed. When the overlay has no entry (either because that user
-// hasn't emitted a `community:status.update` this session, or because the
-// user is anonymous / userId is undefined), fall back to the initial-seed
-// props passed by the opener. Both fields resolve independently; there is
-// no "if the overlay defines emoji but not text, prefer the whole seed"
-// case — the store writes both in one call.
+// Live cards resolve status from the global profile map. Seed props are used
+// only by static, id-less showcase cards.
 export function resolveCardStatus(
-  overlay: { emoji: string | null; text: string | null } | undefined,
+  overlay: {
+    statusEmoji?: string | null
+    statusText?: string | null
+  } | undefined,
   seedEmoji: string | null | undefined,
   seedText: string | null | undefined,
 ): { emoji: string | null; text: string | null } {
-  if (overlay) return { emoji: overlay.emoji, text: overlay.text }
+  if (overlay) {
+    return {
+      emoji: overlay.statusEmoji ?? null,
+      text: overlay.statusText ?? null,
+    }
+  }
   return { emoji: seedEmoji ?? null, text: seedText ?? null }
 }
 
@@ -186,11 +188,8 @@ function useAuditPreviewPosition(enabled: boolean, x: number, y: number) {
 }
 
 // Profile card — popover anchored at the click point on desktop, bottom sheet on mobile.
-// Status (emoji + text) is read live from `useCommunityWsStore.userStatuses` —
-// the same overlay the member list, friends list, and UserBar consume. The
-// `initialStatusEmoji` / `initialStatusText` props are a first-paint seed for
-// users the overlay has never seen a WS event for; once the overlay has an
-// entry, it wins. See plans/profile-card-status-overlay.md.
+// Identity, about, status, and presence are read from the global profile map
+// whenever a userId is present. Static cards use their supplied display data.
 export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpdateStatus, onOpenOwnerProfile, onOpenBotAudit, initialStatusEmoji, initialStatusText, activityStatusEmoji, activityStatusText, embedded }: {
   data: Profile
   x: number
@@ -215,9 +214,23 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   const [msg, setMsg] = useState("")
   const [open, setOpen] = useState(true)
   const mobile = bp === "mobile"
-  const liveStatus = useCommunityWsStore((s) => (data.userId ? s.userStatuses.get(data.userId) : undefined))
+  const globalProfile = useCommunityProfile(data.userId)
+  const liveStatus = data.userId
+    ? {
+        statusEmoji: globalProfile?.statusEmoji,
+        statusText: globalProfile?.statusText,
+      }
+    : undefined
   const { emoji: statusEmoji, text: statusText } = resolveCardStatus(liveStatus, initialStatusEmoji, initialStatusText)
   const activityStatus = resolveCardStatus(liveStatus, activityStatusEmoji, activityStatusText)
+  const name = data.userId ? (globalProfile?.name ?? "Unknown") : (data.name ?? "Unknown")
+  const avatar = data.userId
+    ? (globalProfile?.avatar ?? avatarInitial(name))
+    : (data.avatar ?? avatarInitial(name))
+  const discriminator = data.userId ? globalProfile?.discriminator : data.discriminator
+  const about = data.userId ? globalProfile?.aboutMe : data.about
+  const presence = data.userId ? (globalProfile?.presence ?? "offline") : data.presence
+  const mutual = data.mutual ?? 0
   const botIdentity = data.identity?.kind === "bot" ? data.identity : null
   const showAuditPreview = Boolean(botIdentity?.ownedByViewer && data.userId)
   const { popoverRef, cardRef, previewRef, position: previewPosition } = useAuditPreviewPosition(
@@ -225,7 +238,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
     x,
     y,
   )
-  const backdropSeed = resolveProfileBackdropSeed(data.avatar, data.userId, data.name)
+  const backdropSeed = resolveProfileBackdropSeed(avatar, data.userId, name)
   const close = () => setOpen(false)
   const send = () => {
     const text = msg.trim()
@@ -253,7 +266,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
               proportion the 64px avatar had at `-mt-8`. */}
           <div className="relative">
             <div className="rounded-full ring-[5px] ring-popover">
-              <Avatar label={data.avatar} seed={data.userId} size={77} presence={data.presence} ringColor="var(--popover)" />
+              <Avatar label={avatar} seed={data.userId} size={77} presence={presence} ringColor="var(--popover)" />
             </div>
             {/* Status sits on the same row as the presence dot, just to its
                 right, instead of floating over the avatar's corner. The dot
@@ -319,10 +332,10 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
         </div>
         <div className="rounded-lg bg-card p-4">
           <div className="flex min-w-0 items-baseline text-xl font-semibold leading-tight tracking-[-0.015em]">
-            <span className="min-w-0 truncate">{data.name}</span>
-            {data.discriminator && (
+            <span className="min-w-0 truncate">{name}</span>
+            {discriminator && (
               <span className="ml-1.5 shrink-0 text-sm font-normal tracking-wide text-muted-foreground">
-                #{data.discriminator}
+                #{discriminator}
               </span>
             )}
           </div>
@@ -333,8 +346,8 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
               (not `mt-4`) so the gap reads unambiguously as a group boundary
               (a step past DESIGN.md's 16px between-groups token) rather than
               just tighter line spacing off the bio above it. */}
-          <p className="mt-2 text-[15px] text-muted-foreground">{data.about || "No bio yet."}</p>
-          {(botIdentity || data.contextLabel || data.mutual > 0) && (
+          <p className="mt-2 text-[15px] text-muted-foreground">{about || "No bio yet."}</p>
+          {(botIdentity || data.contextLabel || mutual > 0) && (
             <div className="mt-6 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
               {botIdentity && (
                 <>
@@ -368,7 +381,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
                   <Shield className="size-3" /> {data.contextLabel}
                 </Badge>
               )}
-              {data.mutual > 0 && <span>{data.mutual} mutual server{data.mutual > 1 ? "s" : ""}</span>}
+              {mutual > 0 && <span>{mutual} mutual server{mutual > 1 ? "s" : ""}</span>}
             </div>
           )}
           {!isSelf && (
@@ -381,7 +394,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
                   send()
                 }}
                 className="flex-1 bg-transparent text-[15px] outline-none placeholder:text-muted-foreground"
-                placeholder={`Message @${data.name}`}
+                placeholder={`Message @${name}`}
               />
               <button
                 onClick={send}
@@ -429,7 +442,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
           showCloseButton={false}
           className="data-[side=bottom]:border-t-0 bg-transparent p-3 shadow-none"
         >
-          <SheetTitle className="sr-only">{data.name} profile</SheetTitle>
+          <SheetTitle className="sr-only">{name} profile</SheetTitle>
           <SheetClose className="sr-only">Close profile</SheetClose>
           <div className="flex flex-col gap-2">
             {auditPreview}

@@ -192,10 +192,7 @@ describe("ShellFrameView", () => {
     expect(sidebarPanel.props).toMatchObject({ id: "sidebar", defaultSize: "24%", minSize: 160, maxSize: 360 })
     expect(sidebarPanel.props.className).toContain("pb-15")
     expect(mainPanel.props).toMatchObject({ id: "main", defaultSize: "76%" })
-    expect(renderer.root.findByType("shell-overlays").props.profileStatusSeeds).toEqual({
-      initialStatusEmoji: "🌱",
-      initialStatusText: "Growing",
-    })
+    expect("profileStatusSeeds" in renderer.root.findByType("shell-overlays").props).toBe(false)
     expect(sidebar).toHaveBeenCalledWith()
     expect(mocks.observe).toHaveBeenCalledTimes(1)
     const userBarOverlay = renderer.root.find(

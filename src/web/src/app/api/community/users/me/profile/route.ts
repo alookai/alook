@@ -5,7 +5,6 @@ import {
   MAX_STATUS_TEXT_LENGTH,
   MAX_EMOJI_BYTES,
   BANNER_COLOR_REGEX,
-  WS_EVENTS,
   validateCommunityName,
   withD1Retry,
 } from "@alook/shared"
@@ -13,8 +12,9 @@ import { getDb } from "@/lib/db"
 import { createAuth } from "@/lib/auth"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
-import { fanOutStatusUpdate, fanOutToServerMembers } from "@/lib/community/fanout"
+import { fanOutProfileUpdate, fanOutStatusUpdate } from "@/lib/community/fanout"
 import { canonicalUserImage } from "@/lib/community/storage"
+import { avatarInitial } from "@/lib/community/avatar"
 
 export const GET = withCommunityActor(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -29,16 +29,17 @@ export const GET = withCommunityActor(async (_req, ctx) => {
       { route: "community/profile:self-user" }
     ),
   ])
+  const name = viewer?.name ?? ""
   return writeJSON({
     id: userId,
     aboutMe: profile?.aboutMe ?? "",
     avatar: viewer
-      ? canonicalUserImage(viewer.id, viewer.image, viewer.avatarVersion) ?? ""
-      : "",
+      ? canonicalUserImage(viewer.id, viewer.image, viewer.avatarVersion) ?? avatarInitial(name)
+      : avatarInitial(name),
     avatarVersion: viewer?.avatarVersion ?? 0,
     bannerColor: profile?.bannerColor ?? null,
     discriminator: viewer?.discriminator ?? "0000",
-    name: viewer?.name ?? "",
+    name,
     statusEmoji: profile?.statusEmoji ?? null,
     statusText: profile?.statusText ?? "",
   })
@@ -106,22 +107,6 @@ export const PATCH = withCommunityActor(async (req: NextRequest, ctx) => {
     })) as { headers: Headers }
     renameCookieHeaders = result.headers
 
-    // Broadcast the new name to every server the user belongs to, so open
-    // member lists update without a refresh (previously nothing fired
-    // MEMBER_UPDATE for a self-rename — only role changes did).
-    const serverIds = await queries.communityMember.listMemberServerIds(db, userId)
-    if (serverIds.length > 0) {
-      const memberships = await queries.communityMember.getMemberships(db, userId, serverIds)
-      for (const membership of memberships) {
-        fanOutToServerMembers(membership.serverId, {
-          type: WS_EVENTS.MEMBER_UPDATE,
-          serverId: membership.serverId,
-          memberId: membership.id,
-          userId,
-          changes: { nickname: trimmed },
-        })
-      }
-    }
   }
 
   const data: {
@@ -172,38 +157,57 @@ export const PATCH = withCommunityActor(async (req: NextRequest, ctx) => {
     }
   }
 
-  let updated: {
-    aboutMe: string | null
-    bannerColor: string | null
-    statusEmoji: string | null
-    statusText: string | null
-  } | null = null
   if (
     data.aboutMe !== undefined ||
     data.bannerColor !== undefined ||
     data.statusEmoji !== undefined ||
     data.statusText !== undefined
   ) {
-    updated = await queries.communityUserProfile.updateProfile(db, userId, data)
+    await queries.communityUserProfile.updateProfile(db, userId, data)
   }
+
+  const canonical = await queries.communityUserProfile.getPublicProfileForViewer(
+    db,
+    userId,
+    userId,
+  )
+  if (!canonical) return writeError("user not found", 404)
 
   // Fan out only when a status field was actually part of this patch — a
   // plain aboutMe-only save must not trigger a broadcast.
   if (data.statusEmoji !== undefined || data.statusText !== undefined) {
     await fanOutStatusUpdate(
       userId,
-      updated?.statusEmoji ?? null,
-      updated?.statusText ?? null,
+      canonical.statusEmoji,
+      canonical.statusText,
+      ctx.actor.kind === "bot" ? ctx.actor.ownerUserId : null,
     )
+  }
+
+  if (
+    body.name !== undefined
+    || data.aboutMe !== undefined
+    || data.bannerColor !== undefined
+  ) {
+    await fanOutProfileUpdate(canonical)
   }
 
   // Normalise the response shape — same as GET — so callers don't see
   // `userId` leak through on PATCH.
   const res = writeJSON({
-    aboutMe: updated?.aboutMe ?? "",
-    bannerColor: updated?.bannerColor ?? null,
-    statusEmoji: updated?.statusEmoji ?? null,
-    statusText: updated?.statusText ?? "",
+    id: canonical.id,
+    name: canonical.name,
+    discriminator: canonical.discriminator,
+    avatar: canonicalUserImage(
+      canonical.id,
+      canonical.image,
+      canonical.avatarVersion,
+    ) ?? avatarInitial(canonical.name),
+    avatarVersion: canonical.avatarVersion,
+    aboutMe: canonical.aboutMe,
+    bannerColor: canonical.bannerColor,
+    statusEmoji: canonical.statusEmoji,
+    statusText: canonical.statusText,
   })
 
   // Forward the re-signed session cookies from a rename so the browser

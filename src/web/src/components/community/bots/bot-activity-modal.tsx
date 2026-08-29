@@ -3,7 +3,7 @@
 import { useLayoutEffect, useMemo, useRef, useEffect } from "react"
 import { AgentAvatar } from "@/components/avatar"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
-import { useOnlineUserIds } from "@/stores/community/ws"
+import { useCommunityProfile } from "@/stores/community/ws"
 import {
   useBotAuditLog,
   type AuditEvent,
@@ -41,7 +41,8 @@ export function BotActivityModal({
   // presence). A viewer with a broken WS wouldn't receive events either, but
   // the daemon-side signal is what determines whether new rows are actually
   // being produced right now.
-  const online = useOnlineUserIds().has(bot?.id ?? "")
+  const profile = useCommunityProfile(bot?.id)
+  const online = profile?.presence === "online"
   const {
     events,
     isLoading,

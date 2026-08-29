@@ -71,7 +71,9 @@ export function useMessageListController({
       const grouped = !!(
         prev
         && !message.replyTo
-        && prev.authorName === message.authorName
+        && (prev.authorId && message.authorId
+          ? prev.authorId === message.authorId
+          : prev.authorName === message.authorName)
         && prev.createdAt
         && message.createdAt
         && new Date(message.createdAt).getTime() - new Date(prev.createdAt).getTime() < 7 * 60 * 1000

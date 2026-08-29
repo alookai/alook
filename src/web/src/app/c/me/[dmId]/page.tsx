@@ -20,9 +20,9 @@ import {
   useTypingUsersForScope,
   useTypingNamesForScope,
 } from "@/stores/community"
-import { useOnlineUserIds, useCommunityWsStore } from "@/stores/community/ws"
+import { useCommunityWsStore } from "@/stores/community/ws"
 import { tid } from "@/lib/community/testids"
-import { resolveRowPresence } from "@/lib/community/presence"
+import { readCommunityProfile } from "@/lib/community/profile-read"
 import { makeUserNameResolver } from "@/lib/community/display-name"
 import { dmsQueryFn, type DmsResponse } from "@/hooks/community/use-dms"
 import { useFriends } from "@/hooks/community/use-friends"
@@ -110,22 +110,26 @@ function DmView() {
   const dms = dmsQuery.data?.conversations ?? EMPTY_DMS
   const dmsLoading = dmsQuery.isLoading
   const { friends: rawFriends, blocked } = useFriends()
-  const onlineUserIds = useOnlineUserIds()
-  const userStatuses = useCommunityWsStore((s) => s.userStatuses)
+  const profilesByUserId = useCommunityWsStore((s) => s.profilesByUserId)
   // Enrich with presence — the Composer @-picker uses `f.status` to render
   // the avatar presence dot; without this enrichment every avatar shows offline.
   const friends = useMemo(
     () =>
       rawFriends.map((f) => {
-        const liveStatus = userStatuses.get(f.userId ?? f.id)
+        const userId = f.userId ?? f.id
+        const profile = readCommunityProfile(profilesByUserId.get(userId), userId)
         return {
           ...f,
-          status: resolveRowPresence(f, onlineUserIds),
-          statusEmoji: liveStatus ? liveStatus.emoji : f.statusEmoji,
-          statusText: liveStatus ? liveStatus.text : f.statusText,
+          name: profile.name,
+          discriminator: profile.discriminator,
+          avatar: profile.avatar,
+          avatarVersion: profile.avatarVersion,
+          status: profile.presence,
+          statusEmoji: profile.statusEmoji,
+          statusText: profile.statusText,
         }
       }),
-    [rawFriends, onlineUserIds, userStatuses],
+    [profilesByUserId, rawFriends],
   )
   // Frozen-once snapshot of the viewer's DM read pointer — the anchor for
   // the "New" divider AND the initial-page mode. Mirrors the channel-view
@@ -318,11 +322,19 @@ function DmView() {
   const dm = useMemo(() => {
     const raw = dms.find((d) => d.id === dmId) ?? null
     if (!raw) return null
+    const profile = readCommunityProfile(
+      profilesByUserId.get(raw.userId),
+      raw.userId,
+    )
     return {
       ...raw,
-      status: resolveRowPresence(raw, onlineUserIds),
+      name: profile.name,
+      discriminator: profile.discriminator,
+      avatar: profile.avatar,
+      avatarVersion: profile.avatarVersion,
+      status: profile.presence,
     }
-  }, [dms, dmId, onlineUserIds])
+  }, [dms, dmId, profilesByUserId])
 
   const openProfile: OpenProfile = (name, e, discriminator, userId) => {
     uiHandlers.openProfile?.(name, e, discriminator, userId)

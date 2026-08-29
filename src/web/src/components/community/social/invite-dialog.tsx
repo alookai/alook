@@ -24,8 +24,8 @@ import { useFriendsPresence } from "@/hooks/community/use-friends"
 import { useDmMessageSender } from "@/hooks/community/use-dm-message-sender"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import type { Friend } from "@/lib/community/models/people"
-import { resolveRowPresence } from "@/lib/community/presence"
-import { useOnlineUserIds } from "@/stores/community/ws"
+import { useCommunityWsStore } from "@/stores/community/ws"
+import { readCommunityProfile } from "@/lib/community/profile-read"
 
 const INVITE_ORIGIN =
   typeof window !== "undefined" ? window.location.origin : ""
@@ -134,8 +134,8 @@ export function InviteDialog({
   serverName: string
 }) {
   const currentUser = useCurrentUser()
-  const onlineUserIds = useOnlineUserIds()
-  const { online: onlineFriendIds } = useFriendsPresence(open)
+  useFriendsPresence(open)
+  const profilesByUserId = useCommunityWsStore((state) => state.profilesByUserId)
   // Only friends who are NOT already members of `serverId` — server-side
   // filter so a stale local members cache can't leak already-joined rows.
   const friendsQuery = useInvitableFriends(serverId, open)
@@ -150,17 +150,6 @@ export function InviteDialog({
   const [invitingUserIds, setInvitingUserIds] = useState<Set<string>>(new Set())
   const inFlightUserIdsRef = useRef<Set<string>>(new Set())
   const [query, setQuery] = useState("")
-
-  // The WS store is hydrated from the current server's member-only snapshot,
-  // while this dialog can contain friends who are not members yet. Combine
-  // both authoritative scopes at read time so a later server hydration cannot
-  // erase a non-member friend. Exact WS deltas patch both sources (see
-  // presence-machine-events.ts), so an offline delta still wins immediately.
-  const inviteOnlineUserIds = useMemo(() => {
-    const next = new Set(onlineUserIds)
-    for (const userId of onlineFriendIds) next.add(userId)
-    return next
-  }, [onlineFriendIds, onlineUserIds])
 
   // Resolve on open. Only depends on `open` + `token` — resolveOrCreate is a
   // hook that captures a fresh mutation object each render, so including it in
@@ -199,6 +188,20 @@ export function InviteDialog({
   const eligibleFriends = useMemo<Friend[]>(() => {
     const q = query.trim().toLowerCase()
     return friends
+      .map((friend) => {
+        const userId = friend.userId ?? friend.id
+        const profile = readCommunityProfile(profilesByUserId.get(userId), userId)
+        return {
+          ...friend,
+          name: profile.name,
+          discriminator: profile.discriminator,
+          avatar: profile.avatar,
+          avatarVersion: profile.avatarVersion,
+          status: profile.presence,
+          statusEmoji: profile.statusEmoji,
+          statusText: profile.statusText,
+        }
+      })
       .filter((f) => {
         if (!q) return true
         return (
@@ -206,8 +209,7 @@ export function InviteDialog({
           (f.sub ?? "").toLowerCase().includes(q)
         )
       })
-      .map((f) => ({ ...f, status: resolveRowPresence(f, inviteOnlineUserIds) }))
-  }, [friends, inviteOnlineUserIds, query])
+  }, [friends, profilesByUserId, query])
 
   const pickerState = resolvePeoplePickerViewState({
     resolved: friendsQuery.data !== undefined,

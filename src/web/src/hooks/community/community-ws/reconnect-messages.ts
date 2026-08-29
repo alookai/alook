@@ -1,5 +1,5 @@
 import type { InfiniteData, QueryClient, QueryKey } from "@tanstack/react-query"
-import { apiFetchIdentity } from "@/lib/community/identity-projection"
+import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { getMessageOverlay, useMessageStreamStore } from "@/stores/community/message-stream"
@@ -212,7 +212,10 @@ async function fetchCurrentWindow(
   pageParam: MessagesPageParam,
   tag: string | null,
 ): Promise<MessagesPage> {
-  return apiFetchIdentity<MessagesPage>(buildMessagesUrl(scopeId, pageParam, tag))
+  return apiFetchProfiles<MessagesPage>(
+    buildMessagesUrl(scopeId, pageParam, tag),
+    (page) => messageProfilePatches(page.messages),
+  )
 }
 
 async function fetchCatchUp(
@@ -229,8 +232,9 @@ async function fetchCatchUp(
   for (let pageIndex = 0; pageIndex < MAX_CATCH_UP_PAGES; pageIndex += 1) {
     const params = new URLSearchParams({ since: nextCursor })
     if (tag) params.set("tag", tag)
-    const page = await apiFetchIdentity<MessagesPage>(
+    const page = await apiFetchProfiles<MessagesPage>(
       `/api/community/channels/${scopeId}/messages?${params}`,
+      (response) => messageProfilePatches(response.messages),
     )
     messages.push(...page.messages)
     latestSeq = Math.max(latestSeq, page.latestSeq ?? 0)

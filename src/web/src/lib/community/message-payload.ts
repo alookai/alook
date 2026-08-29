@@ -44,13 +44,24 @@ export type MessageRow = {
   friendshipId?: string | null
 }
 
-type ReplyTargetRow = { id: string; authorName: string; content: string | null }
+type ReplyTargetRow = {
+  id: string
+  authorId: string
+  authorName: string
+  content: string | null
+}
 
 type UiAttachment = { kind: "image" | "file"; name: string; url: string; thumbnailUrl?: string; contentType?: string; size?: string; sizeBytes?: number; width?: number; height?: number }
 type WsAttachment = { id: string; filename: string; url: string; thumbnailUrl?: string; contentType?: string; size?: number; width?: number; height?: number }
 type UiReaction = { emoji: string; count: number; me: boolean; userIds: string[] }
 
-type ReplyPreview = { id: string; authorName: string; text: string; deleted?: boolean }
+type ReplyPreview = {
+  id: string
+  authorId?: string
+  authorName: string
+  text: string
+  deleted?: boolean
+}
 
 type ThreadPreview = {
   id: string
@@ -97,6 +108,7 @@ function resolveReply(row: MessageRow, replyMap: Map<string, ReplyTargetRow>): R
   if (!target) return { id: row.replyToId, authorName: "Unknown", text: "", deleted: true }
   return {
     id: target.id,
+    authorId: target.authorId,
     authorName: target.authorName,
     text: truncateMessagePreview(target.content ?? ""),
   }

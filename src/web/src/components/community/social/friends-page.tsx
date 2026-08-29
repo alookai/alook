@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef } from "react"
 import type React from "react"
 import { Users, MessagesSquare, ChevronLeft, Check, X, AtSign, UserMinus, Ban, UserPlus, Search } from "lucide-react"
 import { toastApiError } from "@/lib/api/client"
-import { apiFetchIdentity } from "@/lib/community/identity-projection"
+import { apiFetchProfiles } from "@/lib/community/profile-seed"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -17,6 +17,8 @@ import { hasStatus } from "./status-presets"
 import type { Friend, PendingRequest, BlockedUser } from "@/lib/community/models/people"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import { isSelfBotFriendship, isPresenceOffline, MIN_SEARCH_LENGTH } from "@alook/shared"
+import { useCommunityWsStore } from "@/stores/community/ws"
+import { readCommunityProfile } from "@/lib/community/profile-read"
 
 function FriendSection({ title, count, emptyLabel, children }: {
   title: string
@@ -65,7 +67,8 @@ export function FriendsPage({
   }, [friends, filter])
 
   const [addValue, setAddValue] = useState("")
-  const [searchResults, setSearchResults] = useState<{ id: string; name: string; image: string | null; avatarVersion: number; discriminator: string }[]>([])
+  const [searchResults, setSearchResults] = useState<string[]>([])
+  const profilesByUserId = useCommunityWsStore((state) => state.profilesByUserId)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
 
   // Relationship state by user id, so search results can show Friends/Pending/
@@ -91,8 +94,29 @@ export function FriendsPage({
     if (q.length < MIN_SEARCH_LENGTH) { setSearchResults([]); return }
     debounceRef.current = setTimeout(async () => {
       try {
-        const data = await apiFetchIdentity<{ users: { id: string; name: string; image: string | null; avatarVersion: number; discriminator: string }[] }>(`/api/community/users/search?q=${encodeURIComponent(q)}`)
-        setSearchResults(data.users)
+        const data = await apiFetchProfiles<{
+          users: Array<{
+            id: string
+            name: string
+            image: string | null
+            avatarVersion: number
+            discriminator: string
+          }>
+        }>(
+          `/api/community/users/search?q=${encodeURIComponent(q)}`,
+          (response) => response.users.map((user) => ({
+            id: user.id,
+            identityAbout: {
+              name: user.name,
+              discriminator: user.discriminator,
+            },
+            avatar: {
+              avatar: user.image ?? avatarInitial(user.name),
+              avatarVersion: user.avatarVersion,
+            },
+          })),
+        )
+        setSearchResults(data.users.map((user) => user.id))
       } catch (e) {
         setSearchResults([])
         toastApiError(e, "Search failed")
@@ -258,17 +282,18 @@ export function FriendsPage({
               </div>
               {searchResults.length > 0 && (
                 <div className="mt-1 rounded-md border border-border bg-popover p-1 shadow-(--e2)">
-                  {searchResults.map((u) => {
-                    const rel = relById.get(u.id)
+                  {searchResults.map((userId) => {
+                    const u = readCommunityProfile(profilesByUserId.get(userId), userId)
+                    const rel = relById.get(userId)
                     const relLabel = rel === "friend" ? "Friends" : rel === "pending" ? "Pending" : rel === "blocked" ? "Blocked" : null
                     return (
                       <button
-                        key={u.id}
+                        key={userId}
                         onClick={() => { if (!rel) sendRequest(u) }}
                         disabled={!!rel}
                         className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left hover:bg-accent disabled:cursor-not-allowed disabled:hover:bg-transparent"
                       >
-                        <Avatar label={u.image ?? avatarInitial(u.name)} seed={u.id} size={28} />
+                        <Avatar label={u.avatar} seed={userId} size={28} />
                         <span className={`flex-1 min-w-0 truncate text-sm font-medium ${rel ? "text-muted-foreground" : ""}`}>
                           {u.name}
                           <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">

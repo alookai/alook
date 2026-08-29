@@ -88,7 +88,7 @@ describe("community WS batch transport contract", () => {
     expect(isCommunityDeliveryDigest("a".repeat(63))).toBe(false)
   })
 
-  it("round-trips one strict outer frame without entering the 44-event union", async () => {
+  it("round-trips one strict outer frame without entering the 45-event union", async () => {
     const operationId = await deriveCommunityDeliveryOperationId("message-1")
     const prepared = await prepareCommunityDeliveryEvents(children)
     expect(prepared.ok).toBe(true)
@@ -116,7 +116,7 @@ describe("community WS batch transport contract", () => {
     })
     expect(isCommunityBrowserEventBatchCandidate(encoded.batch)).toBe(true)
     expect(Object.values(WS_EVENTS)).not.toContain(COMMUNITY_BROWSER_EVENT_BATCH_TYPE)
-    expect(Object.values(WS_EVENTS)).toHaveLength(44)
+    expect(Object.values(WS_EVENTS)).toHaveLength(45)
   })
 
   it("rejects invalid count, child, operation metadata, digest mismatch, and strict outer keys", async () => {

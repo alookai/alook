@@ -1,7 +1,7 @@
 "use client"
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query"
-import { apiFetchIdentity } from "@/lib/community/identity-projection"
+import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { Msg } from "@/lib/community/models/message"
 
@@ -36,7 +36,10 @@ export type OpenerPayload = {
 }
 
 export const messageQueryFn = (messageId: string) => () =>
-  apiFetchIdentity<OpenerPayload>(`/api/community/messages/${messageId}`)
+  apiFetchProfiles<OpenerPayload>(
+    `/api/community/messages/${messageId}`,
+    (message) => messageProfilePatches([message]),
+  )
 
 export function useMessage(
   messageId: string | null | undefined,

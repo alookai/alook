@@ -3,11 +3,10 @@ import TestRenderer, { act } from "react-test-renderer"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import { useCommunityWsStore } from "@/stores/community/ws"
 
-// The React harness for the hooks themselves isn't available in the repo
-// (no jsdom / testing-library setup) — `invalidateBotSurfaces` is exported
-// so this suite can exercise the exact invalidation logic each mutation's
-// `onSuccess` calls, against a real QueryClient.
+// Exercise the shared invalidation logic directly against a real QueryClient;
+// hook-specific behavior is covered below with react-test-renderer.
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
@@ -15,6 +14,8 @@ vi.mock("@/lib/api/client", () => ({
 
 beforeEach(() => {
   apiFetchMock.mockReset()
+  useCommunityWsStore.getState().reset()
+  useCommunityWsStore.getState().activateProfileAccount("viewer")
 })
 
 function seededClient() {
@@ -63,13 +64,31 @@ describe("invalidateBotSurfaces", () => {
 })
 
 describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
-  it("useBots fetches through the identity-aware query function", async () => {
-    apiFetchMock.mockResolvedValue({ bots: [] })
+  it("useBots fetches through the profile-seeding query function", async () => {
+    apiFetchMock.mockResolvedValue({
+      bots: [{
+        id: "bot_1",
+        name: "Seeded Bot",
+        image: null,
+        avatarVersion: 2,
+        description: "",
+        machineId: null,
+        runtime: null,
+        modelName: null,
+        lastRefreshContextAt: null,
+        dailyActivity: [],
+      }],
+    })
     const { useBots } = await import("./use-bots")
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     function Probe() {
       const result = useBots()
-      return React.createElement("span", { "data-count": result.bots.length })
+      return React.createElement("span", {
+        "data-count": result.bots.length,
+        "data-name": result.bots[0]?.name,
+        "data-avatar": result.bots[0]?.image,
+        "data-version": result.bots[0]?.avatarVersion,
+      })
     }
 
     let renderer!: TestRenderer.ReactTestRenderer
@@ -81,7 +100,59 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
       ))
     })
     await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/community/bots"))
-    expect(renderer.root.findByType("span").props["data-count"]).toBe(0)
+    await vi.waitFor(() => expect(renderer.root.findByType("span").props).toMatchObject({
+      "data-count": 1,
+      "data-name": "Seeded Bot",
+      "data-avatar": "S",
+      "data-version": 2,
+    }))
+    act(() => renderer.unmount())
+  })
+
+  it("useCreateBot commits the returned bot profile before invalidating metadata", async () => {
+    const { useCreateBot } = await import("./use-bots")
+    apiFetchMock.mockResolvedValue({
+      bot: {
+        id: "bot_created",
+        name: "Created Bot",
+        image: null,
+        avatarVersion: 3,
+        description: "",
+        machineId: null,
+        runtime: null,
+        modelName: null,
+        lastRefreshContextAt: null,
+        dailyActivity: [],
+      },
+    })
+    const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    let mutation!: ReturnType<typeof useCreateBot>
+    function Probe() {
+      mutation = useCreateBot()
+      return null
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(Probe),
+      ))
+    })
+
+    await act(async () => {
+      await mutation.mutateAsync({ name: "Created Bot" })
+    })
+
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/community/bots", expect.objectContaining({
+      method: "POST",
+    }))
+    expect(useCommunityWsStore.getState().profilesByUserId.get("bot_created")).toMatchObject({
+      name: "Created Bot",
+      kind: "bot",
+      avatar: "C",
+      avatarVersion: 3,
+    })
     act(() => renderer.unmount())
   })
 
@@ -103,7 +174,20 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
         ),
       )
     })
-    apiFetchMock.mockResolvedValue({ bot: { id: "bot_1" } })
+    apiFetchMock.mockResolvedValue({
+      bot: {
+        id: "bot_1",
+        name: "Bot",
+        image: null,
+        avatarVersion: 0,
+        description: "",
+        machineId: null,
+        runtime: null,
+        modelName: null,
+        lastRefreshContextAt: null,
+        dailyActivity: [],
+      },
+    })
 
     await act(async () => {
       await mutation.mutateAsync({ id: "bot_1", reasoningEffort: "xhigh" })
@@ -122,10 +206,8 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
       bot: { id: "bot_1", name: "Bot", description: "new description", image: null, machineId: "m_1", runtime: "node" },
     })
     const { useUpdateBot } = await import("./use-bots")
-    // useUpdateBot itself requires a QueryClientProvider to call useQueryClient(),
-    // which needs the jsdom harness this repo doesn't have. Assert the shape the
-    // mutationFn sends and returns instead — onSuccess's invalidateBotSurfaces(qc,
-    // data.bot.id) call is covered directly above.
+    // Keep this low-level contract assertion focused on the mutation payload;
+    // hook success behavior and shared invalidation are covered above.
     expect(typeof useUpdateBot).toBe("function")
     const result = await apiFetchMock("/api/community/bots/bot_1", {
       method: "PATCH",
@@ -161,21 +243,15 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
     // than reading an id off the (empty) response body.
   })
 
-  it("useUploadBotAvatar projects the returned identity before invalidating bot surfaces", async () => {
+  it("useUploadBotAvatar patches the canonical avatar without rewriting raw caches", async () => {
     const { useUploadBotAvatar } = await import("./use-bots")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
-    const { useMessageStreamStore } = await import("@/stores/community/message-stream")
     useCommunityWsStore.getState().reset()
-    useCommunityWsStore.getState().bindIdentityOwner("viewer")
-    const projectStream = vi.spyOn(
-      useMessageStreamStore.getState(),
-      "projectAvatarIdentity",
-    )
+    useCommunityWsStore.getState().activateProfileAccount("viewer")
     const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
     queryClient.setQueryData(communityKeys.bots(), {
       bots: [{ id: "bot_1", image: "/avatar?v=1", avatarVersion: 1 }],
     })
-    const setQueriesData = vi.spyOn(queryClient, "setQueriesData")
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       url: "/api/community/bots/bot_1/avatar?v=4",
       avatarVersion: 4,
@@ -201,19 +277,13 @@ describe("bot mutations wire the bot id into invalidateBotSurfaces", () => {
       })
     })
 
-    expect(useCommunityWsStore.getState().avatarIdentities.get("bot_1")).toEqual({
+    expect(useCommunityWsStore.getState().profilesByUserId.get("bot_1")).toMatchObject({
       avatar: "/api/community/bots/bot_1/avatar?v=4",
       avatarVersion: 4,
     })
-    expect(setQueriesData).toHaveBeenCalled()
     expect(queryClient.getQueryData(communityKeys.bots())).toMatchObject({
-      bots: [{ id: "bot_1", image: "/api/community/bots/bot_1/avatar?v=4", avatarVersion: 4 }],
+      bots: [{ id: "bot_1", image: "/avatar?v=1", avatarVersion: 1 }],
     })
-    expect(projectStream).toHaveBeenCalledWith(
-      "bot_1",
-      "/api/community/bots/bot_1/avatar?v=4",
-      4,
-    )
     act(() => renderer.unmount())
     vi.unstubAllGlobals()
   })

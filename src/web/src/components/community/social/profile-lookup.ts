@@ -2,7 +2,6 @@ import type { Member, Friend } from "@/lib/community/models/people"
 import type { Profile } from "@/components/community/social/profile-types"
 import type { View } from "@/components/community/shell/shell-types"
 import type { CurrentUser } from "@/contexts/community/current-user"
-import { resolveProfilePresence } from "@/lib/community/presence"
 import { avatarInitial } from "@/lib/community/avatar"
 
 /**
@@ -17,7 +16,6 @@ import { avatarInitial } from "@/lib/community/avatar"
  */
 export function buildSelfProfile(
   currentUser: CurrentUser,
-  onlineUserIds: ReadonlySet<string>,
   contextLabel?: string,
 ): Profile {
   return {
@@ -29,7 +27,7 @@ export function buildSelfProfile(
     contextLabel,
     about: currentUser.aboutMe ?? "",
     mutual: 0,
-    presence: resolveProfilePresence(true, undefined, onlineUserIds),
+    presence: currentUser.presence,
     identity: { kind: "human" },
   }
 }

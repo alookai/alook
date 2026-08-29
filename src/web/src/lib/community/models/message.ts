@@ -71,7 +71,13 @@ export type Msg = {
   embeds?: Embed[]
   attachments?: Attachment[]
   reactions?: Reaction[]
-  replyTo?: { id: string; authorName: string; text: string; deleted?: boolean }
+  replyTo?: {
+    id: string
+    authorId?: string
+    authorName: string
+    text: string
+    deleted?: boolean
+  }
   thread?: {
     id: string
     name: string
@@ -103,7 +109,7 @@ export type Thread = {
   name: string
   messageCount: number
   lastMessageAt: string
-  parent: { authorName: string; text: string }
+  parent: { authorId?: string; authorName: string; text: string }
   // The root message's per-channel seq, when the thread was created from a
   // parent message (omitted only for legacy rootless threads).
   // Used by `channel-ref-pill.tsx` to match a `/server/channel/#N` ref.

@@ -13,6 +13,7 @@ import {
 } from "./message"
 import { EmojiPickerPopover } from "./emoji-picker"
 import type { RenderMsg } from "@/lib/community/models/message"
+import { useCommunityWsStore } from "@/stores/community/ws"
 
 vi.mock("./emoji-picker", async () => {
   const ReactModule = await import("react")
@@ -164,6 +165,13 @@ function textContent(node: TestRenderer.ReactTestInstance): string {
 
 beforeEach(() => {
   renderCount = 0
+  useCommunityWsStore.getState().reset()
+  useCommunityWsStore.getState().activateProfileAccount("viewer")
+  const profiles = useCommunityWsStore.getState()
+  profiles.seedProfiles(profiles.beginProfileSnapshot(), [{
+    id: "u1",
+    identityAbout: { name: "Alice" },
+  }])
   const g = globalThis as unknown as { ResizeObserver: unknown; IntersectionObserver: unknown }
   g.ResizeObserver = class { observe() {} disconnect() {} unobserve() {} }
   g.IntersectionObserver = class { observe() {} disconnect() {} unobserve() {} }

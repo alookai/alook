@@ -17,8 +17,8 @@ import { useDms } from "@/hooks/community/use-dms"
 import { useDmRouteVerification } from "@/hooks/community/use-dm-route-verification"
 import { useFriends, useFriendsPresence } from "@/hooks/community/use-friends"
 import { communityKeys } from "@/lib/query-keys"
-import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
-import { resolveRowPresence } from "@/lib/community/presence"
+import { useCommunityWsStore } from "@/stores/community/ws"
+import { readCommunityProfile } from "@/lib/community/profile-read"
 import {
   clearLastMeLocation,
   getLastMeLeaf,
@@ -46,14 +46,21 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   } = useDms()
   const canonicalDmsUnsettled = dmsPending || dmsFetching
   const dmRouteVerification = useDmRouteVerification(params.dmId, rawDms, canonicalDmsUnsettled)
-  const onlineUserIds = useOnlineUserIds()
+  const profilesByUserId = useCommunityWsStore((state) => state.profilesByUserId)
   const dms = useMemo(
     () =>
-      rawDms.map((d) => ({
-        ...d,
-        status: resolveRowPresence(d, onlineUserIds),
-      })),
-    [rawDms, onlineUserIds],
+      rawDms.map((d) => {
+        const profile = readCommunityProfile(profilesByUserId.get(d.userId), d.userId)
+        return {
+          ...d,
+          name: profile.name,
+          discriminator: profile.discriminator,
+          avatar: profile.avatar,
+          avatarVersion: profile.avatarVersion,
+          status: profile.presence,
+        }
+      }),
+    [profilesByUserId, rawDms],
   )
   const { blocked } = useFriends()
   const currentChannelId = useCurrentChannelId()
@@ -69,17 +76,9 @@ export default function MeLayout({ children }: { children: ReactNode }) {
     useCommunityStore.getState().setCurrentServerId(null)
   }, [])
 
-  // Seed the presence set for the friends/DM subtree. This fetch carries ONLY
-  // friends — a strict subset of the WS presence audience (co-members ∪
-  // friends). It must MERGE, not replace: a destructive `hydratePresence` here
-  // would evict a DM peer who is a co-member-but-not-friend that the WS snapshot
-  // had already marked online, flipping them online→offline ~1s after load (the
-  // DM presence flicker bug). `mergePresence` unions instead, so WS-delivered
-  // ids survive. It no-ops when every id is already present.
-  const { online: onlineFriendIds } = useFriendsPresence()
-  useEffect(() => {
-    useCommunityWsStore.getState().mergePresence(onlineFriendIds)
-  }, [onlineFriendIds])
+  // Seed online friends into the global profile map. The endpoint is a subset
+  // of the full WS audience, so it only patches the ids it explicitly returns.
+  useFriendsPresence()
 
   const machinesActive = pathname === "/c/me/machines"
   const botsActive = pathname === "/c/me/bots"

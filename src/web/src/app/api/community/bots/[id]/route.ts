@@ -26,7 +26,7 @@ import {
   pushAgentProviderSwitchToMachine,
   pushAgentRuntimeConfigUpdateToMachine,
 } from "@/lib/community/bot-push"
-import { fanOutToServerMembers } from "@/lib/community/fanout"
+import { fanOutProfileUpdate, fanOutToServerMembers } from "@/lib/community/fanout"
 import { scheduleCommunityMediaCleanup } from "@/lib/community/community-media-cleanup"
 
 const log = createLogger({ service: "community-bot-update" })
@@ -122,6 +122,9 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   if (willPush && !owner) {
     return writeError("bot owner not resolvable — refusing to push a bot update with unknown ownership", 500)
   }
+  const publicProfile = nameChanged
+    ? await queries.communityUserProfile.getProfile(db, id)
+    : null
 
   const updated = await queries.communityBot.updateBot(db, id, ctx.userId, {
     name: body.name,
@@ -129,6 +132,20 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     image: body.image ?? undefined,
   })
   if (!updated) return writeError("bot not found", 404)
+
+  if (nameChanged) {
+    await fanOutProfileUpdate({
+      id,
+      name: updated.name,
+      discriminator: updated.discriminator,
+      aboutMe: publicProfile?.aboutMe ?? "",
+      bannerColor: publicProfile?.bannerColor ?? null,
+      identity: {
+        kind: "bot",
+        ownerProfile: { id: before.ownerUserId },
+      },
+    })
+  }
 
   if (willPush && owner && before.machineId) {
     await pushBotEventToMachine(ctx.env, before.machineId, {

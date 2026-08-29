@@ -6,15 +6,11 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { Avatar } from "../avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { OpenProfile } from "@/components/community/social/profile-types"
-import { resolveProfilePresence } from "@/lib/community/presence"
+import type { Presence } from "@/lib/community/models/people"
 import { tid } from "@/lib/community/testids"
 
-// UserBar always renders the signed-in viewer, so presence resolves through
-// the self → online branch and never consults an online set.
-const EMPTY_ONLINE_SET: ReadonlySet<string> = new Set()
-
 export function UserBar({ user, onOpenProfile, onEditProfile, inbox, hasUnread, inboxOpen, onInboxOpenChange }: {
-  user: { id: string; name: string; avatar: string }
+  user: { id: string; name: string; avatar: string; presence?: Presence }
   onOpenProfile?: OpenProfile
   onEditProfile?: () => void
   inbox?: React.ReactNode
@@ -49,7 +45,7 @@ export function UserBarSkeleton() {
 }
 
 function Inner({ user, onOpenProfile, onEditProfile, inbox, hasUnread, inboxOpen, onInboxOpenChange }: {
-  user: { id: string; name: string; avatar: string }
+  user: { id: string; name: string; avatar: string; presence?: Presence }
   onOpenProfile?: OpenProfile
   onEditProfile?: () => void
   inbox?: React.ReactNode
@@ -60,7 +56,7 @@ function Inner({ user, onOpenProfile, onEditProfile, inbox, hasUnread, inboxOpen
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
       <button onClick={(e) => onOpenProfile?.(user.name, e, undefined, user.id)} className="shrink-0 rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-        <Avatar label={user.avatar} seed={user.id} size={28} presence={resolveProfilePresence(true, user.id, EMPTY_ONLINE_SET)} ringColor="var(--muted)" />
+        <Avatar label={user.avatar} seed={user.id} size={28} presence={user.presence} ringColor="var(--muted)" />
       </button>
       <button onClick={(e) => onOpenProfile?.(user.name, e, undefined, user.id)} className="min-w-0 flex-1 text-left rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
         <div data-testid="community-user-bar-name" className="truncate text-sm font-medium leading-tight">{user.name}</div>

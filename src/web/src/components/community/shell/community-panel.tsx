@@ -17,6 +17,9 @@ import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
 import type { Msg, RenderMsg, Thread } from "@/lib/community/models/message"
 import type { Member } from "@/lib/community/models/people"
+import type { CommunityProfile } from "@/lib/community/models/people"
+import { useProfilesByUserId } from "@/stores/community/ws"
+import { readCommunityProfile } from "@/lib/community/profile-read"
 
 export type CommunityPanelProps = {
   open: boolean
@@ -50,6 +53,7 @@ export type CommunityPanelProps = {
 export function CommunityPanel(props: CommunityPanelProps) {
   const { open, onOpenChange, kind } = props
   const { icon: Icon, label } = panelHeading(kind)
+  const profilesByUserId = useProfilesByUserId()
 
   return (
     <CommunitySheet
@@ -64,7 +68,7 @@ export function CommunityPanel(props: CommunityPanelProps) {
       desktopWidth={kind === "members" ? 380 : undefined}
       bodyClassName={kind === "members" ? "p-0 sm:p-0" : undefined}
     >
-      {renderCommunityPanelBody(props)}
+      {renderCommunityPanelBody(props, profilesByUserId)}
     </CommunitySheet>
   )
 }
@@ -93,7 +97,7 @@ function renderCommunityPanelBody({
   onJumpToMessage,
   onSearch,
   viewerUserId,
-}: CommunityPanelProps) {
+}: CommunityPanelProps, profilesByUserId: ReadonlyMap<string, CommunityProfile>) {
   if (kind === "members") {
     return (
       <MemberList
@@ -118,18 +122,23 @@ function renderCommunityPanelBody({
     if (pinned.length === 0) {
       return <div className="py-8 text-center text-sm text-muted-foreground">No pinned messages yet.</div>
     }
-    return pinned.map((message) => (
+    return pinned.map((message) => {
+      const author = readCommunityProfile(
+        message.authorId ? profilesByUserId.get(message.authorId) : undefined,
+        message.authorId ?? "",
+      )
+      return (
       <button
         key={message.id}
         onClick={() => message.seq != null && onJumpToMessage?.(message.seq)}
         className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left hover:bg-accent"
       >
         <span className="shrink-0">
-          <Avatar label={message.authorAvatar ?? "?"} seed={message.authorId} size={24} />
+          <Avatar label={author.avatar} seed={message.authorId} size={24} />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
-            <span className="text-sm font-medium">{message.authorName}</span>
+            <span className="text-sm font-medium">{author.name}</span>
             {message.createdAt && (
               <span className="text-xs text-muted-foreground">
                 {formatRelativeTime(message.createdAt)}
@@ -141,7 +150,8 @@ function renderCommunityPanelBody({
           </div>
         </div>
       </button>
-    ))
+      )
+    })
   }
 
   if (kind === "search") {
@@ -161,7 +171,14 @@ function renderCommunityPanelBody({
     <>
       <div className="mb-2 text-xs text-muted-foreground">{threads.length} threads</div>
       <div className="space-y-1">
-        {threads.map((thread) => (
+        {threads.map((thread) => {
+          const author = thread.parent.authorId
+            ? readCommunityProfile(
+                profilesByUserId.get(thread.parent.authorId),
+                thread.parent.authorId,
+              )
+            : null
+          return (
           <button
             key={thread.id}
             onClick={() => onOpenThread(thread.id)}
@@ -171,7 +188,9 @@ function renderCommunityPanelBody({
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium">{thread.name}</div>
               <div className="truncate text-xs text-muted-foreground">
-                <span className="font-medium text-foreground/80">{thread.parent.authorName}</span>{" "}
+                <span className="font-medium text-foreground/80">
+                  {author?.name ?? thread.parent.authorName}
+                </span>{" "}
                 {stripInlineMarkup(thread.parent.text)}
               </div>
               <div className="mt-1 text-xs text-muted-foreground" suppressHydrationWarning>
@@ -179,7 +198,8 @@ function renderCommunityPanelBody({
               </div>
             </div>
           </button>
-        ))}
+          )
+        })}
       </div>
     </>
   )

@@ -19,9 +19,9 @@ import {
   grantForumSidebarChild,
   isKnownNonForumSidebarChannel,
 } from "@/hooks/community/use-forum-sidebar-threads"
-import { patchAuthorNameInCache, type PageCache } from "@/hooks/community/community-ws/cache"
 import type { MembershipEventContext } from "@/hooks/community/community-ws/handler-context"
 import { projectChannelScopeEviction } from "./channel-scope-projection"
+import { avatarInitial } from "@/lib/community/avatar"
 import {
   invalidateChannelRefDirectory,
   invalidateChannelRoster,
@@ -91,7 +91,18 @@ export function handleMemberJoin(
   event: CommunityMemberJoin,
   context: MembershipEventContext,
 ) {
-  const { queryClient, viewerUserIdRef, projection } = context
+  const { queryClient, viewerUserIdRef, projection, wsStore } = context
+  wsStore.patchProfiles(wsStore.beginProfileSnapshot(), [{
+    id: event.member.userId,
+    identityAbout: {
+      name: event.member.name,
+      discriminator: event.member.discriminator,
+    },
+    avatar: {
+      avatar: event.member.avatar ?? avatarInitial(event.member.name),
+      avatarVersion: event.member.avatarVersion,
+    },
+  }])
   const key = communityKeys.members(event.serverId)
   queryClient.setQueryData<InfiniteData<MembersEnvelope> | undefined>(
     key,
@@ -162,35 +173,5 @@ export function handleMemberUpdate(
     serverId: event.serverId,
     event,
   })
-  // A self-rename carries `userId` + `changes.nickname` — patch
-  // every cached message list's `authorName` snapshot for that
-  // author. A role-only change has no `userId`/`nickname`, so
-  // this is a no-op for that case.
-  if (event.userId && event.changes.nickname) {
-    const userId = event.userId
-    const newName = event.changes.nickname
-    for (const cacheEntry of queryClient.getQueryCache().findAll({
-      predicate: (q) =>
-        q.queryKey[0] === "community"
-        && (q.queryKey[1] === "channel" || q.queryKey[1] === "dm")
-        && q.queryKey[3] === "messages",
-    })) {
-      queryClient.setQueryData<PageCache | undefined>(
-        cacheEntry.queryKey,
-        (cache) => patchAuthorNameInCache(cache, userId, newName),
-      )
-    }
-    const streamState = useMessageStreamStore.getState()
-    for (const entry of streamState.entries.values()) {
-      if (entry.scope.kind === "channel" && entry.scope.serverId !== event.serverId) continue
-      for (const message of entry.state.liveById.values()) {
-        if (message.authorId !== userId) continue
-        useMessageStreamStore.getState().dispatch(entry.scope, {
-          type: "liveRefreshed",
-          message: { ...message, authorName: newName },
-        })
-      }
-    }
-  }
   finishMemberEvent(event, context)
 }

@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from "react"
 import type { BotSummary } from "@/hooks/community/use-bots"
 import type { MachineSummary } from "@/hooks/community/use-machines"
+import type { CommunityProfile } from "@/lib/community/models/people"
 
 export type BotListProps = {
   onBack?: () => void
@@ -17,7 +18,7 @@ export type BotListController = {
   isLoading: boolean
   machines: MachineSummary[]
   machinesLoading: boolean
-  onlineUserIds: ReadonlySet<string>
+  profilesByUserId: ReadonlyMap<string, CommunityProfile>
   createOpen: boolean
   setCreateOpen: Dispatch<SetStateAction<boolean>>
   editingBot: BotSummary | null

@@ -3,7 +3,7 @@
 import { useMemo } from "react"
 import { useQuery, useQueryClient, keepPreviousData, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
-import { apiFetchIdentity } from "@/lib/community/identity-projection"
+import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { UnreadServer, UnreadDm, Mention, Marked } from "@/lib/community/models/inbox"
 import { reserveInboxUnreadsResponse } from "./inbox-read-reservation"
@@ -38,10 +38,24 @@ const EMPTY_MARKED: readonly Marked[] = Object.freeze([])
 export type UnreadsResponse = { servers: UnreadServer[]; dms: UnreadDm[] }
 
 export const inboxUnreadsQueryFn = ({ signal }: { signal?: AbortSignal } = {}) =>
-  apiFetch<UnreadsResponse & { stale?: boolean }>(
+  apiFetchProfiles<UnreadsResponse & { stale?: boolean }>(
     "/api/community/users/me/inbox/unreads",
+    (data) => {
+      throwIfStale(data)
+      return data.dms.map((dm) => ({
+        id: dm.otherUserId,
+        identityAbout: {
+          name: dm.otherUserName,
+          discriminator: dm.otherUserDiscriminator,
+        },
+        avatar: {
+          avatar: dm.otherUserAvatar,
+          avatarVersion: dm.otherUserAvatarVersion,
+        },
+      }))
+    },
     { signal },
-  ).then(throwIfStale)
+  )
 
 export const inboxUnreadsReservedQueryFn = (queryClient: ReturnType<typeof useQueryClient>) => (
   { signal }: { signal?: AbortSignal } = {},
@@ -70,7 +84,13 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
 export type MentionsResponse = { mentions: Mention[] }
 
 export const inboxMentionsQueryFn = () =>
-  apiFetchIdentity<MentionsResponse & { stale?: boolean }>("/api/community/users/me/inbox/mentions").then(throwIfStale)
+  apiFetchProfiles<MentionsResponse & { stale?: boolean }>(
+    "/api/community/users/me/inbox/mentions",
+    (data) => {
+      throwIfStale(data)
+      return messageProfilePatches(data.mentions.map((mention) => mention.m))
+    },
+  )
 
 export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
   mentions: Mention[]
@@ -89,7 +109,13 @@ export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
 export type MarkedResponse = { marked: Marked[] }
 
 const inboxMarkedQueryFn = () =>
-  apiFetchIdentity<MarkedResponse & { stale?: boolean }>("/api/community/users/me/marks").then(throwIfStale)
+  apiFetchProfiles<MarkedResponse & { stale?: boolean }>(
+    "/api/community/users/me/marks",
+    (data) => {
+      throwIfStale(data)
+      return messageProfilePatches(data.marked.map((marked) => marked.m))
+    },
+  )
 
 /**
  * The Marked feed is lazy — unlike unreads/mentions (which the shell reads

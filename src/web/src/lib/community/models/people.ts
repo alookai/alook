@@ -1,5 +1,37 @@
 export type Presence = "online" | "offline"
 
+export type CommunityProfile = {
+  id: string
+  name?: string
+  discriminator?: string
+  avatar?: string
+  avatarVersion?: number
+  aboutMe?: string
+  bannerColor?: string | null
+  kind?: "human" | "bot"
+  ownerUserId?: string | null
+  statusEmoji?: string | null
+  statusText?: string | null
+  presence?: Presence
+}
+
+export type CommunityProfilePatch = {
+  id: string
+  identityAbout?: Partial<Pick<
+    CommunityProfile,
+    "name" | "discriminator" | "aboutMe" | "bannerColor" | "kind" | "ownerUserId"
+  >>
+  avatar?: { avatar: string; avatarVersion: number }
+  status?: Pick<CommunityProfile, "statusEmoji" | "statusText">
+  presence?: Presence
+}
+
+export type CommunityProfileSnapshot = {
+  viewerId: string | null
+  accountEpoch: number
+  revision: number
+}
+
 // ── Members / friends / DMs ──────────────────────────────────────────────────
 // Identity fields shared by every community user view-model (member / friend /
 // DM). All three are required `string`: `user.name`/`user.discriminator` are

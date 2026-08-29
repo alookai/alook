@@ -12,7 +12,7 @@ import { displayReplyContent } from "@/lib/community/reply-content"
 import { ChannelIcon } from "../channels/channel-icon"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch, toastApiError } from "@/lib/api/client"
-import { apiFetchIdentity } from "@/lib/community/identity-projection"
+import { apiFetchProfiles, messageProfilePatches } from "@/lib/community/profile-seed"
 import { ApiError } from "@/lib/errors"
 import { formatDateLabel } from "@/lib/community/format-time"
 import { DateDivider } from "../dividers"
@@ -194,8 +194,9 @@ export function MessageContextSheet({
         if (e instanceof ApiError && e.status === 404) return { notFound: true }
         throw e
       }
-      const page = await apiFetchIdentity<MessagesPage>(
+      const page = await apiFetchProfiles<MessagesPage>(
         anchorFetchUrl(type, channelId, lookup.id, CONTEXT_LIMIT),
+        (response) => messageProfilePatches(response.messages),
         { signal },
       )
       const messages = (page.messages ?? []).slice().sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))

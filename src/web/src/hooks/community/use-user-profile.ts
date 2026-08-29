@@ -1,6 +1,7 @@
 "use client"
 
-import { apiFetchIdentity } from "@/lib/community/identity-projection"
+import { apiFetchProfiles } from "@/lib/community/profile-seed"
+import { avatarInitial } from "@/lib/community/avatar"
 
 /**
  * Fetches a public user profile card (avatar, name, aboutMe, mutual-server
@@ -33,7 +34,28 @@ export type UserProfile = UserProfileBase & (
 )
 
 export const userProfileQueryFn = (userId: string) => () =>
-  apiFetchIdentity<UserProfile>(`/api/community/users/${userId}/profile`)
+  apiFetchProfiles<UserProfile>(
+    `/api/community/users/${userId}/profile`,
+    (profile) => [{
+      id: profile.id,
+      identityAbout: {
+        name: profile.name,
+        discriminator: profile.discriminator,
+        aboutMe: profile.aboutMe,
+        bannerColor: profile.bannerColor,
+        kind: profile.kind,
+        ownerUserId: profile.kind === "bot" ? profile.ownerProfile.id : null,
+      },
+      avatar: {
+        avatar: profile.image ?? avatarInitial(profile.name),
+        avatarVersion: profile.avatarVersion,
+      },
+      status: {
+        statusEmoji: profile.statusEmoji,
+        statusText: profile.statusText,
+      },
+    }],
+  )
 
 // How long a fetched profile card is considered fresh before a re-click
 // triggers a background refetch (`queryClient.fetchQuery`'s `staleTime`).

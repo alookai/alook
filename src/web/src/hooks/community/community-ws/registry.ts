@@ -44,7 +44,10 @@ import {
   handlePresenceUpdate,
   handleStatusUpdate,
 } from "@/hooks/community/community-ws/presence-machine-events"
-import { handleIdentityUpdate } from "@/hooks/community/community-ws/identity-events"
+import {
+  handleIdentityUpdate,
+  handleProfileUpdate,
+} from "@/hooks/community/community-ws/identity-events"
 
 type CommunityEventType = CommunityWsEvent["type"]
 type CommunityEventFor<T extends CommunityEventType> = Extract<CommunityWsEvent, { type: T }>
@@ -94,6 +97,7 @@ export const communityWsRegistry = {
   "community:presence.update": { handler: handlePresenceUpdate, reconnectPolicies: ["presence-overlay", "all-cached-servers"] },
   "community:status.update": { handler: (event) => handleStatusUpdate(event), reconnectPolicies: ["status-overlay"] },
   "community:identity.update": { handler: handleIdentityUpdate, reconnectPolicies: ["identity-surfaces"] },
+  "community:profile.update": { handler: handleProfileUpdate, reconnectPolicies: ["identity-surfaces"] },
   "community:machine.created": { handler: handleMachineCreated, reconnectPolicies: ["machines"] },
   "community:machine.status": { handler: handleMachineStatus, reconnectPolicies: ["machines"] },
   "community:machine.updated": { handler: handleMachineUpdated, reconnectPolicies: ["machines"] },

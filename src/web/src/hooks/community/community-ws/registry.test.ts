@@ -64,6 +64,7 @@ vi.mock("./presence-machine-events", () => ({
 }))
 vi.mock("./identity-events", () => ({
   handleIdentityUpdate: handlers.handleIdentityUpdate,
+  handleProfileUpdate: handlers.handleProfileUpdate,
 }))
 
 function dispatchContext(queryClient = new QueryClient()): CommunityWsDispatchContext {
@@ -80,10 +81,10 @@ function dispatchContext(queryClient = new QueryClient()): CommunityWsDispatchCo
 }
 
 describe("community WebSocket registry", () => {
-  it("has exactly one entry for each of the 44 runtime event types", () => {
+  it("has exactly one entry for each of the 45 runtime event types", () => {
     const eventTypes = Object.values(WS_EVENTS).sort()
     const registryTypes = Object.keys(communityWsRegistry).sort()
-    expect(eventTypes).toHaveLength(44)
+    expect(eventTypes).toHaveLength(45)
     expect(registryTypes).toEqual(eventTypes)
   })
 
@@ -119,6 +120,7 @@ describe("community WebSocket registry", () => {
     ["community:member.join", "handleMemberJoin"],
     ["community:friend.accept", "handleFriendEvent"],
     ["community:presence.update", "handlePresenceUpdate"],
+    ["community:profile.update", "handleProfileUpdate"],
     ["community:machine.created", "handleMachineCreated"],
     ["community:bot.audit_event", "handleBotAuditEvent"],
   ] as const)("dispatches %s through its existing handler group", (type, handlerName) => {

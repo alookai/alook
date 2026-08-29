@@ -1,6 +1,9 @@
 import { MAX_MEMBERS_PAGE_SIZE } from "@alook/shared"
 import type { Member } from "@/lib/community/models/people"
-import { apiFetchIdentity } from "@/lib/community/identity-projection"
+import {
+  apiFetchProfiles,
+  communityUserProfilePatch,
+} from "@/lib/community/profile-seed"
 
 type MembersPage = {
   members: Member[]
@@ -14,8 +17,10 @@ export async function fetchAllServerMembers(serverId: string): Promise<Member[]>
   do {
     const params = new URLSearchParams({ limit: String(MAX_MEMBERS_PAGE_SIZE) })
     if (cursor) params.set("cursor", cursor)
-    const page = await apiFetchIdentity<MembersPage>(
+    const page = await apiFetchProfiles<MembersPage>(
       `/api/community/servers/${encodeURIComponent(serverId)}/members?${params}`,
+      (data) => data.members.map((member) =>
+        communityUserProfilePatch(member.userId, member)),
     )
     members.push(...page.members)
     cursor = page.hasMore ? page.cursor : undefined

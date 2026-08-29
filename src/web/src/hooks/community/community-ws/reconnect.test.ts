@@ -43,11 +43,20 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       if (url === "/api/community/users/me/read-state") {
         return { revision: 0, readStates: [] }
       }
-      if (url === "/api/community/users/me/profile") {
+      if (url === "/api/community/users/self/profile") {
         return {
           id: "self",
+          name: "Self",
+          discriminator: "0001",
+          image: "/api/community/users/self/avatar?v=7",
           avatar: "/api/community/users/self/avatar?v=7",
           avatarVersion: 7,
+          aboutMe: "",
+          bannerColor: null,
+          mutualServers: 0,
+          statusEmoji: null,
+          statusText: null,
+          kind: "human",
         }
       }
       throw new Error(`unexpected API fetch: ${String(url)}`)
@@ -57,9 +66,9 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
 
     await capturedOnReconnect!({ reconnectDurationMs: 1_000 })
 
-    expect(apiFetch).toHaveBeenCalledWith("/api/community/users/me/profile")
+    expect(apiFetch).toHaveBeenCalledWith("/api/community/users/self/profile")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
-    expect(useCommunityWsStore.getState().avatarIdentities.get("self")).toEqual({
+    expect(useCommunityWsStore.getState().profilesByUserId.get("self")).toMatchObject({
       avatar: "/api/community/users/self/avatar?v=7",
       avatarVersion: 7,
     })
@@ -72,6 +81,25 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     await reconcileCommunityWsReconnect(capturedQueryClient)
 
     expect(capturedQueryClient.getQueryState(communityKeys.bots())?.isInvalidated).toBe(true)
+  })
+
+  it("keeps the authenticated viewer online while resetting stale peer presence", async () => {
+    const { reconcileCommunityWsReconnect } = await import("./reconnect")
+    const { useCommunityWsStore } = await import("@/stores/community/ws")
+    const profiles = useCommunityWsStore.getState()
+    profiles.patchProfiles(profiles.beginProfileSnapshot(), [
+      { id: "self", presence: "online" },
+      { id: "peer", presence: "online" },
+    ])
+
+    await reconcileCommunityWsReconnect(capturedQueryClient, 0, {
+      viewerUserId: "self",
+    })
+
+    expect(useCommunityWsStore.getState().profilesByUserId.get("self")?.presence)
+      .toBe("online")
+    expect(useCommunityWsStore.getState().profilesByUserId.get("peer")?.presence)
+      .toBe("offline")
   })
 
   it("reports identity reconciliation failure when an active identity invalidation rejects", async () => {
@@ -475,21 +503,26 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     expect(telemetry.complete).toHaveBeenCalledWith(summary)
   })
 
-  it("isolates a synchronous policy throw and reports only the stable policy key", async () => {
+  it("isolates a policy rejection and reports only the stable policy key", async () => {
     const { reconcileCommunityWsReconnect } = await import("./reconnect")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
-    const originalResetPresence = useCommunityWsStore.getState().resetPresence
+    const originalPatchProfiles = useCommunityWsStore.getState().patchProfiles
+    let patchCallCount = 0
     useCommunityWsStore.setState({
-      resetPresence: () => { throw new Error("private sync detail") },
+      patchProfiles: (...args) => {
+        patchCallCount += 1
+        if (patchCallCount === 1) throw new Error("private sync detail")
+        return originalPatchProfiles(...args)
+      },
     })
 
     const summary = await reconcileCommunityWsReconnect(capturedQueryClient, 10)
-    useCommunityWsStore.setState({ resetPresence: originalResetPresence })
+    useCommunityWsStore.setState({ patchProfiles: originalPatchProfiles })
 
     expect(summary).toMatchObject({ policyCount: 15, successCount: 14, failureCount: 1 })
     expect(telemetry.failure).toHaveBeenCalledWith({
       policy: "presence-overlay",
-      reason: "sync-throw",
+      reason: "async-rejection",
     })
     expect(JSON.stringify(telemetry.failure.mock.calls)).not.toContain("private sync detail")
   })
@@ -513,12 +546,20 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
   it("resets presence and status overlays before authoritative invalidation starts", async () => {
     const { reconcileCommunityWsReconnect } = await import("./reconnect")
     const { useCommunityWsStore } = await import("@/stores/community/ws")
-    const originalResetPresence = useCommunityWsStore.getState().resetPresence
-    const originalResetUserStatuses = useCommunityWsStore.getState().resetUserStatuses
+    const store = useCommunityWsStore.getState()
+    store.patchProfiles(store.beginProfileSnapshot(), [{
+      id: "peer",
+      presence: "online",
+      status: { statusEmoji: "🌱", statusText: "Growing" },
+    }])
+    const originalPatchProfiles = useCommunityWsStore.getState().patchProfiles
     const order: string[] = []
     useCommunityWsStore.setState({
-      resetPresence: () => { order.push("presence-reset") },
-      resetUserStatuses: () => { order.push("status-reset") },
+      patchProfiles: (_snapshot, patches) => {
+        if (patches.some((patch) => patch.presence !== undefined)) order.push("presence-reset")
+        if (patches.some((patch) => patch.status !== undefined)) order.push("status-reset")
+        return true
+      },
     })
     const originalInvalidate = capturedQueryClient.invalidateQueries.bind(capturedQueryClient)
     vi.spyOn(capturedQueryClient, "invalidateQueries").mockImplementation((filters, options) => {
@@ -532,8 +573,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
 
     await reconcileCommunityWsReconnect(capturedQueryClient)
     useCommunityWsStore.setState({
-      resetPresence: originalResetPresence,
-      resetUserStatuses: originalResetUserStatuses,
+      patchProfiles: originalPatchProfiles,
     })
 
     expect(order.slice(0, 2)).toEqual(["presence-reset", "status-reset"])
@@ -574,6 +614,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const gates = new Map<string, { promise: Promise<void>; resolve: () => void }>()
     const started: string[] = []
     vi.spyOn(capturedQueryClient, "invalidateQueries").mockImplementation((filters) => {
+      if (filters.predicate) return Promise.resolve()
       const key = JSON.stringify(filters.queryKey)
       started.push(key)
       let resolve!: () => void

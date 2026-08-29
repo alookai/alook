@@ -34,6 +34,7 @@ import {
   type MobileReplyGesture,
 } from "./mobile-message-gesture"
 import { useMobileAvatarMention } from "./use-mobile-avatar-mention"
+import { useCommunityProfile } from "@/stores/community/ws"
 
 // Whether the "Share as Image" action is offered for a message. Share is
 // computed inside `Message` from the message alone (no handler is threaded in),
@@ -160,6 +161,17 @@ function MessageImpl({
   // default without subscribing at all.
   hoverCapable?: boolean
 }) {
+  const authorProfile = useCommunityProfile(m.authorId)
+  const replyAuthorProfile = useCommunityProfile(m.replyTo?.authorId)
+  const authorName = m.authorId
+    ? (authorProfile?.name ?? "Unknown")
+    : (m.authorName ?? "Unknown")
+  const authorAvatar = m.authorId
+    ? (authorProfile?.avatar ?? avatarInitial(authorName))
+    : (m.authorAvatar ?? avatarInitial(authorName))
+  const replyAuthorName = m.replyTo?.authorId
+    ? (replyAuthorProfile?.name ?? "Unknown")
+    : (m.replyTo?.authorName ?? "Unknown")
   const visibleContent = displayReplyContent(m.content ?? "", m.replyTo)
   // keep the hover toolbar pinned open while its ⋯ dropdown is open
   const [toolbarOpen, setToolbarOpen] = useState(false)
@@ -177,7 +189,7 @@ function MessageImpl({
   const avatarMention = useMobileAvatarMention({
     onMention: onMentionAuthor,
     onProfileClick: (event) => {
-      onOpenProfile?.(m.authorName ?? "", event, undefined, m.authorId)
+      onOpenProfile?.(authorName, event, undefined, m.authorId)
     },
   })
   // The Mark/Unmark label needs to know if THIS message is already in the
@@ -450,7 +462,7 @@ function MessageImpl({
             <span className="italic text-muted-foreground">Original message was deleted</span>
           ) : (
             <>
-              <span className="shrink-0 font-medium text-foreground/80">@{m.replyTo.authorName}</span>
+              <span className="shrink-0 font-medium text-foreground/80">@{replyAuthorName}</span>
               <span className="min-w-0 truncate">{stripInlineMarkup(m.replyTo.text)}</span>
             </>
           )}
@@ -465,21 +477,21 @@ function MessageImpl({
             {...avatarMention}
             className="shrink-0 self-start"
             aria-label={onMentionAuthor
-              ? `Open ${m.authorName ?? "member"} profile; long press to mention`
+              ? `Open ${authorName} profile; long press to mention`
               : undefined}
           >
-            <Avatar label={m.authorAvatar ?? "?"} seed={m.authorId} size={40} />
+            <Avatar label={authorAvatar} seed={m.authorId} size={40} />
           </button>
         )}
         <div className="min-w-0 flex-1">
           {!m.grouped && (
             <div className="flex items-baseline gap-2">
               <button
-                onClick={(e) => onOpenProfile?.(m.authorName ?? "", e, undefined, m.authorId)}
+                onClick={(e) => onOpenProfile?.(authorName, e, undefined, m.authorId)}
                 className="min-w-0 max-w-full truncate text-[15px] font-semibold hover:underline"
                 style={{ color: m.color ?? "var(--foreground)" }}
               >
-                {m.authorName}
+                {authorName}
               </button>
               <span className="shrink-0 text-xs text-muted-foreground" suppressHydrationWarning>{formatMessageTime(m.createdAt)}</span>
             </div>
@@ -759,8 +771,6 @@ function messagePropsEqual(prev: MessageProps, next: MessageProps): boolean {
       a.grouped !== b.grouped ||
       a.failed !== b.failed ||
       a.authorId !== b.authorId ||
-      a.authorName !== b.authorName ||
-      a.authorAvatar !== b.authorAvatar ||
       a.color !== b.color ||
       a.createdAt !== b.createdAt ||
       a.reactions !== b.reactions ||

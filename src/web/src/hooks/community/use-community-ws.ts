@@ -57,7 +57,7 @@ export type {
  * is driven by the reconciliation table in `plans/21-community-tech-debt-pass-2.md`.
  *
  * State this hook owns *outside* the query cache:
- * - `useCommunityWsStore.onlineUserIds` — presence set, WS-only.
+ * - `useCommunityWsStore.profilesByUserId` — canonical user profile facts.
  * - `useCommunityWsStore.seenMessageIds` — dedup for `message.create`.
  * - `useCommunityStore.typingByScope` + `typingTimers` — typing indicator,
  *   keyed by conversation scope with per-(scope, user) auto-expire timers.
@@ -223,10 +223,20 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
   const viewerUserId = options?.viewerUserId ?? null
   viewerUserIdRef.current = viewerUserId
   useEffect(() => {
-    useCommunityWsStore.getState().bindIdentityOwner(viewerUserId)
+    const store = useCommunityWsStore.getState()
+    const profileAccountEpoch = store.activateProfileAccount(viewerUserId)
+    if (viewerUserId) {
+      store.patchProfiles(store.beginProfileSnapshot(), [{
+        id: viewerUserId,
+        presence: "online",
+      }])
+    }
     return () => {
       const store = useCommunityWsStore.getState()
-      if (store.identityOwnerUserId === viewerUserId) store.bindIdentityOwner(null)
+      if (
+        store.profileViewerId === viewerUserId
+        && store.profileAccountEpoch === profileAccountEpoch
+      ) store.activateProfileAccount(null)
     }
   }, [viewerUserId])
 
@@ -479,14 +489,22 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
     try {
       await reconcileCommunityWsReconnect(queryClient, reconnectDurationMs, {
         excludePolicies: ["inbox-dms"],
-        identityOwnerUserId: viewerUserIdRef.current,
+        viewerUserId: viewerUserIdRef.current,
       })
     } finally {
       scheduleInboxInvalidate({ inbox: true, dms: true })
     }
   }, [queryClient, scheduleInboxInvalidate])
   const handleAuthenticated = useCallback(async () => {
-    useCommunityWsStore.getState().markAccessConnected()
+    const store = useCommunityWsStore.getState()
+    store.markAccessConnected()
+    const viewerId = viewerUserIdRef.current
+    if (viewerId) {
+      store.patchProfiles(store.beginProfileSnapshot(), [{
+        id: viewerId,
+        presence: "online",
+      }])
+    }
     const firstAuthentication = !hasAuthenticatedRef.current
     hasAuthenticatedRef.current = true
     if (firstAuthentication) {

@@ -73,7 +73,7 @@ const bot = (overrides: Partial<BotSummary> = {}): BotSummary => ({
 function controller(overrides: Partial<BotListController> = {}): BotListController {
   const noop = vi.fn()
   return {
-    onlineUserIds: new Set(),
+    profilesByUserId: new Map(),
     collapsedMachines: new Set(),
     setCollapsedMachines: noop,
     setConfirmResetMachine: noop,
@@ -160,7 +160,7 @@ describe("renderBotMachineGroup", () => {
     act(() => {
       renderer = TestRenderer.create(renderBotMachineGroup(
         group({ machine: { id: "mac1", displayName: "My Mac", status: "online" } as BotMachineGroup["machine"] }),
-        controller({ onlineUserIds: new Set(), setConfirmResetMachine }),
+        controller({ profilesByUserId: new Map(), setConfirmResetMachine }),
       ))
     })
     expect(renderer.root.findAll((node) =>
@@ -175,7 +175,7 @@ describe("renderBotMachineGroup", () => {
     act(() => {
       renderer.update(renderBotMachineGroup(
         group({ machine: { id: "mac1", displayName: "My Mac", status: "offline" } as BotMachineGroup["machine"] }),
-        controller({ onlineUserIds: new Set(), setConfirmResetMachine }),
+        controller({ profilesByUserId: new Map(), setConfirmResetMachine }),
       ))
     })
     expect(renderer.root.findAll((node) =>
@@ -262,7 +262,7 @@ describe("renderBotMachineGroup", () => {
     act(() => {
       renderer = TestRenderer.create(renderBotMachineGroup(
         group(),
-        controller({ onlineUserIds: new Set(["b1"]) }),
+        controller({ profilesByUserId: new Map([["b1", { id: "b1", presence: "online" }]]) }),
       ))
     })
     expect(renderer.root.findAll((node) => node.children.includes("Online"))).not.toHaveLength(0)
@@ -392,12 +392,15 @@ describe("renderBotMachineGroup", () => {
     expect(setConfirmDelete).toHaveBeenCalledWith(item)
   })
 
-  it("uses onlineUserIds for bot status and omits reconnect for unknown machines", () => {
+  it("uses the global profile for bot status and omits reconnect for unknown machines", () => {
     let renderer!: TestRenderer.ReactTestRenderer
     act(() => {
       renderer = TestRenderer.create(renderBotMachineGroup(
         group({ machine: null }),
-        controller({ onlineUserIds: new Set(["b1"]), machineName: () => "Unknown machine" }),
+        controller({
+          profilesByUserId: new Map([["b1", { id: "b1", presence: "online" }]]),
+          machineName: () => "Unknown machine",
+        }),
       ))
     })
     expect(renderer.root.findAll((node) => node.children.includes("Online"))).not.toHaveLength(0)

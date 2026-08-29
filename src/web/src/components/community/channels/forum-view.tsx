@@ -23,6 +23,8 @@ import { useVirtualCursorSentinel } from "@/hooks/community/use-virtual-cursor-s
 import { tagColorClassName, tagColorStyle } from "@/lib/community/tag-color"
 import { cn } from "@/lib/utils"
 import { FORUM_ARCHIVE_TAG } from "@alook/shared"
+import { useProfilesByUserId } from "@/stores/community/ws"
+import { readCommunityProfile } from "@/lib/community/profile-read"
 
 const MAX_AVATARS = 5
 const MAX_VISIBLE_TAGS = 2
@@ -221,6 +223,7 @@ export function ForumView({
   deletingPost?: string | null
   onScrollRoot?: (node: HTMLDivElement | null) => void
 }) {
+  const profilesByUserId = useProfilesByUserId()
   const [composing, setComposing] = useState(false)
   const [deletingFor, setDeletingFor] = useState<ForumThread | null>(null)
   const [tagFades, setTagFades] = useState({ left: false, right: false })
@@ -419,6 +422,10 @@ export function ForumView({
               renderItem={(p, index) => {
               const canEdit = !!onEditPostTags && (canEditPostTags?.(p) ?? false)
               const canDelete = !!onDeletePost && (canDeletePost?.(p) ?? false)
+              const author = readCommunityProfile(
+                profilesByUserId.get(p.authorId),
+                p.authorId,
+              )
               const others = p.participants.filter((m) => m.id !== p.authorId)
               const shown = others.slice(0, MAX_AVATARS)
               const participantTotal = p.participantCount ?? others.length + 1
@@ -490,8 +497,8 @@ export function ForumView({
                   </div>
                   <p className="mb-2.25 mt-0.75 line-clamp-2 text-[13.5px] text-muted-foreground">{p.preview}</p>
                   <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted-foreground">
-                    <Avatar label={p.authorAvatar} seed={p.authorId} size={20} />
-                    <span className="shrink-0 font-medium text-foreground" suppressHydrationWarning>{p.parent.authorName || "Unknown"}</span>
+                    <Avatar label={author.avatar} seed={p.authorId} size={20} />
+                    <span className="shrink-0 font-medium text-foreground" suppressHydrationWarning>{author.name}</span>
                     <span className="shrink-0" aria-hidden>·</span>
                     <span className="shrink-0" suppressHydrationWarning>{formatRelativeTime(p.lastMessageAt)}</span>
                     {p.tags.length > 0 && <span className="shrink-0 max-sm:hidden" aria-hidden>·</span>}
@@ -499,9 +506,15 @@ export function ForumView({
                     <span className="ml-auto flex shrink-0 items-center gap-2">
                       {others.length > 0 && (
                         <AvatarGroup className="-space-x-1.25" data-testid={tid.forumThreadAvatars(p.id)}>
-                          {shown.map((member) => (
-                            <Avatar key={member.id} label={member.avatar} seed={member.id} size={19} ringColor="var(--background)" />
-                          ))}
+                          {shown.map((member) => {
+                            const profile = readCommunityProfile(
+                              profilesByUserId.get(member.id),
+                              member.id,
+                            )
+                            return (
+                              <Avatar key={member.id} label={profile.avatar} seed={member.id} size={19} ringColor="var(--background)" />
+                            )
+                          })}
                           {overflow > 0 && <AvatarGroupCount className="size-4.75 text-[10px]">+{overflow}</AvatarGroupCount>}
                         </AvatarGroup>
                       )}

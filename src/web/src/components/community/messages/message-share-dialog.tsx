@@ -15,6 +15,8 @@ import { tid } from "@/lib/community/testids"
 import { applyHighlightToRange, clearHighlights, hasHighlights } from "@/lib/community/highlight-range"
 import type { RenderMsg } from "@/lib/community/models/message"
 import { displayReplyContent } from "@/lib/community/reply-content"
+import { useProfilesByUserId } from "@/stores/community/ws"
+import { readCommunityProfile } from "@/lib/community/profile-read"
 
 const SHARE_IMAGE_READY_TIMEOUT_MS = 5_000
 
@@ -112,6 +114,7 @@ export function MessageShareDialog({ m, open, onClose }: {
   onClose: () => void
 }) {
   const messages = useMemo(() => (Array.isArray(m) ? m : [m]), [m])
+  const profilesByUserId = useProfilesByUserId()
   const cardRef = useRef<HTMLDivElement>(null)
   // One body wrapper per message — highlight operations are scoped to the body
   // the drag happened in, so a drag never wraps the avatar/name/footer OR bleeds
@@ -212,7 +215,11 @@ export function MessageShareDialog({ m, open, onClose }: {
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `alook-message-${messages[0]?.authorName ?? "share"}.png`
+      const firstAuthorId = messages[0]?.authorId
+      const firstAuthor = firstAuthorId
+        ? readCommunityProfile(profilesByUserId.get(firstAuthorId), firstAuthorId)
+        : null
+      a.download = `alook-message-${firstAuthor?.name ?? "share"}.png`
       a.click()
       URL.revokeObjectURL(url)
     } catch {
@@ -252,6 +259,15 @@ export function MessageShareDialog({ m, open, onClose }: {
             className="rounded-xl bg-card p-5 shadow-(--e1)"
           >
             {messages.map((msg) => {
+              const author = msg.authorId
+                ? readCommunityProfile(profilesByUserId.get(msg.authorId), msg.authorId)
+                : null
+              const replyAuthor = msg.replyTo?.authorId
+                ? readCommunityProfile(
+                    profilesByUserId.get(msg.replyTo.authorId),
+                    msg.replyTo.authorId,
+                  )
+                : null
               const visibleContent = displayReplyContent(msg.content ?? "", msg.replyTo)
               return (
                 <div key={msg.id} className={msg.grouped ? "mt-0.5" : "mt-3 first:mt-0"}>
@@ -265,7 +281,7 @@ export function MessageShareDialog({ m, open, onClose }: {
                       <span className="italic">Original message was deleted</span>
                     ) : (
                       <>
-                        <span className="shrink-0 font-medium text-foreground/80">@{msg.replyTo.authorName}</span>
+                        <span className="shrink-0 font-medium text-foreground/80">@{replyAuthor?.name ?? msg.replyTo.authorName}</span>
                         <span className="min-w-0 truncate">{stripInlineMarkup(msg.replyTo.text)}</span>
                       </>
                     )}
@@ -274,14 +290,21 @@ export function MessageShareDialog({ m, open, onClose }: {
                 <div className="flex gap-3">
                   {msg.grouped
                     ? <div className="w-10 shrink-0" aria-hidden />
-                    : <Avatar label={msg.authorName ?? "Unknown"} src={msg.authorAvatar} seed={msg.authorId} size={40} />}
+                    : (
+                        <Avatar
+                          label={author?.name ?? msg.authorName ?? "Unknown"}
+                          src={author?.avatar}
+                          seed={msg.authorId}
+                          size={40}
+                        />
+                      )}
                   <div className="min-w-0 flex-1">
                     {!msg.grouped && (
                       <div
                         className="mb-0.5 text-[15px] font-semibold"
                         style={{ color: msg.color ?? "var(--foreground)" }}
                       >
-                        {msg.authorName}
+                        {author?.name ?? msg.authorName}
                       </div>
                     )}
                     {/* Each body: clamp at 32 lines (Alli #137 — one number for

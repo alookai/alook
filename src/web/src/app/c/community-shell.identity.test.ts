@@ -7,48 +7,16 @@ type TestUser = {
   name: string
   email: string
   avatar: string
-  avatarVersion?: number
-  aboutMe?: string
-  discriminator?: string
-  statusEmoji?: string | null
-  statusText?: string | null
-}
-
-type ProfileResponse = {
-  id?: string
-  aboutMe: string
-  avatar: string
-  avatarVersion: number
-  discriminator: string
-  name: string
-  statusEmoji: string | null
-  statusText: string
 }
 
 let activeUser: TestUser = { id: "user-a", name: "A", email: "a@example.com", avatar: "A" }
 let providerInstance = 0
 const renderedProviders: Array<{ userId: string | null; instance: number }> = []
-const { apiFetch } = vi.hoisted(() => ({
-  apiFetch: vi.fn<() => Promise<ProfileResponse>>(),
-}))
-const setCurrentUser = vi.fn((updater: (user: TestUser) => TestUser) => {
-  activeUser = updater(activeUser)
-})
-const queryClient = {
-  setQueriesData: vi.fn(),
-  invalidateQueries: vi.fn(),
-}
-
-vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => queryClient,
-}))
+const apiFetchProfiles = vi.hoisted(() => vi.fn(() => Promise.resolve({})))
 
 vi.mock("./QueryProvider", () => ({
   QueryProvider: ({ children, userId }: { children: React.ReactNode; userId: string | null }) => {
-    const [instance] = useState(() => {
-      providerInstance += 1
-      return providerInstance
-    })
+    const [instance] = useState(() => ++providerInstance)
     renderedProviders.push({ userId, instance })
     return children
   },
@@ -56,32 +24,31 @@ vi.mock("./QueryProvider", () => ({
 vi.mock("@/contexts/community/current-user", () => ({
   CurrentUserProvider: ({ children }: { children: React.ReactNode }) => children,
   useCurrentUser: () => activeUser,
-  useSetCurrentUser: () => setCurrentUser,
 }))
 vi.mock("@/hooks/community/use-community-ws", () => ({ useCommunityWs: vi.fn() }))
-vi.mock("@/lib/api/client", () => ({ apiFetch }))
+vi.mock("@/lib/community/profile-seed", () => ({
+  apiFetchProfiles: (...args: unknown[]) => apiFetchProfiles(...args),
+}))
 vi.mock("@/components/perf/perf-trace-bootstrap", () => ({ PerfTraceBootstrap: () => null }))
 vi.mock("@/components/community/onboarding/community-onboarding-guide", () => ({
   CommunityOnboardingGuide: () => null,
 }))
+vi.mock("@/components/community/shell/community-ws-reconnect-overlay", () => ({
+  CommunityWsReconnectBoundary: ({ children }: { children: React.ReactNode }) => children,
+}))
 
 import { CommunityShell } from "./community-shell"
-import { useCommunityWsStore } from "@/stores/community/ws"
 
 beforeEach(() => {
   activeUser = { id: "user-a", name: "A", email: "a@example.com", avatar: "A" }
   providerInstance = 0
   renderedProviders.length = 0
-  apiFetch.mockReset()
-  apiFetch.mockImplementation(() => new Promise(() => undefined))
-  setCurrentUser.mockClear()
-  queryClient.setQueriesData.mockReset()
-  queryClient.invalidateQueries.mockReset()
-  useCommunityWsStore.getState().reset()
+  apiFetchProfiles.mockReset()
+  apiFetchProfiles.mockResolvedValue({})
 })
 
 describe("CommunityShell identity boundary", () => {
-  it("remounts the in-memory query client boundary when the signed-in user changes", () => {
+  it("remounts the in-memory query boundary when the signed-in user changes", () => {
     let renderer!: TestRenderer.ReactTestRenderer
     act(() => {
       renderer = TestRenderer.create(React.createElement(
@@ -90,7 +57,7 @@ describe("CommunityShell identity boundary", () => {
         React.createElement("span", null, "content"),
       ))
     })
-    const userAInstance = renderedProviders.at(-1)?.instance
+    expect(renderedProviders.at(-1)).toEqual({ userId: "user-a", instance: 1 })
 
     activeUser = { id: "user-b", name: "B", email: "b@example.com", avatar: "B" }
     act(() => {
@@ -100,24 +67,11 @@ describe("CommunityShell identity boundary", () => {
         React.createElement("span", null, "content"),
       ))
     })
-
     expect(renderedProviders.at(-1)).toEqual({ userId: "user-b", instance: 2 })
-    expect(userAInstance).toBe(1)
     renderer.unmount()
   })
 
-  it("hydrates a stale session name from the canonical self profile", async () => {
-    activeUser = { id: "user-a", name: "Alice", email: "a@example.com", avatar: "old-avatar" }
-    apiFetch.mockResolvedValueOnce({
-      aboutMe: "hello",
-      avatar: "new-avatar",
-      avatarVersion: 3,
-      discriminator: "4242",
-      name: "Jane Roe",
-      statusEmoji: "🌱",
-      statusText: "Growing",
-    })
-
+  it("loads the canonical self profile through the typed seeding boundary", async () => {
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
       renderer = TestRenderer.create(React.createElement(
@@ -128,92 +82,30 @@ describe("CommunityShell identity boundary", () => {
       await Promise.resolve()
     })
 
-    expect(apiFetch).toHaveBeenCalledWith("/api/community/users/me/profile")
-    expect(setCurrentUser).toHaveBeenCalledOnce()
-    expect(activeUser).toMatchObject({
-      name: "Jane Roe",
-      aboutMe: "hello",
-      avatar: "new-avatar",
-      avatarVersion: 3,
-      discriminator: "4242",
-      statusEmoji: "🌱",
-      statusText: "Growing",
-    })
-    renderer.unmount()
-  })
-
-  it("preserves the session name when the self profile has no canonical name", async () => {
-    activeUser = { id: "user-a", name: "Alice", email: "a@example.com", avatar: "old-avatar" }
-    apiFetch.mockResolvedValueOnce({
-      aboutMe: "hello",
-      avatar: "",
-      avatarVersion: 0,
-      discriminator: "4242",
-      name: "",
-      statusEmoji: null,
-      statusText: "",
-    })
-
-    let renderer!: TestRenderer.ReactTestRenderer
-    await act(async () => {
-      renderer = TestRenderer.create(React.createElement(
-        CommunityShell,
-        { currentUser: activeUser },
-        React.createElement("span", null, "content"),
-      ))
-      await Promise.resolve()
-    })
-
-    expect(activeUser).toMatchObject({
-      name: "Alice",
-      aboutMe: "hello",
-      avatar: "old-avatar",
-      discriminator: "4242",
-      statusEmoji: null,
-      statusText: "",
-    })
-    renderer.unmount()
-  })
-
-  it("projects an identity discovered by HTTP across already-cached messages", async () => {
-    useCommunityWsStore.getState().bindIdentityOwner("user-a")
-    const cached = {
-      id: "m1",
-      authorId: "user-a",
-      authorAvatar: "/api/community/users/user-a/avatar?v=1",
-      authorAvatarVersion: 1,
-    }
-    let projected: unknown
-    queryClient.setQueriesData.mockImplementation((_filters, updater) => {
-      projected = updater(cached)
-      return []
-    })
-    apiFetch.mockResolvedValueOnce({
+    expect(apiFetchProfiles).toHaveBeenCalledWith(
+      "/api/community/users/me/profile",
+      expect.any(Function),
+    )
+    const mapProfile = apiFetchProfiles.mock.calls[0]![1] as (profile: Record<string, unknown>) => unknown
+    expect(mapProfile({
       id: "user-a",
-      aboutMe: "hello",
-      avatar: "/api/community/users/user-a/avatar?v=6",
-      avatarVersion: 6,
+      name: "Jane Roe",
       discriminator: "4242",
-      name: "Alice",
+      aboutMe: "hello",
+      avatar: "new-avatar",
+      avatarVersion: 3,
       statusEmoji: null,
       statusText: "",
-    })
-
-    let renderer!: TestRenderer.ReactTestRenderer
-    await act(async () => {
-      renderer = TestRenderer.create(React.createElement(
-        CommunityShell,
-        { currentUser: activeUser },
-        React.createElement("span", null, "content"),
-      ))
-      await Promise.resolve()
-      await Promise.resolve()
-    })
-
-    expect(projected).toMatchObject({
-      authorAvatar: "/api/community/users/user-a/avatar?v=6",
-      authorAvatarVersion: 6,
-    })
+    })).toEqual([{
+      id: "user-a",
+      identityAbout: {
+        name: "Jane Roe",
+        discriminator: "4242",
+        aboutMe: "hello",
+      },
+      avatar: { avatar: "new-avatar", avatarVersion: 3 },
+      status: { statusEmoji: null, statusText: "" },
+    }])
     renderer.unmount()
   })
 })
