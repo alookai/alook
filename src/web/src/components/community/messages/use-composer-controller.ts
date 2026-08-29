@@ -12,7 +12,7 @@ import { useEditor, type JSONContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import Placeholder from "@tiptap/extension-placeholder"
 import { DOMParser as PMDOMParser } from "@tiptap/pm/model"
-import { MAX_ATTACHMENT_SIZE_BYTES } from "@alook/shared"
+import { MAX_ATTACHMENTS_PER_MESSAGE, MAX_ATTACHMENT_SIZE_BYTES } from "@alook/shared"
 import { useFileAttachments } from "@/hooks/use-file-attachments"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import {
@@ -66,7 +66,9 @@ export function useComposerController(
   useLayoutEffect(() => {
     breakpointRef.current = breakpoint
   }, [breakpoint])
-  const attachments = useFileAttachments({ maxFileSize: MAX_ATTACHMENT_SIZE_BYTES, thumbnailPolicy: "community" })
+  const attachments = useFileAttachments({ maxFileSize: MAX_ATTACHMENT_SIZE_BYTES,
+    maxFiles: MAX_ATTACHMENTS_PER_MESSAGE, thumbnailPolicy: "community",
+    draftSessionScope: isForumThreadBody ? undefined : draftKey })
   const {
     pendingFiles,
     setPendingFiles,

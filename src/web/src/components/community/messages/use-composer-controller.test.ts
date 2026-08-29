@@ -12,6 +12,14 @@ const mocks = vi.hoisted(() => ({
   writeDraft: vi.fn(),
   detectMentionType: vi.fn(),
   addPendingFiles: vi.fn(),
+  restorePendingFiles: vi.fn(),
+  appendAttachmentSession: vi.fn(),
+  clearAttachmentSession: vi.fn(),
+  readAttachmentSession: vi.fn(),
+  removeAttachmentFiles: vi.fn(),
+  transferAttachmentSession: vi.fn(),
+  toastInfo: vi.fn(),
+  toastError: vi.fn(),
   starterConfigure: vi.fn(),
   placeholderConfigure: vi.fn(),
   buildPasteDom: vi.fn(),
@@ -49,6 +57,19 @@ vi.mock("@/lib/community/composer-draft", () => ({
   clearComposerDraft: (...args: unknown[]) => mocks.clearDraft(...args),
   readComposerDraft: (...args: unknown[]) => mocks.readDraft(...args),
   writeComposerDraft: (...args: unknown[]) => mocks.writeDraft(...args),
+}))
+vi.mock("@/lib/community/composer-attachment-session", () => ({
+  appendComposerAttachmentSession: (...args: unknown[]) => mocks.appendAttachmentSession(...args),
+  clearComposerAttachmentSession: (...args: unknown[]) => mocks.clearAttachmentSession(...args),
+  readComposerAttachmentSession: (...args: unknown[]) => mocks.readAttachmentSession(...args),
+  removeComposerAttachmentSessionFiles: (...args: unknown[]) => mocks.removeAttachmentFiles(...args),
+  transferComposerAttachmentSession: (...args: unknown[]) => mocks.transferAttachmentSession(...args),
+}))
+vi.mock("sonner", () => ({
+  toast: {
+    info: (...args: unknown[]) => mocks.toastInfo(...args),
+    error: (...args: unknown[]) => mocks.toastError(...args),
+  },
 }))
 vi.mock("@/lib/community/mention-extension", () => ({
   detectMentionType: (...args: unknown[]) => mocks.detectMentionType(...args),
@@ -181,6 +202,7 @@ describe("useComposerController", () => {
       pendingFiles,
       setPendingFiles,
       transferPendingFiles,
+      restorePendingFiles: mocks.restorePendingFiles,
       awaitPendingFiles,
       addPendingFiles: mocks.addPendingFiles,
       fileInputRef: { current: { click: filePickerClick } },
@@ -205,6 +227,9 @@ describe("useComposerController", () => {
     }))
     mocks.detectMentionType.mockReturnValue("everyone")
     mocks.readDraft.mockReturnValue(null)
+    mocks.readAttachmentSession.mockReturnValue([])
+    mocks.appendAttachmentSession.mockReturnValue({ accepted: true, evictedScopes: 0 })
+    mocks.restorePendingFiles.mockResolvedValue(undefined)
     mocks.breakpoint = "desktop"
   })
 
@@ -246,10 +271,12 @@ describe("useComposerController", () => {
       TestRenderer.create(createElement(Harness, acceptedProps(vi.fn(() => true))))
     })
 
-    expect(mocks.useFileAttachments).toHaveBeenCalledWith({
+    expect(mocks.useFileAttachments).toHaveBeenCalledWith(expect.objectContaining({
       maxFileSize: 25 * 1024 * 1024,
+      maxFiles: 10,
       thumbnailPolicy: "community",
-    })
+      draftSessionScope: "server/channel",
+    }))
   })
 
   it("forwards the optional channel source into suggestions and its presentation into the view", async () => {
@@ -497,6 +524,29 @@ describe("useComposerController", () => {
     ).toBe(true)
     const afterResetFile = mocks.addPendingFiles.mock.calls.at(-1)?.[0][0] as File
     expect(afterResetFile.name).toBe("copy-1.md")
+  })
+
+  it("passes the canonical channel and DM draft scopes into the attachment hook", async () => {
+    let renderer!: TestRenderer.ReactTestRenderer
+    const accept = vi.fn(() => true)
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(Harness, acceptedProps(accept)))
+    })
+    expect(mocks.useFileAttachments).toHaveBeenLastCalledWith(expect.objectContaining({
+      draftSessionScope: "server/channel",
+    }))
+
+    await act(async () => {
+      renderer.update(createElement(Harness, {
+        ...acceptedProps(accept),
+        channel: "person",
+        context: "dm",
+        draftKey: "dm/person",
+      }))
+    })
+    expect(mocks.useFileAttachments).toHaveBeenLastCalledWith(expect.objectContaining({
+      draftSessionScope: "dm/person",
+    }))
   })
 
   it("skips long-paste names already used by pending files", async () => {

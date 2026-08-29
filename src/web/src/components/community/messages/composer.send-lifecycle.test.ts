@@ -93,6 +93,7 @@ describe("Composer committed send lifecycle", () => {
       pendingFiles,
       setPendingFiles: vi.fn(),
       transferPendingFiles,
+      restorePendingFiles: vi.fn(),
       awaitPendingFiles,
       addPendingFiles: vi.fn(),
       fileInputRef: { current: null },
