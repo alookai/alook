@@ -24,7 +24,7 @@ afterEach(() => {
 });
 
 describe("DailyTokenUsageStore", () => {
-  it("serializes concurrent bot updates into one 0600 atomic file", async () => {
+  it("serializes concurrent bot updates into one atomic file", async () => {
     const root = mkdtempSync(join(tmpdir(), "alook-token-usage-"));
     roots.push(root);
     const now = new Date("2026-08-29T01:00:00Z");
@@ -43,8 +43,15 @@ describe("DailyTokenUsageStore", () => {
         cache: 3,
       },
     }]);
-    expect((statSync(join(root, ".telemetry", "daily-token-usage.json")).mode & 0o777)).toBe(0o600);
     expect(readdirSync(join(root, ".telemetry"))).toEqual(["daily-token-usage.json"]);
+  });
+
+  it.skipIf(process.platform === "win32")("writes the atomic file with 0600 permissions", async () => {
+    const root = mkdtempSync(join(tmpdir(), "alook-token-usage-mode-"));
+    roots.push(root);
+    const store = new DailyTokenUsageStore(root, () => new Date("2026-08-29T01:00:00Z"));
+    await store.record("bot", delta(1, 2, 3));
+    expect(statSync(join(root, ".telemetry", "daily-token-usage.json")).mode & 0o777).toBe(0o600);
   });
 
   it("retains complete snapshots across restart and UTC rollover", async () => {
