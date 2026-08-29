@@ -150,21 +150,10 @@ export function ShellFrameView({
               )}
             >
               {checkpoint.main.kind === "target-skeleton" || isInitial ? (
-                isInitialDetail ? (
-                  <>
-                    <div className="flex min-h-0 flex-1 sm:hidden">
-                      <CommunityPendingFrame href={checkpoint.targetHref} reserveBackSlot />
-                    </div>
-                    <div className="hidden min-h-0 flex-1 sm:flex">
-                      <CommunityPendingFrame href={checkpoint.targetHref} />
-                    </div>
-                  </>
-                ) : (
-                  <CommunityPendingFrame
-                    href={checkpoint.targetHref}
-                    reserveBackSlot={isMobileDetail}
-                  />
-                )
+                <CommunityPendingFrame
+                  href={checkpoint.targetHref}
+                  reserveBackSlot={surface === "detail"}
+                />
               ) : children}
             </ResizablePanel>
           </ResizablePanelGroup>

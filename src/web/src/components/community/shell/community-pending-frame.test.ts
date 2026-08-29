@@ -65,6 +65,15 @@ describe("CommunityPendingFrame", () => {
     expect(channel.root.findByType("channel-skeleton").props).toEqual({})
 
     const serverRoot = render("/c/channels/s1")
-    expect(serverRoot.root.findByType("channel-skeleton").props).toEqual({})
+    expect(serverRoot.root.findByProps({ "aria-label": "Loading server" }).props["aria-busy"])
+      .toBe("true")
+  })
+
+  it("uses a neutral route-resolution frame for malformed paths", () => {
+    const renderer = render(["/c/channels/s1/c1", "extra"].join("/"))
+    expect(renderer.root.findByProps({ "aria-label": "Resolving community route" }))
+      .toBeDefined()
+    expect(renderer.root.findAllByType("channel-skeleton")).toHaveLength(0)
+    expect(renderer.root.findAllByType("dm-skeleton")).toHaveLength(0)
   })
 })

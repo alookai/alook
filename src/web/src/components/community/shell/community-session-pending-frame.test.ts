@@ -6,19 +6,72 @@ import { describe, expect, it, vi } from "vitest"
 vi.mock("@/components/ui/skeleton", () => ({
   Skeleton: (props: Record<string, unknown>) => createElement("skeleton", props),
 }))
+vi.mock("@/components/ui/app-surface", () => ({
+  AppBackground: (props: Record<string, unknown>) => createElement("app-background", props),
+  AppSurface: (props: Record<string, unknown>) => createElement("app-surface", props),
+}))
+vi.mock("@/components/community/channels/channel-sidebar", () => ({
+  ChannelSidebarSkeleton: (props: Record<string, unknown>) => createElement("server-sidebar", props),
+}))
+vi.mock("@/components/community/channels/dm-sidebar", () => ({
+  DmSidebarSkeleton: (props: Record<string, unknown>) => createElement("me-sidebar", props),
+}))
+vi.mock("./server-rail", () => ({
+  ServerRailSkeleton: (props: Record<string, unknown>) => createElement("rail-skeleton", props),
+}))
+vi.mock("./user-bar", () => ({
+  UserBarSkeleton: (props: Record<string, unknown>) => createElement("user-bar-skeleton", props),
+}))
+vi.mock("./community-pending-frame", () => ({
+  CommunityPendingFrame: (props: Record<string, unknown>) => createElement("pending-main", props),
+}))
 
 import { CommunitySessionPendingFrame } from "./community-session-pending-frame"
 
 describe("CommunitySessionPendingFrame", () => {
-  it("renders a stable inert viewport without community controls", () => {
+  function render(pathname: string) {
     let renderer!: TestRenderer.ReactTestRenderer
     act(() => {
-      renderer = TestRenderer.create(createElement(CommunitySessionPendingFrame))
+      renderer = TestRenderer.create(createElement(CommunitySessionPendingFrame, { pathname }))
     })
+    return renderer
+  }
+
+  it.each([
+    ["/c/me", "me-root", "me-sidebar", "me-root"],
+    ["/c/me/dm_1", "dm-detail", "me-sidebar", "dm"],
+    ["/c/channels/s1", "server-root", "server-sidebar", "server-landing"],
+    ["/c/channels/s1/c1", "server-detail", "server-sidebar", "server-conversation"],
+  ])("renders only route-owned modules for %s", (pathname, route, sidebar, main) => {
+    const renderer = render(pathname)
     const frame = renderer.root.findByProps({ "aria-label": "Loading community" })
     expect(frame.props["aria-busy"]).toBe("true")
-    expect(renderer.root.findAllByType("skeleton").length).toBeGreaterThan(5)
+    expect(frame.props["data-community-route-kind"]).toBe(route)
+    expect(renderer.root.findAllByType("rail-skeleton")).toHaveLength(1)
+    expect(renderer.root.findAllByType(sidebar)).toHaveLength(1)
+    expect(renderer.root.findByType("pending-main").props.plan.main.kind).toBe(main)
+    expect(renderer.root.findAllByType("pending-main")).toHaveLength(1)
+    expect(renderer.root.findAllByType("user-bar-skeleton")).toHaveLength(1)
+    expect(renderer.root.findAllByType("skeleton").length).toBeGreaterThanOrEqual(2)
     expect(renderer.root.findAllByType("button")).toEqual([])
     expect(renderer.root.findAllByType("a")).toEqual([])
+  })
+
+  it("keeps invalid routes neutral instead of guessing account or server ownership", () => {
+    const renderer = render(["/c/channels/s1/c1", "extra"].join("/"))
+    expect(renderer.root.findAllByType("rail-skeleton")).toHaveLength(0)
+    expect(renderer.root.findAllByType("me-sidebar")).toHaveLength(0)
+    expect(renderer.root.findAllByType("server-sidebar")).toHaveLength(0)
+    expect(renderer.root.findAllByType("user-bar-skeleton")).toHaveLength(0)
+    expect(renderer.root.findByType("pending-main").props.plan.main.kind).toBe("route-resolution")
+  })
+
+  it("renders no authenticated shell modules for the public invite bypass", () => {
+    const renderer = render("/c/invite/token")
+    expect(renderer.root.findAllByType("rail-skeleton")).toHaveLength(0)
+    expect(renderer.root.findAllByType("me-sidebar")).toHaveLength(0)
+    expect(renderer.root.findAllByType("server-sidebar")).toHaveLength(0)
+    expect(renderer.root.findAllByType("pending-main")).toHaveLength(0)
+    expect(renderer.root.findAllByType("user-bar-skeleton")).toHaveLength(0)
   })
 })

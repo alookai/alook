@@ -53,6 +53,7 @@ export const SPEC_SECONDS = {
   "39-mobile-composer-send.spec.ts": 45,
   "40-mobile-server-header-hierarchy.spec.ts": 28,
   "40-server-rail-unread.spec.ts": 60,
+  "41-community-initial-load-module-skeletons.spec.ts": 30,
 }
 
 function walk(directory) {

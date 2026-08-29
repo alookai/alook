@@ -1,7 +1,7 @@
 import { createElement, type ReactNode } from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { ServerRail } from "./server-rail"
+import { ServerRail, ServerRailSkeleton } from "./server-rail"
 import { tid } from "@/lib/community/testids"
 import type { RailInstruction } from "@/lib/community/server-rail-model"
 
@@ -35,7 +35,9 @@ vi.mock("./rail-icon", () => ({ RailIcon: () => null }))
 vi.mock("./animated-alook-logo", () => ({ AnimatedAlookLogo: () => null }))
 vi.mock("./server-rail-move-menu", () => ({ ServerRailMoveMenu: () => null }))
 vi.mock("../settings/create-server-dialog", () => ({ CreateServerDialog: () => null }))
-vi.mock("@/components/ui/skeleton", () => ({ Skeleton: () => null }))
+vi.mock("@/components/ui/skeleton", () => ({
+  Skeleton: (props: Record<string, unknown>) => createElement("skeleton", props),
+}))
 vi.mock("@/components/ui/tooltip", () => ({
   Tooltip: ({ children }: { children: ReactNode }) => children,
   TooltipTrigger: ({ children }: { children: ReactNode }) => children,
@@ -118,6 +120,17 @@ describe("ServerRail one-in-flight structural guard", () => {
     })
   })
   afterEach(() => vi.unstubAllGlobals())
+
+  it("exports an inert data-free rail placeholder", async () => {
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(createElement(ServerRailSkeleton))
+    })
+    expect(renderer.root.findByProps({ "data-testid": tid.initialRailPending }))
+      .toBeDefined()
+    expect(renderer.root.findAllByType("skeleton")).toHaveLength(4)
+    expect(renderer.root.findAllByType("button")).toHaveLength(0)
+  })
 
   it("aggregates unread only while collapsed and preserves it on the expanded child", async () => {
     let renderer!: TestRenderer.ReactTestRenderer
