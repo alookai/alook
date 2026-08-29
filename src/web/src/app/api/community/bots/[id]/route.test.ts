@@ -93,7 +93,7 @@ vi.mock("@/lib/middleware/helpers", async () => {
   }
 })
 
-import { DELETE, PATCH } from "./route"
+import { DELETE, GET, PATCH } from "./route"
 
 function patchReq(body: unknown) {
   return new NextRequest("http://localhost/api/community/bots/b1", {
@@ -102,6 +102,38 @@ function patchReq(body: unknown) {
   })
 }
 const ctx = { params: { id: "b1" } } as any
+
+describe("GET /api/community/bots/[id]", () => {
+  it("returns the owned bot with a canonical versioned avatar", async () => {
+    mockGetBotOwnedBy.mockResolvedValue({
+      id: "b1",
+      name: "Bot",
+      discriminator: "0042",
+      image: "/api/community/bots/b1/avatar",
+      avatarVersion: 4,
+      description: "helper",
+      machineId: "mac1",
+      runtime: "codex",
+      modelName: null,
+      reasoningEffort: null,
+      runtimeConfigRevision: 2,
+    })
+
+    const res = await GET(
+      new NextRequest("http://localhost/api/community/bots/b1"),
+      ctx,
+    )
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({
+      bot: {
+        id: "b1",
+        image: "/api/community/bots/b1/avatar?v=4",
+        avatarVersion: 4,
+      },
+    })
+  })
+})
 
 describe("PATCH /api/community/bots/[id]", () => {
   beforeEach(() => {
@@ -653,6 +685,23 @@ describe("DELETE /api/community/bots/[id]", () => {
     expect(mockMediaDelete.mock.invocationCallOrder[0]!).toBeLessThan(
       mockFanOutToServerMembers.mock.invocationCallOrder[0]!,
     )
+  })
+
+  it("cleans the owned immutable child together with the stable alias", async () => {
+    mockGetBotOwnedBy.mockResolvedValue({
+      id: "b1",
+      ownerUserId: "u1",
+      machineId: null,
+      avatarObjectKey: "bot-avatar/b1/objects/object-7",
+    })
+
+    const res = await DELETE(deleteReq(), ctx)
+
+    expect(res.status).toBe(204)
+    expect(mockMediaDelete).toHaveBeenCalledWith([
+      "bot-avatar/b1/objects/object-7",
+      "bot-avatar/b1",
+    ])
   })
 
   it("returns 404 with no cleanup or events for an already-deleted loser", async () => {

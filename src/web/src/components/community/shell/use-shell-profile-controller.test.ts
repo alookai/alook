@@ -52,7 +52,8 @@ vi.mock("@/stores/community", () => ({
 }))
 vi.mock("@/stores/community/ws", () => ({
   useOnlineUserIds: () => new Set(["self", "remote"]),
-  useCommunityWsStore: Object.assign(vi.fn(), {
+  useCommunityWsStore: Object.assign(vi.fn((selector: (state: { avatarIdentities: typeof mocks.avatarIdentities }) => unknown) =>
+    selector({ avatarIdentities: mocks.avatarIdentities })), {
     getState: () => ({
       setUserStatus: mocks.setUserStatus,
       reset: mocks.wsReset,
@@ -128,19 +129,28 @@ async function renderController() {
   const queryClient = { fetchQuery: mocks.fetchQuery, clear: vi.fn(), setQueriesData: vi.fn() }
   let current!: Result
   let renderer!: TestRenderer.ReactTestRenderer
-  await act(async () => {
-    renderer = TestRenderer.create(createElement(Capture, {
-      options: {
-        router,
-        queryClient,
-        cancelPendingNavigation,
-        view: "server",
-        activeServerId: "s1",
-      } as never,
-      onResult: (result) => { current = result },
-    }))
+  const render = () => createElement(Capture, {
+    options: {
+      router,
+      queryClient,
+      cancelPendingNavigation,
+      view: "server",
+      activeServerId: "s1",
+    } as never,
+    onResult: (result) => { current = result },
   })
-  return { get current() { return current }, renderer, router, pushed, cancelPendingNavigation, queryClient }
+  await act(async () => {
+    renderer = TestRenderer.create(render())
+  })
+  return {
+    get current() { return current },
+    renderer,
+    router,
+    pushed,
+    cancelPendingNavigation,
+    queryClient,
+    rerender: async () => act(async () => renderer.update(render())),
+  }
 }
 
 function deferred<T>() {
@@ -160,7 +170,13 @@ describe("useShellProfileController", () => {
     mocks.signOut.mockResolvedValue(undefined)
     mocks.avatarIdentities.clear()
     mocks.observeAvatarIdentity.mockImplementation((userId: string, avatar: string, avatarVersion: number) => {
+      const current = mocks.avatarIdentities.get(userId)
+      if (current?.avatarVersion === avatarVersion) {
+        return current.avatar === avatar ? "duplicate" : "conflict"
+      }
+      if (current && current.avatarVersion > avatarVersion) return "stale"
       mocks.avatarIdentities.set(userId, { avatar, avatarVersion })
+      return "updated"
     })
   })
 
@@ -225,6 +241,65 @@ describe("useShellProfileController", () => {
     })
     expect(hook.current.profile?.initialStatusEmoji).toBe("🌱")
     expect(mocks.setUserStatus).not.toHaveBeenCalled()
+  })
+
+  it("retains the seeded avatar when an authoritative profile has a newer version but no image", async () => {
+    mocks.fetchQuery.mockResolvedValue({
+      id: "remote",
+      aboutMe: "hydrated",
+      mutualServers: 1,
+      discriminator: "1234",
+      image: null,
+      avatarVersion: 4,
+      statusEmoji: null,
+      statusText: "",
+      kind: "human",
+    })
+    const hook = await renderController()
+
+    await act(async () => hook.current.openProfile(
+      "Remote",
+      { clientX: 4, clientY: 5 } as never,
+      undefined,
+      "remote",
+    ))
+
+    expect(hook.current.profile?.data).toMatchObject({
+      avatar: "R",
+      avatarVersion: 4,
+    })
+  })
+
+  it("projects a newer WS identity into an already-open profile card", async () => {
+    mocks.fetchQuery.mockReturnValue(new Promise(() => {}))
+    const hook = await renderController()
+    await act(async () => hook.current.openProfile(
+      "Remote",
+      { clientX: 4, clientY: 5 } as never,
+      undefined,
+      "remote",
+    ))
+    expect(hook.current.profile?.data.avatar).toBe("R")
+
+    mocks.avatarIdentities = new Map([
+      ["remote", { avatar: "/avatar?v=7", avatarVersion: 7 }],
+    ])
+    await hook.rerender()
+
+    expect(hook.current.profile?.data).toMatchObject({
+      avatar: "/avatar?v=7",
+      avatarVersion: 7,
+    })
+
+    mocks.avatarIdentities = new Map([
+      ["remote", { avatar: "/avatar?v=6", avatarVersion: 6 }],
+    ])
+    await hook.rerender()
+
+    expect(hook.current.profile?.data).toMatchObject({
+      avatar: "/avatar?v=7",
+      avatarVersion: 7,
+    })
   })
 
   it("does not let a slow profile response overwrite the next opened card", async () => {
@@ -429,6 +504,8 @@ describe("useShellProfileController", () => {
     })
     mocks.uploadAvatar.mockImplementation(() => { order.push("upload") })
     const hook = await renderController()
+    hook.queryClient.setQueriesData.mockImplementation((_filters: unknown, updater: (value: unknown) => unknown) =>
+      updater({ id: "self", image: "/old?v=1", avatarVersion: 1 }))
     await act(async () => hook.current.userSettingsProps.onUploadAvatar())
     input!.files = [new File(["image"], "avatar.png", { type: "image/png" })]
     await act(async () => input!.onchange?.())
@@ -443,11 +520,19 @@ describe("useShellProfileController", () => {
 
     const uploadOptions = mocks.uploadAvatar.mock.calls[0]![1]
     await act(async () => uploadOptions.onSuccess({ url: "/avatar.png?v=4", avatarVersion: 4 }))
-    const avatarUpdater = mocks.setCurrentUser.mock.calls.at(-1)![0]
-    expect(avatarUpdater(mocks.currentUser)).toMatchObject({
+    expect(mocks.avatarIdentities.get("self")).toEqual({
       avatar: "/avatar.png?v=4",
       avatarVersion: 4,
     })
+    expect(mocks.setCurrentUser).toHaveBeenCalledTimes(1)
+    const avatarUpdater = mocks.setCurrentUser.mock.calls.at(-1)![0]
+    const staleUser = { ...mocks.currentUser, avatar: "/old?v=1", avatarVersion: 1 }
+    expect(avatarUpdater(staleUser)).toMatchObject({
+      avatar: "/avatar.png?v=4",
+      avatarVersion: 4,
+    })
+    const newerUser = { ...mocks.currentUser, avatar: "/avatar.png?v=9", avatarVersion: 9 }
+    expect(avatarUpdater(newerUser)).toBe(newerUser)
     expect(mocks.observeAvatarIdentity).toHaveBeenCalledWith("self", "/avatar.png?v=4", 4)
     expect(mocks.toast).toHaveBeenLastCalledWith("Avatar updated")
 

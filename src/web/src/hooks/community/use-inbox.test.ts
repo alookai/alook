@@ -118,6 +118,32 @@ describe("useInboxMentions / inboxMentionsQueryFn", () => {
   })
 })
 
+describe("useInboxMarked", () => {
+  it("fetches the identity-aware marked feed only when enabled", async () => {
+    apiFetchMock.mockResolvedValue({ marked: [] })
+    const { useInboxMarked } = await import("./use-inbox")
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    function Harness() {
+      const result = useInboxMarked(true)
+      return React.createElement("span", { "data-count": result.marked.length })
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(Harness),
+      ))
+    })
+
+    await vi.waitFor(() => {
+      expect(apiFetchMock).toHaveBeenCalledWith("/api/community/users/me/marks")
+    })
+    expect(renderer.root.findByType("span").props["data-count"]).toBe(0)
+    act(() => renderer.unmount())
+  })
+})
+
 // WS reconciliation invalidates the shared `inbox()` prefix — both feeds must
 // pick it up, otherwise mentions or unread refreshes would silently drop.
 describe("communityKeys.inbox() prefix invalidation", () => {

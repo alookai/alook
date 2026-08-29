@@ -65,6 +65,32 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     })
   })
 
+  it("invalidates cached identity surfaces after a reconnect gap", async () => {
+    const { reconcileCommunityWsReconnect } = await import("./reconnect")
+    capturedQueryClient.setQueryData(communityKeys.bots(), { bots: [] })
+
+    await reconcileCommunityWsReconnect(capturedQueryClient)
+
+    expect(capturedQueryClient.getQueryState(communityKeys.bots())?.isInvalidated).toBe(true)
+  })
+
+  it("reports identity reconciliation failure when an active identity invalidation rejects", async () => {
+    const { reconcileCommunityWsReconnect } = await import("./reconnect")
+    capturedQueryClient.setQueryData(communityKeys.bots(), { bots: [] })
+    const originalInvalidate = capturedQueryClient.invalidateQueries.bind(capturedQueryClient)
+    vi.spyOn(capturedQueryClient, "invalidateQueries").mockImplementation((filters, options) => {
+      if (filters.predicate) return Promise.reject(new Error("identity cache unavailable"))
+      return originalInvalidate(filters, options)
+    })
+
+    const summary = await reconcileCommunityWsReconnect(capturedQueryClient)
+
+    expect(summary.failureCount).toBeGreaterThan(0)
+    expect(telemetry.failure).toHaveBeenCalledWith(
+      expect.objectContaining({ policy: "identity-surfaces" }),
+    )
+  })
+
   it("reactivates the Inbox owner after a Strict Effects cleanup/setup replay", async () => {
     vi.useFakeTimers()
     await mountHook()

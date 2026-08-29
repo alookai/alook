@@ -112,6 +112,41 @@ describe("avatar alias reconciliation", () => {
     expect(get).not.toHaveBeenCalled()
     expect(put).not.toHaveBeenCalled()
   })
+
+  it("recognizes an already-present bot alias", async () => {
+    const head = vi.fn().mockResolvedValue({ key: "bot-avatar/b1" })
+
+    await expect(ensureAvatarAliasPresent(
+      {} as never,
+      { head, get: vi.fn(), put: vi.fn(), delete: vi.fn() } as never,
+      { kind: "bot", id: "b1" },
+    )).resolves.toBe(true)
+
+    expect(head).toHaveBeenCalledWith("bot-avatar/b1")
+    expect(mocks.getBot).not.toHaveBeenCalled()
+  })
+
+  it("returns false after three continuously reordered alias copies", async () => {
+    let read = 0
+    mocks.getHuman.mockImplementation(async () => {
+      read += 1
+      return {
+        avatarVersion: read,
+        avatarObjectKey: `user-avatar/u1/objects/object-${read}`,
+      }
+    })
+    const get = vi.fn().mockResolvedValue(object([1], "moving"))
+    const put = vi.fn().mockResolvedValue(undefined)
+
+    await expect(ensureAvatarAliasPresent(
+      {} as never,
+      { head: vi.fn().mockResolvedValue(null), get, put, delete: vi.fn() } as never,
+      { kind: "human", id: "u1" },
+    )).resolves.toBe(false)
+
+    expect(get).toHaveBeenCalledTimes(3)
+    expect(put).toHaveBeenCalledTimes(3)
+  })
 })
 
 describe("avatar candidate cleanup", () => {
@@ -185,5 +220,37 @@ describe("avatar candidate cleanup", () => {
 
     expect(mocks.waitUntil).toHaveBeenCalledWith(work)
     await expect(work).resolves.toBeUndefined()
+  })
+
+  it("absorbs an alias-copy failure in background reconciliation", async () => {
+    mocks.getHuman.mockRejectedValue(new Error("D1 unavailable"))
+    const work = scheduleAvatarMediaReconciliation(
+      {} as never,
+      { get: vi.fn(), put: vi.fn(), head: vi.fn(), delete: vi.fn() } as never,
+      { subject: { kind: "human", id: "u1" }, candidates: [] },
+    )
+
+    await expect(work).resolves.toBeUndefined()
+  })
+
+  it("continues after an incomplete alias copy and an exact child cleanup failure", async () => {
+    mocks.getHuman
+      .mockResolvedValueOnce({ avatarVersion: 0, avatarObjectKey: null })
+      .mockResolvedValueOnce({
+        avatarVersion: 2,
+        avatarObjectKey: "user-avatar/u1/objects/current",
+      })
+    const remove = vi.fn().mockRejectedValue(new Error("R2 unavailable"))
+    const work = scheduleAvatarMediaReconciliation(
+      {} as never,
+      { get: vi.fn(), put: vi.fn(), head: vi.fn(), delete: remove } as never,
+      {
+        subject: { kind: "human", id: "u1" },
+        candidates: ["user-avatar/u1/objects/displaced"],
+      },
+    )
+
+    await expect(work).resolves.toBeUndefined()
+    expect(remove).toHaveBeenCalledWith("user-avatar/u1/objects/displaced")
   })
 })

@@ -137,6 +137,20 @@ describe("GET /api/community/bots/[id]/avatar", () => {
     expect(mediaGet).not.toHaveBeenCalled()
   })
 
+  it("returns 404 before R2 for an inconsistent version/object-key pair", async () => {
+    mockGetLiveBotAvatar.mockResolvedValue({
+      id: "b1",
+      image: "/api/community/bots/b1/avatar",
+      avatarVersion: 4,
+      avatarObjectKey: null,
+    })
+
+    const res = await GET(getReq(4), ctx("b1"))
+
+    expect(res.status).toBe(404)
+    expect(mediaGet).not.toHaveBeenCalled()
+  })
+
   it("returns 400 when the bot id route param is missing", async () => {
     const res = await GET(getReq(), ctx(undefined))
     expect(res.status).toBe(400)
@@ -178,6 +192,14 @@ describe("GET /api/community/bots/[id]/avatar", () => {
     expect(res.status).toBe(200)
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable")
     expect(mediaGet).toHaveBeenCalledWith("bot-avatar/b1/objects/object-4")
+  })
+
+  it("redirects a version query away from a legacy alias", async () => {
+    const res = await GET(getReq(4), ctx("b1"))
+
+    expect(res.status).toBe(307)
+    expect(res.headers.get("Location")).toBe("/api/community/bots/b1/avatar")
+    expect(mediaGet).not.toHaveBeenCalled()
   })
 
   it("serves cached bytes while revalidating the deterministic URL in the background", async () => {
@@ -274,5 +296,15 @@ describe("POST /api/community/bots/[id]/avatar", () => {
     mockPersistUploadedBotAvatar.mockResolvedValue({ kind: "failed" })
     const res = await POST(postReq(), ctx("b1"))
     expect(res.status).toBe(500)
+  })
+
+  it("fails closed when the immutable child cannot publish its stable alias", async () => {
+    mockEnsureAvatarAliasPresent.mockResolvedValue(false)
+
+    const res = await POST(postReq(), ctx("b1"))
+
+    expect(res.status).toBe(500)
+    expect(mockScheduleAvatarMediaReconciliation).not.toHaveBeenCalled()
+    expect(mockFanOutIdentityUpdate).not.toHaveBeenCalled()
   })
 })

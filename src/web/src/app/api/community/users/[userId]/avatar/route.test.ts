@@ -100,6 +100,18 @@ describe("GET /api/community/users/[userId]/avatar", () => {
     expect(res.status).toBe(404)
   })
 
+  it("returns 404 before R2 for an inconsistent version/object-key pair", async () => {
+    mockGetLiveHumanAvatarState.mockResolvedValue({
+      avatarVersion: 4,
+      avatarObjectKey: null,
+    })
+
+    const res = await GET(getReq(4), ctx("u1"))
+
+    expect(res.status).toBe(404)
+    expect(mediaGet).not.toHaveBeenCalled()
+  })
+
   it("redirects a stable versioned URL to the authoritative immutable version", async () => {
     mockGetLiveHumanAvatarState.mockResolvedValue({
       avatarVersion: 3,

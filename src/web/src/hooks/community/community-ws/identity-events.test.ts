@@ -85,4 +85,26 @@ describe("handleIdentityUpdate", () => {
       refetchType: "active",
     })
   })
+
+  it("invalidates when a cached payload conflicts with the accepted frame version", () => {
+    const { queryClient, context, invalidate } = harness()
+    queryClient.setQueryData(communityKeys.message("m1"), {
+      id: "m1",
+      authorId: "u1",
+      authorAvatar: "/cached-different?v=4",
+      authorAvatarVersion: 4,
+    })
+
+    handleIdentityUpdate({
+      type: "community:identity.update",
+      userId: "u1",
+      avatar: "/authoritative?v=4",
+      avatarVersion: 4,
+    }, context)
+
+    expect(invalidate).toHaveBeenCalledWith("identity-cache-conflict", {
+      queryKey: communityKeys.all,
+      refetchType: "active",
+    })
+  })
 })

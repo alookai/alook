@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { CommunityMessageCreate } from "@alook/shared"
-import { projectCommunityMessageCreate } from "./message-wire"
+import { projectCommunityMessageCreate, projectPostedMessage } from "./message-wire"
 
 function wire(
   overrides: Partial<CommunityMessageCreate["message"]> = {},
@@ -66,5 +66,28 @@ describe("projectCommunityMessageCreate", () => {
       { kind: "file", name: "doc.pdf", url: "/doc", contentType: "application/pdf", sizeBytes: 2048, size: "2.0 KB" },
       { kind: "file", name: "unsafe.svg", url: "/unsafe", contentType: "image/svg+xml", sizeBytes: 1024, size: "1.0 KB" },
     ])
+  })
+})
+
+describe("projectPostedMessage", () => {
+  it("falls back to an initial when the posted author has no canonical avatar", () => {
+    const projected = projectPostedMessage({
+      id: "m2",
+      seq: 43,
+      authorId: "u2",
+      authorName: "Gus",
+      authorImage: null,
+      authorAvatarVersion: 0,
+      content: "hello",
+      type: "default",
+      embeds: null,
+      createdAt: "2026-08-06T00:00:00.000Z",
+    } as never, "nonce-2")
+
+    expect(projected).toMatchObject({
+      authorAvatar: "G",
+      authorAvatarVersion: 0,
+      clientNonce: "nonce-2",
+    })
   })
 })

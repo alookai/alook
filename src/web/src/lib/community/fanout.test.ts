@@ -335,6 +335,33 @@ describe("fanOutIdentityUpdate", () => {
       expect.objectContaining({ type: "community:identity.update" }),
     )
   })
+
+  it("absorbs an asynchronous identity audience failure", async () => {
+    mockGetCoMemberUserIds.mockRejectedValue("D1 unavailable")
+    mockGetFriendUserIds.mockResolvedValue([])
+    mockListDmPeerUserIds.mockResolvedValue([])
+
+    await expect(fanOutIdentityUpdate("self", "/avatar?v=1", 1)).resolves.toBeUndefined()
+
+    expect(mockWarn).toHaveBeenCalledWith(
+      "fanout_identity_update_failed",
+      { subjectId: "self", errorCategory: "NonError" },
+    )
+    expect(mockBroadcastToUsers).not.toHaveBeenCalled()
+  })
+
+  it("absorbs a synchronous identity fanout setup failure", async () => {
+    mockGetCloudflareContext.mockImplementation(() => {
+      throw new Error("no worker context")
+    })
+
+    await expect(fanOutIdentityUpdate("self", "/avatar?v=1", 1)).resolves.toBeUndefined()
+
+    expect(mockWarn).toHaveBeenCalledWith(
+      "fanout_identity_update_failed",
+      { subjectId: "self", errorCategory: "Error" },
+    )
+  })
 })
 
 describe("fanout helpers absorb setup failures", () => {
