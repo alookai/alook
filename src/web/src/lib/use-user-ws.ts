@@ -11,7 +11,12 @@ import {
 } from "@alook/shared"
 import {
   trackCommunityWsFrameDropped,
+  trackCommunityWsLifecycleRecovery,
   type CommunityWsFrameDropReason,
+  type CommunityWsLifecycleRecoveryStrategy,
+  type CommunityWsLifecycleRecoveryTrigger,
+  type CommunityWsSocketReadyState,
+  type CommunityWsSuspensionDurationBucket,
 } from "@/lib/analytics"
 import { isLocalMode, WS_DO_PORT_DEFAULT } from "@/lib/utils"
 import { websocketUrl } from "@/lib/websocket-url"
@@ -21,6 +26,8 @@ const WS_RECONNECT_INIT = Number(process.env.NEXT_PUBLIC_WS_RECONNECT_DELAY_MS) 
 const WS_RECONNECT_MAX = Number(process.env.NEXT_PUBLIC_WS_RECONNECT_MAX_DELAY_MS) || 30_000
 const WS_TOKEN_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_WS_TOKEN_TIMEOUT_MS) || 10_000
 export const WS_CONNECTION_VALIDATION_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_WS_CONNECT_TIMEOUT_MS) || 10_000
+export const WS_FOREGROUND_SENTINEL_INTERVAL_MS = 10_000
+export const WS_FOREGROUND_SUSPENSION_GAP_MS = 30_000
 
 type PendingConnectionValidation = {
   ws: WebSocket
@@ -31,6 +38,31 @@ type PendingConnectionValidation = {
 
 function isPageHidden(): boolean {
   return typeof document !== "undefined" && document.visibilityState === "hidden"
+}
+
+function socketReadyState(ws: WebSocket | null): CommunityWsSocketReadyState {
+  if (!ws) return "none"
+  switch (ws.readyState) {
+    case WebSocket.CONNECTING:
+      return "connecting"
+    case WebSocket.OPEN:
+      return "open"
+    case WebSocket.CLOSING:
+      return "closing"
+    default:
+      return "closed"
+  }
+}
+
+function suspensionDurationBucket(
+  suspendedAt: number | null,
+  now: number,
+): CommunityWsSuspensionDurationBucket {
+  if (suspendedAt === null) return "unknown"
+  const durationMs = Math.max(0, now - suspendedAt)
+  if (durationMs < 30_000) return "under-30s"
+  if (durationMs < 120_000) return "30s-2m"
+  return "over-2m"
 }
 
 /**
@@ -114,6 +146,10 @@ export function useUserWs(
   const connectionGenerationRef = useRef(0)
   const connectionValidationRef = useRef<PendingConnectionValidation | null>(null)
   const connectionValidationNeededRef = useRef(isPageHidden())
+  const frozenRef = useRef(false)
+  const suspendedAtRef = useRef<number | null>(null)
+  const sentinelIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const lastSentinelTickAtRef = useRef(0)
 
   useEffect(() => {
     onMessageRef.current = onMessage
@@ -152,6 +188,15 @@ export function useUserWs(
     if (pending) clearTimeout(pending.timeout)
   }, [])
 
+  const abortPendingToken = useCallback(() => {
+    tokenAbortRef.current?.abort()
+    tokenAbortRef.current = null
+    if (tokenTimeoutRef.current !== null) {
+      clearTimeout(tokenTimeoutRef.current)
+      tokenTimeoutRef.current = null
+    }
+  }, [])
+
   const stopHeartbeat = useCallback(() => {
     if (pingIntervalRef.current) { clearInterval(pingIntervalRef.current); pingIntervalRef.current = null }
     if (livenessIntervalRef.current) { clearInterval(livenessIntervalRef.current); livenessIntervalRef.current = null }
@@ -161,6 +206,7 @@ export function useUserWs(
     stopHeartbeat()
     if (
       isPageHidden()
+      || frozenRef.current
       || ws !== wsRef.current
       || generation !== connectionGenerationRef.current
       || authenticatedGenerationRef.current !== generation
@@ -205,8 +251,9 @@ export function useUserWs(
     ) return
     clearConnectionValidation()
     retireSocket()
-    publishConnectionPhase(isPageHidden() ? "suspended" : "reconnecting")
-    if (!isPageHidden()) void connectRef.current?.()
+    const suspended = isPageHidden() || frozenRef.current
+    publishConnectionPhase(suspended ? "suspended" : "reconnecting")
+    if (!suspended) void connectRef.current?.()
   }, [clearConnectionValidation, publishConnectionPhase, retireSocket])
 
   const validateCurrentConnection = useCallback((ws: WebSocket, generation: number) => {
@@ -238,7 +285,7 @@ export function useUserWs(
 
   const scheduleReconnect = useCallback((generation: number) => {
     if (generation !== connectionGenerationRef.current) return
-    if (isPageHidden()) return
+    if (isPageHidden() || frozenRef.current) return
     if (reconnectTimerRef.current !== null) {
       clearTimeout(reconnectTimerRef.current)
       reconnectTimerRef.current = null
@@ -252,7 +299,7 @@ export function useUserWs(
   }, [])
 
   const connect = useCallback(async () => {
-    if (isPageHidden()) {
+    if (isPageHidden() || frozenRef.current) {
       publishConnectionPhase("suspended")
       return
     }
@@ -443,7 +490,7 @@ export function useUserWs(
       }
       stopHeartbeat()
       if (connectTimeoutRef.current !== null) { clearTimeout(connectTimeoutRef.current); connectTimeoutRef.current = null }
-      publishConnectionPhase(isPageHidden() ? "suspended" : "reconnecting")
+      publishConnectionPhase(isPageHidden() || frozenRef.current ? "suspended" : "reconnecting")
       scheduleReconnect(generation)
     }
   }, [clearConnectionValidation, failConnectionValidation, publishConnectionPhase, retireSocket, scheduleReconnect, startHeartbeat, stopHeartbeat])
@@ -452,93 +499,170 @@ export function useUserWs(
     connectRef.current = connect
   }, [connect])
 
-  useEffect(() => {
-    void connect()
-    const resumeConnection = () => {
-      if (isPageHidden()) {
-        connectionValidationNeededRef.current = true
-        const generation = connectionGenerationRef.current
-        const authenticated = authenticatedGenerationRef.current === generation
-        clearConnectionValidation()
-        stopHeartbeat()
-        publishConnectionPhase("suspended")
-        if (reconnectTimerRef.current !== null) {
-          clearTimeout(reconnectTimerRef.current)
-          reconnectTimerRef.current = null
-        }
-        if (!authenticated) {
-          connectionGenerationRef.current += 1
-          tokenAbortRef.current?.abort()
-          tokenAbortRef.current = null
-          if (tokenTimeoutRef.current !== null) {
-            clearTimeout(tokenTimeoutRef.current)
-            tokenTimeoutRef.current = null
-          }
-          retireSocket(false)
-        }
-        return
-      }
-
-      reconnectDelay.current = WS_RECONNECT_INIT
-      if (tokenAbortRef.current) return
-
-      const ws = wsRef.current
-      const generation = connectionGenerationRef.current
-      const authenticated = authenticatedGenerationRef.current === generation
-      const connecting = ws?.readyState === WebSocket.CONNECTING
-        && Date.now() - connectStartedAtRef.current <= WS_CONNECTION_VALIDATION_TIMEOUT_MS
-      if (authenticated && ws?.readyState === WebSocket.OPEN) {
-        if (!connectionValidationNeededRef.current) return
-        connectionValidationNeededRef.current = false
-        validateCurrentConnection(ws, generation)
-        return
-      }
-      if (connecting) return
-
-      connectionValidationNeededRef.current = false
-      connectionGenerationRef.current += 1
-      if (reconnectTimerRef.current !== null) {
-        clearTimeout(reconnectTimerRef.current)
-        reconnectTimerRef.current = null
-      }
-      retireSocket()
-      void connectRef.current?.()
+  const suspendConnection = useCallback((retireAuthenticatedSocket: boolean) => {
+    connectionValidationNeededRef.current = true
+    suspendedAtRef.current ??= Date.now()
+    clearConnectionValidation()
+    stopHeartbeat()
+    publishConnectionPhase("suspended")
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
     }
-    const onVisibilityChange = () => resumeConnection()
-    const onPageShow = () => resumeConnection()
-    const onOnline = () => resumeConnection()
+
+    const generation = connectionGenerationRef.current
+    const authenticated = authenticatedGenerationRef.current === generation
+    if (!retireAuthenticatedSocket && authenticated) return
+
+    connectionGenerationRef.current += 1
+    abortPendingToken()
+    retireSocket(retireAuthenticatedSocket)
+  }, [abortPendingToken, clearConnectionValidation, publishConnectionPhase, retireSocket, stopHeartbeat])
+
+  const trackLifecycleRecovery = useCallback((
+    trigger: CommunityWsLifecycleRecoveryTrigger,
+    strategy: CommunityWsLifecycleRecoveryStrategy,
+    readyState: CommunityWsSocketReadyState,
+    now: number,
+  ) => {
+    if (isPageHidden() || frozenRef.current) return
+    trackCommunityWsLifecycleRecovery({
+      trigger,
+      strategy,
+      socketReadyState: readyState,
+      suspensionDuration: suspensionDurationBucket(suspendedAtRef.current, now),
+    })
+    suspendedAtRef.current = null
+  }, [])
+
+  const requestForegroundRecovery = useCallback((
+    trigger: CommunityWsLifecycleRecoveryTrigger,
+    forceValidation: boolean,
+  ) => {
+    if (isPageHidden()) {
+      suspendConnection(false)
+      return
+    }
+
+    frozenRef.current = false
+    const recoveryNeeded = forceValidation || connectionValidationNeededRef.current
+    if (!recoveryNeeded) return
+
+    reconnectDelay.current = WS_RECONNECT_INIT
+    if (tokenAbortRef.current) return
+
+    const ws = wsRef.current
+    const generation = connectionGenerationRef.current
+    const authenticated = authenticatedGenerationRef.current === generation
+    const awaitingAuthentication = (
+      ws?.readyState === WebSocket.CONNECTING
+      || ws?.readyState === WebSocket.OPEN
+    )
+      && !authenticated
+      && Date.now() - connectStartedAtRef.current <= WS_CONNECTION_VALIDATION_TIMEOUT_MS
+    if (authenticated && ws?.readyState === WebSocket.OPEN) {
+      connectionValidationNeededRef.current = false
+      if (connectionValidationRef.current?.ws === ws) return
+      trackLifecycleRecovery(trigger, "validate", socketReadyState(ws), Date.now())
+      validateCurrentConnection(ws, generation)
+      return
+    }
+    if (awaitingAuthentication) return
+
+    connectionValidationNeededRef.current = false
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+    const readyState = socketReadyState(ws)
+    retireSocket()
+    trackLifecycleRecovery(trigger, "replace", readyState, Date.now())
+    void connectRef.current?.()
+  }, [retireSocket, suspendConnection, trackLifecycleRecovery, validateCurrentConnection])
+
+  useEffect(() => {
+    const mountedAt = Date.now()
+    if (isPageHidden()) suspendedAtRef.current = mountedAt
+    lastSentinelTickAtRef.current = mountedAt
+    void connect()
+    const onVisibilityChange = () => {
+      if (isPageHidden()) {
+        suspendConnection(false)
+        return
+      }
+      requestForegroundRecovery("visibility", false)
+    }
+    const onFreeze = () => {
+      frozenRef.current = true
+      suspendConnection(true)
+    }
+    const onResume = () => requestForegroundRecovery("resume", true)
+    const onPageShow = (event: PageTransitionEvent) => {
+      requestForegroundRecovery("pageshow", event.persisted)
+    }
+    const onWindowFocus = (event: FocusEvent) => {
+      if (event.target !== window) return
+      requestForegroundRecovery("focus", true)
+    }
+    const onOnline = () => requestForegroundRecovery("online", false)
     const onOffline = () => { connectionValidationNeededRef.current = true }
     if (typeof document !== "undefined") {
       document.addEventListener("visibilitychange", onVisibilityChange)
+      document.addEventListener("freeze", onFreeze)
+      document.addEventListener("resume", onResume)
     }
     if (typeof window !== "undefined") {
       window.addEventListener("pageshow", onPageShow)
+      window.addEventListener("focus", onWindowFocus)
       window.addEventListener("online", onOnline)
       window.addEventListener("offline", onOffline)
     }
+    sentinelIntervalRef.current = setInterval(() => {
+      const now = Date.now()
+      const elapsedMs = Math.max(0, now - lastSentinelTickAtRef.current)
+      lastSentinelTickAtRef.current = now
+      if (
+        isPageHidden()
+        || elapsedMs < WS_FOREGROUND_SUSPENSION_GAP_MS
+      ) return
+      requestForegroundRecovery("sentinel", true)
+    }, WS_FOREGROUND_SENTINEL_INTERVAL_MS)
     return () => {
       if (typeof document !== "undefined") {
         document.removeEventListener("visibilitychange", onVisibilityChange)
+        document.removeEventListener("freeze", onFreeze)
+        document.removeEventListener("resume", onResume)
       }
       if (typeof window !== "undefined") {
         window.removeEventListener("pageshow", onPageShow)
+        window.removeEventListener("focus", onWindowFocus)
         window.removeEventListener("online", onOnline)
         window.removeEventListener("offline", onOffline)
       }
+      if (sentinelIntervalRef.current !== null) {
+        clearInterval(sentinelIntervalRef.current)
+        sentinelIntervalRef.current = null
+      }
       connectionGenerationRef.current += 1
       clearConnectionValidation()
-      tokenAbortRef.current?.abort()
-      tokenAbortRef.current = null
+      abortPendingToken()
       if (reconnectTimerRef.current !== null) {
         clearTimeout(reconnectTimerRef.current)
         reconnectTimerRef.current = null
       }
-      if (tokenTimeoutRef.current !== null) { clearTimeout(tokenTimeoutRef.current); tokenTimeoutRef.current = null }
       if (connectTimeoutRef.current !== null) { clearTimeout(connectTimeoutRef.current); connectTimeoutRef.current = null }
       stopHeartbeat()
       retireSocket(false)
     }
-  }, [clearConnectionValidation, connect, publishConnectionPhase, retireSocket, stopHeartbeat, validateCurrentConnection])
+  }, [
+    abortPendingToken,
+    clearConnectionValidation,
+    connect,
+    requestForegroundRecovery,
+    retireSocket,
+    stopHeartbeat,
+    suspendConnection,
+  ])
 
   const send = useCallback((msg: object) => {
     const ws = wsRef.current
@@ -553,21 +677,16 @@ export function useUserWs(
       clearTimeout(reconnectTimerRef.current)
       reconnectTimerRef.current = null
     }
-    tokenAbortRef.current?.abort()
-    tokenAbortRef.current = null
-    if (tokenTimeoutRef.current !== null) {
-      clearTimeout(tokenTimeoutRef.current)
-      tokenTimeoutRef.current = null
-    }
+    abortPendingToken()
     reconnectDelay.current = WS_RECONNECT_INIT
     retireSocket()
-    if (isPageHidden()) {
+    if (isPageHidden() || frozenRef.current) {
       connectionGenerationRef.current += 1
       publishConnectionPhase("suspended")
       return
     }
     void connectRef.current?.()
-  }, [clearConnectionValidation, publishConnectionPhase, retireSocket])
+  }, [abortPendingToken, clearConnectionValidation, publishConnectionPhase, retireSocket])
 
   return { send, reconnectNow }
 }
