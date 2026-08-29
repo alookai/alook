@@ -509,6 +509,26 @@ describe("AccountUnreadProjection", () => {
     expect(projection.projectUnread("servers", "unrelated", false)).toBe(false)
   })
 
+  it("clears a mention sentinel with advancing mention evidence", () => {
+    const projection = new AccountUnreadProjection("u1")
+    for (let index = 0; index < MAX_STICKY_SCOPES; index += 1) {
+      projection.recordArrival({ channelId: `c${index}`, serverId: `s${index}` })
+    }
+    projection.recordArrival({
+      channelId: "mention-overflow",
+      serverId: "s-overflow",
+      isMention: true,
+    })
+    expect(projection.hasPending("inbox-mentions", "mentions")).toBe(true)
+
+    projection.absorbFamily("inbox-mentions", [{
+      channelId: "mention-overflow",
+      lastUnreadSeq: 1,
+      lastMentionSeq: 1,
+    }], { truncated: false })
+    expect(projection.hasPending("inbox-mentions", "mentions")).toBe(false)
+  })
+
   it("makes a sentinel non-clearable when another scope folds into it", () => {
     const projection = new AccountUnreadProjection("u1")
     for (let index = 0; index < MAX_STICKY_SCOPES; index += 1) {
@@ -521,6 +541,20 @@ describe("AccountUnreadProjection", () => {
       { channelId: "second", lastUnreadSeq: 9 },
     ])
     expect(projection.projectUnread("servers", "unrelated", false)).toBe(true)
+  })
+
+  it("makes a normalized server-detail sentinel non-clearable across families", () => {
+    const projection = new AccountUnreadProjection("u1")
+    for (let index = 0; index < MAX_STICKY_SCOPES; index += 1) {
+      projection.recordArrival({ channelId: `c${index}`, serverId: `s${index}` })
+    }
+    projection.recordArrival({ channelId: "shared", serverId: "s-first" })
+    projection.recordArrival({ channelId: "shared", serverId: "s-second" })
+    projection.absorbFamily("server-detail:s-first", [{
+      channelId: "shared",
+      lastUnreadSeq: 9,
+    }])
+    expect(projection.hasPending("server-detail:s-first", "channels")).toBe(true)
   })
 
   it("ignores superseded mark-all tokens", () => {

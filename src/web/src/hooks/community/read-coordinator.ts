@@ -484,10 +484,8 @@ class ReadCoordinator {
     if (state.inFlight?.attemptEpoch === attemptEpoch) {
       state.inFlight.phase = "reconciling"
     }
-    const activeAttempt = state.inFlight?.attemptEpoch === attemptEpoch
-      ? state.inFlight
-      /* istanbul ignore next -- attemptActive succeeded and no write or await can replace inFlight */
-      : null
+    // `attemptActive` succeeded after the last await, so this attempt still owns inFlight.
+    const activeAttempt = state.inFlight!
     const deferInboxDms = activeAttempt?.deferInboxDms?.() === true
       || (activeAttempt?.drainCutoff !== undefined
         && state.accepted !== null
@@ -535,11 +533,11 @@ class ReadCoordinator {
     state: ScopeState,
     attemptEpoch: number,
   ) {
-    const drainCutoff = state.inFlight?.attemptEpoch === attemptEpoch
-      ? state.inFlight.drainCutoff
-      /* istanbul ignore next -- this reconciliation finally is the attempt's only finisher */
-      : undefined
-    if (state.inFlight?.attemptEpoch === attemptEpoch) state.inFlight = null
+    let drainCutoff: number | undefined
+    if (state.inFlight?.attemptEpoch === attemptEpoch) {
+      drainCutoff = state.inFlight.drainCutoff
+      state.inFlight = null
+    }
     if (this.disposed || !state.accepted || state.retryTimer !== null) return
     if (
       drainCutoff !== undefined
