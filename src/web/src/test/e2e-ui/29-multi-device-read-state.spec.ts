@@ -1,3 +1,4 @@
+import type { Route } from "@playwright/test"
 import { test, expect, userId } from "./_fixtures/community-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { tid } from "./_fixtures/testids"
@@ -209,17 +210,48 @@ test("one human account converges read state across two browser profiles", async
   await expect(deviceB.page.getByRole("button", { name: "Mark all read" })).toBeEnabled()
   const readAllFrameStarts = [proxyA.frames.length, proxyB.frames.length]
 
+  // Keep the first profile's read-all response from clearing the second
+  // profile's button before Playwright can dispatch both concurrent clicks.
+  // The mutation launches all three domains in parallel, so release only once
+  // both profiles have put every request on the wire.
+  const readAllPattern = "**/api/community/users/me/inbox/**/read-all"
+  let interceptedReadAllRequests = 0
+  let releaseReadAllRequests!: () => void
+  const readAllRequestGate = new Promise<void>((resolve) => {
+    releaseReadAllRequests = resolve
+  })
+  const holdReadAllRequests = async (route: Route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue()
+      return
+    }
+    interceptedReadAllRequests += 1
+    await readAllRequestGate
+    await route.continue()
+  }
+  await Promise.all([
+    deviceA.page.route(readAllPattern, holdReadAllRequests),
+    deviceB.page.route(readAllPattern, holdReadAllRequests),
+  ])
+
   const readAllResponses = [deviceA.page, deviceB.page].flatMap((page) => [
     page.waitForResponse((response) => response.request().method() === "POST"
       && new URL(response.url()).pathname === "/api/community/users/me/inbox/unreads/read-all"),
     page.waitForResponse((response) => response.request().method() === "POST"
       && new URL(response.url()).pathname === "/api/community/users/me/inbox/dms/read-all"),
   ])
-  await Promise.all([
+  const markAllClicks = Promise.all([
     deviceA.page.getByRole("button", { name: "Mark all read" }).click(),
     deviceB.page.getByRole("button", { name: "Mark all read" }).click(),
   ])
+  await expect.poll(() => interceptedReadAllRequests, { timeout: 20_000 }).toBe(6)
+  releaseReadAllRequests()
+  await markAllClicks
   const completedReadAllResponses = await Promise.all(readAllResponses)
+  await Promise.all([
+    deviceA.page.unroute(readAllPattern, holdReadAllRequests),
+    deviceB.page.unroute(readAllPattern, holdReadAllRequests),
+  ])
   expect(completedReadAllResponses.every((response) => response.status() === 200)).toBe(true)
   const readAllResults = await Promise.all(completedReadAllResponses.map(async (response) => ({
     path: new URL(response.url()).pathname,
