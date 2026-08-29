@@ -468,6 +468,18 @@ describe("useServerRailPdd behavior", () => {
     })
     expect(key(b.handle, "ArrowLeft").defaultPrevented).toBe(false)
     expect(key(b.handle, "Escape").defaultPrevented).toBe(true)
+
+    hook.callbacks.getState.mockReturnValue({
+      serverOrder: ["a", "b"],
+      folderOrder: ["f"],
+      folders: { f: ["a", "b"] },
+      expanded: ["f"],
+    })
+    expect(key(b.handle, " ").defaultPrevented).toBe(true)
+    const noOpAnnouncementCount = hook.callbacks.onAnnounce.mock.calls.length
+    expect(key(b.handle, "ArrowDown").defaultPrevented).toBe(true)
+    expect(hook.callbacks.onAnnounce).toHaveBeenCalledTimes(noOpAnnouncementCount)
+    expect(key(b.handle, "Escape").defaultPrevented).toBe(true)
   })
 
   it("separates taps, scroll, context menu, multi-touch, and cancellation", async () => {
