@@ -261,10 +261,13 @@ test("server → channel → message", async ({ asUser }) => {
   })
   await expect(page.getByText("rejected.txt", { exact: true })).toBeVisible()
   await expect.poll(() => restored.evaluate((element) => document.activeElement === element)).toBe(true)
+  const nonceCallsAfterAttachmentSelection = await page.evaluate(() =>
+    (window as unknown as { __messageStreamNonceCalls: number }).__messageStreamNonceCalls,
+  )
   await page.keyboard.press("Enter")
   await expect.poll(() => page.evaluate(() =>
     (window as unknown as { __messageStreamNonceCalls: number }).__messageStreamNonceCalls,
-  )).toBe(2)
+  )).toBe(nonceCallsAfterAttachmentSelection + 1)
   await expect.poll(() => pendingPostCount).toBe(1)
   await expect(restored).toContainText(rejectedDraft)
   await expect(page.getByText("rejected.txt", { exact: true })).toBeVisible()

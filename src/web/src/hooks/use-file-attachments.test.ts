@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { useFileAttachments, type PendingFile } from "./use-file-attachments"
+import {
+  readComposerAttachmentSession,
+  resetComposerAttachmentSessionsForTest,
+} from "../lib/community/composer-attachment-session"
 
 // `generateThumbnail` runs entirely against browser APIs unavailable under
 // this repo's `environment: "node"` vitest config — mocked at the module
@@ -21,6 +25,7 @@ beforeEach(() => {
   generateThumbnailMock.mockReset()
   prepareCommunityImageMock.mockReset()
   toastErrorMock.mockReset()
+  resetComposerAttachmentSessionsForTest()
   vi.stubGlobal("URL", { createObjectURL: vi.fn(() => "blob:fake"), revokeObjectURL: vi.fn() })
 })
 
@@ -45,8 +50,9 @@ function Capture({
 
 async function renderCapture(options?: Parameters<typeof useFileAttachments>[0]) {
   let latest!: ReturnType<typeof useFileAttachments>
+  let renderer!: TestRenderer.ReactTestRenderer
   await act(async () => {
-    TestRenderer.create(
+    renderer = TestRenderer.create(
       React.createElement(Capture, { onResult: (r) => { latest = r }, options }),
     )
   })
@@ -58,6 +64,16 @@ async function renderCapture(options?: Parameters<typeof useFileAttachments>[0])
       await act(async () => {
         await latest.addPendingFiles(files)
       })
+    },
+    async rerender(nextOptions?: Parameters<typeof useFileAttachments>[0]) {
+      await act(async () => {
+        renderer.update(
+          React.createElement(Capture, { onResult: (r) => { latest = r }, options: nextOptions }),
+        )
+      })
+    },
+    unmount() {
+      act(() => renderer.unmount())
     },
   }
 }
@@ -91,9 +107,12 @@ describe("useFileAttachments — PendingFile width/height", () => {
 
   it("transfers accepted files without revoking their preview URLs", async () => {
     generateThumbnailMock.mockResolvedValue({ blob: { size: 1 } as Blob, width: 640, height: 480 })
-    const hook = await renderCapture()
+    const hook = await renderCapture({ draftSessionScope: "server/channel" })
     const file = new File([new Uint8Array([1])], "photo.png", { type: "image/png" })
     await hook.addFiles([file])
+    expect(readComposerAttachmentSession("server/channel")).toEqual([
+      { draftId: expect.stringMatching(/.+/), file },
+    ])
 
     let transferred: PendingFile[] = []
     await act(async () => {
@@ -104,6 +123,7 @@ describe("useFileAttachments — PendingFile width/height", () => {
       expect.objectContaining({ file, thumbnailUrl: "blob:fake", width: 640, height: 480 }),
     ])
     expect(hook.current.pendingFiles).toEqual([])
+    expect(readComposerAttachmentSession("server/channel")).toEqual([])
     expect(URL.revokeObjectURL).not.toHaveBeenCalled()
   })
 
@@ -169,12 +189,159 @@ describe("useFileAttachments — PendingFile width/height", () => {
 
   it("rejects a Community image when a required preview cannot be prepared", async () => {
     prepareCommunityImageMock.mockRejectedValue(new Error("required image preview"))
-    const hook = await renderCapture({ thumbnailPolicy: "community" })
+    const hook = await renderCapture({
+      thumbnailPolicy: "community",
+      draftSessionScope: "server/channel",
+    })
     const file = new File([new Uint8Array(1)], "photo.png", { type: "image/png" })
 
     await hook.addFiles([file])
 
     expect(hook.current.pendingFiles).toEqual([])
     expect(toastErrorMock).toHaveBeenCalledWith('Could not prepare "photo.png" for upload')
+    expect(readComposerAttachmentSession("server/channel")).toEqual([])
+  })
+
+  it("registers raw Community Files synchronously before async image preparation", async () => {
+    let release!: (value: null) => void
+    prepareCommunityImageMock.mockReturnValue(new Promise((resolve) => { release = resolve }))
+    const hook = await renderCapture({
+      thumbnailPolicy: "community",
+      draftSessionScope: "server/channel",
+    })
+    const file = new File(["image"], "fast-switch.png", { type: "image/png" })
+
+    let pending!: Promise<void>
+    act(() => {
+      pending = hook.current.addPendingFiles([file])
+    })
+    expect(readComposerAttachmentSession("server/channel")).toEqual([
+      { draftId: expect.stringMatching(/.+/), file },
+    ])
+    expect(hook.current.pendingFiles).toEqual([])
+
+    await act(async () => {
+      release(null)
+      await pending
+    })
+    expect(hook.current.pendingFiles).toEqual([
+      expect.objectContaining({ file, draftId: expect.stringMatching(/.+/) }),
+    ])
+  })
+
+  it("restores by stable ID, rebuilds image URLs, and revokes only mounted previews", async () => {
+    prepareCommunityImageMock.mockResolvedValue({ blob: null, width: 10, height: 20 })
+    vi.mocked(URL.createObjectURL)
+      .mockReturnValueOnce("blob:first")
+      .mockReturnValueOnce("blob:restored")
+    const hook = await renderCapture({ thumbnailPolicy: "community" })
+    const file = new File(["image"], "restore.png", { type: "image/png" })
+    await hook.addFiles([file])
+    const draftId = hook.current.pendingFiles[0].draftId!
+
+    await act(async () => {
+      await hook.current.restorePendingFiles([{ draftId, file }])
+    })
+
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:first")
+    expect(hook.current.pendingFiles).toEqual([
+      expect.objectContaining({ draftId, file, thumbnailUrl: "blob:restored" }),
+    ])
+    hook.unmount()
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:restored")
+  })
+
+  it("keeps selected files added while restoration is queued and never duplicates IDs", async () => {
+    let releaseRestore!: (value: null) => void
+    prepareCommunityImageMock
+      .mockReturnValueOnce(new Promise((resolve) => { releaseRestore = resolve }))
+      .mockResolvedValueOnce(null)
+    const hook = await renderCapture({
+      thumbnailPolicy: "community",
+      draftSessionScope: "server/channel",
+    })
+    const restored = new File(["old"], "old.txt", { type: "text/plain" })
+    const selected = new File(["new"], "new.txt", { type: "text/plain" })
+
+    let restore!: Promise<void>
+    let add!: Promise<void>
+    act(() => {
+      restore = hook.current.restorePendingFiles([{ draftId: "old-id", file: restored }])
+      add = hook.current.addPendingFiles([selected])
+    })
+    expect(readComposerAttachmentSession("server/channel")).toEqual([
+      { draftId: expect.stringMatching(/.+/), file: selected },
+    ])
+    await act(async () => {
+      releaseRestore(null)
+      await Promise.all([restore, add])
+    })
+    expect(hook.current.pendingFiles.map(({ file }) => file)).toEqual([restored, selected])
+    expect(new Set(hook.current.pendingFiles.map(({ draftId }) => draftId)).size).toBe(2)
+  })
+
+  it("keeps the current reservation when a stale A→B→A preparation resolves for the same ID", async () => {
+    let releaseStale!: (value: null) => void
+    let releaseCurrent!: (value: null) => void
+    prepareCommunityImageMock
+      .mockReturnValueOnce(new Promise((resolve) => { releaseStale = resolve }))
+      .mockReturnValueOnce(new Promise((resolve) => { releaseCurrent = resolve }))
+      .mockResolvedValue(null)
+    const options = {
+      thumbnailPolicy: "community" as const,
+      draftSessionScope: "scope-a",
+      maxFiles: 10,
+    }
+    const hook = await renderCapture(options)
+    const restored = new File(["old"], "old.txt", { type: "text/plain" })
+
+    let stalePreparation!: Promise<void>
+    act(() => {
+      stalePreparation = hook.current.addPendingFiles([restored])
+    })
+    const [{ draftId }] = readComposerAttachmentSession("scope-a")
+
+    await hook.rerender({ ...options, draftSessionScope: "scope-b" })
+    await hook.rerender(options)
+    expect(readComposerAttachmentSession("scope-a")).toEqual([{ draftId, file: restored }])
+
+    await act(async () => {
+      releaseStale(null)
+      await stalePreparation
+      await Promise.resolve()
+    })
+    expect(prepareCommunityImageMock).toHaveBeenCalledTimes(2)
+
+    const tenFiles = Array.from({ length: 10 }, (_, index) =>
+      new File([String(index)], `${index}.txt`, { type: "text/plain" }))
+    let addTen!: Promise<void>
+    act(() => {
+      addTen = hook.current.addPendingFiles(tenFiles)
+    })
+    expect(readComposerAttachmentSession("scope-a")).toEqual([{ draftId, file: restored }])
+    expect(toastErrorMock).toHaveBeenCalledWith("You can attach up to 10 files")
+
+    await act(async () => {
+      releaseCurrent(null)
+      await addTen
+    })
+    expect(hook.current.pendingFiles).toEqual([
+      expect.objectContaining({ draftId, file: restored }),
+    ])
+  })
+
+  it("enforces an optional Community count limit without changing the generic default", async () => {
+    prepareCommunityImageMock.mockResolvedValue(null)
+    generateThumbnailMock.mockResolvedValue(null)
+    const files = Array.from({ length: 11 }, (_, index) =>
+      new File([String(index)], `${index}.txt`, { type: "text/plain" }))
+    const community = await renderCapture({ thumbnailPolicy: "community", maxFiles: 10 })
+    await community.addFiles(files)
+    expect(community.current.pendingFiles).toEqual([])
+    expect(toastErrorMock).toHaveBeenCalledWith("You can attach up to 10 files")
+
+    const generic = await renderCapture()
+    await generic.addFiles(files)
+    expect(generic.current.pendingFiles).toHaveLength(11)
   })
 })
