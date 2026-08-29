@@ -20,7 +20,10 @@ describe("useFriends / friendsQueryFn", () => {
     // Legacy aggregate GET /friends retired — each bucket from its sub-resource.
     const byUrl: Record<string, unknown> = {
       "/api/community/friends/accepted": { friends: [{ id: "f_1", userId: "friend_1", name: "n", discriminator: "0000", avatar: "a", avatarVersion: 1, status: "offline", sub: "" }] },
-      "/api/community/friends/blocked": { blocked: [{ id: "b_1", userId: "blocked_1", name: "b", avatar: "b", avatarVersion: 2 }] },
+      "/api/community/friends/blocked": { blocked: [
+        { id: "b_1", userId: "blocked_1", name: "b", avatar: "b", avatarVersion: 2 },
+        { id: "b_legacy", name: "legacy", avatar: "l", avatarVersion: 0 },
+      ] },
       "/api/community/friends/pending": { pending: [{ id: "p_1", userId: "pending_1", name: "p", avatar: "p", avatarVersion: 3, kind: "incoming" }] },
     }
     apiFetchMock.mockImplementation(async (url: string) => {
@@ -31,7 +34,7 @@ describe("useFriends / friendsQueryFn", () => {
     const { friendsQueryFn } = await import("./use-friends")
     const data = await friendsQueryFn()
     expect(data.friends).toHaveLength(1)
-    expect(data.blocked).toHaveLength(1)
+    expect(data.blocked).toHaveLength(2)
     expect(data.pending).toHaveLength(1)
     expect(useCommunityWsStore.getState().profilesByUserId).toMatchObject(new Map([
       ["friend_1", expect.objectContaining({ name: "n", avatarVersion: 1 })],
