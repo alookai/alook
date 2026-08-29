@@ -43,12 +43,12 @@ export function ModelField({
   onChange: (v: string | null) => void
   disabled?: boolean
 }) {
-  const modelIds = useMemo(
+  const models = useMemo(
     () => runtime?.reasoning?.models
-      .map((model) => model.id)
-      .filter((id) => id !== MODEL_SELECT_DEFAULT && id !== MODEL_SELECT_CUSTOM) ?? [],
+      .filter((model) => model.id !== MODEL_SELECT_DEFAULT && model.id !== MODEL_SELECT_CUSTOM) ?? [],
     [runtime],
   )
+  const modelIds = useMemo(() => models.map((model) => model.id), [models])
   const seed = useMemo(() => modelSelectState(modelIds, value), [modelIds, value])
 
   const [selectValue, setSelectValue] = useState(seed.selectValue)
@@ -67,9 +67,10 @@ export function ModelField({
   const isCustom = selectValue === MODEL_SELECT_CUSTOM
   const defaultLabel = runtime ? `Default (${runtime.id}'s own default)` : "Default"
   const normalizedFilter = filterQuery.trim().toLowerCase()
-  const filteredModelIds = normalizedFilter
-    ? modelIds.filter((model) => model.toLowerCase().includes(normalizedFilter))
-    : modelIds
+  const filteredModels = normalizedFilter
+    ? models.filter((model) => model.id.toLowerCase().includes(normalizedFilter)
+      || model.displayName?.toLowerCase().includes(normalizedFilter))
+    : models
 
   // Base UI resolves the collapsed-trigger label from `items` (value → label).
   // Without it, SelectValue renders the raw value — fine for catalog ids
@@ -78,7 +79,12 @@ export function ModelField({
   const items = [
     { value: MODEL_SELECT_DEFAULT, label: defaultLabel },
     { value: MODEL_SELECT_CUSTOM, label: "Custom…" },
-    ...modelIds.map((model) => ({ value: model, label: model })),
+    ...models.map((model) => ({
+      value: model.id,
+      label: model.displayName && model.displayName !== model.id
+        ? `${model.id} — ${model.displayName}`
+        : model.id,
+    })),
   ]
 
   return (
@@ -150,12 +156,21 @@ export function ModelField({
                 data-testid="bot-model-probe-results"
                 className="thin-scrollbar max-h-[min(18rem,50dvh)] overflow-y-auto"
               >
-                {filteredModelIds.map((model) => (
-                  <SelectItem key={model} value={model}>
-                    <span className="font-mono">{model}</span>
+                {filteredModels.map((model) => (
+                  <SelectItem key={model.id} value={model.id}>
+                    {model.displayName && model.displayName !== model.id ? (
+                      <div className="flex min-w-0 flex-col items-start gap-0.5">
+                        <span>{model.displayName}</span>
+                        <span className="max-w-full break-all whitespace-normal font-mono text-xs text-muted-foreground">
+                          {model.id}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="font-mono">{model.id}</span>
+                    )}
                   </SelectItem>
                 ))}
-                {normalizedFilter && filteredModelIds.length === 0 ? (
+                {normalizedFilter && filteredModels.length === 0 ? (
                   <p role="status" className="px-2 py-2 text-xs text-muted-foreground">
                     No matching models
                   </p>

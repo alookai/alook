@@ -19,12 +19,11 @@ import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
 import { spawnAgentProcess } from "../../internal/killTree.js";
 import {
   probeCliRuntime,
-  probeCommandOutput,
   resolveSpawnSpec,
-  type CommandOutputProbeResult,
 } from "../../internal/probe.js";
-import { parseCursorModelCatalog } from "../../internal/modelCatalog.js";
 import { CursorAcpLane, type CursorAcpProcessFactory } from "./acp-lane.js";
+import { probeCursorAcpCatalog } from "./catalog-probe.js";
+import type { RuntimeReasoningCatalog } from "../../contract.js";
 
 export class CursorDriver implements BackendAdapter, CursorAcpProcessFactory {
   readonly id = "cursor";
@@ -37,17 +36,21 @@ export class CursorDriver implements BackendAdapter, CursorAcpProcessFactory {
   } as const;
 
   constructor(
-    private readonly outputProbe: (command: string, args: string[]) => CommandOutputProbeResult = probeCommandOutput,
+    private readonly catalogProbe: (command?: string) => Promise<RuntimeReasoningCatalog | undefined> = probeCursorAcpCatalog,
   ) {}
 
-  probe(command?: string) {
+  async probe(command?: string) {
     const result = probeCliRuntime("cursor-agent", {}, command);
     if (result.status !== "healthy") return result;
-    const spec = resolveSpawnSpec("cursor-agent", ["--list-models"], command);
-    const output = this.outputProbe(spec.command, spec.args);
+    let reasoning: RuntimeReasoningCatalog | undefined;
+    try {
+      reasoning = await this.catalogProbe(command);
+    } catch {
+      reasoning = undefined;
+    }
     return {
       ...result,
-      reasoning: output.ok ? parseCursorModelCatalog(output.output) : undefined,
+      reasoning,
     };
   }
 

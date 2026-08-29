@@ -24,15 +24,6 @@ function catalogFromIds(ids: Iterable<string>): RuntimeReasoningCatalog | undefi
   return { updateMode: "unsupported", models };
 }
 
-/** Parse Cursor's `id - label` rows while ignoring headers and footer hints. */
-export function parseCursorModelCatalog(output: string): RuntimeReasoningCatalog | undefined {
-  const ids = output.split(/\r?\n/).flatMap((line) => {
-    const match = line.trim().match(/^(\S+)\s+-\s+\S.*$/);
-    return match?.[1] ? [match[1]] : [];
-  });
-  return catalogFromIds(ids);
-}
-
 /** Parse OpenCode's `--pure` output: exactly one `provider/model` id per row. */
 export function parseOpenCodeModelCatalog(output: string): RuntimeReasoningCatalog | undefined {
   const ids = output.split(/\r?\n/).flatMap((line) => {

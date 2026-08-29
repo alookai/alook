@@ -27,6 +27,7 @@ export type RuntimeReasoningCatalog = {
   readonly defaultModelId?: string;
   readonly models: readonly {
     readonly id: string;
+    readonly displayName?: string;
     readonly supportedReasoningEfforts: readonly {
       readonly value: ReasoningEffort;
       readonly description?: string;

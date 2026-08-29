@@ -8,6 +8,7 @@ import {
   SessionErrorFrameSchema,
   COMMUNITY_RUNTIME_ID_MAX,
   COMMUNITY_RUNTIME_LIST_MAX,
+  COMMUNITY_REASONING_DESCRIPTION_MAX,
   COMMUNITY_REASONING_MODELS_MAX,
 } from "../../src/schemas";
 
@@ -137,6 +138,41 @@ describe("CommunityMachineRuntimeSchema", () => {
     });
 
     expect(parsed.reasoning?.models[0]?.defaultReasoningEffort).toBe("medium");
+  });
+
+  it("preserves a bounded model display label and drops only a malformed label", () => {
+    const parsed = CommunityMachineRuntimeSchema.parse({
+      id: "cursor",
+      reasoning: {
+        updateMode: "unsupported",
+        models: [
+          {
+            id: "grok-4.6[effort=high,fast=true]",
+            displayName: "grok-4.6",
+            supportedReasoningEfforts: [],
+          },
+          {
+            id: "grok-4.6[effort=max,fast=true]",
+            displayName: "x".repeat(COMMUNITY_REASONING_DESCRIPTION_MAX + 1),
+            supportedReasoningEfforts: [],
+          },
+          { id: "legacy-wire-model", supportedReasoningEfforts: [] },
+        ],
+      },
+    });
+
+    expect(parsed.reasoning?.models).toEqual([
+      {
+        id: "grok-4.6[effort=high,fast=true]",
+        displayName: "grok-4.6",
+        supportedReasoningEfforts: [],
+      },
+      {
+        id: "grok-4.6[effort=max,fast=true]",
+        supportedReasoningEfforts: [],
+      },
+      { id: "legacy-wire-model", supportedReasoningEfforts: [] },
+    ]);
   });
 
   it("drops a malformed reasoning catalog without poisoning runtime health", () => {

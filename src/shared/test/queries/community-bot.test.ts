@@ -366,6 +366,24 @@ describe("updateBotRuntimeConfig", () => {
     }
   })
 
+  it("persists a parameterized ACP model value byte-for-byte", async () => {
+    const { sqlite, db } = createDatabase()
+    const exactValue = "grok-4.6[effort=high,fast=true]"
+    try {
+      await expect(q.updateBotRuntimeConfig(db as never, "bot_1", "owner_1", {
+        runtime: "cursor",
+        modelName: exactValue,
+        reasoningEffort: null,
+      })).resolves.toEqual({ runtimeConfigRevision: 5 })
+      expect(sqlite.prepare(`
+        SELECT runtime, model_name AS modelName
+        FROM community_bot_binding WHERE user_id = 'bot_1'
+      `).get()).toEqual({ runtime: "cursor", modelName: exactValue })
+    } finally {
+      sqlite.close()
+    }
+  })
+
   it("does not change the tuple or revision for a different owner", async () => {
     const { sqlite, db } = createDatabase()
     try {
