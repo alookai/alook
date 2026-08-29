@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query"
 import type { useCommunityStore } from "@/stores/community"
 import type { useCommunityWsStore } from "@/stores/community/ws"
 import type { CommunityWsProjectionTransaction } from "@/hooks/community/community-ws/projection-transaction"
+import type { CommunityWsEvent } from "@alook/shared"
 
 export type Subscription = {
   // The focused regular channel/thread.
@@ -39,6 +40,16 @@ export type CommunityWsDispatchContext = {
 
 export type CommunityWsHandlerContext = CommunityWsDispatchContext & {
   projection: CommunityWsProjectionTransaction
+  unreadBumpEvidence?: ReadonlyMap<CommunityWsEvent, {
+    messageId: string
+    seq: number
+    createdAt: string
+  }>
+  messageEvidenceByChannel?: ReadonlyMap<string, {
+    messageId: string
+    seq: number
+    createdAt: string
+  }>
 }
 
 export type MessageEventContext = CommunityWsHandlerContext
@@ -57,7 +68,7 @@ export type MembershipEventContext = Pick<
 export type SocialEventContext = Pick<
   CommunityWsHandlerContext,
   "deliveryMode" | "queryClient" | "sub" | "viewerUserIdRef" | "projection"
-  | "scheduleInboxInvalidate"
+  | "scheduleInboxInvalidate" | "unreadBumpEvidence" | "messageEvidenceByChannel"
 >
 export type PresenceMachineEventContext = Pick<
   CommunityWsHandlerContext,

@@ -18,6 +18,7 @@ import {
   type InboxReadCandidate,
   type InboxReadReservationLease,
 } from "./inbox-read-reservation"
+import { getAccountUnreadProjection } from "./account-unread-projection"
 
 const READ_VISIBILITY_THRESHOLD = 0.2
 
@@ -193,6 +194,10 @@ export function useTimelineReadObserver({
           messageId: message.id,
           seq: message.seq,
         })
+        if (generation !== null) {
+          getAccountUnreadProjection(queryClient, currentUser.id)
+            .recordOptimisticRead(channelId, message.seq, generation)
+        }
         if (generation !== null && correlated) {
           promoteInboxReadReservation(reservationLease, generation)
         }

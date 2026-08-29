@@ -33,6 +33,10 @@ export interface UnreadChannelRow {
 
 export interface EligibleUnreadChannelRow extends UnreadChannelRow {
   mentionCount: number;
+  /** Highest unread message sequence represented by this row. */
+  lastUnreadSeq: number;
+  /** Highest unread attention-bearing message sequence, when present. */
+  lastAttentionSeq: number | null;
 }
 
 export interface UnreadForumOpenerRow {
@@ -237,6 +241,8 @@ export async function listEligibleUnreadChannels(
             parentChannelId: communityChannel.parentChannelId,
             lastMessageAt: sql<string>`MAX(${communityMessage.createdAt})`,
             mentionCount: sql<number>`SUM(CASE WHEN ${hasUnreadAttentionSql(userId, communityMessage.id)} THEN 1 ELSE 0 END)`,
+            lastUnreadSeq: sql<number>`MAX(${communityMessage.seq})`.mapWith(Number),
+            lastAttentionSeq: sql<number | null>`MAX(CASE WHEN ${hasUnreadAttentionSql(userId, communityMessage.id)} THEN ${communityMessage.seq} ELSE NULL END)`,
           })
           .from(communityMessage)
           .innerJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
@@ -546,6 +552,10 @@ export interface UnreadDmRow {
   lastMessageAt: string;
 }
 
+export interface EligibleUnreadDmRow extends UnreadDmRow {
+  lastUnreadSeq: number;
+}
+
 /**
  * Mirrors `isChannelUnread` for DMs (ref/id read-model seq unification).
  *
@@ -657,7 +667,7 @@ export async function listUnreadDms(
 export async function listEligibleUnreadDms(
   db: Database,
   userId: string
-): Promise<UnreadDmRow[]> {
+): Promise<EligibleUnreadDmRow[]> {
   const selfRows = await db
     .select({ channelId: communityChannelMember.channelId })
     .from(communityChannelMember)
@@ -684,6 +694,7 @@ export async function listEligibleUnreadDms(
             otherUserImage: user.image,
             otherUserAvatarVersion: user.avatarVersion,
             lastMessageAt: sql<string>`MAX(${communityMessage.createdAt})`,
+            lastUnreadSeq: sql<number>`MAX(${communityMessage.seq})`.mapWith(Number),
           })
           .from(communityMessage)
           .innerJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))

@@ -13,6 +13,10 @@ export type Server = {
   active: boolean
   unread: boolean
   mentions: number
+  /** Exact human unread sources. Absent only for rolling-deploy cache rows. */
+  unreadSources?: Array<{ channelId: string; lastUnreadSeq: number }>
+  /** Exact direct-mention sources behind the numeric rail badge. */
+  mentionSources?: Array<{ channelId: string; count: number; lastSeq: number }>
   isOwner?: boolean
   icon?: string | null
 }

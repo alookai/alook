@@ -14,6 +14,10 @@ import { disposeAccountReadStateReconciliation } from "@/hooks/community/communi
 import { disposeReadCoordinator } from "@/hooks/community/read-coordinator"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { seedPersistedMessageProfiles } from "@/lib/community/profile-seed"
+import {
+  disposeAccountUnreadProjection,
+  getAccountUnreadProjection,
+} from "@/hooks/community/account-unread-projection"
 
 /**
  * Owns the TanStack QueryClient for the community subtree.
@@ -40,6 +44,7 @@ export function QueryProvider({
   profiles.activateProfileAccount(userId)
   const restoreProfileSnapshot = useRef(profiles.beginProfileSnapshot()).current
   const [queryClient] = useState(() => createQueryClient())
+  if (userId) getAccountUnreadProjection(queryClient, userId)
   // Persister is bound to the userId at construction; on account switch the
   // whole community subtree unmounts and the shell re-renders with the new
   // id, so we don't need to reactively rebuild the persister mid-session.
@@ -57,6 +62,7 @@ export function QueryProvider({
         disposeTimer.current = null
         disposeReadCoordinator(queryClient)
         disposeAccountReadStateReconciliation(queryClient)
+        disposeAccountUnreadProjection(queryClient)
       }, 0)
     }
   }, [queryClient])

@@ -2,23 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type {
   CommunityFriendRequest,
   CommunityMentionCreate,
-  CommunityMessageCreate,
 } from "@alook/shared"
 import { getMessageOverlay } from "@/stores/community/message-stream"
 import { communityKeys } from "@/lib/query-keys"
-import type { ServerDetail } from "../use-servers"
-import {
-  deriveForumSidebarProjection,
-  patchForumSidebarUnread,
-  reconcileForumSidebarUnreadFallbacks,
-  type ForumSidebarQueryData,
-  type ForumSidebarUnreadFallbackState,
-} from "../use-forum-sidebar-threads"
+import { getActiveAccountUnreadProjection } from "../account-unread-projection"
 import {
   capturedOnMessage,
   capturedQueryClient,
   cleanupCommunityWsHarness,
-  forumSidebarFixture,
   messageCreate,
   mountHook,
   resetCommunityWsHarness,
@@ -29,415 +20,115 @@ import {
 beforeEach(resetCommunityWsHarness)
 afterEach(cleanupCommunityWsHarness)
 
-describe("useCommunityWs — message.create patches channel unread in the open server's cache", () => {
-  function serverDetailFixture(channelId: string, type = "text") {
+describe("useCommunityWs — account unread projection", () => {
+  function serverDetailFixture(channelId: string) {
     return {
       id: "srv_open",
       name: "Server",
       description: "",
       icon: null,
       ownerId: "u_owner",
-      categories: [
-        { id: "cat_A", name: "Category A", channels: [{ id: channelId, name: "random", type, active: false, unread: false }] },
-      ],
+      categories: [{
+        id: "cat_A",
+        name: "Category A",
+        channels: [{
+          id: channelId,
+          name: "random",
+          type: "text",
+          active: false,
+          unread: false,
+        }],
+      }],
     }
   }
 
-  it("flips the channel's unread to true on unread.bump when it belongs to the currently-open server's cached ServerDetail", async () => {
+  it("records a viewer bump without mutating raw server resources", async () => {
     await mountHook({ viewerUserId: "u_me" })
-    const { useCommunityStore } = await import("@/stores/community")
-    useCommunityStore.getState().setCurrentServerId("srv_open")
-    capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("ch_random"))
+    const key = communityKeys.server("srv_open")
+    const raw = serverDetailFixture("ch_random")
+    capturedQueryClient.setQueryData(key, raw)
 
-    capturedOnMessage!(unreadBump("ch_random", "u_me"))
+    capturedOnMessage!(unreadBump("ch_random", "u_me", { serverId: "srv_open" }))
 
-    const cache = capturedQueryClient.getQueryData<{
-      categories: { channels: { id: string; unread: boolean }[] }[]
-    }>(communityKeys.server("srv_open"))
-    expect(cache?.categories[0].channels[0]).toMatchObject({ id: "ch_random", unread: true })
+    expect(capturedQueryClient.getQueryData(key)).toBe(raw)
+    const projection = getActiveAccountUnreadProjection(capturedQueryClient)
+    expect(projection.projectServerChannelUnread(
+      "srv_open",
+      "ch_random",
+      [],
+    )).toBe(true)
+    expect(projection.projectServerUnread("srv_open", [])).toBe(true)
   })
 
-  it("routes a child unread.bump to its loaded forum-sidebar row instead of the parent forum", async () => {
+  it("keeps a focused bump unread until the visible-row observer submits a read", async () => {
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_focused" })
+    resetHookMemoization()
     await mountHook({ viewerUserId: "u_me" })
-    capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("forum_1"))
-    const sidebarKey = communityKeys.forumSidebarThreads("srv_open")
-    capturedQueryClient.setQueryData(sidebarKey, forumSidebarFixture())
+
+    capturedOnMessage!(unreadBump("ch_focused", "u_me", { serverId: "srv_open" }))
+
+    const projection = getActiveAccountUnreadProjection(capturedQueryClient)
+    expect(projection.projectUnread(
+      "server-detail:srv_open",
+      "ch_focused",
+      false,
+    )).toBe(true)
+    projection.recordRead("ch_focused", 999)
+    expect(projection.projectUnread(
+      "server-detail:srv_open",
+      "ch_focused",
+      false,
+    )).toBe(true)
+  })
+
+  it("uses railChannelId only as a parent fallback and leaves raw rows untouched", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const key = communityKeys.server("srv_open")
+    const raw = serverDetailFixture("forum_1")
+    capturedQueryClient.setQueryData(key, raw)
 
     capturedOnMessage!(unreadBump("post_1", "u_me", {
       serverId: "srv_open",
       railChannelId: "forum_1",
     }))
 
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(sidebarKey)?.threads[0].unread)
-      .toBe(true)
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof serverDetailFixture>>(
-      communityKeys.server("srv_open"),
-    )?.categories[0].channels[0].unread).toBe(false)
-    expect(capturedQueryClient.getQueryData<ServerDetail>(
-      communityKeys.server("srv_open"),
-    )?.forumUnreadState?.forum_1?.childIds).toEqual(["post_1"])
+    const projection = getActiveAccountUnreadProjection(capturedQueryClient)
+    expect(projection.projectForumParentUnread(
+      "srv_open",
+      "forum_1",
+      false,
+      undefined,
+      new Set(),
+    )).toBe(true)
+    expect(capturedQueryClient.getQueryData(key)).toBe(raw)
   })
 
-  it("keeps an inactive retained-only child on the parent fallback, then transfers it on the activation render", async () => {
+  it("never increments a numeric rail badge from an unsequenced isMention hint", async () => {
     await mountHook({ viewerUserId: "u_me" })
-    const serverKey = communityKeys.server("srv_open")
-    const baseKey = communityKeys.forumSidebarThreads("srv_open")
-    const retainedKey = communityKeys.forumSidebarRetained("srv_open", "post_extra")
-    capturedQueryClient.setQueryData(serverKey, serverDetailFixture("forum_1", "forum"))
-    capturedQueryClient.setQueryData(baseKey, forumSidebarFixture([
-      "post_1", "post_2", "post_3", "post_4", "post_5",
-    ]))
-    capturedQueryClient.setQueryData(retainedKey, {
-      ...forumSidebarFixture(["post_extra"]).threads[0],
-    })
-
-    capturedOnMessage!(unreadBump("post_extra", "u_me", {
-      serverId: "srv_open",
-      railChannelId: "forum_1",
+    capturedOnMessage!(unreadBump("ch_a", "u_me", {
+      serverId: "srv_x",
+      isMention: true,
     }))
-
-    expect(capturedQueryClient.getQueryData<ServerDetail>(serverKey)
-      ?.categories[0]?.channels[0]?.unread).toBe(true)
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>["threads"][number]>(
-      retainedKey,
-    )?.unread).toBe(false)
-
-    const ownership = capturedQueryClient.getQueryData<ServerDetail>(serverKey)?.forumUnreadState
-    const active = deriveForumSidebarProjection(
-      capturedQueryClient.getQueryData(baseKey),
-      capturedQueryClient.getQueryData(retainedKey),
-      ownership,
-    )
-    expect(active.threads.find((thread) => thread.id === "post_extra")?.unread).toBe(true)
-    expect(active.parentUnread.forum_1).toBe(false)
+    expect(getActiveAccountUnreadProjection(capturedQueryClient)
+      .projectServerMentionCount("srv_x", [], 7)).toBe(7)
   })
 
-  it("keeps a canonical fifth child on the parent fallback when an active extra displaces it", async () => {
-    const { useCommunityStore } = await import("@/stores/community")
-    useCommunityStore.getState().subscribe({ channelId: "post_extra" })
+  it("ignores bumps addressed to a different account", async () => {
     await mountHook({ viewerUserId: "u_me" })
-    const serverKey = communityKeys.server("srv_open")
-    const baseKey = communityKeys.forumSidebarThreads("srv_open")
-    capturedQueryClient.setQueryData(serverKey, serverDetailFixture("forum_1", "forum"))
-    capturedQueryClient.setQueryData(baseKey, forumSidebarFixture([
-      "post_1", "post_2", "post_3", "post_4", "post_5",
-    ]))
-    capturedQueryClient.setQueryData(
-      communityKeys.forumSidebarRetained("srv_open", "post_extra"),
-      forumSidebarFixture(["post_extra"]).threads[0],
-    )
-
-    capturedOnMessage!(unreadBump("post_5", "u_me", {
-      serverId: "srv_open",
-      railChannelId: "forum_1",
-    }))
-
-    expect(capturedQueryClient.getQueryData<ServerDetail>(serverKey)
-      ?.categories[0]?.channels[0]?.unread).toBe(true)
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof forumSidebarFixture>>(baseKey)
-      ?.threads.find((thread) => thread.id === "post_5")?.unread).toBe(false)
+    capturedOnMessage!(unreadBump("ch_random", "someone_else", { serverId: "srv_open" }))
+    expect(getActiveAccountUnreadProjection(capturedQueryClient)
+      .projectServerUnread("srv_open", [])).toBe(false)
   })
 
-  it("falls back to the parent forum dot when the child has no locatable sidebar row", async () => {
+  it("message.create alone syncs content but does not manufacture unread authority", async () => {
     await mountHook({ viewerUserId: "u_me" })
-    capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("forum_1"))
-    capturedQueryClient.setQueryData(
-      communityKeys.forumSidebarThreads("srv_open"),
-      forumSidebarFixture([]),
-    )
-
-    capturedOnMessage!(unreadBump("post_missing", "u_me", {
-      serverId: "srv_open",
-      railChannelId: "forum_1",
-    }))
-
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof serverDetailFixture>>(
-      communityKeys.server("srv_open"),
-    )?.categories[0].channels[0].unread).toBe(true)
-    expect(capturedQueryClient.getQueryData<ForumSidebarUnreadFallbackState>(
-      communityKeys.forumSidebarUnreadFallbacks("srv_open"),
-    )).toEqual({
-      forum_1: { baseUnread: false, childIds: ["post_missing"] },
-    })
-  })
-
-  it("moves message.create → unread.bump fallback ownership to the refetched child", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    const serverKey = communityKeys.server("srv_open")
-    const sidebarKey = communityKeys.forumSidebarThreads("srv_open")
-    capturedQueryClient.setQueryData(serverKey, serverDetailFixture("forum_1", "forum"))
-    capturedQueryClient.setQueryData(sidebarKey, forumSidebarFixture([]))
-
-    capturedOnMessage!({
-      ...messageCreate("post_new"),
-      serverId: "srv_open",
-      parentChannelId: "forum_1",
-    } satisfies CommunityMessageCreate)
-    await vi.waitFor(() => {
-      expect(capturedQueryClient.getQueryState(sidebarKey)?.isInvalidated).toBe(true)
-    })
-
-    capturedOnMessage!(unreadBump("post_new", "u_me", {
-      serverId: "srv_open",
-      railChannelId: "forum_1",
-    }))
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof serverDetailFixture>>(
-      serverKey,
-    )?.categories[0].channels[0].unread).toBe(true)
-
-    const refetched = forumSidebarFixture(["post_new"])
-    refetched.threads[0]!.unread = true
-    capturedQueryClient.setQueryData(sidebarKey, refetched)
-    reconcileForumSidebarUnreadFallbacks(capturedQueryClient, "srv_open", ["post_new"])
-
-    expect(capturedQueryClient.getQueryData<ForumSidebarQueryData>(sidebarKey)?.threads[0]?.unread).toBe(true)
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof serverDetailFixture>>(
-      serverKey,
-    )?.categories[0].channels[0].unread).toBe(false)
-
-    capturedQueryClient.setQueryData<ForumSidebarQueryData>(sidebarKey, (data) =>
-      patchForumSidebarUnread(data, "post_new", false),
-    )
-    expect(capturedQueryClient.getQueryData<ForumSidebarQueryData>(sidebarKey)?.threads[0]?.unread).toBe(false)
-    expect(capturedQueryClient.getQueryData<ReturnType<typeof serverDetailFixture>>(
-      serverKey,
-    )?.categories[0].channels[0].unread).toBe(false)
-  })
-
-  it("message.create alone does NOT flip the sidebar unread (mute-gated bump is the only trigger now)", async () => {
-    // Regression pin: mute ≠ blindness. The message.create still arrives (and
-    // content syncs), but the unread dot is flipped ONLY by the server's
-    // per-recipient, mute-gated unread.bump — so a muted channel's message.create
-    // must NOT light the dot. Don't "fix" this back onto message.create.
-    await mountHook({ viewerUserId: "u_me" })
-    const { useCommunityStore } = await import("@/stores/community")
-    useCommunityStore.getState().setCurrentServerId("srv_open")
-    capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("ch_random"))
-
     capturedOnMessage!(messageCreate("ch_random"))
-
-    const cache = capturedQueryClient.getQueryData<{
-      categories: { channels: { id: string; unread: boolean }[] }[]
-    }>(communityKeys.server("srv_open"))
-    expect(cache?.categories[0].channels[0].unread).toBe(false)
+    expect(getActiveAccountUnreadProjection(capturedQueryClient)
+      .projectServerUnread("s1", [])).toBe(false)
   })
 
-  it("does NOT flip unread on a bump addressed to a different user", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    const { useCommunityStore } = await import("@/stores/community")
-    useCommunityStore.getState().setCurrentServerId("srv_open")
-    capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("ch_random"))
-
-    capturedOnMessage!(unreadBump("ch_random", "someone_else"))
-
-    const cache = capturedQueryClient.getQueryData<{
-      categories: { channels: { id: string; unread: boolean }[] }[]
-    }>(communityKeys.server("srv_open"))
-    expect(cache?.categories[0].channels[0].unread).toBe(false)
-  })
-
-  it("does NOT flip unread for the currently-subscribed (active) channel", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    const { useCommunityStore } = await import("@/stores/community")
-    useCommunityStore.getState().setCurrentServerId("srv_open")
-    useCommunityStore.getState().subscribe({ channelId: "ch_random" })
-    resetHookMemoization()
-    await mountHook({ viewerUserId: "u_me" })
-    capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("ch_random"))
-
-    capturedOnMessage!(unreadBump("ch_random", "u_me"))
-
-    const cache = capturedQueryClient.getQueryData<{
-      categories: { channels: { id: string; unread: boolean }[] }[]
-    }>(communityKeys.server("srv_open"))
-    expect(cache?.categories[0].channels[0].unread).toBe(false)
-  })
-
-  it("is a no-op when the channel isn't present in the currently cached ServerDetail (different server / no cache)", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    const { useCommunityStore } = await import("@/stores/community")
-    useCommunityStore.getState().setCurrentServerId("srv_open")
-    capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("ch_other"))
-
-    expect(() => capturedOnMessage!(unreadBump("ch_random", "u_me"))).not.toThrow()
-
-    const cache = capturedQueryClient.getQueryData<{
-      categories: { channels: { id: string; unread: boolean }[] }[]
-    }>(communityKeys.server("srv_open"))
-    // Untouched — the fixture's own channel stays unread: false.
-    expect(cache?.categories[0].channels[0]).toMatchObject({ id: "ch_other", unread: false })
-  })
-
-  it("does not crash and is a no-op when no server is currently open", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    expect(() => capturedOnMessage!(unreadBump("ch_random", "u_me"))).not.toThrow()
-  })
-
-  // ── inbox-dot-ws-driven ② : bump carries serverId / railChannelId / isMention ──
-
-  it("lights the dot on the bump's OWN serverId, even when a DIFFERENT server is open (the cross-server bug)", async () => {
-    // The core fix: previously the handler only patched the currently-open
-    // server, so a message in another server never lit its dot. With
-    // `serverId` on the bump we patch the right server's detail regardless of
-    // which one is focused.
-    await mountHook({ viewerUserId: "u_me" })
-    const { useCommunityStore } = await import("@/stores/community")
-    useCommunityStore.getState().setCurrentServerId("srv_open") // a different server is focused
-    capturedQueryClient.setQueryData(communityKeys.server("srv_other"), serverDetailFixture("ch_bg"))
-
-    capturedOnMessage!(unreadBump("ch_bg", "u_me", { serverId: "srv_other" }))
-
-    const cache = capturedQueryClient.getQueryData<{
-      categories: { channels: { id: string; unread: boolean }[] }[]
-    }>(communityKeys.server("srv_other"))
-    expect(cache?.categories[0].channels[0]).toMatchObject({ id: "ch_bg", unread: true })
-  })
-
-  it("lights the PARENT channel row for a thread bump (railChannelId), not the thread's own id", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    const { useCommunityStore } = await import("@/stores/community")
-    useCommunityStore.getState().setCurrentServerId("srv_open")
-    // The tree row is the parent channel; the thread has no independent row.
-    capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("ch_parent"))
-
-    // channelId = the thread's id (true scope), railChannelId = parent row.
-    capturedOnMessage!(unreadBump("ch_thread", "u_me", { serverId: "srv_open", railChannelId: "ch_parent" }))
-
-    const cache = capturedQueryClient.getQueryData<{
-      categories: { channels: { id: string; unread: boolean }[] }[]
-    }>(communityKeys.server("srv_open"))
-    expect(cache?.categories[0].channels[0]).toMatchObject({ id: "ch_parent", unread: true })
-  })
-
-  it("suppresses the dot when the viewer is looking at the RAIL row (thread bump whose parent is open)", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    const { useCommunityStore } = await import("@/stores/community")
-    useCommunityStore.getState().setCurrentServerId("srv_open")
-    useCommunityStore.getState().subscribe({ channelId: "ch_parent" }) // parent row is open
-    resetHookMemoization()
-    await mountHook({ viewerUserId: "u_me" })
-    capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("ch_parent"))
-
-    capturedOnMessage!(unreadBump("ch_thread", "u_me", { serverId: "srv_open", railChannelId: "ch_parent" }))
-
-    const cache = capturedQueryClient.getQueryData<{
-      categories: { channels: { id: string; unread: boolean }[] }[]
-    }>(communityKeys.server("srv_open"))
-    expect(cache?.categories[0].channels[0].unread).toBe(false)
-  })
-
-  it("bumps the rail mention badge (servers() mentions +1) ONLY when isMention is set", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    capturedQueryClient.setQueryData(communityKeys.servers(), {
-      servers: [{ id: "srv_x", name: "X", initial: "X", active: false, mentions: 2, icon: null }],
-    })
-
-    // Plain unread (no isMention) → mention count unchanged.
-    capturedOnMessage!(unreadBump("ch_a", "u_me", { serverId: "srv_x" }))
-    let servers = capturedQueryClient.getQueryData<{ servers: { id: string; mentions: number }[] }>(communityKeys.servers())
-    expect(servers?.servers[0].mentions).toBe(2)
-
-    // Mention → +1.
-    capturedOnMessage!(unreadBump("ch_a", "u_me", { serverId: "srv_x", isMention: true }))
-    servers = capturedQueryClient.getQueryData<{ servers: { id: string; mentions: number }[] }>(communityKeys.servers())
-    expect(servers?.servers[0].mentions).toBe(3)
-  })
-
-  it("projects the addressed background server row to unread without touching siblings", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    const sibling = { id: "srv_y", name: "Y", initial: "Y", active: false, unread: false, mentions: 0 }
-    capturedQueryClient.setQueryData(communityKeys.servers(), {
-      servers: [
-        { id: "srv_x", name: "X", initial: "X", active: false, unread: false, mentions: 0 },
-        sibling,
-      ],
-    })
-
-    capturedOnMessage!(unreadBump("ch_a", "u_me", { serverId: "srv_x" }))
-
-    const data = capturedQueryClient.getQueryData<{
-      servers: Array<{ id: string; unread: boolean }>
-    }>(communityKeys.servers())!
-    expect(data.servers.map(({ id, unread }) => ({ id, unread }))).toEqual([
-      { id: "srv_x", unread: true },
-      { id: "srv_y", unread: false },
-    ])
-    expect(data.servers[1]).toBe(sibling)
-  })
-
-  it("preserves response/list/row identity and skips invalidation for an idle already-true row", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-    const row = { id: "srv_x", name: "X", initial: "X", active: false, unread: true, mentions: 0 }
-    const seeded = { servers: [row] }
-    capturedQueryClient.setQueryData(communityKeys.servers(), seeded)
-    const invalidate = vi.spyOn(capturedQueryClient, "invalidateQueries")
-
-    capturedOnMessage!(unreadBump("ch_a", "u_me", { serverId: "srv_x" }))
-
-    const data = capturedQueryClient.getQueryData(communityKeys.servers())
-    expect(data).toBe(seeded)
-    expect((data as typeof seeded).servers).toBe(seeded.servers)
-    expect((data as typeof seeded).servers[0]).toBe(row)
-    expect(invalidate).not.toHaveBeenCalled()
-  })
-
-  it.each([
-    ["absent", undefined],
-    ["cached false", false],
-    ["cached true", true],
-  ] as const)("fences a %s in-flight server-list request and converges to post-commit true", async (_label, cachedUnread) => {
-    await mountHook({ viewerUserId: "u_me" })
-    const key = communityKeys.servers()
-    if (cachedUnread !== undefined) {
-      capturedQueryClient.setQueryData(key, {
-        servers: [{ id: "srv_x", name: "X", initial: "X", active: false, unread: cachedUnread, mentions: 0 }],
-      })
-    }
-    let calls = 0
-    let firstAborted = false
-    const queryFn = ({ signal }: { signal: AbortSignal }) => {
-      calls += 1
-      if (calls > 1) {
-        return Promise.resolve({
-          servers: [{ id: "srv_x", name: "X", initial: "X", active: false, unread: true, mentions: 0 }],
-        })
-      }
-      return new Promise<never>((_resolve, reject) => {
-        signal.addEventListener("abort", () => {
-          firstAborted = true
-          reject(new DOMException("aborted", "AbortError"))
-        }, { once: true })
-      })
-    }
-    const first = capturedQueryClient.fetchQuery({ queryKey: key, queryFn, staleTime: 0 })
-      .catch(() => undefined)
-    await vi.waitFor(() => expect(calls).toBe(1))
-
-    capturedOnMessage!(unreadBump("ch_a", "u_me", { serverId: "srv_x" }))
-
-    await vi.waitFor(() => expect(calls).toBe(2))
-    await vi.waitFor(() => expect(capturedQueryClient.getQueryData<{
-      servers: Array<{ unread: boolean }>
-    }>(key)?.servers[0]?.unread).toBe(true))
-    expect(firstAborted).toBe(true)
-    await first
-  })
-
-  it("leaves an absent or unrelated server rail cache unchanged on a legacy mention bump", async () => {
-    await mountHook({ viewerUserId: "u_me" })
-
-    capturedOnMessage!(unreadBump("ch_a", "u_me", { serverId: "srv_x", isMention: true }))
-    expect(capturedQueryClient.getQueryData(communityKeys.servers())).toBeUndefined()
-
-    const unrelated = {
-      servers: [{ id: "srv_other", name: "Other", initial: "O", active: false, mentions: 4, icon: null }],
-    }
-    capturedQueryClient.setQueryData(communityKeys.servers(), unrelated)
-    capturedOnMessage!(unreadBump("ch_a", "u_me", { serverId: "srv_x", isMention: true }))
-    expect(capturedQueryClient.getQueryData(communityKeys.servers())).toEqual(unrelated)
-  })
-
-  it("existing focused-channel message patch and debounced inbox invalidation still fire on message.create", async () => {
+  it("keeps focused content sync and the existing debounced Inbox refresh", async () => {
     vi.useFakeTimers()
     try {
       await mountHook({ viewerUserId: "u_me" })
@@ -446,32 +137,25 @@ describe("useCommunityWs — message.create patches channel unread in the open s
       useCommunityStore.getState().subscribe({ channelId: "ch_focused" })
       resetHookMemoization()
       await mountHook({ viewerUserId: "u_me" })
-
-      capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_focused"), {
-        pages: [{ messages: [], hasMore: false }],
-        pageParams: [null],
-      })
-      capturedQueryClient.setQueryData(communityKeys.server("srv_open"), serverDetailFixture("ch_focused"))
       const invalidateSpy = vi.spyOn(capturedQueryClient, "invalidateQueries")
 
       capturedOnMessage!(messageCreate("ch_focused"))
       await vi.advanceTimersByTimeAsync(500)
 
-      const messagesCache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
-        communityKeys.channelMessages("ch_focused"),
-      )
-      expect(messagesCache?.pages[0].messages).toEqual([])
-      expect(getMessageOverlay({ kind: "channel", id: "ch_focused", serverId: "s1" }).liveById.has("m_1")).toBe(true)
-      const inboxCalls = invalidateSpy.mock.calls.filter((c) => {
-        const key = c[0]?.queryKey
-        return Array.isArray(key) && key.includes("inbox")
-      })
-      expect(inboxCalls).toHaveLength(1)
+      expect(getMessageOverlay({
+        kind: "channel",
+        id: "ch_focused",
+        serverId: "s1",
+      }).liveById.has("m_1")).toBe(true)
+      expect(invalidateSpy.mock.calls.some((call) => (
+        (call[0]?.queryKey as unknown[] | undefined)?.includes("inbox")
+      ))).toBe(true)
     } finally {
       vi.useRealTimers()
     }
   })
 })
+
 describe("useCommunityWs — friend + mention → invalidate", () => {
   it("friend.request invalidates communityKeys.friends()", async () => {
     await mountHook()
@@ -487,12 +171,9 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
       },
     }
     capturedOnMessage!(event)
-    expect(
-      spy.mock.calls.some((c) => {
-        const key = c[0]?.queryKey as unknown[] | undefined
-        return Array.isArray(key) && key.includes("friends")
-      }),
-    ).toBe(true)
+    expect(spy.mock.calls.some((call) => (
+      (call[0]?.queryKey as unknown[] | undefined)?.includes("friends")
+    ))).toBe(true)
   })
 
   it("routes mention.create through the debounced Inbox owner", async () => {
@@ -509,18 +190,15 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
       capturedOnMessage!(event)
       expect(spy).not.toHaveBeenCalledWith({ queryKey: communityKeys.inbox() })
       await vi.advanceTimersByTimeAsync(500)
-      expect(
-        spy.mock.calls.some((c) => {
-          const key = c[0]?.queryKey as unknown[] | undefined
-          return Array.isArray(key) && key.includes("inbox")
-        }),
-      ).toBe(true)
+      expect(spy.mock.calls.some((call) => (
+        (call[0]?.queryKey as unknown[] | undefined)?.includes("inbox")
+      ))).toBe(true)
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it("mention.create also invalidates communityKeys.servers() so the rail badge ticks", async () => {
+  it("mention.create invalidates servers so authoritative source counts refresh", async () => {
     await mountHook()
     const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
     const event: CommunityMentionCreate = {
@@ -530,10 +208,9 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
       authorName: "A",
     }
     capturedOnMessage!(event)
-    const serversInvalidates = spy.mock.calls.filter((c) => {
-      const key = c[0]?.queryKey as unknown[] | undefined
-      return Array.isArray(key) && key.length === 2 && key[0] === "community" && key[1] === "servers"
-    })
-    expect(serversInvalidates).toHaveLength(1)
+    expect(spy.mock.calls.filter((call) => {
+      const key = call[0]?.queryKey as unknown[] | undefined
+      return key?.length === 2 && key[0] === "community" && key[1] === "servers"
+    })).toHaveLength(1)
   })
 })

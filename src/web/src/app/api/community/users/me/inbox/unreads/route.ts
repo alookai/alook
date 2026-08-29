@@ -107,6 +107,7 @@ export const GET = withAuth(async (req, ctx) => {
     type: string | null
     lastMessageAt: string
     mentionCount: number
+    lastUnreadSeq: number
     openerMessageId?: string
     parentChannelId?: string
     openerSeq?: number
@@ -123,6 +124,7 @@ export const GET = withAuth(async (req, ctx) => {
     serverName: string
     lastMessageAt: string
     mentionCount: number
+    lastUnreadSeq: number
     hasDirectUnread: boolean
     children: UnreadChild[]
   }
@@ -141,6 +143,7 @@ export const GET = withAuth(async (req, ctx) => {
         type: row.type,
         lastMessageAt: row.lastMessageAt,
         mentionCount: row.mentionCount,
+        lastUnreadSeq: row.lastUnreadSeq,
         sortSeq: 0,
         sortId: row.channelId,
       })
@@ -154,6 +157,7 @@ export const GET = withAuth(async (req, ctx) => {
         serverName: row.serverName,
         lastMessageAt: row.lastMessageAt,
         mentionCount: row.mentionCount,
+        lastUnreadSeq: row.lastUnreadSeq,
         hasDirectUnread: true,
         children: [],
       })
@@ -179,6 +183,7 @@ export const GET = withAuth(async (req, ctx) => {
       existing.openerMessageId = opener.openerMessageId
       existing.openerSeq = opener.openerSeq
       existing.openerUnread = opener.openerUnread
+      existing.lastUnreadSeq = Math.max(existing.lastUnreadSeq, opener.openerSeq)
       if (opener.createdAt >= existing.lastMessageAt) {
         existing.lastMessageAt = opener.createdAt
         existing.sortSeq = opener.openerSeq
@@ -192,6 +197,7 @@ export const GET = withAuth(async (req, ctx) => {
         type: "thread",
         lastMessageAt: opener.createdAt,
         mentionCount: unreadChild?.mentionCount ?? 0,
+        lastUnreadSeq: Math.max(unreadChild?.lastUnreadSeq ?? 0, opener.openerSeq),
         parentChannelId: opener.parentChannelId,
         openerMessageId: opener.openerMessageId,
         openerSeq: opener.openerSeq,
@@ -228,6 +234,7 @@ export const GET = withAuth(async (req, ctx) => {
         serverName: "",
         lastMessageAt: "",
         mentionCount: 0,
+        lastUnreadSeq: 0,
         hasDirectUnread: false,
         children: [],
       })
@@ -290,6 +297,7 @@ export const GET = withAuth(async (req, ctx) => {
         type: c.type ?? undefined,
         lastMessageAt: c.lastMessageAt,
         mentionCount: c.mentionCount,
+        lastUnreadSeq: c.lastUnreadSeq,
         hasDirectUnread: c.hasDirectUnread,
         children: c.children.map((k) => ({
           channelId: k.channelId,
@@ -297,6 +305,7 @@ export const GET = withAuth(async (req, ctx) => {
           type: k.type ?? undefined,
           lastMessageAt: k.lastMessageAt,
           mentionCount: k.mentionCount,
+          lastUnreadSeq: k.lastUnreadSeq,
           ...(k.parentChannelId ? { parentChannelId: k.parentChannelId } : {}),
           ...(k.openerMessageId ? { openerMessageId: k.openerMessageId } : {}),
           ...(k.openerSeq !== undefined ? { openerSeq: k.openerSeq } : {}),
@@ -357,6 +366,7 @@ export const GET = withAuth(async (req, ctx) => {
       ) ?? avatarInitial(d.otherUserName),
       otherUserAvatarVersion: d.otherUserAvatarVersion,
       lastMessageAt: d.lastMessageAt,
+      lastUnreadSeq: d.lastUnreadSeq,
     }))
     .sort((a, b) => (a.lastMessageAt < b.lastMessageAt ? 1 : -1))
 

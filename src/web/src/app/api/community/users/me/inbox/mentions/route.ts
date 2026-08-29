@@ -36,7 +36,7 @@ export const GET = withAuth(async (req, ctx) => {
     async () => {
       const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)
       const rows = await queries.communityMention.listUnreadMentions(db, ctx.userId, {
-        limit,
+        limit: limit + 1,
         visibleChannelIds,
       })
       const channelIds = [...new Set(rows.filter((r) => r.message.channelId).map((r) => r.message.channelId!))]
@@ -51,7 +51,9 @@ export const GET = withAuth(async (req, ctx) => {
   if (stale) {
     return writeJSON({ mentions: [], limit, stale: true })
   }
-  const { rows, channels, servers } = fetched
+  const { rows: fetchedRows, channels, servers } = fetched
+  const truncated = fetchedRows.length > limit
+  const rows = fetchedRows.slice(0, limit)
   const channelMap = new Map(channels.map((ch) => [ch.id, ch]))
   const serverMap = new Map(servers.map((s) => [s.id, s]))
 
@@ -71,6 +73,7 @@ export const GET = withAuth(async (req, ctx) => {
       channelId: row.message.channelId,
       m: {
         id: row.message.id,
+        seq: row.message.seq,
         // authorId is the beam-avatar seed the popover renders from
         // (<Avatar seed={authorId}>); omitting it left image-less authors with
         // a blank avatar — same fix as the pins route.
@@ -88,5 +91,5 @@ export const GET = withAuth(async (req, ctx) => {
     }
   })
 
-  return writeJSON({ mentions, limit })
+  return writeJSON({ mentions, limit, truncated })
 })

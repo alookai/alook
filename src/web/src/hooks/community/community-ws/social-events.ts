@@ -9,19 +9,8 @@ import type {
   CommunityReadStateAdvanced,
   CommunityWsEvent,
 } from "@alook/shared"
-import { communityKeys } from "@/lib/query-keys"
-import { useCommunityStore } from "@/stores/community"
-import { patchChannelUnread } from "@/hooks/community/server-detail-cache"
-import type { ServersResponse, ServerDetail } from "@/hooks/community/use-servers"
-import {
-  hasProjectedForumSidebarThread,
-  patchForumSidebarUnreadExact,
-  recordForumSidebarChildUnread,
-  setForumSidebarParentUnreadBase,
-} from "@/hooks/community/use-forum-sidebar-threads"
 import type { SocialEventContext } from "@/hooks/community/community-ws/handler-context"
 import {
-  fenceServersList,
   invalidateFriends,
   invalidateServersList,
 } from "./invalidation-projections"
@@ -29,6 +18,7 @@ import {
   projectReadStateEnvelope,
   reconcileAccountReadState,
 } from "./read-state-reconciliation"
+import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
 
 export function handleReadStateAdvanced(
   event: CommunityReadStateAdvanced,
@@ -71,105 +61,28 @@ type CommunityUnreadBump = Extract<
 // defensively).
 export function handleUnreadBump(
   event: CommunityUnreadBump,
-  { deliveryMode, projection, queryClient, viewerUserIdRef, sub }: SocialEventContext,
+  context: SocialEventContext,
 ) {
+  const {
+    queryClient,
+    viewerUserIdRef,
+    unreadBumpEvidence,
+    scheduleInboxInvalidate,
+  } = context
   const viewerId = viewerUserIdRef.current
-  // `railChannelId` is the always-locatable fallback. A participating
-  // forum child now has its own nested row, so prefer that row when it
-  // is loaded; ordinary/expired children continue to light the parent.
-  const railChannelId = event.railChannelId ?? event.channelId
-  const targetServerId =
-    event.serverId ?? useCommunityStore.getState().currentServerId
-  if (deliveryMode === "batch" && event.isMention && event.serverId) {
-    invalidateServersList(projection)
-  }
-  const hasChildSidebarRow = !!targetServerId && event.channelId !== railChannelId &&
-    hasProjectedForumSidebarThread(
-      queryClient,
-      targetServerId,
-      event.channelId,
-      sub.channelId,
-    )
-  const sidebarChannelId = hasChildSidebarRow ? event.channelId : railChannelId
-  // Suppress the dot for the channel the viewer is actually looking at
-  // (its unread clears on read anyway) — compare against the ROW being
-  // lit, so a thread bump whose parent is open still suppresses.
-  if (event.userId === viewerId && sidebarChannelId !== sub.channelId) {
-    if (event.serverId) {
-      const serversKey = communityKeys.servers()
-      if (queryClient.getQueryState(serversKey)?.fetchStatus === "fetching") {
-        fenceServersList(projection)
-      }
-      queryClient.setQueryData<ServersResponse | undefined>(serversKey, (prev) => {
-        if (!prev) return prev
-        const index = prev.servers.findIndex((server) => server.id === event.serverId)
-        if (index < 0 || prev.servers[index]?.unread) return prev
-        const servers = [...prev.servers]
-        servers[index] = { ...servers[index]!, unread: true }
-        return { ...prev, servers }
-      })
-    }
-    // Channel-tree dot: patch the RIGHT server's detail. `serverId`
-    // (inbox-dot-ws-driven) lets an other-server message light its dot
-    // — previously only the open server was patched, so cross-server
-    // bumps never lit. Absent serverId (DM bump / older frame) → fall
-    // back to the currently-open server (backward-compatible).
-    if (hasChildSidebarRow && targetServerId) {
-      patchForumSidebarUnreadExact(queryClient, targetServerId, event.channelId, true)
-      recordForumSidebarChildUnread(
-        queryClient,
-        targetServerId!,
-        railChannelId,
-        event.channelId,
-        true,
-      )
-    } else if (targetServerId) {
-      if (event.channelId !== railChannelId) {
-        recordForumSidebarChildUnread(
-          queryClient,
-          targetServerId,
-          railChannelId,
-          event.channelId,
-        )
-      } else {
-        const hasChildFallback = setForumSidebarParentUnreadBase(
-          queryClient,
-          targetServerId,
-          railChannelId,
-          true,
-        )
-        if (!hasChildFallback) {
-          queryClient.setQueryData<ServerDetail | undefined>(
-            communityKeys.server(targetServerId),
-            (cache) => patchChannelUnread(cache, railChannelId, true),
-          )
-        }
-      }
-    }
-    // Rail mention badge: the rail row carries only a `mentions` count
-    // (no separate unread dot — plain unread lives on the tree dot
-    // above). So bump the rail badge ONLY for a mention, on the right
-    // server row. Needs `serverId`; a DM/older frame without it can't
-    // locate a rail row, so skip (the tree dot / inbox still reflect it).
-    if (event.isMention && event.serverId) {
-      const bumpServerId = event.serverId
-      if (deliveryMode === "single") {
-        queryClient.setQueryData<ServersResponse | undefined>(
-          communityKeys.servers(),
-          (prev) =>
-            prev
-              ? {
-                ...prev,
-                servers: prev.servers.map((s) =>
-                  s.id === bumpServerId
-                    ? { ...s, mentions: s.mentions + 1 }
-                    : s,
-                ),
-              }
-              : prev,
-        )
-      }
-    }
+  if (event.userId === viewerId && viewerId) {
+    const evidence = unreadBumpEvidence?.get(event)
+    getAccountUnreadProjection(queryClient, viewerId).recordArrival({
+      channelId: event.channelId,
+      railChannelId: event.railChannelId,
+      serverId: event.serverId,
+      isMention: event.isMention,
+      messageId: evidence?.messageId,
+      seq: evidence?.seq,
+    })
+    // Use the existing coalesced owner. This is also the sole authority
+    // refresh for legacy/orphan bumps; the ledger itself performs no I/O.
+    scheduleInboxInvalidate({ inbox: true, dms: !event.serverId })
   }
 }
 
@@ -188,9 +101,26 @@ export function handleFriendEvent(
 }
 
 export function handleMentionCreate(
-  _event: CommunityMentionCreate,
-  { projection, scheduleInboxInvalidate }: SocialEventContext,
+  event: CommunityMentionCreate,
+  {
+    projection,
+    scheduleInboxInvalidate,
+    queryClient,
+    viewerUserIdRef,
+    messageEvidenceByChannel,
+  }: SocialEventContext,
 ) {
+  const viewerId = viewerUserIdRef.current
+  if (viewerId && event.userId === viewerId && event.channelId) {
+    const candidate = messageEvidenceByChannel?.get(event.channelId)
+    const evidence = candidate?.messageId === event.messageId ? candidate : undefined
+    getAccountUnreadProjection(queryClient, viewerId).recordMentionArrival({
+      channelId: event.channelId,
+      messageId: event.messageId,
+      seq: evidence?.seq,
+      isMention: true,
+    })
+  }
   scheduleInboxInvalidate({ inbox: true, dms: false })
   // The server rail badge counts unread mentions per server; refresh
   // it on every new mention. `exact: true` is essential: the mention

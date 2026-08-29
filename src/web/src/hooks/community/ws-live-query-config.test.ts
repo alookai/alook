@@ -25,6 +25,7 @@ vi.mock("react", () => ({
   useRef: (init: unknown) => ({ current: init }),
   useCallback: (fn: unknown) => fn,
   useEffect: () => {},
+  useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) => getSnapshot(),
 }))
 
 // ── react-query shim — capture each query's options ─────────────────────────

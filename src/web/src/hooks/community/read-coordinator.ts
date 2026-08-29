@@ -16,6 +16,7 @@ import {
   publishInboxProjectionGenerationTerminal,
   settleInboxReadReservationGeneration,
 } from "./inbox-read-reservation"
+import { getAccountUnreadProjection } from "./account-unread-projection"
 
 export const READ_COORDINATOR_DEBOUNCE_MS = 500
 
@@ -196,6 +197,8 @@ class ReadCoordinator {
         state.retryTimer = null
       }
       for (const generation of canceledGenerations) {
+        getAccountUnreadProjection(this.queryClient, this.ownerUserId)
+          .settleOptimisticRead(generation, false)
         void settleInboxReadReservationGeneration(
           this.queryClient,
           generation,
@@ -221,6 +224,20 @@ class ReadCoordinator {
       return null
     }
     if (this.confirmed(state, intent)) return null
+    const pendingSeq = Math.max(
+      state.accepted?.intent.seq ?? 0,
+      state.dirty?.intent.seq ?? 0,
+      state.inFlight?.target.intent.seq ?? 0,
+    )
+    if (pendingSeq >= intent.seq) return null
+    const supersededGenerations = new Set<number>()
+    for (const pending of [state.accepted, state.dirty]) {
+      if (
+        pending
+        && pending.intent.seq < intent.seq
+        && pending.generation !== state.inFlight?.target.generation
+      ) supersededGenerations.add(pending.generation)
+    }
     const queued = {
       intent,
       generation: ++this.latestIntentGeneration,
@@ -229,6 +246,10 @@ class ReadCoordinator {
     }
     state.accepted = laterIntent(state.accepted, queued)
     state.dirty = laterIntent(state.dirty, queued)
+    for (const generation of supersededGenerations) {
+      getAccountUnreadProjection(this.queryClient, this.ownerUserId)
+        .settleOptimisticRead(generation, false)
+    }
     this.schedule(state, READ_COORDINATOR_DEBOUNCE_MS)
     return queued.generation
   }
@@ -426,6 +447,8 @@ class ReadCoordinator {
         target.intent.channelId,
       )
       if (!retryable(error)) {
+        getAccountUnreadProjection(this.queryClient, this.ownerUserId)
+          .settleOptimisticRead(target.generation, false)
         if (state.dirty && sameIntent(state.dirty, target)) state.dirty = null
         state.retryCount = 0
       } else if (state.retryCount < 3) {
@@ -454,6 +477,8 @@ class ReadCoordinator {
       return { committed: false, reconciled: false }
     }
     state.confirmedSeq = Math.max(state.confirmedSeq, response.targetSeq)
+    getAccountUnreadProjection(this.queryClient, this.ownerUserId)
+      .settleOptimisticRead(target.generation, true, response.targetSeq)
     state.dirty = sameIntent(state.dirty ?? target, target) ? null : state.dirty
     state.retryCount = 0
     if (state.inFlight?.attemptEpoch === attemptEpoch) {

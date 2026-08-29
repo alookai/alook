@@ -1,12 +1,13 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { patchChannelUnread } from "@/hooks/community/server-detail-cache"
 import type { ServerDetail } from "@/hooks/community/use-servers"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { getActiveAccountUnreadProjection } from "./account-unread-projection"
 
 export type ForumSidebarThread = {
   id: string
@@ -95,7 +96,6 @@ export function resolveForumSidebarRouteCandidate(
 type InflightDelta = {
   activity: Map<string, { parentChannelId: string; activityAt: string }>
   titles: Map<string, string>
-  unread: Map<string, boolean>
   removed: Set<string>
   archiveRemovals: Map<string, number>
 }
@@ -499,29 +499,6 @@ function getForumSidebarRetained(
   )
 }
 
-export function hasProjectedForumSidebarThread(
-  queryClient: QueryClient,
-  serverId: string,
-  childId: string,
-  activeChildId: string | null | undefined,
-) {
-  const access = useCommunityWsStore.getState()
-  const base = getForumSidebarBase(queryClient, serverId)
-  if (
-    !access.accessConnected ||
-    !base ||
-    base.verifiedEpoch !== access.accessEpoch
-  ) return false
-  const activeExtra = activeChildId
-    ? getForumSidebarRetained(queryClient, serverId, activeChildId)
-    : null
-  const ownership = queryClient.getQueryData<ServerDetail>(
-    communityKeys.server(serverId),
-  )?.forumUnreadState
-  return deriveForumSidebarProjection(base, activeExtra, ownership)
-    .threads.some((thread) => thread.id === childId)
-}
-
 export function isKnownNonForumSidebarChannel(
   queryClient: QueryClient,
   serverId: string,
@@ -629,22 +606,6 @@ export function patchForumSidebarTitleExact(
       (hint) => hint ? { ...hint, content: title } : hint,
     )
   }
-}
-
-export function patchForumSidebarUnreadExact(
-  queryClient: QueryClient,
-  serverId: string,
-  childId: string,
-  unread: boolean,
-) {
-  recordInflightDelta(serverId, (delta) => {
-    delta.unread.set(childId, unread)
-  })
-  queryClient.setQueryData<ForumSidebarQueryData | undefined>(
-    communityKeys.forumSidebarThreads(serverId),
-    (data) => patchForumSidebarUnread(data, childId, unread),
-  )
-  patchRetained(queryClient, serverId, childId, (thread) => ({ ...thread, unread }))
 }
 
 export function removeForumSidebarThreadExact(
@@ -867,7 +828,6 @@ function fetchForumSidebar(serverId: string, retainId: string | null, signal?: A
   const delta: InflightDelta = {
     activity: new Map(),
     titles: new Map(),
-    unread: new Map(),
     removed: new Set(),
     archiveRemovals: new Map(),
   }
@@ -914,10 +874,6 @@ function fetchForumSidebar(serverId: string, retainId: string | null, signal?: A
             content: title,
           }
         }
-      }
-      for (const [childId, unread] of delta.unread) {
-        base = patchForumSidebarUnread(base, childId, unread)
-        if (retained?.id === childId) retained = { ...retained, unread }
       }
       for (const childId of delta.removed) {
         const meta = channelMetas[childId]
@@ -1015,6 +971,15 @@ export function useForumSidebarThreads(
   enabled = true,
 ) {
   const queryClient = useQueryClient()
+  const unreadProjection = useMemo(
+    () => getActiveAccountUnreadProjection(queryClient),
+    [queryClient],
+  )
+  const unreadVersion = useSyncExternalStore(
+    unreadProjection.subscribe,
+    unreadProjection.getSnapshot,
+    unreadProjection.getSnapshot,
+  )
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const previousRetainId = useRef(retainId)
   // Observe (without fetching) the already-canonical ServerDetail cache so a
@@ -1094,11 +1059,61 @@ export function useForumSidebarThreads(
   const renderableBase = query.data?.verifiedEpoch === accessEpoch
     ? query.data
     : trustedBase?.serverId === serverId ? trustedBase.data : undefined
-  const projection = useMemo(() => deriveForumSidebarProjection(
+  const projection = useMemo(() => {
+    void unreadVersion
+    const raw = deriveForumSidebarProjection(
+      renderableBase,
+      renderableBase ? retainedQuery.data : null,
+      serverDetailQuery.data?.forumUnreadState,
+    )
+    const family = `server-detail:${serverId}` as const
+    const sourceByChannel = new Map(
+      (serverDetailQuery.data?.unreadSources ?? []).map((source) => [source.channelId, source]),
+    )
+    const threads = raw.threads.map((thread) => {
+      const source = sourceByChannel.get(thread.id)
+      const unread = unreadProjection.projectUnread(
+        family,
+        thread.id,
+        thread.unread,
+        source?.lastUnreadSeq,
+      )
+      if (unread === thread.unread) return thread
+      return { ...thread, unread }
+    })
+    const renderedChildIds = new Set(threads.map((thread) => thread.id))
+    let parentChanged = false
+    let parentUnread = raw.parentUnread
+    for (const [parentId, state] of Object.entries(
+      serverDetailQuery.data?.forumUnreadState ?? {},
+    )) {
+      const unread = unreadProjection.projectForumParentUnread(
+        serverId,
+        parentId,
+        state.baseUnread || raw.parentUnread[parentId] === true,
+        sourceByChannel.get(parentId)?.lastUnreadSeq,
+        renderedChildIds,
+      )
+      if (unread === raw.parentUnread[parentId]) continue
+      if (!parentChanged) parentUnread = { ...raw.parentUnread }
+      parentChanged = true
+      parentUnread[parentId] = unread
+    }
+    return {
+      threads: threads.every((thread, index) => thread === raw.threads[index])
+        ? raw.threads
+        : threads,
+      parentUnread,
+    }
+  }, [
     renderableBase,
-    renderableBase ? retainedQuery.data : null,
+    retainedQuery.data,
     serverDetailQuery.data?.forumUnreadState,
-  ), [renderableBase, retainedQuery.data, serverDetailQuery.data?.forumUnreadState])
+    serverDetailQuery.data?.unreadSources,
+    serverId,
+    unreadProjection,
+    unreadVersion,
+  ])
 
   useEffect(() => {
     if (!query.data) return

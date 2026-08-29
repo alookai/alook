@@ -35,6 +35,7 @@ import {
   reserveInboxUnreadsResponse,
   type InboxRowTarget,
 } from "./inbox-read-reservation"
+import { getAccountUnreadProjection } from "./account-unread-projection"
 
 function timelineLease(queryClient: QueryClient, confirmedSeq = 0) {
   return registerReadSurface(
@@ -96,7 +97,7 @@ describe("read coordinator", () => {
 
     expect(submitTimeline(lease, 3)).toBe(true)
     expect(submitTimeline(lease, 7)).toBe(true)
-    expect(submitTimeline(lease, 5)).toBe(true)
+    expect(submitTimeline(lease, 5)).toBe(false)
     await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
 
     expect(apiFetch).toHaveBeenCalledTimes(1)
@@ -114,6 +115,30 @@ describe("read coordinator", () => {
       targetRevision: 9,
     })
     expect(submitTimeline(lease, 7)).toBe(false)
+  })
+
+  it("settles a queued optimistic generation when a higher target supersedes it", () => {
+    const queryClient = new QueryClient()
+    const lease = timelineLease(queryClient)
+    const projection = getAccountUnreadProjection(queryClient, "user-1")
+    projection.recordArrival({ channelId: "channel-1", serverId: "server-1", seq: 4 })
+    const first = submitReadIntentGeneration(lease, {
+      kind: "timeline",
+      channelId: "channel-1",
+      messageId: "message-4",
+      seq: 4,
+    })!
+    projection.recordOptimisticRead("channel-1", 4, first)
+    const second = submitReadIntentGeneration(lease, {
+      kind: "timeline",
+      channelId: "channel-1",
+      messageId: "message-5",
+      seq: 5,
+    })!
+    projection.recordOptimisticRead("channel-1", 5, second)
+
+    projection.settleOptimisticRead(second, false)
+    expect(projection.projectUnread("servers", "channel-1", false)).toBe(true)
   })
 
   it("rejects hidden submissions without accepting a target", async () => {
@@ -134,6 +159,25 @@ describe("read coordinator", () => {
     submitTimeline(lease, 4)
     await vi.advanceTimersByTimeAsync(10_000)
     expect(apiFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("rolls back the matching optimistic projection on a terminal PUT failure", async () => {
+    const queryClient = new QueryClient()
+    const lease = timelineLease(queryClient)
+    const projection = getAccountUnreadProjection(queryClient, "user-1")
+    projection.recordArrival({ channelId: "channel-1", serverId: "server-1", seq: 4 })
+    const generation = submitReadIntentGeneration(lease, {
+      kind: "timeline",
+      channelId: "channel-1",
+      messageId: "message-4",
+      seq: 4,
+    })!
+    projection.recordOptimisticRead("channel-1", 4, generation)
+    apiFetch.mockRejectedValue(new ApiError("forbidden", 403))
+
+    expect(projection.projectUnread("servers", "channel-1", false)).toBe(false)
+    await vi.advanceTimersByTimeAsync(READ_COORDINATOR_DEBOUNCE_MS)
+    expect(projection.projectUnread("servers", "channel-1", false)).toBe(true)
   })
 
   it("bounds transient retries, retains dirty intent, and resumes it later", async () => {

@@ -1,15 +1,16 @@
 "use client"
 
-import { useQuery, type UseQueryResult } from "@tanstack/react-query"
+import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query"
 import {
   apiFetchProfiles,
   communityUserProfilePatch,
 } from "@/lib/community/profile-seed"
 import { communityKeys } from "@/lib/query-keys"
 import type { DM } from "@/lib/community/models/people"
-import { useMemo } from "react"
+import { useEffect, useMemo, useSyncExternalStore } from "react"
 import { useProfilesByUserId } from "@/stores/community/ws"
 import { readCommunityProfile } from "@/lib/community/profile-read"
+import { getActiveAccountUnreadProjection } from "./account-unread-projection"
 
 /**
  * Fetches the DM conversation sidebar list.
@@ -31,14 +32,49 @@ export const dmsQueryFn = () =>
   )
 
 export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
+  const queryClient = useQueryClient()
+  const unreadProjection = useMemo(
+    () => getActiveAccountUnreadProjection(queryClient),
+    [queryClient],
+  )
+  const unreadVersion = useSyncExternalStore(
+    unreadProjection.subscribe,
+    unreadProjection.getSnapshot,
+    unreadProjection.getSnapshot,
+  )
   const query = useQuery({
     queryKey: communityKeys.dms(),
     queryFn: dmsQueryFn,
   })
   const profilesByUserId = useProfilesByUserId()
-  const dms = useMemo(
-    () => (query.data?.conversations ?? EMPTY_DMS).map((dm) => {
+  useEffect(() => {
+    if (!query.data) return
+    unreadProjection.absorbFamily(
+      "dms",
+      query.data.conversations.flatMap((dm) => dm.lastUnreadSeq === undefined ? [] : [{
+        channelId: dm.id,
+        lastUnreadSeq: dm.lastUnreadSeq,
+      }]),
+    )
+    unreadProjection.recordLegacySnapshot(
+      query.data,
+      query.data.conversations.flatMap((dm) => (
+        dm.unread && dm.lastUnreadSeq === undefined
+          ? [{ family: "dms" as const, channelId: dm.id }]
+          : []
+      )),
+    )
+  }, [query.data, unreadProjection])
+  const dms = useMemo(() => {
+    void unreadVersion
+    return (query.data?.conversations ?? EMPTY_DMS).map((dm) => {
       const profile = readCommunityProfile(profilesByUserId.get(dm.userId), dm.userId)
+      const unread = unreadProjection.projectUnread(
+        "dms",
+        dm.id,
+        dm.unread === true,
+        dm.lastUnreadSeq,
+      )
       return {
         ...dm,
         name: profile.name,
@@ -46,10 +82,10 @@ export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
         avatar: profile.avatar,
         avatarVersion: profile.avatarVersion,
         status: profile.presence,
+        unread,
       }
-    }),
-    [profilesByUserId, query.data?.conversations],
-  )
+    })
+  }, [profilesByUserId, query.data?.conversations, unreadProjection, unreadVersion])
   return {
     ...query,
     dms,

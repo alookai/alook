@@ -174,6 +174,8 @@ export function useShellInboxController({
     marked: inboxMarked.marked,
     markedLoading: inboxMarked.isLoading,
     loading,
+    hasProjectedUnreads: inboxUnreads.hasProjectedUnread,
+    hasProjectedMentions: inboxMentions.hasProjectedMention,
     onOpenChannel: openServerChannel,
     onOpenThread: openThread,
     onOpenDm: openDm,
@@ -189,7 +191,7 @@ export function useShellInboxController({
   return {
     popoverProps,
     hasUnread:
-      unreadFeed.length > 0 || unreadDms.length > 0 || mentions.length > 0,
+      inboxUnreads.hasProjectedUnread || inboxMentions.hasProjectedMention,
     open: inbox.open,
     onOpenChange: inbox.onOpenChange,
   }

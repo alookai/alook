@@ -209,7 +209,7 @@ describe("listEligibleUnreadChannels bound parameters", () => {
     expect(statements.map(({ params }) => params.filter(
       (value) => typeof value === "string" && value.startsWith("channel_"),
     ).length)).toEqual([80, 15]);
-    expect(statements.map(({ params }) => params.length)).toEqual([91, 26]);
+    expect(statements.map(({ params }) => params.length)).toEqual([92, 27]);
     for (const { params } of statements) {
       expect(params.length).toBeLessThanOrEqual(D1_MAX_BIND_PARAMS);
     }

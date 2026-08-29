@@ -31,6 +31,7 @@ import {
 } from "./use-forum-sidebar-threads"
 import type { ServerDetail } from "./use-servers"
 import { useCommunityWsStore } from "@/stores/community/ws"
+import { getActiveAccountUnreadProjection } from "./account-unread-projection"
 
 const apiFetchMock = vi.fn()
 vi.mock("@/lib/api/client", () => ({
@@ -116,6 +117,47 @@ function parentUnread(queryClient: QueryClient): boolean {
 }
 
 describe("useForumSidebarThreads", () => {
+  it("projects a read thread from server-detail source evidence", async () => {
+    apiFetchMock.mockResolvedValue(envelope(["post-1"]))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    queryClient.setQueryData(communityKeys.server("server-1"), {
+      ...serverDetail(true),
+      forumUnreadState: {
+        "forum-1": { baseUnread: false, childIds: ["post-1"] },
+      },
+      unreadSources: [{
+        channelId: "post-1",
+        lastUnreadSeq: 2,
+        lastAttentionSeq: null,
+      }],
+    } satisfies ServerDetail)
+    getActiveAccountUnreadProjection(queryClient).recordRead("post-1", 2)
+    function Harness() {
+      const result = useForumSidebarThreads("server-1", null)
+      return React.createElement("output", {
+        "data-count": result.threads.length,
+        "data-unread": String(result.threads[0]?.unread),
+      })
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        React.createElement(Harness),
+      ))
+    })
+    await waitFor(() => (
+      renderer.root.findByType("output").props["data-count"] === 1
+    ))
+    const raw = queryClient.getQueryData<ForumSidebarQueryData>(
+      communityKeys.forumSidebarThreads("server-1"),
+    )?.threads[0]
+    expect(raw?.unread).toBe(true)
+    expect(renderer.root.findByType("output").props["data-unread"]).toBe("false")
+    await act(async () => renderer.unmount())
+  })
+
   it("preserves a genuine parent unread when a child fallback becomes locatable", () => {
     const queryClient = new QueryClient()
     queryClient.setQueryData(communityKeys.server("server-1"), serverDetail(true))
