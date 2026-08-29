@@ -43,7 +43,9 @@ export class ClaudeDriver implements BackendAdapter {
   private readonly eventNormalizer = new ClaudeEventNormalizer(this.turnProtocol);
 
   beginTurn(): string {
-    return this.turnProtocol.beginTurn();
+    const receipt = this.turnProtocol.beginTurn();
+    this.eventNormalizer.beginTurn();
+    return receipt;
   }
 
   probe(command?: string): ProbeResult {

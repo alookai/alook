@@ -8,6 +8,7 @@ import type {
 } from "../../internal/adapter.js";
 import { SdkLane } from "../../controller/sdk-host.js";
 import { resolveLaunchFieldsOrDefault } from "../../internal/config.js";
+import { SettledUsageProjector } from "../../internal/token-usage.js";
 import { resolveCommandOnPath, type ProbeDeps } from "../../internal/probe.js";
 import { parsePiModelCatalog } from "../../internal/modelCatalog.js";
 import {
@@ -153,8 +154,6 @@ function readPiSdkVersion(): string | undefined {
 export const PI_IGNORED_EVENT_TYPES = [
   "agent_start",
   "turn_start",
-  "turn_end",
-  "message_end",
   "tool_execution_update",
   "queue_update",
   "session_info_changed",
@@ -162,8 +161,21 @@ export const PI_IGNORED_EVENT_TYPES = [
   "agent_end",
 ] as const;
 
+interface PiEventState {
+  sawTextDelta: boolean;
+  usageProjector?: SettledUsageProjector;
+  pendingUsageRecordIds?: Set<string>;
+  usageRecordSequence?: number;
+}
+
+function piUsageState(state: PiEventState) {
+  state.usageProjector ??= new SettledUsageProjector();
+  state.pendingUsageRecordIds ??= new Set<string>();
+  return { projector: state.usageProjector, pending: state.pendingUsageRecordIds };
+}
+
 /** Map a Pi SDK event to zero or more normalized events. */
-export function mapPiSdkEvent(event: any, sessionId: string, state: { sawTextDelta: boolean }): AdapterEvent[] {
+export function mapPiSdkEvent(event: any, sessionId: string, state: PiEventState): AdapterEvent[] {
   if (event?.type === "message_update") {
     const d = event.assistantMessageEvent ?? {};
     switch (d.type) {
@@ -183,6 +195,36 @@ export function mapPiSdkEvent(event: any, sessionId: string, state: { sawTextDel
     }
   }
   switch (event?.type) {
+    case "message_end": {
+      const message = event.message;
+      if (message?.role !== "assistant" || !message.usage) return [];
+      state.usageRecordSequence = (state.usageRecordSequence ?? 0) + 1;
+      const providerRecordId = typeof message.responseId === "string" && message.responseId
+        ? message.responseId
+        : `live:${message.timestamp ?? "unknown"}:${state.usageRecordSequence}`;
+      const { projector, pending } = piUsageState(state);
+      const identity = { runtime: "pi", backendSessionId: sessionId, providerRecordId } as const;
+      const usage = projector.project({
+        ...identity,
+        source: "pi_message_end",
+        input: message.usage.input,
+        output: message.usage.output,
+        cacheRead: message.usage.cacheRead,
+        cacheWrite: message.usage.cacheWrite,
+        inputIncludesCache: false,
+        outputIncludesReasoning: true,
+      });
+      pending.add(providerRecordId);
+      return usage ? [usage] : [];
+    }
+    case "turn_end": {
+      const { projector, pending } = piUsageState(state);
+      for (const providerRecordId of pending) {
+        projector.release({ runtime: "pi", backendSessionId: sessionId, providerRecordId });
+      }
+      pending.clear();
+      return [];
+    }
     case "auto_retry_start":
       return [{ kind: "runtime_recovery", stage: "retrying", source: "pi_auto_retry" }];
     case "auto_retry_end":

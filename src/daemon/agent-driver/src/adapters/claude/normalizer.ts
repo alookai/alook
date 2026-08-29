@@ -14,6 +14,7 @@
  * The `session_id` on any line keeps `currentSessionId` fresh for resume.
  */
 import type { AdapterEvent } from "../../internal/adapter.js";
+import { SettledUsageProjector } from "../../internal/token-usage.js";
 import { tryParseJsonLine } from "../../internal/utils.js";
 import type { ClaudeTurnProtocol } from "./turnProtocol.js";
 
@@ -21,8 +22,13 @@ const API_ERROR_RE = /API Error:.*(?:Connection error|\b[45]\d{2}\b)/i;
 
 export class ClaudeEventNormalizer {
   private currentSession: string | null = null;
+  private readonly usageProjector = new SettledUsageProjector();
 
   constructor(private readonly turnProtocol?: ClaudeTurnProtocol) {}
+
+  beginTurn(): void {
+    this.usageProjector.reset();
+  }
 
   get currentSessionId(): string | null {
     return this.currentSession;
@@ -114,7 +120,7 @@ export class ClaudeEventNormalizer {
       ? this.turnProtocol?.claimResult(rawOwner) ?? (this.turnProtocol ? null : `claude:${rawOwner}`)
       : null;
     if (this.turnProtocol && !turnOwner) return;
-    const usage = this.buildUsageTelemetry(event);
+    const usage = this.buildUsageTelemetry(event, rawOwner);
     if (usage) out.push(usage);
     if (event.is_error || event.subtype === "error_during_execution") {
       out.push({ kind: "error", message: String(event.result ?? "Claude runtime error") });
@@ -130,27 +136,24 @@ export class ClaudeEventNormalizer {
     return this.turnProtocol?.acceptsTurnWork() ?? true;
   }
 
-  private buildUsageTelemetry(event: any): AdapterEvent | null {
+  private buildUsageTelemetry(event: any, rootRequestId: string | null): AdapterEvent | null {
     const u = event?.usage;
     if (!u) return null;
-    const metric = (value: unknown) =>
-      typeof value === "number" && Number.isSafeInteger(value) && value >= 0
-        ? value
-        : null;
-    const cacheParts = [u.cache_read_input_tokens, u.cache_creation_input_tokens]
-      .filter((value): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0);
-    const cache = cacheParts.length > 0 && Number.isSafeInteger(cacheParts.reduce((sum, value) => sum + value, 0))
-      ? cacheParts.reduce((sum, value) => sum + value, 0)
-      : null;
-    return {
-      kind: "telemetry",
-      name: "token_usage",
+    const backendSessionId = event.session_id ?? this.currentSession;
+    if (typeof backendSessionId !== "string" || !backendSessionId) return null;
+    const providerRecordId = rootRequestId
+      ?? (typeof event.request_id === "string" ? event.request_id : "invocation-result");
+    return this.usageProjector.project({
+      runtime: "claude",
+      backendSessionId,
+      providerRecordId,
       source: "claude_result_usage",
-      usage: {
-        input: metric(u.input_tokens),
-        output: metric(u.output_tokens),
-        cache,
-      },
-    };
+      input: u.input_tokens,
+      output: u.output_tokens,
+      cacheRead: u.cache_read_input_tokens,
+      cacheWrite: u.cache_creation_input_tokens,
+      inputIncludesCache: false,
+      outputIncludesReasoning: true,
+    });
   }
 }

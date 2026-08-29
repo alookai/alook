@@ -281,6 +281,59 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
     expect(n.currentSessionId).toBe("root-thread");
     expect(n.currentTurnId).toBe("root-turn");
   });
+
+  it("accounts child raw responses without letting child lifecycle change the root turn", () => {
+    const n = new CodexEventNormalizer();
+    adoptRootTurn(n, "root-thread", "shared-turn-id");
+    const childUsage = notify("rawResponse/completed", {
+      threadId: "child-thread",
+      turnId: "shared-turn-id",
+      responseId: "child-response",
+      usage: {
+        inputTokens: 40,
+        cachedInputTokens: 10,
+        cacheWriteInputTokens: 5,
+        outputTokens: 8,
+      },
+    });
+    const rootUsage = notify("rawResponse/completed", {
+      threadId: "root-thread",
+      turnId: "shared-turn-id",
+      responseId: "root-response",
+      usage: {
+        inputTokens: 20,
+        cachedInputTokens: 2,
+        cacheWriteInputTokens: 1,
+        outputTokens: 4,
+      },
+    });
+
+    expect(n.normalizeLine(childUsage)).toEqual([expect.objectContaining({
+      kind: "telemetry",
+      usage: { input: 25, output: 8, cache: 15 },
+    })]);
+    expect(n.normalizeLine(rootUsage)).toEqual([expect.objectContaining({
+      kind: "telemetry",
+      usage: { input: 17, output: 4, cache: 3 },
+    })]);
+    expect(n.normalizeLine(childUsage)).toEqual([]);
+    expect(n.normalizeLine(rootUsage)).toEqual([]);
+
+    expect(n.normalizeLine(notify("turn/completed", {
+      threadId: "child-thread",
+      turn: { id: "shared-turn-id", status: "completed" },
+    }))).toEqual([]);
+    expect(n.currentSessionId).toBe("root-thread");
+    expect(n.currentTurnId).toBe("shared-turn-id");
+    expect(n.normalizeLine(rootUsage)).toEqual([]);
+
+    expect(n.normalizeLine(notify("turn/completed", {
+      threadId: "root-thread",
+      turn: { id: "shared-turn-id", status: "completed" },
+    }))).toEqual([
+      { kind: "turn_end", sessionId: "root-thread", turnOwner: "codex:root-thread:shared-turn-id" },
+    ]);
+  });
 });
 
 describe("CodexEventNormalizer — session_init dedup (result + thread/started notification)", () => {
@@ -353,7 +406,7 @@ describe("CodexEventNormalizer — complete owned event family", () => {
     ]);
   });
 
-  it("emits only the latest current-turn usage at terminal and maps Spark quota windows", () => {
+  it("emits every settled raw response once, ignores the legacy snapshot, and maps Spark quota windows", () => {
     const n = new CodexEventNormalizer();
     adoptRootTurn(n, "root", "turn");
     expect(n.normalizeLine(notify("thread/tokenUsage/updated", {
@@ -363,29 +416,53 @@ describe("CodexEventNormalizer — complete owned event family", () => {
         total: { inputTokens: 9_999, cachedInputTokens: 8_888, outputTokens: 7_777 },
       },
     }))).toEqual([]);
-    expect(n.normalizeLine(notify("thread/tokenUsage/updated", {
+    const first = notify("rawResponse/completed", {
       threadId: "root",
-      tokenUsage: {
-        last: { inputTokens: 120, cachedInputTokens: 50, outputTokens: 14 },
+      turnId: "turn",
+      responseId: "response-1",
+      usage: {
+        inputTokens: 120,
+        cachedInputTokens: 50,
+        cacheWriteInputTokens: 10,
+        outputTokens: 14,
       },
-    }))).toEqual([]);
+    });
+    expect(n.normalizeLine(first)).toEqual([{
+      kind: "telemetry",
+      name: "token_usage",
+      source: "codex_raw_response_completed",
+      usage: { input: 60, output: 14, cache: 60 },
+    }]);
+    expect(n.normalizeLine(first)).toEqual([]);
+    expect(n.normalizeLine(notify("rawResponse/completed", {
+      threadId: "root",
+      turnId: "turn",
+      responseId: "response-2",
+      usage: { inputTokens: 30, cachedInputTokens: 5, cacheWriteInputTokens: 0, outputTokens: 7 },
+    }))).toEqual([expect.objectContaining({
+      kind: "telemetry",
+      usage: { input: 25, output: 7, cache: 5 },
+    })]);
     const terminal = n.normalizeLine(notify("turn/completed", {
       threadId: "root",
       turn: { id: "turn", status: "completed" },
     }));
     expect(terminal).toEqual([
-      {
-        kind: "telemetry",
-        name: "token_usage",
-        source: "codex_thread_token_usage_updated",
-        usage: {
-          input: 70,
-          output: 14,
-          cache: 50,
-        },
-      },
       { kind: "turn_end", sessionId: "root", turnOwner: "codex:root:turn" },
     ]);
+    expect(n.normalizeLine(first)).toEqual([]);
+
+    adoptRootTurn(n, "root", "turn-2");
+    expect(n.normalizeLine(notify("rawResponse/completed", {
+      threadId: "root",
+      turnId: "turn-2",
+      responseId: "response-1",
+      usage: { inputTokens: 2, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 1 },
+    }))).toHaveLength(1);
+    n.normalizeLine(notify("turn/completed", {
+      threadId: "root",
+      turn: { id: "turn-2", status: "completed" },
+    }));
 
     n.registerQuotaReadRequest(99);
     const quota = n.normalizeLine(JSON.stringify({
