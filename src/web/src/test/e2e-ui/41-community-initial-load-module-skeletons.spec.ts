@@ -137,6 +137,7 @@ test.describe.serial("community initial-load module skeletons", () => {
   let dmId: string
   let serverName: string
   let channelName: string
+  let channelMessageId: string
   let privateMessage: string
 
   test.beforeAll(async () => {
@@ -146,7 +147,7 @@ test.describe.serial("community initial-load module skeletons", () => {
     privateMessage = `PRIVATE COLD MESSAGE ${stamp}`
     serverId = await seedServer("alice", serverName)
     channelId = await seedChannel("alice", serverId, channelName)
-    await seedMessage("alice", channelId, privateMessage)
+    channelMessageId = await seedMessage("alice", channelId, privateMessage)
     dmId = await seedDm("alice", userId("bob"))
     await seedDmMessage("alice", dmId, privateMessage)
   })
@@ -252,22 +253,28 @@ test.describe.serial("community initial-load module skeletons", () => {
     await expect(page.getByTestId(tid.initialFrame)).toHaveCount(0, { timeout: 30_000 })
     await expect(page.getByTestId(tid.composerInput)).toBeVisible({ timeout: 30_000 })
     await expect.poll(traffic.sockets).toBe(1)
-    const exactMessageReads = traffic.requests.filter(({ method, pathname, search }) => (
+    await expect.poll(() => traffic.responses.filter(({ method, pathname, status }) => (
       method === "GET"
-      && pathname === `/api/community/channels/${channelId}/messages`
-      && search === ""
-    ))
+      && pathname === `/api/community/channels/${channelId}/read-state`
+      && status === 200
+    )).length).toBe(1)
+    const exactMessageSearch = `?anchor=${encodeURIComponent(channelMessageId)}`
     await expect.poll(() => traffic.responses.filter(({ method, pathname, search, status }) => (
       method === "GET"
       && pathname === `/api/community/channels/${channelId}/messages`
-      && search === ""
+      && search === exactMessageSearch
       && status === 200
     )).length).toBe(1)
     await page.waitForTimeout(200)
+    const exactMessageReads = traffic.requests.filter(({ method, pathname, search }) => (
+      method === "GET"
+      && pathname === `/api/community/channels/${channelId}/messages`
+      && search === exactMessageSearch
+    ))
     const exactMessageFailures = traffic.failures.filter(({ method, pathname, search }) => (
       method === "GET"
       && pathname === `/api/community/channels/${channelId}/messages`
-      && search === ""
+      && search === exactMessageSearch
     ))
     expect(exactMessageReads).toHaveLength(1 + exactMessageFailures.length)
     expect(exactMessageFailures.every(({ error }) => error === "net::ERR_ABORTED")).toBe(true)
