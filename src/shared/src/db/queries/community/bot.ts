@@ -96,6 +96,7 @@ export async function listBotsForOwner(
   modelName: string | null;
   reasoningEffort: ReasoningEffort | null;
   runtimeConfigRevision: number;
+  tokenUsageTimeZone: string | null;
 }>> {
   const rows = await db
     .select({
@@ -114,9 +115,11 @@ export async function listBotsForOwner(
       modelName: communityBotBinding.modelName,
       reasoningEffort: communityBotBinding.reasoningEffort,
       runtimeConfigRevision: communityBotBinding.runtimeConfigRevision,
+      tokenUsageTimeZone: communityMachine.timeZone,
     })
     .from(user)
     .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
+    .innerJoin(communityMachine, eq(communityMachine.id, communityBotBinding.machineId))
     .where(
       and(
         eq(user.isBot, true),
@@ -140,6 +143,7 @@ export async function listBotsForOwner(
     modelName: r.modelName ?? null,
     reasoningEffort: r.reasoningEffort ?? null,
     runtimeConfigRevision: r.runtimeConfigRevision ?? 0,
+    tokenUsageTimeZone: r.tokenUsageTimeZone ?? null,
   }));
 }
 

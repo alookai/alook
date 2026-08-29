@@ -218,6 +218,7 @@ export interface MachineMetadataInput {
   arch?: string;
   osRelease?: string;
   daemonVersion?: string;
+  timeZone?: string;
   metadata?: string | null;
   /** Agent CLIs detected on the host. Pass `undefined` to leave unchanged. */
   availableRuntimes?: CommunityMachineRuntime[];
@@ -232,6 +233,7 @@ export interface MachineRow {
   arch: string;
   osRelease: string;
   daemonVersion: string;
+  timeZone: string | null;
   metadata: string | null;
   availableRuntimes: CommunityMachineRuntime[];
   /** Source of truth for machine presence — written by WsDurableObject. */

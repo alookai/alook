@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { calendarDayKeyDaysAgo, dayKeyInTimeZone } from "@alook/shared"
 import { createMockWebSocket } from "../__mocks__/cf"
 import {
   CFResponse,
@@ -292,13 +293,17 @@ describe("WebSocketDurableObject", () => {
         const ws = createMockWebSocket()
         ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
 
+        const usageTimeZone = "Asia/Shanghai"
+        const usageDay = dayKeyInTimeZone(new Date(), usageTimeZone)
         await durable.webSocketMessage(ws as any, JSON.stringify({
           type: "agent_activity",
           agentId: "bot_1",
           state: "idle",
+          usageTimeZone,
+          usageDay,
           dailyUsage: [{
             botId: "bot_1",
-            day: new Date().toISOString().slice(0, 10),
+            day: usageDay,
             metrics: {
               input: 12,
               output: 7,
@@ -328,11 +333,260 @@ describe("WebSocketDurableObject", () => {
         const statements = mockD1Batch.mock.calls[0]![0] as Array<{ sql: string; values: unknown[] }>
         expect(statements.map((statement) => statement.sql)).toEqual([
           expect.stringContaining("community_user_profile"),
+          expect.stringContaining("time_zone"),
           expect.stringContaining("community_bot_daily_token_usage"),
           expect.stringContaining("DELETE FROM community_bot_daily_token_usage"),
           expect.stringContaining("community_machine_backend_quota"),
         ])
-        expect(statements[1]!.values).toMatchObject({ 0: "bot_1", 2: 12, 3: 7, 4: null })
+        expect(statements[1]!.values).toMatchObject({ 0: usageTimeZone, 1: "cm_1", 2: "u_1" })
+        expect(statements[2]!.values).toMatchObject({ 0: "bot_1", 2: 12, 3: 7, 4: null })
+      })
+
+      it("advances the computer-local usage day without creating an empty usage row", async () => {
+        const { durable, store } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "0".repeat(64),
+        })
+        mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "codex" })
+        mockGetProfile.mockResolvedValue({ statusEmoji: "💤", statusText: "Idle" })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
+        const usageTimeZone = "Asia/Shanghai"
+        const usageDay = dayKeyInTimeZone(new Date(), usageTimeZone)
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "agent_activity",
+          agentId: "bot_1",
+          state: "idle",
+          usageTimeZone,
+          usageDay,
+        }))
+
+        expect(mockD1Batch).toHaveBeenCalledOnce()
+        const statements = mockD1Batch.mock.calls[0]![0] as Array<{ sql: string; values: unknown[] }>
+        expect(statements.map((statement) => statement.sql)).toEqual([
+          expect.stringContaining("time_zone"),
+          expect.stringContaining("DELETE FROM community_bot_daily_token_usage"),
+        ])
+        expect(statements.some((statement) => statement.sql.includes("INSERT INTO community_bot_daily_token_usage"))).toBe(false)
+      })
+
+      it.each(["Pacific/Kiritimati", "Etc/GMT+12"])(
+        "accepts the legal calendar envelope for edge timezone %s",
+        async (usageTimeZone) => {
+          const { durable, store } = createDO()
+          store.set("community-machine-identity", {
+            userId: "u_1",
+            machineId: "cm_1",
+            credentialHash: "0".repeat(64),
+          })
+          mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "codex" })
+          mockGetProfile.mockResolvedValue({ statusEmoji: "💤", statusText: "Idle" })
+          const ws = createMockWebSocket()
+          ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
+          const usageDay = dayKeyInTimeZone(new Date(), usageTimeZone)
+
+          await durable.webSocketMessage(ws as any, JSON.stringify({
+            type: "agent_activity",
+            agentId: "bot_1",
+            state: "idle",
+            usageTimeZone,
+            usageDay,
+            dailyUsage: [{
+              botId: "bot_1",
+              day: usageDay,
+              metrics: { input: 3, output: 1, cache: 2 },
+            }],
+          }))
+
+          expect(mockD1Batch).toHaveBeenCalledOnce()
+          const statements = mockD1Batch.mock.calls[0]![0] as Array<{ sql: string; values: unknown[] }>
+          expect(statements[0]!.values).toMatchObject({ 0: usageTimeZone, 1: "cm_1", 2: "u_1" })
+          expect(statements.some((statement) => statement.sql.includes("INSERT INTO community_bot_daily_token_usage"))).toBe(true)
+        },
+      )
+
+      it("retains the exact UTC+14 to UTC-12 recovery boundary in D1", async () => {
+        vi.useFakeTimers()
+        vi.setSystemTime(new Date("2026-08-29T10:30:00Z"))
+        try {
+          const { durable, store } = createDO()
+          store.set("community-machine-identity", {
+            userId: "u_1",
+            machineId: "cm_1",
+            credentialHash: "0".repeat(64),
+          })
+          mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "codex" })
+          mockGetProfile.mockResolvedValue({ statusEmoji: "💤", statusText: "Idle" })
+          const ws = createMockWebSocket()
+          ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
+
+          await durable.webSocketMessage(ws as any, JSON.stringify({
+            type: "agent_activity",
+            agentId: "bot_1",
+            state: "idle",
+            usageTimeZone: "Pacific/Kiritimati",
+            usageDay: "2026-08-30",
+            dailyUsage: [],
+          }))
+
+          expect(mockD1Batch).toHaveBeenCalledOnce()
+          const statements = mockD1Batch.mock.calls[0]![0] as Array<{ sql: string; values: unknown[] }>
+          const prune = statements.find((statement) => statement.sql.includes("DELETE FROM community_bot_daily_token_usage"))
+          expect(prune?.values).toMatchObject({
+            0: "bot_1",
+            1: "2026-08-22",
+            2: "bot_1",
+            3: "cm_1",
+          })
+        } finally {
+          vi.useRealTimers()
+        }
+      })
+
+      it.each([
+        ["Pacific/Kiritimati", "2026-08-31"],
+        ["Etc/GMT+12", "2026-08-28"],
+      ])("rejects impossible server-envelope day %s / %s", async (usageTimeZone, usageDay) => {
+        vi.useFakeTimers()
+        vi.setSystemTime(new Date("2026-08-29T12:00:00Z"))
+        try {
+          const { durable, store } = createDO()
+          store.set("community-machine-identity", {
+            userId: "u_1",
+            machineId: "cm_1",
+            credentialHash: "0".repeat(64),
+          })
+          mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "codex" })
+          mockGetProfile.mockResolvedValue({ statusEmoji: "💤", statusText: "Idle" })
+          const ws = createMockWebSocket()
+          ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
+
+          await durable.webSocketMessage(ws as any, JSON.stringify({
+            type: "agent_activity",
+            agentId: "bot_1",
+            state: "idle",
+            usageTimeZone,
+            usageDay,
+            dailyUsage: [{
+              botId: "bot_1",
+              day: usageDay,
+              metrics: { input: 3, output: 1, cache: 2 },
+            }],
+          }))
+
+          expect(mockD1Batch).not.toHaveBeenCalled()
+        } finally {
+          vi.useRealTimers()
+        }
+      })
+
+      it.each([
+        ["duplicate days", (day: string) => [
+          { botId: "bot_1", day, metrics: { input: 3, output: 1, cache: 2 } },
+          { botId: "bot_1", day, metrics: { input: 4, output: 1, cache: 2 } },
+        ]],
+        ["an out-of-window day", (day: string) => [{
+          botId: "bot_1",
+          day: calendarDayKeyDaysAgo(day, 7),
+          metrics: { input: 3, output: 1, cache: 2 },
+        }]],
+        ["a different bot id", (day: string) => [{
+          botId: "another_bot",
+          day,
+          metrics: { input: 3, output: 1, cache: 2 },
+        }]],
+        ["an invalid metric", (day: string) => [{
+          botId: "bot_1",
+          day,
+          metrics: { input: -1, output: 1, cache: 2 },
+        }]],
+      ])("rejects %s without discarding valid calendar metadata", async (_label, snapshots) => {
+        const { durable, store } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "0".repeat(64),
+        })
+        mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "codex" })
+        mockGetProfile.mockResolvedValue({ statusEmoji: "💤", statusText: "Idle" })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
+        const usageTimeZone = "Asia/Shanghai"
+        const usageDay = dayKeyInTimeZone(new Date(), usageTimeZone)
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "agent_activity",
+          agentId: "bot_1",
+          state: "idle",
+          usageTimeZone,
+          usageDay,
+          dailyUsage: snapshots(usageDay),
+        }))
+
+        expect(mockD1Batch).toHaveBeenCalledOnce()
+        const statements = mockD1Batch.mock.calls[0]![0] as Array<{ sql: string }>
+        expect(statements.some((statement) => statement.sql.includes("time_zone"))).toBe(true)
+        expect(statements.some((statement) => statement.sql.includes("INSERT INTO community_bot_daily_token_usage"))).toBe(false)
+      })
+
+      it("does not accept usage calendar metadata on a non-idle frame", async () => {
+        const { durable, store } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "0".repeat(64),
+        })
+        mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "codex" })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
+        const usageTimeZone = "Asia/Shanghai"
+        const usageDay = dayKeyInTimeZone(new Date(), usageTimeZone)
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "agent_activity",
+          agentId: "bot_1",
+          state: "running",
+          usageTimeZone,
+          usageDay,
+          dailyUsage: [{
+            botId: "bot_1",
+            day: usageDay,
+            metrics: { input: 3, output: 1, cache: 2 },
+          }],
+        }))
+
+        expect(mockD1Batch).not.toHaveBeenCalled()
+      })
+
+      it("rejects mismatched computer-timezone metadata without treating its snapshots as legacy UTC", async () => {
+        const { durable, store } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "0".repeat(64),
+        })
+        mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "codex" })
+        mockGetProfile.mockResolvedValue({ statusEmoji: "💤", statusText: "Idle" })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "agent_activity",
+          agentId: "bot_1",
+          state: "idle",
+          usageTimeZone: "not/a-time-zone",
+          usageDay: new Date().toISOString().slice(0, 10),
+          dailyUsage: [{
+            botId: "bot_1",
+            day: new Date().toISOString().slice(0, 10),
+            metrics: { input: 3, output: 1, cache: 2 },
+          }],
+        }))
+
+        expect(mockD1Batch).not.toHaveBeenCalled()
       })
 
       it("persists each valid telemetry section when the sibling section is malformed", async () => {

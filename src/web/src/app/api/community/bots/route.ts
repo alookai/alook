@@ -3,6 +3,9 @@ import {
   queries,
   CommunityBotCreateRequestSchema,
   COMMUNITY_BOT_LIMIT_PER_OWNER,
+  calendarDayKeyDaysAgo,
+  dayKeyInTimeZone,
+  utcDayKey,
   utcDayKeyDaysAgo,
   resolveReasoningEffort,
 } from "@alook/shared"
@@ -11,6 +14,19 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers"
 import { pushBotEventToMachine } from "@/lib/community/bot-push"
 import { canonicalUserImage } from "@/lib/community/storage"
+
+export function tokenUsageDayWindow(now: Date, timeZone: string | null | undefined): string[] {
+  let today = utcDayKey(now)
+  if (timeZone) {
+    try {
+      today = dayKeyInTimeZone(now, timeZone)
+    } catch { }
+  }
+  return Array.from(
+    { length: 7 },
+    (_, index) => calendarDayKeyDaysAgo(today, 6 - index),
+  )
+}
 
 export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -25,40 +41,41 @@ export const GET = withAuth(async (_req, ctx) => {
     ctx.userId,
     sinceDay,
   )
-  const usageSinceDay = utcDayKeyDaysAgo(new Date(), 6)
+  const now = new Date()
+  const usageSinceDay = utcDayKeyDaysAgo(now, 7)
   const usageByBot = await queries.communityBot.getBotDailyTokenUsageForOwner(
     db,
     ctx.userId,
     usageSinceDay,
   )
-  const now = new Date()
-  const usageDays = Array.from({ length: 7 }, (_, index) =>
-    utcDayKeyDaysAgo(now, 6 - index)
-  )
-  const withActivity = bots.map((bot) => ({
-    ...bot,
-    image: canonicalUserImage(bot.id, bot.image, bot.avatarVersion),
-    dailyActivity: activityByBot.get(bot.id) ?? [],
-    usage: {
-      capability: (["claude", "codex", "opencode"] as string[]).includes(bot.runtime)
-        ? "supported" as const
-        : bot.runtime === "cursor" || bot.runtime === "pi"
-          ? "unsupported" as const
-          : "unknown" as const,
-      days: usageDays.map((day, index) => {
-        const stored = usageByBot.get(bot.id)?.find((snapshot) => snapshot.day === day)
-        return {
-          day,
-          period: index === usageDays.length - 1 ? "in_progress" as const : "closed" as const,
-          metrics: stored?.metrics ?? {
-            input: null,
-            output: null,
-            cache: null,
-          },
-        }
-      }),
-    },
-  }))
+  const withActivity = bots.map((bot) => {
+    const { tokenUsageTimeZone, ...publicBot } = bot
+    const usageDays = tokenUsageDayWindow(now, tokenUsageTimeZone)
+    return {
+      ...publicBot,
+      image: canonicalUserImage(bot.id, bot.image, bot.avatarVersion),
+      dailyActivity: activityByBot.get(bot.id) ?? [],
+      usage: {
+        capability: (["claude", "codex", "opencode"] as string[]).includes(bot.runtime)
+          ? "supported" as const
+          : bot.runtime === "cursor" || bot.runtime === "pi"
+            ? "unsupported" as const
+            : "unknown" as const,
+        days: usageDays.map((day, index) => {
+          const stored = usageByBot.get(bot.id)?.find((snapshot) => snapshot.day === day)
+          return {
+            day,
+            period: index === usageDays.length - 1 ? "in_progress" as const : "closed" as const,
+            metrics: stored?.metrics ?? {
+              input: null,
+              output: null,
+              cache: null,
+            },
+          }
+        }),
+      },
+    }
+  })
   return writeJSON({ bots: withActivity })
 })
 

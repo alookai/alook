@@ -388,10 +388,14 @@ describe("createDaemon", () => {
       await sessions[0]!.fire("runtime_event", { kind: "turn_end", sessionId: "test-session" });
 
       const frames = () => sockets[0]!.sent.map((frame) => JSON.parse(frame) as any);
+      expect(frames().find((frame) => frame.type === "ready")?.timeZone)
+        .toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
       await vi.waitFor(() => expect(frames().some((frame) =>
         frame.type === "agent_activity"
         && frame.agentId === "bot_1"
         && frame.state === "idle"
+        && typeof frame.usageTimeZone === "string"
+        && /^\d{4}-\d{2}-\d{2}$/.test(frame.usageDay ?? "")
         && frame.dailyUsage?.[0]?.metrics.input === 20
         && frame.quota?.observation?.limits?.[0]?.usedPercent === 30
       )).toBe(true));

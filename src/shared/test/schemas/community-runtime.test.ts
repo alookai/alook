@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   CommunityMachineRuntimeSchema,
   CommunityMachineRuntimeListSchema,
+  CommunityDaemonReadySchema,
   HostReadyMessageSchema,
   MachineHeartbeatAckMessageSchema,
   DiagnosticCommandAckMessageSchema,
@@ -314,6 +315,18 @@ describe("HostReadyMessageSchema", () => {
       runningAgents: [...ids, ids[0]],
     });
     expect(parsed.runningAgents).toEqual(ids);
+  });
+});
+
+describe("CommunityDaemonReadySchema", () => {
+  it("does not expose the WS-only machine timezone on the activation helper contract", () => {
+    expect(CommunityDaemonReadySchema.parse({
+      runtimeReport: [{ id: "codex" }],
+      timeZone: "Asia/Shanghai",
+    })).toEqual({
+      runtimeReport: [{ id: "codex", status: "healthy" }],
+      runningAgents: [],
+    });
   });
 });
 

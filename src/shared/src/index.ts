@@ -720,7 +720,12 @@ export type { PromptAgent, PromptMention, ParseResult } from "./utils/prompt-par
 export { MENTION_TOKEN_RE, stripMentionTokens } from "./utils/mention-token";
 export { isValidToken, isValidEmail } from "./utils/validation";
 export { escapeLikePattern } from "./utils/sql-like";
-export { utcDayKey, utcDayKeyDaysAgo } from "./utils/day-key";
+export {
+  calendarDayKeyDaysAgo,
+  dayKeyInTimeZone,
+  utcDayKey,
+  utcDayKeyDaysAgo,
+} from "./utils/day-key";
 export { isOnline, formatStatus, isPresenceOnline, isPresenceOffline } from "./utils/status";
 export { isUniqueConstraintError } from "./utils/db-errors";
 export { generateWorkspaceSlug, sanitizeSlug, slugSuffix } from "./utils/slug";

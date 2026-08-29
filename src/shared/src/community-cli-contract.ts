@@ -865,6 +865,7 @@ export interface HostReady {
   arch?: string;
   osRelease?: string;
   daemonVersion?: string;
+  timeZone?: string;
   providerQuotas?: ProviderQuotaSnapshot[];
 }
 
@@ -878,6 +879,8 @@ export type AgentActivityState = "idle" | "starting" | "running" | "stopping";
 export interface HostAgentActivity {
   agentId: AgentId;
   state: AgentActivityState;
+  usageTimeZone?: string;
+  usageDay?: string;
   dailyUsage?: DailyUsageSnapshot[];
   quota?: ProviderQuotaSnapshot;
 }

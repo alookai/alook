@@ -84,6 +84,7 @@ export interface AgentRouterOpts {
   arch?: string;
   osRelease?: string;
   daemonVersion?: string;
+  timeZone?: string | (() => string);
   providerQuotas?: () => ProviderQuotaSnapshot[];
   resyncActivities?: () => HostAgentActivity[] | Promise<HostAgentActivity[]>;
   /**
@@ -226,6 +227,9 @@ export class AgentRouter {
    * this into `wsControlChannel.sendReady()` for on-demand resends.
    */
   buildReady(): HostReady {
+    const timeZone = typeof this.opts.timeZone === "function"
+      ? this.opts.timeZone()
+      : this.opts.timeZone;
     return {
       runtimeReport: [...this.runtimes.values()],
       capabilities: [CONTROL_HEARTBEAT_CAPABILITY],
@@ -235,6 +239,7 @@ export class AgentRouter {
       arch: this.opts.arch,
       osRelease: this.opts.osRelease,
       daemonVersion: this.opts.daemonVersion,
+      timeZone,
       ...(this.opts.providerQuotas ? { providerQuotas: this.opts.providerQuotas() } : {}),
     };
   }

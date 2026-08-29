@@ -187,6 +187,7 @@ export const communityMachine = sqliteTable(
     arch: text("arch").notNull().default(""),
     osRelease: text("os_release").notNull().default(""),
     daemonVersion: text("daemon_version").notNull().default(""),
+    timeZone: text("time_zone"),
     metadata: text("metadata"),
     availableRuntimes: text("available_runtimes", { mode: "json" })
       .$type<CommunityMachineRuntime[]>()

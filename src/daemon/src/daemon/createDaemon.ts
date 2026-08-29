@@ -69,6 +69,7 @@ const RUNTIME_RAW_TRACE_MAX_BYTES = 8 * 1024 * 1024;
 export const RUNTIME_RAW_TRACE_AGENT_IDS_ENV = "ALOOK_RUNTIME_RAW_TRACE_AGENT_IDS";
 /** How often the daemon rewrites the `daemon status` snapshot file (batch E2). */
 const STATUS_WRITE_INTERVAL_MS = 5_000;
+const TOKEN_USAGE_BACKENDS = new Set<BuiltinBackendId>(["claude", "codex", "opencode"]);
 
 export function parseRuntimeRawTraceAgentIds(value: string | undefined): ReadonlySet<string> {
   return new Set(
@@ -456,10 +457,16 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     const quota = backendId === "claude" || backendId === "codex"
       ? providerQuotaByBackend.get(backendId)
       : undefined;
-    const dailyUsage = await dailyTokenUsage.snapshots(info.agentId);
+    const usageWindow = backendId && TOKEN_USAGE_BACKENDS.has(backendId)
+      ? await dailyTokenUsage.usageWindow(info.agentId)
+      : null;
     return {
       ...info,
-      ...(dailyUsage.length > 0 ? { dailyUsage } : {}),
+      ...(usageWindow ? {
+        usageTimeZone: usageWindow.usageTimeZone,
+        usageDay: usageWindow.usageDay,
+        ...(usageWindow.snapshots.length > 0 ? { dailyUsage: usageWindow.snapshots } : {}),
+      } : {}),
       ...(quota ? { quota: structuredClone(quota) } : {}),
     };
   };
@@ -1062,6 +1069,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     arch: opts.arch,
     osRelease: opts.osRelease,
     daemonVersion: opts.daemonVersion,
+    timeZone: () => dailyTokenUsage.timeZone,
     providerQuotas: providerQuotaSnapshots,
     resyncActivities: async () => {
       const activities = await Promise.all(

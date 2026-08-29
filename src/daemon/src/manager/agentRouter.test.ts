@@ -638,6 +638,22 @@ describe("AgentRouter — buildReady runtimeReport", () => {
     expect(readys[0]).toMatchObject({ runtimeReport: [{ id: "claude" }] });
   });
 
+  it("resolves the computer timezone again for each ready snapshot", () => {
+    const { mgr } = fakeManager();
+    const { ch } = fakeChannel();
+    let timeZone = "Asia/Shanghai";
+    const router = new AgentRouter({
+      manager: mgr,
+      channel: ch,
+      runtimeReport: [{ id: "claude" }],
+      timeZone: () => timeZone,
+    });
+
+    expect(router.buildReady().timeZone).toBe("Asia/Shanghai");
+    timeZone = "America/Los_Angeles";
+    expect(router.buildReady().timeZone).toBe("America/Los_Angeles");
+  });
+
   it("keeps the one-shot startup catalog unchanged in unhealthy → healthy ready resends", () => {
     const { mgr } = fakeManager();
     const { ch, readyResends } = fakeChannelWithSendReady();

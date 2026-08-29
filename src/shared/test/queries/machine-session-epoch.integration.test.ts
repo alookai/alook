@@ -32,6 +32,7 @@ describe("machine session epoch SQL transaction", () => {
         arch TEXT NOT NULL DEFAULT '',
         os_release TEXT NOT NULL DEFAULT '',
         daemon_version TEXT NOT NULL DEFAULT '',
+        time_zone TEXT,
         metadata TEXT,
         available_runtimes TEXT NOT NULL DEFAULT '[]',
         status TEXT NOT NULL DEFAULT 'offline',
