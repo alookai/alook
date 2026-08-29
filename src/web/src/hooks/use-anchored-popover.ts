@@ -144,20 +144,23 @@ export function anchoredPopoverStyle(
   popupWidth: number,
   popupMaxHeight: number,
 ): AnchoredPopoverStyle {
-  const viewportRight = viewport.left + viewport.width
-  const viewportBottom = viewport.top + viewport.height
-  const minVisibleLeft = viewport.left + VIEWPORT_MARGIN
+  // Caret rectangles are visual-viewport-local, while iOS Safari positions
+  // fixed descendants in layout-viewport coordinates while the keyboard pans
+  // the visual viewport. Keep fit/flip/clamp local, then project the final CSS
+  // coordinates into layout space exactly once.
+  const minVisibleLeft = VIEWPORT_MARGIN
   const maxVisibleLeft = Math.max(
     minVisibleLeft,
-    viewportRight - popupWidth - VIEWPORT_MARGIN,
+    viewport.width - popupWidth - VIEWPORT_MARGIN,
   )
-  const left = Math.min(
+  const visibleLeft = Math.min(
     Math.max(rect.left, minVisibleLeft),
     maxVisibleLeft,
   )
+  const left = viewport.left + visibleLeft
 
-  const spaceAbove = rect.top - viewport.top
-  const spaceBelow = viewportBottom - rect.bottom
+  const spaceAbove = rect.top
+  const spaceBelow = viewport.height - rect.bottom
   const fullHeight = popupMaxHeight + POPOVER_CHROME_HEIGHT + POPOVER_GAP + VIEWPORT_MARGIN
   const placeBelow = spaceAbove < fullHeight
     && (spaceBelow >= fullHeight || spaceBelow > spaceAbove)
@@ -173,10 +176,10 @@ export function anchoredPopoverStyle(
   }
 
   return placeBelow
-    ? { ...common, top: rect.bottom + POPOVER_GAP }
+    ? { ...common, top: viewport.top + rect.bottom + POPOVER_GAP }
     : {
         ...common,
-        top: rect.top - POPOVER_GAP,
+        top: viewport.top + rect.top - POPOVER_GAP,
         transform: "translateY(-100%)",
       }
 }
