@@ -540,7 +540,7 @@ function DmView() {
             onChannelRefIntent={handleChannelRefIntent}
             onAcceptSend={acceptDmSend}
             onTyping={handleTyping}
-            replyingTo={replyTo?.authorName}
+            replyingTo={replyTo ?? undefined}
             onCancelReply={() => setReplyTo(null)}
             autoFocus={bp === "desktop"}
               draftKey={`dm/${dmId}`}

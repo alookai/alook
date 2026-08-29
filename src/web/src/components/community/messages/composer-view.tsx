@@ -42,7 +42,7 @@ export type ComposerViewProps = {
   mentionPresentation: MentionCandidatePresentation
   channelRefPopup: ChannelRefPopupState
   channelRefPresentation?: ChannelRefCandidatePresentation
-  replyingTo?: ComposerReplyTarget | string
+  replyingTo?: ComposerReplyTarget
   onCancelReply?: () => void
   pendingFiles: PendingFile[]
   removePendingFile: (index: number) => void
@@ -84,14 +84,9 @@ export function ComposerView({
   onUploadFile,
   onEmojiPick,
 }: ComposerViewProps) {
-  const replyAuthorName = typeof replyingTo === "string"
-    ? replyingTo
-    : replyingTo?.authorName
-  const replyPreview = typeof replyingTo === "string"
-    ? null
-    : replyingTo
-      ? stripInlineMarkup(replyingTo.text)
-      : null
+  const replyPreview = replyingTo
+    ? stripInlineMarkup(replyingTo.text).replace(/\s+/g, " ").trim()
+    : null
 
   return (
     <div
@@ -113,20 +108,17 @@ export function ComposerView({
       />
 
       {replyingTo && (
-        <div className="flex items-start gap-2 rounded-t-xl border border-b-0 border-border/40 bg-muted/60 px-4 py-2 text-xs text-muted-foreground">
-          <div className="min-w-0 flex-1">
-            <div className="truncate">
-              Replying to{" "}
-              <span className="font-medium text-foreground">{replyAuthorName}</span>
-            </div>
-            {replyPreview !== null && (
-              <div
-                data-slot="composer-reply-preview"
-                className="mt-0.5 truncate text-foreground/70"
-              >
-                {replyPreview}
-              </div>
-            )}
+        <div className="flex items-center gap-2 rounded-t-xl border border-b-0 border-border/40 bg-muted/60 px-4 py-2 text-xs text-muted-foreground">
+          <div
+            data-slot="composer-reply-preview"
+            className="min-w-0 flex-1 truncate"
+          >
+            Replying to{" "}
+            <span className="font-medium text-foreground">
+              {replyingTo.authorName}
+            </span>
+            <span aria-hidden="true"> · </span>
+            <span className="text-foreground/70">{replyPreview}</span>
           </div>
           <button
             onClick={onCancelReply}

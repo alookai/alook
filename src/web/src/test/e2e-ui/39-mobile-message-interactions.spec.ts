@@ -165,14 +165,15 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   const serverId = await seedServer("alice", serverName)
   const channelId = await seedChannel("alice", serverId, "mobile-interactions")
   await seedJoinServer("alice", "bob", serverId)
-  const channelBobMessageId = await seedMessage("bob", channelId, `channel target ${stamp}`)
+  const channelBobMessageId = await seedMessage("bob", channelId, `channel **target** ${stamp}`)
+  const channelBobSecondMessageId = await seedMessage("bob", channelId, `channel _alternate_ ${stamp}`)
   await seedMessage("alice", channelId, Array.from(
     { length: 80 },
     (_, index) => `scroll restoration line ${index} ${stamp}`,
   ).join("\n\n"))
   const openerId = await seedMessage("alice", channelId, `thread opener ${stamp}`)
   const threadId = await seedThread("alice", openerId, `mobile-thread-${stamp}`)
-  const threadBobMessageId = await seedMessage("bob", threadId, `thread target ${stamp}`)
+  const threadBobMessageId = await seedMessage("bob", threadId, `thread **target** ${stamp}`)
   const dmId = await seedDm("alice", userId("bob"))
   const bobInfo = await memberInfo("alice", serverId, userId("bob"))
   const aliceInfo = await memberInfo("alice", serverId, userId("alice"))
@@ -236,7 +237,14 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   expect(bobProxy.frames).toHaveLength(beforeRejectedSwipeFrames)
 
   await dispatchSwipe(alice.page, channelBobMessageId, { x: 72, y: 2 })
-  await expect(alice.page.getByText(`Replying to ${bobInfo.name}`, { exact: false })).toBeVisible()
+  const replyPreview = alice.page.locator('[data-slot="composer-reply-preview"]')
+  await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · channel target ${stamp}`)
+  await alice.page.getByRole("button", { name: "Cancel reply" }).click()
+  await expect(replyPreview).toHaveCount(0)
+  expect(await latestSeq(alice.page, channelId)).toBe(beforeRejectedSwipeSeq)
+
+  await dispatchSwipe(alice.page, channelBobSecondMessageId, { x: 72, y: 2 })
+  await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · channel alternate ${stamp}`)
   const replyBody = `swipe reply ${stamp}`
   const replyResponsePromise = alice.page.waitForResponse((response) => (
     response.request().method() === "POST"
@@ -249,12 +257,12 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   const replyPayload = await replyResponse.json() as {
     message: { id: string; content: string; replyToId: string | null }
   }
-  expect(replyPayload.message.replyToId).toBe(channelBobMessageId)
+  expect(replyPayload.message.replyToId).toBe(channelBobSecondMessageId)
   expect(replyPayload.message.content).toContain(replyBody)
   await expect.poll(() => bobProxy.frames.some((frame) => (
     frameHasMessage(frame, channelId, replyPayload.message.id)
     && communityFrameEvents(frame).some((event) => (
-      (event.message as { replyTo?: { id: string } } | undefined)?.replyTo?.id === channelBobMessageId
+      (event.message as { replyTo?: { id: string } } | undefined)?.replyTo?.id === channelBobSecondMessageId
     ))
   )), { timeout: 20_000 }).toBe(true)
   await expectMessageVisible(bob.page, replyBody)
@@ -330,7 +338,7 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   await expect(bob.page.getByTestId(tid.message(mentionPayload.message.id))).toBeVisible()
 
   await dispatchSwipe(alice.page, threadBobMessageId, { x: 72, y: 1 })
-  await expect(alice.page.getByText(`Replying to ${bobInfo.name}`, { exact: false })).toBeVisible()
+  await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · thread target ${stamp}`)
   const threadReplyBody = `thread swipe reply ${stamp}`
   const threadReplyResponsePromise = alice.page.waitForResponse((response) => (
     response.request().method() === "POST"
@@ -482,9 +490,32 @@ test("mobile reply, avatar mention, and typing space keep exact backend and WS i
   await ignoreNextDevToolsPointerCapture(bob.page)
   await expect(composerEditable(alice.page)).toBeVisible()
   await expect(composerEditable(bob.page)).toBeVisible()
-  const dmWsReadyId = await seedMessage("bob", dmId, `dm typing ws ready ${stamp}`)
+  const dmWsReadyId = await seedMessage("bob", dmId, `dm **reply target** ${stamp}`)
   await expect.poll(() => aliceProxy.frames.some((frame) => (
     frameHasMessage(frame, dmId, dmWsReadyId)
+  )), { timeout: 20_000 }).toBe(true)
+  await expect(alice.page.getByTestId(tid.message(dmWsReadyId))).toBeVisible()
+  await dispatchSwipe(alice.page, dmWsReadyId, { x: 72, y: 1 })
+  await expect(replyPreview).toHaveText(`Replying to ${bobInfo.name} · dm reply target ${stamp}`)
+  await expect(composerEditable(alice.page)).toBeFocused()
+  const dmReplyBody = `dm swipe reply ${stamp}`
+  const dmReplyResponsePromise = alice.page.waitForResponse((response) => (
+    response.request().method() === "POST"
+    && new URL(response.url()).pathname === `/api/community/channels/${dmId}/messages`
+  ))
+  await composerEditable(alice.page).fill(dmReplyBody)
+  await alice.page.getByTestId(tid.composerSend).click()
+  const dmReplyResponse = await dmReplyResponsePromise
+  expect(dmReplyResponse.status()).toBe(201)
+  const dmReplyPayload = await dmReplyResponse.json() as {
+    message: { id: string; content: string; replyToId: string | null }
+  }
+  expect(dmReplyPayload.message.replyToId).toBe(dmWsReadyId)
+  await expect.poll(() => bobProxy.frames.some((frame) => (
+    frameHasMessage(frame, dmId, dmReplyPayload.message.id)
+    && communityFrameEvents(frame).some((event) => (
+      (event.message as { replyTo?: { id: string } } | undefined)?.replyTo?.id === dmWsReadyId
+    ))
   )), { timeout: 20_000 }).toBe(true)
   const beforeDmTypingSeq = await latestSeq(alice.page, dmId)
   const dmTypingSpace = alice.page.locator("[data-message-typing-space]")

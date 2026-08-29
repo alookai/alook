@@ -57,7 +57,7 @@ type ComposerBaseProps = {
   channelRefCandidateSource?: ChannelRefCandidateSource
   onChannelRefIntent?: () => void
   onTyping?: () => void
-  replyingTo?: ComposerReplyTarget | string
+  replyingTo?: ComposerReplyTarget
   onCancelReply?: () => void
   autoFocus?: boolean
   mode?: ComposerMode

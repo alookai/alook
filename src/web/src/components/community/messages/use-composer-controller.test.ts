@@ -1001,7 +1001,8 @@ describe("useComposerController", () => {
         }),
       )
     })
-    expect(focus).toHaveBeenCalledTimes(1)
+    expect(focus).toHaveBeenCalledTimes(2)
+    expect(focus).toHaveBeenLastCalledWith("end")
     await act(async () => {
       renderer.update(
         createElement(Harness, {
@@ -1021,7 +1022,7 @@ describe("useComposerController", () => {
         }),
       )
     })
-    expect(focus).toHaveBeenCalledTimes(2)
+    expect(focus).toHaveBeenCalledTimes(3)
 
     const view = renderer.root.findByType("controller-probe").props.view
     focus.mockClear()
