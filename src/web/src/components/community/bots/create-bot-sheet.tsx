@@ -317,6 +317,7 @@ export function CreateBotSheet({
                 options={runtimeOptions}
                 runtime={runtime}
                 model={model}
+                daemonVersion={selectedMachine?.daemonVersion}
                 reasoningEffort={reasoningEffort}
                 onRuntimeChange={selectRuntime}
                 onModelChange={setModel}

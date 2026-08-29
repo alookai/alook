@@ -5,7 +5,10 @@ import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 import { ModelField } from "./model-field"
 import { ReasoningEffortField } from "./reasoning-effort-field"
-import type { CommunityMachineRuntime, ReasoningEffort } from "@alook/shared"
+import type {
+  CommunityMachineRuntime,
+  ReasoningEffort,
+} from "@alook/shared"
 
 export type BotRuntimeOption = Pick<CommunityMachineRuntime, "id" | "reasoning"> & {
   unhealthy: boolean
@@ -17,6 +20,7 @@ export function BotRuntimeFields({
   options,
   runtime,
   model,
+  daemonVersion,
   reasoningEffort = null,
   onRuntimeChange,
   onModelChange,
@@ -32,6 +36,7 @@ export function BotRuntimeFields({
   options: BotRuntimeOption[]
   runtime: string
   model: string | null
+  daemonVersion?: string
   reasoningEffort?: ReasoningEffort | null
   onRuntimeChange: (runtime: string) => void
   onModelChange: (model: string | null) => void
@@ -113,6 +118,7 @@ export function BotRuntimeFields({
           <ReasoningEffortField
             runtime={selectedRuntime}
             model={model}
+            daemonVersion={daemonVersion}
             value={reasoningEffort}
             onChange={onReasoningEffortChange}
           />

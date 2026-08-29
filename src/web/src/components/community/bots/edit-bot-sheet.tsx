@@ -212,6 +212,7 @@ export function EditBotSheet({
               options={runtimeOptions}
               runtime={runtime}
               model={model}
+              daemonVersion={selectedMachine?.daemonVersion}
               reasoningEffort={reasoningEffort}
               onRuntimeChange={setRuntime}
               onModelChange={setModel}

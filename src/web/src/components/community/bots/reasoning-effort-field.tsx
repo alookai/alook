@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo } from "react"
 import {
+  releaseVersionGte,
   resolveReasoningEffort,
   type ReasoningEffort,
   type RuntimeReasoningDescriptor,
@@ -17,6 +18,7 @@ import {
 import { tid } from "@/lib/community/testids"
 
 const DEFAULT_VALUE = "__default__"
+const REASONING_CATALOG_MIN_DAEMON_VERSION = "0.1.25"
 
 function effortLabel(value: string): string {
   return value.length === 0 ? value : value[0]!.toUpperCase() + value.slice(1)
@@ -25,12 +27,14 @@ function effortLabel(value: string): string {
 export function ReasoningEffortField({
   runtime,
   model,
+  daemonVersion,
   value,
   onChange,
   disabled,
 }: {
   runtime: RuntimeReasoningDescriptor | null
   model: string | null
+  daemonVersion?: string
   value: ReasoningEffort | null
   onChange: (value: ReasoningEffort | null) => void
   disabled?: boolean
@@ -41,15 +45,18 @@ export function ReasoningEffortField({
   )
 
   useEffect(() => {
-    if (!resolution.supported && value !== null) onChange(null)
-  }, [onChange, resolution.supported, value])
+    if (resolution.options.length > 0 && !resolution.supported && value !== null) {
+      onChange(null)
+    }
+  }, [onChange, resolution.options.length, resolution.supported, value])
 
-  const defaultLabel = resolution.defaultReasoningEffort
-    ? `Default (${effortLabel(resolution.defaultReasoningEffort)})`
-    : "Default"
+  const defaultLabel = "Default"
+  const options = value && !resolution.options.some((option) => option.value === value)
+    ? [...resolution.options, { value }]
+    : resolution.options
   const items = [
     { value: DEFAULT_VALUE, label: defaultLabel },
-    ...resolution.options.map((option) => ({
+    ...options.map((option) => ({
       value: option.value,
       label: effortLabel(option.value),
     })),
@@ -59,6 +66,16 @@ export function ReasoningEffortField({
     ? resolution.options.find((option) => option.value === value)?.description
     : undefined
   const unavailable = resolution.options.length === 0
+  const needsCatalogUpgrade = unavailable
+    && daemonVersion !== undefined
+    && !releaseVersionGte(daemonVersion, REASONING_CATALOG_MIN_DAEMON_VERSION)
+  const help = needsCatalogUpgrade
+    ? "Check the daemon version in Machines, then update and restart it there."
+    : unavailable
+      ? "This runtime/model does not report reasoning effort options."
+      : value === null
+        ? "Default sends no override. Your runtime or user configuration stays in control."
+        : selectedDescription ?? "Alook sends this reasoning effort as an explicit override."
 
   return (
     <div className="flex flex-col gap-2">
@@ -80,7 +97,7 @@ export function ReasoningEffortField({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value={DEFAULT_VALUE}>{defaultLabel}</SelectItem>
-          {resolution.options.map((option) => (
+          {options.map((option) => (
             <SelectItem key={option.value} value={option.value}>
               {effortLabel(option.value)}
             </SelectItem>
@@ -88,9 +105,7 @@ export function ReasoningEffortField({
         </SelectContent>
       </Select>
       <p id="bot-reasoning-effort-help" className="text-xs text-muted-foreground">
-        {unavailable
-          ? "This runtime/model does not report reasoning effort options."
-          : selectedDescription ?? "Default lets the runtime choose for this model."}
+        {help}
       </p>
     </div>
   )
