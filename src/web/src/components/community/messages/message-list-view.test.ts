@@ -77,17 +77,13 @@ describe("renderMessageListView", () => {
       renderer = TestRenderer.create(renderMessageListView(listProps, state, renderRows))
     })
     expect(mockedRail).toHaveBeenCalledWith(expect.objectContaining({
+      typingNames: ["Alice"],
       scrollCount: 3,
       selectMode: false,
     }), undefined)
-    const typingSpace = renderer!.root.findByProps({ "data-message-typing-space": true })
     const scrollerBoundary = renderer!.root.findByProps({ "data-message-scroller-boundary": true })
-    expect(typingSpace.props.className).toContain("shrink-0")
-    expect(typingSpace.props.className).not.toContain("absolute")
     expect(scrollerBoundary.findAllByType("accessory-rail")).toHaveLength(1)
-    expect(typingSpace.findAllByType("accessory-rail")).toHaveLength(0)
-    expect(renderer!.root.findByProps({ "data-testid": "community-typing-indicator" }).props)
-      .toMatchObject({ role: "status", "aria-live": "polite" })
+    expect(renderer!.root.findAllByProps({ "data-message-typing-space": true })).toHaveLength(0)
     expect(renderRows).toHaveBeenCalledOnce()
     expect(renderer!.root.findAllByType("virtual-rows")).toHaveLength(1)
     expect(renderer!.root.findAll((node) => node.props.className === "mb-6")).toHaveLength(1)
@@ -105,61 +101,34 @@ describe("renderMessageListView", () => {
     expect(mockedRail).not.toHaveBeenCalled()
     expect(renderRows).not.toHaveBeenCalled()
     expect(renderer!.root.findAll((node) => node.props.className === "mb-6")).toHaveLength(1)
-    const typingSpace = renderer!.root.findByProps({ "data-message-typing-space": true })
-    expect(typingSpace.props.className).toContain("h-0")
-    expect(typingSpace.props["data-occupied"]).toBe("idle")
-    expect(renderer!.root.findAllByProps({ "data-testid": "community-typing-indicator" })).toHaveLength(0)
+    expect(renderer!.root.findAllByProps({ "data-message-typing-space": true })).toHaveLength(0)
   })
 
-  it("keeps the typing-space wrapper while expanding it only for live typing", () => {
+  it("routes typing through the rail without adding a dynamic flex sibling", () => {
     let renderer!: TestRenderer.ReactTestRenderer
     act(() => {
       renderer = TestRenderer.create(renderMessageListView(
-        props({ messages: [] }),
-        controller({ isLoading: true }),
+        props({ loading: false, typingUsers: [] }),
+        controller({ isLoading: false, pillCount: 0 }),
         () => React.createElement("virtual-rows"),
       ))
     })
-    const loadingClass = renderer.root.findByProps({ "data-message-typing-space": true }).props.className
-    expect(loadingClass).toContain("h-0")
+    expect(mockedRail).toHaveBeenLastCalledWith(expect.objectContaining({ typingNames: [] }), undefined)
+    expect(renderer.root.findAllByProps({ "data-message-typing-space": true })).toHaveLength(0)
     act(() => {
       renderer.update(renderMessageListView(
         props({ loading: false, typingUsers: ["Alice"] }),
-        controller({ isLoading: false }),
+        controller({ isLoading: false, pillCount: 0 }),
         () => React.createElement("virtual-rows"),
       ))
     })
-    const loadedSpace = renderer.root.findByProps({ "data-message-typing-space": true })
-    expect(loadedSpace.props.className).toContain("h-11")
-    expect(loadedSpace.props["data-occupied"]).toBe("typing")
-    expect(renderer.root.findByProps({ "data-testid": "community-typing-indicator" })).toBeTruthy()
+    expect(mockedRail).toHaveBeenLastCalledWith(expect.objectContaining({
+      typingNames: ["Alice"],
+    }), undefined)
+    expect(renderer.root.findAllByProps({ "data-message-typing-space": true })).toHaveLength(0)
   })
 
-  it("collapses typing space when presence turns off", () => {
-    let renderer!: TestRenderer.ReactTestRenderer
-    act(() => {
-      renderer = TestRenderer.create(renderMessageListView(
-        props({ typingUsers: ["Alice"] }),
-        controller(),
-        () => React.createElement("virtual-rows"),
-      ))
-    })
-    expect(renderer.root.findByProps({ "data-message-typing-space": true }).props.className)
-      .toContain("h-11")
-    act(() => {
-      renderer.update(renderMessageListView(
-        props({ typingUsers: [] }),
-        controller(),
-        () => React.createElement("virtual-rows"),
-      ))
-    })
-    const typingSpace = renderer.root.findByProps({ "data-message-typing-space": true })
-    expect(typingSpace.props.className).toContain("h-0")
-    expect(typingSpace.props["data-occupied"]).toBe("idle")
-    expect(renderer.root.findAllByProps({ "data-testid": "community-typing-indicator" })).toHaveLength(0)
-  })
-
-  it("keeps scroll geometry stable and reserves extra clearance only for selection", () => {
+  it("keeps one fixed responsive tail safe area across every rail state", () => {
     let renderer!: TestRenderer.ReactTestRenderer
     act(() => {
       renderer = TestRenderer.create(renderMessageListView(
@@ -169,27 +138,25 @@ describe("renderMessageListView", () => {
       ))
     })
     const content = () => renderer.root.findByProps({ "data-message-list-content": true })
-    expect(content().props.className).toContain("pb-8")
-    expect(content().props.className).not.toContain("pb-14")
-
-    act(() => {
-      renderer.update(renderMessageListView(
-        props({ typingUsers: [] }),
-        controller({ pillCount: 2 }),
-        () => React.createElement("virtual-rows"),
-      ))
-    })
-    expect(content().props.className).toContain("pb-8")
-    expect(content().props.className).not.toContain("pb-14")
-
-    act(() => {
-      renderer.update(renderMessageListView(
-        props({ typingUsers: [] }),
-        controller({ pillCount: 0, selectMode: true }),
-        () => React.createElement("virtual-rows"),
-      ))
-    })
+    for (const state of [
+      { typingUsers: ["Alice"], pillCount: 0, selectMode: false },
+      { typingUsers: [], pillCount: 2, selectMode: false },
+      { typingUsers: ["Alice"], pillCount: 2, selectMode: false },
+      { typingUsers: ["Alice"], pillCount: 0, selectMode: true },
+    ]) {
+      expect(content().props.className).toContain("pb-14")
+      expect(content().props.className).toContain("sm:pb-18")
+      expect(content().props.className).not.toContain("pb-8")
+      act(() => {
+        renderer.update(renderMessageListView(
+          props({ typingUsers: state.typingUsers }),
+          controller({ pillCount: state.pillCount, selectMode: state.selectMode }),
+          () => React.createElement("virtual-rows"),
+        ))
+      })
+    }
     expect(content().props.className).toContain("pb-14")
+    expect(content().props.className).toContain("sm:pb-18")
   })
 
   it("wires selection actions and dialog close without changing overlay order", () => {
@@ -278,7 +245,8 @@ describe("renderMessageListView", () => {
       node.children.includes("Loading newer messages…"))).toBe(true)
 
     const content = renderer!.root.findByProps({ "data-message-list-content": true })
-    expect(content.props.className).toContain("pb-8")
+    expect(content.props.className).toContain("pb-14")
+    expect(content.props.className).toContain("sm:pb-18")
     const elementChildren = content.children.filter((child) => typeof child !== "string")
     expect(elementChildren).toHaveLength(3)
     expect(elementChildren[0].props.className).toBe("mb-6")
