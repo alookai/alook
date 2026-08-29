@@ -155,4 +155,16 @@ describe("server rail normalized reducer", () => {
       target: { kind: "server", id: "b" },
     })).toBe(false)
   })
+
+  it("allocates a collision-free temporary id for server-combine previews", () => {
+    const state = fixture()
+    state.folderOrder.push("__rail_preview_folder__")
+    state.folders.__rail_preview_folder__ = ["f"]
+
+    expect(railInstructionIsAvailable(state, {
+      operation: "combine",
+      source: { kind: "server", id: "a" },
+      target: { kind: "server", id: "b" },
+    })).toBe(true)
+  })
 })

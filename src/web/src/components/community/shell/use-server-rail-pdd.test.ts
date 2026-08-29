@@ -72,6 +72,12 @@ describe("server rail PDD record adapter", () => {
       armed: true,
       dragging: true,
       distance: 30,
+      touchCount: 1,
+    })).toBe("drag")
+    expect(railTouchMoveIntent({
+      armed: true,
+      dragging: true,
+      distance: 30,
       touchCount: 2,
     })).toBe("cancel")
   })
