@@ -27,7 +27,7 @@ import {
   createLongPasteAttachment,
   pendingFilesToSendAttachments,
 } from "./composer-file-utils"
-import { handleComposerKeyDown } from "./composer-keydown"
+import { handleComposerEditorKeyDown } from "./composer-keydown"
 import type { ComposerHandle, ComposerProps } from "./composer-types"
 import { mentionNodesForCaretInsertion, textNodeForCaretInsertion } from "./caret-text-insertion"
 import type { ComposerViewProps } from "./composer-view"
@@ -162,8 +162,8 @@ export function useComposerController(
         enterkeyhint:
           isForumThreadBody || breakpoint !== "desktop" ? "enter" : "send",
       },
-      handleKeyDown: (_view, event) =>
-        handleComposerKeyDown(event, {
+      handleKeyDown: (view, event) =>
+        handleComposerEditorKeyDown(view, event, {
           breakpoint: breakpointRef.current,
           channelRefOpen:
             suggestions.channelRefPopupRef.current.items.length > 0 &&

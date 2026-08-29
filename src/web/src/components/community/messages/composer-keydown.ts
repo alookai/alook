@@ -1,4 +1,6 @@
 import type { Breakpoint } from "@/hooks/use-mobile"
+import type { EditorView } from "@tiptap/pm/view"
+import { normalizeConsecutiveTerminalHardBreak } from "./consecutive-hard-break"
 
 type ComposerKeyDownOptions = {
   breakpoint: Breakpoint
@@ -8,7 +10,7 @@ type ComposerKeyDownOptions = {
   send: () => void
 }
 
-export function handleComposerKeyDown(
+function submitComposerForKeyDown(
   event: KeyboardEvent,
   options: ComposerKeyDownOptions,
 ): boolean {
@@ -29,4 +31,21 @@ export function handleComposerKeyDown(
   event.preventDefault()
   options.send()
   return true
+}
+
+export function handleComposerEditorKeyDown(
+  view: EditorView,
+  event: KeyboardEvent,
+  options: ComposerKeyDownOptions,
+): boolean {
+  const submitted = submitComposerForKeyDown(event, options)
+  if (
+    submitted
+    || options.mentionOpen
+    || options.channelRefOpen
+    || event.isComposing
+  ) {
+    return submitted
+  }
+  return normalizeConsecutiveTerminalHardBreak(view, event)
 }

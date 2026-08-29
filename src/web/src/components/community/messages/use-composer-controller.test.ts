@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   buildPasteDom: vi.fn(),
   fromSchema: vi.fn(),
   parseSlice: vi.fn(),
+  normalizeHardBreak: vi.fn(),
   breakpoint: "desktop" as "unknown" | "desktop" | "mobile",
 }))
 
@@ -80,6 +81,10 @@ vi.mock("@/lib/community/paste-plain-text", () => ({
 vi.mock("./use-composer-suggestions", () => ({
   useComposerSuggestions: (...args: unknown[]) =>
     mocks.useSuggestions(...args),
+}))
+vi.mock("./consecutive-hard-break", () => ({
+  normalizeConsecutiveTerminalHardBreak: (...args: unknown[]) =>
+    mocks.normalizeHardBreak(...args),
 }))
 
 import { useComposerController } from "./use-composer-controller"
@@ -226,6 +231,7 @@ describe("useComposerController", () => {
       resetPopups,
     }))
     mocks.detectMentionType.mockReturnValue("everyone")
+    mocks.normalizeHardBreak.mockReturnValue(false)
     mocks.readDraft.mockReturnValue(null)
     mocks.readAttachmentSession.mockReturnValue([])
     mocks.appendAttachmentSession.mockReturnValue({ accepted: true, evictedScopes: 0 })
@@ -1127,24 +1133,40 @@ describe("useComposerController", () => {
         ...overrides,
       }) as unknown as KeyboardEvent
 
+    const editorView = { identity: "real-view" }
     channelRefPopupRef.current = { items: [{}], command: vi.fn() }
-    expect(editorOptions.editorProps.handleKeyDown({} as never, key())).toBe(
+    expect(editorOptions.editorProps.handleKeyDown(editorView, key())).toBe(
       false,
     )
+    expect(mocks.normalizeHardBreak).not.toHaveBeenCalled()
     expect(accept).not.toHaveBeenCalled()
     channelRefPopupRef.current = { items: [], command: vi.fn() }
+
+    mentionPopupRef.current = { items: [{}], command: vi.fn() }
+    expect(editorOptions.editorProps.handleKeyDown(editorView, key())).toBe(
+      false,
+    )
+    expect(mocks.normalizeHardBreak).not.toHaveBeenCalled()
+    mentionPopupRef.current = { items: [], command: vi.fn() }
+
+    mocks.normalizeHardBreak.mockReturnValueOnce(true)
+    const softBreak = key({ shiftKey: true })
     expect(
       editorOptions.editorProps.handleKeyDown(
-        {} as never,
-        key({ shiftKey: true }),
+        editorView,
+        softBreak,
       ),
-    ).toBe(false)
+    ).toBe(true)
+    expect(mocks.normalizeHardBreak).toHaveBeenCalledWith(editorView, softBreak)
+    mocks.normalizeHardBreak.mockClear()
+
     expect(
       editorOptions.editorProps.handleKeyDown(
-        {} as never,
+        editorView,
         key({ isComposing: true }),
       ),
     ).toBe(false)
+    expect(mocks.normalizeHardBreak).not.toHaveBeenCalled()
     expect(accept).not.toHaveBeenCalled()
 
     const forumProps: ComposerProps = {
