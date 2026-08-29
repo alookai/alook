@@ -12,28 +12,6 @@ import {
 } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
-// Journey 7 — invite accept (second identity). Alice creates a server + invite
-// via API, Bob accepts it through the UI, and the new server appears in Bob's
-// rail without a manual reload (regression 1c2e2a05).
-test.describe.serial("invite accept", () => {
-  let serverId: string
-  let inviteToken: string
-
-  test.beforeAll(async () => {
-    serverId = await seedServer("alice", `Invite ${Date.now()}`)
-    inviteToken = await createInvite("alice", serverId)
-  })
-
-  test("Bob accepts the invite and lands in the server", async ({ asUser }) => {
-    const { page } = await asUser("bob")
-    await page.goto(`/c/invite/${inviteToken}`)
-    // Accept via the join CTA.
-    await page.getByRole("button", { name: /join server/i }).first().click()
-    await page.waitForURL(new RegExp(`/c/channels/${serverId}`), { timeout: 20_000, waitUntil: "commit" })
-    await expect(page).toHaveURL(new RegExp(`/c/channels/${serverId}`))
-  })
-})
-
 test("an offline friend comes online through reconnect and receives the invite DM", async ({ asUser }) => {
   test.setTimeout(120_000)
   const serverId = await seedServer("alice", `Friend invite ${Date.now()}`)
@@ -119,4 +97,26 @@ test("an offline friend comes online through reconnect and receives the invite D
   expect(inviteMessagePosts).toHaveLength(1)
   await expect(bob.page.locator("[data-msg-id]").filter({ hasText: inviteUrl }))
     .toHaveCount(1)
+})
+
+// Journey 7 — invite accept (second identity). Alice creates a server + invite
+// via API, Bob accepts it through the UI, and the new server appears in Bob's
+// rail without a manual reload (regression 1c2e2a05).
+test.describe.serial("invite accept", () => {
+  let serverId: string
+  let inviteToken: string
+
+  test.beforeAll(async () => {
+    serverId = await seedServer("alice", `Invite ${Date.now()}`)
+    inviteToken = await createInvite("alice", serverId)
+  })
+
+  test("Bob accepts the invite and lands in the server", async ({ asUser }) => {
+    const { page } = await asUser("bob")
+    await page.goto(`/c/invite/${inviteToken}`)
+    // Accept via the join CTA.
+    await page.getByRole("button", { name: /join server/i }).first().click()
+    await page.waitForURL(new RegExp(`/c/channels/${serverId}`), { timeout: 20_000, waitUntil: "commit" })
+    await expect(page).toHaveURL(new RegExp(`/c/channels/${serverId}`))
+  })
 })
