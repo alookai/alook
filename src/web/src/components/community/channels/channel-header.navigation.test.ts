@@ -113,4 +113,19 @@ describe("ChannelHeader hierarchy navigation", () => {
     expect(current.props.className).toContain("min-w-8")
     expect(current.props.className).toContain("sm:min-w-0")
   })
+
+  it("renders only supplied panel actions in compact split mode", () => {
+    const renderer = render({
+      compactActions: true,
+      tools: undefined,
+      notifLevel: "all",
+      onSetNotifLevel: vi.fn(),
+      endActions: createElement("button", { "aria-label": "Open thread full screen" }),
+    })
+
+    expect(renderer.root.findAllByProps({ "aria-label": "Member list" })).toHaveLength(0)
+    expect(renderer.root.findAllByProps({ "aria-label": "Channel notifications" })).toHaveLength(0)
+    expect(renderer.root.findAllByProps({ "aria-label": "More channel options" })).toHaveLength(0)
+    expect(renderer.root.findByProps({ "aria-label": "Open thread full screen" })).toBeTruthy()
+  })
 })

@@ -238,8 +238,9 @@ export function ThreadChannelSurface({
                 label: displayName,
                 titleRename: parentIsForum,
                 onNavigate: onNavigateParent,
-                onRename: rename,
+                onRename: splitActions ? undefined : rename,
               } : undefined}
+              compactActions={!!splitActions}
               endActions={splitActions ? (
                 <ThreadPanelActions
                   onFullscreen={splitActions.onFullscreen}
