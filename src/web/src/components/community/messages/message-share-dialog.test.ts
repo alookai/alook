@@ -4,6 +4,7 @@ import TestRenderer, { act } from "react-test-renderer"
 import {
   MessageShareDialog,
   ShareCardImageTimeoutError,
+  inlineShareCardImages,
   waitForShareCardImages,
 } from "./message-share-dialog"
 import type { RenderMsg } from "@/lib/community/models/message"
@@ -301,5 +302,110 @@ describe("waitForShareCardImages", () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe("inlineShareCardImages", () => {
+  function image({
+    src,
+    currentSrc,
+    srcset,
+  }: {
+    src: string
+    currentSrc?: string
+    srcset?: string
+  }) {
+    const attributes = new Map<string, string>([["src", src]])
+    if (srcset !== undefined) attributes.set("srcset", srcset)
+    return {
+      src,
+      currentSrc: currentSrc ?? src,
+      getAttribute: vi.fn((name: string) => attributes.get(name) ?? null),
+      setAttribute: vi.fn((name: string, value: string) => attributes.set(name, value)),
+      removeAttribute: vi.fn((name: string) => attributes.delete(name)),
+      attributes,
+    } as unknown as HTMLImageElement & { attributes: Map<string, string> }
+  }
+
+  function card(images: HTMLImageElement[]): HTMLElement {
+    return { querySelectorAll: () => images } as unknown as HTMLElement
+  }
+
+  it("inlines each rendered image once and restores the React-owned attributes", async () => {
+    const avatar = image({
+      src: "/avatar?v=2",
+      currentSrc: "https://alook.test/avatar?v=2",
+      srcset: "/avatar?v=2 1x, /avatar?v=2&dpr=2 2x",
+    })
+    const duplicate = image({
+      src: "/avatar?v=2",
+      currentSrc: "https://alook.test/avatar?v=2",
+    })
+    const attachment = image({ src: "/attachments/photo" })
+    const loadDataUrl = vi.fn(async (url: string) => `data:image/png;base64,${url}`)
+    const waitForImages = vi.fn().mockResolvedValue(undefined)
+
+    const restore = await inlineShareCardImages(
+      card([avatar, duplicate, attachment]),
+      loadDataUrl,
+      waitForImages,
+    )
+
+    expect(loadDataUrl).toHaveBeenCalledTimes(2)
+    expect(loadDataUrl).toHaveBeenCalledWith("https://alook.test/avatar?v=2")
+    expect(loadDataUrl).toHaveBeenCalledWith("/attachments/photo")
+    expect(avatar.attributes.get("src")).toBe(
+      "data:image/png;base64,https://alook.test/avatar?v=2",
+    )
+    expect(avatar.attributes.get("srcset")).toBe("")
+    expect(attachment.attributes.get("src")).toBe(
+      "data:image/png;base64,/attachments/photo",
+    )
+    expect(waitForImages).toHaveBeenCalledTimes(2)
+
+    restore()
+    restore()
+    expect(avatar.attributes.get("src")).toBe("/avatar?v=2")
+    expect(avatar.attributes.get("srcset")).toBe("/avatar?v=2 1x, /avatar?v=2&dpr=2 2x")
+    expect(duplicate.attributes.has("srcset")).toBe(false)
+    expect(attachment.attributes.get("src")).toBe("/attachments/photo")
+  })
+
+  it("does not mutate the preview when an image cannot be inlined", async () => {
+    const avatar = image({ src: "/avatar" })
+    const attachment = image({ src: "/attachment" })
+    const waitForImages = vi.fn().mockResolvedValue(undefined)
+
+    await expect(inlineShareCardImages(
+      card([avatar, attachment]),
+      async (url) => {
+        if (url === "/attachment") throw new Error("fetch failed")
+        return "data:image/png;base64,avatar"
+      },
+      waitForImages,
+    )).rejects.toThrow("fetch failed")
+
+    expect(avatar.attributes.get("src")).toBe("/avatar")
+    expect(attachment.attributes.get("src")).toBe("/attachment")
+    expect(waitForImages).toHaveBeenCalledOnce()
+  })
+
+  it("restores the preview when an inlined bitmap fails to settle", async () => {
+    const avatar = image({ src: "/avatar", srcset: "/avatar 1x" })
+    const waitForImages = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("decode failed"))
+
+    await expect(
+      inlineShareCardImages(
+        card([avatar]),
+        async () => "data:image/png;base64,avatar",
+        waitForImages,
+      ),
+    ).rejects.toThrow("decode failed")
+
+    expect(avatar.attributes.get("src")).toBe("/avatar")
+    expect(avatar.attributes.get("srcset")).toBe("/avatar 1x")
   })
 })
