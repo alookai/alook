@@ -17,7 +17,7 @@ export function ForumSurface({ serverId, forumChannelId, ...props }: {
   mentionCandidates?: ComposerProps["mentionCandidates"]
   onOpenPost: (id: string) => void
   onCreatePost?: (post: NewForumThread) => Promise<void>
-  onEditPostTags?: (post: ForumThread, tags: string[]) => void
+  onEditPostTags?: (post: ForumThread, tags: string[]) => Promise<void> | void
   canEditPostTags?: (post: ForumThread) => boolean
   savingTagsFor?: string | null
   onDeletePost?: (post: ForumThread) => void
@@ -68,7 +68,7 @@ export function ForumSurface({ serverId, forumChannelId, ...props }: {
     onScrollRoot={setScrollRootEl}
     onEditPostTags={(threadId, tags) => {
       const post = feed.posts.find((candidate) => candidate.id === threadId)
-      if (post) props.onEditPostTags?.(post, tags)
+      if (post) return props.onEditPostTags?.(post, tags)
     }}
   />
 }

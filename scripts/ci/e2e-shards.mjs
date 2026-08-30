@@ -60,6 +60,7 @@ export const SPEC_SECONDS = {
   "44-mobile-reaction-details.spec.ts": 70,
   "45-desktop-thread-split-view.spec.ts": 60,
   "50-daemon-update-notice.spec.ts": 35,
+  "51-mobile-forum-tag-editor.spec.ts": 60,
   "51-share-image-assets.spec.ts": 20,
 }
 

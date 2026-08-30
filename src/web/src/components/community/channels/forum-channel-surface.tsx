@@ -114,8 +114,8 @@ export function ForumChannelSurface({
             onCreatePost={createForumThread}
             canEditPostTags={(post) => canManage || post.authorId === viewer.id}
             savingTagsFor={updatePostTagsMut.isPending ? updatePostTagsMut.variables?.threadId ?? null : null}
-            onEditPostTags={(post, tags) => {
-              updatePostTagsMut.mutate(
+            onEditPostTags={async (post, tags) => {
+              await updatePostTagsMut.mutateAsync(
                 {
                   serverId,
                   forumChannelId: channelId,

@@ -99,6 +99,7 @@ async function setForumPostArchived(
   threadId: string,
   currentlyArchived: boolean,
 ) {
+  await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto(`/c/channels/${serverId}/${forumId}`)
   await expect(page.getByTestId(tid.forumPostList)).toBeVisible({ timeout: 20_000 })
   if (currentlyArchived) {

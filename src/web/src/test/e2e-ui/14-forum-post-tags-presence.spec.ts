@@ -32,6 +32,7 @@ test.describe.serial("forum post tags + participant avatars", () => {
 
   test("creator edits a post's tags from the card; the filter bar derives the union", async ({ asUser }) => {
     const { page } = await asUser("alice")
+    await page.setViewportSize({ width: 1280, height: 900 })
     await page.goto(`/c/channels/${serverId}/${forumId}`)
     await page.waitForURL(new RegExp(forumId), { timeout: 20_000, waitUntil: "commit" })
 

@@ -1,19 +1,51 @@
 import { createElement, type ReactNode } from "react"
 import TestRenderer, { act, type ReactTestInstance } from "react-test-renderer"
 import { FORUM_ARCHIVE_TAG, MAX_FORUM_TAG_LENGTH, MAX_FORUM_TAGS_PER_POST } from "@alook/shared"
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
+const mocks = vi.hoisted(() => ({ breakpoint: "desktop" as "unknown" | "desktop" | "mobile" }))
+
+vi.mock("@/hooks/use-mobile", () => ({
+  useBreakpoint: () => mocks.breakpoint,
+}))
+
+vi.mock("@/components/ui/dialog", async () => {
+  const { createElement, Fragment } = await import("react")
+  return {
+    Dialog: ({ children, ...props }: { children: ReactNode }) =>
+      createElement("mock-dialog", props, children),
+    DialogTrigger: ({ render }: { render: ReactNode }) => createElement(Fragment, null, render),
+    DialogContent: ({ children, showCloseButton: _showCloseButton, ...props }: {
+      children: ReactNode
+      showCloseButton?: boolean
+    }) => createElement("section", props, children),
+    DialogTitle: ({ children, ...props }: { children: ReactNode }) =>
+      createElement("h2", props, children),
+  }
+})
+
 vi.mock("@/components/ui/popover", async () => {
   const { createElement, Fragment } = await import("react")
   return {
-    Popover: ({ children, onOpenChange }: { children: ReactNode; onOpenChange?: (open: boolean) => void }) =>
-      createElement("mock-popover", { onOpenChange }, children),
+    Popover: ({ children, ...props }: { children: ReactNode }) =>
+      createElement("mock-popover", props, children),
     PopoverTrigger: ({ render }: { render: ReactNode }) => createElement(Fragment, null, render),
     PopoverContent: ({ children, ...props }: { children: ReactNode }) =>
-      createElement("div", props, children),
+      createElement("section", props, children),
+  }
+})
+
+vi.mock("@/components/ui/button", async () => {
+  const { createElement } = await import("react")
+  return {
+    Button: ({ children, variant: _variant, size: _size, ...props }: {
+      children: ReactNode
+      variant?: string
+      size?: string
+    }) => createElement("button", props, children),
   }
 })
 
@@ -26,173 +58,326 @@ vi.mock("@/components/ui/input", async () => {
 
 import { PostTagDialog } from "./post-tag-dialog"
 
+type Save = (tags: string[]) => Promise<void> | void
+
 function renderDialog({
   current = [],
   allTags = [],
   onSave = vi.fn(),
+  saving = false,
 }: {
   current?: string[]
   allTags?: string[]
-  onSave?: (tags: string[]) => void
+  onSave?: Save
+  saving?: boolean
 } = {}) {
+  const props = { current, allTags, onSave, saving }
+  const element = () => createElement(PostTagDialog, {
+    trigger: createElement("button", { type: "button", "data-testid": "trigger" }, "Edit tags"),
+    postName: "A post",
+    ...props,
+  })
   let renderer: TestRenderer.ReactTestRenderer
   act(() => {
-    renderer = TestRenderer.create(createElement(PostTagDialog, {
-      trigger: createElement("button", { type: "button" }, "Edit tags"),
-      postName: "A post",
-      current,
-      allTags,
-      onSave,
-    }))
+    renderer = TestRenderer.create(element())
   })
-  return { renderer: renderer!, onSave }
+  return {
+    renderer: renderer!,
+    onSave,
+    rerender: () => act(() => renderer!.update(element())),
+  }
 }
 
-function buttonText(button: ReactTestInstance): string {
-  return button.children.map((child) => (
-    typeof child === "string" ? child : buttonText(child)
-  )).join("")
-}
-
-function tagButton(root: ReactTestInstance, tag: string): ReactTestInstance {
-  return root.findAllByType("button").find((button) => buttonText(button) === `#${tag}`)!
+function shell(root: ReactTestInstance): ReactTestInstance {
+  return root.findByType(mocks.breakpoint === "mobile" ? "mock-dialog" : "mock-popover")
 }
 
 function setOpen(root: ReactTestInstance, open: boolean): void {
-  act(() => root.findByType("mock-popover").props.onOpenChange(open))
+  act(() => shell(root).props.onOpenChange(open))
 }
 
-function pressEnter(input: ReactTestInstance): void {
-  act(() => input.props.onKeyDown({
+function switchBreakpoint(
+  rendered: ReturnType<typeof renderDialog>,
+  breakpoint: "desktop" | "mobile",
+): void {
+  mocks.breakpoint = breakpoint
+  rendered.rerender()
+}
+
+function byTestId(root: ReactTestInstance, testid: string): ReactTestInstance {
+  return root.findByProps({ "data-testid": testid })
+}
+
+function tagButton(root: ReactTestInstance, tag: string): ReactTestInstance {
+  return byTestId(root, tid.forumTagDialogChip(tag))
+}
+
+function input(root: ReactTestInstance): ReactTestInstance {
+  return byTestId(root, tid.forumTagDialogInput)
+}
+
+function setDraft(root: ReactTestInstance, value: string): void {
+  act(() => input(root).props.onChange({ target: { value } }))
+}
+
+function pressEnter(root: ReactTestInstance, event: Record<string, unknown> = {}): void {
+  act(() => input(root).props.onKeyDown({
     key: "Enter",
     preventDefault: vi.fn(),
+    ...event,
   }))
 }
 
-describe("PostTagDialog frontend limits", () => {
-  it("always presets Archived and keeps it outside the ordinary tag quota", () => {
-    const selected = Array.from({ length: MAX_FORUM_TAGS_PER_POST }, (_, index) => `tag-${index + 1}`)
-    const onSave = vi.fn()
-    const { renderer } = renderDialog({ current: selected, onSave })
-    setOpen(renderer.root, true)
+function deferred() {
+  let resolve!: () => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
 
-    const archived = tagButton(renderer.root, FORUM_ARCHIVE_TAG)
-    expect(archived.props.disabled).toBe(false)
-    expect(archived.props["data-testid"]).toBe(tid.forumTagDialogChip(FORUM_ARCHIVE_TAG))
-    act(() => archived.props.onClick())
-    setOpen(renderer.root, false)
-
-    expect(onSave).toHaveBeenCalledWith([...selected, FORUM_ARCHIVE_TAG])
+describe("PostTagDialog responsive session", () => {
+  beforeEach(() => {
+    mocks.breakpoint = "desktop"
   })
 
-  it("uses the shared length limit and right-aligns the close-save hint", () => {
+  it("renders no popup shell until the shared breakpoint resolves", () => {
+    mocks.breakpoint = "unknown"
     const { renderer } = renderDialog()
-    const input = renderer.root.findByType("input")
-    const hint = renderer.root.findAllByType("p")
-      .find((node) => node.children.includes("↵ to add · saves on close"))
-
-    expect(input.props.maxLength).toBe(MAX_FORUM_TAG_LENGTH)
-    expect(hint?.props.className).toContain("text-right")
+    expect(renderer.root.findAllByType("mock-dialog")).toHaveLength(0)
+    expect(renderer.root.findAllByType("mock-popover")).toHaveLength(0)
+    expect(byTestId(renderer.root, "trigger")).toBeTruthy()
   })
 
-  it("blocks a sixth chip while keeping selected chips removable", () => {
-    const selected = Array.from({ length: MAX_FORUM_TAGS_PER_POST }, (_, index) => `tag-${index + 1}`)
-    const replacement = "replacement"
+  it("keeps Archived outside the ordinary quota and preserves desktop close-save", () => {
+    const current = Array.from({ length: MAX_FORUM_TAGS_PER_POST }, (_, index) => `tag-${index + 1}`)
     const onSave = vi.fn()
-    const { renderer } = renderDialog({
-      current: selected,
-      allTags: [...selected, replacement],
-      onSave,
+    const { renderer } = renderDialog({ current, allTags: [...current, "replacement"], onSave })
+    setOpen(renderer.root, true)
+
+    expect(tagButton(renderer.root, FORUM_ARCHIVE_TAG).props.disabled).toBe(false)
+    expect(tagButton(renderer.root, "replacement").props.disabled).toBe(true)
+    expect(input(renderer.root).props.disabled).toBe(true)
+    act(() => tagButton(renderer.root, FORUM_ARCHIVE_TAG).props.onClick())
+    setOpen(renderer.root, false)
+
+    expect(onSave).toHaveBeenCalledOnce()
+    expect(onSave).toHaveBeenCalledWith([...current, FORUM_ARCHIVE_TAG])
+    expect(shell(renderer.root).props.open).toBe(false)
+  })
+
+  it("normalizes Enter additions, rejects duplicates, and ignores IME or Shift+Enter", () => {
+    mocks.breakpoint = "mobile"
+    const onSave = vi.fn()
+    const { renderer } = renderDialog({ current: ["existing"], onSave })
+    setOpen(renderer.root, true)
+
+    setDraft(renderer.root, "existing")
+    pressEnter(renderer.root)
+    expect(input(renderer.root).props.value).toBe("")
+
+    setDraft(renderer.root, "  New-Tag  ")
+    pressEnter(renderer.root, { nativeEvent: { isComposing: true } })
+    expect(input(renderer.root).props.value).toBe("  New-Tag  ")
+    expect(renderer.root.findAllByProps({ "data-testid": tid.forumTagDialogChip("new-tag") })).toHaveLength(0)
+
+    pressEnter(renderer.root, { shiftKey: true })
+    expect(input(renderer.root).props.value).toBe("  New-Tag  ")
+    pressEnter(renderer.root)
+    expect(input(renderer.root).props.value).toBe("")
+    expect(tagButton(renderer.root, "new-tag")).toBeTruthy()
+    expect(onSave).not.toHaveBeenCalled()
+  })
+
+  it.each(["implicit", "close", "cancel"])("discards a changed mobile session via %s dismissal", (dismissal) => {
+    mocks.breakpoint = "mobile"
+    const onSave = vi.fn()
+    const { renderer } = renderDialog({ current: ["existing"], onSave })
+    setOpen(renderer.root, true)
+    act(() => tagButton(renderer.root, FORUM_ARCHIVE_TAG).props.onClick())
+
+    if (dismissal === "implicit") setOpen(renderer.root, false)
+    else if (dismissal === "close") {
+      act(() => renderer.root.findByProps({ "aria-label": "Close" }).props.onClick())
+    } else {
+      act(() => byTestId(renderer.root, tid.forumTagDialogCancel).props.onClick())
+    }
+
+    expect(onSave).not.toHaveBeenCalled()
+    expect(shell(renderer.root).props.open).toBe(false)
+    setOpen(renderer.root, true)
+    expect(tagButton(renderer.root, FORUM_ARCHIVE_TAG).props["aria-label"]).toBe("Add tag archived")
+  })
+
+  it("closes a clean mobile session without saving", () => {
+    mocks.breakpoint = "mobile"
+    const onSave = vi.fn()
+    const { renderer } = renderDialog({ current: ["existing"], onSave })
+    setOpen(renderer.root, true)
+    act(() => byTestId(renderer.root, tid.forumTagDialogSave).props.onClick())
+    expect(onSave).not.toHaveBeenCalled()
+    expect(shell(renderer.root).props.open).toBe(false)
+  })
+
+  it("locks one mobile save until it succeeds", async () => {
+    mocks.breakpoint = "mobile"
+    const pending = deferred()
+    const onSave = vi.fn(() => pending.promise)
+    const { renderer } = renderDialog({ onSave })
+    setOpen(renderer.root, true)
+    act(() => tagButton(renderer.root, FORUM_ARCHIVE_TAG).props.onClick())
+
+    await act(async () => {
+      byTestId(renderer.root, tid.forumTagDialogSave).props.onClick()
+      await Promise.resolve()
     })
+    expect(onSave).toHaveBeenCalledOnce()
+    expect(byTestId(renderer.root, tid.forumTagDialogSave).props.disabled).toBe(true)
+    expect(input(renderer.root).props.disabled).toBe(true)
+    expect(renderer.root.findByProps({ "aria-label": "Close" }).props.disabled).toBe(true)
+    act(() => byTestId(renderer.root, tid.forumTagDialogSave).props.onClick())
+    expect(onSave).toHaveBeenCalledOnce()
+
+    await act(async () => {
+      pending.resolve()
+      await pending.promise
+    })
+    expect(shell(renderer.root).props.open).toBe(false)
+  })
+
+  it("keeps selected and raw draft state after failure, then retries", async () => {
+    mocks.breakpoint = "mobile"
+    const onSave = vi.fn()
+      .mockRejectedValueOnce(new Error("nope"))
+      .mockResolvedValueOnce(undefined)
+    const { renderer } = renderDialog({ onSave })
     setOpen(renderer.root, true)
+    act(() => tagButton(renderer.root, FORUM_ARCHIVE_TAG).props.onClick())
+    setDraft(renderer.root, "raw-draft")
 
-    expect(tagButton(renderer.root, replacement).props.disabled).toBe(true)
-    expect(renderer.root.findByType("input").props.disabled).toBe(true)
+    await act(async () => {
+      byTestId(renderer.root, tid.forumTagDialogSave).props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(shell(renderer.root).props.open).toBe(true)
+    expect(input(renderer.root).props.value).toBe("raw-draft")
+    expect(tagButton(renderer.root, FORUM_ARCHIVE_TAG).props["aria-label"]).toBe("Remove tag archived")
+    expect(byTestId(renderer.root, tid.forumTagDialogSave).props.disabled).toBe(false)
 
-    act(() => tagButton(renderer.root, replacement).props.onClick())
-    setOpen(renderer.root, false)
+    await act(async () => {
+      byTestId(renderer.root, tid.forumTagDialogSave).props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(onSave).toHaveBeenCalledTimes(2)
+    expect(shell(renderer.root).props.open).toBe(false)
+  })
+
+  it("preserves a mobile session through desktop handoff and saves only on the later desktop close", () => {
+    mocks.breakpoint = "mobile"
+    const onSave = vi.fn()
+    const rendered = renderDialog({ onSave })
+    setOpen(rendered.renderer.root, true)
+    act(() => tagButton(rendered.renderer.root, FORUM_ARCHIVE_TAG).props.onClick())
+    setDraft(rendered.renderer.root, "unfinished")
+
+    switchBreakpoint(rendered, "desktop")
+    expect(rendered.renderer.root.findByType("mock-popover").props.open).toBe(true)
+    expect(input(rendered.renderer.root).props.value).toBe("unfinished")
+    expect(tagButton(rendered.renderer.root, FORUM_ARCHIVE_TAG).props["aria-label"]).toBe("Remove tag archived")
     expect(onSave).not.toHaveBeenCalled()
 
-    setOpen(renderer.root, true)
-    act(() => tagButton(renderer.root, selected[0]).props.onClick())
-    expect(tagButton(renderer.root, replacement).props.disabled).toBe(false)
-    expect(renderer.root.findByType("input").props.disabled).toBe(false)
-    act(() => tagButton(renderer.root, replacement).props.onClick())
-    setOpen(renderer.root, false)
-
-    expect(onSave).toHaveBeenCalledWith([...selected.slice(1), replacement])
+    setOpen(rendered.renderer.root, false)
+    expect(onSave).toHaveBeenCalledOnce()
+    expect(onSave).toHaveBeenCalledWith([FORUM_ARCHIVE_TAG])
   })
 
-  it("caps draft input and blocks duplicate or over-count Enter additions", () => {
-    const selected = Array.from({ length: MAX_FORUM_TAGS_PER_POST }, (_, index) => `tag-${index + 1}`)
+  it("preserves a desktop session through mobile handoff and applies later mobile discard semantics", () => {
     const onSave = vi.fn()
-    const { renderer } = renderDialog({ current: selected, onSave })
-    setOpen(renderer.root, true)
-    let input = renderer.root.findByType("input")
+    const rendered = renderDialog({ onSave })
+    setOpen(rendered.renderer.root, true)
+    act(() => tagButton(rendered.renderer.root, FORUM_ARCHIVE_TAG).props.onClick())
+    setDraft(rendered.renderer.root, "unfinished")
 
-    act(() => input.props.onChange({ target: { value: "x".repeat(MAX_FORUM_TAG_LENGTH + 8) } }))
-    input = renderer.root.findByType("input")
-    expect(input.props.value).toBe("x".repeat(MAX_FORUM_TAG_LENGTH))
-    pressEnter(input)
-    setOpen(renderer.root, false)
+    switchBreakpoint(rendered, "mobile")
+    expect(rendered.renderer.root.findByType("mock-dialog").props.open).toBe(true)
+    expect(input(rendered.renderer.root).props.value).toBe("unfinished")
+    expect(tagButton(rendered.renderer.root, FORUM_ARCHIVE_TAG).props["aria-label"]).toBe("Remove tag archived")
     expect(onSave).not.toHaveBeenCalled()
 
-    const duplicateSave = vi.fn()
-    const duplicate = renderDialog({ current: ["existing"], onSave: duplicateSave })
-    setOpen(duplicate.renderer.root, true)
-    let duplicateInput = duplicate.renderer.root.findByType("input")
-    act(() => duplicateInput.props.onChange({ target: { value: "existing" } }))
-    duplicateInput = duplicate.renderer.root.findByType("input")
-    pressEnter(duplicateInput)
-    setOpen(duplicate.renderer.root, false)
-    expect(duplicateSave).not.toHaveBeenCalled()
+    setOpen(rendered.renderer.root, false)
+    expect(onSave).not.toHaveBeenCalled()
+    expect(rendered.renderer.root.findByType("mock-dialog").props.open).toBe(false)
   })
 
-  it("adds a valid normalized draft until the shared count cap", () => {
-    const current = Array.from({ length: MAX_FORUM_TAGS_PER_POST - 1 }, (_, index) => `tag-${index + 1}`)
-    const onSave = vi.fn()
-    const { renderer } = renderDialog({ current, onSave })
-    setOpen(renderer.root, true)
-    let input = renderer.root.findByType("input")
+  it("keeps one pending save alive through a shell handoff and ignores the stale shell close", async () => {
+    mocks.breakpoint = "mobile"
+    const pending = deferred()
+    const onSave = vi.fn(() => pending.promise)
+    const rendered = renderDialog({ onSave })
+    setOpen(rendered.renderer.root, true)
+    act(() => tagButton(rendered.renderer.root, FORUM_ARCHIVE_TAG).props.onClick())
+    const staleMobileClose = rendered.renderer.root.findByType("mock-dialog").props.onOpenChange
 
-    act(() => input.props.onChange({ target: { value: "  New-Tag  " } }))
-    input = renderer.root.findByType("input")
-    pressEnter(input)
-    expect(renderer.root.findByType("input").props.disabled).toBe(true)
-    setOpen(renderer.root, false)
+    await act(async () => {
+      byTestId(rendered.renderer.root, tid.forumTagDialogSave).props.onClick()
+      await Promise.resolve()
+    })
+    switchBreakpoint(rendered, "desktop")
+    expect(rendered.renderer.root.findByType("mock-popover").props.open).toBe(true)
+    expect(input(rendered.renderer.root).props.disabled).toBe(true)
+    act(() => staleMobileClose(false))
+    expect(rendered.renderer.root.findByType("mock-popover").props.open).toBe(true)
+    expect(onSave).toHaveBeenCalledOnce()
 
-    expect(onSave).toHaveBeenCalledWith([...current, "new-tag"])
+    await act(async () => {
+      pending.resolve()
+      await pending.promise
+    })
+    expect(rendered.renderer.root.findByType("mock-popover").props.open).toBe(false)
+    expect(onSave).toHaveBeenCalledOnce()
   })
 
-  it("does not allow an over-length existing vocabulary chip to be selected", () => {
-    const invalid = "x".repeat(MAX_FORUM_TAG_LENGTH + 1)
-    const { renderer } = renderDialog({ allTags: [invalid] })
-    setOpen(renderer.root, true)
-    expect(tagButton(renderer.root, invalid).props.disabled).toBe(true)
-  })
-
-  it.each([
-    ["English", "w".repeat(MAX_FORUM_TAG_LENGTH)],
-    ["Chinese", "标签".repeat(MAX_FORUM_TAG_LENGTH / 2)],
-  ])("contains a maximum-length %s chip with an accessible truncated label and fixed remove icon", (_kind, tag) => {
+  it("caps input and contains maximum-length chip labels", () => {
+    const tag = "标签".repeat(MAX_FORUM_TAG_LENGTH / 2)
     const { renderer } = renderDialog({ current: [tag], allTags: [tag] })
     setOpen(renderer.root, true)
+    setDraft(renderer.root, "x".repeat(MAX_FORUM_TAG_LENGTH + 8))
+    expect(input(renderer.root).props.value).toBe("x".repeat(MAX_FORUM_TAG_LENGTH))
 
     const button = tagButton(renderer.root, tag)
-    const label = button.findByType("span")
-    const removeIcon = button.findByType("svg")
-
-    expect(tag).toHaveLength(MAX_FORUM_TAG_LENGTH)
     expect(button.props.className).toContain("max-w-full")
-    expect(button.props.className).toContain("min-w-0")
-    expect(button.props["data-testid"]).toBe(tid.forumTagDialogChip(tag))
     expect(button.props.title).toBe(`#${tag}`)
     expect(button.props["aria-label"]).toBe(`Remove tag ${tag}`)
-    expect(buttonText(button)).toBe(`#${tag}`)
-    expect(label.props.className).toContain("min-w-0")
-    expect(label.props.className).toContain("truncate")
-    expect(buttonText(label)).toBe(`#${tag}`)
-    expect(removeIcon.props.className).toContain("shrink-0")
-    expect(removeIcon.props["aria-hidden"]).toBe("true")
+    expect(button.findByType("span").props.className).toContain("truncate")
+  })
+
+  it("uses compact mobile actions while preserving the desktop popover sizing", () => {
+    mocks.breakpoint = "mobile"
+    const rendered = renderDialog({ allTags: ["compact"] })
+    setOpen(rendered.renderer.root, true)
+
+    const mobileChipClass = String(tagButton(rendered.renderer.root, "compact").props.className)
+    expect(mobileChipClass).not.toContain("min-h-11")
+    expect(mobileChipClass).not.toContain("min-w-11")
+    const close = rendered.renderer.root.findByProps({ "aria-label": "Close" })
+    expect(close.props.size).toBe("icon-sm")
+    expect(String(close.props.className)).not.toContain("size-11")
+    for (const testid of [tid.forumTagDialogCancel, tid.forumTagDialogSave]) {
+      const actionClass = String(byTestId(rendered.renderer.root, testid).props.className)
+      expect(actionClass).toContain("px-4")
+      expect(actionClass).not.toContain("h-11")
+    }
+    expect(String(input(rendered.renderer.root).props.className)).toContain("h-11")
+
+    switchBreakpoint(rendered, "desktop")
+    const popover = rendered.renderer.root.findByType("section")
+    expect(popover.props.className).toBe("w-64 space-y-3 p-3")
+    expect(String(input(rendered.renderer.root).props.className)).toContain("h-8")
+    expect(String(tagButton(rendered.renderer.root, "compact").props.className))
+      .not.toContain("min-h-11")
   })
 })
