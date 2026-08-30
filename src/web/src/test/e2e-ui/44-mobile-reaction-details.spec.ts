@@ -65,6 +65,40 @@ async function expectDialogInsideViewport(page: Page, messageId: string) {
   expect(geometry.bottom).toBeLessThanOrEqual(geometry.height)
 }
 
+async function clickDialogBodyWithoutOpeningMessageMenu(page: Page, messageId: string) {
+  const dialog = page.getByTestId(tid.reactionDialog(messageId))
+  await dialog.locator('[data-slot="dialog-description"]').click()
+  await expect(dialog).toBeVisible()
+  await expect(page.getByRole("menuitem")).toHaveCount(0)
+}
+
+async function swipeDialogBodyWithoutStartingMessageReply(page: Page, messageId: string) {
+  const messageRow = page.getByTestId(tid.message(messageId)).locator("div.group").first()
+  await messageRow.evaluate((element) => {
+    ;(element as HTMLElement).setPointerCapture = () => {}
+  })
+  const body = page.getByTestId(tid.reactionDialog(messageId))
+    .locator('[data-slot="dialog-description"]')
+  const box = await body.boundingBox()
+  if (!box) throw new Error("reaction dialog body has no box")
+  const start = { x: box.x + box.width / 3, y: box.y + box.height / 2 }
+  const pointer = { pointerType: "touch", pointerId: 43, isPrimary: true, button: 0 }
+  await body.dispatchEvent("pointerdown", { ...pointer, clientX: start.x, clientY: start.y })
+  await body.dispatchEvent("pointermove", {
+    ...pointer,
+    buttons: 1,
+    clientX: start.x + 72,
+    clientY: start.y + 2,
+  })
+  await body.dispatchEvent("pointerup", {
+    ...pointer,
+    clientX: start.x + 72,
+    clientY: start.y + 2,
+  })
+  await expect(page.locator('[data-slot="composer-reply-preview"]')).toHaveCount(0)
+  await expect(page.getByTestId(tid.reactionDialog(messageId))).toBeVisible()
+}
+
 test.describe.serial("mobile reaction details", () => {
   let serverId: string
   let channelId: string
@@ -126,6 +160,8 @@ test.describe.serial("mobile reaction details", () => {
     await expect.poll(() => dialog.locator('[data-slot="dialog-description"]').evaluate(
       (element) => element.scrollWidth > element.clientWidth,
     )).toBe(true)
+    await clickDialogBodyWithoutOpeningMessageMenu(alice.page, messageId)
+    await swipeDialogBodyWithoutStartingMessageReply(alice.page, messageId)
     await expect(alice.page.getByTestId(tid.reactionTab("🔥"))).toHaveAttribute("data-active", "")
     await expect(alice.page.getByTestId(tid.reactionMember(userId("bob")))).toBeVisible()
     await testInfo.attach("390-mobile-reaction-details.png", {
@@ -312,6 +348,7 @@ test.describe.serial("mobile reaction details", () => {
     await expect(chip).toBeVisible()
     await holdReaction(alice.page, chip)
     await expectDialogInsideViewport(alice.page, threadOpenerId)
+    await clickDialogBodyWithoutOpeningMessageMenu(alice.page, threadOpenerId)
     await testInfo.attach("390-thread-opener-reaction-details.png", {
       body: await alice.page.screenshot(),
       contentType: "image/png",
@@ -325,6 +362,7 @@ test.describe.serial("mobile reaction details", () => {
     await gotoAfterUserWsAuth(dm.page, `/c/me/${dmId}`)
     await holdReaction(dm.page, dm.page.getByTestId(tid.reactionChip(dmMessageId, "👍")))
     await expectDialogInsideViewport(dm.page, dmMessageId)
+    await clickDialogBodyWithoutOpeningMessageMenu(dm.page, dmMessageId)
     await expect(dm.page.getByTestId(tid.reactionMember(userId("bob")))).toBeVisible()
     await dm.page.getByRole("button", { name: "Close" }).click()
     await dm.context.close()
@@ -337,6 +375,7 @@ test.describe.serial("mobile reaction details", () => {
     await expect(sheet).toBeVisible()
     await holdReaction(context.page, sheet.getByTestId(tid.reactionChip(messageId, OVERFLOW_EMOJIS[0])))
     await expectDialogInsideViewport(context.page, messageId)
+    await clickDialogBodyWithoutOpeningMessageMenu(context.page, messageId)
   })
 
   test("removing the last reaction keeps the dialog open on its empty state", async ({ asUser }, testInfo) => {
