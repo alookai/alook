@@ -175,6 +175,7 @@ describe("WebSocketDurableObject", () => {
           arch: "arm64",
           osRelease: "23.0.0",
           daemonVersion: "0.1.0",
+          timeZone: "Asia/Shanghai",
         })
         await durable.webSocketMessage(ws as any, frame)
 
@@ -188,6 +189,7 @@ describe("WebSocketDurableObject", () => {
           arch: "arm64",
           osRelease: "23.0.0",
           daemonVersion: "0.1.0",
+          timeZone: "Asia/Shanghai",
           availableRuntimes: [{
             id: "claude",
             version: "1.0.0",

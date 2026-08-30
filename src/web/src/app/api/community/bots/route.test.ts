@@ -61,7 +61,7 @@ vi.mock("@/lib/middleware/helpers", async () => {
   }
 })
 
-import { GET, POST } from "./route"
+import { GET, POST, tokenUsageDayWindow } from "./route"
 
 function getReq() {
   return new NextRequest("http://localhost/api/community/bots", { method: "GET" })
@@ -260,11 +260,12 @@ describe("GET /api/community/bots — heatmap activity", () => {
       { id: "bot_cursor", runtime: "cursor" },
       { id: "bot_opencode", runtime: "opencode" },
       { id: "bot_pi", runtime: "pi" },
+      { id: "bot_unknown", runtime: "custom" },
     ])
     mockGetBotDailyActivityForOwner.mockResolvedValue(new Map())
     mockGetBotDailyTokenUsageForOwner.mockResolvedValue(new Map([
-      ["bot_codex", [{
-        botId: "bot_codex",
+      ["bot_pi", [{
+        botId: "bot_pi",
         day: today,
         metrics: {
           input: 8,
@@ -281,7 +282,7 @@ describe("GET /api/community/bots — heatmap activity", () => {
         usage: { capability: string; days: Array<{ day: string; period: string; metrics: unknown }> }
       }>
     }
-    const supported = body.bots.find((bot) => bot.id === "bot_codex")!
+    const supported = body.bots.find((bot) => bot.id === "bot_pi")!
     expect(supported.usage.capability).toBe("supported")
     expect(supported.usage.days).toHaveLength(7)
     expect(supported.usage.days.at(-1)).toEqual({
@@ -299,12 +300,51 @@ describe("GET /api/community/bots — heatmap activity", () => {
       bot_codex: "supported",
       bot_cursor: "unsupported",
       bot_opencode: "supported",
-      bot_pi: "unsupported",
+      bot_pi: "supported",
+      bot_unknown: "unknown",
     })
     expect(mockGetBotDailyTokenUsageForOwner).toHaveBeenCalledWith(
       expect.anything(),
       "u1",
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
     )
+  })
+
+  it("uses the daemon computer timezone for the seven-day token window", () => {
+    const now = new Date("2026-08-29T16:00:01Z")
+    expect(tokenUsageDayWindow(now, "Asia/Shanghai")).toEqual([
+      "2026-08-24",
+      "2026-08-25",
+      "2026-08-26",
+      "2026-08-27",
+      "2026-08-28",
+      "2026-08-29",
+      "2026-08-30",
+    ])
+    expect(tokenUsageDayWindow(now, "America/Los_Angeles").at(-1)).toBe("2026-08-29")
+    expect(tokenUsageDayWindow(now, "not/a-time-zone").at(-1)).toBe("2026-08-29")
+  })
+
+  it("projects the GET response from the joined machine timezone without exposing it", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-29T16:00:01Z"))
+    try {
+      mockListBotsForOwner.mockResolvedValue([{
+        id: "bot_1",
+        runtime: "codex",
+        tokenUsageTimeZone: "Asia/Shanghai",
+      }])
+      mockGetBotDailyActivityForOwner.mockResolvedValue(new Map())
+      mockGetBotDailyTokenUsageForOwner.mockResolvedValue(new Map())
+
+      const res = await GET(getReq(), ctx)
+      const body = await res.json() as {
+        bots: Array<Record<string, unknown> & { usage: { days: Array<{ day: string }> } }>
+      }
+      expect(body.bots[0]?.usage.days.at(-1)?.day).toBe("2026-08-30")
+      expect(body.bots[0]).not.toHaveProperty("tokenUsageTimeZone")
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

@@ -73,6 +73,18 @@ export function prepareUsagePrune(
   `).bind(botId, oldestDay, botId, machineId);
 }
 
+export function prepareMachineTimeZoneUpdate(
+  db: D1Database,
+  identity: { machineId: string; userId: string },
+  timeZone: string,
+): D1PreparedStatement {
+  return db.prepare(`
+    UPDATE community_machine
+    SET time_zone = ?
+    WHERE id = ? AND user_id = ?
+  `).bind(timeZone, identity.machineId, identity.userId);
+}
+
 export function prepareQuotaReplace(
   db: D1Database,
   identity: { machineId: string; userId: string },

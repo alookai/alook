@@ -172,6 +172,7 @@ describe("bot runtime-config read projections", () => {
     name: "helper",
     discriminator: "1234",
     image: null,
+    avatarVersion: null,
     ownerUserId: "owner_1",
     description: "does things",
     createdAt: "2026-08-29T00:00:00.000Z",
@@ -205,7 +206,7 @@ describe("bot runtime-config read projections", () => {
 
   it("returns reasoning effort and revision when listing an owner's bots", async () => {
     await expect(q.listBotsForOwner(makeOwnerListChain([storedBot]), "owner_1")).resolves.toEqual([
-      storedBot,
+      { ...storedBot, tokenUsageTimeZone: null },
     ])
   })
 

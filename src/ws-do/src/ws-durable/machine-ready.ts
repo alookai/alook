@@ -3,6 +3,7 @@ import {
   createDb,
   HostReadyMessageSchema,
   ProviderQuotaSnapshotSchema,
+  dayKeyInTimeZone,
   queries,
   WS_EVENTS,
 } from "@alook/shared"
@@ -114,13 +115,20 @@ export async function handleReadyFrame(
     const arch = ready.arch ?? ""
     const daemonVersion = ready.daemonVersion ?? ""
     const osRelease = ready.osRelease ?? ""
+    let timeZone: string | undefined
+    if (ready.timeZone) {
+      try {
+        dayKeyInTimeZone(new Date(), ready.timeZone)
+        timeZone = ready.timeZone
+      } catch { }
+    }
     const availableRuntimes: CommunityMachineRuntime[] = ready.runtimeReport
 
     const db = createDb(context.env.DB)
     const result = await queries.communityMachineSession.transitionMachineSessionEpoch(db, {
       type: "ready",
       epoch: identity,
-      metadata: { hostname, platform, arch, daemonVersion, osRelease, availableRuntimes },
+      metadata: { hostname, platform, arch, daemonVersion, osRelease, timeZone, availableRuntimes },
     })
     if (result.type === "stale_epoch") {
       context.log.warn("community machine epoch rejected on ready", { machineId: identity.machineId })

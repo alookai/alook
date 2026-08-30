@@ -103,6 +103,7 @@ async function transitionLiveLease(
         arch: command.metadata.arch ?? prior.arch,
         osRelease: command.metadata.osRelease ?? prior.osRelease,
         daemonVersion: command.metadata.daemonVersion ?? prior.daemonVersion,
+        timeZone: command.metadata.timeZone ?? prior.timeZone,
         metadata: command.metadata.metadata !== undefined
           ? command.metadata.metadata
           : prior.metadata,
@@ -294,6 +295,7 @@ async function rotateMachineSessionEpoch(
       arch: command.metadata.arch ?? prior.arch,
       osRelease: command.metadata.osRelease ?? prior.osRelease,
       daemonVersion: command.metadata.daemonVersion ?? prior.daemonVersion,
+      timeZone: command.metadata.timeZone ?? prior.timeZone,
       metadata: command.metadata.metadata !== undefined ? command.metadata.metadata : prior.metadata,
       availableRuntimes: command.metadata.availableRuntimes !== undefined
         ? command.metadata.availableRuntimes
@@ -387,6 +389,7 @@ async function insertOfflineMachine(
       arch: metadata.arch ?? "",
       osRelease: metadata.osRelease ?? "",
       daemonVersion: metadata.daemonVersion ?? "",
+      timeZone: metadata.timeZone ?? null,
       metadata: metadata.metadata ?? null,
       availableRuntimes: metadata.availableRuntimes ?? [],
       status: "offline",

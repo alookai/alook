@@ -12,6 +12,8 @@ import {
   RUNNING_PRESETS,
   withD1Retry,
   WS_EVENTS,
+  calendarDayKeyDaysAgo,
+  dayKeyInTimeZone,
   utcDayKeyDaysAgo,
 } from "@alook/shared"
 import { handleFrameForBoundBot } from "./bound-bot-frame"
@@ -26,6 +28,7 @@ import {
   prepareActivityProfileUpsert,
   prepareQuotaReplace,
   prepareUsagePrune,
+  prepareMachineTimeZoneUpdate,
   prepareUsageUpsert,
 } from "./provider-telemetry-persistence"
 
@@ -54,7 +57,7 @@ export async function handleActivityFrame(
   identity: CommunityMachineIdentity,
 ): Promise<boolean> {
   const activityParse = AgentActivityMessageSchema
-    .omit({ dailyUsage: true, quota: true })
+    .omit({ usageTimeZone: true, usageDay: true, dailyUsage: true, quota: true })
     .passthrough()
     .safeParse(parsed)
   if (!activityParse.success) return false
@@ -62,7 +65,44 @@ export async function handleActivityFrame(
   const { agentId, state } = activityParse.data
   const raw = parsed as Record<string, unknown>
   const now = new Date()
-  const allowedDays = new Set(Array.from({ length: 7 }, (_, offset) => utcDayKeyDaysAgo(now, offset)))
+  const legacyAllowedDays = new Set(Array.from({ length: 7 }, (_, offset) => utcDayKeyDaysAgo(now, offset)))
+  const rawUsageTimeZone = raw.usageTimeZone
+  const rawUsageDay = raw.usageDay
+  const hasUsageCalendarMetadata = rawUsageTimeZone !== undefined || rawUsageDay !== undefined
+  const legalServerCalendarDays = new Set([
+    dayKeyInTimeZone(now, "Etc/GMT+12"),
+    utcDayKeyDaysAgo(now, 0),
+    dayKeyInTimeZone(now, "Pacific/Kiritimati"),
+  ])
+  let validUsageCalendar: { timeZone: string; day: string } | undefined
+  if (
+    state === "idle"
+    && typeof rawUsageTimeZone === "string"
+    && rawUsageTimeZone.length >= 1
+    && rawUsageTimeZone.length <= 128
+    && typeof rawUsageDay === "string"
+    && /^\d{4}-\d{2}-\d{2}$/.test(rawUsageDay)
+  ) {
+    try {
+      const expectedDay = dayKeyInTimeZone(now, rawUsageTimeZone)
+      const acceptableDays = new Set([
+        calendarDayKeyDaysAgo(expectedDay, 1),
+        expectedDay,
+        calendarDayKeyDaysAgo(expectedDay, -1),
+      ])
+      if (acceptableDays.has(rawUsageDay) && legalServerCalendarDays.has(rawUsageDay)) {
+        validUsageCalendar = { timeZone: rawUsageTimeZone, day: rawUsageDay }
+      }
+    } catch { }
+  }
+  const allowedUsageDays = validUsageCalendar
+    ? new Set(Array.from(
+      { length: 7 },
+      (_, offset) => calendarDayKeyDaysAgo(validUsageCalendar.day, offset),
+    ))
+    : hasUsageCalendarMetadata
+      ? null
+      : legacyAllowedDays
   const usageParse = raw.dailyUsage === undefined
     ? null
     : DailyUsageSnapshotSchema.array().max(7).safeParse(raw.dailyUsage)
@@ -71,7 +111,8 @@ export async function handleActivityFrame(
   const validUsage = state === "idle"
     && parsedUsage !== undefined
     && usageDays?.size === parsedUsage.length
-    && parsedUsage.every((snapshot) => snapshot.botId === agentId && allowedDays.has(snapshot.day))
+    && allowedUsageDays !== null
+    && parsedUsage.every((snapshot) => snapshot.botId === agentId && allowedUsageDays.has(snapshot.day))
       ? parsedUsage
       : undefined
   const quotaParse = raw.quota === undefined
@@ -115,7 +156,9 @@ export async function handleActivityFrame(
       const profileChanged = preset !== null
         && (preset.emoji !== priorEmoji || preset.text !== priorText)
       const quota = validQuota?.agentBackendId === binding.runtime ? validQuota : undefined
-      const hasTelemetry = (validUsage?.length ?? 0) > 0 || quota !== undefined
+      const hasTelemetry = validUsageCalendar !== undefined
+        || (validUsage?.length ?? 0) > 0
+        || quota !== undefined
       if (!hasTelemetry) {
         if (!profileChanged || !preset) return
         await withD1Retry(
@@ -145,15 +188,29 @@ export async function handleActivityFrame(
           preset.text,
         ))
       }
+      if (validUsageCalendar) {
+        statements.push(prepareMachineTimeZoneUpdate(
+          context.env.DB,
+          identity,
+          validUsageCalendar.timeZone,
+        ))
+      }
       for (const snapshot of validUsage ?? []) {
         statements.push(prepareUsageUpsert(context.env.DB, identity.machineId, snapshot, nowIso))
       }
-      if (validUsage && validUsage.length > 0) {
+      if (validUsageCalendar) {
         statements.push(prepareUsagePrune(
           context.env.DB,
           identity.machineId,
           agentId,
-          utcDayKeyDaysAgo(now, 6),
+          calendarDayKeyDaysAgo(validUsageCalendar.day, 8),
+        ))
+      } else if (validUsage && validUsage.length > 0) {
+        statements.push(prepareUsagePrune(
+          context.env.DB,
+          identity.machineId,
+          agentId,
+          utcDayKeyDaysAgo(now, 8),
         ))
       }
       if (quota) statements.push(prepareQuotaReplace(context.env.DB, identity, quota, nowIso))

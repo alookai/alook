@@ -2,6 +2,7 @@ import { chmod, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { TokenUsageDelta } from "@alook/agent-driver";
+import { calendarDayKeyDaysAgo, dayKeyInTimeZone } from "@alook/shared";
 
 export type DailyUsageMetric = number | null;
 
@@ -20,16 +21,13 @@ type UsageFile = {
   bots: Record<string, DailyUsageSnapshot[]>;
 };
 
-function dayKey(at: Date): string {
-  return at.toISOString().slice(0, 10);
+function oldestRetainedDay(at: Date, timeZone: string): string {
+  const today = dayKeyInTimeZone(at, timeZone);
+  return calendarDayKeyDaysAgo(today, 8);
 }
 
-function retainedDays(at: Date): Set<string> {
-  const days = new Set<string>();
-  for (let offset = 0; offset < 7; offset += 1) {
-    days.add(dayKey(new Date(at.getTime() - offset * 86_400_000)));
-  }
-  return days;
+function oldestVisibleDay(today: string): string {
+  return calendarDayKeyDaysAgo(today, 6);
 }
 
 function isMetric(value: unknown): value is DailyUsageMetric {
@@ -84,17 +82,31 @@ export class DailyTokenUsageStore {
   private loaded = false;
   private data: UsageFile = { version: 1, bots: {} };
   private readonly filePath: string;
+  private readonly resolveTimeZone: () => string;
 
-  constructor(workingDirectoryBase: string, private readonly now: () => Date = () => new Date()) {
+  constructor(
+    workingDirectoryBase: string,
+    private readonly now: () => Date = () => new Date(),
+    timeZone: string | (() => string) = () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+  ) {
+    this.resolveTimeZone = typeof timeZone === "string" ? () => timeZone : timeZone;
+    void this.timeZone;
     this.filePath = join(workingDirectoryBase, ".telemetry", "daily-token-usage.json");
+  }
+
+  get timeZone(): string {
+    const timeZone = this.resolveTimeZone();
+    dayKeyInTimeZone(0, timeZone);
+    return timeZone;
   }
 
   record(botId: string, delta: TokenUsageDelta): Promise<void> {
     return this.enqueue(async () => {
       await this.load();
       const at = this.now();
-      this.prune(at);
-      const day = dayKey(at);
+      const timeZone = this.timeZone;
+      this.prune(at, timeZone);
+      const day = dayKeyInTimeZone(at, timeZone);
       const snapshots = this.data.bots[botId] ?? [];
       const existing = snapshots.find((snapshot) => snapshot.day === day);
       const next = existing ?? emptySnapshot(botId, day);
@@ -111,12 +123,33 @@ export class DailyTokenUsageStore {
   }
 
   snapshots(botId: string): Promise<DailyUsageSnapshot[]> {
+    return this.usageWindow(botId).then((window) => window.snapshots);
+  }
+
+  usageWindow(botId: string): Promise<{
+    usageDay: string;
+    usageTimeZone: string;
+    snapshots: DailyUsageSnapshot[];
+  }> {
     let result: DailyUsageSnapshot[] = [];
+    let usageDay = "";
+    let usageTimeZone = "";
     return this.enqueue(async () => {
       await this.load();
-      if (this.prune(this.now())) await this.persist();
-      result = (this.data.bots[botId] ?? []).map((snapshot) => structuredClone(snapshot));
-    }).then(() => result);
+      const at = this.now();
+      const timeZone = this.timeZone;
+      usageTimeZone = timeZone;
+      usageDay = dayKeyInTimeZone(at, timeZone);
+      if (this.prune(at, timeZone)) await this.persist();
+      const oldestDay = oldestVisibleDay(usageDay);
+      result = (this.data.bots[botId] ?? [])
+        .filter((snapshot) => snapshot.day >= oldestDay && snapshot.day <= usageDay)
+        .map((snapshot) => structuredClone(snapshot));
+    }).then(() => ({
+      usageDay,
+      usageTimeZone,
+      snapshots: result,
+    }));
   }
 
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
@@ -169,14 +202,13 @@ export class DailyTokenUsageStore {
     this.loaded = true;
   }
 
-  private prune(at: Date): boolean {
-    const keep = retainedDays(at);
+  private prune(at: Date, timeZone: string): boolean {
+    const oldestDay = oldestRetainedDay(at, timeZone);
     let changed = false;
     for (const [botId, snapshots] of Object.entries(this.data.bots)) {
       const retained = snapshots
-        .filter((snapshot) => keep.has(snapshot.day))
-        .sort((a, b) => a.day.localeCompare(b.day))
-        .slice(-7);
+        .filter((snapshot) => snapshot.day >= oldestDay)
+        .sort((a, b) => a.day.localeCompare(b.day));
       if (
         retained.length !== snapshots.length
         || retained.some((snapshot, index) => snapshot !== snapshots[index])

@@ -987,6 +987,7 @@ export const HostReadyMessageSchema = z.object({
   arch: z.string().optional(),
   osRelease: z.string().optional(),
   daemonVersion: z.string().optional(),
+  timeZone: z.string().min(1).max(128).optional(),
   providerQuotas: z.array(ProviderQuotaSnapshotSchema).max(2).optional().default([]),
 });
 export type HostReadyMessage = z.infer<typeof HostReadyMessageSchema>;
@@ -1028,6 +1029,8 @@ export const AgentActivityMessageSchema = z.object({
   type: z.literal("agent_activity"),
   agentId: z.string(),
   state: z.enum(["idle", "starting", "running", "stopping"]),
+  usageTimeZone: z.string().min(1).max(128).optional(),
+  usageDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   dailyUsage: z.array(DailyUsageSnapshotSchema).max(7).optional(),
   quota: ProviderQuotaSnapshotSchema.optional(),
 });

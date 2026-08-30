@@ -11,6 +11,7 @@ bundled/
 .next/
 src/web/readme-capture/next-env.d.ts
 coverage/
+.vitest-reports/
 .open-next/
 temp/
 docs/

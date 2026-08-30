@@ -3,6 +3,8 @@ import { DatabaseSync } from "node:sqlite";
 import type { DailyUsageSnapshot, ProviderQuotaSnapshot } from "@alook/shared";
 import {
   prepareQuotaReplace,
+  prepareUsagePrune,
+  prepareMachineTimeZoneUpdate,
   prepareUsageUpsert,
 } from "./provider-telemetry-persistence.js";
 
@@ -67,7 +69,8 @@ describe("provider telemetry persistence SQL", () => {
       );
       CREATE TABLE community_machine (
         id TEXT PRIMARY KEY NOT NULL,
-        user_id TEXT NOT NULL
+        user_id TEXT NOT NULL,
+        time_zone TEXT
       );
       CREATE TABLE community_machine_backend_quota (
         machine_id TEXT NOT NULL,
@@ -129,6 +132,53 @@ describe("provider telemetry persistence SQL", () => {
     ), "2026-08-28T10:00:00.000Z"));
 
     expect(sqlite.prepare("SELECT COUNT(*) AS count FROM community_bot_daily_token_usage").get()).toEqual({ count: 0 });
+  });
+
+  it("updates the authenticated computer timezone and keeps the two-day recovery margin", () => {
+    for (const day of ["2026-08-21", "2026-08-22", "2026-08-23", "2026-08-29", "2026-08-30"]) {
+      const snapshot = { ...usage("bot_1", 1, 2, 3), day };
+      run(prepareUsageUpsert(db, "machine_1", snapshot, "2026-08-29T16:00:01.000Z"));
+    }
+
+    run(prepareMachineTimeZoneUpdate(db, {
+      machineId: "machine_1",
+      userId: "owner_1",
+    }, "Asia/Shanghai"));
+    run(prepareUsagePrune(db, "machine_1", "bot_1", "2026-08-22"));
+
+    expect(sqlite.prepare(`
+      SELECT time_zone
+      FROM community_machine
+      WHERE id = 'machine_1'
+    `).get()).toEqual({ time_zone: "Asia/Shanghai" });
+    expect(sqlite.prepare(`
+      SELECT day
+      FROM community_bot_daily_token_usage
+      ORDER BY day
+    `).all()).toEqual([
+      { day: "2026-08-22" },
+      { day: "2026-08-23" },
+      { day: "2026-08-29" },
+      { day: "2026-08-30" },
+    ]);
+  });
+
+  it("cannot update timezone or prune through a stale machine binding", () => {
+    run(prepareUsageUpsert(db, "machine_1", usage("bot_1", 1, 2, 3), "2026-08-28T10:00:00.000Z"));
+    sqlite.prepare("UPDATE community_bot_binding SET machine_id = ? WHERE user_id = ?").run("machine_2", "bot_1");
+
+    run(prepareMachineTimeZoneUpdate(db, {
+      machineId: "machine_1",
+      userId: "wrong_owner",
+    }, "Asia/Shanghai"));
+    run(prepareUsagePrune(db, "machine_1", "bot_1", "2026-08-29"));
+
+    expect(sqlite.prepare(`
+      SELECT time_zone
+      FROM community_machine
+      WHERE id = 'machine_1'
+    `).get()).toEqual({ time_zone: null });
+    expect(sqlite.prepare("SELECT COUNT(*) AS count FROM community_bot_daily_token_usage").get()).toEqual({ count: 1 });
   });
 
   it("retains a same-source success on transient error and replaces it for a new source", () => {

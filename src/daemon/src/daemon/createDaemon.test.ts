@@ -147,6 +147,10 @@ class FakeSocket {
   headers: Record<string, string>;
   sent: string[] = [];
   private handlers: Record<string, ((...a: any[]) => void)[]> = {};
+  private frameWaiters: Array<{
+    matches: (frame: Record<string, unknown>) => boolean;
+    resolve: (frame: Record<string, unknown>) => void;
+  }> = [];
   constructor(url: string, headers: Record<string, string>) {
     this.url = url;
     this.headers = headers;
@@ -156,6 +160,21 @@ class FakeSocket {
   }
   send(data: string): void {
     this.sent.push(data);
+    let frame: Record<string, unknown>;
+    try {
+      frame = JSON.parse(data) as Record<string, unknown>;
+    } catch {
+      return;
+    }
+    for (let index = this.frameWaiters.length - 1; index >= 0; index -= 1) {
+      const waiter = this.frameWaiters[index]!;
+      if (!waiter.matches(frame)) continue;
+      this.frameWaiters.splice(index, 1);
+      waiter.resolve(frame);
+    }
+  }
+  waitForFrame(matches: (frame: Record<string, unknown>) => boolean): Promise<Record<string, unknown>> {
+    return new Promise((resolve) => this.frameWaiters.push({ matches, resolve }));
   }
   close(): void {
     this.emit("close");
@@ -204,6 +223,7 @@ function daemonFakeSession(options: {
   onSend?: (input: { id: string; text: string; sequence?: number }) => void;
   onStop?: () => void;
   establish?: boolean;
+  emitTurnStarted?: boolean;
   enforceCommandIdempotency?: boolean;
 } = {}): DaemonFakeSession {
   type Event = AgentEvent<BuiltinBackendSpecs, "codex">;
@@ -242,7 +262,9 @@ function daemonFakeSession(options: {
         await session.fire("runtime_event", { kind: "session_init", sessionId: "test-session" });
       }
       emit({ type: "command_accepted", commandId: input.id, turnId: "daemon-test-turn", delivery: "prompt" } as never);
-      emit({ type: "turn_started", turnId: "daemon-test-turn", commandIds: [input.id] } as never);
+      if (options.emitTurnStarted !== false) {
+        emit({ type: "turn_started", turnId: "daemon-test-turn", commandIds: [input.id] } as never);
+      }
       return { status: "accepted", delivery: "prompt", commandId: input.id, turnId: "daemon-test-turn" };
     },
     async send(input) {
@@ -388,10 +410,14 @@ describe("createDaemon", () => {
       await sessions[0]!.fire("runtime_event", { kind: "turn_end", sessionId: "test-session" });
 
       const frames = () => sockets[0]!.sent.map((frame) => JSON.parse(frame) as any);
+      expect(frames().find((frame) => frame.type === "ready")?.timeZone)
+        .toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
       await vi.waitFor(() => expect(frames().some((frame) =>
         frame.type === "agent_activity"
         && frame.agentId === "bot_1"
         && frame.state === "idle"
+        && typeof frame.usageTimeZone === "string"
+        && /^\d{4}-\d{2}-\d{2}$/.test(frame.usageDay ?? "")
         && frame.dailyUsage?.[0]?.metrics.input === 20
         && frame.quota?.observation?.limits?.[0]?.usedPercent === 30
       )).toBe(true));
@@ -418,6 +444,83 @@ describe("createDaemon", () => {
           retryable: false,
         },
       }]);
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  it("uploads persisted Pi token usage when the bot becomes idle", async () => {
+    const sockets: FakeSocket[] = [];
+    const sessions: DaemonFakeSession[] = [];
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "daemon-pi-telemetry-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    mkdirSync(join(workingDirectoryBase, "bot_1"), { recursive: true });
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/enroll-agent")) return Response.json({ runnerKey: "runner_test" });
+      if (url.includes("/daemon/bots")) {
+        return Response.json({ bots: [{ id: "bot_1", name: "Pi Bot", discriminator: "0001" }] });
+      }
+      return Response.json({ attempted: 0 });
+    }));
+    const daemon = await createDaemon({
+      machineKey: "cmk_pi_telemetry",
+      serverUrl: "http://server.invalid",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as never,
+      runtimeReport: [{ id: "pi" }],
+      driverFor: () => fullFakeDriver("pi"),
+      sessionFactory: () => {
+        const session = daemonFakeSession();
+        sessions.push(session);
+        return session;
+      },
+      capabilities: [],
+      workingDirectoryBase,
+    });
+
+    try {
+      sockets[0]!.emit("open");
+      sockets[0]!.emit("message", JSON.stringify({
+        type: "agent:wake",
+        agentId: "bot_1",
+        config: { version: 1, runtime: "pi", model: { kind: "default" }, mode: { kind: "default" } },
+        launchId: "launch_pi",
+        unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
+      }));
+      await vi.waitFor(() => expect(sessions).toHaveLength(1));
+      await sessions[0]!.fire("agent_event", {
+        type: "token_usage",
+        turnId: "daemon-test-turn",
+        source: "pi_message_end",
+        usage: {
+          input: 13,
+          output: 5,
+          cache: 7,
+        },
+      });
+      await sessions[0]!.fire("runtime_event", { kind: "turn_end", sessionId: "test-session" });
+
+      const frames = () => sockets[0]!.sent.map((frame) => JSON.parse(frame) as any);
+      await vi.waitFor(() => expect(frames().some((frame) =>
+        frame.type === "agent_activity"
+        && frame.agentId === "bot_1"
+        && frame.state === "idle"
+        && typeof frame.usageTimeZone === "string"
+        && /^\d{4}-\d{2}-\d{2}$/.test(frame.usageDay ?? "")
+        && frame.dailyUsage?.[0]?.metrics.input === 13
+        && frame.dailyUsage?.[0]?.metrics.output === 5
+        && frame.dailyUsage?.[0]?.metrics.cache === 7
+      )).toBe(true));
+      expect(JSON.parse(readFileSync(
+        join(workingDirectoryBase, ".telemetry", "daily-token-usage.json"),
+        "utf8",
+      ))).toMatchObject({
+        version: 1,
+        bots: {
+          bot_1: [{ metrics: { input: 13, output: 5, cache: 7 } }],
+        },
+      });
     } finally {
       await daemon.stop();
     }
@@ -706,7 +809,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     startupSweepDirs.push(workingDirectoryBase);
     // The real driver SDK prepares the agent directory before session_started.
     // This test uses a fake session, so reproduce that precondition explicitly.
-    mkdirSync(join(workingDirectoryBase, "bot_1"));
+    mkdirSync(join(workingDirectoryBase, "bot_1"), { recursive: true });
     const timers: Array<{
       callback: () => void;
       delayMs: number;
@@ -1914,6 +2017,7 @@ describe("createDaemon — logging", () => {
       webSocketFactory: factory(sockets) as any,
       runtimeReport: [{ id: "codex" }],
       driverFor: () => fullFakeDriver("codex"),
+      sessionFactory: () => daemonFakeSession(),
       capabilities: [],
       logger,
     });
@@ -2264,6 +2368,7 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
 
   it("re-asserts a running agent's current activity every heartbeat with NO intervening transition — recovery path for a dropped frame on a live socket", async () => {
     vi.useFakeTimers();
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
     global.fetch = vi.fn(async (url: string | URL) => {
       const href = String(url);
       if (href.includes("/enroll-agent")) return new Response(JSON.stringify({ runnerKey: "rk_1" }), { status: 200 });
@@ -2273,7 +2378,8 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
     // A persistent, stdin-capable driver stays `running` after session_init
     // without emitting turn_end — so the agent sits in a STEADY working state,
     // which is exactly the window 2b exercises.
-    const emitters: DaemonFakeSession[] = [];
+    const sessions: DaemonFakeSession[] = [];
+    let commandId: string | undefined;
     const persistentDriver = {
       id: "codex",
       lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
@@ -2285,7 +2391,6 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
       spawn: async () => {
         const proc = new EventEmitter() as unknown as { kill: () => void; stdin: unknown };
         (proc as unknown as { kill: () => void }).kill = () => {};
-        emitters.push(proc as unknown as EventEmitter);
         return { process: proc as never };
       },
       parseLine: () => [],
@@ -2294,16 +2399,26 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
     } as unknown as Driver;
 
     const sockets: FakeSocket[] = [];
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "daemon-heartbeat-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    // Real driver sessions create the per-agent directory before the timeline
+    // records session_started; this fake session must establish it explicitly.
+    mkdirSync(join(workingDirectoryBase, "bot_1"));
     const daemon = await createDaemon({
       machineKey: "cmk_hb",
       serverUrl: "http://localhost:9999",
       serverWsUrl: "ws://x",
+      workingDirectoryBase,
       webSocketFactory: factory(sockets) as any,
       runtimeReport: [{ id: "codex" }],
       driverFor: () => persistentDriver,
       sessionFactory: () => {
-        const session = daemonFakeSession({ establish: false });
-        emitters.push(session);
+        const session = daemonFakeSession({
+          establish: false,
+          emitTurnStarted: false,
+          onStart: (input) => { commandId = input.id; },
+        });
+        sessions.push(session);
         return session;
       },
       capabilities: [],
@@ -2321,23 +2436,62 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
         unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
       }),
     );
-    // Let enroll + spawn resolve, then land the runtime handshake so the FSM
-    // reaches `running` (turnActive) — a steady working state.
-    await vi.advanceTimersByTimeAsync(50);
-    expect(emitters.length).toBeGreaterThan(0);
-    await emitters[0].fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    await vi.advanceTimersByTimeAsync(1);
-
     const activityFrames = () =>
       sockets[0].sent.map((s) => JSON.parse(s)).filter((f: any) => f.type === "agent_activity");
-    const beforeCount = activityFrames().length;
-    expect(beforeCount).toBeGreaterThan(0); // the edge transition to running fired
 
-    // Advance ONE heartbeat with no further runtime events → the level-triggered
-    // re-assert must emit another running frame despite zero transitions.
-    await vi.advanceTimersByTimeAsync(5_000);
+    // Let enroll + spawn resolve, then land the runtime handshake so the FSM
+    // settles its command admission before we explicitly enter a turn.
+    await vi.advanceTimersByTimeAsync(50);
+    expect(sessions).toHaveLength(1);
+    expect(commandId).toBeTypeOf("string");
+    const idleFrame = sockets[0].waitForFrame((frame) =>
+      frame.type === "agent_activity" && frame.agentId === "bot_1" && frame.state === "idle",
+    );
+    await sessions[0]!.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await expect(idleFrame).resolves.toMatchObject({
+      type: "agent_activity",
+      agentId: "bot_1",
+      state: "idle",
+    });
+
+    // Observe the actual serialized socket send rather than polling fake time:
+    // waitForFrame is registered before the event and resolves only after the
+    // activity payload has traversed the per-agent report tail.
+    const runningFrame = sockets[0].waitForFrame((frame) =>
+      frame.type === "agent_activity" && frame.agentId === "bot_1" && frame.state === "running",
+    );
+    await sessions[0]!.fire("agent_event", {
+      type: "turn_started",
+      turnId: "daemon-test-turn",
+      commandIds: [commandId!],
+    });
+    await expect(runningFrame).resolves.toMatchObject({
+      type: "agent_activity",
+      agentId: "bot_1",
+      state: "running",
+    });
+    const beforeCount = activityFrames().length;
+
+    // Invoke the latest installed heartbeat with no further runtime events.
+    // Setup may legitimately reinstall it across starting -> idle -> running;
+    // the last registration is the active steady-state callback.
+    // Calling
+    // the registered callback directly keeps this test independent of the
+    // platform-specific fake-timer handling for unref'ed intervals.
+    const heartbeatCalls = setIntervalSpy.mock.calls.filter(([, delay]) => delay === 5_000);
+    expect(heartbeatCalls.length).toBeGreaterThan(0);
+    const heartbeatInstallCount = heartbeatCalls.length;
+    const heartbeat = heartbeatCalls.at(-1)![0];
+    expect(heartbeat).toBeTypeOf("function");
+    if (typeof heartbeat !== "function") throw new Error("heartbeat callback was not installed");
+    const heartbeatFrame = sockets[0].waitForFrame((frame) =>
+      frame.type === "agent_activity" && frame.agentId === "bot_1" && frame.state === "running",
+    );
+    heartbeat();
+    await heartbeatFrame;
     const after = activityFrames();
-    expect(after.length).toBeGreaterThan(beforeCount);
+    expect(setIntervalSpy.mock.calls.filter(([, delay]) => delay === 5_000)).toHaveLength(heartbeatInstallCount);
+    expect(after).toHaveLength(beforeCount + 1);
     expect(after.at(-1)).toMatchObject({ type: "agent_activity", agentId: "bot_1", state: "running" });
 
     await daemon.stop();
