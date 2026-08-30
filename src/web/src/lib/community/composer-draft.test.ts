@@ -24,6 +24,42 @@ const DOC_WITH_PILL = {
   ],
 }
 
+const DOC_WITH_ORDERED_LIST_AND_PILLS = {
+  type: "doc",
+  content: [{
+    type: "orderedList",
+    attrs: { start: 42, type: null },
+    content: [
+      {
+        type: "listItem",
+        content: [{
+          type: "paragraph",
+          content: [
+            { type: "mention", attrs: { id: "u1", label: "Alice#0001" } },
+            { type: "text", text: " see " },
+            {
+              type: "channelRef",
+              attrs: {
+                id: "c1",
+                label: "general",
+                serverId: "s1",
+                serverName: "demo",
+              },
+            },
+          ],
+        }],
+      },
+      {
+        type: "listItem",
+        content: [{
+          type: "paragraph",
+          content: [{ type: "text", text: "second" }],
+        }],
+      },
+    ],
+  }],
+}
+
 describe("composer-draft", () => {
   let storage: Record<string, string>
 
@@ -52,6 +88,12 @@ describe("composer-draft", () => {
   it("round-trips a ProseMirror doc losslessly (pills preserved)", () => {
     writeComposerDraft("srv/chan", DOC_WITH_PILL)
     expect(readComposerDraft("srv/chan")).toEqual(DOC_WITH_PILL)
+  })
+
+  it("round-trips ordered-list start, items, and pills losslessly", () => {
+    writeComposerDraft("srv/chan", DOC_WITH_ORDERED_LIST_AND_PILLS)
+    expect(readComposerDraft("srv/chan"))
+      .toEqual(DOC_WITH_ORDERED_LIST_AND_PILLS)
   })
 
   it("persists as JSON under the key", () => {

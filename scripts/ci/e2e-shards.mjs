@@ -62,6 +62,7 @@ export const SPEC_SECONDS = {
   "50-daemon-update-notice.spec.ts": 35,
   "51-mobile-forum-tag-editor.spec.ts": 60,
   "51-share-image-assets.spec.ts": 20,
+  "52-chat-composer-ordered-list.spec.ts": 90,
 }
 
 function walk(directory) {

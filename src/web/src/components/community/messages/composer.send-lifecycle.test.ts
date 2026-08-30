@@ -5,6 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({
   useEditor: vi.fn(),
   useFileAttachments: vi.fn(),
+  composerDocumentExtensions: vi.fn(),
+  preservePlainTextPaste: vi.fn(),
+  serializeDocument: vi.fn(),
 }))
 
 vi.mock("@tiptap/react", () => ({
@@ -46,6 +49,15 @@ vi.mock("@/hooks/use-hover-capable", () => ({
   useHoverCapable: () => true,
 }))
 
+vi.mock("./composer-ordered-list", () => ({
+  composerDocumentExtensions: (...args: unknown[]) =>
+    mocks.composerDocumentExtensions(...args),
+  preserveComposerPlainTextPaste: (...args: unknown[]) =>
+    mocks.preservePlainTextPaste(...args),
+  serializeComposerDocument: (...args: unknown[]) =>
+    mocks.serializeDocument(...args),
+}))
+
 import { Composer, type ComposerProps } from "./composer"
 import type { PendingFile } from "@/hooks/use-file-attachments"
 
@@ -64,6 +76,9 @@ describe("Composer committed send lifecycle", () => {
     firstEditorOptions = undefined
     mocks.useEditor.mockReset()
     mocks.useFileAttachments.mockReset()
+    mocks.composerDocumentExtensions.mockReturnValue([{ name: "document-extensions" }])
+    mocks.preservePlainTextPaste.mockReturnValue(true)
+    mocks.serializeDocument.mockReturnValue("9. latest\n10. draft")
     pendingFiles = []
     clearContent = vi.fn()
     transferPendingFiles = vi.fn(() => pendingFiles)
@@ -76,7 +91,9 @@ describe("Composer committed send lifecycle", () => {
       commands: {
         clearContent,
         focus: vi.fn(),
+        liftEmptyBlock: vi.fn(() => false),
         setContent: vi.fn(),
+        splitListItem: vi.fn(() => false),
       },
       chain: vi.fn(() => ({
         focus: vi.fn(() => ({
@@ -155,7 +172,7 @@ describe("Composer committed send lifecycle", () => {
     expect(preventRejected).toHaveBeenCalledOnce()
     expect(initialAccept).not.toHaveBeenCalled()
     expect(rejectLatest).toHaveBeenCalledWith(
-      "latest draft",
+      "9. latest\n10. draft",
       [{ file, previewObjectUrl: undefined, width: undefined, height: undefined }],
       undefined,
     )
@@ -183,7 +200,7 @@ describe("Composer committed send lifecycle", () => {
     })
 
     expect(acceptedLatest).toHaveBeenCalledWith(
-      "latest draft",
+      "9. latest\n10. draft",
       [{ file, previewObjectUrl: undefined, width: undefined, height: undefined }],
       undefined,
     )
@@ -239,7 +256,7 @@ describe("Composer committed send lifecycle", () => {
       await Promise.resolve()
     })
     expect(accept).toHaveBeenCalledOnce()
-    expect(accept).toHaveBeenCalledWith("latest draft", [{
+    expect(accept).toHaveBeenCalledWith("9. latest\n10. draft", [{
       file,
       thumbnailBlob,
       previewObjectUrl: "blob:thumbnail",

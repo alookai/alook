@@ -7,6 +7,29 @@ type ComposerKeyDownOptions = {
   isForumThreadBody: boolean
   mentionOpen: boolean
   send: () => void
+  liftEmptyBlock: () => boolean
+  splitListItem: () => boolean
+  undoInputRule: () => boolean
+}
+
+function undoComposerInputRuleForKeyDown(
+  event: KeyboardEvent,
+  options: ComposerKeyDownOptions,
+): boolean {
+  if (
+    options.isForumThreadBody
+    || event.isComposing
+    || event.altKey
+    || event.shiftKey
+    || (!event.ctrlKey && !event.metaKey)
+    || event.key.toLowerCase() !== "z"
+    || !options.undoInputRule()
+  ) {
+    return false
+  }
+
+  event.preventDefault()
+  return true
 }
 
 function submitComposerForKeyDown(
@@ -37,6 +60,7 @@ export function handleComposerEditorKeyDown(
   event: KeyboardEvent,
   options: ComposerKeyDownOptions,
 ): boolean {
+  if (undoComposerInputRuleForKeyDown(event, options)) return true
   const submitted = submitComposerForKeyDown(event, options)
   if (
     submitted
@@ -45,6 +69,18 @@ export function handleComposerEditorKeyDown(
     || event.isComposing
   ) {
     return submitted
+  }
+  if (
+    !options.isForumThreadBody
+    && options.hoverCapable
+    && event.key === "Enter"
+    && event.shiftKey
+  ) {
+    const handled = options.splitListItem() || options.liftEmptyBlock()
+    if (handled) {
+      event.preventDefault()
+      return true
+    }
   }
   return normalizeConsecutiveTerminalHardBreak(view, event)
 }
