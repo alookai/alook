@@ -192,7 +192,7 @@ const capabilities = {
   },
   cursor: {
     modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false,
-    disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "next_turn_queue", interrupt: true,
+    disallowedTools: false, commandOverride: true, resume: "by_id", sessionLifetime: "persistent", midTurnDelivery: "steer", interrupt: true,
   },
   opencode: {
     modelSelection: "launchable", providerConfiguration: false, reasoningEffort: false, fastMode: false,

@@ -5063,15 +5063,15 @@ describe("B1 red gate — exact-once terminal matrix", () => {
     expect(session.stop).toHaveBeenCalledTimes(1);
   });
 
-  it("does not expire a driver-acknowledged next-turn queue while the active root keeps making progress", async () => {
+  it("does not expire a driver-acknowledged queued admission while the active root keeps making progress", async () => {
     vi.useFakeTimers();
     try {
       let now = 0;
       const rows: B1TraceRow[] = [];
-      const session = b1Session([], "cursor", "root-turn");
+      const session = b1Session([], "codex", "root-turn");
       const { mgr } = b1Manager({
         sessions: [session],
-        driver: fakeDriver("cursor"),
+        driver: fakeDriver("codex"),
         trace: (row) => rows.push(row),
         now: () => now,
         tickIntervalMs: 5,
@@ -5097,14 +5097,14 @@ describe("B1 red gate — exact-once terminal matrix", () => {
       await Promise.resolve();
       expect(mgr.snapshot().agents.a1.pendingAdmissions).toHaveLength(1);
 
-      // The queued command is waiting for Cursor's next-turn boundary, while
-      // the original root is demonstrably healthy. Its queue dwell may exceed
-      // the generic admission watchdog without turning into a send stall.
+      // The driver owns the queued command while the original root is
+      // demonstrably healthy. Queue dwell may exceed the generic admission
+      // watchdog without turning into a send stall.
       now = 55;
       await session.pushAgentEvent({
         type: "internal_progress",
         turnId: "root-turn",
-        source: "cursor",
+        source: "codex",
       });
       now = 70;
       await vi.advanceTimersByTimeAsync(10);
@@ -5128,7 +5128,7 @@ describe("B1 red gate — exact-once terminal matrix", () => {
       let now = 0;
       let deliveryPhase: "working" | "tool_wait" | "next_turn_queued" = "working";
       const rows: B1TraceRow[] = [];
-      const session = b1Session([], "cursor", "root-turn");
+      const session = b1Session([], "codex", "root-turn");
       const baseSnapshot = session.snapshot.bind(session);
       session.snapshot = () => ({
         ...baseSnapshot(),
@@ -5149,7 +5149,7 @@ describe("B1 red gate — exact-once terminal matrix", () => {
       });
       const { mgr } = b1Manager({
         sessions: [session],
-        driver: fakeDriver("cursor"),
+        driver: fakeDriver("codex"),
         trace: (row) => rows.push(row),
         now: () => now,
         tickIntervalMs: 5,

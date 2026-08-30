@@ -435,7 +435,7 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
   });
 
   const busy = await session.send({ id: "busy", kind: "user", text: "busy" });
-  expect(busy.status).toBe(backend === "pi" || backend === "opencode" ? "accepted" : "queued");
+  expect(busy.status).toBe(backend === "pi" || backend === "opencode" || backend === "cursor" ? "accepted" : "queued");
   const interrupted = await session.interrupt({ requestId: "interrupt-1", reason: "conformance" });
   expect(interrupted.status).toBe("accepted");
   harness.completeTurn(1);
@@ -552,7 +552,7 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
 
       const busy = ids.slice(1, 6).map((id) => fixture.session.send({ id, kind: "user", text: id }));
       await Promise.all(busy);
-      fixture.harness.completeTurn(1);
+      fixture.harness.completeTurn(backend === "cursor" ? 6 : 1);
       await settle();
 
       const idleBurst = ids.slice(6).map((id) => fixture.session.send({ id, kind: "user", text: id }));
@@ -562,7 +562,7 @@ describe.each(["claude", "codex", "cursor", "opencode", "pi"] as const)(
       }
       await Promise.all(idleBurst);
       if (backend !== "codex" && backend !== "cursor") fixture.harness.sessionReady(2);
-      let turn = 2;
+      let turn = backend === "cursor" ? 10 : 2;
       let staleTerminalEmitted = false;
       let completedTurnId: string | undefined;
       while (
@@ -886,7 +886,7 @@ describe("codex persistent terminal ownership", () => {
 });
 
 describe("cursor persistent ACP ownership", () => {
-  it("keeps a queued second root off the wire and fences a late first response by JSON-RPC id", async () => {
+  it("steers a busy message on the wire and lets only the current JSON-RPC id settle the root", async () => {
     const harness = installVendorHarness("cursor");
     const host = createFakeAgentDriverHost();
     const sdk = createAgentDriverSdkWithRegistry({ host, registry: createBuiltinAgentDriverRegistry() });
@@ -909,21 +909,23 @@ describe("cursor persistent ACP ownership", () => {
       .toMatchObject({ status: "accepted" });
     expect(harness.stdinMessages.filter((message) => message.method === "session/prompt")).toHaveLength(1);
     expect(await opened.session.send({ id: "second", kind: "user", text: "same" }))
-      .toEqual({ status: "queued", reason: "runtime_busy", commandId: "second" });
-    expect(harness.stdinMessages.filter((message) => message.method === "session/prompt")).toHaveLength(1);
+      .toMatchObject({ status: "accepted", delivery: "steer", commandId: "second" });
+    expect(harness.stdinMessages.filter((message) => message.method === "session/prompt")).toHaveLength(2);
+    expect(opened.session.snapshot().activeTurn?.commandIds).toEqual(["first", "second"]);
 
     harness.completeTurn(1);
-    await vi.waitFor(() => {
-      expect(harness.stdinMessages.filter((message) => message.method === "session/prompt")).toHaveLength(2);
-    });
-    const secondTurnId = opened.session.snapshot().activeTurn?.turnId;
+    await settle();
     harness.duplicateTurn(1);
     await settle();
-    expect(opened.session.snapshot().activeTurn?.turnId).toBe(secondTurnId);
-    expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(1);
+    expect(opened.session.snapshot().activeTurn?.commandIds).toEqual(["first", "second"]);
+    expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(0);
 
     harness.completeTurn(2);
-    await vi.waitFor(() => expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(2));
+    await vi.waitFor(() => expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(1));
+    expect(events.filter((event) => event.type === "turn_completed")).toMatchObject([{
+      commandIds: ["first", "second"],
+      result: { outcome: "success" },
+    }]);
     expect(harness.processes).toHaveLength(1);
     await opened.session.stop({ reason: "shutdown", forceAfterMs: 10 });
     await collecting;

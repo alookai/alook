@@ -13,7 +13,7 @@ describe("builtin adapter protocol conformance", () => {
     const expected = {
       claude: ["session", "stdio_stream", "claude.stream-json.v1", "safe_boundary_queue", "vendor_message"],
       codex: ["session", "stdio_rpc", "codex.app-server.v1", "safe_boundary_queue", "transport_request"],
-      cursor: ["session", "stdio_rpc", "cursor.acp.v1", "next_turn_queue", "transport_request"],
+      cursor: ["session", "stdio_rpc", "cursor.acp.v1", "steer", "transport_request"],
       opencode: ["session", "http_sse", "opencode.v2.service.1.17.20", "steer", "transport_request"],
       pi: ["session", "in_process_sdk", "pi_sdk", "steer", "prompt_invocation"],
     } as const;

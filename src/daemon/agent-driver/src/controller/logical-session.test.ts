@@ -8,8 +8,10 @@ import type { ChildProcess } from "node:child_process";
 import type {
   AgentDriverError,
   AgentEvent,
+  BackendCapabilities,
   BuiltinBackendId,
   BuiltinBackendSpecs,
+  CapabilitiesOf,
   ConfigOf,
   PreparedExecutionResource,
   RuntimeSettingsUpdate,
@@ -280,6 +282,7 @@ function makeSession<Id extends BuiltinBackendId>(
     execution?: BackendExecution;
     lane?: RuntimeLane;
     authoritativeOwner?: boolean;
+    capabilities?: BackendCapabilities;
     promptAdmissionTimeoutMs?: number;
     now?: () => number;
   } = {},
@@ -308,7 +311,8 @@ function makeSession<Id extends BuiltinBackendId>(
       resumeSessionId: options.resumeSessionId,
     },
     driver as unknown as BackendAdapter<Id, ConfigOf<BuiltinBackendSpecs, Id>>,
-    capabilitiesFor(backend),
+    // A test-only override exercises provider-agnostic queue semantics without widening production registrations.
+    (options.capabilities ?? capabilitiesFor(backend)) as CapabilitiesOf<BuiltinBackendSpecs, Id>,
     host,
     prepared,
     options.timeout ?? 100,
@@ -944,8 +948,15 @@ describe("logical delivery diagnostics", () => {
     await steering;
 
     const queueLane = new ControlledRuntimeLane();
-    queueLane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "cursor:test:1" };
-    const { session: queueSession } = makeSession("cursor", { lane: queueLane });
+    queueLane.startAdmission = { ok: true, acceptedAs: "prompt", receipt: "opencode:test:1" };
+    const queueCapabilities: BackendCapabilities = {
+      ...capabilitiesFor("opencode"),
+      midTurnDelivery: "next_turn_queue",
+    };
+    const { session: queueSession } = makeSession("opencode", {
+      lane: queueLane,
+      capabilities: queueCapabilities,
+    });
     await queueSession.start({ id: "root", kind: "user", text: "root" });
     queueLane.emit({ kind: "tool_call", name: "Read", input: {} });
     expect(await queueSession.send({ id: "next", kind: "user", text: "next" })).toMatchObject({ status: "queued" });

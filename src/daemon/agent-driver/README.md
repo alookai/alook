@@ -64,7 +64,7 @@ There is no per-turn built-in fallback.
 |---|---|---|---|---|
 | Claude | session | `stdio_stream` / `claude.stream-json.v1` | `safe_boundary_queue` | `vendor_message` |
 | Codex | session | `stdio_rpc` / `codex.app-server.v1` | `safe_boundary_queue` | `transport_request` |
-| Cursor | session | `stdio_rpc` / `cursor.acp.v1` | `next_turn_queue` | `transport_request` |
+| Cursor | session | `stdio_rpc` / `cursor.acp.v1` | `steer` | `transport_request` |
 | OpenCode | session | `http_sse` / `opencode.v2.service.1.17.20` | `steer` | `transport_request` |
 | Pi | session | `in_process_sdk` / `pi_sdk` | `steer` | `prompt_invocation` |
 
