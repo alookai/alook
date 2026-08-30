@@ -179,6 +179,18 @@ describe("MessageReactions", () => {
     expect(rail.props.className).toContain("bg-transparent!")
   })
 
+  it("fills only the active reaction tab without relying on the line indicator", () => {
+    vi.useFakeTimers()
+    const { renderer } = renderReactions()
+    const chip = renderer.root.findByProps({ "data-testid": tid.reactionChip("message_1", "👍") })
+    act(() => chip.props.onPointerDown({ pointerType: "touch", clientX: 10, clientY: 10, stopPropagation: vi.fn() }))
+    act(() => vi.advanceTimersByTime(450))
+    const tab = renderer.root.findByProps({ "data-testid": tid.reactionTab("👍") })
+    expect(tab.props.className).toContain("data-active:bg-accent!")
+    expect(tab.props.className).toContain("data-active:text-foreground!")
+    expect(tab.props.className).toContain("after:hidden")
+  })
+
   it("uses the message author and one-line message preview as its header", () => {
     vi.useFakeTimers()
     const { renderer } = renderReactions()
