@@ -93,25 +93,28 @@ export function HorizontalOverflowFadeOverlays({
   fades,
   leftTestId,
   rightTestId,
+  surface = "background",
 }: {
   fades: HorizontalOverflowFades
   leftTestId?: string
   rightTestId?: string
+  surface?: "background" | "popover"
 }) {
+  const fromSurface = surface === "popover" ? "from-popover" : "from-background"
   return (
     <>
       {fades.left && (
         <span
           aria-hidden
           data-testid={leftTestId}
-          className="pointer-events-none absolute inset-y-0 left-0 z-10 w-3.5 bg-linear-to-r from-background to-transparent"
+          className={`pointer-events-none absolute inset-y-0 left-0 z-10 w-3.5 bg-linear-to-r to-transparent ${fromSurface}`}
         />
       )}
       {fades.right && (
         <span
           aria-hidden
           data-testid={rightTestId}
-          className="pointer-events-none absolute inset-y-0 right-0 z-10 w-3.5 bg-linear-to-l from-background to-transparent"
+          className={`pointer-events-none absolute inset-y-0 right-0 z-10 w-3.5 bg-linear-to-l to-transparent ${fromSurface}`}
         />
       )}
     </>

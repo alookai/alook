@@ -2,6 +2,7 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer"
 import { createElement } from "react"
 import { describe, expect, it, vi } from "vitest"
 import {
+  HorizontalOverflowFadeOverlays,
   horizontalOverflowFades,
   useHorizontalOverflowRail,
 } from "./horizontal-overflow-rail"
@@ -16,6 +17,25 @@ describe("horizontalOverflowFades", () => {
       .toEqual({ left: true, right: true })
     expect(horizontalOverflowFades({ scrollLeft: 140, scrollWidth: 240, clientWidth: 100 }))
       .toEqual({ left: true, right: false })
+  })
+})
+
+describe("HorizontalOverflowFadeOverlays", () => {
+  it("matches the caller's surface token", () => {
+    let renderer: ReactTestRenderer
+    act(() => {
+      renderer = create(createElement(HorizontalOverflowFadeOverlays, {
+        fades: { left: true, right: true },
+        leftTestId: "left-fade",
+        rightTestId: "right-fade",
+        surface: "popover",
+      }))
+    })
+
+    expect(renderer!.root.findByProps({ "data-testid": "left-fade" }).props.className)
+      .toContain("from-popover")
+    expect(renderer!.root.findByProps({ "data-testid": "right-fade" }).props.className)
+      .toContain("from-popover")
   })
 })
 

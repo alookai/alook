@@ -253,6 +253,7 @@ function ReactionDetailsDialog({
               fades={reactionFades}
               leftTestId={tid.reactionFadeLeft(messageId)}
               rightTestId={tid.reactionFadeRight(messageId)}
+              surface="popover"
             />
           </div>
         </Tabs>
