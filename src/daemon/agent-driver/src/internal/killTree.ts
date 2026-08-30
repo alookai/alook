@@ -449,7 +449,7 @@ export function spawnAgentProcess(command: string, args: string[], opts: AgentSp
     proc.once("exit", closeStdinBridge);
     return proc;
   }
-  return spawn(command, args, {
+  const proc = spawn(command, args, {
     cwd: opts.cwd,
     // stdout/stderr always piped (we read stream-json/JSON-RPC); stdin defaults
     // to pipe for persistent transports. See AgentSpawnOptions.stdin.
@@ -458,6 +458,17 @@ export function spawnAgentProcess(command: string, args: string[], opts: AgentSp
     shell: opts.shell ?? false,
     detached: isPosix,
   });
+  traceProcessAuthority("spawn", {
+    hostPid: process.pid,
+    childPid: proc.pid ?? null,
+    detached: isPosix,
+  });
+  return proc;
+}
+
+function traceProcessAuthority(event: string, fields: Record<string, unknown>): void {
+  if (process.env.ALOOK_CI_PROCESS_TRACE !== "1") return;
+  process.stderr.write(`[alook-process-trace] ${JSON.stringify({ event, ...fields })}\n`);
 }
 
 export function isAlive(pid: number): boolean {
@@ -548,6 +559,7 @@ function posixTargetsAreAlive(targets: PosixTreeTargets): boolean {
 /** Best-effort group signals followed by direct signals to every captured PID. */
 function signalPosixTargets(targets: PosixTreeTargets, signal: NodeJS.Signals): void {
   for (const pgid of targets.processGroups) {
+    traceProcessAuthority("signal-group", { hostPid: process.pid, pgid, signal });
     try {
       process.kill(-pgid, signal);
     } catch {
@@ -556,6 +568,7 @@ function signalPosixTargets(targets: PosixTreeTargets, signal: NodeJS.Signals): 
     }
   }
   for (const pid of targets.pids) {
+    traceProcessAuthority("signal-pid", { hostPid: process.pid, pid, signal });
     try {
       process.kill(pid, signal);
     } catch {
@@ -642,6 +655,13 @@ export async function killProcessTree(
   // escaped MCP subgroup. The snapshot remains the sole termination authority
   // through force escalation; no later global process-table scan is used.
   const targets = capturePosixTreeTargets(pid, rootOwnsProcessGroup);
+  traceProcessAuthority("kill-tree", {
+    hostPid: process.pid,
+    rootPid: pid,
+    rootOwnsProcessGroup,
+    pids: targets.pids,
+    processGroups: targets.processGroups,
+  });
   const targetIsAlive = () => posixTargetsAreAlive(targets);
 
   const graceMs = opts?.graceMs ?? DEFAULT_GRACE_MS;

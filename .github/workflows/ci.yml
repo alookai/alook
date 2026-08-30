@@ -171,6 +171,8 @@ jobs:
             --exclude src/pack.test.ts
       - name: Run daemon tests with coverage
         if: env.RUN_COVERAGE == 'true'
+        env:
+          ALOOK_CI_PROCESS_TRACE: '1'
         run: |
           pnpm vitest run --project=daemon-node --coverage \
             --reporter=blob --outputFile=.vitest-reports/daemon.blob \
