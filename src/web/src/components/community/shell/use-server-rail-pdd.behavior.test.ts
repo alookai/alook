@@ -489,7 +489,9 @@ describe("useServerRailPdd behavior", () => {
     expect(desktopContext.defaultPrevented).toBe(false)
     expect(desktopContext.propagationStopped).toBe(false)
 
-    touch(a.handle, "touchstart", [point(1, 10, 10)])
+    const tapStart = touch(a.handle, "touchstart", [point(1, 10, 10)])
+    expect(tapStart.defaultPrevented).toBe(false)
+    expect(tapStart.propagationStopped).toBe(true)
     const tapEnd = touch(a.handle, "touchend", [], [point(1, 10, 10)])
     expect(tapEnd.defaultPrevented).toBe(true)
     expect(a.handle.clickCount).toBe(1)
@@ -533,6 +535,13 @@ describe("useServerRailPdd behavior", () => {
     a.handle.click()
     expect(a.handle.lastClickEvent?.defaultPrevented).toBe(true)
     expect(a.handle.lastClickEvent?.propagationStopped).toBe(true)
+
+    const triggerTouch = a.element.dispatch(
+      "touchstart",
+      testEvent("touchstart", { touches: [point(90, 10, 10)] }),
+    )
+    expect(triggerTouch.defaultPrevented).toBe(false)
+    expect(triggerTouch.propagationStopped).toBe(true)
 
     hook.callbacks.canStart.mockReturnValueOnce(true)
     touch(a.handle, "touchstart", [point(10, 10, 10)])

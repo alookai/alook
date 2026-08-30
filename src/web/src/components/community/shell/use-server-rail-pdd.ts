@@ -390,6 +390,12 @@ export function useServerRailPdd({
       ),
     })
 
+    const suppressTouchMenu = (event: TouchEvent) => {
+      // Base UI owns a separate 500 ms touch timer on ContextMenuTrigger.
+      // Keep the event native (and therefore scrollable), but do not let it
+      // reach that trigger: the rail's 450 ms hold is exclusively drag pickup.
+      event.stopPropagation()
+    }
     const onTouchStart = (event: TouchEvent) => {
       if (event.touches.length !== 1) {
         if (touchRef.current || activeRef.current?.sensor === "touch") cancelActive()
@@ -502,6 +508,8 @@ export function useServerRailPdd({
       if (active.sensor !== "keyboard" || !sameEntity(active.source, entity)) return
       handleKeyboardCommand(event, entity)
     }
+    element.addEventListener("touchstart", suppressTouchMenu, { passive: true })
+    dragHandle.addEventListener("touchstart", suppressTouchMenu, { passive: true })
     dragHandle.addEventListener("touchstart", onTouchStart, { passive: true })
     dragHandle.addEventListener("touchmove", onTouchMove, { passive: false })
     dragHandle.addEventListener("touchend", onTouchEnd, { passive: false })
@@ -510,6 +518,8 @@ export function useServerRailPdd({
     dragHandle.addEventListener("click", onClickCapture, true)
     dragHandle.addEventListener("keydown", onKeyDown)
     return () => {
+      element.removeEventListener("touchstart", suppressTouchMenu)
+      dragHandle.removeEventListener("touchstart", suppressTouchMenu)
       dragHandle.removeEventListener("touchstart", onTouchStart)
       dragHandle.removeEventListener("touchmove", onTouchMove)
       dragHandle.removeEventListener("touchend", onTouchEnd)
