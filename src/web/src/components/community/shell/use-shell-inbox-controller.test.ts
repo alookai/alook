@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   submitted: vi.fn(),
   rollback: vi.fn(),
   close: vi.fn(),
+  onOpenChange: vi.fn(),
   latestEpoch: 0,
 }))
 
@@ -73,7 +74,7 @@ vi.mock("@/hooks/community/use-inbox", () => ({
 vi.mock("@/hooks/community/use-inbox-auto-collapse", () => ({
   useInboxAutoCollapse: () => ({
     open: true,
-    onOpenChange: vi.fn(),
+    onOpenChange: (...args: unknown[]) => mocks.onOpenChange(...args),
     beginProjection: (...args: unknown[]) => mocks.begin(...args),
     markProjectionSubmitted: (...args: unknown[]) => mocks.submitted(...args),
     rollbackProjection: (...args: unknown[]) => mocks.rollback(...args),
@@ -172,6 +173,7 @@ describe("useShellInboxController", () => {
       mocks.submitted,
       mocks.rollback,
       mocks.close,
+      mocks.onOpenChange,
     ]) mock.mockReset()
     mocks.latestEpoch = 0
     mocks.begin.mockImplementation(() => {
@@ -185,6 +187,7 @@ describe("useShellInboxController", () => {
     })
     mocks.rollback.mockImplementation(() => { order.push("rollback"); return true })
     mocks.close.mockImplementation(() => { order.push("close"); return true })
+    mocks.onOpenChange.mockImplementation(() => { order.push("reopen") })
     mocks.clearOpener.mockImplementation(() => { order.push("clear") })
     mocks.armOpener.mockImplementation(() => {
       order.push("arm")
@@ -225,6 +228,20 @@ describe("useShellInboxController", () => {
     ))
     expect(order).toEqual(["close", "cancel", "clear", "push"])
     expect(hook.pushed).toEqual(["/c/channels/s1/c1"])
+    expect(mocks.begin).not.toHaveBeenCalled()
+  })
+
+  it("reopens a structural-only parent surface when navigation throws", async () => {
+    const error = new Error("push failed")
+    const hook = await renderController(undefined, () => { throw error })
+    order.length = 0
+    await expect(act(async () => hook.current.popoverProps.onOpenChannel?.(
+      server,
+      server.channels[0]!,
+      false,
+    ))).rejects.toThrow("push failed")
+    expect(order).toEqual(["close", "cancel", "clear", "push", "cancel", "reopen"])
+    expect(mocks.onOpenChange).toHaveBeenCalledWith(true)
     expect(mocks.begin).not.toHaveBeenCalled()
   })
 
