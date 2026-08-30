@@ -761,6 +761,7 @@ describe("useCommunityWs — reactions", () => {
 
   it("patches every mounted message-context copy for the reaction channel", async () => {
     await mountHook({ viewerUserId: "u_me" })
+    const unresolvedContext = { notFound: true }
     capturedQueryClient.setQueryData(communityKeys.messageContext("channel", "ch_1", 7), {
       anchorId: "m_1",
       messages: [{ id: "m_1", type: "chat", content: "x", reactions: [] }],
@@ -769,6 +770,10 @@ describe("useCommunityWs — reactions", () => {
       anchorId: "m_other",
       messages: [{ id: "m_other", type: "chat", content: "other", reactions: [] }],
     })
+    capturedQueryClient.setQueryData(
+      communityKeys.messageContext("dm", "ch_1", 8),
+      unresolvedContext,
+    )
     capturedOnMessage!({
       type: "community:reaction.add",
       channelId: "ch_1",
@@ -784,6 +789,8 @@ describe("useCommunityWs — reactions", () => {
     expect(capturedQueryClient.getQueryData<{
       messages: { reactions: unknown[] }[]
     }>(communityKeys.messageContext("channel", "ch_1", 99))?.messages[0].reactions).toEqual([])
+    expect(capturedQueryClient.getQueryData(communityKeys.messageContext("dm", "ch_1", 8)))
+      .toBe(unresolvedContext)
   })
 
   it("refreshes a focused DM row that exists only in the overlay", async () => {
