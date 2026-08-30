@@ -203,7 +203,7 @@ function ReactionDetailsDialog({
   return (
     <DialogContent
       data-testid={tid.reactionDialog(messageId)}
-      className="max-h-[calc(100dvh-2rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] gap-3 overflow-hidden sm:max-w-sm"
+      className="max-h-[calc(100dvh-2rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] gap-3 overflow-hidden sm:max-w-sm **:data-[slot=dialog-close]:size-11 sm:**:data-[slot=dialog-close]:size-7"
     >
       <DialogHeader>
         <DialogTitle>Reactions</DialogTitle>
@@ -285,6 +285,11 @@ export function MessageReactions({
   const reactionGroupRef = useRef<HTMLDivElement | null>(null)
   const [open, setOpen] = useState(false)
   const [selectedEmoji, setSelectedEmoji] = useState<string | null>(null)
+  const restoreInitiatingFocus = () => {
+    const initiatingChip = initiatingChipRef.current
+    if (initiatingChip?.isConnected !== false) initiatingChip?.focus()
+    else reactionGroupRef.current?.focus()
+  }
 
   useEffect(() => {
     const previous = previousEmojisRef.current
@@ -329,11 +334,7 @@ export function MessageReactions({
         open={open}
         onOpenChange={(nextOpen) => {
           setOpen(nextOpen)
-          if (!nextOpen) queueMicrotask(() => {
-            const initiatingChip = initiatingChipRef.current
-            if (initiatingChip?.isConnected !== false) initiatingChip?.focus()
-            else reactionGroupRef.current?.focus()
-          })
+          if (!nextOpen) setTimeout(restoreInitiatingFocus, 0)
         }}
       >
         {open && (

@@ -39,6 +39,11 @@ describe("useCommunityWs — member events", () => {
       scope: { kind: "server", serverId: "srv_1", channelId: "channel_1" },
       actors: [],
     })
+    capturedQueryClient.setQueryData(communityKeys.reactionDetails("message_2"), {
+      messageId: "message_2",
+      scope: { kind: "server", serverId: "srv_2", channelId: "channel_2" },
+      actors: [],
+    })
 
     capturedOnMessage!({
       type: "community:member.leave",
@@ -53,6 +58,25 @@ describe("useCommunityWs — member events", () => {
     })
     expect(capturedQueryClient.getQueryState(communityKeys.server("srv_1"))).toBeUndefined()
     expect(capturedQueryClient.getQueryState(communityKeys.reactionDetails("message_1"))).toBeUndefined()
+    expect(capturedQueryClient.getQueryState(communityKeys.reactionDetails("message_2"))).toBeDefined()
+  })
+
+  it("evicts an unresolved reaction-details request when the viewer leaves", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const key = communityKeys.reactionDetails("pending_message")
+    void capturedQueryClient.fetchQuery({
+      queryKey: key,
+      queryFn: () => new Promise(() => undefined),
+    }).catch(() => undefined)
+    expect(capturedQueryClient.getQueryState(key)).toBeDefined()
+
+    capturedOnMessage!({
+      type: "community:member.leave",
+      serverId: "srv_1",
+      userId: "u_me",
+    } satisfies CommunityMemberLeave)
+
+    expect(capturedQueryClient.getQueryState(key)).toBeUndefined()
   })
 
   it("invalidates matching reactor identities when another member leaves", async () => {
@@ -76,6 +100,28 @@ describe("useCommunityWs — member events", () => {
     } satisfies CommunityMemberLeave)
     expect(capturedQueryClient.getQueryState(matching)?.isInvalidated).toBe(true)
     expect(capturedQueryClient.getQueryState(other)?.isInvalidated).toBe(false)
+  })
+
+  it("invalidates an unresolved active reaction-details request on member leave", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const key = communityKeys.reactionDetails("pending_message")
+    const queryFn = vi.fn(() => new Promise<never>(() => undefined))
+    const observer = new QueryObserver(capturedQueryClient, {
+      queryKey: key,
+      queryFn,
+    })
+    const unsubscribe = observer.subscribe(() => undefined)
+    expect(queryFn).toHaveBeenCalledOnce()
+
+    capturedOnMessage!({
+      type: "community:member.leave",
+      serverId: "srv_1",
+      userId: "u_other",
+    } satisfies CommunityMemberLeave)
+
+    await vi.waitFor(() => expect(queryFn).toHaveBeenCalledTimes(2))
+    expect(capturedQueryClient.getQueryState(key)?.data).toBeUndefined()
+    unsubscribe()
   })
 
   it("patches the members cache with a join event", async () => {

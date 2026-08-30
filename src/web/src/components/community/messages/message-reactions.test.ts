@@ -19,8 +19,8 @@ vi.mock("@/stores/community/ws", () => ({
   useCommunityProfile: () => undefined,
 }))
 vi.mock("@/components/ui/dialog", () => ({
-  Dialog: ({ open, children }: { open: boolean; children: React.ReactNode }) =>
-    React.createElement("mock-dialog", { "data-open": open }, open ? children : null),
+  Dialog: ({ open, children, ...props }: { open: boolean; children: React.ReactNode }) =>
+    React.createElement("mock-dialog", { "data-open": open, ...props }, open ? children : null),
   DialogContent: ({ children, ...props }: React.ComponentProps<"div">) =>
     React.createElement("mock-dialog-content", props, children),
   DialogHeader: ({ children }: { children: React.ReactNode }) => React.createElement("div", null, children),
@@ -43,7 +43,8 @@ vi.mock("@/components/ui/tooltip", () => ({
 import { MessageReactions, reconcileReactionSelection } from "./message-reactions"
 import { tid } from "@/lib/community/testids"
 
-const buttonNode = { focus: vi.fn() }
+const buttonNode = { focus: vi.fn(), isConnected: true }
+const reactionGroupNode = { focus: vi.fn() }
 const reactions = [
   { emoji: "👍", count: 1, me: false, userIds: ["user_1"] },
   { emoji: "🔥", count: 1, me: true, userIds: ["user_2"] },
@@ -60,7 +61,13 @@ function renderReactions(onToggleReaction = vi.fn()) {
         tooltipActive: false,
         onToggleReaction,
       }),
-      { createNodeMock: (node) => node.type === "button" ? buttonNode : {} },
+      {
+        createNodeMock: (node) => node.type === "button"
+          ? buttonNode
+          : node.props?.["data-testid"] === tid.reactionGroup("message_1")
+            ? reactionGroupNode
+            : {},
+      },
     )
   })
   return { renderer: renderer!, onToggleReaction }
@@ -70,6 +77,7 @@ describe("MessageReactions", () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.clearAllMocks()
+    buttonNode.isConnected = true
   })
 
   it("keeps a normal chip click as the exact toggle action", () => {
@@ -104,6 +112,50 @@ describe("MessageReactions", () => {
     expect(renderer.root.findByType("mock-dialog").props["data-open"]).toBe(false)
     act(() => chip.props.onClick({ preventDefault: vi.fn(), stopPropagation: vi.fn() }))
     expect(onToggleReaction).not.toHaveBeenCalled()
+  })
+
+  it("requests a 44px mobile close target for the details dialog", () => {
+    vi.useFakeTimers()
+    const { renderer } = renderReactions()
+    const chip = renderer.root.findByProps({ "data-testid": tid.reactionChip("message_1", "👍") })
+    act(() => chip.props.onPointerDown({ pointerType: "touch", clientX: 10, clientY: 10, stopPropagation: vi.fn() }))
+    act(() => vi.advanceTimersByTime(450))
+    expect(renderer.root.findByType("mock-dialog-content").props.className)
+      .toContain("**:data-[slot=dialog-close]:size-11")
+  })
+
+  it("restores focus after the dialog close focus handoff", () => {
+    vi.useFakeTimers()
+    const { renderer } = renderReactions()
+    const chip = renderer.root.findByProps({ "data-testid": tid.reactionChip("message_1", "👍") })
+    act(() => chip.props.onPointerDown({ pointerType: "touch", clientX: 10, clientY: 10, stopPropagation: vi.fn() }))
+    act(() => vi.advanceTimersByTime(450))
+    const dialog = renderer.root.findByType("mock-dialog")
+    act(() => dialog.props.onOpenChange(false))
+    expect(buttonNode.focus).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(0))
+    expect(buttonNode.focus).toHaveBeenCalledOnce()
+  })
+
+  it("restores focus to the reaction group when the initiating chip disappeared", () => {
+    vi.useFakeTimers()
+    const { renderer, onToggleReaction } = renderReactions()
+    const chip = renderer.root.findByProps({ "data-testid": tid.reactionChip("message_1", "👍") })
+    act(() => chip.props.onPointerDown({ pointerType: "touch", clientX: 10, clientY: 10, stopPropagation: vi.fn() }))
+    act(() => vi.advanceTimersByTime(450))
+    act(() => renderer.update(React.createElement(MessageReactions, {
+      messageId: "message_1",
+      reactions: [],
+      hoverCapable: false,
+      tooltipActive: false,
+      onToggleReaction,
+    })))
+    buttonNode.isConnected = false
+    const dialog = renderer.root.findByType("mock-dialog")
+    act(() => dialog.props.onOpenChange(false))
+    act(() => vi.advanceTimersByTime(0))
+    expect(buttonNode.focus).not.toHaveBeenCalled()
+    expect(reactionGroupNode.focus).toHaveBeenCalledOnce()
   })
 })
 

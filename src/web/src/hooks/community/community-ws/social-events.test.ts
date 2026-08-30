@@ -197,6 +197,23 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
     expect(capturedQueryClient.getQueryState(communityKeys.reactionDetails("server_message"))).toBeDefined()
   })
 
+  it("friend.block evicts an unresolved reaction-details request", async () => {
+    await mountHook()
+    const key = communityKeys.reactionDetails("pending_message")
+    void capturedQueryClient.fetchQuery({
+      queryKey: key,
+      queryFn: () => new Promise(() => undefined),
+    }).catch(() => undefined)
+    expect(capturedQueryClient.getQueryState(key)).toBeDefined()
+
+    capturedOnMessage!({
+      type: "community:friend.block",
+      userId: "blocked_1",
+    } satisfies CommunityFriendBlock)
+
+    expect(capturedQueryClient.getQueryState(key)).toBeUndefined()
+  })
+
   it("routes mention.create through the debounced Inbox owner", async () => {
     vi.useFakeTimers()
     try {

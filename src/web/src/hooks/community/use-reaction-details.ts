@@ -44,8 +44,6 @@ export function useReactionDetails({
   const uniqueUserIds = useMemo(() => [...new Set(userIds)], [userIds])
   const attemptedRef = useRef(new Set<string>())
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const refreshRunningRef = useRef(false)
-  const trailingRefreshRef = useRef(false)
   const query = useQuery({
     queryKey: communityKeys.reactionDetails(messageId),
     queryFn: () => loadReactionDetails(messageId),
@@ -68,32 +66,14 @@ export function useReactionDetails({
 
     const refresh = async () => {
       timerRef.current = null
-      if (refreshRunningRef.current) {
-        trailingRefreshRef.current = true
-        return
-      }
-      refreshRunningRef.current = true
-      try {
-        await refetch()
-      } finally {
-        refreshRunningRef.current = false
-        if (trailingRefreshRef.current) {
-          trailingRefreshRef.current = false
-          timerRef.current = setTimeout(refresh, 100)
-        }
-      }
+      await refetch()
     }
-    if (timerRef.current) clearTimeout(timerRef.current)
     timerRef.current = setTimeout(refresh, 100)
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current)
       timerRef.current = null
     }
   }, [data, isFetching, open, refetch, uniqueUserIds])
-
-  useEffect(() => () => {
-    if (timerRef.current) clearTimeout(timerRef.current)
-  }, [])
 
   return query
 }

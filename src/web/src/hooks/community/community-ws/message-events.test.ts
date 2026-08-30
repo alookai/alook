@@ -742,6 +742,23 @@ describe("useCommunityWs — reactions", () => {
     ])
   })
 
+  it("leaves a focused overlay unchanged when the reaction message is absent", async () => {
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_empty" })
+    await mountHook({ viewerUserId: "u_me" })
+
+    capturedOnMessage!({
+      type: "community:reaction.add",
+      channelId: "ch_empty",
+      messageId: "m_missing",
+      userId: "u_other",
+      emoji: "👍",
+    })
+
+    expect(getMessageOverlay({ kind: "channel", id: "ch_empty", serverId: "s1" }).liveById.size)
+      .toBe(0)
+  })
+
   it("patches every mounted message-context copy for the reaction channel", async () => {
     await mountHook({ viewerUserId: "u_me" })
     capturedQueryClient.setQueryData(communityKeys.messageContext("channel", "ch_1", 7), {
