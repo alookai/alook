@@ -1,6 +1,10 @@
 import type { Page, TestInfo } from "@playwright/test"
 import { test, expect, userId } from "./_fixtures/community-fixture"
-import { composerEditable, ignoreNextDevToolsPointerCapture } from "./_fixtures/actions"
+import {
+  composerEditable,
+  ignoreNextDevToolsPointerCapture,
+  installInputCapability,
+} from "./_fixtures/actions"
 import {
   communityFrameEvents,
   proxyCommunityWebSockets,
@@ -15,27 +19,7 @@ import {
 } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
-const HOVER_QUERY = "(hover: hover) and (pointer: fine)"
-
 test.use({ viewport: { width: 390, height: 844 } })
-
-async function installInputCapability(page: Page, hoverCapable: boolean) {
-  await page.addInitScript(({ query, matches }) => {
-    const nativeMatchMedia = window.matchMedia.bind(window)
-    window.matchMedia = (candidate: string) => candidate === query
-      ? {
-          matches,
-          media: candidate,
-          onchange: null,
-          addListener: () => {},
-          removeListener: () => {},
-          addEventListener: () => {},
-          removeEventListener: () => {},
-          dispatchEvent: () => false,
-        } as MediaQueryList
-      : nativeMatchMedia(candidate)
-  }, { query: HOVER_QUERY, matches: hoverCapable })
-}
 
 function hasMessageFrame(
   frames: CapturedCommunityFrame[],
