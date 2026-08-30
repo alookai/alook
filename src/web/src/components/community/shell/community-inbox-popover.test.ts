@@ -117,9 +117,71 @@ describe("InboxPopover thread opener rows", () => {
     expect(onOpenChannel).not.toHaveBeenCalled()
   })
 
-  it("omits a structural parent button while retaining its child rows", async () => {
+  it("keeps a structural parent row when only its child is unread", async () => {
     const unreads = unreadFixture()
     unreads[0]!.channels[0]!.hasDirectUnread = false
+    const onOpenChannel = vi.fn()
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(InboxPopover, {
+        unreads,
+        unreadDms: [],
+        mentions: [],
+        marked: [],
+        onOpenChannel,
+        onOpenThread: vi.fn(),
+      }))
+    })
+    const parentRows = renderer.root.findAllByProps({
+      "data-testid": tid.inboxUnreadChannel("f1"),
+    })
+    expect(parentRows).toHaveLength(1)
+    expect(renderer.root.findAllByProps({
+      "data-testid": tid.inboxUnreadChild("p1"),
+    })).toHaveLength(1)
+    await act(async () => parentRows[0]!.props.onClick())
+    expect(onOpenChannel).toHaveBeenCalledWith(
+      unreads[0],
+      unreads[0]!.channels[0],
+      false,
+    )
+  })
+
+  it("keeps one parent row with its children when both are unread", async () => {
+    const onOpenChannel = vi.fn()
+    const unreads = unreadFixture()
+    unreads[0]!.channels[0]!.mentionCount = 2
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(InboxPopover, {
+        unreads,
+        unreadDms: [],
+        mentions: [],
+        marked: [],
+        onOpenChannel,
+        onOpenThread: vi.fn(),
+      }))
+    })
+    const parentRows = renderer.root.findAllByProps({
+      "data-testid": tid.inboxUnreadChannel("f1"),
+    })
+    expect(parentRows).toHaveLength(1)
+    expect(renderer.root.findAllByProps({
+      "data-testid": tid.inboxUnreadChild("p1"),
+    })).toHaveLength(1)
+    expect(textOf(parentRows[0]!)).toContain("2")
+    await act(async () => parentRows[0]!.props.onClick())
+    expect(onOpenChannel).toHaveBeenCalledWith(
+      unreads[0],
+      unreads[0]!.channels[0],
+      true,
+    )
+  })
+
+  it("removes a structural parent after its only child is projected away", async () => {
+    const unreads = unreadFixture()
+    unreads[0]!.channels[0]!.hasDirectUnread = false
+    unreads[0]!.channels[0]!.children = unreads[0]!.channels[0]!.children.slice(0, 1)
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
       renderer = TestRenderer.create(React.createElement(InboxPopover, {
@@ -128,6 +190,7 @@ describe("InboxPopover thread opener rows", () => {
         mentions: [],
         marked: [],
         onOpenThread: vi.fn(),
+        isProjected: (target) => target?.kind === "thread",
       }))
     })
     expect(renderer.root.findAllByProps({
@@ -135,30 +198,45 @@ describe("InboxPopover thread opener rows", () => {
     })).toHaveLength(0)
     expect(renderer.root.findAllByProps({
       "data-testid": tid.inboxUnreadChild("p1"),
-    })).toHaveLength(1)
+    })).toHaveLength(0)
+    expect(renderer.root.findAllByProps({
+      "data-testid": tid.inboxUnreadChild("t1"),
+    })).toHaveLength(0)
   })
 
-  it("hides only a projected direct parent and keeps sibling children", async () => {
+  it("retains a projected direct parent as structural while children remain", async () => {
+    const onOpenChannel = vi.fn()
+    const unreads = unreadFixture()
+    unreads[0]!.channels[0]!.mentionCount = 2
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
       renderer = TestRenderer.create(React.createElement(InboxPopover, {
-        unreads: unreadFixture(),
+        unreads,
         unreadDms: [],
         mentions: [],
         marked: [],
+        onOpenChannel,
         onOpenThread: vi.fn(),
         isProjected: (target) => target?.kind === "channel-direct",
       }))
     })
-    expect(renderer.root.findAllByProps({
+    const parentRows = renderer.root.findAllByProps({
       "data-testid": tid.inboxUnreadChannel("f1"),
-    })).toHaveLength(0)
+    })
+    expect(parentRows).toHaveLength(1)
     expect(renderer.root.findAllByProps({
       "data-testid": tid.inboxUnreadChild("p1"),
     })).toHaveLength(1)
     expect(renderer.root.findAllByProps({
       "data-testid": tid.inboxUnreadChild("t1"),
     })).toHaveLength(1)
+    expect(textOf(parentRows[0]!)).not.toContain("2")
+    await act(async () => parentRows[0]!.props.onClick())
+    expect(onOpenChannel).toHaveBeenCalledWith(
+      unreads[0],
+      unreads[0]!.channels[0],
+      false,
+    )
   })
 })
 
