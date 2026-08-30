@@ -2346,6 +2346,7 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
 
   it("re-asserts a running agent's current activity every heartbeat with NO intervening transition — recovery path for a dropped frame on a live socket", async () => {
     vi.useFakeTimers();
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
     global.fetch = vi.fn(async (url: string | URL) => {
       const href = String(url);
       if (href.includes("/enroll-agent")) return new Response(JSON.stringify({ runnerKey: "rk_1" }), { status: 200 });
@@ -2408,18 +2409,29 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
     await vi.advanceTimersByTimeAsync(50);
     expect(emitters.length).toBeGreaterThan(0);
     await emitters[0].fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    await vi.advanceTimersByTimeAsync(1);
 
     const activityFrames = () =>
       sockets[0].sent.map((s) => JSON.parse(s)).filter((f: any) => f.type === "agent_activity");
+    await vi.waitFor(() => expect(activityFrames().at(-1)).toMatchObject({
+      type: "agent_activity",
+      agentId: "bot_1",
+      state: "running",
+    }));
     const beforeCount = activityFrames().length;
-    expect(beforeCount).toBeGreaterThan(0); // the edge transition to running fired
 
-    // Advance ONE heartbeat with no further runtime events → the level-triggered
-    // re-assert must emit another running frame despite zero transitions.
-    await vi.advanceTimersByTimeAsync(5_000);
+    // Invoke ONE installed heartbeat with no further runtime events. Calling
+    // the registered callback directly keeps this test independent of the
+    // platform-specific fake-timer handling for unref'ed intervals.
+    const heartbeatCalls = setIntervalSpy.mock.calls.filter(([, delay]) => delay === 5_000);
+    expect(heartbeatCalls).toHaveLength(1);
+    const heartbeat = heartbeatCalls[0]![0];
+    expect(heartbeat).toBeTypeOf("function");
+    if (typeof heartbeat !== "function") throw new Error("heartbeat callback was not installed");
+    heartbeat();
+    // Activity reports are serialized through an async per-agent tail, so wait
+    // until that tail sends the callback's level-triggered re-assertion.
+    await vi.waitFor(() => expect(activityFrames().length).toBeGreaterThan(beforeCount));
     const after = activityFrames();
-    expect(after.length).toBeGreaterThan(beforeCount);
     expect(after.at(-1)).toMatchObject({ type: "agent_activity", agentId: "bot_1", state: "running" });
 
     await daemon.stop();
