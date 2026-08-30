@@ -182,11 +182,15 @@ function ReactionChip({
 
 function ReactionDetailsDialog({
   messageId,
+  authorName,
+  messagePreview,
   reactions,
   selectedEmoji,
   onSelectedEmojiChange,
 }: {
   messageId: string
+  authorName: string
+  messagePreview: string
   reactions: readonly Reaction[]
   selectedEmoji: string | null
   onSelectedEmojiChange: (emoji: string) => void
@@ -216,9 +220,9 @@ function ReactionDetailsDialog({
       data-testid={tid.reactionDialog(messageId)}
       className="flex max-h-[calc(100dvh-2rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] flex-col gap-3 overflow-hidden transition-none sm:max-w-sm **:data-[slot=dialog-close]:size-11 sm:**:data-[slot=dialog-close]:size-7"
     >
-      <DialogHeader className="shrink-0">
-        <DialogTitle>Reactions</DialogTitle>
-        <DialogDescription>People who reacted to this message</DialogDescription>
+      <DialogHeader className="min-w-0 shrink-0">
+        <DialogTitle className="truncate pr-8">{authorName}</DialogTitle>
+        <DialogDescription className="truncate" title={messagePreview}>{messagePreview}</DialogDescription>
       </DialogHeader>
 
       {reactions.length > 0 && selectedEmoji && (
@@ -292,6 +296,8 @@ function ReactionDetailsDialog({
 
 export function MessageReactions({
   messageId,
+  authorName,
+  messagePreview,
   reactions,
   hoverCapable,
   tooltipActive,
@@ -300,6 +306,8 @@ export function MessageReactions({
   trailingControl,
 }: {
   messageId: string
+  authorName: string
+  messagePreview: string
   reactions: readonly Reaction[]
   hoverCapable: boolean
   tooltipActive: boolean
@@ -368,6 +376,8 @@ export function MessageReactions({
         {open && (
           <ReactionDetailsDialog
             messageId={messageId}
+            authorName={authorName}
+            messagePreview={messagePreview || "Message"}
             reactions={reactions}
             selectedEmoji={selectedEmoji}
             onSelectedEmojiChange={setSelectedEmoji}

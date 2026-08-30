@@ -69,6 +69,7 @@ test.describe.serial("mobile reaction details", () => {
   let serverId: string
   let channelId: string
   let messageId: string
+  let messageContent: string
   let emptyMessageId: string
   let threadId: string
   let threadOpenerId: string
@@ -81,7 +82,8 @@ test.describe.serial("mobile reaction details", () => {
     channelId = await seedChannel("alice", serverId, `reactions-${stamp}`)
     await seedJoinServer("alice", "bob", serverId)
     await seedJoinServer("alice", "carol", serverId)
-    messageId = await seedMessage("alice", channelId, `Hold a reaction ${stamp}`)
+    messageContent = `Hold a reaction ${stamp} — ${"long message preview ".repeat(8).trim()}`
+    messageId = await seedMessage("alice", channelId, messageContent)
     await seedReaction("alice", messageId, "👍")
     await seedReaction("bob", messageId, "👍")
     await seedReaction("bob", messageId, "🔥")
@@ -116,6 +118,14 @@ test.describe.serial("mobile reaction details", () => {
     await expect(fire).toBeVisible()
     await holdReaction(alice.page, fire)
     await expectDialogInsideViewport(alice.page, messageId)
+    const dialog = alice.page.getByTestId(tid.reactionDialog(messageId))
+    await expect(dialog.locator('[data-slot="dialog-title"]')).toContainText("e2e-alice-")
+    await expect(dialog.locator('[data-slot="dialog-description"]')).toHaveText(messageContent)
+    await expect(dialog.locator('[data-slot="dialog-description"]')).toHaveCSS("white-space", "nowrap")
+    await expect(dialog.locator('[data-slot="dialog-description"]')).toHaveCSS("text-overflow", "ellipsis")
+    await expect.poll(() => dialog.locator('[data-slot="dialog-description"]').evaluate(
+      (element) => element.scrollWidth > element.clientWidth,
+    )).toBe(true)
     await expect(alice.page.getByTestId(tid.reactionTab("🔥"))).toHaveAttribute("data-active", "")
     await expect(alice.page.getByTestId(tid.reactionMember(userId("bob")))).toBeVisible()
     await testInfo.attach("390-mobile-reaction-details.png", {
@@ -165,7 +175,7 @@ test.describe.serial("mobile reaction details", () => {
     }
   })
 
-  test("the emoji rail stays transparent and one-line with directional fades and tab keyboard semantics", async ({ asUser }, testInfo) => {
+  test("the emoji rail switches displayed reactors without mutating reactions", async ({ asUser }, testInfo) => {
     const alice = await asUser("alice")
     await alice.page.setViewportSize({ width: 320, height: 568 })
     await alice.page.emulateMedia({ colorScheme: "light" })
@@ -176,6 +186,13 @@ test.describe.serial("mobile reaction details", () => {
 
     const rail = alice.page.getByTestId(tid.reactionScroller(messageId))
     const panel = alice.page.getByRole("tabpanel")
+    const dialogMutations: string[] = []
+    alice.page.on("request", (request) => {
+      const pathname = new URL(request.url()).pathname
+      if (request.method() !== "GET" && pathname.includes(`/api/community/messages/${messageId}/reactions/`)) {
+        dialogMutations.push(`${request.method()} ${pathname}`)
+      }
+    })
     await expect(rail).toHaveRole("tablist")
     await expect(rail).toHaveAttribute("aria-label", "Reaction types")
     await expect(panel).toHaveAttribute("aria-labelledby", tid.reactionTab(OVERFLOW_EMOJIS[0]))
@@ -213,9 +230,10 @@ test.describe.serial("mobile reaction details", () => {
       element.scrollLeft = 0
       element.dispatchEvent(new Event("scroll"))
     })
-    await last.evaluate((element) => (element as HTMLElement).click())
+    await last.click()
     await expect(last).toHaveAttribute("data-active", "")
     await expect.poll(() => rail.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
+    expect(dialogMutations).toEqual([])
 
     await rail.evaluate((element) => {
       element.scrollLeft = (element.scrollWidth - element.clientWidth) / 2
@@ -229,15 +247,29 @@ test.describe.serial("mobile reaction details", () => {
     await expect.poll(() => rail.evaluate((element) => element.scrollLeft)).toBe(0)
     await expect(alice.page.getByTestId(tid.reactionFadeLeft(messageId))).toHaveCount(0)
     await expect(alice.page.getByTestId(tid.reactionFadeRight(messageId))).toBeVisible()
-    await first.evaluate((element) => (element as HTMLElement).click())
+    await first.click()
     await expect(first).toHaveAttribute("data-active", "")
     await expect(alice.page.getByTestId(tid.reactionMember(userId("bob")))).toBeVisible()
+    expect(dialogMutations).toEqual([])
     await testInfo.attach("320-reaction-rail-overflow-light.png", {
       body: await alice.page.screenshot(),
       contentType: "image/png",
     })
     await alice.page.emulateMedia({ colorScheme: "dark" })
     await expect(alice.page.locator("html")).toHaveClass(/dark/)
+    const themeSurface = await alice.page.getByTestId(tid.reactionDialog(messageId)).evaluate((element, fadeTestId) => {
+      const fade = element.querySelector(`[data-testid="${fadeTestId}"]`)
+      const fadeStyle = fade ? getComputedStyle(fade) : null
+      return {
+        background: getComputedStyle(element).backgroundColor,
+        fadeEndpoint: fadeStyle?.getPropertyValue("--tw-gradient-from").trim() ?? "",
+        fade: fadeStyle?.backgroundImage ?? "",
+        transitionProperty: getComputedStyle(element).transitionProperty,
+      }
+    }, tid.reactionFadeRight(messageId))
+    expect(themeSurface.background).toBe(themeSurface.fadeEndpoint)
+    expect(themeSurface.fade).toContain(themeSurface.fadeEndpoint)
+    expect(themeSurface.transitionProperty).toBe("none")
     await testInfo.attach("320-reaction-rail-overflow-dark.png", {
       body: await alice.page.screenshot(),
       contentType: "image/png",

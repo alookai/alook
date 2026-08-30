@@ -189,6 +189,8 @@ export function ThreadOpener({
             <div className="mt-2">
               <MessageReactions
                 messageId={msg.id}
+                authorName={authorName}
+                messagePreview={visibleContent}
                 reactions={msg.reactions}
                 hoverCapable={hoverCapable}
                 tooltipActive

@@ -24,8 +24,8 @@ vi.mock("@/components/ui/dialog", () => ({
   DialogContent: ({ children, ...props }: React.ComponentProps<"div">) =>
     React.createElement("mock-dialog-content", props, children),
   DialogHeader: ({ children }: { children: React.ReactNode }) => React.createElement("div", null, children),
-  DialogTitle: ({ children }: { children: React.ReactNode }) => React.createElement("div", null, children),
-  DialogDescription: ({ children }: { children: React.ReactNode }) => React.createElement("div", null, children),
+  DialogTitle: ({ children, ...props }: { children: React.ReactNode }) => React.createElement("mock-dialog-title", props, children),
+  DialogDescription: ({ children, ...props }: { children: React.ReactNode }) => React.createElement("mock-dialog-description", props, children),
 }))
 vi.mock("@/components/ui/tabs", () => ({
   Tabs: ({ children, value }: { children: React.ReactNode; value: string }) =>
@@ -70,6 +70,8 @@ function renderReactions(
     renderer = TestRenderer.create(
       React.createElement(MessageReactions, {
         messageId: "message_1",
+        authorName: "Alice",
+        messagePreview: "A deliberately long message preview",
         reactions: reactionItems,
         hoverCapable: false,
         tooltipActive: false,
@@ -175,6 +177,20 @@ describe("MessageReactions", () => {
     expect(rail.props.className).toContain("bg-transparent!")
   })
 
+  it("uses the message author and one-line message preview as its header", () => {
+    vi.useFakeTimers()
+    const { renderer } = renderReactions()
+    const chip = renderer.root.findByProps({ "data-testid": tid.reactionChip("message_1", "👍") })
+    act(() => chip.props.onPointerDown({ pointerType: "touch", clientX: 10, clientY: 10, stopPropagation: vi.fn() }))
+    act(() => vi.advanceTimersByTime(450))
+    const title = renderer.root.findByType("mock-dialog-title")
+    const description = renderer.root.findByType("mock-dialog-description")
+    expect(title.children).toEqual(["Alice"])
+    expect(title.props.className).toContain("truncate")
+    expect(description.children).toEqual(["A deliberately long message preview"])
+    expect(description.props.className).toContain("truncate")
+  })
+
   it("uses the shared 32px identity row for authorized reactors", () => {
     vi.useFakeTimers()
     const { renderer } = renderReactions()
@@ -225,6 +241,8 @@ describe("MessageReactions", () => {
     act(() => vi.advanceTimersByTime(450))
     act(() => renderer.update(React.createElement(MessageReactions, {
       messageId: "message_1",
+      authorName: "Alice",
+      messagePreview: "A deliberately long message preview",
       reactions: [],
       hoverCapable: false,
       tooltipActive: false,
