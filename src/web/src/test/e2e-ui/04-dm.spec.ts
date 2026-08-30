@@ -201,17 +201,21 @@ test.describe.serial("direct messages", () => {
 
     try {
       await alice.page.goto(`/c/me/${missingDmId}`)
-      await expect(alice.page.getByRole("alert").filter({
+      const verificationAlert = alice.page.getByRole("alert").filter({
         hasText: "Couldn\'t verify this conversation",
-      })).toBeVisible()
+      })
+      await expect(verificationAlert).toBeVisible()
       await expect(alice.page).toHaveURL(new RegExp(`/c/me/${missingDmId}$`))
       await expect.poll(() => wsProxy.heldConnectionCount()).toBe(1)
       expect(dmsGets).toBe(2)
 
-      await alice.page.getByRole("button", { name: "Retry" }).click()
+      expect(wsProxy.releaseHeldConnections((frame) => frame.type === "auth.ok")).toBe(1)
+      await expect(alice.page.getByTestId(tid.wsReconnectOverlay)).toHaveCount(0)
+      await verificationAlert.getByRole("button", { name: "Retry" }).click()
       await expect.poll(() => dmsGets).toBe(3)
       await expect.poll(() => new URL(alice.page.url()).pathname).toBe("/c/me/friends")
     } finally {
+      wsProxy.releaseHeldConnections()
       await alice.page.unroute(dmsPattern)
     }
   })
