@@ -250,6 +250,7 @@ export class ClaudeEventNormalizer {
     }
     if (this.claudeUsageMode === "legacy") return this.lockClaudeUsageMode();
     if (this.claudeUsageMode === "unknown") this.claudeUsageMode = "model_usage";
+    this.claudeUsageSession ??= backendSessionId;
     if (this.claudeUsageSession !== null && this.claudeUsageSession !== backendSessionId) {
       return this.lockClaudeUsageMode();
     }

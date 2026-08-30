@@ -283,6 +283,87 @@ describe("ClaudeEventNormalizer.normalizeLine", () => {
     expect(telemetry(legacyThenCumulative, snapshot({ user_message_uuid: "root-2" }))).toEqual([]);
   });
 
+  it("covers malformed cumulative snapshots and cumulative-to-legacy mode changes", () => {
+    const model = (overrides: Record<string, unknown> = {}) => ({
+      inputTokens: 10,
+      outputTokens: 2,
+      cacheReadInputTokens: 30,
+      cacheCreationInputTokens: 8,
+      costUSD: 1,
+      ...overrides,
+    });
+    const result = (overrides: Record<string, unknown> = {}) => ({
+      type: "result",
+      subtype: "success",
+      session_id: "s1",
+      user_message_uuid: "root-1",
+      total_cost_usd: 1,
+      modelUsage: { opus: model() },
+      ...overrides,
+    });
+    const telemetry = (normalizer: ClaudeEventNormalizer, event: unknown) => normalizer
+      .normalizeLine(J(event))
+      .filter((item) => item.kind === "telemetry");
+
+    for (const malformed of [
+      result({ modelUsage: null }),
+      result({ modelUsage: {} }),
+      result({ modelUsage: { " ": model() } }),
+    ]) {
+      expect(telemetry(new ClaudeEventNormalizer(), malformed)).toEqual([]);
+    }
+
+    const malformedCrossSession = new ClaudeEventNormalizer();
+    expect(telemetry(malformedCrossSession, result({
+      modelUsage: { opus: model({ inputTokens: "bad" }) },
+    }))).toEqual([]);
+    malformedCrossSession.beginTurn();
+    expect(telemetry(malformedCrossSession, result({
+      session_id: "s2",
+      user_message_uuid: "root-2",
+    }))).toEqual([]);
+
+    const countOverflow = new ClaudeEventNormalizer();
+    expect(telemetry(countOverflow, result({
+      total_cost_usd: 0,
+      modelUsage: {
+        opus: model({ inputTokens: Number.MAX_SAFE_INTEGER, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0 }),
+        sonnet: model({ inputTokens: 1, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0 }),
+      },
+    }))).toEqual([]);
+
+    const costOverflow = new ClaudeEventNormalizer();
+    expect(telemetry(costOverflow, result({
+      total_cost_usd: undefined,
+      modelUsage: {
+        opus: model({ inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: Number.MAX_VALUE }),
+        sonnet: model({ inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: Number.MAX_VALUE }),
+      },
+    }))).toEqual([]);
+
+    const costRegression = new ClaudeEventNormalizer();
+    expect(telemetry(costRegression, result())).toHaveLength(1);
+    costRegression.beginTurn();
+    expect(telemetry(costRegression, result({
+      user_message_uuid: "root-2",
+      total_cost_usd: 0.9,
+      modelUsage: { opus: model({ costUSD: 0.9 }) },
+    }))).toEqual([]);
+
+    const cumulativeThenLegacy = new ClaudeEventNormalizer();
+    expect(telemetry(cumulativeThenLegacy, result())).toHaveLength(1);
+    cumulativeThenLegacy.beginTurn();
+    expect(telemetry(cumulativeThenLegacy, {
+      type: "result",
+      subtype: "success",
+      session_id: "s1",
+      user_message_uuid: "root-2",
+      usage: { input_tokens: 999, output_tokens: 999 },
+    })).toEqual([]);
+    cumulativeThenLegacy.beginTurn();
+    expect(telemetry(cumulativeThenLegacy, result({ user_message_uuid: "root-3" }))).toEqual([]);
+  });
+
   it("does not emit usage without a backend session identity", () => {
     const out = new ClaudeEventNormalizer().normalizeLine(
       J({ type: "result", subtype: "success", usage: { input_tokens: 3, output_tokens: 5 } }),
