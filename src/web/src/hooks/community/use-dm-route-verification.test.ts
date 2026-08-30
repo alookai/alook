@@ -142,6 +142,31 @@ describe("DM route verification", () => {
     expect(apiFetchMock).not.toHaveBeenCalled()
   })
 
+  it("trusts a projected canonical row while the layout observer snapshot lags", async () => {
+    const queryClient = client()
+    const projected: DM = {
+      id: "dm-projected",
+      userId: "u-projected",
+      name: "Projected peer",
+      discriminator: "5555",
+      avatar: "P",
+      status: "offline",
+      preview: "",
+    }
+    queryClient.setQueryData(communityKeys.dms(), { conversations: [projected] })
+    apiFetchMock.mockResolvedValue({ conversations: [] })
+    const statuses: DmRouteVerificationStatus[] = []
+    const renderer = await renderHook(queryClient, {
+      dmId: projected.id,
+      dms: [],
+      onRender: (status) => statuses.push(status),
+    })
+
+    expect(statuses.at(-1)).toBe("present")
+    expect(apiFetchMock).not.toHaveBeenCalled()
+    renderer.unmount()
+  })
+
   it.each([403, 404])("classifies explicit %s as denied", async (status) => {
     expect(classifyDmRouteAuthorityError({ status })).toBe("denied")
   })

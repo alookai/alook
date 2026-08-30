@@ -70,7 +70,14 @@ export function useDmRouteVerification(
   canonicalUnsettled: boolean,
 ): DmRouteVerificationResult {
   const queryClient = useQueryClient()
-  const present = !!dmId && dms.some((dm) => dm.id === dmId)
+  const canonical = queryClient.getQueryData<DmsResponse>(communityKeys.dms())
+  // Inbox navigation writes the destination into the canonical cache before
+  // routing. The layout's observer snapshot can trail that synchronous write
+  // by one render, so consult the cache directly before starting authority.
+  const present = !!dmId && (
+    dms.some((dm) => dm.id === dmId)
+    || canonical?.conversations.some((dm) => dm.id === dmId) === true
+  )
   const verification = useQuery({
     ...verificationOptions(queryClient, dmId ?? "__none__"),
     enabled: !!dmId && !canonicalUnsettled && !present,
