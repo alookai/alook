@@ -200,7 +200,7 @@ export function ForumView({
   // preserve composer state for retry.
   onCreatePost?: (post: NewForumThread) => Promise<void>
   // Save handler for a single post's tags. Absent → tag editing disabled.
-  onEditPostTags?: (threadId: string, tags: string[]) => void
+  onEditPostTags?: (threadId: string, tags: string[]) => Promise<void> | void
   // Whether the current user may edit a given post's tags (creator or manager).
   canEditPostTags?: (post: ForumThread) => boolean
   // The post id whose tag save is in flight, if any.

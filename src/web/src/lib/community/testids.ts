@@ -90,6 +90,10 @@ export const tid = {
   machineQuotaDetail: (machineId: string) => `community-machine-quota-detail-${machineId}`,
 
   forumTagDialog: "community-forum-tag-dialog",
+  forumTagDialogBody: "community-forum-tag-dialog-body",
+  forumTagDialogInput: "community-forum-tag-dialog-input",
+  forumTagDialogCancel: "community-forum-tag-dialog-cancel",
+  forumTagDialogSave: "community-forum-tag-dialog-save",
   forumTagDialogChip: (tag: string) => `community-forum-tag-dialog-chip-${tag}`,
   imageLightbox: "community-image-lightbox",
   imageLightboxThumbnail: "community-image-lightbox-thumbnail",

@@ -20,7 +20,7 @@ vi.mock("@/hooks/community/use-channel-message-feed", () => ({
 vi.mock("@/hooks/community/mutations", () => ({
   useCreateForumThread: () => ({ mutateAsync: mocks.createForumThread }),
   useUpdatePostTags: () => ({
-    mutate: mocks.updatePostTags,
+    mutateAsync: mocks.updatePostTags,
     isPending: true,
     variables: { threadId: "post_saving" },
   }),
@@ -84,6 +84,7 @@ function surfaceProps(overrides: Record<string, unknown> = {}) {
 describe("ForumChannelSurface ownership", () => {
   beforeEach(() => {
     mocks.createForumThread.mockResolvedValue({ threadId: "post_new" })
+    mocks.updatePostTags.mockResolvedValue({ tags: ["shipped"] })
   })
 
   afterEach(() => {
@@ -140,8 +141,10 @@ describe("ForumChannelSurface ownership", () => {
     })
     expect(props.onOpenPost).toHaveBeenCalledWith("post_new")
 
+    await act(async () => {
+      await forumProps.onEditPostTags?.(ownPost, ["shipped"])
+    })
     act(() => {
-      forumProps.onEditPostTags?.(ownPost, ["shipped"])
       forumProps.onDeletePost?.(ownPost)
     })
     expect(mocks.updatePostTags).toHaveBeenCalledWith({
@@ -169,6 +172,23 @@ describe("ForumChannelSurface ownership", () => {
     const otherPost = { id: "post_2", authorId: "other_1", openerMessageId: "opener_2" } as Parameters<NonNullable<typeof forumProps.canEditPostTags>>[0]
     expect(forumProps.canEditPostTags?.(otherPost)).toBe(true)
     expect(forumProps.canDeletePost?.(otherPost)).toBe(true)
+  })
+
+  it("returns a rejected tag mutation to the editor so its draft stays retryable", async () => {
+    const error = new Error("tag update failed")
+    mocks.updatePostTags.mockRejectedValueOnce(error)
+    act(() => {
+      TestRenderer.create(React.createElement(ForumChannelSurface, surfaceProps()))
+    })
+    const forumProps = mockedForumSurface.mock.calls.at(-1)![0]
+    const post = {
+      id: "post_1",
+      authorId: "viewer_1",
+      openerMessageId: "opener_1",
+      tags: ["bug"],
+    } as Parameters<NonNullable<typeof forumProps.onEditPostTags>>[0]
+
+    await expect(forumProps.onEditPostTags?.(post, ["retry"])).rejects.toBe(error)
   })
 
   it("resets the right panel when channelId changes without relying on an outer remount", () => {
