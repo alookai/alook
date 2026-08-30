@@ -2411,13 +2411,24 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
         unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
       }),
     );
+    const activityFrames = () =>
+      sockets[0].sent.map((s) => JSON.parse(s)).filter((f: any) => f.type === "agent_activity");
+
     // Let enroll + spawn resolve, then land the runtime handshake so the FSM
-    // reaches `running` (turnActive) — a steady working state.
+    // settles its command admission before we explicitly enter a turn.
     await vi.advanceTimersByTimeAsync(50);
     expect(sessions).toHaveLength(1);
     expect(commandId).toBeTypeOf("string");
     await sessions[0]!.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
     await vi.advanceTimersByTimeAsync(0);
+    await vi.waitFor(() => expect(activityFrames().at(-1)).toMatchObject({
+      type: "agent_activity",
+      agentId: "bot_1",
+      state: "idle",
+    }), { interval: 0 });
+
+    // Enter `running` only after the setup transition is fully settled. This
+    // leaves no delayed admission work that can overwrite the steady state.
     await sessions[0]!.fire("agent_event", {
       type: "turn_started",
       turnId: "daemon-test-turn",
@@ -2425,13 +2436,11 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
     });
     await vi.advanceTimersByTimeAsync(0);
 
-    const activityFrames = () =>
-      sockets[0].sent.map((s) => JSON.parse(s)).filter((f: any) => f.type === "agent_activity");
     await vi.waitFor(() => expect(activityFrames().at(-1)).toMatchObject({
       type: "agent_activity",
       agentId: "bot_1",
       state: "running",
-    }));
+    }), { interval: 0 });
     const beforeCount = activityFrames().length;
 
     // Invoke the latest installed heartbeat with no further runtime events.
