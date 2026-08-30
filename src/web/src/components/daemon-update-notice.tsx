@@ -128,7 +128,9 @@ export function DaemonUpdateNotice({
         const notificationId = messageNotification.add({
           id: `daemon-update:${userId}:${webVersion}`,
           title: "Machine update available",
-          description: "You can update your machine to get more features.",
+          description: eligible.length === 1
+            ? "You can update your machine to get more features."
+            : "You can update your machines to get more features.",
           type: "warning",
           timeout: 0,
           data: {

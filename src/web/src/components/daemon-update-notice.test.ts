@@ -126,7 +126,7 @@ describe("DaemonUpdateNotice", () => {
 
   it("shows the exact one-click update notification without recording early", async () => {
     mocks.machinesQueryFn.mockResolvedValue({
-      machines: [machine("0.1.26"), machine("0.1.20")],
+      machines: [machine("0.1.26")],
     })
     await renderNotice()
     const notice = mocks.notificationAdd.mock.calls[0]![0]
@@ -144,6 +144,16 @@ describe("DaemonUpdateNotice", () => {
     })
     expect(notice.timeout).toBe(0)
     expect(localStorage.setItem).not.toHaveBeenCalled()
+  })
+
+  it("uses plural copy when multiple machines can update", async () => {
+    mocks.machinesQueryFn.mockResolvedValue({
+      machines: [machine("0.1.26"), machine("0.1.20")],
+    })
+    await renderNotice()
+
+    expect(mocks.notificationAdd.mock.calls[0]![0].description)
+      .toBe("You can update your machines to get more features.")
   })
 
   it("retries the canceled development pass under React Strict Mode", async () => {

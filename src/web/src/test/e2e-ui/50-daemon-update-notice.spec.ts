@@ -72,6 +72,12 @@ async function waitForNoticeLogo(notice: Locator) {
   ))).toBe(true)
 }
 
+async function hideDevelopmentToolsForScreenshot(page: Page) {
+  await page.addStyleTag({
+    content: "nextjs-portal, .tsqd-parent-container { display: none !important; }",
+  })
+}
+
 test("daemon reminder checks once, respects reduced motion, and stays dismissed", async ({ asUser }, testInfo) => {
   const { context, page } = await asUser("alice")
   await clearSavedDaemonCheckOnce(context)
@@ -95,6 +101,7 @@ test("daemon reminder checks once, respects reduced motion, and stays dismissed"
   await expect(notice).toHaveCSS("transition-property", "none")
   await expect(notice.locator('[data-slot="message-notification-content"]'))
     .toHaveCSS("transition-property", "none")
+  await hideDevelopmentToolsForScreenshot(page)
   const desktopScreenshot = testInfo.outputPath("daemon-update-desktop.png")
   await page.screenshot({ path: desktopScreenshot })
   await testInfo.attach("daemon-update-desktop", {
@@ -133,6 +140,7 @@ test("mobile daemon reminder fits, swipes away, and dispatches eligible updates"
   expect(actionBox!.height).toBeGreaterThanOrEqual(43.9)
   expect(closeBox!.height).toBeGreaterThanOrEqual(43.9)
   expect(await swipeSession.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await hideDevelopmentToolsForScreenshot(swipeSession.page)
   const mobileScreenshot = testInfo.outputPath("daemon-update-mobile.png")
   await swipeSession.page.screenshot({ path: mobileScreenshot })
   await testInfo.attach("daemon-update-mobile", {
@@ -157,6 +165,8 @@ test("mobile daemon reminder fits, swipes away, and dispatches eligible updates"
   ])
   await actionSession.page.setViewportSize({ width: 390, height: 844 })
   await gotoAfterUserWsAuth(actionSession.page, "/c/me/friends")
+  await expect(actionSession.page.getByTestId(tid.daemonUpdateNotice))
+    .toContainText("You can update your machines to get more features.")
   await actionSession.page.getByTestId(tid.daemonUpdateAction).click()
   await expect(actionSession.page.getByTestId(tid.daemonUpdateNotice)).toHaveCount(0)
   await expect(actionSession.page).toHaveURL(/\/c\/me\/friends$/)
