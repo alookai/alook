@@ -1,5 +1,6 @@
 import {
   AgentActivityMessageSchema,
+  DAILY_TOKEN_USAGE_WINDOW_DAYS,
   DailyUsageSnapshotSchema,
   AgentTypingMessageSchema,
   AgentTypingStopMessageSchema,
@@ -33,6 +34,8 @@ import {
 } from "./provider-telemetry-persistence"
 
 const IDLE_RESET_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000
+const TOKEN_USAGE_RECOVERY_DAYS = 2
+const TOKEN_USAGE_RETENTION_DAYS = DAILY_TOKEN_USAGE_WINDOW_DAYS + TOKEN_USAGE_RECOVERY_DAYS
 
 /**
  * Telemetry handlers are deliberately independent first-match branches. Each
@@ -65,7 +68,10 @@ export async function handleActivityFrame(
   const { agentId, state } = activityParse.data
   const raw = parsed as Record<string, unknown>
   const now = new Date()
-  const legacyAllowedDays = new Set(Array.from({ length: 7 }, (_, offset) => utcDayKeyDaysAgo(now, offset)))
+  const legacyAllowedDays = new Set(Array.from(
+    { length: DAILY_TOKEN_USAGE_WINDOW_DAYS },
+    (_, offset) => utcDayKeyDaysAgo(now, offset),
+  ))
   const rawUsageTimeZone = raw.usageTimeZone
   const rawUsageDay = raw.usageDay
   const hasUsageCalendarMetadata = rawUsageTimeZone !== undefined || rawUsageDay !== undefined
@@ -97,7 +103,7 @@ export async function handleActivityFrame(
   }
   const allowedUsageDays = validUsageCalendar
     ? new Set(Array.from(
-      { length: 7 },
+      { length: DAILY_TOKEN_USAGE_WINDOW_DAYS },
       (_, offset) => calendarDayKeyDaysAgo(validUsageCalendar.day, offset),
     ))
     : hasUsageCalendarMetadata
@@ -105,7 +111,7 @@ export async function handleActivityFrame(
       : legacyAllowedDays
   const usageParse = raw.dailyUsage === undefined
     ? null
-    : DailyUsageSnapshotSchema.array().max(7).safeParse(raw.dailyUsage)
+    : DailyUsageSnapshotSchema.array().max(DAILY_TOKEN_USAGE_WINDOW_DAYS).safeParse(raw.dailyUsage)
   const parsedUsage = usageParse?.success ? usageParse.data : undefined
   const usageDays = parsedUsage ? new Set(parsedUsage.map((snapshot) => snapshot.day)) : null
   const validUsage = state === "idle"
@@ -203,14 +209,14 @@ export async function handleActivityFrame(
           context.env.DB,
           identity.machineId,
           agentId,
-          calendarDayKeyDaysAgo(validUsageCalendar.day, 8),
+          calendarDayKeyDaysAgo(validUsageCalendar.day, TOKEN_USAGE_RETENTION_DAYS - 1),
         ))
       } else if (validUsage && validUsage.length > 0) {
         statements.push(prepareUsagePrune(
           context.env.DB,
           identity.machineId,
           agentId,
-          utcDayKeyDaysAgo(now, 8),
+          utcDayKeyDaysAgo(now, TOKEN_USAGE_RETENTION_DAYS - 1),
         ))
       }
       if (quota) statements.push(prepareQuotaReplace(context.env.DB, identity, quota, nowIso))

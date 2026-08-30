@@ -92,27 +92,28 @@ describe("DailyTokenUsageStore", () => {
     ]);
   });
 
-  it("keeps only today and the previous six UTC days", async () => {
+  it("exposes 30 UTC days while retaining two recovery days", async () => {
     const root = mkdtempSync(join(tmpdir(), "alook-token-retention-"));
     roots.push(root);
-    let now = new Date("2026-08-20T12:00:00Z");
+    let now = new Date("2026-07-27T12:00:00Z");
     const store = new DailyTokenUsageStore(root, () => now, "UTC");
-    for (let day = 0; day < 9; day += 1) {
+    for (let day = 0; day < 33; day += 1) {
       await store.record("bot", delta(day, day, day));
       now = new Date(now.getTime() + 86_400_000);
     }
     now = new Date("2026-08-28T12:00:00Z");
     const snapshots = await store.snapshots("bot");
-    expect(snapshots).toHaveLength(7);
-    expect(snapshots.map((snapshot) => snapshot.day)).toEqual([
-      "2026-08-22",
-      "2026-08-23",
-      "2026-08-24",
-      "2026-08-25",
-      "2026-08-26",
-      "2026-08-27",
-      "2026-08-28",
-    ]);
+    expect(snapshots).toHaveLength(30);
+    expect(snapshots.at(0)?.day).toBe("2026-07-30");
+    expect(snapshots.at(-1)?.day).toBe("2026-08-28");
+
+    const persisted = JSON.parse(readFileSync(
+      join(root, ".telemetry", "daily-token-usage.json"),
+      "utf8",
+    )) as { bots: Record<string, Array<{ day: string }>> };
+    expect(persisted.bots.bot).toHaveLength(32);
+    expect(persisted.bots.bot?.at(0)?.day).toBe("2026-07-28");
+    expect(persisted.bots.bot?.at(-1)?.day).toBe("2026-08-28");
   });
 
   it("persists retention pruning even when a quiet bot only reconnects", async () => {
@@ -122,7 +123,7 @@ describe("DailyTokenUsageStore", () => {
     const store = new DailyTokenUsageStore(root, () => now, "UTC");
     await store.record("bot", delta(1, 1, 1));
 
-    now = new Date("2026-08-29T12:00:00Z");
+    now = new Date("2026-09-21T12:00:00Z");
     expect(await store.snapshots("bot")).toEqual([]);
 
     const persisted = JSON.parse(readFileSync(
@@ -190,11 +191,11 @@ describe("DailyTokenUsageStore", () => {
   it("follows a live computer-timezone change without deleting the prior day's totals", async () => {
     const root = mkdtempSync(join(tmpdir(), "alook-token-timezone-change-"));
     roots.push(root);
-    let now = new Date("2026-08-22T16:00:01Z");
+    let now = new Date("2026-07-31T16:00:01Z");
     let timeZone = "Asia/Shanghai";
     const store = new DailyTokenUsageStore(root, () => now, () => timeZone);
-    for (let day = 23; day <= 30; day += 1) {
-      now = new Date(`2026-08-${String(day - 1).padStart(2, "0")}T16:00:01Z`);
+    for (let day = 1; day <= 30; day += 1) {
+      now = new Date(new Date("2026-07-31T16:00:01Z").getTime() + (day - 1) * 86_400_000);
       await store.record("bot", delta(day, 2, 3));
     }
 
@@ -205,15 +206,9 @@ describe("DailyTokenUsageStore", () => {
     const window = await store.usageWindow("bot");
     expect(window.usageDay).toBe("2026-08-29");
     expect(window.usageTimeZone).toBe("America/Los_Angeles");
-    expect(window.snapshots.map((snapshot) => snapshot.day)).toEqual([
-      "2026-08-23",
-      "2026-08-24",
-      "2026-08-25",
-      "2026-08-26",
-      "2026-08-27",
-      "2026-08-28",
-      "2026-08-29",
-    ]);
+    expect(window.snapshots).toHaveLength(29);
+    expect(window.snapshots.at(0)?.day).toBe("2026-08-01");
+    expect(window.snapshots.at(-1)?.day).toBe("2026-08-29");
     expect(window.snapshots.at(-1)?.metrics).toEqual({ input: 34, output: 3, cache: 7 });
     const persisted = JSON.parse(readFileSync(
       join(root, ".telemetry", "daily-token-usage.json"),
@@ -225,12 +220,12 @@ describe("DailyTokenUsageStore", () => {
   it("retains two recovery days across an exact UTC+14 to UTC-12 switch", async () => {
     const root = mkdtempSync(join(tmpdir(), "alook-token-extreme-timezone-change-"));
     roots.push(root);
-    let now = new Date("2026-08-21T10:30:00Z");
+    let now = new Date("2026-07-29T10:30:00Z");
     let timeZone = "Pacific/Kiritimati";
     const store = new DailyTokenUsageStore(root, () => now, () => timeZone);
-    for (let localDay = 22; localDay <= 30; localDay += 1) {
-      now = new Date(`2026-08-${String(localDay - 1).padStart(2, "0")}T10:30:00Z`);
-      await store.record("bot", delta(localDay, 2, 3));
+    for (let offset = 0; offset < 32; offset += 1) {
+      now = new Date(new Date("2026-07-29T10:30:00Z").getTime() + offset * 86_400_000);
+      await store.record("bot", delta(offset, 2, 3));
     }
 
     now = new Date("2026-08-29T10:30:00Z");
@@ -239,29 +234,15 @@ describe("DailyTokenUsageStore", () => {
     const window = await store.usageWindow("bot");
     expect(window.usageDay).toBe("2026-08-28");
     expect(window.usageTimeZone).toBe("Etc/GMT+12");
-    expect(window.snapshots.map((snapshot) => snapshot.day)).toEqual([
-      "2026-08-22",
-      "2026-08-23",
-      "2026-08-24",
-      "2026-08-25",
-      "2026-08-26",
-      "2026-08-27",
-      "2026-08-28",
-    ]);
+    expect(window.snapshots).toHaveLength(30);
+    expect(window.snapshots.at(0)?.day).toBe("2026-07-30");
+    expect(window.snapshots.at(-1)?.day).toBe("2026-08-28");
     const persisted = JSON.parse(readFileSync(
       join(root, ".telemetry", "daily-token-usage.json"),
       "utf8",
     )) as { bots: Record<string, Array<{ day: string }>> };
-    expect(persisted.bots.bot?.map((snapshot) => snapshot.day)).toEqual([
-      "2026-08-22",
-      "2026-08-23",
-      "2026-08-24",
-      "2026-08-25",
-      "2026-08-26",
-      "2026-08-27",
-      "2026-08-28",
-      "2026-08-29",
-      "2026-08-30",
-    ]);
+    expect(persisted.bots.bot).toHaveLength(32);
+    expect(persisted.bots.bot?.at(0)?.day).toBe("2026-07-30");
+    expect(persisted.bots.bot?.at(-1)?.day).toBe("2026-08-30");
   });
 });

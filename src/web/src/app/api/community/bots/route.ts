@@ -3,6 +3,7 @@ import {
   queries,
   CommunityBotCreateRequestSchema,
   COMMUNITY_BOT_LIMIT_PER_OWNER,
+  DAILY_TOKEN_USAGE_WINDOW_DAYS,
   calendarDayKeyDaysAgo,
   dayKeyInTimeZone,
   utcDayKey,
@@ -23,8 +24,8 @@ export function tokenUsageDayWindow(now: Date, timeZone: string | null | undefin
     } catch { }
   }
   return Array.from(
-    { length: 7 },
-    (_, index) => calendarDayKeyDaysAgo(today, 6 - index),
+    { length: DAILY_TOKEN_USAGE_WINDOW_DAYS },
+    (_, index) => calendarDayKeyDaysAgo(today, DAILY_TOKEN_USAGE_WINDOW_DAYS - 1 - index),
   )
 }
 
@@ -42,7 +43,7 @@ export const GET = withAuth(async (_req, ctx) => {
     sinceDay,
   )
   const now = new Date()
-  const usageSinceDay = utcDayKeyDaysAgo(now, 7)
+  const usageSinceDay = utcDayKeyDaysAgo(now, DAILY_TOKEN_USAGE_WINDOW_DAYS)
   const usageByBot = await queries.communityBot.getBotDailyTokenUsageForOwner(
     db,
     ctx.userId,

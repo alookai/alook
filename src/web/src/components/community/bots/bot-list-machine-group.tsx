@@ -13,7 +13,7 @@ import {
 import { formatAwakeDuration } from "@/lib/community/format-time"
 import { tid } from "@/lib/community/testids"
 import { MachineQuotaSummary } from "./bot-quota-summary"
-import { BotTokenUsageChart, usageDayPresentation } from "./bot-token-usage-chart"
+import { BotTokenUsageHeatmap } from "./bot-token-usage-chart"
 import type { BotListController, BotMachineGroup } from "./bot-list-types"
 
 export function renderBotMachineGroup(
@@ -23,11 +23,6 @@ export function renderBotMachineGroup(
   const machineOnline = isPresenceOnline(machine?.status)
   const collapsed = controller.collapsedMachines.has(machineId)
   const label = controller.machineName(machineId)
-  const usageScaleMax = Math.max(0, ...bots.flatMap((bot) => (
-    bot.usage?.capability === "supported"
-      ? bot.usage.days.map((day) => usageDayPresentation(day).knownTotal)
-      : []
-  )))
   return (
     <div
       key={machineId}
@@ -90,8 +85,8 @@ export function renderBotMachineGroup(
             <Card key={bot.id} className="flex flex-col gap-3 p-4">
               <div className="flex items-start justify-between gap-3">
                 <AgentAvatar name={bot.name} avatarUrl={bot.image} seed={bot.id} size={40} />
-                <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-3 gap-y-2.5 sm:items-end">
-                  <div className="flex min-w-0 flex-1 flex-col gap-1 sm:min-w-55">
+                <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-3 gap-y-2.5">
+                  <div className="flex min-w-55 flex-1 flex-col gap-1">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-[15px] font-medium text-foreground">
                         {bot.name}
@@ -156,13 +151,11 @@ export function renderBotMachineGroup(
                     </span>
                   </div>
                   {bot.usage?.capability === "supported" && (
-                    <div className="basis-full sm:ml-auto sm:basis-auto">
-                      <BotTokenUsageChart
-                        botId={bot.id}
-                        usage={bot.usage}
-                        scaleMaxTokens={usageScaleMax}
-                      />
-                    </div>
+                    <BotTokenUsageHeatmap
+                      botId={bot.id}
+                      usage={bot.usage}
+                      className="self-center"
+                    />
                   )}
                 </div>
                 <DropdownMenu>

@@ -46,7 +46,7 @@ export type BotSummary = {
   // Sparse — only days with activity; oldest→newest; [] for a brand-new bot.
   // The heatmap builds the full 30-day calendar and fills from this by day-key.
   dailyActivity: BotActivityDay[]
-  // Owner-only seven-day provider telemetry. Older optimistic mutation payloads
+  // Owner-only 30-day provider telemetry. Older optimistic mutation payloads
   // can omit it until the bots query refetches, which renders the unknown-state
   // placeholder instead of inventing zero usage.
   usage?: BotTokenUsage

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   CommunityBotCreateRequestSchema,
   CommunityBotPatchRequestSchema,
+  AgentActivityMessageSchema,
   AgentTypingMessageSchema,
   AgentTypingStopMessageSchema,
   CreateWorkspaceRequestSchema,
@@ -10,6 +11,12 @@ import {
   BotAuditEventKindSchema,
   CommunityAgentNapRequestSchema,
 } from "./schemas"
+
+const usageSnapshot = (index: number) => ({
+  botId: "bot_1",
+  day: `2026-08-${String(index + 1).padStart(2, "0")}`,
+  metrics: { input: index, output: 0, cache: null },
+})
 
 function validCreatePayload(image?: string) {
   return {
@@ -25,6 +32,22 @@ describe("CommunityAgentNapRequestSchema", () => {
     expect(CommunityAgentNapRequestSchema.safeParse({ handoff: "  \n\t" }).success).toBe(false)
     const handoff = "  literal \\\\n text\n中文 🎉  \n"
     expect(CommunityAgentNapRequestSchema.parse({ handoff }).handoff).toBe(handoff)
+  })
+})
+
+describe("AgentActivityMessageSchema", () => {
+  it("accepts 30 daily snapshots and rejects 31", () => {
+    const frame = {
+      type: "agent_activity",
+      agentId: "bot_1",
+      state: "idle",
+      dailyUsage: Array.from({ length: 30 }, (_, index) => usageSnapshot(index)),
+    }
+    expect(AgentActivityMessageSchema.safeParse(frame).success).toBe(true)
+    expect(AgentActivityMessageSchema.safeParse({
+      ...frame,
+      dailyUsage: [...frame.dailyUsage, usageSnapshot(30)],
+    }).success).toBe(false)
   })
 })
 

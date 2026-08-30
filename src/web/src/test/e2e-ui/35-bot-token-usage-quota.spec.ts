@@ -45,15 +45,23 @@ async function postAsAlice(path: string, body?: unknown): Promise<Response> {
   })
 }
 
-const days = [
-  { day: "2026-08-23", period: "closed", metrics: { input: 1200, output: 400, cache: 2000 } },
-  { day: "2026-08-24", period: "closed", metrics: { input: 800, output: 200, cache: 1000 } },
-  { day: "2026-08-25", period: "closed", metrics: { input: null, output: null, cache: null } },
-  { day: "2026-08-26", period: "closed", metrics: { input: 700, output: 300, cache: null } },
-  { day: "2026-08-27", period: "closed", metrics: { input: 0, output: 0, cache: 0 } },
-  { day: "2026-08-28", period: "closed", metrics: { input: 4000, output: 1200, cache: 6400 } },
-  { day: "2026-08-29", period: "in_progress", metrics: { input: 1800, output: 650, cache: 2400 } },
-] as const
+const dayOverrides: Record<string, { input: number | null; output: number | null; cache: number | null }> = {
+  "2026-08-24": { input: 0, output: 0, cache: 0 },
+  "2026-08-25": { input: null, output: null, cache: null },
+  "2026-08-26": { input: 6_000_000, output: 3_000_000, cache: null },
+  "2026-08-27": { input: 8_000_000, output: 2_000_000, cache: 0 },
+  "2026-08-28": { input: 70_000_000, output: 30_000_000, cache: 0 },
+  "2026-08-29": { input: 300_000_000, output: 100_000_000, cache: 100_000_000 },
+}
+
+const days = Array.from({ length: 30 }, (_, index) => {
+  const day = `2026-08-${String(index + 1).padStart(2, "0")}`
+  return {
+    day,
+    period: index === 29 ? "in_progress" as const : "closed" as const,
+    metrics: dayOverrides[day] ?? { input: null, output: null, cache: null },
+  }
+})
 
 const smallerDays = days.map((day) => ({
   ...day,
@@ -213,7 +221,7 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 }
 
-test("My Bots renders seven-day usage and replace-all quota across responsive themes", async ({ asUser }, testInfo) => {
+test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ asUser }, testInfo) => {
   const { page } = await asUser("alice", { hasTouch: true })
   await page.route("**/api/community/bots", async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ bots }) })
@@ -226,12 +234,21 @@ test("My Bots renders seven-day usage and replace-all quota across responsive th
   await gotoAfterUserWsAuth(page, "/c/me/bots")
 
   const usage = page.getByTestId(tid.botUsage("bot_codex"))
+  const dayCells = usage.locator(`[data-testid^="${tid.botUsageDay("bot_codex", "")}"]`)
   await expect(usage).toBeVisible()
-  await expect(usage.getByRole("listitem")).toHaveCount(7)
-  await expect(usage).not.toContainText("8/23")
-  await expect(usage).not.toContainText("Today")
-  await expect(usage).not.toContainText("Tokens")
+  await expect(dayCells).toHaveCount(30)
+  await expect(usage).toHaveAttribute("aria-label", /Token usage over the last 30 days/)
   await expect.poll(async () => (await usage.boundingBox())?.height ?? 0).toBe(42)
+  await expect.poll(async () => (await usage.boundingBox())?.width ?? 0).toBe(147)
+  const cellGeometry = await dayCells.evaluateAll((elements) => elements.map((element) => {
+    const box = element.getBoundingClientRect()
+    return { width: box.width, height: box.height, x: Math.round(box.x), y: Math.round(box.y) }
+  }))
+  expect(cellGeometry.every((box) => box.width === 12 && box.height === 12)).toBe(true)
+  expect(new Set(cellGeometry.map((box) => box.x)).size).toBe(10)
+  expect(new Set(cellGeometry.map((box) => box.y)).size).toBe(3)
+  await expect(usage.locator('[style*="height"]')).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Open token usage details" })).toHaveCount(0)
   const botCard = usage.locator('xpath=ancestor::*[@data-slot="card"]')
   await expect.poll(async () => (await botCard.boundingBox())?.height ?? 0)
     .toBeLessThanOrEqual(80)
@@ -241,38 +258,41 @@ test("My Bots renders seven-day usage and replace-all quota across responsive th
   ])
   expect(usageBox).not.toBeNull()
   expect(botMetaBox).not.toBeNull()
-  expect(Math.abs(
-    usageBox!.y + usageBox!.height - (botMetaBox!.y + botMetaBox!.height),
-  )).toBeLessThanOrEqual(3)
-  await expect(page.getByTestId(tid.botUsage("bot_pi")).getByRole("listitem")).toHaveCount(7)
+  expect(usageBox!.x).toBeGreaterThan(botMetaBox!.x + botMetaBox!.width)
+  await expect(page.locator(
+    `[data-testid^="${tid.botUsageDay("bot_pi", "")}"]`,
+  )).toHaveCount(30)
   await expect(page.getByText("Token usage not supported")).toHaveCount(0)
-  const claudeUsage = page.getByTestId(tid.botUsage("bot_claude"))
-  await expect(claudeUsage.getByRole("listitem")).toHaveCount(7)
+  await expect(page.locator(
+    `[data-testid^="${tid.botUsageDay("bot_claude", "")}"]`,
+  )).toHaveCount(30)
   const quota = page.getByTestId(tid.machineQuota(machine.id))
   await expect(quota).toHaveCount(1)
   await expect(quota).toContainText("Quota · Spark · 18% left · 3 limits")
 
-  const largestDayBar = page
-    .getByTestId(tid.botUsageDay("bot_codex", "2026-08-28"))
-    .locator('[style*="height"]')
-  const smallerDayBar = page
-    .getByTestId(tid.botUsageDay("bot_small", "2026-08-28"))
-    .locator('[style*="height"]')
-  await expect(largestDayBar).toHaveAttribute("style", /height: 100%/)
-  await expect(smallerDayBar).toHaveAttribute("style", /height: 10%/)
-  await expect(
-    page.getByTestId(tid.botUsageDay("bot_claude", "2026-08-28")).locator('[style*="height"]'),
-  ).toHaveAttribute("style", /height: 50%/)
+  await expect(page.getByTestId(tid.botUsageDay("bot_codex", "2026-08-24")))
+    .toHaveClass(/bg-muted-foreground\/15/)
+  await expect(page.getByTestId(tid.botUsageDay("bot_codex", "2026-08-26")))
+    .toHaveClass(/bg-status-online\/30/)
+  await expect(page.getByTestId(tid.botUsageDay("bot_codex", "2026-08-27")))
+    .toHaveClass(/bg-status-online\/55/)
+  await expect(page.getByTestId(tid.botUsageDay("bot_codex", "2026-08-28")))
+    .toHaveClass(/bg-status-online\/80/)
+  expect((await page.getByTestId(
+    tid.botUsageDay("bot_codex", "2026-08-29"),
+  ).getAttribute("class"))?.split(/\s+/)).toContain("bg-status-online")
 
   const usageDay = page.getByTestId(tid.botUsageDay("bot_codex", "2026-08-26"))
+  await expectNoHorizontalOverflow(page)
+  await attachScreenshot(page, testInfo, "my-bots-token-heatmap-pc")
   await usageDay.hover()
   const tooltip = page.locator('[data-slot="tooltip-content"]:visible')
-  await expect(tooltip).toContainText("Input700")
-  await expect(tooltip).toContainText("Output300")
+  await expect(tooltip).toContainText("Aug 26")
+  await expect(tooltip).toContainText("Input6,000,000")
+  await expect(tooltip).toContainText("Output3,000,000")
   await expect(tooltip).toContainText("CacheUnavailable")
-  await usageDay.focus()
-  await expect(page.getByText("Input", { exact: true }).last()).toBeVisible()
-  await page.keyboard.press("Escape")
+  await expect(tooltip).toHaveCSS("opacity", "1")
+  await attachScreenshot(page, testInfo, "my-bots-token-heatmap-pc-hover")
 
   await expect(quota).toHaveAttribute("aria-expanded", "false")
   await quota.click()
@@ -289,84 +309,61 @@ test("My Bots renders seven-day usage and replace-all quota across responsive th
   await expect(quotaDetail).toContainText("gpt-5.3-codex-spark")
   await expect(quotaDetail).toHaveCSS("opacity", "1")
 
-  await expectNoHorizontalOverflow(page)
-  await attachScreenshot(page, testInfo, "my-bots-telemetry-pc-light")
   await quota.click()
   await expect(quota).toHaveAttribute("aria-expanded", "false")
   await expect(quotaDetail).toBeHidden()
-  await page.emulateMedia({ colorScheme: "dark" })
-  await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains("dark"))).toBe(true)
-  await page.waitForTimeout(300)
-  await attachScreenshot(page, testInfo, "my-bots-telemetry-pc-dark")
+  await page.mouse.move(1, 1)
 
   await page.setViewportSize({ width: 639, height: 844 })
-  await page.emulateMedia({ colorScheme: "light" })
-  await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains("dark"))).toBe(false)
   await page.waitForTimeout(300)
   await expectNoHorizontalOverflow(page)
   await expect(usage).toBeVisible()
-  await expect(usage.getByRole("listitem")).toHaveCount(7)
-  const mobileUsageTrigger = usage.getByRole("button", { name: "Open token usage details" })
-  const mobileUsageBox = await mobileUsageTrigger.boundingBox()
-  expect(mobileUsageBox?.height).toBeGreaterThanOrEqual(44)
-  expect(mobileUsageBox?.width).toBeGreaterThanOrEqual(44)
-  await mobileUsageTrigger.tap()
-  const mobileUsageDetail = page.locator('[data-slot="popover-content"]:visible')
-  await expect.poll(async () => (await mobileUsageDetail.boundingBox())?.height ?? 0)
-    .toBeLessThanOrEqual(260)
-  const mobileDayTargets = page.locator(
-    `[data-testid^="${tid.botUsageDay("bot_codex", "")}"]:visible`,
+  await expect(dayCells).toHaveCount(30)
+  await expect.poll(async () => (await usage.boundingBox())?.height ?? 0).toBe(42)
+  await expect.poll(async () => (await usage.boundingBox())?.width ?? 0).toBe(147)
+  const [narrowBoundaryUsageBox, narrowBoundaryMetaBox] = await Promise.all([
+    usage.boundingBox(),
+    botCard.getByTestId(tid.botCardModel).boundingBox(),
+  ])
+  expect(narrowBoundaryUsageBox).not.toBeNull()
+  expect(narrowBoundaryMetaBox).not.toBeNull()
+  const narrowBoundaryBoxesOverlap = !(
+    narrowBoundaryUsageBox!.x + narrowBoundaryUsageBox!.width <= narrowBoundaryMetaBox!.x
+    || narrowBoundaryMetaBox!.x + narrowBoundaryMetaBox!.width <= narrowBoundaryUsageBox!.x
+    || narrowBoundaryUsageBox!.y + narrowBoundaryUsageBox!.height <= narrowBoundaryMetaBox!.y
+    || narrowBoundaryMetaBox!.y + narrowBoundaryMetaBox!.height <= narrowBoundaryUsageBox!.y
   )
-  await expect(mobileDayTargets).toHaveCount(7)
-  await expect.poll(async () => {
-    const boxes = await mobileDayTargets.evaluateAll((elements) => elements.map((element) => {
-      const box = element.getBoundingClientRect()
-      return { width: box.width, height: box.height }
-    }))
-    return boxes.every((box) => box.width >= 44 && box.height >= 44)
-  }).toBe(true)
-  const mobileDayBoxes = await mobileDayTargets.evaluateAll((elements) => elements.map((element) => {
-    const box = element.getBoundingClientRect()
-    return { width: box.width, height: box.height, y: Math.round(box.y) }
-  }))
-  expect(new Set(mobileDayBoxes.map((box) => box.y)).size).toBeLessThanOrEqual(2)
-  await expect(page.locator(
-    `[data-testid^="${tid.botUsageDay("bot_codex", "")}"][aria-pressed="true"]:visible`,
-  )).toHaveCount(1)
-  const mobileUsageDay = page.locator(
-    `[data-testid="${tid.botUsageDay("bot_codex", "2026-08-26")}"]:visible`,
-  )
-  await expect.poll(async () => (await mobileUsageDay.boundingBox())?.height ?? 0)
-    .toBeGreaterThanOrEqual(44)
-  await expect.poll(async () => (await mobileUsageDay.boundingBox())?.width ?? 0)
-    .toBeGreaterThanOrEqual(44)
-  await mobileUsageDay.tap()
-  await expect(mobileUsageDay).toHaveAttribute("aria-pressed", "true")
-  await expect(mobileUsageDetail).toContainText("Input700")
-  await expect(mobileUsageDetail).toContainText("Output300")
-  await expect(mobileUsageDetail).toContainText("CacheUnavailable")
-  const mobileQuotaBox = await quota.boundingBox()
-  expect(mobileQuotaBox?.height).toBeGreaterThanOrEqual(44)
-  expect(mobileQuotaBox?.width).toBeGreaterThanOrEqual(44)
-  await mobileUsageTrigger.tap()
-  await expect(mobileUsageTrigger).toHaveAttribute("aria-expanded", "false")
-  await expect(page.locator('[data-slot="popover-content"]:visible')).toHaveCount(0)
-  await attachScreenshot(page, testInfo, "my-bots-telemetry-mobile-light")
-  await page.emulateMedia({ colorScheme: "dark" })
-  await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains("dark"))).toBe(true)
+  expect(narrowBoundaryBoxesOverlap).toBe(false)
+
+  await page.setViewportSize({ width: 390, height: 844 })
   await page.waitForTimeout(300)
   await expectNoHorizontalOverflow(page)
-  await attachScreenshot(page, testInfo, "my-bots-telemetry-mobile-dark")
+  await expect(usage).toBeVisible()
+  await expect(dayCells).toHaveCount(30)
+  await expect.poll(async () => (await usage.boundingBox())?.height ?? 0).toBe(42)
+  await expect.poll(async () => (await usage.boundingBox())?.width ?? 0).toBe(147)
+  const [mobileUsageBox, mobileMetaBox] = await Promise.all([
+    usage.boundingBox(),
+    botCard.getByTestId(tid.botCardModel).boundingBox(),
+  ])
+  expect(mobileUsageBox).not.toBeNull()
+  expect(mobileMetaBox).not.toBeNull()
+  expect(mobileUsageBox!.y).toBeGreaterThan(mobileMetaBox!.y + mobileMetaBox!.height)
+  await attachScreenshot(page, testInfo, "my-bots-token-heatmap-mobile")
+  await usageDay.hover()
+  await expect(tooltip).toContainText("Aug 26")
+  await expect(tooltip).toContainText("Input6,000,000")
+  await expect(tooltip).toContainText("Output3,000,000")
+  await expect(tooltip).toContainText("CacheUnavailable")
+  await expect(tooltip).toHaveCSS("opacity", "1")
+  await attachScreenshot(page, testInfo, "my-bots-token-heatmap-mobile-hover")
 
   await page.setViewportSize({ width: 640, height: 844 })
-  await expect(mobileUsageTrigger).toBeHidden()
-  await expect(page.locator(
-    `[data-testid^="${tid.botUsageDay("bot_codex", "")}"]:visible`,
-  )).toHaveCount(7)
+  await expect(dayCells).toHaveCount(30)
   await expect.poll(async () => (await usage.boundingBox())?.height ?? 0).toBe(42)
   const desktopBoundaryDay = page.getByTestId(tid.botUsageDay("bot_codex", "2026-08-26"))
   await desktopBoundaryDay.hover()
-  await expect(page.locator('[data-slot="tooltip-content"]:visible')).toContainText("Input700")
+  await expect(page.locator('[data-slot="tooltip-content"]:visible')).toContainText("Input6,000,000")
 })
 
 test("My Bots renders Pi usage through real D1 and the unmocked bots API", async ({ asUser }, testInfo) => {
@@ -408,8 +405,8 @@ test("My Bots renders Pi usage through real D1 and the unmocked bots API", async
     const timeZone = "Asia/Shanghai"
     const today = dayKeyInTimeZone(new Date(), timeZone)
     const expectedDays = Array.from(
-      { length: 7 },
-      (_, index) => calendarDayKeyDaysAgo(today, 6 - index),
+      { length: 30 },
+      (_, index) => calendarDayKeyDaysAgo(today, 29 - index),
     )
     const updatedAt = new Date().toISOString()
     executeLocalD1([
@@ -467,7 +464,7 @@ test("My Bots renders Pi usage through real D1 and the unmocked bots API", async
     expect(apiBot?.usage.days.at(-1)).toEqual({
       day: today,
       period: "in_progress",
-      metrics: { input: 106, output: 16, cache: 1006 },
+      metrics: { input: 129, output: 39, cache: 1029 },
     })
     const apiEvidencePath = testInfo.outputPath("real-pi-bots-api-response.json")
     writeFileSync(apiEvidencePath, `${JSON.stringify(apiBot, null, 2)}\n`)
@@ -483,12 +480,10 @@ test("My Bots renders Pi usage through real D1 and the unmocked bots API", async
 
     const usage = page.getByTestId(tid.botUsage(botId))
     await expect(usage).toBeVisible()
-    await expect(usage.getByRole("listitem")).toHaveCount(7)
-    await usage.getByRole("button", { name: "Open token usage details" }).tap()
     const visibleDayTargets = page.locator(
       `[data-testid^="${tid.botUsageDay(botId, "")}"]:visible`,
     )
-    await expect(visibleDayTargets).toHaveCount(7)
+    await expect(visibleDayTargets).toHaveCount(30)
     const visibleDayTestIds = await visibleDayTargets.evaluateAll((elements) =>
       elements.map((element) => element.getAttribute("data-testid")),
     )
@@ -496,15 +491,18 @@ test("My Bots renders Pi usage through real D1 and the unmocked bots API", async
     const todayTarget = page.locator(
       `[data-testid="${tid.botUsageDay(botId, today)}"]:visible`,
     )
-    await expect(todayTarget).toHaveText("Today")
-    await expect(page.locator('[data-slot="popover-content"]:visible')).toContainText("Input106")
+    await expect(todayTarget).toHaveAttribute("aria-label", /Input 129/)
+    await todayTarget.hover()
+    await expect(page.locator('[data-slot="tooltip-content"]:visible')).toContainText("Input129")
+    await expect(page.locator('[data-slot="tooltip-content"]:visible')).toContainText("Output39")
+    await expect(page.locator('[data-slot="tooltip-content"]:visible')).toContainText("Cache1,029")
     const browserEvidencePath = testInfo.outputPath("real-pi-browser-observation.json")
     writeFileSync(browserEvidencePath, `${JSON.stringify({
       route: "/c/me/bots",
       botId,
       visibleDayTestIds,
       today,
-      todayText: await todayTarget.textContent(),
+      todayLabel: await todayTarget.getAttribute("aria-label"),
     }, null, 2)}\n`)
     await testInfo.attach("real-pi-browser-observation.json", { path: browserEvidencePath })
     await attachScreenshot(page, testInfo, "real-pi-d1-local-today")

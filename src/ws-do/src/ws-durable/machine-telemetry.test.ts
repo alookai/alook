@@ -342,6 +342,40 @@ describe("WebSocketDurableObject", () => {
         expect(statements[2]!.values).toMatchObject({ 0: "bot_1", 2: 12, 3: 7, 4: null })
       })
 
+      it("accepts all 30 unique machine-local usage days", async () => {
+        const { durable, store } = createDO()
+        store.set("community-machine-identity", {
+          userId: "u_1",
+          machineId: "cm_1",
+          credentialHash: "0".repeat(64),
+        })
+        mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "codex" })
+        mockGetProfile.mockResolvedValue({ statusEmoji: "💤", statusText: "Idle" })
+        const ws = createMockWebSocket()
+        ws.serializeAttachment({ type: "community-machine", machineId: "cm_1", userId: "u_1", authenticated: true })
+        const usageTimeZone = "Asia/Shanghai"
+        const usageDay = dayKeyInTimeZone(new Date(), usageTimeZone)
+
+        await durable.webSocketMessage(ws as any, JSON.stringify({
+          type: "agent_activity",
+          agentId: "bot_1",
+          state: "idle",
+          usageTimeZone,
+          usageDay,
+          dailyUsage: Array.from({ length: 30 }, (_, offset) => ({
+            botId: "bot_1",
+            day: calendarDayKeyDaysAgo(usageDay, offset),
+            metrics: { input: offset, output: 1, cache: 2 },
+          })),
+        }))
+
+        expect(mockD1Batch).toHaveBeenCalledOnce()
+        const statements = mockD1Batch.mock.calls[0]![0] as Array<{ sql: string }>
+        expect(statements.filter((statement) => (
+          statement.sql.includes("INSERT INTO community_bot_daily_token_usage")
+        ))).toHaveLength(30)
+      })
+
       it("advances the computer-local usage day without creating an empty usage row", async () => {
         const { durable, store } = createDO()
         store.set("community-machine-identity", {
@@ -437,7 +471,7 @@ describe("WebSocketDurableObject", () => {
           const prune = statements.find((statement) => statement.sql.includes("DELETE FROM community_bot_daily_token_usage"))
           expect(prune?.values).toMatchObject({
             0: "bot_1",
-            1: "2026-08-22",
+            1: "2026-07-30",
             2: "bot_1",
             3: "cm_1",
           })
@@ -490,7 +524,7 @@ describe("WebSocketDurableObject", () => {
         ]],
         ["an out-of-window day", (day: string) => [{
           botId: "bot_1",
-          day: calendarDayKeyDaysAgo(day, 7),
+          day: calendarDayKeyDaysAgo(day, 30),
           metrics: { input: 3, output: 1, cache: 2 },
         }]],
         ["a different bot id", (day: string) => [{

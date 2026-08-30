@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const DAILY_TOKEN_USAGE_WINDOW_DAYS = 30;
+
 const safeToken = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const boundedText = z.string().min(1).refine(
   (value) => new TextEncoder().encode(value).length <= 64,
