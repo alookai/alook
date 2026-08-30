@@ -389,7 +389,6 @@ export function useComposerController(
     onSend: send,
     onUploadFile: () => {
       fileInputRef.current?.click()
-      editor?.commands.focus()
     },
     onEmojiPick: (emoji) => {
       editor?.chain().focus().insertContent(emoji).run()
