@@ -615,6 +615,8 @@ function MessageImpl({
             <div className="mt-2">
               <MessageReactions
                 messageId={m.id}
+                authorName={authorName}
+                messagePreview={visibleContent}
                 reactions={m.reactions}
                 hoverCapable={hoverCapable}
                 tooltipActive={activated}

@@ -25,6 +25,11 @@ import { cn } from "@/lib/utils"
 import { FORUM_ARCHIVE_TAG } from "@alook/shared"
 import { useProfilesByUserId } from "@/stores/community/ws"
 import { readCommunityProfile } from "@/lib/community/profile-read"
+import {
+  HorizontalOverflowFadeOverlays,
+  horizontalOverflowFades,
+  useHorizontalOverflowRail,
+} from "../horizontal-overflow-rail"
 
 const MAX_AVATARS = 5
 const MAX_VISIBLE_TAGS = 2
@@ -37,22 +42,7 @@ export function shouldActivateForumRow(event: {
   return event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")
 }
 
-export function forumTagScrollFades({
-  scrollLeft,
-  scrollWidth,
-  clientWidth,
-}: {
-  scrollLeft: number
-  scrollWidth: number
-  clientWidth: number
-}) {
-  const maxScrollLeft = Math.max(0, scrollWidth - clientWidth)
-  if (maxScrollLeft <= 1) return { left: false, right: false }
-  return {
-    left: scrollLeft > 1,
-    right: scrollLeft < maxScrollLeft - 1,
-  }
-}
+export const forumTagScrollFades = horizontalOverflowFades
 
 function ForumTagSummary({ tags }: { tags: string[] }) {
   const shown = tags.slice(0, MAX_VISIBLE_TAGS)
@@ -226,10 +216,7 @@ export function ForumView({
   const profilesByUserId = useProfilesByUserId()
   const [composing, setComposing] = useState(false)
   const [deletingFor, setDeletingFor] = useState<ForumThread | null>(null)
-  const [tagFades, setTagFades] = useState({ left: false, right: false })
   const newPostTriggerRef = useRef<HTMLButtonElement>(null)
-  const activeFilterRef = useRef<HTMLButtonElement>(null)
-  const tagScrollerRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const bindScrollRoot = useCallback((node: HTMLDivElement | null) => {
     scrollRef.current = node
@@ -255,39 +242,21 @@ export function ForumView({
     ...(hasArchivedPosts ? [FORUM_ARCHIVE_TAG] : []),
   ]
   const filterTagKey = filterTags.join("\0")
-  const syncTagFades = useCallback(() => {
-    const scroller = tagScrollerRef.current
-    if (!scroller) return
-    const next = forumTagScrollFades(scroller)
-    setTagFades((current) => current.left === next.left && current.right === next.right ? current : next)
-  }, [])
+  const {
+    fades: tagFades,
+    onKeyDown: onTagRailKeyDown,
+    onScroll: onTagRailScroll,
+    scrollerRef: tagScrollerRef,
+    selectedRef: activeFilterRef,
+  } = useHorizontalOverflowRail<HTMLDivElement, HTMLButtonElement>({
+    contentKey: filterTagKey,
+    selectedKey: tag,
+  })
   useLayoutEffect(() => {
     if (posts.length === 0 || alignedTagRef.current === tag) return
     alignedTagRef.current = tag
     virtualizer.scrollToIndex(0, { align: "start" })
   }, [posts.length, tag, virtualizer])
-  useLayoutEffect(() => {
-    const scroller = tagScrollerRef.current
-    const active = activeFilterRef.current
-    if (!scroller || !active) return
-    const scrollerRect = scroller.getBoundingClientRect()
-    const activeRect = active.getBoundingClientRect()
-    if (activeRect.left < scrollerRect.left) {
-      scroller.scrollLeft -= scrollerRect.left - activeRect.left
-    } else if (activeRect.right > scrollerRect.right) {
-      scroller.scrollLeft += activeRect.right - scrollerRect.right
-    }
-    syncTagFades()
-  }, [filterTagKey, syncTagFades, tag])
-  useLayoutEffect(() => {
-    const scroller = tagScrollerRef.current
-    if (!scroller) return
-    syncTagFades()
-    if (typeof ResizeObserver === "undefined") return
-    const observer = new ResizeObserver(syncTagFades)
-    observer.observe(scroller)
-    return () => observer.disconnect()
-  }, [filterTagKey, syncTagFades])
   const olderSentinelRef = useVirtualCursorSentinel({
     scrollRef,
     hasMore,
@@ -332,20 +301,8 @@ export function ForumView({
               role="region"
               aria-label="Forum tag filters"
               tabIndex={0}
-              onScroll={syncTagFades}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-                  event.preventDefault()
-                  event.currentTarget.scrollLeft += event.key === "ArrowLeft" ? -48 : 48
-                  syncTagFades()
-                } else if (event.key === "Home" || event.key === "End") {
-                  event.preventDefault()
-                  event.currentTarget.scrollLeft = event.key === "Home"
-                    ? 0
-                    : event.currentTarget.scrollWidth - event.currentTarget.clientWidth
-                  syncTagFades()
-                }
-              }}
+              onScroll={onTagRailScroll}
+              onKeyDown={onTagRailKeyDown}
               className="flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain thin-scrollbar scrollbar-none"
             >
               {filterTags.length > 0 && (
@@ -382,20 +339,11 @@ export function ForumView({
                 </>
               )}
             </div>
-            {tagFades.left && (
-              <span
-                aria-hidden
-                data-testid={tid.forumTagFadeLeft}
-                className="pointer-events-none absolute inset-y-0 left-0 z-10 w-3.5 bg-linear-to-r from-background to-transparent"
-              />
-            )}
-            {tagFades.right && (
-              <span
-                aria-hidden
-                data-testid={tid.forumTagFadeRight}
-                className="pointer-events-none absolute inset-y-0 right-0 z-10 w-3.5 bg-linear-to-l from-background to-transparent"
-              />
-            )}
+            <HorizontalOverflowFadeOverlays
+              fades={tagFades}
+              leftTestId={tid.forumTagFadeLeft}
+              rightTestId={tid.forumTagFadeRight}
+            />
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <Button data-testid={tid.forumNewPost} size="sm" ref={newPostTriggerRef} onClick={() => setComposing(true)}><Plus className="size-4" /> New Post</Button>

@@ -24,13 +24,14 @@ vi.mock("@/components/ui/dialog", () => ({
   DialogContent: ({ children, ...props }: React.ComponentProps<"div">) =>
     React.createElement("mock-dialog-content", props, children),
   DialogHeader: ({ children }: { children: React.ReactNode }) => React.createElement("div", null, children),
-  DialogTitle: ({ children }: { children: React.ReactNode }) => React.createElement("div", null, children),
-  DialogDescription: ({ children }: { children: React.ReactNode }) => React.createElement("div", null, children),
+  DialogTitle: ({ children, ...props }: { children: React.ReactNode }) => React.createElement("mock-dialog-title", props, children),
+  DialogDescription: ({ children, ...props }: { children: React.ReactNode }) => React.createElement("mock-dialog-description", props, children),
 }))
 vi.mock("@/components/ui/tabs", () => ({
   Tabs: ({ children, value }: { children: React.ReactNode; value: string }) =>
     React.createElement("mock-tabs", { value }, children),
-  TabsList: ({ children }: { children: React.ReactNode }) => React.createElement("div", null, children),
+  TabsList: ({ children, variant: _variant, ...props }: { children: React.ReactNode; variant?: string }) =>
+    React.createElement("div", props, children),
   TabsTrigger: ({ children, ...props }: React.ComponentProps<"button">) =>
     React.createElement("button", props, children),
 }))
@@ -43,26 +44,43 @@ vi.mock("@/components/ui/tooltip", () => ({
 import { MessageReactions, reconcileReactionSelection } from "./message-reactions"
 import { tid } from "@/lib/community/testids"
 
-const buttonNode = { focus: vi.fn(), isConnected: true }
+const buttonNode = {
+  focus: vi.fn(),
+  isConnected: true,
+  getBoundingClientRect: () => ({ left: 0, right: 52 }),
+}
 const reactionGroupNode = { focus: vi.fn() }
+const reactionScrollerNode = {
+  scrollLeft: 0,
+  scrollWidth: 180,
+  clientWidth: 120,
+  getBoundingClientRect: () => ({ left: 0, right: 120 }),
+}
 const reactions = [
   { emoji: "👍", count: 1, me: false, userIds: ["user_1"] },
   { emoji: "🔥", count: 1, me: true, userIds: ["user_2"] },
 ]
 
-function renderReactions(onToggleReaction = vi.fn()) {
+function renderReactions(
+  onToggleReaction = vi.fn(),
+  reactionItems = reactions,
+) {
   let renderer: TestRenderer.ReactTestRenderer
   act(() => {
     renderer = TestRenderer.create(
       React.createElement(MessageReactions, {
         messageId: "message_1",
-        reactions,
+        authorName: "Alice",
+        messagePreview: "A deliberately long message preview",
+        reactions: reactionItems,
         hoverCapable: false,
         tooltipActive: false,
         onToggleReaction,
       }),
       {
-        createNodeMock: (node) => node.type === "button"
+        createNodeMock: (node) => node.props?.["data-testid"] === tid.reactionScroller("message_1")
+          ? reactionScrollerNode
+          : node.type === "button"
           ? buttonNode
           : node.props?.["data-testid"] === tid.reactionGroup("message_1")
             ? reactionGroupNode
@@ -124,6 +142,86 @@ describe("MessageReactions", () => {
       .toContain("**:data-[slot=dialog-close]:size-11")
   })
 
+  it("constrains long reactor lists to the dialog scroll region", () => {
+    vi.useFakeTimers()
+    const { renderer } = renderReactions()
+    const chip = renderer.root.findByProps({ "data-testid": tid.reactionChip("message_1", "👍") })
+    act(() => chip.props.onPointerDown({ pointerType: "touch", clientX: 10, clientY: 10, stopPropagation: vi.fn() }))
+    act(() => vi.advanceTimersByTime(450))
+    expect(renderer.root.findByType("mock-dialog-content").props.className)
+      .toContain("flex-col")
+    expect(renderer.root.findByProps({ role: "tabpanel" }).props.className)
+      .toContain("flex-auto")
+  })
+
+  it("switches the dialog surface with its overflow fades without a color transition", () => {
+    vi.useFakeTimers()
+    const { renderer } = renderReactions()
+    const chip = renderer.root.findByProps({ "data-testid": tid.reactionChip("message_1", "👍") })
+    act(() => chip.props.onPointerDown({ pointerType: "touch", clientX: 10, clientY: 10, stopPropagation: vi.fn() }))
+    act(() => vi.advanceTimersByTime(450))
+    expect(renderer.root.findByType("mock-dialog-content").props.className)
+      .toContain("transition-none")
+    expect(renderer.root.findByType("mock-dialog-content").props.className)
+      .toContain("**:data-[slot=dialog-close]:transition-none")
+  })
+
+  it("renders a transparent single-line horizontal tab rail with an accessible label", () => {
+    vi.useFakeTimers()
+    const { renderer } = renderReactions()
+    const chip = renderer.root.findByProps({ "data-testid": tid.reactionChip("message_1", "👍") })
+    act(() => chip.props.onPointerDown({ pointerType: "touch", clientX: 10, clientY: 10, stopPropagation: vi.fn() }))
+    act(() => vi.advanceTimersByTime(450))
+    const rail = renderer.root.findByProps({ "data-testid": tid.reactionScroller("message_1") })
+    expect(rail.props["aria-label"]).toBe("Reaction types")
+    expect(rail.props.className).toContain("flex-nowrap")
+    expect(rail.props.className).toContain("overflow-x-auto")
+    expect(rail.props.className).toContain("bg-transparent!")
+  })
+
+  it("uses the message author and one-line message preview as its header", () => {
+    vi.useFakeTimers()
+    const { renderer } = renderReactions()
+    const chip = renderer.root.findByProps({ "data-testid": tid.reactionChip("message_1", "👍") })
+    act(() => chip.props.onPointerDown({ pointerType: "touch", clientX: 10, clientY: 10, stopPropagation: vi.fn() }))
+    act(() => vi.advanceTimersByTime(450))
+    const title = renderer.root.findByType("mock-dialog-title")
+    const description = renderer.root.findByType("mock-dialog-description")
+    expect(title.children).toEqual(["Alice"])
+    expect(title.props.className).toContain("truncate")
+    expect(description.children).toEqual(["A deliberately long message preview"])
+    expect(description.props.className).toContain("truncate")
+  })
+
+  it("uses the shared 32px identity row for authorized reactors", () => {
+    vi.useFakeTimers()
+    const { renderer } = renderReactions()
+    const chip = renderer.root.findByProps({ "data-testid": tid.reactionChip("message_1", "👍") })
+    act(() => chip.props.onPointerDown({ pointerType: "touch", clientX: 10, clientY: 10, stopPropagation: vi.fn() }))
+    act(() => vi.advanceTimersByTime(450))
+    const member = renderer.root.findByProps({ "data-testid": tid.reactionMember("user_1") })
+    const text = member.findAll((node) => node.children.some((child) => typeof child === "string"))
+      .flatMap((node) => node.children.filter((child): child is string => typeof child === "string"))
+      .join("")
+    expect(text).toContain("Alice")
+    expect(text).toContain("#0001")
+  })
+
+  it("keeps an unauthorized actor on the Unknown member fallback", () => {
+    vi.useFakeTimers()
+    const unknownReactions = [{ emoji: "👀", count: 1, me: false, userIds: ["user_3"] }]
+    const { renderer } = renderReactions(vi.fn(), unknownReactions)
+    const chip = renderer.root.findByProps({ "data-testid": tid.reactionChip("message_1", "👀") })
+    act(() => chip.props.onPointerDown({ pointerType: "touch", clientX: 10, clientY: 10, stopPropagation: vi.fn() }))
+    act(() => vi.advanceTimersByTime(450))
+    const member = renderer.root.findByProps({ "data-testid": tid.reactionMember("user_3") })
+    const text = member.findAll((node) => node.children.some((child) => typeof child === "string"))
+      .flatMap((node) => node.children.filter((child): child is string => typeof child === "string"))
+      .join("")
+    expect(text).toContain("Unknown member")
+    expect(text).not.toContain("#000")
+  })
+
   it("restores focus after the dialog close focus handoff", () => {
     vi.useFakeTimers()
     const { renderer } = renderReactions()
@@ -145,6 +243,8 @@ describe("MessageReactions", () => {
     act(() => vi.advanceTimersByTime(450))
     act(() => renderer.update(React.createElement(MessageReactions, {
       messageId: "message_1",
+      authorName: "Alice",
+      messagePreview: "A deliberately long message preview",
       reactions: [],
       hoverCapable: false,
       tooltipActive: false,
