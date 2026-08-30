@@ -9,6 +9,10 @@ const latestDaemonVersion = (JSON.parse(readFileSync(
   `${REPO_ROOT}/src/daemon/package.json`,
   "utf8",
 )) as { version: string }).version
+const currentWebVersion = (JSON.parse(readFileSync(
+  `${REPO_ROOT}/src/web/package.json`,
+  "utf8",
+)) as { version: string }).version
 
 const outdatedMachine = {
   id: "machine_daemon_notice",
@@ -111,9 +115,18 @@ test("daemon reminder checks once, respects reduced motion, and stays dismissed"
 
   await notice.locator('[data-slot="message-notification-close"]').click()
   await expect(notice).toBeHidden()
+  await expect.poll(() => page.evaluate(() => {
+    const savedVersions: Array<string | null> = []
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index)
+      if (key?.startsWith("alook:daemon-update-check:")) {
+        savedVersions.push(localStorage.getItem(key))
+      }
+    }
+    return savedVersions
+  })).toEqual([currentWebVersion])
   await page.reload()
   await expect(notice).toHaveCount(0)
-  expect(requests.machineRequestCount()).toBe(1)
   expect(requests.updateRequests()).toEqual([])
 })
 
