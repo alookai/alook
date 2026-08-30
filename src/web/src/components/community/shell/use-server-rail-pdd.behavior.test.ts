@@ -114,6 +114,11 @@ class FakeElement extends FakeEventTarget {
   isConnected = true
   clickCount = 0
   lastClickEvent: FakeMouseEvent | null = null
+  dragPreview: FakeElement | null = null
+  cloneCount = 0
+  removed = false
+  readonly style: Record<string, string> = {}
+  readonly attributes = new Map<string, string>()
   readonly focus = vi.fn()
 
   constructor(public bounds: Rect) {
@@ -121,6 +126,21 @@ class FakeElement extends FakeEventTarget {
   }
 
   getBoundingClientRect() { return this.bounds }
+
+  querySelector(selector: string) {
+    return selector === "[data-rail-drag-preview]" ? this.dragPreview : null
+  }
+
+  cloneNode() {
+    this.cloneCount += 1
+    const clone = new FakeElement({ ...this.bounds })
+    for (const [name, value] of this.attributes) clone.attributes.set(name, value)
+    return clone
+  }
+
+  setAttribute(name: string, value: string) { this.attributes.set(name, value) }
+  removeAttribute(name: string) { this.attributes.delete(name) }
+  remove() { this.removed = true }
 
   click() {
     this.clickCount += 1
@@ -134,6 +154,22 @@ class FakeDocument extends FakeEventTarget {
   points: FakeElement[] = []
   readonly documentElement = { style: { userSelect: "text" } }
   readonly removeAllRanges = vi.fn()
+  readonly body: {
+    children: FakeElement[]
+    appendChild: ReturnType<typeof vi.fn>
+  }
+
+  constructor() {
+    super()
+    const children: FakeElement[] = []
+    this.body = {
+      children,
+      appendChild: vi.fn((element: FakeElement) => {
+        children.push(element)
+        return element
+      }),
+    }
+  }
 
   elementsFromPoint() { return this.points }
   getSelection() { return { removeAllRanges: this.removeAllRanges } }
@@ -243,12 +279,15 @@ function register(
 ) {
   const element = new FakeElement(bounds)
   const handle = new FakeElement(bounds)
+  const dragPreview = new FakeElement(rect(0, 40, 0, 40))
+  dragPreview.setAttribute("data-rail-drag-preview", "")
+  handle.dragPreview = dragPreview
   const cleanup = api.registerItem(
     entity,
     element as unknown as HTMLElement,
     handle as unknown as HTMLElement,
   )
-  return { entity, element, handle, cleanup }
+  return { entity, element, handle, dragPreview, cleanup }
 }
 
 function point(identifier: number, clientX: number, clientY: number) {
@@ -521,6 +560,7 @@ describe("useServerRailPdd behavior", () => {
     touch(a.handle, "touchstart", [point(9, 10, 10)])
     await act(async () => vi.advanceTimersByTime(SERVER_RAIL_TOUCH_HOLD_MS - 1))
     expect(hook.callbacks.onDragStart).toHaveBeenCalledTimes(dragStartCount)
+    expect(fakeDocument.body.children).toHaveLength(0)
     const context = a.handle.dispatch("contextmenu", testEvent("contextmenu"))
     expect(context.defaultPrevented).toBe(true)
     expect(context.propagationStopped).toBe(true)
@@ -528,9 +568,22 @@ describe("useServerRailPdd behavior", () => {
     expect(hook.callbacks.onDragStart).toHaveBeenCalledTimes(dragStartCount + 1)
     expect(hook.callbacks.onDragStart).toHaveBeenLastCalledWith(a.entity)
     expect(fakeDocument.documentElement.style.userSelect).toBe("none")
+    const floating = fakeDocument.body.children.at(-1)!
+    expect(a.dragPreview.cloneCount).toBe(1)
+    expect(floating.attributes.get("data-rail-floating-preview")).toBe("server")
+    expect(floating.attributes.get("aria-hidden")).toBe("true")
+    expect(floating.attributes.has("data-rail-drag-preview")).toBe(false)
+    expect(floating.style.width).toBe("40px")
+    expect(floating.style.height).toBe("40px")
+    expect(floating.style.pointerEvents).toBe("none")
+    expect(floating.style.transform).toBe("translate3d(-10px, -10px, 0)")
+    const dragMove = touch(a.handle, "touchmove", [point(9, 30, 50)])
+    expect(dragMove.defaultPrevented).toBe(true)
+    expect(floating.style.transform).toBe("translate3d(10px, 30px, 0)")
     const clickCount = a.handle.clickCount
-    touch(a.handle, "touchend", [], [point(9, 10, 10)])
+    touch(a.handle, "touchend", [], [point(9, 30, 50)])
     expect(a.handle.clickCount).toBe(clickCount)
+    expect(floating.removed).toBe(true)
     expect(fakeDocument.documentElement.style.userSelect).toBe("text")
     a.handle.click()
     expect(a.handle.lastClickEvent?.defaultPrevented).toBe(true)
@@ -571,9 +624,15 @@ describe("useServerRailPdd behavior", () => {
     ) {
       touch(source.handle, "touchstart", [point(identifier, 20, startY)])
       await act(async () => vi.advanceTimersByTime(SERVER_RAIL_TOUCH_HOLD_MS))
+      const floating = fakeDocument.body.children.at(-1)!
+      expect(floating.attributes.get("data-rail-floating-preview")).toBe(source.entity.kind)
+      expect(floating.style.width).toBe("40px")
+      expect(floating.style.height).toBe("40px")
+      expect(floating.style.transform).toBe(`translate3d(0px, ${startY - 20}px, 0)`)
       fakeDocument.points = [target.element]
       const move = touch(source.handle, "touchmove", [point(identifier, 20, endY)])
       expect(move.defaultPrevented).toBe(true)
+      expect(floating.style.transform).toBe(`translate3d(0px, ${endY - 20}px, 0)`)
       touch(source.handle, "touchmove", [point(identifier, 20, endY)])
       flushAnimationFrame()
       touch(
@@ -582,6 +641,7 @@ describe("useServerRailPdd behavior", () => {
         [],
         includeChangedTouch ? [point(identifier, 20, endY)] : [],
       )
+      expect(floating.removed).toBe(true)
     }
 
     await drag(b, a, 1, 100, 5)

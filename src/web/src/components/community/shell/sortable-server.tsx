@@ -132,7 +132,7 @@ function SortableServerImpl({
             active ? "cursor-default" : "cursor-pointer",
           ].join(" ")}
         >
-          <span className={[
+          <span data-rail-drag-preview className={[
             "pointer-events-none relative grid size-10 place-items-center overflow-hidden font-brand text-xl font-bold transition-all duration-150",
             active
               ? "cursor-default rounded-xl"

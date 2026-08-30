@@ -25,6 +25,52 @@ type RailData = Record<string | symbol, unknown>
 
 export const SERVER_RAIL_TOUCH_HOLD_MS = 450
 export const SERVER_RAIL_TOUCH_DRIFT_PX = 10
+const TOUCH_DRAG_PREVIEW_SELECTOR = "[data-rail-drag-preview]"
+
+type TouchDragPreview = {
+  element: HTMLElement
+  width: number
+  height: number
+}
+
+function positionTouchDragPreview(
+  preview: TouchDragPreview,
+  clientX: number,
+  clientY: number,
+) {
+  preview.element.style.transform = `translate3d(${clientX - preview.width / 2}px, ${clientY - preview.height / 2}px, 0)`
+}
+
+function createTouchDragPreview(
+  dragHandle: HTMLElement,
+  entity: RailEntity,
+  clientX: number,
+  clientY: number,
+): TouchDragPreview | null {
+  const source = dragHandle.querySelector<HTMLElement>(TOUCH_DRAG_PREVIEW_SELECTOR)
+  if (!source) return null
+  const rect = source.getBoundingClientRect()
+  const element = source.cloneNode(true) as HTMLElement
+  element.removeAttribute("data-rail-drag-preview")
+  element.setAttribute("data-rail-floating-preview", entity.kind)
+  element.setAttribute("aria-hidden", "true")
+  Object.assign(element.style, {
+    position: "fixed",
+    left: "0",
+    top: "0",
+    zIndex: "100",
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
+    margin: "0",
+    pointerEvents: "none",
+    transition: "none",
+    willChange: "transform",
+  })
+  const preview = { element, width: rect.width, height: rect.height }
+  positionTouchDragPreview(preview, clientX, clientY)
+  document.body.appendChild(element)
+  return preview
+}
 
 export function railTouchMoveIntent({
   dragging,
@@ -147,6 +193,7 @@ export function useServerRailPdd({
     dragging: boolean
     timer: ReturnType<typeof setTimeout> | null
     frame: number | null
+    preview: TouchDragPreview | null
   } | null>(null)
 
   const clearHover = useCallback(() => {
@@ -185,6 +232,7 @@ export function useServerRailPdd({
     const touch = touchRef.current
     if (touch?.timer) clearTimeout(touch.timer)
     if (touch?.frame !== null && touch?.frame !== undefined) cancelAnimationFrame(touch.frame)
+    touch?.preview?.element.remove()
     touchRef.current = null
     restoreSelection()
   }, [restoreSelection])
@@ -415,6 +463,7 @@ export function useServerRailPdd({
         dragging: false,
         timer: null as ReturnType<typeof setTimeout> | null,
         frame: null as number | null,
+        preview: null as TouchDragPreview | null,
       }
       pending.timer = setTimeout(() => {
         if (touchRef.current !== pending) return
@@ -424,6 +473,12 @@ export function useServerRailPdd({
           return
         }
         pending.dragging = true
+        pending.preview = createTouchDragPreview(
+          dragHandle,
+          entity,
+          pending.clientX,
+          pending.clientY,
+        )
         selectionStyleRef.current = document.documentElement.style.userSelect
         document.documentElement.style.userSelect = "none"
         document.getSelection()?.removeAllRanges()
@@ -445,6 +500,9 @@ export function useServerRailPdd({
       }
       pending.clientX = touch.clientX
       pending.clientY = touch.clientY
+      if (pending.preview) {
+        positionTouchDragPreview(pending.preview, touch.clientX, touch.clientY)
+      }
       const exactDistance = Math.hypot(touch.clientX - pending.startX, touch.clientY - pending.startY)
       const exactIntent = railTouchMoveIntent({
         dragging: pending.dragging,

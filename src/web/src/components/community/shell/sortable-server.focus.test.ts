@@ -106,10 +106,13 @@ describe("SortableServer lazy menu focus", () => {
 
     const button = result.renderer.root.findByType("button")
     const badge = result.renderer.root.findByProps({ "data-testid": tid.railUnreadBadge("a") })
+    const dragPreview = result.renderer.root.findByProps({ "data-rail-drag-preview": true })
     expect(button.props.className).toContain("z-1")
     expect(badge.props.className).toContain("z-2")
     expect(badge.props.className).toContain("bg-primary")
     expect(badge.props.className).toContain("min-w-5")
     expect(badge.props.className).toContain("px-1")
+    expect(dragPreview.props.className).toContain("size-10")
+    expect(dragPreview.findAllByProps({ "data-testid": tid.railUnreadBadge("a") })).toHaveLength(0)
   })
 })
