@@ -20,6 +20,7 @@ import {
 import type { MessageEventContext } from "./handler-context"
 
 type ReactionEvent = CommunityReactionAdd | CommunityReactionRemove
+type MessageContextCache = { messages?: Msg[] }
 type MessageProjectionContext = Pick<
   MessageEventContext,
   "projection" | "queryClient" | "sub" | "viewerUserIdRef"
@@ -65,6 +66,19 @@ export function projectReactionCopies(
       communityKeys.message(event.messageId),
       (message) => message ? applyReactionToMessage(message, event, viewerId) : message,
     )
+    for (const type of ["channel", "dm"] as const) {
+      queryClient.setQueriesData<MessageContextCache>(
+        { queryKey: communityKeys.messageContexts(type, event.channelId) },
+        (cache) => cache?.messages
+          ? {
+              ...cache,
+              messages: cache.messages.map((message) => message.id === event.messageId
+                ? applyReactionToMessage(message, event, viewerId)
+                : message),
+            }
+          : cache,
+      )
+    }
     if (event.channelId === sub.channelId) {
       const serverId = useCommunityStore.getState().currentServerId
       if (serverId) {

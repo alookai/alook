@@ -30,6 +30,10 @@ import {
   invalidateServerDetail,
   invalidateServersList,
 } from "./invalidation-projections"
+import {
+  refreshServerReactionDetails,
+  removeServerReactionDetails,
+} from "./reaction-details-invalidation"
 
 type ChannelMemberEvent = Extract<
   CommunityWsEvent,
@@ -113,6 +117,7 @@ export function handleMemberJoin(
   // affected server's authoritative presence seed so a newly rendered member
   // does not inherit the offline fallback until the next presence frame.
   invalidatePresence(projection, event.serverId)
+  refreshServerReactionDetails(queryClient, event.serverId)
   if (event.member.userId === viewerUserIdRef.current) {
     invalidateChannelRefDirectory(projection)
     invalidateServersList(projection)
@@ -141,6 +146,7 @@ export function handleMemberLeave(
   // so the layout's eject effect can detect the drop and route
   // the user away from the now-forbidden URL.
   if (event.userId === viewerUserIdRef.current) {
+    removeServerReactionDetails(queryClient, event.serverId)
     invalidateChannelRefDirectory(projection)
     useMessageStreamStore.getState().removeServer(event.serverId)
     queryClient.removeQueries({ queryKey: communityKeys.server(event.serverId) })
@@ -154,6 +160,8 @@ export function handleMemberLeave(
     // kicked viewer away). `exact` so a kick doesn't cascade-refetch
     // every server's nested detail subtree.
     invalidateServersList(projection)
+  } else {
+    refreshServerReactionDetails(queryClient, event.serverId)
   }
   finishMemberEvent(event, context)
 }

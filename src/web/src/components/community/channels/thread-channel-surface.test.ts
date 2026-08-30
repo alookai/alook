@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   toastApiError: vi.fn(),
   editMessage: vi.fn(),
+  toggleReaction: vi.fn(),
   acceptMessage: vi.fn(() => true),
   handleTyping: vi.fn(),
   setReplyTo: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock("@/hooks/community/use-channel-message-feed", () => ({
 }))
 vi.mock("@/hooks/community/mutations", () => ({
   useEditMessage: () => ({ mutateAsync: mocks.editMessage }),
+  useToggleReactionApi: () => mocks.toggleReaction,
 }))
 vi.mock("@/components/community/channels/channel-header", () => ({
   ChannelHeader: vi.fn(() => null),
@@ -268,9 +270,19 @@ describe("ThreadChannelSurface ownership", () => {
       parentMessageId: "opener_1",
       viewerUserId: "viewer_1",
       onOpenProfile: props.onOpenProfile,
+      onToggleReaction: expect.any(Function),
+      resolveUserName: props.resolveUserName,
       resolveAuthorMentionText: expect.any(Function),
       onInsertMentionText: expect.any(Function),
     }))
+    act(() => opener.props.onToggleReaction?.("🔥"))
+    expect(mocks.toggleReaction).toHaveBeenCalledWith({
+      serverId: "server_1",
+      channelId: "parent_1",
+      messageId: "opener_1",
+      emoji: "🔥",
+      userId: "viewer_1",
+    })
     act(() => opener.props.onJump?.())
     expect(mocks.router.push).toHaveBeenCalledWith("/c/channels/server_1/parent_1?msg=opener_1")
     act(() => opener.props.onPreviewImage?.("https://example.test/image.png"))

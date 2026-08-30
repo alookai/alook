@@ -605,6 +605,40 @@ describe("useSendMessage — no blocked branch on channel path", () => {
 // timer on subsequent clicks. Step 3's hook dropped the coalescing; this
 // restores it via useCommunityStore.reactionTimers.
 describe("useToggleReactionApi — 300ms debounce coalescing", () => {
+  it("optimistically patches and rolls back a thread opener's single-message cache", async () => {
+    vi.useFakeTimers()
+    try {
+      capturedQc.setQueryData(communityKeys.message("m_opener"), {
+        id: "m_opener",
+        type: "chat",
+        reactions: [{ emoji: "🔥", count: 1, me: false, userIds: ["u_other"] }],
+      })
+      apiFetchMock.mockRejectedValueOnce(new Error("boom"))
+      const mod = await loadMod()
+      mod.useToggleReactionApi()({
+        serverId: "s1",
+        channelId: "ch_parent",
+        messageId: "m_opener",
+        emoji: "🔥",
+        userId: "u_me",
+      })
+      expect(capturedQc.getQueryData<{ reactions: Msg["reactions"] }>(
+        communityKeys.message("m_opener"),
+      )?.reactions).toEqual([
+        { emoji: "🔥", count: 2, me: true, userIds: ["u_other", "u_me"] },
+      ])
+      await vi.advanceTimersByTimeAsync(300)
+      await Promise.resolve()
+      expect(capturedQc.getQueryData<{ reactions: Msg["reactions"] }>(
+        communityKeys.message("m_opener"),
+      )?.reactions).toEqual([
+        { emoji: "🔥", count: 1, me: false, userIds: ["u_other"] },
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("updates and rolls back a fallback-only channel row without creating a second row", async () => {
     vi.useFakeTimers()
     try {

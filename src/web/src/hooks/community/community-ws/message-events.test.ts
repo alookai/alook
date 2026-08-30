@@ -742,6 +742,57 @@ describe("useCommunityWs — reactions", () => {
     ])
   })
 
+  it("leaves a focused overlay unchanged when the reaction message is absent", async () => {
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_empty" })
+    await mountHook({ viewerUserId: "u_me" })
+
+    capturedOnMessage!({
+      type: "community:reaction.add",
+      channelId: "ch_empty",
+      messageId: "m_missing",
+      userId: "u_other",
+      emoji: "👍",
+    })
+
+    expect(getMessageOverlay({ kind: "channel", id: "ch_empty", serverId: "s1" }).liveById.size)
+      .toBe(0)
+  })
+
+  it("patches every mounted message-context copy for the reaction channel", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const unresolvedContext = { notFound: true }
+    capturedQueryClient.setQueryData(communityKeys.messageContext("channel", "ch_1", 7), {
+      anchorId: "m_1",
+      messages: [{ id: "m_1", type: "chat", content: "x", reactions: [] }],
+    })
+    capturedQueryClient.setQueryData(communityKeys.messageContext("channel", "ch_1", 99), {
+      anchorId: "m_other",
+      messages: [{ id: "m_other", type: "chat", content: "other", reactions: [] }],
+    })
+    capturedQueryClient.setQueryData(
+      communityKeys.messageContext("dm", "ch_1", 8),
+      unresolvedContext,
+    )
+    capturedOnMessage!({
+      type: "community:reaction.add",
+      channelId: "ch_1",
+      messageId: "m_1",
+      userId: "u_other",
+      emoji: "🔥",
+    })
+    expect(capturedQueryClient.getQueryData<{
+      messages: { id: string; reactions: { emoji: string; userIds: string[] }[] }[]
+    }>(communityKeys.messageContext("channel", "ch_1", 7))?.messages[0].reactions).toEqual([
+      { emoji: "🔥", count: 1, me: false, userIds: ["u_other"] },
+    ])
+    expect(capturedQueryClient.getQueryData<{
+      messages: { reactions: unknown[] }[]
+    }>(communityKeys.messageContext("channel", "ch_1", 99))?.messages[0].reactions).toEqual([])
+    expect(capturedQueryClient.getQueryData(communityKeys.messageContext("dm", "ch_1", 8)))
+      .toBe(unresolvedContext)
+  })
+
   it("refreshes a focused DM row that exists only in the overlay", async () => {
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().subscribe({ dmConversationId: "dm_1" })

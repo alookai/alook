@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type {
+  CommunityFriendBlock,
   CommunityFriendRequest,
   CommunityMentionCreate,
 } from "@alook/shared"
@@ -174,6 +175,43 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
     expect(spy.mock.calls.some((call) => (
       (call[0]?.queryKey as unknown[] | undefined)?.includes("friends")
     ))).toBe(true)
+  })
+
+  it("friend.block evicts cached DM reactor identities", async () => {
+    await mountHook()
+    capturedQueryClient.setQueryData(communityKeys.reactionDetails("dm_message"), {
+      messageId: "dm_message",
+      scope: { kind: "dm", channelId: "dm_1" },
+      actors: [],
+    })
+    capturedQueryClient.setQueryData(communityKeys.reactionDetails("server_message"), {
+      messageId: "server_message",
+      scope: { kind: "server", serverId: "server_1", channelId: "channel_1" },
+      actors: [],
+    })
+    capturedOnMessage!({
+      type: "community:friend.block",
+      userId: "blocked_1",
+    } satisfies CommunityFriendBlock)
+    expect(capturedQueryClient.getQueryState(communityKeys.reactionDetails("dm_message"))).toBeUndefined()
+    expect(capturedQueryClient.getQueryState(communityKeys.reactionDetails("server_message"))).toBeDefined()
+  })
+
+  it("friend.block evicts an unresolved reaction-details request", async () => {
+    await mountHook()
+    const key = communityKeys.reactionDetails("pending_message")
+    void capturedQueryClient.fetchQuery({
+      queryKey: key,
+      queryFn: () => new Promise(() => undefined),
+    }).catch(() => undefined)
+    expect(capturedQueryClient.getQueryState(key)).toBeDefined()
+
+    capturedOnMessage!({
+      type: "community:friend.block",
+      userId: "blocked_1",
+    } satisfies CommunityFriendBlock)
+
+    expect(capturedQueryClient.getQueryState(key)).toBeUndefined()
   })
 
   it("routes mention.create through the debounced Inbox owner", async () => {

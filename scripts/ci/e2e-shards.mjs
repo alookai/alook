@@ -57,6 +57,7 @@ export const SPEC_SECONDS = {
   "41-account-unread-projection.spec.ts": 55,
   "41-community-initial-load-module-skeletons.spec.ts": 30,
   "42-versioned-avatar-identity.spec.ts": 50,
+  "44-mobile-reaction-details.spec.ts": 70,
 }
 
 function walk(directory) {

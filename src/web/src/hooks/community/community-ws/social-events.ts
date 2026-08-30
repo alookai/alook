@@ -19,6 +19,7 @@ import {
   reconcileAccountReadState,
 } from "./read-state-reconciliation"
 import { getAccountUnreadProjection } from "@/hooks/community/account-unread-projection"
+import { removeDmReactionDetails } from "./reaction-details-invalidation"
 
 export function handleReadStateAdvanced(
   event: CommunityReadStateAdvanced,
@@ -94,10 +95,11 @@ type FriendEvent =
   | CommunityFriendBlock
 
 export function handleFriendEvent(
-  _event: FriendEvent,
-  { projection }: SocialEventContext,
+  event: FriendEvent,
+  { projection, queryClient }: SocialEventContext,
 ) {
   invalidateFriends(projection)
+  if (event.type === "community:friend.block") removeDmReactionDetails(queryClient)
 }
 
 export function handleMentionCreate(

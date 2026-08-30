@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { toastApiError, apiFetch } from "@/lib/api/client"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useChannelMessageFeed } from "@/hooks/community/use-channel-message-feed"
-import { useEditMessage } from "@/hooks/community/mutations"
+import { useEditMessage, useToggleReactionApi } from "@/hooks/community/mutations"
 import { ChannelHeader, ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channels/channel-header"
 import { ChannelShell } from "@/components/community/channels/channel-shell"
 import { CommunityPanel } from "@/components/community/shell/community-panel"
@@ -97,6 +97,17 @@ export function ThreadChannelSurface({
     viewerDiscriminator: viewer.discriminator,
   })
   const { mutateAsync: editMessageAsync } = useEditMessage()
+  const toggleReactionApi = useToggleReactionApi()
+  const toggleOpenerReaction = useCallback((emoji: string) => {
+    if (!parentChannelId || !parentMessageId) return
+    toggleReactionApi({
+      serverId,
+      channelId: parentChannelId,
+      messageId: parentMessageId,
+      emoji,
+      userId: viewer.id,
+    })
+  }, [parentChannelId, parentMessageId, serverId, toggleReactionApi, viewer.id])
   useClaimThreadOpenerReadHandoff(threadOpenerHandoff)
   const feed = useChannelMessageFeed({
     channelId,
@@ -164,6 +175,8 @@ export function ThreadChannelSurface({
       parentMessageId={parentMessageId}
       viewerUserId={viewer.id}
       onOpenProfile={onOpenProfile}
+      onToggleReaction={parentChannelId ? toggleOpenerReaction : undefined}
+      resolveUserName={resolveUserName}
       resolveAuthorMentionText={mentionInsertion.resolveAuthorMentionText}
       onInsertMentionText={mentionInsertion.insertMentionText}
       onPreviewImage={(image) => uiHandlers.previewImage?.(image)}

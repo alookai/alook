@@ -8,49 +8,14 @@ import {
   MAX_EMOJI_BYTES,
   WS_EVENTS,
 } from "@alook/shared"
-import type { Database } from "@alook/shared"
 import { fanOutToChannel, fanOutToDM } from "@/lib/community/fanout"
-import {
-  requireChannelMember,
-  requireDMAccess,
-} from "@/lib/community/permissions"
-import { requireReactableSurface } from "@/lib/community/channel-write-guard"
 import { resolveMessageRefForBot } from "@/lib/community/resolve-message-ref"
+import { authorizeReaction } from "@/lib/community/reaction-access"
 
 // A bot addresses by ref-in-body (`{ channel, seq }`, the folded `reactAdd`
 // verb); the path `[id]` is then the `resolve` placeholder (a ref carries `/`
 // and can't sit in a path segment). A human/web caller puts the real messageId
 // in the path.
-type AccessOk = { ok: true; channelId: string; isDm: boolean }
-type AccessErr = { ok: false; status: 400 | 401 | 403 | 404; error: string }
-
-/**
- * Resolve the message and verify the caller can react.
- * Reactions follow the same access rules as reading the message itself —
- * for a DM channel, that also requires the other user not to have blocked the
- * caller.
- */
-async function authorizeReaction(
-  db: Database,
-  messageId: string,
-  userId: string,
-): Promise<AccessOk | AccessErr> {
-  const message = await queries.communityMessage.getMessage(db, messageId)
-  if (!message) return { ok: false, status: 404, error: "message not found" }
-
-  const channelType = await queries.communityChannel.getChannelType(db, message.channelId)
-  const reactable = requireReactableSurface(channelType)
-  if (!reactable.ok) return { ok: false, status: reactable.status, error: reactable.error }
-  if (channelType === "dm") {
-    const check = await requireDMAccess(db, message.channelId, userId)
-    if (!check.ok) return check
-    return { ok: true, channelId: message.channelId, isDm: true }
-  }
-  const check = await requireChannelMember(db, message.channelId, userId)
-  if (!check.ok) return check
-  return { ok: true, channelId: message.channelId, isDm: false }
-}
-
 /**
  * Message-keyed reaction door (route/disc trunk — message-keyed faces dual-actor).
  * withCommunityActor: both human (session) and bot (crk_, the folded `reactAdd`
