@@ -252,7 +252,7 @@ describe("GET /api/community/bots — heatmap activity", () => {
     expect((await res.json()) as { bots: unknown[] }).toEqual({ bots: [] })
   })
 
-  it("returns seven oldest-to-newest usage days with nullable metrics and capability", async () => {
+  it("returns 30 oldest-to-newest usage days with nullable metrics and capability", async () => {
     const today = new Date().toISOString().slice(0, 10)
     mockListBotsForOwner.mockResolvedValue([
       { id: "bot_claude", runtime: "claude" },
@@ -284,7 +284,7 @@ describe("GET /api/community/bots — heatmap activity", () => {
     }
     const supported = body.bots.find((bot) => bot.id === "bot_pi")!
     expect(supported.usage.capability).toBe("supported")
-    expect(supported.usage.days).toHaveLength(7)
+    expect(supported.usage.days).toHaveLength(30)
     expect(supported.usage.days.at(-1)).toEqual({
       day: today,
       period: "in_progress",
@@ -310,17 +310,12 @@ describe("GET /api/community/bots — heatmap activity", () => {
     )
   })
 
-  it("uses the daemon computer timezone for the seven-day token window", () => {
+  it("uses the daemon computer timezone for the 30-day token window", () => {
     const now = new Date("2026-08-29T16:00:01Z")
-    expect(tokenUsageDayWindow(now, "Asia/Shanghai")).toEqual([
-      "2026-08-24",
-      "2026-08-25",
-      "2026-08-26",
-      "2026-08-27",
-      "2026-08-28",
-      "2026-08-29",
-      "2026-08-30",
-    ])
+    const shanghaiDays = tokenUsageDayWindow(now, "Asia/Shanghai")
+    expect(shanghaiDays).toHaveLength(30)
+    expect(shanghaiDays.at(0)).toBe("2026-08-01")
+    expect(shanghaiDays.at(-1)).toBe("2026-08-30")
     expect(tokenUsageDayWindow(now, "America/Los_Angeles").at(-1)).toBe("2026-08-29")
     expect(tokenUsageDayWindow(now, "not/a-time-zone").at(-1)).toBe("2026-08-29")
   })

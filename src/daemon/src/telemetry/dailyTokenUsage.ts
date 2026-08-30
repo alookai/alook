@@ -4,6 +4,10 @@ import { randomUUID } from "node:crypto";
 import type { TokenUsageDelta } from "@alook/agent-driver";
 import { calendarDayKeyDaysAgo, dayKeyInTimeZone } from "@alook/shared";
 
+const TOKEN_USAGE_WINDOW_DAYS = 30;
+const TOKEN_USAGE_RECOVERY_DAYS = 2;
+const TOKEN_USAGE_RETENTION_DAYS = TOKEN_USAGE_WINDOW_DAYS + TOKEN_USAGE_RECOVERY_DAYS;
+
 export type DailyUsageMetric = number | null;
 
 export interface DailyUsageSnapshot {
@@ -23,11 +27,11 @@ type UsageFile = {
 
 function oldestRetainedDay(at: Date, timeZone: string): string {
   const today = dayKeyInTimeZone(at, timeZone);
-  return calendarDayKeyDaysAgo(today, 8);
+  return calendarDayKeyDaysAgo(today, TOKEN_USAGE_RETENTION_DAYS - 1);
 }
 
 function oldestVisibleDay(today: string): string {
-  return calendarDayKeyDaysAgo(today, 6);
+  return calendarDayKeyDaysAgo(today, TOKEN_USAGE_WINDOW_DAYS - 1);
 }
 
 function isMetric(value: unknown): value is DailyUsageMetric {

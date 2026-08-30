@@ -21,15 +21,9 @@ vi.mock("@/components/provider-logo", () => ({
   ProviderLogo: (props: unknown) => React.createElement("provider", props as Record<string, unknown>),
 }))
 vi.mock("./bot-token-usage-chart", () => ({
-  usageDayPresentation: (day: NonNullable<BotSummary["usage"]>["days"][number]) => ({
-    knownTotal: Object.values(day.metrics).reduce(
-      (sum, metric) => sum + (metric ?? 0),
-      0,
-    ),
-  }),
-  BotTokenUsageChart: (props: unknown) => {
+  BotTokenUsageHeatmap: (props: unknown) => {
     mocks.usage(props)
-    return React.createElement("usage-chart", props as Record<string, unknown>)
+    return React.createElement("usage-heatmap", props as Record<string, unknown>)
   },
 }))
 vi.mock("./bot-quota-summary", () => ({
@@ -129,7 +123,7 @@ describe("renderBotMachineGroup", () => {
     expect(renderer.root.findAllByProps({ className: "flex items-start justify-between gap-3" }))
       .toHaveLength(1)
     expect(renderer.root.findAllByProps({
-      className: "flex min-w-0 flex-1 flex-wrap items-start gap-x-3 gap-y-2.5 sm:items-end",
+      className: "flex min-w-0 flex-1 flex-wrap items-start gap-x-3 gap-y-2.5",
     })).toHaveLength(1)
     expect(renderer.root.findAllByProps({ className: "basis-full sm:ml-auto sm:basis-auto" }))
       .toHaveLength(0)
@@ -183,7 +177,7 @@ describe("renderBotMachineGroup", () => {
       .toHaveLength(1)
   })
 
-  it("projects bot-owned usage on one machine scale and machine-scoped quota once", () => {
+  it("projects bot-owned fixed-scale heatmaps and machine-scoped quota once", () => {
     const usage = {
       capability: "supported" as const,
       days: [{
@@ -241,15 +235,14 @@ describe("renderBotMachineGroup", () => {
     expect(mocks.usage).toHaveBeenNthCalledWith(1, {
       botId: "smaller",
       usage,
-      scaleMaxTokens: 100,
+      className: "self-center",
     })
     expect(mocks.usage).toHaveBeenNthCalledWith(2, {
       botId: "larger",
       usage: largerUsage,
-      scaleMaxTokens: 100,
+      className: "self-center",
     })
-    expect(renderer.root.findAllByProps({ className: "basis-full sm:ml-auto sm:basis-auto" }))
-      .toHaveLength(2)
+    expect(renderer.root.findAllByType("usage-heatmap")).toHaveLength(2)
     expect(mocks.quota).toHaveBeenCalledTimes(1)
     expect(mocks.quota).toHaveBeenCalledWith({
       machineId: "mac1",

@@ -3,6 +3,7 @@ import { IssueStatus, TASK_TYPES } from "./constants";
 import { sanitizeSlug } from "./utils/slug";
 import { DiagnosticReportIdSchema } from "./diagnostics-contract";
 import {
+  DAILY_TOKEN_USAGE_WINDOW_DAYS,
   DailyUsageSnapshotSchema,
   ProviderQuotaSnapshotSchema,
 } from "./provider-telemetry";
@@ -1031,7 +1032,7 @@ export const AgentActivityMessageSchema = z.object({
   state: z.enum(["idle", "starting", "running", "stopping"]),
   usageTimeZone: z.string().min(1).max(128).optional(),
   usageDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  dailyUsage: z.array(DailyUsageSnapshotSchema).max(7).optional(),
+  dailyUsage: z.array(DailyUsageSnapshotSchema).max(DAILY_TOKEN_USAGE_WINDOW_DAYS).optional(),
   quota: ProviderQuotaSnapshotSchema.optional(),
 });
 export type AgentActivityMessage = z.infer<typeof AgentActivityMessageSchema>;
