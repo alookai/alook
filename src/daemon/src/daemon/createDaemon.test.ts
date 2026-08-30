@@ -507,9 +507,6 @@ describe("createDaemon", () => {
   it("opens the builtin session factory and reports host preparation failures", async () => {
     const dir = mkdtempSync(join(tmpdir(), "daemon-builtin-session-"));
     try {
-      if (process.env.ALOOK_CI_PROCESS_TRACE === "1") {
-        process.stderr.write(`[alook-process-trace] ${JSON.stringify({ event: "builtin-session-test:start", hostPid: process.pid })}\n`);
-      }
       const broker = new CredentialBroker({ upstreamBaseUrl: "https://upstream.test", voucherDir: dir });
       const ctx = {
         workingDirectory: dir,
@@ -533,14 +530,8 @@ describe("createDaemon", () => {
         mode: { kind: "default" as const },
       };
       const session = await createBuiltinDaemonSessionFactory(vi.fn())({ agentId: "a1", ctx, runtimeConfig });
-      if (process.env.ALOOK_CI_PROCESS_TRACE === "1") {
-        process.stderr.write(`[alook-process-trace] ${JSON.stringify({ event: "builtin-session-test:opened", hostPid: process.pid })}\n`);
-      }
       expect(session.backend).toBe("codex");
       await session.stop({ reason: "shutdown", forceAfterMs: 10 });
-      if (process.env.ALOOK_CI_PROCESS_TRACE === "1") {
-        process.stderr.write(`[alook-process-trace] ${JSON.stringify({ event: "builtin-session-test:stopped", hostPid: process.pid })}\n`);
-      }
       await expect(createBuiltinDaemonSessionFactory()({
         agentId: "a1",
         ctx: { ...ctx, credentialProxy: undefined },
@@ -608,9 +599,6 @@ for await (const line of createInterface({ input: process.stdin })) {
       ctx,
       runtimeConfig,
     });
-    if (process.env.ALOOK_CI_PROCESS_TRACE === "1") {
-      process.stderr.write(`[alook-process-trace] ${JSON.stringify({ event: "builtin-codex-test:opened", hostPid: process.pid })}\n`);
-    }
     const events: AgentEvent<BuiltinBackendSpecs, "codex">[] = [];
     const collectEvents = (async () => {
       for await (const event of session.events) events.push(event);
@@ -638,15 +626,9 @@ for await (const line of createInterface({ input: process.stdin })) {
       expect(readFileSync(join(workingDirectory, "AGENTS.md"), "utf8")).toBe("Fresh daemon instructions.");
       expect(readFileSync(join(workingDirectory, "CLAUDE.md"), "utf8")).toBe("Fresh daemon instructions.");
     } finally {
-      if (process.env.ALOOK_CI_PROCESS_TRACE === "1") {
-        process.stderr.write(`[alook-process-trace] ${JSON.stringify({ event: "builtin-codex-test:stopping", hostPid: process.pid })}\n`);
-      }
       await session.stop({ reason: "shutdown", forceAfterMs: 10 });
       await session.closed;
       await collectEvents;
-      if (process.env.ALOOK_CI_PROCESS_TRACE === "1") {
-        process.stderr.write(`[alook-process-trace] ${JSON.stringify({ event: "builtin-codex-test:stopped", hostPid: process.pid })}\n`);
-      }
       // `session.closed` is a teardown ownership boundary: the spawned shell and
       // every runtime descendant must have released the workspace by this point.
       rmSync(base, { recursive: true, force: true });
@@ -2013,6 +1995,7 @@ describe("createDaemon — logging", () => {
       webSocketFactory: factory(sockets) as any,
       runtimeReport: [{ id: "codex" }],
       driverFor: () => fullFakeDriver("codex"),
+      sessionFactory: () => daemonFakeSession(),
       capabilities: [],
       logger,
     });
