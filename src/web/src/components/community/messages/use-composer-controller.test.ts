@@ -26,6 +26,9 @@ const mocks = vi.hoisted(() => ({
   fromSchema: vi.fn(),
   parseSlice: vi.fn(),
   normalizeHardBreak: vi.fn(),
+  composerDocumentExtensions: vi.fn(),
+  preservePlainTextPaste: vi.fn(),
+  serializeDocument: vi.fn(),
   hoverCapable: true,
 }))
 
@@ -86,6 +89,14 @@ vi.mock("./consecutive-hard-break", () => ({
   normalizeConsecutiveTerminalHardBreak: (...args: unknown[]) =>
     mocks.normalizeHardBreak(...args),
 }))
+vi.mock("./composer-ordered-list", () => ({
+  composerDocumentExtensions: (...args: unknown[]) =>
+    mocks.composerDocumentExtensions(...args),
+  preserveComposerPlainTextPaste: (...args: unknown[]) =>
+    mocks.preservePlainTextPaste(...args),
+  serializeComposerDocument: (...args: unknown[]) =>
+    mocks.serializeDocument(...args),
+}))
 
 import { useComposerController } from "./use-composer-controller"
 import type { ComposerHandle, ComposerProps } from "./composer-types"
@@ -95,7 +106,7 @@ type EditorOptions = {
   editorProps: {
     attributes: Record<string, string>
     handleKeyDown: (_view: unknown, event: KeyboardEvent) => boolean
-    handlePaste: (_view: unknown, event: ClipboardEvent) => boolean
+    handlePaste: (_view: unknown, event: ClipboardEvent, slice?: unknown) => boolean
     clipboardTextParser: (text: string, context: never) => unknown
   }
   onUpdate: (props: { editor: TestEditor }) => void
@@ -122,7 +133,10 @@ type TestEditor = {
   commands: {
     clearContent: ReturnType<typeof vi.fn>
     focus: ReturnType<typeof vi.fn>
+    liftEmptyBlock: ReturnType<typeof vi.fn>
     setContent: ReturnType<typeof vi.fn>
+    splitListItem: ReturnType<typeof vi.fn>
+    undoInputRule: ReturnType<typeof vi.fn>
   }
   chain: ReturnType<typeof vi.fn>
 }
@@ -192,11 +206,19 @@ describe("useComposerController", () => {
       commands: {
         clearContent,
         focus,
+        liftEmptyBlock: vi.fn(() => false),
         setContent,
+        splitListItem: vi.fn(() => false),
+        undoInputRule: vi.fn(() => false),
       },
       chain: vi.fn(() => ({ focus: chainFocus })),
     }
     mocks.starterConfigure.mockReturnValue({ name: "starter-kit" })
+    mocks.composerDocumentExtensions.mockReturnValue([{ name: "document-extensions" }])
+    mocks.preservePlainTextPaste.mockReturnValue(true)
+    mocks.serializeDocument.mockImplementation((currentEditor: TestEditor) =>
+      currentEditor.getText({ blockSeparator: "\n\n" }),
+    )
     mocks.placeholderConfigure.mockReturnValue({ name: "placeholder" })
     mocks.fromSchema.mockReturnValue({ parseSlice: mocks.parseSlice })
     mocks.useEditor.mockImplementation((options) => {
@@ -451,15 +473,23 @@ describe("useComposerController", () => {
     ).toBe(true)
     expect(preventDefault).toHaveBeenCalledOnce()
     expect(mocks.addPendingFiles).toHaveBeenCalledWith([file])
+    const pasteView = { state: {} }
+    const pasteSlice = { content: "parsed clipboard" }
     expect(
-      editorOptions.editorProps.handlePaste({} as never, {
+      editorOptions.editorProps.handlePaste(pasteView, {
         clipboardData: {
           items: { length: 0 },
-          getData: () => "x".repeat(1_000),
+          getData: (type: string) => type === "text/plain" ? "x".repeat(1_000) : "",
         },
         preventDefault: vi.fn(),
-      } as unknown as ClipboardEvent),
-    ).toBe(false)
+      } as unknown as ClipboardEvent, pasteSlice),
+    ).toBe(true)
+    expect(mocks.preservePlainTextPaste).toHaveBeenCalledWith(
+      pasteView,
+      "x".repeat(1_000),
+      "",
+      pasteSlice,
+    )
 
     const preventLongPaste = vi.fn()
     expect(
@@ -617,7 +647,9 @@ describe("useComposerController", () => {
       .editor
     expect(secondEditor).toBe(firstEditor)
     expect(mocks.useEditor).toHaveBeenCalledTimes(2)
-    expect(mocks.starterConfigure).toHaveBeenCalledTimes(2)
+    expect(mocks.composerDocumentExtensions).toHaveBeenCalledTimes(2)
+    expect(mocks.composerDocumentExtensions).toHaveBeenNthCalledWith(1, false)
+    expect(mocks.composerDocumentExtensions).toHaveBeenNthCalledWith(2, false)
     expect(mocks.placeholderConfigure).toHaveBeenCalledTimes(2)
   })
 
@@ -1156,6 +1188,14 @@ describe("useComposerController", () => {
     ).toBe(false)
     expect(mocks.normalizeHardBreak).not.toHaveBeenCalled()
     expect(accept).not.toHaveBeenCalled()
+
+    editor.commands.undoInputRule.mockReturnValueOnce(true)
+    const undoKey = key({ key: "z", metaKey: true })
+    expect(editorOptions.editorProps.handleKeyDown(editorView, undoKey)).toBe(
+      true,
+    )
+    expect(editor.commands.undoInputRule).toHaveBeenCalledOnce()
+    expect(undoKey.preventDefault).toHaveBeenCalledOnce()
 
     const forumProps: ComposerProps = {
       channel: "forum",

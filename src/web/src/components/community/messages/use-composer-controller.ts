@@ -8,8 +8,7 @@ import {
   type DragEvent,
   type ForwardedRef,
 } from "react"
-import { useEditor, type JSONContent } from "@tiptap/react"
-import StarterKit from "@tiptap/starter-kit"
+import { useEditor, type Editor, type JSONContent } from "@tiptap/react"
 import Placeholder from "@tiptap/extension-placeholder"
 import { DOMParser as PMDOMParser } from "@tiptap/pm/model"
 import { MAX_ATTACHMENTS_PER_MESSAGE, MAX_ATTACHMENT_SIZE_BYTES } from "@alook/shared"
@@ -28,6 +27,7 @@ import {
   pendingFilesToSendAttachments,
 } from "./composer-file-utils"
 import { handleComposerEditorKeyDown } from "./composer-keydown"
+import { composerDocumentExtensions, preserveComposerPlainTextPaste, serializeComposerDocument } from "./composer-ordered-list"
 import type { ComposerHandle, ComposerProps } from "./composer-types"
 import { mentionNodesForCaretInsertion, textNodeForCaretInsertion } from "./caret-text-insertion"
 import type { ComposerViewProps } from "./composer-view"
@@ -91,6 +91,7 @@ export function useComposerController(
   }, [pendingFiles])
   const typingTimer = useRef<NodeJS.Timeout | null>(null)
   const sendRef = useRef<() => void>(() => {})
+  const editorRef = useRef<Editor | null>(null)
   const sendInFlightRef = useRef<Promise<void> | null>(null)
   const lifecycleVersionRef = useRef(0)
   const draftKeyRef = useRef(draftKey)
@@ -135,20 +136,7 @@ export function useComposerController(
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
-      StarterKit.configure({
-        heading: false,
-        horizontalRule: false,
-        codeBlock: false,
-        code: false,
-        blockquote: false,
-        bold: false,
-        italic: false,
-        strike: false,
-        bulletList: false,
-        orderedList: false,
-        listItem: false,
-        listKeymap: false,
-      }),
+      ...composerDocumentExtensions(isForumThreadBody),
       // eslint-disable-next-line react-hooks/refs
       Placeholder.configure({
         placeholder: resolvePlaceholder,
@@ -173,8 +161,11 @@ export function useComposerController(
             suggestions.mentionPopupRef.current.items.length > 0 &&
             suggestions.mentionPopupRef.current.command !== null,
           send: () => sendRef.current(),
+          liftEmptyBlock: () => editorRef.current?.commands.liftEmptyBlock() ?? false,
+          splitListItem: () => editorRef.current?.commands.splitListItem("listItem") ?? false,
+          undoInputRule: () => editorRef.current?.commands.undoInputRule() ?? false,
         }),
-      handlePaste: (_view, event) => {
+      handlePaste: (view, event, slice) => {
         const files = clipboardFiles(event.clipboardData?.items)
         if (files.length > 0) {
           event.preventDefault()
@@ -182,17 +173,25 @@ export function useComposerController(
           return true
         }
 
+        const clipboardText = event.clipboardData?.getData("text/plain")
         const attachment = createLongPasteAttachment(
-          event.clipboardData?.getData("text/plain"),
+          clipboardText,
           pendingFilesRef.current.map(({ file }) => file.name),
           nextLongPasteIndexRef.current,
         )
-        if (!attachment) return false
+        if (attachment) {
+          event.preventDefault()
+          nextLongPasteIndexRef.current = attachment.nextIndex
+          void addPendingFiles([attachment.file])
+          return true
+        }
 
-        event.preventDefault()
-        nextLongPasteIndexRef.current = attachment.nextIndex
-        void addPendingFiles([attachment.file])
-        return true
+        return preserveComposerPlainTextPaste(
+          view,
+          clipboardText,
+          event.clipboardData?.getData("text/html"),
+          slice,
+        )
       },
       clipboardTextParser: (text, $context) => {
         const dom = buildPasteDom(text, document)
@@ -216,8 +215,11 @@ export function useComposerController(
       }
     },
   })
-  const enterKeyHint =
-    isForumThreadBody || !hoverCapable ? "enter" : "send"
+  useLayoutEffect(() => {
+    editorRef.current = editor
+    return () => { if (editorRef.current === editor) editorRef.current = null }
+  }, [editor])
+  const enterKeyHint = isForumThreadBody || !hoverCapable ? "enter" : "send"
   useLayoutEffect(() => {
     editor?.view?.dom?.setAttribute("enterkeyhint", enterKeyHint)
   }, [editor, enterKeyHint])
@@ -245,7 +247,6 @@ export function useComposerController(
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, draftKey])
-
   const previousHasContentRef = useRef(false)
   const onDirtyRef = useRef(onDirty)
   useEffect(() => {
@@ -278,7 +279,7 @@ export function useComposerController(
       if (editor.isEmpty && preparedFiles.length === 0) return
       const markdown = editor.isEmpty
         ? ""
-        : editor.getText({ blockSeparator: "\n\n" }).trim()
+        : serializeComposerDocument(editor).trim()
       const mentionType = detectMentionType(markdown)
       const payload = pendingFilesToSendAttachments([...preparedFiles])
       if (sendContract === "accepted") {
