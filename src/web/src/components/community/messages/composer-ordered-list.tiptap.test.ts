@@ -1,9 +1,10 @@
 import { Node, Editor } from "@tiptap/react"
 import type { EditorState } from "@tiptap/pm/state"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   composerOrderedListInputRule,
   composerDocumentExtensions,
+  preserveComposerPlainTextPaste,
   serializeComposerDocument,
 } from "./composer-ordered-list"
 
@@ -110,6 +111,9 @@ describe("ComposerOrderedList", () => {
     expect(
       chat.extensionManager.extensions.some(({ name }) => name === "trailingNode"),
     ).toBe(false)
+    expect(
+      chat.extensionManager.plugins.some(({ spec }) => spec.isInputRules),
+    ).toBe(true)
     const forum = new Editor({
       element: null,
       extensions: composerDocumentExtensions(true),
@@ -200,6 +204,54 @@ describe("ComposerOrderedList", () => {
       { type: "orderedList", start: 3 },
       { type: "orderedList", start: 9 },
     ])
+  })
+})
+
+describe("preserveComposerPlainTextPaste", () => {
+  it.each([
+    { text: "", html: undefined },
+    { text: "1. alpha", html: "<p>1. alpha</p>" },
+  ])("does not consume non-text-only paste %#", ({ text, html }) => {
+    const dispatch = vi.fn()
+
+    expect(
+      preserveComposerPlainTextPaste(
+        { dispatch } as never,
+        text,
+        html,
+        {} as never,
+      ),
+    ).toBe(false)
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
+  it("dispatches the exact parsed Slice with paste metadata", () => {
+    const slice = { content: "parsed plain text" }
+    const transaction = {
+      replaceSelection: vi.fn(),
+      scrollIntoView: vi.fn(),
+      setMeta: vi.fn(),
+    }
+    transaction.replaceSelection.mockReturnValue(transaction)
+    transaction.scrollIntoView.mockReturnValue(transaction)
+    transaction.setMeta.mockReturnValue(transaction)
+    const dispatch = vi.fn()
+    const view = { state: { tr: transaction }, dispatch }
+
+    expect(
+      preserveComposerPlainTextPaste(
+        view as never,
+        "1. alpha\n2. beta",
+        undefined,
+        slice as never,
+      ),
+    ).toBe(true)
+    expect(transaction.replaceSelection).toHaveBeenCalledWith(slice)
+    expect(transaction.scrollIntoView).toHaveBeenCalledOnce()
+    expect(transaction.setMeta).toHaveBeenNthCalledWith(1, "paste", true)
+    expect(transaction.setMeta).toHaveBeenNthCalledWith(2, "uiEvent", "paste")
+    expect(dispatch).toHaveBeenCalledOnce()
+    expect(dispatch).toHaveBeenCalledWith(transaction)
   })
 })
 
