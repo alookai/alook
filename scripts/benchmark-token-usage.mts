@@ -78,8 +78,14 @@ function exactCost(left: number, right: number): boolean {
 function redactText(value: unknown): string {
   return String(value ?? "")
     .replace(/\b(?:sk|key|token)-[A-Za-z0-9_-]{8,}\b/gi, "[REDACTED]")
-    .replace(/\b(authorization|api[_-]?key|access[_-]?token|secret|password)\s*[:=]\s*\S+/gi, "$1=[REDACTED]")
+    .replace(/\b(authorization)\b["']?\s*[:=]\s*["']?(?:bearer|basic)\s+[^\s"',;}\]]+/gi, "$1=__ALOOK_REDACTED__")
+    .replace(/\b(authorization|api[_-]?key|access[_-]?token|secret|password)\b["']?\s*[:=]\s*["']?[^\s"',;}\]]+/gi, "$1=__ALOOK_REDACTED__")
+    .replaceAll("__ALOOK_REDACTED__", "[REDACTED]")
     .slice(0, 500);
+}
+
+export function redactedStderrTail(chunks: string[], limit = 40): string[] {
+  return chunks.flatMap((chunk) => chunk.split(/\r?\n/)).filter(Boolean).slice(-limit).map((line) => redactText(line));
 }
 
 export function redactedOutputTail(chunks: string[], limit = 40): JsonRecord[] {
@@ -533,20 +539,137 @@ async function findCodexSession(sessionId: string): Promise<string> {
   return join(match.parentPath, match.name);
 }
 
-async function nativeTurns(backend: Exclude<Backend, "cursor">, rawLines: string[], launchId: string, sessionId: string, cwd: string): Promise<NativeTurn[]> {
-  if (backend === "claude") return extractClaude(parseJsonRecords(rawLines.join("\n")), launchId);
+export type NativeReadProof = {
+  callId: string;
+  path: string;
+  status: "success" | "failed";
+  source: string;
+};
+
+function packageJsonPath(value: unknown): string | null {
+  if (typeof value === "string") return /(?:^|[/\\])package\.json(?:$|[\s'"`])/i.test(value) ? "./package.json" : null;
+  if (!value || typeof value !== "object") return null;
+  for (const child of Array.isArray(value) ? value : Object.values(value as JsonRecord)) {
+    const path = packageJsonPath(child);
+    if (path) return path;
+  }
+  return null;
+}
+
+function containsBenchmarkCanary(value: unknown): boolean {
+  return JSON.stringify(value).includes("alook-token-benchmark");
+}
+
+export function extractClaudeReadProofs(records: JsonRecord[]): NativeReadProof[] {
+  const calls = new Map<string, string>();
+  const results = new Map<string, { failed: boolean; hasCanary: boolean }>();
+  for (const record of records) {
+    const content = record.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (block?.type === "tool_use") {
+        const path = /read/i.test(String(block.name ?? "")) ? packageJsonPath(block.input) : null;
+        if (path) calls.set(identityText(block.id, "Claude tool_use.id"), path);
+      }
+      if (block?.type === "tool_result") {
+        const callId = identityText(block.tool_use_id, "Claude tool_result.tool_use_id");
+        results.set(callId, { failed: block.is_error === true, hasCanary: containsBenchmarkCanary(block.content) });
+      }
+    }
+  }
+  return [...calls].map(([callId, path]) => {
+    const result = results.get(callId);
+    return { callId, path, status: result && !result.failed && result.hasCanary ? "success" : "failed", source: "claude_tool_use_result" };
+  });
+}
+
+export function extractCodexReadProofs(records: JsonRecord[]): NativeReadProof[] {
+  const calls = new Map<string, string>();
+  const outputs = new Map<string, unknown>();
+  for (const record of records) {
+    const payload = record.payload;
+    if (record.type !== "response_item" || !payload) continue;
+    if (payload.type === "custom_tool_call" && payload.status === "completed") {
+      const path = packageJsonPath(payload.input);
+      if (path) calls.set(identityText(payload.call_id, "Codex custom_tool_call.call_id"), path);
+    }
+    if (payload.type === "custom_tool_call_output") {
+      outputs.set(identityText(payload.call_id, "Codex custom_tool_call_output.call_id"), payload.output);
+    }
+  }
+  return [...calls].map(([callId, path]) => {
+    const output = outputs.get(callId);
+    const succeeded = output !== undefined && containsBenchmarkCanary(output);
+    return { callId, path, status: succeeded ? "success" : "failed", source: "codex_custom_tool_call_output" };
+  });
+}
+
+export function extractOpenCodeReadProofs(rows: JsonRecord[], expectedSessionId: string): NativeReadProof[] {
+  const sessionId = identityText(expectedSessionId, "OpenCode session id");
+  const calls = new Map<string, string>();
+  const results = new Map<string, "success" | "failed">();
+  for (const row of rows) {
+    if (!/^session\.next\.tool\.(?:called|success|failed)\.1$/.test(String(row.type))) continue;
+    const data = typeof row.data === "string" ? object(JSON.parse(row.data), `OpenCode event ${row.seq}.data`) : object(row.data, `OpenCode event ${row.seq}.data`);
+    if (identityText(data.sessionID, `OpenCode event ${row.seq}.sessionID`) !== sessionId) fail("OpenCode tool event crossed sessions");
+    const callId = identityText(data.callID, `OpenCode event ${row.seq}.callID`);
+    if (row.type === "session.next.tool.called.1") {
+      const path = /read/i.test(String(data.tool ?? "")) ? packageJsonPath(data.input) : null;
+      if (path) calls.set(callId, path);
+    } else {
+      results.set(callId, row.type === "session.next.tool.success.1" && containsBenchmarkCanary(data) ? "success" : "failed");
+    }
+  }
+  return [...calls].map(([callId, path]) => ({ callId, path, status: results.get(callId) ?? "failed", source: "opencode_v2_tool_event" }));
+}
+
+export function extractPiReadProofs(records: JsonRecord[]): NativeReadProof[] {
+  const calls = new Map<string, string>();
+  const results = new Map<string, { failed: boolean; hasCanary: boolean }>();
+  for (const record of records) {
+    const message = record.message;
+    if (record.type !== "message" || !message) continue;
+    if (message.role === "assistant" && Array.isArray(message.content)) {
+      for (const block of message.content) {
+        const path = block?.type === "toolCall" && /read/i.test(String(block.name ?? "")) ? packageJsonPath(block.arguments) : null;
+        if (path) calls.set(identityText(block.id, "Pi toolCall.id"), path);
+      }
+    }
+    if (message.role === "toolResult") {
+      results.set(identityText(message.toolCallId, "Pi toolResult.toolCallId"), {
+        failed: message.isError === true,
+        hasCanary: containsBenchmarkCanary(message.content),
+      });
+    }
+  }
+  return [...calls].map(([callId, path]) => {
+    const result = results.get(callId);
+    return { callId, path, status: result && !result.failed && result.hasCanary ? "success" : "failed", source: "pi_tool_call_result" };
+  });
+}
+
+type NativeEvidence = { turns: NativeTurn[]; readProofs: NativeReadProof[] };
+
+async function nativeEvidence(backend: Exclude<Backend, "cursor">, rawLines: string[], launchId: string, sessionId: string, cwd: string): Promise<NativeEvidence> {
+  if (backend === "claude") {
+    const records = parseJsonRecords(rawLines.join("\n"));
+    return { turns: extractClaude(records, launchId), readProofs: extractClaudeReadProofs(records) };
+  }
   if (backend === "codex") {
     const file = await findCodexSession(sessionId);
-    return extractCodex([...parseJsonRecords(rawLines.join("\n")), ...parseJsonRecords(await readFile(file, "utf8"))]);
+    const records = [...parseJsonRecords(rawLines.join("\n")), ...parseJsonRecords(await readFile(file, "utf8"))];
+    return { turns: extractCodex(records), readProofs: extractCodexReadProofs(records) };
   }
   if (backend === "opencode") {
     if (!/^ses_[A-Za-z0-9]+$/.test(sessionId)) fail("OpenCode session id is unsafe for native DB query");
     const query = `select seq, type, data from event where aggregate_id='${sessionId}' order by seq`;
     const { stdout } = await execFileAsync("opencode", ["db", query, "--format", "json"], { cwd, maxBuffer: 16 * 1024 * 1024 });
-    return extractOpenCodeEvents(parseJsonRecords(stdout), sessionId);
+    const rows = parseJsonRecords(stdout);
+    return { turns: extractOpenCodeEvents(rows, sessionId), readProofs: extractOpenCodeReadProofs(rows, sessionId) };
   }
   const file = await findPiSession(sessionId);
-  return extractPi(parseJsonRecords(await readFile(file, "utf8")));
+  const records = parseJsonRecords(await readFile(file, "utf8"));
+  return { turns: extractPi(records), readProofs: extractPiReadProofs(records) };
 }
 
 function usageForDay(snapshots: Array<{ day: string; metrics: UsageTriad }>, day: string): UsageTriad | null {
@@ -556,19 +679,17 @@ function usageForDay(snapshots: Array<{ day: string; metrics: UsageTriad }>, day
 type WorkloadObservation = {
   terminalOutcome: string;
   terminalErrorCode?: string;
-  toolStarts: Array<{ name: string; input: unknown }>;
-  toolFinishes: Array<{ name: string }>;
   assistantMessages: string[];
+  readProofs: NativeReadProof[];
 };
 
 export function validateWorkload(observation: WorkloadObservation): void {
   if (observation.terminalOutcome !== "success") {
     fail(`workload terminal outcome was ${observation.terminalOutcome}${observation.terminalErrorCode ? ` (${observation.terminalErrorCode})` : ""}`);
   }
-  if (!observation.toolStarts.some((tool) => JSON.stringify(tool.input).includes("package.json"))) {
-    fail(`workload did not observe a package.json read tool call; observed ${JSON.stringify(observation.toolStarts)}`);
+  if (!observation.readProofs.some((proof) => proof.status === "success" && proof.path === "./package.json")) {
+    fail(`workload did not prove a successful package.json read on the same native call; observed ${JSON.stringify(observation.readProofs)}`);
   }
-  if (observation.toolFinishes.length === 0) fail("workload did not observe a finished tool call");
   if (observation.assistantMessages.at(-1)?.trim() !== "BENCHMARK_OK") {
     fail("workload did not end with the exact BENCHMARK_OK marker");
   }
@@ -590,24 +711,30 @@ export function extractCursorTerminal(records: JsonRecord[]): JsonRecord {
     .map((record) => record.result)
     .filter((result): result is JsonRecord => Boolean(result) && typeof result === "object" && !Array.isArray(result) && typeof result.stopReason === "string");
   if (candidates.length !== 1) fail(`Cursor ACP expected exactly one terminal result.stopReason response, observed ${candidates.length}`);
-  identityText(candidates[0].stopReason, "Cursor ACP result.stopReason");
+  const stopReason = identityText(candidates[0].stopReason, "Cursor ACP result.stopReason");
+  if (!(new Set(["end_turn", "max_tokens", "max_turn_requests", "refusal", "cancelled"])).has(stopReason)) {
+    fail(`Cursor ACP result.stopReason is unsupported: ${stopReason}`);
+  }
   const usagePaths = usageBearingPaths(candidates[0]);
   if (usagePaths.length > 0) fail(`Cursor ACP terminal result now exposes usage-bearing fields: ${usagePaths.join(", ")}`);
-  return candidates[0];
+  return { stopReason };
 }
 
-export function extractCursorToolEvidence(records: JsonRecord[]): Pick<WorkloadObservation, "toolStarts" | "toolFinishes" | "assistantMessages"> {
-  const toolStarts: WorkloadObservation["toolStarts"] = [];
-  const toolFinishes: WorkloadObservation["toolFinishes"] = [];
+export function extractCursorToolEvidence(records: JsonRecord[]): Pick<WorkloadObservation, "readProofs" | "assistantMessages"> {
+  const calls = new Map<string, string>();
+  const results = new Map<string, "success" | "failed">();
   let lastCompletedToolIndex = -1;
   for (const [index, record] of records.entries()) {
     if (record.method !== "session/update") continue;
     const update = record.params?.update;
     if (!update || (update.sessionUpdate !== "tool_call" && update.sessionUpdate !== "tool_call_update")) continue;
-    const name = typeof update.title === "string" && update.title.trim() ? update.title.trim() : "Cursor tool";
-    if (update.rawInput && typeof update.rawInput === "object") toolStarts.push({ name, input: update.rawInput });
+    const callId = identityText(update.toolCallId, "Cursor ACP toolCallId");
+    const path = packageJsonPath(update.rawInput) ?? packageJsonPath(update.locations);
+    if (path) calls.set(callId, path);
+    if (update.sessionUpdate === "tool_call_update" && (update.status === "completed" || update.status === "failed")) {
+      results.set(callId, update.status === "completed" && containsBenchmarkCanary(update.rawOutput) ? "success" : "failed");
+    }
     if (update.sessionUpdate === "tool_call_update" && update.status === "completed") {
-      toolFinishes.push({ name });
       lastCompletedToolIndex = index;
     }
   }
@@ -616,7 +743,8 @@ export function extractCursorToolEvidence(records: JsonRecord[]): Pick<WorkloadO
     .map((record) => record.params.update.content?.text)
     .filter((value): value is string => typeof value === "string")
     .join("");
-  return { toolStarts, toolFinishes, assistantMessages: finalAssistantText ? [finalAssistantText] : [] };
+  const readProofs = [...calls].map(([callId, path]) => ({ callId, path, status: results.get(callId) ?? "failed", source: "cursor_acp_tool_update" }) satisfies NativeReadProof);
+  return { readProofs, assistantMessages: finalAssistantText ? [finalAssistantText] : [] };
 }
 
 export function cursorUnsupportedRow(input: {
@@ -626,6 +754,10 @@ export function cursorUnsupportedRow(input: {
   identity: JsonRecord;
 }): JsonRecord {
   if (input.usageEventCount !== 0 || input.after !== null) fail("Cursor ACP unexpectedly emitted or persisted token usage");
+  const stopReason = identityText(input.rawTerminalResult.stopReason, "Cursor ACP projected stopReason");
+  if (!(new Set(["end_turn", "max_tokens", "max_turn_requests", "refusal", "cancelled"])).has(stopReason)) {
+    fail(`Cursor ACP projected stopReason is unsupported: ${stopReason}`);
+  }
   return {
     schemaVersion: 1,
     status: "unsupported_by_active_transport",
@@ -633,7 +765,7 @@ export function cursorUnsupportedRow(input: {
     activeTransport: ACTIVE_TRANSPORT.cursor,
     providerModels: ["not_exposed_by_cursor_acp"],
     nativeSourceName: "cursor_acp_terminal_result",
-    nativeRaw: input.rawTerminalResult,
+    nativeRaw: { stopReason },
     alookDailyDelta: null,
     comparison: { exact: null, reason: "active transport exposes no settled usage" },
     ...input.identity,
@@ -701,8 +833,6 @@ async function runBackend(backend: Backend, outputPath: string): Promise<void> {
     session = opened.session;
     const writePromises: Promise<void>[] = [];
     const usageEvents: unknown[] = [];
-    const toolStarts: WorkloadObservation["toolStarts"] = [];
-    const toolFinishes: WorkloadObservation["toolFinishes"] = [];
     const assistantMessages: string[] = [];
     const completed = new Map<string, (event: any) => void>();
     eventTask = (async () => {
@@ -711,8 +841,6 @@ async function runBackend(backend: Backend, outputPath: string): Promise<void> {
           usageEvents.push(event);
           writePromises.push(store.record(botId, event.usage));
         }
-        if (event.type === "tool_started") toolStarts.push({ name: event.name, input: event.input });
-        if (event.type === "tool_finished") toolFinishes.push({ name: event.name });
         if (event.type === "assistant_message_completed") assistantMessages.push(event.text);
         if (event.type === "diagnostic") diagnostics.push({ severity: event.severity, source: event.source, message: redactText(event.message) });
         if (event.type === "session_failed") sessionFailures.push({ code: event.error.code, message: redactText(event.error.message) });
@@ -741,18 +869,11 @@ async function runBackend(backend: Backend, outputPath: string): Promise<void> {
       outcome: terminalEvent.result.outcome,
       ...(terminalEvent.result.error ? { error: { code: terminalEvent.result.error.code, message: redactText(terminalEvent.result.error.message) } } : {}),
     };
-    if (backend === "cursor") {
-      const rawEvidence = extractCursorToolEvidence(parseJsonRecords(rawLines.join("\n")));
-      toolStarts.push(...rawEvidence.toolStarts);
-      toolFinishes.push(...rawEvidence.toolFinishes);
-      assistantMessages.push(...rawEvidence.assistantMessages);
-    }
-    validateWorkload({
+    if (terminalEvent.result.outcome !== "success") validateWorkload({
       terminalOutcome: terminalEvent.result.outcome,
       terminalErrorCode: terminalEvent.result.error?.code,
-      toolStarts,
-      toolFinishes,
       assistantMessages,
+      readProofs: [],
     });
     await Promise.all(writePromises);
     const afterWindow = await store.usageWindow(botId);
@@ -767,7 +888,15 @@ async function runBackend(backend: Backend, outputPath: string): Promise<void> {
 
     let artifact: JsonRecord;
     if (backend === "cursor") {
-      const rawTerminalResult = extractCursorTerminal(parseJsonRecords(rawLines.join("\n")));
+      const records = parseJsonRecords(rawLines.join("\n"));
+      const rawEvidence = extractCursorToolEvidence(records);
+      validateWorkload({
+        terminalOutcome: terminalEvent.result.outcome,
+        terminalErrorCode: terminalEvent.result.error?.code,
+        assistantMessages: [...assistantMessages, ...rawEvidence.assistantMessages],
+        readProofs: rawEvidence.readProofs,
+      });
+      const rawTerminalResult = extractCursorTerminal(records);
       artifact = cursorUnsupportedRow({
         usageEventCount: usageEvents.length,
         after,
@@ -786,7 +915,14 @@ async function runBackend(backend: Backend, outputPath: string): Promise<void> {
         },
       });
     } else {
-      const native = await nativeTurns(backend, rawLines, launchId, sessionId, cwd);
+      const evidence = await nativeEvidence(backend, rawLines, launchId, sessionId, cwd);
+      const native = evidence.turns;
+      validateWorkload({
+        terminalOutcome: terminalEvent.result.outcome,
+        terminalErrorCode: terminalEvent.result.error?.code,
+        assistantMessages,
+        readProofs: evidence.readProofs,
+      });
       validateSettlementBoundary(backend, native, rawLines);
       const providerModels = [...new Set(native.flatMap((turn) => turn.providerModels))].sort();
       if (providerModels.length === 0) fail(`${backend} provider model identity is missing`);
@@ -838,7 +974,7 @@ async function runBackend(backend: Backend, outputPath: string): Promise<void> {
       diagnostics: diagnostics.slice(-40),
       sessionFailures: sessionFailures.slice(-10),
       stdoutTail: redactedOutputTail(rawLines),
-      stderrTail: stderrLines.flatMap((chunk) => chunk.split(/\r?\n/)).filter(Boolean).slice(-40).map(redactText),
+      stderrTail: redactedStderrTail(stderrLines),
     };
     await mkdir(dirname(outputPath), { recursive: true });
     await writeFile(outputPath, `${JSON.stringify(invalidArtifact, null, 2)}\n`, { mode: 0o600 });

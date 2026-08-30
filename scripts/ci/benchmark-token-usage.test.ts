@@ -4,14 +4,19 @@ import {
   cursorUnsupportedRow,
   dailyDelta,
   extractClaude,
+  extractClaudeReadProofs,
   extractCodex,
+  extractCodexReadProofs,
   extractCursorTerminal,
   extractCursorToolEvidence,
   extractOpenCode,
   extractOpenCodeEvents,
+  extractOpenCodeReadProofs,
   extractPi,
+  extractPiReadProofs,
   parseJsonRecords,
   redactedOutputTail,
+  redactedStderrTail,
   validateWorkload,
 } from "../benchmark-token-usage.mts";
 
@@ -26,13 +31,23 @@ describe("authoritative token-usage benchmark", () => {
       JSON.stringify({ jsonrpc: "2.0", id: 7, method: "session/update", params: { prompt: "private prompt" } }),
       JSON.stringify({ jsonrpc: "2.0", id: 8, result: { stopReason: "end_turn", content: "private answer" } }),
       "not-json private stderr-like content",
+      JSON.stringify({ error: { code: 401, message: "Authorization: Bearer abc.def.secret" } }),
+      JSON.stringify({ error: { code: 401, message: "Authorization=Basic dXNlcjpwYXNz" } }),
     ]);
     expect(tail).toEqual([
       { bytes: expect.any(Number), method: "session/update", id: 7 },
       { bytes: expect.any(Number), id: 8, resultKeys: ["content", "stopReason"], stopReason: "end_turn" },
       { bytes: expect.any(Number), unparsed: true },
+      { bytes: expect.any(Number), error: { code: 401, message: "Authorization=[REDACTED]" } },
+      { bytes: expect.any(Number), error: { code: 401, message: "Authorization=[REDACTED]" } },
     ]);
     expect(JSON.stringify(tail)).not.toContain("private");
+    expect(JSON.stringify(tail)).not.toContain("abc.def.secret");
+    expect(redactedStderrTail(["failed Authorization: Bearer abc.def.secret\nfailed Authorization=Basic dXNlcjpwYXNz\n{\"Authorization\":\"Bearer json.secret\"}"])).toEqual([
+      "failed Authorization=[REDACTED]",
+      "failed Authorization=[REDACTED]",
+      "{\"Authorization=[REDACTED]\"}",
+    ]);
   });
 
   it("diffs Claude cumulative modelUsage inside one physical launch", () => {
@@ -114,31 +129,70 @@ describe("authoritative token-usage benchmark", () => {
   });
 
   it("requires the read tool, successful terminal, and exact marker", () => {
-    const valid = { terminalOutcome: "success", toolStarts: [{ name: "read", input: { path: "package.json" } }], toolFinishes: [{ name: "read" }], assistantMessages: ["BENCHMARK_OK"] };
+    const valid = { terminalOutcome: "success", readProofs: [{ callId: "read-1", path: "./package.json", status: "success" as const, source: "fixture" }], assistantMessages: ["BENCHMARK_OK"] };
     expect(() => validateWorkload(valid)).not.toThrow();
-    expect(() => validateWorkload({ ...valid, toolStarts: [] })).toThrow("package.json read");
+    expect(() => validateWorkload({ ...valid, readProofs: [{ callId: "read-1", path: "./package.json", status: "failed", source: "fixture" }] })).toThrow("same native call");
+    expect(() => validateWorkload({ ...valid, readProofs: [{ callId: "other", path: "./other.json", status: "success", source: "fixture" }] })).toThrow("same native call");
     expect(() => validateWorkload({ ...valid, assistantMessages: ["almost"] })).toThrow("exact BENCHMARK_OK");
   });
 
   it("parses the actual Cursor ACP terminal result before declaring unsupported", () => {
-    const raw = extractCursorTerminal([{ jsonrpc: "2.0", id: 1, result: { protocolVersion: 1 } }, { jsonrpc: "2.0", id: 2, result: { stopReason: "end_turn" } }]);
+    const raw = extractCursorTerminal([{ jsonrpc: "2.0", id: 1, result: { protocolVersion: 1 } }, { jsonrpc: "2.0", id: 2, result: { stopReason: "end_turn", content: "private provider response" } }]);
     expect(cursorUnsupportedRow({ usageEventCount: 0, after: null, rawTerminalResult: raw, identity: { launchId: "l" } })).toMatchObject({ status: "unsupported_by_active_transport", nativeRaw: { stopReason: "end_turn" }, alookDailyDelta: null });
+    expect(JSON.stringify(raw)).not.toContain("private provider response");
     expect(() => extractCursorTerminal([{ result: { stopReason: "end_turn", usage: { inputTokens: 1 } } }])).toThrow("usage-bearing fields");
+    expect(() => extractCursorTerminal([{ result: { stopReason: "private-content" } }])).toThrow("unsupported");
     expect(() => extractCursorTerminal([{ result: { stopReason: "end_turn" } }, { result: { stopReason: "cancelled" } }])).toThrow("exactly one");
     expect(() => cursorUnsupportedRow({ usageEventCount: 1, after: null, rawTerminalResult: raw, identity: {} })).toThrow("unexpectedly emitted");
   });
 
   it("uses Cursor ACP tool_call_update fields as native workload evidence", () => {
     const evidence = extractCursorToolEvidence([
-      { method: "session/update", params: { update: { sessionUpdate: "tool_call", title: "Read File", rawInput: {} } } },
-      { method: "session/update", params: { update: { sessionUpdate: "tool_call_update", title: "Read ./package.json", rawInput: { path: "./package.json" } } } },
-      { method: "session/update", params: { update: { sessionUpdate: "tool_call_update", title: "Read ./package.json", status: "completed" } } },
+      { method: "session/update", params: { update: { sessionUpdate: "tool_call", toolCallId: "read-1", title: "Read File", rawInput: {} } } },
+      { method: "session/update", params: { update: { sessionUpdate: "tool_call_update", toolCallId: "read-1", title: "Read ./package.json", rawInput: { path: "./package.json" } } } },
+      { method: "session/update", params: { update: { sessionUpdate: "tool_call_update", toolCallId: "other", title: "Other", status: "completed", rawOutput: { content: "alook-token-benchmark" } } } },
+      { method: "session/update", params: { update: { sessionUpdate: "tool_call_update", toolCallId: "read-1", title: "Read ./package.json", status: "completed", rawOutput: { content: "alook-token-benchmark" } } } },
       { method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "BENCHMARK_" } } } },
       { method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "OK" } } } },
     ]);
-    expect(evidence.toolStarts).toContainEqual({ name: "Read ./package.json", input: { path: "./package.json" } });
-    expect(evidence.toolFinishes).toContainEqual({ name: "Read ./package.json" });
+    expect(evidence.readProofs).toContainEqual({ callId: "read-1", path: "./package.json", status: "success", source: "cursor_acp_tool_update" });
     expect(evidence.assistantMessages).toEqual(["BENCHMARK_OK"]);
+    const failed = extractCursorToolEvidence([
+      { method: "session/update", params: { update: { sessionUpdate: "tool_call_update", toolCallId: "read-1", rawInput: { path: "./package.json" } } } },
+      { method: "session/update", params: { update: { sessionUpdate: "tool_call_update", toolCallId: "read-1", status: "failed" } } },
+    ]);
+    expect(failed.readProofs[0].status).toBe("failed");
+  });
+
+  it("correlates every provider read start with its own native successful result", () => {
+    const claude = extractClaudeReadProofs([
+      { type: "assistant", message: { content: [{ type: "tool_use", id: "c1", name: "Read", input: { file_path: "./package.json" } }] } },
+      { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "other", is_error: false, content: "alook-token-benchmark" }, { type: "tool_result", tool_use_id: "c1", is_error: false, content: "alook-token-benchmark" }] } },
+    ]);
+    expect(claude[0].status).toBe("success");
+    expect(extractClaudeReadProofs([
+      { type: "assistant", message: { content: [{ type: "tool_use", id: "c1", name: "Read", input: { path: "./package.json" } }] } },
+      { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "c1", is_error: true, content: "alook-token-benchmark" }] } },
+    ])[0].status).toBe("failed");
+
+    const codex = extractCodexReadProofs([
+      { type: "response_item", payload: { type: "custom_tool_call", status: "completed", call_id: "x1", input: "read ./package.json" } },
+      { type: "response_item", payload: { type: "custom_tool_call_output", call_id: "other", output: [{ text: JSON.stringify({ exit_code: 0, output: "alook-token-benchmark" }) }] } },
+      { type: "response_item", payload: { type: "custom_tool_call_output", call_id: "x1", output: [{ text: JSON.stringify({ exit_code: 0, output: "alook-token-benchmark" }) }] } },
+    ]);
+    expect(codex[0].status).toBe("success");
+    expect(extractCodexReadProofs([
+      { type: "response_item", payload: { type: "custom_tool_call", status: "completed", call_id: "x1", input: "read ./package.json" } },
+      { type: "response_item", payload: { type: "custom_tool_call_output", call_id: "other", output: [{ text: "alook-token-benchmark" }] } },
+    ])[0].status).toBe("failed");
+
+    const opencodeCalled = { seq: 1, type: "session.next.tool.called.1", data: JSON.stringify({ sessionID: "ses_a", callID: "o1", tool: "read", input: { path: "./package.json" } }) };
+    expect(extractOpenCodeReadProofs([opencodeCalled, { seq: 2, type: "session.next.tool.success.1", data: JSON.stringify({ sessionID: "ses_a", callID: "o1", structured: { content: "alook-token-benchmark" } }) }], "ses_a")[0].status).toBe("success");
+    expect(extractOpenCodeReadProofs([opencodeCalled, { seq: 2, type: "session.next.tool.failed.1", data: JSON.stringify({ sessionID: "ses_a", callID: "o1", error: "failed" }) }], "ses_a")[0].status).toBe("failed");
+
+    const piCall = { type: "message", message: { role: "assistant", content: [{ type: "toolCall", id: "p1", name: "read", arguments: { path: "./package.json" } }] } };
+    expect(extractPiReadProofs([piCall, { type: "message", message: { role: "toolResult", toolCallId: "p1", isError: false, content: [{ type: "text", text: "alook-token-benchmark" }] } }])[0].status).toBe("success");
+    expect(extractPiReadProofs([piCall, { type: "message", message: { role: "toolResult", toolCallId: "p1", isError: true, content: [{ type: "text", text: "alook-token-benchmark" }] } }])[0].status).toBe("failed");
   });
 
   it("sums only settled Pi assistant messages and validates totals and cost", () => {
