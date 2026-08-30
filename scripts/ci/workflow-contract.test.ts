@@ -462,7 +462,7 @@ describe("Turbo CI execution", () => {
     expect(windows).toContain(
       "run: pnpm turbo run test --filter=@alook/cli --filter=@alook/app --filter=@alook/shared",
     )
-    expect(linux.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(1)
+    expect(linux.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(2)
     expect(windows.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(1)
   })
 
@@ -532,10 +532,14 @@ describe("Turbo CI execution", () => {
 
   it("keeps package builds away from dist consumers and uploads one Istanbul report", () => {
     const linux = ciJob("test-linux")
+    expect(linux).toContain("timeout-minutes: 25")
     expect(linux).toContain(
       "RUN_COVERAGE: ${{ github.event_name != 'push' || startsWith(github.event.head_commit.message, 'release:') }}",
     )
     expect(linux.match(/pnpm vitest run --coverage/g)).toHaveLength(1)
+    expect(linux).toMatch(
+      /Run full tests with coverage[\s\S]*?VITEST_MAX_WORKERS: 1[\s\S]*?pnpm vitest run --coverage/,
+    )
     expect(linux.match(/codecov\/codecov-action/g)).toHaveLength(1)
     expect(linux).toContain("if: env.RUN_COVERAGE == 'true'")
     expect(linux).toContain("if: env.RUN_COVERAGE != 'true'")
