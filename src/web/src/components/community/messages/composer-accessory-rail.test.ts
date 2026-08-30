@@ -1,10 +1,11 @@
 import React from "react"
 import { readFileSync } from "node:fs"
+import { X } from "lucide-react"
 import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { tid } from "@/lib/community/testids"
 import { useCommunityWsStore } from "@/stores/community/ws"
-import { ComposerAccessoryRail } from "./composer-accessory-rail"
+import { ComposerAccessoryRail, selectionTypingFits } from "./composer-accessory-rail"
 
 vi.mock("@/components/ui/number-ticker", () => ({
   NumberTicker: ({ value }: { value: number }) => React.createElement("ticker", { value }),
@@ -91,7 +92,7 @@ describe("ComposerAccessoryRail", () => {
     },
   )
 
-  it("keeps selection centered, hides typing only on mobile with CSS, and wires its actions", () => {
+  it("keeps selection centered, starts typing hidden pending measurement, and wires its actions", () => {
     const renderer = render({
       typingNames: ["Alice"],
       selectMode: true,
@@ -105,8 +106,9 @@ describe("ComposerAccessoryRail", () => {
     expect(renderer.root.findAllByProps({ "data-testid": tid.scrollToPresent })).toHaveLength(0)
     expect(slotClassName(renderer, tid.messageSelectionToolbar)).toContain("col-start-2")
     const typingSlot = slotClassName(renderer, tid.typingIndicator)
-    expect(typingSlot).toContain("hidden")
-    expect(typingSlot).toContain("sm:block")
+    expect(typingSlot).toContain("col-start-1")
+    expect(typingSlot).not.toContain("sm:block")
+    expect(renderer.root.findByProps({ "data-selection-typing-fit": "pending" })).toBeDefined()
 
     const toolbar = renderer.root.findByProps({ "data-testid": tid.messageSelectionToolbar })
     expect(toolbar.props.className).toContain("h-10")
@@ -116,11 +118,22 @@ describe("ComposerAccessoryRail", () => {
       "aria-label": "Share 12 selected messages as image",
     })
     expect(cancel.props.className).toContain("w-11")
+    expect(cancel.props.className).toContain("text-foreground")
+    expect(cancel.findByType(X).props.className).toBe("text-foreground")
+    expect(cancel.findAllByType("span").find((node) => node.children.includes("Cancel"))?.props.className)
+      .toContain("text-foreground")
     expect(share.props.className).toContain("after:-inset-y-1.5")
     act(() => cancel.props.onClick())
     act(() => share.props.onClick())
     expect(baseProps.onCancelSelection).toHaveBeenCalledOnce()
     expect(baseProps.onShareSelection).toHaveBeenCalledOnce()
+  })
+
+  it("shows selection typing only when the complete intrinsic pill fits", () => {
+    expect(selectionTypingFits(160, 160)).toBe(true)
+    expect(selectionTypingFits(160, 159.5)).toBe(true)
+    expect(selectionTypingFits(160, 160.5)).toBe(false)
+    expect(selectionTypingFits(0, 0)).toBe(false)
   })
 
   it("centers the scroll control, preserves the floating boundary, and wires scroll", () => {
@@ -157,5 +170,6 @@ describe("ComposerAccessoryRail", () => {
     expect(source).not.toContain("@/stores/community/ws")
     expect(source).not.toContain("WsStatusControl")
     expect(source).not.toMatch(/max-w-\[calc\([^\]]*vw/)
+    expect(source).not.toContain('className="hidden min-w-0 max-w-full sm:col-start-1 sm:block"')
   })
 })
