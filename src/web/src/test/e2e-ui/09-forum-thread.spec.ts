@@ -54,11 +54,12 @@ test.describe.serial("threads", () => {
     const threadId = new URL(page.url()).pathname.split("/").at(-1)!
     const threadMessagesResponse = await threadMessagesLoaded
     expect(new URL(threadMessagesResponse.url()).pathname).toBe(`/api/community/channels/${threadId}/messages`)
-    await expect(composerEditable(page)).toBeVisible()
+    const threadPanel = page.getByTestId(tid.threadSplitPanel)
+    await expect(composerEditable(page, threadPanel)).toBeVisible()
 
     // The thread is usable: a reply posts and appears in the thread view.
     const reply = `first reply ${Date.now()}`
-    await sendMessage(page, reply)
+    await sendMessage(page, reply, threadPanel)
     await expect(page.getByText(reply, { exact: false }).first()).toBeVisible({ timeout: 15_000 })
 
     const exactChannelRequests = requests.filter((requestUrl) =>

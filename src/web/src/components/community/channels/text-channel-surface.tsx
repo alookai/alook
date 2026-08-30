@@ -14,6 +14,7 @@ import { useAuthorMentionInsertion } from "@/components/community/messages/use-a
 import {
   MessageChannelController,
 } from "@/components/community/messages/message-channel-controller"
+import { MessagePaneNavigationProvider } from "@/components/community/messages/message-pane-navigation"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
@@ -103,8 +104,13 @@ export function TextChannelSurface({
       resolveUserName={resolveUserName}
     >
       {(controller) => (
-        <ChannelShell
-          header={(
+        <MessagePaneNavigationProvider
+          channelId={channelId}
+          jumpToSeq={controller.jumpToSeq}
+          openMessageContext={controller.setContextTarget}
+        >
+          <ChannelShell
+            header={(
             <ChannelHeader
               channel={channelName}
               rightPanel={rightPanel}
@@ -114,7 +120,7 @@ export function TextChannelSurface({
               mobileServer={headerServer}
             />
           )}
-          body={(
+            body={(
             <Body className="flex min-h-0 min-w-0 flex-1 flex-col">
               <MessageList
                 key={channelId}
@@ -168,7 +174,7 @@ export function TextChannelSurface({
               </div>
             </Body>
           )}
-          panels={rightPanel && (
+            panels={rightPanel && (
             <CommunityPanel
               open
               onOpenChange={(open) => { if (!open) setRightPanel(null) }}
@@ -187,7 +193,7 @@ export function TextChannelSurface({
               onSearch={controller.search}
             />
           )}
-          dialogs={(
+            dialogs={(
             <>
               {manageMembersDialog}
               <MessageContextSheet
@@ -203,7 +209,8 @@ export function TextChannelSurface({
               />
             </>
           )}
-        />
+          />
+        </MessagePaneNavigationProvider>
       )}
     </MessageChannelController>
   )

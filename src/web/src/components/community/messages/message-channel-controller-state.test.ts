@@ -306,7 +306,7 @@ describe("useMessageChannelController", () => {
     expect(latest.replyTo).toBeNull()
   })
 
-  it("preserves pending/context/seq navigation and UI handler cleanup", () => {
+  it("preserves pending/context/seq navigation without claiming global pane handlers", () => {
     mocks.seq = "7"
     const navigate = vi.fn()
     let renderer: TestRenderer.ReactTestRenderer
@@ -321,9 +321,7 @@ describe("useMessageChannelController", () => {
     expect(mocks.router.replace).toHaveBeenCalledWith(
       "/c/channels/server_1/channel_1?keep=1", { scroll: false },
     )
-    expect(mocks.storeState.registerUiHandlers).toHaveBeenCalledWith({
-      jumpToSeq: expect.any(Function), openMessageContext: expect.any(Function),
-    })
+    expect(mocks.storeState.registerUiHandlers).not.toHaveBeenCalled()
 
     act(() => latest.setContextTarget({
       serverId: "server_2", channelId: "channel_2", label: "other", seq: 2,
@@ -335,9 +333,7 @@ describe("useMessageChannelController", () => {
     })
     expect(navigate).toHaveBeenCalledWith("server_2", "channel_2")
     act(() => renderer!.unmount())
-    expect(mocks.storeState.registerUiHandlers).toHaveBeenLastCalledWith({
-      jumpToSeq: undefined, openMessageContext: undefined,
-    })
+    expect(mocks.storeState.registerUiHandlers).not.toHaveBeenCalled()
   })
 
   it("consumes seq on the current canonical child route and preserves other query state", () => {

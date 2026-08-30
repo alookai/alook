@@ -1,3 +1,4 @@
+import type { Locator, Page } from "@playwright/test"
 import { test, expect, userId } from "./_fixtures/community-fixture"
 import { tid } from "./_fixtures/testids"
 import { composerEditable } from "./_fixtures/actions"
@@ -78,8 +79,8 @@ test.describe.serial("mentions — candidate scope", () => {
   // virtual row id is the literal "everyone". (@here was removed —
   // plans/remove-here-mention.md; `here` is exposed here only to assert its
   // ABSENCE.)
-  async function openMentionPopup(page: import("@playwright/test").Page) {
-    const editable = composerEditable(page)
+  async function openMentionPopup(page: Page, root: Page | Locator = page) {
+    const editable = composerEditable(page, root)
     await editable.click()
     await editable.pressSequentially("@")
     return {
@@ -149,7 +150,7 @@ test.describe.serial("mentions — candidate scope", () => {
     await page.goto(`/c/channels/${serverId}/${threadId}`)
     await page.waitForURL(new RegExp(threadId), { timeout: 20_000, waitUntil: "commit" })
 
-    const opt = await openMentionPopup(page)
+    const opt = await openMentionPopup(page, page.getByTestId(tid.threadSplitPanel))
     // Bob is in the PARENT channel's audience; a thread has no roster of its own,
     // so bob is mentionable here even though he isn't a thread participant yet.
     await expect(opt.bob).toBeVisible({ timeout: 15_000 })
@@ -163,7 +164,7 @@ test.describe.serial("mentions — candidate scope", () => {
     await page.goto(`/c/channels/${serverId}/${privatePostId}`)
     await page.waitForURL(new RegExp(privatePostId), { timeout: 20_000, waitUntil: "commit" })
 
-    const opt = await openMentionPopup(page)
+    const opt = await openMentionPopup(page, page.getByTestId(tid.threadSplitPanel))
     await expect(opt.bob).toBeVisible({ timeout: 15_000 })
     await expect(opt.everyone).toBeVisible()
     await expect(opt.carol).toHaveCount(0)

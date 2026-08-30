@@ -8,6 +8,7 @@ import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-direct
 import { useThreads } from "@/hooks/community/use-channel-panels"
 import { useCommunityStore, useUiHandlers } from "@/stores/community"
 import { tid } from "@/lib/community/testids"
+import { useMessagePaneNavigation } from "./message-pane-navigation"
 
 export type ChannelRefPillView =
   | { kind: "muted"; label: string; showIcon?: boolean }
@@ -120,8 +121,10 @@ export function describeChannelRefPillView(args: {
 export function ChannelRefPill({ children }: { children?: React.ReactNode }) {
   const ref = String(children ?? "")
   const currentServerId = useCommunityStore((s) => s.currentServerId)
-  const currentChannelId = useCommunityStore((s) => s.currentChannelId)
+  const routeChannelId = useCommunityStore((s) => s.currentChannelId)
   const uiHandlers = useUiHandlers()
+  const paneNavigation = useMessagePaneNavigation()
+  const currentChannelId = paneNavigation?.channelId ?? routeChannelId
   const { directory } = useChannelRefDirectory()
 
   // The debt record's own verification (see finding #6) confirmed the
@@ -162,8 +165,8 @@ export function ChannelRefPill({ children }: { children?: React.ReactNode }) {
   const sameChannel = view.href.channelId === currentChannelId
   const onClick = isMsgRef
     ? sameChannel
-      ? () => uiHandlers.jumpToSeq?.(view.messageSuffix!)
-      : () => uiHandlers.openMessageContext?.({
+      ? () => (paneNavigation?.jumpToSeq ?? uiHandlers.jumpToSeq)?.(view.messageSuffix!)
+      : () => (paneNavigation?.openMessageContext ?? uiHandlers.openMessageContext)?.({
         serverId: view.href.serverId,
         channelId: view.href.channelId,
         label: view.label,

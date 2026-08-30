@@ -60,6 +60,10 @@ async function routeStability(page: Page) {
   }).__routeStability)
 }
 
+function childPanel(page: Page) {
+  return page.getByTestId(tid.threadSplitPanel)
+}
+
 async function participantUserIds(page: Page, channelId: string): Promise<string[]> {
   const response = await page.request.get(`/api/community/channels/${channelId}/members`)
   expect(response.status()).toBe(200)
@@ -194,8 +198,8 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     await expect.poll(() => new URL(page.url()).pathname).toBe(
       `/c/channels/${serverId}/${threadId}`,
     )
-    await expect(page.getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
+    await expect(childPanel(page).getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
+    await expect(childPanel(page).getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
     await expect(page.locator('[data-slot="skeleton"]')).toHaveCount(0)
 
     const coldSidebarRequests = requests.filter((url) => isSidebarRequest(url, serverId))
@@ -229,8 +233,8 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     await expect.poll(() => new URL(page.url()).pathname).toBe(
       `/c/channels/${serverId}/${threadId}`,
     )
-    await expect(page.getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
+    await expect(childPanel(page).getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
+    await expect(childPanel(page).getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
     await expect(page.locator('[data-slot="skeleton"]')).toHaveCount(0)
     await page.waitForTimeout(2_000) // late exact-channel/message fetch exclusion window
 
@@ -268,8 +272,8 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     await expect.poll(() => new URL(page.url()).pathname).toBe(
       `/c/channels/${serverId}/${threadId}`,
     )
-    await expect(page.getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
+    await expect(childPanel(page).getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
+    await expect(childPanel(page).getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
     await expect(page.locator('[data-slot="skeleton"]')).toHaveCount(0)
     await page.waitForTimeout(2_000) // late duplicate anchored/unanchored fetch exclusion window
 
@@ -305,8 +309,8 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
 
     expect(await participantUserIds(page, threadId)).not.toContain(userId("bob"))
     await page.goto(`/c/channels/${serverId}/${threadId}`)
-    await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
+    await expect(childPanel(page).getByTestId(tid.channelComposerShell)).toBeVisible({ timeout: 20_000 })
+    await expect(childPanel(page).getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
     await expect.poll(() => sidebarResponses.some(({ url }) =>
       new URL(url).searchParams.get("retainId") === threadId,
     )).toBe(true)
@@ -322,7 +326,7 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     expect(await participantUserIds(page, threadId)).not.toContain(userId("bob"))
 
     const reply = `bob joins ${Date.now()}`
-    await sendMessage(page, reply)
+    await sendMessage(page, reply, childPanel(page))
     await expect(page.getByText(reply, { exact: true })).toBeVisible({ timeout: 20_000 })
     await expect.poll(async () => participantUserIds(page, threadId)).toContain(userId("bob"))
   })
@@ -351,8 +355,8 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     await expect.poll(() => new URL(page.url()).pathname).toBe(
       `/c/channels/${serverId}/${threadId}`,
     )
-    await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
+    await expect(childPanel(page).getByTestId(tid.channelComposerShell)).toBeVisible({ timeout: 20_000 })
+    await expect(childPanel(page).getByText("post body", { exact: true })).toBeVisible({ timeout: 20_000 })
     await expect.poll(() => sidebarResponses.filter(({ url }) =>
       new URL(url).searchParams.get("retainId") === threadId,
     ).length).toBe(1)
@@ -384,8 +388,8 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
 
     expect(await participantUserIds(page, ordinaryThreadId)).not.toContain(userId("bob"))
     await page.goto(`/c/channels/${serverId}/${ordinaryThreadId}`)
-    await expect(page.getByTestId(tid.channelComposerShell)).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByText("ordinary thread opener", { exact: true })).toBeVisible({ timeout: 20_000 })
+    await expect(childPanel(page).getByTestId(tid.channelComposerShell)).toBeVisible({ timeout: 20_000 })
+    await expect(childPanel(page).getByText("ordinary thread opener", { exact: true })).toBeVisible({ timeout: 20_000 })
     await page.waitForTimeout(2_000)
 
     expect(successfulResponses.filter((url) => isExactChannelRequest(url, ordinaryThreadId)))
@@ -426,7 +430,7 @@ test.describe.serial("forum sidebar Stage B request shape", () => {
     await expect.poll(() => new URL(page.url()).pathname).toBe(
       `/c/channels/${serverId}/${threadId}`,
     )
-    await expect(page.getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
+    await expect(childPanel(page).getByRole("heading", { name: forumTitle })).toBeVisible({ timeout: 20_000 })
     expect(requests.filter((url) => isSidebarRequest(url, serverId))).toHaveLength(0)
 
     await page.goBack()
@@ -489,11 +493,11 @@ test.describe.serial("forum sidebar archived opener projection", () => {
     expect((await exact.json() as { archived: boolean | number }).archived).toBeFalsy()
 
     await viewer.page.goto(`/c/channels/${serverId}/${archivedId}`)
-    await expect(viewer.page.getByRole("heading", { name: titles.get(archivedId)! })).toBeVisible({
+    await expect(childPanel(viewer.page).getByRole("heading", { name: titles.get(archivedId)! })).toBeVisible({
       timeout: 20_000,
     })
-    await expect(viewer.page.getByText(bodies.get(archivedId)!, { exact: true })).toBeVisible()
-    await expect(viewer.page.getByTestId(tid.channelComposerShell)).toBeVisible()
+    await expect(childPanel(viewer.page).getByText(bodies.get(archivedId)!, { exact: true })).toBeVisible()
+    await expect(childPanel(viewer.page).getByTestId(tid.channelComposerShell)).toBeVisible()
     await expect(viewer.page.getByTestId(tid.forumSidebarThread(archivedId))).toHaveCount(0)
 
     await viewer.page.goto(`/c/channels/${serverId}/${forumId}`)

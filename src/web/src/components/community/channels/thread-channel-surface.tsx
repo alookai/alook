@@ -11,6 +11,7 @@ import { ChannelShell } from "@/components/community/channels/channel-shell"
 import { CommunityPanel } from "@/components/community/shell/community-panel"
 import { Composer, ComposerSkeleton } from "@/components/community/messages/composer"
 import { MessageChannelController } from "@/components/community/messages/message-channel-controller"
+import { MessagePaneNavigationProvider } from "@/components/community/messages/message-pane-navigation"
 import { MessageContextSheet } from "@/components/community/messages/message-context-sheet"
 import { MessageList } from "@/components/community/messages/message-list"
 import { useAuthorMentionInsertion } from "@/components/community/messages/use-author-mention-insertion"
@@ -215,8 +216,13 @@ export function ThreadChannelSurface({
       resolveUserName={resolveUserName}
     >
       {(controller) => (
-        <ChannelShell
-          header={(
+        <MessagePaneNavigationProvider
+          channelId={channelId}
+          jumpToSeq={controller.jumpToSeq}
+          openMessageContext={controller.setContextTarget}
+        >
+          <ChannelShell
+            header={(
             <ChannelHeader
               channel={parentChannelName}
               forum={parentIsForum}
@@ -242,7 +248,7 @@ export function ThreadChannelSurface({
               ) : undefined}
             />
           )}
-          body={(
+            body={(
             <Body className="flex min-h-0 min-w-0 flex-1 flex-col">
               <MessageList
                 key={channelId}
@@ -297,7 +303,7 @@ export function ThreadChannelSurface({
               </div>
             </Body>
           )}
-          panels={rightPanel && (
+            panels={rightPanel && (
             <CommunityPanel
               open
               onOpenChange={(open) => { if (!open) setRightPanel(null) }}
@@ -316,7 +322,7 @@ export function ThreadChannelSurface({
               onOpenProfile={onOpenProfile}
             />
           )}
-          dialogs={(
+            dialogs={(
             <>
               {manageMembersDialog}
               <MessageContextSheet
@@ -332,7 +338,8 @@ export function ThreadChannelSurface({
               />
             </>
           )}
-        />
+          />
+        </MessagePaneNavigationProvider>
       )}
     </MessageChannelController>
   )

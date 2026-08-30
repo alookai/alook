@@ -82,12 +82,10 @@ type CommunityUiHandlers = {
   goBackMobile?: () => void
   navigatePath?: (href: string) => void
   replacePath?: (href: string) => void
-  // Jump to message `seq` within the CURRENT channel/DM — the page registers
-  // this (message already loaded → scroll to it; otherwise open the context
-  // sheet, which resolves seq→id server-side). A same-channel message ref pill
-  // (`/server/channel#N` where the channel is the open one) invokes it so
-  // clicking still scrolls to the message — the behavior the bare-`#N` pill had
-  // before message-ref-upgrade.md removed it.
+  // Jump to message `seq` within the CURRENT DM. Channel surfaces provide the
+  // same behavior through a pane-local context so two visible split panes never
+  // compete for this global slot. A same-scope message ref pill invokes it when
+  // the message is loaded; otherwise its owning pane opens message context.
   jumpToSeq?: (seq: number) => void
   cancelPendingNavigation?: () => void
   // Navigate to a server (channelId omitted) or a channel. Registered by the
@@ -100,10 +98,10 @@ type CommunityUiHandlers = {
   // (A message ref does NOT navigate — it opens the context sheet in place via
   // `openMessageContext`; only a plain channel/server ref navigates.)
   navigate?: (serverId: string, channelId?: string) => void
-  // Open the message context side sheet IN PLACE for a message ref — the
-  // channel page registers this. A message ref's intent is "see that message's
-  // context", not "go to that channel" (Gus #417), so clicking it never
-  // navigates: the sheet resolves the target channel's seq→id + surrounding
+  // Fallback for surfaces without a pane-local message-navigation context.
+  // Channel panes own this behavior locally; a message ref's intent remains
+  // "see that message's context", not "go to that channel" (Gus #417). The
+  // sheet resolves the target channel's seq→id + surrounding
   // messages (via the access-checked read path — a private channel the viewer
   // can't see returns not-found, no leak) and shows them without leaving the
   // current channel. `label` is the source channel's display name for the sheet
