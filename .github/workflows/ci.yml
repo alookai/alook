@@ -163,18 +163,25 @@ jobs:
       - name: Build agent-driver for coverage
         if: env.RUN_COVERAGE == 'true'
         run: pnpm --filter @alook/agent-driver build
-      - name: Run full tests with coverage
+      - name: Run non-daemon tests with coverage
         if: env.RUN_COVERAGE == 'true'
-        env:
-          # Istanbul retains a coverage map per worker. Serializing the root
-          # run avoids hosted-runner reclamation at the daemon-heavy tail.
-          VITEST_MAX_WORKERS: 1
+        run: |
+          pnpm vitest run --project='!daemon-node' --coverage \
+            --reporter=blob --outputFile=.vitest-reports/non-daemon.blob \
+            --exclude src/pack.test.ts
+      - name: Run daemon tests with coverage
+        if: env.RUN_COVERAGE == 'true'
+        run: |
+          pnpm vitest run --project=daemon-node --coverage \
+            --reporter=blob --outputFile=.vitest-reports/daemon.blob \
+            --exclude src/version.packed.test.ts \
+            --exclude src/agent-driver-bundle.packed.test.ts \
+            --exclude src/cli/daemonSelfUpdate.real.test.ts
+      - name: Merge coverage reports
+        if: env.RUN_COVERAGE == 'true'
         run: |
           pnpm vitest run --coverage --coverage.reporter=json --coverage.reporter=text \
-            --exclude src/daemon/agent-driver/src/pack.test.ts \
-            --exclude src/daemon/src/version.packed.test.ts \
-            --exclude src/daemon/src/agent-driver-bundle.packed.test.ts \
-            --exclude src/daemon/src/cli/daemonSelfUpdate.real.test.ts
+            --merge-reports=.vitest-reports
       - name: Run package artifact tests after coverage
         if: env.RUN_COVERAGE == 'true'
         run: |

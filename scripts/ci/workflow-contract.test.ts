@@ -462,11 +462,12 @@ describe("Turbo CI execution", () => {
     expect(windows).toContain(
       "run: pnpm turbo run test --filter=@alook/cli --filter=@alook/app --filter=@alook/shared",
     )
-    expect(linux.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(2)
+    expect(linux.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(1)
     expect(windows.match(/VITEST_MAX_WORKERS: 1/g)).toHaveLength(1)
   })
 
   it("isolates daemon process-authority tests in root workspace runs", () => {
+    expect(daemonVitestConfig).toContain('name: "daemon-node"')
     expect(daemonVitestConfig).toContain("maxWorkers: 1")
     expect(daemonVitestConfig).toContain("sequence: { groupOrder: 2 }")
   })
@@ -530,39 +531,45 @@ describe("Turbo CI execution", () => {
     )
   })
 
-  it("keeps package builds away from dist consumers and uploads one Istanbul report", () => {
+  it("keeps package builds away from dist consumers and uploads one merged Istanbul report", () => {
     const linux = ciJob("test-linux")
     expect(linux).toContain("timeout-minutes: 25")
     expect(linux).toContain(
       "RUN_COVERAGE: ${{ github.event_name != 'push' || startsWith(github.event.head_commit.message, 'release:') }}",
     )
-    expect(linux.match(/pnpm vitest run --coverage/g)).toHaveLength(1)
-    expect(linux).toMatch(
-      /Run full tests with coverage[\s\S]*?VITEST_MAX_WORKERS: 1[\s\S]*?pnpm vitest run --coverage/,
-    )
+    expect(linux).toContain("pnpm vitest run --project='!daemon-node' --coverage")
+    expect(linux).toContain("pnpm vitest run --project=daemon-node --coverage")
+    expect(linux).toContain("--reporter=blob --outputFile=.vitest-reports/non-daemon.blob")
+    expect(linux).toContain("--reporter=blob --outputFile=.vitest-reports/daemon.blob")
+    expect(linux).toContain("--merge-reports=.vitest-reports")
     expect(linux.match(/codecov\/codecov-action/g)).toHaveLength(1)
     expect(linux).toContain("if: env.RUN_COVERAGE == 'true'")
     expect(linux).toContain("if: env.RUN_COVERAGE != 'true'")
     expect(linux).toContain("files: ./coverage/coverage-final.json")
     for (const testPath of [
-      "src/daemon/agent-driver/src/pack.test.ts",
-      "src/daemon/src/version.packed.test.ts",
-      "src/daemon/src/agent-driver-bundle.packed.test.ts",
-      "src/daemon/src/cli/daemonSelfUpdate.real.test.ts",
+      "src/pack.test.ts",
+      "src/version.packed.test.ts",
+      "src/agent-driver-bundle.packed.test.ts",
+      "src/cli/daemonSelfUpdate.real.test.ts",
     ]) {
       expect(linux).toContain(`--exclude ${testPath}`)
     }
+    expect(linux).not.toContain("--exclude src/daemon/")
     expect(linux).toContain(
       "pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism src/pack.test.ts",
     )
     expect(linux).toContain(
       "pnpm --filter @alook/daemon exec vitest run --no-file-parallelism src/version.packed.test.ts src/agent-driver-bundle.packed.test.ts src/cli/daemonSelfUpdate.real.test.ts",
     )
-    const coverageRun = linux.indexOf("- name: Run full tests with coverage")
+    const nonDaemonCoverageRun = linux.indexOf("- name: Run non-daemon tests with coverage")
+    const daemonCoverageRun = linux.indexOf("- name: Run daemon tests with coverage")
+    const coverageMerge = linux.indexOf("- name: Merge coverage reports")
     const packageRuns = linux.indexOf("- name: Run package artifact tests after coverage")
     const coverageUpload = linux.indexOf("- name: Upload coverage")
-    expect(coverageRun).toBeGreaterThan(-1)
-    expect(packageRuns).toBeGreaterThan(coverageRun)
+    expect(nonDaemonCoverageRun).toBeGreaterThan(-1)
+    expect(daemonCoverageRun).toBeGreaterThan(nonDaemonCoverageRun)
+    expect(coverageMerge).toBeGreaterThan(daemonCoverageRun)
+    expect(packageRuns).toBeGreaterThan(coverageMerge)
     expect(coverageUpload).toBeGreaterThan(packageRuns)
     expect(linux).not.toContain("coverage:workers")
     expect(linux).not.toContain("workers-runtime")
