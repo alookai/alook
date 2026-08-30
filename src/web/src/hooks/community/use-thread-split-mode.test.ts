@@ -112,4 +112,30 @@ describe("useThreadSplitMode secondary live subscription", () => {
     expect(renderer.root.findByType("div").props["data-mode"]).toBe("full")
     expect(mocks.releaseSecondary).toHaveBeenLastCalledWith(owner)
   })
+
+  it("falls back to window resize events when ResizeObserver is unavailable", () => {
+    vi.stubGlobal("ResizeObserver", undefined)
+    const addEventListener = vi.fn()
+    const removeEventListener = vi.fn()
+    vi.stubGlobal("window", { addEventListener, removeEventListener })
+    let width = THREAD_SPLIT_MIN_CONTENT_WIDTH
+    let renderer!: TestRenderer.ReactTestRenderer
+
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(Harness), {
+        createNodeMock: () => ({ getBoundingClientRect: () => ({ width }) }),
+      })
+    })
+    expect(renderer.root.findByType("div").props["data-mode"]).toBe("split")
+    const resizeListener = addEventListener.mock.calls
+      .find(([type]) => type === "resize")?.[1] as () => void
+    expect(resizeListener).toEqual(expect.any(Function))
+
+    width -= 1
+    act(() => resizeListener())
+    expect(renderer.root.findByType("div").props["data-mode"]).toBe("full")
+
+    act(() => renderer.unmount())
+    expect(removeEventListener).toHaveBeenCalledWith("resize", resizeListener)
+  })
 })

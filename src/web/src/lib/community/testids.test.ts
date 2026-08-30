@@ -54,6 +54,14 @@ describe("community QA selectors", () => {
     expect(tid.reactionEmpty("message_1")).toBe("community-reaction-empty-message_1")
   })
 
+  it("exposes the desktop thread split surfaces and actions", () => {
+    expect(tid.threadSplit).toBe("community-thread-split")
+    expect(tid.threadSplitParent).toBe("community-thread-split-parent")
+    expect(tid.threadSplitPanel).toBe("community-thread-split-panel")
+    expect(tid.threadSplitFullscreen).toBe("community-thread-split-fullscreen")
+    expect(tid.threadSplitClose).toBe("community-thread-split-close")
+  })
+
   it("keys a pending channel sidebar by its target server", () => {
     expect(tid.channelSidebarPending("server_1"))
       .toBe("community-channel-sidebar-pending-server_1")

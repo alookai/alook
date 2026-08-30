@@ -985,6 +985,34 @@ describe("useCommunityWs — message.updated", () => {
 
     expect(getMessageOverlay(scope).liveById.get("m_channel")?.approval).toEqual(approval)
   })
+
+  it("refreshes approval fields on a secondary focused channel", async () => {
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().claimSecondaryChannel(Symbol("split"), "ch_parent")
+    await mountHook()
+    const scope = { kind: "channel" as const, id: "ch_parent", serverId: "s1" }
+    useMessageStreamStore.getState().dispatch(scope, {
+      type: "wsMessage",
+      message: { id: "m_parent", seq: 4, type: "chat", content: "approval" },
+    })
+    const profile = { id: "u_other", name: "Other", discriminator: "0001", image: null, avatarVersion: 0 }
+    const approval = {
+      friendshipId: "friendship_1",
+      status: "approved" as const,
+      waitingOn: null,
+      otherProfile: profile,
+      botProfile: { ...profile, id: "bot_1", name: "Bot" },
+    }
+
+    capturedOnMessage!({
+      type: "community:message.updated",
+      channelId: "ch_parent",
+      messageId: "m_parent",
+      approval,
+    })
+
+    expect(getMessageOverlay(scope).liveById.get("m_parent")?.approval).toEqual(approval)
+  })
 })
 
 describe("useCommunityWs — pin.add", () => {
