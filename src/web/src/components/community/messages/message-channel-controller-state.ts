@@ -183,18 +183,6 @@ export function useMessageChannelController({
     else setContextTarget({ serverId, channelId, label: channelName, seq })
   }, [serverId, channelId, channelName])
 
-  const openMessageContext = useCallback((target: MessageContextTarget) => {
-    setContextTarget(target)
-  }, [])
-
-  useEffect(() => {
-    useCommunityStore.getState().registerUiHandlers({ jumpToSeq, openMessageContext })
-    return () => useCommunityStore.getState().registerUiHandlers({
-      jumpToSeq: undefined,
-      openMessageContext: undefined,
-    })
-  }, [jumpToSeq, openMessageContext])
-
   const seqParam = searchParams.get("seq")
   const searchParamsString = searchParams.toString()
   useEffect(() => {

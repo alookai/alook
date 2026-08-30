@@ -255,6 +255,34 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     ).toBe(true)
   })
 
+  it("reconciles both visible split panes and drops the hidden parent after owner cleanup", async () => {
+    const { useCommunityStore } = await import("@/stores/community")
+    const store = useCommunityStore.getState()
+    const owner = Symbol("split")
+    store.subscribe({ channelId: "thread_focus" })
+    store.claimSecondaryChannel(owner, "parent_focus")
+    await mountHook()
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+
+    await capturedOnReconnect!({ reconnectDurationMs: 0 })
+    const firstKeys = spy.mock.calls.map((call) => JSON.stringify(call[0]?.queryKey))
+    for (const channelId of ["thread_focus", "parent_focus"]) {
+      expect(firstKeys).toContain(JSON.stringify(communityKeys.channelMembers(channelId)))
+      expect(firstKeys).toContain(JSON.stringify(communityKeys.channelAddableMembers(channelId)))
+      expect(firstKeys).toContain(JSON.stringify(communityKeys.pins(channelId)))
+      expect(firstKeys).toContain(JSON.stringify(communityKeys.threads(channelId)))
+      expect(firstKeys).toContain(JSON.stringify(communityKeys.threadParticipants(channelId)))
+    }
+
+    store.releaseSecondaryChannel(owner)
+    spy.mockClear()
+    await capturedOnReconnect!({ reconnectDurationMs: 0 })
+    const hiddenParentKeys = spy.mock.calls
+      .map((call) => JSON.stringify(call[0]?.queryKey))
+      .filter((key) => key.includes("parent_focus"))
+    expect(hiddenParentKeys).toEqual([])
+  })
+
   it("invalidates the focused thread opener's single-message query on reconnect", async () => {
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().setCurrentChannelMeta({

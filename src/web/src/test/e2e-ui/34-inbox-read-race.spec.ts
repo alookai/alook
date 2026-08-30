@@ -364,6 +364,8 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     expect(first).toMatchObject({ openerUnread: true })
     expect(later).toMatchObject({ openerUnread: true })
 
+    await page.setViewportSize({ width: 768, height: 844 })
+
     const parentTargets: string[] = []
     const childTargets: string[] = []
     page.on("request", (request) => {
@@ -430,6 +432,7 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     await seedMessage("alice", nonParticipantChildId, `Invisible child reply ${stamp}`)
     await seedMessage("alice", parentId, `Later parent message ${stamp}`)
 
+    await page.setViewportSize({ width: 768, height: 844 })
     await gotoAfterUserWsAuth(page, "/c/me")
     const unreadResponse = await page.request.get("/api/community/users/me/inbox/unreads")
     expect(unreadResponse.status()).toBe(200)

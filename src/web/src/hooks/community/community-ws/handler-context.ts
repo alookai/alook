@@ -7,6 +7,8 @@ import type { CommunityWsEvent } from "@alook/shared"
 export type Subscription = {
   // The focused regular channel/thread.
   channelId?: string
+  // The parent channel/forum that remains mounted beside a focused thread.
+  secondaryChannelId?: string
   // The focused DM's channel id. A DM is a channel now; this slot keeps its
   // name only to mark "the focused channel is a DM" so the handler routes its
   // events into the `dmMessages` cache and the `dm:` typing scope.

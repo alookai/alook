@@ -1,4 +1,4 @@
-import { type Page, type WebSocket, expect } from "@playwright/test"
+import { type Locator, type Page, type WebSocket, expect } from "@playwright/test"
 import { tid } from "./testids"
 
 const HOVER_FINE_QUERY = "(hover: hover) and (pointer: fine)"
@@ -133,15 +133,19 @@ export async function openChannel(page: Page, channelId: string): Promise<void> 
 // The ProseMirror contenteditable inside the composer wrapper. Clicking the
 // wrapper's testid alone doesn't always land the caret in the editable, so
 // target the contenteditable directly for typing.
-export function composerEditable(page: Page) {
-  return page.getByTestId(tid.composerInput).locator("[contenteditable='true']")
+export function composerEditable(page: Page, root: Page | Locator = page) {
+  return root.getByTestId(tid.composerInput).locator("[contenteditable='true']")
 }
 
-export async function sendMessage(page: Page, text: string): Promise<void> {
-  const editable = composerEditable(page)
+export async function sendMessage(
+  page: Page,
+  text: string,
+  root: Page | Locator = page,
+): Promise<void> {
+  const editable = composerEditable(page, root)
   await editable.click()
   await editable.pressSequentially(text)
-  const sendButton = page.getByTestId(tid.composerSend)
+  const sendButton = root.getByTestId(tid.composerSend)
   if (await sendButton.isVisible()) {
     await expect(sendButton).toBeVisible()
     await expect(sendButton).toBeEnabled()

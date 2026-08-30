@@ -43,16 +43,32 @@ describe("useCommunityWs — public helper contracts", () => {
     expect(await mountHook({ viewerUserId: "u_viewer" })).toBeUndefined()
   })
 
-  it("free subscribe/unsubscribe helpers preserve then clear both subscription slots", async () => {
-    const { communityWsSubscribe, communityWsUnsubscribe } = await import("./use-community-ws")
+  it("free subscription helpers preserve primary, secondary, and DM slots", async () => {
+    const {
+      communityWsClaimSecondaryChannel,
+      communityWsReleaseSecondaryChannel,
+      communityWsSubscribe,
+      communityWsUnsubscribe,
+    } = await import("./use-community-ws")
     const { useCommunityStore } = await import("@/stores/community")
     const target = { channelId: "ch_contract", dmConversationId: "dm_contract" }
 
     communityWsSubscribe(target)
     expect(useCommunityStore.getState().subscription).toEqual(target)
 
+    const owner = Symbol("split")
+    communityWsClaimSecondaryChannel(owner, "ch_parent")
+    expect(useCommunityStore.getState().subscription).toEqual({
+      ...target,
+      secondaryChannelId: "ch_parent",
+    })
+
+    communityWsReleaseSecondaryChannel(owner)
+    expect(useCommunityStore.getState().subscription).toEqual(target)
+
     communityWsUnsubscribe()
     expect(useCommunityStore.getState().subscription.channelId).toBeUndefined()
+    expect(useCommunityStore.getState().subscription.secondaryChannelId).toBeUndefined()
     expect(useCommunityStore.getState().subscription.dmConversationId).toBeUndefined()
   })
 

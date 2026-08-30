@@ -18,6 +18,7 @@ describe("useCommunityStore", () => {
     expect(s.lastTypingSent.size).toBe(0)
     expect(s.reactionTimers.size).toBe(0)
     expect(s.pendingMachineTokenId).toBeNull()
+    expect(s.secondaryChannelOwner).toBeNull()
     expect(s.subscription).toEqual({})
     expect(s.uiHandlers).toEqual({})
   })
@@ -48,9 +49,7 @@ describe("useCommunityStore", () => {
 
   it("subscribe / unsubscribe mutate the subscription slot", () => {
     useCommunityStore.getState().subscribe({ channelId: "c1" })
-    expect(useCommunityStore.getState().subscription).toEqual({
-      channelId: "c1",
-    })
+    expect(useCommunityStore.getState().subscription).toEqual({ channelId: "c1" })
 
     useCommunityStore.getState().subscribe({ dmConversationId: "d1" })
     expect(useCommunityStore.getState().subscription).toEqual({
@@ -59,6 +58,57 @@ describe("useCommunityStore", () => {
 
     useCommunityStore.getState().unsubscribe()
     expect(useCommunityStore.getState().subscription).toEqual({})
+  })
+
+  it("sets and clears the split-view secondary channel without replacing the primary", () => {
+    const store = useCommunityStore.getState()
+    const owner = Symbol("split")
+    store.subscribe({ channelId: "thread" })
+
+    store.claimSecondaryChannel(owner, "parent")
+    expect(useCommunityStore.getState().subscription).toEqual({
+      channelId: "thread",
+      secondaryChannelId: "parent",
+    })
+
+    const first = useCommunityStore.getState().subscription
+    store.claimSecondaryChannel(owner, "parent")
+    expect(useCommunityStore.getState().subscription).toBe(first)
+
+    store.releaseSecondaryChannel(owner)
+    expect(useCommunityStore.getState().subscription).toEqual({ channelId: "thread" })
+  })
+
+  it("preserves the owned secondary channel when the primary route re-subscribes", () => {
+    const store = useCommunityStore.getState()
+    const owner = Symbol("split")
+    store.subscribe({ channelId: "thread_1" })
+    store.claimSecondaryChannel(owner, "parent")
+
+    store.subscribe({ channelId: "thread_2" })
+    expect(useCommunityStore.getState().subscription).toEqual({
+      channelId: "thread_2",
+      secondaryChannelId: "parent",
+    })
+    expect(useCommunityStore.getState().secondaryChannelOwner).toBe(owner)
+  })
+
+  it("does not let a stale split cleanup erase the current secondary or primary", () => {
+    const store = useCommunityStore.getState()
+    const staleOwner = Symbol("stale")
+    const currentOwner = Symbol("current")
+    store.subscribe({ channelId: "thread_2" })
+    store.claimSecondaryChannel(staleOwner, "parent_1")
+    store.claimSecondaryChannel(currentOwner, "parent_2")
+
+    store.releaseSecondaryChannel(staleOwner)
+    expect(useCommunityStore.getState().subscription).toEqual({
+      channelId: "thread_2",
+      secondaryChannelId: "parent_2",
+    })
+
+    store.releaseSecondaryChannel(currentOwner)
+    expect(useCommunityStore.getState().subscription).toEqual({ channelId: "thread_2" })
   })
 
   it("subscribe bails out when the target is unchanged (identity foot-gun fix)", () => {
@@ -160,6 +210,7 @@ describe("useCommunityStore", () => {
       expect(after.lastTypingSent.size).toBe(0)
       expect(after.reactionTimers.size).toBe(0)
       expect(after.pendingMachineTokenId).toBeNull()
+      expect(after.secondaryChannelOwner).toBeNull()
       expect(after.subscription).toEqual({})
       expect(after.uiHandlers).toEqual({})
     } finally {

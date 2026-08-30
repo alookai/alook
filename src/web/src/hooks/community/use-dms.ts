@@ -45,6 +45,11 @@ export function useDms(): UseQueryResult<DmsResponse> & { dms: DM[] } {
   const query = useQuery({
     queryKey: communityKeys.dms(),
     queryFn: dmsQueryFn,
+    // Inbox navigation projects the destination into this canonical cache
+    // before routing. Reusing that projection across /c/me layout mounts keeps
+    // the transition request-neutral; WS and reconnect invalidations still
+    // refetch this active key explicitly.
+    staleTime: Infinity,
   })
   const profilesByUserId = useProfilesByUserId()
   useEffect(() => {

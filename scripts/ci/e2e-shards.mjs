@@ -58,6 +58,7 @@ export const SPEC_SECONDS = {
   "41-community-initial-load-module-skeletons.spec.ts": 30,
   "42-versioned-avatar-identity.spec.ts": 50,
   "44-mobile-reaction-details.spec.ts": 70,
+  "45-desktop-thread-split-view.spec.ts": 60,
   "50-daemon-update-notice.spec.ts": 35,
   "51-share-image-assets.spec.ts": 20,
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import type { LucideIcon } from "lucide-react"
 import { Bell, BellOff, Pin, Users, MessagesSquare, ChevronLeft, Check, Pencil, MoreHorizontal } from "lucide-react"
 import { NOTIF_LEVELS, USE_SERVER_DEFAULT, type NotifLevel } from "@alook/shared"
@@ -54,6 +54,7 @@ export type ChannelNotifLevel = typeof USE_SERVER_DEFAULT | NotifLevel
 export function ChannelHeader({
   channel, rightPanel, onToggle, notifLevel, onSetNotifLevel,
   breadcrumb, forum, server, mobileServer, onBack, tools,
+  endActions, compactActions,
 }: {
   channel: string
   rightPanel: RightPanel
@@ -72,6 +73,8 @@ export function ChannelHeader({
   mobileServer?: { id: string; name: string; icon: string | null; onNavigate: () => void }
   onBack?: () => void
   tools?: { threads?: boolean; pinned?: boolean; members?: boolean }
+  endActions?: ReactNode
+  compactActions?: boolean
 }) {
 
   // The parent-channel entity glyph (breadcrumb crumb + non-breadcrumb badge)
@@ -141,17 +144,22 @@ export function ChannelHeader({
         </>
       )}
       <div className="ml-auto flex items-center text-muted-foreground">
-        {tools?.members !== false && tool("members", Users, "Member list")}
-        <span className="mx-1 h-5 w-px bg-border/60" aria-hidden />
-        <ChannelNotifDropdown level={notifLevel ?? USE_SERVER_DEFAULT} onSetLevel={onSetNotifLevel} />
-        {(tools?.threads !== false || tools?.pinned !== false) && (
-          <ChannelOverflowMenu
-            rightPanel={rightPanel}
-            onToggle={onToggle}
-            showThreads={tools?.threads !== false}
-            showPinned={tools?.pinned !== false}
-          />
+        {!compactActions && (
+          <>
+            {tools?.members !== false && tool("members", Users, "Member list")}
+            <span className="mx-1 h-5 w-px bg-border/60" aria-hidden />
+            <ChannelNotifDropdown level={notifLevel ?? USE_SERVER_DEFAULT} onSetLevel={onSetNotifLevel} />
+            {(tools?.threads !== false || tools?.pinned !== false) && (
+              <ChannelOverflowMenu
+                rightPanel={rightPanel}
+                onToggle={onToggle}
+                showThreads={tools?.threads !== false}
+                showPinned={tools?.pinned !== false}
+              />
+            )}
+          </>
         )}
+        {endActions}
       </div>
     </header>
   )

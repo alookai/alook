@@ -79,7 +79,7 @@ export function projectReactionCopies(
           : cache,
       )
     }
-    if (event.channelId === sub.channelId) {
+    if (event.channelId === sub.channelId || event.channelId === sub.secondaryChannelId) {
       const serverId = useCommunityStore.getState().currentServerId
       if (serverId) {
         refreshOverlayCopy(
@@ -109,7 +109,11 @@ export function projectApprovalCopies(
 ) {
   const { projection, queryClient, sub } = context
   projection.project(() => {
-    if (event.channelId === sub.dmConversationId || event.channelId === sub.channelId) {
+    if (
+      event.channelId === sub.dmConversationId
+      || event.channelId === sub.channelId
+      || event.channelId === sub.secondaryChannelId
+    ) {
       queryClient.setQueryData<PageCache>(
         communityKeys.dmMessages(event.channelId),
         (cache) => patchApprovalInCache(cache, event.messageId, event.approval),
@@ -127,7 +131,7 @@ export function projectApprovalCopies(
         event.messageId,
         (message) => ({ ...message, approval: event.approval }),
       )
-    } else if (event.channelId === sub.channelId) {
+    } else if (event.channelId === sub.channelId || event.channelId === sub.secondaryChannelId) {
       const serverId = useCommunityStore.getState().currentServerId
       if (serverId) {
         refreshOverlayCopy(

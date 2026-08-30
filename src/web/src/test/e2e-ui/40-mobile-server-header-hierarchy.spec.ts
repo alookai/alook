@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test"
+import type { Page, Request } from "@playwright/test"
 import { test, expect } from "./_fixtures/community-fixture"
 import {
   seedChannel,
@@ -30,6 +30,42 @@ async function expectParentBack(page: Page, serverId: string) {
   await expect(page.getByTestId(tid.channelHeaderServer(serverId))).toHaveCount(0)
   expect(await back.boundingBox()).toMatchObject({ width: 32, height: 44 })
   return back
+}
+
+function observeColdBootServerReconciliation(page: Page, serverId: string) {
+  const readStatePath = "/api/community/users/me/read-state"
+  const expectedPaths = new Set([
+    `/api/community/servers/${serverId}/categories`,
+    `/api/community/servers/${serverId}/channels`,
+    `/api/community/servers/${serverId}/unreads`,
+  ])
+  const reconciliationPaths = new Set(["/api/community/servers", ...expectedPaths])
+  const observedPaths = new Set<string>()
+  const pending = new Set<Request>()
+  let readStateSettled = false
+
+  const onRequest = (request: Request) => {
+    const pathname = new URL(request.url()).pathname
+    if (!readStateSettled || !reconciliationPaths.has(pathname)) return
+    if (expectedPaths.has(pathname)) observedPaths.add(pathname)
+    pending.add(request)
+  }
+  const onSettled = (request: Request) => {
+    if (new URL(request.url()).pathname === readStatePath) readStateSettled = true
+    pending.delete(request)
+  }
+  page.on("request", onRequest)
+  page.on("requestfinished", onSettled)
+  page.on("requestfailed", onSettled)
+
+  return {
+    done: () => observedPaths.size === expectedPaths.size && pending.size === 0,
+    dispose: () => {
+      page.off("request", onRequest)
+      page.off("requestfinished", onSettled)
+      page.off("requestfailed", onSettled)
+    },
+  }
 }
 
 test.describe.serial("mobile server header direct hierarchy", () => {
@@ -95,11 +131,16 @@ test.describe.serial("mobile server header direct hierarchy", () => {
 
   test("639↔640 preserves the header and composer owners without resize requests", async ({ asUser }) => {
     const { page } = await asUser("alice")
+    const coldBootReconciliation = observeColdBootServerReconciliation(page, serverId)
     await page.setViewportSize({ width: 639, height: 844 })
     await page.goto(`/c/channels/${serverId}/${threadId}`, { waitUntil: "commit" })
     await expect(page.getByTestId(tid.composerInput)).toBeVisible({ timeout: 20_000 })
     await expectParentBack(page, serverId)
-    await page.waitForTimeout(200)
+    await expect.poll(coldBootReconciliation.done, {
+      message: "cold-boot read-state server reconciliation to settle",
+      timeout: 10_000,
+    }).toBe(true)
+    coldBootReconciliation.dispose()
 
     await page.evaluate(({ composerTestId }) => {
       const backControl = document.querySelector('button[aria-label="Back"]')

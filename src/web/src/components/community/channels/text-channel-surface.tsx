@@ -14,6 +14,7 @@ import { useAuthorMentionInsertion } from "@/components/community/messages/use-a
 import {
   MessageChannelController,
 } from "@/components/community/messages/message-channel-controller"
+import { MessagePaneNavigationProvider } from "@/components/community/messages/message-pane-navigation"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
@@ -38,6 +39,7 @@ export function TextChannelSurface({
   onOpenThread,
   onOpenProfile,
   resolveUserName,
+  embedded = false,
 }: {
   channelId: string
   serverId: string
@@ -61,6 +63,7 @@ export function TextChannelSurface({
   onOpenThread: (threadId: string) => void
   onOpenProfile: OpenProfile
   resolveUserName: (userId: string) => string
+  embedded?: boolean
 }) {
   const breakpoint = useBreakpoint()
   const [rightPanel, setRightPanel] = useState<RightPanel>(null)
@@ -84,6 +87,7 @@ export function TextChannelSurface({
   const togglePanel = (panel: Exclude<RightPanel, null>) => {
     setRightPanel((current) => current === panel ? null : panel)
   }
+  const Body = embedded ? "div" : "main"
 
   return (
     <MessageChannelController
@@ -100,8 +104,13 @@ export function TextChannelSurface({
       resolveUserName={resolveUserName}
     >
       {(controller) => (
-        <ChannelShell
-          header={(
+        <MessagePaneNavigationProvider
+          channelId={channelId}
+          jumpToSeq={controller.jumpToSeq}
+          openMessageContext={controller.setContextTarget}
+        >
+          <ChannelShell
+            header={(
             <ChannelHeader
               channel={channelName}
               rightPanel={rightPanel}
@@ -111,8 +120,8 @@ export function TextChannelSurface({
               mobileServer={headerServer}
             />
           )}
-          body={(
-            <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+            body={(
+            <Body className="flex min-h-0 min-w-0 flex-1 flex-col">
               <MessageList
                 key={channelId}
                 channel={channelName}
@@ -163,9 +172,9 @@ export function TextChannelSurface({
                   draftKey={`${serverId}/${channelId}`}
                 />
               </div>
-            </main>
+            </Body>
           )}
-          panels={rightPanel && (
+            panels={rightPanel && (
             <CommunityPanel
               open
               onOpenChange={(open) => { if (!open) setRightPanel(null) }}
@@ -184,7 +193,7 @@ export function TextChannelSurface({
               onSearch={controller.search}
             />
           )}
-          dialogs={(
+            dialogs={(
             <>
               {manageMembersDialog}
               <MessageContextSheet
@@ -200,7 +209,8 @@ export function TextChannelSurface({
               />
             </>
           )}
-        />
+          />
+        </MessagePaneNavigationProvider>
       )}
     </MessageChannelController>
   )

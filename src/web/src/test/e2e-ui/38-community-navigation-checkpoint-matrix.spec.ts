@@ -24,6 +24,10 @@ async function holdRoute(page: Page, pathname: string) {
   }
 }
 
+function channelHeader(page: Page, name: string) {
+  return page.getByRole("banner").getByText(name, { exact: true })
+}
+
 test("community checkpoint keeps the committed frame live until navigation commits", async ({ asUser }) => {
   test.setTimeout(120_000)
   const stamp = Date.now()
@@ -35,7 +39,7 @@ test("community checkpoint keeps the committed frame live until navigation commi
   const { page } = await asUser("alice")
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto(`/c/channels/${serverId}/${channelA}`)
-  await expect(page.getByRole("heading", { name: channelAName })).toBeVisible({ timeout: 30_000 })
+  await expect(channelHeader(page, channelAName)).toBeVisible({ timeout: 30_000 })
 
   const readOnlyPostPaths = new Set([
     "/api/community/messages/batch",
@@ -56,12 +60,12 @@ test("community checkpoint keeps the committed frame live until navigation commi
   await page.getByTestId(tid.channelRow(channelB)).click({ noWaitAfter: true })
   await expect.poll(leafGate.held).toBeGreaterThan(0)
   await expect(page.getByLabel("Loading conversation")).toHaveCount(0)
-  await expect(page.getByRole("heading", { name: channelAName })).toBeVisible()
+  await expect(channelHeader(page, channelAName)).toBeVisible()
   await page.waitForTimeout(150)
   await expect(page.getByLabel("Loading conversation")).toHaveCount(0)
-  await expect(page.getByRole("heading", { name: channelAName })).toBeVisible()
+  await expect(channelHeader(page, channelAName)).toBeVisible()
   await leafGate.release()
-  await expect(page.getByRole("heading", { name: channelBName })).toBeVisible({ timeout: 30_000 })
+  await expect(channelHeader(page, channelBName)).toBeVisible({ timeout: 30_000 })
 
   await page.setViewportSize({ width: 390, height: 844 })
   const rootGate = await holdRoute(page, `/c/channels/${serverId}`)
@@ -69,12 +73,12 @@ test("community checkpoint keeps the committed frame live until navigation commi
   await expect.poll(rootGate.held).toBeGreaterThan(0)
   await page.setViewportSize({ width: 1280, height: 900 })
   await expect(page.getByLabel("Loading conversation")).toHaveCount(0)
-  await expect(page.getByRole("heading", { name: channelBName })).toBeVisible()
+  await expect(channelHeader(page, channelBName)).toBeVisible()
   await page.waitForTimeout(150)
   await expect(page.getByLabel("Loading conversation")).toHaveCount(0)
-  await expect(page.getByRole("heading", { name: channelBName })).toBeVisible()
+  await expect(channelHeader(page, channelBName)).toBeVisible()
   await rootGate.release()
-  await expect(page.getByRole("heading", { name: channelBName })).toBeVisible({ timeout: 30_000 })
+  await expect(channelHeader(page, channelBName)).toBeVisible({ timeout: 30_000 })
 
   await page.goto("/c/me/friends")
   await expect(page.getByPlaceholder("Search friends")).toBeVisible({ timeout: 30_000 })

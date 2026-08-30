@@ -1,5 +1,6 @@
-import type { Locator } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { expect, test, userId } from "./_fixtures/community-fixture"
+import { tid } from "./_fixtures/testids"
 import {
   memberInfo,
   renameUser,
@@ -26,6 +27,15 @@ async function expectTitleClearOfClose(dialog: Locator, width: 390 | 1280) {
   expect(close, `Close rect at ${width}px`).not.toBeNull()
   expect(title!.x + title!.width, `title must end before Close at ${width}px`)
     .toBeLessThanOrEqual(close!.x)
+}
+
+async function openDesktopThreadMemberList(page: Page) {
+  const shell = page.getByTestId(tid.threadSplit)
+  const threadPanel = page.getByTestId(tid.threadSplitPanel)
+  await expect(shell).toHaveAttribute("data-layout", "split", { timeout: 20_000 })
+  await threadPanel.getByTestId(tid.threadSplitFullscreen).click()
+  await expect(shell).toHaveAttribute("data-layout", "full")
+  await threadPanel.getByRole("button", { name: "Member list" }).click()
 }
 
 test.describe.serial("invite and participant picker async states", () => {
@@ -200,8 +210,7 @@ test.describe.serial("invite and participant picker async states", () => {
     })
 
     await page.goto(`/c/channels/${participantServerId}/${failureThreadId}`)
-    await expect(page.getByRole("button", { name: /member/i }).first()).toBeVisible({ timeout: 20_000 })
-    await page.getByRole("button", { name: /member/i }).first().click()
+    await openDesktopThreadMemberList(page)
     await expect(page.getByRole("button", { name: "Add members" })).toBeVisible({ timeout: 20_000 })
     await page.getByRole("button", { name: "Add members" }).click()
     const dialog = page.getByRole("dialog")
@@ -238,8 +247,7 @@ test.describe.serial("invite and participant picker async states", () => {
     })
 
     await page.goto(`/c/channels/${participantServerId}/${emptyThreadId}`)
-    await expect(page.getByRole("button", { name: /member/i }).first()).toBeVisible({ timeout: 20_000 })
-    await page.getByRole("button", { name: /member/i }).first().click()
+    await openDesktopThreadMemberList(page)
     await page.getByRole("button", { name: "Add members" }).click()
     const dialog = page.getByRole("dialog")
     await expect(dialog.locator('[data-slot="people-picker-loading"]')).toBeVisible()
@@ -272,8 +280,7 @@ test.describe.serial("invite and participant picker async states", () => {
     })
 
     await page.goto(`/c/channels/${participantServerId}/${parentFailureThreadId}`)
-    await expect(page.getByRole("button", { name: /member/i }).first()).toBeVisible({ timeout: 20_000 })
-    await page.getByRole("button", { name: /member/i }).first().click()
+    await openDesktopThreadMemberList(page)
     await page.getByRole("button", { name: "Add members" }).click()
     const dialog = page.getByRole("dialog")
     await expect(dialog.getByText("Couldn't load people.", { exact: true })).toBeVisible({ timeout: 20_000 })
@@ -296,8 +303,9 @@ test.describe.serial("invite and participant picker async states", () => {
     const { page } = await asUser("alice")
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto(`/c/channels/${participantServerId}/${mutationThreadId}`)
-    await expect(page.getByRole("button", { name: /member/i }).first()).toBeVisible({ timeout: 20_000 })
-    await page.getByRole("button", { name: /member/i }).first().click()
+    const threadPanel = page.getByTestId(tid.threadSplitPanel)
+    await expect(threadPanel.getByRole("button", { name: /member/i }).first()).toBeVisible({ timeout: 20_000 })
+    await threadPanel.getByRole("button", { name: /member/i }).first().click()
     await page.getByRole("button", { name: "Add members" }).click()
     const dialog = page.getByRole("dialog")
     await expect(dialog.getByText(bobName, { exact: true })).toBeVisible({ timeout: 20_000 })

@@ -17,6 +17,8 @@ const {
   mockHeaderParentNavigate,
   mockOpenerGate,
   mockSearchParams,
+  mockSplitMode,
+  mockSplitParentSurface,
 } = vi.hoisted(() => ({
   mockRouter: { push: vi.fn(), replace: vi.fn(), back: vi.fn() },
   mockUiHandlers: { replacePath: vi.fn(), goBackMobile: vi.fn() },
@@ -25,6 +27,8 @@ const {
   mockHeaderParentNavigate: { current: undefined as undefined | (() => void) },
   mockOpenerGate: vi.fn(() => null),
   mockSearchParams: { value: "msg=m_target&keep=1" },
+  mockSplitMode: { value: "full" as "split" | "full" },
+  mockSplitParentSurface: vi.fn(() => null),
   mockRouteModel: {
     server: {
       id: "server_1",
@@ -75,13 +79,15 @@ vi.mock("@/components/community/channels/channel-header", () => ({
   ChannelHeader: ({
     mobileServer,
     breadcrumb,
+    endActions,
   }: {
     mobileServer?: { onNavigate: () => void }
     breadcrumb?: { onNavigate?: () => void }
+    endActions?: React.ReactNode
   }) => {
     mockHeaderServerNavigate.current = mobileServer?.onNavigate
     mockHeaderParentNavigate.current = breadcrumb?.onNavigate
-    return null
+    return React.createElement(React.Fragment, null, endActions)
   },
   ChannelHeaderSkeleton: () => null,
 }))
@@ -107,6 +113,7 @@ vi.mock("@/components/community/messages/thread-opener", () => ({ ThreadOpener: 
 vi.mock("@/components/community/members/add-members-dialog", () => ({ AddMembersDialog: () => null }))
 vi.mock("@alook/shared", () => ({
   canManageServer: () => false,
+  devWsDoPort: () => 8789,
   isForum: () => false,
   deriveThreadName: () => "thread",
   USE_SERVER_DEFAULT: "default",
@@ -135,6 +142,12 @@ vi.mock("@/contexts/community/current-user", () => ({
 }))
 vi.mock("@/hooks/community/use-channel-route-model", () => ({
   useChannelRouteModel: () => mockRouteModel,
+}))
+vi.mock("@/hooks/community/use-thread-split-mode", () => ({
+  useThreadSplitMode: () => ({ containerRef: vi.fn(), mode: mockSplitMode.value }),
+}))
+vi.mock("@/components/community/channels/thread-split-parent-surface", () => ({
+  ThreadSplitParentSurface: mockSplitParentSurface,
 }))
 vi.mock("@/hooks/community/use-forum-opener-hint", () => ({
   useForumOpenerHint: () => ({ data: null, isLoading: false }),
@@ -194,6 +207,8 @@ vi.mock("@/hooks/community/mutations", () => ({
 vi.mock("@/hooks/community/use-community-ws", () => ({
   communityWsSendTyping: vi.fn(),
   communityWsResetTypingThrottle: vi.fn(),
+  communityWsClaimSecondaryChannel: vi.fn(),
+  communityWsReleaseSecondaryChannel: vi.fn(),
 }))
 
 const mockedMessageList = vi.mocked(MessageList)
@@ -253,6 +268,8 @@ describe("ChannelRoute message surface ownership", () => {
     mockedMessageList.mockClear()
     mockOpenerGate.mockClear()
     mockSearchParams.value = "msg=m_target&keep=1"
+    mockSplitMode.value = "full"
+    mockSplitParentSurface.mockClear()
     mockBreakpoint.value = "desktop"
     mockHeaderServerNavigate.current = undefined
     mockHeaderParentNavigate.current = undefined
@@ -318,6 +335,57 @@ describe("ChannelRoute message surface ownership", () => {
       "/c/channels/server_1/channel_1?keep=1",
       { scroll: false },
     )
+  })
+
+  it("composes a wide child route as parent + thread with fullscreen and close actions", () => {
+    configureThreadRoute()
+    mockSplitMode.value = "split"
+    mockSearchParams.value = "keep=1"
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+    let renderer!: TestRenderer.ReactTestRenderer
+
+    act(() => {
+      renderer = TestRenderer.create(React.createElement(ChannelRoute, {
+        serverParam: "server_1",
+        channelId: "channel_1",
+      }))
+    })
+
+    expect(renderer.root.findByProps({ "data-testid": "community-thread-split" }).props["data-layout"]).toBe("split")
+    expect(mockSplitParentSurface).toHaveBeenCalledWith(expect.objectContaining({
+      channel: expect.objectContaining({ id: "parent_1", type: "text" }),
+    }), undefined)
+
+    act(() => renderer.root.findByProps({ "data-testid": "community-thread-split-fullscreen" }).props.onClick())
+    expect(mockRouter.push).toHaveBeenCalledWith(
+      "/c/channels/server_1/channel_1?keep=1&threadView=full",
+      { scroll: false },
+    )
+
+    act(() => renderer.root.findByProps({ "data-testid": "community-thread-split-close" }).props.onClick())
+    expect(mockUiHandlers.replacePath).toHaveBeenCalledWith("/c/channels/server_1/parent_1")
+  })
+
+  it("uses the same split parent contract for a forum post", () => {
+    configureThreadRoute()
+    mockSplitMode.value = "split"
+    mockRouteModel.parent = { id: "parent_1", name: "questions", type: "forum" }
+    mockRouteModel.isForumPostChild = true
+    mockRouteModel.server.categories = [{
+      channels: [{ id: "parent_1", name: "questions", type: "forum" }],
+    }]
+    mockedUseChannelMessageFeed.mockReturnValue(feed())
+
+    act(() => {
+      TestRenderer.create(React.createElement(ChannelRoute, {
+        serverParam: "server_1",
+        channelId: "channel_1",
+      }))
+    })
+
+    expect(mockSplitParentSurface).toHaveBeenCalledWith(expect.objectContaining({
+      channel: expect.objectContaining({ id: "parent_1", type: "forum" }),
+    }), undefined)
   })
 
   afterEach(() => {
