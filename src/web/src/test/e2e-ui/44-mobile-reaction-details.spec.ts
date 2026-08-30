@@ -231,7 +231,7 @@ test.describe.serial("mobile reaction details", () => {
     await expect(alice.page.getByTestId(tid.reactionFadeRight(messageId))).toBeVisible()
     await first.evaluate((element) => (element as HTMLElement).click())
     await expect(first).toHaveAttribute("data-active", "")
-    await expect(alice.page.getByTestId(tid.reactionMember(userId("alice")))).toBeVisible()
+    await expect(alice.page.getByTestId(tid.reactionMember(userId("bob")))).toBeVisible()
     await testInfo.attach("320-reaction-rail-overflow-light.png", {
       body: await alice.page.screenshot(),
       contentType: "image/png",
