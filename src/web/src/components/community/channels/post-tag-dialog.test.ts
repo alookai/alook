@@ -6,17 +6,31 @@ import { tid } from "@/lib/community/testids"
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-const mocks = vi.hoisted(() => ({ breakpoint: "desktop" as "unknown" | "desktop" | "mobile" }))
+const mocks = vi.hoisted(() => ({
+  breakpoint: "desktop" as "unknown" | "desktop" | "mobile",
+  closeShellOnUnmount: false,
+}))
 
 vi.mock("@/hooks/use-mobile", () => ({
   useBreakpoint: () => mocks.breakpoint,
+  readBreakpoint: () => mocks.breakpoint,
 }))
 
 vi.mock("@/components/ui/dialog", async () => {
-  const { createElement, Fragment } = await import("react")
+  const { createElement, Fragment, useLayoutEffect, useRef } = await import("react")
+  const MockDialog = ({ children, onOpenChange, ...props }: {
+    children: ReactNode
+    onOpenChange: (open: boolean) => void
+  }) => {
+    const onOpenChangeRef = useRef(onOpenChange)
+    onOpenChangeRef.current = onOpenChange
+    useLayoutEffect(() => () => {
+      if (mocks.closeShellOnUnmount) onOpenChangeRef.current(false)
+    }, [])
+    return createElement("mock-dialog", { ...props, onOpenChange }, children)
+  }
   return {
-    Dialog: ({ children, ...props }: { children: ReactNode }) =>
-      createElement("mock-dialog", props, children),
+    Dialog: MockDialog,
     DialogTrigger: ({ render }: { render: ReactNode }) => createElement(Fragment, null, render),
     DialogContent: ({ children, showCloseButton: _showCloseButton, ...props }: {
       children: ReactNode
@@ -28,10 +42,20 @@ vi.mock("@/components/ui/dialog", async () => {
 })
 
 vi.mock("@/components/ui/popover", async () => {
-  const { createElement, Fragment } = await import("react")
+  const { createElement, Fragment, useLayoutEffect, useRef } = await import("react")
+  const MockPopover = ({ children, onOpenChange, ...props }: {
+    children: ReactNode
+    onOpenChange: (open: boolean) => void
+  }) => {
+    const onOpenChangeRef = useRef(onOpenChange)
+    onOpenChangeRef.current = onOpenChange
+    useLayoutEffect(() => () => {
+      if (mocks.closeShellOnUnmount) onOpenChangeRef.current(false)
+    }, [])
+    return createElement("mock-popover", { ...props, onOpenChange }, children)
+  }
   return {
-    Popover: ({ children, ...props }: { children: ReactNode }) =>
-      createElement("mock-popover", props, children),
+    Popover: MockPopover,
     PopoverTrigger: ({ render }: { render: ReactNode }) => createElement(Fragment, null, render),
     PopoverContent: ({ children, ...props }: { children: ReactNode }) =>
       createElement("section", props, children),
@@ -141,6 +165,7 @@ function deferred() {
 describe("PostTagDialog responsive session", () => {
   beforeEach(() => {
     mocks.breakpoint = "desktop"
+    mocks.closeShellOnUnmount = false
   })
 
   it("renders no popup shell until the shared breakpoint resolves", () => {
@@ -311,6 +336,31 @@ describe("PostTagDialog responsive session", () => {
     setOpen(rendered.renderer.root, false)
     expect(onSave).not.toHaveBeenCalled()
     expect(rendered.renderer.root.findByType("mock-dialog").props.open).toBe(false)
+  })
+
+  it("ignores each stale shell close emitted during breakpoint unmount", () => {
+    const onSave = vi.fn()
+    const rendered = renderDialog({
+      current: ["cross-mobile"],
+      allTags: ["cross-mobile"],
+      onSave,
+    })
+    setOpen(rendered.renderer.root, true)
+    act(() => tagButton(rendered.renderer.root, "cross-mobile").props.onClick())
+    setDraft(rendered.renderer.root, "mobile-discard")
+    mocks.closeShellOnUnmount = true
+
+    switchBreakpoint(rendered, "mobile")
+    expect(rendered.renderer.root.findByType("mock-dialog").props.open).toBe(true)
+    expect(tagButton(rendered.renderer.root, "cross-mobile").props["aria-label"]).toBe("Add tag cross-mobile")
+    expect(input(rendered.renderer.root).props.value).toBe("mobile-discard")
+    expect(onSave).not.toHaveBeenCalled()
+
+    switchBreakpoint(rendered, "desktop")
+    expect(rendered.renderer.root.findByType("mock-popover").props.open).toBe(true)
+    expect(tagButton(rendered.renderer.root, "cross-mobile").props["aria-label"]).toBe("Add tag cross-mobile")
+    expect(input(rendered.renderer.root).props.value).toBe("mobile-discard")
+    expect(onSave).not.toHaveBeenCalled()
   })
 
   it("keeps one pending save alive through a shell handoff and ignores the stale shell close", async () => {
