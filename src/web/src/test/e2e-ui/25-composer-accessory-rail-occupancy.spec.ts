@@ -246,6 +246,12 @@ async function captureState(args: {
         (element) => element.getBoundingClientRect().height,
       )).toBe(width < 640 ? 40 : 38)
     }
+    if (!center || selection) {
+      await scrollRoot.evaluate((element) => {
+        element.scrollTop = element.scrollHeight
+        element.dispatchEvent(new Event("scroll"))
+      })
+    }
     const metrics = await settledRailMetrics(page, finalMessageId)
     expectContained(metrics, state, width)
     expectCheckpoint(metrics, state, width, selection, metrics.typing !== null)
