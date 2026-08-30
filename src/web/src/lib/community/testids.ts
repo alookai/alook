@@ -137,6 +137,8 @@ export const tid = {
   reactionMember: (userId: string) => `community-reaction-member-${userId}`,
   reactionEmpty: (msgId: string) => `community-reaction-empty-${msgId}`,
   messageShare: (msgId: string) => `community-message-share-${msgId}`,
+  messageShareImage: (msgId: string, index: number) =>
+    `message-share-image-${msgId}-${index}`,
   messageShareCopy: `community-message-share-copy`,
   threadIndicator: (msgId: string) => `community-thread-indicator-${msgId}`,
   railUnreadBadge: (serverId: string) => `community-rail-unread-badge-${serverId}`,

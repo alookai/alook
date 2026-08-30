@@ -96,6 +96,95 @@ export async function waitForShareCardImages(
   await waitForPaint()
 }
 
+type ShareImageDataUrlLoader = (url: string) => Promise<string>
+type ShareImageWaiter = (node: HTMLElement) => Promise<void>
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read share-card image"))
+    reader.onloadend = () => typeof reader.result === "string"
+      ? resolve(reader.result)
+      : reject(new Error("Failed to encode share-card image"))
+    reader.readAsDataURL(blob)
+  })
+}
+
+async function loadShareImageDataUrl(url: string): Promise<string> {
+  if (url.startsWith("data:")) return url
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), SHARE_IMAGE_READY_TIMEOUT_MS)
+  try {
+    const response = await fetch(url, {
+      cache: "force-cache",
+      credentials: "same-origin",
+      signal: controller.signal,
+    })
+    if (!response.ok) throw new Error(`Share-card image request failed (${response.status})`)
+    const blob = await response.blob()
+    if (!blob.type.startsWith("image/")) {
+      throw new Error(`Share-card image returned ${blob.type || "an unknown content type"}`)
+    }
+    return await blobToDataUrl(blob)
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * html-to-image clones the card and independently fetches every image URL. Its
+ * module-level resource cache stores a failed fetch as an empty string, so one
+ * transient failure can leave later exports blank even while the live preview
+ * still shows the browser's already-loaded bitmap. Inline the exact `currentSrc`
+ * of every visible image before capture, then restore the React-owned attributes.
+ */
+export async function inlineShareCardImages(
+  node: HTMLElement,
+  loadDataUrl: ShareImageDataUrlLoader = loadShareImageDataUrl,
+  waitForImages: ShareImageWaiter = waitForShareCardImages,
+): Promise<() => void> {
+  await waitForImages(node)
+  const images = [...node.querySelectorAll("img")]
+  const dataByUrl = new Map<string, Promise<string>>()
+  const sources = images.map((image) => image.currentSrc || image.src)
+  const dataUrls = await Promise.all(sources.map((source) => {
+    const existing = dataByUrl.get(source)
+    if (existing) return existing
+    const pending = loadDataUrl(source)
+    dataByUrl.set(source, pending)
+    return pending
+  }))
+  const snapshots = images.map((image) => ({
+    image,
+    src: image.getAttribute("src"),
+    srcset: image.getAttribute("srcset"),
+  }))
+  let restored = false
+  const restore = () => {
+    if (restored) return
+    restored = true
+    for (const snapshot of snapshots) {
+      if (snapshot.src === null) snapshot.image.removeAttribute("src")
+      else snapshot.image.setAttribute("src", snapshot.src)
+      if (snapshot.srcset === null) snapshot.image.removeAttribute("srcset")
+      else snapshot.image.setAttribute("srcset", snapshot.srcset)
+    }
+  }
+
+  try {
+    images.forEach((image, index) => {
+      image.setAttribute("srcset", "")
+      image.setAttribute("src", dataUrls[index]!)
+    })
+    await waitForImages(node)
+    return restore
+  } catch (error) {
+    restore()
+    throw error
+  }
+}
+
 // Share one OR several messages as an image. Renders a self-contained "share
 // card" that mirrors the in-app message blob(s) (avatar / name / content — NO
 // timestamp, per spec) plus an Alook brand footer, then rasterises THAT SAME
@@ -160,34 +249,36 @@ export function MessageShareDialog({ m, open, onClose }: {
   const render = async (): Promise<Blob | null> => {
     const node = cardRef.current
     if (!node) return null
-    await waitForShareCardImages(node)
-    // Guarantee the Caveat brand font is loaded BEFORE rasterising. html-to-image
-    // inlines webfonts into the SVG it draws; if Caveat's async @font-face hasn't
-    // resolved yet, the footer silently falls back to a default font and the PNG
-    // differs machine-to-machine ("fine on mine, blurry/wrong on theirs"). Awaiting
-    // the specific face (then the global ready signal) closes that race.
+    const restoreImages = await inlineShareCardImages(node)
     try {
-      const caveatFont = getComputedStyle(document.documentElement)
-        .getPropertyValue("--font-caveat")
-        .trim()
-      if (document.fonts?.load && caveatFont) await document.fonts.load(`16px ${caveatFont}`)
-      await document.fonts?.ready
-    } catch {
-      // Font API unavailable / load rejected — proceed; worst case is the
-      // footer's fallback font, not a failed export.
+      // Guarantee the Caveat brand font is loaded BEFORE rasterising. html-to-image
+      // inlines webfonts into the SVG it draws; if Caveat's async @font-face hasn't
+      // resolved yet, the footer silently falls back to a default font and the PNG
+      // differs machine-to-machine ("fine on mine, blurry/wrong on theirs"). Awaiting
+      // the specific face (then the global ready signal) closes that race.
+      try {
+        const caveatFont = getComputedStyle(document.documentElement)
+          .getPropertyValue("--font-caveat")
+          .trim()
+        if (document.fonts?.load && caveatFont) await document.fonts.load(`16px ${caveatFont}`)
+        await document.fonts?.ready
+      } catch {
+        // Font API unavailable / load rejected — proceed; worst case is the
+        // footer's fallback font, not a failed export.
+      }
+      return await toBlob(node, {
+        pixelRatio: 2,
+        // Every <img> is already a data URL here. Keep authenticated fetch
+        // options for CSS/font resources that html-to-image still embeds.
+        cacheBust: true,
+        fetchRequestInit: { credentials: "same-origin" },
+        // Solid backdrop so the exported PNG never bleeds transparent corners
+        // (the card's own rounded bg sits on top of this).
+        backgroundColor: getComputedStyle(node).getPropertyValue("--card")?.trim() || undefined,
+      })
+    } finally {
+      restoreImages()
     }
-    return toBlob(node, {
-      pixelRatio: 2,
-      // Re-fetch + inline external images (e.g. an uploaded CDN avatar) rather
-      // than reusing a possibly-tainted cached bitmap — avoids the canvas-taint
-      // path that would drop the avatar from the PNG. Beam fallbacks are our own
-      // inline SVG, so they're unaffected either way.
-      cacheBust: true,
-      fetchRequestInit: { credentials: "same-origin" },
-      // Solid backdrop so the exported PNG never bleeds transparent corners
-      // (the card's own rounded bg sits on top of this).
-      backgroundColor: getComputedStyle(node).getPropertyValue("--card")?.trim() || undefined,
-    })
   }
 
   const copy = async () => {
@@ -256,6 +347,7 @@ export function MessageShareDialog({ m, open, onClose }: {
               exported but doesn't blow the popup out. */}
           <div
             ref={cardRef}
+            data-share-card
             className="rounded-xl bg-card p-5 shadow-(--e1)"
           >
             {messages.map((msg) => {
@@ -342,7 +434,7 @@ export function MessageShareDialog({ m, open, onClose }: {
                               className="w-fit max-w-full overflow-hidden rounded-lg border border-border"
                             >
                               <img
-                                data-testid={`message-share-image-${msg.id}-${index}`}
+                                data-testid={tid.messageShareImage(msg.id, index)}
                                 src={attachment.url}
                                 alt={attachment.name}
                                 width={attachment.width}
