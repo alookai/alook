@@ -38,6 +38,39 @@ describe("useDms / dmsQueryFn", () => {
     expect(qc.getQueryData(key)).toEqual({ conversations: [] })
   })
 
+  it("reuses a projected DM across layout mounts without refetching the canonical list", async () => {
+    const conversations = [{
+      id: "dm_projected",
+      userId: "u_1",
+      name: "Alice",
+      discriminator: "0001",
+      avatar: "a",
+      status: "offline",
+      preview: "projected from inbox",
+    }]
+    apiFetchMock.mockResolvedValue({ conversations })
+    const { useDms } = await import("./use-dms")
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    qc.setQueryData(communityKeys.dms(), { conversations })
+
+    function Probe() {
+      useDms()
+      return null
+    }
+
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(Probe),
+      ))
+    })
+
+    expect(apiFetchMock).not.toHaveBeenCalled()
+    await act(async () => renderer.unmount())
+  })
+
   it("projects the canonical peer profile without rewriting the raw DM cache", async () => {
     const { useDms } = await import("./use-dms")
     const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } })
