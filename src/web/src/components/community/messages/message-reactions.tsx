@@ -246,7 +246,7 @@ function ReactionDetailsDialog({
                   data-testid={tid.reactionTab(reaction.emoji)}
                   aria-label={`${reaction.emoji}, ${reaction.count}`}
                   aria-controls={`${tid.reactionDialog(messageId)}-panel`}
-                  className="h-11! min-h-11 min-w-11"
+                  className="h-11! min-h-11 min-w-11 data-active:bg-accent! data-active:text-foreground! after:hidden"
                 >
                   <span aria-hidden="true">{reaction.emoji}</span>
                   <span>{reaction.count}</span>
