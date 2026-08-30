@@ -159,6 +159,14 @@ export async function seedMessage(author: UserKey, channelId: string, content: s
   return data.message.id
 }
 
+export async function seedReaction(author: UserKey, messageId: string, emoji: string): Promise<void> {
+  const response = await retrySeedRequest(() => fetch(
+    `${WEB_URL}/api/community/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`,
+    { method: "PUT", headers: { Cookie: sessionCookie(author), Origin: WEB_URL } },
+  ))
+  if (!response.ok) throw new Error(`seedReaction failed (${response.status})`)
+}
+
 export async function seedMark(author: UserKey, channelId: string, messageId: string): Promise<void> {
   const response = await retrySeedRequest(() => fetch(
     `${WEB_URL}/api/community/messages/${messageId}/marks`,

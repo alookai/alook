@@ -42,6 +42,12 @@ describe("community QA selectors", () => {
     expect(tid.memberRow("member_1")).toBe("community-member-row-member_1")
     expect(tid.composerFileInput).toBe("community-composer-file-input")
     expect(tid.messageScroller).toBe("community-message-scroller")
+    expect(tid.reactionGroup("message_1")).toBe("community-reaction-group-message_1")
+    expect(tid.reactionChip("message_1", "🔥"))
+      .toBe("community-reaction-chip-message_1-%F0%9F%94%A5")
+    expect(tid.reactionDialog("message_1")).toBe("community-reaction-dialog-message_1")
+    expect(tid.reactionTab("👍")).toBe("community-reaction-tab-%F0%9F%91%8D")
+    expect(tid.reactionMember("user_1")).toBe("community-reaction-member-user_1")
   })
 
   it("keys a pending channel sidebar by its target server", () => {

@@ -14,12 +14,10 @@ import { MessageBody } from "./message-body"
 import { BotApprovalCard } from "../social/bot-approval-card"
 import { EmojiPickerPopover } from "./emoji-picker"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
-import { NumberTicker } from "@/components/ui/number-ticker"
 import { MessageContextItems, MessageDropdownItems, hasMessageMenu } from "./message-menu"
 import { formatMessageTime } from "@/lib/community/format-time"
 import { tid } from "@/lib/community/testids"
 import { avatarInitial } from "@/lib/community/avatar"
-import { displayName } from "@/lib/community/display-name"
 import { stripInlineMarkup } from "@alook/shared"
 import type { FileAttachment, ImagePreview, RenderMsg } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
@@ -35,6 +33,7 @@ import {
 } from "./mobile-message-gesture"
 import { useMobileAvatarMention } from "./use-mobile-avatar-mention"
 import { useCommunityProfile } from "@/stores/community/ws"
+import { MessageReactions } from "./message-reactions"
 
 // Whether the "Share as Image" action is offered for a message. Share is
 // computed inside `Message` from the message alone (no handler is threaded in),
@@ -613,35 +612,16 @@ function MessageImpl({
           )}
 
           {m.reactions && (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {m.reactions.map((r, i) => {
-                const names = r.userIds?.length
-                  ? r.userIds.map((id) => resolveUserName?.(id) ?? displayName(null)).join(", ")
-                  : undefined
-                const chip = (
-                  <button
-                    onClick={() => onToggleReaction?.(r.emoji)}
-                    className={[
-                      "flex h-6 items-center gap-1 rounded-md px-2 text-sm",
-                      r.me ? "border border-primary/50 bg-accent" : "bg-secondary",
-                    ].join(" ")}
-                  >
-                    <span>{r.emoji}</span>
-                    <NumberTicker value={r.count} className="text-xs text-muted-foreground" />
-                  </button>
-                )
-                // Until the row is activated, render the bare chip (still fully
-                // clickable) without its Base UI Tooltip root — the name tooltip
-                // only matters on hover, and hover activates the row.
-                if (!names || !activated) return <div key={i}>{chip}</div>
-                return (
-                  <Tooltip key={i}>
-                    <TooltipTrigger render={chip} />
-                    <TooltipContent>Reacted by {names}</TooltipContent>
-                  </Tooltip>
-                )
-              })}
-              {reactionAddControl}
+            <div className="mt-2">
+              <MessageReactions
+                messageId={m.id}
+                reactions={m.reactions}
+                hoverCapable={hoverCapable}
+                tooltipActive={activated}
+                onToggleReaction={onToggleReaction}
+                resolveUserName={resolveUserName}
+                trailingControl={reactionAddControl}
+              />
             </div>
           )}
 

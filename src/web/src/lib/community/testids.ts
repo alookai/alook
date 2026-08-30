@@ -126,6 +126,13 @@ export const tid = {
   channelRefPopup: "community-channel-ref-popup",
   channelRefStatus: "community-channel-ref-status",
   reactionAdd: (msgId: string) => `community-reaction-add-${msgId}`,
+  reactionGroup: (msgId: string) => `community-reaction-group-${msgId}`,
+  reactionChip: (msgId: string, emoji: string) =>
+    `community-reaction-chip-${msgId}-${encodeURIComponent(emoji)}`,
+  reactionDialog: (msgId: string) => `community-reaction-dialog-${msgId}`,
+  reactionTab: (emoji: string) => `community-reaction-tab-${encodeURIComponent(emoji)}`,
+  reactionMember: (userId: string) => `community-reaction-member-${userId}`,
+  reactionEmpty: (msgId: string) => `community-reaction-empty-${msgId}`,
   messageShare: (msgId: string) => `community-message-share-${msgId}`,
   messageShareCopy: `community-message-share-copy`,
   threadIndicator: (msgId: string) => `community-thread-indicator-${msgId}`,

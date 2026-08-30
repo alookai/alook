@@ -420,13 +420,13 @@ function togglePageCacheReaction(
   return { ...cache, pages }
 }
 
-function toggleMessageReaction(
-  message: Msg,
+function toggledReactions(
+  reactionsSource: Msg["reactions"],
   emoji: string,
   userId: string,
   add: boolean,
-): Msg {
-  const reactions = (message.reactions ?? []).map((reaction) => ({
+): NonNullable<Msg["reactions"]> {
+  const reactions = (reactionsSource ?? []).map((reaction) => ({
     ...reaction,
     userIds: [...(reaction.userIds ?? [])],
   }))
@@ -445,7 +445,27 @@ function toggleMessageReaction(
     existing.me = false
     if (existing.count <= 0) reactions.splice(reactions.indexOf(existing), 1)
   }
-  return { ...message, reactions }
+  return reactions
+}
+
+function toggleMessageReaction(
+  message: Msg,
+  emoji: string,
+  userId: string,
+  add: boolean,
+): Msg {
+  return { ...message, reactions: toggledReactions(message.reactions, emoji, userId, add) }
+}
+
+function toggleSingleMessageReaction<T extends { reactions?: Msg["reactions"] }>(
+  message: T | undefined,
+  emoji: string,
+  userId: string,
+  add: boolean,
+): T | undefined {
+  return message
+    ? { ...message, reactions: toggledReactions(message.reactions, emoji, userId, add) }
+    : message
 }
 
 function messageScope(args: ToggleReactionArgs): MessageScope | undefined {
@@ -533,18 +553,25 @@ export function useToggleReactionApi(): (args: ToggleReactionArgs) => void {
         ? communityKeys.dmMessages(args.dmId)
         : communityKeys.channelMessages("__none__")
     const cache = queryClient.getQueryData<PageCache>(key)
+    const messageKey = communityKeys.message(args.messageId)
+    const singleMessage = queryClient.getQueryData<{ reactions?: Msg["reactions"] }>(messageKey)
     const scope = messageScope(args)
     const source = scope
       ? currentMaterializedMessage(cache, scope, args.messageId)
       : undefined
     const wasMe = source
       ? source.reactions?.find((reaction) => reaction.emoji === args.emoji)?.me ?? false
-      : currentMeStatus(cache, args.messageId, args.emoji)
+      : singleMessage
+        ? singleMessage.reactions?.find((reaction) => reaction.emoji === args.emoji)?.me ?? false
+        : currentMeStatus(cache, args.messageId, args.emoji)
     const nextMe = !wasMe
     // Optimistic write is always synchronous — the debounce only defers the
     // API call, not the visible UI.
     queryClient.setQueryData<PageCache>(key, (c) =>
       togglePageCacheReaction(c, args.messageId, args.emoji, args.userId, nextMe),
+    )
+    queryClient.setQueryData(messageKey, (message: typeof singleMessage) =>
+      toggleSingleMessageReaction(message, args.emoji, args.userId, nextMe),
     )
     refreshExistingReactionFallback(queryClient.getQueryData<PageCache>(key), args, nextMe)
 
@@ -573,6 +600,9 @@ export function useToggleReactionApi(): (args: ToggleReactionArgs) => void {
         // Roll back to the original server state on failure.
         queryClient.setQueryData<PageCache>(key, (c) =>
           togglePageCacheReaction(c, args.messageId, args.emoji, args.userId, originalMe),
+        )
+        queryClient.setQueryData(messageKey, (message: typeof singleMessage) =>
+          toggleSingleMessageReaction(message, args.emoji, args.userId, originalMe),
         )
         refreshExistingReactionFallback(queryClient.getQueryData<PageCache>(key), args, originalMe)
       })

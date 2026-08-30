@@ -34,6 +34,11 @@ describe("useCommunityWs — member events", () => {
       id: "srv_1",
       categories: [],
     })
+    capturedQueryClient.setQueryData(communityKeys.reactionDetails("message_1"), {
+      messageId: "message_1",
+      scope: { kind: "server", serverId: "srv_1", channelId: "channel_1" },
+      actors: [],
+    })
 
     capturedOnMessage!({
       type: "community:member.leave",
@@ -47,6 +52,30 @@ describe("useCommunityWs — member events", () => {
       currentChannelMeta: null,
     })
     expect(capturedQueryClient.getQueryState(communityKeys.server("srv_1"))).toBeUndefined()
+    expect(capturedQueryClient.getQueryState(communityKeys.reactionDetails("message_1"))).toBeUndefined()
+  })
+
+  it("invalidates matching reactor identities when another member leaves", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const matching = communityKeys.reactionDetails("message_1")
+    const other = communityKeys.reactionDetails("message_2")
+    capturedQueryClient.setQueryData(matching, {
+      messageId: "message_1",
+      scope: { kind: "server", serverId: "srv_1", channelId: "channel_1" },
+      actors: [],
+    })
+    capturedQueryClient.setQueryData(other, {
+      messageId: "message_2",
+      scope: { kind: "server", serverId: "srv_2", channelId: "channel_2" },
+      actors: [],
+    })
+    capturedOnMessage!({
+      type: "community:member.leave",
+      serverId: "srv_1",
+      userId: "u_other",
+    } satisfies CommunityMemberLeave)
+    expect(capturedQueryClient.getQueryState(matching)?.isInvalidated).toBe(true)
+    expect(capturedQueryClient.getQueryState(other)?.isInvalidated).toBe(false)
   })
 
   it("patches the members cache with a join event", async () => {

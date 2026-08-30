@@ -6,7 +6,6 @@ import { MessageBody } from "./message-body"
 import { attachmentAspectRatio } from "./attachment-layout"
 import { formatMessageTime } from "@/lib/community/format-time"
 import { Skeleton } from "@/components/ui/skeleton"
-import { NumberTicker } from "@/components/ui/number-ticker"
 import { avatarInitial } from "@/lib/community/avatar"
 import { useMessage } from "@/hooks/community/use-message"
 import { tid } from "@/lib/community/testids"
@@ -16,6 +15,8 @@ import { AttachmentCard } from "./attachment-card"
 import { displayReplyContent } from "@/lib/community/reply-content"
 import { useMobileAvatarMention } from "./use-mobile-avatar-mention"
 import { useCommunityProfile } from "@/stores/community/ws"
+import { useHoverCapable } from "@/hooks/use-hover-capable"
+import { MessageReactions } from "./message-reactions"
 
 // Thread opener — the parent message the thread was created from, pinned at
 // the top of the thread's message list. Deliberately styled like a REGULAR
@@ -39,6 +40,8 @@ export function ThreadOpener({
   onPreviewAttachment,
   onDownloadFile,
   onJump,
+  onToggleReaction,
+  resolveUserName,
   resolveAuthorMentionText,
   onInsertMentionText,
 }: {
@@ -48,12 +51,15 @@ export function ThreadOpener({
   onPreviewImage?: (image: ImagePreview) => void
   onPreviewAttachment?: (attachment: FileAttachment) => void
   onDownloadFile?: (url: string, name: string) => void
+  onToggleReaction?: (emoji: string) => void
+  resolveUserName?: (userId: string) => string
   resolveAuthorMentionText?: (authorId: string) => string | null
   onInsertMentionText?: (text: string) => void
   // Jump to the parent message in its channel. When provided, a hover-revealed
   // "Jump" button appears in the opener's top-right.
   onJump?: () => void
 }) {
+  const hoverCapable = useHoverCapable()
   const { message: msg, isLoading, isError } = useMessage(parentMessageId)
   const authorProfile = useCommunityProfile(msg?.authorId)
   const mentionText = msg ? resolveAuthorMentionText?.(msg.authorId) ?? null : null
@@ -179,20 +185,16 @@ export function ThreadOpener({
             </div>
           )}
 
-          {msg.reactions && msg.reactions.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {msg.reactions.map((r, i) => (
-                <span
-                  key={i}
-                  className={[
-                    "flex h-6 items-center gap-1 rounded-full px-2 text-sm",
-                    r.me ? "border border-primary/50 bg-accent" : "bg-secondary",
-                  ].join(" ")}
-                >
-                  <span>{r.emoji}</span>
-                  <NumberTicker value={r.count} className="text-xs text-muted-foreground" />
-                </span>
-              ))}
+          {msg.reactions && (
+            <div className="mt-2">
+              <MessageReactions
+                messageId={msg.id}
+                reactions={msg.reactions}
+                hoverCapable={hoverCapable}
+                tooltipActive
+                onToggleReaction={onToggleReaction}
+                resolveUserName={resolveUserName}
+              />
             </div>
           )}
         </div>

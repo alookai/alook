@@ -11,6 +11,14 @@ vi.mock("@/stores/community/ws", () => ({
     ? { id: userId, name: "Alice", avatar: "A" }
     : undefined,
 }))
+vi.mock("@/hooks/use-hover-capable", () => ({ useHoverCapable: () => true }))
+vi.mock("./message-reactions", () => ({
+  MessageReactions: ({ onToggleReaction }: { onToggleReaction?: (emoji: string) => void }) =>
+    React.createElement("button", {
+      "data-testid": "mock-opener-reaction",
+      onClick: () => onToggleReaction?.("🔥"),
+    }, "🔥"),
+}))
 
 import { ThreadOpener } from "./thread-opener"
 
@@ -61,6 +69,36 @@ describe("ThreadOpener image attachment layout", () => {
     const body = renderer!.root.findByProps({ "data-community-message-body": true })
     expect(textContent(body)).not.toContain("@Bob Smith")
     expect(textContent(body)).toContain("visible")
+  })
+
+  it("threads reaction toggles through the live opener surface", () => {
+    const onToggleReaction = vi.fn()
+    useMessageMock.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      message: {
+        id: "opener_1",
+        type: "chat",
+        authorId: "user_1",
+        authorName: "Alice",
+        content: "React here",
+        createdAt: "2026-08-08T00:00:00.000Z",
+        reactions: [{ emoji: "🔥", count: 1, me: false, userIds: ["user_1"] }],
+      },
+    })
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        React.createElement(ThreadOpener, {
+          parentMessageId: "opener_1",
+          viewerUserId: "viewer_1",
+          onToggleReaction,
+        }),
+        { createNodeMock: () => genericMock },
+      )
+    })
+    act(() => renderer!.root.findByProps({ "data-testid": "mock-opener-reaction" }).props.onClick())
+    expect(onToggleReaction).toHaveBeenCalledWith("🔥")
   })
 
   it("keeps a known portrait image intrinsic and constrains it by message width + max height", () => {

@@ -98,7 +98,7 @@ describe("reactions [emoji] surface guard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetMessage.mockResolvedValue({ id: "m1", channelId: "c1" });
-    mockGetChannelForMember.mockResolvedValue({ ok: true, value: { id: "c1" } });
+    mockGetChannelForMember.mockResolvedValue({ ok: true, value: { id: "c1", serverId: "s1" } });
     mockGetDM.mockResolvedValue({ ok: true });
     mockAddReaction.mockResolvedValue({ messageId: "m1", userId: "u1", emoji: "👍" });
     mockRemoveReaction.mockResolvedValue(undefined);

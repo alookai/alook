@@ -147,6 +147,16 @@ describe("communityKeys", () => {
       "d1",
       7,
     ])
+    expect(communityKeys.messageContexts("dm", "d1")).toEqual([
+      "community",
+      "message-context",
+      "dm",
+      "d1",
+    ])
+    expect(communityKeys.reactionDetails("m1")).toEqual([
+      ...communityKeys.reactionDetailsAll(),
+      "m1",
+    ])
   })
 
   it("keeps report polling specific to one report and outside the bots-list cache", () => {
