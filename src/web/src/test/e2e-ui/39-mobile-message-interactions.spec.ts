@@ -609,16 +609,31 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await finalChannelMessage.getByText(`typing ws ready ${stamp}`, { exact: true }).click()
   await alice.page.getByRole("menuitem", { name: "Share as Image" }).click()
   await expect(alice.page.getByTestId(tid.messageSelectionToolbar)).toBeVisible()
-  await expect(alice.page.getByTestId(tid.typingIndicator)).toBeHidden()
+  await expect(alice.page.locator("[data-selection-typing-fit]"))
+    .toHaveAttribute("data-selection-typing-fit", /^(visible|hidden)$/)
   const selectionTypingGeometry = await alice.page.evaluate((ids) => {
     const rect = (element: Element | null) => element?.getBoundingClientRect() ?? null
+    const typingSlot = document.querySelector<HTMLElement>("[data-selection-typing-fit]")
+    const typingPill = typingSlot?.firstElementChild as HTMLElement | null
+    const typingIndicator = document.querySelector<HTMLElement>(`[data-testid="${ids.indicator}"]`)
+    const typingText = typingIndicator?.querySelector<HTMLElement>("span.min-w-0.truncate")
     return {
       finalMessage: rect(document.querySelector(`[data-testid="${ids.finalMessage}"]`)),
       scroller: rect(document.querySelector(`[data-testid="${ids.scroller}"]`)),
       rail: rect(document.querySelector(`[data-testid="${ids.rail}"]`)),
       selection: rect(document.querySelector(`[data-testid="${ids.selection}"]`)),
-      indicator: rect(document.querySelector(`[data-testid="${ids.indicator}"]`)),
+      indicator: rect(typingIndicator),
       composer: rect(document.querySelector(`[data-testid="${ids.composer}"]`)),
+      typingFit: typingSlot && typingPill && typingIndicator && typingText
+        ? {
+          state: typingSlot.dataset.selectionTypingFit,
+          slotWidth: typingSlot.getBoundingClientRect().width,
+          pillWidth: typingPill.getBoundingClientRect().width,
+          visibility: getComputedStyle(typingIndicator).visibility,
+          textClientWidth: typingText.clientWidth,
+          textScrollWidth: typingText.scrollWidth,
+        }
+        : null,
     }
   }, {
     finalMessage: tid.message(typingWsReadyId),
@@ -634,7 +649,17 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   expect(selectionTypingGeometry.selection!.bottom).toBeLessThanOrEqual(selectionTypingGeometry.scroller!.bottom + 1)
   expect(selectionTypingGeometry.scroller!.bottom).toBeLessThanOrEqual(selectionTypingGeometry.composer!.top + 1)
   expect(selectionTypingGeometry.finalMessage!.bottom).toBeLessThanOrEqual(selectionTypingGeometry.scroller!.bottom + 1)
-  expect(selectionTypingGeometry.indicator!.height).toBe(0)
+  expect(selectionTypingGeometry.typingFit).not.toBeNull()
+  const selectionTypingFits = selectionTypingGeometry.typingFit!.pillWidth
+    <= selectionTypingGeometry.typingFit!.slotWidth
+  expect(selectionTypingGeometry.typingFit!.state)
+    .toBe(selectionTypingFits ? "visible" : "hidden")
+  expect(selectionTypingGeometry.typingFit!.visibility)
+    .toBe(selectionTypingFits ? "visible" : "hidden")
+  if (selectionTypingFits) {
+    expect(selectionTypingGeometry.typingFit!.textScrollWidth)
+      .toBeLessThanOrEqual(selectionTypingGeometry.typingFit!.textClientWidth)
+  }
   await alice.page.getByRole("button", { name: "Cancel message selection" }).click()
 
   await bobEditable.fill("")
