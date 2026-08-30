@@ -84,7 +84,6 @@ function PostTagEditorBody({
               style={tagColorStyle(tag)}
               className={cn(
                 "inline-flex max-w-full min-w-0 items-center rounded-lg px-2 py-1 text-xs transition-opacity disabled:cursor-not-allowed disabled:opacity-40",
-                mobile && "min-h-11 min-w-11",
                 tagColorClassName,
                 active ? "opacity-100 ring-1 ring-current/20" : "opacity-55 hover:opacity-80",
               )}
@@ -307,8 +306,7 @@ export function PostTagDialog({
             <Button
               type="button"
               variant="ghost"
-              size="icon"
-              className="size-11"
+              size="icon-sm"
               aria-label="Close"
               disabled={busy}
               onClick={discard}
@@ -323,7 +321,7 @@ export function PostTagDialog({
             <Button
               type="button"
               variant="outline"
-              className="h-11 px-4"
+              className="px-4"
               data-testid={tid.forumTagDialogCancel}
               disabled={busy}
               onClick={discard}
@@ -332,7 +330,7 @@ export function PostTagDialog({
             </Button>
             <Button
               type="button"
-              className="h-11 px-4"
+              className="px-4"
               data-testid={tid.forumTagDialogSave}
               disabled={busy}
               onClick={() => void saveMobile()}

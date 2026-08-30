@@ -354,4 +354,30 @@ describe("PostTagDialog responsive session", () => {
     expect(button.props["aria-label"]).toBe(`Remove tag ${tag}`)
     expect(button.findByType("span").props.className).toContain("truncate")
   })
+
+  it("uses compact mobile actions while preserving the desktop popover sizing", () => {
+    mocks.breakpoint = "mobile"
+    const rendered = renderDialog({ allTags: ["compact"] })
+    setOpen(rendered.renderer.root, true)
+
+    const mobileChipClass = String(tagButton(rendered.renderer.root, "compact").props.className)
+    expect(mobileChipClass).not.toContain("min-h-11")
+    expect(mobileChipClass).not.toContain("min-w-11")
+    const close = rendered.renderer.root.findByProps({ "aria-label": "Close" })
+    expect(close.props.size).toBe("icon-sm")
+    expect(String(close.props.className)).not.toContain("size-11")
+    for (const testid of [tid.forumTagDialogCancel, tid.forumTagDialogSave]) {
+      const actionClass = String(byTestId(rendered.renderer.root, testid).props.className)
+      expect(actionClass).toContain("px-4")
+      expect(actionClass).not.toContain("h-11")
+    }
+    expect(String(input(rendered.renderer.root).props.className)).toContain("h-11")
+
+    switchBreakpoint(rendered, "desktop")
+    const popover = rendered.renderer.root.findByType("section")
+    expect(popover.props.className).toBe("w-64 space-y-3 p-3")
+    expect(String(input(rendered.renderer.root).props.className)).toContain("h-8")
+    expect(String(tagButton(rendered.renderer.root, "compact").props.className))
+      .not.toContain("min-h-11")
+  })
 })
