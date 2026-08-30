@@ -140,6 +140,18 @@ describe("MessageReactions", () => {
       .toContain("**:data-[slot=dialog-close]:size-11")
   })
 
+  it("constrains long reactor lists to the dialog scroll region", () => {
+    vi.useFakeTimers()
+    const { renderer } = renderReactions()
+    const chip = renderer.root.findByProps({ "data-testid": tid.reactionChip("message_1", "👍") })
+    act(() => chip.props.onPointerDown({ pointerType: "touch", clientX: 10, clientY: 10, stopPropagation: vi.fn() }))
+    act(() => vi.advanceTimersByTime(450))
+    expect(renderer.root.findByType("mock-dialog-content").props.className)
+      .toContain("flex-col")
+    expect(renderer.root.findByProps({ role: "tabpanel" }).props.className)
+      .toContain("flex-auto")
+  })
+
   it("renders a transparent single-line horizontal tab rail with an accessible label", () => {
     vi.useFakeTimers()
     const { renderer } = renderReactions()

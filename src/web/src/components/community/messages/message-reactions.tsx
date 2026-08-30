@@ -214,15 +214,15 @@ function ReactionDetailsDialog({
   return (
     <DialogContent
       data-testid={tid.reactionDialog(messageId)}
-      className="max-h-[calc(100dvh-2rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] gap-3 overflow-hidden sm:max-w-sm **:data-[slot=dialog-close]:size-11 sm:**:data-[slot=dialog-close]:size-7"
+      className="flex max-h-[calc(100dvh-2rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] flex-col gap-3 overflow-hidden sm:max-w-sm **:data-[slot=dialog-close]:size-11 sm:**:data-[slot=dialog-close]:size-7"
     >
-      <DialogHeader>
+      <DialogHeader className="shrink-0">
         <DialogTitle>Reactions</DialogTitle>
         <DialogDescription>People who reacted to this message</DialogDescription>
       </DialogHeader>
 
       {reactions.length > 0 && selectedEmoji && (
-        <Tabs value={selectedEmoji} onValueChange={onSelectedEmojiChange}>
+        <Tabs className="shrink-0" value={selectedEmoji} onValueChange={onSelectedEmojiChange}>
           <div className="relative min-w-0">
             <TabsList
               ref={reactionScrollerRef}
@@ -263,7 +263,7 @@ function ReactionDetailsDialog({
         id={`${tid.reactionDialog(messageId)}-panel`}
         role="tabpanel"
         aria-labelledby={selectedEmoji ? tid.reactionTab(selectedEmoji) : undefined}
-        className="min-h-28 overflow-y-auto thin-scrollbar"
+        className="min-h-28 flex-auto overflow-y-auto thin-scrollbar"
         aria-live="polite"
       >
         {details.isLoading ? (
