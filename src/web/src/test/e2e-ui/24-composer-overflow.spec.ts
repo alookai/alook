@@ -232,6 +232,13 @@ test.describe.serial("community composer text containment", () => {
 
   test("default channel placeholder stays in the editable width and leaves controls clickable", async ({ asUser }) => {
     const { page } = await asUser("alice")
+    let messagePosts = 0
+    page.on("request", (request) => {
+      if (
+        request.method() === "POST"
+        && new URL(request.url()).pathname === `/api/community/channels/${longChannelId}/messages`
+      ) messagePosts += 1
+    })
     await page.goto(`/c/channels/${serverId}/${longChannelId}`)
     await page.waitForURL(new RegExp(longChannelId), { timeout: 20_000, waitUntil: "commit" })
     await ignoreNextDevToolsPointerCapture(page)
@@ -241,12 +248,26 @@ test.describe.serial("community composer text containment", () => {
     await page.setViewportSize({ width: 375, height: 800 })
     const attach = page.getByTestId(tid.composerAttach)
     const editable = composerEditable(page)
+    await editable.evaluate((element) => {
+      const editor = element as HTMLElement
+      editor.blur()
+      editor.dataset.e2eFocusEvents = "0"
+      editor.addEventListener("focus", () => {
+        editor.dataset.e2eFocusEvents = String(
+          Number(editor.dataset.e2eFocusEvents ?? "0") + 1,
+        )
+      })
+    })
+    await expect(editable).not.toBeFocused()
     const beforeCancel = await editable.textContent()
     const cancelledChooser = page.waitForEvent("filechooser")
     await attach.click()
     expect((await cancelledChooser).isMultiple()).toBe(true)
     await expect(page.getByRole("menuitem", { name: "Upload a File" })).toHaveCount(0)
+    await expect(editable).not.toBeFocused()
+    await expect(editable).toHaveAttribute("data-e2e-focus-events", "0")
     expect(await editable.textContent()).toBe(beforeCancel)
+    expect(messagePosts).toBe(0)
 
     const selectedChooser = page.waitForEvent("filechooser")
     await attach.click()
@@ -256,8 +277,16 @@ test.describe.serial("community composer text containment", () => {
       buffer: Buffer.from("direct native picker"),
     })
     await expect(page.getByText("direct-picker.txt", { exact: true })).toBeVisible()
+    await expect(editable).not.toBeFocused()
+    await expect(editable).toHaveAttribute("data-e2e-focus-events", "0")
+    expect(messagePosts).toBe(0)
     await page.getByRole("button", { name: "Remove file" }).click()
     await expect(page.getByText("direct-picker.txt", { exact: true })).toHaveCount(0)
+
+    await editable.click()
+    await expect(editable).toBeFocused()
+    await expect(editable).toHaveAttribute("data-e2e-focus-events", "1")
+    expect(messagePosts).toBe(0)
 
     const emoji = page.getByRole("button", { name: "Emoji picker" })
     await emoji.click()

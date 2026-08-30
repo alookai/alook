@@ -1025,11 +1025,8 @@ describe("useComposerController", () => {
 
     focus.mockClear()
     view.onUploadFile()
-    expect(filePickerClick).toHaveBeenCalled()
-    expect(focus).toHaveBeenCalledWith()
-    expect(filePickerClick.mock.invocationCallOrder.at(-1)).toBeLessThan(
-      focus.mock.invocationCallOrder.at(-1),
-    )
+    expect(filePickerClick).toHaveBeenCalledOnce()
+    expect(focus).not.toHaveBeenCalled()
 
     view.onEmojiPick("🌱")
     expect(editor.chain).toHaveBeenCalled()
