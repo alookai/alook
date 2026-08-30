@@ -242,9 +242,9 @@ describe("CursorDriver persistent ACP transport", () => {
       error: "Cursor ACP session already started",
     });
     await expect(lane.send({ text: "busy", mode: "busy" })).resolves.toEqual({
-      ok: false,
-      reason: "unsupported",
-      error: "Cursor ACP does not support mid-turn steering",
+      ok: true,
+      acceptedAs: "steer",
+      receipt: "cursor:acp:5",
     });
     await expect(lane.send({ text: "idle", mode: "idle" })).resolves.toEqual({
       ok: false,
@@ -261,6 +261,7 @@ describe("CursorDriver persistent ACP transport", () => {
       "authenticate",
       "session/new",
       "session/prompt",
+      "session/prompt",
     ]);
     expect(server.messages[0]!.params).toMatchObject({
       protocolVersion: 1,
@@ -270,7 +271,186 @@ describe("CursorDriver persistent ACP transport", () => {
       sessionId: "cursor-acp-session",
       prompt: [{ type: "text", text: "say hi" }],
     });
+    expect(server.prompts[1]!.params).toEqual({
+      sessionId: "cursor-acp-session",
+      prompt: [{ type: "text", text: "busy" }],
+    });
     expect(events).toEqual([{ kind: "session_init", sessionId: "cursor-acp-session" }]);
+  });
+
+  it("keeps one root terminal owner across repeated steers and ignores every old response shape", async () => {
+    const server = installServer();
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const events = eventsFrom(lane);
+    const root = await lane.start({ text: "root" });
+    const firstSteer = await lane.send({ text: "first steer", mode: "busy" });
+    const secondSteer = await lane.send({ text: "second steer", mode: "busy" });
+    const thirdSteer = await lane.send({ text: "third steer", mode: "busy" });
+    const process = spawned[0]!;
+
+    expect(root).toEqual({ ok: true, acceptedAs: "prompt", receipt: "cursor:acp:4" });
+    expect(firstSteer).toEqual({ ok: true, acceptedAs: "steer", receipt: "cursor:acp:5" });
+    expect(secondSteer).toEqual({ ok: true, acceptedAs: "steer", receipt: "cursor:acp:6" });
+    expect(thirdSteer).toEqual({ ok: true, acceptedAs: "steer", receipt: "cursor:acp:7" });
+    expect(new Set(server.prompts.map((prompt) => prompt.id)).size).toBe(4);
+
+    process.stdout.write(`${JSON.stringify({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: "cursor-acp-session",
+        update: { sessionUpdate: "tool_call", toolCallId: "current-tool", title: "Current tool" },
+      },
+    })}\n`);
+    completePrompt(process, server.prompts[0]!, "cancelled");
+    fail(process, server.prompts[1]!, "old prompt failed");
+    completePrompt(process, server.prompts[2]!);
+    await settle();
+
+    expect(events.filter((event) => event.kind === "error")).toEqual([]);
+    expect(events.filter((event) => event.kind === "turn_end")).toEqual([]);
+    process.stdout.write(`${JSON.stringify({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: "cursor-acp-session",
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "current-tool",
+          title: "Current tool",
+          status: "completed",
+        },
+      },
+    })}\n`);
+    expect(events).toContainEqual({ kind: "tool_output", name: "Current tool" });
+
+    completePrompt(process, server.prompts[3]!, "cancelled");
+    await settle();
+    expect(events.filter((event) => event.kind === "turn_end")).toEqual([{
+      kind: "turn_end",
+      sessionId: "cursor-acp-session",
+      turnOwner: "cursor:acp:4",
+    }]);
+
+    completePrompt(process, server.prompts[0]!);
+    fail(process, server.prompts[1]!, "duplicate old failure");
+    await settle();
+    expect(events.filter((event) => event.kind === "turn_end")).toHaveLength(1);
+    expect(events.filter((event) => event.kind === "runtime_diagnostic")).toHaveLength(2);
+  });
+
+  it("rejects busy delivery after the active prompt has finished", async () => {
+    const server = installServer();
+    const lane = await new CursorDriver().openLane(baseCtx());
+    await lane.start({ text: "root" });
+
+    completePrompt(spawned[0]!, server.prompts[0]!);
+    await settle();
+
+    await expect(lane.send({ text: "too late", mode: "busy" })).resolves.toEqual({
+      ok: false,
+      reason: "runtime_busy",
+      error: "Cursor ACP has no active prompt to steer",
+    });
+    expect(server.prompts).toHaveLength(1);
+  });
+
+  it("registers a steer before write so a synchronous response owns the current prompt", async () => {
+    const server = installServer();
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const events = eventsFrom(lane);
+    await lane.start({ text: "root" });
+    const original = onClientMessage;
+    onClientMessage = (process, message) => {
+      original(process, message);
+      if (message.method === "session/prompt" && server.prompts.length === 2) {
+        respond(process, message, { stopReason: "end_turn" });
+      }
+    };
+
+    await expect(lane.send({ text: "synchronous steer", mode: "busy" })).resolves.toEqual({
+      ok: true,
+      acceptedAs: "steer",
+      receipt: "cursor:acp:5",
+    });
+    expect(events.filter((event) => event.kind === "turn_end")).toEqual([{
+      kind: "turn_end",
+      sessionId: "cursor-acp-session",
+      turnOwner: "cursor:acp:4",
+    }]);
+    completePrompt(spawned[0]!, server.prompts[0]!);
+    await settle();
+    expect(events.filter((event) => event.kind === "turn_end")).toHaveLength(1);
+  });
+
+  it("rolls a failed steer write back to the exact previous prompt and tool state", async () => {
+    const server = installServer();
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const events = eventsFrom(lane);
+    await lane.start({ text: "root" });
+    const process = spawned[0]!;
+    process.stdout.write(`${JSON.stringify({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: "cursor-acp-session",
+        update: { sessionUpdate: "tool_call", toolCallId: "root-tool", title: "Root tool" },
+      },
+    })}\n`);
+    vi.spyOn(process.stdin, "write").mockImplementationOnce(() => {
+      throw new Error("steer write failed");
+    });
+
+    await expect(lane.send({ text: "must roll back", mode: "busy" })).rejects.toThrow("steer write failed");
+    expect(server.prompts).toHaveLength(1);
+    process.stdout.write(`${JSON.stringify({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: "cursor-acp-session",
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "root-tool",
+          title: "Root tool",
+          status: "completed",
+        },
+      },
+    })}\n`);
+    expect(events).toContainEqual({ kind: "tool_output", name: "Root tool" });
+
+    completePrompt(process, server.prompts[0]!);
+    await settle();
+    expect(events.filter((event) => event.kind === "turn_end")).toEqual([{
+      kind: "turn_end",
+      sessionId: "cursor-acp-session",
+      turnOwner: "cursor:acp:4",
+    }]);
+  });
+
+  it("lets only the latest prompt RPC error fail the root turn", async () => {
+    const server = installServer();
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const events = eventsFrom(lane);
+    await lane.start({ text: "root" });
+    await lane.send({ text: "latest", mode: "busy" });
+    const process = spawned[0]!;
+
+    fail(process, server.prompts[1]!, "latest failed");
+    await settle();
+    expect(events.filter((event) => event.kind === "error")).toEqual([{
+      kind: "error",
+      message: "latest failed",
+    }]);
+    expect(events.filter((event) => event.kind === "turn_end")).toEqual([{
+      kind: "turn_end",
+      sessionId: "cursor-acp-session",
+      turnOwner: "cursor:acp:4",
+    }]);
+
+    fail(process, server.prompts[0]!, "old failed later");
+    await settle();
+    expect(events.filter((event) => event.kind === "error")).toHaveLength(1);
+    expect(events.filter((event) => event.kind === "turn_end")).toHaveLength(1);
   });
 
   it("loads an ACP session without a fresh fallback and returns reset_required for an old incompatible id", async () => {
@@ -1138,7 +1318,7 @@ describe("CursorDriver persistent ACP transport", () => {
   });
 
   it("turns an activated process error into one killed crash exit", async () => {
-    installServer();
+    const server = installServer();
     const lane = await new CursorDriver().openLane(baseCtx());
     const errors: Error[] = [];
     const exits: unknown[] = [];
@@ -1146,7 +1326,16 @@ describe("CursorDriver persistent ACP transport", () => {
     lane.on("runtime_event", () => {});
     lane.on("exit", (exit) => exits.push(exit));
     await lane.start({ text: "crash" });
+    await lane.send({ text: "first steer", mode: "busy" });
+    await lane.send({ text: "second steer", mode: "busy" });
     const process = spawned[0]!;
+    const internals = lane as unknown as {
+      pending: Map<number, unknown>;
+      currentPromptRequestId: number | null;
+      terminalOwner: string | null;
+    };
+    expect(server.prompts).toHaveLength(3);
+    expect(internals.pending.size).toBe(3);
 
     process.emit("error", new Error("EIO"));
     process.emit("error", new Error("duplicate"));
@@ -1155,6 +1344,9 @@ describe("CursorDriver persistent ACP transport", () => {
     expect(errors).toEqual([new Error("EIO")]);
     expect(exits).toEqual([{ code: null, signal: null, reason: "runtime_exit" }]);
     expect(process.kill).toHaveBeenCalledOnce();
+    expect(internals.pending.size).toBe(0);
+    expect(internals.currentPromptRequestId).toBeNull();
+    expect(internals.terminalOwner).toBeNull();
 
     process.finish(17, null);
     process.emit("error", new Error("late"));
@@ -1164,7 +1356,7 @@ describe("CursorDriver persistent ACP transport", () => {
   });
 
   it("ignores a process error after an authoritative exit", async () => {
-    installServer();
+    const server = installServer();
     const lane = await new CursorDriver().openLane(baseCtx());
     const errors: Error[] = [];
     const exits: unknown[] = [];
@@ -1172,7 +1364,16 @@ describe("CursorDriver persistent ACP transport", () => {
     lane.on("runtime_event", () => {});
     lane.on("exit", (exit) => exits.push(exit));
     await lane.start({ text: "crash" });
+    await lane.send({ text: "first steer", mode: "busy" });
+    await lane.send({ text: "second steer", mode: "busy" });
     const process = spawned[0]!;
+    const internals = lane as unknown as {
+      pending: Map<number, unknown>;
+      currentPromptRequestId: number | null;
+      terminalOwner: string | null;
+    };
+    expect(server.prompts).toHaveLength(3);
+    expect(internals.pending.size).toBe(3);
 
     process.finish(17, null);
     process.emit("error", new Error("late"));
@@ -1180,6 +1381,9 @@ describe("CursorDriver persistent ACP transport", () => {
     expect(exits).toEqual([{ code: 17, signal: null, reason: "runtime_exit" }]);
     expect(errors).toEqual([]);
     expect(process.kill).not.toHaveBeenCalled();
+    expect(internals.pending.size).toBe(0);
+    expect(internals.currentPromptRequestId).toBeNull();
+    expect(internals.terminalOwner).toBeNull();
   });
 
   it("keeps requested stop ownership when the process errors during cleanup", async () => {

@@ -41,7 +41,7 @@ interface PendingCall {
 interface PendingPrompt {
   readonly kind: "prompt";
   readonly method: "session/prompt";
-  readonly active: ActivePrompt;
+  readonly prompt: PromptRequest;
 }
 
 type PendingRequest = PendingCall | PendingPrompt;
@@ -51,7 +51,7 @@ interface RpcRequest {
   readonly promise: Promise<unknown>;
 }
 
-interface ActivePrompt {
+interface PromptRequest {
   readonly requestId: number;
   readonly receipt: string;
 }
@@ -114,7 +114,8 @@ export class CursorAcpLane implements RuntimeLane {
   private started = false;
   private ready = false;
   private sessionId: string | null = null;
-  private activePrompt: ActivePrompt | null = null;
+  private currentPromptRequestId: number | null = null;
+  private terminalOwner: string | null = null;
   private requestedStopReason?: string;
   private spawnPromise?: Promise<SpawnedProcess>;
   private stopPromise?: Promise<void>;
@@ -193,17 +194,20 @@ export class CursorAcpLane implements RuntimeLane {
 
   async send(input: LaneSendInput): Promise<LaneAdmission> {
     if (!this.ready || !this.process || this.isClosed()) return { ok: false, reason: "closed" };
-    if (input.mode !== "idle") {
-      return { ok: false, reason: "unsupported", error: "Cursor ACP does not support mid-turn steering" };
+    if (input.mode === "busy") {
+      if (this.currentPromptRequestId === null) {
+        return { ok: false, reason: "runtime_busy", error: "Cursor ACP has no active prompt to steer" };
+      }
+      return this.admitPrompt(input.text, "steer");
     }
-    if (this.activePrompt) {
+    if (this.currentPromptRequestId !== null) {
       return { ok: false, reason: "runtime_busy", error: "Cursor ACP prompt is still active" };
     }
     return this.admitPrompt(input.text);
   }
 
   async interrupt(_input: LaneInterruptInput): Promise<boolean> {
-    if (!this.ready || !this.sessionId || !this.activePrompt || this.isClosed()) return false;
+    if (!this.ready || !this.sessionId || this.currentPromptRequestId === null || this.isClosed()) return false;
     this.write({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: this.sessionId } });
     return true;
   }
@@ -211,7 +215,8 @@ export class CursorAcpLane implements RuntimeLane {
   stop(input: LaneStopInput = {}): Promise<void> {
     this.requestedStopReason ??= input.reason ?? "requested_stop";
     this.ready = false;
-    this.activePrompt = null;
+    this.currentPromptRequestId = null;
+    this.terminalOwner = null;
     this.openToolCalls.clear();
     this.rejectAllPending(new Error("Cursor ACP lane stopped"));
     this.stopPromise ??= this.stopPhysicalOnce(input);
@@ -322,17 +327,20 @@ export class CursorAcpLane implements RuntimeLane {
     }
   }
 
-  private admitPrompt(text: string): LaneAdmission {
+  private admitPrompt(text: string, delivery: "prompt" | "steer" = "prompt"): LaneAdmission {
     if (!this.sessionId) return { ok: false, reason: "not_ready", error: "Cursor ACP session is not ready" };
-    if (this.activePrompt) return { ok: false, reason: "runtime_busy", error: "Cursor ACP prompt is still active" };
     const requestId = ++this.requestSequence;
-    const active: ActivePrompt = {
+    const prompt: PromptRequest = {
       requestId,
       receipt: `cursor:acp:${requestId}`,
     };
+    const previousPromptRequestId = this.currentPromptRequestId;
+    const previousTerminalOwner = this.terminalOwner;
+    const previousOpenToolCalls = new Set(this.openToolCalls);
+    if (delivery === "prompt") this.terminalOwner = prompt.receipt;
+    this.currentPromptRequestId = requestId;
     this.openToolCalls.clear();
-    this.activePrompt = active;
-    this.pending.set(requestId, { kind: "prompt", method: "session/prompt", active });
+    this.pending.set(requestId, { kind: "prompt", method: "session/prompt", prompt });
     try {
       this.write({
         jsonrpc: "2.0",
@@ -345,31 +353,40 @@ export class CursorAcpLane implements RuntimeLane {
       });
     } catch (error) {
       this.pending.delete(requestId);
-      if (this.activePrompt?.requestId === requestId) this.activePrompt = null;
+      if (this.currentPromptRequestId === requestId) {
+        this.currentPromptRequestId = previousPromptRequestId;
+        this.terminalOwner = previousTerminalOwner;
+        this.openToolCalls.clear();
+        for (const toolCallId of previousOpenToolCalls) this.openToolCalls.add(toolCallId);
+      }
       throw error;
     }
-    return { ok: true, acceptedAs: "prompt", receipt: active.receipt };
+    return { ok: true, acceptedAs: delivery, receipt: prompt.receipt };
   }
 
-  private completePrompt(active: ActivePrompt, value: unknown): void {
-    if (this.activePrompt?.requestId !== active.requestId) return;
+  private completePrompt(prompt: PromptRequest, value: unknown): void {
+    if (this.currentPromptRequestId !== prompt.requestId) return;
     const result = record(value);
     if (!result || typeof result.stopReason !== "string" || !PROMPT_STOP_REASONS.has(result.stopReason)) {
-      this.failPrompt(active, new Error("Cursor ACP prompt response did not contain a supported stopReason"));
+      this.failPrompt(prompt, new Error("Cursor ACP prompt response did not contain a supported stopReason"));
       return;
     }
-    this.activePrompt = null;
+    const terminalOwner = this.terminalOwner ?? prompt.receipt;
+    this.currentPromptRequestId = null;
+    this.terminalOwner = null;
     this.openToolCalls.clear();
     this.events.emit("runtime_event", {
       kind: "turn_end",
       sessionId: this.sessionId ?? undefined,
-      turnOwner: active.receipt,
+      turnOwner: terminalOwner,
     } satisfies AdapterEvent);
   }
 
-  private failPrompt(active: ActivePrompt, error: unknown): void {
-    if (this.activePrompt?.requestId !== active.requestId) return;
-    this.activePrompt = null;
+  private failPrompt(prompt: PromptRequest, error: unknown): void {
+    if (this.currentPromptRequestId !== prompt.requestId) return;
+    const terminalOwner = this.terminalOwner ?? prompt.receipt;
+    this.currentPromptRequestId = null;
+    this.terminalOwner = null;
     this.openToolCalls.clear();
     this.events.emit("runtime_event", {
       kind: "error",
@@ -378,7 +395,7 @@ export class CursorAcpLane implements RuntimeLane {
     this.events.emit("runtime_event", {
       kind: "turn_end",
       sessionId: this.sessionId ?? undefined,
-      turnOwner: active.receipt,
+      turnOwner: terminalOwner,
     } satisfies AdapterEvent);
   }
 
@@ -462,7 +479,8 @@ export class CursorAcpLane implements RuntimeLane {
       }
       this.processTerminal = true;
       this.ready = false;
-      this.activePrompt = null;
+      this.currentPromptRequestId = null;
+      this.terminalOwner = null;
       this.openToolCalls.clear();
       this.stopPromise ??= this.stopPhysicalOnce({ reason: "runtime_error", forceAfterMs: 0 });
       void this.stopPromise.catch(() => {});
@@ -478,7 +496,8 @@ export class CursorAcpLane implements RuntimeLane {
       if (this.processTerminal || this.process !== proc) return;
       this.processTerminal = true;
       this.ready = false;
-      this.activePrompt = null;
+      this.currentPromptRequestId = null;
+      this.terminalOwner = null;
       this.openToolCalls.clear();
       this.rejectAllPending(new Error("Cursor ACP process exited"));
       if (this.suppressExit || !this.processActivated) return;
@@ -521,15 +540,15 @@ export class CursorAcpLane implements RuntimeLane {
       this.pending.delete(id);
       if (message.error !== undefined) {
         const payload = record(message.error);
-        this.failPrompt(pending.active, new CursorAcpRpcError(
+        this.failPrompt(pending.prompt, new CursorAcpRpcError(
           pending.method,
           typeof payload?.code === "number" ? payload.code : undefined,
           rpcErrorMessage(message.error),
         ));
       } else if (!("result" in message)) {
-        this.failPrompt(pending.active, new Error("Cursor ACP response omitted result"));
+        this.failPrompt(pending.prompt, new Error("Cursor ACP response omitted result"));
       } else {
-        this.completePrompt(pending.active, message.result);
+        this.completePrompt(pending.prompt, message.result);
       }
       return;
     }
@@ -576,7 +595,7 @@ export class CursorAcpLane implements RuntimeLane {
       && typeof option.optionId === "string"
       && option.optionId.trim().length > 0
     ));
-    if (!this.ready || !this.activePrompt || !sameSession || !allowOnce) {
+    if (!this.ready || this.currentPromptRequestId === null || !sameSession || !allowOnce) {
       this.write({ jsonrpc: "2.0", id, result: { outcome: { outcome: "cancelled" } } });
       this.diagnostic("error", "Cursor ACP permission request was not allowed for the active prompt");
       return;
@@ -602,7 +621,7 @@ export class CursorAcpLane implements RuntimeLane {
       this.diagnostic("warning", "Cursor ACP emitted an update for a different session");
       return;
     }
-    if (!this.ready || !this.activePrompt) {
+    if (!this.ready || this.currentPromptRequestId === null) {
       this.diagnostic("warning", "Cursor ACP emitted a session update without an active prompt");
       return;
     }

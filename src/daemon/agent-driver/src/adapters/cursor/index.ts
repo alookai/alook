@@ -1,11 +1,11 @@
 /**
  * Cursor driver — persistent Agent Client Protocol (ACP) over stdio.
  *
- * One `cursor-agent acp` process owns one physical Cursor session. Root
- * prompts are correlated by their JSON-RPC request ids; the matching
- * `session/prompt` response is the only authoritative terminal for that turn.
- * Cursor does not accept mid-turn steering here, so LogicalAgentSession keeps
- * busy input in its next-turn FIFO until the active prompt settles.
+ * One `cursor-agent acp` process owns one physical Cursor session. A root
+ * prompt establishes the stable terminal owner; busy input steers through a
+ * concurrent `session/prompt` with its own JSON-RPC request id. Superseded
+ * responses settle only their own request, and only the current prompt can
+ * emit the root terminal.
  */
 import type {
   AdapterLaunchContext,

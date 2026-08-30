@@ -97,12 +97,14 @@ Pi declares the `in_process_sdk` transport and
 `midTurnDelivery: "steer"`. Its lane delegates prompt, steer, abort, and dispose
 to the SDK while preserving the same receipts, events, and terminal contract.
 
-### Persistent queued runtime (Cursor)
+### Persistent steering runtime (Cursor)
 
 Cursor keeps one `cursor-agent acp` process and ACP session for the logical
-session. Each idle command is a `session/prompt` request; while one is active,
-later commands remain in the logical next-turn FIFO until its correlated
-response arrives. Interrupt sends `session/cancel` without killing the process.
+session. A root command starts a `session/prompt`; busy commands steer the same
+logical turn through concurrent prompt requests. Each request has its own
+JSON-RPC id, while the root receipt remains the stable terminal owner. Old
+responses cannot settle the current turn. Interrupt sends `session/cancel`
+without killing the process.
 
 ### Persistent service runtime (OpenCode)
 
@@ -120,7 +122,7 @@ live stream handles permissions.
 | **claude** | persistent session | stream-json NDJSON | `safe_boundary_queue` | stdin user-message line | stream-json |
 | **codex** | persistent session | JSON-RPC 2.0 (`app-server --listen stdio://`) | `safe_boundary_queue` | `initialize` → `thread/start`/`resume` | JSON-RPC notifications |
 | **pi** | persistent session | `@earendil-works/pi-coding-agent` | `steer` | `session.prompt()` | SDK callback |
-| **cursor** | persistent session | ACP JSON-RPC 2.0 (`cursor-agent acp`) | `next_turn_queue` | `session/prompt` | `session/update` + correlated prompt response |
+| **cursor** | persistent session | ACP JSON-RPC 2.0 (`cursor-agent acp`) | `steer` | `session/prompt` | `session/update` + correlated prompt response |
 | **opencode** | persistent session | authenticated HTTP + SSE (`opencode serve --pure`) | `steer` | v2 session prompt API | durable + live SSE |
 
 (Exact launch flags live in `agent-driver/src/adapters/<backend>/`.)
