@@ -40,9 +40,9 @@ export function QueryProvider({
   children: ReactNode
   userId: string | null
 }) {
-  const profiles = useCommunityWsStore.getState()
-  profiles.activateProfileAccount(userId)
-  const restoreProfileSnapshot = useRef(profiles.beginProfileSnapshot()).current
+  const [restoreProfileSnapshot] = useState(
+    () => useCommunityWsStore.getState().beginProfileSnapshot(),
+  )
   const [queryClient] = useState(() => createQueryClient())
   if (userId) getAccountUnreadProjection(queryClient, userId)
   // Persister is bound to the userId at construction; on account switch the
