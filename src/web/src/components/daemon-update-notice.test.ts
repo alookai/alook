@@ -126,6 +126,12 @@ describe("DaemonUpdateNotice", () => {
     expect(notice.title).toBe("Daemon update available")
     expect(notice.description).toBe("2 machines need daemon v0.1.27.")
     expect(notice.data.closeLabel).toBe("Hide until the next Web update")
+    expect(notice.data.icon.props).toMatchObject({
+      src: "/alook.svg",
+      alt: "",
+      width: 24,
+      height: 24,
+    })
     expect(notice.timeout).toBe(0)
     expect(localStorage.setItem).not.toHaveBeenCalled()
   })

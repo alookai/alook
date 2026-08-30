@@ -1,9 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useRef, type ComponentPropsWithoutRef } from "react"
+import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
-import { CircleArrowUp } from "lucide-react"
 import { parseReleaseVersion, releaseVersionGte } from "@alook/shared"
 import { machinesQueryFn, type MachineSummary } from "@/hooks/community/use-machines"
 import { messageNotification } from "@/components/ui/toast"
@@ -99,7 +99,7 @@ export function DaemonUpdateNotice({
           timeout: 0,
           data: {
             closeLabel: "Hide until the next Web update",
-            icon: <CircleArrowUp className="size-5" />,
+            icon: <Image src="/alook.svg" alt="" width={24} height={24} className="size-6" />,
             testId: tid.daemonUpdateNotice,
           },
           actionProps: {
