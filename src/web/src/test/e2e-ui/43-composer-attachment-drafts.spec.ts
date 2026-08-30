@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test"
 import { test, expect, userId } from "./_fixtures/community-fixture"
-import { composerEditable } from "./_fixtures/actions"
+import { composerEditable, installInputCapability } from "./_fixtures/actions"
 import { seedChannel, seedDm, seedMessage, seedServer, seedThread } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
@@ -212,6 +212,7 @@ test.describe.serial("same-tab Community attachment drafts", () => {
   test("mobile restores scoped attachments, sends explicitly once, and reload restores text only", async ({ asUser }) => {
     test.setTimeout(120_000)
     const { page } = await asUser("alice")
+    await installInputCapability(page, false)
     await page.setViewportSize({ width: 390, height: 844 })
     const channelA = `/c/channels/${serverId}/${channelAId}`
     await page.goto(channelA, { waitUntil: "commit" })

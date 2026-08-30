@@ -42,8 +42,8 @@ vi.mock("@/hooks/use-file-attachments", () => ({
   useFileAttachments: (...args: unknown[]) => mocks.useFileAttachments(...args),
 }))
 
-vi.mock("@/hooks/use-mobile", () => ({
-  useBreakpoint: () => "desktop",
+vi.mock("@/hooks/use-hover-capable", () => ({
+  useHoverCapable: () => true,
 }))
 
 import { Composer, type ComposerProps } from "./composer"

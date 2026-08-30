@@ -5,6 +5,7 @@ import {
   expectMessageVisible,
   gotoAfterUserWsAuth,
   ignoreNextDevToolsPointerCapture,
+  installInputCapability,
 } from "./_fixtures/actions"
 import {
   memberInfo,
@@ -21,27 +22,6 @@ import {
   type CapturedCommunityFrame,
 } from "./_fixtures/community-ws-proxy"
 import { tid } from "./_fixtures/testids"
-
-const TOUCH_QUERY = "(hover: hover) and (pointer: fine)"
-
-async function installTouchPrimaryPointer(page: Page): Promise<void> {
-  await page.addInitScript((touchQuery) => {
-    const nativeMatchMedia = window.matchMedia.bind(window)
-    window.matchMedia = (query: string) => {
-      if (query !== touchQuery) return nativeMatchMedia(query)
-      return {
-        matches: false,
-        media: query,
-        onchange: null,
-        addListener: () => {},
-        removeListener: () => {},
-        addEventListener: () => {},
-        removeEventListener: () => {},
-        dispatchEvent: () => false,
-      } as MediaQueryList
-    }
-  }, TOUCH_QUERY)
-}
 
 function frameHasMessage(
   frame: CapturedCommunityFrame,
@@ -350,7 +330,7 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
 
   const alice = await asUser("alice")
   const bob = await asUser("bob")
-  await installTouchPrimaryPointer(alice.page)
+  await installInputCapability(alice.page, false)
   await alice.page.setViewportSize({ width: 390, height: 844 })
   await bob.page.setViewportSize({ width: 390, height: 844 })
   const aliceProxy = await proxyCommunityWebSockets(alice.context)
@@ -542,6 +522,10 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     frameHasMessage(frame, channelId, typingWsReadyId)
   )), { timeout: 20_000 }).toBe(true)
   await expect(alice.page.getByTestId(tid.message(typingWsReadyId))).toBeVisible()
+  await alice.page.getByTestId(tid.messageScroller).evaluate((element) => {
+    element.scrollTop = element.scrollHeight
+    element.dispatchEvent(new Event("scroll"))
+  })
   const channelScrollerBeforeTyping = await settledScrollerGeometry(alice.page)
   const beforeTypingSeq = await latestSeq(alice.page, channelId)
   const bobEditable = composerEditable(bob.page)

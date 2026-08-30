@@ -1,9 +1,8 @@
-import type { Breakpoint } from "@/hooks/use-mobile"
 import type { EditorView } from "@tiptap/pm/view"
 import { normalizeConsecutiveTerminalHardBreak } from "./consecutive-hard-break"
 
 type ComposerKeyDownOptions = {
-  breakpoint: Breakpoint
+  hoverCapable: boolean
   channelRefOpen: boolean
   isForumThreadBody: boolean
   mentionOpen: boolean
@@ -23,7 +22,7 @@ function submitComposerForKeyDown(
     event.key !== "Enter" ||
     event.shiftKey ||
     event.isComposing ||
-    options.breakpoint !== "desktop"
+    !options.hoverCapable
   ) {
     return false
   }

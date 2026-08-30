@@ -1,6 +1,29 @@
 import { type Page, type WebSocket, expect } from "@playwright/test"
 import { tid } from "./testids"
 
+const HOVER_FINE_QUERY = "(hover: hover) and (pointer: fine)"
+
+export async function installInputCapability(
+  page: Page,
+  hoverCapable: boolean,
+): Promise<void> {
+  await page.addInitScript(({ query, matches }) => {
+    const nativeMatchMedia = window.matchMedia.bind(window)
+    window.matchMedia = (candidate: string) => candidate === query
+      ? {
+          matches,
+          media: candidate,
+          onchange: null,
+          addListener: () => {},
+          removeListener: () => {},
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          dispatchEvent: () => false,
+        } as MediaQueryList
+      : nativeMatchMedia(candidate)
+  }, { query: HOVER_FINE_QUERY, matches: hoverCapable })
+}
+
 export async function gotoAfterUserWsAuth(page: Page, url: string): Promise<void> {
   const frameHandlers = new Map<WebSocket, (event: { payload: string | Buffer }) => void>()
   let cleanup = () => {}
@@ -114,14 +137,12 @@ export function composerEditable(page: Page) {
   return page.getByTestId(tid.composerInput).locator("[contenteditable='true']")
 }
 
-// Type into the TipTap composer and submit through the control for the current
-// breakpoint: the explicit send button below 640px, or Enter on desktop.
 export async function sendMessage(page: Page, text: string): Promise<void> {
   const editable = composerEditable(page)
   await editable.click()
   await editable.pressSequentially(text)
-  if ((page.viewportSize()?.width ?? 640) < 640) {
-    const sendButton = page.getByTestId(tid.composerSend)
+  const sendButton = page.getByTestId(tid.composerSend)
+  if (await sendButton.isVisible()) {
     await expect(sendButton).toBeVisible()
     await expect(sendButton).toBeEnabled()
     await ignoreNextDevToolsPointerCapture(page)
