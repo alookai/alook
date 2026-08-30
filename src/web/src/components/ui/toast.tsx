@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 export type MessageNotificationData = {
+  bareIcon?: boolean
   closeLabel?: string
   icon?: React.ReactNode
   testId?: string
@@ -159,14 +160,17 @@ function ToastIcon({ toastItem }: { toastItem: ToastPrimitive.Root.ToastObject<M
       aria-hidden="true"
       data-slot="message-notification-icon"
       className={cn(
-        "flex size-10 shrink-0 items-center justify-center rounded-lg [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-5",
-        toastItem.type === "warning"
-          ? "bg-warning/15 text-warning"
-          : toastItem.type === "error"
-            ? "bg-destructive/10 text-destructive"
-            : toastItem.type === "success"
-              ? "bg-primary/10 text-primary"
-              : "bg-muted text-muted-foreground",
+        "flex size-10 shrink-0 items-center justify-center [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-5",
+        !toastItem.data?.bareIcon && "rounded-lg",
+        !toastItem.data?.bareIcon && (
+          toastItem.type === "warning"
+            ? "bg-warning/15 text-warning"
+            : toastItem.type === "error"
+              ? "bg-destructive/10 text-destructive"
+              : toastItem.type === "success"
+                ? "bg-primary/10 text-primary"
+                : "bg-muted text-muted-foreground"
+        ),
       )}
     >
       {icon}

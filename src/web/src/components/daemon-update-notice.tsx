@@ -2,13 +2,19 @@
 
 import { useCallback, useEffect, useRef, type ComponentPropsWithoutRef } from "react"
 import Image from "next/image"
-import { useRouter } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
-import { parseReleaseVersion, releaseVersionGte } from "@alook/shared"
+import {
+  SELF_UPDATE_MIN_DAEMON_VERSION,
+  isPresenceOnline,
+  parseReleaseVersion,
+  releaseVersionGte,
+} from "@alook/shared"
 import { machinesQueryFn, type MachineSummary } from "@/hooks/community/use-machines"
 import { messageNotification } from "@/components/ui/toast"
+import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { tid } from "@/lib/community/testids"
+import { log } from "@/lib/logger"
 
 const STORAGE_KEY_PREFIX = "alook:daemon-update-check"
 const pendingMachineChecks = new Map<string, ReturnType<typeof machinesQueryFn>>()
@@ -17,16 +23,43 @@ export function daemonUpdateStorageKey(userId: string): string {
   return `${STORAGE_KEY_PREFIX}:${userId}`
 }
 
-export function outdatedDaemonMachines(
-  machines: readonly Pick<MachineSummary, "daemonVersion">[],
+export function eligibleDaemonUpdateMachines<T extends Pick<MachineSummary, "id" | "status" | "daemonVersion">>(
+  machines: readonly T[],
   latestDaemonVersion: string,
-): Pick<MachineSummary, "daemonVersion">[] {
+): T[] {
   if (!parseReleaseVersion(latestDaemonVersion)) return []
   return machines.filter((machine) => {
     const currentVersion = machine.daemonVersion
-    if (!currentVersion || !parseReleaseVersion(currentVersion)) return false
-    return !releaseVersionGte(currentVersion, latestDaemonVersion)
+    if (!isPresenceOnline(machine.status) || !currentVersion || !parseReleaseVersion(currentVersion)) {
+      return false
+    }
+    return releaseVersionGte(currentVersion, SELF_UPDATE_MIN_DAEMON_VERSION)
+      && !releaseVersionGte(currentVersion, latestDaemonVersion)
   })
+}
+
+type MachineUpdateRequester = (machineId: string) => Promise<unknown>
+
+async function requestMachineUpdate(machineId: string): Promise<void> {
+  await apiFetch<{ dispatched: true }>(`/api/community/machines/${machineId}/update`, {
+    method: "POST",
+  })
+}
+
+export async function dispatchDaemonUpdates(
+  machines: readonly Pick<MachineSummary, "id">[],
+  requestUpdate: MachineUpdateRequester = requestMachineUpdate,
+): Promise<void> {
+  await Promise.all(machines.map(async (machine) => {
+    try {
+      await requestUpdate(machine.id)
+    } catch (error) {
+      log.warn("daemon update notification dispatch failed", {
+        machineId: machine.id,
+        error: String(error),
+      })
+    }
+  }))
 }
 
 function readCheckedWebVersion(userId: string): string | null {
@@ -64,13 +97,14 @@ export function DaemonUpdateNotice({
   webVersion = process.env.NEXT_PUBLIC_APP_VERSION,
   latestDaemonVersion = process.env.NEXT_PUBLIC_LATEST_DAEMON_VERSION,
   loadMachines = machinesQueryFn,
+  requestUpdate = requestMachineUpdate,
 }: {
   userId: string
   webVersion?: string
   latestDaemonVersion?: string
   loadMachines?: MachinesLoader
+  requestUpdate?: MachineUpdateRequester
 }) {
-  const router = useRouter()
   const startedCheck = useRef<string | null>(null)
 
   useEffect(() => {
@@ -85,29 +119,33 @@ export function DaemonUpdateNotice({
     void fetchMachinesOnce(checkKey, loadMachines)
       .then(({ machines }) => {
         if (!active) return
-        const outdated = outdatedDaemonMachines(machines, latestDaemonVersion)
-        if (outdated.length === 0) {
+        const eligible = eligibleDaemonUpdateMachines(machines, latestDaemonVersion)
+        if (eligible.length === 0) {
           writeCheckedWebVersion(userId, webVersion)
           return
         }
-        const count = outdated.length
+        let dispatched = false
         const notificationId = messageNotification.add({
           id: `daemon-update:${userId}:${webVersion}`,
-          title: "Daemon update available",
-          description: `${count} ${count === 1 ? "machine needs" : "machines need"} daemon v${latestDaemonVersion}.`,
+          title: "Machine update available",
+          description: "You can update your machine to get more features.",
           type: "warning",
           timeout: 0,
           data: {
             closeLabel: "Hide until the next Web update",
-            icon: <Image src="/alook.svg" alt="" width={24} height={24} className="size-6" />,
+            bareIcon: true,
+            icon: <Image src="/alook.svg" alt="" width={32} height={32} className="size-8" />,
             testId: tid.daemonUpdateNotice,
           },
           actionProps: {
-            children: "View machines",
-            "data-testid": tid.daemonUpdateViewMachines,
+            children: "Update",
+            "data-testid": tid.daemonUpdateAction,
             onClick: () => {
-              router.push("/c/me/machines")
+              if (dispatched) return
+              dispatched = true
+              writeCheckedWebVersion(userId, webVersion)
               messageNotification.close(notificationId)
+              void dispatchDaemonUpdates(eligible, requestUpdate)
             },
           } as ComponentPropsWithoutRef<"button">,
           onClose: () => writeCheckedWebVersion(userId, webVersion),
@@ -119,7 +157,7 @@ export function DaemonUpdateNotice({
       active = false
       if (startedCheck.current === checkKey) startedCheck.current = null
     }
-  }, [latestDaemonVersion, loadMachines, router, userId, webVersion])
+  }, [latestDaemonVersion, loadMachines, requestUpdate, userId, webVersion])
 
   return null
 }

@@ -200,6 +200,22 @@ describe("top-center message notification", () => {
     expect(bySlot("message-notification-icon")).toHaveLength(1)
   })
 
+  it("can render a custom icon without a status boundary", () => {
+    renderToaster()
+
+    act(() => {
+      messageNotification.add({
+        data: { bareIcon: true, icon: React.createElement("brand-logo") },
+        title: "Machine update available",
+        type: "warning",
+      })
+    })
+
+    const iconClass = bySlot("message-notification-icon")[0]!.props.className as string
+    expect(iconClass).not.toContain("rounded-lg")
+    expect(iconClass).not.toContain("bg-warning/15")
+  })
+
   it("mounts the external manager provider before authenticated producers", () => {
     const layout = readFileSync(new URL("../../app/layout.tsx", import.meta.url), "utf8")
     expect(layout.indexOf("<MessageNotificationToaster />"))

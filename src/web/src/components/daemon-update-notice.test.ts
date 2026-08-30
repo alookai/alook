@@ -7,11 +7,7 @@ const mocks = vi.hoisted(() => ({
   machinesQueryFn: vi.fn(),
   notificationAdd: vi.fn(),
   notificationClose: vi.fn(),
-  routerPush: vi.fn(),
-}))
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mocks.routerPush }),
+  requestUpdate: vi.fn(),
 }))
 
 vi.mock("@/hooks/community/use-machines", () => ({
@@ -28,7 +24,8 @@ vi.mock("@/components/ui/toast", () => ({
 import {
   DaemonUpdateNotice,
   daemonUpdateStorageKey,
-  outdatedDaemonMachines,
+  dispatchDaemonUpdates,
+  eligibleDaemonUpdateMachines,
 } from "./daemon-update-notice"
 
 const values = new Map<string, string>()
@@ -37,8 +34,15 @@ const localStorage = {
   setItem: vi.fn((key: string, value: string) => values.set(key, value)),
 }
 
-function machine(daemonVersion: string) {
-  return { daemonVersion }
+function machine(
+  daemonVersion: string,
+  overrides: { id?: string; status?: "online" | "offline" } = {},
+) {
+  return {
+    id: overrides.id ?? `machine-${daemonVersion}`,
+    status: overrides.status ?? "online",
+    daemonVersion,
+  }
 }
 
 async function renderNotice() {
@@ -49,6 +53,7 @@ async function renderNotice() {
         userId: "user-1",
         webVersion: "0.1.27",
         latestDaemonVersion: "0.1.27",
+        requestUpdate: mocks.requestUpdate,
       }),
     )
   })
@@ -66,7 +71,8 @@ describe("DaemonUpdateNotice", () => {
     mocks.notificationAdd.mockReset()
     mocks.notificationAdd.mockReturnValue("toast-1")
     mocks.notificationClose.mockReset()
-    mocks.routerPush.mockReset()
+    mocks.requestUpdate.mockReset()
+    mocks.requestUpdate.mockResolvedValue({ dispatched: true })
     vi.stubGlobal("window", { localStorage })
   })
 
@@ -76,15 +82,17 @@ describe("DaemonUpdateNotice", () => {
     expect(config).toContain("NEXT_PUBLIC_LATEST_DAEMON_VERSION: daemonPkg.version")
   })
 
-  it("selects only valid daemon releases below the injected target", () => {
-    expect(outdatedDaemonMachines([
+  it("selects only online, remotely updateable daemon releases below the target", () => {
+    expect(eligibleDaemonUpdateMachines([
       machine("0.1.26"),
       machine("0.1.27"),
       machine("0.1.28"),
+      machine("0.1.26", { id: "offline", status: "offline" }),
+      machine("0.1.6", { id: "manual-update-only" }),
       machine(""),
       machine("dev"),
     ], "0.1.27")).toEqual([machine("0.1.26")])
-    expect(outdatedDaemonMachines([machine("0.1.26")], "latest")).toEqual([])
+    expect(eligibleDaemonUpdateMachines([machine("0.1.26")], "latest")).toEqual([])
   })
 
   it("records the current Web version after one successful all-current query", async () => {
@@ -116,21 +124,23 @@ describe("DaemonUpdateNotice", () => {
     expect(mocks.notificationAdd).toHaveBeenCalledOnce()
   })
 
-  it("shows one thin notification for outdated machines without recording early", async () => {
+  it("shows the exact one-click update notification without recording early", async () => {
     mocks.machinesQueryFn.mockResolvedValue({
-      machines: [machine("0.1.26"), machine("0.1.20"), machine("unknown")],
+      machines: [machine("0.1.26"), machine("0.1.20")],
     })
     await renderNotice()
     const notice = mocks.notificationAdd.mock.calls[0]![0]
 
-    expect(notice.title).toBe("Daemon update available")
-    expect(notice.description).toBe("2 machines need daemon v0.1.27.")
+    expect(notice.title).toBe("Machine update available")
+    expect(notice.description).toBe("You can update your machine to get more features.")
+    expect(notice.actionProps.children).toBe("Update")
     expect(notice.data.closeLabel).toBe("Hide until the next Web update")
+    expect(notice.data.bareIcon).toBe(true)
     expect(notice.data.icon.props).toMatchObject({
       src: "/alook.svg",
       alt: "",
-      width: 24,
-      height: 24,
+      width: 32,
+      height: 32,
     })
     expect(notice.timeout).toBe(0)
     expect(localStorage.setItem).not.toHaveBeenCalled()
@@ -148,6 +158,7 @@ describe("DaemonUpdateNotice", () => {
             userId: "user-1",
             webVersion: "0.1.27",
             latestDaemonVersion: "0.1.27",
+            requestUpdate: mocks.requestUpdate,
           }),
         ),
       )
@@ -157,20 +168,38 @@ describe("DaemonUpdateNotice", () => {
     expect(mocks.notificationAdd).toHaveBeenCalledOnce()
   })
 
-  it("records dismissal and routes the action to Machines", async () => {
-    mocks.machinesQueryFn.mockResolvedValue({ machines: [machine("0.1.26")] })
+  it("closes immediately, records handling, and dispatches every eligible machine once", async () => {
+    mocks.machinesQueryFn.mockResolvedValue({
+      machines: [
+        machine("0.1.26", { id: "eligible-1" }),
+        machine("0.1.20", { id: "eligible-2" }),
+        machine("0.1.26", { id: "offline", status: "offline" }),
+        machine("0.1.6", { id: "manual-update-only" }),
+      ],
+    })
     await renderNotice()
     const notice = mocks.notificationAdd.mock.calls[0]![0]
 
     act(() => notice.actionProps.onClick())
-    expect(mocks.routerPush).toHaveBeenCalledWith("/c/me/machines")
+    act(() => notice.actionProps.onClick())
     expect(mocks.notificationClose).toHaveBeenCalledWith("toast-1")
-
-    act(() => notice.onClose())
     expect(localStorage.setItem).toHaveBeenCalledWith(
       daemonUpdateStorageKey("user-1"),
       "0.1.27",
     )
+    expect(mocks.requestUpdate.mock.calls).toEqual([
+      ["eligible-1"],
+      ["eligible-2"],
+    ])
+  })
+
+  it("absorbs background dispatch failures", async () => {
+    const requestUpdate = vi.fn().mockRejectedValue(new Error("offline race"))
+
+    await expect(dispatchDaemonUpdates(
+      [{ id: "machine-1" }],
+      requestUpdate,
+    )).resolves.toBeUndefined()
   })
 
   it("keeps request failures retryable", async () => {
