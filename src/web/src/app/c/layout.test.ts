@@ -24,7 +24,6 @@ vi.mock("@/components/community/shell/community-session-pending-frame", () => ({
 vi.mock("@/components/signup-tracker", () => ({
   SignupTracker: (props: Record<string, unknown>) => createElement("signup-tracker", props),
 }))
-
 import CommunityLayout from "./layout"
 
 function render() {
@@ -64,6 +63,7 @@ describe("CommunityLayout session boundary", () => {
     const shell = renderer.root.findByType("community-shell")
     expect(shell.props.currentUser).toMatchObject({ id: "u1", name: "Ada", email: "ada@example.com" })
     expect(renderer.root.findAllByType("session-pending")).toHaveLength(0)
+    expect(shell.props.currentUser.id).toBe("u1")
   })
 
   it("preserves the public invite bypass", () => {
@@ -89,5 +89,11 @@ describe("CommunityLayout session boundary", () => {
     expect(source).toMatch(/isFetching:\s*dmsFetching/)
     expect(source).toContain("const canonicalDmsUnsettled = dmsPending || dmsFetching")
     expect(source).toContain("useDmRouteVerification(params.dmId, rawDms, canonicalDmsUnsettled)")
+  })
+
+  it("mounts the daemon check inside the authenticated Community query cache", () => {
+    const shell = readFileSync(new URL("./community-shell.tsx", import.meta.url), "utf8")
+    expect(shell.indexOf("<QueryProvider")).toBeLessThan(shell.indexOf("<CommunityDaemonUpdateNotice"))
+    expect(shell).toContain("<CommunityDaemonUpdateNotice userId={currentUser.id} />")
   })
 })

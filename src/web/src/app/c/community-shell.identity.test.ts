@@ -31,6 +31,9 @@ vi.mock("@/lib/community/profile-seed", () => ({
   apiFetchProfiles: (...args: unknown[]) => apiFetchProfiles(...args),
 }))
 vi.mock("@/components/perf/perf-trace-bootstrap", () => ({ PerfTraceBootstrap: () => null }))
+vi.mock("@/components/daemon-update-notice", () => ({
+  CommunityDaemonUpdateNotice: () => null,
+}))
 vi.mock("@/components/community/onboarding/community-onboarding-guide", () => ({
   CommunityOnboardingGuide: () => null,
 }))
