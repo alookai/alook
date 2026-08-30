@@ -61,8 +61,7 @@ test("daemon reminder checks once, respects reduced motion, and stays dismissed"
 
   const notice = page.getByTestId(tid.daemonUpdateNotice)
   await expect(notice).toBeVisible()
-  await expect(notice).toContainText("1 machine is running an older daemon")
-  await expect(notice).toContainText(`Update to v${latestDaemonVersion}`)
+  await expect(notice).toContainText(`1 machine needs daemon v${latestDaemonVersion}.`)
   expect(machineRequestCount()).toBe(1)
 
   const box = await notice.boundingBox()

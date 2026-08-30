@@ -124,8 +124,7 @@ describe("DaemonUpdateNotice", () => {
     const notice = mocks.notificationAdd.mock.calls[0]![0]
 
     expect(notice.title).toBe("Daemon update available")
-    expect(notice.description).toContain("2 machines are running an older daemon")
-    expect(notice.description).toContain("v0.1.27")
+    expect(notice.description).toBe("2 machines need daemon v0.1.27.")
     expect(notice.data.closeLabel).toBe("Hide until the next Web update")
     expect(notice.timeout).toBe(0)
     expect(localStorage.setItem).not.toHaveBeenCalled()

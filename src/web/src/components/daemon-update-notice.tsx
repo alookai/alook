@@ -94,7 +94,7 @@ export function DaemonUpdateNotice({
         const notificationId = messageNotification.add({
           id: `daemon-update:${userId}:${webVersion}`,
           title: "Daemon update available",
-          description: `${count} ${count === 1 ? "machine is" : "machines are"} running an older daemon. Update to v${latestDaemonVersion}. Dismiss to hide this reminder until the next Web update.`,
+          description: `${count} ${count === 1 ? "machine needs" : "machines need"} daemon v${latestDaemonVersion}.`,
           type: "warning",
           timeout: 0,
           data: {
