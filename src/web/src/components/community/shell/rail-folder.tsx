@@ -70,9 +70,9 @@ function RailFolderImpl({
               aria-describedby={dragDescriptionId}
               aria-keyshortcuts="Space ArrowUp ArrowDown Escape"
               onClick={onToggle}
-              className="group/folder grid size-11 cursor-pointer place-items-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:cursor-grabbing"
+              className="group/folder grid size-11 cursor-pointer place-items-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:cursor-grabbing [-webkit-touch-callout:none]"
             >
-              <span className={[
+              <span data-rail-drag-preview className={[
                 "pointer-events-none grid size-10 grid-cols-2 gap-1 p-2 transition-[border-radius,background-color] duration-150",
                 open ? "rounded-xl bg-primary/15" : "rounded-[18px] bg-accent group-hover/folder:rounded-xl group-hover/folder:bg-primary/20",
                 preview === "combine" ? "bg-primary/10 outline outline-2! outline-primary" : "",

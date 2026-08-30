@@ -93,6 +93,10 @@ async function dispatchTouchGesture(
   if (holdMs > 0) await page.waitForTimeout(holdMs)
   let sawDragging = false
   let sawPreview = false
+  let sawFloatingPreview = false
+  let sawFloatingPreviewFollowTouch = false
+  let floatingPreviewKind: string | null = null
+  let floatingPreviewSize: { width: number; height: number } | null = null
   let capturedPreview = false
   let currentEnd = end
   for (let step = 1; step <= 8; step += 1) {
@@ -106,11 +110,25 @@ async function dispatchTouchGesture(
         }
       }
     }
-    await dispatch("touchmove", {
+    const currentPoint = {
       x: start.x + (currentEnd.x - start.x) * ratio,
       y: start.y + (currentEnd.y - start.y) * ratio,
-    })
+    }
+    await dispatch("touchmove", currentPoint)
     await page.waitForTimeout(20)
+    const floatingPreview = page.locator("[data-rail-floating-preview]")
+    if (await floatingPreview.count() === 1) {
+      sawFloatingPreview = true
+      floatingPreviewKind = await floatingPreview.getAttribute("data-rail-floating-preview")
+      const box = await floatingPreview.boundingBox()
+      if (box) {
+        floatingPreviewSize = { width: box.width, height: box.height }
+        sawFloatingPreviewFollowTouch ||= (
+          Math.abs(box.x + box.width / 2 - currentPoint.x) <= 0.5
+          && Math.abs(box.y + box.height / 2 - currentPoint.y) <= 0.5
+        )
+      }
+    }
     if (probe) {
       sawDragging ||= await probe.source.getAttribute("data-dragging") === "true"
       sawPreview ||= await probe.target.getAttribute("data-rail-preview") !== null
@@ -122,10 +140,15 @@ async function dispatchTouchGesture(
   }
   await dispatch("touchend", currentEnd)
   await page.waitForTimeout(20)
+  await expect(page.locator("[data-rail-floating-preview]")).toHaveCount(0)
   return {
     events: await page.evaluate(() => Reflect.get(window, "__railTouchEvents") as string[]),
     sawDragging,
     sawPreview,
+    sawFloatingPreview,
+    sawFloatingPreviewFollowTouch,
+    floatingPreviewKind,
+    floatingPreviewSize,
   }
 }
 
@@ -205,6 +228,13 @@ async function touchDrag(
     targetRatio,
     previewScreenshotPath,
   )
+  const expectedPreviewKind = sourceTestId?.startsWith(tid.serverRailFolder(""))
+    ? "folder"
+    : "server"
+  expect(result.sawFloatingPreview).toBe(true)
+  expect(result.sawFloatingPreviewFollowTouch).toBe(true)
+  expect(result.floatingPreviewKind).toBe(expectedPreviewKind)
+  expect(result.floatingPreviewSize).toEqual({ width: 40, height: 40 })
   return { ...result, sourceTestId }
 }
 
@@ -492,14 +522,17 @@ test("server rail keeps scroll separate from native, touch, and keyboard drag", 
   const beforeLongPress = railRequests.length
   await firstFolder.scrollIntoViewIfNeeded()
   const endLongPress = await startStationaryTouch(page, firstFolder)
+  await expect(firstFolder).toHaveAttribute("data-dragging", "true")
+  const stationaryFolderPreview = page.locator('[data-rail-floating-preview="folder"]')
+  await expect(stationaryFolderPreview).toHaveCount(1)
+  expect(await stationaryFolderPreview.boundingBox()).toMatchObject({ width: 40, height: 40 })
   await page.waitForTimeout(700)
-  await expect(page.getByRole("menuitem", { name: "Ungroup" })).toBeVisible()
+  await expect(page.getByRole("menuitem", { name: "Ungroup" })).toHaveCount(0)
   await expect(page.getByRole("menuitem", { name: "Move…" })).toHaveCount(0)
   await expect(page.getByRole("menuitem", { name: "Create group" })).toHaveCount(0)
   await endLongPress()
+  await expect(stationaryFolderPreview).toHaveCount(0)
   expect(railRequests).toHaveLength(beforeLongPress)
-  await page.keyboard.press("Escape")
-  await expect(page.getByRole("menuitem", { name: "Ungroup" })).toHaveCount(0)
   await page.getByTestId(tid.serverIcon(tail)).scrollIntoViewIfNeeded()
   await expect.poll(async () => (await railGeometry(page, tail)).targetOwnsCenter)
     .toBe(true)

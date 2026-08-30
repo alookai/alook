@@ -25,22 +25,65 @@ type RailData = Record<string | symbol, unknown>
 
 export const SERVER_RAIL_TOUCH_HOLD_MS = 450
 export const SERVER_RAIL_TOUCH_DRIFT_PX = 10
+const TOUCH_DRAG_PREVIEW_SELECTOR = "[data-rail-drag-preview]"
+
+type TouchDragPreview = {
+  element: HTMLElement
+  width: number
+  height: number
+}
+
+function positionTouchDragPreview(
+  preview: TouchDragPreview,
+  clientX: number,
+  clientY: number,
+) {
+  preview.element.style.transform = `translate3d(${clientX - preview.width / 2}px, ${clientY - preview.height / 2}px, 0)`
+}
+
+function createTouchDragPreview(
+  dragHandle: HTMLElement,
+  entity: RailEntity,
+  clientX: number,
+  clientY: number,
+): TouchDragPreview | null {
+  const source = dragHandle.querySelector<HTMLElement>(TOUCH_DRAG_PREVIEW_SELECTOR)
+  if (!source) return null
+  const rect = source.getBoundingClientRect()
+  const element = source.cloneNode(true) as HTMLElement
+  element.removeAttribute("data-rail-drag-preview")
+  element.setAttribute("data-rail-floating-preview", entity.kind)
+  element.setAttribute("aria-hidden", "true")
+  Object.assign(element.style, {
+    position: "fixed",
+    left: "0",
+    top: "0",
+    zIndex: "100",
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
+    margin: "0",
+    pointerEvents: "none",
+    transition: "none",
+    willChange: "transform",
+  })
+  const preview = { element, width: rect.width, height: rect.height }
+  positionTouchDragPreview(preview, clientX, clientY)
+  document.body.appendChild(element)
+  return preview
+}
 
 export function railTouchMoveIntent({
-  armed,
   dragging,
   distance,
   touchCount,
 }: {
-  armed: boolean
   dragging: boolean
   distance: number
   touchCount: number
-}): "wait" | "scroll" | "start-drag" | "drag" | "cancel" {
+}): "wait" | "scroll" | "drag" | "cancel" {
   if (touchCount !== 1) return "cancel"
   if (dragging) return "drag"
-  if (!armed) return distance > SERVER_RAIL_TOUCH_DRIFT_PX ? "scroll" : "wait"
-  return distance > SERVER_RAIL_TOUCH_DRIFT_PX ? "start-drag" : "wait"
+  return distance > SERVER_RAIL_TOUCH_DRIFT_PX ? "scroll" : "wait"
 }
 
 function sameEntity(left: RailEntity | null, right: RailEntity | null): boolean {
@@ -147,11 +190,10 @@ export function useServerRailPdd({
     startY: number
     clientX: number
     clientY: number
-    armed: boolean
     dragging: boolean
     timer: ReturnType<typeof setTimeout> | null
-    contextTimer: ReturnType<typeof setTimeout> | null
     frame: number | null
+    preview: TouchDragPreview | null
   } | null>(null)
 
   const clearHover = useCallback(() => {
@@ -189,8 +231,8 @@ export function useServerRailPdd({
   const clearTouch = useCallback(() => {
     const touch = touchRef.current
     if (touch?.timer) clearTimeout(touch.timer)
-    if (touch?.contextTimer) clearTimeout(touch.contextTimer)
     if (touch?.frame !== null && touch?.frame !== undefined) cancelAnimationFrame(touch.frame)
+    touch?.preview?.element.remove()
     touchRef.current = null
     restoreSelection()
   }, [restoreSelection])
@@ -396,6 +438,12 @@ export function useServerRailPdd({
       ),
     })
 
+    const suppressTouchMenu = (event: TouchEvent) => {
+      // Base UI owns a separate 500 ms touch timer on ContextMenuTrigger.
+      // Keep the event native (and therefore scrollable), but do not let it
+      // reach that trigger: the rail's 450 ms hold is exclusively drag pickup.
+      event.stopPropagation()
+    }
     const onTouchStart = (event: TouchEvent) => {
       if (event.touches.length !== 1) {
         if (touchRef.current || activeRef.current?.sensor === "touch") cancelActive()
@@ -412,28 +460,30 @@ export function useServerRailPdd({
         startY: touch.clientY,
         clientX: touch.clientX,
         clientY: touch.clientY,
-        armed: false,
         dragging: false,
         timer: null as ReturnType<typeof setTimeout> | null,
-        contextTimer: null as ReturnType<typeof setTimeout> | null,
         frame: null as number | null,
+        preview: null as TouchDragPreview | null,
       }
       pending.timer = setTimeout(() => {
-        if (touchRef.current === pending) {
-          pending.armed = true
-          pending.timer = null
+        if (touchRef.current !== pending) return
+        pending.timer = null
+        if (!begin(entity, "touch")) {
+          clearTouch()
+          return
         }
+        pending.dragging = true
+        pending.preview = createTouchDragPreview(
+          dragHandle,
+          entity,
+          pending.clientX,
+          pending.clientY,
+        )
+        selectionStyleRef.current = document.documentElement.style.userSelect
+        document.documentElement.style.userSelect = "none"
+        document.getSelection()?.removeAllRanges()
+        pending.frame = requestAnimationFrame(runTouchFrame)
       }, SERVER_RAIL_TOUCH_HOLD_MS)
-      pending.contextTimer = setTimeout(() => {
-        if (touchRef.current !== pending || pending.dragging) return
-        dragHandle.dispatchEvent(new MouseEvent("contextmenu", {
-          bubbles: true,
-          cancelable: true,
-          button: 2,
-          clientX: pending.clientX,
-          clientY: pending.clientY,
-        }))
-      }, 650)
       touchRef.current = pending
     }
     const onTouchMove = (event: TouchEvent) => {
@@ -450,9 +500,11 @@ export function useServerRailPdd({
       }
       pending.clientX = touch.clientX
       pending.clientY = touch.clientY
+      if (pending.preview) {
+        positionTouchDragPreview(pending.preview, touch.clientX, touch.clientY)
+      }
       const exactDistance = Math.hypot(touch.clientX - pending.startX, touch.clientY - pending.startY)
       const exactIntent = railTouchMoveIntent({
-        armed: pending.armed,
         dragging: pending.dragging,
         distance: exactDistance,
         touchCount: event.touches.length,
@@ -462,19 +514,6 @@ export function useServerRailPdd({
         return
       }
       if (exactIntent === "wait") return
-      if (exactIntent === "start-drag") {
-        if (!begin(entity, "touch")) {
-          clearTouch()
-          return
-        }
-        if (pending.contextTimer) clearTimeout(pending.contextTimer)
-        pending.contextTimer = null
-        pending.dragging = true
-        selectionStyleRef.current = document.documentElement.style.userSelect
-        document.documentElement.style.userSelect = "none"
-        document.getSelection()?.removeAllRanges()
-        pending.frame = requestAnimationFrame(runTouchFrame)
-      }
       event.preventDefault()
       setPreview(itemAtPoint(entity, touch.clientX, touch.clientY))
     }
@@ -489,22 +528,23 @@ export function useServerRailPdd({
         suppressClickUntilRef.current = Date.now() + 800
         finishDrop(itemAtPoint(entity, clientX, clientY))
       } else {
-        const shouldClick = !pending.armed
-        if (shouldClick) event.preventDefault()
-        else suppressClickUntilRef.current = Date.now() + 800
+        event.preventDefault()
         clearTouch()
-        if (shouldClick) dragHandle.click()
+        dragHandle.click()
       }
     }
     const onTouchCancel = () => cancelActive()
     const onContextMenu = (event: MouseEvent) => {
       const pending = touchRef.current
-      if (pending && sameEntity(pending.entity, entity) && !pending.dragging) {
+      if (
+        (pending && sameEntity(pending.entity, entity))
+        || (activeRef.current?.sensor === "touch" && sameEntity(activeRef.current.source, entity))
+        || Date.now() < suppressClickUntilRef.current
+      ) {
+        event.preventDefault()
+        event.stopPropagation()
         suppressClickUntilRef.current = Date.now() + 800
-        clearTouch()
-        return
       }
-      if (activeRef.current?.sensor === "touch") event.preventDefault()
     }
     const onClickCapture = (event: MouseEvent) => {
       if (Date.now() >= suppressClickUntilRef.current) return
@@ -526,6 +566,8 @@ export function useServerRailPdd({
       if (active.sensor !== "keyboard" || !sameEntity(active.source, entity)) return
       handleKeyboardCommand(event, entity)
     }
+    element.addEventListener("touchstart", suppressTouchMenu, { passive: true })
+    dragHandle.addEventListener("touchstart", suppressTouchMenu, { passive: true })
     dragHandle.addEventListener("touchstart", onTouchStart, { passive: true })
     dragHandle.addEventListener("touchmove", onTouchMove, { passive: false })
     dragHandle.addEventListener("touchend", onTouchEnd, { passive: false })
@@ -534,6 +576,8 @@ export function useServerRailPdd({
     dragHandle.addEventListener("click", onClickCapture, true)
     dragHandle.addEventListener("keydown", onKeyDown)
     return () => {
+      element.removeEventListener("touchstart", suppressTouchMenu)
+      dragHandle.removeEventListener("touchstart", suppressTouchMenu)
       dragHandle.removeEventListener("touchstart", onTouchStart)
       dragHandle.removeEventListener("touchmove", onTouchMove)
       dragHandle.removeEventListener("touchend", onTouchEnd)

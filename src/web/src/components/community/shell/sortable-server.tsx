@@ -128,11 +128,11 @@ function SortableServerImpl({
           aria-keyshortcuts="Space ArrowUp ArrowDown ArrowLeft ArrowRight Escape"
           onClick={active ? undefined : onClick}
           className={[
-            "group/server absolute left-1/2 top-1/2 z-1 grid size-11 -translate-x-1/2 -translate-y-1/2 place-items-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:cursor-grabbing",
+            "group/server absolute left-1/2 top-1/2 z-1 grid size-11 -translate-x-1/2 -translate-y-1/2 place-items-center focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:cursor-grabbing [-webkit-touch-callout:none]",
             active ? "cursor-default" : "cursor-pointer",
           ].join(" ")}
         >
-          <span className={[
+          <span data-rail-drag-preview className={[
             "pointer-events-none relative grid size-10 place-items-center overflow-hidden font-brand text-xl font-bold transition-all duration-150",
             active
               ? "cursor-default rounded-xl"
@@ -163,7 +163,7 @@ function SortableServerImpl({
         {server.mentions > 0 && (
           <span
             data-testid={tid.railUnreadBadge(server.id)}
-            className="pointer-events-none absolute -bottom-1 -right-1 grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1 text-[11px] font-bold text-primary-foreground ring-2 ring-(--d-rail)"
+            className="pointer-events-none absolute -bottom-1 -right-1 z-2 grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1 text-[11px] font-bold text-primary-foreground ring-2 ring-(--d-rail)"
           >
             <NumberTicker value={server.mentions} />
           </span>
