@@ -522,6 +522,10 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
     frameHasMessage(frame, channelId, typingWsReadyId)
   )), { timeout: 20_000 }).toBe(true)
   await expect(alice.page.getByTestId(tid.message(typingWsReadyId))).toBeVisible()
+  await alice.page.getByTestId(tid.messageScroller).evaluate((element) => {
+    element.scrollTop = element.scrollHeight
+    element.dispatchEvent(new Event("scroll"))
+  })
   const channelScrollerBeforeTyping = await settledScrollerGeometry(alice.page)
   const beforeTypingSeq = await latestSeq(alice.page, channelId)
   const bobEditable = composerEditable(bob.page)
