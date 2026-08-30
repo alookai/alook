@@ -102,10 +102,16 @@ test.describe.serial("mobile forum tag editor", () => {
     expect((await desktopSave).status()).toBe(200)
     await expect(desktopSurface).toHaveCount(0)
     await expect(trigger).toBeFocused()
+    await expect(
+      page.getByTestId(tid.forumThreadCard(threadId)).getByTestId(tid.forumTagChip("cross-mobile")),
+    ).toBeVisible()
     expect(writes).toHaveLength(1)
 
     await openEditor(page, threadId)
-    await page.getByTestId(tid.forumTagDialogChip("cross-mobile")).click()
+    const crossMobileChip = page.getByTestId(tid.forumTagDialogChip("cross-mobile"))
+    await expect(crossMobileChip).toHaveAttribute("aria-label", "Remove tag cross-mobile")
+    await crossMobileChip.click()
+    await expect(crossMobileChip).toHaveAttribute("aria-label", "Add tag cross-mobile")
     await page.getByTestId(tid.forumTagDialogInput).fill("mobile-discard")
     await page.setViewportSize({ width: 639, height: 844 })
     const mobileSurface = page.getByTestId(tid.forumTagDialog)

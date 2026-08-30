@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactElement,
@@ -18,7 +19,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { readBreakpoint, useBreakpoint, type Breakpoint } from "@/hooks/use-mobile"
+import { useBreakpoint, type Breakpoint } from "@/hooks/use-mobile"
 import { onEnterSubmit } from "@/lib/ime"
 import { tid } from "@/lib/community/testids"
 import { tagColorClassName, tagColorStyle } from "@/lib/community/tag-color"
@@ -132,6 +133,7 @@ export function PostTagDialog({
 }) {
   const breakpoint = useBreakpoint()
   const shell: ResolvedShell | null = breakpoint === "unknown" ? null : breakpoint
+  const activeShellRef = useRef<ResolvedShell | null>(shell)
 
   const [open, setOpen] = useState(false)
   const [baseline, setBaseline] = useState<string[]>(current)
@@ -147,6 +149,10 @@ export function PostTagDialog({
   const ordinaryTagCount = selected.filter((tag) => tag !== FORUM_ARCHIVE_TAG).length
   const changed = selected.length !== baseline.length
     || selected.some((tag, index) => tag !== baseline[index])
+
+  useLayoutEffect(() => {
+    activeShellRef.current = shell
+  }, [shell])
 
   useEffect(() => {
     if (!open) {
@@ -252,7 +258,7 @@ export function PostTagDialog({
       begin()
       return
     }
-    if (readBreakpoint() !== origin || busy) return
+    if (activeShellRef.current !== origin || busy) return
     if (origin === "mobile") discard()
     else closeDesktop()
   }
