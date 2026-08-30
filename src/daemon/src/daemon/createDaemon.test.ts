@@ -204,6 +204,7 @@ function daemonFakeSession(options: {
   onSend?: (input: { id: string; text: string; sequence?: number }) => void;
   onStop?: () => void;
   establish?: boolean;
+  emitTurnStarted?: boolean;
   enforceCommandIdempotency?: boolean;
 } = {}): DaemonFakeSession {
   type Event = AgentEvent<BuiltinBackendSpecs, "codex">;
@@ -242,7 +243,9 @@ function daemonFakeSession(options: {
         await session.fire("runtime_event", { kind: "session_init", sessionId: "test-session" });
       }
       emit({ type: "command_accepted", commandId: input.id, turnId: "daemon-test-turn", delivery: "prompt" } as never);
-      emit({ type: "turn_started", turnId: "daemon-test-turn", commandIds: [input.id] } as never);
+      if (options.emitTurnStarted !== false) {
+        emit({ type: "turn_started", turnId: "daemon-test-turn", commandIds: [input.id] } as never);
+      }
       return { status: "accepted", delivery: "prompt", commandId: input.id, turnId: "daemon-test-turn" };
     },
     async send(input) {
@@ -2356,7 +2359,8 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
     // A persistent, stdin-capable driver stays `running` after session_init
     // without emitting turn_end — so the agent sits in a STEADY working state,
     // which is exactly the window 2b exercises.
-    const emitters: DaemonFakeSession[] = [];
+    const sessions: DaemonFakeSession[] = [];
+    let commandId: string | undefined;
     const persistentDriver = {
       id: "codex",
       lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
@@ -2368,7 +2372,6 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
       spawn: async () => {
         const proc = new EventEmitter() as unknown as { kill: () => void; stdin: unknown };
         (proc as unknown as { kill: () => void }).kill = () => {};
-        emitters.push(proc as unknown as EventEmitter);
         return { process: proc as never };
       },
       parseLine: () => [],
@@ -2385,8 +2388,12 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
       runtimeReport: [{ id: "codex" }],
       driverFor: () => persistentDriver,
       sessionFactory: () => {
-        const session = daemonFakeSession({ establish: false });
-        emitters.push(session);
+        const session = daemonFakeSession({
+          establish: false,
+          emitTurnStarted: false,
+          onStart: (input) => { commandId = input.id; },
+        });
+        sessions.push(session);
         return session;
       },
       capabilities: [],
@@ -2407,8 +2414,16 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
     // Let enroll + spawn resolve, then land the runtime handshake so the FSM
     // reaches `running` (turnActive) — a steady working state.
     await vi.advanceTimersByTimeAsync(50);
-    expect(emitters.length).toBeGreaterThan(0);
-    await emitters[0].fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    expect(sessions).toHaveLength(1);
+    expect(commandId).toBeTypeOf("string");
+    await sessions[0]!.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    await vi.advanceTimersByTimeAsync(0);
+    await sessions[0]!.fire("agent_event", {
+      type: "turn_started",
+      turnId: "daemon-test-turn",
+      commandIds: [commandId!],
+    });
+    await vi.advanceTimersByTimeAsync(0);
 
     const activityFrames = () =>
       sockets[0].sent.map((s) => JSON.parse(s)).filter((f: any) => f.type === "agent_activity");
@@ -2419,12 +2434,16 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
     }));
     const beforeCount = activityFrames().length;
 
-    // Invoke ONE installed heartbeat with no further runtime events. Calling
+    // Invoke the latest installed heartbeat with no further runtime events.
+    // Setup may legitimately reinstall it across starting -> idle -> running;
+    // the last registration is the active steady-state callback.
+    // Calling
     // the registered callback directly keeps this test independent of the
     // platform-specific fake-timer handling for unref'ed intervals.
     const heartbeatCalls = setIntervalSpy.mock.calls.filter(([, delay]) => delay === 5_000);
-    expect(heartbeatCalls).toHaveLength(1);
-    const heartbeat = heartbeatCalls[0]![0];
+    expect(heartbeatCalls.length).toBeGreaterThan(0);
+    const heartbeatInstallCount = heartbeatCalls.length;
+    const heartbeat = heartbeatCalls.at(-1)![0];
     expect(heartbeat).toBeTypeOf("function");
     if (typeof heartbeat !== "function") throw new Error("heartbeat callback was not installed");
     heartbeat();
@@ -2434,7 +2453,8 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
     // which can fire unrelated lifecycle timers and move the agent to idle.
     await vi.advanceTimersByTimeAsync(0);
     const after = activityFrames();
-    expect(after.length).toBeGreaterThan(beforeCount);
+    expect(setIntervalSpy.mock.calls.filter(([, delay]) => delay === 5_000)).toHaveLength(heartbeatInstallCount);
+    expect(after).toHaveLength(beforeCount + 1);
     expect(after.at(-1)).toMatchObject({ type: "agent_activity", agentId: "bot_1", state: "running" });
 
     await daemon.stop();
