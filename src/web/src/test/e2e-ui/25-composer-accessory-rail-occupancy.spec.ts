@@ -35,6 +35,12 @@ type RailMetrics = {
     textOverflow: string
     whiteSpace: string
   } | null
+  selectionTypingFit: {
+    state: string | null
+    slotWidth: number
+    pillWidth: number
+    visibility: string
+  } | null
 }
 
 async function railMetrics(page: Page, finalMessageId?: string): Promise<RailMetrics> {
@@ -43,12 +49,16 @@ async function railMetrics(page: Page, finalMessageId?: string): Promise<RailMet
     const find = (id: string) => document.querySelector<HTMLElement>(`[data-testid='${id}']`)
     const rail = find(ids.rail)
     const typing = find(ids.typing)
+    const selectionTypingSlot = document.querySelector<HTMLElement>("[data-selection-typing-fit]")
+    const selectionTypingPill = selectionTypingSlot?.firstElementChild as HTMLElement | null
     const center = find(ids.scroll) ?? find(ids.selection)
     const scroller = find(ids.scroller)!
     const content = document.querySelector<HTMLElement>("[data-message-list-content]")!
     const finalMessage = ids.finalMessage ? find(ids.finalMessage) : null
     const typingText = typing?.querySelector<HTMLElement>("span.min-w-0.truncate") ?? null
     const style = typingText ? getComputedStyle(typingText) : null
+    const typingStyle = typing ? getComputedStyle(typing) : null
+    const typingVisible = !!typing && typingStyle?.visibility !== "hidden"
     const toRect = (value: DOMRect) => ({
       left: value.left,
       top: value.top,
@@ -67,7 +77,7 @@ async function railMetrics(page: Page, finalMessageId?: string): Promise<RailMet
         scrollTop: scroller.scrollTop,
       },
       composer: toRect(find(ids.composer)!.getBoundingClientRect()),
-      typing: typing ? toRect(typing.getBoundingClientRect()) : null,
+      typing: typingVisible ? toRect(typing.getBoundingClientRect()) : null,
       center: center ? toRect(center.getBoundingClientRect()) : null,
       finalMessage: finalMessage ? toRect(finalMessage.getBoundingClientRect()) : null,
       contentPaddingBottom: Number.parseFloat(getComputedStyle(content).paddingBottom),
@@ -80,6 +90,14 @@ async function railMetrics(page: Page, finalMessageId?: string): Promise<RailMet
           overflowX: style.overflowX,
           textOverflow: style.textOverflow,
           whiteSpace: style.whiteSpace,
+        }
+        : null,
+      selectionTypingFit: selectionTypingSlot && selectionTypingPill
+        ? {
+          state: selectionTypingSlot.dataset.selectionTypingFit ?? null,
+          slotWidth: selectionTypingSlot.getBoundingClientRect().width,
+          pillWidth: selectionTypingPill.getBoundingClientRect().width,
+          visibility: getComputedStyle(selectionTypingPill).visibility,
         }
         : null,
     }
@@ -217,15 +235,41 @@ async function captureState(args: {
     await expect(rail).toHaveCount(center || typing ? 1 : 0)
     if (center || typing) await expect(rail).toHaveAttribute("data-layout", layout!)
     await expect(page.getByTestId(tid.typingIndicator)).toHaveCount(typing ? 1 : 0)
+    if (typing && !selection) await expect(page.getByTestId(tid.typingIndicator)).toBeVisible()
+    if (typing && selection) {
+      await expect(page.locator("[data-selection-typing-fit]"))
+        .toHaveAttribute("data-selection-typing-fit", /^(visible|hidden)$/)
+    }
     await expect(page.getByTestId(tid.messageSelectionToolbar)).toHaveCount(selection ? 1 : 0)
     if (selection) {
       await expect.poll(() => page.getByTestId(tid.messageSelectionToolbar).evaluate(
         (element) => element.getBoundingClientRect().height,
       )).toBe(width < 640 ? 40 : 38)
     }
+    if (!center || selection) {
+      await scrollRoot.evaluate((element) => {
+        element.scrollTop = element.scrollHeight
+        element.dispatchEvent(new Event("scroll"))
+      })
+    }
     const metrics = await settledRailMetrics(page, finalMessageId)
     expectContained(metrics, state, width)
-    expectCheckpoint(metrics, state, width, selection, typing)
+    expectCheckpoint(metrics, state, width, selection, metrics.typing !== null)
+    if (selection && typing) {
+      const fit = metrics.selectionTypingFit
+      expect(fit, `${state}@${width}`).not.toBeNull()
+      const shouldFit = fit!.pillWidth <= fit!.slotWidth
+      expect(fit!.state, `${state}@${width}: ${JSON.stringify(fit)}`)
+        .toBe(shouldFit ? "visible" : "hidden")
+      expect(fit!.visibility, `${state}@${width}: ${JSON.stringify(fit)}`)
+        .toBe(shouldFit ? "visible" : "hidden")
+      expect(metrics.typing === null, `${state}@${width}: ${JSON.stringify(fit)}`)
+        .toBe(!shouldFit)
+      if (shouldFit) {
+        expect(metrics.typingText!.scrollWidth, `${state}@${width}: ${JSON.stringify(metrics)}`)
+          .toBeLessThanOrEqual(metrics.typingText!.clientWidth)
+      }
+    }
     if (center) {
       expect(metrics.center, `${state}@${width}`).not.toBeNull()
       expect(Math.abs(metrics.center!.center - metrics.composer.center), `${state}@${width}`)
@@ -235,6 +279,7 @@ async function captureState(args: {
     if (themeEvidence) {
       await page.emulateMedia({ colorScheme: "light" })
       await expect(page.locator("html")).not.toHaveClass(/dark/)
+      await expectCancelForeground(page, "light")
     }
     await testInfo.attach(`${width}-${state}${themeEvidence ? "-light" : ""}.png`, {
       body: await page.screenshot(),
@@ -243,6 +288,7 @@ async function captureState(args: {
     if (themeEvidence) {
       await page.emulateMedia({ colorScheme: "dark" })
       await expect(page.locator("html")).toHaveClass(/dark/)
+      await expectCancelForeground(page, "dark")
       await testInfo.attach(`${width}-${state}-dark.png`, {
         body: await page.screenshot(),
         contentType: "image/png",
@@ -252,6 +298,22 @@ async function captureState(args: {
     }
   }
   return evidence
+}
+
+async function expectCancelForeground(page: Page, theme: "light" | "dark"): Promise<void> {
+  const colors = await page.getByRole("button", { name: "Cancel message selection" }).evaluate((button) => {
+    const icon = button.querySelector("svg")!
+    const label = button.querySelector("span")!
+    return {
+      button: getComputedStyle(button).color,
+      icon: getComputedStyle(icon).color,
+      label: getComputedStyle(label).color,
+      body: getComputedStyle(document.body).color,
+    }
+  })
+  expect(colors.icon, `${theme}: ${JSON.stringify(colors)}`).toBe(colors.body)
+  expect(colors.label, `${theme}: ${JSON.stringify(colors)}`).toBe(colors.body)
+  if (theme === "dark") expect(colors.label).not.toBe("rgb(0, 0, 0)")
 }
 
 async function captureEmptyState(
@@ -288,7 +350,9 @@ test("composer accessory rail reallocates every occupied slot without overflow",
   const serverId = await seedServer("alice", `Rail occupancy ${Date.now()}`)
   const channelId = await seedChannel("alice", serverId, "rail-occupancy")
   await seedJoinServer("alice", "bob", serverId)
+  await seedJoinServer("alice", "carol", serverId)
   await renameUser("bob", LONG_TYPING_NAME)
+  await renameUser("carol", "Cy")
   let selectableMessageId = ""
   for (let index = 0; index < 28; index++) {
     selectableMessageId = await seedMessage(
@@ -300,13 +364,17 @@ test("composer accessory rail reallocates every occupied slot without overflow",
 
   const alice = await asUser("alice")
   const bob = await asUser("bob")
+  const carol = await asUser("carol")
   await alice.page.setViewportSize({ width: 390, height: 844 })
   await bob.page.setViewportSize({ width: 390, height: 844 })
+  await carol.page.setViewportSize({ width: 390, height: 844 })
   const route = `/c/channels/${serverId}/${channelId}`
   await gotoAfterUserWsAuth(alice.page, route)
   await gotoAfterUserWsAuth(bob.page, route)
+  await gotoAfterUserWsAuth(carol.page, route)
   await expect(composerEditable(alice.page)).toBeVisible()
   await expect(composerEditable(bob.page)).toBeVisible()
+  await expect(composerEditable(carol.page)).toBeVisible()
 
   const ping = `rail ws ready ${Date.now()}`
   await sendMessage(bob.page, ping)
@@ -333,7 +401,7 @@ test("composer accessory rail reallocates every occupied slot without overflow",
   await row.hover()
   await alice.page.getByTestId(tid.messageShare(selectableMessageId)).click()
   await expect(alice.page.getByTestId(tid.messageSelectionToolbar)).toBeVisible()
-  await captureState({
+  const selectionNone = await captureState({
     page: alice.page,
     testInfo,
     state: "selection-none",
@@ -406,32 +474,106 @@ test("composer accessory rail reallocates every occupied slot without overflow",
   expect(leftOnly[320].typingText?.whiteSpace).toBe("nowrap")
   expect(leftOnly[320].typingText!.scrollWidth).toBeGreaterThan(leftOnly[320].typingText!.clientWidth)
 
+  await sendMessage(bob.page, `long typing clear ${Date.now()}`)
+  await expect(alice.page.getByTestId(tid.typingIndicator)).toHaveCount(0)
+  const carolEditor = composerEditable(carol.page)
+  await expect(async () => {
+    await carolEditor.click()
+    await carol.page.keyboard.press("ControlOrMeta+A")
+    await carol.page.keyboard.press("Backspace")
+    await carol.page.keyboard.type("short selection typing")
+    await expect(alice.page.getByTestId(tid.typingIndicator)).toBeVisible({ timeout: 4_000 })
+  }).toPass({ timeout: 20_000 })
+
   row = alice.page.getByTestId(tid.message(selectableMessageId))
   await row.hover()
   await alice.page.getByTestId(tid.messageShare(selectableMessageId)).click()
   await expect(alice.page.getByTestId(tid.messageSelectionToolbar)).toBeVisible()
-  await captureState({
+  const selectionShort = await captureState({
     page: alice.page,
     testInfo,
-    state: "selection-l",
+    state: "selection-short",
     layout: "centered",
     center: true,
     typing: true,
     selection: true,
-    themeEvidence: true,
     finalMessageId,
   })
-  await alice.page.getByRole("button", { name: "Cancel message selection" }).click()
+  const shortFitStates = VIEWPORT_WIDTHS.map(
+    (width) => selectionShort[width].selectionTypingFit?.state,
+  )
+  expect(shortFitStates).toContain("visible")
+  expect(shortFitStates).toContain("hidden")
+  for (const width of VIEWPORT_WIDTHS) {
+    expect(selectionShort[width].center!.center).toBe(selectionNone[width].center!.center)
+  }
 
   await expect(async () => {
     await bobEditor.click()
     await bob.page.keyboard.press("ControlOrMeta+A")
     await bob.page.keyboard.press("Backspace")
-    await bob.page.keyboard.type("typing occupancy settle")
-    await expect(alice.page.getByTestId(tid.typingIndicator)).toBeVisible({ timeout: 4_000 })
+    await bob.page.keyboard.type("multiple selection typing")
+    await expect(alice.page.getByTestId(tid.typingIndicator)).toContainText(" and ", {
+      timeout: 4_000,
+    })
   }).toPass({ timeout: 20_000 })
+  const selectionMultiple = await captureState({
+    page: alice.page,
+    testInfo,
+    state: "selection-multiple",
+    layout: "centered",
+    center: true,
+    typing: true,
+    selection: true,
+    widths: [390, 639, 1280],
+    finalMessageId,
+  })
+  for (const width of [390, 639, 1280] as const) {
+    expect(selectionMultiple[width].center!.center).toBe(selectionNone[width].center!.center)
+  }
 
-  await expect(alice.page.getByTestId(tid.typingIndicator)).toHaveCount(0, { timeout: 15_000 })
+  await sendMessage(bob.page, `multiple typing clear ${Date.now()}`)
+  await sendMessage(carol.page, `short typing clear ${Date.now()}`)
+  await expect(alice.page.getByTestId(tid.typingIndicator)).toHaveCount(0)
+  await expect(async () => {
+    await bobEditor.click()
+    await bob.page.keyboard.press("ControlOrMeta+A")
+    await bob.page.keyboard.press("Backspace")
+    await bob.page.keyboard.type("long selection typing")
+    await expect(alice.page.getByTestId(tid.typingIndicator)).toHaveCount(1, { timeout: 4_000 })
+  }).toPass({ timeout: 20_000 })
+  const selectionLong = await captureState({
+    page: alice.page,
+    testInfo,
+    state: "selection-long",
+    layout: "centered",
+    center: true,
+    typing: true,
+    selection: true,
+    widths: [390, 639, 640, 1280],
+    finalMessageId,
+  })
+  for (const width of [390, 639, 640, 1280] as const) {
+    expect(selectionLong[width].selectionTypingFit?.state).toBe("hidden")
+    expect(selectionLong[width].typing).toBeNull()
+  }
+
+  await sendMessage(bob.page, `theme typing clear ${Date.now()}`)
+  await expect(alice.page.getByTestId(tid.typingIndicator)).toHaveCount(0)
+  await captureState({
+    page: alice.page,
+    testInfo,
+    state: "selection-theme",
+    layout: "centered",
+    center: true,
+    typing: false,
+    selection: true,
+    themeEvidence: true,
+    widths: [1280],
+    finalMessageId,
+  })
+  await alice.page.getByRole("button", { name: "Cancel message selection" }).click()
+
   await scrollRoot.evaluate((element) => {
     element.scrollTop = 0
     element.dispatchEvent(new Event("scroll"))

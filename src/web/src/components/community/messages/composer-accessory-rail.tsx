@@ -1,5 +1,6 @@
 "use client"
 
+import { useLayoutEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown, ImageIcon, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { NumberTicker } from "@/components/ui/number-ticker"
@@ -53,9 +54,7 @@ export function ComposerAccessoryRail({
         {selectMode ? (
           <>
             {hasTyping && (
-              <div key="left" className="hidden min-w-0 max-w-full sm:col-start-1 sm:block">
-                <TypingIndicator names={typingNames} className="w-fit max-w-full" />
-              </div>
+              <SelectionTypingIndicator key="left" names={typingNames} />
             )}
             <div key="center" className="col-start-2 min-w-0 max-w-full justify-self-center">
               <SelectionToolbar
@@ -79,6 +78,63 @@ export function ComposerAccessoryRail({
             )}
           </>
         )}
+      </div>
+    </div>
+  )
+}
+
+export function selectionTypingFits(slotWidth: number, pillWidth: number): boolean {
+  return slotWidth > 0 && pillWidth > 0 && pillWidth <= slotWidth
+}
+
+function SelectionTypingIndicator({ names }: { names: string[] }) {
+  const slotRef = useRef<HTMLDivElement>(null)
+  const pillRef = useRef<HTMLDivElement>(null)
+  const measurementKey = useMemo(() => JSON.stringify(names), [names])
+  const [measurement, setMeasurement] = useState({ key: "", fits: false })
+  const isMeasured = measurement.key === measurementKey
+  const isVisible = isMeasured && measurement.fits
+
+  useLayoutEffect(() => {
+    const slot = slotRef.current
+    const pill = pillRef.current
+    if (!slot || !pill) return
+
+    const measure = () => {
+      const fits = selectionTypingFits(
+        slot.getBoundingClientRect().width,
+        pill.getBoundingClientRect().width,
+      )
+      setMeasurement((current) => (
+        current.key === measurementKey && current.fits === fits
+          ? current
+          : { key: measurementKey, fits }
+      ))
+    }
+
+    measure()
+    if (typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver(measure)
+    observer.observe(slot)
+    observer.observe(pill)
+    return () => observer.disconnect()
+  }, [measurementKey])
+
+  return (
+    <div
+      ref={slotRef}
+      data-selection-typing-fit={isMeasured ? (isVisible ? "visible" : "hidden") : "pending"}
+      className="relative col-start-1 min-w-0 max-w-full"
+    >
+      <div
+        ref={pillRef}
+        aria-hidden={!isVisible}
+        className={cn(
+          "w-max max-w-none",
+          isVisible ? "relative" : "invisible absolute bottom-0 left-0",
+        )}
+      >
+        <TypingIndicator names={names} />
       </div>
     </div>
   )
@@ -109,11 +165,11 @@ function SelectionToolbar({
               variant="ghost"
               onClick={onCancel}
               aria-label="Cancel message selection"
-              className="relative h-8 w-11 shrink-0 rounded-lg px-0 after:absolute after:-inset-y-1.5 after:inset-x-0 after:content-[''] sm:h-7 sm:w-auto sm:px-2 sm:after:hidden"
+              className="relative h-8 w-11 shrink-0 rounded-lg px-0 text-foreground after:absolute after:-inset-y-1.5 after:inset-x-0 after:content-[''] sm:h-7 sm:w-auto sm:px-2 sm:after:hidden"
             />
           }
         >
-          <X /> <span className="hidden sm:inline">Cancel</span>
+          <X className="text-foreground" /> <span className="hidden text-foreground sm:inline">Cancel</span>
         </TooltipTrigger>
         <TooltipContent>Cancel selection</TooltipContent>
       </Tooltip>
