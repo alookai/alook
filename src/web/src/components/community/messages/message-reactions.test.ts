@@ -152,6 +152,16 @@ describe("MessageReactions", () => {
       .toContain("flex-auto")
   })
 
+  it("switches the dialog surface with its overflow fades without a color transition", () => {
+    vi.useFakeTimers()
+    const { renderer } = renderReactions()
+    const chip = renderer.root.findByProps({ "data-testid": tid.reactionChip("message_1", "👍") })
+    act(() => chip.props.onPointerDown({ pointerType: "touch", clientX: 10, clientY: 10, stopPropagation: vi.fn() }))
+    act(() => vi.advanceTimersByTime(450))
+    expect(renderer.root.findByType("mock-dialog-content").props.className)
+      .toContain("transition-none")
+  })
+
   it("renders a transparent single-line horizontal tab rail with an accessible label", () => {
     vi.useFakeTimers()
     const { renderer } = renderReactions()

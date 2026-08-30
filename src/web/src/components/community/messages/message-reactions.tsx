@@ -214,7 +214,7 @@ function ReactionDetailsDialog({
   return (
     <DialogContent
       data-testid={tid.reactionDialog(messageId)}
-      className="flex max-h-[calc(100dvh-2rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] flex-col gap-3 overflow-hidden sm:max-w-sm **:data-[slot=dialog-close]:size-11 sm:**:data-[slot=dialog-close]:size-7"
+      className="flex max-h-[calc(100dvh-2rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] flex-col gap-3 overflow-hidden transition-none sm:max-w-sm **:data-[slot=dialog-close]:size-11 sm:**:data-[slot=dialog-close]:size-7"
     >
       <DialogHeader className="shrink-0">
         <DialogTitle>Reactions</DialogTitle>
