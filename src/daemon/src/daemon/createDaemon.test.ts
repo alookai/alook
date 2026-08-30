@@ -147,6 +147,10 @@ class FakeSocket {
   headers: Record<string, string>;
   sent: string[] = [];
   private handlers: Record<string, ((...a: any[]) => void)[]> = {};
+  private frameWaiters: Array<{
+    matches: (frame: Record<string, unknown>) => boolean;
+    resolve: (frame: Record<string, unknown>) => void;
+  }> = [];
   constructor(url: string, headers: Record<string, string>) {
     this.url = url;
     this.headers = headers;
@@ -156,6 +160,21 @@ class FakeSocket {
   }
   send(data: string): void {
     this.sent.push(data);
+    let frame: Record<string, unknown>;
+    try {
+      frame = JSON.parse(data) as Record<string, unknown>;
+    } catch {
+      return;
+    }
+    for (let index = this.frameWaiters.length - 1; index >= 0; index -= 1) {
+      const waiter = this.frameWaiters[index]!;
+      if (!waiter.matches(frame)) continue;
+      this.frameWaiters.splice(index, 1);
+      waiter.resolve(frame);
+    }
+  }
+  waitForFrame(matches: (frame: Record<string, unknown>) => boolean): Promise<Record<string, unknown>> {
+    return new Promise((resolve) => this.frameWaiters.push({ matches, resolve }));
   }
   close(): void {
     this.emit("close");
@@ -790,7 +809,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     startupSweepDirs.push(workingDirectoryBase);
     // The real driver SDK prepares the agent directory before session_started.
     // This test uses a fake session, so reproduce that precondition explicitly.
-    mkdirSync(join(workingDirectoryBase, "bot_1"));
+    mkdirSync(join(workingDirectoryBase, "bot_1"), { recursive: true });
     const timers: Array<{
       callback: () => void;
       delayMs: number;
@@ -2380,10 +2399,16 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
     } as unknown as Driver;
 
     const sockets: FakeSocket[] = [];
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "daemon-heartbeat-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    // Real driver sessions create the per-agent directory before the timeline
+    // records session_started; this fake session must establish it explicitly.
+    mkdirSync(join(workingDirectoryBase, "bot_1"));
     const daemon = await createDaemon({
       machineKey: "cmk_hb",
       serverUrl: "http://localhost:9999",
       serverWsUrl: "ws://x",
+      workingDirectoryBase,
       webSocketFactory: factory(sockets) as any,
       runtimeReport: [{ id: "codex" }],
       driverFor: () => persistentDriver,
@@ -2419,28 +2444,32 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
     await vi.advanceTimersByTimeAsync(50);
     expect(sessions).toHaveLength(1);
     expect(commandId).toBeTypeOf("string");
+    const idleFrame = sockets[0].waitForFrame((frame) =>
+      frame.type === "agent_activity" && frame.agentId === "bot_1" && frame.state === "idle",
+    );
     await sessions[0]!.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    await vi.advanceTimersByTimeAsync(0);
-    await vi.waitFor(() => expect(activityFrames().at(-1)).toMatchObject({
+    await expect(idleFrame).resolves.toMatchObject({
       type: "agent_activity",
       agentId: "bot_1",
       state: "idle",
-    }), { interval: 0 });
+    });
 
-    // Enter `running` only after the setup transition is fully settled. This
-    // leaves no delayed admission work that can overwrite the steady state.
+    // Observe the actual serialized socket send rather than polling fake time:
+    // waitForFrame is registered before the event and resolves only after the
+    // activity payload has traversed the per-agent report tail.
+    const runningFrame = sockets[0].waitForFrame((frame) =>
+      frame.type === "agent_activity" && frame.agentId === "bot_1" && frame.state === "running",
+    );
     await sessions[0]!.fire("agent_event", {
       type: "turn_started",
       turnId: "daemon-test-turn",
       commandIds: [commandId!],
     });
-    await vi.advanceTimersByTimeAsync(0);
-
-    await vi.waitFor(() => expect(activityFrames().at(-1)).toMatchObject({
+    await expect(runningFrame).resolves.toMatchObject({
       type: "agent_activity",
       agentId: "bot_1",
       state: "running",
-    }), { interval: 0 });
+    });
     const beforeCount = activityFrames().length;
 
     // Invoke the latest installed heartbeat with no further runtime events.
@@ -2455,12 +2484,11 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
     const heartbeat = heartbeatCalls.at(-1)![0];
     expect(heartbeat).toBeTypeOf("function");
     if (typeof heartbeat !== "function") throw new Error("heartbeat callback was not installed");
+    const heartbeatFrame = sockets[0].waitForFrame((frame) =>
+      frame.type === "agent_activity" && frame.agentId === "bot_1" && frame.state === "running",
+    );
     heartbeat();
-    // Activity reports are serialized through an async per-agent tail, so wait
-    // until that tail sends the callback's level-triggered re-assertion. Drain
-    // only already-queued work: vi.waitFor advances fake time while polling,
-    // which can fire unrelated lifecycle timers and move the agent to idle.
-    await vi.advanceTimersByTimeAsync(0);
+    await heartbeatFrame;
     const after = activityFrames();
     expect(setIntervalSpy.mock.calls.filter(([, delay]) => delay === 5_000)).toHaveLength(heartbeatInstallCount);
     expect(after).toHaveLength(beforeCount + 1);
