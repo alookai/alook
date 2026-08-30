@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, type ReactNode } from "react"
 import { apiFetchProfiles } from "@/lib/community/profile-seed"
 import { QueryProvider } from "./QueryProvider"
 import {
@@ -12,6 +12,7 @@ import { useCommunityWs } from "@/hooks/community/use-community-ws"
 import { PerfTraceBootstrap } from "@/components/perf/perf-trace-bootstrap"
 import { CommunityOnboardingGuide } from "@/components/community/onboarding/community-onboarding-guide"
 import { CommunityWsReconnectBoundary } from "@/components/community/shell/community-ws-reconnect-overlay"
+import { useCommunityWsStore } from "@/stores/community/ws"
 
 /**
  * Client wrapper that provides the QueryClient, CurrentUser, and the
@@ -33,12 +34,33 @@ export function CommunityShell({
   children: ReactNode
 }) {
   return (
-    <QueryProvider key={currentUser.id} userId={currentUser.id}>
-      <CurrentUserProvider initialUser={currentUser}>
-        <CommunityBootstrap>{children}</CommunityBootstrap>
-      </CurrentUserProvider>
-    </QueryProvider>
+    <ProfileAccountBoundary viewerId={currentUser.id}>
+      <QueryProvider key={currentUser.id} userId={currentUser.id}>
+        <CurrentUserProvider initialUser={currentUser}>
+          <CommunityBootstrap>{children}</CommunityBootstrap>
+        </CurrentUserProvider>
+      </QueryProvider>
+    </ProfileAccountBoundary>
   )
+}
+
+function ProfileAccountBoundary({
+  children,
+  viewerId,
+}: {
+  children: ReactNode
+  viewerId: string
+}) {
+  const activeViewerId = useCommunityWsStore((state) => state.profileViewerId)
+
+  useLayoutEffect(() => {
+    if (activeViewerId !== viewerId) {
+      useCommunityWsStore.getState().activateProfileAccount(viewerId)
+    }
+  }, [activeViewerId, viewerId])
+
+  if (activeViewerId !== viewerId) return null
+  return children
 }
 
 /**
