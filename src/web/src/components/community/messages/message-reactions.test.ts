@@ -162,6 +162,8 @@ describe("MessageReactions", () => {
     act(() => vi.advanceTimersByTime(450))
     expect(renderer.root.findByType("mock-dialog-content").props.className)
       .toContain("transition-none")
+    expect(renderer.root.findByType("mock-dialog-content").props.className)
+      .toContain("**:data-[slot=dialog-close]:transition-none")
   })
 
   it("renders a transparent single-line horizontal tab rail with an accessible label", () => {

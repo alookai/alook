@@ -260,8 +260,12 @@ test.describe.serial("mobile reaction details", () => {
     const themeSurface = await alice.page.getByTestId(tid.reactionDialog(messageId)).evaluate((element, fadeTestId) => {
       const fade = element.querySelector(`[data-testid="${fadeTestId}"]`)
       const fadeStyle = fade ? getComputedStyle(fade) : null
+      const close = element.querySelector<HTMLElement>("[data-slot=dialog-close]")
       return {
         background: getComputedStyle(element).backgroundColor,
+        color: getComputedStyle(element).color,
+        closeColor: close ? getComputedStyle(close).color : "",
+        closeTransitionProperty: close ? getComputedStyle(close).transitionProperty : "",
         fadeEndpoint: fadeStyle?.getPropertyValue("--tw-gradient-from").trim() ?? "",
         fade: fadeStyle?.backgroundImage ?? "",
         transitionProperty: getComputedStyle(element).transitionProperty,
@@ -270,6 +274,8 @@ test.describe.serial("mobile reaction details", () => {
     expect(themeSurface.background).toBe(themeSurface.fadeEndpoint)
     expect(themeSurface.fade).toContain(themeSurface.fadeEndpoint)
     expect(themeSurface.transitionProperty).toBe("none")
+    expect(themeSurface.closeColor).toBe(themeSurface.color)
+    expect(themeSurface.closeTransitionProperty).toBe("none")
     await testInfo.attach("320-reaction-rail-overflow-dark.png", {
       body: await alice.page.screenshot(),
       contentType: "image/png",
