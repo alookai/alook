@@ -103,7 +103,7 @@ test.describe.serial("mobile forum tag editor", () => {
     await expect(desktopSurface).toHaveCount(0)
     await expect(trigger).toBeFocused()
     await expect(
-      page.getByTestId(tid.forumThreadCard(threadId)).getByTestId(tid.forumTagChip("cross-mobile")),
+      page.getByTestId(tid.forumThreadCard(threadId)).getByText("#cross-mobile", { exact: true }),
     ).toBeVisible()
     expect(writes).toHaveLength(1)
 
