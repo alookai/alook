@@ -163,12 +163,22 @@ export function _resetActiveSend_forTesting() {
  * Subscribe to a channel/thread/DM. Free helper so any component can update
  * the focused subscription without holding a reference to `useCommunityWs`.
  */
-export function communityWsSubscribe(target: Subscription) {
+export function communityWsSubscribe(
+  target: Pick<Subscription, "channelId" | "dmConversationId">,
+) {
   useCommunityStore.getState().subscribe(target)
 }
 
 export function communityWsUnsubscribe() {
   useCommunityStore.getState().unsubscribe()
+}
+
+export function communityWsClaimSecondaryChannel(owner: symbol, channelId: string) {
+  useCommunityStore.getState().claimSecondaryChannel(owner, channelId)
+}
+
+export function communityWsReleaseSecondaryChannel(owner: symbol) {
+  useCommunityStore.getState().releaseSecondaryChannel(owner)
 }
 
 /**
@@ -355,7 +365,9 @@ export function useCommunityWs(options?: UseCommunityWsOptions): void {
       // channelId matches either slot.
       const matchesFocus = (e: { channelId?: string }): boolean => {
         if (!e.channelId) return false
-        return e.channelId === sub.channelId || e.channelId === sub.dmConversationId
+        return e.channelId === sub.channelId
+          || e.channelId === sub.secondaryChannelId
+          || e.channelId === sub.dmConversationId
       }
       const context = (
         deliveryMode: "single" | "batch",

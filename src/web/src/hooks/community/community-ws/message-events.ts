@@ -51,6 +51,7 @@ export function handleMessageCreate(
     sub,
     viewerUserIdRef,
     deliveryMode,
+    matchesFocus,
     scheduleInboxInvalidate,
     projection,
   }: MessageEventContext,
@@ -58,7 +59,7 @@ export function handleMessageCreate(
   const viewerId = viewerUserIdRef.current
   const hasSeenMessage = wsStore.hasSeenMessage(event.message.id)
   const isForeignFocused = event.message.authorId !== viewerId
-    && (event.channelId === sub.channelId || event.channelId === sub.dmConversationId)
+    && matchesFocus(event)
   if (isForeignFocused && !hasSeenMessage) {
     armInboxReadReservationCandidate(queryClient, {
       channelId: event.channelId,
@@ -70,7 +71,7 @@ export function handleMessageCreate(
     wsStore.beginProfileSnapshot(),
     messageProfilePatches([projected]),
   )
-  if (event.channelId === sub.channelId) {
+  if (event.channelId === sub.channelId || event.channelId === sub.secondaryChannelId) {
     const serverId = useCommunityStore.getState().currentServerId
     if (serverId) {
       void scheduleFocusedMessageGapRepair(

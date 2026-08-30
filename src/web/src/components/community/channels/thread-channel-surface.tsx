@@ -15,6 +15,7 @@ import { MessageContextSheet } from "@/components/community/messages/message-con
 import { MessageList } from "@/components/community/messages/message-list"
 import { useAuthorMentionInsertion } from "@/components/community/messages/use-author-mention-insertion"
 import { ThreadOpener } from "@/components/community/messages/thread-opener"
+import { ThreadPanelActions } from "@/components/community/channels/thread-panel-actions"
 import type { FileAttachment, ImagePreview } from "@/lib/community/models/message"
 import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { RightPanel } from "@/components/community/shell/panel-types"
@@ -54,6 +55,8 @@ export function ThreadChannelSurface({
   onOpenChild,
   onOpenProfile,
   resolveUserName,
+  embedded = false,
+  splitActions,
 }: {
   channelId: string
   serverId: string
@@ -85,6 +88,8 @@ export function ThreadChannelSurface({
   onOpenChild: (childId: string) => void
   onOpenProfile: OpenProfile
   resolveUserName: (userId: string) => string
+  embedded?: boolean
+  splitActions?: { onFullscreen: () => void; onClose: () => void }
 }) {
   const router = useRouter()
   const breakpoint = useBreakpoint()
@@ -117,6 +122,7 @@ export function ThreadChannelSurface({
     anchorMessageId,
   })
   const displayName = localName ?? channelName
+  const Body = embedded ? "div" : "main"
 
   useEffect(() => {
     setRightPanel(null)
@@ -162,10 +168,10 @@ export function ThreadChannelSurface({
     return (
       <>
         <ChannelHeaderSkeleton />
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <Body className="flex min-h-0 min-w-0 flex-1 flex-col">
           <MessageList key={channelId} channel="" messages={[]} loading onOpenThread={ignoreNestedThread} />
           <ComposerSkeleton />
-        </main>
+        </Body>
       </>
     )
   }
@@ -228,10 +234,16 @@ export function ThreadChannelSurface({
                 onNavigate: onNavigateParent,
                 onRename: rename,
               } : undefined}
+              endActions={splitActions ? (
+                <ThreadPanelActions
+                  onFullscreen={splitActions.onFullscreen}
+                  onClose={splitActions.onClose}
+                />
+              ) : undefined}
             />
           )}
           body={(
-            <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <Body className="flex min-h-0 min-w-0 flex-1 flex-col">
               <MessageList
                 key={channelId}
                 channel={displayName}
@@ -283,7 +295,7 @@ export function ThreadChannelSurface({
                   draftKey={`${serverId}/${channelId}`}
                 />
               </div>
-            </main>
+            </Body>
           )}
           panels={rightPanel && (
             <CommunityPanel

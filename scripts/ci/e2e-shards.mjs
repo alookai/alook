@@ -59,6 +59,7 @@ export const SPEC_SECONDS = {
   "42-versioned-avatar-identity.spec.ts": 50,
   "44-mobile-reaction-details.spec.ts": 70,
   "51-share-image-assets.spec.ts": 20,
+  "45-desktop-thread-split-view.spec.ts": 60,
 }
 
 function walk(directory) {

@@ -9,6 +9,8 @@ import { ComposerSkeleton } from "@/components/community/messages/composer"
 import { ForumViewSkeleton } from "@/components/community/channels/forum-view"
 import { TextChannelSurface } from "@/components/community/channels/text-channel-surface"
 import { ThreadChannelSurface } from "@/components/community/channels/thread-channel-surface"
+import { ThreadSplitView } from "@/components/community/channels/thread-split-view"
+import { ThreadSplitParentSurface } from "@/components/community/channels/thread-split-parent-surface"
 import { ForumChannelSurface } from "@/components/community/channels/forum-channel-surface"
 import { useChannelMemberViewModel } from "@/components/community/members/channel-member-view-model"
 import type { OpenProfile } from "@/components/community/social/profile-types"
@@ -31,6 +33,9 @@ import {
   THREAD_OPENER_HANDOFF_PARAM,
   useThreadOpenerRouteGate,
 } from "@/hooks/community/thread-opener-read-handoff"
+import { useThreadSplitMode } from "@/hooks/community/use-thread-split-mode"
+
+const THREAD_VIEW_PARAM = "threadView"
 
 /**
  * /c/channels/:serverId/:channelId
@@ -124,6 +129,10 @@ export function ChannelRoute({ serverParam, channelId }: {
   const notifs = useNotificationSettings()
   const channelNotif = notifs.channel
   const { mutate: setChannelNotif } = useSetChannelNotif()
+  const threadSplit = useThreadSplitMode({
+    parentChannelId: currentChannelMeta?.parentChannelId ?? null,
+    forceFullscreen: searchParams.get(THREAD_VIEW_PARAM) === "full",
+  })
 
   const navigateServerRoot = useCallback(() => {
     uiHandlers.replacePath?.(serverRootHref(serverParam))
@@ -158,6 +167,11 @@ export function ChannelRoute({ serverParam, channelId }: {
       channelHref(serverParam, id),
     )
   }, [serverParam])
+  const openThreadFullscreen = useCallback(() => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set(THREAD_VIEW_PARAM, "full")
+    router.push(`${channelHref(serverParam, channelId)}?${params.toString()}`, { scroll: false })
+  }, [channelId, router, searchParams, serverParam])
 
   const openProfile = useCallback<OpenProfile>((name, e, discriminator, userId) => {
     uiHandlers.openProfile?.(name, e, discriminator, userId)
@@ -203,36 +217,67 @@ export function ChannelRoute({ serverParam, channelId }: {
 
   // ── Child channel view (forum post / thread opened via URL) ─────────────
   if (isChildChannel) {
+    const split = threadSplit.mode === "split" && !!currentServer && !!parentChannelInServer
     return (
-      <ThreadChannelSurface
-        channelId={channelId}
-        serverId={serverId}
-        serverParam={serverParam}
-        channelName={channelName}
-        viewer={currentUser}
-        anchorMessageId={jumpTargetId}
-        parentChannelId={currentChannelMeta?.parentChannelId ?? null}
-        parentMessageId={currentChannelMeta?.parentMessageId ?? null}
-        parentChannelName={parentChannelInServer?.name ?? "channel"}
-        parentIsForum={isForumPostChild}
-        threadOpenerHandoff={threadOpenerHandoff}
-        childCreatorId={currentChannelMeta?.creatorId}
-        canRenameThread={canManageServer(myRole)}
-        headerServer={currentServer
-          ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon, onNavigate: navigateServerRoot }
-          : undefined}
-        onNavigateParent={navigateParent}
-        notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
-        onSetNotificationLevel={setNotificationLevel}
-        composerMembers={composerMembers}
-        composerMentionCandidates={composerMentionCandidates}
-        channelRefCandidates={channelRefCandidates}
-        memberPanelProps={memberPanelProps}
-        manageMembersDialog={manageMembersDialog}
-        uiHandlers={uiHandlers}
-        onOpenChild={enterThread}
-        onOpenProfile={openProfile}
-        resolveUserName={resolveUserName}
+      <ThreadSplitView
+        containerRef={threadSplit.containerRef}
+        split={split}
+        parent={split && currentServer && parentChannelInServer ? (
+          <ThreadSplitParentSurface
+            serverId={serverId}
+            serverParam={serverParam}
+            server={currentServer}
+            channel={parentChannelInServer}
+            viewer={currentUser}
+            headerServer={{
+              id: currentServer.id,
+              name: currentServer.name,
+              icon: currentServer.icon,
+              onNavigate: navigateServerRoot,
+            }}
+            channelRefCandidates={channelRefCandidates}
+            uiHandlers={uiHandlers}
+            onOpenChild={enterThread}
+            onOpenProfile={openProfile}
+          />
+        ) : null}
+        thread={(
+          <ThreadChannelSurface
+            channelId={channelId}
+            serverId={serverId}
+            serverParam={serverParam}
+            channelName={channelName}
+            viewer={currentUser}
+            anchorMessageId={jumpTargetId}
+            parentChannelId={currentChannelMeta?.parentChannelId ?? null}
+            parentMessageId={currentChannelMeta?.parentMessageId ?? null}
+            parentChannelName={parentChannelInServer?.name ?? "channel"}
+            parentIsForum={isForumPostChild}
+            threadOpenerHandoff={threadOpenerHandoff}
+            childCreatorId={currentChannelMeta?.creatorId}
+            canRenameThread={canManageServer(myRole)}
+            headerServer={currentServer
+              ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon, onNavigate: navigateServerRoot }
+              : undefined}
+            onNavigateParent={navigateParent}
+            notificationLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? USE_SERVER_DEFAULT}
+            onSetNotificationLevel={setNotificationLevel}
+            composerMembers={composerMembers}
+            composerMentionCandidates={composerMentionCandidates}
+            channelRefCandidates={channelRefCandidates}
+            memberPanelProps={memberPanelProps}
+            manageMembersDialog={manageMembersDialog}
+            uiHandlers={uiHandlers}
+            onOpenChild={enterThread}
+            onOpenProfile={openProfile}
+            resolveUserName={resolveUserName}
+            embedded
+            splitActions={split ? {
+              onFullscreen: openThreadFullscreen,
+              onClose: navigateParent,
+            } : undefined}
+          />
+        )}
       />
     )
   }

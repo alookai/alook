@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import type { LucideIcon } from "lucide-react"
 import { Bell, BellOff, Pin, Users, MessagesSquare, ChevronLeft, Check, Pencil, MoreHorizontal } from "lucide-react"
 import { NOTIF_LEVELS, USE_SERVER_DEFAULT, type NotifLevel } from "@alook/shared"
@@ -54,6 +54,7 @@ export type ChannelNotifLevel = typeof USE_SERVER_DEFAULT | NotifLevel
 export function ChannelHeader({
   channel, rightPanel, onToggle, notifLevel, onSetNotifLevel,
   breadcrumb, forum, server, mobileServer, onBack, tools,
+  endActions,
 }: {
   channel: string
   rightPanel: RightPanel
@@ -72,6 +73,7 @@ export function ChannelHeader({
   mobileServer?: { id: string; name: string; icon: string | null; onNavigate: () => void }
   onBack?: () => void
   tools?: { threads?: boolean; pinned?: boolean; members?: boolean }
+  endActions?: ReactNode
 }) {
 
   // The parent-channel entity glyph (breadcrumb crumb + non-breadcrumb badge)
@@ -152,6 +154,7 @@ export function ChannelHeader({
             showPinned={tools?.pinned !== false}
           />
         )}
+        {endActions}
       </div>
     </header>
   )

@@ -34,6 +34,7 @@ export function ForumChannelSurface({
   manageMembersDialog,
   onOpenPost,
   onOpenProfile,
+  embedded = false,
 }: {
   serverId: string
   channelId: string
@@ -49,6 +50,7 @@ export function ForumChannelSurface({
   manageMembersDialog: ReactNode
   onOpenPost: (postId: string) => void
   onOpenProfile: OpenProfile
+  embedded?: boolean
 }) {
   const [panelState, setPanelState] = useState<{ channelId: string; panel: RightPanel }>({
     channelId,
@@ -85,6 +87,7 @@ export function ForumChannelSurface({
     onOpenPost(data.threadId)
   }, [channelId, createForumThreadMut, onOpenPost])
   const canManage = canManageServer(viewerRole)
+  const Body = embedded ? "div" : "main"
 
   return (
     <ChannelShell
@@ -101,7 +104,7 @@ export function ForumChannelSurface({
         />
       )}
       body={(
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <Body className="flex min-h-0 min-w-0 flex-1 flex-col">
           <ForumSurface
             serverId={serverId}
             forumChannelId={channelId}
@@ -138,7 +141,7 @@ export function ForumChannelSurface({
               )
             }}
           />
-        </main>
+        </Body>
       )}
       panels={rightPanel && (
         <CommunityPanel

@@ -38,6 +38,7 @@ export function TextChannelSurface({
   onOpenThread,
   onOpenProfile,
   resolveUserName,
+  embedded = false,
 }: {
   channelId: string
   serverId: string
@@ -61,6 +62,7 @@ export function TextChannelSurface({
   onOpenThread: (threadId: string) => void
   onOpenProfile: OpenProfile
   resolveUserName: (userId: string) => string
+  embedded?: boolean
 }) {
   const breakpoint = useBreakpoint()
   const [rightPanel, setRightPanel] = useState<RightPanel>(null)
@@ -84,6 +86,7 @@ export function TextChannelSurface({
   const togglePanel = (panel: Exclude<RightPanel, null>) => {
     setRightPanel((current) => current === panel ? null : panel)
   }
+  const Body = embedded ? "div" : "main"
 
   return (
     <MessageChannelController
@@ -112,7 +115,7 @@ export function TextChannelSurface({
             />
           )}
           body={(
-            <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <Body className="flex min-h-0 min-w-0 flex-1 flex-col">
               <MessageList
                 key={channelId}
                 channel={channelName}
@@ -163,7 +166,7 @@ export function TextChannelSurface({
                   draftKey={`${serverId}/${channelId}`}
                 />
               </div>
-            </main>
+            </Body>
           )}
           panels={rightPanel && (
             <CommunityPanel

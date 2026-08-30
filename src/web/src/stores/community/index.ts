@@ -65,6 +65,10 @@ type CurrentChannelMeta = {
 
 type CommunitySubscription = {
   channelId?: string
+  // A second visible channel in desktop thread split view. This is never a
+  // second transport subscription: the user socket already receives both;
+  // it only tells the client projector that both mounted feeds are focused.
+  secondaryChannelId?: string
   // The focused DM's channel id. A DM is a channel now; the slot name is kept
   // only to distinguish "the focused channel is a DM" for the WS handler's
   // cache-routing (see `use-community-ws.ts`).
@@ -148,6 +152,8 @@ export type CommunityStoreState = {
   // Reply → navigate → destination page seeds its composer). See `PendingReply`.
   pendingReply: PendingReply | null
 
+  secondaryChannelOwner: symbol | null
+
   // What the WS handler should treat as "focused" for setQueryData vs
   // invalidate routing.
   subscription: CommunitySubscription
@@ -160,7 +166,9 @@ export type CommunityStoreState = {
   setCurrentServerId: (id: string | null) => void
   setCurrentChannelId: (id: string | null) => void
   setCurrentChannelMeta: (meta: CurrentChannelMeta | null) => void
-  subscribe: (target: CommunitySubscription) => void
+  subscribe: (target: Pick<CommunitySubscription, "channelId" | "dmConversationId">) => void
+  claimSecondaryChannel: (owner: symbol, id: string) => void
+  releaseSecondaryChannel: (owner: symbol) => void
   unsubscribe: () => void
   setPendingMachineTokenId: (tokenId: string | null) => void
   setPendingReply: (reply: PendingReply | null) => void
@@ -181,6 +189,7 @@ const initialState = (): Pick<
   | "reactionTimers"
   | "pendingMachineTokenId"
   | "pendingReply"
+  | "secondaryChannelOwner"
   | "subscription"
   | "uiHandlers"
 > => ({
@@ -193,6 +202,7 @@ const initialState = (): Pick<
   reactionTimers: new Map(),
   pendingMachineTokenId: null,
   pendingReply: null,
+  secondaryChannelOwner: null,
   subscription: {},
   uiHandlers: {},
 })
@@ -215,7 +225,8 @@ export const useCommunityStore = create<CommunityStoreState>((set, get) => ({
     // `set({ subscription: { ...target } })` on every mount would produce a
     // fresh reference each call and force every subscriber to re-render even
     // when nothing changed. Deep-compare the two known keys; only write on a
-    // real diff.
+    // real diff. Secondary focus has a separate owner and lifecycle, so route
+    // subscriptions preserve it rather than racing the split layout effect.
     const prev = get().subscription
     if (
       prev.channelId === target.channelId &&
@@ -223,15 +234,38 @@ export const useCommunityStore = create<CommunityStoreState>((set, get) => ({
     ) {
       return
     }
-    set({ subscription: { ...target } })
+    set({
+      subscription: {
+        ...target,
+        ...(prev.secondaryChannelId ? { secondaryChannelId: prev.secondaryChannelId } : {}),
+      },
+    })
+  },
+
+  claimSecondaryChannel: (owner, id) => {
+    const prev = get().subscription
+    if (get().secondaryChannelOwner === owner && prev.secondaryChannelId === id) return
+    set({
+      subscription: {
+        ...prev,
+        secondaryChannelId: id,
+      },
+      secondaryChannelOwner: owner,
+    })
+  },
+
+  releaseSecondaryChannel: (owner) => {
+    if (get().secondaryChannelOwner !== owner) return
+    const { secondaryChannelId: _secondaryChannelId, ...subscription } = get().subscription
+    set({ subscription, secondaryChannelOwner: null })
   },
 
   unsubscribe: () => {
     // Same reasoning as `subscribe` — don't churn the reference if it's
     // already empty.
     const prev = get().subscription
-    if (!prev.channelId && !prev.dmConversationId) return
-    set({ subscription: {} })
+    if (!prev.channelId && !prev.secondaryChannelId && !prev.dmConversationId) return
+    set({ subscription: {}, secondaryChannelOwner: null })
   },
 
   setPendingMachineTokenId: (tokenId) =>

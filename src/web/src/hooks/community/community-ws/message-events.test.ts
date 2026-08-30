@@ -237,6 +237,46 @@ describe("useCommunityWs — message.create", () => {
     expect([...getMessageOverlay({ kind: "channel", id: "ch_1", serverId: "s1" }).liveById]).toHaveLength(1)
   })
 
+  it("projects a split-view parent into its own live overlay", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    const store = useCommunityStore.getState()
+    store.subscribe({ channelId: "thread_1" })
+    store.claimSecondaryChannel(Symbol("split"), "parent_1")
+    resetHookMemoization()
+    await mountHook()
+
+    capturedOnMessage!(messageCreate("parent_1", "parent_message"))
+    capturedOnMessage!(messageCreate("thread_1", "thread_message"))
+
+    expect([
+      ...getMessageOverlay({ kind: "channel", id: "parent_1", serverId: "s1" }).liveById,
+    ].map(([id]) => id)).toEqual(["parent_message"])
+    expect([
+      ...getMessageOverlay({ kind: "channel", id: "thread_1", serverId: "s1" }).liveById,
+    ].map(([id]) => id)).toEqual(["thread_message"])
+  })
+
+  it("stops treating the parent as focused immediately after the split owner releases it", async () => {
+    const { useCommunityStore } = await import("@/stores/community")
+    const store = useCommunityStore.getState()
+    const owner = Symbol("split")
+    store.subscribe({ channelId: "thread_1" })
+    store.claimSecondaryChannel(owner, "parent_hidden")
+    resetHookMemoization()
+    await mountHook()
+
+    store.releaseSecondaryChannel(owner)
+    capturedOnMessage!(messageCreate("parent_hidden", "hidden_parent_message"))
+    capturedOnMessage!(messageCreate("thread_1", "visible_thread_message"))
+
+    expect(getMessageOverlay({ kind: "channel", id: "parent_hidden", serverId: "s1" }).liveById)
+      .toHaveLength(0)
+    expect([
+      ...getMessageOverlay({ kind: "channel", id: "thread_1", serverId: "s1" }).liveById,
+    ].map(([id]) => id)).toEqual(["visible_thread_message"])
+  })
+
   it("heals a first-seen event replay once the focused serverId becomes available", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")

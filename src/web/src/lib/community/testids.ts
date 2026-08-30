@@ -141,6 +141,11 @@ export const tid = {
     `message-share-image-${msgId}-${index}`,
   messageShareCopy: `community-message-share-copy`,
   threadIndicator: (msgId: string) => `community-thread-indicator-${msgId}`,
+  threadSplit: "community-thread-split",
+  threadSplitParent: "community-thread-split-parent",
+  threadSplitPanel: "community-thread-split-panel",
+  threadSplitFullscreen: "community-thread-split-fullscreen",
+  threadSplitClose: "community-thread-split-close",
   railUnreadBadge: (serverId: string) => `community-rail-unread-badge-${serverId}`,
   // Forum post feed (ForumView). `forumThreadCard` is the whole clickable card;
   // `forumThreadTitle` / `forumThreadTitleText` expose the clamped title cluster

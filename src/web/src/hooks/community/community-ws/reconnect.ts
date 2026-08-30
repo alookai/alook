@@ -137,6 +137,13 @@ function policyExecutors(
           sub.channelId,
         ))
       }
+      if (sub.secondaryChannelId) {
+        operations.push(reconcileFocusedMessageQueries(
+          queryClient,
+          "channel",
+          sub.secondaryChannelId,
+        ))
+      }
       if (sub.dmConversationId) {
         operations.push(reconcileFocusedMessageQueries(
           queryClient,
@@ -158,28 +165,37 @@ function policyExecutors(
     },
     "focused-channel-roster": async () => {
       if (!sub.channelId) return
+      const channelIds = [sub.channelId, sub.secondaryChannelId]
+        .filter((channelId): channelId is string => !!channelId)
       const settled = await Promise.allSettled([
-        queryClient.invalidateQueries({
-          queryKey: communityKeys.channelMembers(sub.channelId),
+        ...channelIds.map((channelId) => queryClient.invalidateQueries({
+          queryKey: communityKeys.channelMembers(channelId),
           refetchType: "active",
-        }),
-        queryClient.invalidateQueries({
-          queryKey: communityKeys.channelAddableMembers(sub.channelId),
+        })),
+        ...channelIds.map((channelId) => queryClient.invalidateQueries({
+          queryKey: communityKeys.channelAddableMembers(channelId),
           refetchType: "active",
-        }),
+        })),
       ])
       if (settled.some((result) => result.status === "rejected")) throw new Error("focused roster failed")
     },
     "focused-pins": async () => {
-      const channelId = sub.channelId ?? sub.dmConversationId
-      if (!channelId) return
-      await queryClient.invalidateQueries({ queryKey: communityKeys.pins(channelId), refetchType: "active" })
+      const channelIds = [sub.channelId, sub.secondaryChannelId, sub.dmConversationId]
+        .filter((channelId): channelId is string => !!channelId)
+      if (channelIds.length === 0) return
+      await Promise.all(channelIds.map((channelId) =>
+        queryClient.invalidateQueries({ queryKey: communityKeys.pins(channelId), refetchType: "active" }),
+      ))
     },
     "focused-threads": async () => {
       if (!sub.channelId) return
       const settled = await Promise.allSettled([
         queryClient.invalidateQueries({ queryKey: communityKeys.threads(sub.channelId), refetchType: "active" }),
         queryClient.invalidateQueries({ queryKey: communityKeys.threadParticipants(sub.channelId), refetchType: "active" }),
+        ...(sub.secondaryChannelId ? [
+          queryClient.invalidateQueries({ queryKey: communityKeys.threads(sub.secondaryChannelId), refetchType: "active" }),
+          queryClient.invalidateQueries({ queryKey: communityKeys.threadParticipants(sub.secondaryChannelId), refetchType: "active" }),
+        ] : []),
       ])
       if (settled.some((result) => result.status === "rejected")) throw new Error("focused threads failed")
     },
