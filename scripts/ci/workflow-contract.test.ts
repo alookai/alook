@@ -548,6 +548,8 @@ describe("Turbo CI execution", () => {
     expect(linux).toContain("files: ./coverage/coverage-final.json")
     for (const testPath of [
       "src/pack.test.ts",
+      "src/cli/daemonLifecycle.real.test.ts",
+      "src/cli/diagnosticsLifecycle.real.test.ts",
       "src/version.packed.test.ts",
       "src/agent-driver-bundle.packed.test.ts",
       "src/cli/daemonSelfUpdate.real.test.ts",
@@ -555,6 +557,10 @@ describe("Turbo CI execution", () => {
       expect(linux).toContain(`--exclude ${testPath}`)
     }
     expect(linux).not.toContain("--exclude src/daemon/")
+    expect(linux).toContain("pnpm --filter @alook/daemon exec vitest run --no-file-parallelism")
+    expect(linux).toContain(
+      "src/cli/daemonLifecycle.real.test.ts src/cli/diagnosticsLifecycle.real.test.ts",
+    )
     expect(linux).toContain(
       "pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism src/pack.test.ts",
     )
@@ -564,12 +570,14 @@ describe("Turbo CI execution", () => {
     const nonDaemonCoverageRun = linux.indexOf("- name: Run non-daemon tests with coverage")
     const daemonCoverageRun = linux.indexOf("- name: Run daemon tests with coverage")
     const coverageMerge = linux.indexOf("- name: Merge coverage reports")
+    const realProcessRuns = linux.indexOf("- name: Run daemon real-process tests after coverage")
     const packageRuns = linux.indexOf("- name: Run package artifact tests after coverage")
     const coverageUpload = linux.indexOf("- name: Upload coverage")
     expect(nonDaemonCoverageRun).toBeGreaterThan(-1)
     expect(daemonCoverageRun).toBeGreaterThan(nonDaemonCoverageRun)
     expect(coverageMerge).toBeGreaterThan(daemonCoverageRun)
-    expect(packageRuns).toBeGreaterThan(coverageMerge)
+    expect(realProcessRuns).toBeGreaterThan(coverageMerge)
+    expect(packageRuns).toBeGreaterThan(realProcessRuns)
     expect(coverageUpload).toBeGreaterThan(packageRuns)
     expect(linux).not.toContain("coverage:workers")
     expect(linux).not.toContain("workers-runtime")
