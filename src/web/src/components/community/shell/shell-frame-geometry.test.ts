@@ -31,6 +31,10 @@ describe("mobile Inbox shell geometry", () => {
     )
   })
 
+  it("defaults both safe areas to zero", () => {
+    expect(mobileInboxAvailableHeight(568)).toBe(508)
+  })
+
   it.each([
     [568, 0, 0, 508],
     [844, 0, 0, 784],
