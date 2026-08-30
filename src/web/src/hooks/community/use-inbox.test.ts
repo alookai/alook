@@ -272,6 +272,10 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
         React.createElement(Harness),
       ))
     })
+    await qc.invalidateQueries({
+      queryKey: communityKeys.inboxUnreads(),
+      exact: true,
+    })
     await vi.waitFor(() => expect(latest?.servers).toEqual([]))
     expect(latest?.servers).toEqual([])
     expect(latest?.dms).toEqual([])
@@ -369,9 +373,57 @@ describe("useInboxMentions / inboxMentionsQueryFn", () => {
         React.createElement(Harness),
       ))
     })
+    await qc.invalidateQueries({
+      queryKey: communityKeys.inboxMentions(),
+      exact: true,
+    })
     await vi.waitFor(() => expect(latest?.mentions).toEqual([]))
     expect(latest?.mentions).toEqual([])
     expect(latest?.hasProjectedMention).toBe(true)
+    await act(async () => renderer.unmount())
+  })
+})
+
+describe("eager Inbox query ownership", () => {
+  it("keeps WS-live feeds fresh across observer remounts without duplicate reads", async () => {
+    apiFetchMock.mockImplementation((url: string) => Promise.resolve(
+      url.endsWith("/unreads")
+        ? { servers: [], dms: [] }
+        : { mentions: [] },
+    ))
+    const { useInboxMentions, useInboxUnreads } = await import("./use-inbox")
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    function Harness() {
+      useInboxUnreads()
+      useInboxMentions()
+      return null
+    }
+    const tree = React.createElement(
+      QueryClientProvider,
+      { client: qc },
+      React.createElement(Harness),
+    )
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(tree)
+    })
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(2))
+    await act(async () => renderer.unmount())
+    await act(async () => {
+      renderer = TestRenderer.create(tree)
+    })
+
+    expect(apiFetchMock).toHaveBeenCalledTimes(2)
+    for (const queryKey of [
+      communityKeys.inboxUnreads(),
+      communityKeys.inboxMentions(),
+    ]) {
+      const options = qc.getQueryCache().find({ queryKey })?.options
+      expect(options?.staleTime).toBe(Infinity)
+      expect(options?.refetchOnReconnect).toBe(true)
+    }
+    await qc.invalidateQueries({ queryKey: communityKeys.inbox() })
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(4))
     await act(async () => renderer.unmount())
   })
 })

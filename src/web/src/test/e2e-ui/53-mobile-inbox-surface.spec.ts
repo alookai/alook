@@ -190,16 +190,42 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     }
 
     const bob = await asUser("bob")
-    const ws = await proxyCommunityWebSockets(bob.context)
+    let heldFirstAuthOk = false
+    const ws = await proxyCommunityWebSockets(bob.context, {
+      decideConnectionFrame: (frame) => {
+        if (frame.type !== "auth.ok" || heldFirstAuthOk) return "forward"
+        heldFirstAuthOk = true
+        return "hold"
+      },
+    })
     const inboxGets: string[] = []
+    const completedInboxGets: string[] = []
+    const eagerInboxPaths = [
+      "/api/community/users/me/inbox/unreads",
+      "/api/community/users/me/inbox/mentions",
+    ]
     bob.page.on("request", (request) => {
       const path = new URL(request.url()).pathname
       if (request.method() === "GET" && path.includes("/users/me/inbox/")) {
         inboxGets.push(path)
       }
     })
+    bob.page.on("requestfinished", (request) => {
+      const path = new URL(request.url()).pathname
+      if (request.method() === "GET" && path.includes("/users/me/inbox/")) {
+        completedInboxGets.push(path)
+      }
+    })
     await bob.page.setViewportSize({ width: 639, height: 844 })
-    await gotoAfterUserWsAuth(bob.page, `/c/channels/${emptyServerId}`)
+    await bob.page.goto(`/c/channels/${emptyServerId}`, { waitUntil: "commit" })
+    await expect.poll(() => eagerInboxPaths.every((path) => (
+      completedInboxGets.filter((completed) => completed === path).length >= 1
+    )), { timeout: 30_000 }).toBe(true)
+    await expect.poll(ws.heldConnectionCount).toBe(1)
+    expect(ws.releaseHeldConnections((frame) => frame.type === "auth.ok")).toBe(1)
+    await expect.poll(() => eagerInboxPaths.every((path) => (
+      completedInboxGets.filter((completed) => completed === path).length >= 2
+    ))).toBe(true)
     const writes = observeWrites(bob.page)
     const wsBefore = ws.frames.length
 

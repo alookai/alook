@@ -90,7 +90,7 @@ test("community checkpoint keeps the committed frame live until navigation commi
   await page.waitForTimeout(150)
   await expect(page.getByPlaceholder("Search friends")).toBeVisible()
   await machinesGate.release()
-  await expect(page.getByRole("heading", { name: "No machines yet", exact: true }))
+  await expect(page.getByTestId(tid.machinePairOpen))
     .toBeVisible({ timeout: 30_000 })
 
   expect(mutations).toEqual([])

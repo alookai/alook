@@ -89,6 +89,8 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
     queryKey: communityKeys.inboxUnreads(),
     queryFn,
     placeholderData: keepPreviousData,
+    staleTime: Infinity,
+    refetchOnReconnect: true,
   })
   useEffect(() => {
     if (!query.data) return
@@ -232,6 +234,8 @@ export function useInboxMentions(): UseQueryResult<MentionsResponse> & {
     queryKey: communityKeys.inboxMentions(),
     queryFn: inboxMentionsQueryFn,
     placeholderData: keepPreviousData,
+    staleTime: Infinity,
+    refetchOnReconnect: true,
   })
   useEffect(() => {
     if (!query.data) return
