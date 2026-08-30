@@ -83,6 +83,287 @@ describe("ClaudeEventNormalizer.normalizeLine", () => {
     expect(n.normalizeLine(line).filter((event) => event.kind === "telemetry")).toHaveLength(1);
   });
 
+  it("projects launch-scoped cumulative modelUsage high-water deltas across logical turns", () => {
+    const n = new ClaudeEventNormalizer();
+    const first = J({
+      type: "result",
+      subtype: "success",
+      session_id: "s1",
+      user_message_uuid: "root-1",
+      total_cost_usd: 1,
+      usage: { input_tokens: 1, output_tokens: 1 },
+      modelUsage: {
+        opus: {
+          inputTokens: 10,
+          outputTokens: 2,
+          cacheReadInputTokens: 30,
+          cacheCreationInputTokens: 8,
+          costUSD: 1,
+        },
+      },
+    });
+    expect(n.normalizeLine(first)).toContainEqual({
+      kind: "telemetry",
+      name: "token_usage",
+      source: "claude_result_model_usage",
+      usage: { input: 10, output: 2, cache: 38 },
+    });
+
+    n.beginTurn();
+    const second = J({
+      type: "result",
+      subtype: "success",
+      session_id: "s1",
+      user_message_uuid: "root-2",
+      total_cost_usd: 1.7,
+      usage: { input_tokens: 2, output_tokens: 2 },
+      modelUsage: {
+        opus: {
+          inputTokens: 14,
+          outputTokens: 5,
+          cacheReadInputTokens: 50,
+          cacheCreationInputTokens: 9,
+          costUSD: 1.5,
+        },
+        sonnet: {
+          inputTokens: 2,
+          outputTokens: 1,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 3,
+          costUSD: 0.2,
+        },
+      },
+    });
+    expect(n.normalizeLine(second)).toContainEqual({
+      kind: "telemetry",
+      name: "token_usage",
+      source: "claude_result_model_usage",
+      usage: { input: 6, output: 4, cache: 24 },
+    });
+    expect(n.normalizeLine(second).filter((event) => event.kind === "telemetry")).toEqual([]);
+
+    n.beginTurn();
+    const unchanged = JSON.parse(second);
+    unchanged.user_message_uuid = "root-3";
+    expect(n.normalizeLine(J(unchanged)).filter((event) => event.kind === "telemetry")).toEqual([]);
+  });
+
+  it("fails cumulative modelUsage closed after session, model-set, component, or cost corruption", () => {
+    const snapshot = (overrides: Record<string, unknown> = {}) => ({
+      type: "result",
+      subtype: "success",
+      session_id: "s1",
+      user_message_uuid: "root-1",
+      total_cost_usd: 1,
+      modelUsage: {
+        opus: {
+          inputTokens: 10,
+          outputTokens: 2,
+          cacheReadInputTokens: 30,
+          cacheCreationInputTokens: 8,
+          costUSD: 1,
+        },
+      },
+      ...overrides,
+    });
+    const telemetry = (normalizer: ClaudeEventNormalizer, event: unknown) => normalizer
+      .normalizeLine(J(event))
+      .filter((item) => item.kind === "telemetry");
+
+    const changedSession = new ClaudeEventNormalizer();
+    expect(telemetry(changedSession, snapshot())).toHaveLength(1);
+    changedSession.beginTurn();
+    expect(telemetry(changedSession, snapshot({ session_id: "s2", user_message_uuid: "root-2" }))).toEqual([]);
+    changedSession.beginTurn();
+    expect(telemetry(changedSession, snapshot({ user_message_uuid: "root-3", usage: { input_tokens: 999 } }))).toEqual([]);
+
+    const droppedModel = new ClaudeEventNormalizer();
+    const withSecondModel = snapshot({
+      total_cost_usd: 1.5,
+      modelUsage: {
+        ...snapshot().modelUsage,
+        sonnet: {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadInputTokens: 1,
+          cacheCreationInputTokens: 1,
+          costUSD: 0.5,
+        },
+      },
+    });
+    expect(telemetry(droppedModel, withSecondModel)).toHaveLength(1);
+    droppedModel.beginTurn();
+    expect(telemetry(droppedModel, snapshot({ user_message_uuid: "root-2" }))).toEqual([]);
+    droppedModel.beginTurn();
+    expect(telemetry(droppedModel, snapshot({
+      user_message_uuid: "root-3",
+      total_cost_usd: 1.7,
+      modelUsage: {
+        opus: {
+          inputTokens: 12,
+          outputTokens: 3,
+          cacheReadInputTokens: 31,
+          cacheCreationInputTokens: 9,
+          costUSD: 1.1,
+        },
+        sonnet: {
+          inputTokens: 2,
+          outputTokens: 2,
+          cacheReadInputTokens: 2,
+          cacheCreationInputTokens: 2,
+          costUSD: 0.6,
+        },
+      },
+    }))).toContainEqual({
+      kind: "telemetry",
+      name: "token_usage",
+      source: "claude_result_model_usage",
+      usage: { input: 3, output: 2, cache: 4 },
+    });
+
+    const regressed = new ClaudeEventNormalizer();
+    expect(telemetry(regressed, snapshot())).toHaveLength(1);
+    regressed.beginTurn();
+    expect(telemetry(regressed, snapshot({
+      user_message_uuid: "root-2",
+      total_cost_usd: 0.9,
+      modelUsage: {
+        opus: {
+          ...snapshot().modelUsage.opus,
+          inputTokens: 9,
+          costUSD: 0.9,
+        },
+      },
+    }))).toEqual([]);
+    regressed.beginTurn();
+    expect(telemetry(regressed, snapshot({
+      user_message_uuid: "root-3",
+      total_cost_usd: 1.2,
+      modelUsage: {
+        opus: {
+          inputTokens: 15,
+          outputTokens: 3,
+          cacheReadInputTokens: 30,
+          cacheCreationInputTokens: 8,
+          costUSD: 1.2,
+        },
+      },
+    }))).toContainEqual({
+      kind: "telemetry",
+      name: "token_usage",
+      source: "claude_result_model_usage",
+      usage: { input: 5, output: 1, cache: 0 },
+    });
+
+    const mismatchedCost = new ClaudeEventNormalizer();
+    expect(telemetry(mismatchedCost, snapshot({ total_cost_usd: 2 }))).toEqual([]);
+
+    const malformedThenValid = new ClaudeEventNormalizer();
+    expect(telemetry(malformedThenValid, snapshot({
+      usage: { input_tokens: 999, output_tokens: 999 },
+      modelUsage: { opus: { ...snapshot().modelUsage.opus, inputTokens: "bad" } },
+    }))).toEqual([]);
+    malformedThenValid.beginTurn();
+    expect(telemetry(malformedThenValid, snapshot({ user_message_uuid: "root-2" }))).toContainEqual({
+      kind: "telemetry",
+      name: "token_usage",
+      source: "claude_result_model_usage",
+      usage: { input: 10, output: 2, cache: 38 },
+    });
+
+    const legacyThenCumulative = new ClaudeEventNormalizer();
+    expect(telemetry(legacyThenCumulative, {
+      type: "result",
+      subtype: "success",
+      session_id: "s1",
+      user_message_uuid: "legacy-1",
+      usage: { input_tokens: 3, output_tokens: 2 },
+    })).toHaveLength(1);
+    legacyThenCumulative.beginTurn();
+    expect(telemetry(legacyThenCumulative, snapshot({ user_message_uuid: "root-2" }))).toEqual([]);
+  });
+
+  it("covers malformed cumulative snapshots and cumulative-to-legacy mode changes", () => {
+    const model = (overrides: Record<string, unknown> = {}) => ({
+      inputTokens: 10,
+      outputTokens: 2,
+      cacheReadInputTokens: 30,
+      cacheCreationInputTokens: 8,
+      costUSD: 1,
+      ...overrides,
+    });
+    const result = (overrides: Record<string, unknown> = {}) => ({
+      type: "result",
+      subtype: "success",
+      session_id: "s1",
+      user_message_uuid: "root-1",
+      total_cost_usd: 1,
+      modelUsage: { opus: model() },
+      ...overrides,
+    });
+    const telemetry = (normalizer: ClaudeEventNormalizer, event: unknown) => normalizer
+      .normalizeLine(J(event))
+      .filter((item) => item.kind === "telemetry");
+
+    for (const malformed of [
+      result({ modelUsage: null }),
+      result({ modelUsage: {} }),
+      result({ modelUsage: { " ": model() } }),
+    ]) {
+      expect(telemetry(new ClaudeEventNormalizer(), malformed)).toEqual([]);
+    }
+
+    const malformedCrossSession = new ClaudeEventNormalizer();
+    expect(telemetry(malformedCrossSession, result({
+      modelUsage: { opus: model({ inputTokens: "bad" }) },
+    }))).toEqual([]);
+    malformedCrossSession.beginTurn();
+    expect(telemetry(malformedCrossSession, result({
+      session_id: "s2",
+      user_message_uuid: "root-2",
+    }))).toEqual([]);
+
+    const countOverflow = new ClaudeEventNormalizer();
+    expect(telemetry(countOverflow, result({
+      total_cost_usd: 0,
+      modelUsage: {
+        opus: model({ inputTokens: Number.MAX_SAFE_INTEGER, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0 }),
+        sonnet: model({ inputTokens: 1, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 0 }),
+      },
+    }))).toEqual([]);
+
+    const costOverflow = new ClaudeEventNormalizer();
+    expect(telemetry(costOverflow, result({
+      total_cost_usd: undefined,
+      modelUsage: {
+        opus: model({ inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: Number.MAX_VALUE }),
+        sonnet: model({ inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: Number.MAX_VALUE }),
+      },
+    }))).toEqual([]);
+
+    const costRegression = new ClaudeEventNormalizer();
+    expect(telemetry(costRegression, result())).toHaveLength(1);
+    costRegression.beginTurn();
+    expect(telemetry(costRegression, result({
+      user_message_uuid: "root-2",
+      total_cost_usd: 0.9,
+      modelUsage: { opus: model({ costUSD: 0.9 }) },
+    }))).toEqual([]);
+
+    const cumulativeThenLegacy = new ClaudeEventNormalizer();
+    expect(telemetry(cumulativeThenLegacy, result())).toHaveLength(1);
+    cumulativeThenLegacy.beginTurn();
+    expect(telemetry(cumulativeThenLegacy, {
+      type: "result",
+      subtype: "success",
+      session_id: "s1",
+      user_message_uuid: "root-2",
+      usage: { input_tokens: 999, output_tokens: 999 },
+    })).toEqual([]);
+    cumulativeThenLegacy.beginTurn();
+    expect(telemetry(cumulativeThenLegacy, result({ user_message_uuid: "root-3" }))).toEqual([]);
+  });
+
   it("does not emit usage without a backend session identity", () => {
     const out = new ClaudeEventNormalizer().normalizeLine(
       J({ type: "result", subtype: "success", usage: { input_tokens: 3, output_tokens: 5 } }),
