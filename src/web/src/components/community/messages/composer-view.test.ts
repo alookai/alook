@@ -13,8 +13,6 @@ vi.mock("lucide-react", () => ({
     createElement("image-icon", props),
   PlusCircle: (props: Record<string, unknown>) =>
     createElement("plus-icon", props),
-  SendHorizontal: (props: Record<string, unknown>) =>
-    createElement("send-icon", props),
   Smile: (props: Record<string, unknown>) => createElement("smile-icon", props),
   X: (props: Record<string, unknown>) => createElement("x-icon", props),
 }))
@@ -369,7 +367,7 @@ describe("ComposerView", () => {
     expect(textContent(preview)).toBe("Replying to Ada · Second target")
   })
 
-  it("renders the mobile send control after emoji with exact eligibility and padding", async () => {
+  it("renders the explicit send control after emoji with exact eligibility and styling", async () => {
     const onSend = vi.fn()
     let renderer!: TestRenderer.ReactTestRenderer
     await act(async () => {
@@ -398,7 +396,23 @@ describe("ComposerView", () => {
       disabled: true,
     })
     expect(send.props.className).toContain("right-2")
-    expect(renderer.root.findAllByType("send-icon")).toHaveLength(1)
+    expect(send.props.className).toContain("size-8")
+    expect(send.props.className).toContain("rounded-[8px]")
+    expect(send.props.className).toContain("disabled:bg-transparent")
+    expect(send.props.className).toContain("disabled:text-muted-foreground")
+    expect(send.props.className).toContain("enabled:hover:bg-primary/90")
+    expect(send.props.className).toContain("enabled:active:bg-primary/80")
+    expect(send.props.className).not.toContain("rounded-full")
+    const icon = send.findByType("svg")
+    expect(icon.props).toMatchObject({
+      viewBox: "0 0 24 24",
+      "aria-hidden": "true",
+      className: "size-5",
+    })
+    expect(icon.findByType("path").props).toMatchObject({
+      d: "M12.8147 12.1969L5.28344 13.4521C5.10705 13.4815 4.95979 13.6029 4.89723 13.7704L2.29933 20.7278C2.05066 21.3673 2.72008 21.9773 3.33375 21.6705L21.3337 12.6705C21.8865 12.3941 21.8865 11.6052 21.3337 11.3288L3.33375 2.32885C2.72008 2.02201 2.05066 2.63206 2.29933 3.2715L4.89723 10.2289C4.95979 10.3964 5.10705 10.5178 5.28344 10.5472L12.8147 11.8024C12.9236 11.8205 12.9972 11.9236 12.9791 12.0325C12.965 12.1168 12.899 12.1829 12.8147 12.1969Z",
+      fill: "currentColor",
+    })
     expect(
       renderer.root
         .findAllByType("button")
@@ -414,10 +428,14 @@ describe("ComposerView", () => {
         ),
       )
     })
+    const activeSend = renderer.root.find(
+      (node) => node.props["data-testid"] === tid.composerSend,
+    )
+    expect(activeSend.props.disabled).toBe(false)
+    expect(activeSend.props.className).toContain("bg-primary")
+    expect(activeSend.props.className).toContain("text-primary-foreground")
     await act(async () => {
-      renderer.root.find(
-        (node) => node.props["data-testid"] === tid.composerSend,
-      ).props.onClick()
+      activeSend.props.onClick()
     })
     expect(onSend).toHaveBeenCalledOnce()
 
@@ -434,6 +452,21 @@ describe("ComposerView", () => {
         (node) => node.props["data-testid"] === tid.composerInput,
       ).props.className,
     ).toContain("px-12")
+  })
+
+  it("pins the vendored Fluent asset to its exact MIT attribution", () => {
+    const license = readFileSync(
+      new URL("./FLUENT_SEND_FILLED_LICENSE.md", import.meta.url),
+      "utf8",
+    )
+    expect(license).toContain(
+      "4d685f77b2cb8f3f412a74ec8d920c8c91149528/assets/Send/SVG/ic_fluent_send_24_filled.svg",
+    )
+    expect(license).toContain("Copyright (c) 2020 Microsoft Corporation")
+    expect(license).toContain("MIT License")
+    expect(license).toContain(
+      "The above copyright notice and this permission notice shall be included",
+    )
   })
 
   it("keeps the exact ComposerSkeleton footprint", async () => {

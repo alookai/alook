@@ -26,7 +26,7 @@ const mocks = vi.hoisted(() => ({
   fromSchema: vi.fn(),
   parseSlice: vi.fn(),
   normalizeHardBreak: vi.fn(),
-  breakpoint: "desktop" as "unknown" | "desktop" | "mobile",
+  hoverCapable: true,
 }))
 
 vi.mock("@tiptap/react", () => ({
@@ -51,8 +51,8 @@ vi.mock("@/hooks/use-file-attachments", () => ({
   useFileAttachments: (...args: unknown[]) =>
     mocks.useFileAttachments(...args),
 }))
-vi.mock("@/hooks/use-mobile", () => ({
-  useBreakpoint: () => mocks.breakpoint,
+vi.mock("@/hooks/use-hover-capable", () => ({
+  useHoverCapable: () => mocks.hoverCapable,
 }))
 vi.mock("@/lib/community/composer-draft", () => ({
   clearComposerDraft: (...args: unknown[]) => mocks.clearDraft(...args),
@@ -236,7 +236,7 @@ describe("useComposerController", () => {
     mocks.readAttachmentSession.mockReturnValue([])
     mocks.appendAttachmentSession.mockReturnValue({ accepted: true, evictedScopes: 0 })
     mocks.restorePendingFiles.mockResolvedValue(undefined)
-    mocks.breakpoint = "desktop"
+    mocks.hoverCapable = true
   })
 
   afterEach(() => {
@@ -398,6 +398,7 @@ describe("useComposerController", () => {
     const rejected = vi.fn(async () => {
       throw new Error("mutation failed")
     })
+    mocks.hoverCapable = false
     await act(async () => {
       renderer.update(
         createElement(Harness, { ...props, onDeferredSubmit: rejected }),
@@ -620,8 +621,8 @@ describe("useComposerController", () => {
     expect(mocks.placeholderConfigure).toHaveBeenCalledTimes(2)
   })
 
-  it("keeps one live breakpoint contract across unknown, mobile, and desktop", async () => {
-    mocks.breakpoint = "unknown"
+  it("keeps one live input-capability contract across coarse and hover-capable inputs", async () => {
+    mocks.hoverCapable = false
     const accept = vi.fn(() => true)
     const props = acceptedProps(accept)
     let renderer!: TestRenderer.ReactTestRenderer
@@ -637,34 +638,23 @@ describe("useComposerController", () => {
       ...overrides,
     }) as unknown as KeyboardEvent
 
-    const unknownEnter = key()
-    expect(stableHandleKeyDown({} as never, unknownEnter)).toBe(false)
-    expect(unknownEnter.preventDefault).not.toHaveBeenCalled()
-    expect(accept).not.toHaveBeenCalled()
-    expect(setDomAttribute).toHaveBeenLastCalledWith("enterkeyhint", "enter")
-    expect(renderer.root.findByType("controller-probe").props.view.showSend).toBe(false)
-
-    mocks.breakpoint = "mobile"
-    await act(async () => {
-      renderer.update(createElement(Harness, props))
-    })
-    const mobileEnter = key()
-    expect(stableHandleKeyDown({} as never, mobileEnter)).toBe(false)
-    expect(mobileEnter.preventDefault).not.toHaveBeenCalled()
+    const coarseEnter = key()
+    expect(stableHandleKeyDown({} as never, coarseEnter)).toBe(false)
+    expect(coarseEnter.preventDefault).not.toHaveBeenCalled()
     expect(accept).not.toHaveBeenCalled()
     expect(setDomAttribute).toHaveBeenLastCalledWith("enterkeyhint", "enter")
     expect(renderer.root.findByType("controller-probe").props.view.showSend).toBe(true)
 
-    mocks.breakpoint = "desktop"
+    mocks.hoverCapable = true
     await act(async () => {
       renderer.update(createElement(Harness, props))
     })
-    const desktopShiftEnter = key({ shiftKey: true })
-    expect(stableHandleKeyDown({} as never, desktopShiftEnter)).toBe(false)
-    expect(desktopShiftEnter.preventDefault).not.toHaveBeenCalled()
-    const desktopEnter = key()
-    expect(stableHandleKeyDown({} as never, desktopEnter)).toBe(true)
-    expect(desktopEnter.preventDefault).toHaveBeenCalledOnce()
+    const fineShiftEnter = key({ shiftKey: true })
+    expect(stableHandleKeyDown({} as never, fineShiftEnter)).toBe(false)
+    expect(fineShiftEnter.preventDefault).not.toHaveBeenCalled()
+    const fineEnter = key()
+    expect(stableHandleKeyDown({} as never, fineEnter)).toBe(true)
+    expect(fineEnter.preventDefault).toHaveBeenCalledOnce()
     await act(async () => {
       await Promise.resolve()
       await Promise.resolve()
@@ -673,7 +663,7 @@ describe("useComposerController", () => {
     expect(setDomAttribute).toHaveBeenLastCalledWith("enterkeyhint", "send")
     expect(renderer.root.findByType("controller-probe").props.view.showSend).toBe(false)
 
-    mocks.breakpoint = "mobile"
+    mocks.hoverCapable = false
     await act(async () => {
       renderer.update(createElement(Harness, props))
     })
@@ -689,8 +679,8 @@ describe("useComposerController", () => {
     expect(setDomAttribute).toHaveBeenLastCalledWith("enterkeyhint", "enter")
   })
 
-  it("projects mobile send eligibility from text, pending files, and single-flight", async () => {
-    mocks.breakpoint = "mobile"
+  it("projects explicit send eligibility from text, pending files, and single-flight", async () => {
+    mocks.hoverCapable = false
     editor.isEmpty = true
     let releaseFiles!: () => void
     const fileGate = new Promise<void>((resolve) => {

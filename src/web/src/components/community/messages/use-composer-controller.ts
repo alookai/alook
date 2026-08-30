@@ -14,7 +14,7 @@ import Placeholder from "@tiptap/extension-placeholder"
 import { DOMParser as PMDOMParser } from "@tiptap/pm/model"
 import { MAX_ATTACHMENTS_PER_MESSAGE, MAX_ATTACHMENT_SIZE_BYTES } from "@alook/shared"
 import { useFileAttachments } from "@/hooks/use-file-attachments"
-import { useBreakpoint } from "@/hooks/use-mobile"
+import { useHoverCapable } from "@/hooks/use-hover-capable"
 import {
   clearComposerDraft,
   readComposerDraft,
@@ -59,13 +59,13 @@ export function useComposerController(
   ref: ForwardedRef<ComposerHandle>,
 ): ComposerViewProps {
   const isForumThreadBody = mode === "forumThreadBody"
-  const breakpoint = useBreakpoint()
-  const breakpointRef = useRef(breakpoint)
+  const hoverCapable = useHoverCapable()
+  const hoverCapableRef = useRef(hoverCapable)
   const [editorHasContent, setEditorHasContent] = useState(false)
   const [sendInFlight, setSendInFlight] = useState(false)
   useLayoutEffect(() => {
-    breakpointRef.current = breakpoint
-  }, [breakpoint])
+    hoverCapableRef.current = hoverCapable
+  }, [hoverCapable])
   const attachments = useFileAttachments({ maxFileSize: MAX_ATTACHMENT_SIZE_BYTES,
     maxFiles: MAX_ATTACHMENTS_PER_MESSAGE, thumbnailPolicy: "community",
     draftSessionScope: isForumThreadBody ? undefined : draftKey })
@@ -160,11 +160,11 @@ export function useComposerController(
       attributes: {
         class: "outline-none",
         enterkeyhint:
-          isForumThreadBody || breakpoint !== "desktop" ? "enter" : "send",
+          isForumThreadBody || !hoverCapable ? "enter" : "send",
       },
       handleKeyDown: (view, event) =>
         handleComposerEditorKeyDown(view, event, {
-          breakpoint: breakpointRef.current,
+          hoverCapable: hoverCapableRef.current,
           channelRefOpen:
             suggestions.channelRefPopupRef.current.items.length > 0 &&
             suggestions.channelRefPopupRef.current.command !== null,
@@ -217,7 +217,7 @@ export function useComposerController(
     },
   })
   const enterKeyHint =
-    isForumThreadBody || breakpoint !== "desktop" ? "enter" : "send"
+    isForumThreadBody || !hoverCapable ? "enter" : "send"
   useLayoutEffect(() => {
     editor?.view?.dom?.setAttribute("enterkeyhint", enterKeyHint)
   }, [editor, enterKeyHint])
@@ -383,7 +383,7 @@ export function useComposerController(
     editor,
     hideAttach,
     hideEmoji,
-    showSend: !isForumThreadBody && breakpoint === "mobile",
+    showSend: !isForumThreadBody && !hoverCapable,
     sendDisabled:
       sendInFlight || (!editorHasContent && pendingFiles.length === 0),
     onSend: send,

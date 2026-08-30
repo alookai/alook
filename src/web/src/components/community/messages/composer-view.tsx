@@ -8,7 +8,6 @@ import {
   FileIcon,
   ImageIcon,
   PlusCircle,
-  SendHorizontal,
   Smile,
   X,
 } from "lucide-react"
@@ -30,6 +29,7 @@ import {
   CommunityMentionList,
 } from "./composer-suggestion-popups"
 import type { ComposerReplyTarget } from "./composer-types"
+import { FluentSendFilledIcon } from "./fluent-send-filled-icon"
 
 export type ComposerViewProps = {
   isForumThreadBody: boolean
@@ -226,12 +226,12 @@ export function ComposerView({
           <button
             type="button"
             data-testid={tid.composerSend}
-            className="absolute right-2 bottom-2 grid size-8 place-items-center rounded-full bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted-foreground"
+            className="absolute right-2 bottom-2 grid size-8 place-items-center rounded-[8px] bg-primary text-primary-foreground enabled:hover:bg-primary/90 enabled:active:bg-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted-foreground"
             aria-label="Send message"
             disabled={sendDisabled}
             onClick={onSend}
           >
-            <SendHorizontal className="size-5" />
+            <FluentSendFilledIcon className="size-5" />
           </button>
         )}
       </div>
