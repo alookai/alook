@@ -20,9 +20,91 @@ import { tid } from "@/lib/community/testids"
 import type { CommunityProfile } from "@/lib/community/models/people"
 import { useProfilesByUserId } from "@/stores/community/ws"
 import { readCommunityProfile } from "@/lib/community/profile-read"
+import {
+  useLayoutEffect,
+  useRef,
+  type KeyboardEvent,
+  type ReactNode,
+  type UIEvent,
+} from "react"
 
 type UnreadChannel = UnreadServer["channels"][number]
 type UnreadChild = UnreadChannel["children"][number]
+export type InboxTab = "unreads" | "mentions" | "marked"
+
+function InboxScrollBody({
+  tab,
+  getScrollOffset,
+  onScrollOffsetChange,
+  children,
+}: {
+  tab: InboxTab
+  getScrollOffset?: (tab: InboxTab) => number
+  onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
+  children: ReactNode
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const pointerScrollRef = useRef(false)
+  const transientScrollRef = useRef(false)
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (!element || !getScrollOffset) return
+    const restore = () => {
+      element.scrollTop = getScrollOffset(tab)
+    }
+    restore()
+    const window = element.ownerDocument.defaultView
+    const ResizeObserverConstructor = window?.ResizeObserver
+    const observer = ResizeObserverConstructor
+      ? new ResizeObserverConstructor(restore)
+      : null
+    observer?.observe(element)
+    if (contentRef.current) observer?.observe(contentRef.current)
+    let secondFrame: number | null = null
+    const firstFrame = window?.requestAnimationFrame(() => {
+      restore()
+      secondFrame = window.requestAnimationFrame(restore)
+    }) ?? null
+    return () => {
+      observer?.disconnect()
+      if (firstFrame !== null) window?.cancelAnimationFrame(firstFrame)
+      if (secondFrame !== null) window?.cancelAnimationFrame(secondFrame)
+    }
+  }, [getScrollOffset, tab])
+  const onScroll = (event: UIEvent<HTMLDivElement>) => {
+    const next = event.currentTarget.scrollTop
+    const previous = getScrollOffset?.(tab) ?? 0
+    if (
+      next >= previous
+      || pointerScrollRef.current
+      || transientScrollRef.current
+    ) {
+      onScrollOffsetChange?.(tab, next)
+    }
+    transientScrollRef.current = false
+  }
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (["ArrowDown", "ArrowUp", "End", "Home", "PageDown", "PageUp", " "].includes(event.key)) {
+      transientScrollRef.current = true
+    }
+  }
+  return (
+    <div
+      ref={ref}
+      data-testid={tid.inboxTabScroll(tab)}
+      className="h-full overflow-y-auto thin-scrollbar p-3"
+      onScroll={onScroll}
+      onWheel={() => { transientScrollRef.current = true }}
+      onKeyDown={onKeyDown}
+      onPointerDown={() => { pointerScrollRef.current = true }}
+      onPointerUp={() => { pointerScrollRef.current = false }}
+      onPointerCancel={() => { pointerScrollRef.current = false }}
+    >
+      <div ref={contentRef}>{children}</div>
+    </div>
+  )
+}
 
 function MentionBadge({ count }: { count: number }) {
   if (count <= 0) return null
@@ -33,7 +115,7 @@ function MentionBadge({ count }: { count: number }) {
   )
 }
 
-function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenThread, onOpenDm, isProjected, profilesByUserId }: {
+function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenThread, onOpenDm, isProjected, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
   servers: UnreadServer[]
   dms: UnreadDm[]
   loading?: boolean
@@ -46,6 +128,8 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenThread, onOpen
   onOpenDm?: (dm: UnreadDm) => void
   isProjected: (target: InboxRowTarget | null) => boolean
   profilesByUserId: ReadonlyMap<string, CommunityProfile>
+  getScrollOffset?: (tab: InboxTab) => number
+  onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
 }) {
   const visibleDms = dms.filter((dm) => !isProjected(inboxDmRowTarget(dm)))
   const visibleServers = servers.map((server) => ({
@@ -63,7 +147,7 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenThread, onOpen
   })).filter((group) => group.channels.length > 0)
   const nothingUnread = visibleServers.length === 0 && visibleDms.length === 0
   return (
-    <div className="h-full overflow-y-auto thin-scrollbar p-3">
+    <InboxScrollBody tab="unreads" getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
       {loading && nothingUnread && <InboxUnreadsSkeleton />}
       {!loading && nothingUnread && <EmptyState icon={Inbox} label="Caught up" />}
       {visibleDms.length > 0 && (
@@ -121,23 +205,25 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenThread, onOpen
           ))}
         </div>
       ))}
-    </div>
+    </InboxScrollBody>
   )
 }
 
-function MentionsTab({ mentions, loading, onOpenMention, onDeleteMention, isProjected, profilesByUserId }: {
+function MentionsTab({ mentions, loading, onOpenMention, onDeleteMention, isProjected, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
   mentions: Mention[]
   loading?: boolean
   onOpenMention?: (m: Mention) => void
   onDeleteMention?: (id: string) => void
   isProjected: (target: InboxRowTarget | null) => boolean
   profilesByUserId: ReadonlyMap<string, CommunityProfile>
+  getScrollOffset?: (tab: InboxTab) => number
+  onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
 }) {
   const visibleMentions = mentions.filter((mention) => (
     !isProjected(inboxMentionRowTarget(mention))
   ))
   return (
-    <div className="h-full overflow-y-auto thin-scrollbar p-3">
+    <InboxScrollBody tab="mentions" getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
       {loading && visibleMentions.length === 0 && <InboxRowsSkeleton />}
       {!loading && visibleMentions.length === 0 && <EmptyState icon={Inbox} label="No mentions" />}
       {visibleMentions.map((mn) => {
@@ -175,19 +261,21 @@ function MentionsTab({ mentions, loading, onOpenMention, onDeleteMention, isProj
         </div>
         )
       })}
-    </div>
+    </InboxScrollBody>
   )
 }
 
-function MarkedTab({ marked, loading, onOpenMarked, onUnmark, profilesByUserId }: {
+function MarkedTab({ marked, loading, onOpenMarked, onUnmark, profilesByUserId, getScrollOffset, onScrollOffsetChange }: {
   marked: Marked[]
   loading?: boolean
   onOpenMarked?: (m: Marked) => void
   onUnmark?: (messageId: string) => void
   profilesByUserId: ReadonlyMap<string, CommunityProfile>
+  getScrollOffset?: (tab: InboxTab) => number
+  onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
 }) {
   return (
-    <div className="h-full overflow-y-auto thin-scrollbar p-3">
+    <InboxScrollBody tab="marked" getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange}>
       {loading && marked.length === 0 && <InboxRowsSkeleton />}
       {!loading && marked.length === 0 && <EmptyState icon={Bookmark} label="No marked messages" />}
       {marked.map((mk) => {
@@ -229,7 +317,7 @@ function MarkedTab({ marked, loading, onOpenMarked, onUnmark, profilesByUserId }
         </div>
         )
       })}
-    </div>
+    </InboxScrollBody>
   )
 }
 
@@ -253,6 +341,11 @@ export function InboxPopover({
   onMarkedTabSelected,
   onMarkAllRead,
   isProjected = () => false,
+  activeTab,
+  onActiveTabChange,
+  getScrollOffset,
+  onScrollOffsetChange,
+  surface = "desktop",
 }: {
   unreads: UnreadServer[]
   unreadDms: UnreadDm[]
@@ -284,6 +377,11 @@ export function InboxPopover({
   onMarkedTabSelected?: () => void
   onMarkAllRead?: () => void
   isProjected?: (target: InboxRowTarget | null) => boolean
+  activeTab?: InboxTab
+  onActiveTabChange?: (tab: InboxTab) => void
+  getScrollOffset?: (tab: InboxTab) => number
+  onScrollOffsetChange?: (tab: InboxTab, scrollTop: number) => void
+  surface?: "desktop" | "mobile"
 }) {
   const profilesByUserId = useProfilesByUserId()
   const hasUnreads = hasProjectedUnreads ?? (unreads.length > 0 || unreadDms.length > 0)
@@ -292,10 +390,15 @@ export function InboxPopover({
   return (
     <Tabs
       defaultValue="unreads"
-      onValueChange={(v) => { if (v === "marked") onMarkedTabSelected?.() }}
-      className="flex h-112 flex-col"
+      value={activeTab}
+      onValueChange={(value) => {
+        const tab = value as InboxTab
+        onActiveTabChange?.(tab)
+        if (tab === "marked") onMarkedTabSelected?.()
+      }}
+      className={surface === "mobile" ? "flex h-full min-h-0 flex-col" : "flex h-112 flex-col"}
     >
-      <div className="flex items-center gap-2 px-3 pt-4">
+      <div className={`flex items-center gap-2 px-3 pt-4 ${surface === "mobile" ? "pr-14" : ""}`}>
         <Inbox className="size-5" />
         <h2 className="flex-1 text-lg font-semibold">Inbox</h2>
         {onMarkAllRead && (
@@ -308,7 +411,7 @@ export function InboxPopover({
           </button>
         )}
       </div>
-      <TabsList variant="line" className="mt-3 w-full border-b border-border px-3">
+      <TabsList data-testid={tid.inboxTabList} variant="line" className="mt-3 w-full border-b border-border px-3">
         <TabsTrigger value="unreads">
           <span className="inline-flex items-center gap-2">
             Unreads
@@ -333,13 +436,15 @@ export function InboxPopover({
           onOpenDm={onOpenDm}
           isProjected={isProjected}
           profilesByUserId={profilesByUserId}
+          getScrollOffset={getScrollOffset}
+          onScrollOffsetChange={onScrollOffsetChange}
         />
       </TabsContent>
       <TabsContent value="mentions" className="min-h-0 flex-1">
-        <MentionsTab mentions={mentions} loading={loading} onOpenMention={onOpenMention} onDeleteMention={onDeleteMention} isProjected={isProjected} profilesByUserId={profilesByUserId} />
+        <MentionsTab mentions={mentions} loading={loading} onOpenMention={onOpenMention} onDeleteMention={onDeleteMention} isProjected={isProjected} profilesByUserId={profilesByUserId} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange} />
       </TabsContent>
       <TabsContent value="marked" className="min-h-0 flex-1">
-        <MarkedTab marked={marked} loading={markedLoading} onOpenMarked={onOpenMarked} onUnmark={onUnmark} profilesByUserId={profilesByUserId} />
+        <MarkedTab marked={marked} loading={markedLoading} onOpenMarked={onOpenMarked} onUnmark={onUnmark} profilesByUserId={profilesByUserId} getScrollOffset={getScrollOffset} onScrollOffsetChange={onScrollOffsetChange} />
       </TabsContent>
     </Tabs>
   )

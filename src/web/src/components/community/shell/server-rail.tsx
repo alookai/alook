@@ -1,6 +1,14 @@
 "use client"
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react"
 import { Plus } from "lucide-react"
 import { announce, cleanup as cleanupLiveRegion } from "@atlaskit/pragmatic-drag-and-drop-live-region"
 import { RailIcon } from "./rail-icon"
@@ -423,7 +431,12 @@ export const ServerRail = memo(function ServerRail({
         )}
       </div>
 
-      <div className="flex w-full shrink-0 justify-center" style={{ paddingBottom: bottomInset ?? 8 }}>
+      <div
+        className="flex w-full shrink-0 justify-center pb-[calc(var(--community-rail-bottom-inset)+var(--app-safe-area-bottom))] sm:pb-(--community-rail-bottom-inset)"
+        style={{
+          "--community-rail-bottom-inset": `${bottomInset ?? 8}px`,
+        } as CSSProperties}
+      >
         <RailIcon
           label={<Plus className="size-6" />}
           round

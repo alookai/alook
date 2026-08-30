@@ -6,10 +6,10 @@ import type { UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
 import { tid } from "@/lib/community/testids"
 
 vi.mock("@/components/ui/tabs", () => ({
-  Tabs: ({ children }: { children: React.ReactNode }) => React.createElement("div", null, children),
-  TabsList: ({ children }: { children: React.ReactNode }) => React.createElement("div", null, children),
-  TabsTrigger: ({ children }: { children: React.ReactNode }) => React.createElement("button", null, children),
-  TabsContent: ({ children }: { children: React.ReactNode }) => React.createElement("div", null, children),
+  Tabs: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => React.createElement("tabs-root", props, children),
+  TabsList: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => React.createElement("tabs-list", props, children),
+  TabsTrigger: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => React.createElement("tabs-trigger", props, children),
+  TabsContent: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) => React.createElement("tabs-content", props, children),
 }))
 
 function textOf(node: TestRenderer.ReactTestInstance | string | number): string {
@@ -267,5 +267,58 @@ describe("InboxPopover DM rows", () => {
     await act(async () => row.props.onClick())
 
     expect(onOpenDm).toHaveBeenCalledWith(dm)
+  })
+})
+
+describe("InboxPopover responsive continuity", () => {
+  it("keeps active tab controlled and reports independent scroll offsets", async () => {
+    const onActiveTabChange = vi.fn()
+    const onMarkedTabSelected = vi.fn()
+    let mentionsOffset = 73
+    const onScrollOffsetChange = vi.fn((tab: string, scrollTop: number) => {
+      if (tab === "mentions") mentionsOffset = scrollTop
+    })
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(InboxPopover, {
+        unreads: [],
+        unreadDms: [],
+        mentions: [],
+        marked: [],
+        activeTab: "mentions",
+        onActiveTabChange,
+        onMarkedTabSelected,
+        getScrollOffset: (tab) => tab === "mentions" ? mentionsOffset : 0,
+        onScrollOffsetChange,
+        surface: "mobile",
+      }))
+    })
+
+    const tabs = renderer.root.findByType("tabs-root")
+    expect(tabs.props.value).toBe("mentions")
+    expect(tabs.props.className).toContain("h-full")
+    await act(async () => tabs.props.onValueChange("marked"))
+    expect(onActiveTabChange).toHaveBeenCalledWith("marked")
+    expect(onMarkedTabSelected).toHaveBeenCalledOnce()
+
+    const mentionsScroll = renderer.root.findByProps({
+      "data-testid": tid.inboxTabScroll("mentions"),
+    })
+    await act(async () => mentionsScroll.props.onScroll({
+      currentTarget: { scrollTop: 91 },
+    }))
+    expect(onScrollOffsetChange).toHaveBeenCalledWith("mentions", 91)
+    onScrollOffsetChange.mockClear()
+    await act(async () => mentionsScroll.props.onScroll({
+      currentTarget: { scrollTop: 42 },
+    }))
+    expect(onScrollOffsetChange).not.toHaveBeenCalled()
+    await act(async () => mentionsScroll.props.onWheel())
+    await act(async () => mentionsScroll.props.onScroll({
+      currentTarget: { scrollTop: 42 },
+    }))
+    expect(onScrollOffsetChange).toHaveBeenCalledWith("mentions", 42)
+    expect(renderer.root.findByType("tabs-list").props["data-testid"])
+      .toBe(tid.inboxTabList)
   })
 })

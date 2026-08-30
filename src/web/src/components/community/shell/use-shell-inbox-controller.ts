@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useState, type ComponentProps } from "react"
+import { useCallback, useRef, useState, type ComponentProps } from "react"
 import { communityKeys } from "@/lib/query-keys"
 import { channelHref } from "@/lib/community/community-route"
 import type { Marked, Mention, UnreadDm, UnreadServer } from "@/lib/community/models/inbox"
@@ -22,6 +22,7 @@ import {
   useUnmarkMessage,
 } from "@/hooks/community/mutations"
 import type { InboxPopover } from "./community-inbox-popover"
+import type { InboxTab } from "./community-inbox-popover"
 import type { QueryClient } from "@tanstack/react-query"
 import type { ShellRouter } from "./shell-frame-types"
 import {
@@ -56,6 +57,12 @@ export function useShellInboxController({
   const mentions = inboxMentions.mentions
   const loading = inboxUnreads.isLoading || inboxMentions.isLoading
   const [markedTabOpened, setMarkedTabOpened] = useState(false)
+  const [activeTab, setActiveTab] = useState<InboxTab>("unreads")
+  const scrollOffsetsRef = useRef<Record<InboxTab, number>>({
+    unreads: 0,
+    mentions: 0,
+    marked: 0,
+  })
   const inboxMarked = useInboxMarked(markedTabOpened)
   const { mutate: unmarkMessageMutate } = useUnmarkMessage()
   const markAllInboxRead = useMarkAllInboxRead()
@@ -66,6 +73,16 @@ export function useShellInboxController({
     navigationPending,
     pendingHref,
   })
+  const changeActiveTab = useCallback((tab: InboxTab) => {
+    setActiveTab(tab)
+    if (tab === "marked") setMarkedTabOpened(true)
+  }, [])
+  const getScrollOffset = useCallback((tab: InboxTab) => (
+    scrollOffsetsRef.current[tab]
+  ), [])
+  const setScrollOffset = useCallback((tab: InboxTab, scrollTop: number) => {
+    scrollOffsetsRef.current[tab] = scrollTop
+  }, [])
 
   const pushProjected = useCallback((
     target: InboxRowTarget,
@@ -196,7 +213,11 @@ export function useShellInboxController({
     onOpenDm: openDm,
     onOpenMention: openMention,
     onOpenMarked: openMarked,
+    activeTab,
+    onActiveTabChange: changeActiveTab,
     onMarkedTabSelected: () => setMarkedTabOpened(true),
+    getScrollOffset,
+    onScrollOffsetChange: setScrollOffset,
     onMarkAllRead: () => { markAllInboxRead.mutate() },
     onDeleteMention: (id) => deleteMention.mutate({ mentionId: id }),
     onUnmark: (messageId) => unmarkMessageMutate({ messageId }),

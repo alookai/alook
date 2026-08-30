@@ -7,6 +7,17 @@ describe("community QA selectors", () => {
     expect(tid.wsRetry).toBe("community-ws-retry")
   })
 
+  it("exposes the adaptive Inbox surface from the canonical registry", () => {
+    expect(tid.userBar).toBe("community-user-bar")
+    expect(tid.inboxTrigger).toBe("community-inbox-trigger")
+    expect(tid.inboxMobileBackdrop).toBe("community-inbox-mobile-backdrop")
+    expect(tid.inboxMobileSurface).toBe("community-inbox-mobile-surface")
+    expect(tid.inboxMobileCard).toBe("community-inbox-mobile-card")
+    expect(tid.inboxMobileClose).toBe("community-inbox-mobile-close")
+    expect(tid.inboxTabList).toBe("community-inbox-tab-list")
+    expect(tid.inboxTabScroll("marked")).toBe("community-inbox-marked-scroll")
+  })
+
   it("keys forum-title read models by their stable child identity", () => {
     expect(tid.inboxUnreadChild("post_1")).toBe("community-inbox-unread-child-post_1")
     expect(tid.inboxUnreadChannel("channel_1")).toBe("community-inbox-unread-channel-channel_1")

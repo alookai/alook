@@ -931,6 +931,7 @@ function PrototypeUserBar({
         </div>
       )}
       <UserBar
+        breakpoint="desktop"
         user={{ id: "gus", name: "Gus", avatar: "avatar:beam:gus" }}
         onEditProfile={() => {}}
         inbox={scene === "continuity" || scene === "server" || scene === "machine" ? <span /> : undefined}

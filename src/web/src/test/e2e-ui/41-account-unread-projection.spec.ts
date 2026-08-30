@@ -436,7 +436,7 @@ test.describe.serial("account unread projection", () => {
     await seedDmMessage("alice", dmId, `DM mark all ${stamp}`)
 
     const { page } = await asUser("bob")
-    await gotoAfterUserWsAuth(page, "/c/me")
+    await gotoAfterUserWsAuth(page, "/c/me/friends")
     await page.getByRole("button", { name: "Inbox", exact: true }).click()
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelId))).toBeVisible()
     await expect(page.getByTestId(tid.inboxUnreadDm(dmId))).toBeVisible()

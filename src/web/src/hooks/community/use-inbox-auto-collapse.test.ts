@@ -111,6 +111,18 @@ describe("useInboxAutoCollapse", () => {
     expect(hook.current.isProjected(target())).toBe(true)
   })
 
+  it("closes an open Inbox when an unrelated destination publishes", async () => {
+    const hook = await renderHook()
+    await hook.call(() => hook.current.onOpenChange(true))
+    expect(hook.current.open).toBe(true)
+
+    await hook.rerender({ publishedHref: "/c/me" })
+
+    expect(hook.current.open).toBe(false)
+    expect(mocks.activate).not.toHaveBeenCalled()
+    expect(mocks.cancel).not.toHaveBeenCalled()
+  })
+
   it("preserves the latest lease across a shell controller remount", async () => {
     const queryClient = {} as Options["queryClient"]
     const href = "/c/channels/s1/c1"

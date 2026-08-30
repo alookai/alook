@@ -24,11 +24,12 @@ describe("ServerRail Home brand mark", () => {
     const scrollViewport =
       'className="min-h-0 w-full shrink overflow-y-auto overflow-x-clip py-2 thin-scrollbar scrollbar-none"'
     const addRegion =
-      'className="flex w-full shrink-0 justify-center" style={{ paddingBottom: bottomInset ?? 8 }}'
+      'className="flex w-full shrink-0 justify-center pb-[calc(var(--community-rail-bottom-inset)+var(--app-safe-area-bottom))] sm:pb-(--community-rail-bottom-inset)"'
 
     expect(source).toContain("data-testid={tid.serverRailScroll}")
     expect(source).toContain(scrollViewport)
     expect(source).toContain(addRegion)
+    expect(source).toContain('"--community-rail-bottom-inset": `${bottomInset ?? 8}px`')
     expect(source.indexOf(scrollViewport)).toBeLessThan(source.indexOf(addRegion))
     expect(scrollViewport).not.toContain("flex-1")
     expect(source).not.toContain("pb-2 overflow-y-auto overflow-x-clip thin-scrollbar")

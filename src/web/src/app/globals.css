@@ -611,6 +611,10 @@ body.community-onboarding-active.driver-active :is(
 }
 
 :root {
+  --app-safe-area-top: env(safe-area-inset-top, 0px);
+  --app-safe-area-right: env(safe-area-inset-right, 0px);
+  --app-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --app-safe-area-left: env(safe-area-inset-left, 0px);
   --guide-flight-ease: cubic-bezier(0.45, 0, 0.2, 1);
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-in: cubic-bezier(0.8, 0, 0.8, 0.2);

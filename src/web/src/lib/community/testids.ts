@@ -187,5 +187,14 @@ export const tid = {
   inboxUnreadChannel: (id: string) => `community-inbox-unread-channel-${id}`,
   inboxUnreadChild: (id: string) => `community-inbox-unread-child-${id}`,
   inboxUnreadDm: (id: string) => `community-inbox-unread-dm-${id}`,
+  userBar: "community-user-bar",
+  inboxTrigger: "community-inbox-trigger",
+  inboxMobileBackdrop: "community-inbox-mobile-backdrop",
+  inboxMobileSurface: "community-inbox-mobile-surface",
+  inboxMobileCard: "community-inbox-mobile-card",
+  inboxMobileClose: "community-inbox-mobile-close",
+  inboxTabList: "community-inbox-tab-list",
+  inboxTabScroll: (tab: "unreads" | "mentions" | "marked") =>
+    `community-inbox-${tab}-scroll`,
   channelRefPill: (id: string) => `community-channel-ref-pill-${id}`,
 } as const

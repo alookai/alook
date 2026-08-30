@@ -84,6 +84,7 @@ export function useInboxAutoCollapse({
     () => store.current,
   )
   const openRef = useRef(open)
+  const previousPublishedHrefRef = useRef(publishedHref)
 
   const commitLease = useCallback((lease: ProjectionLease) => {
     if (store.current?.epoch !== lease.epoch) return
@@ -183,6 +184,14 @@ export function useInboxAutoCollapse({
     if (navigationPending && destinationMatches(pendingHref, lease.destinationHref)) return
     rollbackProjection(lease.epoch)
   }, [commitLease, navigationPending, pendingHref, projection, publishedHref, rollbackProjection, store])
+
+  useEffect(() => {
+    const previousHref = previousPublishedHrefRef.current
+    previousPublishedHrefRef.current = publishedHref
+    if (previousHref === publishedHref || !openRef.current) return
+    openRef.current = false
+    setOpen(false)
+  }, [publishedHref])
 
   return {
     open,
