@@ -8,6 +8,7 @@ import { avatarInitial } from "@/lib/community/avatar"
 import { SignupTracker } from "@/components/signup-tracker"
 import { CommunitySessionPendingFrame } from "@/components/community/shell/community-session-pending-frame"
 import { resolveCommunityModulePlan } from "@/lib/community/community-route"
+import { AuthenticatedContextMenuBoundary } from "@/components/authenticated-context-menu-boundary"
 
 // The invite landing page is preview-first: a logged-out visitor must be able
 // to see it (and only hit the login wall on Join). It's a standalone
@@ -50,9 +51,9 @@ export default function CommunityLayout({
   }
 
   return (
-    <>
+    <AuthenticatedContextMenuBoundary>
       <SignupTracker redirectTo="/c/me/machines" />
       <CommunityShell currentUser={currentUser}>{children}</CommunityShell>
-    </>
+    </AuthenticatedContextMenuBoundary>
   )
 }
