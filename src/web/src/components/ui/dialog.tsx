@@ -7,6 +7,15 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
 
+function stopPropagationAfter<Event extends React.SyntheticEvent>(
+  handler: ((event: Event) => void) | undefined,
+) {
+  return (event: Event) => {
+    handler?.(event)
+    event.stopPropagation()
+  }
+}
+
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />
 }
@@ -43,6 +52,16 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  onClick,
+  onContextMenu,
+  onPointerCancel,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onTouchCancel,
+  onTouchEnd,
+  onTouchMove,
+  onTouchStart,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
@@ -57,6 +76,16 @@ function DialogContent({
           className
         )}
         {...props}
+        onClick={stopPropagationAfter(onClick)}
+        onContextMenu={stopPropagationAfter(onContextMenu)}
+        onPointerCancel={stopPropagationAfter(onPointerCancel)}
+        onPointerDown={stopPropagationAfter(onPointerDown)}
+        onPointerMove={stopPropagationAfter(onPointerMove)}
+        onPointerUp={stopPropagationAfter(onPointerUp)}
+        onTouchCancel={stopPropagationAfter(onTouchCancel)}
+        onTouchEnd={stopPropagationAfter(onTouchEnd)}
+        onTouchMove={stopPropagationAfter(onTouchMove)}
+        onTouchStart={stopPropagationAfter(onTouchStart)}
       >
         {children}
         {showCloseButton && (
