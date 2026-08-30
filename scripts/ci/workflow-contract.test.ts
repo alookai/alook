@@ -550,6 +550,7 @@ describe("Turbo CI execution", () => {
       "src/pack.test.ts",
       "src/cli/daemonLifecycle.real.test.ts",
       "src/cli/diagnosticsLifecycle.real.test.ts",
+      "src/cli/daemonStop.test.ts",
       "src/version.packed.test.ts",
       "src/agent-driver-bundle.packed.test.ts",
       "src/cli/daemonSelfUpdate.real.test.ts",
@@ -558,9 +559,14 @@ describe("Turbo CI execution", () => {
     }
     expect(linux).not.toContain("--exclude src/daemon/")
     expect(linux).toContain("pnpm --filter @alook/daemon exec vitest run --no-file-parallelism")
-    expect(linux).toContain(
-      "src/cli/daemonLifecycle.real.test.ts src/cli/diagnosticsLifecycle.real.test.ts",
-    )
+    for (const testPath of [
+      "src/cli/daemonLifecycle.real.test.ts",
+      "src/cli/diagnosticsLifecycle.real.test.ts",
+      "src/cli/daemonStop.test.ts",
+    ]) {
+      expect(linux.slice(linux.indexOf("- name: Run daemon real-process tests after coverage")))
+        .toContain(testPath)
+    }
     expect(linux).toContain(
       "pnpm --filter @alook/agent-driver exec vitest run --no-file-parallelism src/pack.test.ts",
     )

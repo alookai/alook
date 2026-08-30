@@ -69,7 +69,7 @@ const RUNTIME_RAW_TRACE_MAX_BYTES = 8 * 1024 * 1024;
 export const RUNTIME_RAW_TRACE_AGENT_IDS_ENV = "ALOOK_RUNTIME_RAW_TRACE_AGENT_IDS";
 /** How often the daemon rewrites the `daemon status` snapshot file (batch E2). */
 const STATUS_WRITE_INTERVAL_MS = 5_000;
-const TOKEN_USAGE_BACKENDS = new Set<BuiltinBackendId>(["claude", "codex", "opencode"]);
+const TOKEN_USAGE_BACKENDS = new Set<BuiltinBackendId>(["claude", "codex", "opencode", "pi"]);
 
 export function parseRuntimeRawTraceAgentIds(value: string | undefined): ReadonlySet<string> {
   return new Set(

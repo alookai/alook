@@ -427,6 +427,83 @@ describe("createDaemon", () => {
     }
   });
 
+  it("uploads persisted Pi token usage when the bot becomes idle", async () => {
+    const sockets: FakeSocket[] = [];
+    const sessions: DaemonFakeSession[] = [];
+    const workingDirectoryBase = mkdtempSync(join(tmpdir(), "daemon-pi-telemetry-"));
+    startupSweepDirs.push(workingDirectoryBase);
+    mkdirSync(join(workingDirectoryBase, "bot_1"), { recursive: true });
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/enroll-agent")) return Response.json({ runnerKey: "runner_test" });
+      if (url.includes("/daemon/bots")) {
+        return Response.json({ bots: [{ id: "bot_1", name: "Pi Bot", discriminator: "0001" }] });
+      }
+      return Response.json({ attempted: 0 });
+    }));
+    const daemon = await createDaemon({
+      machineKey: "cmk_pi_telemetry",
+      serverUrl: "http://server.invalid",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as never,
+      runtimeReport: [{ id: "pi" }],
+      driverFor: () => fullFakeDriver("pi"),
+      sessionFactory: () => {
+        const session = daemonFakeSession();
+        sessions.push(session);
+        return session;
+      },
+      capabilities: [],
+      workingDirectoryBase,
+    });
+
+    try {
+      sockets[0]!.emit("open");
+      sockets[0]!.emit("message", JSON.stringify({
+        type: "agent:wake",
+        agentId: "bot_1",
+        config: { version: 1, runtime: "pi", model: { kind: "default" }, mode: { kind: "default" } },
+        launchId: "launch_pi",
+        unreadNotice: { kind: "unread_notice", channel: "/demo#1234/general", latestSeq: 1 },
+      }));
+      await vi.waitFor(() => expect(sessions).toHaveLength(1));
+      await sessions[0]!.fire("agent_event", {
+        type: "token_usage",
+        turnId: "daemon-test-turn",
+        source: "pi_message_end",
+        usage: {
+          input: 13,
+          output: 5,
+          cache: 7,
+        },
+      });
+      await sessions[0]!.fire("runtime_event", { kind: "turn_end", sessionId: "test-session" });
+
+      const frames = () => sockets[0]!.sent.map((frame) => JSON.parse(frame) as any);
+      await vi.waitFor(() => expect(frames().some((frame) =>
+        frame.type === "agent_activity"
+        && frame.agentId === "bot_1"
+        && frame.state === "idle"
+        && typeof frame.usageTimeZone === "string"
+        && /^\d{4}-\d{2}-\d{2}$/.test(frame.usageDay ?? "")
+        && frame.dailyUsage?.[0]?.metrics.input === 13
+        && frame.dailyUsage?.[0]?.metrics.output === 5
+        && frame.dailyUsage?.[0]?.metrics.cache === 7
+      )).toBe(true));
+      expect(JSON.parse(readFileSync(
+        join(workingDirectoryBase, ".telemetry", "daily-token-usage.json"),
+        "utf8",
+      ))).toMatchObject({
+        version: 1,
+        bots: {
+          bot_1: [{ metrics: { input: 13, output: 5, cache: 7 } }],
+        },
+      });
+    } finally {
+      await daemon.stop();
+    }
+  });
+
   it("opens the builtin session factory and reports host preparation failures", async () => {
     const dir = mkdtempSync(join(tmpdir(), "daemon-builtin-session-"));
     try {

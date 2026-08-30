@@ -264,8 +264,8 @@ describe("GET /api/community/bots — heatmap activity", () => {
     ])
     mockGetBotDailyActivityForOwner.mockResolvedValue(new Map())
     mockGetBotDailyTokenUsageForOwner.mockResolvedValue(new Map([
-      ["bot_codex", [{
-        botId: "bot_codex",
+      ["bot_pi", [{
+        botId: "bot_pi",
         day: today,
         metrics: {
           input: 8,
@@ -282,7 +282,7 @@ describe("GET /api/community/bots — heatmap activity", () => {
         usage: { capability: string; days: Array<{ day: string; period: string; metrics: unknown }> }
       }>
     }
-    const supported = body.bots.find((bot) => bot.id === "bot_codex")!
+    const supported = body.bots.find((bot) => bot.id === "bot_pi")!
     expect(supported.usage.capability).toBe("supported")
     expect(supported.usage.days).toHaveLength(7)
     expect(supported.usage.days.at(-1)).toEqual({
@@ -300,7 +300,7 @@ describe("GET /api/community/bots — heatmap activity", () => {
       bot_codex: "supported",
       bot_cursor: "unsupported",
       bot_opencode: "supported",
-      bot_pi: "unsupported",
+      bot_pi: "supported",
       bot_unknown: "unknown",
     })
     expect(mockGetBotDailyTokenUsageForOwner).toHaveBeenCalledWith(

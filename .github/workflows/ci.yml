@@ -176,6 +176,7 @@ jobs:
             --reporter=blob --outputFile=.vitest-reports/daemon.blob \
             --exclude src/cli/daemonLifecycle.real.test.ts \
             --exclude src/cli/diagnosticsLifecycle.real.test.ts \
+            --exclude src/cli/daemonStop.test.ts \
             --exclude src/version.packed.test.ts \
             --exclude src/agent-driver-bundle.packed.test.ts \
             --exclude src/cli/daemonSelfUpdate.real.test.ts
@@ -188,7 +189,8 @@ jobs:
         if: env.RUN_COVERAGE == 'true'
         run: |
           pnpm --filter @alook/daemon exec vitest run --no-file-parallelism \
-            src/cli/daemonLifecycle.real.test.ts src/cli/diagnosticsLifecycle.real.test.ts
+            src/cli/daemonLifecycle.real.test.ts src/cli/diagnosticsLifecycle.real.test.ts \
+            src/cli/daemonStop.test.ts
       - name: Run package artifact tests after coverage
         if: env.RUN_COVERAGE == 'true'
         run: |

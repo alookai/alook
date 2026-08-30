@@ -175,7 +175,7 @@ const bots = [
     modelName: null,
     lastRefreshContextAt: null,
     dailyActivity: [],
-    usage: { capability: "unsupported", days: [] },
+    usage: { capability: "supported", days: smallerDays },
   },
   {
     id: "bot_claude",
@@ -244,7 +244,7 @@ test("My Bots renders seven-day usage and replace-all quota across responsive th
   expect(Math.abs(
     usageBox!.y + usageBox!.height - (botMetaBox!.y + botMetaBox!.height),
   )).toBeLessThanOrEqual(3)
-  await expect(page.getByTestId(tid.botUsage("bot_pi"))).toHaveCount(0)
+  await expect(page.getByTestId(tid.botUsage("bot_pi")).getByRole("listitem")).toHaveCount(7)
   await expect(page.getByText("Token usage not supported")).toHaveCount(0)
   const claudeUsage = page.getByTestId(tid.botUsage("bot_claude"))
   await expect(claudeUsage.getByRole("listitem")).toHaveCount(7)
@@ -369,7 +369,7 @@ test("My Bots renders seven-day usage and replace-all quota across responsive th
   await expect(page.locator('[data-slot="tooltip-content"]:visible')).toContainText("Input700")
 })
 
-test("My Bots renders the machine-local Today through real D1 and the unmocked bots API", async ({ asUser }, testInfo) => {
+test("My Bots renders Pi usage through real D1 and the unmocked bots API", async ({ asUser }, testInfo) => {
   const ownerId = userId("alice")
   let machineId: string | undefined
   let botId: string | undefined
@@ -390,7 +390,7 @@ test("My Bots renders the machine-local Today through real D1 and the unmocked b
         arch: "x64",
         osRelease: "e2e",
         daemonVersion: "0.1.26",
-        runtimeReport: [{ id: "codex", status: "healthy" }],
+        runtimeReport: [{ id: "pi", status: "healthy" }],
       }),
     })
     expect(activateResponse.ok).toBe(true)
@@ -398,9 +398,9 @@ test("My Bots renders the machine-local Today through real D1 and the unmocked b
 
     const createResponse = await postAsAlice("/api/community/bots", {
       name: `Local Day ${randomUUID().slice(0, 8)}`,
-      description: "real D1 timezone projection evidence",
+      description: "real Pi D1 usage projection evidence",
       machineId,
-      runtime: "codex",
+      runtime: "pi",
     })
     expect(createResponse.status).toBe(201)
     botId = ((await createResponse.json()) as { bot: { id: string } }).bot.id
@@ -439,9 +439,9 @@ test("My Bots renders the machine-local Today through real D1 and the unmocked b
     `)[0]!.results
     expect(d1Evidence.map((row) => row.day)).toEqual(expectedDays)
     expect(d1Evidence.every((row) => row.time_zone === timeZone)).toBe(true)
-    const d1EvidencePath = testInfo.outputPath("real-d1-token-usage.json")
+    const d1EvidencePath = testInfo.outputPath("real-pi-d1-token-usage.json")
     writeFileSync(d1EvidencePath, `${JSON.stringify(d1Evidence, null, 2)}\n`)
-    await testInfo.attach("real-d1-token-usage.json", { path: d1EvidencePath })
+    await testInfo.attach("real-pi-d1-token-usage.json", { path: d1EvidencePath })
 
     const apiResponse = await fetch(`${WEB_URL}/api/community/bots`, {
       headers: { Cookie: sessionCookie("alice"), Origin: WEB_URL },
@@ -461,6 +461,7 @@ test("My Bots renders the machine-local Today through real D1 and the unmocked b
       }>
     }
     const apiBot = apiBody.bots.find((bot) => bot.id === botId)
+    expect(apiBot).toMatchObject({ id: botId })
     expect(apiBot?.usage.capability).toBe("supported")
     expect(apiBot?.usage.days.map((day) => day.day)).toEqual(expectedDays)
     expect(apiBot?.usage.days.at(-1)).toEqual({
@@ -468,9 +469,9 @@ test("My Bots renders the machine-local Today through real D1 and the unmocked b
       period: "in_progress",
       metrics: { input: 106, output: 16, cache: 1006 },
     })
-    const apiEvidencePath = testInfo.outputPath("real-bots-api-response.json")
+    const apiEvidencePath = testInfo.outputPath("real-pi-bots-api-response.json")
     writeFileSync(apiEvidencePath, `${JSON.stringify(apiBot, null, 2)}\n`)
-    await testInfo.attach("real-bots-api-response.json", { path: apiEvidencePath })
+    await testInfo.attach("real-pi-bots-api-response.json", { path: apiEvidencePath })
 
     const { page } = await asUser("alice", { hasTouch: true })
     await page.setViewportSize({ width: 639, height: 844 })
@@ -497,7 +498,7 @@ test("My Bots renders the machine-local Today through real D1 and the unmocked b
     )
     await expect(todayTarget).toHaveText("Today")
     await expect(page.locator('[data-slot="popover-content"]:visible')).toContainText("Input106")
-    const browserEvidencePath = testInfo.outputPath("real-browser-observation.json")
+    const browserEvidencePath = testInfo.outputPath("real-pi-browser-observation.json")
     writeFileSync(browserEvidencePath, `${JSON.stringify({
       route: "/c/me/bots",
       botId,
@@ -505,8 +506,8 @@ test("My Bots renders the machine-local Today through real D1 and the unmocked b
       today,
       todayText: await todayTarget.textContent(),
     }, null, 2)}\n`)
-    await testInfo.attach("real-browser-observation.json", { path: browserEvidencePath })
-    await attachScreenshot(page, testInfo, "real-d1-local-today")
+    await testInfo.attach("real-pi-browser-observation.json", { path: browserEvidencePath })
+    await attachScreenshot(page, testInfo, "real-pi-d1-local-today")
   } finally {
     if (botId || machineId) {
       executeLocalD1([
