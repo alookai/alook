@@ -96,12 +96,27 @@ export function useShellInboxController({
   const openServerChannel = useCallback((
     server: UnreadServer,
     channel: UnreadChannel,
+    directUnreadVisible: boolean,
   ) => {
-    const target = inboxChannelRowTarget(server, channel)
-    if (!target) return
     const href = channelHref(server.serverId, channel.channelId)
+    const target = directUnreadVisible
+      ? inboxChannelRowTarget(server, channel)
+      : null
+    if (!target) {
+      const previousOpen = inbox.closeWithoutProjection()
+      cancelPendingNavigation()
+      clearThreadOpenerReadHandoff(queryClient)
+      try {
+        router.push(href)
+      } catch (error) {
+        cancelPendingNavigation()
+        inbox.onOpenChange(previousOpen)
+        throw error
+      }
+      return
+    }
     pushProjected(target, href)
-  }, [pushProjected])
+  }, [cancelPendingNavigation, inbox, pushProjected, queryClient, router])
 
   const openThread = useCallback((
     server: UnreadServer,
