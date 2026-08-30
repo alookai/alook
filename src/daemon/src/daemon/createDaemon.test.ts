@@ -2429,9 +2429,12 @@ describe("createDaemon — level-triggered activity heartbeat (2b: live-connecti
     if (typeof heartbeat !== "function") throw new Error("heartbeat callback was not installed");
     heartbeat();
     // Activity reports are serialized through an async per-agent tail, so wait
-    // until that tail sends the callback's level-triggered re-assertion.
-    await vi.waitFor(() => expect(activityFrames().length).toBeGreaterThan(beforeCount));
+    // until that tail sends the callback's level-triggered re-assertion. Drain
+    // only already-queued work: vi.waitFor advances fake time while polling,
+    // which can fire unrelated lifecycle timers and move the agent to idle.
+    await vi.advanceTimersByTimeAsync(0);
     const after = activityFrames();
+    expect(after.length).toBeGreaterThan(beforeCount);
     expect(after.at(-1)).toMatchObject({ type: "agent_activity", agentId: "bot_1", state: "running" });
 
     await daemon.stop();
