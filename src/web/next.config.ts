@@ -5,10 +5,12 @@ import createMDX from "@next/mdx";
 import { blogRedirects } from "./src/lib/blog/redirects";
 
 const pkg = JSON.parse(readFileSync(path.resolve(__dirname, "package.json"), "utf-8"));
+const daemonPkg = JSON.parse(readFileSync(path.resolve(__dirname, "../daemon/package.json"), "utf-8"));
 
 const nextConfig: NextConfig = {
 	env: {
 		NEXT_PUBLIC_APP_VERSION: pkg.version,
+		NEXT_PUBLIC_LATEST_DAEMON_VERSION: daemonPkg.version,
 	},
 	// Prevent the bundler from creating duplicate copies of @better-auth/core,
 	// which breaks AsyncLocalStorage-based request state (dual module hazard).

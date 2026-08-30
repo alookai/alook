@@ -73,6 +73,8 @@ export const tid = {
   machineActions: (id: string) => `machine-actions-${id}`,
   machineUpdate: (id: string) => `machine-update-${id}`,
   machineUpdateConfirm: "machine-update-confirm",
+  daemonUpdateNotice: "daemon-update-notice",
+  daemonUpdateViewMachines: "daemon-update-view-machines",
   homeButton: "community-home-button",
   alookLogo: "community-alook-logo",
   botReportProblemItem: "bot-report-problem-item",
