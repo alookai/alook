@@ -51,31 +51,21 @@ describe("server rail PDD record adapter", () => {
     expect(SERVER_RAIL_TOUCH_HOLD_MS).toBe(450)
     expect(SERVER_RAIL_TOUCH_DRIFT_PX).toBe(10)
     expect(railTouchMoveIntent({
-      armed: false,
       dragging: false,
       distance: 10,
       touchCount: 1,
     })).toBe("wait")
     expect(railTouchMoveIntent({
-      armed: false,
       dragging: false,
       distance: 10.1,
       touchCount: 1,
     })).toBe("scroll")
     expect(railTouchMoveIntent({
-      armed: true,
-      dragging: false,
-      distance: 10.1,
-      touchCount: 1,
-    })).toBe("start-drag")
-    expect(railTouchMoveIntent({
-      armed: true,
       dragging: true,
       distance: 30,
       touchCount: 1,
     })).toBe("drag")
     expect(railTouchMoveIntent({
-      armed: true,
       dragging: true,
       distance: 30,
       touchCount: 2,

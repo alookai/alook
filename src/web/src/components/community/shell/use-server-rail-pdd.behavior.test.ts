@@ -485,6 +485,9 @@ describe("useServerRailPdd behavior", () => {
   it("separates taps, scroll, context menu, multi-touch, and cancellation", async () => {
     const hook = await renderHook()
     const a = register(hook.current, { kind: "server", id: "a" }, rect(0, 40))
+    const desktopContext = a.handle.dispatch("contextmenu", testEvent("contextmenu"))
+    expect(desktopContext.defaultPrevented).toBe(false)
+    expect(desktopContext.propagationStopped).toBe(false)
 
     touch(a.handle, "touchstart", [point(1, 10, 10)])
     const tapEnd = touch(a.handle, "touchend", [], [point(1, 10, 10)])
@@ -512,25 +515,29 @@ describe("useServerRailPdd behavior", () => {
     touch(a.handle, "touchstart", [point(8, 10, 10)])
     touch(a.handle, "touchcancel", [])
 
+    const dragStartCount = hook.callbacks.onDragStart.mock.calls.length
     touch(a.handle, "touchstart", [point(9, 10, 10)])
-    await act(async () => vi.advanceTimersByTime(650))
+    await act(async () => vi.advanceTimersByTime(SERVER_RAIL_TOUCH_HOLD_MS - 1))
+    expect(hook.callbacks.onDragStart).toHaveBeenCalledTimes(dragStartCount)
+    const context = a.handle.dispatch("contextmenu", testEvent("contextmenu"))
+    expect(context.defaultPrevented).toBe(true)
+    expect(context.propagationStopped).toBe(true)
+    await act(async () => vi.advanceTimersByTime(1))
+    expect(hook.callbacks.onDragStart).toHaveBeenCalledTimes(dragStartCount + 1)
+    expect(hook.callbacks.onDragStart).toHaveBeenLastCalledWith(a.entity)
+    expect(fakeDocument.documentElement.style.userSelect).toBe("none")
+    const clickCount = a.handle.clickCount
+    touch(a.handle, "touchend", [], [point(9, 10, 10)])
+    expect(a.handle.clickCount).toBe(clickCount)
+    expect(fakeDocument.documentElement.style.userSelect).toBe("text")
     a.handle.click()
     expect(a.handle.lastClickEvent?.defaultPrevented).toBe(true)
     expect(a.handle.lastClickEvent?.propagationStopped).toBe(true)
 
-    touch(a.handle, "touchstart", [point(10, 10, 10)])
-    await act(async () => vi.advanceTimersByTime(SERVER_RAIL_TOUCH_HOLD_MS))
-    const clickCount = a.handle.clickCount
-    touch(a.handle, "touchend", [], [point(10, 10, 10)])
-    expect(a.handle.clickCount).toBe(clickCount)
-    a.handle.click()
-    expect(a.handle.lastClickEvent?.defaultPrevented).toBe(true)
-
     hook.callbacks.canStart.mockReturnValueOnce(true)
-    touch(a.handle, "touchstart", [point(11, 10, 10)])
-    await act(async () => vi.advanceTimersByTime(SERVER_RAIL_TOUCH_HOLD_MS))
+    touch(a.handle, "touchstart", [point(10, 10, 10)])
     hook.callbacks.canStart.mockReturnValue(false)
-    touch(a.handle, "touchmove", [point(11, 10, 30)])
+    await act(async () => vi.advanceTimersByTime(SERVER_RAIL_TOUCH_HOLD_MS))
     expect(hook.callbacks.onAnnounce).toHaveBeenCalledWith(
       "A server rail move is already being saved",
     )

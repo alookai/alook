@@ -2,6 +2,7 @@ import { createElement, Fragment, type ReactNode } from "react"
 import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { SortableServer } from "./sortable-server"
+import { tid } from "@/lib/community/testids"
 
 vi.mock("@/components/ui/context-menu", () => ({
   ContextMenu: ({ children }: { children: ReactNode }) => createElement(Fragment, null, children),
@@ -31,10 +32,10 @@ const server = {
   mentions: 0,
 }
 
-function renderServer(active = false) {
+function renderServer(active = false, mentions = 0) {
   const buttonNodes: Array<{ focus: ReturnType<typeof vi.fn> }> = []
   const renderer = TestRenderer.create(createElement(SortableServer, {
-    server,
+    server: { ...server, mentions },
     active,
     onClick: vi.fn(),
     dragDescriptionId: "rail-help",
@@ -97,5 +98,18 @@ describe("SortableServer lazy menu focus", () => {
 
     expect(active.renderer.root.findByType("button").props.className).toContain("cursor-default")
     expect(inactive.renderer.root.findByType("button").props.className).toContain("cursor-pointer")
+  })
+
+  it("stacks the numeric mention badge above the icon without changing its presentation", async () => {
+    let result!: ReturnType<typeof renderServer>
+    await act(async () => { result = renderServer(false, 12) })
+
+    const button = result.renderer.root.findByType("button")
+    const badge = result.renderer.root.findByProps({ "data-testid": tid.railUnreadBadge("a") })
+    expect(button.props.className).toContain("z-1")
+    expect(badge.props.className).toContain("z-2")
+    expect(badge.props.className).toContain("bg-primary")
+    expect(badge.props.className).toContain("min-w-5")
+    expect(badge.props.className).toContain("px-1")
   })
 })
