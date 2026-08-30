@@ -226,6 +226,7 @@ describe("GET /api/community/users/me/inbox/unreads", () => {
     const parent = body.servers[0].channels[0]
     expect(parent.channelId).toBe("c1")
     expect(parent.channelName).toBe("general")
+    expect(parent.hasDirectUnread).toBe(false)
     expect(parent.children.map((c: { channelId: string }) => c.channelId)).toEqual(["t1"])
   })
 

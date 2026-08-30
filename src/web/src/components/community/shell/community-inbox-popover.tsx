@@ -37,7 +37,11 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenThread, onOpen
   servers: UnreadServer[]
   dms: UnreadDm[]
   loading?: boolean
-  onOpenChannel?: (server: UnreadServer, channel: UnreadChannel) => void
+  onOpenChannel?: (
+    server: UnreadServer,
+    channel: UnreadChannel,
+    directUnreadVisible: boolean,
+  ) => void
   onOpenThread: (server: UnreadServer, parent: UnreadChannel, child: UnreadChild) => void
   onOpenDm?: (dm: UnreadDm) => void
   isProjected: (target: InboxRowTarget | null) => boolean
@@ -46,14 +50,16 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenThread, onOpen
   const visibleDms = dms.filter((dm) => !isProjected(inboxDmRowTarget(dm)))
   const visibleServers = servers.map((server) => ({
     server,
-    channels: server.channels.map((channel) => ({
-      channel,
-      directVisible: !isProjected(inboxChannelRowTarget(server, channel))
-        && channel.hasDirectUnread !== false,
-      children: channel.children.filter((child) => (
-        !isProjected(inboxThreadRowTarget(server, channel, child))
-      )),
-    })).filter((group) => group.directVisible || group.children.length > 0),
+    channels: server.channels.map((channel) => {
+      const directTarget = inboxChannelRowTarget(server, channel)
+      return {
+        channel,
+        directVisible: directTarget !== null && !isProjected(directTarget),
+        children: channel.children.filter((child) => (
+          !isProjected(inboxThreadRowTarget(server, channel, child))
+        )),
+      }
+    }).filter((group) => group.directVisible || group.children.length > 0),
   })).filter((group) => group.channels.length > 0)
   const nothingUnread = visibleServers.length === 0 && visibleDms.length === 0
   return (
@@ -88,16 +94,16 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenThread, onOpen
           <div className="px-2 pb-1 text-xs font-semibold text-muted-foreground">{server.serverName}</div>
           {channels.map(({ channel, directVisible, children }) => (
             <div key={channel.channelId}>
-              {directVisible && <button
+              <button
                 data-testid={tid.inboxUnreadChannel(channel.channelId)}
-                onClick={() => onOpenChannel?.(server, channel)}
+                onClick={() => onOpenChannel?.(server, channel, directVisible)}
                 className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
               >
                 <EntityIcon kind={channel.type} className="size-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate">{channel.channelName}</span>
-                <MentionBadge count={channel.mentionCount} />
+                {directVisible && <MentionBadge count={channel.mentionCount} />}
                 <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-              </button>}
+              </button>
               {children.map((child) => (
                 <button
                   key={child.channelId}
@@ -256,7 +262,11 @@ export function InboxPopover({
   loading?: boolean
   hasProjectedUnreads?: boolean
   hasProjectedMentions?: boolean
-  onOpenChannel?: (server: UnreadServer, channel: UnreadChannel) => void
+  onOpenChannel?: (
+    server: UnreadServer,
+    channel: UnreadChannel,
+    directUnreadVisible: boolean,
+  ) => void
   onOpenThread?: (server: UnreadServer, parent: UnreadChannel, child: UnreadChild) => void
   /** Compatibility for non-community showcase fixtures; product wiring uses onOpenThread. */
   onOpenForumThread?: (
