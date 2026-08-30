@@ -3,6 +3,8 @@ import { expect, test, userId } from "./_fixtures/community-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import {
   seedChannel,
+  seedDm,
+  seedDmMessage,
   seedJoinServer,
   seedMessage,
   seedReaction,
@@ -12,6 +14,7 @@ import {
 import { tid } from "./_fixtures/testids"
 
 const HOVER_QUERY = "(hover: hover) and (pointer: fine)"
+const OVERFLOW_EMOJIS = ["👍", "🔥", "🎉", "✅", "🚀", "👀", "❤️", "😂", "🤔"] as const
 
 async function installInputCapability(page: Page, hoverCapable: boolean) {
   await page.addInitScript(({ query, matches }) => {
@@ -69,6 +72,8 @@ test.describe.serial("mobile reaction details", () => {
   let emptyMessageId: string
   let threadId: string
   let threadOpenerId: string
+  let dmId: string
+  let dmMessageId: string
 
   test.beforeAll(async () => {
     const stamp = Date.now()
@@ -81,11 +86,15 @@ test.describe.serial("mobile reaction details", () => {
     await seedReaction("bob", messageId, "👍")
     await seedReaction("bob", messageId, "🔥")
     await seedReaction("carol", messageId, "🎉")
+    for (const emoji of OVERFLOW_EMOJIS.slice(3)) await seedReaction("alice", messageId, emoji)
     emptyMessageId = await seedMessage("alice", channelId, `Empty reactions ${stamp}`)
     await seedReaction("alice", emptyMessageId, "✅")
     threadOpenerId = await seedMessage("alice", channelId, `Thread opener reactions ${stamp}`)
     await seedReaction("bob", threadOpenerId, "👍")
     threadId = await seedThread("alice", threadOpenerId, `Reaction thread ${stamp}`)
+    dmId = await seedDm("alice", userId("bob"))
+    dmMessageId = await seedDmMessage("alice", dmId, `DM reactions ${stamp}`)
+    await seedReaction("bob", dmMessageId, "👍")
   })
 
   test("hold opens one authorized batch dialog while tap keeps the canonical toggle", async ({ asUser }, testInfo) => {
@@ -139,8 +148,8 @@ test.describe.serial("mobile reaction details", () => {
     expect(detailsRequests).toHaveLength(1)
   })
 
-  test("coarse input follows the 320, 639, and 640 cross-capability geometry", async ({ asUser }) => {
-    for (const width of [320, 639, 640]) {
+  test("coarse input follows the 320, 639, 640, and 1280 cross-capability geometry", async ({ asUser }) => {
+    for (const width of [320, 639, 640, 1280]) {
       const session = await asUser("alice")
       await session.page.setViewportSize({ width, height: width === 320 ? 568 : 844 })
       await installInputCapability(session.page, false)
@@ -154,6 +163,85 @@ test.describe.serial("mobile reaction details", () => {
       ))).toBeGreaterThanOrEqual(44)
       await session.context.close()
     }
+  })
+
+  test("the emoji rail stays transparent and one-line with directional fades and tab keyboard semantics", async ({ asUser }, testInfo) => {
+    const alice = await asUser("alice")
+    await alice.page.setViewportSize({ width: 320, height: 568 })
+    await alice.page.emulateMedia({ colorScheme: "light" })
+    await installInputCapability(alice.page, false)
+    await gotoAfterUserWsAuth(alice.page, `/c/channels/${serverId}/${channelId}`)
+    await holdReaction(alice.page, alice.page.getByTestId(tid.reactionChip(messageId, OVERFLOW_EMOJIS[0])))
+    await expectDialogInsideViewport(alice.page, messageId)
+
+    const rail = alice.page.getByTestId(tid.reactionScroller(messageId))
+    const panel = alice.page.getByRole("tabpanel")
+    await expect(rail).toHaveRole("tablist")
+    await expect(rail).toHaveAttribute("aria-label", "Reaction types")
+    await expect(panel).toHaveAttribute("aria-labelledby", tid.reactionTab(OVERFLOW_EMOJIS[0]))
+    const initial = await rail.evaluate((element) => {
+      const style = getComputedStyle(element)
+      element.scrollLeft = 0
+      element.dispatchEvent(new Event("scroll"))
+      return {
+        backgroundColor: style.backgroundColor,
+        flexWrap: style.flexWrap,
+        overflowX: style.overflowX,
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+      }
+    })
+    expect(initial.backgroundColor).toBe("rgba(0, 0, 0, 0)")
+    expect(initial.flexWrap).toBe("nowrap")
+    expect(initial.overflowX).toBe("auto")
+    expect(initial.scrollWidth).toBeGreaterThan(initial.clientWidth)
+    await expect(alice.page.getByTestId(tid.reactionFadeLeft(messageId))).toHaveCount(0)
+    await expect(alice.page.getByTestId(tid.reactionFadeRight(messageId))).toBeVisible()
+
+    const first = alice.page.getByTestId(tid.reactionTab(OVERFLOW_EMOJIS[0]))
+    const last = alice.page.getByTestId(tid.reactionTab(OVERFLOW_EMOJIS.at(-1)!))
+    await first.focus()
+    await first.press("End")
+    await expect.poll(() => rail.evaluate((element) => ({
+      left: element.scrollLeft,
+      max: element.scrollWidth - element.clientWidth,
+    }))).toEqual(expect.objectContaining({ left: initial.scrollWidth - initial.clientWidth }))
+    await expect(alice.page.getByTestId(tid.reactionFadeLeft(messageId))).toBeVisible()
+    await expect(alice.page.getByTestId(tid.reactionFadeRight(messageId))).toHaveCount(0)
+
+    await rail.evaluate((element) => {
+      element.scrollLeft = 0
+      element.dispatchEvent(new Event("scroll"))
+    })
+    await last.evaluate((element) => (element as HTMLElement).click())
+    await expect(last).toHaveAttribute("data-active", "")
+    await expect.poll(() => rail.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
+
+    await rail.evaluate((element) => {
+      element.scrollLeft = (element.scrollWidth - element.clientWidth) / 2
+      element.dispatchEvent(new Event("scroll"))
+    })
+    await expect(alice.page.getByTestId(tid.reactionFadeLeft(messageId))).toBeVisible()
+    await expect(alice.page.getByTestId(tid.reactionFadeRight(messageId))).toBeVisible()
+
+    await last.focus()
+    await last.press("Home")
+    await expect.poll(() => rail.evaluate((element) => element.scrollLeft)).toBe(0)
+    await expect(alice.page.getByTestId(tid.reactionFadeLeft(messageId))).toHaveCount(0)
+    await expect(alice.page.getByTestId(tid.reactionFadeRight(messageId))).toBeVisible()
+    await first.evaluate((element) => (element as HTMLElement).click())
+    await expect(first).toHaveAttribute("data-active", "")
+    await expect(alice.page.getByTestId(tid.reactionMember(userId("alice")))).toBeVisible()
+    await testInfo.attach("320-reaction-rail-overflow-light.png", {
+      body: await alice.page.screenshot(),
+      contentType: "image/png",
+    })
+    await alice.page.emulateMedia({ colorScheme: "dark" })
+    await expect(alice.page.locator("html")).toHaveClass(/dark/)
+    await testInfo.attach("320-reaction-rail-overflow-dark.png", {
+      body: await alice.page.screenshot(),
+      contentType: "image/png",
+    })
   })
 
   test("hover-capable desktop keeps compact click and tooltip behavior", async ({ asUser }, testInfo) => {
@@ -190,6 +278,27 @@ test.describe.serial("mobile reaction details", () => {
       body: await alice.page.screenshot(),
       contentType: "image/png",
     })
+  })
+
+  test("DM and message-context rows open the same authorized reaction dialog", async ({ asUser }) => {
+    const dm = await asUser("alice")
+    await dm.page.setViewportSize({ width: 390, height: 844 })
+    await installInputCapability(dm.page, false)
+    await gotoAfterUserWsAuth(dm.page, `/c/me/${dmId}`)
+    await holdReaction(dm.page, dm.page.getByTestId(tid.reactionChip(dmMessageId, "👍")))
+    await expectDialogInsideViewport(dm.page, dmMessageId)
+    await expect(dm.page.getByTestId(tid.reactionMember(userId("bob")))).toBeVisible()
+    await dm.page.getByRole("button", { name: "Close" }).click()
+    await dm.context.close()
+
+    const context = await asUser("alice")
+    await context.page.setViewportSize({ width: 390, height: 844 })
+    await installInputCapability(context.page, false)
+    await gotoAfterUserWsAuth(context.page, `/c/channels/${serverId}/${channelId}?seq=1`)
+    const sheet = context.page.locator('[data-slot="sheet-content"]')
+    await expect(sheet).toBeVisible()
+    await holdReaction(context.page, sheet.getByTestId(tid.reactionChip(messageId, OVERFLOW_EMOJIS[0])))
+    await expectDialogInsideViewport(context.page, messageId)
   })
 
   test("removing the last reaction keeps the dialog open on its empty state", async ({ asUser }, testInfo) => {

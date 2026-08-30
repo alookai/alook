@@ -48,6 +48,9 @@ describe("community QA selectors", () => {
     expect(tid.reactionDialog("message_1")).toBe("community-reaction-dialog-message_1")
     expect(tid.reactionTab("👍")).toBe("community-reaction-tab-%F0%9F%91%8D")
     expect(tid.reactionMember("user_1")).toBe("community-reaction-member-user_1")
+    expect(tid.reactionScroller("message_1")).toBe("community-reaction-scroller-message_1")
+    expect(tid.reactionFadeLeft("message_1")).toBe("community-reaction-fade-left-message_1")
+    expect(tid.reactionFadeRight("message_1")).toBe("community-reaction-fade-right-message_1")
     expect(tid.reactionEmpty("message_1")).toBe("community-reaction-empty-message_1")
   })
 

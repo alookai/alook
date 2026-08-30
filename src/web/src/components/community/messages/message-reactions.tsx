@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import type React from "react"
-import { Avatar } from "../avatar"
 import { NumberTicker } from "@/components/ui/number-ticker"
 import {
   Dialog,
@@ -13,7 +12,6 @@ import {
 } from "@/components/ui/dialog"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { avatarInitial } from "@/lib/community/avatar"
 import { displayName } from "@/lib/community/display-name"
 import type { Reaction } from "@/lib/community/models/message"
 import { tid } from "@/lib/community/testids"
@@ -22,6 +20,11 @@ import {
   useReactionDetails,
 } from "@/hooks/community/use-reaction-details"
 import { useCommunityProfile } from "@/stores/community/ws"
+import {
+  HorizontalOverflowFadeOverlays,
+  useHorizontalOverflowRail,
+} from "../horizontal-overflow-rail"
+import { MemberIdentityRow } from "../members/member-identity-row"
 
 const HOLD_MS = 450
 const MOVE_TOLERANCE_PX = 10
@@ -47,20 +50,16 @@ function ReactionMemberRow({
 }) {
   const liveProfile = useCommunityProfile(authorizedProfile ? userId : null)
   const name = authorizedProfile ? (liveProfile?.name ?? authorizedProfile.name) : "Unknown member"
-  const avatar = authorizedProfile
-    ? (liveProfile?.avatar ?? authorizedProfile.avatar ?? avatarInitial(name))
-    : avatarInitial(name)
   return (
     <li data-testid={tid.reactionMember(userId)} className="flex min-h-11 items-center gap-3 rounded-lg px-2 py-2">
-      <Avatar label={name} seed={authorizedProfile ? userId : undefined} src={authorizedProfile ? avatar : undefined} size={32} ringColor="var(--popover)" />
-      <div className="min-w-0">
-        <div className="truncate text-sm font-medium">{name}</div>
-        {authorizedProfile && (
-          <div className="truncate text-xs text-muted-foreground">
-            @{liveProfile?.name ?? authorizedProfile.name}#{liveProfile?.discriminator ?? authorizedProfile.discriminator}
-          </div>
-        )}
-      </div>
+      <MemberIdentityRow
+        name={name}
+        discriminator={authorizedProfile ? (liveProfile?.discriminator ?? authorizedProfile.discriminator) : undefined}
+        avatarLabel={name}
+        avatarSeed={authorizedProfile ? userId : undefined}
+        avatarSrc={authorizedProfile ? (liveProfile?.avatar ?? authorizedProfile.avatar) : undefined}
+        ringColor="var(--popover)"
+      />
     </li>
   )
 }
@@ -199,6 +198,18 @@ function ReactionDetailsDialog({
   const details = useReactionDetails({ messageId, open: true, userIds })
   const selectedReaction = reactions.find((reaction) => reaction.emoji === selectedEmoji)
   const actors = new Map(details.data?.actors.map((actor) => [actor.userId, actor]))
+  const reactionRailKey = reactions.map((reaction) => `${reaction.emoji}\0${reaction.count}`).join("\0")
+  const {
+    fades: reactionFades,
+    onKeyDown: onReactionRailKeyDown,
+    onScroll: onReactionRailScroll,
+    scrollerRef: reactionScrollerRef,
+    selectedRef: selectedReactionRef,
+  } = useHorizontalOverflowRail<HTMLDivElement, HTMLButtonElement>({
+    contentKey: reactionRailKey,
+    selectedKey: selectedEmoji,
+    preserveChildKeyboard: true,
+  })
 
   return (
     <DialogContent
@@ -212,22 +223,38 @@ function ReactionDetailsDialog({
 
       {reactions.length > 0 && selectedEmoji && (
         <Tabs value={selectedEmoji} onValueChange={onSelectedEmojiChange}>
-          <TabsList variant="default" className="h-11! min-h-11 thin-scrollbar">
-            {reactions.map((reaction) => (
-              <TabsTrigger
-                key={reaction.emoji}
-                value={reaction.emoji}
-                id={tid.reactionTab(reaction.emoji)}
-                data-testid={tid.reactionTab(reaction.emoji)}
-                aria-label={`${reaction.emoji}, ${reaction.count}`}
-                aria-controls={`${tid.reactionDialog(messageId)}-panel`}
-                className="h-11! min-h-11 min-w-11"
-              >
-                <span aria-hidden="true">{reaction.emoji}</span>
-                <span>{reaction.count}</span>
-              </TabsTrigger>
-            ))}
-          </TabsList>
+          <div className="relative min-w-0">
+            <TabsList
+              ref={reactionScrollerRef}
+              variant="line"
+              data-testid={tid.reactionScroller(messageId)}
+              aria-label="Reaction types"
+              onScroll={onReactionRailScroll}
+              onKeyDown={onReactionRailKeyDown}
+              className="h-11! min-h-11 w-full max-w-full flex-nowrap gap-1 overflow-x-auto overflow-y-hidden rounded-none bg-transparent! p-0! overscroll-x-contain thin-scrollbar scrollbar-none"
+            >
+              {reactions.map((reaction) => (
+                <TabsTrigger
+                  key={reaction.emoji}
+                  ref={selectedEmoji === reaction.emoji ? selectedReactionRef : undefined}
+                  value={reaction.emoji}
+                  id={tid.reactionTab(reaction.emoji)}
+                  data-testid={tid.reactionTab(reaction.emoji)}
+                  aria-label={`${reaction.emoji}, ${reaction.count}`}
+                  aria-controls={`${tid.reactionDialog(messageId)}-panel`}
+                  className="h-11! min-h-11 min-w-11"
+                >
+                  <span aria-hidden="true">{reaction.emoji}</span>
+                  <span>{reaction.count}</span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            <HorizontalOverflowFadeOverlays
+              fades={reactionFades}
+              leftTestId={tid.reactionFadeLeft(messageId)}
+              rightTestId={tid.reactionFadeRight(messageId)}
+            />
+          </div>
         </Tabs>
       )}
 

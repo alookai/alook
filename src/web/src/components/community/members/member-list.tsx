@@ -9,7 +9,6 @@ import {
 } from "@/components/ui/context-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Input } from "@/components/ui/input"
-import { Avatar } from "../avatar"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { toastApiError } from "@/lib/api/client"
 import { COMMUNITY_VIRTUALIZER_REACT_OPTIONS } from "@/hooks/community/virtualizer-react-options"
@@ -26,6 +25,7 @@ import {
   ROLES,
   type CommunityRole as Role,
 } from "@alook/shared"
+import { MemberIdentityRow } from "./member-identity-row"
 
 // The Leave/Remove confirm flow the row menu opens (private channel/post/thread).
 type ManageConfirm = { kind: "leave" | "remove"; member: Member }
@@ -366,18 +366,15 @@ function MemberRow({
       onClick={(e) => onOpenProfile?.(mem.name, e, undefined, mem.userId)}
       className="flex w-full items-center gap-3 rounded-md px-2 py-2 select-none hover:bg-accent"
     >
-      <Avatar label={mem.avatar} seed={mem.userId} size={32} presence={mem.status} dim={isPresenceOffline(mem.status)} />
-      <div className="min-w-0 flex-1 space-y-0.5 text-left">
-        <div className={`truncate text-sm leading-tight ${isPresenceOffline(mem.status) ? "text-muted-foreground" : ""}`}>
-          {mem.name}
-          {showDiscriminator && mem.discriminator && (
-            <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">#{mem.discriminator}</span>
-          )}
-        </div>
-        {hasStatus(mem.statusEmoji, mem.statusText) && (
-          <div className="truncate text-xs leading-tight text-muted-foreground">{mem.statusEmoji} {mem.statusText}</div>
-        )}
-      </div>
+      <MemberIdentityRow
+        name={mem.name}
+        discriminator={showDiscriminator ? mem.discriminator : undefined}
+        avatarLabel={mem.avatar}
+        avatarSeed={mem.userId}
+        presence={mem.status}
+        dim={isPresenceOffline(mem.status)}
+        secondary={hasStatus(mem.statusEmoji, mem.statusText) ? `${mem.statusEmoji} ${mem.statusText}` : undefined}
+      />
     </button>
   )
 

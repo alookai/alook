@@ -130,6 +130,9 @@ export const tid = {
   reactionChip: (msgId: string, emoji: string) =>
     `community-reaction-chip-${msgId}-${encodeURIComponent(emoji)}`,
   reactionDialog: (msgId: string) => `community-reaction-dialog-${msgId}`,
+  reactionScroller: (msgId: string) => `community-reaction-scroller-${msgId}`,
+  reactionFadeLeft: (msgId: string) => `community-reaction-fade-left-${msgId}`,
+  reactionFadeRight: (msgId: string) => `community-reaction-fade-right-${msgId}`,
   reactionTab: (emoji: string) => `community-reaction-tab-${encodeURIComponent(emoji)}`,
   reactionMember: (userId: string) => `community-reaction-member-${userId}`,
   reactionEmpty: (msgId: string) => `community-reaction-empty-${msgId}`,
