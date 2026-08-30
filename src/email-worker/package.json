@@ -16,12 +16,12 @@
     "worker-mailer": "^1.2.1"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "1.0.0",
+    "@cloudflare/vitest-plugin": "1.1.1",
     "@cloudflare/workers-types": "^4.20260702.1",
     "@types/node": "^25.9.4",
     "knip": "^6.32.2",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.10",
-    "wrangler": "^4.125.0"
+    "vitest": "^4.1.11",
+    "wrangler": "^4.127.0"
   }
 }
