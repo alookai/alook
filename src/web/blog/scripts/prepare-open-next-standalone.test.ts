@@ -96,7 +96,11 @@ describe("prepareOpenNextStandalone", () => {
     const nestedNext = join(nextRoot, "standalone/src/web/blog/.next")
     const originalNode = join(root, "node_modules/next/dist/compiled/@vercel/og/index.node.js")
     const tracedNodePath = relative(dirname(tracePath), originalNode)
-    const standaloneOg = join(nextRoot, "standalone/src/web/node_modules/next/dist/compiled/@vercel/og")
+    const logicalOg = join(root, "blog/node_modules/next/dist/compiled/@vercel/og")
+    const standaloneOg = join(
+      nextRoot,
+      "standalone/src/web/blog/node_modules/next/dist/compiled/@vercel/og",
+    )
 
     mkdirSync(join(nestedNext, "server"), { recursive: true })
     mkdirSync(dirname(tracePath), { recursive: true })
@@ -111,8 +115,8 @@ describe("prepareOpenNextStandalone", () => {
     const trace = JSON.parse(readFileSync(tracePath, "utf8")) as { files: string[] }
     expect(trace.files).toEqual([
       tracedNodePath,
-      tracedNodePath.replace(/index\.node\.js$/, "index.edge.js"),
-      tracedNodePath.replace(/index\.node\.js$/, "yoga.wasm"),
+      relative(dirname(tracePath), join(logicalOg, "index.edge.js")),
+      relative(dirname(tracePath), join(logicalOg, "yoga.wasm")),
     ])
   })
 })

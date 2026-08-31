@@ -42,8 +42,9 @@ export function prepareOpenNextStandalone(webRoot: string): void {
   if (!tracedNodePath) return
 
   const nestedTrace = resolve(nestedNext, relative(nextRoot, ogTrace))
+  const logicalOgDirectory = resolve(webRoot, "blog/node_modules/next/dist/compiled/@vercel/og")
   for (const fileName of ["index.edge.js", "yoga.wasm"]) {
-    const tracedPath = tracedNodePath.replace(/index\.node\.js$/, fileName)
+    const tracedPath = relative(dirname(ogTrace), resolve(logicalOgDirectory, fileName))
     const standaloneSource = resolve(dirname(nestedTrace), tracedPath)
     if (!existsSync(standaloneSource)) {
       throw new Error(`Missing standalone @vercel/og runtime source: ${standaloneSource}`)
