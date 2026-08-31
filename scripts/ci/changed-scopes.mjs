@@ -3,8 +3,17 @@ import { appendFileSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-const BLOG_CONTENT = /^src\/web\/src\/content\/[^/]+\.mdx$/
-const BLOG_ASSET = /^src\/web\/public\/blog(?:\/|$)/
+const BLOG_ROOT = /^src\/web\/blog(?:\/|$)/
+const BLOG_CONTENT = /^src\/web\/blog\/src\/content\/[^/]+\.mdx$/
+const BLOG_ASSET = /^src\/web\/blog\/public\/blog(?:\/|$)/
+const BLOG_SHARED_INPUTS = new Set(
+  JSON.parse(
+    readFileSync(
+      new URL("../../src/web/blog/shared-build-inputs.json", import.meta.url),
+      "utf8",
+    ),
+  ).sourcePaths.map((path) => `src/web/${path}`),
+)
 const MARKDOWN = /(?:^|\/)\w[^/]*\.md$/i
 const WORKFLOW = /^\.github\/workflows\//
 const GLOBAL_PATHS = new Set([
@@ -41,6 +50,12 @@ function isBlogPath(path) {
   return BLOG_CONTENT.test(path) || BLOG_ASSET.test(path)
 }
 
+function isBlogBuildInput(path) {
+  return BLOG_ROOT.test(path) || [...BLOG_SHARED_INPUTS].some((input) => (
+    input.endsWith("/") ? path.startsWith(input) : path === input
+  ))
+}
+
 function isMarkdownPath(path) {
   return MARKDOWN.test(path)
 }
@@ -73,6 +88,13 @@ export function classifyPaths(inputPaths, options = {}) {
   const full = empty || forceFull || contentMix || workflowChanged || globalChanged || unknownChanged
   const effectiveDocsOnly = docsOnly && !full
   const effectiveBlogOnly = blogOnly && !full
+  const blogCodeOnly =
+    !empty &&
+    paths.every(
+      (path) =>
+        BLOG_ROOT.test(path) &&
+        (!path.startsWith("src/web/blog/src/content/") || BLOG_CONTENT.test(path)),
+    )
   const web = full || paths.some((path) => path.startsWith("src/web/"))
   const shared = full || paths.some((path) => path.startsWith("src/shared/"))
   const cli = full || paths.some((path) => path.startsWith("src/cli/"))
@@ -100,7 +122,7 @@ export function classifyPaths(inputPaths, options = {}) {
       path.startsWith("src/email-worker/") ||
       path.startsWith("src/ws-do/") ||
       path.startsWith("src/wake-worker/") ||
-      (path.startsWith("src/web/") && !isBlogPath(path))
+      (path.startsWith("src/web/") && !BLOG_ROOT.test(path))
   )
 
   return {
@@ -112,11 +134,12 @@ export function classifyPaths(inputPaths, options = {}) {
     run_code_checks: runCodeChecks,
     run_windows: runCodeChecks && (full || app || cli || daemon || shared),
     run_e2e: runCodeChecks && (full || web || shared || cli || daemon || worker || integration),
-    run_ui_e2e: !effectiveBlogOnly && runCodeChecks && (full || web || shared || wsDo),
+    run_ui_e2e: !effectiveBlogOnly && !blogCodeOnly && runCodeChecks && (full || web || shared || wsDo),
     run_rust: runCodeChecks && (full || desktop),
     run_lighthouse: runCodeChecks && (full || web),
     run_knip: runCodeChecks && (full || app || cli || shared || web || worker),
     run_app_packed_artifact: full || appPackedArtifactInput,
+    run_blog_build: full || paths.some(isBlogBuildInput),
   }
 }
 

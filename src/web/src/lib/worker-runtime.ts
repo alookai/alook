@@ -1,3 +1,5 @@
+import { finalizePublicWorkerResponse } from "./public-worker-response"
+
 const PRIVATE_PREFIXES = ["/w/", "/workspaces", "/dashboard", "/invite/", "/api/", "/_next/"]
 
 function isPublicRoute(pathname: string): boolean {
@@ -17,18 +19,8 @@ export function createWebWorkerHandler(
         return env.WS_DO_WORKER.fetch(request)
       }
 
-      const response = await openNextHandler.fetch!(request, env, ctx)
-      if (isPublicRoute(url.pathname) && response.status === 200) {
-        const cacheableResponse = new Response(response.body, response)
-        cacheableResponse.headers.set("Cache-Control", "public, max-age=0, must-revalidate")
-        cacheableResponse.headers.set(
-          "CDN-Cache-Control",
-          "public, s-maxage=3600, stale-while-revalidate=86400",
-        )
-        return cacheableResponse
-      }
-
-      return response
-    },
-  }
+			const response = await openNextHandler.fetch!(request, env, ctx)
+			return finalizePublicWorkerResponse(response, isPublicRoute(url.pathname))
+		},
+	}
 }

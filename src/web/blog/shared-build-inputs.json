@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "assets": [
+    { "source": "public/alook.svg", "destination": "blog/public/alook.svg" },
+    { "source": "public/apple-touch-icon.png", "destination": "blog/public/apple-touch-icon.png" },
+    { "source": "src/app/favicon.ico", "destination": "blog/public/favicon.ico" },
+    { "source": "public/icon-192.png", "destination": "blog/public/icon-192.png" },
+    { "source": "public/fonts/dm-sans-600.ttf", "destination": "blog/public/fonts/dm-sans-600.ttf" }
+  ],
+  "sourcePaths": [
+    "src/app/_og/",
+    "src/app/fonts.ts",
+    "src/app/globals.css",
+    "src/components/error-content.tsx",
+    "src/components/not-found-content.tsx",
+    "src/components/public-layout.tsx",
+    "src/components/theme-color-sync.tsx",
+    "src/components/theme-provider.tsx",
+    "src/components/theme-toggle.tsx",
+    "src/lib/brand-copy.ts",
+    "src/lib/blog-discovery-manifest.ts",
+    "src/lib/public-worker-response.ts",
+    "src/lib/seo/"
+  ]
+}

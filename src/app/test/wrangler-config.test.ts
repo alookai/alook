@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { removeServiceBinding } from "../src/lib/wrangler-config";
 
 // Test the setVar logic directly (extracted for testability)
 function setVar(content: string, key: string, value: string): string {
@@ -24,6 +25,30 @@ function setDevPort(content: string, port: number): string {
 }
 
 describe("wrangler-config", () => {
+  describe("removeServiceBinding", () => {
+    it("removes only the Blog service binding for self-hosting", () => {
+      const content = `name = "web"
+[[services]]
+binding = "WS_DO_WORKER"
+service = "alook-ws-do"
+
+[[services]]
+binding = "BLOG_WORKER"
+service = "alook-blog"
+
+[vars]
+BLOG_DISCOVERY_REQUIRED = "true"
+`;
+
+      const result = removeServiceBinding(content, "BLOG_WORKER");
+
+      expect(result).not.toContain('binding = "BLOG_WORKER"');
+      expect(result).not.toContain('service = "alook-blog"');
+      expect(result).toContain('binding = "WS_DO_WORKER"');
+      expect(result).toContain("[vars]");
+    });
+  });
+
   describe("setVar", () => {
     it("replaces existing var value", () => {
       const content = `[vars]\nDEV_WS_DO_URL = "http://localhost:8789"`;

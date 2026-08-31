@@ -12,18 +12,27 @@ const packagePaths = [
 ]
 const registryLauncher = /(?:^|\s)node\s+\.\.\/\.\.\/scripts\/dev-with-wrangler-registry\.mjs\s+([^\s]+)/g
 
-function devScript(packagePath: string): string {
+function devScripts(packagePath: string): string[] {
   const packageJson = JSON.parse(readFileSync(resolve(repositoryRoot, packagePath), "utf8")) as {
-    scripts?: { dev?: unknown }
+    scripts?: Record<string, unknown>
   }
-  expect(typeof packageJson.scripts?.dev).toBe("string")
-  return packageJson.scripts?.dev as string
+  const scripts = Object.entries(packageJson.scripts ?? {})
+    .filter(([name, script]) =>
+      name.startsWith("dev") &&
+      typeof script === "string" &&
+      script.includes("dev-with-wrangler-registry.mjs"),
+    )
+    .map(([, script]) => script as string)
+  expect(scripts.length).toBeGreaterThan(0)
+  return scripts
 }
 
-function resolvedRegistryPath(root: string, packagePath: string): string {
-  const matches = [...devScript(packagePath).matchAll(registryLauncher)]
-  expect(matches).toHaveLength(1)
-  return resolve(root, dirname(packagePath), matches[0][1])
+function resolvedRegistryPaths(root: string, packagePath: string): string[] {
+  return devScripts(packagePath).map((script) => {
+    const matches = [...script.matchAll(registryLauncher)]
+    expect(matches).toHaveLength(1)
+    return resolve(root, dirname(packagePath), matches[0][1])
+  })
 }
 
 describe("local Wrangler registry isolation", () => {
@@ -41,7 +50,9 @@ describe("local Wrangler registry isolation", () => {
   })
 
   it("uses one shared registry inside the current worktree for every dev entrypoint", () => {
-    const paths = packagePaths.map((packagePath) => resolvedRegistryPath(repositoryRoot, packagePath))
+    const paths = packagePaths.flatMap((packagePath) =>
+      resolvedRegistryPaths(repositoryRoot, packagePath),
+    )
 
     expect(new Set(paths)).toEqual(new Set([resolve(repositoryRoot, ".wrangler/registry")]))
   })
@@ -49,8 +60,12 @@ describe("local Wrangler registry isolation", () => {
   it("resolves identical Worker names to different registries in separate worktrees", () => {
     const firstRoot = "/tmp/alook-primary"
     const secondRoot = "/tmp/alook-disposable"
-    const firstPaths = packagePaths.map((packagePath) => resolvedRegistryPath(firstRoot, packagePath))
-    const secondPaths = packagePaths.map((packagePath) => resolvedRegistryPath(secondRoot, packagePath))
+    const firstPaths = packagePaths.flatMap((packagePath) =>
+      resolvedRegistryPaths(firstRoot, packagePath),
+    )
+    const secondPaths = packagePaths.flatMap((packagePath) =>
+      resolvedRegistryPaths(secondRoot, packagePath),
+    )
 
     expect(new Set(firstPaths)).toEqual(new Set([resolve(firstRoot, ".wrangler/registry")]))
     expect(new Set(secondPaths)).toEqual(new Set([resolve(secondRoot, ".wrangler/registry")]))

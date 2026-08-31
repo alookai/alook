@@ -73,7 +73,7 @@ export function MarketingNav({
               Templates
             </Link>
           )}
-          <Link
+          <a
             href="/blog"
             className="hidden sm:block px-3 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
             style={{
@@ -82,7 +82,7 @@ export function MarketingNav({
             }}
           >
             Blog
-          </Link>
+          </a>
           <a
             href="https://github.com/alookai/alook"
             target="_blank"
@@ -140,7 +140,7 @@ export function MarketingNav({
                 }}
               >
                 {showTemplates && <Link href="/templates" className="block px-3 py-2 text-xs uppercase tracking-widest">Templates</Link>}
-                <Link href="/blog" className="block px-3 py-2 text-xs uppercase tracking-widest">Blog</Link>
+                <a href="/blog" className="block px-3 py-2 text-xs uppercase tracking-widest">Blog</a>
                 <a href="https://github.com/alookai/alook" target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">GitHub</a>
                 <a href="https://discord.alook.ai" target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">Discord</a>
                 <a href="https://x.com/alook_ai" target="_blank" rel="noopener noreferrer" className="block px-3 py-2 text-xs uppercase tracking-widest">X</a>

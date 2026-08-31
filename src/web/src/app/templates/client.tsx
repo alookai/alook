@@ -49,12 +49,12 @@ export function TemplatesClient({
           >
             Templates
           </Link>
-          <Link
+          <a
             href="/blog"
             className="hidden sm:block px-3 py-2 text-xs uppercase tracking-widest font-mono transition-opacity hover:opacity-70"
           >
             Blog
-          </Link>
+          </a>
           {isLoggedIn ? (
             <Link
               href="/c/me"

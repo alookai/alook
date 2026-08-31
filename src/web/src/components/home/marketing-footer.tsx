@@ -84,12 +84,11 @@ export function MarketingFooter() {
 
         <nav className="flex items-center gap-4" aria-label="Footer navigation">
           {footerLinks.map((link) =>
-            link.external ? (
+            link.external || link.href === "/blog" ? (
               <a
                 key={link.label}
                 href={link.href}
-                target="_blank"
-                rel="noopener noreferrer"
+                {...(link.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                 className="transition-opacity hover:opacity-70"
                 style={linkStyle}
               >
