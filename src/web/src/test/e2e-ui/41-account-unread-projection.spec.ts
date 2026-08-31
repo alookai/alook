@@ -171,7 +171,7 @@ async function expectRailReplacementDoesNotBlockMessages({
   try {
     const latestId = await triggerUnread()
     await railHeld
-    await page.getByRole("button", { name: "Inbox", exact: true }).click()
+    await page.getByTestId(tid.inboxTrigger).click()
     const inboxRow = page.getByTestId(inboxRowTestId)
     await expect(inboxRow).toBeVisible({ timeout: 30_000 })
     const messagesResponse = page.waitForResponse((response) => (
