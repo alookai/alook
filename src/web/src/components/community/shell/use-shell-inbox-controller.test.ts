@@ -206,6 +206,23 @@ describe("useShellInboxController", () => {
     expect(mocks.markedEnabled.at(-1)).toBe(true)
   })
 
+  it("retains controlled tab and per-tab scroll offsets without data work", async () => {
+    const hook = await renderController()
+    expect(hook.current.popoverProps.activeTab).toBe("unreads")
+
+    await act(async () => {
+      hook.current.popoverProps.onScrollOffsetChange?.("unreads", 42)
+      hook.current.popoverProps.onActiveTabChange?.("marked")
+    })
+
+    expect(hook.current.popoverProps.activeTab).toBe("marked")
+    expect(hook.current.popoverProps.getScrollOffset?.("unreads")).toBe(42)
+    expect(hook.current.popoverProps.getScrollOffset?.("marked")).toBe(0)
+    expect(mocks.markedEnabled.at(-1)).toBe(true)
+    expect(mocks.markAll).not.toHaveBeenCalled()
+    expect(mocks.begin).not.toHaveBeenCalled()
+  })
+
   it("closes/projects before cancel and pushes a direct channel without data work", async () => {
     const hook = await renderController()
     order.length = 0

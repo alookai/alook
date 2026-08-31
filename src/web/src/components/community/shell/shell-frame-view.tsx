@@ -67,7 +67,12 @@ export function ShellFrameView({
     return () => observer.disconnect()
   }, [breakpoint])
 
-  const inboxElement = <InboxPopover {...inbox.popoverProps} />
+  const inboxElement = (
+    <InboxPopover
+      {...inbox.popoverProps}
+      surface={breakpoint === "mobile" ? "mobile" : "desktop"}
+    />
+  )
   const user = {
     id: profile.currentUser.id,
     name: profile.currentUser.name,
@@ -152,7 +157,7 @@ export function ShellFrameView({
               data-mobile-active={isMobileList || undefined}
               className={cn(
                 "flex flex-col bg-sidebar",
-                (isDesktop || isMobileList || isInitial) && "pb-15",
+                (isDesktop || isMobileList || isInitial) && "pb-[calc(3.75rem+var(--app-safe-area-bottom))] sm:pb-15",
                 isInitial && surface === "list" && "max-sm:flex-1!",
                 isInitialDetail && "max-sm:hidden",
               )}
@@ -219,6 +224,7 @@ export function ShellFrameView({
               : initialUserBarStyle}
           >
             <UserBar
+              breakpoint={breakpoint}
               user={user}
               onOpenProfile={profile.openProfile}
               onEditProfile={profile.openUserSettings}

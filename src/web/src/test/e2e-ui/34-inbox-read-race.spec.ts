@@ -125,7 +125,7 @@ test.describe.serial("Inbox/read refresh ownership", () => {
     await seedMessage("alice", channelB, `Unrelated B ${stamp}`)
 
     const { page } = await asUser("bob")
-    await gotoAfterUserWsAuth(page, "/c/me")
+    await gotoAfterUserWsAuth(page, "/c/me/friends")
     await page.getByRole("button", { name: "Inbox", exact: true }).click()
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelA))).toBeVisible()
     await expect(page.getByTestId(tid.inboxUnreadChannel(channelB))).toBeVisible()
