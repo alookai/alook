@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   invoke: vi.fn(),
   isTauri: vi.fn(() => true),
-  isLocalMode: vi.fn(() => false),
+  isLocalServiceEnvironment: vi.fn(() => false),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
 }))
@@ -27,7 +27,7 @@ vi.mock("@/lib/api/client", () => ({
 }))
 
 vi.mock("@/lib/utils", () => ({
-  isLocalMode: mocks.isLocalMode,
+  isLocalServiceEnvironment: mocks.isLocalServiceEnvironment,
   WS_DO_PORT_DEFAULT: 8788,
 }))
 
@@ -56,7 +56,7 @@ describe("PairMachineSheet desktop daemon integration", () => {
     vi.clearAllMocks()
     vi.stubGlobal("location", { origin: "https://alook.ai" })
     mocks.isTauri.mockReturnValue(true)
-    mocks.isLocalMode.mockReturnValue(false)
+    mocks.isLocalServiceEnvironment.mockReturnValue(false)
     mocks.apiFetch.mockResolvedValue({ tokenId: "cmt_generated", expiresAt: "soon" })
     mocks.invoke.mockImplementation((command: string) => {
       if (command === "daemon_runtime_capability") {
@@ -245,7 +245,7 @@ describe("PairMachineSheet desktop daemon integration", () => {
   })
 
   it("keeps explicit endpoints only for local development", async () => {
-    mocks.isLocalMode.mockReturnValue(true)
+    mocks.isLocalServiceEnvironment.mockReturnValue(true)
     vi.stubGlobal("location", { origin: "http://localhost:3000" })
 
     let renderer!: TestRenderer.ReactTestRenderer

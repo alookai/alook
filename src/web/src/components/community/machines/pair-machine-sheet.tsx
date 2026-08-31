@@ -8,7 +8,7 @@ import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { Button } from "@/components/ui/button"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { tid } from "@/lib/community/testids"
-import { isLocalMode, WS_DO_PORT_DEFAULT } from "@/lib/utils"
+import { isLocalServiceEnvironment, WS_DO_PORT_DEFAULT } from "@/lib/utils"
 import { websocketUrl } from "@/lib/websocket-url"
 
 // Production daemons use their built-in endpoints. Local development appends
@@ -16,7 +16,7 @@ import { websocketUrl } from "@/lib/websocket-url"
 // Only ever called once `pendingTokenId` is set, which happens from a
 // client-only effect — safe to touch `location` in the local branch.
 function buildPairCommand(machineKey: string, machineId?: string): string {
-  const isLocal = isLocalMode()
+  const isLocal = isLocalServiceEnvironment()
   const bin = isLocal
     ? "pnpm daemon"
     : "npx --yes @alook/daemon@latest daemon"

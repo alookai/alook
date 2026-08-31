@@ -18,10 +18,10 @@ import {
   type CommunityWsSocketReadyState,
   type CommunityWsSuspensionDurationBucket,
 } from "@/lib/analytics"
-import { isLocalMode, WS_DO_PORT_DEFAULT } from "@/lib/utils"
+import { isLocalServiceEnvironment, WS_DO_PORT_DEFAULT } from "@/lib/utils"
 import { websocketUrl } from "@/lib/websocket-url"
 
-const isLocal = isLocalMode()
+const useLocalServices = isLocalServiceEnvironment()
 const WS_RECONNECT_INIT = Number(process.env.NEXT_PUBLIC_WS_RECONNECT_DELAY_MS) || 1000
 const WS_RECONNECT_MAX = Number(process.env.NEXT_PUBLIC_WS_RECONNECT_MAX_DELAY_MS) || 30_000
 const WS_TOKEN_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_WS_TOKEN_TIMEOUT_MS) || 10_000
@@ -350,7 +350,7 @@ export function useUserWs(
       }
     }
 
-    const wsBaseUrl = isLocal
+    const wsBaseUrl = useLocalServices
       ? websocketUrl("user", { local: true, port: wsPort })
       : websocketUrl("user", { local: false, origin: location.origin })
     const url = `${wsBaseUrl}?userId=${userId}`

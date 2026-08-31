@@ -20,8 +20,18 @@ export function getAppMode(): AlookMode {
   return getMode()
 }
 
-export function isLocalMode(): boolean {
-  return getMode() !== "production"
+const LOCAL_SERVICE_HOSTNAMES = new Set([
+  "localhost",
+  "127.0.0.1",
+  "0.0.0.0",
+  "::1",
+  "[::1]",
+])
+
+export function isLocalServiceEnvironment(): boolean {
+  if (process.env.NODE_ENV === "development") return true
+  const hostname = typeof window !== "undefined" ? window.location.hostname : undefined
+  return hostname !== undefined && LOCAL_SERVICE_HOSTNAMES.has(hostname)
 }
 
 // The local dev WS Durable Object port (see DEV_WS_DO_URL in @alook/shared).
