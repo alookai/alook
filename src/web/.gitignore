@@ -25,6 +25,14 @@ src/test/e2e-ui/.auth/
 
 # next.js
 /.next/
+/blog/.next/
+/blog/.open-next/
+/blog/package.json
+/blog/public/alook.svg
+/blog/public/apple-touch-icon.png
+/blog/public/favicon.ico
+/blog/public/icon-192.png
+/blog/public/fonts/
 /out/
 
 # production

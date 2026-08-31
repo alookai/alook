@@ -410,7 +410,7 @@ describe("CI dependency setup", () => {
 })
 
 describe("Turbo CI execution", () => {
-  const cachedJobs = ["blog-content", "static-checks", "test-linux", "test-windows"]
+  const cachedJobs = ["blog-build", "static-checks", "test-linux", "test-windows"]
   const affectedJobs = ["static-checks", "test-windows"]
 
   it("persists a task cache isolated by operating system, architecture, and job", () => {

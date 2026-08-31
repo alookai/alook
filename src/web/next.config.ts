@@ -1,8 +1,6 @@
 import type { NextConfig } from "next";
 import path from "node:path";
 import { readFileSync } from "node:fs";
-import createMDX from "@next/mdx";
-import { blogRedirects } from "./src/lib/blog/redirects";
 
 const pkg = JSON.parse(readFileSync(path.resolve(__dirname, "package.json"), "utf-8"));
 const daemonPkg = JSON.parse(readFileSync(path.resolve(__dirname, "../daemon/package.json"), "utf-8"));
@@ -19,25 +17,9 @@ const nextConfig: NextConfig = {
 	turbopack: {
 		root: path.resolve(__dirname, "../.."),
 	},
-	pageExtensions: ["js", "jsx", "md", "mdx", "ts", "tsx"],
-	async redirects() {
-		return blogRedirects();
-	},
 };
 
-const withMDX = createMDX({
-	options: {
-		remarkPlugins: ["remark-gfm"],
-		rehypePlugins: [
-			"rehype-slug",
-			["rehype-autolink-headings", { behavior: "wrap" }],
-			["rehype-external-links", { target: "_blank", rel: ["noopener", "noreferrer"] }],
-			["rehype-pretty-code", { theme: { light: "vitesse-light", dark: "vitesse-dark" }, keepBackground: false }],
-		],
-	},
-});
-
-export default withMDX(nextConfig);
+export default nextConfig;
 
 // Enable calling `getCloudflareContext()` in `next dev`.
 // See https://opennext.js.org/cloudflare/bindings#local-access-to-bindings.

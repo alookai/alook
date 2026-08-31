@@ -26,6 +26,7 @@ jobs:
       base_sha: ${{ steps.scope.outputs.base_sha }}
       head_sha: ${{ steps.scope.outputs.head_sha }}
       blog_only: ${{ steps.scope.outputs.blog_only }}
+      run_blog_build: ${{ steps.scope.outputs.run_blog_build }}
       run_code_checks: ${{ steps.scope.outputs.run_code_checks }}
       run_windows: ${{ steps.scope.outputs.run_windows }}
       run_e2e: ${{ steps.scope.outputs.run_e2e }}
@@ -48,10 +49,10 @@ jobs:
           if [[ "$FORCE_FULL" == "true" ]]; then args+=(--force-full); fi
           node scripts/ci/changed-scopes.mjs "${args[@]}"
 
-  blog-content:
-    name: Blog Content
+  blog-build:
+    name: Blog build
     needs: scope
-    if: needs.scope.outputs.blog_only == 'true'
+    if: needs.scope.outputs.run_blog_build == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -69,7 +70,11 @@ jobs:
             turbo-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @alook/web validate:blog
-      - run: pnpm build --filter=@alook/web
+      - run: pnpm --filter @alook/web exec tsc --noEmit -p blog/tsconfig.json
+      - run: pnpm --filter @alook/web exec eslint blog/
+      - run: pnpm --filter @alook/web exec vitest run --config vitest.config.ts blog
+      - run: pnpm --filter @alook/web build:blog
+      - run: pnpm --filter @alook/web verify:blog-dry-run
 
   static-checks:
     name: Static checks
@@ -417,7 +422,7 @@ jobs:
     if: always()
     needs:
       - scope
-      - blog-content
+      - blog-build
       - static-checks
       - test-linux
       - test-windows
@@ -431,7 +436,7 @@ jobs:
       CI_GATE_RESULTS: >-
         [
           {"name":"scope","expected":true,"result":"${{ needs.scope.result }}"},
-          {"name":"blog-content","expected":${{ needs.scope.outputs.blog_only == 'true' }},"result":"${{ needs.blog-content.result }}"},
+          {"name":"blog-build","expected":${{ needs.scope.outputs.run_blog_build == 'true' }},"result":"${{ needs.blog-build.result }}"},
           {"name":"static-checks","expected":${{ needs.scope.outputs.run_code_checks == 'true' }},"result":"${{ needs.static-checks.result }}"},
           {"name":"test-linux","expected":${{ needs.scope.outputs.run_code_checks == 'true' }},"result":"${{ needs.test-linux.result }}"},
           {"name":"test-windows","expected":${{ needs.scope.outputs.run_windows == 'true' }},"result":"${{ needs.test-windows.result }}"},

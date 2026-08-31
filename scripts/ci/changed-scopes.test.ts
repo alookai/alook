@@ -7,13 +7,14 @@ import { classifyPaths, parseNameStatus, runCli } from "./changed-scopes.mjs"
 describe("classifyPaths", () => {
   it("selects the strict blog fast path for MDX and blog assets", () => {
     const result = classifyPaths([
-      "src/web/src/content/example.mdx",
-      "src/web/public/blog/example/hero.webp",
+      "src/web/blog/src/content/example.mdx",
+      "src/web/blog/public/blog/example/hero.webp",
     ])
 
     expect(result.blog_only).toBe(true)
     expect(result.run_code_checks).toBe(false)
     expect(result.run_ui_e2e).toBe(false)
+    expect(result.run_blog_build).toBe(true)
   })
 
   it("selects no package work for markdown-only changes", () => {
@@ -25,7 +26,7 @@ describe("classifyPaths", () => {
 
   it("disables the blog fast path when content is mixed with docs", () => {
     const result = classifyPaths([
-      "src/web/src/content/example.mdx",
+      "src/web/blog/src/content/example.mdx",
       "README.md",
     ])
 
@@ -49,6 +50,23 @@ describe("classifyPaths", () => {
     expect(result.run_lighthouse).toBe(true)
     expect(result.run_e2e).toBe(true)
     expect(result.run_app_packed_artifact).toBe(true)
+  })
+
+  it("builds Blog for nested code and canonical shared inputs", () => {
+    for (const path of [
+      "src/web/blog/custom-worker.ts",
+      "src/web/blog/src/lib/blog/posts/index.ts",
+      "src/web/src/components/public-layout.tsx",
+      "src/web/src/lib/seo/site-metadata.ts",
+    ]) {
+      expect(classifyPaths([path]).run_blog_build, path).toBe(true)
+    }
+
+    const blogCode = classifyPaths(["src/web/blog/custom-worker.ts"])
+    expect(blogCode.run_code_checks).toBe(true)
+    expect(blogCode.run_ui_e2e).toBe(false)
+    expect(blogCode.run_app_packed_artifact).toBe(false)
+    expect(classifyPaths(["src/web/src/app/api/health/route.ts"]).run_blog_build).toBe(false)
   })
 
   it("fails closed for every app bundle input while excluding stripped blog-only inputs", () => {
@@ -76,8 +94,9 @@ describe("classifyPaths", () => {
     ]) {
       expect(classifyPaths([path]).run_app_packed_artifact, path).toBe(true)
     }
-    expect(classifyPaths(["src/web/src/content/example.mdx"]).run_app_packed_artifact).toBe(false)
-    expect(classifyPaths(["src/web/public/blog/example/hero.webp"]).run_app_packed_artifact).toBe(false)
+    expect(classifyPaths(["src/web/blog/src/content/example.mdx"]).run_app_packed_artifact).toBe(false)
+    expect(classifyPaths(["src/web/blog/public/blog/example/hero.webp"]).run_app_packed_artifact).toBe(false)
+    expect(classifyPaths(["src/web/blog/custom-worker.ts"]).run_app_packed_artifact).toBe(false)
     expect(classifyPaths(["README.md"]).run_app_packed_artifact).toBe(false)
     expect(classifyPaths(["src/app/README.md"]).run_code_checks).toBe(false)
   })
@@ -94,7 +113,7 @@ describe("classifyPaths", () => {
   })
 
   it("only accepts top-level MDX posts for the blog fast path", () => {
-    const result = classifyPaths(["src/web/src/content/nested/example.mdx"])
+    const result = classifyPaths(["src/web/blog/src/content/nested/example.mdx"])
 
     expect(result.blog_only).toBe(false)
     expect(result.run_code_checks).toBe(true)
@@ -120,7 +139,7 @@ describe("classifyPaths", () => {
   })
 
   it("honors an explicit full run", () => {
-    const result = classifyPaths(["src/web/src/content/example.mdx"], {
+    const result = classifyPaths(["src/web/blog/src/content/example.mdx"], {
       forceFull: true,
     })
 
@@ -134,13 +153,13 @@ describe("classifyPaths", () => {
 describe("parseNameStatus", () => {
   it("includes both sides of renames and copies", () => {
     const input = Buffer.from(
-      "M\0src/web/src/content/a.mdx\0R100\0src/cli/a.ts\0src/web/src/content/a.mdx\0C090\0old.ts\0new.ts\0"
+      "M\0src/web/blog/src/content/a.mdx\0R100\0src/cli/a.ts\0src/web/blog/src/content/a.mdx\0C090\0old.ts\0new.ts\0"
     )
 
     expect(parseNameStatus(input)).toEqual([
-      "src/web/src/content/a.mdx",
+      "src/web/blog/src/content/a.mdx",
       "src/cli/a.ts",
-      "src/web/src/content/a.mdx",
+      "src/web/blog/src/content/a.mdx",
       "old.ts",
       "new.ts",
     ])

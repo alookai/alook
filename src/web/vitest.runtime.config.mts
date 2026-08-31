@@ -7,6 +7,7 @@ const migrations = await readD1Migrations(path.resolve(import.meta.dirname, "mig
 export default defineProject({
   resolve: {
     alias: {
+      "@": path.resolve(import.meta.dirname, "src"),
       "./.open-next/worker.js": path.resolve(
         import.meta.dirname,
         "test-runtime/open-next-worker-stub.ts",
@@ -45,6 +46,7 @@ export default defineProject({
           WORKER_SELF_REFERENCE: () => new Response("self"),
           WS_DO_WORKER: "ws-do-runtime-stub",
           EMAIL_WORKER: () => new Response("email"),
+          BLOG_WORKER: () => new Response("blog"),
           WAKE_WORKER: () => new Response("wake"),
         },
       },

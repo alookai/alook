@@ -1,16 +1,12 @@
 import type { Page, WebSocket } from "@playwright/test"
-import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
 import { test, expect, sessionCookie } from "./_fixtures/community-fixture"
 import { gotoAfterUserWsAuth } from "./_fixtures/actions"
 import { seedChannel, seedJoinServer, seedServer } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 import { WEB_URL } from "./_setup/paths"
+import { structuredJpegFixture } from "../fixtures/media"
 
-const VALID_JPEG_THUMBNAIL = readFileSync(resolve(
-  process.cwd(),
-  "public/blog/claude-code-dynamic-workflow-alternative/chat-interface.jpg",
-))
+const VALID_JPEG_THUMBNAIL = structuredJpegFixture(640, 360)
 
 type DeleteFrame = {
   type: "community:channel.delete" | "community:server.delete"
@@ -50,7 +46,7 @@ async function uploadPending(
   if (withThumbnail) {
     form.append(
       "thumbnail",
-      new Blob([VALID_JPEG_THUMBNAIL], { type: "image/jpeg" }),
+      new Blob([Uint8Array.from(VALID_JPEG_THUMBNAIL)], { type: "image/jpeg" }),
       `${name}.thumbnail.jpg`,
     )
   }

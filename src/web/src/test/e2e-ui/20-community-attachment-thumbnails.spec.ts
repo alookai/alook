@@ -1,59 +1,13 @@
 import type { Locator, Page, TestInfo } from "@playwright/test"
-import { readFileSync } from "node:fs"
-import { deflateSync } from "node:zlib"
 import { test, expect } from "./_fixtures/community-fixture"
 import { tid } from "./_fixtures/testids"
 import { composerEditable, createServer } from "./_fixtures/actions"
+import { solidPngFixture } from "../fixtures/media"
 
-const LANDSCAPE_FIXTURE = readFileSync("public/blog/no-code-automation-ai-agents/hero.webp")
-const PORTRAIT_FIXTURE = readFileSync("public/blog/claude-code-and-codex-same-team/workflow-handoff.webp")
-
-function crc32(buffer: Buffer): number {
-  let crc = 0xffff_ffff
-  for (const byte of buffer) {
-    crc ^= byte
-    for (let bit = 0; bit < 8; bit++) {
-      crc = (crc >>> 1) ^ ((crc & 1) === 1 ? 0xedb8_8320 : 0)
-    }
-  }
-  return (crc ^ 0xffff_ffff) >>> 0
-}
-
-function pngChunk(type: string, data: Buffer): Buffer {
-  const typeBuffer = Buffer.from(type, "ascii")
-  const chunk = Buffer.alloc(12 + data.length)
-  chunk.writeUInt32BE(data.length, 0)
-  typeBuffer.copy(chunk, 4)
-  data.copy(chunk, 8)
-  chunk.writeUInt32BE(crc32(Buffer.concat([typeBuffer, data])), 8 + data.length)
-  return chunk
-}
-
-function solidPng(width: number, height: number, color: [number, number, number]): Buffer {
-  const row = Buffer.alloc(1 + width * 3)
-  for (let x = 0; x < width; x++) {
-    row[1 + x * 3] = color[0]
-    row[2 + x * 3] = color[1]
-    row[3 + x * 3] = color[2]
-  }
-  const pixels = Buffer.alloc(row.length * height)
-  for (let y = 0; y < height; y++) row.copy(pixels, y * row.length)
-
-  const header = Buffer.alloc(13)
-  header.writeUInt32BE(width, 0)
-  header.writeUInt32BE(height, 4)
-  header[8] = 8
-  header[9] = 2
-  return Buffer.concat([
-    Buffer.from("89504e470d0a1a0a", "hex"),
-    pngChunk("IHDR", header),
-    pngChunk("IDAT", deflateSync(pixels, { level: 9 })),
-    pngChunk("IEND", Buffer.alloc(0)),
-  ])
-}
-
-const EXTREME_LANDSCAPE_FIXTURE = solidPng(4000, 100, [91, 110, 225])
-const EXTREME_PORTRAIT_FIXTURE = solidPng(100, 4000, [225, 91, 142])
+const LANDSCAPE_FIXTURE = solidPngFixture(800, 450, [91, 110, 225])
+const PORTRAIT_FIXTURE = solidPngFixture(450, 800, [225, 91, 142])
+const EXTREME_LANDSCAPE_FIXTURE = solidPngFixture(4000, 100, [91, 110, 225])
+const EXTREME_PORTRAIT_FIXTURE = solidPngFixture(100, 4000, [225, 91, 142])
 
 type Rect = { x: number; y: number; width: number; height: number }
 
@@ -150,7 +104,7 @@ async function uploadImage(args: {
   buffer: Buffer
   mimeType?: string
 }) {
-  const { page, channelId, message, name, buffer, mimeType = "image/webp" } = args
+  const { page, channelId, message, name, buffer, mimeType = "image/png" } = args
   const uploadResponsePromise = page.waitForResponse((response) => (
     response.request().method() === "POST"
     && new URL(response.url()).pathname === `/api/community/channels/${channelId}/attachments`
@@ -269,9 +223,9 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   expectWithinPreviewViewport(desktopLandscapeLoading.container, { width: 1280, height: 900 })
   await attachScreenshot(testInfo, "desktop-landscape-loading", page)
 
-  await page.setViewportSize({ width: 900, height: 700 })
+  await page.setViewportSize({ width: 700, height: 600 })
   const desktopLandscapeResized = await previewRects(page)
-  expectWithinPreviewViewport(desktopLandscapeResized.container, { width: 900, height: 700 })
+  expectWithinPreviewViewport(desktopLandscapeResized.container, { width: 700, height: 600 })
   expect(desktopLandscapeResized.container.width).toBeLessThan(desktopLandscapeLoading.container.width)
   await attachScreenshot(testInfo, "desktop-landscape-resized-loading", page)
   await page.setViewportSize({ width: 1280, height: 900 })

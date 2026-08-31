@@ -32,6 +32,7 @@ export default defineConfig({
         "**/dist/**",
         "**/bundled/**",
         "**/__mocks__/**",
+        "src/web/src/test/fixtures/**",
         "**/test-harness.ts",
         "**/*.d.ts",
         "**/test-runtime/**",

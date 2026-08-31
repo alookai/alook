@@ -36,6 +36,9 @@ ignore:
   # Playwright browser E2E — driven by `playwright test`, not vitest, so these
   # files never appear in coverage and shouldn't count against patch %.
   - "src/web/src/test/e2e-ui/**"
+  # Test-data generators are exercised by Playwright consumers; they are not
+  # shipped application code and should not count toward production coverage.
+  - "src/web/src/test/fixtures/**"
 
 comment:
   layout: "reach,diff,flags,files"

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
-import { readFileSync } from "node:fs"
+import { structuredJpegFixture } from "@/test/fixtures/media"
 
 vi.mock("@/lib/middleware/helpers", () => {
   const { NextResponse } = require("next/server")
@@ -113,24 +113,11 @@ function fakeFile(name: string, type: string, size: number) {
   }
 }
 
-const DECODABLE_JPEG = Uint8Array.from(readFileSync(new URL(
-  "../../../public/blog/claude-code-dynamic-workflow-alternative/chat-interface.jpg",
-  import.meta.url,
-)))
-
 function fakeJpegFile(width = 640, height = 360) {
-  const bytes = DECODABLE_JPEG.slice()
-  for (let index = 2; index < bytes.length - 8; index++) {
-    if (bytes[index] !== 0xff || bytes[index + 1] !== 0xc0) continue
-    bytes[index + 5] = (height >> 8) & 0xff
-    bytes[index + 6] = height & 0xff
-    bytes[index + 7] = (width >> 8) & 0xff
-    bytes[index + 8] = width & 0xff
-    break
-  }
+  const bytes = structuredJpegFixture(width, height)
   return {
     ...fakeFile("thumbnail.jpg", "image/jpeg", bytes.byteLength),
-    arrayBuffer: async () => bytes.buffer,
+    arrayBuffer: async () => Uint8Array.from(bytes).buffer,
   }
 }
 

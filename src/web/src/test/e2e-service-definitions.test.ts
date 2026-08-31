@@ -26,27 +26,25 @@ describe("UI E2E service definitions", () => {
     expect(runtime.entry).toMatch(/wrangler@4\.113\.0.*bin[/\\]wrangler\.js$/)
   })
 
-  it("uses one Wrangler runtime for web and ws-do in CI", () => {
+  it("runs both Worker zones while keeping main and ws-do in one pinned runtime", () => {
     const definitions = serviceDefinitions(true)
     const runtime = resolveE2EWranglerRuntime()
 
-    expect(definitions).toHaveLength(1)
-    expect(definitions[0]).toMatchObject({
-      name: "web-ws-do",
-      command: process.execPath,
-    })
-    expect(definitions[0]).toMatchObject({
+    expect(definitions).toEqual([{
+      name: "web-zones",
+      command: "pnpm",
+      args: [
+        "--filter",
+        "@alook/web",
+        "dev:zones:worker",
+        "--with-ws-do",
+        "--wrangler-entry",
+        runtime.entry,
+      ],
+      healthUrl: "http://localhost:3000/api/health",
       expectedStatus: 200,
       expectedBody: { status: "ok" },
-    })
-    expect(definitions[0]?.args[0]).toBe(runtime.entry)
-    expect(definitions[0]?.args.slice(1)).toEqual(expect.arrayContaining([
-      "dev",
-      "src/web/wrangler.toml",
-      "src/ws-do/wrangler.toml",
-      "--persist-to",
-      "src/web/.wrangler/state",
-    ]))
+    }])
   })
 
   it("keeps the fast two-process topology for local iteration", () => {

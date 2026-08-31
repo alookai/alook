@@ -65,6 +65,16 @@ function setVar(content: string, key: string, value: string): string {
   return content + `\n[vars]\n${key} = "${value}"\n`;
 }
 
+export function removeServiceBinding(content: string, binding: string): string {
+  return content
+    .split(/(?=^\[\[?[^\n]+\]\]?\s*$)/m)
+    .filter((section) => {
+      if (!section.startsWith("[[services]]")) return true;
+      return !new RegExp(`^binding\\s*=\\s*"${binding}"$`, "m").test(section);
+    })
+    .join("");
+}
+
 export function patchWranglerConfigs(ports: { web: number; emailWorker: number; wsDo: number; wakeWorker: number }): void {
   const webToml = join(SELF_HOSTED_DIR, "web", "wrangler.toml");
   let webContent = deduplicateDevSection(readFileSync(webToml, "utf-8"));
@@ -84,6 +94,8 @@ export function patchWranglerConfigs(ports: { web: number; emailWorker: number; 
   webContent = setVar(webContent, "DEV_EMAIL_WORKER_URL", `http://localhost:${ports.emailWorker}`);
   webContent = setVar(webContent, "DEV_WAKE_WORKER_URL", `http://localhost:${ports.wakeWorker}`);
   webContent = setVar(webContent, "NODE_ENV", "development");
+  webContent = setVar(webContent, "BLOG_DISCOVERY_REQUIRED", "false");
+  webContent = removeServiceBinding(webContent, "BLOG_WORKER");
   writeFileSync(webToml, webContent);
 
   setDevPort(join(SELF_HOSTED_DIR, "email-worker", "wrangler.toml"), ports.emailWorker);

@@ -25,7 +25,11 @@ function fixture() {
   writeFileSync(join(packageRoot, "package.json"), "{}");
   writeFileSync(join(webRoot, "wrangler.toml"), 'main = "custom-worker.ts"\n');
   writeFileSync(join(webRoot, "custom-worker.ts"), 'import "./src/lib/worker-runtime";\n');
-  writeFileSync(join(webRoot, "src", "lib", "worker-runtime.ts"), "export {};\n");
+  writeFileSync(
+    join(webRoot, "src", "lib", "worker-runtime.ts"),
+    'import "./public-worker-response";\n',
+  );
+  writeFileSync(join(webRoot, "src", "lib", "public-worker-response.ts"), "export {};\n");
   return { root, packageRoot, scratchRoot: join(root, "scratch") };
 }
 
@@ -72,6 +76,10 @@ describe("packed artifact verifier", () => {
       join(monoRoot, "src", "web", "src", "lib", "worker-runtime.ts"),
       join(webDest, "src", "lib", "worker-runtime.ts"),
     );
+    expect(cpSync).toHaveBeenCalledWith(
+      join(monoRoot, "src", "web", "src", "lib", "public-worker-response.ts"),
+      join(webDest, "src", "lib", "public-worker-response.ts"),
+    );
   });
 
   it("derives the missing-runtime negative control from the candidate and validates both outcomes", () => {
@@ -88,6 +96,9 @@ describe("packed artifact verifier", () => {
     const result = verifyExtractedPackage(packageRoot, scratchRoot);
 
     expect(existsSync(join(packageRoot, "bundled", "web", "src", "lib", "worker-runtime.ts"))).toBe(true);
+    expect(
+      existsSync(join(packageRoot, "bundled", "web", "src", "lib", "public-worker-response.ts")),
+    ).toBe(true);
     expect(existsSync(join(scratchRoot, "negative", "package", "bundled", "web", "src", "lib", "worker-runtime.ts"))).toBe(false);
     expect(existsSync(result.positiveOut)).toBe(true);
     expect(mocks.spawnSync).toHaveBeenCalledTimes(2);

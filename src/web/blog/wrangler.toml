@@ -1,0 +1,35 @@
+name = "alook-blog"
+main = "custom-worker.ts"
+compatibility_date = "2026-04-09"
+compatibility_flags = ["nodejs_compat"]
+keep_names = false
+workers_dev = false
+preview_urls = true
+
+[observability]
+enabled = true
+head_sampling_rate = 0.1
+
+[observability.logs]
+invocation_logs = true
+head_sampling_rate = 0.1
+destinations = ["grafana-logs"]
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 0.05
+destinations = ["grafana-traces"]
+
+[assets]
+directory = ".open-next/assets"
+binding = "ASSETS"
+html_handling = "none"
+run_worker_first = true
+
+[[routes]]
+pattern = "alook.ai/blog*"
+zone_name = "alook.ai"
+
+[[routes]]
+pattern = "alook.ai/og/blog*"
+zone_name = "alook.ai"

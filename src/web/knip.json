@@ -10,12 +10,28 @@
     "src/test-runtime/open-next-node-stub.ts",
     "test-runtime/open-next-worker-stub.ts",
     "open-next.config.ts",
+    "blog/src/app/**/page.tsx",
+    "blog/src/app/**/layout.tsx",
+    "blog/src/app/**/route.ts",
+    "blog/src/app/**/error.tsx",
+    "blog/src/app/**/not-found.tsx",
+    "blog/src/app/globals.css",
+    "blog/custom-worker.ts",
+    "blog/mdx-components.tsx",
+    "blog/next.config.ts",
+    "blog/open-next.config.ts",
+    "blog/scripts/**/*.ts",
     "scripts/**/*.{ts,mjs}"
   ],
-  "project": ["src/**/*.{ts,tsx}", "scripts/**/*.{ts,mjs}", "test-runtime/**/*.ts"],
+  "project": ["src/**/*.{ts,tsx}", "blog/**/*.{ts,tsx}", "scripts/**/*.{ts,mjs}", "test-runtime/**/*.ts"],
   "ignoreDependencies": [
     "@tailwindcss/node",
-    "cloudflare"
+    "cloudflare",
+    "rehype-autolink-headings",
+    "rehype-external-links",
+    "rehype-pretty-code",
+    "rehype-slug",
+    "shiki"
   ],
   "ignoreBinaries": [
     "lsof"
@@ -25,7 +41,7 @@
     "src/app/(app)/workspaces/client.tsx"
   ],
   "vitest": {
-    "entry": ["src/**/*.test.{ts,tsx}", "src/test/**/*.{ts,tsx}", "test-runtime/**/*.test.ts"]
+    "entry": ["src/**/*.test.{ts,tsx}", "blog/**/*.test.{ts,tsx}", "scripts/**/*.test.ts", "src/test/**/*.{ts,tsx}", "test-runtime/**/*.test.ts"]
   },
   "eslint": {
     "entry": ["eslint.config.mjs"]
