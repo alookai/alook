@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
+  androidAdaptiveForegroundSizes,
   assertSvgContract,
   canonicalizeIcns,
   desktopRasterAssets,
@@ -15,6 +16,53 @@ import {
 const repoRoot = resolve(import.meta.dirname, "../..")
 const requireFromCli = createRequire(resolve(repoRoot, "src/cli/package.json"))
 const sharp = requireFromCli("sharp")
+
+const androidLegacyIconSizes = {
+  mdpi: 48,
+  hdpi: 49,
+  xhdpi: 96,
+  xxhdpi: 144,
+  xxxhdpi: 192,
+} as const
+
+const desktopPngSizes = {
+  "32x32.png": 32,
+  "64x64.png": 64,
+  "128x128.png": 128,
+  "128x128@2x.png": 256,
+  "icon.png": 512,
+  "Square30x30Logo.png": 30,
+  "Square44x44Logo.png": 44,
+  "Square71x71Logo.png": 71,
+  "Square89x89Logo.png": 89,
+  "Square107x107Logo.png": 107,
+  "Square142x142Logo.png": 142,
+  "Square150x150Logo.png": 150,
+  "Square284x284Logo.png": 284,
+  "Square310x310Logo.png": 310,
+  "StoreLogo.png": 50,
+} as const
+
+const iosPngSizes = {
+  "AppIcon-20x20@1x.png": 20,
+  "AppIcon-20x20@2x-1.png": 40,
+  "AppIcon-20x20@2x.png": 40,
+  "AppIcon-20x20@3x.png": 60,
+  "AppIcon-29x29@1x.png": 29,
+  "AppIcon-29x29@2x-1.png": 58,
+  "AppIcon-29x29@2x.png": 58,
+  "AppIcon-29x29@3x.png": 87,
+  "AppIcon-40x40@1x.png": 40,
+  "AppIcon-40x40@2x-1.png": 80,
+  "AppIcon-40x40@2x.png": 80,
+  "AppIcon-40x40@3x.png": 120,
+  "AppIcon-60x60@2x.png": 120,
+  "AppIcon-60x60@3x.png": 180,
+  "AppIcon-76x76@1x.png": 76,
+  "AppIcon-76x76@2x.png": 152,
+  "AppIcon-83.5x83.5@2x.png": 167,
+  "AppIcon-512@2x.png": 1024,
+} as const
 
 async function alphaBounds(path: string) {
   const { data, info } = await sharp(path).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
@@ -51,6 +99,8 @@ describe("logo asset generator", () => {
   it("covers every approved platform family and protects the exceptions", () => {
     expect(desktopRasterAssets).toHaveLength(17)
     expect(iosRasterAssets).toHaveLength(18)
+    expect(Object.keys(desktopPngSizes)).toEqual(desktopRasterAssets.filter(file => file.endsWith(".png")))
+    expect(Object.keys(iosPngSizes)).toEqual(iosRasterAssets)
     expect(preservedAssets).toEqual([
       "src/web/src/app/favicon.ico",
       "assets/readme/banner.png",
@@ -124,5 +174,65 @@ describe("logo asset generator", () => {
       height: 48,
       bounds: [2, 2, 46, 46],
     })
+  })
+
+  it("keeps Android adaptive foreground artwork inside the safe zone at every density", async () => {
+    const adaptiveXml = await readFile(resolve(repoRoot, "src/desktop/src-tauri/gen/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"), "utf8")
+    expect(adaptiveXml).toContain('<foreground android:drawable="@mipmap/ic_launcher_foreground"/>')
+    expect(adaptiveXml).toContain('<background android:drawable="@color/ic_launcher_background"/>')
+
+    for (const [density, { canvas, artwork }] of Object.entries(androidAdaptiveForegroundSizes)) {
+      const offset = Math.floor((canvas - artwork) / 2)
+      const base = resolve(repoRoot, `src/desktop/src-tauri/gen/android/app/src/main/res/mipmap-${density}`)
+      expect(await alphaBounds(resolve(base, "ic_launcher_foreground.png"))).toEqual({
+        width: canvas,
+        height: canvas,
+        bounds: [offset, offset, offset + artwork, offset + artwork],
+        opaque: false,
+      })
+      for (const file of ["ic_launcher.png", "ic_launcher_round.png"]) {
+        expect(await alphaBounds(resolve(base, file))).toMatchObject({
+          width: androidLegacyIconSizes[density as keyof typeof androidLegacyIconSizes],
+          height: androidLegacyIconSizes[density as keyof typeof androidLegacyIconSizes],
+          opaque: false,
+        })
+      }
+    }
+  })
+
+  it("locks Tauri Apple, macOS, Windows, and Linux icon container contracts", async () => {
+    for (const [file, size] of Object.entries(iosPngSizes)) {
+      const generated = resolve(repoRoot, "src/desktop/src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset", file)
+      const packaged = resolve(repoRoot, "src/desktop/src-tauri/icons/ios", file)
+      expect(await readFile(packaged)).toEqual(await readFile(generated))
+      expect(await alphaBounds(generated)).toEqual({
+        width: size,
+        height: size,
+        bounds: [0, 0, size, size],
+        opaque: true,
+      })
+    }
+
+    for (const [file, size] of Object.entries(desktopPngSizes)) {
+      expect(await alphaBounds(resolve(repoRoot, "src/desktop/src-tauri/icons", file))).toMatchObject({
+        width: size,
+        height: size,
+        bounds: [0, 0, size, size],
+        opaque: false,
+      })
+    }
+
+    const ico = await readFile(resolve(repoRoot, "src/desktop/src-tauri/icons/icon.ico"))
+    const icoSizes = Array.from({ length: ico.readUInt16LE(4) }, (_, index) => {
+      const offset = 6 + index * 16
+      return [ico[offset] || 256, ico[offset + 1] || 256]
+    })
+    expect(ico.subarray(0, 4)).toEqual(Buffer.from([0, 0, 1, 0]))
+    expect(icoSizes).toEqual([[32, 32], [16, 16], [24, 24], [48, 48], [64, 64], [256, 256]])
+
+    const icns = await readFile(resolve(repoRoot, "src/desktop/src-tauri/icons/icon.icns"))
+    expect(icns.subarray(0, 4).toString("ascii")).toBe("icns")
+    expect(icns.readUInt32BE(4)).toBe(icns.length)
+    expect(canonicalizeIcns(icns)).toEqual(icns)
   })
 })

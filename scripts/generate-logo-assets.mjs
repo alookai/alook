@@ -68,7 +68,14 @@ export const iosRasterAssets = [
   "AppIcon-512@2x.png",
 ]
 
-const androidDensities = ["mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"]
+export const androidAdaptiveForegroundSizes = {
+  mdpi: { canvas: 108, artwork: 66 },
+  hdpi: { canvas: 162, artwork: 99 },
+  xhdpi: { canvas: 216, artwork: 132 },
+  xxhdpi: { canvas: 324, artwork: 198 },
+  xxxhdpi: { canvas: 432, artwork: 264 },
+}
+const androidDensities = Object.keys(androidAdaptiveForegroundSizes)
 const androidSplashSizes = { mdpi: 108, hdpi: 162, xhdpi: 216, xxhdpi: 324, xxxhdpi: 432 }
 const appleSplashSizes = { "splash_icon@1x.png": 80, "splash_icon@2x.png": 160, "splash_icon@3x.png": 240 }
 
@@ -192,9 +199,14 @@ export async function generateLogoAssets() {
   for (const density of androidDensities) {
     const sourceDir = join(fullBleedOutput, "android", `mipmap-${density}`)
     const destinationDir = `src/desktop/src-tauri/gen/android/app/src/main/res/mipmap-${density}`
-    for (const file of ["ic_launcher.png", "ic_launcher_round.png", "ic_launcher_foreground.png"]) {
+    for (const file of ["ic_launcher.png", "ic_launcher_round.png"]) {
       await copy(join(sourceDir, file), `${destinationDir}/${file}`)
     }
+    const { canvas, artwork } = androidAdaptiveForegroundSizes[density]
+    await writeFile(
+      resolve(repoRoot, destinationDir, "ic_launcher_foreground.png"),
+      await renderContained(canonical, canvas, artwork),
+    )
     const splashSize = androidSplashSizes[density]
     const artworkSize = Math.round(splashSize * 0.5185185185)
     await writeFile(
