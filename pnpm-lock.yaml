@@ -8,6 +8,9 @@ patchedDependencies:
   '@opennextjs/aws@4.1.0':
     hash: 6a1b801adbed4307cde86c12f701bc354047783b077e836f58af1e362e244b9e
     path: patches/@opennextjs__aws@4.1.0.patch
+  '@opennextjs/cloudflare@1.20.2':
+    hash: 5d588f7fb799c3f5f7d10e0de0f70ee8324bd9559f08c0ea1a6739d09821051f
+    path: patches/@opennextjs__cloudflare@1.20.2.patch
 
 importers:
 
@@ -342,7 +345,7 @@ importers:
         version: 0.6.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@opennextjs/cloudflare':
         specifier: ^1.20.2
-        version: 1.20.2(next@16.3.0(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@25.9.4)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(wrangler@4.125.0(@cloudflare/workers-types@4.20260702.1))
+        version: 1.20.2(patch_hash=5d588f7fb799c3f5f7d10e0de0f70ee8324bd9559f08c0ea1a6739d09821051f)(next@16.3.0(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@25.9.4)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(wrangler@4.125.0(@cloudflare/workers-types@4.20260702.1))
       '@shikijs/core':
         specifier: 4.4.3
         version: 4.4.3
@@ -11672,7 +11675,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@opennextjs/cloudflare@1.20.2(next@16.3.0(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@25.9.4)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(wrangler@4.125.0(@cloudflare/workers-types@4.20260702.1))':
+  '@opennextjs/cloudflare@1.20.2(patch_hash=5d588f7fb799c3f5f7d10e0de0f70ee8324bd9559f08c0ea1a6739d09821051f)(next@16.3.0(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@25.9.4)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(wrangler@4.125.0(@cloudflare/workers-types@4.20260702.1))':
     dependencies:
       '@ast-grep/napi': 0.40.5
       '@dotenvx/dotenvx': 1.31.0
