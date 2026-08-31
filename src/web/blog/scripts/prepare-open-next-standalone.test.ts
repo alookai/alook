@@ -53,7 +53,43 @@ describe("prepareOpenNextStandalone", () => {
     expect(() => prepareOpenNextStandalone(root)).toThrow("Missing instrumentation dependency")
   })
 
-  it("stages OG runtime files from the standalone fallback", () => {
+  it("rejects an invalid OG route trace", () => {
+    const root = mkdtempSync(join(tmpdir(), "alook-blog-standalone-invalid-og-"))
+    const tracePath = join(root, "blog/.next/server/app/og/blog/[slug]/route.js.nft.json")
+    mkdirSync(join(root, "blog/.next/standalone/src/web/blog/.next/server"), { recursive: true })
+    mkdirSync(dirname(tracePath), { recursive: true })
+    writeFileSync(tracePath, '{"files":42}')
+
+    expect(() => prepareOpenNextStandalone(root)).toThrow("Invalid OG route trace")
+  })
+
+  it("ignores an OG trace without the Vercel OG node runtime", () => {
+    const root = mkdtempSync(join(tmpdir(), "alook-blog-standalone-no-og-runtime-"))
+    const tracePath = join(root, "blog/.next/server/app/og/blog/[slug]/route.js.nft.json")
+    mkdirSync(join(root, "blog/.next/standalone/src/web/blog/.next/server"), { recursive: true })
+    mkdirSync(dirname(tracePath), { recursive: true })
+    writeFileSync(tracePath, JSON.stringify({ files: ["./unrelated.js"] }))
+
+    prepareOpenNextStandalone(root)
+
+    expect(JSON.parse(readFileSync(tracePath, "utf8"))).toEqual({ files: ["./unrelated.js"] })
+  })
+
+  it("rejects a missing standalone OG runtime file", () => {
+    const root = mkdtempSync(join(tmpdir(), "alook-blog-standalone-missing-og-runtime-"))
+    const nextRoot = join(root, "blog/.next")
+    const tracePath = join(nextRoot, "server/app/og/blog/[slug]/route.js.nft.json")
+    const originalNode = join(root, "node_modules/next/dist/compiled/@vercel/og/index.node.js")
+    mkdirSync(join(nextRoot, "standalone/src/web/blog/.next/server"), { recursive: true })
+    mkdirSync(dirname(tracePath), { recursive: true })
+    writeFileSync(tracePath, JSON.stringify({ files: [relative(dirname(tracePath), originalNode)] }))
+
+    expect(() => prepareOpenNextStandalone(root)).toThrow(
+      "Missing standalone @vercel/og runtime source",
+    )
+  })
+
+  it("adds standalone OG runtime files to the route trace", () => {
     const root = mkdtempSync(join(tmpdir(), "alook-blog-standalone-og-"))
     const nextRoot = join(root, "blog/.next")
     const tracePath = join(nextRoot, "server/app/og/blog/[slug]/route.js.nft.json")
@@ -70,9 +106,13 @@ describe("prepareOpenNextStandalone", () => {
     writeFileSync(join(standaloneOg, "yoga.wasm"), "wasm-runtime")
 
     prepareOpenNextStandalone(root)
+    prepareOpenNextStandalone(root)
 
-    const compatOg = join(root, "blog/.open-next-compat/@vercel/og")
-    expect(readFileSync(join(compatOg, "index.edge.js"), "utf8")).toBe("edge-runtime")
-    expect(readFileSync(join(compatOg, "yoga.wasm"), "utf8")).toBe("wasm-runtime")
+    const trace = JSON.parse(readFileSync(tracePath, "utf8")) as { files: string[] }
+    expect(trace.files).toEqual([
+      tracedNodePath,
+      tracedNodePath.replace(/index\.node\.js$/, "index.edge.js"),
+      tracedNodePath.replace(/index\.node\.js$/, "yoga.wasm"),
+    ])
   })
 })

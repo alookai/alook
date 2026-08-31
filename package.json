@@ -58,8 +58,7 @@
   },
   "pnpm": {
     "patchedDependencies": {
-      "@opennextjs/aws@4.1.0": "patches/@opennextjs__aws@4.1.0.patch",
-      "@opennextjs/cloudflare@1.20.2": "patches/@opennextjs__cloudflare@1.20.2.patch"
+      "@opennextjs/aws@4.1.0": "patches/@opennextjs__aws@4.1.0.patch"
     },
     "onlyBuiltDependencies": [
       "better-sqlite3",

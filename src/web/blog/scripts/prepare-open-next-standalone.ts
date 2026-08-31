@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -42,24 +42,15 @@ export function prepareOpenNextStandalone(webRoot: string): void {
   if (!tracedNodePath) return
 
   const nestedTrace = resolve(nestedNext, relative(nextRoot, ogTrace))
-  const compatDirectory = resolve(webRoot, "blog/.open-next-compat/@vercel/og")
-  mkdirSync(compatDirectory, { recursive: true })
-
   for (const fileName of ["index.edge.js", "yoga.wasm"]) {
     const tracedPath = tracedNodePath.replace(/index\.node\.js$/, fileName)
-    const primarySource = resolve(dirname(ogTrace), tracedPath)
     const standaloneSource = resolve(dirname(nestedTrace), tracedPath)
-    const destination = resolve(compatDirectory, fileName)
-    try {
-      copyFileSync(primarySource, destination)
-    } catch (error) {
-      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error
-      if (!existsSync(standaloneSource)) {
-        throw new Error(`Missing @vercel/og runtime source: ${primarySource}`)
-      }
-      copyFileSync(standaloneSource, destination)
+    if (!existsSync(standaloneSource)) {
+      throw new Error(`Missing standalone @vercel/og runtime source: ${standaloneSource}`)
     }
+    if (!trace.files.includes(tracedPath)) trace.files.push(tracedPath)
   }
+  writeFileSync(ogTrace, JSON.stringify(trace))
 }
 
 const scriptPath = fileURLToPath(import.meta.url)
