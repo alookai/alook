@@ -157,6 +157,73 @@ describe("community channel creator handoff", () => {
     `).get()).toEqual({ count: 1 });
   });
 
+  it("returns the handoff when a private creator has no explicit access row", async () => {
+    const { sqlite, db } = createDatabase();
+    sqlite.exec(`
+      INSERT INTO community_server (id) VALUES ('s1');
+      INSERT INTO community_server_member (id, server_id, user_id, role, joined_at)
+      VALUES
+        ('sm-actor', 's1', 'actor', 'member', '2026-01-01T00:00:00.000Z'),
+        ('sm-successor', 's1', 'successor', 'member', '2026-01-01T00:00:01.000Z');
+      INSERT INTO community_category (id, server_id, private) VALUES ('private', 's1', 1);
+      INSERT INTO community_channel
+        (id, server_id, category_id, type, parent_channel_id, creator_id)
+      VALUES ('private-channel', 's1', 'private', 'text', NULL, 'actor');
+      INSERT INTO community_channel_member
+        (id, channel_id, user_id, relation, added_at)
+      VALUES ('access-successor', 'private-channel', 'successor', 'access', '2026-01-01T00:00:01.000Z');
+    `);
+
+    await expect(deleteChannelMemberAndChildParticipants(
+      db,
+      "private-channel",
+      "actor",
+    )).resolves.toEqual({ id: "private-channel", creatorId: "successor" });
+  });
+
+  it("returns null when a private non-creator has no access row", async () => {
+    const { sqlite, db } = createDatabase();
+    sqlite.exec(`
+      INSERT INTO community_server (id) VALUES ('s1');
+      INSERT INTO community_server_member (id, server_id, user_id, role, joined_at)
+      VALUES
+        ('sm-actor', 's1', 'actor', 'member', '2026-01-01T00:00:00.000Z'),
+        ('sm-creator', 's1', 'creator', 'member', '2026-01-01T00:00:01.000Z');
+      INSERT INTO community_category (id, server_id, private) VALUES ('private', 's1', 1);
+      INSERT INTO community_channel
+        (id, server_id, category_id, type, parent_channel_id, creator_id)
+      VALUES ('private-channel', 's1', 'private', 'text', NULL, 'creator');
+    `);
+
+    await expect(deleteChannelMemberAndChildParticipants(
+      db,
+      "private-channel",
+      "actor",
+    )).resolves.toBeNull();
+  });
+
+  it("returns null when a thread non-creator has no notify row", async () => {
+    const { sqlite, db } = createDatabase();
+    sqlite.exec(`
+      INSERT INTO community_server (id) VALUES ('s1');
+      INSERT INTO community_server_member (id, server_id, user_id, role, joined_at)
+      VALUES
+        ('sm-actor', 's1', 'actor', 'member', '2026-01-01T00:00:00.000Z'),
+        ('sm-creator', 's1', 'creator', 'member', '2026-01-01T00:00:01.000Z');
+      INSERT INTO community_channel
+        (id, server_id, type, parent_channel_id, creator_id)
+      VALUES
+        ('parent', 's1', 'text', NULL, 'creator'),
+        ('thread', 's1', 'thread', 'parent', 'creator');
+    `);
+
+    await expect(deleteThreadParticipantWithCreatorHandoff(
+      db,
+      "thread",
+      "actor",
+    )).resolves.toBeNull();
+  });
+
   it("hands off every exact-server creator before cascade cleanup and preserves DMs and other servers", async () => {
     const { sqlite, db, getLastBatchParamCounts } = createDatabase();
     sqlite.exec(`

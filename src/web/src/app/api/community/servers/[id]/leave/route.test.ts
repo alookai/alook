@@ -158,6 +158,22 @@ describe("POST /api/community/servers/[id]/leave", () => {
     expect(mockRemoveMemberAndOwnerBots).not.toHaveBeenCalled()
   })
 
+  it("rejects an invalid bot server handle before resolution", async () => {
+    const res = await POST(
+      new NextRequest("http://localhost/api/community/servers/resolve/leave?server=invalid", {
+        method: "POST",
+        headers: { authorization: "Bearer crk_test" },
+      }),
+      { params: { id: "resolve" } } as any,
+    )
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({
+      error: "invalid server handle, expected name#0042",
+    })
+    expect(mockResolveServerByNameForMember).not.toHaveBeenCalled()
+    expect(mockRemoveMemberAndOwnerBots).not.toHaveBeenCalled()
+  })
+
   it("existence-masks a server outside the bot's memberships", async () => {
     mockResolveServerByNameForMember.mockResolvedValue([])
     const res = await POST(

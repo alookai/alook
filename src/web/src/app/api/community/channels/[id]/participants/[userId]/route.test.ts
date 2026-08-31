@@ -7,6 +7,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockResolveChannelAccessContext = vi.fn()
 const mockResolveTargetForMember = vi.fn()
+const mockParseRef = vi.hoisted(() => vi.fn())
 const mockDeleteThreadParticipantWithCreatorHandoff = vi.fn()
 const mockListThreadParticipantUserIds = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
@@ -22,8 +23,10 @@ vi.mock("@/lib/community/resolve-ref", () => ({
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
+  mockParseRef.mockImplementation(actual.parseRef)
   return {
     ...actual,
+    parseRef: (...a: Parameters<typeof actual.parseRef>) => mockParseRef(...a),
     queries: {
       communityChannel: {
         resolveChannelAccessContext: (...a: unknown[]) => mockResolveChannelAccessContext(...a),
@@ -188,6 +191,28 @@ describe("DELETE /channels/[id]/participants/[userId] — leave", () => {
     )
     expect(res.status).toBe(400)
     expect(mockResolveTargetForMember).not.toHaveBeenCalled()
+    expect(mockDeleteThreadParticipantWithCreatorHandoff).not.toHaveBeenCalled()
+  })
+
+  it("continues through the resolver when ref parsing throws", async () => {
+    mockParseRef.mockImplementationOnce(() => {
+      throw new Error("parse failure")
+    })
+    mockResolveTargetForMember.mockResolvedValue({ error: 404, message: "thread not found" })
+    const res = await DELETE(
+      new NextRequest("http://localhost/x?ref=malformed", {
+        method: "DELETE",
+        headers: { authorization: "Bearer crk_test" },
+      }),
+      { params: { id: "resolve", userId: "self" } } as any,
+    )
+    expect(res.status).toBe(404)
+    expect(mockResolveTargetForMember).toHaveBeenCalledWith(
+      expect.anything(),
+      "bot1",
+      "malformed",
+      expect.objectContaining({ createDmIfMissing: false, createThreadIfMissing: false }),
+    )
     expect(mockDeleteThreadParticipantWithCreatorHandoff).not.toHaveBeenCalled()
   })
 })

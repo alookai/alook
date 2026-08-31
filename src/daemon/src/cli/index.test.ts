@@ -895,6 +895,13 @@ describe("server leave", () => {
     });
     expect(leaveServer).not.toHaveBeenCalled();
   });
+
+  it("renders leaf help through the leave command output callback", async () => {
+    await main(["server", "leave", "--help"]);
+    const out = cap.lines().join("");
+    expect(out).toContain("Usage: alook server leave");
+    expect(out).toContain("--server <handle>");
+  });
 });
 
 describe("channel list", () => {
@@ -1102,6 +1109,13 @@ describe("channel leave", () => {
     await main(["channel", "leave", "--channel", channel]);
     expect(parseEnvelope(cap.lines())).toEqual({ error });
     expect(leaveChannel).not.toHaveBeenCalled();
+  });
+
+  it("renders leaf option errors through the leave command output callback", async () => {
+    await main(["channel", "leave", "--unknown-option"]);
+    expect(parseEnvelope(cap.lines())).toEqual({
+      error: "error: unknown option '--unknown-option'",
+    });
   });
 });
 
