@@ -191,7 +191,7 @@ describe("PostTagDialog responsive session", () => {
     expect(onSave).not.toHaveBeenCalled()
   })
 
-  it.each(["implicit", "close", "cancel"])("discards a changed mobile session via %s dismissal", (dismissal) => {
+  it.each(["implicit", "close"])("discards a changed mobile session via %s dismissal", (dismissal) => {
     mocks.breakpoint = "mobile"
     const onSave = vi.fn()
     const { renderer } = renderDialog({ current: ["existing"], onSave })
@@ -199,10 +199,8 @@ describe("PostTagDialog responsive session", () => {
     act(() => tagButton(renderer.root, FORUM_ARCHIVE_TAG).props.onClick())
 
     if (dismissal === "implicit") setOpen(renderer.root, false)
-    else if (dismissal === "close") {
+    else {
       act(() => renderer.root.findByProps({ "aria-label": "Close" }).props.onClick())
-    } else {
-      act(() => byTestId(renderer.root, tid.forumTagDialogCancel).props.onClick())
     }
 
     expect(onSave).not.toHaveBeenCalled()
@@ -355,28 +353,47 @@ describe("PostTagDialog responsive session", () => {
     expect(button.findByType("span").props.className).toContain("truncate")
   })
 
-  it("uses compact mobile actions while preserving the desktop popover sizing", () => {
+  it("uses a lightweight mobile editor with touch-safe header actions", () => {
     mocks.breakpoint = "mobile"
     const rendered = renderDialog({ allTags: ["compact"] })
     setOpen(rendered.renderer.root, true)
 
+    const surface = byTestId(rendered.renderer.root, tid.forumTagDialog)
+    expect(String(surface.props.className)).toContain("w-[calc(100%-2rem)]")
+    expect(surface.findByType("h2").children).toEqual(["Tags"])
+    expect(surface.findAllByType("span").some((node) => node.children.includes("Add"))).toBe(true)
+
+    const tagField = surface.findAllByType("div").find((node) => (
+      String(node.props.className).includes("flex-wrap")
+    ))
+    expect(String(tagField?.props.className)).not.toContain("border")
+    expect(String(tagField?.props.className)).not.toContain("ring")
+
     const mobileChipClass = String(tagButton(rendered.renderer.root, "compact").props.className)
     expect(mobileChipClass).not.toContain("min-h-11")
     expect(mobileChipClass).not.toContain("min-w-11")
+    expect(mobileChipClass).toContain("focus-visible:ring-2")
+    expect(mobileChipClass).toContain("active:translate-y-px")
     const close = rendered.renderer.root.findByProps({ "aria-label": "Close" })
-    expect(close.props.size).toBe("icon-sm")
-    expect(String(close.props.className)).not.toContain("size-11")
-    for (const testid of [tid.forumTagDialogCancel, tid.forumTagDialogSave]) {
-      const actionClass = String(byTestId(rendered.renderer.root, testid).props.className)
-      expect(actionClass).toContain("px-4")
-      expect(actionClass).not.toContain("h-11")
-    }
-    expect(String(input(rendered.renderer.root).props.className)).toContain("h-11")
+    expect(close.props.size).toBe("icon")
+    expect(close.props["data-testid"]).toBe(tid.forumTagDialogCancel)
+    expect(String(close.props.className)).toContain("size-11")
+    const save = byTestId(rendered.renderer.root, tid.forumTagDialogSave)
+    expect(save.props.variant).toBe("ghost")
+    expect(String(save.props.className)).toContain("h-11")
+    expect(String(save.props.className)).toContain("px-2")
+
+    const mobileInput = input(rendered.renderer.root)
+    expect(mobileInput.props["aria-label"]).toBe("Add a tag")
+    expect(mobileInput.props.autoFocus).toBe(true)
+    expect(String(mobileInput.props.className)).toContain("h-11")
+    expect(String(mobileInput.props.className)).toContain("border-0")
 
     switchBreakpoint(rendered, "desktop")
     const popover = rendered.renderer.root.findByType("section")
     expect(popover.props.className).toBe("w-64 space-y-3 p-3")
     expect(String(input(rendered.renderer.root).props.className)).toContain("h-8")
+    expect(input(rendered.renderer.root).props["aria-label"]).toBe("Add a tag")
     expect(String(tagButton(rendered.renderer.root, "compact").props.className))
       .not.toContain("min-h-11")
   })
