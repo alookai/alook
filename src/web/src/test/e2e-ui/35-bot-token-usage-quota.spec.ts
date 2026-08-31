@@ -88,7 +88,7 @@ const machine = {
   platform: "darwin",
   arch: "arm64",
   osRelease: "26.0",
-  daemonVersion: "0.1.24",
+  daemonVersion: "0.1.29",
   lastSeenAt: "2026-08-29T01:00:00.000Z",
   status: "online",
   availableRuntimes: [
@@ -209,6 +209,18 @@ const bots = [
     dailyActivity: [],
     usage: { capability: "supported", days: smallerDays },
   },
+  {
+    id: "bot_cursor",
+    name: "Cursor",
+    description: "",
+    image: null,
+    machineId: machine.id,
+    runtime: "cursor",
+    modelName: null,
+    lastRefreshContextAt: null,
+    dailyActivity: [],
+    usage: { capability: "unsupported", days: [] },
+  },
 ]
 
 async function attachScreenshot(page: Page, testInfo: TestInfo, name: string) {
@@ -219,6 +231,11 @@ async function attachScreenshot(page: Page, testInfo: TestInfo, name: string) {
 
 async function expectNoHorizontalOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+}
+
+async function expectDarkTheme(page: Page, expected: boolean) {
+  await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains("dark")))
+    .toBe(expected)
 }
 
 test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ asUser }, testInfo) => {
@@ -232,6 +249,13 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "light" })
   await page.setViewportSize({ width: 1280, height: 900 })
   await gotoAfterUserWsAuth(page, "/c/me/bots")
+  await expectDarkTheme(page, false)
+  const writeRequests: string[] = []
+  page.on("request", (request) => {
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method())) {
+      writeRequests.push(`${request.method()} ${new URL(request.url()).pathname}`)
+    }
+  })
 
   const usage = page.getByTestId(tid.botUsage("bot_codex"))
   const dayCells = usage.locator(`[data-testid^="${tid.botUsageDay("bot_codex", "")}"]`)
@@ -263,6 +287,8 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
     `[data-testid^="${tid.botUsageDay("bot_pi", "")}"]`,
   )).toHaveCount(30)
   await expect(page.getByText("Token usage not supported")).toHaveCount(0)
+  await expect(page.getByTestId(tid.botUsage("bot_cursor"))).toHaveCount(0)
+  await expect(page.getByTestId(tid.botUsageTrigger("bot_cursor"))).toHaveCount(0)
   await expect(page.locator(
     `[data-testid^="${tid.botUsageDay("bot_claude", "")}"]`,
   )).toHaveCount(30)
@@ -285,6 +311,11 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
   const usageDay = page.getByTestId(tid.botUsageDay("bot_codex", "2026-08-26"))
   await expectNoHorizontalOverflow(page)
   await attachScreenshot(page, testInfo, "my-bots-token-heatmap-pc")
+  await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "dark" })
+  await expectDarkTheme(page, true)
+  await attachScreenshot(page, testInfo, "my-bots-token-heatmap-pc-dark")
+  await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "light" })
+  await expectDarkTheme(page, false)
   await usageDay.hover()
   const tooltip = page.locator('[data-slot="tooltip-content"]:visible')
   await expect(tooltip).toContainText("Aug 26")
@@ -321,6 +352,17 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
   await expect(dayCells).toHaveCount(30)
   await expect.poll(async () => (await usage.boundingBox())?.height ?? 0).toBe(42)
   await expect.poll(async () => (await usage.boundingBox())?.width ?? 0).toBe(147)
+  const narrowBoundaryTrigger = page.getByTestId(tid.botUsageTrigger("bot_codex"))
+  await expect(narrowBoundaryTrigger).toBeVisible()
+  await expect.poll(async () => (await narrowBoundaryTrigger.boundingBox())?.height ?? 0)
+    .toBeGreaterThanOrEqual(44)
+  await narrowBoundaryTrigger.click()
+  const narrowBoundaryDialog = page.getByTestId(tid.botUsageDialog("bot_codex"))
+  await expect(narrowBoundaryDialog).toBeVisible()
+  await expect(page.getByTestId(tid.botUsageDialogDay("bot_codex", "2026-08-30")))
+    .toHaveAttribute("aria-pressed", "true")
+  await page.getByRole("button", { name: "Close" }).click()
+  await expect(narrowBoundaryDialog).toBeHidden()
   const [narrowBoundaryUsageBox, narrowBoundaryMetaBox] = await Promise.all([
     usage.boundingBox(),
     botCard.getByTestId(tid.botCardModel).boundingBox(),
@@ -342,6 +384,10 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
   await expect(dayCells).toHaveCount(30)
   await expect.poll(async () => (await usage.boundingBox())?.height ?? 0).toBe(42)
   await expect.poll(async () => (await usage.boundingBox())?.width ?? 0).toBe(147)
+  const mobileTrigger = page.getByTestId(tid.botUsageTrigger("bot_codex"))
+  await expect(mobileTrigger).toBeVisible()
+  await expect.poll(async () => (await mobileTrigger.boundingBox())?.height ?? 0)
+    .toBeGreaterThanOrEqual(44)
   const [mobileUsageBox, mobileMetaBox] = await Promise.all([
     usage.boundingBox(),
     botCard.getByTestId(tid.botCardModel).boundingBox(),
@@ -350,20 +396,47 @@ test("My Bots restores the 30-day token heatmap across PC and mobile", async ({ 
   expect(mobileMetaBox).not.toBeNull()
   expect(mobileUsageBox!.y).toBeGreaterThan(mobileMetaBox!.y + mobileMetaBox!.height)
   await attachScreenshot(page, testInfo, "my-bots-token-heatmap-mobile")
-  await usageDay.hover()
-  await expect(tooltip).toContainText("Aug 26")
-  await expect(tooltip).toContainText("Input6,000,000")
-  await expect(tooltip).toContainText("Output3,000,000")
-  await expect(tooltip).toContainText("CacheUnavailable")
-  await expect(tooltip).toHaveCSS("opacity", "1")
-  await attachScreenshot(page, testInfo, "my-bots-token-heatmap-mobile-hover")
+  await mobileTrigger.click()
+  const usageDialog = page.getByTestId(tid.botUsageDialog("bot_codex"))
+  const dateRail = page.getByTestId(tid.botUsageDateRail("bot_codex"))
+  const newestDay = page.getByTestId(tid.botUsageDialogDay("bot_codex", "2026-08-30"))
+  const selectedDay = page.getByTestId(tid.botUsageDialogDay("bot_codex", "2026-08-26"))
+  const dialogSummary = page.getByTestId(tid.botUsageDialogSummary("bot_codex"))
+  await expect(usageDialog).toBeVisible()
+  await expect(newestDay).toHaveAttribute("aria-pressed", "true")
+  await expect(dialogSummary).toContainText("TotalUnavailable")
+  expect(await dateRail.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+  await selectedDay.click()
+  await expect(selectedDay).toHaveAttribute("aria-pressed", "true")
+  await expect(newestDay).toHaveAttribute("aria-pressed", "false")
+  await expect(dialogSummary).toContainText("Aug 26")
+  await expect(dialogSummary).toContainText("Total9,000,000")
+  await expect(dialogSummary).toContainText("Input6,000,000")
+  await expect(dialogSummary).toContainText("Output3,000,000")
+  await expect(dialogSummary).toContainText("CacheUnavailable")
+  await attachScreenshot(page, testInfo, "my-bots-token-heatmap-mobile-dialog")
+  const lightDialogBackground = await usageDialog.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  )
+  await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "dark" })
+  await expectDarkTheme(page, true)
+  await expect.poll(() => usageDialog.evaluate(
+    (element) => getComputedStyle(element).backgroundColor,
+  )).not.toBe(lightDialogBackground)
+  await attachScreenshot(page, testInfo, "my-bots-token-heatmap-mobile-dialog-dark")
+  await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "light" })
+  await expectDarkTheme(page, false)
+  await page.getByRole("button", { name: "Close" }).click()
+  await expect(usageDialog).toBeHidden()
 
   await page.setViewportSize({ width: 640, height: 844 })
+  await expect(page.getByTestId(tid.botUsageTrigger("bot_codex"))).toHaveCount(0)
   await expect(dayCells).toHaveCount(30)
   await expect.poll(async () => (await usage.boundingBox())?.height ?? 0).toBe(42)
   const desktopBoundaryDay = page.getByTestId(tid.botUsageDay("bot_codex", "2026-08-26"))
   await desktopBoundaryDay.hover()
   await expect(page.locator('[data-slot="tooltip-content"]:visible')).toContainText("Input6,000,000")
+  expect(writeRequests).toEqual([])
 })
 
 test("My Bots renders Pi usage through real D1 and the unmocked bots API", async ({ asUser }, testInfo) => {
@@ -491,18 +564,21 @@ test("My Bots renders Pi usage through real D1 and the unmocked bots API", async
     const todayTarget = page.locator(
       `[data-testid="${tid.botUsageDay(botId, today)}"]:visible`,
     )
-    await expect(todayTarget).toHaveAttribute("aria-label", /Input 129/)
-    await todayTarget.hover()
-    await expect(page.locator('[data-slot="tooltip-content"]:visible')).toContainText("Input129")
-    await expect(page.locator('[data-slot="tooltip-content"]:visible')).toContainText("Output39")
-    await expect(page.locator('[data-slot="tooltip-content"]:visible')).toContainText("Cache1,029")
+    await expect(todayTarget).toBeVisible()
+    await page.getByTestId(tid.botUsageTrigger(botId)).click()
+    const todayButton = page.getByTestId(tid.botUsageDialogDay(botId, today))
+    const todaySummary = page.getByTestId(tid.botUsageDialogSummary(botId))
+    await expect(todayButton).toHaveAttribute("aria-pressed", "true")
+    await expect(todaySummary).toContainText("Input129")
+    await expect(todaySummary).toContainText("Output39")
+    await expect(todaySummary).toContainText("Cache1,029")
     const browserEvidencePath = testInfo.outputPath("real-pi-browser-observation.json")
     writeFileSync(browserEvidencePath, `${JSON.stringify({
       route: "/c/me/bots",
       botId,
       visibleDayTestIds,
       today,
-      todayLabel: await todayTarget.getAttribute("aria-label"),
+      todaySummary: await todaySummary.innerText(),
     }, null, 2)}\n`)
     await testInfo.attach("real-pi-browser-observation.json", { path: browserEvidencePath })
     await attachScreenshot(page, testInfo, "real-pi-d1-local-today")

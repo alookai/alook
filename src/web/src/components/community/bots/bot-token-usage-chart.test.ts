@@ -1,7 +1,13 @@
 import React from "react"
 import TestRenderer, { act } from "react-test-renderer"
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { BotTokenUsage, BotUsageDay } from "@/hooks/community/use-bots"
+
+const mocks = vi.hoisted(() => ({ breakpoint: "desktop" as "unknown" | "desktop" | "mobile" }))
+
+vi.mock("@/hooks/use-mobile", () => ({
+  useBreakpoint: () => mocks.breakpoint,
+}))
 
 vi.mock("@/components/ui/tooltip", () => ({
   Tooltip: ({ children }: React.PropsWithChildren) => React.createElement(React.Fragment, null, children),
@@ -9,6 +15,21 @@ vi.mock("@/components/ui/tooltip", () => ({
     React.cloneElement(render, { "data-cell": true }),
   TooltipContent: ({ children }: React.PropsWithChildren) =>
     React.createElement("tooltip-content", null, children),
+}))
+
+vi.mock("@/components/ui/dialog", () => ({
+  Dialog: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
+    React.createElement("mock-dialog", props, children),
+  DialogTrigger: ({ render, children }: { render: React.ReactElement; children?: React.ReactNode }) =>
+    React.cloneElement(render, {}, children),
+  DialogContent: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
+    React.createElement("dialog-content", props, children),
+  DialogDescription: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
+    React.createElement("dialog-description", props, children),
+  DialogHeader: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
+    React.createElement("dialog-header", props, children),
+  DialogTitle: ({ children, ...props }: React.PropsWithChildren<Record<string, unknown>>) =>
+    React.createElement("dialog-title", props, children),
 }))
 
 import {
@@ -82,6 +103,10 @@ describe("daily token heat presentation", () => {
 })
 
 describe("BotTokenUsageHeatmap", () => {
+  beforeEach(() => {
+    mocks.breakpoint = "desktop"
+  })
+
   it("renders the original 30-cell 3-by-10 shell oldest to newest", () => {
     const usage: BotTokenUsage = {
       capability: "supported",
@@ -138,5 +163,84 @@ describe("BotTokenUsageHeatmap", () => {
   it("omits missing and unsupported usage without reserving a heatmap slot", () => {
     expect(render({ capability: "unsupported", days: [] }).toJSON()).toBeNull()
     expect(render().toJSON()).toBeNull()
+  })
+
+  it("turns the whole mobile heatmap into one 44px dialog trigger", () => {
+    mocks.breakpoint = "mobile"
+    const usage: BotTokenUsage = { capability: "supported", days: thirtyDays() }
+    const renderer = render(usage)
+    const trigger = renderer.root.findByProps({
+      "data-testid": "community-bot-usage-trigger-bot_1",
+    })
+    expect(trigger.props["aria-label"]).toBe("Open token usage details")
+    expect(trigger.props["aria-haspopup"]).toBe("dialog")
+    expect(trigger.props.className).toContain("min-h-11")
+    expect(renderer.root.findAllByProps({ "data-cell": true })).toHaveLength(0)
+    expect(renderer.root.findAll((node) => String(node.props["data-testid"] ?? "")
+      .startsWith("community-bot-usage-day-bot_1-"))).toHaveLength(30)
+  })
+
+  it("opens mobile details on the newest day with Total and all metric values", () => {
+    mocks.breakpoint = "mobile"
+    const usage: BotTokenUsage = {
+      capability: "supported",
+      days: thirtyDays({
+        30: { input: 8, output: 2, cache: 10 },
+      }),
+    }
+    const renderer = render(usage)
+    const newest = renderer.root.findByProps({
+      "data-testid": "community-bot-usage-dialog-day-bot_1-2026-08-30",
+    })
+    expect(newest.props["aria-pressed"]).toBe(true)
+    expect(newest.props.className).toContain("font-medium")
+    const summary = renderer.root.findByProps({
+      "data-testid": "community-bot-usage-dialog-summary-bot_1",
+    })
+    expect(text(summary)).toContain("Aug 30")
+    expect(text(summary)).toContain("Total 20")
+    expect(text(summary)).toContain("Input 8")
+    expect(text(summary)).toContain("Output 2")
+    expect(text(summary)).toContain("Cache 10")
+  })
+
+  it("updates mobile values and pressed state when an older date is selected", () => {
+    mocks.breakpoint = "mobile"
+    const usage: BotTokenUsage = {
+      capability: "supported",
+      days: thirtyDays({
+        28: { input: 6_000_000, output: 3_000_000, cache: unavailable },
+        30: { input: 8, output: 2, cache: 10 },
+      }),
+    }
+    const renderer = render(usage)
+    const older = renderer.root.findByProps({
+      "data-testid": "community-bot-usage-dialog-day-bot_1-2026-08-28",
+    })
+    act(() => older.props.onClick())
+    expect(older.props["aria-pressed"]).toBe(true)
+    expect(renderer.root.findByProps({
+      "data-testid": "community-bot-usage-dialog-day-bot_1-2026-08-30",
+    }).props["aria-pressed"]).toBe(false)
+    const summary = renderer.root.findByProps({
+      "data-testid": "community-bot-usage-dialog-summary-bot_1",
+    })
+    expect(text(summary)).toContain("Aug 28")
+    expect(text(summary)).toContain("Total 9,000,000")
+    expect(text(summary)).toContain("Cache Unavailable")
+  })
+
+  it("shows unavailable rather than fabricating a zero total for an unknown day", () => {
+    mocks.breakpoint = "mobile"
+    const renderer = render({ capability: "supported", days: thirtyDays() })
+    const unknown = renderer.root.findByProps({
+      "data-testid": "community-bot-usage-dialog-day-bot_1-2026-08-25",
+    })
+    act(() => unknown.props.onClick())
+    const summary = renderer.root.findByProps({
+      "data-testid": "community-bot-usage-dialog-summary-bot_1",
+    })
+    expect(text(summary)).toContain("Total Unavailable")
+    expect(text(summary).match(/Unavailable/g)).toHaveLength(4)
   })
 })

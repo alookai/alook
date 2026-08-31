@@ -85,6 +85,12 @@ export const tid = {
   botReasoningEffort: "community-bot-reasoning-effort",
   botCardModel: "bot-card-model",
   botUsage: (botId: string) => `community-bot-usage-${botId}`,
+  botUsageTrigger: (botId: string) => `community-bot-usage-trigger-${botId}`,
+  botUsageDialog: (botId: string) => `community-bot-usage-dialog-${botId}`,
+  botUsageDateRail: (botId: string) => `community-bot-usage-date-rail-${botId}`,
+  botUsageDialogDay: (botId: string, day: string) =>
+    `community-bot-usage-dialog-day-${botId}-${day}`,
+  botUsageDialogSummary: (botId: string) => `community-bot-usage-dialog-summary-${botId}`,
   botUsageDay: (botId: string, day: string) => `community-bot-usage-day-${botId}-${day}`,
   machineQuota: (machineId: string) => `community-machine-quota-${machineId}`,
   machineQuotaDetail: (machineId: string) => `community-machine-quota-detail-${machineId}`,
