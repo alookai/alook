@@ -368,7 +368,11 @@ export class CursorAcpLane implements RuntimeLane {
     if (this.currentPromptRequestId !== prompt.requestId) return;
     const result = record(value);
     if (!result || typeof result.stopReason !== "string" || !PROMPT_STOP_REASONS.has(result.stopReason)) {
-      this.failPrompt(prompt, new Error("Cursor ACP prompt response did not contain a supported stopReason"));
+      this.failPrompt(
+        prompt,
+        new Error("Cursor ACP prompt response did not contain a supported stopReason"),
+        "cursor.invalid_stop_reason",
+      );
       return;
     }
     const terminalOwner = this.terminalOwner ?? prompt.receipt;
@@ -382,7 +386,7 @@ export class CursorAcpLane implements RuntimeLane {
     } satisfies AdapterEvent);
   }
 
-  private failPrompt(prompt: PromptRequest, error: unknown): void {
+  private failPrompt(prompt: PromptRequest, error: unknown, code = "cursor.prompt_failed"): void {
     if (this.currentPromptRequestId !== prompt.requestId) return;
     const terminalOwner = this.terminalOwner ?? prompt.receipt;
     this.currentPromptRequestId = null;
@@ -390,6 +394,7 @@ export class CursorAcpLane implements RuntimeLane {
     this.openToolCalls.clear();
     this.events.emit("runtime_event", {
       kind: "error",
+      code,
       message: error instanceof Error ? error.message : String(error),
     } satisfies AdapterEvent);
     this.events.emit("runtime_event", {
@@ -540,13 +545,20 @@ export class CursorAcpLane implements RuntimeLane {
       this.pending.delete(id);
       if (message.error !== undefined) {
         const payload = record(message.error);
-        this.failPrompt(pending.prompt, new CursorAcpRpcError(
-          pending.method,
-          typeof payload?.code === "number" ? payload.code : undefined,
-          rpcErrorMessage(message.error),
-        ));
+        const rpcCode = typeof payload?.code === "number" && Number.isSafeInteger(payload.code)
+          ? payload.code
+          : undefined;
+        this.failPrompt(
+          pending.prompt,
+          new CursorAcpRpcError(pending.method, rpcCode, rpcErrorMessage(message.error)),
+          rpcCode === undefined ? "cursor.rpc_error" : `cursor.rpc.${rpcCode}`,
+        );
       } else if (!("result" in message)) {
-        this.failPrompt(pending.prompt, new Error("Cursor ACP response omitted result"));
+        this.failPrompt(
+          pending.prompt,
+          new Error("Cursor ACP response omitted result"),
+          "cursor.invalid_response",
+        );
       } else {
         this.completePrompt(pending.prompt, message.result);
       }

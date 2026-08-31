@@ -148,6 +148,46 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
     expect(n.currentTurnId).toBeNull();
   });
 
+  it("preserves the official Codex turn error code and message", () => {
+    const n = new CodexEventNormalizer();
+    adoptRootTurn(n, "th_1", "turn_x");
+    expect(n.normalizeLine(notify("turn/completed", {
+      threadId: "th_1",
+      turn: {
+        id: "turn_x",
+        status: "failed",
+        error: {
+          message: "Selected model is at capacity. Please try a different model.",
+          codexErrorInfo: "serverOverloaded",
+        },
+      },
+    }))).toEqual([
+      {
+        kind: "error",
+        code: "codex.server_overloaded",
+        message: "Selected model is at capacity. Please try a different model.",
+      },
+      { kind: "turn_end", sessionId: "th_1", turnOwner: "codex:th_1:turn_x" },
+    ]);
+  });
+
+  it("rejects unknown Codex error labels instead of treating them as audit codes", () => {
+    const n = new CodexEventNormalizer();
+    adoptRootTurn(n, "th_1", "turn_x");
+    expect(n.normalizeLine(notify("turn/completed", {
+      threadId: "th_1",
+      turn: {
+        id: "turn_x",
+        status: "failed",
+        error: { message: "failed", codexErrorInfo: "secret/provider/value" },
+      },
+    }))![0]).toEqual({
+      kind: "error",
+      code: "codex.turn_failed",
+      message: "failed",
+    });
+  });
+
   it("ignores child and unknown completions without clearing or terminating the active root turn", () => {
     const n = new CodexEventNormalizer();
     adoptRootTurn(n, "root-thread", "root-turn");
@@ -226,8 +266,12 @@ describe("CodexEventNormalizer — turn id tracking (for turn/steer expectedTurn
       threadId: "root-thread",
       turnId: "root-turn",
       willRetry: false,
-      error: { message: "request failed" },
-    }))).toEqual([{ kind: "error", message: "request failed" }]);
+      error: { message: "request failed", codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: 503 } } },
+    }))).toEqual([{
+      kind: "error",
+      code: "codex.response_stream_disconnected",
+      message: "request failed",
+    }]);
   });
 
   it("clears terminal ownership when a new thread is explicitly adopted and rejects an unowned terminal", () => {
@@ -414,6 +458,25 @@ describe("CodexEventNormalizer — session_init dedup (result + thread/started n
   });
 });
 
+describe("CodexEventNormalizer — RPC error envelopes", () => {
+  it.each([
+    { name: "safe integer", code: -32_603, expected: "codex.rpc.-32603" },
+    { name: "missing", code: undefined, expected: "codex.rpc_error" },
+    { name: "unsafe integer", code: Number.MAX_SAFE_INTEGER + 1, expected: "codex.rpc_error" },
+  ])("maps a $name code to $expected", ({ code, expected }) => {
+    const error = { message: "request failed", ...(code === undefined ? {} : { code }) };
+    expect(new CodexEventNormalizer().normalizeLine(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 2,
+      error,
+    }))).toEqual([{
+      kind: "error",
+      code: expected,
+      message: "request failed",
+    }]);
+  });
+});
+
 describe("CodexEventNormalizer — complete owned event family", () => {
   it("normalizes diagnostics, telemetry, lifecycle boundaries, fallbacks, and invalid envelopes", () => {
     const n = new CodexEventNormalizer();
@@ -437,7 +500,7 @@ describe("CodexEventNormalizer — complete owned event family", () => {
       { kind: "runtime_diagnostic", severity: "warning", source: "configWarning", message: "config" },
     ]);
     expect(n.normalizeLine(notify("error", { threadId: "root", message: "failed" }))).toEqual([
-      { kind: "error", message: "failed" },
+      { kind: "error", code: "codex.error", message: "failed" },
     ]);
     expect(n.normalizeLine(notify("unknown", { threadId: "root" }))).toEqual([]);
     expect(n.normalizeLine(notify("item/started", { threadId: "root", turnId: "turn", item: { type: "contextCompaction" } }))).toEqual([{ kind: "compaction_started" }]);
@@ -451,7 +514,7 @@ describe("CodexEventNormalizer — complete owned event family", () => {
     expect(n.normalizeLine(notify("thread/tokenUsage/updated", { threadId: "root", tokenUsage: {} }))).toEqual([]);
     expect(n.normalizeLine(notify("account/rateLimits/updated", { threadId: "root", rateLimits: {} }))).toEqual([]);
     expect(n.normalizeLine(notify("turn/completed", { threadId: "root", turn: { id: "turn", status: "interrupted" } }))).toEqual([
-      { kind: "error", message: "Codex turn interrupted" },
+      { kind: "error", code: "codex.turn_interrupted", message: "Codex turn interrupted" },
       { kind: "turn_end", sessionId: "root", turnOwner: "codex:root:turn" },
     ]);
   });

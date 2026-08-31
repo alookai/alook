@@ -398,8 +398,43 @@ describe("ClaudeEventNormalizer.normalizeLine", () => {
     const out = new ClaudeEventNormalizer().normalizeLine(
       J({ type: "result", is_error: true, result: "boom", session_id: "s1" }),
     );
-    expect(out.some((e) => e.kind === "error" && (e as any).message === "boom")).toBe(true);
+    expect(out).toContainEqual({
+      kind: "error",
+      code: "claude.result_error",
+      message: "boom",
+    });
     expect(out.some((e) => e.kind === "turn_end")).toBe(true);
+  });
+
+  it.each([
+    ["error_max_turns", "claude.error_max_turns"],
+    ["error_during_execution", "claude.error_during_execution"],
+    ["error_max_budget_usd", "claude.error_max_budget_usd"],
+    ["error_max_structured_output_retries", "claude.error_max_structured_output_retries"],
+    ["secret/provider/value", "claude.result_error"],
+  ])("maps Claude result subtype %s to %s", (subtype, code) => {
+    expect(new ClaudeEventNormalizer().normalizeLine(J({
+      type: "result",
+      subtype,
+      is_error: true,
+      result: "provider failed",
+      session_id: "s1",
+    }))).toContainEqual({
+      kind: "error",
+      code,
+      message: "provider failed",
+    });
+  });
+
+  it("classifies recognized assistant API errors without parsing text into a code", () => {
+    expect(new ClaudeEventNormalizer().normalizeLine(J({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "API Error: 429 rate limited" }] },
+    }))).toEqual([{
+      kind: "error",
+      code: "claude.api_error",
+      message: "API Error: 429 rate limited",
+    }]);
   });
 
   it("errored result emits `error` BEFORE the trailing `turn_end` (the ordering B1's errored-turn marker relies on)", () => {

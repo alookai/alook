@@ -1148,11 +1148,7 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
     service.publish("session.next.compaction.ended", { assistantMessageID: "msg_assistant" });
     service.publish("session.next.step.failed", {
       assistantMessageID: "msg_assistant",
-      error: { message: "secret vendor detail" },
-    });
-    service.publish("session.next.step.failed", {
-      assistantMessageID: "msg_assistant",
-      error: {},
+      error: { type: "unknown", message: "provider overloaded" },
     });
     service.active = false;
 
@@ -1164,8 +1160,32 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
     expect(runtime).toContainEqual({ kind: "tool_output", name: "OpenCode tool" });
     expect(runtime).toContainEqual({ kind: "compaction_started" });
     expect(runtime).toContainEqual({ kind: "compaction_finished" });
-    expect(runtime).toContainEqual({ kind: "error", message: "OpenCode reported an inconsistent turn outcome" });
-    expect(JSON.stringify(runtime)).not.toContain("secret vendor detail");
+    expect(runtime).toContainEqual({
+      kind: "error",
+      code: "opencode.unknown",
+      message: "provider overloaded",
+    });
+    await lane.stop({ reason: "test", forceAfterMs: 0 });
+  });
+
+  it("uses safe fallbacks for an inconsistent step failure payload", async () => {
+    const lane = makeLane();
+    const { runtime } = collectEvents(lane);
+    await lane.start({ text: "root", terminalOwner: "msg_root" });
+    const service = factories.at(-1)!.service!;
+
+    service.publish("session.next.step.failed", {
+      assistantMessageID: "msg_assistant",
+      error: { type: "secret/provider/value" },
+    });
+    service.active = false;
+
+    await waitForTurn(runtime, 1);
+    expect(runtime).toContainEqual({
+      kind: "error",
+      code: "opencode.step_failed",
+      message: "OpenCode reported an inconsistent turn outcome",
+    });
     await lane.stop({ reason: "test", forceAfterMs: 0 });
   });
 
@@ -1358,7 +1378,32 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
     });
     service.active = false;
     await waitForTurn(runtime, 1);
-    expect(runtime).toContainEqual({ kind: "error", message: "OpenCode drain settled without a durable turn outcome" });
+    expect(runtime).toContainEqual({
+      kind: "error",
+      code: "opencode.missing_outcome",
+      message: "OpenCode drain settled without a durable turn outcome",
+    });
+    await lane.stop({ reason: "test", forceAfterMs: 0 });
+  });
+
+  it("reports an unsupported final finish reason with its stable error code", async () => {
+    const lane = makeLane();
+    const { runtime } = collectEvents(lane);
+    await lane.start({ text: "root", terminalOwner: "msg_root" });
+    const service = factories.at(-1)!.service!;
+    killers.set(service.process.pid, () => service.close());
+    service.publish("session.next.step.ended", {
+      assistantMessageID: "msg_unsupported",
+      finish: "cancelled",
+    });
+    service.active = false;
+
+    await waitForTurn(runtime, 1);
+    expect(runtime).toContainEqual({
+      kind: "error",
+      code: "opencode.unsupported_finish",
+      message: "OpenCode reported an unsupported final step outcome",
+    });
     await lane.stop({ reason: "test", forceAfterMs: 0 });
   });
 

@@ -1664,6 +1664,25 @@ describe("backend-owned delivery behavior", () => {
     await session.stop({ reason: "shutdown", forceAfterMs: 10 });
   });
 
+  it.each([
+    { input: "codex.server_overloaded", expected: "codex.server_overloaded" },
+    { input: "secret/provider/value", expected: "runtime_error" },
+  ])("projects adapter error code $input as $expected", async ({ input, expected }) => {
+    const { session, driver } = makeSession("codex");
+    const iterator = session.events[Symbol.asyncIterator]();
+    await session.start({ id: "one", kind: "user", text: "start" });
+    await emit(driver, { kind: "error", code: input, message: "provider failed" });
+    await emit(driver, { kind: "turn_end", sessionId: "s1" });
+    const events = await take(iterator as never, 5);
+    expect(events.find((event) => event.type === "turn_completed")).toMatchObject({
+      result: {
+        outcome: "failed",
+        error: { code: expected, message: "provider failed" },
+      },
+    });
+    await session.stop({ reason: "shutdown", forceAfterMs: 10 });
+  });
+
   it("opencode keeps one persistent lane and admits busy input as steer", async () => {
     const { session, driver } = makeSession("opencode");
     await session.start({ id: "one", kind: "user", text: "start" });

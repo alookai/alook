@@ -36,7 +36,7 @@ import {
 } from "../internal/adapter.js";
 import { BufferedEventQueue } from "./event-queue.js";
 import { writeAgentFile } from "../internal/agentFile.js";
-import { scrubDriverErrorMessage } from "../internal/errors.js";
+import { scrubDriverErrorMessage, stableErrorCode } from "../internal/errors.js";
 import { mkdirSync } from "node:fs";
 
 type SessionState = AgentSessionSnapshot["state"];
@@ -841,7 +841,12 @@ implements AgentSession<Specs, Id> {
       }
       case "error":
         this.toolBoundaryFlushDisabled = true;
-        this.turnError = driverError("process", "runtime_error", event.message, true);
+        this.turnError = driverError(
+          "process",
+          stableErrorCode(event.code, "runtime_error"),
+          event.message,
+          true,
+        );
         this.emit({
           type: "diagnostic",
           turnId,

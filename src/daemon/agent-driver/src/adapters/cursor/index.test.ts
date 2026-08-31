@@ -439,6 +439,7 @@ describe("CursorDriver persistent ACP transport", () => {
     await settle();
     expect(events.filter((event) => event.kind === "error")).toEqual([{
       kind: "error",
+      code: "cursor.rpc.-32000",
       message: "latest failed",
     }]);
     expect(events.filter((event) => event.kind === "turn_end")).toEqual([{
@@ -451,6 +452,30 @@ describe("CursorDriver persistent ACP transport", () => {
     await settle();
     expect(events.filter((event) => event.kind === "error")).toHaveLength(1);
     expect(events.filter((event) => event.kind === "turn_end")).toHaveLength(1);
+  });
+
+  it.each([
+    { name: "missing", error: { message: "missing code" } },
+    { name: "unsafe integer", error: { code: Number.MAX_SAFE_INTEGER + 1, message: "unsafe code" } },
+  ])("uses cursor.rpc_error for a prompt RPC error with a $name code", async ({ error }) => {
+    const server = installServer();
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const events = eventsFrom(lane);
+    await lane.start({ text: "root" });
+    const process = spawned[0]!;
+
+    process.stdout.write(`${JSON.stringify({
+      jsonrpc: "2.0",
+      id: server.prompts[0]!.id,
+      error,
+    })}\n`);
+    await settle();
+
+    expect(events.filter((event) => event.kind === "error")).toEqual([{
+      kind: "error",
+      code: "cursor.rpc_error",
+      message: error.message,
+    }]);
   });
 
   it("loads an ACP session without a fresh fallback and returns reset_required for an old incompatible id", async () => {
@@ -736,20 +761,29 @@ describe("CursorDriver persistent ACP transport", () => {
 
     fail(process, server.prompts[0]!, "Prompt failed", { message: "private vendor detail" });
     await settle();
-    expect(events).toContainEqual({ kind: "error", message: "Prompt failed: private vendor detail" });
+    expect(events).toContainEqual({
+      kind: "error",
+      code: "cursor.rpc.-32000",
+      message: "Prompt failed: private vendor detail",
+    });
 
     await lane.send({ text: "second", mode: "idle" });
     respond(process, server.prompts[1]!, { stopReason: "unknown" });
     await settle();
     expect(events).toContainEqual({
       kind: "error",
+      code: "cursor.invalid_stop_reason",
       message: "Cursor ACP prompt response did not contain a supported stopReason",
     });
 
     await lane.send({ text: "third", mode: "idle" });
     process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: server.prompts[2]!.id })}\n`);
     await settle();
-    expect(events).toContainEqual({ kind: "error", message: "Cursor ACP response omitted result" });
+    expect(events).toContainEqual({
+      kind: "error",
+      code: "cursor.invalid_response",
+      message: "Cursor ACP response omitted result",
+    });
 
     await lane.send({ text: "fourth", mode: "idle" });
     respond(process, server.prompts[3]!, {

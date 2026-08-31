@@ -359,7 +359,11 @@ describe("Pi SDK event-family coverage", () => {
     expect(mapPiSdkEvent({
       type: "message_update",
       assistantMessageEvent: { type: "error", error: { errorMessage: "provider failed" } },
-    }, "session", state)).toEqual([{ kind: "error", message: "provider failed" }]);
+    }, "session", state)).toEqual([{
+      kind: "error",
+      code: "pi.message_error",
+      message: "provider failed",
+    }]);
     expect(mapPiSdkEvent({
       type: "message_update",
       delta: { type: "text_end", content: "wrong outer field" },
