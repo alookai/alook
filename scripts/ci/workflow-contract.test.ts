@@ -58,6 +58,7 @@ const desktopReleaseWorkflow = normalizeWorkflow(readFileSync(resolve(workflowRo
 const desktopConfig = JSON.parse(
   readFileSync(resolve(import.meta.dirname, "../../src/desktop/src-tauri/tauri.conf.json"), "utf8"),
 ) as {
+  app?: { windows?: Array<{ label?: string; dragDropEnabled?: boolean }> }
   bundle?: { createUpdaterArtifacts?: boolean | string }
   plugins?: { updater?: { endpoints?: string[] } }
 }
@@ -621,6 +622,13 @@ describe("Turbo CI execution", () => {
     expect(wakeNode).not.toContain("returns 200 { status: ok } for GET /health")
     expect(wakeRuntime).toContain("rejects invalid JSON and non-POST dev requests at the real entrypoint")
     expect(wakeRuntime).toContain("loads production migrations and serves the production entrypoint")
+  })
+})
+
+describe("Desktop window contract", () => {
+  it("delegates external file drops to the webview attachment lifecycle", () => {
+    const mainWindow = desktopConfig.app?.windows?.find((window) => window.label === "main")
+    expect(mainWindow?.dragDropEnabled).toBe(false)
   })
 })
 
