@@ -1,5 +1,5 @@
 diff --git a/dist/cli/build/patches/ast/patch-vercel-og-library.js b/dist/cli/build/patches/ast/patch-vercel-og-library.js
-index da90ef5d9201ce4c268ac915a6d3ae14222d7283..ec01194b16615b66f31bf26a4f0c99fb54b1e405 100644
+index da90ef5d9201ce4c268ac915a6d3ae14222d7283..3a570967764a81c9db0d34c7744e64f505c99042 100644
 --- a/dist/cli/build/patches/ast/patch-vercel-og-library.js
 +++ b/dist/cli/build/patches/ast/patch-vercel-og-library.js
 @@ -31,12 +31,29 @@ export function patchVercelOgLibrary(buildOpts) {
@@ -7,28 +7,28 @@ index da90ef5d9201ce4c268ac915a6d3ae14222d7283..ec01194b16615b66f31bf26a4f0c99fb
          if (!existsSync(outputEdgePath)) {
              const tracedEdgePath = path.join(path.dirname(traceInfoPath), tracedNodePath.replace("index.node.js", "index.edge.js"));
 -            copyFileSync(tracedEdgePath, outputEdgePath);
-+            const standaloneTraceInfoPath = path.join(appBuildOutputPath, ".next/standalone", getPackagePath(buildOpts), path.relative(appBuildOutputPath, traceInfoPath));
-+            const standaloneEdgePath = path.join(path.dirname(standaloneTraceInfoPath), tracedNodePath.replace("index.node.js", "index.edge.js"));
++            const preparedOgPath = path.join(appBuildOutputPath, ".next/open-next-compat/@vercel/og");
++            const preparedEdgePath = path.join(preparedOgPath, "index.edge.js");
 +            try {
 +                copyFileSync(tracedEdgePath, outputEdgePath);
 +            }
 +            catch (error) {
 +                if (error?.code !== "ENOENT")
 +                    throw error;
-+                copyFileSync(standaloneEdgePath, outputEdgePath);
++                copyFileSync(preparedEdgePath, outputEdgePath);
 +            }
              // On Next 16.2 and above, we also need to copy the yoga.wasm file used by the library.
              const tracedWasmPath = path.join(path.dirname(traceInfoPath), tracedNodePath.replace("index.node.js", "yoga.wasm"));
 -            if (existsSync(tracedWasmPath)) {
-+            const standaloneWasmPath = path.join(path.dirname(standaloneTraceInfoPath), tracedNodePath.replace("index.node.js", "yoga.wasm"));
++            const preparedWasmPath = path.join(preparedOgPath, "yoga.wasm");
 +            try {
                  copyFileSync(tracedWasmPath, path.join(outputDir, "yoga.wasm"));
              }
 +            catch (error) {
 +                if (error?.code !== "ENOENT")
 +                    throw error;
-+                if (existsSync(standaloneWasmPath)) {
-+                    copyFileSync(standaloneWasmPath, path.join(outputDir, "yoga.wasm"));
++                if (existsSync(preparedWasmPath)) {
++                    copyFileSync(preparedWasmPath, path.join(outputDir, "yoga.wasm"));
 +                }
 +            }
          }

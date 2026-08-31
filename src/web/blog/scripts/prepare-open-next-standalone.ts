@@ -1,8 +1,9 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs"
-import { dirname, resolve } from "node:path"
+import { dirname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 export function prepareOpenNextStandalone(webRoot: string): void {
+  const nextRoot = resolve(webRoot, "blog/.next")
   const nestedNext = resolve(webRoot, "blog/.next/standalone/src/web/blog/.next")
   const instrumentationSource = resolve(webRoot, "blog/.next/server/instrumentation.js")
   const instrumentationDestination = resolve(nestedNext, "server/instrumentation.js")
@@ -27,6 +28,36 @@ export function prepareOpenNextStandalone(webRoot: string): void {
         mkdirSync(resolve(destination, ".."), { recursive: true })
         copyFileSync(source, destination)
       }
+    }
+  }
+
+  const ogTrace = resolve(nextRoot, "server/app/og/blog/[slug]/route.js.nft.json")
+  if (!existsSync(ogTrace)) return
+
+  const trace = JSON.parse(readFileSync(ogTrace, "utf8")) as { files?: unknown }
+  if (!Array.isArray(trace.files) || !trace.files.every((file) => typeof file === "string")) {
+    throw new Error(`Invalid OG route trace: ${ogTrace}`)
+  }
+  const tracedNodePath = trace.files.find((file) => file.endsWith("@vercel/og/index.node.js"))
+  if (!tracedNodePath) return
+
+  const nestedTrace = resolve(nestedNext, relative(nextRoot, ogTrace))
+  const compatDirectory = resolve(nextRoot, "open-next-compat/@vercel/og")
+  mkdirSync(compatDirectory, { recursive: true })
+
+  for (const fileName of ["index.edge.js", "yoga.wasm"]) {
+    const tracedPath = tracedNodePath.replace(/index\.node\.js$/, fileName)
+    const primarySource = resolve(dirname(ogTrace), tracedPath)
+    const standaloneSource = resolve(dirname(nestedTrace), tracedPath)
+    const destination = resolve(compatDirectory, fileName)
+    try {
+      copyFileSync(primarySource, destination)
+    } catch (error) {
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error
+      if (!existsSync(standaloneSource)) {
+        throw new Error(`Missing @vercel/og runtime source: ${primarySource}`)
+      }
+      copyFileSync(standaloneSource, destination)
     }
   }
 }

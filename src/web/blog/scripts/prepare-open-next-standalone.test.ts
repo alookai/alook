@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join, relative } from "node:path"
 import { describe, expect, it } from "vitest"
 import { prepareOpenNextStandalone } from "./prepare-open-next-standalone"
 
@@ -51,5 +51,28 @@ describe("prepareOpenNextStandalone", () => {
     )
 
     expect(() => prepareOpenNextStandalone(root)).toThrow("Missing instrumentation dependency")
+  })
+
+  it("stages OG runtime files from the standalone fallback", () => {
+    const root = mkdtempSync(join(tmpdir(), "alook-blog-standalone-og-"))
+    const nextRoot = join(root, "blog/.next")
+    const tracePath = join(nextRoot, "server/app/og/blog/[slug]/route.js.nft.json")
+    const nestedNext = join(nextRoot, "standalone/src/web/blog/.next")
+    const originalNode = join(root, "node_modules/next/dist/compiled/@vercel/og/index.node.js")
+    const tracedNodePath = relative(dirname(tracePath), originalNode)
+    const standaloneOg = join(nextRoot, "standalone/src/web/node_modules/next/dist/compiled/@vercel/og")
+
+    mkdirSync(join(nestedNext, "server"), { recursive: true })
+    mkdirSync(dirname(tracePath), { recursive: true })
+    mkdirSync(standaloneOg, { recursive: true })
+    writeFileSync(tracePath, JSON.stringify({ files: [tracedNodePath] }))
+    writeFileSync(join(standaloneOg, "index.edge.js"), "edge-runtime")
+    writeFileSync(join(standaloneOg, "yoga.wasm"), "wasm-runtime")
+
+    prepareOpenNextStandalone(root)
+
+    const compatOg = join(nextRoot, "open-next-compat/@vercel/og")
+    expect(readFileSync(join(compatOg, "index.edge.js"), "utf8")).toBe("edge-runtime")
+    expect(readFileSync(join(compatOg, "yoga.wasm"), "utf8")).toBe("wasm-runtime")
   })
 })
