@@ -458,6 +458,25 @@ describe("CodexEventNormalizer — session_init dedup (result + thread/started n
   });
 });
 
+describe("CodexEventNormalizer — RPC error envelopes", () => {
+  it.each([
+    { name: "safe integer", code: -32_603, expected: "codex.rpc.-32603" },
+    { name: "missing", code: undefined, expected: "codex.rpc_error" },
+    { name: "unsafe integer", code: Number.MAX_SAFE_INTEGER + 1, expected: "codex.rpc_error" },
+  ])("maps a $name code to $expected", ({ code, expected }) => {
+    const error = { message: "request failed", ...(code === undefined ? {} : { code }) };
+    expect(new CodexEventNormalizer().normalizeLine(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 2,
+      error,
+    }))).toEqual([{
+      kind: "error",
+      code: expected,
+      message: "request failed",
+    }]);
+  });
+});
+
 describe("CodexEventNormalizer — complete owned event family", () => {
   it("normalizes diagnostics, telemetry, lifecycle boundaries, fallbacks, and invalid envelopes", () => {
     const n = new CodexEventNormalizer();

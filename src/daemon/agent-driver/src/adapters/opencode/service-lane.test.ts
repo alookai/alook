@@ -1386,6 +1386,27 @@ describe("OpenCodeServiceLane authenticated persistent protocol", () => {
     await lane.stop({ reason: "test", forceAfterMs: 0 });
   });
 
+  it("reports an unsupported final finish reason with its stable error code", async () => {
+    const lane = makeLane();
+    const { runtime } = collectEvents(lane);
+    await lane.start({ text: "root", terminalOwner: "msg_root" });
+    const service = factories.at(-1)!.service!;
+    killers.set(service.process.pid, () => service.close());
+    service.publish("session.next.step.ended", {
+      assistantMessageID: "msg_unsupported",
+      finish: "cancelled",
+    });
+    service.active = false;
+
+    await waitForTurn(runtime, 1);
+    expect(runtime).toContainEqual({
+      kind: "error",
+      code: "opencode.unsupported_finish",
+      message: "OpenCode reported an unsupported final step outcome",
+    });
+    await lane.stop({ reason: "test", forceAfterMs: 0 });
+  });
+
   it("accounts tool-call and terminal durable steps once across frontier replay", async () => {
     const lane = makeLane();
     const { runtime } = collectEvents(lane);

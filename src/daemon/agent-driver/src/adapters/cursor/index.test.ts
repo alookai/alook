@@ -454,6 +454,30 @@ describe("CursorDriver persistent ACP transport", () => {
     expect(events.filter((event) => event.kind === "turn_end")).toHaveLength(1);
   });
 
+  it.each([
+    { name: "missing", error: { message: "missing code" } },
+    { name: "unsafe integer", error: { code: Number.MAX_SAFE_INTEGER + 1, message: "unsafe code" } },
+  ])("uses cursor.rpc_error for a prompt RPC error with a $name code", async ({ error }) => {
+    const server = installServer();
+    const lane = await new CursorDriver().openLane(baseCtx());
+    const events = eventsFrom(lane);
+    await lane.start({ text: "root" });
+    const process = spawned[0]!;
+
+    process.stdout.write(`${JSON.stringify({
+      jsonrpc: "2.0",
+      id: server.prompts[0]!.id,
+      error,
+    })}\n`);
+    await settle();
+
+    expect(events.filter((event) => event.kind === "error")).toEqual([{
+      kind: "error",
+      code: "cursor.rpc_error",
+      message: error.message,
+    }]);
+  });
+
   it("loads an ACP session without a fresh fallback and returns reset_required for an old incompatible id", async () => {
     killEmitsExit = true;
     const server = installServer({ sessionId: "legacy-print-id", loadError: "Session not found" });
