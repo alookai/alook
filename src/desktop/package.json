@@ -1,6 +1,6 @@
 {
   "name": "@alook/desktop",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "private": true,
   "scripts": {
     "dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
