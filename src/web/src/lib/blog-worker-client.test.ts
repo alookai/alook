@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { requestBlogDiscoveryManifest } from "./blog-worker-client";
+
+const mocks = vi.hoisted(() => ({ getCloudflareContext: vi.fn() }));
+
+vi.mock("@opennextjs/cloudflare", () => ({
+	getCloudflareContext: mocks.getCloudflareContext,
+}));
+
+import { getBlogDiscoveryManifest, requestBlogDiscoveryManifest } from "./blog-worker-client";
 
 const manifest = {
 	version: 1 as const,
@@ -37,5 +44,16 @@ describe("Blog discovery RPC client", () => {
 			required: true,
 			timeoutMs: 1,
 		})).rejects.toThrow("timed out");
+	});
+
+	it("reads the binding and required mode from the Cloudflare context", async () => {
+		const getDiscoveryManifest = vi.fn().mockResolvedValue(manifest);
+		mocks.getCloudflareContext.mockResolvedValue({
+			env: { BLOG_WORKER: { getDiscoveryManifest }, BLOG_DISCOVERY_REQUIRED: "true" },
+		});
+
+		await expect(getBlogDiscoveryManifest()).resolves.toEqual(manifest);
+		expect(mocks.getCloudflareContext).toHaveBeenCalledWith({ async: true });
+		expect(getDiscoveryManifest).toHaveBeenCalledOnce();
 	});
 });

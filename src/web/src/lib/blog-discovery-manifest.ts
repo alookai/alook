@@ -42,11 +42,6 @@ function requiredString(value: unknown, field: string): string {
 	return value;
 }
 
-function optionalString(value: unknown, field: string): string | undefined {
-	if (value === undefined) return undefined;
-	return requiredString(value, field);
-}
-
 function isoDate(value: unknown, field: string): string {
 	const date = requiredString(value, field);
 	if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -127,7 +122,7 @@ export function parseBlogDiscoveryManifest(
 			excerpt: requiredString(rawPost.excerpt, `posts[${index}].excerpt`),
 			...(rawPost.agentSummary === undefined
 				? {}
-				: { agentSummary: optionalString(rawPost.agentSummary, `posts[${index}].agentSummary`) }),
+				: { agentSummary: requiredString(rawPost.agentSummary, `posts[${index}].agentSummary`) }),
 		};
 	});
 

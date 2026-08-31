@@ -24,11 +24,14 @@ describe("Blog discovery manifest", () => {
 	});
 
 	it.each([
+		[{ version: 1, posts: "invalid" }, "posts"],
 		[{ version: 2, posts: [] }, "version"],
 		[{ version: 1, posts: [], extra: true }, "shape"],
 		[{ version: 1, posts: [{ ...post, draft: true }] }, "shape"],
 		[{ version: 1, posts: [{ ...post, slug: "Bad Slug" }] }, "slug"],
+		[{ version: 1, posts: [{ ...post, date: "06/01/2026" }] }, "YYYY-MM-DD"],
 		[{ version: 1, posts: [{ ...post, date: "2026-02-30" }] }, "date"],
+		[{ version: 1, posts: [{ ...post, dateModified: "2026-05-14" }] }, "dateModified before date"],
 		[{ version: 1, posts: [{ ...post, title: "" }] }, "non-empty"],
 	])("rejects invalid payload %j", (value, message) => {
 		expect(() => parseBlogDiscoveryManifest(value)).toThrow(message);
@@ -42,5 +45,9 @@ describe("Blog discovery manifest", () => {
 	it("rejects payloads over 256 KiB", () => {
 		const value = { version: 1, posts: [{ ...post, excerpt: "x".repeat(BLOG_DISCOVERY_MANIFEST_MAX_BYTES) }] };
 		expect(() => parseBlogDiscoveryManifest(value)).toThrow("exceeds 256 KiB");
+	});
+
+	it("rejects a value that JSON cannot serialize", () => {
+		expect(() => parseBlogDiscoveryManifest(undefined)).toThrow("not serializable");
 	});
 });

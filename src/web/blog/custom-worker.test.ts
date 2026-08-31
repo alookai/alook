@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const mocks = vi.hoisted(() => ({ openNextFetch: vi.fn() }));
+
 vi.mock("cloudflare:workers", () => ({
 	WorkerEntrypoint: class<Env> {
 		protected ctx: ExecutionContext;
@@ -12,12 +14,23 @@ vi.mock("cloudflare:workers", () => ({
 	},
 }));
 
+vi.mock("./.open-next/worker.js", () => ({
+	default: { fetch: mocks.openNextFetch },
+}));
+
 import BlogWorker from "./custom-worker";
 
 describe("Blog Worker entrypoint", () => {
 	let worker: BlogWorker;
 
 	beforeEach(() => {
+		mocks.openNextFetch.mockReset();
+		mocks.openNextFetch.mockImplementation(async (request: Request) => {
+			if (new URL(request.url).pathname === "/internal/blog-discovery") {
+				return Response.json({ version: 1, posts: [] });
+			}
+			return new Response("node-open-next", { headers: { "x-open-next": "node-stub" } });
+		});
 		worker = new BlogWorker({} as ExecutionContext, { ASSETS: {} as Fetcher });
 	});
 
@@ -34,5 +47,11 @@ describe("Blog Worker entrypoint", () => {
 
 	it("returns the active static manifest over RPC", async () => {
 		await expect(worker.getDiscoveryManifest()).resolves.toEqual({ version: 1, posts: [] });
+	});
+
+	it("fails when the internal discovery route is unavailable", async () => {
+		mocks.openNextFetch.mockResolvedValueOnce(new Response("missing", { status: 503 }));
+
+		await expect(worker.getDiscoveryManifest()).rejects.toThrow("returned 503");
 	});
 });

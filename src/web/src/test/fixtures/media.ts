@@ -44,7 +44,9 @@ export function solidPngFixture(
   return Buffer.concat([
     Buffer.from("89504e470d0a1a0a", "hex"),
     pngChunk("IHDR", header),
-    pngChunk("IDAT", deflateSync(pixels, { level: 9 })),
+    // Keep browser-E2E fixtures above the 512 KiB preview threshold. A highly
+    // compressed solid image skips the required-thumbnail path entirely.
+    pngChunk("IDAT", deflateSync(pixels, { level: 0 })),
     pngChunk("IEND", Buffer.alloc(0)),
   ])
 }

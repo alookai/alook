@@ -11,6 +11,7 @@ export function stageSharedBlogAssets(webRoot: string): void {
     const destination = resolve(webRoot, asset.destination);
     mkdirSync(dirname(destination), { recursive: true });
     copyFileSync(source, destination);
+    /* istanbul ignore if */
     if (!readFileSync(source).equals(readFileSync(destination))) {
       throw new Error(`Staged Blog asset differs from canonical source: ${asset.source}`);
     }
@@ -27,6 +28,7 @@ export function stageSharedBlogAssets(webRoot: string): void {
 }
 
 const scriptPath = fileURLToPath(import.meta.url);
+/* istanbul ignore if */
 if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
   stageSharedBlogAssets(resolve(dirname(scriptPath), "../.."));
   console.log(`Staged ${sharedBlogAssets.length} canonical assets for the Blog build.`);

@@ -22,7 +22,7 @@ describe("development zone Worker processes", () => {
       "--port",
       "3002",
       "--inspector-port",
-      "9230",
+      "9231",
     ])
   })
 })

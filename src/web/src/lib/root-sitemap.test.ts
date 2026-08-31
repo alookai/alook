@@ -86,4 +86,27 @@ describe("sitemap", () => {
     expect(urls).not.toContain("https://alook.ai/blog");
     expect(urls).toContain("https://alook.ai/privacy");
   });
+
+	it("includes an undated Blog index for an empty discovery manifest", () => {
+		const blog = buildRootSitemap({ version: 1, posts: [] })
+			.find((entry) => entry.url === "https://alook.ai/blog");
+
+		expect(blog).toEqual({
+			url: "https://alook.ai/blog",
+			changeFrequency: "weekly",
+			priority: 0.8,
+		});
+	});
+
+	it("serializes Date values and omits absent optional tags", () => {
+		const xml = serializeRootSitemap([{
+			url: "https://alook.ai/a&b",
+			lastModified: new Date("2026-08-31T00:00:00.000Z"),
+		}]);
+
+		expect(xml).toContain("<loc>https://alook.ai/a&amp;b</loc>");
+		expect(xml).toContain("<lastmod>2026-08-31T00:00:00.000Z</lastmod>");
+		expect(xml).not.toContain("<changefreq>");
+		expect(xml).not.toContain("<priority>");
+	});
 });

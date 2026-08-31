@@ -228,20 +228,28 @@ export async function waitForServicesReady(
 
 export function prepareServices(): void {
   if (!SINGLE_RUNTIME) return
-  const res = spawnSync(
-    "pnpm",
-    ["--filter", "@alook/web", "exec", "opennextjs-cloudflare", "build"],
+  const builds = [
     {
+      name: "web worker",
+      args: ["--filter", "@alook/web", "exec", "opennextjs-cloudflare", "build"],
+    },
+    {
+      name: "Blog worker",
+      args: ["--filter", "@alook/web", "build:blog"],
+    },
+  ]
+  for (const build of builds) {
+    const res = spawnSync("pnpm", build.args, {
       cwd: REPO_ROOT,
       stdio: "inherit",
       env: {
         ...process.env,
         NEXT_PUBLIC_WS_DO_PORT: String(portOf(WEB_URL) ?? 3000),
       },
-    },
-  )
-  if (res.status !== 0) {
-    throw new Error(`web worker build failed (exit ${res.status}, signal ${res.signal})`)
+    })
+    if (res.status !== 0) {
+      throw new Error(`${build.name} build failed (exit ${res.status}, signal ${res.signal})`)
+    }
   }
 }
 
@@ -284,6 +292,16 @@ function killPortOrphans(ports: number[]): void {
       .map((s) => Number(s.trim()))
       .filter((n) => Number.isInteger(n) && n > 0)
     for (const pid of pids) {
+      const cwd = spawnSync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], {
+        encoding: "utf8",
+      }).stdout
+        ?.split("\n")
+        .find((line) => line.startsWith("n"))
+        ?.slice(1)
+      if (!cwd || (cwd !== REPO_ROOT && !cwd.startsWith(`${REPO_ROOT}/`))) {
+        console.warn(`Skipping listener ${pid} on port ${port}: it is not owned by this worktree`)
+        continue
+      }
       try {
         process.kill(pid, "SIGTERM")
       } catch {
@@ -317,28 +335,24 @@ export function serviceDefinitions(singleRuntime: boolean): ServiceDefinition[] 
     ]
   }
 
-  const runtime = resolveE2EWranglerRuntime()
-  return [{
-    name: "web-ws-do",
-    command: runtime.command,
-    args: [
-      runtime.entry,
-      "dev",
-      "-c",
-      "src/web/wrangler.toml",
-      "-c",
-      "src/ws-do/wrangler.toml",
-      "--persist-to",
-      "src/web/.wrangler/state",
-      "--port",
-      String(portOf(WEB_URL) ?? 3000),
-      "--local",
-      "--show-interactive-dev-session=false",
-    ],
-    healthUrl: webHealth,
-    expectedStatus: 200,
-    expectedBody: { status: "ok" },
-  }]
+  return [
+    {
+      name: "web-zones",
+      command: "pnpm",
+      args: ["--filter", "@alook/web", "dev:zones:worker"],
+      healthUrl: webHealth,
+      expectedStatus: 200,
+      expectedBody: { status: "ok" },
+    },
+    {
+      name: "ws-do",
+      command: "pnpm",
+      args: ["--filter", "@alook/ws-do", "dev"],
+      healthUrl: "http://localhost:8789/health",
+      expectedStatus: 200,
+      expectedBody: { status: "ok" },
+    },
+  ]
 }
 
 function startService(definition: ServiceDefinition): ManagedService {
@@ -463,7 +477,9 @@ export async function startServices(): Promise<ManagedService[]> {
 
   // Starting fresh — clear any orphaned dev servers on our ports first so a
   // prior crashed run doesn't leave 3000/8789 occupied (or get reused).
-  const ports = (SINGLE_RUNTIME ? [portOf(WEB_URL)] : [portOf(WEB_URL), portOf(WS_URL)])
+  const ports = (SINGLE_RUNTIME
+    ? [portOf(WEB_URL), 3001, 3002, 8789]
+    : [portOf(WEB_URL), portOf(WS_URL)])
     .filter((p): p is number => p != null)
   killPortOrphans(ports)
   // Give the OS a moment to release the sockets before we bind them.

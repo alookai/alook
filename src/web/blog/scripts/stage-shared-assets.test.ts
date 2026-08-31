@@ -23,4 +23,18 @@ describe("stageSharedBlogAssets", () => {
 		expect(readFileSync(join(root, "blog/package.json"), "utf8"))
 			.toBe('{"name":"@alook/web"}');
 	});
+
+	it("rejects a nested package manifest that is not the canonical Web manifest", () => {
+		const root = mkdtempSync(join(tmpdir(), "alook-blog-assets-mismatch-"));
+		for (const [index, asset] of sharedBlogAssets.entries()) {
+			const source = join(root, asset.source);
+			mkdirSync(dirname(source), { recursive: true });
+			writeFileSync(source, Buffer.from(`asset-${index}`));
+		}
+		mkdirSync(join(root, "blog"), { recursive: true });
+		writeFileSync(join(root, "package.json"), '{"name":"@alook/web"}');
+		writeFileSync(join(root, "blog/package.json"), '{"name":"wrong"}');
+
+		expect(() => stageSharedBlogAssets(root)).toThrow("Nested Blog package pointer differs");
+	});
 });

@@ -1,6 +1,6 @@
 export const LOCAL_WORKER_ENDPOINTS = Object.freeze({
   main: Object.freeze({ port: 3001, inspectorPort: 9229 }),
-  blog: Object.freeze({ port: 3002, inspectorPort: 9230 }),
+  blog: Object.freeze({ port: 3002, inspectorPort: 9231 }),
 })
 
 export function workerDevArgs(configPath, endpoint) {

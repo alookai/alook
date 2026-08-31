@@ -223,9 +223,9 @@ test("image previews keep one frame through loading, decode, failure, retry, and
   expectWithinPreviewViewport(desktopLandscapeLoading.container, { width: 1280, height: 900 })
   await attachScreenshot(testInfo, "desktop-landscape-loading", page)
 
-  await page.setViewportSize({ width: 900, height: 700 })
+  await page.setViewportSize({ width: 700, height: 600 })
   const desktopLandscapeResized = await previewRects(page)
-  expectWithinPreviewViewport(desktopLandscapeResized.container, { width: 900, height: 700 })
+  expectWithinPreviewViewport(desktopLandscapeResized.container, { width: 700, height: 600 })
   expect(desktopLandscapeResized.container.width).toBeLessThan(desktopLandscapeLoading.container.width)
   await attachScreenshot(testInfo, "desktop-landscape-resized-loading", page)
   await page.setViewportSize({ width: 1280, height: 900 })

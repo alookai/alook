@@ -1,4 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, it, expect, vi } from "vitest";
 import { removeServiceBinding } from "../src/lib/wrangler-config";
 
 // Test the setVar logic directly (extracted for testability)
@@ -25,6 +28,32 @@ function setDevPort(content: string, port: number): string {
 }
 
 describe("wrangler-config", () => {
+	it("patches the self-hosted Web config to disable Blog discovery", async () => {
+		const root = mkdtempSync(join(tmpdir(), "alook-app-wrangler-"));
+		for (const service of ["web", "email-worker", "ws-do", "wake-worker"]) {
+			mkdirSync(join(root, service), { recursive: true });
+			writeFileSync(join(root, service, "wrangler.toml"), service === "web"
+				? `name = "web"
+[[services]]
+binding = "BLOG_WORKER"
+service = "alook-blog"
+
+[vars]
+BLOG_DISCOVERY_REQUIRED = "true"
+`
+				: `name = "${service}"\n`);
+		}
+
+		vi.resetModules();
+		vi.doMock("../src/lib/constants.js", () => ({ SELF_HOSTED_DIR: root }));
+		const { patchWranglerConfigs } = await import("../src/lib/wrangler-config.js");
+		patchWranglerConfigs({ web: 3000, emailWorker: 8788, wsDo: 8789, wakeWorker: 8790 });
+
+		const web = readFileSync(join(root, "web/wrangler.toml"), "utf8");
+		expect(web).toContain('BLOG_DISCOVERY_REQUIRED = "false"');
+		expect(web).not.toContain('binding = "BLOG_WORKER"');
+	});
+
   describe("removeServiceBinding", () => {
     it("removes only the Blog service binding for self-hosting", () => {
       const content = `name = "web"
