@@ -1,3 +1,9 @@
 @import "../../../src/app/globals.css";
 @source "../**/*.{ts,tsx,mdx}";
-@source "../../../../src/components/{public-layout,error-content,not-found-content,theme-provider,theme-toggle,theme-color-sync,typewriter-visual}.tsx";
+@source "../../../src/components/public-layout.tsx";
+@source "../../../src/components/error-content.tsx";
+@source "../../../src/components/not-found-content.tsx";
+@source "../../../src/components/theme-provider.tsx";
+@source "../../../src/components/theme-toggle.tsx";
+@source "../../../src/components/theme-color-sync.tsx";
+@source "../../../src/components/typewriter-visual.tsx";
