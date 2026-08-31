@@ -6,7 +6,6 @@ const mockUnmarkMessage = vi.fn()
 const mockIsMessageMarked = vi.fn()
 const mockGetMessage = vi.fn()
 const mockRequireMessageSurfaceAccess = vi.fn()
-const mockResolveMessageRefForBot = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -33,24 +32,6 @@ vi.mock("@alook/shared", async () => {
 
 vi.mock("@/lib/community/permissions", () => ({
   requireMessageSurfaceAccess: (...args: unknown[]) => mockRequireMessageSurfaceAccess(...args),
-}))
-
-vi.mock("@/lib/community/resolve-message-ref", () => ({
-  resolveMessageRefForBot: (...args: unknown[]) => mockResolveMessageRefForBot(...args),
-}))
-
-vi.mock("@/lib/middleware/community-actor", () => ({
-  withCommunityActor: vi.fn((handler: any) => async (req: any, ctx?: any) => {
-    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    const bot = req.headers.get("x-test-actor") === "bot"
-    return handler(req, {
-      env: { DB: {} },
-      actor: bot
-        ? { kind: "bot", userId: "bot_1", ownerUserId: "u1", machineId: "machine_1" }
-        : { kind: "human", userId: "u1", email: "u@t.com" },
-      params,
-    })
-  }),
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
@@ -83,11 +64,11 @@ function putReq(body: unknown) {
   })
 }
 
-function botReq(method: "PUT" | "DELETE", body: unknown) {
-  return new NextRequest("http://localhost/api/community/messages/resolve/marks", {
+function botReq(method: "PUT" | "DELETE") {
+  return new NextRequest("http://localhost/api/community/messages/m1/marks", {
     method,
-    headers: { "x-test-actor": "bot" },
-    body: JSON.stringify(body),
+    headers: { authorization: "Bearer crk_test" },
+    ...(method === "PUT" ? { body: JSON.stringify({ channelId: "c1" }) } : {}),
   })
 }
 
@@ -159,25 +140,9 @@ describe("PUT /api/community/messages/[id]/marks", () => {
     expect((await PUT(putReq({}), ctx)).status).toBe(400)
   })
 
-  it("bot set resolves a full ref with message-surface access and self-scopes the mark", async () => {
-    mockResolveMessageRefForBot.mockResolvedValue({ ok: true, messageId: "m42", channelId: "dm1" })
-    const body = { channel: "/.dm/peer#0001", seq: 42 }
-    const res = await PUT(botReq("PUT", body), { params: { id: "resolve" } })
-    expect(res.status).toBe(200)
-    expect(mockResolveMessageRefForBot).toHaveBeenCalledWith({}, "bot_1", body, {
-      requireSurfaceAccess: true,
-    })
-    expect(mockMarkMessage).toHaveBeenCalledWith({}, {
-      userId: "bot_1", channelId: "dm1", messageId: "m42",
-    })
-  })
-
-  it("bot set preserves an opaque access denial and writes nothing", async () => {
-    mockResolveMessageRefForBot.mockResolvedValue({ ok: false, status: 403, error: "blocked" })
-    const res = await PUT(botReq("PUT", { channel: "/.dm/peer#0001", seq: 42 }), {
-      params: { id: "resolve" },
-    })
-    expect(res.status).toBe(403)
+  it("keeps the standalone mark mutation door human-only", async () => {
+    const res = await PUT(botReq("PUT"), ctx)
+    expect(res.status).toBe(401)
     expect(mockMarkMessage).not.toHaveBeenCalled()
   })
 })
@@ -200,17 +165,10 @@ describe("DELETE /api/community/messages/[id]/marks", () => {
     expect(await res.json()).toEqual({ ok: true })
   })
 
-  it("bot remove uses the cleanup resolver without the surface-access gate and deletes only its own mark", async () => {
-    mockResolveMessageRefForBot.mockResolvedValue({ ok: true, messageId: "m42", channelId: "dm1" })
-    const body = { channel: "/.dm/peer#0001", seq: 42 }
-    const res = await DELETE(botReq("DELETE", body), { params: { id: "resolve" } })
-    expect(res.status).toBe(200)
-    expect(mockResolveMessageRefForBot).toHaveBeenCalledWith({}, "bot_1", body, {
-      requireSurfaceAccess: false,
-    })
-    expect(mockUnmarkMessage).toHaveBeenCalledWith({}, {
-      userId: "bot_1", messageId: "m42",
-    })
+  it("keeps the standalone unmark door human-only", async () => {
+    const res = await DELETE(botReq("DELETE"), ctx)
+    expect(res.status).toBe(401)
+    expect(mockUnmarkMessage).not.toHaveBeenCalled()
   })
 })
 

@@ -2522,9 +2522,12 @@ describe("deriveAuditLogSubcommand", () => {
     expect(deriveAuditLogSubcommand("/api/community/channels/resolve/messages", "GET")).toBe("read");
     expect(deriveAuditLogSubcommand("/api/community/channels/resolve/messages?ref=%2Fs%2Fg", "GET")).toBe("read");
     // message-keyed write doors.
+    expect(deriveAuditLogSubcommand("/api/community/messages/resolve/properties", "GET")).toBe("messagePropertyList");
+    expect(deriveAuditLogSubcommand("/api/community/messages/resolve/properties", "PUT")).toBe("messagePropertySet");
+    expect(deriveAuditLogSubcommand("/api/community/messages/resolve/properties", "DELETE")).toBe("messagePropertyRemove");
     expect(deriveAuditLogSubcommand("/api/community/messages/resolve/reactions/%F0%9F%91%8D", "PUT")).toBe("reactAdd");
-    expect(deriveAuditLogSubcommand("/api/community/messages/resolve/marks", "PUT")).toBe("markSet");
-    expect(deriveAuditLogSubcommand("/api/community/messages/resolve/marks", "DELETE")).toBe("markRemove");
+    expect(deriveAuditLogSubcommand("/api/community/messages/resolve/marks", "PUT")).toBe(null);
+    expect(deriveAuditLogSubcommand("/api/community/messages/resolve/marks", "DELETE")).toBe(null);
     expect(deriveAuditLogSubcommand("/api/community/users/me/marks", "GET")).toBe("markList");
     expect(deriveAuditLogSubcommand("/api/community/messages/m1/marks", "GET")).toBe(null);
     // seq→id lookup (folded resolve).

@@ -4,6 +4,7 @@ import { NextRequest } from "next/server"
 const mockGetMessage = vi.fn()
 const mockGetThread = vi.fn()
 const mockReplaceTags = vi.fn()
+const mockListTags = vi.fn()
 const mockRequireChannelAccess = vi.fn()
 const mockFanOutToChannel = vi.fn()
 
@@ -19,6 +20,7 @@ vi.mock("@alook/shared", async () => {
       communityMessageTag: {
         ...actual.queries.communityMessageTag,
         replaceMessageTags: (...args: unknown[]) => mockReplaceTags(...args),
+        listTagsForMessage: (...args: unknown[]) => mockListTags(...args),
       },
     },
   }
@@ -65,6 +67,7 @@ describe("PUT /api/community/messages/[id]/tags", () => {
       value: { channel: { id: "forum1", type: "forum" }, member: { role: "member" } },
     })
     mockGetThread.mockResolvedValue({ id: "thread1", type: "thread", parentMessageId: "m1" })
+    mockListTags.mockResolvedValue([])
     mockFanOutToChannel.mockResolvedValue(undefined)
   })
 
@@ -122,5 +125,16 @@ describe("PUT /api/community/messages/[id]/tags", () => {
       channelId: "thread1",
       changes: { tags },
     })
+  })
+
+  it("does not write or fan out when the normalized set is unchanged", async () => {
+    mockListTags.mockResolvedValue(["new", "keep"])
+
+    const res = await PUT(request([" Keep ", "NEW"]), ctx)
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ tags: ["keep", "new"] })
+    expect(mockReplaceTags).not.toHaveBeenCalled()
+    expect(mockFanOutToChannel).not.toHaveBeenCalled()
   })
 })

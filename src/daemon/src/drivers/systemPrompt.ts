@@ -115,11 +115,9 @@ function cliCommandsSection(): string {
       `returns an id stable across pending→persisted.`,
     `4. \`${CLI} message attachment download --id <id> [--out <path>]\` — download any ` +
       `attachment you can see (or your own pending uploads).`,
-    `5. \`${CLI} message emoji --target <ref> --emoji <e>\` — react with a single emoji. ` +
-      `Works on channel messages (\`/<server>/<channel>#N\`), DM messages ` +
-      `(\`/.dm/<peer>#N\`), and thread-reply messages (\`/<server>/<channel>/#N#M\`).`,
-    `6. \`${CLI} message mark set --target <full-message-ref>\` — persist a message as outstanding work.`,
-    `7. \`${CLI} message mark remove --target <full-message-ref>\` — clear a completed message mark.`,
+    `5. \`${CLI} message property set --target <full-message-ref> --json <json>\` — add a supported property value to a message.`,
+    `6. \`${CLI} message property list --target <full-message-ref>\` — list the message's current properties and supported capabilities.`,
+    `7. \`${CLI} message property remove --target <full-message-ref> --json <json>\` — remove a supported property value from a message.`,
     `8. \`${CLI} message mark list\` — list every currently visible marked message with its full content.`,
     "",
     "### Servers",
@@ -209,6 +207,26 @@ function messagingSection(): string {
     "Reply where the message came from. Post results in the channel that owns the topic. " +
       "When uncertain, read history (below) or DM the relevant people.",
     "Write every message body in the stdin/heredoc block; never place it directly on the command line.",
+    "",
+    "### Message properties",
+    "",
+    `Message properties are capabilities determined by the target message's channel type. \`${CLI} ` +
+      "message property list --target <full-message-ref>` returns its current values and supported `capabilities`.",
+    "",
+    `- \`emoji\` works on text-channel, DM, and thread messages. Set or remove your own reaction with ` +
+      `\`{"type":"emoji","value":"👍"}\`; \`list\` shows everyone who reacted. Add: ` +
+      `\`${CLI} message property set --target <full-message-ref> --json '{"type":"emoji","value":"👍"}'\`.`,
+    `- \`tag\` works on forum opener messages. Set or remove named tags with ` +
+      `\`{"type":"tag","value":["bug","ready"]}\`. A forum reply is a thread message, so it ` +
+      `supports \`emoji\`, not \`tag\`. Add: \`${CLI} message property set --target ` +
+      `<full-message-ref> --json '{"type":"tag","value":["bug"]}'\`.`,
+      `- \`mark\` works on every message. Mark outstanding work with \`{"type":"mark","value":true}\`: ` +
+      `\`${CLI} message property set --target <full-message-ref> --json ` +
+      `'{"type":"mark","value":true}'\`. Clear it with the same JSON through ` +
+      `\`message property remove\`. Use \`${CLI} message mark list\` for the one-shot global view ` +
+      `of all currently visible marked messages.`,
+    "- `archived` is a reserved tag meaning the forum post is complete. Setting it hides the " +
+      "post from the normal forum feed; removing it reopens the post.",
     "",
     "### Context refs",
     "",
@@ -481,11 +499,13 @@ function workspaceMemorySection(config: HostLaunchConfig): string {
     "### Outstanding work marks",
     "",
     "Marks are the durable work queue. If a message requires work beyond an immediate reply, " +
-      `acknowledge it, then run \`${CLI} message mark set --target <full-message-ref>\` before ` +
+      `acknowledge it, then run \`${CLI} message property set --target <full-message-ref> ` +
+      `--json '{"type":"mark","value":true}'\` before ` +
       "starting or queuing. Do not mark a message you answer immediately.",
     "",
     "Keep it marked while the work is active, queued, or blocked; report blockers where the task " +
-      `came from. Run \`${CLI} message mark remove --target <full-message-ref>\` only after ` +
+      `came from. Run \`${CLI} message property remove --target <full-message-ref> ` +
+      `--json '{"type":"mark","value":true}'\` only after ` +
       "sending the result, or when the request is cancelled or superseded and nothing remains.",
     "",
     "If `inbox pull` returns a `markedReminder`, run " +

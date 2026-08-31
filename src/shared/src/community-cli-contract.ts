@@ -416,14 +416,35 @@ export type SendResponse =
     }
   | { state: "blocked"; reason: "unaligned"; unreadCount: number; latestSeq: Seq };
 
-export interface CommunityAgentReactAddResponse {
-  ok: true;
-  duplicate?: boolean;
-}
+export type MessagePropertyMutation =
+  | { type: "tag"; value: string[] }
+  | { type: "emoji"; value: string }
+  | { type: "mark"; value: true };
 
-export interface MessageMarkRequest {
+export interface MessagePropertyRequest {
   channel: ChannelRef;
   seq: Seq;
+  property: unknown;
+}
+
+export type MessagePropertyMutationResult = MessagePropertyMutation & {
+  changed: boolean;
+};
+
+export interface MessagePropertyEmojiEntry {
+  emoji: string;
+  actors: string[];
+  me: boolean;
+}
+
+export type MessagePropertyValue =
+  | { type: "tag"; value: string[] }
+  | { type: "emoji"; value: MessagePropertyEmojiEntry[] }
+  | { type: "mark"; value: boolean };
+
+export interface MessagePropertyListResult {
+  capabilities: Array<MessagePropertyMutation["type"]>;
+  properties: MessagePropertyValue[];
 }
 
 export interface MessageMarkListResponse {
@@ -652,12 +673,14 @@ export interface ServerApi {
   /** Update the authenticated account's public bio and/or avatar. */
   updateProfile(req: UpdateProfileRequest): Promise<UpdateProfileResult>;
 
-  /** React to a message with a single emoji. Duplicates are idempotent (`duplicate:true`, no fan-out). */
-  reactAdd(req: { channel: ChannelRef; seq: Seq; emoji: string }): Promise<CommunityAgentReactAddResponse>;
+  /** Add one supported property value to a message. */
+  messagePropertySet(req: MessagePropertyRequest): Promise<MessagePropertyMutationResult>;
 
-  markSet(req: MessageMarkRequest): Promise<void>;
+  /** List a message's property capabilities and current values. */
+  messagePropertyList(req: Omit<MessagePropertyRequest, "property">): Promise<MessagePropertyListResult>;
 
-  markRemove(req: MessageMarkRequest): Promise<void>;
+  /** Remove one supported property value from a message. */
+  messagePropertyRemove(req: MessagePropertyRequest): Promise<MessagePropertyMutationResult>;
 
   listMarks(req: { agentId: AgentId }): Promise<MessageMarkListResponse>;
 
@@ -892,7 +915,13 @@ export interface HostAgentActivity {
  * and appends to `community_bot_activity_event`.
  */
 export type BotAuditEventPayload =
-  | { kind: "cli_invocation"; payload: { subcommand: string } }
+  | {
+      kind: "cli_invocation";
+      payload: {
+        subcommand: string;
+        propertyType?: "emoji" | "tag" | "mark";
+      };
+    }
   | { kind: "tool_call"; payload: { name: string; target?: string } }
   | { kind: "thinking"; payload: { text: string; truncated: boolean; chars: number } }
   | {

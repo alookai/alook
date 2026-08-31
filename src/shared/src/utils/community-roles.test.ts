@@ -8,6 +8,8 @@ import {
   isStoredChannelType,
   channelVisibility,
   visibilityIsDmParticipant,
+  messagePropertyCapabilities,
+  supportsMessageProperty,
   type StoredChannelType,
 } from "./community-roles"
 
@@ -43,10 +45,10 @@ describe("isChannelType (creatable top-level types)", () => {
 describe("CHANNEL_TRAITS (B0 trait model)", () => {
   it("maps each stored channel type to its extracted trait values", () => {
     expect(CHANNEL_TRAITS).toEqual({
-      text: { addressing: "by-server-name", visibility: "own-roster", reach: "server-or-roster", creation: "reject-on-collision" },
-      forum: { addressing: "by-server-name", visibility: "own-roster", reach: "server-or-roster", creation: "reject-on-collision" },
-      thread: { addressing: "by-root-seq", visibility: "inherit-parent", reach: "participant-set", creation: "get-or-create" },
-      dm: { addressing: "by-peer-identity", visibility: "dm-participant", reach: "dm-pair", creation: "get-or-create" },
+      text: { addressing: "by-server-name", visibility: "own-roster", reach: "server-or-roster", creation: "reject-on-collision", messageProperties: ["emoji", "mark"] },
+      forum: { addressing: "by-server-name", visibility: "own-roster", reach: "server-or-roster", creation: "reject-on-collision", messageProperties: ["tag", "mark"] },
+      thread: { addressing: "by-root-seq", visibility: "inherit-parent", reach: "participant-set", creation: "get-or-create", messageProperties: ["emoji", "mark"] },
+      dm: { addressing: "by-peer-identity", visibility: "dm-participant", reach: "dm-pair", creation: "get-or-create", messageProperties: ["emoji", "mark"] },
     })
   })
 
@@ -63,6 +65,30 @@ describe("CHANNEL_TRAITS (B0 trait model)", () => {
     const types: StoredChannelType[] = ["text", "forum", "thread", "dm"]
     for (const t of types) expect(CHANNEL_TRAITS[t]).toBeDefined()
     expect(Object.keys(CHANNEL_TRAITS).sort()).toEqual([...types].sort())
+  })
+})
+
+describe("message property capability axis", () => {
+  it("maps forum openers to tags, chat surfaces to emoji, and every surface to marks", () => {
+    expect(messagePropertyCapabilities("forum")).toEqual(["tag", "mark"])
+    expect(messagePropertyCapabilities("text")).toEqual(["emoji", "mark"])
+    expect(messagePropertyCapabilities("thread")).toEqual(["emoji", "mark"])
+    expect(messagePropertyCapabilities("dm")).toEqual(["emoji", "mark"])
+  })
+
+  it("rejects properties outside a surface capability", () => {
+    expect(supportsMessageProperty("forum", "tag")).toBe(true)
+    expect(supportsMessageProperty("forum", "emoji")).toBe(false)
+    expect(supportsMessageProperty("thread", "emoji")).toBe(true)
+    expect(supportsMessageProperty("thread", "tag")).toBe(false)
+    expect(supportsMessageProperty("unknown", "emoji")).toBe(false)
+  })
+
+  it("exposes mark on every stored message surface", () => {
+    for (const type of ["text", "forum", "thread", "dm"] as const) {
+      expect(messagePropertyCapabilities(type)).toContain("mark")
+      expect(supportsMessageProperty(type, "mark")).toBe(true)
+    }
   })
 })
 

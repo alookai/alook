@@ -38,10 +38,11 @@ describe("rejectDmOnGenericChannelRoute", () => {
 })
 
 describe("requireReactableSurface", () => {
-  it("accepts every message-bearing surface incl. dm and forum (reacting in a DM is legit)", () => {
-    for (const t of ["text", "forum", "thread", "dm"]) {
+  it("accepts emoji-capable chat surfaces and rejects forum openers", () => {
+    for (const t of ["text", "thread", "dm"]) {
       expect(requireReactableSurface(t).ok).toBe(true)
     }
+    expect(requireReactableSurface("forum").ok).toBe(false)
   })
 })
 

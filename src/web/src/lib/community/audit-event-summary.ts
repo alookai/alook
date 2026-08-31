@@ -34,6 +34,9 @@ const ALOOK_COMMAND_BY_SUBCOMMAND: Record<string, string> = {
   read: "channel history",
   resolve: "channel history",
   reactAdd: "message emoji",
+  messagePropertySet: "message property set",
+  messagePropertyList: "message property list",
+  messagePropertyRemove: "message property remove",
   markSet: "message mark set",
   markRemove: "message mark remove",
   markList: "message mark list",
@@ -57,7 +60,13 @@ export function formatAlookAuditCommand(payload: unknown): string {
     ? payload.subcommand
     : null
   if (!subcommand) return "alook command"
-  return `alook ${ALOOK_COMMAND_BY_SUBCOMMAND[subcommand] ?? wordsFromCamelCase(subcommand)}`
+  const command = ALOOK_COMMAND_BY_SUBCOMMAND[subcommand] ?? wordsFromCamelCase(subcommand)
+  const propertyType = payload && typeof payload === "object" && "propertyType" in payload
+    && (payload.propertyType === "emoji" || payload.propertyType === "tag" || payload.propertyType === "mark")
+    && (subcommand === "messagePropertySet" || subcommand === "messagePropertyRemove")
+    ? payload.propertyType
+    : null
+  return `alook ${command}${propertyType ? ` ${propertyType}` : ""}`
 }
 
 export function formatAuditToolName(payload: unknown): string {

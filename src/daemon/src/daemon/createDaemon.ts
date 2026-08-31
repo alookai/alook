@@ -154,12 +154,13 @@ export function deriveAuditLogSubcommand(pathname: string, method?: string): str
   // shape. The messages door is dual-verb — GET is `read`, POST is `send` — so
   // it needs the method; the others are single-verb.
   const canonical = pathname.split("?")[0] ?? pathname;
-  if (/^\/api\/community\/messages\/[^/]+\/reactions\//.test(canonical)) return "reactAdd";
-  if (/^\/api\/community\/messages\/[^/]+\/marks$/.test(canonical)) {
-    if (method === "PUT") return "markSet";
-    if (method === "DELETE") return "markRemove";
+  if (/^\/api\/community\/messages\/[^/]+\/properties$/.test(canonical)) {
+    if (method === "GET") return "messagePropertyList";
+    if (method === "PUT") return "messagePropertySet";
+    if (method === "DELETE") return "messagePropertyRemove";
     return null;
   }
+  if (/^\/api\/community\/messages\/[^/]+\/reactions\//.test(canonical)) return "reactAdd";
   if (method === "GET" && /^\/api\/community\/users\/me\/marks$/.test(canonical)) return "markList";
   if (/^\/api\/community\/channels\/[^/]+\/messages\/seq\//.test(canonical)) return "resolve";
   if (/^\/api\/community\/channels\/[^/]+\/messages(\/|$)/.test(canonical)) {
@@ -483,7 +484,13 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   const emitBotAuditEvent = (
     agentId: string,
     event:
-      | { kind: "cli_invocation"; payload: { subcommand: string } }
+      | {
+          kind: "cli_invocation";
+          payload: {
+            subcommand: string;
+            propertyType?: "emoji" | "tag" | "mark";
+          };
+        }
       | { kind: "tool_call"; payload: { name: string; target?: string } }
       | { kind: "thinking"; payload: { text: string; truncated: boolean; chars: number } }
       | { kind: "session_reset"; payload: { trigger: "idle_timeout" } }
@@ -543,7 +550,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       reminderSchedulerRef?.arm(input) ?? { armed: false, reason: "reminder_scheduler_unavailable" },
     // Bot audit log — Producer B (authoritative for `alook <sub>`). Fires
     // ONLY on `verdict.ok === true`, before the upstream request is written.
-    onProxyRequest: (agentId, method, pathname) => {
+    onProxyRequest: (agentId, method, pathname, metadata) => {
       const subcommand = deriveAuditLogSubcommand(pathname, method);
       if (!subcommand) return;
       // Producer B: read the same audit context Producer A does so
@@ -552,7 +559,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       const context = managerRef?.auditContext(agentId);
       emitBotAuditEvent(agentId, {
         kind: "cli_invocation",
-        payload: { subcommand },
+        payload: { subcommand, ...(metadata ? { propertyType: metadata.propertyType } : {}) },
       }, context);
       // Typing pill fallback — see `emitImplicitTypingStopOnSend` docstring.
       emitImplicitTypingStopOnSend({

@@ -279,11 +279,10 @@ export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (method, pathname
   //      - PUT/DELETE messages/{id}/reactions/…   → send  (write, folds `reactAdd`)
   const isMessagesDoor = /\/channels\/[^/]+\/messages(\/|$|\?)/.test(pathname)
   if (isMessagesDoor) return method === "GET" ? "read" : "send";
+  if (/\/messages\/[^/]+\/properties(\/|$|\?)/.test(pathname)) {
+    return method === "GET" ? "read" : "send";
+  }
   if (/\/messages\/[^/]+\/reactions\//.test(pathname)) return "send";
-  if (
-    (method === "PUT" || method === "DELETE")
-    && /\/messages\/[^/]+\/marks(\/|$|\?)/.test(pathname)
-  ) return "send";
   if (method === "GET" && /\/users\/me\/marks(\/|$|\?)/.test(pathname)) return "read";
   // Single-message hydrate door GET messages/{id} (folds the `resolve` verb — a
   // read). Matched AFTER the message-keyed write doors above so their more
@@ -325,10 +324,15 @@ export interface CredentialProxyOptions {
    * failed/expired-voucher attempts (those short-circuit with a 401/403 and
    * MUST NOT be surfaced as bot activity). Purely observational: the daemon
    * uses this to emit a `cli_invocation` bot audit event derived from the
-   * pathname. Host-neutral by design — no bodies, no upstream response
-   * details.
+   * pathname. Property mutations may carry a validated type from the request
+   * query; bodies and upstream response details are never observed.
    */
-  onProxyRequest?: (agentId: string, method: string, pathname: string) => void;
+  onProxyRequest?: (
+    agentId: string,
+    method: string,
+    pathname: string,
+    metadata?: { propertyType: "emoji" | "tag" | "mark" },
+  ) => void;
   /** Consume an authenticated reminder arm request locally; never forwarded. */
   onMessageReminderArm?: (
     input: LocalMessageReminderArmInput,
@@ -393,6 +397,21 @@ function isCanonicalChannelScope(channel: string): boolean {
   } catch {
     return false;
   }
+}
+
+function propertyAuditMetadata(
+  method: string,
+  pathname: string,
+  requestUrl: string,
+): { propertyType: "emoji" | "tag" | "mark" } | undefined {
+  if (
+    (method !== "PUT" && method !== "DELETE")
+    || !/^\/api\/community\/messages\/[^/]+\/properties$/.test(pathname)
+  ) return undefined;
+  const type = new URL(requestUrl, "http://placeholder").searchParams.get("type");
+  return type === "emoji" || type === "tag" || type === "mark"
+    ? { propertyType: type }
+    : undefined;
 }
 
 function parseLocalMessageReminderBody(body: Buffer, agentId: string): LocalMessageReminderArmInput | null {
@@ -578,7 +597,10 @@ export async function startCredentialProxy(
 
     if (onProxyRequest) {
       try {
-        onProxyRequest(reg.agentId, req.method ?? "GET", pathname);
+        const method = req.method ?? "GET";
+        const metadata = propertyAuditMetadata(method, pathname, req.url ?? pathname);
+        if (metadata) onProxyRequest(reg.agentId, method, pathname, metadata);
+        else onProxyRequest(reg.agentId, method, pathname);
       } catch {
         // observational callback — never disrupt the proxy.
       }
