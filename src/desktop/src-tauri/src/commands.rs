@@ -564,6 +564,22 @@ pub fn show_main_window(app: &AppHandle) {
     }
 }
 
+#[cfg(desktop)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TrayMenuAction {
+    Show,
+    Quit,
+}
+
+#[cfg(desktop)]
+fn tray_menu_action(id: &str) -> Option<TrayMenuAction> {
+    match id {
+        "show" => Some(TrayMenuAction::Show),
+        "quit" => Some(TrayMenuAction::Quit),
+        _ => None,
+    }
+}
+
 // --- System tray ---
 #[cfg(desktop)]
 pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -601,15 +617,15 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .tooltip("Alook")
-        .on_menu_event(move |app, event| match event.id().as_ref() {
-            "show" => show_main_window(app),
-            "quit" => {
-                app.exit(0);
-            }
-            id => {
-                crate::updater::handle_menu_event(app, id);
-            }
-        })
+        .on_menu_event(
+            move |app, event| match tray_menu_action(event.id().as_ref()) {
+                Some(TrayMenuAction::Show) => show_main_window(app),
+                Some(TrayMenuAction::Quit) => {
+                    app.exit(0);
+                }
+                None => {}
+            },
+        )
         .on_tray_icon_event(|tray, event| {
             if let tauri::tray::TrayIconEvent::Click {
                 button: tauri::tray::MouseButton::Left,
@@ -683,6 +699,17 @@ mod tests {
             ]
         );
         assert!(release.cwd.is_none());
+    }
+
+    #[test]
+    fn tray_routes_only_tray_owned_actions() {
+        assert_eq!(tray_menu_action("show"), Some(TrayMenuAction::Show));
+        assert_eq!(tray_menu_action("quit"), Some(TrayMenuAction::Quit));
+        assert_eq!(
+            tray_menu_action(crate::updater::CHECK_FOR_UPDATES_MENU_ID),
+            None
+        );
+        assert_eq!(tray_menu_action("unknown"), None);
     }
 
     #[test]
