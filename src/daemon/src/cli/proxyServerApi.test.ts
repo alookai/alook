@@ -237,63 +237,40 @@ describe("createProxyServerApi — joinServer projection", () => {
   });
 });
 
-describe("createProxyServerApi — reactAdd (retargeted to the canonical reaction door)", () => {
-  it("PUTs the canonical reaction door with emoji-in-path + {channel,seq} body (no agentId)", async () => {
+describe("createProxyServerApi — message properties", () => {
+  it("uses the canonical properties resource for set/list/remove", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
       seen.push({ url, init });
-      // Canonical route returns the reaction ROW on a fresh add.
-      return jsonBody(JSON.stringify({ messageId: "m1", userId: "bot_1", emoji: "👍" }), { status: 200 });
+      if (init?.method === "GET") {
+        return jsonBody(JSON.stringify({ capabilities: ["emoji"], properties: [{ type: "emoji", value: [] }] }));
+      }
+      return jsonBody(JSON.stringify({ type: "emoji", value: "👍", changed: true }));
     });
     const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    const res = await api.reactAdd({ channel: "/demo#1234/general", seq: 42, emoji: "👍" });
-    // Lean contract projection at the proxy boundary: a fresh add → { ok: true }.
-    expect(res).toEqual({ ok: true });
-    expect(seen).toHaveLength(1);
-    // messageId is the `resolve` placeholder (bot holds ref+seq, not an id);
-    // emoji is the URL-encoded path segment.
-    expect(seen[0].url).toBe(
-      `http://proxy.test/api/community/messages/resolve/reactions/${encodeURIComponent("👍")}`,
-    );
-    expect(seen[0].init?.method).toBe("PUT");
-    const headers = seen[0].init?.headers as Record<string, string>;
-    expect(headers.authorization).toBe("Bearer vch_test");
-    const body = JSON.parse(String(seen[0].init?.body ?? "{}"));
-    // Only channel+seq travel in the body; emoji is the path segment.
-    expect(body).toEqual({ channel: "/demo#1234/general", seq: 42 });
-    expect(body.agentId).toBeUndefined();
-  });
+    const target = { channel: "/demo#1234/general", seq: 42 };
+    const property = { type: "emoji", value: "👍" };
+    await expect(api.messagePropertySet({ ...target, property })).resolves.toEqual({
+      type: "emoji", value: "👍", changed: true,
+    });
+    await expect(api.messagePropertyList(target)).resolves.toEqual({
+      capabilities: ["emoji"], properties: [{ type: "emoji", value: [] }],
+    });
+    await expect(api.messagePropertyRemove({ ...target, property })).resolves.toEqual({
+      type: "emoji", value: "👍", changed: true,
+    });
 
-  it("maps a duplicate reaction (route → { duplicate: true }) through to the lean contract", async () => {
-    const fetchImpl: FetchLike = vi.fn(async () =>
-      jsonBody(JSON.stringify({ ok: true, duplicate: true }), { status: 200 }),
-    );
-    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    const res = await api.reactAdd({ channel: "/demo#1234/general", seq: 42, emoji: "👍" });
-    expect(res).toEqual({ ok: true, duplicate: true });
+    expect(seen.map((call) => [call.url, call.init?.method])).toEqual([
+      ["http://proxy.test/api/community/messages/resolve/properties?type=emoji", "PUT"],
+      ["http://proxy.test/api/community/messages/resolve/properties?ref=%2Fdemo%231234%2Fgeneral&seq=42", "GET"],
+      ["http://proxy.test/api/community/messages/resolve/properties?type=emoji", "DELETE"],
+    ]);
+    expect(JSON.parse(String(seen[0].init?.body))).toEqual({ ...target, property });
+    expect(JSON.parse(String(seen[2].init?.body))).toEqual({ ...target, property });
   });
 });
 
 describe("createProxyServerApi — message marks", () => {
-  it("uses the canonical mark resource for set/remove and strips internal identity", async () => {
-    const seen: Array<{ url: string; init?: RequestInit }> = [];
-    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
-      seen.push({ url, init });
-      return jsonBody(JSON.stringify({ ok: true }), { status: 200 });
-    });
-    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
-    const target = { channel: "/demo#1234/general", seq: 42 };
-    await api.markSet(target);
-    await api.markRemove(target);
-
-    expect(seen.map((call) => [call.url, call.init?.method])).toEqual([
-      ["http://proxy.test/api/community/messages/resolve/marks", "PUT"],
-      ["http://proxy.test/api/community/messages/resolve/marks", "DELETE"],
-    ]);
-    expect(JSON.parse(String(seen[0].init?.body))).toEqual(target);
-    expect(JSON.parse(String(seen[1].init?.body))).toEqual(target);
-  });
-
   it("GETs the caller-scoped aggregate list without a body", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {

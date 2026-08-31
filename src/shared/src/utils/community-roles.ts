@@ -165,12 +165,14 @@ export type ReachTrait = "server-or-roster" | "participant-set" | "dm-pair"
 // createMessageWithThread, which doesn't go through this dispatch at all —
 // see create-channels.ts.)
 export type CreationTrait = "get-or-create" | "reject-on-collision"
+export type MessagePropertyType = "tag" | "emoji" | "mark"
 
 export type ChannelTraits = {
   addressing: AddressingTrait
   visibility: VisibilityTrait
   reach: ReachTrait
   creation: CreationTrait
+  messageProperties: readonly MessagePropertyType[]
 }
 
 // The single source of truth mapping each stored channel type to its trait
@@ -181,10 +183,21 @@ export type ChannelTraits = {
 // human-admin-only and a same-name create is REFUSED (409, 0 rows) by the
 // `idx_channel_server_name` unique index.
 export const CHANNEL_TRAITS: Record<StoredChannelType, ChannelTraits> = {
-  text: { addressing: "by-server-name", visibility: "own-roster", reach: "server-or-roster", creation: "reject-on-collision" },
-  forum: { addressing: "by-server-name", visibility: "own-roster", reach: "server-or-roster", creation: "reject-on-collision" },
-  thread: { addressing: "by-root-seq", visibility: "inherit-parent", reach: "participant-set", creation: "get-or-create" },
-  dm: { addressing: "by-peer-identity", visibility: "dm-participant", reach: "dm-pair", creation: "get-or-create" },
+  text: { addressing: "by-server-name", visibility: "own-roster", reach: "server-or-roster", creation: "reject-on-collision", messageProperties: ["emoji", "mark"] },
+  forum: { addressing: "by-server-name", visibility: "own-roster", reach: "server-or-roster", creation: "reject-on-collision", messageProperties: ["tag", "mark"] },
+  thread: { addressing: "by-root-seq", visibility: "inherit-parent", reach: "participant-set", creation: "get-or-create", messageProperties: ["emoji", "mark"] },
+  dm: { addressing: "by-peer-identity", visibility: "dm-participant", reach: "dm-pair", creation: "get-or-create", messageProperties: ["emoji", "mark"] },
+}
+
+export function messagePropertyCapabilities(t: StoredChannelType): readonly MessagePropertyType[] {
+  return CHANNEL_TRAITS[t].messageProperties
+}
+
+export function supportsMessageProperty(
+  t: string | null | undefined,
+  property: MessagePropertyType,
+): boolean {
+  return isStoredChannelType(t) && messagePropertyCapabilities(t).includes(property)
 }
 
 // ── reach axis (B2) — the SINGLE source for "who does a message here reach" ────

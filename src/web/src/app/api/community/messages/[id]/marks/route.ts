@@ -1,11 +1,9 @@
 import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
-import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
 import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
-import { resolveMessageRefForBot } from "@/lib/community/resolve-message-ref"
 
 /**
  * Message-keyed mark door (route/disc trunk 接口树统一, marks relocation, Melly
@@ -23,29 +21,13 @@ import { resolveMessageRefForBot } from "@/lib/community/resolve-message-ref"
 // Toggle-on: mark a message for the current user. Idempotent — a re-mark hits
 // UNIQUE(userId, messageId) and no-ops (markMessage uses onConflictDoNothing),
 // so the client can call it without a 409 dance.
-export const PUT = withCommunityActor(async (req: NextRequest, ctx) => {
+export const PUT = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
-  let body: { channelId?: string; channel?: string; seq?: number }
+  let body: { channelId?: string }
   try {
     body = await req.json()
   } catch {
     return writeError("invalid request body", 400)
-  }
-
-  if (ctx.actor.kind === "bot") {
-    const target = await resolveMessageRefForBot(
-      db,
-      ctx.actor.userId,
-      body,
-      { requireSurfaceAccess: true },
-    )
-    if (!target.ok) return writeError(target.error, target.status)
-    await queries.communityMessageMark.markMessage(db, {
-      userId: ctx.actor.userId,
-      channelId: target.channelId,
-      messageId: target.messageId,
-    })
-    return writeJSON({ ok: true })
   }
 
   const messageId = ctx.params?.id
@@ -54,7 +36,7 @@ export const PUT = withCommunityActor(async (req: NextRequest, ctx) => {
 
   // You can only mark a message you can see — gate on the channel's message
   // surface so a blocked DM cannot accept a new invisible mark.
-  const auth = await requireMessageSurfaceAccess(db, body.channelId, ctx.actor.userId)
+  const auth = await requireMessageSurfaceAccess(db, body.channelId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
   // The target message must belong to the channel the caller claims — prevents
@@ -65,7 +47,7 @@ export const PUT = withCommunityActor(async (req: NextRequest, ctx) => {
   }
 
   await queries.communityMessageMark.markMessage(db, {
-    userId: ctx.actor.userId,
+    userId: ctx.userId,
     channelId: body.channelId,
     messageId,
   })
@@ -76,29 +58,13 @@ export const PUT = withCommunityActor(async (req: NextRequest, ctx) => {
 // Toggle-off: unmark a message for the current user. Self-scoped — deletes only
 // ctx.userId's own row; another user's mark on the same message is untouched
 // (0-row no-op). Returns ok whether or not a row existed (idempotent).
-export const DELETE = withCommunityActor(async (req: NextRequest, ctx) => {
+export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
-  let messageId = ctx.params?.id
-  if (ctx.actor.kind === "bot") {
-    let body: unknown
-    try {
-      body = await req.json()
-    } catch {
-      return writeError("invalid request body", 400)
-    }
-    const target = await resolveMessageRefForBot(
-      db,
-      ctx.actor.userId,
-      body,
-      { requireSurfaceAccess: false },
-    )
-    if (!target.ok) return writeError(target.error, target.status)
-    messageId = target.messageId
-  }
+  const messageId = ctx.params?.id
   if (!messageId) return writeError("missing message id", 400)
 
   await queries.communityMessageMark.unmarkMessage(db, {
-    userId: ctx.actor.userId,
+    userId: ctx.userId,
     messageId,
   })
 

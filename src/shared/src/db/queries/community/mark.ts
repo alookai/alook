@@ -12,7 +12,7 @@ export async function markMessage(
   db: Database,
   data: { userId: string; channelId: string; messageId: string }
 ) {
-  await db
+  const [inserted] = await db
     .insert(communityMessageMark)
     .values({
       userId: data.userId,
@@ -21,7 +21,9 @@ export async function markMessage(
     })
     .onConflictDoNothing({
       target: [communityMessageMark.userId, communityMessageMark.messageId],
-    });
+    })
+    .returning();
+  return inserted ?? null;
 }
 
 // Self-scoped: only the marking user's own row is deletable. A DELETE targeting

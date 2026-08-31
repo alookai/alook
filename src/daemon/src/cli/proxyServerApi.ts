@@ -38,13 +38,10 @@ import type {
   ChannelGroup,
   ChannelMemberResult,
   ChannelRef,
-  CommunityAgentReactAddResponse,
-  MessageMarkRequest,
   MessageMarkListResponse,
   ServerMemberListResult,
   Page,
   Message,
-  Seq,
   Server,
   AgentId,
   FriendRequestResult,
@@ -79,6 +76,12 @@ export function proxyServerApiFromEnv(prefix = "ALOOK", env: NodeJS.ProcessEnv =
 export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
   const fetchImpl = config.fetchImpl ?? fetch;
   const base = config.proxyUrl.replace(/\/+$/, "");
+  const propertyAuditQuery = (property: unknown): string => {
+    if (!property || typeof property !== "object" || Array.isArray(property)) return "";
+    const type = (property as { type?: unknown }).type;
+    if (type !== "emoji" && type !== "tag" && type !== "mark") return "";
+    return `?type=${encodeURIComponent(type)}`;
+  };
 
   // Empty body + res.ok → undefined (204 / empty-200 like `ack`).
   // Empty body + !res.ok → structured "upstream ... non-JSON body" (the empty-500 class).
@@ -273,31 +276,54 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return parseJsonResponse<{ message: Message }>(res, "resolve");
   }
 
-  async function callReactAdd(
-    req: { channel: ChannelRef; seq: Seq; emoji: string },
-  ): Promise<CommunityAgentReactAddResponse> {
-    // Canonical reaction door: PUT messages/{id}/reactions/{emoji}. The bot
-    // holds a ref+seq (not a messageId), so it uses the `resolve` placeholder id
-    // and carries `{ channel, seq }` in the body; the door resolves ref+seq →
-    // messageId server-side (member-scoped → 404, ①-C). The emoji is a PATH
-    // segment (URL-encoded) — reactions are keyed by (message, emoji).
+  async function callMessagePropertySet(
+    req: Parameters<ServerApi["messagePropertySet"]>[0],
+  ): Promise<Awaited<ReturnType<ServerApi["messagePropertySet"]>>> {
     const res = await fetchImpl(
-      `${base}/api/community/messages/${REF_PLACEHOLDER_ID}/reactions/${encodeURIComponent(req.emoji)}`,
+      `${base}/api/community/messages/${REF_PLACEHOLDER_ID}/properties${propertyAuditQuery(req.property)}`,
       {
         method: "PUT",
         headers: {
           "content-type": "application/json",
           authorization: `Bearer ${config.voucher}`,
         },
-        body: JSON.stringify({ channel: req.channel, seq: req.seq }),
+        body: JSON.stringify(req),
       },
     );
-    // Response projection (Fork C, at the single proxy boundary): the canonical
-    // route returns the reaction ROW (or `{ ok, duplicate }` on a dup); the lean
-    // agent contract is `{ ok: true, duplicate? }`. A 200 with a `duplicate`
-    // flag maps straight through; any other 200 is a fresh add → `{ ok: true }`.
-    const body = await parseJsonResponse<{ duplicate?: boolean }>(res, "reactAdd");
-    return body?.duplicate ? { ok: true, duplicate: true } : { ok: true };
+    return parseJsonResponse(res, "messagePropertySet");
+  }
+
+  async function callMessagePropertyList(
+    req: Parameters<ServerApi["messagePropertyList"]>[0],
+  ): Promise<Awaited<ReturnType<ServerApi["messagePropertyList"]>>> {
+    const q = new URLSearchParams();
+    q.set("ref", req.channel);
+    q.set("seq", String(req.seq));
+    const res = await fetchImpl(
+      `${base}/api/community/messages/${REF_PLACEHOLDER_ID}/properties?${q.toString()}`,
+      {
+        method: "GET",
+        headers: { authorization: `Bearer ${config.voucher}` },
+      },
+    );
+    return parseJsonResponse(res, "messagePropertyList");
+  }
+
+  async function callMessagePropertyRemove(
+    req: Parameters<ServerApi["messagePropertyRemove"]>[0],
+  ): Promise<Awaited<ReturnType<ServerApi["messagePropertyRemove"]>>> {
+    const res = await fetchImpl(
+      `${base}/api/community/messages/${REF_PLACEHOLDER_ID}/properties${propertyAuditQuery(req.property)}`,
+      {
+        method: "DELETE",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${config.voucher}`,
+        },
+        body: JSON.stringify(req),
+      },
+    );
+    return parseJsonResponse(res, "messagePropertyRemove");
   }
 
   async function callListMembers(
@@ -386,30 +412,6 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
       body: JSON.stringify(wire),
     });
     return parseJsonResponse<InboxPullResponse>(res, "inboxPull");
-  }
-
-  async function callMarkSet(req: MessageMarkRequest): Promise<void> {
-    const res = await fetchImpl(`${base}/api/community/messages/resolve/marks`, {
-      method: "PUT",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${config.voucher}`,
-      },
-      body: JSON.stringify(req),
-    });
-    await parseJsonResponse<{ ok: true }>(res, "markSet");
-  }
-
-  async function callMarkRemove(req: MessageMarkRequest): Promise<void> {
-    const res = await fetchImpl(`${base}/api/community/messages/resolve/marks`, {
-      method: "DELETE",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${config.voucher}`,
-      },
-      body: JSON.stringify(req),
-    });
-    await parseJsonResponse<{ ok: true }>(res, "markRemove");
   }
 
   async function callListMarks(): Promise<MessageMarkListResponse> {
@@ -659,9 +661,9 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     attachmentUpload: callUpload,
     attachmentDownload: callDownload,
     updateProfile: callUpdateProfile,
-    reactAdd: callReactAdd,
-    markSet: callMarkSet,
-    markRemove: callMarkRemove,
+    messagePropertySet: callMessagePropertySet,
+    messagePropertyList: callMessagePropertyList,
+    messagePropertyRemove: callMessagePropertyRemove,
     listMarks: (_r: { agentId: AgentId }) => callListMarks(),
     friendRequest: callFriendRequest,
     listFriends: (_r: { agentId: AgentId }) => callListFriends(),

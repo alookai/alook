@@ -1,4 +1,9 @@
-import { isMessageBearingSurface, isThread, isDm } from "@alook/shared"
+import {
+  isMessageBearingSurface,
+  isThread,
+  isDm,
+  supportsMessageProperty,
+} from "@alook/shared"
 
 type GuardOk = { ok: true }
 type GuardErr = { ok: false; status: 400; error: string }
@@ -27,11 +32,11 @@ export function requireMessageBearingSurface(channelType: string | null | undefi
 }
 
 export function requireReactableSurface(channelType: string | null | undefined): WriteGuardResult {
-  if (isMessageBearingSurface(channelType)) return pass
+  if (supportsMessageProperty(channelType, "emoji")) return pass
   return {
     ok: false,
     status: 400,
-    error: "nothing to react to here",
+    error: "emoji reactions are not supported on this message surface",
   }
 }
 

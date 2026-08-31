@@ -36,6 +36,18 @@ describe("summarizeAuditEvent", () => {
     })).toBe("alook message attachment upload")
     expect(summarizeAuditEvent({
       kind: "cli_invocation",
+      payload: { subcommand: "messagePropertySet", propertyType: "mark" },
+    })).toBe("alook message property set mark")
+    expect(summarizeAuditEvent({
+      kind: "cli_invocation",
+      payload: { subcommand: "messagePropertyRemove", propertyType: "emoji" },
+    })).toBe("alook message property remove emoji")
+    expect(summarizeAuditEvent({
+      kind: "cli_invocation",
+      payload: { subcommand: "messagePropertySet", propertyType: "secret-target" },
+    })).toBe("alook message property set")
+    expect(summarizeAuditEvent({
+      kind: "cli_invocation",
       payload: { subcommand: "customCommand" },
     })).toBe("alook custom command")
     expect(summarizeAuditEvent({

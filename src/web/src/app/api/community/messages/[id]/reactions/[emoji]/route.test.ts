@@ -7,8 +7,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockGetMessage = vi.fn();
 const mockGetChannelType = vi.fn();
-const mockGetChannelForMember = vi.fn();
-const mockGetDM = vi.fn();
+const mockRequireSurfaceAccess = vi.fn();
 const mockAddReaction = vi.fn();
 const mockRemoveReaction = vi.fn();
 const mockFanOutToChannel = vi.fn();
@@ -36,8 +35,7 @@ vi.mock("@alook/shared", async () => {
 });
 
 vi.mock("@/lib/community/permissions", () => ({
-  requireChannelMember: (...a: unknown[]) => mockGetChannelForMember(...a),
-  requireDMAccess: (...a: unknown[]) => mockGetDM(...a),
+  requireMessageSurfaceAccess: (...a: unknown[]) => mockRequireSurfaceAccess(...a),
 }));
 
 vi.mock("@/lib/community/fanout", () => ({
@@ -98,26 +96,32 @@ describe("reactions [emoji] surface guard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetMessage.mockResolvedValue({ id: "m1", channelId: "c1" });
-    mockGetChannelForMember.mockResolvedValue({ ok: true, value: { id: "c1", serverId: "s1" } });
-    mockGetDM.mockResolvedValue({ ok: true });
+    mockRequireSurfaceAccess.mockResolvedValue({
+      ok: true,
+      value: { surface: "channel", channel: { id: "c1", serverId: "s1" } },
+    });
     mockAddReaction.mockResolvedValue({ messageId: "m1", userId: "u1", emoji: "👍" });
     mockRemoveReaction.mockResolvedValue(undefined);
     mockFanOutToChannel.mockResolvedValue(undefined);
     mockFanOutToDM.mockResolvedValue(undefined);
   });
 
-  it("PUT allows reacting on a forum top-level (phase2 forum≡thread write-guard reversal — forum is now a message-bearing surface)", async () => {
+  it("PUT rejects reacting on a forum opener because its property capability is tag", async () => {
     mockGetChannelType.mockResolvedValue("forum");
     const res = await PUT(req("PUT"), ctx);
-    expect(res.status).toBe(200);
-    expect(mockAddReaction).toHaveBeenCalled();
+    expect(res.status).toBe(400);
+    expect(mockAddReaction).not.toHaveBeenCalled();
   });
 
   it("PUT allows reacting in a DM (bearing surface, block-checked)", async () => {
     mockGetChannelType.mockResolvedValue("dm");
+    mockRequireSurfaceAccess.mockResolvedValue({
+      ok: true,
+      value: { surface: "dm", dm: { id: "c1" } },
+    });
     const res = await PUT(req("PUT"), ctx);
     expect(res.status).toBe(200);
-    expect(mockGetDM).toHaveBeenCalled();
+    expect(mockRequireSurfaceAccess).toHaveBeenCalled();
     expect(mockAddReaction).toHaveBeenCalled();
     expect(mockFanOutToDM).toHaveBeenCalled();
   });
@@ -130,15 +134,19 @@ describe("reactions [emoji] surface guard", () => {
     expect(mockFanOutToChannel).toHaveBeenCalled();
   });
 
-  it("DELETE (un-react) allows a forum top-level (phase2 forum≡thread write-guard reversal — forum is now a message-bearing surface)", async () => {
+  it("DELETE rejects reacting on a forum opener because its property capability is tag", async () => {
     mockGetChannelType.mockResolvedValue("forum");
     const res = await DELETE(req("DELETE"), ctx);
-    expect(res.status).toBe(204);
-    expect(mockRemoveReaction).toHaveBeenCalled();
+    expect(res.status).toBe(400);
+    expect(mockRemoveReaction).not.toHaveBeenCalled();
   });
 
   it("DELETE (un-react) works in a DM", async () => {
     mockGetChannelType.mockResolvedValue("dm");
+    mockRequireSurfaceAccess.mockResolvedValue({
+      ok: true,
+      value: { surface: "dm", dm: { id: "c1" } },
+    });
     const res = await DELETE(req("DELETE"), ctx);
     expect(res.status).toBe(204);
     expect(mockRemoveReaction).toHaveBeenCalled();

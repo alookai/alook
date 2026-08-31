@@ -27,7 +27,6 @@ import { armMessageReminderFromEnv, parseRemindAfter } from "./messageReminderCl
 import { parseInviteToken } from "@alook/shared/lib/invite-link";
 import {
   ALLOWED_ICON_MIME_TYPES,
-  MAX_EMOJI_BYTES,
   MAX_PROFILE_ABOUT_LENGTH,
   MAX_SERVER_ICON_SIZE_BYTES,
 } from "@alook/shared/constants/community";
@@ -240,7 +239,7 @@ function contentTypeFromFilename(filename: string): string {
  * server, but the RESPONSE was lost" shapes: an upstream 5xx wrapper, a body
  * that couldn't be read, or a network-level fetch failure. Callers must make a
  * committed-but-response-lost retry safe: sends/posts reuse one nonce, while
- * mark set/remove are database-idempotent.
+ * property set/remove mutations are database-idempotent.
  *
  * NOT transient (never retried here): business outcomes. `blocked`/unaligned is
  * a RETURN value (handled below, never thrown). 4xx business errors (bad
@@ -394,23 +393,42 @@ async function cmdMessageSend(opts: Record<string, unknown>, stdin: CliInputStre
   }
 }
 
-async function cmdMessageEmoji(opts: Record<string, unknown>): Promise<unknown> {
+function parseMessagePropertyJson(command: string, raw: unknown): unknown {
+  if (typeof raw !== "string") throw new CliError(`${command}: --json <json> is required`);
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new CliError(`${command}: --json must be valid JSON`);
+  }
+}
+
+async function cmdMessagePropertySet(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
   const target = opts.target as string;
-  const emoji = opts.emoji as string;
-  if (!target) throw new CliError("message emoji: --target <ref> is required (e.g. /demo#1234/general#42)");
-  if (!emoji) throw new CliError("message emoji: --emoji <string> is required");
+  if (!target) throw new CliError("message property set: --target <ref> is required");
+  const request = parseMessageTarget("message property set", target);
+  const property = parseMessagePropertyJson("message property set", opts.json);
+  const result = await withTransientMutationRetry(() => api.messagePropertySet({ ...request, property }));
+  return { target, ...result };
+}
 
-  const { channel, seq } = parseMessageTarget("message emoji", target);
+async function cmdMessagePropertyList(opts: Record<string, unknown>): Promise<unknown> {
+  const api = getApi();
+  const target = opts.target as string;
+  if (!target) throw new CliError("message property list: --target <ref> is required");
+  const request = parseMessageTarget("message property list", target);
+  const result = await api.messagePropertyList(request);
+  return { target, ...result };
+}
 
-  if (Buffer.byteLength(emoji, "utf8") > MAX_EMOJI_BYTES) {
-    const err = new CliError("emoji is too long");
-    (err as { hint?: string }).hint = "use a single emoji, not a phrase";
-    throw err;
-  }
-
-  const res = await api.reactAdd({ channel, seq, emoji });
-  return { target, emoji, duplicate: res.duplicate === true };
+async function cmdMessagePropertyRemove(opts: Record<string, unknown>): Promise<unknown> {
+  const api = getApi();
+  const target = opts.target as string;
+  if (!target) throw new CliError("message property remove: --target <ref> is required");
+  const request = parseMessageTarget("message property remove", target);
+  const property = parseMessagePropertyJson("message property remove", opts.json);
+  const result = await withTransientMutationRetry(() => api.messagePropertyRemove({ ...request, property }));
+  return { target, ...result };
 }
 
 function parseMessageTarget(command: string, target: string): { channel: string; seq: number } {
@@ -434,24 +452,6 @@ function parseMessageTarget(command: string, target: string): { channel: string;
       ? `/${parsed.server}/${parsed.channel}/#${parsed.threadRootSeq}`
       : `/${parsed.server}/${parsed.channel}`;
   return { channel, seq: parsed.seq };
-}
-
-async function cmdMessageMarkSet(opts: Record<string, unknown>): Promise<unknown> {
-  const api = getApi();
-  const target = opts.target as string;
-  if (!target) throw new CliError("message mark set: --target <ref> is required");
-  const request = parseMessageTarget("message mark set", target);
-  await withTransientMutationRetry(() => api.markSet(request));
-  return { target, marked: true };
-}
-
-async function cmdMessageMarkRemove(opts: Record<string, unknown>): Promise<unknown> {
-  const api = getApi();
-  const target = opts.target as string;
-  if (!target) throw new CliError("message mark remove: --target <ref> is required");
-  const request = parseMessageTarget("message mark remove", target);
-  await withTransientMutationRetry(() => api.markRemove(request));
-  return { target, marked: false };
 }
 
 async function cmdMessageMarkList(opts: Record<string, unknown>): Promise<unknown> {
@@ -787,44 +787,46 @@ function buildProgram(stdin: CliInputStream): Command {
       printEnvelope({ success: result });
     });
 
-  message
-    .command("emoji")
-    .description("react to a message with a single emoji")
-    .requiredOption("--target <ref>", "message ref (path-style, e.g. /demo#1234/general#42 or /.dm/peer#0007#42)")
-    .requiredOption("--emoji <string>", "single emoji character")
-    .exitOverride()
-    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
-    .action(async function (this: Command) {
-      const localOpts = this.opts();
-      const globalOpts = program.opts();
-      const result = await cmdMessageEmoji({ ...globalOpts, ...localOpts });
-      printEnvelope({ success: result });
-    });
+  const property = message.command("property").description("message property operations").exitOverride();
+  property.configureOutput({ writeOut: () => {}, writeErr: () => {} });
 
-  const mark = message.command("mark").description("durable message mark operations").exitOverride();
-  mark.configureOutput({ writeOut: () => {}, writeErr: () => {} });
-
-  mark
+  property
     .command("set")
-    .description("mark a message as outstanding work")
+    .description("add a supported property value to a message")
     .requiredOption("--target <ref>", "full message ref")
+    .requiredOption("--json <json>", "property JSON")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command) {
-      const result = await cmdMessageMarkSet({ ...program.opts(), ...this.opts() });
+      const result = await cmdMessagePropertySet({ ...program.opts(), ...this.opts() });
       printEnvelope({ success: result });
     });
 
-  mark
-    .command("remove")
-    .description("remove an outstanding-work mark")
+  property
+    .command("list")
+    .description("list current properties and supported capabilities")
     .requiredOption("--target <ref>", "full message ref")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command) {
-      const result = await cmdMessageMarkRemove({ ...program.opts(), ...this.opts() });
+      const result = await cmdMessagePropertyList({ ...program.opts(), ...this.opts() });
       printEnvelope({ success: result });
     });
+
+  property
+    .command("remove")
+    .description("remove a supported property value from a message")
+    .requiredOption("--target <ref>", "full message ref")
+    .requiredOption("--json <json>", "property JSON")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const result = await cmdMessagePropertyRemove({ ...program.opts(), ...this.opts() });
+      printEnvelope({ success: result });
+    });
+
+  const mark = message.command("mark").description("global durable-mark queries").exitOverride();
+  mark.configureOutput({ writeOut: () => {}, writeErr: () => {} });
 
   mark
     .command("list")

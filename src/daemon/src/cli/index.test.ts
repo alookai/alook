@@ -63,9 +63,9 @@ function stubApi(over: Partial<ServerApi> = {}): ServerApi {
     resolve: async () => null,
     listMembers: async () => ({ members: [], hasMore: false }),
     joinServer: async () => ({ server: { handle: "s#0042" } }),
-    reactAdd: async () => ({ ok: true, duplicate: false }),
-    markSet: async () => undefined,
-    markRemove: async () => undefined,
+    messagePropertySet: async () => ({ type: "emoji", value: "👍", changed: true }),
+    messagePropertyList: async () => ({ capabilities: ["emoji"], properties: [{ type: "emoji", value: [] }] }),
+    messagePropertyRemove: async () => ({ type: "emoji", value: "👍", changed: true }),
     listMarks: async () => ({ marked: [] }),
     friendRequest: async () => ({ friendshipId: "fr_1", status: "pending", hint: "Your owner needs to approve this request in DM." }),
     listFriends: async () => ({ accepted: [], pendingOutgoing: [], pendingIncoming: [] }),
@@ -214,8 +214,8 @@ describe("envelope contract", () => {
 
   it("prints only `error` on failure (with hint when available)", async () => {
     setApiForTesting(stubApi());
-    // Emoji ref without a seq → error carries a recovery hint
-    await main(["message", "emoji", "--target", "/s#0042/general", "--emoji", "👍"]);
+    // Property target without a seq → error carries a recovery hint
+    await main(["message", "property", "list", "--target", "/s#0042/general"]);
     const env = parseEnvelope(cap.lines());
     expect(typeof env.error).toBe("string");
     expect("success" in env).toBe(false);
@@ -1108,208 +1108,133 @@ describe("channel history", () => {
   });
 });
 
-describe("message emoji", () => {
-  it("channel ref — calls reactAdd with (channel, seq, emoji) and prints success envelope", async () => {
-    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
-    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
+describe("message property", () => {
+  it("set parses the full message ref and forwards parsed JSON without business filtering", async () => {
+    const messagePropertySet = vi.fn(async () => ({ type: "emoji" as const, value: "👍", changed: true }));
+    setApiForTesting(stubApi({ messagePropertySet }));
+    await main([
+      "message", "property", "set",
+      "--target", "/demo#0042/general/#5#42",
+      "--json", '{"type":"emoji","value":"👍","future":true}',
+    ]);
+    expect(messagePropertySet).toHaveBeenCalledWith({
+      channel: "/demo#0042/general/#5",
+      seq: 42,
+      property: { type: "emoji", value: "👍", future: true },
+    });
+    expect(parseEnvelope(cap.lines())).toEqual({
+      success: { target: "/demo#0042/general/#5#42", type: "emoji", value: "👍", changed: true },
+    });
+  });
+
+  it("list returns the server's capabilities and values with the original target", async () => {
+    const messagePropertyList = vi.fn(async () => ({
+      capabilities: ["tag" as const],
+      properties: [{ type: "tag" as const, value: ["bug"] }],
+    }));
+    setApiForTesting(stubApi({ messagePropertyList }));
+    await main(["message", "property", "list", "--target", "/demo#0042/ideas#7"]);
+    expect(messagePropertyList).toHaveBeenCalledWith({ channel: "/demo#0042/ideas", seq: 7 });
+    expect(parseEnvelope(cap.lines())).toEqual({
+      success: {
+        target: "/demo#0042/ideas#7",
+        capabilities: ["tag"],
+        properties: [{ type: "tag", value: ["bug"] }],
+      },
+    });
+  });
+
+  it("remove supports DM refs and preserves changed:false", async () => {
+    const messagePropertyRemove = vi.fn(async () => ({ type: "emoji" as const, value: "🙏", changed: false }));
+    setApiForTesting(stubApi({ messagePropertyRemove }));
+    await main([
+      "message", "property", "remove",
+      "--target", "/.dm/peer#0001#7",
+      "--json", '{"type":"emoji","value":"🙏"}',
+    ]);
+    expect(messagePropertyRemove).toHaveBeenCalledWith({
+      channel: "/.dm/peer#0001",
+      seq: 7,
+      property: { type: "emoji", value: "🙏" },
+    });
+    expect(parseEnvelope(cap.lines())).toEqual({
+      success: { target: "/.dm/peer#0001#7", type: "emoji", value: "🙏", changed: false },
+    });
+  });
+
+  it.each([
+    ["set", "messagePropertySet"],
+    ["remove", "messagePropertyRemove"],
+  ] as const)("uses message property %s for the universal mark", async (command, method) => {
+    const messagePropertySet = vi.fn(async () => ({ type: "mark" as const, value: true as const, changed: true }));
+    const messagePropertyRemove = vi.fn(async () => ({ type: "mark" as const, value: true as const, changed: true }));
+    setApiForTesting(stubApi({ messagePropertySet, messagePropertyRemove }));
+    const target = "/demo#0042/general#42";
+
+    await main([
+      "message", "property", command, "--target", target,
+      "--json", '{"type":"mark","value":true}',
+    ]);
+    const mutation = method === "messagePropertySet" ? messagePropertySet : messagePropertyRemove;
+    expect(mutation).toHaveBeenCalledWith({
+      channel: "/demo#0042/general",
+      seq: 42,
+      property: { type: "mark", value: true },
+    });
+    expect(parseEnvelope(cap.lines())).toEqual({
+      success: { target, type: "mark", value: true, changed: true },
+    });
+  });
+
+  it("rejects invalid JSON locally but leaves property shape validation to the server", async () => {
+    const messagePropertySet = vi.fn();
+    setApiForTesting(stubApi({ messagePropertySet }));
+    await main([
+      "message", "property", "set",
+      "--target", "/demo#0042/general#42",
+      "--json", "{bad",
+    ]);
+    expect(parseEnvelope(cap.lines()).error).toMatch(/valid JSON/);
+    expect(messagePropertySet).not.toHaveBeenCalled();
+  });
+
+  it("requires a message seq before calling the API", async () => {
+    const messagePropertyList = vi.fn();
+    setApiForTesting(stubApi({ messagePropertyList }));
+    await main(["message", "property", "list", "--target", "/demo#0042/general"]);
+    expect(parseEnvelope(cap.lines()).error).toMatch(/needs a ref with a seq/);
+    expect(messagePropertyList).not.toHaveBeenCalled();
+  });
+
+  it("surfaces server error hints unchanged", async () => {
+    setApiForTesting(stubApi({
+      messagePropertySet: async () => {
+        const error = new Error("property type 'tag' is not supported for thread messages");
+        (error as { hint?: string }).hint = "supported property types: emoji, mark";
+        throw error;
+      },
+    }));
+    await main([
+      "message", "property", "set",
+      "--target", "/demo#0042/general/#5#42",
+      "--json", '{"type":"tag","value":["bug"]}',
+    ]);
+    expect(parseEnvelope(cap.lines())).toEqual({
+      error: "property type 'tag' is not supported for thread messages",
+      hint: "supported property types: emoji, mark",
+    });
+  });
+
+  it("does not register the old message emoji command", async () => {
     await main(["message", "emoji", "--target", "/demo#0042/general#42", "--emoji", "👍"]);
-    expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/demo#0042/general", seq: 42, emoji: "👍" });
-    const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ success: { target: "/demo#0042/general#42", emoji: "👍", duplicate: false } });
-  });
-
-  it("DM ref — calls reactAdd with the DM channel + seq split out", async () => {
-    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
-    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/.dm/peer#0001#7", "--emoji", "🙏"]);
-    expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/.dm/peer#0001", seq: 7, emoji: "🙏" });
-  });
-
-  it("the old forum-post ref shape no longer parses (no-compat, phase2 forum≡thread) — errors before reactAdd", async () => {
-    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
-    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo#0042/ideas/my-post#4", "--emoji", "👍"]);
-    const env = parseEnvelope(cap.lines());
-    expect(env.error).toBeDefined();
-    expect(reactAddSpy).not.toHaveBeenCalled();
-  });
-
-  it("proxy error surfaces .hint alongside .error and reactAdd throws propagate", async () => {
-    setApiForTesting(
-      stubApi({
-        reactAdd: async () => {
-          const err = new Error("not a member of #general");
-          (err as { hint?: string }).hint = "join the channel first";
-          throw err;
-        },
-      }),
-    );
-    await main(["message", "emoji", "--target", "/demo#0042/general#42", "--emoji", "👍"]);
-    const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ error: "not a member of #general", hint: "join the channel first" });
-  });
-
-  it("thread scope ref without message seq → error, reactAdd never called", async () => {
-    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
-    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo#0042/general/#5", "--emoji", "👍"]);
-    const env = parseEnvelope(cap.lines());
-    expect(env.error).toMatch(/needs a ref with a seq/);
-    expect(env.hint).toMatch(/#N#M/);
-    expect(reactAddSpy).not.toHaveBeenCalled();
-  });
-
-  it("bare channel ref (no #N) → error envelope with seq hint, reactAdd never called", async () => {
-    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
-    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo#0042/general", "--emoji", "👍"]);
-    const env = parseEnvelope(cap.lines());
-    expect(env.error).toMatch(/needs a ref with a seq/);
-    expect(env.hint).toMatch(/#N/);
-    expect(reactAddSpy).not.toHaveBeenCalled();
-  });
-
-  it("missing --target → commander error, reactAdd never called", async () => {
-    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
-    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--emoji", "👍"]);
-    const env = parseEnvelope(cap.lines());
-    expect("error" in env).toBe(true);
-    expect(reactAddSpy).not.toHaveBeenCalled();
-  });
-
-  it("missing --emoji → commander error, reactAdd never called", async () => {
-    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
-    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo#0042/general#42"]);
-    const env = parseEnvelope(cap.lines());
-    expect("error" in env).toBe(true);
-    expect(reactAddSpy).not.toHaveBeenCalled();
-  });
-
-  it("oversize emoji → error envelope, reactAdd never called", async () => {
-    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
-    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    const big = "🎉".repeat(20);
-    await main(["message", "emoji", "--target", "/demo#0042/general#42", "--emoji", big]);
-    const env = parseEnvelope(cap.lines());
-    expect(env.error).toMatch(/too long/);
-    expect(env.hint).toMatch(/single emoji/);
-    expect(reactAddSpy).not.toHaveBeenCalled();
-  });
-
-  it("duplicate — envelope surfaces duplicate:true, exit code still 0", async () => {
-    setApiForTesting(stubApi({ reactAdd: async () => ({ ok: true as const, duplicate: true }) }));
-    const code = await main(["message", "emoji", "--target", "/demo#0042/general#42", "--emoji", "👍"]);
-    expect(code).toBe(0);
-    const env = parseEnvelope(cap.lines()) as { success: { duplicate: boolean } };
-    expect(env.success.duplicate).toBe(true);
-  });
-
-  it("thread-reply ref — calls reactAdd with thread-scope channel + seq split out", async () => {
-    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
-    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo#0042/general/#5#42", "--emoji", "👍"]);
-    expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/demo#0042/general/#5", seq: 42, emoji: "👍" });
-    const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ success: { target: "/demo#0042/general/#5#42", emoji: "👍", duplicate: false } });
-  });
-
-  it("thread ROOT via parent channel ref (regression) unchanged", async () => {
-    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
-    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    await main(["message", "emoji", "--target", "/demo#0042/general#5", "--emoji", "👀"]);
-    expect(reactAddSpy).toHaveBeenCalledWith({ channel: "/demo#0042/general", seq: 5, emoji: "👀" });
-  });
-
-  it("thread-reply oversize emoji still hits the local check before the wire", async () => {
-    const reactAddSpy = vi.fn(async () => ({ ok: true as const, duplicate: false }));
-    setApiForTesting(stubApi({ reactAdd: reactAddSpy }));
-    const big = "🎉".repeat(20);
-    await main(["message", "emoji", "--target", "/demo#0042/general/#5#42", "--emoji", big]);
-    const env = parseEnvelope(cap.lines());
-    expect(env.error).toMatch(/too long/);
-    expect(reactAddSpy).not.toHaveBeenCalled();
-  });
-
-  it("thread-reply duplicate — envelope surfaces duplicate:true", async () => {
-    setApiForTesting(stubApi({ reactAdd: async () => ({ ok: true as const, duplicate: true }) }));
-    await main(["message", "emoji", "--target", "/demo#0042/general/#5#42", "--emoji", "👍"]);
-    const env = parseEnvelope(cap.lines()) as { success: { duplicate: boolean } };
-    expect(env.success.duplicate).toBe(true);
+    expect(parseEnvelope(cap.lines()).error).toBeDefined();
   });
 });
 
 describe("message mark", () => {
-  it.each([
-    ["/demo#0042/general#42", "/demo#0042/general", 42],
-    ["/demo#0042/general/#5#7", "/demo#0042/general/#5", 7],
-    ["/.dm/peer#0001#9", "/.dm/peer#0001", 9],
-  ])("set parses %s and returns the confirmed envelope", async (target, channel, seq) => {
-    const markSet = vi.fn(async () => undefined);
-    setApiForTesting(stubApi({ markSet }));
-    await main(["message", "mark", "set", "--target", target]);
-    expect(markSet).toHaveBeenCalledWith({ channel, seq });
-    expect(parseEnvelope(cap.lines())).toEqual({ success: { target, marked: true } });
-  });
-
-  it("remove forwards the same canonical target and returns marked:false", async () => {
-    const markRemove = vi.fn(async () => undefined);
-    setApiForTesting(stubApi({ markRemove }));
-    await main(["message", "mark", "remove", "--target", "/demo#0042/general#42"]);
-    expect(markRemove).toHaveBeenCalledWith({ channel: "/demo#0042/general", seq: 42 });
-    expect(parseEnvelope(cap.lines())).toEqual({
-      success: { target: "/demo#0042/general#42", marked: false },
-    });
-  });
-
-  it.each([
-    ["set", "markSet", true],
-    ["remove", "markRemove", false],
-  ] as const)("%s retries one empty upstream 500 into one success envelope", async (command, method, marked) => {
-    const mutation = vi.fn()
-      .mockRejectedValueOnce(new Error(`upstream returned 500 with non-JSON body during ${method}`))
-      .mockResolvedValueOnce(undefined);
-    setApiForTesting(stubApi(method === "markSet" ? { markSet: mutation } : { markRemove: mutation }));
+  it.each(["set", "remove"])("does not expose standalone message mark %s", async (command) => {
     await main(["message", "mark", command, "--target", "/demo#0042/general#42"]);
-    expect(mutation).toHaveBeenCalledTimes(2);
-    expect(parseEnvelope(cap.lines())).toEqual({
-      success: { target: "/demo#0042/general#42", marked },
-    });
-  });
-
-  it.each([
-    ["set", "markSet"],
-    ["remove", "markRemove"],
-  ] as const)("%s does not retry a 400 business error", async (command, method) => {
-    const mutation = vi.fn(async () => {
-      throw new Error(`upstream returned 400 with non-JSON body during ${method}`);
-    });
-    setApiForTesting(stubApi(method === "markSet" ? { markSet: mutation } : { markRemove: mutation }));
-    await main(["message", "mark", command, "--target", "/demo#0042/general#42"]);
-    expect(mutation).toHaveBeenCalledOnce();
-    expect(parseEnvelope(cap.lines()).error).toContain("upstream returned 400");
-  });
-
-  it.each([
-    ["set", "markSet"],
-    ["remove", "markRemove"],
-  ] as const)("%s throws after the existing four-attempt 5xx cap", async (command, method) => {
-    const mutation = vi.fn(async () => {
-      throw new Error(`upstream returned 503 with non-JSON body during ${method}`);
-    });
-    setApiForTesting(stubApi(method === "markSet" ? { markSet: mutation } : { markRemove: mutation }));
-    await main(["message", "mark", command, "--target", "/demo#0042/general#42"]);
-    expect(mutation).toHaveBeenCalledTimes(4);
-    expect(parseEnvelope(cap.lines()).error).toContain("upstream returned 503");
-  });
-
-  it("rejects a target without a message seq locally", async () => {
-    const markSet = vi.fn(async () => undefined);
-    setApiForTesting(stubApi({ markSet }));
-    await main(["message", "mark", "set", "--target", "/demo#0042/general"]);
-    expect(parseEnvelope(cap.lines()).error).toContain("needs a ref with a seq");
-    expect(markSet).not.toHaveBeenCalled();
+    expect(parseEnvelope(cap.lines()).error).toBeDefined();
   });
 
   it("list returns all messages through the same local-time projection as inbox", async () => {

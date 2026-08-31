@@ -1,9 +1,6 @@
 import { queries } from "@alook/shared"
 import type { Database } from "@alook/shared"
-import {
-  requireChannelMember,
-  requireDMAccess,
-} from "@/lib/community/permissions"
+import { requireMessageSurfaceAccess } from "@/lib/community/permissions"
 import { requireReactableSurface } from "@/lib/community/channel-write-guard"
 
 type ReactionAccessScope =
@@ -27,13 +24,17 @@ export async function authorizeReaction(
   const message = await queries.communityMessage.getMessage(db, messageId)
   if (!message) return { ok: false, status: 404, error: "message not found" }
 
+  // Preserve the existing surface-specific no-access contract before exposing
+  // whether this message's channel supports emoji. In particular, a private
+  // forum must remain 403 to a non-member rather than leaking its type via 400.
+  const access = await requireMessageSurfaceAccess(db, message.channelId, userId)
+  if (!access.ok) return access
+
   const channelType = await queries.communityChannel.getChannelType(db, message.channelId)
   const reactable = requireReactableSurface(channelType)
   if (!reactable.ok) return reactable
 
-  if (channelType === "dm") {
-    const check = await requireDMAccess(db, message.channelId, userId)
-    if (!check.ok) return check
+  if (access.value.surface === "dm") {
     return {
       ok: true,
       channelId: message.channelId,
@@ -42,9 +43,7 @@ export async function authorizeReaction(
     }
   }
 
-  const check = await requireChannelMember(db, message.channelId, userId)
-  if (!check.ok) return check
-  const serverId = check.value.serverId
+  const serverId = access.value.channel.serverId
   if (!serverId) return { ok: false, status: 404, error: "channel not found" }
   return {
     ok: true,

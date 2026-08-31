@@ -2,15 +2,11 @@ import { NextRequest } from "next/server"
 import { withCommunityActor } from "@/lib/middleware/community-actor"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import {
-  queries,
-  isUniqueConstraintError,
-  MAX_EMOJI_BYTES,
-  WS_EVENTS,
-} from "@alook/shared"
-import { fanOutToChannel, fanOutToDM } from "@/lib/community/fanout"
 import { resolveMessageRefForBot } from "@/lib/community/resolve-message-ref"
-import { authorizeReaction } from "@/lib/community/reaction-access"
+import {
+  removeReactionForActor,
+  setReactionForActor,
+} from "@/lib/community/reaction-operations"
 
 // A bot addresses by ref-in-body (`{ channel, seq }`, the folded `reactAdd`
 // verb); the path `[id]` is then the `resolve` placeholder (a ref carries `/`
@@ -31,9 +27,6 @@ export const PUT = withCommunityActor(async (req: NextRequest, ctx) => {
   if (!rawEmoji) return writeError("missing params", 400)
 
   const emoji = decodeURIComponent(rawEmoji)
-  if (Buffer.byteLength(emoji, "utf8") > MAX_EMOJI_BYTES) {
-    return writeError("emoji too long", 400)
-  }
 
   const userId = ctx.actor.userId
   const db = getDb(ctx.env.DB)
@@ -64,36 +57,10 @@ export const PUT = withCommunityActor(async (req: NextRequest, ctx) => {
     return writeError("missing message id", 400)
   }
 
-  const access = await authorizeReaction(db, messageId, userId)
-  if (!access.ok) return writeError(access.error, access.status)
-
-  let reaction
-  try {
-    reaction = await queries.communityReaction.addReaction(db, {
-      messageId,
-      userId,
-      emoji,
-    })
-  } catch (e) {
-    if (isUniqueConstraintError(e)) return writeJSON({ ok: true, duplicate: true })
-    throw e
-  }
-
-  const event = {
-    type: WS_EVENTS.REACTION_ADD as typeof WS_EVENTS.REACTION_ADD,
-    messageId,
-    userId,
-    emoji,
-    channelId: access.channelId,
-  }
-
-  if (access.isDm) {
-    fanOutToDM(access.channelId, event)
-  } else {
-    fanOutToChannel(access.channelId, event)
-  }
-
-  return writeJSON(reaction)
+  const result = await setReactionForActor(db, { messageId, userId, emoji })
+  if (!result.ok) return writeError(result.error, result.status)
+  if (!result.value.changed) return writeJSON({ ok: true, duplicate: true })
+  return writeJSON(result.value.reaction)
 })
 
 export const DELETE = withCommunityActor(async (_req: NextRequest, ctx) => {
@@ -113,28 +80,8 @@ export const DELETE = withCommunityActor(async (_req: NextRequest, ctx) => {
 
   const userId = ctx.actor.userId
   const db = getDb(ctx.env.DB)
-  const access = await authorizeReaction(db, messageId, userId)
-  if (!access.ok) return writeError(access.error, access.status)
-
-  await queries.communityReaction.removeReaction(db, {
-    messageId,
-    userId,
-    emoji,
-  })
-
-  const event = {
-    type: WS_EVENTS.REACTION_REMOVE as typeof WS_EVENTS.REACTION_REMOVE,
-    messageId,
-    userId,
-    emoji,
-    channelId: access.channelId,
-  }
-
-  if (access.isDm) {
-    fanOutToDM(access.channelId, event)
-  } else {
-    fanOutToChannel(access.channelId, event)
-  }
+  const result = await removeReactionForActor(db, { messageId, userId, emoji })
+  if (!result.ok) return writeError(result.error, result.status)
 
   return new Response(null, { status: 204 })
 })

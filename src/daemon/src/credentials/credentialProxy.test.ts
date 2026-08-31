@@ -90,9 +90,15 @@ describe("DEFAULT_CAPABILITY_RESOLVER", () => {
     expect(DEFAULT_CAPABILITY_RESOLVER("PUT", "/api/community/messages/resolve/reactions/%F0%9F%91%8D")).toBe("send");
   });
 
-  it("maps only bot mark mutations to send and the aggregate list to read", () => {
-    expect(DEFAULT_CAPABILITY_RESOLVER("PUT", "/api/community/messages/resolve/marks")).toBe("send");
-    expect(DEFAULT_CAPABILITY_RESOLVER("DELETE", "/api/community/messages/resolve/marks")).toBe("send");
+  it("maps property reads to read and property mutations to send", () => {
+    expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/messages/resolve/properties?ref=x&seq=1")).toBe("read");
+    expect(DEFAULT_CAPABILITY_RESOLVER("PUT", "/api/community/messages/resolve/properties")).toBe("send");
+    expect(DEFAULT_CAPABILITY_RESOLVER("DELETE", "/api/community/messages/resolve/properties")).toBe("send");
+  });
+
+  it("keeps only the aggregate mark list as a standalone bot resource", () => {
+    expect(DEFAULT_CAPABILITY_RESOLVER("PUT", "/api/community/messages/resolve/marks")).toBeUndefined();
+    expect(DEFAULT_CAPABILITY_RESOLVER("DELETE", "/api/community/messages/resolve/marks")).toBeUndefined();
     expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/users/me/marks")).toBe("read");
     expect(DEFAULT_CAPABILITY_RESOLVER("GET", "/api/community/messages/m1/marks")).toBeUndefined();
   });
@@ -495,28 +501,43 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     expect(sightings).toEqual([{ agentId: "agent-1", method: "POST", pathname: "/api/community/channels/resolve/messages" }]);
   });
 
-  it("reports each canonical mark request exactly once for audit derivation", async () => {
+  it("reports validated property metadata and omits metadata for unknown types", async () => {
     const upstream = await startUpstream();
     upstreamClose = upstream.close;
-    const sightings: Array<{ agentId: string; method: string; pathname: string }> = [];
+    const sightings: Array<{
+      agentId: string;
+      method: string;
+      pathname: string;
+      metadata?: { propertyType: "emoji" | "tag" | "mark" };
+    }> = [];
     const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
     proxy = await startCredentialProxy(broker, {
-      onProxyRequest: (agentId, method, pathname) => sightings.push({ agentId, method, pathname }),
+      onProxyRequest: (agentId, method, pathname, metadata) => sightings.push({
+        agentId,
+        method,
+        pathname,
+        ...(metadata ? { metadata } : {}),
+      }),
     });
     const reg = broker.mint("agent-1", "l", ["send", "read"], REAL_KEY);
     const headers = { Authorization: `Bearer ${reg.voucher}`, "content-type": "application/json" };
 
-    await fetch(`${proxy.url}/api/community/messages/resolve/marks`, {
-      method: "PUT", headers, body: JSON.stringify({ channel: "/s/c", seq: 1 }),
+    const markBody = JSON.stringify({ channel: "/s/c", seq: 1, property: { type: "mark", value: true } });
+    await fetch(`${proxy.url}/api/community/messages/resolve/properties?type=mark`, {
+      method: "PUT", headers, body: markBody,
     });
-    await fetch(`${proxy.url}/api/community/messages/resolve/marks`, {
-      method: "DELETE", headers, body: JSON.stringify({ channel: "/s/c", seq: 1 }),
+    await fetch(`${proxy.url}/api/community/messages/resolve/properties?type=mark`, {
+      method: "DELETE", headers, body: markBody,
+    });
+    await fetch(`${proxy.url}/api/community/messages/resolve/properties?type=unknown`, {
+      method: "PUT", headers, body: markBody,
     });
     await fetch(`${proxy.url}/api/community/users/me/marks`, { method: "GET", headers });
 
     expect(sightings).toEqual([
-      { agentId: "agent-1", method: "PUT", pathname: "/api/community/messages/resolve/marks" },
-      { agentId: "agent-1", method: "DELETE", pathname: "/api/community/messages/resolve/marks" },
+      { agentId: "agent-1", method: "PUT", pathname: "/api/community/messages/resolve/properties", metadata: { propertyType: "mark" } },
+      { agentId: "agent-1", method: "DELETE", pathname: "/api/community/messages/resolve/properties", metadata: { propertyType: "mark" } },
+      { agentId: "agent-1", method: "PUT", pathname: "/api/community/messages/resolve/properties" },
       { agentId: "agent-1", method: "GET", pathname: "/api/community/users/me/marks" },
     ]);
   });
@@ -530,16 +551,16 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     const headers = { Authorization: `Bearer ${reg.voucher}`, "content-type": "application/json" };
     const body = JSON.stringify({ channel: "/s/c", seq: 42 });
 
-    await fetch(`${proxy.url}/api/community/messages/resolve/marks`, {
+    await fetch(`${proxy.url}/api/community/messages/resolve/properties`, {
       method: "DELETE",
       headers,
       body,
     });
-    await fetch(`${proxy.url}/api/community/messages/resolve/marks`, {
+    await fetch(`${proxy.url}/api/community/messages/resolve/properties`, {
       method: "DELETE",
       headers,
     });
-    await fetch(`${proxy.url}/api/community/messages/resolve/marks`, {
+    await fetch(`${proxy.url}/api/community/messages/resolve/properties`, {
       method: "PUT",
       headers,
       body,

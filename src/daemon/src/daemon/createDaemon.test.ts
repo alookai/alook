@@ -58,6 +58,12 @@ const credentialProxyHarness = vi.hoisted(() => ({
     ((agentId: string, messages: unknown[], observationToken?: unknown) => void) | undefined
   ),
   onInboxPullObservationError: undefined as ((failure: Record<string, unknown>) => void) | undefined,
+  onProxyRequest: undefined as ((
+    agentId: string,
+    method: string,
+    pathname: string,
+    metadata?: { propertyType: "emoji" | "tag" | "mark" },
+  ) => void) | undefined,
 }));
 
 const timelineRecorderHarness = vi.hoisted(() => ({
@@ -96,6 +102,7 @@ vi.mock("../credentials/index.js", async (importOriginal) => {
       credentialProxyHarness.onInboxPullObservationError = args[1]?.onInboxPullObservationError as
         | ((failure: Record<string, unknown>) => void)
         | undefined;
+      credentialProxyHarness.onProxyRequest = args[1]?.onProxyRequest;
       return actual.startCredentialProxy(...args);
     },
   };
@@ -109,6 +116,7 @@ afterEach(() => {
   credentialProxyHarness.onInboxPullStart = undefined;
   credentialProxyHarness.onInboxPullResponse = undefined;
   credentialProxyHarness.onInboxPullObservationError = undefined;
+  credentialProxyHarness.onProxyRequest = undefined;
   timelineRecorderHarness.pulls.splice(0);
   for (const dir of startupSweepDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
@@ -1363,6 +1371,44 @@ for await (const line of createInterface({ input: process.stdin })) {
     await daemon.stop();
   });
 
+  it("projects validated property metadata into the daemon audit event", async () => {
+    const sockets: FakeSocket[] = [];
+    const reportAudit = vi.spyOn(WsControlChannel.prototype, "reportBotAuditEvent");
+    const daemon = await createDaemon({
+      machineKey: "cmk_property_audit",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [],
+      driverFor: () => fakeDriver,
+      capabilities: [],
+    });
+
+    expect(credentialProxyHarness.onProxyRequest).toBeDefined();
+    credentialProxyHarness.onProxyRequest?.(
+      "bot_1",
+      "PUT",
+      "/api/community/messages/resolve/properties",
+      { propertyType: "mark" },
+    );
+    expect(reportAudit).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: "bot_1",
+      event: {
+        kind: "cli_invocation",
+        payload: { subcommand: "messagePropertySet", propertyType: "mark" },
+      },
+    }));
+
+    reportAudit.mockClear();
+    credentialProxyHarness.onProxyRequest?.(
+      "bot_1",
+      "POST",
+      "/api/community/messages/resolve/properties",
+    );
+    expect(reportAudit).not.toHaveBeenCalled();
+    await daemon.stop();
+  });
+
   it("wires inbox observation failures to one bounded redacted daemon warning", async () => {
     const sockets: FakeSocket[] = [];
     const logger = stubLogger();
@@ -2522,9 +2568,12 @@ describe("deriveAuditLogSubcommand", () => {
     expect(deriveAuditLogSubcommand("/api/community/channels/resolve/messages", "GET")).toBe("read");
     expect(deriveAuditLogSubcommand("/api/community/channels/resolve/messages?ref=%2Fs%2Fg", "GET")).toBe("read");
     // message-keyed write doors.
+    expect(deriveAuditLogSubcommand("/api/community/messages/resolve/properties", "GET")).toBe("messagePropertyList");
+    expect(deriveAuditLogSubcommand("/api/community/messages/resolve/properties", "PUT")).toBe("messagePropertySet");
+    expect(deriveAuditLogSubcommand("/api/community/messages/resolve/properties", "DELETE")).toBe("messagePropertyRemove");
     expect(deriveAuditLogSubcommand("/api/community/messages/resolve/reactions/%F0%9F%91%8D", "PUT")).toBe("reactAdd");
-    expect(deriveAuditLogSubcommand("/api/community/messages/resolve/marks", "PUT")).toBe("markSet");
-    expect(deriveAuditLogSubcommand("/api/community/messages/resolve/marks", "DELETE")).toBe("markRemove");
+    expect(deriveAuditLogSubcommand("/api/community/messages/resolve/marks", "PUT")).toBe(null);
+    expect(deriveAuditLogSubcommand("/api/community/messages/resolve/marks", "DELETE")).toBe(null);
     expect(deriveAuditLogSubcommand("/api/community/users/me/marks", "GET")).toBe("markList");
     expect(deriveAuditLogSubcommand("/api/community/messages/m1/marks", "GET")).toBe(null);
     // seq→id lookup (folded resolve).

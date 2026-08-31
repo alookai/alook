@@ -1415,13 +1415,13 @@ export type CommunityAgentNapRequest = z.infer<
   typeof CommunityAgentNapRequestSchema
 >;
 
-export const CommunityAgentReactAddRequestSchema = z.object({
+export const CommunityAgentMessagePropertyRequestSchema = z.object({
   channel: z.string().min(1),
   seq: CommunityAgentPositiveSeqSchema,
-  emoji: z.string().min(1),
+  property: z.unknown(),
 });
-export type CommunityAgentReactAddRequest = z.infer<
-  typeof CommunityAgentReactAddRequestSchema
+export type CommunityAgentMessagePropertyRequest = z.infer<
+  typeof CommunityAgentMessagePropertyRequestSchema
 >;
 
 // POST /api/community/friends/request — body `{ username: "name#0042" }`.
@@ -1472,6 +1472,7 @@ export type CommunityAgentListFriends = z.infer<
 
 export const AuditLogCliInvocationPayloadSchema = z.object({
   subcommand: z.string().min(1),
+  propertyType: z.enum(["emoji", "tag", "mark"]).optional(),
 });
 export const AuditLogToolCallPayloadSchema = z.object({
   name: z.string().min(1),
