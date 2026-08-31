@@ -43,13 +43,32 @@ export function prepareOpenNextStandalone(webRoot: string): void {
 
   const nestedTrace = resolve(nestedNext, relative(nextRoot, ogTrace))
   const logicalOgDirectory = resolve(webRoot, "blog/node_modules/next/dist/compiled/@vercel/og")
+  const ogPathMarker = "@vercel/og/"
+  const tracedOgPrefix = tracedNodePath.slice(
+    0,
+    tracedNodePath.indexOf(ogPathMarker) + ogPathMarker.length,
+  )
+  const tracedOgPaths = trace.files.filter((file) => file.startsWith(tracedOgPrefix))
   for (const fileName of ["index.edge.js", "yoga.wasm"]) {
-    const tracedPath = relative(dirname(ogTrace), resolve(logicalOgDirectory, fileName))
-    const standaloneSource = resolve(dirname(nestedTrace), tracedPath)
-    if (!existsSync(standaloneSource)) {
-      throw new Error(`Missing standalone @vercel/og runtime source: ${standaloneSource}`)
+    const tracedPath = `${tracedOgPrefix}${fileName}`
+    if (!tracedOgPaths.includes(tracedPath)) tracedOgPaths.push(tracedPath)
+  }
+
+  for (const tracedPath of tracedOgPaths) {
+    const logicalPath = relative(
+      dirname(ogTrace),
+      resolve(logicalOgDirectory, tracedPath.slice(tracedOgPrefix.length)),
+    )
+    const tracedSource = resolve(dirname(nestedTrace), tracedPath)
+    const logicalDestination = resolve(dirname(nestedTrace), logicalPath)
+    if (!existsSync(tracedSource)) {
+      throw new Error(`Missing traced standalone @vercel/og runtime source: ${tracedSource}`)
     }
-    if (!trace.files.includes(tracedPath)) trace.files.push(tracedPath)
+    if (!existsSync(logicalDestination)) {
+      mkdirSync(dirname(logicalDestination), { recursive: true })
+      copyFileSync(tracedSource, logicalDestination)
+    }
+    if (!trace.files.includes(logicalPath)) trace.files.push(logicalPath)
   }
   writeFileSync(ogTrace, JSON.stringify(trace))
 }

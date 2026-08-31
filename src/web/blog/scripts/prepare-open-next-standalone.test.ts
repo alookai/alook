@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join, relative } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import { prepareOpenNextStandalone } from "./prepare-open-next-standalone"
 
@@ -85,7 +85,7 @@ describe("prepareOpenNextStandalone", () => {
     writeFileSync(tracePath, JSON.stringify({ files: [relative(dirname(tracePath), originalNode)] }))
 
     expect(() => prepareOpenNextStandalone(root)).toThrow(
-      "Missing standalone @vercel/og runtime source",
+      "Missing traced standalone @vercel/og runtime source",
     )
   })
 
@@ -96,18 +96,26 @@ describe("prepareOpenNextStandalone", () => {
     const nestedNext = join(nextRoot, "standalone/src/web/blog/.next")
     const originalNode = join(root, "node_modules/next/dist/compiled/@vercel/og/index.node.js")
     const tracedNodePath = relative(dirname(tracePath), originalNode)
+    const tracedFontPath = tracedNodePath.replace("index.node.js", "fonts/Geist-Regular.ttf")
     const logicalOg = join(root, "blog/node_modules/next/dist/compiled/@vercel/og")
-    const standaloneOg = join(
+    const logicalStandaloneOg = join(
       nextRoot,
       "standalone/src/web/blog/node_modules/next/dist/compiled/@vercel/og",
     )
+    const nestedTrace = join(
+      nestedNext,
+      "server/app/og/blog/[slug]/route.js.nft.json",
+    )
+    const tracedStandaloneOg = dirname(resolve(dirname(nestedTrace), tracedNodePath))
 
     mkdirSync(join(nestedNext, "server"), { recursive: true })
     mkdirSync(dirname(tracePath), { recursive: true })
-    mkdirSync(standaloneOg, { recursive: true })
-    writeFileSync(tracePath, JSON.stringify({ files: [tracedNodePath] }))
-    writeFileSync(join(standaloneOg, "index.edge.js"), "edge-runtime")
-    writeFileSync(join(standaloneOg, "yoga.wasm"), "wasm-runtime")
+    mkdirSync(join(tracedStandaloneOg, "fonts"), { recursive: true })
+    writeFileSync(tracePath, JSON.stringify({ files: [tracedNodePath, tracedFontPath] }))
+    writeFileSync(join(tracedStandaloneOg, "index.node.js"), "node-runtime")
+    writeFileSync(join(tracedStandaloneOg, "index.edge.js"), "edge-runtime")
+    writeFileSync(join(tracedStandaloneOg, "yoga.wasm"), "wasm-runtime")
+    writeFileSync(join(tracedStandaloneOg, "fonts/Geist-Regular.ttf"), "font-runtime")
 
     prepareOpenNextStandalone(root)
     prepareOpenNextStandalone(root)
@@ -115,8 +123,17 @@ describe("prepareOpenNextStandalone", () => {
     const trace = JSON.parse(readFileSync(tracePath, "utf8")) as { files: string[] }
     expect(trace.files).toEqual([
       tracedNodePath,
+      tracedFontPath,
+      relative(dirname(tracePath), join(logicalOg, "index.node.js")),
+      relative(dirname(tracePath), join(logicalOg, "fonts/Geist-Regular.ttf")),
       relative(dirname(tracePath), join(logicalOg, "index.edge.js")),
       relative(dirname(tracePath), join(logicalOg, "yoga.wasm")),
     ])
+    expect(readFileSync(join(logicalStandaloneOg, "index.node.js"), "utf8")).toBe("node-runtime")
+    expect(readFileSync(join(logicalStandaloneOg, "index.edge.js"), "utf8")).toBe("edge-runtime")
+    expect(readFileSync(join(logicalStandaloneOg, "yoga.wasm"), "utf8")).toBe("wasm-runtime")
+    expect(readFileSync(join(logicalStandaloneOg, "fonts/Geist-Regular.ttf"), "utf8")).toBe(
+      "font-runtime",
+    )
   })
 })
