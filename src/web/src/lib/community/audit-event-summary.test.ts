@@ -33,7 +33,7 @@ describe("summarizeAuditEvent", () => {
     expect(summarizeAuditEvent({
       kind: "cli_invocation",
       payload: { subcommand: "inboxSnapshot" },
-    })).toBe("alook inbox snapshot")
+    })).toBe("alook inbox pull")
     expect(summarizeAuditEvent({
       kind: "cli_invocation",
       payload: { subcommand: "attachmentUpload" },
