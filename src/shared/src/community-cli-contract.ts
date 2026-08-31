@@ -527,6 +527,16 @@ export type ChannelMemberResult =
   | { visibility: "public"; hint: string }
   | { visibility: "private"; members: ServerMember[]; cursor?: string; hasMore: boolean };
 
+export type LeaveChannelResult = {
+  left: ChannelRef;
+  scope: "thread" | "channel";
+};
+
+export type LeaveServerResult = {
+  left: string;
+  scope: "server";
+};
+
 /**
  * A member's current status — activity pill or custom text — sourced from
  * `community_user_profile`. Structured (not a joined string) so the reader
@@ -631,6 +641,9 @@ export interface ServerApi {
    */
   channelMember(req: { agentId?: AgentId; channel: ChannelRef }): Promise<ChannelMemberResult>;
 
+  /** Leave one exact thread or private top-level channel/forum as the authenticated agent. */
+  leaveChannel(req: { agentId: AgentId; channel: ChannelRef }): Promise<LeaveChannelResult>;
+
   /** Drain unread messages for this agent (across all its servers), flat JSONL. */
   inboxPull(req: InboxPullRequest): Promise<InboxPullResponse>;
 
@@ -663,6 +676,9 @@ export interface ServerApi {
 
   /** Join a server via an invite link/token. Throws on any rejection — see plan's I/O contract. */
   joinServer(req: { agentId: AgentId; invite: string }): Promise<{ server: Server }>;
+
+  /** Leave one exact server as the authenticated agent. */
+  leaveServer(req: { agentId: AgentId; server: string }): Promise<LeaveServerResult>;
 
   /** Upload a local file as a pending attachment scoped to `target`. */
   attachmentUpload(req: AttachmentUploadRequest): Promise<AgentAttachmentUploadResult>;

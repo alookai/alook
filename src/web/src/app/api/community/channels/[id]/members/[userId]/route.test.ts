@@ -6,6 +6,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockResolveChannelAccessContext = vi.fn()
+const mockResolveTargetForMember = vi.fn()
 const mockDeleteChannelMemberAndChildParticipants = vi.fn()
 const mockGetPrivateChannelAudienceUserIds = vi.fn()
 const mockBroadcastToUserSafe = vi.fn()
@@ -31,10 +32,21 @@ vi.mock("@/lib/community/fanout", () => ({
   broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
 
-vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+vi.mock("@/lib/community/resolve-ref", () => ({
+  resolveTargetForMember: (...a: unknown[]) => mockResolveTargetForMember(...a),
+}))
+
+vi.mock("@/lib/middleware/community-actor", () => ({
+  withCommunityActor: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
+    const bot = req.headers.get("authorization")?.startsWith("Bearer crk_")
+    return handler(req, {
+      env: { DB: {} },
+      actor: bot
+        ? { kind: "bot", userId: "bot1", ownerUserId: "u1", machineId: "m1" }
+        : { kind: "human", userId: "u1", email: "u@t.com" },
+      params,
+    })
   }),
 }))
 
@@ -69,6 +81,7 @@ describe("DELETE /channels/[id]/members/[userId]", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockResolveChannelAccessContext.mockResolvedValue(managerCtx())
+    mockResolveTargetForMember.mockResolvedValue({ kind: "channel", channelId: "c1" })
     mockDeleteChannelMemberAndChildParticipants.mockResolvedValue({ id: "cm1" })
     mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["u1"])
   })
@@ -103,9 +116,10 @@ describe("DELETE /channels/[id]/members/[userId]", () => {
   })
 
   it("cannot remove the creator (400)", async () => {
+    mockResolveChannelAccessContext.mockResolvedValue(managerCtx("u2"))
     const res = await DELETE(
-      new NextRequest("http://localhost/api/community/channels/c1/members/u1", { method: "DELETE" }),
-      { params: { id: "c1", userId: "u1" } } as any,
+      new NextRequest("http://localhost/api/community/channels/c1/members/u2", { method: "DELETE" }),
+      { params: { id: "c1", userId: "u2" } } as any,
     )
     expect(res.status).toBe(400)
     expect(mockDeleteChannelMemberAndChildParticipants).not.toHaveBeenCalled()
@@ -140,14 +154,116 @@ describe("DELETE /channels/[id]/members/[userId]", () => {
     )
   })
 
-  it("creator cannot self-leave their own channel (400)", async () => {
-    // Caller u1 is the creator; trying to leave own channel.
+  it("creator can self-leave their own channel after creator handoff (204)", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(managerCtx("u1"))
     const res = await DELETE(
       new NextRequest("http://localhost/api/community/channels/c1/members/u1", { method: "DELETE" }),
       { params: { id: "c1", userId: "u1" } } as any,
     )
+    expect(res.status).toBe(204)
+    expect(mockDeleteChannelMemberAndChildParticipants).toHaveBeenCalledWith(
+      expect.anything(),
+      "c1",
+      "u1",
+    )
+  })
+
+  it("bot creator can self-leave its private channel", async () => {
+    mockResolveChannelAccessContext.mockResolvedValue({
+      ...managerCtx("bot1"),
+      isCreator: true,
+    })
+    const ref = "/Alook#5620/team"
+    const res = await DELETE(
+      new NextRequest(`http://localhost/x?ref=${encodeURIComponent(ref)}`, {
+        method: "DELETE",
+        headers: { authorization: "Bearer crk_test" },
+      }),
+      { params: { id: "resolve", userId: "self" } } as any,
+    )
+    expect(res.status).toBe(204)
+    expect(mockDeleteChannelMemberAndChildParticipants).toHaveBeenCalledWith(
+      expect.anything(),
+      "c1",
+      "bot1",
+    )
+  })
+
+  it("bot resolves a private channel ref and removes only itself", async () => {
+    mockResolveChannelAccessContext.mockResolvedValue({
+      ...managerCtx("other"),
+      isCreator: false,
+    })
+    const ref = "/Alook#5620/team"
+    const res = await DELETE(
+      new NextRequest(`http://localhost/api/community/channels/resolve/members/self?ref=${encodeURIComponent(ref)}`, {
+        method: "DELETE",
+        headers: { authorization: "Bearer crk_test" },
+      }),
+      { params: { id: "resolve", userId: "self" } } as any,
+    )
+    expect(res.status).toBe(204)
+    expect(mockResolveTargetForMember).toHaveBeenCalledWith(
+      expect.anything(),
+      "bot1",
+      ref,
+      expect.objectContaining({ createDmIfMissing: false, createThreadIfMissing: false }),
+    )
+    expect(mockDeleteChannelMemberAndChildParticipants).toHaveBeenCalledWith(
+      expect.anything(),
+      "c1",
+      "bot1",
+    )
+  })
+
+  it("returns an actionable error for a public top-level channel without mutation", async () => {
+    mockResolveChannelAccessContext.mockResolvedValue({ ...managerCtx("other"), isPrivate: false })
+    const res = await DELETE(
+      new NextRequest("http://localhost/x?ref=%2FAlook%235620%2Fgeneral", {
+        method: "DELETE",
+        headers: { authorization: "Bearer crk_test" },
+      }),
+      { params: { id: "resolve", userId: "self" } } as any,
+    )
     expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({
+      error: "public channels cannot be left independently — leave the server instead",
+    })
+    expect(mockDeleteChannelMemberAndChildParticipants).not.toHaveBeenCalled()
+  })
+
+  it("rejects DM refs and raw target user ids before resolution or mutation", async () => {
+    const dm = await DELETE(
+      new NextRequest("http://localhost/x?ref=%2F.dm%2Falice%230042", {
+        method: "DELETE",
+        headers: { authorization: "Bearer crk_test" },
+      }),
+      { params: { id: "resolve", userId: "self" } } as any,
+    )
+    expect(dm.status).toBe(400)
+
+    const raw = await DELETE(
+      new NextRequest("http://localhost/x?ref=%2FAlook%235620%2Fteam", {
+        method: "DELETE",
+        headers: { authorization: "Bearer crk_test" },
+      }),
+      { params: { id: "resolve", userId: "u2" } } as any,
+    )
+    expect(raw.status).toBe(403)
+    expect(mockResolveTargetForMember).not.toHaveBeenCalled()
+    expect(mockDeleteChannelMemberAndChildParticipants).not.toHaveBeenCalled()
+  })
+
+  it("existence-masks an invalid or cross-server ref", async () => {
+    mockResolveTargetForMember.mockResolvedValue({ error: 404, message: "server not found" })
+    const res = await DELETE(
+      new NextRequest("http://localhost/x?ref=%2FOther%230042%2Fteam", {
+        method: "DELETE",
+        headers: { authorization: "Bearer crk_test" },
+      }),
+      { params: { id: "resolve", userId: "self" } } as any,
+    )
+    expect(res.status).toBe(404)
     expect(mockDeleteChannelMemberAndChildParticipants).not.toHaveBeenCalled()
   })
 })

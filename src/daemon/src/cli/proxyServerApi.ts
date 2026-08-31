@@ -48,8 +48,14 @@ import type {
   FriendCard,
   UpdateProfileRequest,
   UpdateProfileResult,
+  LeaveChannelResult,
+  LeaveServerResult,
 } from "../server/contract.js";
-import { CommunityAgentUpdateProfileRequestSchema, formatHandle } from "@alook/shared";
+import {
+  CommunityAgentUpdateProfileRequestSchema,
+  formatHandle,
+  parseRef,
+} from "@alook/shared";
 
 export interface ProxyServerApiConfig {
   /** The credential proxy base URL (from `<PREFIX>_PROXY_URL`). */
@@ -646,11 +652,44 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return { server: projectServer(body.server) };
   }
 
+  async function callLeaveChannel(
+    req: { agentId: AgentId; channel: ChannelRef },
+  ): Promise<LeaveChannelResult> {
+    const parsed = parseRef(req.channel);
+    const scope = parsed.threadRootSeq === undefined ? "channel" : "thread";
+    const collection = scope === "thread" ? "participants" : "members";
+    const res = await fetchImpl(
+      `${base}/api/community/channels/${REF_PLACEHOLDER_ID}/${collection}/self?ref=${encodeURIComponent(req.channel)}`,
+      {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${config.voucher}` },
+      },
+    );
+    await parseJsonResponse<void>(res, "leaveChannel");
+    return { left: req.channel, scope };
+  }
+
+  async function callLeaveServer(
+    req: { agentId: AgentId; server: string },
+  ): Promise<LeaveServerResult> {
+    const res = await fetchImpl(
+      `${base}/api/community/servers/${REF_PLACEHOLDER_ID}/leave?server=${encodeURIComponent(req.server)}`,
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${config.voucher}` },
+      },
+    );
+    await parseJsonResponse<void>(res, "leaveServer");
+    return { left: req.server, scope: "server" };
+  }
+
   return {
     listServers: (_r: { agentId: AgentId }) => callListServers(),
     joinServer: callJoinServer,
+    leaveServer: callLeaveServer,
     listChannels: callListChannels,
     channelMember: callChannelMember,
+    leaveChannel: callLeaveChannel,
     inboxPull: callInboxPull,
     inboxSnapshot: (_r: { agentId: AgentId }) => callInboxSnapshot(),
     ack: callAck,

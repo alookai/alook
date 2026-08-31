@@ -237,6 +237,39 @@ describe("createProxyServerApi — joinServer projection", () => {
   });
 });
 
+describe("createProxyServerApi — leaveServer", () => {
+  it("POSTs the canonical leave door and constructs the lean result after 204", async () => {
+    const fetchImpl: FetchLike = vi.fn(async () => jsonBody("", { status: 204 }));
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    await expect(api.leaveServer({ agentId: "a1", server: "Alook#5620" })).resolves.toEqual({
+      left: "Alook#5620",
+      scope: "server",
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://proxy.test/api/community/servers/resolve/leave?server=Alook%235620",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("preserves structured error status, message, code, and hint", async () => {
+    const fetchImpl: FetchLike = vi.fn(async () => jsonBody(JSON.stringify({
+      error: "owner cannot leave",
+      code: "forbidden",
+      hint: "delete the server instead",
+    }), { status: 400 }));
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    try {
+      await api.leaveServer({ agentId: "a1", server: "Alook#5620" });
+      throw new Error("should have thrown");
+    } catch (err) {
+      expect((err as Error).message).toBe("owner cannot leave");
+      expect((err as { status?: number }).status).toBe(400);
+      expect((err as { code?: string }).code).toBe("forbidden");
+      expect((err as { hint?: string }).hint).toBe("delete the server instead");
+    }
+  });
+});
+
 describe("createProxyServerApi — message properties", () => {
   it("uses the canonical properties resource for set/list/remove", async () => {
     const seen: Array<{ url: string; init?: RequestInit }> = [];
@@ -324,6 +357,28 @@ describe("createProxyServerApi — channelMember (retargeted to the canonical me
     expect(u.pathname).toBe("/api/community/channels/resolve/members");
     expect(u.searchParams.get("ref")).toBe("/demo#1234/general");
     expect(seen[0].init?.method).toBe("GET");
+  });
+});
+
+describe("createProxyServerApi — leaveChannel", () => {
+  it.each([
+    ["/demo#1234/private-team", "/api/community/channels/resolve/members/self", "channel"],
+    ["/demo#1234/general/#42", "/api/community/channels/resolve/participants/self", "thread"],
+  ])("routes %s to the canonical delete door", async (ref, pathname, scope) => {
+    const seen: Array<{ url: string; init?: RequestInit }> = [];
+    const fetchImpl: FetchLike = vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url, init });
+      return jsonBody("", { status: 204 });
+    });
+    const api = createProxyServerApi({ ...cfg, fetchImpl: fetchImpl as typeof fetch });
+    await expect(api.leaveChannel({ agentId: "a1", channel: ref })).resolves.toEqual({
+      left: ref,
+      scope,
+    });
+    const url = new URL(seen[0]!.url);
+    expect(url.pathname).toBe(pathname);
+    expect(url.searchParams.get("ref")).toBe(ref);
+    expect(seen[0]!.init?.method).toBe("DELETE");
   });
 });
 

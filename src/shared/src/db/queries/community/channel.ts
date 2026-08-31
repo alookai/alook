@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, isNotNull, isNull, inArray, count, or, sql } from "drizzle-orm";
+import { eq, and, asc, desc, isNotNull, isNull, inArray, count, ne, or, sql } from "drizzle-orm";
 import type { SQLWrapper } from "drizzle-orm";
 import {
   communityChannel,
@@ -600,6 +600,95 @@ export async function deleteChannelMember(
   return rows[0] ?? null;
 }
 
+type CreatorHandoffScope =
+  | { kind: "channel"; channelId: string }
+  | { kind: "channel-tree"; channelId: string }
+  | { kind: "server"; serverId: string };
+
+export function buildCreatorHandoffStatement(
+  db: Database,
+  scope: CreatorHandoffScope,
+  removedUserIds: string[],
+) {
+  const removedUsersJson = JSON.stringify([...new Set(removedUserIds)]);
+  const scopePredicate = scope.kind === "server"
+    ? eq(communityChannel.serverId, scope.serverId)
+    : scope.kind === "channel-tree"
+      ? or(
+          eq(communityChannel.id, scope.channelId),
+          eq(communityChannel.parentChannelId, scope.channelId),
+        )
+      : eq(communityChannel.id, scope.channelId);
+  const notRemoved = (userIdSql: ReturnType<typeof sql.raw>) => sql`NOT EXISTS (
+    SELECT 1
+    FROM json_each(${removedUsersJson}) AS removed_user
+    WHERE CAST(removed_user.value AS TEXT) = ${userIdSql}
+  )`;
+
+  const scopeMemberSuccessor = (relation: "access" | "notify") => sql<string>`(
+    SELECT handoff_member.user_id
+    FROM ${communityChannelMember} AS handoff_member
+    INNER JOIN ${communityServerMember} AS handoff_server_member
+      ON handoff_server_member.server_id = ${communityChannel.serverId}
+      AND handoff_server_member.user_id = handoff_member.user_id
+    WHERE handoff_member.channel_id = ${communityChannel.id}
+      AND handoff_member.relation = ${relation}
+      AND ${notRemoved(sql.raw("handoff_member.user_id"))}
+    ORDER BY handoff_member.added_at ASC, handoff_member.id ASC
+    LIMIT 1
+  )`;
+  const serverMemberSuccessor = sql<string>`(
+    SELECT handoff_server_member.user_id
+    FROM ${communityServerMember} AS handoff_server_member
+    WHERE handoff_server_member.server_id = ${communityChannel.serverId}
+      AND ${notRemoved(sql.raw("handoff_server_member.user_id"))}
+    ORDER BY handoff_server_member.joined_at ASC, handoff_server_member.id ASC
+    LIMIT 1
+  )`;
+  const managerFallback = sql<string>`(
+    SELECT handoff_manager.user_id
+    FROM ${communityServerMember} AS handoff_manager
+    WHERE handoff_manager.server_id = ${communityChannel.serverId}
+      AND handoff_manager.role IN ('owner', 'admin')
+      AND ${notRemoved(sql.raw("handoff_manager.user_id"))}
+    ORDER BY handoff_manager.joined_at ASC, handoff_manager.id ASC
+    LIMIT 1
+  )`;
+
+  return db
+    .update(communityChannel)
+    .set({
+      creatorId: sql`COALESCE(
+        CASE
+          WHEN ${communityChannel.parentChannelId} IS NOT NULL
+            THEN ${scopeMemberSuccessor("notify")}
+          WHEN EXISTS (
+            SELECT 1
+            FROM ${communityCategory} AS handoff_category
+            WHERE handoff_category.id = ${communityChannel.categoryId}
+              AND handoff_category.private = 1
+          )
+            THEN ${scopeMemberSuccessor("access")}
+          ELSE ${serverMemberSuccessor}
+        END,
+        ${managerFallback}
+      )`,
+    })
+    .where(and(
+      scopePredicate,
+      ne(communityChannel.type, "dm"),
+      sql`EXISTS (
+        SELECT 1
+        FROM json_each(${removedUsersJson}) AS removed_creator
+        WHERE CAST(removed_creator.value AS TEXT) = ${communityChannel.creatorId}
+      )`,
+    ))
+    .returning({
+      id: communityChannel.id,
+      creatorId: communityChannel.creatorId,
+    });
+}
+
 /**
  * Atomically removes an access row and all notify rows below that access
  * unit. The child cleanup uses a subquery so the batch has no read/write gap.
@@ -609,6 +698,11 @@ export async function deleteChannelMemberAndChildParticipants(
   channelId: string,
   userId: string,
 ) {
+  const handoffCreators = buildCreatorHandoffStatement(
+    db,
+    { kind: "channel-tree", channelId },
+    [userId],
+  );
   const removeAccess = db
     .delete(communityChannelMember)
     .where(
@@ -632,8 +726,38 @@ export async function deleteChannelMemberAndChildParticipants(
         eq(communityChannelMember.relation, "notify"),
       ),
     );
-  const results = (await db.batch([removeAccess, removeChildParticipants] as any)) as any[];
-  return (results[0] as Array<typeof communityChannelMember.$inferSelect>)[0] ?? null;
+  const results = (await db.batch([
+    handoffCreators,
+    removeAccess,
+    removeChildParticipants,
+  ] as any)) as any[];
+  return (results[1] as Array<typeof communityChannelMember.$inferSelect>)[0]
+    ?? (results[0] as Array<{ id: string; creatorId: string | null }>)[0]
+    ?? null;
+}
+
+export async function deleteThreadParticipantWithCreatorHandoff(
+  db: Database,
+  channelId: string,
+  userId: string,
+) {
+  const handoffCreator = buildCreatorHandoffStatement(
+    db,
+    { kind: "channel", channelId },
+    [userId],
+  );
+  const removeParticipant = db
+    .delete(communityChannelMember)
+    .where(and(
+      eq(communityChannelMember.channelId, channelId),
+      eq(communityChannelMember.userId, userId),
+      eq(communityChannelMember.relation, "notify"),
+    ))
+    .returning();
+  const results = (await db.batch([handoffCreator, removeParticipant] as any)) as any[];
+  return (results[1] as Array<typeof communityChannelMember.$inferSelect>)[0]
+    ?? (results[0] as Array<{ id: string; creatorId: string | null }>)[0]
+    ?? null;
 }
 
 /**

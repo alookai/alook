@@ -19,7 +19,7 @@ import { realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import type { ServerApi, Cursor, Message, AckFailure } from "../server/contract.js";
-import { parseRef } from "../server/contract.js";
+import { DM_SERVER, parseRef } from "../server/contract.js";
 import { proxyServerApiFromEnv } from "./proxyServerApi.js";
 import { daemonReconnect, daemonResume, daemonRunFromIpc, daemonStart, daemonStartById, daemonStop, daemonList, daemonStatus, type DaemonInfo } from "./daemonStart.js";
 import { daemonReplace } from "./daemonUpdate.js";
@@ -680,6 +680,14 @@ async function cmdServerJoin(opts: Record<string, unknown>): Promise<unknown> {
   return { server };
 }
 
+async function cmdServerLeave(opts: Record<string, unknown>): Promise<unknown> {
+  const api = getApi();
+  const agent = agentId(opts);
+  const server = opts.server as string;
+  if (!server) throw new CliError("server leave: --server <name#NNNN> is required");
+  return await api.leaveServer({ agentId: agent, server });
+}
+
 async function cmdChannelList(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
   const agent = agentId(opts);
@@ -694,6 +702,27 @@ async function cmdChannelMember(opts: Record<string, unknown>): Promise<unknown>
   const channel = opts.channel as string;
   if (!channel) throw new CliError("channel member: --channel <ref> is required");
   return await api.channelMember({ agentId: agent, channel });
+}
+
+async function cmdChannelLeave(opts: Record<string, unknown>): Promise<unknown> {
+  const api = getApi();
+  const agent = agentId(opts);
+  const channel = opts.channel as string;
+  if (!channel) throw new CliError("channel leave: --channel <ref> is required");
+
+  let parsed: ReturnType<typeof parseRef>;
+  try {
+    parsed = parseRef(channel);
+  } catch {
+    throw new CliError("channel leave: malformed channel ref");
+  }
+  if (parsed.server === DM_SERVER) {
+    throw new CliError("channel leave: DMs cannot be left");
+  }
+  if (parsed.seq !== undefined) {
+    throw new CliError("channel leave: message refs cannot be left; use a channel or thread-root ref");
+  }
+  return await api.leaveChannel({ agentId: agent, channel });
 }
 
 async function cmdChannelHistory(opts: Record<string, unknown>): Promise<unknown> {
@@ -928,6 +957,19 @@ function buildProgram(stdin: CliInputStream): Command {
       printEnvelope({ success: result });
     });
 
+  server
+    .command("leave")
+    .description("leave a server you belong to")
+    .option("--server <handle>", "server name#NNNN handle (from `server list`)")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const localOpts = this.opts();
+      const globalOpts = program.opts();
+      const result = await cmdServerLeave({ ...globalOpts, ...localOpts });
+      printEnvelope({ success: result });
+    });
+
   const channel = program.command("channel").description("channel operations").exitOverride();
   channel.configureOutput({ writeOut: () => {}, writeErr: () => {} });
 
@@ -971,6 +1013,19 @@ function buildProgram(stdin: CliInputStream): Command {
       const localOpts = this.opts();
       const globalOpts = program.opts();
       const result = await cmdChannelMember({ ...globalOpts, ...localOpts });
+      printEnvelope({ success: result });
+    });
+
+  channel
+    .command("leave")
+    .description("leave a thread or private channel/forum")
+    .option("--channel <ref>", "channel/thread ref (path-style)")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const localOpts = this.opts();
+      const globalOpts = program.opts();
+      const result = await cmdChannelLeave({ ...globalOpts, ...localOpts });
       printEnvelope({ success: result });
     });
 

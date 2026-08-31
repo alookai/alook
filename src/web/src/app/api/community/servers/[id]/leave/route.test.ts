@@ -6,6 +6,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockGetMember = vi.fn()
+const mockResolveServerByNameForMember = vi.fn()
 const mockRemoveMemberAndOwnerBots = vi.fn()
 const mockListOwnerBotsInServer = vi.fn()
 const mockFanOut = vi.fn()
@@ -23,6 +24,9 @@ vi.mock("@alook/shared", async () => {
         removeMemberAndOwnerBots: (...a: unknown[]) => mockRemoveMemberAndOwnerBots(...a),
         listOwnerBotsInServer: (...a: unknown[]) => mockListOwnerBotsInServer(...a),
       },
+      communityServer: {
+        resolveServerByNameForMember: (...a: unknown[]) => mockResolveServerByNameForMember(...a),
+      },
     },
   }
 })
@@ -33,10 +37,17 @@ vi.mock("@/lib/community/fanout", () => ({
   broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
 
-vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+vi.mock("@/lib/middleware/community-actor", () => ({
+  withCommunityActor: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
+    const bot = req.headers.get("authorization")?.startsWith("Bearer crk_")
+    return handler(req, {
+      env: { DB: {} },
+      actor: bot
+        ? { kind: "bot", userId: "bot1", ownerUserId: "u1", machineId: "m1" }
+        : { kind: "human", userId: "u1", email: "u@t.com" },
+      params,
+    })
   }),
 }))
 
@@ -62,6 +73,11 @@ describe("POST /api/community/servers/[id]/leave", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", role: "member" })
+    mockResolveServerByNameForMember.mockResolvedValue([{
+      id: "s1",
+      name: "Alook",
+      discriminator: "5620",
+    }])
     mockRemoveMemberAndOwnerBots.mockResolvedValue({ id: "mem_1" })
     mockListOwnerBotsInServer.mockResolvedValue([])
     mockFanOut.mockResolvedValue(undefined)
@@ -103,5 +119,69 @@ describe("POST /api/community/servers/[id]/leave", () => {
       ["bot_1", "bot_2"],
     )
     expect(mockGetMember).toHaveBeenCalledTimes(1)
+  })
+
+  it("bot resolves an exact member-scoped handle and converges on the existing leave path", async () => {
+    mockGetMember.mockResolvedValue({ id: "bot-mem", userId: "bot1", role: "member" })
+    const res = await POST(
+      new NextRequest("http://localhost/api/community/servers/resolve/leave?server=Alook%235620", {
+        method: "POST",
+        headers: { authorization: "Bearer crk_test" },
+      }),
+      { params: { id: "resolve" } } as any,
+    )
+    expect(res.status).toBe(204)
+    expect(mockResolveServerByNameForMember).toHaveBeenCalledWith(
+      expect.anything(),
+      "bot1",
+      "Alook#5620",
+    )
+    expect(mockRemoveMemberAndOwnerBots).toHaveBeenCalledWith(
+      expect.anything(),
+      "bot-mem",
+      "s1",
+      "bot1",
+      [],
+    )
+  })
+
+  it("bot cannot supply a raw server id", async () => {
+    const res = await POST(
+      new NextRequest("http://localhost/api/community/servers/s1/leave", {
+        method: "POST",
+        headers: { authorization: "Bearer crk_test" },
+      }),
+      { params: { id: "s1" } } as any,
+    )
+    expect(res.status).toBe(403)
+    expect(mockResolveServerByNameForMember).not.toHaveBeenCalled()
+    expect(mockRemoveMemberAndOwnerBots).not.toHaveBeenCalled()
+  })
+
+  it("existence-masks a server outside the bot's memberships", async () => {
+    mockResolveServerByNameForMember.mockResolvedValue([])
+    const res = await POST(
+      new NextRequest("http://localhost/api/community/servers/resolve/leave?server=Other%230042", {
+        method: "POST",
+        headers: { authorization: "Bearer crk_test" },
+      }),
+      { params: { id: "resolve" } } as any,
+    )
+    expect(res.status).toBe(404)
+    expect(mockGetMember).not.toHaveBeenCalled()
+    expect(mockRemoveMemberAndOwnerBots).not.toHaveBeenCalled()
+  })
+
+  it("rejects a bot server owner without mutation", async () => {
+    mockGetMember.mockResolvedValue({ id: "bot-mem", userId: "bot1", role: "owner" })
+    const res = await POST(
+      new NextRequest("http://localhost/api/community/servers/resolve/leave?server=Alook%235620", {
+        method: "POST",
+        headers: { authorization: "Bearer crk_test" },
+      }),
+      { params: { id: "resolve" } } as any,
+    )
+    expect(res.status).toBe(400)
+    expect(mockRemoveMemberAndOwnerBots).not.toHaveBeenCalled()
   })
 })

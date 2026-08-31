@@ -55,6 +55,7 @@ function stubApi(over: Partial<ServerApi> = {}): ServerApi {
     listServers: async () => ({ servers: [] }),
     listChannels: async () => ({ groups: [] }),
     channelMember: async () => ({ visibility: "public", hint: "" }),
+    leaveChannel: async (req) => ({ left: req.channel, scope: "channel" }),
     inboxPull: async () => ({ messages: [], hasMore: false, markedCount: 0 }),
     inboxSnapshot: async () => ({ rows: [], pendingChannels: 0, pendingMessages: 0 }),
     ack: async (req) => ({ ok: true, applied: req.cursors, failed: [] }),
@@ -63,6 +64,7 @@ function stubApi(over: Partial<ServerApi> = {}): ServerApi {
     resolve: async () => null,
     listMembers: async () => ({ members: [], hasMore: false }),
     joinServer: async () => ({ server: { handle: "s#0042" } }),
+    leaveServer: async (req) => ({ left: req.server, scope: "server" }),
     messagePropertySet: async () => ({ type: "emoji", value: "👍", changed: true }),
     messagePropertyList: async () => ({ capabilities: ["emoji"], properties: [{ type: "emoji", value: [] }] }),
     messagePropertyRemove: async () => ({ type: "emoji", value: "👍", changed: true }),
@@ -870,6 +872,31 @@ describe("server join", () => {
   });
 });
 
+describe("server leave", () => {
+  it("prints the exact success envelope and forwards the handle", async () => {
+    const leaveServer = vi.fn(async (req: { server: string }) => ({
+      left: req.server,
+      scope: "server" as const,
+    }));
+    setApiForTesting(stubApi({ leaveServer: leaveServer as ServerApi["leaveServer"] }));
+    await main(["server", "leave", "--server", "Alook#5620"]);
+    expect(parseEnvelope(cap.lines())).toEqual({
+      success: { left: "Alook#5620", scope: "server" },
+    });
+    expect(leaveServer).toHaveBeenCalledWith(expect.objectContaining({ server: "Alook#5620" }));
+  });
+
+  it("requires --server before calling the API", async () => {
+    const leaveServer = vi.fn();
+    setApiForTesting(stubApi({ leaveServer }));
+    await main(["server", "leave"]);
+    expect(parseEnvelope(cap.lines())).toEqual({
+      error: "server leave: --server <name#NNNN> is required",
+    });
+    expect(leaveServer).not.toHaveBeenCalled();
+  });
+});
+
 describe("channel list", () => {
   it("prints {success:{groups:[...]}} from a stubbed listChannels", async () => {
     const listChannelsSpy = vi.fn(async () => ({
@@ -1036,6 +1063,45 @@ describe("channel member", () => {
     await main(["channel", "member", "--channel", "/.dm/peer#0042"]);
     const env = parseEnvelope(cap.lines());
     expect(env).toEqual({ error: "channel member is channel-scoped — DM refs are not supported" });
+  });
+});
+
+describe("channel leave", () => {
+  it.each([
+    ["private channel", "/Alook#5620/team", "channel"],
+    ["thread", "/Alook#5620/general/#42", "thread"],
+  ])("leaves an exact %s ref", async (_label, channel, scope) => {
+    const leaveChannel = vi.fn(async (req: { channel: string }) => ({
+      left: req.channel,
+      scope: scope as "channel" | "thread",
+    }));
+    setApiForTesting(stubApi({ leaveChannel: leaveChannel as ServerApi["leaveChannel"] }));
+    await main(["channel", "leave", "--channel", channel]);
+    expect(parseEnvelope(cap.lines())).toEqual({ success: { left: channel, scope } });
+    expect(leaveChannel).toHaveBeenCalledWith(expect.objectContaining({ channel }));
+  });
+
+  it("requires --channel before calling the API", async () => {
+    const leaveChannel = vi.fn();
+    setApiForTesting(stubApi({ leaveChannel }));
+    await main(["channel", "leave"]);
+    expect(parseEnvelope(cap.lines())).toEqual({
+      error: "channel leave: --channel <ref> is required",
+    });
+    expect(leaveChannel).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["/.dm/alice#0042", "channel leave: DMs cannot be left"],
+    ["/Alook#5620/general#12", "channel leave: message refs cannot be left; use a channel or thread-root ref"],
+    ["/Alook#5620/general/#12#3", "channel leave: message refs cannot be left; use a channel or thread-root ref"],
+    ["not-a-ref", "channel leave: malformed channel ref"],
+  ])("rejects %s before mutation", async (channel, error) => {
+    const leaveChannel = vi.fn();
+    setApiForTesting(stubApi({ leaveChannel }));
+    await main(["channel", "leave", "--channel", channel]);
+    expect(parseEnvelope(cap.lines())).toEqual({ error });
+    expect(leaveChannel).not.toHaveBeenCalled();
   });
 });
 

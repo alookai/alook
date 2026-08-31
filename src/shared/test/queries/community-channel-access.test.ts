@@ -74,6 +74,10 @@ describe("canSeePrivateChannel — shared rule", () => {
 
 describe("deleteChannelMemberAndChildParticipants", () => {
   it("batches access removal with child notify cleanup", async () => {
+    const handoffStatement: any = {};
+    handoffStatement.set = vi.fn(() => handoffStatement);
+    handoffStatement.where = vi.fn(() => handoffStatement);
+    handoffStatement.returning = vi.fn(() => handoffStatement);
     const accessStatement: any = {};
     accessStatement.where = vi.fn(() => accessStatement);
     accessStatement.returning = vi.fn(() => accessStatement);
@@ -83,12 +87,13 @@ describe("deleteChannelMemberAndChildParticipants", () => {
     selectStatement.from = vi.fn(() => selectStatement);
     selectStatement.where = vi.fn(() => selectStatement);
     const db: any = {
+      update: vi.fn(() => handoffStatement),
       delete: vi
         .fn()
         .mockReturnValueOnce(accessStatement)
         .mockReturnValueOnce(notifyStatement),
       select: vi.fn(() => selectStatement),
-      batch: vi.fn().mockResolvedValue([[{ id: "cm1" }], { rowsAffected: 3 }]),
+      batch: vi.fn().mockResolvedValue([[], [{ id: "cm1" }], { rowsAffected: 3 }]),
     };
 
     await expect(channelQueries.deleteChannelMemberAndChildParticipants(
@@ -97,7 +102,11 @@ describe("deleteChannelMemberAndChildParticipants", () => {
       "u2",
     )).resolves.toEqual({ id: "cm1" });
 
-    expect(db.batch).toHaveBeenCalledWith([accessStatement, notifyStatement]);
+    expect(db.batch).toHaveBeenCalledWith([
+      handoffStatement,
+      accessStatement,
+      notifyStatement,
+    ]);
   });
 });
 

@@ -125,6 +125,7 @@ function cliCommandsSection(): string {
     `1. \`${CLI} server list\` — list your servers.`,
     `2. \`${CLI} server member --server <name#discriminator>\` — list a server's members.`,
     `3. \`${CLI} server join --invite <link>\` — join via invite link or token.`,
+    `4. \`${CLI} server leave --server <name#NNNN>\` — leave a server you belong to. A server owner cannot leave.`,
     "",
     "### Channels",
     "",
@@ -136,6 +137,7 @@ function cliCommandsSection(): string {
     `3. \`${CLI} channel member --channel <ref>\` — roster of a channel or thread. A private ` +
       `channel/forum returns its concrete member list; a public one returns a hint pointing at ` +
       `\`${CLI} server member\` (its audience is the whole server).`,
+    `4. \`${CLI} channel leave --channel <ref>\` — leave a thread or private channel/forum. Public channels require leaving their server; DMs cannot be left.`,
     "",
     "### Friends",
     "",
@@ -373,6 +375,7 @@ function criticalRulesSection(): string {
     "- **Never expose tokens, keys, or secrets.** Redact credential-like strings from tool output " +
       "before sharing.",
     "- **Match the sender's language.** Reply in the language they wrote in.",
+    `- **Leaving a scope is destructive.** Use \`${CLI} channel leave\` or \`${CLI} server leave\` only after your owner explicitly asks you to leave that exact scope.`,
     "- **Channel alignment**: you can't send to a channel with unread messages. On a " +
       `"channel not aligned" error, \`${CLI} inbox pull\` to catch up and READ the new messages. ` +
       "Judge if your message is still needed or overlaps with what just landed. Adjust or skip; " +

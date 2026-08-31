@@ -61,6 +61,8 @@ export type {
   CategoryRef,
   ChannelGroup,
   ChannelMemberResult,
+  LeaveChannelResult,
+  LeaveServerResult,
   ServerMember,
   ServerMemberListResult,
   MemberStatus,
