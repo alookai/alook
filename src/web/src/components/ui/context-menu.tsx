@@ -5,9 +5,119 @@ import { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu
 
 import { cn } from "@/lib/utils"
 import { ChevronRightIcon, CheckIcon } from "lucide-react"
+import { useAuthenticatedContextMenuPolicy } from "@/components/authenticated-context-menu-boundary"
 
-function ContextMenu({ ...props }: ContextMenuPrimitive.Root.Props) {
-  return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />
+type NativeContextGesture = {
+  token: number
+  source: EventTarget
+  pointerId: number | null
+  pointerType: string
+  button: number
+  ctrlKey: boolean
+  startedAt: number
+  clientX: number
+  clientY: number
+}
+
+type NativeContextGestureController = {
+  current(): NativeContextGesture | null
+  arm(event: React.PointerEvent<HTMLElement>): void
+  clear(token: number): void
+}
+
+const NativeContextGestureContext = React.createContext<NativeContextGestureController | null>(null)
+
+function contextPointerId(event: MouseEvent): number | null {
+  return "pointerId" in event && typeof event.pointerId === "number"
+    ? event.pointerId
+    : null
+}
+
+export function isSecondaryContextPointer({ button, ctrlKey }: Pick<MouseEvent, "button" | "ctrlKey">) {
+  return button === 2 || (button === 0 && ctrlKey)
+}
+
+export function isKeyboardContextMenu({ key, shiftKey }: Pick<KeyboardEvent, "key" | "shiftKey">) {
+  return key === "ContextMenu" || (key === "F10" && shiftKey)
+}
+
+export function nativeContextGestureMatches(
+  gesture: NativeContextGesture,
+  event: MouseEvent,
+  source: EventTarget,
+): boolean {
+  if (gesture.source !== source || !isSecondaryContextPointer(event)) return false
+  const pointerId = contextPointerId(event)
+  return gesture.pointerId === null || pointerId === null || gesture.pointerId === pointerId
+}
+
+function ContextMenu({ disabled, ...props }: ContextMenuPrimitive.Root.Props) {
+  const policy = useAuthenticatedContextMenuPolicy()
+  const nextTokenRef = React.useRef(0)
+  const gestureRef = React.useRef<NativeContextGesture | null>(null)
+  const [gesture, setGesture] = React.useState<NativeContextGesture | null>(null)
+
+  const clear = React.useCallback((token: number) => {
+    if (gestureRef.current?.token !== token) return
+    gestureRef.current = null
+    setGesture((current) => current?.token === token ? null : current)
+  }, [])
+
+  const arm = React.useCallback((event: React.PointerEvent<HTMLElement>) => {
+    if (disabled || !policy || !isSecondaryContextPointer(event.nativeEvent)) return
+    if (policy.disposition(event.nativeEvent) !== "native") return
+    const nativeEvent = event.nativeEvent
+    const next: NativeContextGesture = {
+      token: ++nextTokenRef.current,
+      source: event.currentTarget,
+      pointerId: contextPointerId(nativeEvent),
+      pointerType: nativeEvent.pointerType,
+      button: nativeEvent.button,
+      ctrlKey: nativeEvent.ctrlKey,
+      startedAt: nativeEvent.timeStamp,
+      clientX: nativeEvent.clientX,
+      clientY: nativeEvent.clientY,
+    }
+    gestureRef.current = next
+    setGesture(next)
+  }, [disabled, policy])
+
+  React.useEffect(() => {
+    if (!gesture) return
+    const { token, pointerId } = gesture
+    const clearMatchingPointer = (event: PointerEvent) => {
+      if (pointerId === null || pointerId === event.pointerId) clear(token)
+    }
+    const clearOnBlur = () => clear(token)
+    window.addEventListener("pointerup", clearMatchingPointer, true)
+    window.addEventListener("pointercancel", clearMatchingPointer, true)
+    window.addEventListener("blur", clearOnBlur)
+    return () => {
+      window.removeEventListener("pointerup", clearMatchingPointer, true)
+      window.removeEventListener("pointercancel", clearMatchingPointer, true)
+      window.removeEventListener("blur", clearOnBlur)
+    }
+  }, [clear, gesture])
+
+  React.useEffect(() => () => {
+    gestureRef.current = null
+  }, [])
+
+  const controller = React.useMemo<NativeContextGestureController>(() => ({
+    current: () => gestureRef.current,
+    arm,
+    clear,
+  }), [arm, clear])
+
+  return (
+    <NativeContextGestureContext.Provider value={controller}>
+      <ContextMenuPrimitive.Root
+        data-slot="context-menu"
+        disabled={disabled || gesture !== null}
+        {...props}
+      />
+    </NativeContextGestureContext.Provider>
+  )
 }
 
 function ContextMenuPortal({ ...props }: ContextMenuPrimitive.Portal.Props) {
@@ -18,12 +128,54 @@ function ContextMenuPortal({ ...props }: ContextMenuPrimitive.Portal.Props) {
 
 function ContextMenuTrigger({
   className,
+  onPointerDownCapture,
+  onPointerLeave,
+  onContextMenu,
+  onKeyDown,
   ...props
 }: ContextMenuPrimitive.Trigger.Props) {
+  const policy = useAuthenticatedContextMenuPolicy()
+  const gestureController = React.useContext(NativeContextGestureContext)
   return (
     <ContextMenuPrimitive.Trigger
       data-slot="context-menu-trigger"
       className={cn("select-none", className)}
+      onPointerDownCapture={(event) => {
+        onPointerDownCapture?.(event)
+        gestureController?.arm(event)
+      }}
+      onPointerLeave={(event) => {
+        onPointerLeave?.(event)
+        const gesture = gestureController?.current()
+        if (gesture && gesture.source === event.currentTarget) {
+          gestureController?.clear(gesture.token)
+        }
+      }}
+      onContextMenu={(event) => {
+        onContextMenu?.(event)
+        const gesture = gestureController?.current()
+        if (!gesture) return
+        const matches = nativeContextGestureMatches(
+          gesture,
+          event.nativeEvent,
+          event.currentTarget,
+        ) && policy?.disposition(event.nativeEvent) === "native"
+        if (matches) event.preventBaseUIHandler()
+        gestureController?.clear(gesture.token)
+      }}
+      onKeyDown={(event) => {
+        onKeyDown?.(event)
+        if (event.defaultPrevented || !isKeyboardContextMenu(event.nativeEvent)) return
+        event.preventDefault()
+        const rect = event.currentTarget.getBoundingClientRect()
+        event.currentTarget.dispatchEvent(new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          button: 2,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+        }))
+      }}
       {...props}
     />
   )

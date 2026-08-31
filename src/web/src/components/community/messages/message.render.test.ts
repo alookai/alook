@@ -768,14 +768,7 @@ describe("Message desktop text selection", () => {
     expect(selectionBelongsToRow(null, rowElement)).toBe(false)
   })
 
-  it("preserves the native context menu for a selection inside the row", () => {
-    vi.stubGlobal("window", {
-      getSelection: () => ({
-        isCollapsed: false,
-        anchorNode: insideAnchor,
-        focusNode: insideFocus,
-      }),
-    })
+  it("delegates desktop selection contextmenu policy to the authenticated boundary", () => {
     let renderer: TestRenderer.ReactTestRenderer
     act(() => {
       renderer = TestRenderer.create(makeTree({
@@ -790,45 +783,7 @@ describe("Message desktop text selection", () => {
         && node.props.className.includes("group relative -mx-2"),
     )
 
-    const stopPropagation = vi.fn()
-    const preventDefault = vi.fn()
-    act(() => row.props.onContextMenuCapture({
-      currentTarget: rowElement,
-      stopPropagation,
-      preventDefault,
-    }))
-
-    expect(stopPropagation).toHaveBeenCalledOnce()
-    expect(preventDefault).not.toHaveBeenCalled()
-    act(() => renderer!.unmount())
-  })
-
-  it("keeps Alook's context menu for a row with no active selection", () => {
-    vi.stubGlobal("window", { getSelection: () => null })
-    let renderer: TestRenderer.ReactTestRenderer
-    act(() => {
-      renderer = TestRenderer.create(makeTree({
-        m: baseMsg(),
-        onOpenThread: vi.fn(),
-        onCopy: vi.fn(),
-      }), { createNodeMock: () => genericMock })
-    })
-
-    const row = renderer!.root.find(
-      (node) => typeof node.props.className === "string"
-        && node.props.className.includes("group relative -mx-2"),
-    )
-
-    const stopPropagation = vi.fn()
-    const preventDefault = vi.fn()
-    act(() => row.props.onContextMenuCapture({
-      currentTarget: rowElement,
-      stopPropagation,
-      preventDefault,
-    }))
-
-    expect(stopPropagation).not.toHaveBeenCalled()
-    expect(preventDefault).not.toHaveBeenCalled()
+    expect(row.props.onContextMenuCapture).toBeUndefined()
     act(() => renderer!.unmount())
   })
 })

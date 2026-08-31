@@ -338,16 +338,6 @@ function MessageImpl({
         : undefined}
       onFocusCapture={activate}
       onKeyDownCapture={activate}
-      onContextMenuCapture={interactive && hoverCapable
-        ? (event) => {
-            if (!selectionBelongsToRow(window.getSelection(), event.currentTarget)) return
-
-            // Stop before Base UI's trigger and document listeners see the
-            // event. Deliberately do not preventDefault: the browser must stay
-            // in charge of the native menu for copying the selected fragment.
-            event.stopPropagation()
-          }
-        : undefined}
       onTouchStart={interactive && !hoverCapable
           ? () => {
             touchStartedAt.current = performance.now()

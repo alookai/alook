@@ -4,6 +4,7 @@ import { getSession } from "@/lib/session";
 import { SignupTracker } from "@/components/signup-tracker";
 import { SigninTracker } from "@/components/signin-tracker";
 import { DaemonUpdateNotice } from "@/components/daemon-update-notice";
+import { AuthenticatedContextMenuBoundary } from "@/components/authenticated-context-menu-boundary";
 
 export const metadata: Metadata = {
   robots: { index: false, follow: false },
@@ -18,11 +19,11 @@ export default async function AppLayout({
   if (!session) redirect("/sign-in");
 
   return (
-    <>
+    <AuthenticatedContextMenuBoundary>
       <SignupTracker />
       <SigninTracker />
       <DaemonUpdateNotice userId={session.user.id} />
       {children}
-    </>
+    </AuthenticatedContextMenuBoundary>
   );
 }
