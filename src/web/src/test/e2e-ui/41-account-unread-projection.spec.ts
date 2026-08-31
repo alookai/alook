@@ -310,7 +310,7 @@ test.describe.serial("account unread projection", () => {
 
     await page.setViewportSize({ width: 390, height: 844 })
     await gotoAfterUserWsAuth(page, "/c/me")
-    await page.getByRole("button", { name: "Inbox", exact: true }).click()
+    await page.getByTestId(tid.inboxTrigger).click()
     await expect(page.getByTestId(tid.inboxUnreadChannel(unreadChannel))).toHaveCount(0)
     await expect(page.getByTestId(tid.inboxUnreadChild(forumChild))).toBeVisible()
     await expect(page.getByTestId(tid.inboxUnreadDm(dmId))).toBeVisible()

@@ -47,7 +47,9 @@ describe("CommunityInboxSurface", () => {
     expect(trigger.props["data-testid"]).toBe(tid.inboxTrigger)
     expect(trigger.props["aria-label"]).toBe("Close Inbox")
     expect(trigger.props["aria-pressed"]).toBe(true)
-    expect(renderer.root.findByType("svg").props.className).toContain("fill-current")
+    expect(trigger.props.className).toContain("aria-expanded:text-foreground")
+    expect(renderer.root.findByType("svg").props.className).not.toContain("fill-current")
+    expect(renderer.root.findByType("svg").props.fill).toBe("none")
 
     const backdrop = renderer.root.findByType("popover-backdrop")
     expect(backdrop.props["data-testid"]).toBe(tid.inboxMobileBackdrop)
@@ -86,7 +88,9 @@ describe("CommunityInboxSurface", () => {
     const trigger = renderer.root.findByType("popover-trigger").props.render
     expect(trigger.props["aria-label"]).toBe("Open Inbox")
     expect(trigger.props["aria-pressed"]).toBe(false)
+    expect(trigger.props.className).toContain("aria-expanded:text-foreground")
     expect(renderer.root.findByType("svg").props.className).not.toContain("fill-current")
+    expect(renderer.root.findByType("svg").props.fill).toBe("none")
   })
 
   it("keeps the exact anchored desktop Popover path", async () => {
@@ -99,6 +103,7 @@ describe("CommunityInboxSurface", () => {
     const trigger = renderer.root.findByType("popover-trigger").props.render
     expect(trigger.props["aria-label"]).toBe("Inbox")
     expect(trigger.props["aria-pressed"]).toBeUndefined()
+    expect(trigger.props.className).not.toContain("aria-expanded:text-foreground")
     expect(renderer.root.findByType("svg").props.className).not.toContain("fill-current")
     expect(renderer.root.findAllByType("popover-backdrop")).toHaveLength(0)
     expect(renderer.root.findAllByType("popover-popup")).toHaveLength(0)

@@ -139,10 +139,16 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     const wsBefore = ws.frames.length
 
     const inboxTrigger = bob.page.getByTestId(tid.inboxTrigger)
+    const inboxIcon = inboxTrigger.locator("svg")
     await expect(inboxTrigger).toHaveAttribute("aria-label", "Open Inbox")
     await expect(inboxTrigger).toHaveAttribute("aria-pressed", "false")
-    await expect(inboxTrigger.locator("svg")).not.toHaveClass(/fill-current/)
+    await expect(inboxIcon).toHaveAttribute("fill", "none")
+    await expect(inboxIcon).not.toHaveClass(/fill-current/)
+    const closedInboxIconColor = await inboxIcon.evaluate((element) => (
+      getComputedStyle(element).color
+    ))
     await inboxTrigger.click()
+    await bob.page.mouse.move(0, 0)
     const mobileSurface = bob.page.getByTestId(tid.inboxMobileSurface)
     await expect(mobileSurface).toBeVisible()
     await expect(mobileSurface).toHaveAttribute("role", "dialog")
@@ -151,7 +157,11 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     await expect(inboxTrigger).toHaveAttribute("aria-controls", await mobileSurface.getAttribute("id") ?? "")
     await expect(inboxTrigger).toHaveAttribute("aria-label", "Close Inbox")
     await expect(inboxTrigger).toHaveAttribute("aria-pressed", "true")
-    await expect(inboxTrigger.locator("svg")).toHaveClass(/fill-current/)
+    await expect(inboxIcon).toHaveAttribute("fill", "none")
+    await expect(inboxIcon).not.toHaveClass(/fill-current/)
+    await expect.poll(() => inboxIcon.evaluate((element) => (
+      getComputedStyle(element).color
+    ))).not.toBe(closedInboxIconColor)
     await expect(bob.page.getByRole("button", { name: "Close Inbox" })).toHaveCount(1)
     await expect(inboxTrigger).toBeFocused()
     const geometry = await surfaceGeometry(bob.page)
@@ -177,7 +187,11 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     await expect(inboxTrigger).toBeFocused()
     await expect(inboxTrigger).toHaveAttribute("aria-label", "Open Inbox")
     await expect(inboxTrigger).toHaveAttribute("aria-pressed", "false")
-    await expect(inboxTrigger.locator("svg")).not.toHaveClass(/fill-current/)
+    await expect(inboxIcon).toHaveAttribute("fill", "none")
+    await expect(inboxIcon).not.toHaveClass(/fill-current/)
+    await expect.poll(() => inboxIcon.evaluate((element) => (
+      getComputedStyle(element).color
+    ))).toBe(closedInboxIconColor)
     await expect(bob.page).toHaveURL(new RegExp(`/c/channels/${serverId}$`))
     expect(writes.writes).toEqual([])
     expect(ws.frames).toHaveLength(wsBefore)

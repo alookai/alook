@@ -61,13 +61,16 @@ export function CommunityInboxSurface({
           <button
             ref={triggerRef}
             data-testid={tid.inboxTrigger}
-            className="relative grid size-11 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:size-7"
+            className={cn(
+              "relative grid size-11 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:size-7",
+              mobile && "aria-expanded:text-foreground",
+            )}
             aria-label={mobile ? (open ? "Close Inbox" : "Open Inbox") : "Inbox"}
             aria-pressed={mobile ? open : undefined}
           />
         }
       >
-        <Inbox className={cn("size-4", mobile && open && "fill-current")} />
+        <Inbox className="size-4" />
         {hasUnread && (
           <span className="absolute right-1 top-1 size-2 rounded-full bg-primary" />
         )}
