@@ -45,25 +45,35 @@ describe("community/member exports", () => {
 
 describe("removeMemberAndOwnerBots", () => {
   it("batches rail cleanup with target and bot deletes and returns the removed target", async () => {
+    const handoffStatement: any = {};
+    handoffStatement.set = vi.fn(() => handoffStatement);
+    handoffStatement.where = vi.fn(() => handoffStatement);
+    handoffStatement.returning = vi.fn(() => handoffStatement);
     const cleanupStatement: any = {};
     cleanupStatement.where = vi.fn(() => cleanupStatement);
     const emptyFolderStatement: any = {};
     emptyFolderStatement.where = vi.fn(() => emptyFolderStatement);
+    const channelMembershipStatement: any = {};
+    channelMembershipStatement.where = vi.fn(() => channelMembershipStatement);
     const targetStatement: any = {};
     targetStatement.where = vi.fn(() => targetStatement);
     targetStatement.returning = vi.fn(() => targetStatement);
     const botsStatement: any = {};
     botsStatement.where = vi.fn(() => botsStatement);
     const db: any = {
+      update: vi.fn(() => handoffStatement),
       delete: vi
         .fn()
         .mockReturnValueOnce(cleanupStatement)
         .mockReturnValueOnce(emptyFolderStatement)
         .mockReturnValueOnce(targetStatement)
+        .mockReturnValueOnce(channelMembershipStatement)
         .mockReturnValueOnce(botsStatement),
       batch: vi.fn().mockResolvedValue([
+        [],
         { rowsAffected: 3 },
         { rowsAffected: 2 },
+        { rowsAffected: 4 },
         [{ id: "mem_1" }],
         { rowsAffected: 2 },
       ]),
@@ -78,8 +88,10 @@ describe("removeMemberAndOwnerBots", () => {
     )).resolves.toEqual({ id: "mem_1" });
 
     expect(db.batch).toHaveBeenCalledWith([
+      handoffStatement,
       cleanupStatement,
       emptyFolderStatement,
+      channelMembershipStatement,
       targetStatement,
       botsStatement,
     ]);

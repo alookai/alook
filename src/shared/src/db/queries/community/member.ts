@@ -1,5 +1,7 @@
 import { eq, and, ne, inArray, count, asc, or, gt, isNull, sql } from "drizzle-orm";
 import {
+  communityChannel,
+  communityChannelMember,
   communityServerFolder,
   communityServerFolderItem,
   communityServerMember,
@@ -13,7 +15,7 @@ import {
 } from "../../../constants/community";
 import { escapeLikePattern } from "../../../utils/sql-like";
 import { canSeePrivateChannel, reachIsParticipantSet } from "../../../utils/community-roles";
-import { resolveChannelAccessContext } from "./channel";
+import { buildCreatorHandoffStatement, resolveChannelAccessContext } from "./channel";
 import { isThreadParticipant } from "./thread";
 import { chunk, maxInParams } from "../_chunk";
 import { jsonTextSet } from "../_json-set";
@@ -54,6 +56,11 @@ export async function removeMemberAndOwnerBots(
   botUserIds: string[],
 ) {
   const removedUserIds = [...new Set([targetUserId, ...botUserIds])];
+  const handoffCreators = buildCreatorHandoffStatement(
+    db,
+    { kind: "server", serverId },
+    removedUserIds,
+  );
   const cleanupFolderItems = db
     .delete(communityServerFolderItem)
     .where(and(
@@ -89,14 +96,31 @@ export async function removeMemberAndOwnerBots(
       ),
     )
     .returning();
+  const cleanupChannelMemberships = db
+    .delete(communityChannelMember)
+    .where(and(
+      sql`EXISTS (
+        SELECT 1
+        FROM ${communityChannel}
+        WHERE ${communityChannel.id} = ${communityChannelMember.channelId}
+          AND ${communityChannel.serverId} = ${serverId}
+      )`,
+      sql`EXISTS (
+        SELECT 1
+        FROM json_each(${JSON.stringify(removedUserIds)}) AS removed_user
+        WHERE CAST(removed_user.value AS TEXT) = ${communityChannelMember.userId}
+      )`,
+    ));
   const removeBots = removeOwnerBotsFromServerStatement(db, serverId, botUserIds);
   const results = (await db.batch([
+    handoffCreators,
     cleanupFolderItems,
     cleanupEmptyFolders,
+    cleanupChannelMemberships,
     removeTarget,
     removeBots,
   ] as any)) as any[];
-  return (results[2] as Array<typeof communityServerMember.$inferSelect>)[0] ?? null;
+  return (results[4] as Array<typeof communityServerMember.$inferSelect>)[0] ?? null;
 }
 
 export async function updateRole(db: Database, memberId: string, role: string) {
