@@ -9,7 +9,7 @@ patchedDependencies:
     hash: 6a1b801adbed4307cde86c12f701bc354047783b077e836f58af1e362e244b9e
     path: patches/@opennextjs__aws@4.1.0.patch
   '@opennextjs/cloudflare@1.20.2':
-    hash: 6247411be13b13e0b882138387ad154da0a2f8647e8af3b837bcecfce7b0e731
+    hash: 7b92eef5e98e012fbaf18baa8279739fcdaec30d78d70b5d2c5bd7b168f8f4fa
     path: patches/@opennextjs__cloudflare@1.20.2.patch
 
 importers:
@@ -345,7 +345,7 @@ importers:
         version: 0.6.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@opennextjs/cloudflare':
         specifier: ^1.20.2
-        version: 1.20.2(patch_hash=6247411be13b13e0b882138387ad154da0a2f8647e8af3b837bcecfce7b0e731)(next@16.3.0(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@25.9.4)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(wrangler@4.125.0(@cloudflare/workers-types@4.20260702.1))
+        version: 1.20.2(patch_hash=7b92eef5e98e012fbaf18baa8279739fcdaec30d78d70b5d2c5bd7b168f8f4fa)(next@16.3.0(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@25.9.4)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(wrangler@4.125.0(@cloudflare/workers-types@4.20260702.1))
       '@shikijs/core':
         specifier: 4.4.3
         version: 4.4.3
@@ -11675,7 +11675,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@opennextjs/cloudflare@1.20.2(patch_hash=6247411be13b13e0b882138387ad154da0a2f8647e8af3b837bcecfce7b0e731)(next@16.3.0(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@25.9.4)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(wrangler@4.125.0(@cloudflare/workers-types@4.20260702.1))':
+  '@opennextjs/cloudflare@1.20.2(patch_hash=7b92eef5e98e012fbaf18baa8279739fcdaec30d78d70b5d2c5bd7b168f8f4fa)(next@16.3.0(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.62.1)(@types/node@25.9.4)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(wrangler@4.125.0(@cloudflare/workers-types@4.20260702.1))':
     dependencies:
       '@ast-grep/napi': 0.40.5
       '@dotenvx/dotenvx': 1.31.0

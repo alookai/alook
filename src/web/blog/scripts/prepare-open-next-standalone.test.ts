@@ -71,7 +71,7 @@ describe("prepareOpenNextStandalone", () => {
 
     prepareOpenNextStandalone(root)
 
-    const compatOg = join(nextRoot, "open-next-compat/@vercel/og")
+    const compatOg = join(root, "blog/.open-next-compat/@vercel/og")
     expect(readFileSync(join(compatOg, "index.edge.js"), "utf8")).toBe("edge-runtime")
     expect(readFileSync(join(compatOg, "yoga.wasm"), "utf8")).toBe("wasm-runtime")
   })

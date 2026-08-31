@@ -42,7 +42,7 @@ export function prepareOpenNextStandalone(webRoot: string): void {
   if (!tracedNodePath) return
 
   const nestedTrace = resolve(nestedNext, relative(nextRoot, ogTrace))
-  const compatDirectory = resolve(nextRoot, "open-next-compat/@vercel/og")
+  const compatDirectory = resolve(webRoot, "blog/.open-next-compat/@vercel/og")
   mkdirSync(compatDirectory, { recursive: true })
 
   for (const fileName of ["index.edge.js", "yoga.wasm"]) {

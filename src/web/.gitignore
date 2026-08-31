@@ -27,6 +27,7 @@ src/test/e2e-ui/.auth/
 /.next/
 /blog/.next/
 /blog/.open-next/
+/blog/.open-next-compat/
 /blog/package.json
 /blog/public/alook.svg
 /blog/public/apple-touch-icon.png

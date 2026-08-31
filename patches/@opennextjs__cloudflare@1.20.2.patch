@@ -1,5 +1,5 @@
 diff --git a/dist/cli/build/patches/ast/patch-vercel-og-library.js b/dist/cli/build/patches/ast/patch-vercel-og-library.js
-index da90ef5d9201ce4c268ac915a6d3ae14222d7283..3a570967764a81c9db0d34c7744e64f505c99042 100644
+index da90ef5d9201ce4c268ac915a6d3ae14222d7283..5d45abe4e519fa46a54fd6424c6b8c0b416a9778 100644
 --- a/dist/cli/build/patches/ast/patch-vercel-og-library.js
 +++ b/dist/cli/build/patches/ast/patch-vercel-og-library.js
 @@ -31,12 +31,29 @@ export function patchVercelOgLibrary(buildOpts) {
@@ -7,7 +7,7 @@ index da90ef5d9201ce4c268ac915a6d3ae14222d7283..3a570967764a81c9db0d34c7744e64f5
          if (!existsSync(outputEdgePath)) {
              const tracedEdgePath = path.join(path.dirname(traceInfoPath), tracedNodePath.replace("index.node.js", "index.edge.js"));
 -            copyFileSync(tracedEdgePath, outputEdgePath);
-+            const preparedOgPath = path.join(appBuildOutputPath, ".next/open-next-compat/@vercel/og");
++            const preparedOgPath = path.join(appBuildOutputPath, ".open-next-compat/@vercel/og");
 +            const preparedEdgePath = path.join(preparedOgPath, "index.edge.js");
 +            try {
 +                copyFileSync(tracedEdgePath, outputEdgePath);
