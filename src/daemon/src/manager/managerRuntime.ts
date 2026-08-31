@@ -1859,11 +1859,12 @@ export class AgentProcessManager {
     rawMessage: string,
   ): void {
     if (!this.opts.onBotAuditEvent) return;
+    const stableCode = /^[A-Za-z0-9_.-]{1,100}$/.test(code) ? code : "runtime_error";
     const message = scrubRuntimeErrorDiagnosticText(rawMessage).slice(0, AUDIT_ERROR_MESSAGE_MAX_LEN);
     try {
       this.opts.onBotAuditEvent(agentId, {
         kind: "error",
-        payload: { scope, code, message, model: this.currentModelFor(agentId) },
+        payload: { scope, code: stableCode, message, model: this.currentModelFor(agentId) },
       }, {
         sessionId: this.liveSessions.get(agentId) ?? null,
         launchId: this.launchIds.get(agentId) ?? null,
@@ -1895,15 +1896,15 @@ export class AgentProcessManager {
       return;
     }
     const sessionSuperseded = owner.superseded;
-    const errorMessage = event.type === "session_failed"
-      ? event.error.message
+    const runtimeError = event.type === "session_failed"
+      ? event.error
       : event.type === "turn_completed" && event.result.outcome === "failed"
-        ? event.result.error.message
+        ? event.result.error
         : undefined;
-    if (errorMessage !== undefined && !sessionSuperseded) {
-      this.emitErrorAudit(agentId, "runtime", "runtime_error", errorMessage);
+    if (runtimeError !== undefined && !sessionSuperseded) {
+      this.emitErrorAudit(agentId, "runtime", runtimeError.code, runtimeError.message);
       if (this.nonCleanEndMarker.get(agentId)?.cause !== "killed_stalled") {
-        this.nonCleanEndMarker.set(agentId, { cause: "runtime_error", detail: errorMessage });
+        this.nonCleanEndMarker.set(agentId, { cause: "runtime_error", detail: runtimeError.message });
       }
       const agent = this.state.agents[agentId];
       if (
@@ -1914,7 +1915,7 @@ export class AgentProcessManager {
         this.log.warn("runtime error during a stuck reset window", {
           agentId,
           resettingForMs: this.now() - agent.resettingSince,
-          message: errorMessage,
+          message: runtimeError.message,
         });
       }
     }

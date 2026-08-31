@@ -38,6 +38,7 @@ interface ServiceIdentity {
 interface TurnOutcome {
   readonly seq: number;
   readonly ok: boolean;
+  readonly code?: string;
   readonly message?: string;
 }
 
@@ -149,7 +150,12 @@ function messageFromError(value: unknown): string {
   const message = typeof payload?.message === "string" && payload.message.trim()
     ? payload.message
     : undefined;
-  return message ? "OpenCode turn failed" : "OpenCode reported an inconsistent turn outcome";
+  return message ?? "OpenCode reported an inconsistent turn outcome";
+}
+
+function codeFromError(value: unknown): string {
+  const payload = record(value);
+  return payload?.type === "unknown" ? "opencode.unknown" : "opencode.step_failed";
 }
 
 export class OpenCodeServiceLane implements RuntimeLane {
@@ -848,7 +854,10 @@ export class OpenCodeServiceLane implements RuntimeLane {
           root.outcomes.push({
             seq,
             ok: successful,
-            ...(!successful ? { message: "OpenCode reported an unsupported final step outcome" } : {}),
+            ...(!successful ? {
+              code: "opencode.unsupported_finish",
+              message: "OpenCode reported an unsupported final step outcome",
+            } : {}),
           });
         }
         const tokens = record(data.tokens);
@@ -876,7 +885,12 @@ export class OpenCodeServiceLane implements RuntimeLane {
         break;
       }
       case "session.next.step.failed":
-        root.outcomes.push({ seq, ok: false, message: messageFromError(data.error) });
+        root.outcomes.push({
+          seq,
+          ok: false,
+          code: codeFromError(data.error),
+          message: messageFromError(data.error),
+        });
         break;
       default:
         break;
@@ -1086,11 +1100,21 @@ export class OpenCodeServiceLane implements RuntimeLane {
         .sort((left, right) => left.seq - right.seq)
         .at(-1);
       if (!root.interrupted && !outcome) {
-        this.settleRoot(root, false, "OpenCode drain settled without a durable turn outcome");
+        this.settleRoot(
+          root,
+          false,
+          "OpenCode drain settled without a durable turn outcome",
+          "opencode.missing_outcome",
+        );
         return;
       }
       if (outcome && !outcome.ok) {
-        this.settleRoot(root, false, outcome.message ?? "OpenCode turn failed");
+        this.settleRoot(
+          root,
+          false,
+          outcome.message ?? "OpenCode turn failed",
+          outcome.code ?? "opencode.turn_failed",
+        );
         return;
       }
       this.settleRoot(root, true);
@@ -1126,13 +1150,19 @@ export class OpenCodeServiceLane implements RuntimeLane {
       && this.identityMatches();
   }
 
-  private settleRoot(root: ActiveRoot, success: boolean, message?: string): void {
+  private settleRoot(
+    root: ActiveRoot,
+    success: boolean,
+    message?: string,
+    code = "opencode.turn_failed",
+  ): void {
     if (this.activeRoot !== root) return;
     this.activeRoot = null;
     this.toolNames.clear();
     if (!success) {
       this.events.emit("runtime_event", {
         kind: "error",
+        code,
         message: message ?? "OpenCode turn failed",
       } satisfies AdapterEvent);
     }

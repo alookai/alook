@@ -173,7 +173,7 @@ function fakeSession(sessionInstanceId = "test-instance"): FakeSession {
     },
     async fire(evt: string, ...args: unknown[]) {
       if (evt === "runtime_event") {
-        const event = args[0] as { kind: string; sessionId?: string; text?: string; name?: string; input?: unknown; message?: string; source?: string; itemType?: string; payloadBytes?: number };
+        const event = args[0] as { kind: string; sessionId?: string; text?: string; name?: string; input?: unknown; code?: string; message?: string; source?: string; itemType?: string; payloadBytes?: number };
         const turnId = "test-turn";
         switch (event.kind) {
           case "session_init":
@@ -188,7 +188,7 @@ function fakeSession(sessionInstanceId = "test-instance"): FakeSession {
           case "review_started":
           case "review_finished": push({ type: event.kind, turnId } as never); break;
           case "internal_progress": push({ type: "internal_progress", turnId, source: event.source, itemType: event.itemType, payloadBytes: event.payloadBytes } as never); break;
-          case "error": push({ type: "session_failed", error: { category: "process", code: "runtime_error", message: event.message ?? "Runtime error", retryable: true } } as never); break;
+          case "error": push({ type: "session_failed", error: { category: "process", code: event.code ?? "runtime_error", message: event.message ?? "Runtime error", retryable: true } } as never); break;
           case "turn_end": push({ type: "turn_completed", turnId, commandIds: ["test-start"], result: { outcome: "success", backendSessionId: event.sessionId ?? "test-session" } } as never); break;
           default: push({ type: "internal_progress", turnId, source: "test", itemType: event.kind } as never);
         }
@@ -2954,7 +2954,11 @@ describe("AgentProcessManager — error audit emission", () => {
 
     // Establish first so the error is session-level (runtime), not spawn.
     await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
-    await session.fire("runtime_event", { kind: "error", message: "rate limited: 429 Too Many Requests" });
+    await session.fire("runtime_event", {
+      kind: "error",
+      code: "codex.server_overloaded",
+      message: "rate limited: 429 Too Many Requests",
+    });
 
     const errCalls = onBotAuditEvent.mock.calls.filter(
       ([, ev]) => (ev as { kind?: string })?.kind === "error",
@@ -2962,8 +2966,40 @@ describe("AgentProcessManager — error audit emission", () => {
     expect(errCalls).toHaveLength(1);
     const payload = (errCalls[0]![1] as { payload: { scope: string; code: string; message: string } }).payload;
     expect(payload.scope).toBe("runtime");
-    expect(payload.code).toBe("runtime_error");
+    expect(payload.code).toBe("codex.server_overloaded");
     expect(payload.message).toContain("429");
+  });
+
+  it("falls back to runtime_error when a driver error code is not audit-safe", () => {
+    const onBotAuditEvent = vi.fn();
+    const { mgr } = makeManager({ onBotAuditEvent });
+    const internal = mgr as unknown as {
+      activeSpawnState: Map<string, { superseded: boolean }>;
+      onAgentEvent(agentId: string, event: AgentEvent<BuiltinBackendSpecs, "codex">, runtimeId: "codex", owner: { superseded: boolean }): void;
+    };
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+    const owner = internal.activeSpawnState.get("a1")!;
+    internal.onAgentEvent("a1", {
+      type: "session_failed",
+      error: {
+        category: "process",
+        code: "secret/provider/value",
+        message: "failed",
+        retryable: true,
+      },
+      sequence: 1,
+      sessionInstanceId: "test-instance",
+      at: Date.now(),
+    }, "codex", owner);
+
+    expect(onBotAuditEvent).toHaveBeenCalledWith(
+      "a1",
+      expect.objectContaining({
+        kind: "error",
+        payload: expect.objectContaining({ code: "runtime_error" }),
+      }),
+      expect.anything(),
+    );
   });
 
   it("emits the failed turn result message as a runtime error", () => {
@@ -3086,7 +3122,7 @@ describe("AgentProcessManager — error audit emission", () => {
     expect(logger.calls.warn.some(([m]) => m === "runtime error during a stuck reset window")).toBe(false);
   });
 
-  it("scrubs secrets out of an error message before it becomes an audit row", async () => {
+  it("scrubs secrets and caps an error message before it becomes an audit row", async () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
@@ -3094,7 +3130,7 @@ describe("AgentProcessManager — error audit emission", () => {
     await session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
     await session.fire("runtime_event", {
       kind: "error",
-      message: 'auth failed sk-ant-abc123DEF456 OPENAI_API_KEY=provider-secret {"apiKey":"json-secret"} Authorization: Basic basic-secret at /Users/Alice Smith/private key.json?token=query-secret',
+      message: `auth failed sk-ant-abc123DEF456 OPENAI_API_KEY=provider-secret {"apiKey":"json-secret"} Authorization: Basic basic-secret at /Users/Alice Smith/private key.json?token=query-secret\n${"x".repeat(3_000)}`,
     });
 
     const errCall = onBotAuditEvent.mock.calls.find(
@@ -3103,6 +3139,8 @@ describe("AgentProcessManager — error audit emission", () => {
     const message = (errCall![1] as { payload: { message: string } }).payload.message;
     expect(message).not.toMatch(/sk-ant-abc123DEF456|provider-secret|json-secret|basic-secret|Alice Smith|private key|query-secret/);
     expect(message).toContain("[redacted-token]");
+    expect(message).toHaveLength(1_000);
+    expect(message.length).toBeLessThanOrEqual(2_000);
   });
 });
 

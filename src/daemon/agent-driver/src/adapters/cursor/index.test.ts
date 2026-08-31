@@ -439,6 +439,7 @@ describe("CursorDriver persistent ACP transport", () => {
     await settle();
     expect(events.filter((event) => event.kind === "error")).toEqual([{
       kind: "error",
+      code: "cursor.rpc.-32000",
       message: "latest failed",
     }]);
     expect(events.filter((event) => event.kind === "turn_end")).toEqual([{
@@ -736,20 +737,29 @@ describe("CursorDriver persistent ACP transport", () => {
 
     fail(process, server.prompts[0]!, "Prompt failed", { message: "private vendor detail" });
     await settle();
-    expect(events).toContainEqual({ kind: "error", message: "Prompt failed: private vendor detail" });
+    expect(events).toContainEqual({
+      kind: "error",
+      code: "cursor.rpc.-32000",
+      message: "Prompt failed: private vendor detail",
+    });
 
     await lane.send({ text: "second", mode: "idle" });
     respond(process, server.prompts[1]!, { stopReason: "unknown" });
     await settle();
     expect(events).toContainEqual({
       kind: "error",
+      code: "cursor.invalid_stop_reason",
       message: "Cursor ACP prompt response did not contain a supported stopReason",
     });
 
     await lane.send({ text: "third", mode: "idle" });
     process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: server.prompts[2]!.id })}\n`);
     await settle();
-    expect(events).toContainEqual({ kind: "error", message: "Cursor ACP response omitted result" });
+    expect(events).toContainEqual({
+      kind: "error",
+      code: "cursor.invalid_response",
+      message: "Cursor ACP response omitted result",
+    });
 
     await lane.send({ text: "fourth", mode: "idle" });
     respond(process, server.prompts[3]!, {

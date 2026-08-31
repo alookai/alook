@@ -8,6 +8,47 @@ let codexQuotaSourceEpoch = randomBytes(16).toString("base64url");
 let codexQuotaSourceGeneration = 0;
 let codexAccountFingerprint: string | null = null;
 
+const CODEX_ERROR_INFO_CODES = new Set([
+  "contextWindowExceeded",
+  "sessionBudgetExceeded",
+  "usageLimitExceeded",
+  "serverOverloaded",
+  "cyberPolicy",
+  "misalignmentPolicyViolation",
+  "internalServerError",
+  "unauthorized",
+  "badRequest",
+  "threadRollbackFailed",
+  "sandboxError",
+  "other",
+  "httpConnectionFailed",
+  "responseStreamConnectionFailed",
+  "responseStreamDisconnected",
+  "responseTooManyFailedAttempts",
+  "activeTurnNotSteerable",
+]);
+
+function snakeCase(value: string): string {
+  return value.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+}
+
+function codexErrorInfoCode(value: unknown, fallback: string): string {
+  const label = typeof value === "string"
+    ? value
+    : value && typeof value === "object" && !Array.isArray(value)
+      ? Object.keys(value)[0]
+      : undefined;
+  return label && CODEX_ERROR_INFO_CODES.has(label)
+    ? `codex.${snakeCase(label)}`
+    : fallback;
+}
+
+function codexRpcErrorCode(value: unknown): string {
+  return typeof value === "number" && Number.isSafeInteger(value)
+    ? `codex.rpc.${value}`
+    : "codex.rpc_error";
+}
+
 function rotateCodexQuotaSource(): void {
   codexQuotaSourceEpoch = randomBytes(16).toString("base64url");
   codexQuotaSourceGeneration += 1;
@@ -192,7 +233,11 @@ export class CodexEventNormalizer {
     }
 
     if (msg?.error && msg.id !== undefined) {
-      return [{ kind: "error", message: msg.error?.message ?? "Codex RPC error" }];
+      return [{
+        kind: "error",
+        code: codexRpcErrorCode(msg.error?.code),
+        message: msg.error?.message ?? "Codex RPC error",
+      }];
     }
 
     if (msg?.result?.thread?.id) {
@@ -282,13 +327,18 @@ export class CodexEventNormalizer {
         if (!this.acceptRootTerminal(params)) return [];
         this.releaseUsageForTurn(params.threadId, params.turn.id);
         if (params.turn.status === "failed") {
+          const error = params.turn.error;
           return [
-            { kind: "error", message: "Codex turn failed" },
+            {
+              kind: "error",
+              code: codexErrorInfoCode(error?.codexErrorInfo, "codex.turn_failed"),
+              message: error?.message ?? "Codex turn failed",
+            },
             { kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) },
           ];
         }
         if (params.turn.status === "interrupted") {
-          return [{ kind: "error", message: "Codex turn interrupted" }, { kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) }];
+          return [{ kind: "error", code: "codex.turn_interrupted", message: "Codex turn interrupted" }, { kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) }];
         }
         return [{ kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) }];
 
@@ -296,7 +346,11 @@ export class CodexEventNormalizer {
         if (params?.willRetry === true) {
           return [{ kind: "runtime_recovery", stage: "retrying", source: "codex_stream" }];
         }
-        return [{ kind: "error", message: params?.error?.message ?? params?.message ?? "Codex error" }];
+        return [{
+          kind: "error",
+          code: codexErrorInfoCode(params?.error?.codexErrorInfo, "codex.error"),
+          message: params?.error?.message ?? params?.message ?? "Codex error",
+        }];
 
       case "thread/tokenUsage/updated":
         return [];

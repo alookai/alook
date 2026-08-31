@@ -19,6 +19,12 @@ import { tryParseJsonLine } from "../../internal/utils.js";
 import type { ClaudeTurnProtocol } from "./turnProtocol.js";
 
 const API_ERROR_RE = /API Error:.*(?:Connection error|\b[45]\d{2}\b)/i;
+const CLAUDE_RESULT_ERROR_CODES = new Map([
+  ["error_max_turns", "claude.error_max_turns"],
+  ["error_during_execution", "claude.error_during_execution"],
+  ["error_max_budget_usd", "claude.error_max_budget_usd"],
+  ["error_max_structured_output_retries", "claude.error_max_structured_output_retries"],
+]);
 const CLAUDE_USAGE_COMPONENTS = [
   "inputTokens",
   "outputTokens",
@@ -131,7 +137,9 @@ export class ClaudeEventNormalizer {
         out.push({ kind: "assistant_reasoning_completed", text: block.thinking ?? "" });
       } else if (block?.type === "text") {
         const text: string = block.text ?? "";
-        if (API_ERROR_RE.test(text)) out.push({ kind: "error", message: text });
+        if (API_ERROR_RE.test(text)) {
+          out.push({ kind: "error", code: "claude.api_error", message: text });
+        }
         else completedText.push(text);
       } else if (block?.type === "tool_use") {
         out.push({ kind: "tool_call", name: block.name ?? "unknown_tool", input: block.input });
@@ -165,7 +173,11 @@ export class ClaudeEventNormalizer {
     const usage = this.buildUsageTelemetry(event, rawOwner);
     if (usage) out.push(usage);
     if (event.is_error || event.subtype === "error_during_execution") {
-      out.push({ kind: "error", message: String(event.result ?? "Claude runtime error") });
+      out.push({
+        kind: "error",
+        code: CLAUDE_RESULT_ERROR_CODES.get(event.subtype) ?? "claude.result_error",
+        message: String(event.result ?? "Claude runtime error"),
+      });
     }
     out.push({
       kind: "turn_end",

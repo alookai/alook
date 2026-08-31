@@ -189,7 +189,11 @@ export function mapPiSdkEvent(event: any, sessionId: string, state: PiEventState
         return [{ kind: "assistant_message_completed", text: d.content ?? "" }];
       }
       case "error":
-        return [{ kind: "error", message: d.error?.errorMessage ?? "Pi error" }];
+        return [{
+          kind: "error",
+          code: "pi.message_error",
+          message: d.error?.errorMessage ?? "Pi error",
+        }];
       default:
         return [];
     }
