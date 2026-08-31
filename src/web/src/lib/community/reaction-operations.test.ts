@@ -46,6 +46,47 @@ describe("reaction operations", () => {
     mockRemove.mockResolvedValue(null)
   })
 
+  it("rejects empty, non-string, and oversized emoji before authorization", async () => {
+    await expect(setReactionForActor({} as any, {
+      messageId: "m1",
+      userId: "bot1",
+      emoji: null,
+    })).resolves.toEqual({ ok: false, status: 400, error: "emoji must be a non-empty string" })
+    await expect(removeReactionForActor({} as any, {
+      messageId: "m1",
+      userId: "bot1",
+      emoji: "",
+    })).resolves.toEqual({ ok: false, status: 400, error: "emoji must be a non-empty string" })
+    await expect(setReactionForActor({} as any, {
+      messageId: "m1",
+      userId: "bot1",
+      emoji: "😀".repeat(100),
+    })).resolves.toEqual({ ok: false, status: 400, error: "emoji too long" })
+    expect(mockAuthorize).not.toHaveBeenCalled()
+  })
+
+  it("propagates authorization failures for set, remove, and list", async () => {
+    const denied = { ok: false, status: 403, error: "forbidden" }
+    mockAuthorize.mockResolvedValue(denied)
+    await expect(setReactionForActor({} as any, {
+      messageId: "m1",
+      userId: "bot1",
+      emoji: "👍",
+    })).resolves.toEqual(denied)
+    await expect(removeReactionForActor({} as any, {
+      messageId: "m1",
+      userId: "bot1",
+      emoji: "👍",
+    })).resolves.toEqual(denied)
+    await expect(listReactionsForActor({} as any, {
+      messageId: "m1",
+      userId: "bot1",
+    })).resolves.toEqual(denied)
+    expect(mockAdd).not.toHaveBeenCalled()
+    expect(mockRemove).not.toHaveBeenCalled()
+    expect(mockList).not.toHaveBeenCalled()
+  })
+
   it("treats a duplicate add as changed:false and emits no fanout", async () => {
     const error = new Error("UNIQUE constraint failed")
     mockAdd.mockRejectedValue(error)
@@ -59,6 +100,36 @@ describe("reaction operations", () => {
     expect(mockFanOutDm).not.toHaveBeenCalled()
   })
 
+  it("rethrows a non-unique add failure", async () => {
+    mockAdd.mockRejectedValue(new Error("database unavailable"))
+    await expect(setReactionForActor({} as any, {
+      messageId: "m1",
+      userId: "bot1",
+      emoji: "👍",
+    })).rejects.toThrow("database unavailable")
+  })
+
+  it("adds a reaction and fans the canonical event out to a channel", async () => {
+    const result = await setReactionForActor({} as any, {
+      messageId: "m1",
+      userId: "bot1",
+      emoji: "👍",
+    })
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        emoji: "👍",
+        changed: true,
+        reaction: { messageId: "m1", userId: "bot1", emoji: "👍" },
+      },
+    })
+    expect(mockFanOutChannel).toHaveBeenCalledWith("c1", expect.objectContaining({
+      messageId: "m1",
+      userId: "bot1",
+      emoji: "👍",
+    }))
+  })
+
   it("does not fan out when remove finds no matching reaction", async () => {
     const result = await removeReactionForActor({} as any, {
       messageId: "m1",
@@ -67,6 +138,27 @@ describe("reaction operations", () => {
     })
     expect(result).toEqual({ ok: true, value: { emoji: "👍", changed: false } })
     expect(mockFanOutChannel).not.toHaveBeenCalled()
+  })
+
+  it("removes a reaction and fans the canonical event out to a DM", async () => {
+    mockAuthorize.mockResolvedValue({
+      ok: true,
+      channelId: "dm1",
+      isDm: true,
+      scope: { kind: "dm", channelId: "dm1" },
+    })
+    mockRemove.mockResolvedValue({ messageId: "m1", userId: "bot1", emoji: "👍" })
+    const result = await removeReactionForActor({} as any, {
+      messageId: "m1",
+      userId: "bot1",
+      emoji: "👍",
+    })
+    expect(result).toEqual({ ok: true, value: { emoji: "👍", changed: true } })
+    expect(mockFanOutDm).toHaveBeenCalledWith("dm1", expect.objectContaining({
+      messageId: "m1",
+      userId: "bot1",
+      emoji: "👍",
+    }))
   })
 
   it("groups actors per emoji, projects handles, me, unknown users, and stable ordering", async () => {

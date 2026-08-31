@@ -501,7 +501,7 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     expect(sightings).toEqual([{ agentId: "agent-1", method: "POST", pathname: "/api/community/channels/resolve/messages" }]);
   });
 
-  it("reports property-based mark mutations and the aggregate mark list exactly once", async () => {
+  it("reports validated property metadata and omits metadata for unknown types", async () => {
     const upstream = await startUpstream();
     upstreamClose = upstream.close;
     const sightings: Array<{
@@ -529,11 +529,15 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     await fetch(`${proxy.url}/api/community/messages/resolve/properties?type=mark`, {
       method: "DELETE", headers, body: markBody,
     });
+    await fetch(`${proxy.url}/api/community/messages/resolve/properties?type=unknown`, {
+      method: "PUT", headers, body: markBody,
+    });
     await fetch(`${proxy.url}/api/community/users/me/marks`, { method: "GET", headers });
 
     expect(sightings).toEqual([
       { agentId: "agent-1", method: "PUT", pathname: "/api/community/messages/resolve/properties", metadata: { propertyType: "mark" } },
       { agentId: "agent-1", method: "DELETE", pathname: "/api/community/messages/resolve/properties", metadata: { propertyType: "mark" } },
+      { agentId: "agent-1", method: "PUT", pathname: "/api/community/messages/resolve/properties" },
       { agentId: "agent-1", method: "GET", pathname: "/api/community/users/me/marks" },
     ]);
   });
