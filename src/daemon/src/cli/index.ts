@@ -603,7 +603,7 @@ async function cmdInboxPull(opts: Record<string, unknown>): Promise<unknown> {
   let acked = 0;
   let ackError: string | undefined;
   let failed: AckFailure[] | undefined;
-  if (opts.ack !== false && messages.length > 0) {
+  if (messages.length > 0) {
     const latest = new Map<string, Cursor>();
     for (const m of messages) {
       const seqN = Number(m.seq.replace("#", ""));
@@ -876,7 +876,6 @@ function buildProgram(stdin: CliInputStream): Command {
     .command("pull")
     .description("fetch unread messages from all channels")
     .option("--max <n>", "max messages to return")
-    .option("--no-ack", "do not advance read waterlines (peek only)")
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command) {
