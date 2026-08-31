@@ -19,7 +19,16 @@ function frame(input: Partial<ScrollTraceFrame> & { frame: number; scrollTop: nu
     browserMax: 600,
     distanceToEnd: 600 - input.scrollTop,
     programmaticScrollInProgress: false,
-    scrollerRect: null,
+    scrollerRect: {
+      x: 300,
+      y: 50,
+      width: 900,
+      height: 400,
+      top: 50,
+      right: 1200,
+      bottom: 450,
+      left: 300,
+    },
     contentRect: null,
     composerRect: null,
     accessoryRailRect: null,
@@ -64,24 +73,47 @@ function result(overrides: Partial<ScrollTraceResult> = {}): ScrollTraceResult {
     endedAt: 80,
     status: "stable",
     capabilities: {},
-    marks: [{
-      timestamp: 0,
-      frame: 0,
-      name: "final-stimulus",
-      dataTransitionSource: null,
-      detail: null,
-      preEventDistanceToEnd: 0,
-      programmaticScrollInProgress: false,
-    }],
+    marks: [
+      {
+        timestamp: 0,
+        frame: 1,
+        name: "analysis-start:upward",
+        dataTransitionSource: null,
+        detail: null,
+        preEventDistanceToEnd: 0,
+        programmaticScrollInProgress: false,
+      },
+      {
+        timestamp: 64,
+        frame: 4,
+        name: "analysis-end:upward",
+        dataTransitionSource: null,
+        detail: null,
+        preEventDistanceToEnd: 44,
+        programmaticScrollInProgress: false,
+      },
+      {
+        timestamp: 64,
+        frame: 4,
+        name: "final-stimulus",
+        dataTransitionSource: null,
+        detail: null,
+        preEventDistanceToEnd: 44,
+        programmaticScrollInProgress: false,
+      },
+    ],
     frames: [
       frame({ frame: 1, scrollTop: 600 }),
       frame({ frame: 2, scrollTop: 576 }),
       frame({ frame: 3, scrollTop: 580 }),
       frame({ frame: 4, scrollTop: 556, firstVisibleOffset: 3 }),
     ],
-    writes: [],
-    measurements: [],
-    externalEvents: [],
+    writes: [write({ frame: 2 })],
+    measurements: [{ timestamp: 1, frame: 2, id: "m1", index: 1, height: 20 }],
+    externalEvents: [
+      { timestamp: 0, type: "wheel", detail: { x: 0, y: -24 } },
+      { timestamp: 24, type: "wheel", detail: { x: 0, y: -24 } },
+    ],
     dropped: { frames: 0, writes: 0 },
     ...overrides,
   }
@@ -111,11 +143,18 @@ describe("scroll trace normalization", () => {
     }))).toEqual(expect.arrayContaining([
       "schema version",
       "final-stimulus mark",
+      "analysis window",
       "non-finite geometry",
     ]))
     expect(validateScrollTrace(result({
       externalEvents: [{ timestamp: 1, type: "cookie", detail: "secret" }],
     }))).toContain("sensitive field")
+    expect(validateScrollTrace(result({
+      externalEvents: [{ timestamp: 1, type: "keydown", detail: "private draft text" }],
+    }))).toContain("unsafe key detail")
+    expect(validateScrollTrace(result({
+      externalEvents: [{ timestamp: 1, type: "keydown", detail: "printable" }],
+    }))).not.toContain("unsafe key detail")
   })
 
   it("keeps metric margins in their native units", () => {
@@ -130,6 +169,7 @@ describe("scroll trace normalization", () => {
     expect(baseline.schemaVersion).toBe(1)
     expect(baseline.capture.successfulMatrixRuns).toBeGreaterThanOrEqual(2)
     expect(baseline.capture.portablePerformanceGate).toBe(false)
+    expect(baseline.units.analysisFrameCount).toBe("count")
     expect(baseline.units.frameDelta).toBe("css-px")
     expect(baseline.units.writerCount).toBe("count")
     expect(baseline.gatePolicy.diagnostic).toEqual(expect.arrayContaining([
@@ -176,6 +216,98 @@ describe("scroll trace writers and metrics", () => {
     expect(summary.unknownWriterCount).toBe(1)
     expect(summary.repeatedMeasurementRows).toEqual([{ id: "m1", count: 2 }])
   })
+
+  it("summarizes the named action window when the action precedes final settlement", () => {
+    const summary = summarizeScrollTrace(result({
+      marks: [
+        {
+          timestamp: 0,
+          frame: 1,
+          name: "analysis-start:wheel",
+          dataTransitionSource: null,
+          detail: null,
+          preEventDistanceToEnd: 0,
+          programmaticScrollInProgress: false,
+        },
+        {
+          timestamp: 48,
+          frame: 3,
+          name: "analysis-end:wheel",
+          dataTransitionSource: null,
+          detail: null,
+          preEventDistanceToEnd: 40,
+          programmaticScrollInProgress: false,
+        },
+        {
+          timestamp: 64,
+          frame: 4,
+          name: "final-stimulus",
+          dataTransitionSource: null,
+          detail: null,
+          preEventDistanceToEnd: 40,
+          programmaticScrollInProgress: false,
+        },
+      ],
+      frames: [
+        frame({ frame: 1, scrollTop: 600 }),
+        frame({ frame: 2, scrollTop: 576 }),
+        frame({ frame: 3, scrollTop: 560 }),
+        frame({ frame: 4, scrollTop: 560 }),
+      ],
+    }))
+    expect(summary.settlementFrames).toBe(1)
+    expect(summary.analysisFrameCount).toBe(3)
+    expect(summary.finalProgress).toBe(-40)
+    expect(summary.analysisSegments).toEqual([
+      expect.objectContaining({ name: "wheel", frameCount: 3, finalProgress: -40 }),
+    ])
+  })
+
+  it("keeps multiple composer lanes as separate analysis segments", () => {
+    const summary = summarizeScrollTrace(result({
+      marks: [
+        { timestamp: 0, frame: 1, name: "analysis-start:manual-clear", dataTransitionSource: null, detail: null, preEventDistanceToEnd: 0, programmaticScrollInProgress: false },
+        { timestamp: 32, frame: 2, name: "analysis-end:manual-clear", dataTransitionSource: null, detail: null, preEventDistanceToEnd: 20, programmaticScrollInProgress: false },
+        { timestamp: 48, frame: 3, name: "analysis-start:accepted-send", dataTransitionSource: null, detail: null, preEventDistanceToEnd: 20, programmaticScrollInProgress: false },
+        { timestamp: 64, frame: 4, name: "analysis-end:accepted-send", dataTransitionSource: null, detail: null, preEventDistanceToEnd: 0, programmaticScrollInProgress: false },
+        { timestamp: 64, frame: 4, name: "final-stimulus", dataTransitionSource: null, detail: null, preEventDistanceToEnd: 0, programmaticScrollInProgress: false },
+      ],
+    }))
+    expect(summary.analysisSegments.map((segment) => segment.name)).toEqual([
+      "manual-clear",
+      "accepted-send",
+    ])
+    expect(summary.analysisSegments.map((segment) => segment.finalProgress)).toEqual([-24, -24])
+  })
+
+  it("aggregates every segment while counting reversals only with a local direction", () => {
+    const summary = summarizeScrollTrace(result({
+      commandDirection: "backward",
+      marks: [
+        { timestamp: 0, frame: 1, name: "analysis-start:setup", dataTransitionSource: null, detail: { commandDirection: null }, preEventDistanceToEnd: 0, programmaticScrollInProgress: false },
+        { timestamp: 32, frame: 2, name: "analysis-end:setup", dataTransitionSource: null, detail: null, preEventDistanceToEnd: 0, programmaticScrollInProgress: false },
+        { timestamp: 48, frame: 3, name: "analysis-start:upward", dataTransitionSource: null, detail: { commandDirection: "backward" }, preEventDistanceToEnd: 0, programmaticScrollInProgress: false },
+        { timestamp: 64, frame: 4, name: "analysis-end:upward", dataTransitionSource: null, detail: null, preEventDistanceToEnd: 0, programmaticScrollInProgress: false },
+        { timestamp: 64, frame: 4, name: "final-stimulus", dataTransitionSource: null, detail: null, preEventDistanceToEnd: 0, programmaticScrollInProgress: false },
+      ],
+      frames: [
+        frame({ frame: 1, scrollTop: 300 }),
+        frame({ frame: 2, scrollTop: 600 }),
+        frame({ frame: 3, scrollTop: 500 }),
+        frame({ frame: 4, scrollTop: 520 }),
+      ],
+    }))
+    expect(summary.analysisSegments.map((segment) => ({
+      name: segment.name,
+      direction: segment.commandDirection,
+      reversals: segment.reversalCount,
+    }))).toEqual([
+      { name: "setup", direction: null, reversals: 0 },
+      { name: "upward", direction: "backward", reversals: 1 },
+    ])
+    expect(summary.finalProgress).toBe(320)
+    expect(summary.reversalCount).toBe(1)
+  })
 })
 
 describe("matched Web and Desktop classification", () => {
@@ -202,5 +334,47 @@ describe("matched Web and Desktop classification", () => {
       ],
     })
     expect(classifyTracePair(web, desktop).classification).toBe("platform-regression")
+  })
+
+  it("rejects same-runtime and missing matched evidence", () => {
+    const web = result()
+    expect(classifyTracePair(web, result()).reasons).toContain("runtime:desktop")
+    const desktop = result({
+      identity: { ...web.identity, runtime: "tauri" },
+      frames: web.frames.map((value) => ({ ...value, scrollerRect: null })),
+      externalEvents: [],
+      writes: [],
+      measurements: [],
+    })
+    expect(classifyTracePair(web, desktop)).toEqual({
+      classification: "unclassified",
+      reasons: [
+        "matched-evidence:scroller",
+        "matched-evidence:input-cadence",
+        "matched-evidence:writer-sequence",
+        "matched-evidence:measurement-sequence",
+      ],
+    })
+  })
+
+  it("rejects mismatched scroller, cadence, writer, and measurement sequences", () => {
+    const web = result()
+    const desktop = result({
+      identity: { ...web.identity, runtime: "tauri" },
+      frames: web.frames.map((value) => ({
+        ...value,
+        scrollerRect: value.scrollerRect ? { ...value.scrollerRect, width: 899 } : null,
+      })),
+      externalEvents: [
+        { timestamp: 0, type: "wheel", detail: { x: 0, y: -24 } },
+        { timestamp: 40, type: "wheel", detail: { x: 0, y: -24 } },
+      ],
+      writes: [write({ frame: 2, method: "scrollTo" })],
+      measurements: [{ timestamp: 1, frame: 2, id: "m1", index: 1, height: 21 }],
+    })
+    expect(classifyTracePair(web, desktop)).toEqual({
+      classification: "unclassified",
+      reasons: ["scroller:width", "input-cadence", "writer-sequence", "measurement-sequence"],
+    })
   })
 })

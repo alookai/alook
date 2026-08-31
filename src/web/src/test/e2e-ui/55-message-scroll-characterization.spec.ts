@@ -1,4 +1,4 @@
-import type { Page, Route, TestInfo } from "@playwright/test"
+import type { Locator, Page, Route, TestInfo } from "@playwright/test"
 import { test, expect, sessionCookie } from "./_fixtures/community-fixture"
 import { composerEditable, gotoAfterUserWsAuth, sendMessage } from "./_fixtures/actions"
 import {
@@ -9,7 +9,9 @@ import { seedChannel, seedJoinServer, seedMessage, seedServer } from "./_fixture
 import {
   abortScrollTrace,
   attachScrollTrace,
+  beginScrollTraceAnalysis,
   createScrollTraceIdentity,
+  endScrollTraceAnalysis,
   finishScrollTrace,
   installScrollTrace,
   installScrollTraceInCurrentDocument,
@@ -138,6 +140,101 @@ async function finishAndAttach(page: Page, testInfo: TestInfo): Promise<ScrollTr
   return result
 }
 
+async function establishScrollDistancePrecondition(
+  scroller: Locator,
+  label: string,
+  targetDistanceToEnd: number,
+): Promise<{ scrollTop: number; scrollHeight: number; clientHeight: number; distanceToEnd: number }> {
+  const readGeometry = () => scroller.evaluate((element) => ({
+    scrollTop: element.scrollTop,
+    scrollHeight: element.scrollHeight,
+    clientHeight: element.clientHeight,
+    distanceToEnd: Math.max(0, element.scrollHeight - element.clientHeight - element.scrollTop),
+  })).then((geometry) => ({
+    ...geometry,
+    targetDistanceToEnd,
+    atTarget: Math.abs(geometry.distanceToEnd - targetDistanceToEnd) <= 1,
+  }))
+  const driveToTarget = async () => {
+    const geometry = await readGeometry()
+    if (geometry.atTarget) return geometry
+    await scroller.evaluate((element, targetDistance) => {
+      element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - targetDistance)
+      element.dispatchEvent(new Event("scroll"))
+    }, targetDistanceToEnd)
+    return readGeometry()
+  }
+  await scroller.evaluate((element, targetDistance) => {
+    element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - targetDistance)
+    element.dispatchEvent(new Event("scroll"))
+  }, targetDistanceToEnd)
+  await expect.poll(driveToTarget, {
+    timeout: 20_000,
+    message: `${label}: scroller must reach ${targetDistanceToEnd}px from end before the stimulus`,
+  }).toMatchObject({ atTarget: true })
+  await scroller.evaluate(() => new Promise<void>((resolveValue) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolveValue()))
+  }))
+  await expect.poll(driveToTarget, {
+    timeout: 20_000,
+    message: `${label}: ${targetDistanceToEnd}px distance must survive two committed RAFs`,
+  }).toMatchObject({ atTarget: true })
+  await scroller.evaluate(() => new Promise<void>((resolveValue) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolveValue()))
+  }))
+  await expect.poll(readGeometry, {
+    timeout: 20_000,
+    message: `${label}: ${targetDistanceToEnd}px distance must remain stable without another write`,
+  }).toMatchObject({ atTarget: true })
+  const { atTarget: _atTarget, targetDistanceToEnd: _target, ...geometry } = await readGeometry()
+  return geometry
+}
+
+async function establishMidHistoryPrecondition(
+  scroller: Locator,
+): Promise<{ scrollTop: number; scrollHeight: number; clientHeight: number; distanceToEnd: number }> {
+  const readGeometry = () => scroller.evaluate((element) => ({
+    scrollTop: element.scrollTop,
+    scrollHeight: element.scrollHeight,
+    clientHeight: element.clientHeight,
+    distanceToEnd: Math.max(0, element.scrollHeight - element.clientHeight - element.scrollTop),
+  }))
+  await scroller.evaluate((element) => {
+    element.scrollTop = Math.max(0, (element.scrollHeight - element.clientHeight) / 2)
+    element.dispatchEvent(new Event("scroll"))
+  })
+  await expect.poll(async () => {
+    const geometry = await readGeometry()
+    return {
+      ...geometry,
+      insideHistory: geometry.scrollTop > 300 && geometry.distanceToEnd > 300,
+    }
+  }, {
+    timeout: 20_000,
+    message: "remote-mid-history: scroller must be stably away from both boundaries",
+  }).toMatchObject({ insideHistory: true })
+  await scroller.evaluate(() => new Promise<void>((resolveValue) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolveValue()))
+  }))
+  const before = await readGeometry()
+  await scroller.evaluate(() => new Promise<void>((resolveValue) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolveValue()))
+  }))
+  await expect.poll(async () => {
+    const geometry = await readGeometry()
+    return {
+      ...geometry,
+      stable: Math.abs(geometry.scrollTop - before.scrollTop) <= 1
+        && geometry.scrollTop > 300
+        && geometry.distanceToEnd > 300,
+    }
+  }, {
+    timeout: 20_000,
+    message: "remote-mid-history: actual geometry must remain stable across committed RAFs",
+  }).toMatchObject({ stable: true })
+  return readGeometry()
+}
+
 function messageCreateCount(
   frames: Awaited<ReturnType<typeof proxyCommunityWebSockets>>["frames"],
   channelId: string,
@@ -208,6 +305,9 @@ test.describe.serial("message scroll characterization", () => {
       scenario: "cold-load-and-async-row",
       identity: identity(coldChannelId),
     })
+    await beginScrollTraceAnalysis(alice.page, "cold-load-and-async-row", {
+      dataTransitionSource: "initial-cold",
+    })
     await markScrollTrace(alice.page, "cold-request-held", { dataTransitionSource: "initial-cold" })
     const coldProfile = await seedProfile(coldChannelId, 12, true, "alice")
     initialMessages.release()
@@ -218,6 +318,7 @@ test.describe.serial("message scroll characterization", () => {
     })
     image.release()
     await expect(alice.page.getByTestId(tid.message(coldProfile.ids.at(-1)!)).locator("img")).toBeVisible()
+    await endScrollTraceAnalysis(alice.page, "cold-load-and-async-row")
     const cold = await finishAndAttach(alice.page, testInfo)
     expect(cold.frames.some((frame) => frame.loaders.top.mounted || frame.rows.length === 0)).toBe(true)
     await initialMessages.dispose()
@@ -241,11 +342,15 @@ test.describe.serial("message scroll characterization", () => {
       identity: identity(coldChannelId),
       estimatedSizes: coldProfile.estimates,
     })
+    await beginScrollTraceAnalysis(alice.page, "warm-cache-revalidation", {
+      dataTransitionSource: "initial-cache",
+    })
     await markScrollTrace(alice.page, "cached-rows-painted", {
       dataTransitionSource: "initial-cache",
       detail: { renderedBeforeRelease: true },
     })
     warmRequest.release()
+    await endScrollTraceAnalysis(alice.page, "warm-cache-revalidation")
     await finishAndAttach(alice.page, testInfo)
     await warmRequest.dispose()
 
@@ -264,6 +369,10 @@ test.describe.serial("message scroll characterization", () => {
       identity: identity(loadingChannelId),
       estimatedSizes: loadingProfile.estimates,
     })
+    await beginScrollTraceAnalysis(anchored.page, "older-loading-prepend", {
+      dataTransitionSource: "older-page",
+      commandDirection: "backward",
+    })
     await markScrollTrace(anchored.page, "stimulus:older-boundary", { dataTransitionSource: "older-page" })
     await anchored.page.getByTestId(tid.messageScroller).evaluate((element) => {
       element.scrollTop = 0
@@ -273,8 +382,11 @@ test.describe.serial("message scroll characterization", () => {
     await expect(anchored.page.getByText("Loading older messages…", { exact: true })).toBeVisible()
     older.release()
     await expect(anchored.page.getByText("Loading older messages…", { exact: true })).toHaveCount(0)
+    await endScrollTraceAnalysis(anchored.page, "older-loading-prepend")
     const olderTrace = await finishAndAttach(anchored.page, testInfo)
-    expect(olderTrace.marks.filter((mark) => mark.dataTransitionSource === "older-page")).toHaveLength(1)
+    expect(olderTrace.marks.filter((mark) =>
+      mark.name === "stimulus:older-boundary"
+      && mark.dataTransitionSource === "older-page")).toHaveLength(1)
     await older.dispose()
 
     await installScrollTraceInCurrentDocument(anchored.page)
@@ -299,12 +411,17 @@ test.describe.serial("message scroll characterization", () => {
       identity: identity(loadingChannelId),
       estimatedSizes: loadingProfile.estimates,
     })
+    await beginScrollTraceAnalysis(anchored.page, "newer-loading-present", {
+      dataTransitionSource: "newer-page",
+      commandDirection: "forward",
+    })
     await markScrollTrace(anchored.page, "stimulus:jump-present", { dataTransitionSource: "newer-page" })
     await present.click()
     await newest.matched
     newest.release()
     await expect(anchored.page.getByTestId(tid.message(loadingProfile.ids.at(-1)!))).toBeVisible({ timeout: 30_000 })
     await expect(present).toHaveCount(0)
+    await endScrollTraceAnalysis(anchored.page, "newer-loading-present")
     await finishAndAttach(anchored.page, testInfo)
     await expect.poll(() => newestGets).toBe(1)
     await anchored.page.waitForTimeout(500)
@@ -329,9 +446,12 @@ test.describe.serial("message scroll characterization", () => {
     })
 
     await markScrollTrace(alice.page, "stimulus:pin-tail")
-    await scroller.evaluate((element) => {
-      element.scrollTop = element.scrollHeight
-      element.dispatchEvent(new Event("scroll"))
+    const pinnedPrecondition = await establishScrollDistancePrecondition(scroller, "remote-pinned", 0)
+    await markScrollTrace(alice.page, "remote-pinned-precondition", {
+      detail: pinnedPrecondition,
+    })
+    await beginScrollTraceAnalysis(alice.page, "remote-pinned", {
+      dataTransitionSource: "overlay-ws",
     })
     const pinnedBody = `remote pinned ${Date.now()}`
     await markScrollTrace(alice.page, "remote-pinned", { dataTransitionSource: "overlay-ws" })
@@ -339,11 +459,15 @@ test.describe.serial("message scroll characterization", () => {
     await expect(alice.page.getByTestId(tid.message(pinnedId))).toBeVisible({ timeout: 20_000 })
     await expect.poll(() => scroller.evaluate((element) =>
       Math.max(0, element.scrollHeight - element.clientHeight - element.scrollTop))).toBeLessThanOrEqual(1)
+    await endScrollTraceAnalysis(alice.page, "remote-pinned")
 
     await markScrollTrace(alice.page, "stimulus:away-101")
-    await scroller.evaluate((element) => {
-      element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 101)
-      element.dispatchEvent(new Event("scroll"))
+    const awayPrecondition = await establishScrollDistancePrecondition(scroller, "remote-away-101", 101)
+    await markScrollTrace(alice.page, "remote-away-precondition", {
+      detail: awayPrecondition,
+    })
+    await beginScrollTraceAnalysis(alice.page, "remote-away-101", {
+      dataTransitionSource: "overlay-ws",
     })
     const awayBody = `remote away ${Date.now()}`
     await markScrollTrace(alice.page, "remote-away", { dataTransitionSource: "overlay-ws" })
@@ -354,16 +478,25 @@ test.describe.serial("message scroll characterization", () => {
       pillVisible: !!document.querySelector(`[data-testid='${pillTestId}']`),
     }), tid.scrollToPresent)
     await markScrollTrace(alice.page, "remote-away-observed", { detail: awayObservation })
+    await endScrollTraceAnalysis(alice.page, "remote-away-101")
 
     await markScrollTrace(alice.page, "stimulus:mid-history")
-    await scroller.evaluate((element) => {
-      element.scrollTop = Math.max(0, element.scrollHeight / 2 - element.clientHeight / 2)
-      element.dispatchEvent(new Event("scroll"))
+    const midHistoryPrecondition = await establishMidHistoryPrecondition(scroller)
+    await markScrollTrace(alice.page, "remote-mid-history-precondition", {
+      detail: midHistoryPrecondition,
+    })
+    await beginScrollTraceAnalysis(alice.page, "remote-mid-history-burst", {
+      dataTransitionSource: "overlay-ws",
     })
     for (let index = 0; index < 3; index += 1) {
       await markScrollTrace(alice.page, `remote-burst-${index}`, { dataTransitionSource: "overlay-ws" })
       await seedMessage(index % 2 === 0 ? "bob" : "carol", upwardChannelId, `remote burst ${index} ${Date.now()}`)
     }
+    await endScrollTraceAnalysis(alice.page, "remote-mid-history-burst")
+    await beginScrollTraceAnalysis(alice.page, "remote-during-smooth", {
+      dataTransitionSource: "overlay-ws",
+      commandDirection: "forward",
+    })
     const smoothBody = `remote during smooth ${Date.now()}`
     await markScrollTrace(alice.page, "remote-during-smooth", { dataTransitionSource: "overlay-ws" })
     await scroller.evaluate((element) => element.scrollTo({
@@ -372,15 +505,18 @@ test.describe.serial("message scroll characterization", () => {
     }))
     await seedMessage("bob", upwardChannelId, smoothBody)
     await expect.poll(() => messageCreateCount(proxy.frames, upwardChannelId, smoothBody)).toBe(1)
+    await endScrollTraceAnalysis(alice.page, "remote-during-smooth")
 
     await markScrollTrace(alice.page, "stimulus:reset-tail")
-    await scroller.evaluate((element) => {
-      element.scrollTop = element.scrollHeight
-      element.dispatchEvent(new Event("scroll"))
-    })
+    const upwardPrecondition = await establishScrollDistancePrecondition(scroller, "upward-60x24", 0)
+    await markScrollTrace(alice.page, "upward-precondition", { detail: upwardPrecondition })
     const box = await scroller.boundingBox()
     expect(box).not.toBeNull()
     await alice.page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2)
+    await beginScrollTraceAnalysis(alice.page, "upward-60x24", {
+      dataTransitionSource: "overlay-ws",
+      commandDirection: "backward",
+    })
     await markScrollTrace(alice.page, "stimulus:upward-60x24")
     const liveAppend = (async () => {
       await alice.page.waitForTimeout(250)
@@ -392,6 +528,7 @@ test.describe.serial("message scroll characterization", () => {
       await alice.page.waitForTimeout(24)
     }
     await liveAppend
+    await endScrollTraceAnalysis(alice.page, "upward-60x24")
     const trace = await finishAndAttach(alice.page, testInfo)
     expect(trace.externalEvents.filter((event) => event.type === "wheel")).toHaveLength(60)
     expect(trace.marks.filter((mark) => mark.dataTransitionSource === "overlay-ws").length)
@@ -428,12 +565,17 @@ test.describe.serial("message scroll characterization", () => {
         if (line < 5) await alice.page.keyboard.press("Shift+Enter")
       }
     }
-    await markScrollTrace(alice.page, "stimulus:pin-for-draft")
-    await scroller.evaluate((element) => {
-      element.scrollTop = element.scrollHeight
-      element.dispatchEvent(new Event("scroll"))
-    })
+    await markScrollTrace(alice.page, "stimulus:prepare-pinned-draft")
     await typeSixLines("pinned")
+    const pinnedDraftPrecondition = await establishScrollDistancePrecondition(
+      scroller,
+      "manual-delete-pinned",
+      0,
+    )
+    await markScrollTrace(alice.page, "manual-delete-pinned-precondition", {
+      detail: pinnedDraftPrecondition,
+    })
+    await beginScrollTraceAnalysis(alice.page, "manual-delete-pinned")
     await markScrollTrace(alice.page, "manual-delete-pinned")
     await alice.page.keyboard.press("ControlOrMeta+A")
     await alice.page.keyboard.press("Backspace")
@@ -441,23 +583,37 @@ test.describe.serial("message scroll characterization", () => {
     expect(messagePosts).toBe(0)
     expect(proxy.frames.flatMap(communityFrameEvents).filter((event) =>
       event.type === "community:message.create" && event.channelId === composerChannelId)).toHaveLength(0)
+    await endScrollTraceAnalysis(alice.page, "manual-delete-pinned")
 
+    await markScrollTrace(alice.page, "stimulus:prepare-away-draft")
     await typeSixLines("away")
-    await markScrollTrace(alice.page, "stimulus:draft-away")
-    await scroller.evaluate((element) => {
-      element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 300)
-      element.dispatchEvent(new Event("scroll"))
+    const awayDraftPrecondition = await establishScrollDistancePrecondition(
+      scroller,
+      "manual-delete-away",
+      300,
+    )
+    await markScrollTrace(alice.page, "manual-delete-away-precondition", {
+      detail: awayDraftPrecondition,
     })
+    await beginScrollTraceAnalysis(alice.page, "manual-delete-away")
     await markScrollTrace(alice.page, "manual-delete-away")
     await alice.page.keyboard.press("ControlOrMeta+A")
     await alice.page.keyboard.press("Backspace")
     await expect(alice.page.getByTestId(tid.composerInput)).toHaveText("")
     expect(messagePosts).toBe(0)
+    await endScrollTraceAnalysis(alice.page, "manual-delete-away")
 
     await markScrollTrace(alice.page, "stimulus:pin-for-send")
-    await scroller.evaluate((element) => {
-      element.scrollTop = element.scrollHeight
-      element.dispatchEvent(new Event("scroll"))
+    const pinnedSendPrecondition = await establishScrollDistancePrecondition(
+      scroller,
+      "optimistic-send-pinned",
+      0,
+    )
+    await markScrollTrace(alice.page, "optimistic-send-pinned-precondition", {
+      detail: pinnedSendPrecondition,
+    })
+    await beginScrollTraceAnalysis(alice.page, "optimistic-send-pinned", {
+      dataTransitionSource: "optimistic-send",
     })
     const pinnedSend = `optimistic pinned ${Date.now()}`
     await markScrollTrace(alice.page, "optimistic-pinned", { dataTransitionSource: "optimistic-send" })
@@ -466,11 +622,19 @@ test.describe.serial("message scroll characterization", () => {
     await markScrollTrace(alice.page, "post-ack-pinned", { dataTransitionSource: "post-ack" })
     await expect.poll(() => messageCreateCount(proxy.frames, composerChannelId, pinnedSend)).toBe(1)
     await markScrollTrace(alice.page, "ws-dedupe-pinned", { dataTransitionSource: "ws-dedupe" })
+    await endScrollTraceAnalysis(alice.page, "optimistic-send-pinned")
 
     await markScrollTrace(alice.page, "stimulus:send-away")
-    await scroller.evaluate((element) => {
-      element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 300)
-      element.dispatchEvent(new Event("scroll"))
+    const awaySendPrecondition = await establishScrollDistancePrecondition(
+      scroller,
+      "optimistic-send-away",
+      300,
+    )
+    await markScrollTrace(alice.page, "optimistic-send-away-precondition", {
+      detail: awaySendPrecondition,
+    })
+    await beginScrollTraceAnalysis(alice.page, "optimistic-send-away", {
+      dataTransitionSource: "optimistic-send",
     })
     const awaySend = `optimistic away ${Date.now()}`
     await markScrollTrace(alice.page, "optimistic-away", { dataTransitionSource: "optimistic-send" })
@@ -482,12 +646,17 @@ test.describe.serial("message scroll characterization", () => {
     await expect.poll(() => scroller.evaluate((element) =>
       Math.max(0, element.scrollHeight - element.clientHeight - element.scrollTop))).toBeLessThanOrEqual(1)
     expect(messagePosts).toBe(2)
+    await endScrollTraceAnalysis(alice.page, "optimistic-send-away")
 
+    await beginScrollTraceAnalysis(alice.page, "viewport-keyboard-profile")
     await markScrollTrace(alice.page, "stimulus:viewport-keyboard-profile")
     await alice.page.setViewportSize({ width: 1280, height: 560 })
     await alice.page.setViewportSize(VIEWPORT)
+    await endScrollTraceAnalysis(alice.page, "viewport-keyboard-profile")
     const trace = await finishAndAttach(alice.page, testInfo)
-    expect(trace.marks.filter((mark) => mark.dataTransitionSource === "optimistic-send")).toHaveLength(2)
+    expect(trace.marks.filter((mark) =>
+      ["optimistic-pinned", "optimistic-away"].includes(mark.name)
+      && mark.dataTransitionSource === "optimistic-send")).toHaveLength(2)
     expect(trace.marks.filter((mark) => mark.dataTransitionSource === "post-ack")).toHaveLength(2)
     expect(trace.marks.filter((mark) => mark.dataTransitionSource === "ws-dedupe")).toHaveLength(2)
     expect(messageCreateCount(proxy.frames, composerChannelId, pinnedSend)).toBe(1)

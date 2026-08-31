@@ -364,7 +364,30 @@
       programmaticScrollInProgress = false
       recordExternal("scrollend")
     }, { passive: true })
-    addListener(window, "keydown", (event) => recordExternal("keydown", event.key), { passive: true })
+    const safeControlKeys = new Set([
+      "Enter",
+      "Backspace",
+      "Delete",
+      "Tab",
+      "Escape",
+      "ArrowUp",
+      "ArrowDown",
+      "ArrowLeft",
+      "ArrowRight",
+      "Home",
+      "End",
+      "PageUp",
+      "PageDown",
+      "Shift",
+      "Control",
+      "Alt",
+      "Meta",
+      "CapsLock",
+    ])
+    addListener(window, "keydown", (event) => recordExternal(
+      "keydown",
+      event.key.length === 1 ? "printable" : safeControlKeys.has(event.key) ? event.key : "control",
+    ), { passive: true })
     addListener(window, "resize", () => recordExternal("resize", { width: innerWidth, height: innerHeight }), { passive: true })
 
     const sample = () => {
