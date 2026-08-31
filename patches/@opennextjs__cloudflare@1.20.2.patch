@@ -1,23 +1,36 @@
 diff --git a/dist/cli/build/patches/ast/patch-vercel-og-library.js b/dist/cli/build/patches/ast/patch-vercel-og-library.js
-index da90ef5d9201ce4c268ac915a6d3ae14222d7283..921ad49b0a67c07365b6b655572cf46bd934d077 100644
+index da90ef5d9201ce4c268ac915a6d3ae14222d7283..ec01194b16615b66f31bf26a4f0c99fb54b1e405 100644
 --- a/dist/cli/build/patches/ast/patch-vercel-og-library.js
 +++ b/dist/cli/build/patches/ast/patch-vercel-og-library.js
-@@ -31,11 +31,15 @@ export function patchVercelOgLibrary(buildOpts) {
+@@ -31,12 +31,29 @@ export function patchVercelOgLibrary(buildOpts) {
          // Ensure the edge version is available in the OpenNext node_modules.
          if (!existsSync(outputEdgePath)) {
              const tracedEdgePath = path.join(path.dirname(traceInfoPath), tracedNodePath.replace("index.node.js", "index.edge.js"));
 -            copyFileSync(tracedEdgePath, outputEdgePath);
 +            const standaloneTraceInfoPath = path.join(appBuildOutputPath, ".next/standalone", getPackagePath(buildOpts), path.relative(appBuildOutputPath, traceInfoPath));
 +            const standaloneEdgePath = path.join(path.dirname(standaloneTraceInfoPath), tracedNodePath.replace("index.node.js", "index.edge.js"));
-+            copyFileSync(existsSync(tracedEdgePath) ? tracedEdgePath : standaloneEdgePath, outputEdgePath);
++            try {
++                copyFileSync(tracedEdgePath, outputEdgePath);
++            }
++            catch (error) {
++                if (error?.code !== "ENOENT")
++                    throw error;
++                copyFileSync(standaloneEdgePath, outputEdgePath);
++            }
              // On Next 16.2 and above, we also need to copy the yoga.wasm file used by the library.
              const tracedWasmPath = path.join(path.dirname(traceInfoPath), tracedNodePath.replace("index.node.js", "yoga.wasm"));
 -            if (existsSync(tracedWasmPath)) {
--                copyFileSync(tracedWasmPath, path.join(outputDir, "yoga.wasm"));
 +            const standaloneWasmPath = path.join(path.dirname(standaloneTraceInfoPath), tracedNodePath.replace("index.node.js", "yoga.wasm"));
-+            const wasmSourcePath = existsSync(tracedWasmPath) ? tracedWasmPath : standaloneWasmPath;
-+            if (existsSync(wasmSourcePath)) {
-+                copyFileSync(wasmSourcePath, path.join(outputDir, "yoga.wasm"));
++            try {
+                 copyFileSync(tracedWasmPath, path.join(outputDir, "yoga.wasm"));
              }
++            catch (error) {
++                if (error?.code !== "ENOENT")
++                    throw error;
++                if (existsSync(standaloneWasmPath)) {
++                    copyFileSync(standaloneWasmPath, path.join(outputDir, "yoga.wasm"));
++                }
++            }
          }
          // Change font fetches in the library to use imports.
+         {
