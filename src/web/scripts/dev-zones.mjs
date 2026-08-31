@@ -2,19 +2,32 @@ import { spawn } from "node:child_process"
 import net from "node:net"
 import { resolve } from "node:path"
 import { createZoneIngress } from "./dev-zone-ingress.mjs"
-import { LOCAL_WORKER_ENDPOINTS, workerDevArgs } from "./dev-zone-processes.mjs"
+import {
+  exactWorkerDevArgs,
+  LOCAL_WORKER_ENDPOINTS,
+  workerDevArgs,
+} from "./dev-zone-processes.mjs"
 
 const packageManagerCli = process.env.npm_execpath
-if (!packageManagerCli) throw new Error("npm_execpath is required")
-
 const workerMode = process.argv.includes("--worker")
+const withWsDo = process.argv.includes("--with-ws-do")
+const wranglerEntryFlag = process.argv.indexOf("--wrangler-entry")
+const wranglerEntry = wranglerEntryFlag === -1 ? undefined : process.argv[wranglerEntryFlag + 1]
+if (!packageManagerCli && !wranglerEntry) throw new Error("npm_execpath is required")
+if (wranglerEntryFlag !== -1 && (!wranglerEntry || wranglerEntry.startsWith("--"))) {
+  throw new Error("--wrangler-entry requires a path")
+}
+if ((withWsDo || wranglerEntry) && !workerMode) {
+  throw new Error("--with-ws-do and --wrangler-entry require --worker")
+}
+
 const registryPath = resolve(process.cwd(), "../../.wrangler/registry")
 const childEnv = { ...process.env, WRANGLER_REGISTRY_PATH: registryPath }
 const processes = []
 let shuttingDown = false
 
-function spawnBackend(label, args) {
-  const child = spawn(packageManagerCli, args, {
+function spawnBackend(label, command, args) {
+  const child = spawn(command, args, {
     cwd: process.cwd(),
     env: childEnv,
     stdio: "inherit",
@@ -59,18 +72,43 @@ function waitForPort(port, timeoutMs = 60_000) {
   })
 }
 
-const backendArgs = workerMode
+const mainWorkerConfigs = withWsDo
+  ? ["wrangler.toml", "../ws-do/wrangler.toml"]
+  : ["wrangler.toml"]
+const workerCommand = wranglerEntry ? process.execPath : packageManagerCli
+const workerArgs = (configPaths, endpoint) => wranglerEntry
+  ? exactWorkerDevArgs(wranglerEntry, configPaths, endpoint)
+  : workerDevArgs(configPaths, endpoint)
+
+const backends = workerMode
   ? [
-      workerDevArgs("wrangler.toml", LOCAL_WORKER_ENDPOINTS.main),
-      workerDevArgs("blog/wrangler.toml", LOCAL_WORKER_ENDPOINTS.blog),
+      {
+        label: "main backend",
+        command: workerCommand,
+        args: workerArgs(mainWorkerConfigs, LOCAL_WORKER_ENDPOINTS.main),
+      },
+      {
+        label: "Blog backend",
+        command: workerCommand,
+        args: workerArgs(["blog/wrangler.toml"], LOCAL_WORKER_ENDPOINTS.blog),
+      },
     ]
   : [
-      ["exec", "next", "dev", "--hostname", "127.0.0.1", "--port", "3001"],
-      ["exec", "next", "dev", "blog", "--hostname", "127.0.0.1", "--port", "3002"],
+      {
+        label: "main backend",
+        command: packageManagerCli,
+        args: ["exec", "next", "dev", "--hostname", "127.0.0.1", "--port", "3001"],
+      },
+      {
+        label: "Blog backend",
+        command: packageManagerCli,
+        args: ["exec", "next", "dev", "blog", "--hostname", "127.0.0.1", "--port", "3002"],
+      },
     ]
 
-spawnBackend("main backend", backendArgs[0])
-spawnBackend("Blog backend", backendArgs[1])
+for (const backend of backends) {
+  spawnBackend(backend.label, backend.command, backend.args)
+}
 
 const ingress = createZoneIngress()
 

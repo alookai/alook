@@ -335,24 +335,22 @@ export function serviceDefinitions(singleRuntime: boolean): ServiceDefinition[] 
     ]
   }
 
-  return [
-    {
-      name: "web-zones",
-      command: "pnpm",
-      args: ["--filter", "@alook/web", "dev:zones:worker"],
-      healthUrl: webHealth,
-      expectedStatus: 200,
-      expectedBody: { status: "ok" },
-    },
-    {
-      name: "ws-do",
-      command: "pnpm",
-      args: ["--filter", "@alook/ws-do", "dev"],
-      healthUrl: "http://localhost:8789/health",
-      expectedStatus: 200,
-      expectedBody: { status: "ok" },
-    },
-  ]
+  const runtime = resolveE2EWranglerRuntime()
+  return [{
+    name: "web-zones",
+    command: "pnpm",
+    args: [
+      "--filter",
+      "@alook/web",
+      "dev:zones:worker",
+      "--with-ws-do",
+      "--wrangler-entry",
+      runtime.entry,
+    ],
+    healthUrl: webHealth,
+    expectedStatus: 200,
+    expectedBody: { status: "ok" },
+  }]
 }
 
 function startService(definition: ServiceDefinition): ManagedService {
