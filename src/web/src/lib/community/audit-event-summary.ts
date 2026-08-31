@@ -48,7 +48,7 @@ const ALOOK_COMMAND_BY_SUBCOMMAND: Record<string, string> = {
   listFriends: "friend list",
   friendRequest: "friend request",
   inboxPull: "inbox pull",
-  inboxSnapshot: "inbox pull --no-ack",
+  inboxSnapshot: "inbox pull",
   profileBioUpdate: "setting profile",
   profileAvatarUpdate: "setting profile",
   nap: "nap",

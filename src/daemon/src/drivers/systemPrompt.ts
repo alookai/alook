@@ -105,7 +105,7 @@ function cliCommandsSection(): string {
     "",
     "### Messaging",
     "",
-    `1. \`${CLI} inbox pull\` — fetch unread messages; \`--no-ack\` peeks without advancing.`,
+    `1. \`${CLI} inbox pull\` — fetch unread messages and advance their read waterlines.`,
     `2. \`${CLI} message send --target <ref> --remind-after <0|Nm|Nh> --stdin\` — send to a ` +
       `channel, DM, or thread. ` +
       `The body is required through \`--stdin\` and limited to 1 KiB of UTF-8. ` +
@@ -392,7 +392,7 @@ function executionModelSection(): string {
     "On wake, restore durable context from `memory.md` and the context timeline, then pull your inbox. " +
       "Follow *Outstanding work marks* below before taking new work.",
     "",
-    "`inbox pull` advances your read waterline by default — pulled messages won't come back in a " +
+    "`inbox pull` advances your read waterline — pulled messages won't come back in a " +
       "future pull. A task-bearing message stays durable through its server mark even after the " +
       "read waterline advances."
   ].join("\n");

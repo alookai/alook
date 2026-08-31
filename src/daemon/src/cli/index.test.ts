@@ -526,24 +526,28 @@ describe("inbox pull", () => {
     expect(env.success.pulledAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$/);
   });
 
-  it("--no-ack skips advancing the waterline", async () => {
-    const ackSpy = vi.fn(async (req: { cursors: Array<{ channel: string; seq: number }> }) => ({
-      ok: true, applied: req.cursors, failed: [],
+  it("removes --no-ack from inbox pull help", async () => {
+    await main(["inbox", "pull", "-h"]);
+    expect(cap.lines().join("")).not.toContain("--no-ack");
+  });
+
+  it("rejects --no-ack before calling inbox APIs", async () => {
+    const pullSpy = vi.fn(async () => ({
+      messages: [{ seq: "#2", channel: "/s#0042/general", sender: "@x", content: { text: "yo" }, time: "" }],
+      hasMore: false,
+      markedCount: 0,
     }));
+    const ackSpy = vi.fn();
     setApiForTesting(
       stubApi({
-        inboxPull: async () => ({
-          messages: [{ seq: "#2", channel: "/s#0042/general", sender: "@x", content: { text: "yo" }, time: "" }],
-          hasMore: false,
-          markedCount: 0,
-        }),
+        inboxPull: pullSpy,
         ack: ackSpy,
       }),
     );
     await main(["inbox", "pull", "--no-ack"]);
-    const env = parseEnvelope(cap.lines()) as { success: { acked: number } };
+    expect(parseEnvelope(cap.lines()).error).toContain("unknown option '--no-ack'");
+    expect(pullSpy).not.toHaveBeenCalled();
     expect(ackSpy).not.toHaveBeenCalled();
-    expect(env.success.acked).toBe(0);
   });
 
   it("surfaces ackError instead of poisoning the whole pull when ack throws", async () => {
