@@ -36,4 +36,24 @@ describe("UserBar", () => {
     expect(html).not.toContain("<button")
     expect(html).not.toContain("<a")
   })
+
+  it("joins the mobile Inbox to the user bar without seam radii", () => {
+    const openHtml = renderToStaticMarkup(createElement(UserBar, {
+      breakpoint: "mobile",
+      user: { id: "u1", name: "User", avatar: "U" },
+      inboxOpen: true,
+    }))
+    expect(openHtml).toContain(
+      'class="flex h-12 items-center gap-3 bg-muted px-4 ring-1 ring-border/40 rounded-b-xl"',
+    )
+
+    const closedHtml = renderToStaticMarkup(createElement(UserBar, {
+      breakpoint: "mobile",
+      user: { id: "u1", name: "User", avatar: "U" },
+      inboxOpen: false,
+    }))
+    expect(closedHtml).toContain(
+      'class="flex h-12 items-center gap-3 bg-muted px-4 ring-1 ring-border/40 rounded-xl"',
+    )
+  })
 })

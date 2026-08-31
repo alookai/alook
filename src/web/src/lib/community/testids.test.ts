@@ -13,7 +13,6 @@ describe("community QA selectors", () => {
     expect(tid.inboxMobileBackdrop).toBe("community-inbox-mobile-backdrop")
     expect(tid.inboxMobileSurface).toBe("community-inbox-mobile-surface")
     expect(tid.inboxMobileCard).toBe("community-inbox-mobile-card")
-    expect(tid.inboxMobileClose).toBe("community-inbox-mobile-close")
     expect(tid.inboxTabList).toBe("community-inbox-tab-list")
     expect(tid.inboxTabScroll("marked")).toBe("community-inbox-marked-scroll")
   })

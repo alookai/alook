@@ -17,6 +17,16 @@ type SurfaceGeometry = {
   userBar: { top: number; bottom: number; left: number; right: number }
   card: { top: number; bottom: number; left: number; right: number; height: number }
   backdrop: { top: number; bottom: number }
+  seam: {
+    cardTopLeft: string
+    cardTopRight: string
+    cardBottomLeft: string
+    cardBottomRight: string
+    userBarTopLeft: string
+    userBarTopRight: string
+    userBarBottomLeft: string
+    userBarBottomRight: string
+  }
   userBarOwnsCenter: boolean
   rootScrollTop: number
 }
@@ -43,10 +53,15 @@ async function surfaceGeometry(page: Page): Promise<SurfaceGeometry> {
     const backdrop = document.querySelector<HTMLElement>(
       `[data-testid='${ids.backdrop}']`,
     )
-    if (!userBar || !backdrop) throw new Error("missing mobile Inbox geometry")
+    const userBarSurface = userBar?.firstElementChild as HTMLElement | null
+    if (!userBar || !userBarSurface || !backdrop) {
+      throw new Error("missing mobile Inbox geometry")
+    }
     const userRect = userBar.getBoundingClientRect()
     const cardRect = card.getBoundingClientRect()
     const backdropRect = backdrop.getBoundingClientRect()
+    const cardStyle = getComputedStyle(card)
+    const userBarStyle = getComputedStyle(userBarSurface)
     const hit = document.elementFromPoint(
       userRect.left + userRect.width / 2,
       userRect.top + userRect.height / 2,
@@ -67,6 +82,16 @@ async function surfaceGeometry(page: Page): Promise<SurfaceGeometry> {
         height: cardRect.height,
       },
       backdrop: { top: backdropRect.top, bottom: backdropRect.bottom },
+      seam: {
+        cardTopLeft: cardStyle.borderTopLeftRadius,
+        cardTopRight: cardStyle.borderTopRightRadius,
+        cardBottomLeft: cardStyle.borderBottomLeftRadius,
+        cardBottomRight: cardStyle.borderBottomRightRadius,
+        userBarTopLeft: userBarStyle.borderTopLeftRadius,
+        userBarTopRight: userBarStyle.borderTopRightRadius,
+        userBarBottomLeft: userBarStyle.borderBottomLeftRadius,
+        userBarBottomRight: userBarStyle.borderBottomRightRadius,
+      },
       userBarOwnsCenter: !!hit && userBar.contains(hit),
       rootScrollTop: document.scrollingElement?.scrollTop ?? 0,
     }
@@ -113,14 +138,22 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     const writes = observeWrites(bob.page)
     const wsBefore = ws.frames.length
 
-    await bob.page.getByTestId(tid.inboxTrigger).click()
+    const inboxTrigger = bob.page.getByTestId(tid.inboxTrigger)
+    await expect(inboxTrigger).toHaveAttribute("aria-label", "Open Inbox")
+    await expect(inboxTrigger).toHaveAttribute("aria-pressed", "false")
+    await expect(inboxTrigger.locator("svg")).not.toHaveClass(/fill-current/)
+    await inboxTrigger.click()
     const mobileSurface = bob.page.getByTestId(tid.inboxMobileSurface)
     await expect(mobileSurface).toBeVisible()
     await expect(mobileSurface).toHaveAttribute("role", "dialog")
     await expect(mobileSurface).not.toHaveAttribute("aria-modal", "true")
-    await expect(bob.page.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-expanded", "true")
-    await expect(bob.page.getByTestId(tid.inboxTrigger)).toHaveAttribute("aria-controls", await mobileSurface.getAttribute("id") ?? "")
-    await expect(bob.page.getByTestId(tid.inboxMobileClose)).toBeFocused()
+    await expect(inboxTrigger).toHaveAttribute("aria-expanded", "true")
+    await expect(inboxTrigger).toHaveAttribute("aria-controls", await mobileSurface.getAttribute("id") ?? "")
+    await expect(inboxTrigger).toHaveAttribute("aria-label", "Close Inbox")
+    await expect(inboxTrigger).toHaveAttribute("aria-pressed", "true")
+    await expect(inboxTrigger.locator("svg")).toHaveClass(/fill-current/)
+    await expect(bob.page.getByRole("button", { name: "Close Inbox" })).toHaveCount(1)
+    await expect(inboxTrigger).toBeFocused()
     const geometry = await surfaceGeometry(bob.page)
     expect(Math.abs(geometry.card.bottom - geometry.userBar.top)).toBeLessThanOrEqual(1)
     expect(Math.abs(geometry.backdrop.bottom - geometry.userBar.top)).toBeLessThanOrEqual(1)
@@ -129,47 +162,58 @@ test.describe.serial("mobile Inbox interactive user-bar base", () => {
     expect(geometry.userBarOwnsCenter).toBe(true)
     expect(geometry.card.height).toBeLessThanOrEqual(448)
     expect(geometry.card.top).toBeGreaterThanOrEqual(20)
+    expect(geometry.seam.cardTopLeft).not.toBe("0px")
+    expect(geometry.seam.cardTopRight).not.toBe("0px")
+    expect(geometry.seam.cardBottomLeft).toBe("0px")
+    expect(geometry.seam.cardBottomRight).toBe("0px")
+    expect(geometry.seam.userBarTopLeft).toBe("0px")
+    expect(geometry.seam.userBarTopRight).toBe("0px")
+    expect(geometry.seam.userBarBottomLeft).not.toBe("0px")
+    expect(geometry.seam.userBarBottomRight).not.toBe("0px")
     expect(geometry.rootScrollTop).toBe(0)
 
     await bob.page.mouse.click(8, 100)
     await expect(bob.page.getByTestId(tid.inboxMobileSurface)).toHaveCount(0)
-    await expect(bob.page.getByTestId(tid.inboxTrigger)).toBeFocused()
+    await expect(inboxTrigger).toBeFocused()
+    await expect(inboxTrigger).toHaveAttribute("aria-label", "Open Inbox")
+    await expect(inboxTrigger).toHaveAttribute("aria-pressed", "false")
+    await expect(inboxTrigger.locator("svg")).not.toHaveClass(/fill-current/)
     await expect(bob.page).toHaveURL(new RegExp(`/c/channels/${serverId}$`))
     expect(writes.writes).toEqual([])
     expect(ws.frames).toHaveLength(wsBefore)
 
-    await bob.page.getByTestId(tid.inboxTrigger).click()
-    await bob.page.getByTestId(tid.inboxMobileClose).click()
+    await inboxTrigger.click()
+    await inboxTrigger.click()
     await expect(bob.page.getByTestId(tid.inboxMobileSurface)).toHaveCount(0)
-    await expect(bob.page.getByTestId(tid.inboxTrigger)).toBeFocused()
+    await expect(inboxTrigger).toBeFocused()
 
-    await bob.page.getByTestId(tid.inboxTrigger).click()
+    await inboxTrigger.click()
     await bob.page.keyboard.press("Escape")
     await expect(bob.page.getByTestId(tid.inboxMobileSurface)).toHaveCount(0)
-    await expect(bob.page.getByTestId(tid.inboxTrigger)).toBeFocused()
+    await expect(inboxTrigger).toBeFocused()
 
-    await bob.page.getByTestId(tid.inboxTrigger).click()
+    await inboxTrigger.click()
     await bob.page.getByTestId(tid.userSettingsOpen).click()
     await expect(bob.page.getByTestId(tid.inboxMobileSurface)).toHaveCount(0)
     await expect(bob.page.getByTestId(tid.settingsShell)).toHaveCount(1)
-    await expect(bob.page.getByTestId(tid.inboxTrigger)).not.toBeFocused()
+    await expect(inboxTrigger).not.toBeFocused()
     await bob.page.getByTestId(tid.settingsClose).click()
 
-    await bob.page.getByTestId(tid.inboxTrigger).click()
+    await inboxTrigger.click()
     await bob.page.getByTestId(tid.userBar).locator("button").first().click()
     await expect(bob.page.getByTestId(tid.inboxMobileSurface)).toHaveCount(0)
     await expect(bob.page.getByTestId(tid.profileCard)).toHaveCount(1)
-    await expect(bob.page.getByTestId(tid.inboxTrigger)).not.toBeFocused()
+    await expect(inboxTrigger).not.toBeFocused()
     await bob.page.keyboard.press("Escape")
 
     await bob.page.setViewportSize({ width: 320, height: 568 })
-    await bob.page.getByTestId(tid.inboxTrigger).click()
+    await inboxTrigger.click()
     const compact = await surfaceGeometry(bob.page)
     expect(Math.abs(compact.card.bottom - compact.userBar.top)).toBeLessThanOrEqual(1)
     expect(compact.card.top).toBeGreaterThanOrEqual(20)
     expect(compact.card.left).toBeGreaterThanOrEqual(18)
     expect(compact.card.right).toBeLessThanOrEqual(320 - 16)
-    await bob.page.getByTestId(tid.inboxMobileClose).click()
+    await inboxTrigger.click()
 
     expect(writes.writes).toEqual([])
     expect(ws.frames).toHaveLength(wsBefore)

@@ -320,5 +320,7 @@ describe("InboxPopover responsive continuity", () => {
     expect(onScrollOffsetChange).toHaveBeenCalledWith("mentions", 42)
     expect(renderer.root.findByType("tabs-list").props["data-testid"])
       .toBe(tid.inboxTabList)
+    expect(renderer.root.findByType("h2").parent?.props.className)
+      .toBe("flex items-center gap-2 px-3 pt-4")
   })
 })

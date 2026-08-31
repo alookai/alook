@@ -398,7 +398,7 @@ export function InboxPopover({
       }}
       className={surface === "mobile" ? "flex h-full min-h-0 flex-col" : "flex h-112 flex-col"}
     >
-      <div className={`flex items-center gap-2 px-3 pt-4 ${surface === "mobile" ? "pr-14" : ""}`}>
+      <div className="flex items-center gap-2 px-3 pt-4">
         <Inbox className="size-5" />
         <h2 className="flex-1 text-lg font-semibold">Inbox</h2>
         {onMarkAllRead && (

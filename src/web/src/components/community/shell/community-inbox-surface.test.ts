@@ -12,7 +12,6 @@ vi.mock("@/components/ui/popover", () => {
   return {
     Popover: pass("popover-root"),
     PopoverBackdrop: pass("popover-backdrop"),
-    PopoverClose: pass("popover-close"),
     PopoverContent: pass("popover-content"),
     PopoverPopup: pass("popover-popup"),
     PopoverPortal: pass("popover-portal"),
@@ -22,7 +21,7 @@ vi.mock("@/components/ui/popover", () => {
   }
 })
 
-async function renderSurface(breakpoint: "mobile" | "desktop") {
+async function renderSurface(breakpoint: "mobile" | "desktop", open = true) {
   const anchorRef = createRef<HTMLDivElement>()
   const suppressFocusReturnRef = { current: false }
   const onOpenChange = vi.fn()
@@ -30,7 +29,7 @@ async function renderSurface(breakpoint: "mobile" | "desktop") {
   await act(async () => {
     renderer = TestRenderer.create(createElement(CommunityInboxSurface, {
       breakpoint,
-      open: true,
+      open,
       onOpenChange,
       hasUnread: true,
       anchorRef,
@@ -44,8 +43,11 @@ describe("CommunityInboxSurface", () => {
   it("uses a scoped real nonmodal Popover surface on mobile", async () => {
     const { renderer, anchorRef, suppressFocusReturnRef } = await renderSurface("mobile")
     expect(renderer.root.findByType("popover-root").props.modal).toBe(false)
-    expect(renderer.root.findByType("popover-trigger").props.render.props["data-testid"])
-      .toBe(tid.inboxTrigger)
+    const trigger = renderer.root.findByType("popover-trigger").props.render
+    expect(trigger.props["data-testid"]).toBe(tid.inboxTrigger)
+    expect(trigger.props["aria-label"]).toBe("Close Inbox")
+    expect(trigger.props["aria-pressed"]).toBe(true)
+    expect(renderer.root.findByType("svg").props.className).toContain("fill-current")
 
     const backdrop = renderer.root.findByType("popover-backdrop")
     expect(backdrop.props["data-testid"]).toBe(tid.inboxMobileBackdrop)
@@ -65,17 +67,26 @@ describe("CommunityInboxSurface", () => {
     })
     const popup = renderer.root.findByType("popover-popup")
     expect(popup.props["data-testid"]).toBe(tid.inboxMobileSurface)
+    expect(popup.props.initialFocus).toBe(false)
     expect(popup.props.className).toContain("w-(--anchor-width)")
     expect(renderer.root.findByType("popover-title").children).toEqual(["Inbox"])
-    expect(renderer.root.findByType("popover-close").props).toMatchObject({
-      "data-testid": tid.inboxMobileClose,
-      "aria-label": "Close Inbox",
-    })
-    expect(renderer.root.findByProps({ "data-testid": tid.inboxMobileCard }).props.style.height)
+    expect(renderer.root.findAllByType("popover-close")).toHaveLength(0)
+    const card = renderer.root.findByProps({ "data-testid": tid.inboxMobileCard })
+    expect(card.props.className).toContain("rounded-t-xl")
+    expect(card.props.className).not.toContain("rounded-xl")
+    expect(card.props.style.height)
       .toContain("100dvh")
 
     suppressFocusReturnRef.current = true
     expect(popup.props.finalFocus()).toBe(false)
+  })
+
+  it("keeps the mobile trigger outlined while closed", async () => {
+    const { renderer } = await renderSurface("mobile", false)
+    const trigger = renderer.root.findByType("popover-trigger").props.render
+    expect(trigger.props["aria-label"]).toBe("Open Inbox")
+    expect(trigger.props["aria-pressed"]).toBe(false)
+    expect(renderer.root.findByType("svg").props.className).not.toContain("fill-current")
   })
 
   it("keeps the exact anchored desktop Popover path", async () => {
@@ -85,6 +96,10 @@ describe("CommunityInboxSurface", () => {
     expect(content.props.className).toBe(
       "w-90 max-w-[calc(100vw-1rem)] overflow-hidden p-0",
     )
+    const trigger = renderer.root.findByType("popover-trigger").props.render
+    expect(trigger.props["aria-label"]).toBe("Inbox")
+    expect(trigger.props["aria-pressed"]).toBeUndefined()
+    expect(renderer.root.findByType("svg").props.className).not.toContain("fill-current")
     expect(renderer.root.findAllByType("popover-backdrop")).toHaveLength(0)
     expect(renderer.root.findAllByType("popover-popup")).toHaveLength(0)
   })

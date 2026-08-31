@@ -1,11 +1,10 @@
 "use client"
 
 import { useRef, type MutableRefObject, type ReactNode, type RefObject } from "react"
-import { Inbox, X } from "lucide-react"
+import { Inbox } from "lucide-react"
 import {
   Popover,
   PopoverBackdrop,
-  PopoverClose,
   PopoverContent,
   PopoverPopup,
   PopoverPortal,
@@ -15,6 +14,7 @@ import {
 } from "@/components/ui/popover"
 import type { Breakpoint } from "@/hooks/use-mobile"
 import { tid } from "@/lib/community/testids"
+import { cn } from "@/lib/utils"
 import { COMMUNITY_USER_BAR_HEIGHT_CSS } from "./shell-frame-geometry"
 
 type Props = {
@@ -37,7 +37,6 @@ export function CommunityInboxSurface({
   children,
 }: Props) {
   const triggerRef = useRef<HTMLButtonElement>(null)
-  const closeRef = useRef<HTMLButtonElement>(null)
   const mobile = breakpoint === "mobile"
 
   return (
@@ -63,11 +62,12 @@ export function CommunityInboxSurface({
             ref={triggerRef}
             data-testid={tid.inboxTrigger}
             className="relative grid size-11 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:size-7"
-            aria-label="Inbox"
+            aria-label={mobile ? (open ? "Close Inbox" : "Open Inbox") : "Inbox"}
+            aria-pressed={mobile ? open : undefined}
           />
         }
       >
-        <Inbox className="size-4" />
+        <Inbox className={cn("size-4", mobile && open && "fill-current")} />
         {hasUnread && (
           <span className="absolute right-1 top-1 size-2 rounded-full bg-primary" />
         )}
@@ -97,7 +97,7 @@ export function CommunityInboxSurface({
           >
             <PopoverPopup
               data-testid={tid.inboxMobileSurface}
-              initialFocus={closeRef}
+              initialFocus={false}
               finalFocus={() => (
                 suppressFocusReturnRef.current ? false : triggerRef.current
               )}
@@ -106,19 +106,11 @@ export function CommunityInboxSurface({
               <PopoverTitle className="sr-only">Inbox</PopoverTitle>
               <div
                 data-testid={tid.inboxMobileCard}
-                className="relative min-h-0 overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-(--e2)"
+                className="relative min-h-0 overflow-hidden rounded-t-xl border border-border bg-popover text-popover-foreground shadow-(--e2)"
                 style={{
                   height: `min(28rem, max(0px, calc(100dvh - ${COMMUNITY_USER_BAR_HEIGHT_CSS} - var(--app-safe-area-top))))`,
                 }}
               >
-                <PopoverClose
-                  ref={closeRef}
-                  data-testid={tid.inboxMobileClose}
-                  className="absolute right-1 top-1 z-10 grid size-11 place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                  aria-label="Close Inbox"
-                >
-                  <X className="size-4" />
-                </PopoverClose>
                 {children}
               </div>
             </PopoverPopup>

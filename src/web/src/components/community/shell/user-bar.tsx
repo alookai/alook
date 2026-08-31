@@ -13,6 +13,7 @@ import type { OpenProfile } from "@/components/community/social/profile-types"
 import type { Presence } from "@/lib/community/models/people"
 import type { Breakpoint } from "@/hooks/use-mobile"
 import { tid } from "@/lib/community/testids"
+import { cn } from "@/lib/utils"
 import { CommunityInboxSurface } from "./community-inbox-surface"
 
 export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox, hasUnread, inboxOpen, onInboxOpenChange }: {
@@ -36,7 +37,13 @@ export function UserBar({ breakpoint, user, onOpenProfile, onEditProfile, inbox,
       data-testid={tid.userBar}
       className="w-full min-w-0 max-w-full shrink-0 overflow-hidden pl-[max(0.75rem,var(--app-safe-area-left))] pr-[max(0.75rem,var(--app-safe-area-right))] pb-[calc(0.75rem+var(--app-safe-area-bottom))] pt-0 sm:px-3 sm:pb-3"
     >
-      <div ref={inboxAnchorRef} className="flex h-12 items-center gap-3 rounded-xl bg-muted px-4 ring-1 ring-border/40">
+      <div
+        ref={inboxAnchorRef}
+        className={cn(
+          "flex h-12 items-center gap-3 bg-muted px-4 ring-1 ring-border/40",
+          breakpoint === "mobile" && inboxOpen ? "rounded-b-xl" : "rounded-xl",
+        )}
+      >
         <Inner
           breakpoint={breakpoint}
           user={user}

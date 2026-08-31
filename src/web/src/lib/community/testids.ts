@@ -192,7 +192,6 @@ export const tid = {
   inboxMobileBackdrop: "community-inbox-mobile-backdrop",
   inboxMobileSurface: "community-inbox-mobile-surface",
   inboxMobileCard: "community-inbox-mobile-card",
-  inboxMobileClose: "community-inbox-mobile-close",
   inboxTabList: "community-inbox-tab-list",
   inboxTabScroll: (tab: "unreads" | "mentions" | "marked") =>
     `community-inbox-${tab}-scroll`,
