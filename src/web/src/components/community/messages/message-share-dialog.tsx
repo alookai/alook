@@ -19,6 +19,7 @@ import { useProfilesByUserId } from "@/stores/community/ws"
 import { readCommunityProfile } from "@/lib/community/profile-read"
 
 const SHARE_IMAGE_READY_TIMEOUT_MS = 5_000
+const SHARE_IMAGE_PIXEL_RATIO = 2
 
 export class ShareCardImageTimeoutError extends Error {
   constructor() {
@@ -27,35 +28,47 @@ export class ShareCardImageTimeoutError extends Error {
   }
 }
 
+export class ShareImageSnapshotError extends Error {
+  constructor() {
+    super("Share-card image pixels are not readable")
+    this.name = "ShareImageSnapshotError"
+  }
+}
+
 async function waitForImageLoad(
   image: HTMLImageElement,
   timeoutMs: number,
 ): Promise<void> {
   if (!image.complete) {
-    const settled = await new Promise<boolean>((resolve) => {
+    const result = await new Promise<"loaded" | "error" | "timeout">((resolve) => {
       let finished = false
-      const finish = (didSettle: boolean) => {
+      const finish = (result: "loaded" | "error" | "timeout") => {
         if (finished) return
         finished = true
-        image.removeEventListener("load", settle)
-        image.removeEventListener("error", settle)
+        image.removeEventListener("load", loaded)
+        image.removeEventListener("error", failed)
         clearTimeout(timer)
-        resolve(didSettle)
+        resolve(result)
       }
-      const settle = () => finish(true)
-      const timer = setTimeout(() => finish(false), timeoutMs)
-      image.addEventListener("load", settle, { once: true })
-      image.addEventListener("error", settle, { once: true })
+      const loaded = () => finish("loaded")
+      const failed = () => finish("error")
+      const timer = setTimeout(() => finish("timeout"), timeoutMs)
+      image.addEventListener("load", loaded, { once: true })
+      image.addEventListener("error", failed, { once: true })
       // Close the tiny race where the resource settles between the initial
       // `complete` read and listener registration.
-      if (image.complete) settle()
+      if (image.complete) finish(image.naturalWidth > 0 ? "loaded" : "error")
     })
     // A request that never emits load/error must fail this capture attempt so
     // Download/Copy leave their busy state and the user can retry; capturing
     // the avatar's transient empty branch would silently recreate the bug.
-    if (!settled) throw new ShareCardImageTimeoutError()
+    if (result === "timeout") throw new ShareCardImageTimeoutError()
+    if (result === "error") throw new ShareImageSnapshotError()
   }
-  if (image.naturalWidth > 0 && image.decode) {
+  if (image.naturalWidth <= 0 || image.naturalHeight <= 0) {
+    throw new ShareImageSnapshotError()
+  }
+  if (image.decode) {
     // Once load has supplied a real bitmap, decode() is only an optimization.
     // Mobile WebKit may reject or never resolve it for cached images, so bound
     // this wait and degrade to the already-loaded bitmap instead of deadlocking.
@@ -96,93 +109,188 @@ export async function waitForShareCardImages(
   await waitForPaint()
 }
 
-type ShareImageDataUrlLoader = (url: string) => Promise<string>
 type ShareImageWaiter = (node: HTMLElement) => Promise<void>
+type ShareImageSnapshotter = (image: HTMLImageElement) => HTMLCanvasElement | null
 
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onerror = () => reject(reader.error ?? new Error("Failed to read share-card image"))
-    reader.onloadend = () => typeof reader.result === "string"
-      ? resolve(reader.result)
-      : reject(new Error("Failed to encode share-card image"))
-    reader.readAsDataURL(blob)
-  })
+function copySnapshotPresentation(
+  image: HTMLImageElement,
+  canvas: HTMLCanvasElement,
+  width: number,
+  height: number,
+): void {
+  canvas.className = image.className
+  canvas.style.cssText = image.style.cssText
+  for (const attribute of [...image.attributes]) {
+    if (attribute.name.startsWith("data-") || attribute.name.startsWith("aria-")) {
+      canvas.setAttribute(attribute.name, attribute.value)
+    }
+  }
+  canvas.style.width = `${width}px`
+  canvas.style.height = `${height}px`
 }
 
-async function loadShareImageDataUrl(url: string): Promise<string> {
-  if (url.startsWith("data:")) return url
+function drawShareImageSnapshot(
+  image: HTMLImageElement,
+  canvas: HTMLCanvasElement,
+  objectFit: string,
+): void {
+  if (image.naturalWidth <= 0 || image.naturalHeight <= 0) {
+    throw new ShareImageSnapshotError()
+  }
+  const context = canvas.getContext("2d")
+  if (!context) throw new ShareImageSnapshotError()
 
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), SHARE_IMAGE_READY_TIMEOUT_MS)
+  const sourceWidth = image.naturalWidth
+  const sourceHeight = image.naturalHeight
+  const targetWidth = canvas.width
+  const targetHeight = canvas.height
+  const containScale = Math.min(targetWidth / sourceWidth, targetHeight / sourceHeight)
+  const coverScale = Math.max(targetWidth / sourceWidth, targetHeight / sourceHeight)
+  const scale = objectFit === "contain"
+    ? containScale
+    : objectFit === "cover"
+      ? coverScale
+      : objectFit === "none"
+        ? SHARE_IMAGE_PIXEL_RATIO
+        : objectFit === "scale-down"
+          ? Math.min(SHARE_IMAGE_PIXEL_RATIO, containScale)
+          : null
+
+  if (scale === null) {
+    context.drawImage(image, 0, 0, targetWidth, targetHeight)
+    return
+  }
+
+  const width = sourceWidth * scale
+  const height = sourceHeight * scale
+  context.drawImage(
+    image,
+    (targetWidth - width) / 2,
+    (targetHeight - height) / 2,
+    width,
+    height,
+  )
+}
+
+export function createShareImageSnapshot(image: HTMLImageElement): HTMLCanvasElement | null {
+  const rect = image.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return null
+
+  const createCanvas = () => {
+    const canvas = document.createElement("canvas")
+    canvas.width = Math.max(1, Math.round(rect.width * SHARE_IMAGE_PIXEL_RATIO))
+    canvas.height = Math.max(1, Math.round(rect.height * SHARE_IMAGE_PIXEL_RATIO))
+    copySnapshotPresentation(image, canvas, rect.width, rect.height)
+    return canvas
+  }
+
+  const canvas = createCanvas()
   try {
-    const response = await fetch(url, {
-      cache: "force-cache",
-      credentials: "same-origin",
-      signal: controller.signal,
-    })
-    if (!response.ok) throw new Error(`Share-card image request failed (${response.status})`)
-    const blob = await response.blob()
-    if (!blob.type.startsWith("image/")) {
-      throw new Error(`Share-card image returned ${blob.type || "an unknown content type"}`)
-    }
-    return await blobToDataUrl(blob)
-  } finally {
-    clearTimeout(timer)
+    drawShareImageSnapshot(image, canvas, getComputedStyle(image).objectFit)
+    canvas.toDataURL()
+    return canvas
+  } catch {
+    throw new ShareImageSnapshotError()
   }
 }
 
-/**
- * html-to-image clones the card and independently fetches every image URL. Its
- * module-level resource cache stores a failed fetch as an empty string, so one
- * transient failure can leave later exports blank even while the live preview
- * still shows the browser's already-loaded bitmap. Inline the exact `currentSrc`
- * of every visible image before capture, then restore the React-owned attributes.
- */
-export async function inlineShareCardImages(
+export async function snapshotShareCardImages(
   node: HTMLElement,
-  loadDataUrl: ShareImageDataUrlLoader = loadShareImageDataUrl,
+  createSnapshot: ShareImageSnapshotter = createShareImageSnapshot,
   waitForImages: ShareImageWaiter = waitForShareCardImages,
+  waitForPaint: () => Promise<void> = nextPaint,
 ): Promise<() => void> {
   await waitForImages(node)
   const images = [...node.querySelectorAll("img")]
-  const dataByUrl = new Map<string, Promise<string>>()
-  const sources = images.map((image) => image.currentSrc || image.src)
-  const dataUrls = await Promise.all(sources.map((source) => {
-    const existing = dataByUrl.get(source)
-    if (existing) return existing
-    const pending = loadDataUrl(source)
-    dataByUrl.set(source, pending)
-    return pending
-  }))
-  const snapshots = images.map((image) => ({
-    image,
-    src: image.getAttribute("src"),
-    srcset: image.getAttribute("srcset"),
-  }))
+  const snapshots: Array<{ image: HTMLImageElement; canvas: HTMLCanvasElement }> = []
   let restored = false
   const restore = () => {
     if (restored) return
     restored = true
-    for (const snapshot of snapshots) {
-      if (snapshot.src === null) snapshot.image.removeAttribute("src")
-      else snapshot.image.setAttribute("src", snapshot.src)
-      if (snapshot.srcset === null) snapshot.image.removeAttribute("srcset")
-      else snapshot.image.setAttribute("srcset", snapshot.srcset)
+    for (const { image, canvas } of snapshots) {
+      if (canvas.parentNode) canvas.replaceWith(image)
     }
   }
 
   try {
-    images.forEach((image, index) => {
-      image.setAttribute("srcset", "")
-      image.setAttribute("src", dataUrls[index]!)
-    })
-    await waitForImages(node)
+    for (const image of images) {
+      const canvas = createSnapshot(image)
+      if (!canvas) continue
+      image.replaceWith(canvas)
+      snapshots.push({ image, canvas })
+    }
+    await waitForPaint()
     return restore
   } catch (error) {
     restore()
     throw error
   }
+}
+
+type ShareCardImageSnapshotter = (node: HTMLElement) => Promise<() => void>
+type ShareCardRasterizer = typeof toBlob
+
+export async function renderShareCard(
+  node: HTMLElement,
+  snapshotImages: ShareCardImageSnapshotter = snapshotShareCardImages,
+  rasterize: ShareCardRasterizer = toBlob,
+): Promise<Blob | null> {
+  const restoreImages = await snapshotImages(node)
+  try {
+    try {
+      const caveatFont = getComputedStyle(document.documentElement)
+        .getPropertyValue("--font-caveat")
+        .trim()
+      if (document.fonts?.load && caveatFont) await document.fonts.load(`16px ${caveatFont}`)
+      await document.fonts?.ready
+    } catch {
+      // Font API unavailable / load rejected — proceed; worst case is the
+      // footer's fallback font, not a failed export.
+    }
+    return await rasterize(node, {
+      pixelRatio: SHARE_IMAGE_PIXEL_RATIO,
+      fetchRequestInit: { credentials: "same-origin" },
+      // Solid backdrop so the exported PNG never bleeds transparent corners
+      // (the card's own rounded bg sits on top of this).
+      backgroundColor: getComputedStyle(node).getPropertyValue("--card")?.trim() || undefined,
+    })
+  } finally {
+    restoreImages()
+  }
+}
+
+type ShareCardRenderer = () => Promise<Blob | null>
+type ShareCardBlobWriter = (blob: Blob) => Promise<void> | void
+
+export async function copyRenderedShareCard(
+  render: ShareCardRenderer,
+  write: ShareCardBlobWriter = (blob) => navigator.clipboard.write([
+    new ClipboardItem({ "image/png": blob }),
+  ]),
+): Promise<void> {
+  const blob = await render()
+  if (!blob) throw new Error("render failed")
+  await write(blob)
+}
+
+export async function downloadRenderedShareCard(
+  render: ShareCardRenderer,
+  filename: string,
+  save: ShareCardBlobWriter = (blob) => {
+    const url = URL.createObjectURL(blob)
+    try {
+      const anchor = document.createElement("a")
+      anchor.href = url
+      anchor.download = filename
+      anchor.click()
+    } finally {
+      URL.revokeObjectURL(url)
+    }
+  },
+): Promise<void> {
+  const blob = await render()
+  if (!blob) throw new Error("render failed")
+  await save(blob)
 }
 
 // Share one OR several messages as an image. Renders a self-contained "share
@@ -243,51 +351,18 @@ export function MessageShareDialog({ m, open, onClose }: {
     setHighlighted(false)
   }, [])
 
-  // Rasterise the card node to a PNG blob. pixelRatio 2 for a crisp image on
-  // retina / when pasted into other apps. `cacheBust` avoids stale cross-origin
-  // image reuse; the card is same-origin so fonts + the logo embed cleanly.
+  // Rasterise the card node to a PNG blob. pixelRatio 2 keeps the live image
+  // snapshots and the rest of the card crisp when pasted into other apps.
   const render = async (): Promise<Blob | null> => {
     const node = cardRef.current
     if (!node) return null
-    const restoreImages = await inlineShareCardImages(node)
-    try {
-      // Guarantee the Caveat brand font is loaded BEFORE rasterising. html-to-image
-      // inlines webfonts into the SVG it draws; if Caveat's async @font-face hasn't
-      // resolved yet, the footer silently falls back to a default font and the PNG
-      // differs machine-to-machine ("fine on mine, blurry/wrong on theirs"). Awaiting
-      // the specific face (then the global ready signal) closes that race.
-      try {
-        const caveatFont = getComputedStyle(document.documentElement)
-          .getPropertyValue("--font-caveat")
-          .trim()
-        if (document.fonts?.load && caveatFont) await document.fonts.load(`16px ${caveatFont}`)
-        await document.fonts?.ready
-      } catch {
-        // Font API unavailable / load rejected — proceed; worst case is the
-        // footer's fallback font, not a failed export.
-      }
-      return await toBlob(node, {
-        pixelRatio: 2,
-        // Every <img> is already a data URL here. Keep authenticated fetch
-        // options for CSS/font resources that html-to-image still embeds.
-        cacheBust: true,
-        fetchRequestInit: { credentials: "same-origin" },
-        // Solid backdrop so the exported PNG never bleeds transparent corners
-        // (the card's own rounded bg sits on top of this).
-        backgroundColor: getComputedStyle(node).getPropertyValue("--card")?.trim() || undefined,
-      })
-    } finally {
-      restoreImages()
-    }
+    return renderShareCard(node)
   }
 
   const copy = async () => {
     setBusy("copy")
     try {
-      const blob = await render()
-      if (!blob) throw new Error("render failed")
-      // ClipboardItem image write — supported in modern Chromium/Safari/FF.
-      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })])
+      await copyRenderedShareCard(render)
       setCopied(true)
       toast.success("Image copied to clipboard")
       window.setTimeout(() => setCopied(false), 1600)
@@ -301,18 +376,14 @@ export function MessageShareDialog({ m, open, onClose }: {
   const download = async () => {
     setBusy("download")
     try {
-      const blob = await render()
-      if (!blob) throw new Error("render failed")
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
       const firstAuthorId = messages[0]?.authorId
       const firstAuthor = firstAuthorId
         ? readCommunityProfile(profilesByUserId.get(firstAuthorId), firstAuthorId)
         : null
-      a.download = `alook-message-${firstAuthor?.name ?? "share"}.png`
-      a.click()
-      URL.revokeObjectURL(url)
+      await downloadRenderedShareCard(
+        render,
+        `alook-message-${firstAuthor?.name ?? "share"}.png`,
+      )
     } catch {
       toast.error("Couldn't generate image")
     } finally {
