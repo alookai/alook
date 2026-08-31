@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { getAllPosts, getPostBySlug } from "@blog/lib/blog/posts";
 import { buildBlogPostingJsonLd } from "@blog/lib/blog/json-ld";
+import { getBlogSearchTitle } from "@blog/lib/blog/metadata";
 import {
   getBlogTopicBySlug,
   getBlogTopicEntryBySlug,
@@ -34,13 +35,14 @@ export async function generateMetadata({
   // route-owned fallback; unlike the retired query route, the slug is resolved
   // against canonical post metadata on the server.
   const ogImage = getBlogOgImage(post);
+  const searchTitle = getBlogSearchTitle(post);
 
   return {
-    title: post.title,
+    title: searchTitle,
     description: post.excerpt,
     alternates: { canonical: `https://alook.ai/blog/${post.slug}` },
     openGraph: {
-      title: post.title,
+      title: searchTitle,
       description: post.excerpt,
       url: `https://alook.ai/blog/${post.slug}`,
       type: "article",
@@ -57,7 +59,7 @@ export async function generateMetadata({
     },
     twitter: {
       card: "summary_large_image",
-      title: post.title,
+      title: searchTitle,
       description: post.excerpt,
       images: [ogImage],
     },

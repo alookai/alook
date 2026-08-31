@@ -70,6 +70,10 @@ export const blogTopics = [
       "Build a workspace where people and agents share context, remain addressable, and coordinate in the same rooms.",
     pillarSlug: "humans-and-ai-agents-in-one-room",
     entries: [
+      {
+        slug: "ai-agent-communication",
+        userJob: "Choose the right communication layer for agents, protocols, and teams",
+      },
       { slug: "shared-context-between-agents", userJob: "Understand why agents drift without shared context" },
       {
         slug: "what-makes-a-shared-ai-workspace-usable",

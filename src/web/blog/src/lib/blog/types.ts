@@ -1,6 +1,7 @@
 export type BlogPost = {
   slug: string;
   title: string;
+  seoTitle?: string;
   date: string;
   /** ISO date (YYYY-MM-DD) when the published post was last revised. */
   dateModified?: string;

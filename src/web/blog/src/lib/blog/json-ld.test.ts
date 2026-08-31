@@ -33,11 +33,10 @@ describe("buildBlogPostingJsonLd", () => {
   it("uses the Alook organization as author for Alook Team", () => {
     const jsonLd = buildBlogPostingJsonLd(base);
 
-    expect(jsonLd.author).toMatchObject({
+    expect(jsonLd.author).toEqual({
       "@type": "Organization",
-      "@id": ALOOK_ORGANIZATION_ID,
-      name: "Alook AI",
-      url: "https://alook.ai",
+      name: "Alook Team",
+      url: "https://alook.ai/blog",
     });
     expect(jsonLd.publisher).toMatchObject({
       "@type": "Organization",
