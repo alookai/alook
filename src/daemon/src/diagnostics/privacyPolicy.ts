@@ -278,11 +278,18 @@ function projectFsm(row: Record<string, unknown>, targetAgentId: string): Record
     "queueDwellTotalMs",
     "sseReconnectCount",
   ] as const;
+  const toolMetricKeys = [
+    "outstandingToolUses",
+    "anonymousOutstandingToolUses",
+    "toolLifecycleMismatchCount",
+  ] as const;
   const hasMetrics = metricKeys.some((key) => key in row || row[key] !== undefined)
+    || toolMetricKeys.some((key) => key in row || row[key] !== undefined)
     || "resumeOutcome" in row
     || "terminalOwnerKind" in row;
   if (hasMetrics) {
     if (!metricKeys.every((key) => copyFiniteNumber(row, output, key))) return null;
+    if (!toolMetricKeys.every((key) => copyInteger(row, output, key, { optional: true }))) return null;
     const resumeOutcome = enumValue(row.resumeOutcome, RESUME_OUTCOMES);
     const terminalOwnerKind = enumValue(row.terminalOwnerKind, TERMINAL_OWNER_KINDS);
     if (!resumeOutcome || !terminalOwnerKind) return null;

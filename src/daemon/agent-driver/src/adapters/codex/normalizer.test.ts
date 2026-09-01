@@ -118,6 +118,23 @@ describe("CodexEventNormalizer — tool_call/tool_output symmetry", () => {
     expect(completed).toEqual([{ kind: "tool_output", name: "mcp_search" }]);
   });
 
+  it("carries the stable app-server item id across both sides of a tool lifecycle", () => {
+    const n = new CodexEventNormalizer();
+    const item = { type: "mcpToolCall", id: "item-42", server: "browser", tool: "click" };
+
+    expect(n.normalizeLine(notify("item/started", { item }))).toEqual([{
+      kind: "tool_call",
+      callId: "item-42",
+      name: "mcp_click",
+      input: item,
+    }]);
+    expect(n.normalizeLine(notify("item/completed", { item: { ...item, status: "failed" } }))).toEqual([{
+      kind: "tool_output",
+      callId: "item-42",
+      name: "mcp_click",
+    }]);
+  });
+
   it("does not expose canSteerBusy or a turnState field (dead/redundant driver-level gate must not silently reappear)", () => {
     const n = new CodexEventNormalizer();
     expect((n as unknown as { canSteerBusy?: unknown }).canSteerBusy).toBeUndefined();

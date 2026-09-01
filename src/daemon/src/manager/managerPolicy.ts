@@ -58,6 +58,7 @@ export type RootLease =
       nativeDeadlineAt: number;
       recoveryExtensionsUsed: number;
       outstandingToolUses?: number;
+      outstandingToolCallIds?: readonly string[];
     }
   | {
       state: "suspect_active";
@@ -66,6 +67,7 @@ export type RootLease =
       nativeDeadlineAt: number;
       recoveryExtensionsUsed: number;
       outstandingToolUses?: number;
+      outstandingToolCallIds?: readonly string[];
       reason: "work_after_terminal";
     };
 
@@ -155,8 +157,8 @@ export type ManagerEvent =
       nowMs: number;
     }
   | { type: "turn_work"; agentId: string; sessionInstanceId: string; turnId: string; nowMs: number }
-  | { type: "turn_tool_started"; agentId: string; sessionInstanceId: string; turnId: string; nowMs: number }
-  | { type: "turn_tool_finished"; agentId: string; sessionInstanceId: string; turnId: string; nowMs: number }
+  | { type: "turn_tool_started"; agentId: string; sessionInstanceId: string; turnId: string; callId?: string; nowMs: number }
+  | { type: "turn_tool_finished"; agentId: string; sessionInstanceId: string; turnId: string; callId?: string; nowMs: number }
   | {
       type: "turn_completed";
       agentId: string;
@@ -388,6 +390,7 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
         if ((lease.state === "active" || lease.state === "suspect_active") && lease.outstandingToolUses !== undefined) {
           const unblockedLease = { ...lease };
           delete unblockedLease.outstandingToolUses;
+          delete unblockedLease.outstandingToolCallIds;
           a.execution.lease = unblockedLease;
         }
       });
@@ -689,14 +692,23 @@ function onTurnToolLifecycle(
     && current.lastTerminal !== null
     && sameIdentity(current.lastTerminal.identity, identity);
   if (!matchesActive && !matchesTerminal) return { state, effects: [] };
-  if (lifecycle === "finished" && matchesActive && (current.outstandingToolUses ?? 0) === 0) {
-    return { state, effects: [] };
-  }
   return mutate(state, event.agentId, (agent) => {
     if (!matchesSession(agent, event.sessionInstanceId)) return;
     const lease = agent.execution.lease;
+    const callId = normalizedToolCallId(event.callId);
     if ((lease.state === "active" || lease.state === "suspect_active") && sameIdentity(lease.identity, identity)) {
-      const outstandingToolUses = (lease.outstandingToolUses ?? 0) + (lifecycle === "started" ? 1 : -1);
+      const identified = new Set(lease.outstandingToolCallIds ?? []);
+      const currentCount = lease.outstandingToolUses ?? 0;
+      const anonymousCount = Math.max(0, currentCount - identified.size);
+      if (lifecycle === "started") {
+        if (callId && identified.has(callId)) return;
+        if (callId) identified.add(callId);
+      } else if (callId) {
+        if (!identified.delete(callId)) return;
+      } else if (anonymousCount === 0) {
+        return;
+      }
+      const outstandingToolUses = currentCount + (lifecycle === "started" ? 1 : -1);
       if (outstandingToolUses > 0) {
         agent.execution.lease = {
           ...lease,
@@ -704,10 +716,12 @@ function onTurnToolLifecycle(
           nativeDeadlineAt: event.nowMs + agent.turnSilence.normalBudgetMs,
           recoveryExtensionsUsed: 0,
           outstandingToolUses,
+          ...(identified.size > 0 ? { outstandingToolCallIds: [...identified] } : {}),
         };
       } else {
         const unblockedLease = { ...lease };
         delete unblockedLease.outstandingToolUses;
+        delete unblockedLease.outstandingToolCallIds;
         agent.execution.lease = {
           ...unblockedLease,
           lastWorkAt: event.nowMs,
@@ -725,6 +739,7 @@ function onTurnToolLifecycle(
         nativeDeadlineAt: event.nowMs + agent.turnSilence.normalBudgetMs,
         recoveryExtensionsUsed: 0,
         outstandingToolUses: 1,
+        ...(callId ? { outstandingToolCallIds: [callId] } : {}),
         reason: "work_after_terminal",
       };
     }
@@ -939,6 +954,11 @@ function identityOf(event: { sessionInstanceId: string; turnId: string }): TurnI
 
 function sameIdentity(left: TurnIdentity, right: TurnIdentity): boolean {
   return left.sessionInstanceId === right.sessionInstanceId && left.turnId === right.turnId;
+}
+
+function normalizedToolCallId(rawCallId?: string): string | undefined {
+  const callId = rawCallId?.trim();
+  return callId && callId.length <= 1_024 ? callId : undefined;
 }
 
 function leaseIsWorking(lease: RootLease): boolean {

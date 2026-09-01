@@ -484,21 +484,23 @@ export class CodexEventNormalizer {
 
   private handleItemStarted(params: any): AdapterEvent[] {
     const t = params?.item?.type ?? params?.type;
+    const callId = this.itemCallId(params);
+    const identity = callId ? { callId } : {};
     switch (t) {
       case "commandExecution":
-        return [{ kind: "tool_call", name: "shell", input: params?.item }];
+        return [{ kind: "tool_call", ...identity, name: "shell", input: params?.item }];
       case "contextCompaction":
         return [{ kind: "compaction_started" }];
       case "enteredReviewMode":
         return [{ kind: "review_started" }];
       case "fileChange":
-        return [{ kind: "tool_call", name: "file_change", input: normalizeFileChangeInput(params?.item) }];
+        return [{ kind: "tool_call", ...identity, name: "file_change", input: normalizeFileChangeInput(params?.item) }];
       case "mcpToolCall":
-        return [{ kind: "tool_call", name: `mcp_${params?.item?.name ?? "tool"}`, input: params?.item }];
+        return [{ kind: "tool_call", ...identity, name: `mcp_${params?.item?.tool ?? params?.item?.name ?? "tool"}`, input: params?.item }];
       case "webSearch":
-        return [{ kind: "tool_call", name: "web_search", input: params?.item }];
+        return [{ kind: "tool_call", ...identity, name: "web_search", input: params?.item }];
       case "collabAgentToolCall":
-        return [{ kind: "tool_call", name: "collab_tool_call", input: params?.item }];
+        return [{ kind: "tool_call", ...identity, name: "collab_tool_call", input: params?.item }];
       default:
         return [];
     }
@@ -506,21 +508,23 @@ export class CodexEventNormalizer {
 
   private handleItemCompleted(params: any): AdapterEvent[] {
     const t = params?.item?.type ?? params?.type;
+    const callId = this.itemCallId(params);
+    const identity = callId ? { callId } : {};
     switch (t) {
       case "commandExecution":
-        return [{ kind: "tool_output", name: "shell" }];
+        return [{ kind: "tool_output", ...identity, name: "shell" }];
       case "contextCompaction":
         return [{ kind: "compaction_finished" }];
       case "exitedReviewMode":
         return [{ kind: "review_finished" }];
       case "fileChange":
-        return [{ kind: "tool_output", name: "file_change" }];
+        return [{ kind: "tool_output", ...identity, name: "file_change" }];
       case "mcpToolCall":
-        return [{ kind: "tool_output", name: `mcp_${params?.item?.name ?? "tool"}` }];
+        return [{ kind: "tool_output", ...identity, name: `mcp_${params?.item?.tool ?? params?.item?.name ?? "tool"}` }];
       case "webSearch":
-        return [{ kind: "tool_output", name: "web_search" }];
+        return [{ kind: "tool_output", ...identity, name: "web_search" }];
       case "collabAgentToolCall":
-        return [{ kind: "tool_output", name: "collab_tool_call" }];
+        return [{ kind: "tool_output", ...identity, name: "collab_tool_call" }];
       case "agentMessage":
         return [{ kind: "assistant_message_completed", text: params?.item?.text ?? "" }];
       case "reasoning":
@@ -528,5 +532,10 @@ export class CodexEventNormalizer {
       default:
         return [];
     }
+  }
+
+  private itemCallId(params: any): string | undefined {
+    const value = params?.item?.id ?? params?.itemId;
+    return typeof value === "string" && value.trim().length > 0 ? value : undefined;
   }
 }

@@ -61,8 +61,8 @@ export type AdapterEvent =
   | { kind: "assistant_reasoning_completed"; text: string }
   | { kind: "assistant_message_delta"; text: string }
   | { kind: "assistant_message_completed"; text: string }
-  | { kind: "tool_call"; name: string; input: unknown }
-  | { kind: "tool_output"; name: string }
+  | { kind: "tool_call"; callId?: string; name: string; input: unknown }
+  | { kind: "tool_output"; callId?: string; name: string }
   | { kind: "compaction_started" }
   | { kind: "compaction_finished" }
   | { kind: "review_started" }
