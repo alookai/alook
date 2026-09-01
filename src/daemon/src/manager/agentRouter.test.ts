@@ -39,6 +39,7 @@ function fakeManager(
   const resets: Array<{ agentId: string; rewakePrompt: string; launchId: string; barrierType?: string }> = [];
   const switches: Array<{ agentId: string; rewakePrompt: string; launchId: string }> = [];
   const order: string[] = [];
+  const interrupt = vi.fn(async () => undefined);
   const statuses: Record<string, "idle" | "starting" | "running" | "stopping"> = { ...initialStatuses };
   const mgr = {
     register(agentId: string, launch?: { sessionId?: string; launchId?: string }) {
@@ -62,6 +63,7 @@ function fakeManager(
       switches.push({ agentId, rewakePrompt: opts.rewakePrompt, launchId: opts.launchId });
       order.push(`switch:${agentId}`);
     },
+    interrupt,
     stop() {},
     liveSessionReports: () => [],
     snapshot() {
@@ -70,7 +72,7 @@ function fakeManager(
       return { agents };
     },
   } as unknown as AgentProcessManager;
-  return { mgr, delivers, registers, statuses, forgets, resets, switches, order };
+  return { mgr, delivers, registers, statuses, forgets, resets, switches, interrupt, order };
 }
 
 /** Fake channel capturing acks + the command handler the router registers. */
@@ -101,6 +103,19 @@ function fakeChannel() {
   };
   return { ch, wakeAcks, readys, sessionErrors, typings, fire: (c: HostCommand) => handler?.(c) };
 }
+
+describe("AgentRouter — agent:interrupt", () => {
+  it("passes the one-way command to the manager", async () => {
+    const { mgr, interrupt } = fakeManager();
+    const { ch, fire } = fakeChannel();
+    const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "mock" }] });
+    await router.start();
+
+    await fire({ type: "agent:interrupt", agentId: "a1" });
+
+    expect(interrupt).toHaveBeenCalledWith("a1");
+  });
+});
 
 describe("AgentRouter — agent:wake", () => {
   it("registers the runtime config, delivers a generic notice, and acks the wake", async () => {

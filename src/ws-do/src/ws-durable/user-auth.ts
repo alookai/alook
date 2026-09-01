@@ -38,6 +38,7 @@ import {
   withCommunityDeliveryProgress,
   type CommunityDeliveryProgress,
 } from "./community-delivery-state"
+import { handleUserAgentInterrupt } from "./agent-interrupt"
 
 export async function handleUserFetch(
   context: WsDurableContext,
@@ -301,6 +302,7 @@ export async function handleWebSocketMessage(
     return
   }
 
+  if (state.type === "user" && await handleUserAgentInterrupt(context, state, parsed)) return
   if (state.type === "user" && handleClientTypingStart(context, state, parsed)) return
 }
 

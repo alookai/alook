@@ -606,6 +606,10 @@ export class AgentRouter {
         }
         break;
       }
+      case "agent:interrupt": {
+        await this.opts.manager.interrupt(cmd.agentId);
+        break;
+      }
       case "agent:stop":
         this.log.info("agent:stop received", { agentId: cmd.agentId });
         try {

@@ -88,6 +88,7 @@ export const mockCreateDb = vi.fn().mockReturnValue({})
 export const mockHashCredential = vi.fn(async (bearer: string) => `hash:${bearer}`)
 export const mockFindCredentialByHash = vi.fn()
 export const mockGetMachineByIdForUser = vi.fn()
+export const mockGetActiveDoNamesForMachine = vi.fn<(db: unknown, machineId: string) => Promise<string[]>>().mockResolvedValue([])
 export const mockUpsertMachineByMachineId = vi.fn()
 export const mockTouchMachineHeartbeat = vi.fn()
 export const mockMarkMachineOffline = vi.fn()
@@ -383,6 +384,7 @@ vi.mock("@alook/shared", async () => {
         hashCredential: (bearer: string) => mockHashCredential(bearer),
         findCredentialByHash: (...a: any[]) => mockFindCredentialByHash(...a),
         getMachineByIdForUser: (...a: any[]) => mockGetMachineByIdForUser(...a),
+        getActiveDoNamesForMachine: (...a: [unknown, string]) => mockGetActiveDoNamesForMachine(...a),
         toSummary: (row: any) => mockToSummary(row),
         isBotOnline: (...a: [unknown, string]) => mockIsBotOnline(...a),
         reconcileBotActivityFromRunningAgents: (...a: any[]) =>
@@ -530,6 +532,8 @@ export function resetHarness() {
     mockResolveChannelRecipientUserIds.mockImplementation(resolveChannelRecipientUserIdsMock)
     mockWithD1Retry.mockImplementation(async <T>(fn: () => Promise<T>, _opts?: unknown): Promise<T> => fn())
     mockGetBotBinding.mockResolvedValue(null)
+    mockGetBotBindingWithOwner.mockResolvedValue(null)
+    mockGetActiveDoNamesForMachine.mockResolvedValue([])
     mockUpdateProfile.mockResolvedValue({})
     mockGetProfile.mockResolvedValue(null)
     mockReconcileBotActivityFromRunningAgents.mockResolvedValue([])

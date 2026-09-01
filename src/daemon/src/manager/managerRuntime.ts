@@ -836,6 +836,11 @@ export class AgentProcessManager {
     await session.stop({ reason: "owner_request", forceAfterMs: SESSION_STOP_GRACE_MS });
     if (this.sessions.get(agentId) === session) this.sessions.delete(agentId);
   }
+  async interrupt(agentId: string): Promise<void> {
+    const session = this.sessions.get(agentId);
+    if (!session) return;
+    await session.interrupt({ requestId: randomUUID(), reason: "owner_request" });
+  }
   async stopAll(): Promise<void> {
     if (this.tickTimer) {
       clearInterval(this.tickTimer);

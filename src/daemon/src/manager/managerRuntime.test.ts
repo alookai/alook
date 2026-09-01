@@ -303,6 +303,23 @@ function makeManager(opts: { logger?: Logger; tickIntervalMs?: number; idleTimeo
   return { mgr, session, onRuntimeSpawnFailed, onRuntimeSessionEstablished };
 }
 
+describe("AgentProcessManager — running-turn interrupt", () => {
+  it("interrupts the current session without deleting it", async () => {
+    const { mgr } = makeManager();
+    const session = fakeSession("interrupt-session");
+    session.interrupt = vi.fn(async ({ requestId }) => ({ status: "accepted", requestId, turnId: "turn_1" }));
+    (mgr as unknown as { sessions: Map<string, TestAgentSession> }).sessions.set("a1", session);
+
+    await mgr.interrupt("a1");
+
+    expect(session.interrupt).toHaveBeenCalledWith({
+      requestId: expect.any(String),
+      reason: "owner_request",
+    });
+    expect((mgr as unknown as { sessions: Map<string, TestAgentSession> }).sessions.get("a1")).toBe(session);
+  });
+});
+
 function exactTimelineLifecycleStub() {
   return {
     barrierGeneration: () => 0,

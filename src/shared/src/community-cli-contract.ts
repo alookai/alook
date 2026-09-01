@@ -754,6 +754,12 @@ export interface UnreadNotice {
 
 export const CONTROL_HEARTBEAT_CAPABILITY = "control-heartbeat-v1";
 
+export const AgentInterruptRequestSchema = z.strictObject({
+  type: z.literal("agent:interrupt"),
+  agentId: z.string().min(1).max(128),
+});
+export type AgentInterruptRequest = z.infer<typeof AgentInterruptRequestSchema>;
+
 /**
  * Commands the SERVER pushes DOWN to a host (daemon). This is the control plane —
  * distinct from the agent-initiated data plane (`ServerApi`). The server owns
@@ -768,6 +774,7 @@ export const CONTROL_HEARTBEAT_CAPABILITY = "control-heartbeat-v1";
  */
 export type HostCommand =
   | { type: "machine:heartbeat"; nonce: string }
+  | AgentInterruptRequest
   | {
     type: "agent:wake";
     agentId: AgentId;
@@ -1475,6 +1482,7 @@ export const HostCommandSchema = z.discriminatedUnion("type", [
     type: z.literal("agent:stop"),
     agentId: z.string().min(1),
   }),
+  AgentInterruptRequestSchema,
   z.object({
     type: z.literal("agent:reset"),
     agentId: z.string().min(1),
