@@ -98,6 +98,23 @@ describe("useCommunityWs — public helper contracts", () => {
       channelId: "ch_typing_contract",
     })
   })
+
+  it("sends one interrupt frame through the mounted authenticated transport", async () => {
+    const { communityWsInterruptAgent } = await import("./use-community-ws")
+
+    communityWsInterruptAgent("bot_1")
+    expect(getStableSend()).not.toHaveBeenCalled()
+
+    await mountHook()
+    flushEffects()
+    communityWsInterruptAgent("bot_1")
+
+    expect(getStableSend()).toHaveBeenCalledOnce()
+    expect(getStableSend()).toHaveBeenCalledWith({
+      type: "agent:interrupt",
+      agentId: "bot_1",
+    })
+  })
 })
 
 describe("useCommunityWs — connection status publication", () => {

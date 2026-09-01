@@ -1,16 +1,17 @@
 /**
  * Claude Code driver — persistent stream-json process with gated steering.
  *
- * Claude's stdin protocol accepts a stable UUID on every user frame and its
- * terminal `result` reports the root `user_message_uuid`. That provider-owned
- * receipt, rather than payload content or a process restart, binds a terminal
- * to the logical turn that initiated it. Safe-boundary steering frames use
- * fresh UUIDs while Claude keeps the root UUID on the eventual result.
+ * Claude's stdin protocol accepts a stable UUID on every user frame. Normal
+ * terminals report the segment's `user_message_uuid`; native interruption may
+ * instead emit an ownerless interrupted segment boundary before queued frames
+ * replay. The turn protocol binds either vendor sequence back to the logical
+ * root receipt without restarting the persistent process.
  */
 import type {
-  BackendAdapter, EncodeMessageOptions, AdapterLaunchContext, AdapterEvent, RuntimeLane,
-  RuntimeLaneOpenOptions, SpawnedProcess, ProbeResult,
+  BackendAdapter, EncodeMessageOptions, AdapterLaunchContext, AdapterEvent, LaneInterruptInput, RuntimeLane,
+  RuntimeLaneOpenOptions, SpawnedProcess, SpawnedProcessHandle, ProbeResult,
 } from "../../internal/adapter.js";
+import { randomUUID } from "node:crypto";
 import { createProcessLane } from "../../controller/process-host.js";
 import { prepareCliTransport } from "../../internal/cliTransport.js";
 import { buildClaudeProviderIsolationEnv } from "./providerIsolation.js";
@@ -41,8 +42,10 @@ export class ClaudeDriver implements BackendAdapter {
 
   private readonly turnProtocol = new ClaudeTurnProtocol();
   private readonly eventNormalizer = new ClaudeEventNormalizer(this.turnProtocol);
+  private pendingInterrupt?: { input: LaneInterruptInput; process: SpawnedProcessHandle };
 
   beginTurn(): string {
+    this.pendingInterrupt = undefined;
     const receipt = this.turnProtocol.beginTurn();
     this.eventNormalizer.beginTurn();
     return receipt;
@@ -111,11 +114,52 @@ export class ClaudeDriver implements BackendAdapter {
   }
 
   normalizeLine(line: string): AdapterEvent[] {
-    return this.eventNormalizer.normalizeLine(line);
+    const events = this.eventNormalizer.normalizeLine(line);
+    this.flushPendingInterrupt();
+    return events;
   }
 
   get currentSessionId(): string | null {
     return this.eventNormalizer.currentSessionId;
+  }
+
+  async interrupt(input: LaneInterruptInput, process: SpawnedProcessHandle): Promise<boolean> {
+    const stdin = process.stdin;
+    if (
+      !this.turnProtocol.hasActiveTurn()
+      || !stdin
+      || stdin.destroyed
+      || stdin.writableEnded
+      || stdin.writable === false
+    ) return false;
+    this.turnProtocol.noteInterruptRequested();
+    if (!this.turnProtocol.acceptsTurnWork()) {
+      this.pendingInterrupt ??= { input, process };
+      return true;
+    }
+    this.writeInterrupt(input, process);
+    return true;
+  }
+
+  private writeInterrupt(input: LaneInterruptInput, process: SpawnedProcessHandle): void {
+    process.stdin!.write(JSON.stringify({
+      type: "control_request",
+      request_id: input.requestId ?? randomUUID(),
+      request: { subtype: "interrupt" },
+    }) + "\n");
+  }
+
+  private flushPendingInterrupt(): void {
+    const pending = this.pendingInterrupt;
+    if (!pending || !this.turnProtocol.acceptsTurnWork()) return;
+    this.pendingInterrupt = undefined;
+    const stdin = pending.process.stdin;
+    if (!stdin || stdin.destroyed || stdin.writableEnded || stdin.writable === false) return;
+    try {
+      this.writeInterrupt(pending.input, pending.process);
+    } catch {
+      // A concurrent process error/exit owns failure settlement.
+    }
   }
 
   /** Both idle and busy messages use the same stream-json user-message shape. */

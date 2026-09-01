@@ -473,6 +473,7 @@ export type {
   UpdateProfileRequest as CommunityCliUpdateProfileRequest,
   UpdateProfileResult as CommunityCliUpdateProfileResult,
   UnreadNotice,
+  AgentInterruptRequest,
   HostCommand,
   HostReadyRuntime,
   HostReady,
@@ -487,6 +488,7 @@ export type {
 } from "./community-cli-contract";
 export {
   CONTROL_HEARTBEAT_CAPABILITY,
+  AgentInterruptRequestSchema,
   DM_SERVER,
   parseRef,
   formatRef,

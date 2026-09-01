@@ -337,9 +337,6 @@ export class CodexEventNormalizer {
             { kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) },
           ];
         }
-        if (params.turn.status === "interrupted") {
-          return [{ kind: "error", code: "codex.turn_interrupted", message: "Codex turn interrupted" }, { kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) }];
-        }
         return [{ kind: "turn_end", sessionId: this.threadId ?? undefined, turnOwner: this.turnReceipt(params.threadId, params.turn.id) }];
 
       case "error":

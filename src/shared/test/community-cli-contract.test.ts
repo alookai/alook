@@ -6,6 +6,7 @@ import {
   formatSeq,
   parseSeq,
   DM_SERVER,
+  AgentInterruptRequestSchema,
   HostCommandSchema,
   type HostCommand,
 } from "../src/community-cli-contract";
@@ -16,6 +17,21 @@ describe("attachment thumbnail upload contract", () => {
     expect(CommunityAgentAttachmentUploadResponseSchema.parse({
       id: "a1", filename: "photo.png", contentType: "image/png", size: 10, hasThumbnail: true,
     })).toMatchObject({ hasThumbnail: true });
+  });
+});
+
+describe("agent running-turn interrupt contract", () => {
+  it("accepts the exact one-way command", () => {
+    const request = { type: "agent:interrupt", agentId: "bot_1" };
+    expect(HostCommandSchema.parse(request)).toEqual(request);
+    expect(AgentInterruptRequestSchema.parse(request)).toEqual(request);
+  });
+
+  it("rejects missing, extra, empty, and overlong fields", () => {
+    expect(AgentInterruptRequestSchema.safeParse({ type: "agent:interrupt" }).success).toBe(false);
+    expect(AgentInterruptRequestSchema.safeParse({ type: "agent:interrupt", agentId: "bot_1", requestId: "x" }).success).toBe(false);
+    expect(AgentInterruptRequestSchema.safeParse({ type: "agent:interrupt", agentId: "" }).success).toBe(false);
+    expect(AgentInterruptRequestSchema.safeParse({ type: "agent:interrupt", agentId: "x".repeat(129) }).success).toBe(false);
   });
 });
 

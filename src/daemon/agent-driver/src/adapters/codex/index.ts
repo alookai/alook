@@ -14,8 +14,8 @@
  * `thread/resume` with the prior threadId). The thread id is the session id.
  */
 import type {
-  BackendAdapter, EncodeMessageOptions, AdapterLaunchContext, AdapterEvent, RuntimeLane,
-  RuntimeLaneOpenOptions, SpawnedProcess,
+  BackendAdapter, EncodeMessageOptions, AdapterLaunchContext, AdapterEvent, LaneInterruptInput, RuntimeLane,
+  RuntimeLaneOpenOptions, SpawnedProcess, SpawnedProcessHandle,
 } from "../../internal/adapter.js";
 import type {
   AgentDriverError,
@@ -530,6 +530,26 @@ export class CodexDriver implements BackendAdapter {
 
   get currentSessionId(): string | null {
     return this.eventNormalizer.currentSessionId;
+  }
+
+  async interrupt(_input: LaneInterruptInput, process: SpawnedProcessHandle): Promise<boolean> {
+    const threadId = this.eventNormalizer.currentSessionId;
+    const turnId = this.eventNormalizer.currentTurnId;
+    const stdin = process.stdin;
+    if (
+      !threadId
+      || !turnId
+      || !stdin
+      || stdin.destroyed
+      || stdin.writableEnded
+      || stdin.writable === false
+    ) return false;
+    stdin.write(jsonRpcRequest(
+      "turn/interrupt",
+      { threadId, turnId },
+      this.nextRequestId(),
+    ) + "\n");
+    return true;
   }
 
   /** A `turn/start` RPC — the sole encoder for starting a fresh Codex turn. */

@@ -438,6 +438,25 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
   expect(busy.status).toBe(backend === "pi" || backend === "opencode" || backend === "cursor" ? "accepted" : "queued");
   const interrupted = await session.interrupt({ requestId: "interrupt-1", reason: "conformance" });
   expect(interrupted.status).toBe("accepted");
+  if (backend === "claude") {
+    expect(harness.stdinMessages).not.toContainEqual(expect.objectContaining({
+      type: "control_request",
+    }));
+    harness.replayClaudeInput(0);
+    await settle();
+    expect(harness.stdinMessages).toContainEqual({
+      type: "control_request",
+      request_id: "interrupt-1",
+      request: { subtype: "interrupt" },
+    });
+    expect(harness.processes[0]!.kill).not.toHaveBeenCalled();
+  } else if (backend === "codex") {
+    expect(harness.stdinMessages).toContainEqual(expect.objectContaining({
+      method: "turn/interrupt",
+      params: { threadId: "codex-resumed", turnId: "codex-turn-1" },
+    }));
+    expect(harness.processes[0]!.kill).not.toHaveBeenCalled();
+  }
   harness.completeTurn(1);
   await settle();
 
@@ -462,6 +481,11 @@ async function runPublicSessionLifecycle(backend: BuiltinBackendId): Promise<voi
     await settle();
     harness.completeTurn(2);
     await settle();
+  }
+
+  if (backend === "claude" || backend === "codex") {
+    expect(harness.processes).toHaveLength(1);
+    expect(harness.processes[0]!.kill).not.toHaveBeenCalled();
   }
 
   const stopping = session.stop({ reason: "shutdown", forceAfterMs: 25 });

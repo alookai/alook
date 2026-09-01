@@ -31,7 +31,14 @@ export function isBotActivityActive(
 ): boolean {
   return matchesStatus(emoji, text, BOT_ACTIVITY_PRESETS.starting)
     || matchesStatus(emoji, text, BOT_ACTIVITY_PRESETS.stopping)
-    || RUNNING_PRESETS.some((pair) => matchesStatus(emoji, text, pair))
+    || isBotActivityRunning(emoji, text)
+}
+
+export function isBotActivityRunning(
+  emoji: string | null | undefined,
+  text: string | null | undefined,
+): boolean {
+  return RUNNING_PRESETS.some((pair) => matchesStatus(emoji, text, pair))
 }
 
 export function BotAuditPreview({

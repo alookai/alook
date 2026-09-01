@@ -8,6 +8,25 @@ import {
 } from "./_fixtures/seed"
 import { tid } from "./_fixtures/testids"
 
+const THREAD_PANEL_MIN_WIDTH = 360
+const THREAD_PANEL_MAX_WIDTH = 800
+
+async function resizeThreadPanel(page: import("@playwright/test").Page, targetWidth: number) {
+  const divider = page.getByRole("separator", { name: "Resize thread panel" })
+  const thread = page.getByTestId(tid.threadSplitPanel)
+  const [dividerBox, threadBox] = await Promise.all([
+    divider.boundingBox(),
+    thread.boundingBox(),
+  ])
+  if (!dividerBox || !threadBox) throw new Error("Thread split geometry is unavailable")
+
+  const y = dividerBox.y + dividerBox.height / 2
+  await page.mouse.move(dividerBox.x + dividerBox.width / 2, y)
+  await page.mouse.down()
+  await page.mouse.move(threadBox.x + threadBox.width - targetWidth, y, { steps: 8 })
+  await page.mouse.up()
+}
+
 test.describe.serial("desktop thread split view", () => {
   let serverId: string
   let textChannelId: string
@@ -30,6 +49,44 @@ test.describe.serial("desktop thread split view", () => {
     forumId = await seedChannel("alice", serverId, "split-forum", "forum")
     forumTitle = `Forum post ${Date.now()}`
     forumPostId = await seedForumThread("alice", forumId, forumTitle, "Forum reply")
+  })
+
+  test("resizes the thread panel within limits and restores the user layout", async ({ asUser }) => {
+    const { page } = await asUser("alice")
+    await page.setViewportSize({ width: 1600, height: 900 })
+    await page.goto(`/c/channels/${serverId}/${threadId}`)
+
+    const shell = page.getByTestId(tid.threadSplit)
+    const parent = page.getByTestId(tid.threadSplitParent)
+    const thread = page.getByTestId(tid.threadSplitPanel)
+    await expect(shell).toHaveAttribute("data-layout", "split", { timeout: 20_000 })
+    await expect(page.getByRole("separator", { name: "Resize thread panel" })).toBeVisible()
+    const layoutWidth = Math.round(
+      (await shell.locator('[data-slot="resizable-panel-group"]').boundingBox())?.width ?? 0,
+    )
+
+    await resizeThreadPanel(page, 200)
+    await expect.poll(async () => Math.round((await thread.boundingBox())?.width ?? 0))
+      .toBe(THREAD_PANEL_MIN_WIDTH)
+    await expect(parent.getByText(parentBody, { exact: false })).toBeVisible()
+    await expect(thread.getByText(threadBody, { exact: false })).toBeVisible()
+
+    await resizeThreadPanel(page, 800)
+    const expectedMaxWidth = Math.min(THREAD_PANEL_MAX_WIDTH, layoutWidth - 320)
+    await expect.poll(async () => Math.abs(
+      Math.round((await thread.boundingBox())?.width ?? 0) - expectedMaxWidth,
+    )).toBeLessThanOrEqual(1)
+
+    await resizeThreadPanel(page, 520)
+    const savedWidth = Math.round((await thread.boundingBox())?.width ?? 0)
+    expect(savedWidth).toBe(520)
+
+    await page.goto(`/c/channels/${serverId}/${textChannelId}`)
+    await expect(page.getByTestId(tid.threadSplitPanel)).toHaveCount(0)
+    await page.goto(`/c/channels/${serverId}/${threadId}`)
+    await expect(shell).toHaveAttribute("data-layout", "split", { timeout: 20_000 })
+    await expect.poll(async () => Math.round((await thread.boundingBox())?.width ?? 0))
+      .toBe(savedWidth)
   })
 
   test("keeps parent and thread live, supports fullscreen/close, and falls back below the width threshold", async ({ asUser }, testInfo) => {
@@ -92,6 +149,7 @@ test.describe.serial("desktop thread split view", () => {
     await page.setViewportSize({ width: 1050, height: 900 })
     await expect(shell).toHaveAttribute("data-layout", "full")
     await expect(page.getByTestId(tid.threadSplitParent)).toHaveCount(0)
+    await expect(page.getByRole("separator", { name: "Resize thread panel" })).toHaveCount(0)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth))
       .toBe(true)
     const narrowLight = testInfo.outputPath("1050-light-fallback.png")
@@ -102,6 +160,7 @@ test.describe.serial("desktop thread split view", () => {
     await expect(shell).toHaveAttribute("data-layout", "full")
     await expect(page.getByTestId(tid.threadSplitFullscreen)).toHaveCount(0)
     await expect(page.getByTestId(tid.threadSplitClose)).toHaveCount(0)
+    await expect(page.getByRole("separator", { name: "Resize thread panel" })).toHaveCount(0)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth))
       .toBe(true)
     const mobileLight = testInfo.outputPath("390-light-full.png")

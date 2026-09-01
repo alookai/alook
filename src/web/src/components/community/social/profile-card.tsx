@@ -1,7 +1,8 @@
 "use client"
 
-import { useLayoutEffect, useRef, useState } from "react"
-import { Bot, MessagesSquare, Shield, UserRound } from "lucide-react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { Bot, CircleStop, LoaderCircle, MessagesSquare, Shield, UserRound } from "lucide-react"
+import { BOT_ACTIVITY_PRESETS } from "@alook/shared"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
@@ -17,7 +18,8 @@ import type { Breakpoint } from "@/hooks/use-mobile"
 import { useCommunityProfile } from "@/stores/community/ws"
 import { avatarInitial } from "@/lib/community/avatar"
 import { tid } from "@/lib/community/testids"
-import { BotAuditPreview, isBotActivityActive } from "./bot-audit-preview"
+import { communityWsInterruptAgent } from "@/hooks/community/use-community-ws"
+import { BotAuditPreview, isBotActivityActive, isBotActivityRunning } from "./bot-audit-preview"
 
 // Live cards resolve status from the global profile map. Seed props are used
 // only by static, id-less showcase cards.
@@ -213,6 +215,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
 }) {
   const [msg, setMsg] = useState("")
   const [open, setOpen] = useState(true)
+  const [interruptPending, setInterruptPending] = useState(false)
   const mobile = bp === "mobile"
   const globalProfile = useCommunityProfile(data.userId)
   const liveStatus = data.userId
@@ -223,6 +226,17 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
     : undefined
   const { emoji: statusEmoji, text: statusText } = resolveCardStatus(liveStatus, initialStatusEmoji, initialStatusText)
   const activityStatus = resolveCardStatus(liveStatus, activityStatusEmoji, activityStatusText)
+  const activityIdle = activityStatus.emoji === BOT_ACTIVITY_PRESETS.idle.emoji
+    && activityStatus.text === BOT_ACTIVITY_PRESETS.idle.text
+  useEffect(() => {
+    if (!interruptPending) return
+    if (activityIdle) {
+      setInterruptPending(false)
+      return
+    }
+    const timer = globalThis.setTimeout(() => setInterruptPending(false), 10_000)
+    return () => globalThis.clearTimeout(timer)
+  }, [activityIdle, interruptPending])
   const name = data.userId ? (globalProfile?.name ?? "Unknown") : (data.name ?? "Unknown")
   const avatar = data.userId
     ? (globalProfile?.avatar ?? avatarInitial(name))
@@ -247,6 +261,11 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
     setMsg("")
     if (mobile) onClose()
     else close()
+  }
+  const interruptAgent = () => {
+    if (!data.userId || interruptPending) return
+    setInterruptPending(true)
+    communityWsInterruptAgent(data.userId)
   }
   const card = (
     <>
@@ -410,18 +429,35 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
     </>
   )
 
-  const auditPreview = showAuditPreview && data.userId ? (
-    <BotAuditPreview
-      botId={data.userId}
-      active={isBotActivityActive(activityStatus.emoji, activityStatus.text)}
-      onOpen={() => onOpenBotAudit?.(data.userId!)}
-    />
+  const secondaryCards = showAuditPreview && data.userId ? (
+    <div className="flex w-full flex-col gap-2">
+      <BotAuditPreview
+        botId={data.userId}
+        active={isBotActivityActive(activityStatus.emoji, activityStatus.text)}
+        onOpen={() => onOpenBotAudit?.(data.userId!)}
+      />
+      {(isBotActivityRunning(activityStatus.emoji, activityStatus.text)
+        || (interruptPending && !activityIdle)) && (
+        <button
+          type="button"
+          onClick={interruptAgent}
+          disabled={interruptPending}
+          aria-label={interruptPending ? "Stopping current agent turn" : "Stop current agent turn"}
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-destructive/40 bg-card px-3 text-sm font-medium text-destructive shadow-(--e1) transition-colors hover:bg-destructive/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-wait disabled:bg-destructive/5 disabled:text-destructive/70"
+        >
+          {interruptPending
+            ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />
+            : <CircleStop className="size-4" aria-hidden />}
+          {interruptPending ? "Stopping…" : "Stop"}
+        </button>
+      )}
+    </div>
   ) : null
 
   if (embedded)
     return (
       <div className="flex w-full flex-col gap-2">
-        {auditPreview}
+        {secondaryCards}
         <div data-testid={tid.profileCard} className="w-full overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">{card}</div>
       </div>
     )
@@ -445,7 +481,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
           <SheetTitle className="sr-only">{name} profile</SheetTitle>
           <SheetClose className="sr-only">Close profile</SheetClose>
           <div className="flex flex-col gap-2">
-            {auditPreview}
+            {secondaryCards}
             <div data-testid={tid.profileCard} className="overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">{card}</div>
           </div>
         </SheetContent>
@@ -462,7 +498,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
         style={{ left: x, top: y }}
       />
       <PopoverContent ref={popoverRef} side="right" align="start" sideOffset={8} className="relative w-75 overflow-visible border-0 bg-transparent p-0 shadow-none">
-        {auditPreview && (
+        {secondaryCards && (
           <div
             ref={previewRef}
             data-testid={tid.botAuditPreviewDock}
@@ -470,7 +506,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
             className="absolute w-full"
             style={{ left: previewPosition.left, top: previewPosition.top }}
           >
-            {auditPreview}
+            {secondaryCards}
           </div>
         )}
         <div ref={cardRef} data-testid={tid.profileCard} className="overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">

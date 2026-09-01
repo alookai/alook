@@ -18,8 +18,8 @@ import type {
   RuntimeSettingsUpdateResult,
 } from "../contract.js";
 import type {
-  BackendAdapter, BackendExecution, AdapterLaunchContext, AdapterEvent, LaneAdmission, LaneSendInput,
-  LaneStartInput, RuntimeLane, RuntimeLaneEventMap, RuntimeLaneOpenOptions,
+  BackendAdapter, BackendExecution, AdapterLaunchContext, AdapterEvent, LaneAdmission, LaneInterruptInput,
+  LaneSendInput, LaneStartInput, RuntimeLane, RuntimeLaneEventMap, RuntimeLaneOpenOptions, SpawnedProcessHandle,
 } from "../internal/adapter.js";
 import { createFakeAgentDriverHost } from "../testing/fake-host.js";
 import { runAgentDriverConformance } from "../testing/conformance.js";
@@ -115,6 +115,9 @@ class FakeDriver implements BackendAdapter {
     return this.lane;
   }
   normalizeLine(line: string): AdapterEvent[] { return [JSON.parse(line) as AdapterEvent]; }
+  async interrupt(_input: LaneInterruptInput, process: SpawnedProcessHandle): Promise<boolean> {
+    return process.kill("SIGINT");
+  }
   encodeMessage(text: string): string {
     this.writes.push(text);
     return this.rejectWrites ? "" : text;

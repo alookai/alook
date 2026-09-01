@@ -606,6 +606,61 @@ describe("CodexDriver encodeMessage — turn/steer expectedTurnId", () => {
   });
 });
 
+describe("CodexDriver native turn interrupt", () => {
+  it("interrupts the active turn over JSON-RPC without signaling the app-server", async () => {
+    const driver = new CodexDriver();
+    const { process: proc } = await driver.spawn(baseCtx());
+    await Promise.resolve();
+    driver.normalizeLine(threadStartResult("th_interrupt"));
+    driver.normalizeLine(JSON.stringify({
+      jsonrpc: "2.0",
+      method: "turn/started",
+      params: { threadId: "th_interrupt", turn: { id: "turn_active" } },
+    }));
+
+    await expect(driver.interrupt(
+      { requestId: "owner-1", reason: "owner_request" },
+      proc,
+    )).resolves.toBe(true);
+    const request = stdinWrites(proc)
+      .map((write) => JSON.parse(write.trim()))
+      .find((message) => message.method === "turn/interrupt");
+    expect(request.params).toEqual({ threadId: "th_interrupt", turnId: "turn_active" });
+    expect((proc as unknown as ReturnType<typeof simpleProcess>).kill).not.toHaveBeenCalled();
+  });
+
+  it("does not send an interrupt without an active turn or after its terminal event", async () => {
+    const driver = new CodexDriver();
+    const { process: proc } = await driver.spawn(baseCtx());
+    await Promise.resolve();
+    driver.normalizeLine(threadStartResult("th_interrupt"));
+    await expect(driver.interrupt(
+      { requestId: "before", reason: "owner_request" },
+      proc,
+    )).resolves.toBe(false);
+
+    driver.normalizeLine(JSON.stringify({
+      jsonrpc: "2.0",
+      method: "turn/started",
+      params: { threadId: "th_interrupt", turn: { id: "turn_done" } },
+    }));
+    driver.normalizeLine(JSON.stringify({
+      jsonrpc: "2.0",
+      method: "turn/completed",
+      params: { threadId: "th_interrupt", turn: { id: "turn_done", status: "completed" } },
+    }));
+    await expect(driver.interrupt(
+      { requestId: "after", reason: "owner_request" },
+      proc,
+    )).resolves.toBe(false);
+
+    const interrupts = stdinWrites(proc)
+      .map((write) => JSON.parse(write.trim()))
+      .filter((message) => message.method === "turn/interrupt");
+    expect(interrupts).toHaveLength(0);
+  });
+});
+
 describe("CodexDriver live reasoning settings", () => {
   it("rejects an update when no live thread is available", async () => {
     await expect(new CodexDriver().updateSettings({ reasoningEffort: "high" })).resolves.toMatchObject({

@@ -21,7 +21,11 @@ vi.mock("lucide-react", () => ({
   Lock: "lock-icon",
 }))
 
-import { BotAuditPreview, isBotActivityActive } from "./bot-audit-preview"
+import {
+  BotAuditPreview,
+  isBotActivityActive,
+  isBotActivityRunning,
+} from "./bot-audit-preview"
 
 const globalCss = readFileSync(new URL("../../../app/globals.css", import.meta.url), "utf8")
 
@@ -56,6 +60,13 @@ describe("BotAuditPreview", () => {
     expect(isBotActivityActive("🌙", "Wrapping up")).toBe(true)
     expect(isBotActivityActive("💤", "Idle")).toBe(false)
     expect(isBotActivityActive("⚡", "Custom status")).toBe(false)
+  })
+
+  it("uses only true running presets for interrupt visibility", () => {
+    expect(isBotActivityRunning("⚡", "Working on it")).toBe(true)
+    expect(isBotActivityRunning("🌀", "Waking up")).toBe(false)
+    expect(isBotActivityRunning("🌙", "Wrapping up")).toBe(false)
+    expect(isBotActivityRunning("💤", "Idle")).toBe(false)
   })
 
   it("defines an opacity-only double-beat with a static reduced-motion ring", () => {

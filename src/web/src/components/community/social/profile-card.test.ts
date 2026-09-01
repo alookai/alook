@@ -1,8 +1,9 @@
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
+import TestRenderer, { act, type ReactTestRenderer } from "react-test-renderer"
 import { readFileSync } from "node:fs"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { describe, it, expect } from "vitest"
+import { afterEach, describe, it, expect, vi } from "vitest"
 import {
   displayOwnerHandle,
   resolveAuditPreviewPlacement,
@@ -13,7 +14,36 @@ import { ProfileCard } from "./profile-card"
 import { serializeBeamSeed } from "@/lib/avatar/seed-url"
 import type { Profile } from "@/components/community/social/profile-types"
 
-function renderProfile(overrides: Partial<Profile> = {}) {
+const mocks = vi.hoisted(() => ({
+  profile: undefined as {
+    statusEmoji?: string | null
+    statusText?: string | null
+  } | undefined,
+  interruptAgent: vi.fn(),
+}))
+
+vi.mock("@/stores/community/ws", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/stores/community/ws")>(),
+  useCommunityProfile: () => mocks.profile,
+}))
+
+vi.mock("@/hooks/community/use-community-ws", () => ({
+  communityWsInterruptAgent: mocks.interruptAgent,
+}))
+
+afterEach(() => {
+  vi.useRealTimers()
+  mocks.interruptAgent.mockReset()
+  mocks.profile = undefined
+})
+
+function renderProfile(
+  overrides: Partial<Profile> = {},
+  activityStatus?: { emoji: string; text: string },
+) {
+  mocks.profile = activityStatus
+    ? { statusEmoji: activityStatus.emoji, statusText: activityStatus.text }
+    : undefined
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -34,8 +64,49 @@ function renderProfile(overrides: Partial<Profile> = {}) {
       y: 0,
       bp: "desktop",
       onClose: () => undefined,
+      activityStatusEmoji: activityStatus?.emoji,
+      activityStatusText: activityStatus?.text,
     }),
   ))
+}
+
+function interactiveProfile(
+  queryClient: QueryClient,
+  activityStatus: { emoji: string; text: string },
+) {
+  mocks.profile = {
+    statusEmoji: activityStatus.emoji,
+    statusText: activityStatus.text,
+  }
+  return createElement(
+    QueryClientProvider,
+    { client: queryClient },
+    createElement(ProfileCard, {
+      embedded: true,
+      data: {
+        name: "Ren",
+        userId: "agent_1",
+        avatar: "R",
+        about: "",
+        mutual: 0,
+        identity: {
+          kind: "bot",
+          ownerProfile: { id: "owner_1", handle: "Owner#0042" },
+          ownedByViewer: true,
+        },
+      },
+      x: 0,
+      y: 0,
+      bp: "desktop",
+      onClose: () => undefined,
+    }),
+  )
+}
+
+function findInterruptButton(renderer: ReactTestRenderer) {
+  return renderer.root.findAllByType("button").find((button) =>
+    button.props["aria-label"] === "Stop current agent turn"
+    || button.props["aria-label"] === "Stopping current agent turn")
 }
 
 describe("ProfileCard contextual metadata", () => {
@@ -91,6 +162,93 @@ describe("ProfileCard contextual metadata", () => {
     expect(html).not.toContain("h-40")
   })
 
+  it("shows Stop only for the owner while the bot is truly running", () => {
+    const identity: Profile["identity"] = {
+      kind: "bot",
+      ownerProfile: { id: "owner_1", handle: "Owner#0042" },
+      ownedByViewer: true,
+    }
+    const running = renderProfile({ identity }, { emoji: "⚡", text: "Working on it" })
+    const starting = renderProfile({ identity }, { emoji: "🌀", text: "Waking up" })
+    const nonowner = renderProfile({
+      identity: { ...identity, ownedByViewer: false },
+    }, { emoji: "⚡", text: "Working on it" })
+
+    expect(running).toContain(">Stop</button>")
+    expect(starting).not.toContain(">Stop</button>")
+    expect(nonowner).not.toContain(">Stop</button>")
+  })
+
+  it("sends once and enters a disabled loading state until exact Idle arrives", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    let renderer: ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(interactiveProfile(
+        queryClient,
+        { emoji: "⚡", text: "Working on it" },
+      ))
+    })
+
+    const stop = findInterruptButton(renderer!)
+    expect(stop?.props.disabled).toBe(false)
+    await act(async () => {
+      stop?.props.onClick()
+    })
+    await act(async () => findInterruptButton(renderer!)?.props.onClick())
+
+    expect(mocks.interruptAgent).toHaveBeenCalledTimes(1)
+    expect(mocks.interruptAgent).toHaveBeenCalledWith("agent_1")
+    expect(findInterruptButton(renderer!)?.props.disabled).toBe(true)
+    expect(JSON.stringify(renderer!.toJSON())).toContain("Stopping…")
+
+    await act(async () => {
+      renderer!.update(interactiveProfile(
+        queryClient,
+        { emoji: "🌙", text: "Wrapping up" },
+      ))
+    })
+    expect(findInterruptButton(renderer!)?.props.disabled).toBe(true)
+    expect(JSON.stringify(renderer!.toJSON())).toContain("Stopping…")
+
+    await act(async () => {
+      renderer!.update(interactiveProfile(queryClient, { emoji: "💤", text: "Idle" }))
+    })
+    expect(findInterruptButton(renderer!)).toBeUndefined()
+
+    await act(async () => {
+      renderer!.update(interactiveProfile(
+        queryClient,
+        { emoji: "⚡", text: "Working on it" },
+      ))
+    })
+    expect(findInterruptButton(renderer!)?.props.disabled).toBe(false)
+    await act(async () => renderer!.unmount())
+  })
+
+  it("fails open after 10 seconds while the activity is still running", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    let renderer: ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(interactiveProfile(
+        queryClient,
+        { emoji: "⚡", text: "Working on it" },
+      ))
+    })
+    await act(async () => findInterruptButton(renderer!)?.props.onClick())
+    expect(findInterruptButton(renderer!)?.props.disabled).toBe(true)
+
+    await act(async () => vi.advanceTimersByTime(9_999))
+    expect(findInterruptButton(renderer!)?.props.disabled).toBe(true)
+    await act(async () => vi.advanceTimersByTime(1))
+    expect(findInterruptButton(renderer!)?.props.disabled).toBe(false)
+    expect(JSON.stringify(renderer!.toJSON())).toContain("Stop")
+    await act(async () => renderer!.unmount())
+  })
+
   it("wraps owner metadata and exposes a full accessible label while truncating long handles", () => {
     const handle = `${"VeryLongOwner".repeat(4)}#0042`
     const html = renderProfile({
@@ -128,6 +286,8 @@ describe("ProfileCard contextual metadata", () => {
     expect(source).toContain('addEventListener("animationend", update)')
     expect(source).toContain("cardElement.offsetWidth")
     expect(source).toContain("previewElement.offsetWidth")
+    expect(source).toContain("onClick={interruptAgent}")
+    expect(source).toContain("communityWsInterruptAgent(data.userId)")
   })
 })
 
