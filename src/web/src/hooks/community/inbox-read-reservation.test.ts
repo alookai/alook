@@ -8,7 +8,10 @@ import {
   completeThreadOpenerReservationHandoff,
   disposeInboxReadReservation,
   getThreadOpenerReservationHandoff,
+  inboxChannelRowTarget,
+  inboxDmRowTarget,
   inboxReadCandidateFingerprint,
+  inboxThreadRowTarget,
   publishInboxProjectionGenerationTerminal,
   promoteInboxReadReservation,
   registerInboxProjectionTicket,
@@ -69,6 +72,47 @@ describe("inbox read reservation", () => {
 
   beforeEach(() => {
     queryClient = client()
+  })
+
+  it("carries the exact unread sequence boundary on reservable row targets", () => {
+    const server = {
+      serverId: "server",
+      serverName: "Server",
+      channels: [{
+        channelId: "forum",
+        channelName: "Forum",
+        lastMessageAt: "2026-09-02T00:00:00.000Z",
+        lastUnreadSeq: 4,
+        hasDirectUnread: true,
+        mentionCount: 0,
+        children: [{
+          channelId: "child",
+          channelName: "Child",
+          lastMessageAt: "2026-09-02T00:00:00.000Z",
+          lastUnreadSeq: 7,
+          mentionCount: 0,
+        }],
+      }],
+    }
+    const dm = {
+      channelId: "dm",
+      otherUserId: "peer",
+      otherUserName: "Peer",
+      otherUserDiscriminator: "0001",
+      otherUserAvatar: "P",
+      otherUserAvatarVersion: 0,
+      lastMessageAt: "2026-09-02T00:00:00.000Z",
+      lastUnreadSeq: 9,
+    }
+
+    expect(inboxChannelRowTarget(server, server.channels[0]!))
+      .toMatchObject({ reservedThroughSeq: 4 })
+    expect(inboxThreadRowTarget(
+      server,
+      server.channels[0]!,
+      server.channels[0]!.children[0]!,
+    )).toMatchObject({ reservedThroughSeq: 7 })
+    expect(inboxDmRowTarget(dm)).toMatchObject({ reservedThroughSeq: 9 })
   })
 
   it("passes unrelated responses through and holds a focused response unchanged", async () => {

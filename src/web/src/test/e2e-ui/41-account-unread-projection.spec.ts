@@ -100,6 +100,10 @@ async function expectUnreadDot(row: ReturnType<Page["getByTestId"]>) {
   await expect(row.locator("span.rounded-full.bg-primary")).toHaveCount(1)
 }
 
+async function expectNoUnreadDot(row: ReturnType<Page["getByTestId"]>) {
+  await expect(row.locator("span.rounded-full.bg-primary")).toHaveCount(0)
+}
+
 async function readSeq(page: Page, channelId: string): Promise<number> {
   const response = await page.request.get("/api/community/users/me/read-state")
   expect(response.ok()).toBe(true)
@@ -298,6 +302,13 @@ test.describe.serial("account unread projection", () => {
       timeout: 20_000,
     })
     await expect.poll(observerGate.pending).toBeGreaterThan(0)
+    await expectNoUnreadDot(page.getByTestId(tid.channelRow(unreadChannel)))
+    await page.getByTestId(tid.inboxTrigger).click()
+    await expect(page.getByTestId(tid.inboxUnreadChannel(unreadChannel))).toHaveCount(0)
+    await expect(page.getByTestId(tid.inboxUnreadChild(forumChild))).toBeVisible()
+    await expect(page.getByTestId(tid.inboxUnreadDm(dmId))).toBeVisible()
+    await expectUnreadDot(page.getByTestId(tid.inboxTrigger))
+    await page.getByTestId(tid.inboxTrigger).click()
     expect(targetPuts).toEqual([])
 
     const readResponse = page.waitForResponse((response) => (

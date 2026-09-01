@@ -409,6 +409,74 @@ describe("AccountUnreadProjection", () => {
     }])).toBe(3)
   })
 
+  it("excludes only the reserved channel boundary and preserves later arrivals", () => {
+    const projection = new AccountUnreadProjection("u1")
+    const exclusion = { channelId: "c1", throughSeq: 2 }
+    projection.recordArrival({ channelId: "c1", serverId: "s1", seq: 2 })
+
+    expect(projection.projectUnread(
+      "servers",
+      "c1",
+      true,
+      2,
+      "channels",
+      exclusion,
+    )).toBe(false)
+    expect(projection.projectServerUnread("s1", [{
+      channelId: "c1",
+      lastUnreadSeq: 2,
+    }], false, exclusion)).toBe(false)
+    expect(projection.projectServerChannelUnread("s1", "c1", [{
+      channelId: "c1",
+      lastUnreadSeq: 2,
+    }], false, exclusion)).toBe(false)
+    expect(projection.hasPending("servers", "channels", exclusion)).toBe(false)
+
+    projection.recordArrival({ channelId: "c1", serverId: "s1", seq: 3 })
+    expect(projection.projectUnread(
+      "servers",
+      "c1",
+      true,
+      2,
+      "channels",
+      exclusion,
+    )).toBe(true)
+    expect(projection.projectServerUnread("s1", [{
+      channelId: "c1",
+      lastUnreadSeq: 2,
+    }], false, exclusion)).toBe(true)
+    expect(projection.hasPending("servers", "channels", exclusion)).toBe(true)
+  })
+
+  it("keeps unrelated aggregate sources visible during an exact reservation", () => {
+    const projection = new AccountUnreadProjection("u1")
+    const exclusion = { channelId: "post", throughSeq: 4 }
+    projection.recordArrival({
+      channelId: "post",
+      railChannelId: "forum",
+      serverId: "s1",
+      seq: 4,
+    })
+    projection.recordArrival({ channelId: "sibling", serverId: "s1", seq: 1 })
+
+    expect(projection.projectServerUnread("s1", [], false, exclusion)).toBe(true)
+    expect(projection.projectServerChannelUnread(
+      "s1",
+      "forum",
+      [],
+      false,
+      exclusion,
+    )).toBe(false)
+    expect(projection.projectForumParentUnread(
+      "s1",
+      "forum",
+      false,
+      null,
+      new Set(),
+      exclusion,
+    )).toBe(false)
+  })
+
   it("reports pending exact and sticky work by family and domain", () => {
     const exact = new AccountUnreadProjection("u1")
     exact.recordArrival({ channelId: "c1", serverId: "s1", seq: 1, isMention: true })

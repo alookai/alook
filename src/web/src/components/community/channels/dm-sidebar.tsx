@@ -6,6 +6,7 @@ import { Avatar } from "../avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import { tid } from "@/lib/community/testids"
 import type { DM } from "@/lib/community/models/people"
+import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 
 export const DmSidebar = memo(function DmSidebar({
   dms, activeDm, blockedUserIds, loading, onPickDm, onShowFriends, onShowMachines, onShowBots,
@@ -84,6 +85,11 @@ export const DmSidebar = memo(function DmSidebar({
         {dms.map((d) => {
           const active = d.id === activeDm
           const isBlocked = blockedUserIds?.has(d.userId)
+          const unread = selectUnreadPresentation({
+            accountUnread: d.unread === true,
+            active,
+            muted: isBlocked,
+          })
           return (
             <button
               key={d.id}
@@ -102,7 +108,7 @@ export const DmSidebar = memo(function DmSidebar({
                 <div className="truncate text-xs leading-tight text-muted-foreground">{d.preview}</div>
               </div>
               {isBlocked && <Ban className="size-4 shrink-0 text-destructive" />}
-              {!isBlocked && d.unread && <span className="size-2 shrink-0 rounded-full bg-primary" />}
+              {unread.showDot && <span className="size-2 shrink-0 rounded-full bg-primary" />}
             </button>
           )
         })}

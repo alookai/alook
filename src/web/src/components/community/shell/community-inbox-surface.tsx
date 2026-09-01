@@ -15,6 +15,7 @@ import type { Breakpoint } from "@/hooks/use-mobile"
 import { tid } from "@/lib/community/testids"
 import { cn } from "@/lib/utils"
 import { COMMUNITY_USER_BAR_HEIGHT_CSS } from "./shell-frame-geometry"
+import { selectUnreadPresentation } from "@/hooks/community/unread-presentation"
 
 type Props = {
   breakpoint: Breakpoint
@@ -37,6 +38,7 @@ export function CommunityInboxSurface({
 }: Props) {
   const triggerRef = useRef<HTMLButtonElement>(null)
   const mobile = breakpoint === "mobile"
+  const unread = selectUnreadPresentation({ accountUnread: hasUnread === true })
 
   return (
     <Popover
@@ -74,14 +76,14 @@ export function CommunityInboxSurface({
         {mobile ? (
           <span className="relative grid size-4 place-items-center">
             <Inbox className="size-4" />
-            {hasUnread && (
+            {unread.showDot && (
               <span className="absolute -right-1 -top-1 size-2 rounded-full bg-primary" />
             )}
           </span>
         ) : (
           <>
             <Inbox className="size-4" />
-            {hasUnread && (
+            {unread.showDot && (
               <span className="absolute right-1 top-1 size-2 rounded-full bg-primary" />
             )}
           </>

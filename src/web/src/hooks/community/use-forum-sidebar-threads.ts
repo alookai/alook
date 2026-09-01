@@ -8,6 +8,11 @@ import { patchChannelUnread } from "@/hooks/community/server-detail-cache"
 import type { ServerDetail } from "@/hooks/community/use-servers"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { getActiveAccountUnreadProjection } from "./account-unread-projection"
+import { useInboxProjectionTarget } from "./use-inbox-auto-collapse"
+import {
+  reservedUnreadExclusion,
+  selectUnreadPresentation,
+} from "./unread-presentation"
 
 export type ForumSidebarThread = {
   id: string
@@ -980,6 +985,11 @@ export function useForumSidebarThreads(
     unreadProjection.getSnapshot,
     unreadProjection.getSnapshot,
   )
+  const reservationTarget = useInboxProjectionTarget(queryClient)
+  const unreadExclusion = useMemo(
+    () => reservedUnreadExclusion(reservationTarget, "channels"),
+    [reservationTarget],
+  )
   const accessEpoch = useCommunityWsStore((state) => state.accessEpoch)
   const previousRetainId = useRef(retainId)
   // Observe (without fetching) the already-canonical ServerDetail cache so a
@@ -1072,12 +1082,16 @@ export function useForumSidebarThreads(
     )
     const threads = raw.threads.map((thread) => {
       const source = sourceByChannel.get(thread.id)
-      const unread = unreadProjection.projectUnread(
-        family,
-        thread.id,
-        thread.unread,
-        source?.lastUnreadSeq,
-      )
+      const unread = selectUnreadPresentation({
+        accountUnread: unreadProjection.projectUnread(
+          family,
+          thread.id,
+          thread.unread,
+          source?.lastUnreadSeq,
+          "channels",
+          unreadExclusion,
+        ),
+      }).effectiveUnread
       if (unread === thread.unread) return thread
       return { ...thread, unread }
     })
@@ -1093,6 +1107,7 @@ export function useForumSidebarThreads(
         state.baseUnread || raw.parentUnread[parentId] === true,
         sourceByChannel.get(parentId)?.lastUnreadSeq,
         renderedChildIds,
+        unreadExclusion,
       )
       if (unread === raw.parentUnread[parentId]) continue
       if (!parentChanged) parentUnread = { ...raw.parentUnread }
@@ -1110,6 +1125,7 @@ export function useForumSidebarThreads(
     retainedQuery.data,
     serverDetailQuery.data?.forumUnreadState,
     serverDetailQuery.data?.unreadSources,
+    unreadExclusion,
     serverId,
     unreadProjection,
     unreadVersion,

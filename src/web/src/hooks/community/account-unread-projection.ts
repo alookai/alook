@@ -27,6 +27,11 @@ export type AccountUnreadSource = {
   lastMentionSeq?: number | null
 }
 
+export type AccountUnreadPresentationExclusion = {
+  channelId: string
+  throughSeq?: number
+}
+
 export type AccountUnreadLegacySource = {
   family: AccountUnreadFamily
   channelId: string
@@ -110,6 +115,16 @@ function arrivalDomain(
 
 function sentinelKey(family: AccountUnreadFamily, domain: AccountUnreadDomain) {
   return `${sentinelFamily(family)}\u0000${domain}`
+}
+
+function excludesUnread(
+  exclusion: AccountUnreadPresentationExclusion | null | undefined,
+  channelId: string,
+  seq?: number | null,
+) {
+  if (!exclusion || exclusion.channelId !== channelId) return false
+  if (exclusion.throughSeq === undefined) return true
+  return seq !== undefined && seq !== null && seq <= exclusion.throughSeq
 }
 
 /**
@@ -409,23 +424,27 @@ export class AccountUnreadProjection {
     rawUnread: boolean,
     sourceSeq?: number | null,
     domain: AccountUnreadDomain = familyDomain(family),
+    exclusion?: AccountUnreadPresentationExclusion | null,
   ) {
     const fence = this.markAll.get(domain)
     const read = this.effectiveReadSeq(channelId)
     const rawVisible = rawUnread
       && !(sourceSeq && read >= sourceSeq)
       && !fence
+      && !excludesUnread(exclusion, channelId, sourceSeq)
     if (rawVisible) return true
     const sentinel = this.sentinels.get(sentinelKey(family, domain))
     if (sentinel && (!fence || sentinel.ordinal > fence.ordinal)) return true
     for (const key of this.exactByChannel.get(channelId) ?? []) {
       const arrival = this.exact.get(key)
       if (!arrival || !arrival.families.has(family) || arrival.seq <= read) continue
+      if (excludesUnread(exclusion, channelId, arrival.seq)) continue
       if (!fence || arrival.ordinal > fence.ordinal) return true
     }
     const sticky = this.sticky.get(channelId)
     const pending = sticky?.families.get(family)
     if (pending) {
+      if (excludesUnread(exclusion, channelId)) return false
       if (!fence || pending.ordinal > fence.ordinal) return true
     }
     return false
@@ -458,12 +477,17 @@ export class AccountUnreadProjection {
     serverId: string,
     sources: readonly AccountUnreadSource[],
     rawUnread = false,
+    exclusion?: AccountUnreadPresentationExclusion | null,
   ) {
-    if (sources.some((source) => this.projectUnread(
-      "servers",
-      source.channelId,
-      true,
-      source.lastUnreadSeq,
+    if (sources.some((source) => (
+      this.projectUnread(
+        "servers",
+        source.channelId,
+        true,
+        source.lastUnreadSeq,
+        "channels",
+        exclusion,
+      )
     ))) return true
     if (rawUnread && sources.length === 0 && !this.markAll.get("channels")) return true
     const sentinel = this.sentinels.get(sentinelKey("servers", "channels"))
@@ -472,13 +496,27 @@ export class AccountUnreadProjection {
     for (const arrival of this.exact.values()) {
       if (
         arrival.serverId === serverId
-        && this.projectUnread("servers", arrival.channelId, false)
+        && this.projectUnread(
+          "servers",
+          arrival.channelId,
+          false,
+          undefined,
+          "channels",
+          exclusion,
+        )
       ) return true
     }
     for (const unknown of this.sticky.values()) {
       if (
         unknown.serverId === serverId
-        && this.projectUnread("servers", unknown.channelId, false)
+        && this.projectUnread(
+          "servers",
+          unknown.channelId,
+          false,
+          undefined,
+          "channels",
+          exclusion,
+        )
       ) return true
     }
     return false
@@ -489,13 +527,18 @@ export class AccountUnreadProjection {
     channelId: string,
     sources: readonly AccountUnreadSource[],
     rawUnread = false,
+    exclusion?: AccountUnreadPresentationExclusion | null,
   ) {
     const family = `server-detail:${serverId}` as const
-    if (sources.some((source) => this.projectUnread(
-      family,
-      source.channelId,
-      true,
-      source.lastUnreadSeq,
+    if (sources.some((source) => (
+      this.projectUnread(
+        family,
+        source.channelId,
+        true,
+        source.lastUnreadSeq,
+        "channels",
+        exclusion,
+      )
     ))) return true
     if (rawUnread && sources.length === 0 && !this.markAll.get("channels")) return true
     const sentinel = this.sentinels.get(sentinelKey(family, "channels"))
@@ -505,14 +548,28 @@ export class AccountUnreadProjection {
       if (
         arrival.serverId === serverId
         && (arrival.channelId === channelId || arrival.railChannelId === channelId)
-        && this.projectUnread(family, arrival.channelId, false)
+        && this.projectUnread(
+          family,
+          arrival.channelId,
+          false,
+          undefined,
+          "channels",
+          exclusion,
+        )
       ) return true
     }
     for (const unknown of this.sticky.values()) {
       if (
         unknown.serverId === serverId
         && (unknown.channelId === channelId || unknown.railChannelId === channelId)
-        && this.projectUnread(family, unknown.channelId, false)
+        && this.projectUnread(
+          family,
+          unknown.channelId,
+          false,
+          undefined,
+          "channels",
+          exclusion,
+        )
       ) return true
     }
     return false
@@ -524,15 +581,32 @@ export class AccountUnreadProjection {
     rawBaseUnread: boolean,
     sourceSeq: number | null | undefined,
     renderedChildIds: ReadonlySet<string>,
+    exclusion?: AccountUnreadPresentationExclusion | null,
   ) {
     const family = `server-detail:${serverId}` as const
-    if (this.projectUnread(family, parentChannelId, rawBaseUnread, sourceSeq)) return true
+    if (
+      this.projectUnread(
+        family,
+        parentChannelId,
+        rawBaseUnread,
+        sourceSeq,
+        "channels",
+        exclusion,
+      )
+    ) return true
     for (const arrival of this.exact.values()) {
       if (
         arrival.serverId === serverId
         && arrival.railChannelId === parentChannelId
         && !renderedChildIds.has(arrival.channelId)
-        && this.projectUnread(family, arrival.channelId, false)
+        && this.projectUnread(
+          family,
+          arrival.channelId,
+          false,
+          undefined,
+          "channels",
+          exclusion,
+        )
       ) return true
     }
     for (const unknown of this.sticky.values()) {
@@ -540,7 +614,14 @@ export class AccountUnreadProjection {
         unknown.serverId === serverId
         && unknown.railChannelId === parentChannelId
         && !renderedChildIds.has(unknown.channelId)
-        && this.projectUnread(family, unknown.channelId, false)
+        && this.projectUnread(
+          family,
+          unknown.channelId,
+          false,
+          undefined,
+          "channels",
+          exclusion,
+        )
       ) return true
     }
     return false
@@ -561,7 +642,11 @@ export class AccountUnreadProjection {
     ), 0)
   }
 
-  hasPending(family?: AccountUnreadFamily, domain?: AccountUnreadDomain) {
+  hasPending(
+    family?: AccountUnreadFamily,
+    domain?: AccountUnreadDomain,
+    exclusion?: AccountUnreadPresentationExclusion | null,
+  ) {
     if (family && domain) {
       const sentinel = this.sentinels.get(sentinelKey(family, domain))
       const fence = this.markAll.get(domain)
@@ -578,6 +663,7 @@ export class AccountUnreadProjection {
     }
     for (const arrival of this.exact.values()) {
       if (family && !arrival.families.has(family)) continue
+      if (excludesUnread(exclusion, arrival.channelId, arrival.seq)) continue
       const arrivalDomain = family === "inbox-mentions" || arrival.isMention && domain === "mentions"
         ? "mentions"
         : arrival.serverId ? "channels" : "dms"
@@ -586,6 +672,7 @@ export class AccountUnreadProjection {
       if (!fence || arrival.ordinal > fence.ordinal) return true
     }
     for (const unknown of this.sticky.values()) {
+      if (excludesUnread(exclusion, unknown.channelId)) continue
       for (const [pendingFamily, pending] of unknown.families) {
         if (family && pendingFamily !== family) continue
         const pendingDomain = arrivalDomain(pendingFamily, unknown.serverId)

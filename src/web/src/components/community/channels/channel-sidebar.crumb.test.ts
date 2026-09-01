@@ -68,7 +68,7 @@ const forumTree = {
   catPending: { cat_1: false },
 } as unknown as ChannelTree
 
-const renderForum = (muted = false) => renderToStaticMarkup(
+const renderForum = (muted = false, activeThreadId = "post_2") => renderToStaticMarkup(
   createElement(ChannelSidebar, {
     tree: forumTree,
     serverName: "Alpha",
@@ -97,7 +97,7 @@ const renderForum = (muted = false) => renderToStaticMarkup(
         },
       ],
     },
-    activeThreadId: "post_2",
+    activeThreadId,
     onSelectForumThread: vi.fn(),
   }),
 )
@@ -148,5 +148,12 @@ describe("ChannelSidebar header", () => {
 
   it("suppresses the child unread dot when its parent forum is muted", () => {
     expect(renderForum(true)).not.toContain("bg-primary")
+  })
+
+  it("uses the active child shape without treating route activation as read", () => {
+    const html = renderForum(false, "post_1")
+    expect(html).toContain('data-testid="community-forum-sidebar-thread-post_1"')
+    expect(html).toContain('aria-current="page"')
+    expect(html).not.toContain("bg-primary")
   })
 })

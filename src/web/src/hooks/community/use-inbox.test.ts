@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
 import {
   disposeInboxReadReservation,
+  inboxChannelRowTarget,
   registerInboxReadReservationSurface,
   takeInboxReadReservationNegative,
 } from "./inbox-read-reservation"
@@ -177,6 +178,67 @@ describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
     expect(latest?.servers[0]).toBe(retained)
     expect(latest?.dms).toEqual([keptDm])
     expect(latest?.dms[0]).toBe(keptDm)
+    expect(latest?.hasProjectedUnread).toBe(true)
+    await act(async () => renderer.unmount())
+  })
+
+  it("projects one Inbox reservation into the feed aggregate and restores it on rollback", async () => {
+    const channel = {
+      channelId: "reserved",
+      channelName: "Reserved",
+      lastMessageAt: "2026-09-02T00:00:00.000Z",
+      lastUnreadSeq: 4,
+      mentionCount: 0,
+      hasDirectUnread: true,
+      children: [],
+    }
+    const server = {
+      serverId: "s1",
+      serverName: "One",
+      channels: [channel],
+    }
+    const data = { servers: [server], dms: [], truncated: false }
+    apiFetchMock.mockResolvedValue(data)
+    const { useInboxUnreads } = await import("./use-inbox")
+    const { useInboxAutoCollapse } = await import("./use-inbox-auto-collapse")
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    qc.setQueryData(communityKeys.inboxUnreads(), data)
+    let latest: ReturnType<typeof useInboxUnreads> | undefined
+    let collapse: ReturnType<typeof useInboxAutoCollapse> | undefined
+    function Harness() {
+      latest = useInboxUnreads()
+      collapse = useInboxAutoCollapse({
+        queryClient: qc,
+        publishedHref: "/c/channels/s0",
+        navigationPending: false,
+        pendingHref: null,
+      })
+      return null
+    }
+    let renderer!: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(Harness),
+      ))
+    })
+    expect(latest?.hasProjectedUnread).toBe(true)
+
+    let epoch = 0
+    await act(async () => {
+      epoch = collapse!.beginProjection(
+        inboxChannelRowTarget(server, channel)!,
+        "/c/channels/s1/reserved",
+      )
+    })
+    expect(latest?.servers).toEqual([])
+    expect(latest?.hasProjectedUnread).toBe(false)
+
+    await act(async () => {
+      collapse!.rollbackProjection(epoch)
+    })
+    expect(latest?.servers).toEqual([server])
     expect(latest?.hasProjectedUnread).toBe(true)
     await act(async () => renderer.unmount())
   })

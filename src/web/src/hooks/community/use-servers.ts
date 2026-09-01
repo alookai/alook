@@ -14,6 +14,8 @@ import { avatarInitial } from "@/lib/community/avatar"
 import { isServerOwner, UNCATEGORIZED_CATEGORY_ID } from "@alook/shared"
 import type { Server, Category, Channel } from "@/lib/community/models/navigation"
 import { getActiveAccountUnreadProjection } from "./account-unread-projection"
+import { useInboxProjectionTarget } from "./use-inbox-auto-collapse"
+import { reservedUnreadExclusion } from "./unread-presentation"
 
 /**
  * Fetches the sidebar list of servers the current user is in.
@@ -107,6 +109,11 @@ export function useServers(): UseQueryResult<ServersResponse> & {
     unreadProjection.getSnapshot,
     unreadProjection.getSnapshot,
   )
+  const reservationTarget = useInboxProjectionTarget(queryClient)
+  const unreadExclusion = useMemo(
+    () => reservedUnreadExclusion(reservationTarget, "channels"),
+    [reservationTarget],
+  )
   useEffect(() => {
     const sources = query.data?.servers.flatMap((server) => server.unreadSources ?? [])
     if (sources) unreadProjection.absorbFamily("servers", sources)
@@ -139,6 +146,7 @@ export function useServers(): UseQueryResult<ServersResponse> & {
         server.id,
         server.unreadSources ?? [],
         server.unread,
+        unreadExclusion,
       )
       const mentions = unreadProjection.projectServerMentionCount(
         server.id,
@@ -150,7 +158,7 @@ export function useServers(): UseQueryResult<ServersResponse> & {
       return { ...server, unread, mentions }
     })
     return changed ? projected : raw
-  }, [query.data, unreadProjection, unreadVersion])
+  }, [query.data, unreadExclusion, unreadProjection, unreadVersion])
   return {
     ...query,
     servers: projectedServers ?? (EMPTY_SERVERS as Server[]),
@@ -289,6 +297,11 @@ export function useServer(
     unreadProjection.getSnapshot,
     unreadProjection.getSnapshot,
   )
+  const reservationTarget = useInboxProjectionTarget(queryClient)
+  const unreadExclusion = useMemo(
+    () => reservedUnreadExclusion(reservationTarget, "channels"),
+    [reservationTarget],
+  )
   const enabled = !!serverId
   const query = useQuery({
     queryKey: enabled ? communityKeys.server(serverId!) : communityKeys.server("__none__"),
@@ -357,6 +370,7 @@ export function useServer(
           channel.id,
           sources,
           channel.unread,
+          unreadExclusion,
         )
         if (unread === channel.unread) return channel
         categoryChanged = true
@@ -367,7 +381,7 @@ export function useServer(
       return { ...category, channels }
     })
     return changed ? { ...query.data, categories } : query.data
-  }, [query.data, serverId, unreadProjection, unreadVersion])
+  }, [query.data, unreadExclusion, serverId, unreadProjection, unreadVersion])
   return {
     ...query,
     server: projectedServer,

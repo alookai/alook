@@ -98,6 +98,7 @@ describe("useInboxAutoCollapse", () => {
     await hook.call(() => hook.current.beginProjection(target(), "/c/channels/s1/c1"))
 
     expect(hook.current.open).toBe(false)
+    expect(hook.current.projectionTarget).toEqual(target())
     expect(hook.current.isProjected(target())).toBe(true)
     expect(hook.current.isProjected(target("g2"))).toBe(false)
     expect(hook.current.isProjected(target("g1", "c2"))).toBe(false)
@@ -178,6 +179,7 @@ describe("useInboxAutoCollapse", () => {
     await hook.call(() => { epoch = hook.current.beginProjection(target(), "/c/channels/s1/c1") })
     await hook.call(() => hook.current.rollbackProjection(epoch, true))
     expect(hook.current.open).toBe(true)
+    expect(hook.current.projectionTarget).toBeNull()
     expect(hook.current.isProjected(target())).toBe(false)
   })
 

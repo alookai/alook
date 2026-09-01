@@ -41,6 +41,7 @@ export type InboxRowTarget =
       confirmationChannelId: string
       serverId: string
       channelId: string
+      reservedThroughSeq?: number
     }
   | {
       kind: "thread"
@@ -50,6 +51,7 @@ export type InboxRowTarget =
       serverId: string
       parentChannelId: string
       childChannelId: string
+      reservedThroughSeq?: number
     }
   | {
       kind: "dm"
@@ -57,6 +59,7 @@ export type InboxRowTarget =
       fingerprint: string
       confirmationChannelId: string
       channelId: string
+      reservedThroughSeq?: number
     }
   | {
       kind: "mention"
@@ -235,6 +238,9 @@ export function inboxChannelRowTarget(
     confirmationChannelId: channel.channelId,
     serverId: server.serverId,
     channelId: channel.channelId,
+    ...(channel.lastUnreadSeq !== undefined
+      ? { reservedThroughSeq: channel.lastUnreadSeq }
+      : {}),
   }
 }
 
@@ -265,6 +271,9 @@ export function inboxThreadRowTarget(
     serverId: server.serverId,
     parentChannelId,
     childChannelId: child.channelId,
+    ...(child.lastUnreadSeq !== undefined
+      ? { reservedThroughSeq: child.lastUnreadSeq }
+      : {}),
   }
 }
 
@@ -279,6 +288,7 @@ export function inboxDmRowTarget(dm: UnreadDm): InboxRowTarget {
     }),
     confirmationChannelId: dm.channelId,
     channelId: dm.channelId,
+    ...(dm.lastUnreadSeq !== undefined ? { reservedThroughSeq: dm.lastUnreadSeq } : {}),
   }
 }
 
