@@ -270,6 +270,7 @@ vi.mock("@alook/shared", async () => {
       else if (kind === "tool_call") ok = typeof payload.name === "string"
       else if (kind === "thinking")
         ok = typeof payload.text === "string" && typeof payload.truncated === "boolean" && typeof payload.chars === "number"
+      else if (kind === "turn_interrupt") ok = payload.status === "accepted"
       else if (kind === "session_reset")
         ok = payload.trigger === "single" || payload.trigger === "reset_all" || payload.trigger === "idle_timeout"
       if (kind === "session_reset" && payload.trigger === "idle_timeout") {

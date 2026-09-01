@@ -4,6 +4,7 @@ const SUMMARY_BY_KIND: Record<AuditKind, string> = {
   cli_invocation: "alook command",
   tool_call: "tool",
   thinking: "Updated its reasoning",
+  turn_interrupt: "Stop accepted by daemon",
   wake_trigger: "Woke for a new message",
   session_reset: "Session reset requested",
   nap: "Started a fresh session",

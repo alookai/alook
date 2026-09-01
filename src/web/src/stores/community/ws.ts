@@ -1,6 +1,7 @@
 "use client"
 
 import { create } from "zustand"
+import type { CommunityBotAuditEvent } from "@alook/shared"
 import type {
   CommunityProfile,
   CommunityProfilePatch,
@@ -50,7 +51,7 @@ export const BOT_AUDIT_RING_MAX = 200
 export type BotAuditEventEntry = {
   id: string
   botId: string
-  kind: "cli_invocation" | "tool_call" | "thinking" | "wake_trigger" | "session_reset" | "nap" | "model_changed" | "provider_changed" | "error"
+  kind: CommunityBotAuditEvent["kind"]
   payload: unknown
   sessionId?: string | null
   launchId?: string | null

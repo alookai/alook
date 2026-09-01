@@ -84,6 +84,15 @@ describe("Community browser event runtime contract", () => {
     }
   })
 
+  it("accepts daemon-accepted turn interrupts as live bot audit events", () => {
+    const event = {
+      ...communityWsEventFixtures["community:bot.audit_event"],
+      kind: "turn_interrupt",
+      payload: { status: "accepted" },
+    }
+    expect(decodeCommunityBrowserEvent(event)).toEqual({ ok: true, event })
+  })
+
   it("rejects one required-field corruption for every event", () => {
     for (const fixture of fixtures) {
       const corrupted = withoutPath(fixture, requiredFixturePaths[fixture.type])

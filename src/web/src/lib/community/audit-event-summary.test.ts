@@ -8,6 +8,7 @@ describe("summarizeAuditEvent", () => {
       "cli_invocation",
       "tool_call",
       "thinking",
+      "turn_interrupt",
       "wake_trigger",
       "session_reset",
       "nap",

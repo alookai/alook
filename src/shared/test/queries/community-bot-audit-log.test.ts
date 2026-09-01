@@ -291,6 +291,17 @@ describe("listOwnedBotActivityEvents", () => {
 })
 
 describe("BotAuditEventSchema — payload discriminated union", () => {
+  it("accepts only an accepted daemon turn interrupt receipt", () => {
+    expect(BotAuditEventSchema.safeParse({
+      kind: "turn_interrupt",
+      payload: { status: "accepted" },
+    }).success).toBe(true);
+    expect(BotAuditEventSchema.safeParse({
+      kind: "turn_interrupt",
+      payload: { status: "stopped" },
+    }).success).toBe(false);
+  });
+
   it("accepts a cli_invocation payload", () => {
     const r = BotAuditEventSchema.safeParse({
       kind: "cli_invocation",

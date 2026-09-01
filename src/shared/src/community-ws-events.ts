@@ -465,7 +465,7 @@ const communityBotAuditEventSchema = z.strictObject({
   type: z.literal("community:bot.audit_event"),
   botId: string,
   id: string,
-  kind: z.enum(["cli_invocation", "tool_call", "thinking", "wake_trigger", "session_reset", "nap", "model_changed", "provider_changed", "error"]),
+  kind: z.enum(["cli_invocation", "tool_call", "thinking", "turn_interrupt", "wake_trigger", "session_reset", "nap", "model_changed", "provider_changed", "error"]),
   payload: z.unknown(),
   sessionId: nullableString.optional(),
   launchId: nullableString.optional(),

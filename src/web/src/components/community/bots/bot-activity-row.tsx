@@ -59,6 +59,7 @@ function KindTag({ kind }: { kind: AuditKind }) {
 function kindMeta(kind: AuditKind): { label: string; tone: string } {
   if (kind === "cli_invocation") return { label: "daemon", tone: "text-foreground/70" }
   if (kind === "tool_call") return { label: "tool", tone: "text-muted-foreground" }
+  if (kind === "turn_interrupt") return { label: "stop", tone: "text-foreground/70" }
   if (kind === "wake_trigger") return { label: "wake", tone: "text-foreground/70" }
   if (kind === "session_reset") return { label: "reset", tone: "text-foreground/70" }
   if (kind === "nap") return { label: "nap", tone: "text-foreground/70" }
@@ -104,6 +105,19 @@ function RowBody({
       )
     }
     return <span className="font-mono text-[13px] text-foreground">{name}</span>
+  }
+  if (event.kind === "turn_interrupt") {
+    return (
+      <div
+        data-testid="bot-activity-event-turn_interrupt"
+        className="truncate font-mono text-[13px] text-foreground"
+      >
+        <span>Stop accepted by daemon</span>{" "}
+        <span className="text-muted-foreground">
+          — waiting for the active turn to become idle.
+        </span>
+      </div>
+    )
   }
   if (event.kind === "session_reset") {
     return (

@@ -1493,6 +1493,10 @@ export const AuditLogThinkingPayloadSchema = z.object({
   truncated: z.boolean(),
   chars: z.number().int().nonnegative(),
 });
+export const AuditLogTurnInterruptPayloadSchema = z.object({
+  status: z.literal("accepted"),
+});
+export type AuditLogTurnInterruptPayload = z.infer<typeof AuditLogTurnInterruptPayloadSchema>;
 /**
  * `wake_trigger` — one row per wake we ATTEMPTED to deliver. Written from
  * `buildUnreadWakeCommand` right before the `HostCommand` is returned to the
@@ -1582,6 +1586,7 @@ export const BotAuditEventSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("cli_invocation"), payload: AuditLogCliInvocationPayloadSchema }),
   z.object({ kind: z.literal("tool_call"), payload: AuditLogToolCallPayloadSchema }),
   z.object({ kind: z.literal("thinking"), payload: AuditLogThinkingPayloadSchema }),
+  z.object({ kind: z.literal("turn_interrupt"), payload: AuditLogTurnInterruptPayloadSchema }),
   z.object({ kind: z.literal("wake_trigger"), payload: AuditLogWakeTriggerPayloadSchema }),
   z.object({ kind: z.literal("session_reset"), payload: AuditLogSessionResetPayloadSchema }),
   z.object({ kind: z.literal("nap"), payload: AuditLogNapPayloadSchema }),
@@ -1595,6 +1600,7 @@ export const BotAuditEventKindSchema = z.enum([
   "cli_invocation",
   "tool_call",
   "thinking",
+  "turn_interrupt",
   "wake_trigger",
   "session_reset",
   "nap",
