@@ -1630,6 +1630,7 @@ describe("backend-owned delivery behavior", () => {
     await emit(driver, { kind: "tool_call", callId: "call-1", name: "Read", input: {} });
     await emit(driver, { kind: "tool_call", callId: "call-1", name: "Read", input: {} });
     await emit(driver, { kind: "tool_output", callId: "unknown", name: "Read" });
+    await emit(driver, { kind: "tool_output", name: "Read" });
     await session.send({ id: "two", kind: "user", text: "follow" });
 
     expect(driver.writes).toEqual([]);
@@ -1638,7 +1639,7 @@ describe("backend-owned delivery behavior", () => {
       metrics: {
         outstandingToolUses: 1,
         anonymousOutstandingToolUses: 0,
-        toolLifecycleMismatchCount: 2,
+        toolLifecycleMismatchCount: 3,
       },
     });
 
@@ -1663,9 +1664,14 @@ describe("backend-owned delivery behavior", () => {
       lane,
       0,
     );
+    (session as any).onAdapterEvent(
+      { kind: "tool_output", callId: "orphan", name: "browser" },
+      lane,
+      0,
+    );
     expect(session.snapshot().diagnostics).toMatchObject({
       deliveryPhase: "idle",
-      metrics: { outstandingToolUses: 0, toolLifecycleMismatchCount: 1 },
+      metrics: { outstandingToolUses: 0, toolLifecycleMismatchCount: 2 },
     });
 
     await session.start({ id: "one", kind: "user", text: "start" });
