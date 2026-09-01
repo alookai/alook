@@ -15,6 +15,9 @@ import { tid } from "./_fixtures/testids"
 
 const HOVER_QUERY = "(hover: hover) and (pointer: fine)"
 const OVERFLOW_EMOJIS = ["👍", "🔥", "🎉", "✅", "🚀", "👀", "❤️", "😂", "🤔"] as const
+// Keep explicit scheduling headroom beyond the product's hold threshold. An
+// exact-boundary wait lets CI dispatch pointerup before the page timer runs.
+const REACTION_HOLD_WAIT_MS = 700
 
 async function installInputCapability(page: Page, hoverCapable: boolean) {
   await page.addInitScript(({ query, matches }) => {
@@ -40,7 +43,7 @@ async function holdReaction(page: Page, chip: Locator, pointerId = 41) {
   const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
   const pointer = { pointerType: "touch", pointerId, isPrimary: true, button: 0 }
   await chip.dispatchEvent("pointerdown", { ...pointer, clientX: point.x, clientY: point.y })
-  await page.waitForTimeout(500)
+  await page.waitForTimeout(REACTION_HOLD_WAIT_MS)
   await chip.dispatchEvent("pointerup", { ...pointer, clientX: point.x, clientY: point.y })
   await chip.dispatchEvent("click", point)
 }
@@ -179,6 +182,9 @@ test.describe.serial("mobile reaction details", () => {
     expect(mutationRequests).toHaveLength(0)
     await alice.page.getByRole("button", { name: "Close" }).click()
     await expect(fire).toBeFocused()
+    await expect.poll(() => alice.page.evaluate(() => (
+      document.activeElement?.getAttribute("data-testid") ?? null
+    ))).toBe(tid.reactionChip(messageId, "🔥"))
 
     const thumb = alice.page.getByTestId(tid.reactionChip(messageId, "👍"))
     const toggleResponse = alice.page.waitForResponse((response) => (
@@ -400,5 +406,8 @@ test.describe.serial("mobile reaction details", () => {
       body: await alice.page.screenshot(),
       contentType: "image/png",
     })
+    const reactionGroup = alice.page.getByTestId(tid.reactionGroup(emptyMessageId))
+    await alice.page.getByRole("button", { name: "Close" }).click()
+    await expect(reactionGroup).toBeFocused()
   })
 })

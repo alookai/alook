@@ -7,7 +7,11 @@ import {
   createMessageMenuPointAnchor,
   Message,
   messageCanShare,
+  messageEventBelongsToRow,
+  messageLinkClickUsesMenu,
+  messageLinkPointerType,
   selectionBelongsToRow,
+  shouldAdoptDesktopMenuInput,
   shouldActivateMessageOverlays,
   shouldSuppressTouchMenuOpen,
 } from "./message"
@@ -67,8 +71,8 @@ vi.mock("@/components/ui/tooltip", async () => {
 vi.mock("@/components/ui/context-menu", async () => {
   const ReactModule = await import("react")
   return {
-    ContextMenu: ({ children }: { children: React.ReactNode }) =>
-      ReactModule.createElement("mock-context-menu", null, children),
+    ContextMenu: ({ children, ...props }: { children: React.ReactNode }) =>
+      ReactModule.createElement("mock-context-menu", props, children),
     ContextMenuTrigger: ({
       render,
       ...props
@@ -76,6 +80,7 @@ vi.mock("@/components/ui/context-menu", async () => {
       render: React.ReactElement
     }) => ReactModule.cloneElement(render, {
       ...props,
+      className: [render.props.className, props.className].filter(Boolean).join(" "),
       "data-slot": "context-menu-trigger",
     } as React.HTMLAttributes<HTMLElement>),
     ContextMenuContent: ({ children }: { children: React.ReactNode }) =>
@@ -86,6 +91,11 @@ vi.mock("@/components/ui/context-menu", async () => {
     }: {
       children: React.ReactNode
     }) => ReactModule.createElement("button", { ...props, "data-slot": "context-menu-item" }, children),
+    ContextMenuSeparator: (props: Record<string, unknown>) =>
+      ReactModule.createElement("mock-context-menu-separator", {
+        ...props,
+        "data-slot": "context-menu-separator",
+      }),
   }
 })
 
@@ -94,6 +104,19 @@ vi.mock("@/components/ui/dropdown-menu", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/components/ui/dropdown-menu")>()
   return {
     ...actual,
+    DropdownMenu: ({ children, ...props }: { children: React.ReactNode }) =>
+      ReactModule.createElement("mock-dropdown-menu", props, children),
+    DropdownMenuTrigger: ({
+      render,
+      children,
+      ...props
+    }: {
+      render: React.ReactElement
+      children?: React.ReactNode
+    }) => ReactModule.cloneElement(render, {
+      ...props,
+      "data-slot": "dropdown-menu-trigger",
+    } as React.HTMLAttributes<HTMLElement>, children ?? render.props.children),
     DropdownMenuContent: ({
       children,
       ...props
@@ -112,8 +135,47 @@ vi.mock("@/components/ui/dropdown-menu", async (importOriginal) => {
       children: React.ReactNode
       [key: string]: unknown
     }) => ReactModule.createElement("button", { ...props, "data-slot": "dropdown-menu-item" }, children),
+    DropdownMenuSeparator: (props: Record<string, unknown>) =>
+      ReactModule.createElement("mock-dropdown-menu-separator", {
+        ...props,
+        "data-slot": "dropdown-menu-separator",
+      }),
   }
 })
+
+vi.mock("@/components/ui/dialog", async () => {
+  const ReactModule = await import("react")
+  const component = (type: string, slot: string) => ({
+    children,
+    ...props
+  }: {
+    children?: React.ReactNode
+    [key: string]: unknown
+  }) => ReactModule.createElement(type, { ...props, "data-slot": slot }, children)
+  return {
+    Dialog: component("mock-dialog", "dialog"),
+    DialogContent: component("mock-dialog-content", "dialog-content"),
+    DialogDescription: component("mock-dialog-description", "dialog-description"),
+    DialogHeader: component("mock-dialog-header", "dialog-header"),
+    DialogTitle: component("mock-dialog-title", "dialog-title"),
+  }
+})
+
+vi.mock("@/components/ui/tabs", async () => {
+  const ReactModule = await import("react")
+  return {
+    Tabs: ({ children, ...props }: { children?: React.ReactNode }) =>
+      ReactModule.createElement("mock-tabs", props, children),
+    TabsList: ({ children, ...props }: { children?: React.ReactNode }) =>
+      ReactModule.createElement("mock-tabs-list", props, children),
+    TabsTrigger: ({ children, ...props }: { children?: React.ReactNode }) =>
+      ReactModule.createElement("button", { ...props, "data-slot": "tabs-trigger" }, children),
+  }
+})
+
+vi.mock("@/hooks/community/use-reaction-details", () => ({
+  useReactionDetails: () => ({ data: { actors: [] }, isLoading: false }),
+}))
 
 // WS3 render-behavior tests (see plans/community-switch-perf-optimization.md):
 // - the custom memo comparator bails out despite the per-render `m` clone,
@@ -321,6 +383,340 @@ describe("Message embed links", () => {
   })
 })
 
+describe("Message ordinary-link gesture ownership", () => {
+  const secondHref = "https://example.com/second/path?from=message&mode=full#details"
+  const linkAnchor = { href: secondHref, getAttribute: () => secondHref }
+  const linkEventTarget = {
+    closest: (selector: string) => (
+      selector === "a[data-message-external-link]"
+      || selector === "button, a, input, textarea, select, [role=button]"
+    ) ? linkAnchor : null,
+  }
+  const findRow = (renderer: TestRenderer.ReactTestRenderer) => renderer.root.find(
+    (node) => typeof node.props.className === "string"
+      && node.props.className.includes("group relative -mx-2"),
+  )
+
+  it("derives actual touch/mouse modality before using hover capability as fallback", () => {
+    const ownedTarget = {} as EventTarget
+    const portalTarget = {} as EventTarget
+    const rowOwner = { contains: (target: Node | null) => target === ownedTarget }
+    expect(messageEventBelongsToRow(ownedTarget, rowOwner)).toBe(true)
+    expect(messageEventBelongsToRow(portalTarget, rowOwner)).toBe(false)
+
+    expect(messageLinkPointerType({ type: "click", pointerType: "touch" })).toBe("touch")
+    expect(messageLinkPointerType({
+      type: "click",
+      sourceCapabilities: { firesTouchEvents: true },
+    })).toBe("touch")
+    expect(messageLinkPointerType({ type: "click" })).toBeNull()
+
+    expect(messageLinkClickUsesMenu({
+      clickPointerType: "touch", capturedPointerType: "mouse", hoverCapable: true,
+    })).toBe(true)
+    expect(messageLinkClickUsesMenu({
+      clickPointerType: null, capturedPointerType: "pen", hoverCapable: true,
+    })).toBe(true)
+    expect(messageLinkClickUsesMenu({
+      clickPointerType: null, capturedPointerType: "mouse", hoverCapable: false,
+    })).toBe(false)
+    expect(messageLinkClickUsesMenu({
+      clickPointerType: null, capturedPointerType: null, hoverCapable: false,
+    })).toBe(true)
+    expect(messageLinkClickUsesMenu({
+      clickPointerType: null, capturedPointerType: null, hoverCapable: true,
+    })).toBe(false)
+    expect(messageLinkClickUsesMenu({
+      clickPointerType: null,
+      capturedPointerType: null,
+      hoverCapable: false,
+      desktopInputSeen: true,
+    })).toBe(false)
+  })
+
+  it("keeps mouse primary click direct on a touch-default device", async () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg({ content: `first https://example.com/first second ${secondHref}` }),
+        hoverCapable: false,
+        onOpenThread: vi.fn(),
+        onCopy: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+    let row = findRow(renderer!)
+    act(() => row.props.onPointerEnter({
+      target: { closest: () => null },
+      nativeEvent: { type: "pointerenter", pointerType: "mouse" },
+    }))
+    row = findRow(renderer!)
+    expect(row.props["data-slot"]).toBe("context-menu-trigger")
+    act(() => row.props.onPointerDownCapture({
+      button: 0,
+      target: linkEventTarget,
+      nativeEvent: { type: "pointerdown", pointerType: "mouse" },
+    }))
+    const preventDefault = vi.fn()
+    const stopPropagation = vi.fn()
+    act(() => row.props.onClickCapture({
+      clientX: 120,
+      clientY: 240,
+      target: linkEventTarget,
+      nativeEvent: { type: "click" },
+      preventDefault,
+      stopPropagation,
+    }))
+
+    expect(preventDefault).not.toHaveBeenCalled()
+    expect(stopPropagation).not.toHaveBeenCalled()
+    expect(renderer!.root.findAllByProps({ "data-slot": "dropdown-menu-separator" })).toHaveLength(0)
+  })
+
+  it("keeps keyboard Enter direct on a touch-default fallback", async () => {
+    const openUrl = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal("window", { __TAURI__: { opener: { openUrl } } })
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg({ content: secondHref }),
+        hoverCapable: false,
+        onOpenThread: vi.fn(),
+        onCopy: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+    const row = findRow(renderer!)
+    act(() => row.props.onKeyDownCapture({
+      key: "Enter",
+      target: linkEventTarget,
+    }))
+
+    const anchor = renderer!.root.findAllByType("a")
+      .find((node) => node.props.href === secondHref)
+    expect(anchor).toBeDefined()
+    const click = {
+      button: 0,
+      clientX: 0,
+      clientY: 0,
+      defaultPrevented: false,
+      target: linkEventTarget,
+      nativeEvent: { type: "click" },
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    }
+    await act(async () => {
+      row.props.onClickCapture(click)
+      anchor!.props.onClick(click)
+      await Promise.resolve()
+    })
+
+    expect(click.preventDefault).toHaveBeenCalledOnce()
+    expect(click.stopPropagation).toHaveBeenCalledOnce()
+    expect(openUrl).toHaveBeenCalledOnce()
+    expect(openUrl).toHaveBeenCalledWith(secondHref)
+    expect(renderer!.root.findAllByProps({ "data-slot": "dropdown-menu-separator" })).toHaveLength(0)
+  })
+
+  it("opens the existing menu first for a real touch tap on a hover-capable hybrid", async () => {
+    const openWindow = vi.fn(() => ({} as Window))
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal("window", { open: openWindow })
+    vi.stubGlobal("navigator", { clipboard: { writeText } })
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg({ content: `first https://example.com/first second ${secondHref}` }),
+        hoverCapable: true,
+        onOpenThread: vi.fn(),
+        onCopy: vi.fn(),
+        onShareSingle: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+    const row = findRow(renderer!)
+    act(() => row.props.onPointerDownCapture({
+      button: 0,
+      target: linkEventTarget,
+      nativeEvent: { type: "pointerdown", pointerType: "touch" },
+    }))
+    const preventDefault = vi.fn()
+    const stopPropagation = vi.fn()
+    await act(async () => {
+      row.props.onClickCapture({
+        clientX: 271,
+        clientY: 603,
+        target: linkEventTarget,
+        nativeEvent: { type: "click" },
+        preventDefault,
+        stopPropagation,
+      })
+    })
+
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(stopPropagation).toHaveBeenCalledOnce()
+    const items = renderer!.root.findAllByProps({ "data-slot": "dropdown-menu-item" })
+    const labels = items.map((item) => textContent(item).trim())
+    expect(labels.slice(-3)).toEqual(["Share as Image", "Copy Link", "Open Link"])
+    expect(renderer!.root.findAllByProps({ "data-slot": "dropdown-menu-separator" })).toHaveLength(1)
+    const positioner = renderer!.root.find(
+      (node) => node.props.positionMethod === "fixed" && node.props.anchor,
+    )
+    expect(positioner.props.anchor.getBoundingClientRect()).toMatchObject({
+      x: 271,
+      y: 603,
+    })
+
+    await act(async () => {
+      items.find((item) => textContent(item).trim() === "Copy Link")?.props.onClick()
+      await Promise.resolve()
+    })
+    expect(writeText).toHaveBeenCalledWith(secondHref)
+    expect(openWindow).not.toHaveBeenCalled()
+
+    await act(async () => {
+      items.find((item) => textContent(item).trim() === "Open Link")?.props.onClick()
+      await Promise.resolve()
+    })
+    expect(openWindow).toHaveBeenCalledOnce()
+    expect(openWindow).toHaveBeenCalledWith(secondHref, "_blank", "noopener,noreferrer")
+  })
+
+  it("adds the link suffix only for the exact desktop secondary-click target and clears it", async () => {
+    const openWindow = vi.fn()
+    vi.stubGlobal("window", { open: openWindow })
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg({ content: `first https://example.com/first second ${secondHref}` }),
+        hoverCapable: false,
+        onOpenThread: vi.fn(),
+        onCopy: vi.fn(),
+        onShareSingle: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+    let row = findRow(renderer!)
+    act(() => row.props.onPointerEnter({
+      target: linkEventTarget,
+      nativeEvent: { type: "pointerenter", pointerType: "mouse" },
+    }))
+    row = findRow(renderer!)
+    act(() => row.props.onContextMenuCapture({ target: linkEventTarget }))
+
+    let items = renderer!.root.findAllByProps({ "data-slot": "context-menu-item" })
+    expect(items.map((item) => textContent(item).trim()).slice(-3)).toEqual(["Share as Image", "Copy Link", "Open Link"])
+    expect(renderer!.root.findAllByProps({ "data-slot": "context-menu-separator" })).toHaveLength(1)
+    expect(openWindow).not.toHaveBeenCalled()
+
+    const contextMenu = renderer!.root.findByType("mock-context-menu")
+    act(() => contextMenu.props.onOpenChange(false))
+    items = renderer!.root.findAllByProps({ "data-slot": "context-menu-item" })
+    expect(items.map((item) => textContent(item).trim())).not.toContain("Copy Link")
+    expect(items.map((item) => textContent(item).trim())).not.toContain("Open Link")
+
+    row = findRow(renderer!)
+    act(() => row.props.onContextMenuCapture({ target: { closest: () => null } }))
+    expect(renderer!.root.findAllByProps({ "data-slot": "context-menu-separator" })).toHaveLength(0)
+  })
+})
+
+describe("Message portal event ownership", () => {
+  it("keeps a reaction dialog mounted and ignores its pointer, click, and swipe events", async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal("window", { getSelection: () => null })
+    vi.stubGlobal("navigator", { vibrate: vi.fn() })
+    const onReply = vi.fn()
+    let renderer: TestRenderer.ReactTestRenderer
+    await act(async () => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg({
+          content: "portal ownership",
+          reactions: [{ emoji: "🔥", count: 1, me: false, userIds: ["u2"] }],
+        }),
+        hoverCapable: false,
+        onOpenThread: vi.fn(),
+        onCopy: vi.fn(),
+        onReply,
+        onToggleReaction: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+
+    const chip = renderer!.root.findAllByType("button")
+      .find((button) => textContent(button).includes("🔥") && button.props.onPointerDown)
+    expect(chip).toBeDefined()
+    act(() => chip!.props.onPointerDown({
+      pointerType: "touch",
+      clientX: 20,
+      clientY: 20,
+      stopPropagation: vi.fn(),
+    }))
+    await act(async () => {
+      vi.advanceTimersByTime(451)
+      await Promise.resolve()
+    })
+    expect(renderer!.root.findAllByType("mock-dialog-content")).toHaveLength(1)
+
+    const row = renderer!.root.find(
+      (node) => typeof node.props.className === "string"
+        && node.props.className.includes("group relative -mx-2"),
+    )
+    const portalTarget = { closest: () => null, matches: () => false }
+    const rowElement = {
+      contains: (target: unknown) => target !== portalTarget,
+      setPointerCapture: vi.fn(),
+    }
+    const preventDefault = vi.fn()
+    const stopPropagation = vi.fn()
+
+    act(() => row.props.onPointerEnter({
+      target: portalTarget,
+      currentTarget: rowElement,
+      nativeEvent: { type: "pointerenter", pointerType: "mouse" },
+    }))
+    act(() => row.props.onClickCapture({
+      target: portalTarget,
+      currentTarget: rowElement,
+      nativeEvent: { type: "click" },
+      preventDefault,
+      stopPropagation,
+    }))
+    act(() => row.props.onClick({
+      clientX: 25,
+      clientY: 25,
+      target: portalTarget,
+      currentTarget: rowElement,
+      nativeEvent: { composedPath: () => [portalTarget] },
+    }))
+    act(() => row.props.onPointerDown({
+      pointerType: "touch",
+      pointerId: 77,
+      clientX: 20,
+      clientY: 20,
+      target: portalTarget,
+      currentTarget: rowElement,
+    }))
+    act(() => row.props.onPointerMove({
+      pointerType: "touch",
+      pointerId: 77,
+      clientX: 92,
+      clientY: 22,
+      target: portalTarget,
+      currentTarget: rowElement,
+      preventDefault,
+    }))
+    act(() => row.props.onPointerUp({
+      pointerType: "touch",
+      clientX: 92,
+      clientY: 22,
+      target: portalTarget,
+      currentTarget: rowElement,
+    }))
+
+    expect(renderer!.root.findAllByType("mock-dialog-content")).toHaveLength(1)
+    expect(renderer!.root.findByType("mock-dropdown-menu").props.open).toBe(false)
+    expect(onReply).not.toHaveBeenCalled()
+    expect(preventDefault).not.toHaveBeenCalled()
+    expect(stopPropagation).not.toHaveBeenCalled()
+  })
+})
+
 describe("Message reaction picker", () => {
   it("opens the non-hover picker and suppresses its Shadow DOM selection click at the row", async () => {
     vi.stubGlobal("window", { getSelection: () => null })
@@ -483,18 +879,24 @@ describe("Message touch action menu", () => {
       (node) => typeof node.props.className === "string"
         && node.props.className.includes("group relative -mx-2"),
     )
-    const currentTarget = { contains: () => false, setPointerCapture: vi.fn() }
+    const ownedTarget = { closest: () => null }
+    const currentTarget = {
+      contains: (target: unknown) => target === ownedTarget,
+      setPointerCapture: vi.fn(),
+    }
     act(() => row.props.onPointerDown({
       pointerType: "touch", clientX: 80, clientY: 100,
-      target: { closest: () => null }, currentTarget,
+      target: ownedTarget, currentTarget,
     }))
     act(() => row.props.onPointerMove({
       pointerType: "touch", pointerId: 1, clientX: 148, clientY: 102,
-      currentTarget, preventDefault: vi.fn(),
+      target: ownedTarget, currentTarget, preventDefault: vi.fn(),
     }))
     expect(renderer!.root.findByProps({ "data-mobile-reply-affordance": true }).props)
       .toMatchObject({ "data-threshold-crossed": true })
-    act(() => row.props.onPointerUp({ pointerType: "touch" }))
+    act(() => row.props.onPointerUp({
+      pointerType: "touch", target: ownedTarget, currentTarget,
+    }))
     expect(onReply).toHaveBeenCalledOnce()
     expect(vibrate).toHaveBeenCalledOnce()
     expect(currentTarget.setPointerCapture).toHaveBeenCalledWith(1)
@@ -516,16 +918,22 @@ describe("Message touch action menu", () => {
       (node) => typeof node.props.className === "string"
         && node.props.className.includes("group relative -mx-2"),
     )
-    const currentTarget = { contains: () => false, setPointerCapture: vi.fn() }
+    const ownedTarget = { closest: () => null }
+    const currentTarget = {
+      contains: (target: unknown) => target === ownedTarget,
+      setPointerCapture: vi.fn(),
+    }
     act(() => row.props.onPointerDown({
       pointerType: "touch", clientX: 80, clientY: 100,
-      target: { closest: () => null }, currentTarget,
+      target: ownedTarget, currentTarget,
     }))
     act(() => row.props.onPointerMove({
       pointerType: "touch", pointerId: 1, clientX: 86, clientY: 130,
-      currentTarget, preventDefault: vi.fn(),
+      target: ownedTarget, currentTarget, preventDefault: vi.fn(),
     }))
-    act(() => row.props.onPointerUp({ pointerType: "touch" }))
+    act(() => row.props.onPointerUp({
+      pointerType: "touch", target: ownedTarget, currentTarget,
+    }))
     expect(onReply).not.toHaveBeenCalled()
     expect(vibrate).not.toHaveBeenCalled()
   })
@@ -547,13 +955,14 @@ describe("Message touch action menu", () => {
       (node) => typeof node.props.className === "string"
         && node.props.className.includes("group relative -mx-2"),
     )
+    const ownedTarget = { closest: () => null }
     const currentTarget = {
-      contains: (node: unknown) => node === selectedNode,
+      contains: (node: unknown) => node === ownedTarget || node === selectedNode,
       setPointerCapture: vi.fn(),
     }
     act(() => row.props.onPointerDown({
       pointerType: "touch", clientX: 80, clientY: 100,
-      target: { closest: () => null }, currentTarget,
+      target: ownedTarget, currentTarget,
     }))
     selection = {
       isCollapsed: false,
@@ -562,9 +971,11 @@ describe("Message touch action menu", () => {
     }
     act(() => row.props.onPointerMove({
       pointerType: "touch", pointerId: 1, clientX: 150, clientY: 102,
-      currentTarget, preventDefault: vi.fn(),
+      target: ownedTarget, currentTarget, preventDefault: vi.fn(),
     }))
-    act(() => row.props.onPointerUp({ pointerType: "touch" }))
+    act(() => row.props.onPointerUp({
+      pointerType: "touch", target: ownedTarget, currentTarget,
+    }))
     expect(onReply).not.toHaveBeenCalled()
     expect(vibrate).not.toHaveBeenCalled()
     expect(currentTarget.setPointerCapture).not.toHaveBeenCalled()
@@ -698,12 +1109,16 @@ describe("Message touch action menu", () => {
       (node) => typeof node.props.className === "string"
         && node.props.className.includes("group relative -mx-2"),
     )
+    const ownedTarget = { closest: () => null }
+    const currentTarget = {
+      contains: (target: unknown) => target === ownedTarget,
+    }
     await act(async () => {
       row.props.onClick({
         clientX: 271,
         clientY: 603,
-        currentTarget: { contains: () => false },
-        target: { closest: () => null },
+        currentTarget,
+        target: ownedTarget,
       })
     })
 
@@ -799,7 +1214,7 @@ describe("Message desktop text selection", () => {
     expect(selectionBelongsToRow(null, rowElement)).toBe(false)
   })
 
-  it("delegates desktop selection contextmenu policy to the authenticated boundary", () => {
+  it("observes the desktop context target without taking over authenticated contextmenu policy", () => {
     let renderer: TestRenderer.ReactTestRenderer
     act(() => {
       renderer = TestRenderer.create(makeTree({
@@ -814,7 +1229,15 @@ describe("Message desktop text selection", () => {
         && node.props.className.includes("group relative -mx-2"),
     )
 
-    expect(row.props.onContextMenuCapture).toBeUndefined()
+    const preventDefault = vi.fn()
+    const stopPropagation = vi.fn()
+    act(() => row.props.onContextMenuCapture({
+      target: { closest: () => null },
+      preventDefault,
+      stopPropagation,
+    }))
+    expect(preventDefault).not.toHaveBeenCalled()
+    expect(stopPropagation).not.toHaveBeenCalled()
     act(() => renderer!.unmount())
   })
 })
@@ -923,6 +1346,48 @@ describe("Message file attachment", () => {
 })
 
 describe("Message lazy overlays", () => {
+  it("does not swap menu shells when portal close reveals the pointer over restored focus", () => {
+    const focused = {} as Element
+    const row = { contains: vi.fn((target: Node | null) => target === focused) }
+
+    expect(shouldAdoptDesktopMenuInput("mouse", row, focused)).toBe(false)
+    expect(shouldAdoptDesktopMenuInput("mouse", row, null)).toBe(true)
+    expect(shouldAdoptDesktopMenuInput("touch", row, null)).toBe(false)
+  })
+
+  it("keeps coarse swipe reply available after the row sees mouse input", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(
+        makeTree({
+          m: baseMsg(),
+          hoverCapable: false,
+          onOpenThread: vi.fn(),
+          onReply: vi.fn(),
+        }),
+        { createNodeMock: () => genericMock },
+      )
+    })
+
+    let row = renderer!.root.find(
+      (node) => typeof node.props.className === "string"
+        && node.props.className.includes("group relative -mx-2"),
+    )
+    act(() => row.props.onPointerEnter({
+      target: { closest: vi.fn(() => null) },
+      currentTarget: genericMock,
+      nativeEvent: { type: "pointerenter", pointerType: "mouse" },
+    }))
+    row = renderer!.root.find(
+      (node) => typeof node.props.className === "string"
+        && node.props.className.includes("group relative -mx-2"),
+    )
+
+    expect(row.props.onPointerDown).toBeTypeOf("function")
+    expect(row.props.onPointerMove).toBeTypeOf("function")
+    expect(row.props.onPointerUp).toBeTypeOf("function")
+  })
+
   it("does not remount the row when the pointer enters an author button", () => {
     const interactiveTarget = { closest: vi.fn(() => ({})) }
     const rowTarget = { closest: vi.fn(() => null) }

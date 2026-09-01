@@ -181,6 +181,7 @@ function ReactionChip({
 }
 
 function ReactionDetailsDialog({
+  open,
   messageId,
   authorName,
   messagePreview,
@@ -188,6 +189,7 @@ function ReactionDetailsDialog({
   selectedEmoji,
   onSelectedEmojiChange,
 }: {
+  open: boolean
   messageId: string
   authorName: string
   messagePreview: string
@@ -199,7 +201,7 @@ function ReactionDetailsDialog({
     () => reactions.flatMap((reaction) => reaction.userIds ?? []),
     [reactions],
   )
-  const details = useReactionDetails({ messageId, open: true, userIds })
+  const details = useReactionDetails({ messageId, open, userIds })
   const selectedReaction = reactions.find((reaction) => reaction.emoji === selectedEmoji)
   const actors = new Map(details.data?.actors.map((actor) => [actor.userId, actor]))
   const reactionRailKey = reactions.map((reaction) => `${reaction.emoji}\0${reaction.count}`).join("\0")
@@ -218,6 +220,7 @@ function ReactionDetailsDialog({
   return (
     <DialogContent
       data-testid={tid.reactionDialog(messageId)}
+      finalFocus={false}
       className="flex max-h-[calc(100dvh-2rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] flex-col gap-3 overflow-hidden transition-none sm:max-w-sm **:data-[slot=dialog-close]:size-11 **:data-[slot=dialog-close]:transition-none sm:**:data-[slot=dialog-close]:size-7"
     >
       <DialogHeader className="min-w-0 shrink-0">
@@ -294,6 +297,22 @@ function ReactionDetailsDialog({
   )
 }
 
+export function resolveReactionFinalFocus(
+  initiatingChip: HTMLButtonElement | null,
+  reactionGroup: HTMLDivElement | null,
+): HTMLElement | null {
+  return initiatingChip?.isConnected ? initiatingChip : reactionGroup
+}
+
+export function restoreReactionFocus(
+  initiatingChip: HTMLButtonElement | null,
+  reactionGroup: HTMLDivElement | null,
+): HTMLElement | null {
+  const target = resolveReactionFinalFocus(initiatingChip, reactionGroup)
+  target?.focus({ preventScroll: true })
+  return target
+}
+
 export function MessageReactions({
   messageId,
   authorName,
@@ -321,11 +340,6 @@ export function MessageReactions({
   const reactionGroupRef = useRef<HTMLDivElement | null>(null)
   const [open, setOpen] = useState(false)
   const [selectedEmoji, setSelectedEmoji] = useState<string | null>(null)
-  const restoreInitiatingFocus = () => {
-    const initiatingChip = initiatingChipRef.current
-    if (initiatingChip?.isConnected !== false) initiatingChip?.focus()
-    else reactionGroupRef.current?.focus()
-  }
 
   useEffect(() => {
     const previous = previousEmojisRef.current
@@ -368,21 +382,22 @@ export function MessageReactions({
 
       <Dialog
         open={open}
-        onOpenChange={(nextOpen) => {
-          setOpen(nextOpen)
-          if (!nextOpen) setTimeout(restoreInitiatingFocus, 0)
+        onOpenChange={setOpen}
+        onOpenChangeComplete={(nextOpen) => {
+          if (!nextOpen) {
+            restoreReactionFocus(initiatingChipRef.current, reactionGroupRef.current)
+          }
         }}
       >
-        {open && (
-          <ReactionDetailsDialog
-            messageId={messageId}
-            authorName={authorName}
-            messagePreview={messagePreview || "Message"}
-            reactions={reactions}
-            selectedEmoji={selectedEmoji}
-            onSelectedEmojiChange={setSelectedEmoji}
-          />
-        )}
+        <ReactionDetailsDialog
+          open={open}
+          messageId={messageId}
+          authorName={authorName}
+          messagePreview={messagePreview || "Message"}
+          reactions={reactions}
+          selectedEmoji={selectedEmoji}
+          onSelectedEmojiChange={setSelectedEmoji}
+        />
       </Dialog>
     </>
   )

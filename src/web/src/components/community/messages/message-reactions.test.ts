@@ -41,7 +41,12 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipContent: ({ children }: { children: React.ReactNode }) => React.createElement("span", null, children),
 }))
 
-import { MessageReactions, reconcileReactionSelection } from "./message-reactions"
+import {
+  MessageReactions,
+  reconcileReactionSelection,
+  resolveReactionFinalFocus,
+  restoreReactionFocus,
+} from "./message-reactions"
 import { tid } from "@/lib/community/testids"
 
 const buttonNode = {
@@ -234,20 +239,23 @@ describe("MessageReactions", () => {
     expect(text).not.toContain("#000")
   })
 
-  it("restores focus after the dialog close focus handoff", () => {
+  it("restores the connected initiating chip after the dialog finishes closing", () => {
     vi.useFakeTimers()
     const { renderer } = renderReactions()
     const chip = renderer.root.findByProps({ "data-testid": tid.reactionChip("message_1", "👍") })
     act(() => chip.props.onPointerDown({ pointerType: "touch", clientX: 10, clientY: 10, stopPropagation: vi.fn() }))
     act(() => vi.advanceTimersByTime(450))
+    const content = renderer.root.findByType("mock-dialog-content")
+    expect(content.props.finalFocus).toBe(false)
     const dialog = renderer.root.findByType("mock-dialog")
     act(() => dialog.props.onOpenChange(false))
     expect(buttonNode.focus).not.toHaveBeenCalled()
-    act(() => vi.advanceTimersByTime(0))
+    act(() => dialog.props.onOpenChangeComplete(false))
     expect(buttonNode.focus).toHaveBeenCalledOnce()
+    expect(buttonNode.focus).toHaveBeenCalledWith({ preventScroll: true })
   })
 
-  it("restores focus to the reaction group when the initiating chip disappeared", () => {
+  it("restores the reaction group itself when the initiating chip disappeared", () => {
     vi.useFakeTimers()
     const { renderer, onToggleReaction } = renderReactions()
     const chip = renderer.root.findByProps({ "data-testid": tid.reactionChip("message_1", "👍") })
@@ -264,10 +272,9 @@ describe("MessageReactions", () => {
     })))
     buttonNode.isConnected = false
     const dialog = renderer.root.findByType("mock-dialog")
-    act(() => dialog.props.onOpenChange(false))
-    act(() => vi.advanceTimersByTime(0))
-    expect(buttonNode.focus).not.toHaveBeenCalled()
+    act(() => dialog.props.onOpenChangeComplete(false))
     expect(reactionGroupNode.focus).toHaveBeenCalledOnce()
+    expect(reactionGroupNode.focus).toHaveBeenCalledWith({ preventScroll: true })
   })
 })
 
@@ -283,5 +290,27 @@ describe("reconcileReactionSelection", () => {
 
   it("closes selection when the final reaction disappears", () => {
     expect(reconcileReactionSelection(["👍"], [], "👍")).toBeNull()
+  })
+})
+
+describe("resolveReactionFinalFocus", () => {
+  it("resolves the connected initiating chip, then the stable reaction group", () => {
+    const connectedChip = { isConnected: true } as HTMLButtonElement
+    const disconnectedChip = { isConnected: false } as HTMLButtonElement
+    const group = {} as HTMLDivElement
+
+    expect(resolveReactionFinalFocus(connectedChip, group)).toBe(connectedChip)
+    expect(resolveReactionFinalFocus(disconnectedChip, group)).toBe(group)
+    expect(resolveReactionFinalFocus(null, group)).toBe(group)
+  })
+})
+
+describe("restoreReactionFocus", () => {
+  it("focuses the exact resolved element without choosing a tabbable child", () => {
+    const focus = vi.fn()
+    const group = { focus } as unknown as HTMLDivElement
+
+    expect(restoreReactionFocus(null, group)).toBe(group)
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true })
   })
 })

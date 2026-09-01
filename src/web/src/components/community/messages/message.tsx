@@ -11,7 +11,13 @@ import { ContextMenu, ContextMenuTrigger, ContextMenuContent } from "@/component
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from "@/components/ui/dropdown-menu"
 import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
-import { MessageExternalLink } from "./message-external-link"
+import {
+  copyMessageExternalLink,
+  messageExternalLinkTargetFromEventTarget,
+  MessageExternalLink,
+  openMessageExternalLink,
+  type MessageExternalLinkTarget,
+} from "./message-external-link"
 import { BotApprovalCard } from "../social/bot-approval-card"
 import { EmojiPickerPopover } from "./emoji-picker"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
@@ -57,6 +63,26 @@ export function messageCanShare(m: RenderMsg, compact?: boolean): boolean {
 export function shouldActivateMessageOverlays(target: EventTarget | null): boolean {
   const element = target as { closest?: (selector: string) => unknown } | null
   return !element?.closest?.("button, a, input, textarea, select, [role=button]")
+}
+
+export function messageEventBelongsToRow(
+  target: EventTarget | null,
+  row: { contains?: (target: Node | null) => boolean } | null,
+): boolean {
+  // React portal events follow the component tree, so they can reach the
+  // message row even though their DOM target lives in an overlay elsewhere.
+  // Real row elements always expose `contains`; the fallback keeps lightweight
+  // non-DOM event doubles compatible with these pure render tests.
+  return typeof row?.contains !== "function" || row.contains(target as Node | null)
+}
+
+export function shouldAdoptDesktopMenuInput(
+  pointerType: string | null,
+  row: { contains?: (target: Node | null) => boolean } | null,
+  activeElement: Element | null,
+): boolean {
+  if (pointerType !== "mouse") return false
+  return typeof row?.contains !== "function" || !row.contains(activeElement)
 }
 
 export function shouldSuppressTouchMenuOpen({
@@ -105,6 +131,35 @@ export function createMessageMenuPointAnchor(clientX: number, clientY: number) {
   } satisfies DOMRect
 
   return { getBoundingClientRect: () => rect }
+}
+
+export function messageLinkPointerType(
+  event: Pick<Event, "type"> & {
+    pointerType?: unknown
+    sourceCapabilities?: { firesTouchEvents?: boolean } | null
+  } | null | undefined,
+): string | null {
+  if (!event) return null
+  if (typeof event.pointerType === "string" && event.pointerType) return event.pointerType
+  if (event.sourceCapabilities?.firesTouchEvents) return "touch"
+  return null
+}
+
+export function messageLinkClickUsesMenu({
+  clickPointerType,
+  capturedPointerType,
+  hoverCapable,
+  desktopInputSeen = false,
+}: {
+  clickPointerType: string | null
+  capturedPointerType: string | null
+  hoverCapable: boolean
+  desktopInputSeen?: boolean
+}): boolean {
+  const pointerType = clickPointerType ?? capturedPointerType
+  if (pointerType === "touch" || pointerType === "pen") return true
+  if (pointerType === "mouse") return false
+  return !(hoverCapable || desktopInputSeen)
 }
 
 function MessageImpl({
@@ -181,6 +236,13 @@ function MessageImpl({
   // the browser so message text keeps native selection/copy behavior.
   const [touchMenuOpen, setTouchMenuOpen] = useState(false)
   const [touchMenuAnchor, setTouchMenuAnchor] = useState<ReturnType<typeof createMessageMenuPointAnchor> | null>(null)
+  const [linkTarget, setLinkTarget] = useState<MessageExternalLinkTarget | null>(null)
+  const [desktopMenuInputSeen, setDesktopMenuInputSeen] = useState(false)
+  const linkPointerRef = useRef<{
+    href: string
+    pointerType: string | null
+  } | null>(null)
+  const keyboardLinkActivationRef = useRef(false)
   const touchStartedAt = useRef<number | null>(null)
   const suppressLongPressClick = useRef(false)
   const swipeGestureRef = useRef<MobileReplyGesture | null>(null)
@@ -231,12 +293,71 @@ function MessageImpl({
     // (context-sheet). Undefined only when the surface wired NEITHER.
     onShare: canShare ? (onEnterSelect ?? onShareSingle) : undefined,
   }
+  const linkMenuHandlers = {
+    linkTarget,
+    onCopyLink: (target: MessageExternalLinkTarget) => {
+      void copyMessageExternalLink(target)
+    },
+    onOpenLink: (target: MessageExternalLinkTarget) => {
+      void openMessageExternalLink(target)
+    },
+  }
   const showMenu = hasMessageMenu(menuHandlers)
   const interactive = !compact && !m.failed && showMenu
-  const swipeReplyEnabled = interactive && !hoverCapable && !selectMode && !!onReply
-  const activate = interactive && hoverCapable && !activated
+  const touchInputCapable = !hoverCapable
+  const touchFallbackActive = !desktopMenuInputSeen && touchInputCapable
+  // A hybrid device can alternate between mouse and touch. Switching the menu
+  // shell after a mouse gesture must not remove the row's touch swipe handler.
+  const swipeReplyEnabled = interactive && touchInputCapable && !selectMode && !!onReply
+  const activateOverlays = interactive && !activated
     ? (event: React.SyntheticEvent<HTMLElement>) => {
         if (shouldActivateMessageOverlays(event.target)) setActivated(true)
+      }
+    : undefined
+  const activateLinkOrOverlays = interactive && !activated
+    ? (event: React.SyntheticEvent<HTMLElement>) => {
+        if (messageExternalLinkTargetFromEventTarget(event.target)) {
+          setActivated(true)
+        } else {
+          activateOverlays?.(event)
+        }
+      }
+    : undefined
+  const activate = interactive
+    ? (event: React.PointerEvent<HTMLElement>) => {
+        if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
+        const pointerType = messageLinkPointerType(event.nativeEvent)
+        if (pointerType === "mouse") {
+          // Closing a portal can reveal the stationary mouse over this row and
+          // synthesize pointerenter. Do not swap menu shells underneath a focus
+          // target that was just restored into the row.
+          const activeElement = typeof document === "undefined" ? null : document.activeElement
+          if (shouldAdoptDesktopMenuInput(pointerType, event.currentTarget, activeElement)) {
+            setDesktopMenuInputSeen(true)
+          }
+          activateLinkOrOverlays?.(event)
+        } else if (hoverCapable) {
+          activateOverlays?.(event)
+        }
+      }
+    : undefined
+  const activateFromKeyboard = interactive
+    ? (event: React.KeyboardEvent<HTMLElement>) => {
+        if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
+        if (
+          (event.key === "Enter" || event.key === " ")
+          && !shouldActivateMessageOverlays(event.target)
+        ) {
+          // Keep nested controls mounted so the browser can dispatch their
+          // synthesized click after keydown. For an ordinary external link,
+          // the capture handler consumes this modality ref and leaves the
+          // click direct; relative/in-app controls remain untouched too.
+          keyboardLinkActivationRef.current = !!messageExternalLinkTargetFromEventTarget(event.target)
+          return
+        }
+        keyboardLinkActivationRef.current = false
+        setDesktopMenuInputSeen(true)
+        activateLinkOrOverlays?.(event)
       }
     : undefined
   // In select mode (multi-share), the whole row is a big toggle target and gets
@@ -279,8 +400,25 @@ function MessageImpl({
         ? { transform: `translate3d(${swipeVisual.offset}px, 0, 0)` }
         : undefined}
       onPointerEnter={activate}
+      onPointerDownCapture={interactive
+        ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
+            keyboardLinkActivationRef.current = false
+            const target = messageExternalLinkTargetFromEventTarget(event.target)
+            linkPointerRef.current = target && event.button === 0
+              ? { href: target.href, pointerType: messageLinkPointerType(event.nativeEvent) }
+              : null
+          }
+        : undefined}
+      onPointerCancelCapture={interactive
+        ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
+            linkPointerRef.current = null
+          }
+        : undefined}
       onPointerDown={swipeReplyEnabled
         ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             if (event.pointerType !== "touch") return
             const nested = (event.target as Element).closest?.(
               "button, a, input, textarea, select, [role=button]",
@@ -294,6 +432,7 @@ function MessageImpl({
         : undefined}
       onPointerMove={swipeReplyEnabled
         ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             const current = swipeGestureRef.current
             if (!current || event.pointerType !== "touch") return
             if (selectionBelongsToRow(window.getSelection(), event.currentTarget)) {
@@ -319,6 +458,7 @@ function MessageImpl({
         : undefined}
       onPointerUp={swipeReplyEnabled
         ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             const gesture = swipeGestureRef.current
             if (!gesture || event.pointerType !== "touch") return
             const commit = shouldCommitMobileReply(gesture)
@@ -330,22 +470,29 @@ function MessageImpl({
           }
         : undefined}
       onPointerCancel={swipeReplyEnabled
-        ? () => {
+        ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             swipeGestureRef.current = null
             suppressLongPressClick.current = true
             setSwipeVisual({ offset: 0, active: false, crossed: false })
           }
         : undefined}
-      onFocusCapture={activate}
-      onKeyDownCapture={activate}
-      onTouchStart={interactive && !hoverCapable
-          ? () => {
+      onFocusCapture={hoverCapable
+        ? (event) => {
+            if (messageEventBelongsToRow(event.target, event.currentTarget)) activateOverlays?.(event)
+          }
+        : undefined}
+      onKeyDownCapture={activateFromKeyboard}
+      onTouchStart={interactive && touchFallbackActive
+          ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             touchStartedAt.current = performance.now()
             suppressLongPressClick.current = false
           }
         : undefined}
-      onTouchEnd={interactive && !hoverCapable
-        ? () => {
+      onTouchEnd={interactive && touchFallbackActive
+        ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             const startedAt = touchStartedAt.current
             suppressLongPressClick.current = suppressLongPressClick.current || (
               startedAt !== null && performance.now() - startedAt >= 500
@@ -353,16 +500,20 @@ function MessageImpl({
             touchStartedAt.current = null
           }
         : undefined}
-      onTouchCancel={interactive && !hoverCapable
-          ? () => {
+      onTouchCancel={interactive && touchFallbackActive
+          ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             touchStartedAt.current = null
             suppressLongPressClick.current = true
           }
         : undefined}
       onClick={selectable
-        ? onToggleSelect
-        : interactive && !hoverCapable
+        ? (event) => {
+            if (messageEventBelongsToRow(event.target, event.currentTarget)) onToggleSelect?.()
+          }
+        : interactive && touchFallbackActive
           ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
             const selection = window.getSelection()
             const selectionInsideRow = selectionBelongsToRow(selection, event.currentTarget)
             const controlSelector = "button, a, input, textarea, select, [role=button]"
@@ -386,6 +537,41 @@ function MessageImpl({
               setTouchMenuAnchor(createMessageMenuPointAnchor(event.clientX, event.clientY))
               setTouchMenuOpen(true)
             }
+          }
+        : undefined}
+      onClickCapture={interactive
+        ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
+            const target = messageExternalLinkTargetFromEventTarget(event.target)
+            if (!target) {
+              linkPointerRef.current = null
+              keyboardLinkActivationRef.current = false
+              return
+            }
+            const capturedPointer = linkPointerRef.current?.href === target.href
+              ? linkPointerRef.current.pointerType
+              : null
+            linkPointerRef.current = null
+            const keyboardInputSeen = keyboardLinkActivationRef.current
+            keyboardLinkActivationRef.current = false
+            if (!messageLinkClickUsesMenu({
+              clickPointerType: messageLinkPointerType(event.nativeEvent),
+              capturedPointerType: capturedPointer,
+              hoverCapable,
+              desktopInputSeen: desktopMenuInputSeen || keyboardInputSeen,
+            })) return
+
+            event.preventDefault()
+            event.stopPropagation()
+            setLinkTarget(target)
+            setTouchMenuAnchor(createMessageMenuPointAnchor(event.clientX, event.clientY))
+            setTouchMenuOpen(true)
+          }
+        : undefined}
+      onContextMenuCapture={interactive
+        ? (event) => {
+            if (!messageEventBelongsToRow(event.target, event.currentTarget)) return
+            setLinkTarget(messageExternalLinkTargetFromEventTarget(event.target))
           }
         : undefined}
     >
@@ -661,9 +847,15 @@ function MessageImpl({
   // Coarse/touch input: tap opens the existing dropdown menu. Deliberately do
   // not mount ContextMenuTrigger here — its long-press gesture competes with
   // native message-text selection on iOS/Android.
-  if (!hoverCapable) {
+  if (touchFallbackActive || touchMenuOpen) {
     return (
-      <DropdownMenu open={touchMenuOpen} onOpenChange={setTouchMenuOpen}>
+      <DropdownMenu
+        open={touchMenuOpen}
+        onOpenChange={(open) => {
+          setTouchMenuOpen(open)
+          if (!open) setLinkTarget(null)
+        }}
+      >
         <div className="relative">
           {swipeReplyEnabled && (
             <div
@@ -697,7 +889,7 @@ function MessageImpl({
           collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }}
           className="w-48 select-none"
         >
-          <MessageDropdownItems {...menuHandlers} touch />
+          <MessageDropdownItems {...menuHandlers} {...linkMenuHandlers} touch />
         </DropdownMenuContent>
       </DropdownMenu>
     )
@@ -713,10 +905,15 @@ function MessageImpl({
   // In select mode the row is a toggle target — no context menu / toolbar.
   if (!activated) return row
   return (
-    <ContextMenu onOpenChange={setContextOpen}>
+    <ContextMenu
+      onOpenChange={(open) => {
+        setContextOpen(open)
+        if (!open) setLinkTarget(null)
+      }}
+    >
       <ContextMenuTrigger className="select-text" render={row} />
       <ContextMenuContent className="w-48">
-        <MessageContextItems {...menuHandlers} />
+        <MessageContextItems {...menuHandlers} {...linkMenuHandlers} />
       </ContextMenuContent>
     </ContextMenu>
   )

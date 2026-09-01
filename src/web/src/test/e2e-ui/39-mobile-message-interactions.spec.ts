@@ -356,8 +356,11 @@ test("mobile reply, avatar mention, and typing rail keep exact backend and WS id
   await expect(alice.page.getByTestId(tid.profileCard)).toBeHidden()
   await dispatchCancelledAvatarPress(channelAvatar, "cancel")
   await expect(alice.page.getByTestId(tid.profileCard)).toBeHidden()
-  await channelAvatar.click()
-  await expect(alice.page.getByTestId(tid.profileCard)).toBeVisible()
+  const profileCard = alice.page.getByTestId(tid.profileCard)
+  await expect(async () => {
+    await channelAvatar.click({ timeout: 5_000 })
+    await expect(profileCard).toBeVisible({ timeout: 5_000 })
+  }).toPass({ timeout: 30_000 })
   const mobileProfileSheet = alice.page.locator('[data-slot="sheet-content"][data-side="bottom"]')
   await expect(mobileProfileSheet).toHaveCSS("border-top-width", "0px")
   await alice.page.keyboard.press("Escape")

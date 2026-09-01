@@ -3,14 +3,22 @@ import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { toast } from "sonner"
 import {
+  copyMessageExternalLink,
+  MESSAGE_EXTERNAL_LINK_COPY_ERROR,
+  MESSAGE_EXTERNAL_LINK_COPY_SUCCESS,
   MESSAGE_EXTERNAL_LINK_ERROR,
   MessageExternalLink,
   handleMessageExternalLinkClick,
+  messageExternalLinkTargetFromEventTarget,
+  openMessageExternalLink,
 } from "./message-external-link"
 
-vi.mock("sonner", () => ({ toast: { error: vi.fn() } }))
+vi.mock("sonner", () => ({
+  toast: Object.assign(vi.fn(), { error: vi.fn() }),
+}))
 
 afterEach(() => {
+  vi.clearAllMocks()
   vi.unstubAllGlobals()
 })
 
@@ -109,6 +117,118 @@ describe("handleMessageExternalLinkClick", () => {
 
     expect(openUrl).toHaveBeenCalledOnce()
     expect(onError).toHaveBeenCalledOnce()
+  })
+})
+
+describe("messageExternalLinkTargetFromEventTarget", () => {
+  it("resolves the exact second marked anchor with its complete live href", () => {
+    const first = {
+      href: "https://example.com/first",
+      getAttribute: () => "https://example.com/first",
+    }
+    const second = {
+      href: "https://example.com/second/path?from=message&mode=full#details",
+      getAttribute: () => "https://example.com/second/path?from=message&mode=full#details",
+    }
+    const target = {
+      closest: vi.fn((selector: string) => {
+        expect(selector).toBe("a[data-message-external-link]")
+        return second
+      }),
+    }
+
+    expect(messageExternalLinkTargetFromEventTarget(target as unknown as EventTarget)).toEqual({
+      href: second.href,
+    })
+    expect(messageExternalLinkTargetFromEventTarget({
+      closest: () => first,
+    } as unknown as EventTarget)).toEqual({ href: first.href })
+  })
+
+  it.each([
+    ["non-link", { closest: () => null }],
+    ["browser-normalized relative app route", {
+      closest: () => ({
+        href: "http://localhost:3000/c/me",
+        getAttribute: () => "/c/me",
+      }),
+    }],
+    ["mailto", {
+      closest: () => ({
+        href: "mailto:friend@example.com",
+        getAttribute: () => "mailto:friend@example.com",
+      }),
+    }],
+    ["invalid", {
+      closest: () => ({ href: "not a url", getAttribute: () => "not a url" }),
+    }],
+  ])("rejects a %s target", (_case, target) => {
+    expect(messageExternalLinkTargetFromEventTarget(target as unknown as EventTarget)).toBeNull()
+  })
+})
+
+describe("message external-link menu actions", () => {
+  const target = { href: "https://example.com/story?from=message#section" }
+
+  it("copies the exact href and reports visible success", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+
+    await expect(copyMessageExternalLink(target, { writeText })).resolves.toBe(true)
+
+    expect(writeText).toHaveBeenCalledOnce()
+    expect(writeText).toHaveBeenCalledWith(target.href)
+    expect(toast).toHaveBeenCalledWith(MESSAGE_EXTERNAL_LINK_COPY_SUCCESS)
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["missing", null],
+    ["rejected", vi.fn().mockRejectedValue(new Error("denied"))],
+  ])("reports visible copy failure when clipboard access is %s", async (_case, writeText) => {
+    await expect(copyMessageExternalLink(target, { writeText })).resolves.toBe(false)
+
+    expect(toast.error).toHaveBeenCalledOnce()
+    expect(toast.error).toHaveBeenCalledWith(MESSAGE_EXTERNAL_LINK_COPY_ERROR)
+  })
+
+  it.each([
+    ["a Window proxy", {} as Window],
+    ["the normal null result from an isolated opener", null],
+  ])("opens browser Web exactly once with opener isolation when it returns %s", async (_case, result) => {
+    const openWindow = vi.fn(() => result)
+
+    await openMessageExternalLink(target, { tauri: false, openWindow })
+
+    expect(openWindow).toHaveBeenCalledOnce()
+    expect(openWindow).toHaveBeenCalledWith(
+      target.href,
+      "_blank",
+      "noopener,noreferrer",
+    )
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it("uses the #53 Tauri system-browser opener exactly once", async () => {
+    const openUrl = vi.fn().mockResolvedValue(undefined)
+    const openWindow = vi.fn()
+
+    await openMessageExternalLink(target, { tauri: true, openUrl, openWindow })
+
+    expect(openUrl).toHaveBeenCalledOnce()
+    expect(openUrl).toHaveBeenCalledWith(target.href)
+    expect(openWindow).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["missing browser API", { tauri: false, openWindow: null }],
+    ["throwing browser API", { tauri: false, openWindow: () => { throw new Error("blocked") } }],
+    ["missing Tauri API", { tauri: true, openUrl: null }],
+    ["rejected Tauri API", { tauri: true, openUrl: vi.fn().mockRejectedValue(new Error("denied")) }],
+  ])("reports visible open failure for %s", async (_case, options) => {
+    await openMessageExternalLink(target, options)
+
+    expect(toast.error).toHaveBeenCalledOnce()
+    expect(toast.error).toHaveBeenCalledWith(MESSAGE_EXTERNAL_LINK_ERROR)
   })
 })
 
