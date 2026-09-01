@@ -2,29 +2,7 @@
   "$schema": "./gen/schemas/desktop-schema.json",
   "app": {
     "security": {
-      "capabilities": [
-        "desktop-capability",
-        "external-links",
-        {
-          "identifier": "external-links-development",
-          "description": "Development system-browser access for HTTP(S) links in the local main webview",
-          "windows": ["main"],
-          "platforms": ["linux", "macOS", "windows", "android", "iOS"],
-          "local": false,
-          "remote": {
-            "urls": ["http://localhost:3000"]
-          },
-          "permissions": [
-            {
-              "identifier": "opener:allow-open-url",
-              "allow": [
-                { "url": "http://*" },
-                { "url": "https://*" }
-              ]
-            }
-          ]
-        }
-      ]
+      "capabilities": ["desktop-capability", "external-links"]
     }
   }
 }

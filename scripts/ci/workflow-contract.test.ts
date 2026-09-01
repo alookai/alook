@@ -484,12 +484,12 @@ describe("Native message external-link opener", () => {
     expect(registration).toBeLessThan(desktopOnlyPlugins)
   })
 
-  it("grants only scoped HTTP(S) URL opening to the production five-platform remote webview", () => {
+  it("grants only scoped HTTP(S) URL opening to the production five-platform app webview", () => {
     expect(externalLinksCapability).toMatchObject({
       identifier: "external-links",
       windows: ["main"],
       platforms: expectedPlatforms,
-      local: false,
+      local: true,
       remote: { urls: ["https://alook.ai"] },
       permissions: expectedPermission,
     })
@@ -506,20 +506,18 @@ describe("Native message external-link opener", () => {
     ].some((href) => scopedUrlAllowed(href, externalLinksCapability))).toBe(false)
   })
 
-  it("mirrors the minimal five-platform scope for localhost development only", () => {
+  it("reuses the same minimal HTTP(S) scope for the local development app webview", () => {
     const capabilities = desktopDevConfig.app?.security?.capabilities ?? []
-    const development = capabilities.find((capability): capability is ExternalLinksCapability => (
-      typeof capability !== "string" && capability.identifier === "external-links-development"
+    const inlineOpener = capabilities.find((capability): capability is ExternalLinksCapability => (
+      typeof capability !== "string"
+      && capability.permissions.some((permission) => (
+        typeof permission !== "string" && permission.identifier.startsWith("opener:")
+      ))
     ))
 
     expect(capabilities).toContain("external-links")
-    expect(development).toMatchObject({
-      windows: ["main"],
-      platforms: expectedPlatforms,
-      local: false,
-      remote: { urls: ["http://localhost:3000"] },
-      permissions: expectedPermission,
-    })
+    expect(capabilities.filter((capability) => capability === "external-links")).toHaveLength(1)
+    expect(inlineOpener).toBeUndefined()
   })
 
   it("does not grant default schemes, paths, reveal, shell, or CSP expansion", () => {
@@ -843,7 +841,10 @@ describe("Desktop image clipboard", () => {
       remote: { urls: ["https://alook.ai"] },
       permissions: [writeImagePermission],
     })
-    expect(desktopDevConfig.app.security.capabilities).toEqual(["desktop-capability"])
+    expect(desktopDevConfig.app.security.capabilities).toEqual([
+      "desktop-capability",
+      "external-links",
+    ])
   })
 })
 
