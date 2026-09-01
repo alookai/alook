@@ -1,7 +1,8 @@
 "use client"
 
-import { useLayoutEffect, useRef, useState } from "react"
-import { Bot, CircleStop, MessagesSquare, Shield, UserRound } from "lucide-react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { Bot, CircleStop, LoaderCircle, MessagesSquare, Shield, UserRound } from "lucide-react"
+import { BOT_ACTIVITY_PRESETS } from "@alook/shared"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
@@ -214,6 +215,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
 }) {
   const [msg, setMsg] = useState("")
   const [open, setOpen] = useState(true)
+  const [interruptPending, setInterruptPending] = useState(false)
   const mobile = bp === "mobile"
   const globalProfile = useCommunityProfile(data.userId)
   const liveStatus = data.userId
@@ -224,6 +226,17 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
     : undefined
   const { emoji: statusEmoji, text: statusText } = resolveCardStatus(liveStatus, initialStatusEmoji, initialStatusText)
   const activityStatus = resolveCardStatus(liveStatus, activityStatusEmoji, activityStatusText)
+  const activityIdle = activityStatus.emoji === BOT_ACTIVITY_PRESETS.idle.emoji
+    && activityStatus.text === BOT_ACTIVITY_PRESETS.idle.text
+  useEffect(() => {
+    if (!interruptPending) return
+    if (activityIdle) {
+      setInterruptPending(false)
+      return
+    }
+    const timer = globalThis.setTimeout(() => setInterruptPending(false), 10_000)
+    return () => globalThis.clearTimeout(timer)
+  }, [activityIdle, interruptPending])
   const name = data.userId ? (globalProfile?.name ?? "Unknown") : (data.name ?? "Unknown")
   const avatar = data.userId
     ? (globalProfile?.avatar ?? avatarInitial(name))
@@ -248,6 +261,11 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
     setMsg("")
     if (mobile) onClose()
     else close()
+  }
+  const interruptAgent = () => {
+    if (!data.userId || interruptPending) return
+    setInterruptPending(true)
+    communityWsInterruptAgent(data.userId)
   }
   const card = (
     <>
@@ -418,14 +436,19 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
         active={isBotActivityActive(activityStatus.emoji, activityStatus.text)}
         onOpen={() => onOpenBotAudit?.(data.userId!)}
       />
-      {isBotActivityRunning(activityStatus.emoji, activityStatus.text) && (
+      {(isBotActivityRunning(activityStatus.emoji, activityStatus.text)
+        || (interruptPending && !activityIdle)) && (
         <button
           type="button"
-          onClick={() => communityWsInterruptAgent(data.userId!)}
-          className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-destructive/40 bg-card px-3 text-sm font-medium text-destructive shadow-(--e1) transition-colors hover:bg-destructive/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          onClick={interruptAgent}
+          disabled={interruptPending}
+          aria-label={interruptPending ? "Stopping current agent turn" : "Stop current agent turn"}
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-destructive/40 bg-card px-3 text-sm font-medium text-destructive shadow-(--e1) transition-colors hover:bg-destructive/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-wait disabled:bg-destructive/5 disabled:text-destructive/70"
         >
-          <CircleStop className="size-4" aria-hidden />
-          Stop
+          {interruptPending
+            ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />
+            : <CircleStop className="size-4" aria-hidden />}
+          {interruptPending ? "Stopping…" : "Stop"}
         </button>
       )}
     </div>
