@@ -109,7 +109,6 @@ vi.mock("@/components/community/messages/message-channel-controller", () => ({
       onEdit: vi.fn(),
       onRetry: vi.fn(),
       onPreviewImage: vi.fn(),
-      onDownloadFile: vi.fn(),
     },
     threadActions: {
       onToggleReaction: vi.fn(),
@@ -122,7 +121,6 @@ vi.mock("@/components/community/messages/message-channel-controller", () => ({
       onEdit: vi.fn(),
       onRetry: vi.fn(),
       onPreviewImage: vi.fn(),
-      onDownloadFile: vi.fn(),
     },
     acceptMessage: mocks.acceptMessage,
     handleTyping: mocks.handleTyping,
@@ -287,15 +285,6 @@ describe("ThreadChannelSurface ownership", () => {
     expect(mocks.router.push).toHaveBeenCalledWith("/c/channels/server_1/parent_1?msg=opener_1")
     act(() => opener.props.onPreviewImage?.("https://example.test/image.png"))
     expect(props.uiHandlers.previewImage).toHaveBeenCalledWith("https://example.test/image.png")
-    const anchor = { href: "", download: "", click: vi.fn() }
-    vi.stubGlobal("document", { createElement: vi.fn(() => anchor) })
-    act(() => opener.props.onDownloadFile?.("https://example.test/report.pdf", "report.pdf"))
-    expect(anchor).toEqual(expect.objectContaining({
-      href: "https://example.test/report.pdf",
-      download: "report.pdf",
-    }))
-    expect(anchor.click).toHaveBeenCalledTimes(1)
-
     expect(mockedMessageList).toHaveBeenCalledWith(expect.objectContaining({
       channel: "Thread name",
       messages: expect.arrayContaining([expect.objectContaining({ id: "message_1" })]),

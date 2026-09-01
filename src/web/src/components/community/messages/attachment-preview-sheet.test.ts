@@ -3,6 +3,7 @@ import TestRenderer, { act } from "react-test-renderer"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { AttachmentPreviewSheet, readAttachmentText } from "./attachment-preview-sheet"
 import type { FileAttachment } from "@/lib/community/models/message"
+import { resetAttachmentDownloadsForTest } from "@/lib/community/attachment-download"
 
 const dynamicMock = vi.hoisted(() => ({
   options: null as null | Record<string, unknown>,
@@ -86,6 +87,7 @@ async function flush(): Promise<void> {
 }
 
 afterEach(() => {
+  resetAttachmentDownloadsForTest()
   vi.unstubAllGlobals()
 })
 
@@ -120,8 +122,16 @@ describe("AttachmentPreviewSheet", () => {
   })
 
   it("fetches private Markdown, renders it safely, and exposes metadata/download", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response("# Hello", { status: 200 }))
+    resetAttachmentDownloadsForTest()
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("# Hello", { status: 200 }))
+      .mockResolvedValueOnce(new Response("download bytes", { status: 200 }))
+    const anchor = { href: "", download: "", hidden: false, click: vi.fn(), remove: vi.fn() }
     vi.stubGlobal("fetch", fetchMock)
+    vi.stubGlobal("document", {
+      createElement: vi.fn(() => anchor),
+    })
+    vi.stubGlobal("URL", { createObjectURL: vi.fn(() => "blob:preview"), revokeObjectURL: vi.fn() })
     let renderer: TestRenderer.ReactTestRenderer
     await act(async () => {
       renderer = TestRenderer.create(React.createElement(AttachmentPreviewSheet, {
@@ -134,12 +144,24 @@ describe("AttachmentPreviewSheet", () => {
     expect(fetchMock).toHaveBeenCalledWith("/attachments/a1", expect.objectContaining({ credentials: "same-origin" }))
     expect(renderer!.root.findByProps({ "data-markdown": true }).children).toEqual(["# Hello"])
     const download = renderer!.root.findByProps({ "data-testid": "community-attachment-preview-download" })
-    expect(download.props.href).toBe("/attachments/a1")
-    expect(download.props.download).toBe("notes.md")
+    expect(download.type).toBe("button")
+    expect(download.children.join("")).toContain("Download")
     expect(download.props.className).toContain("h-11")
     expect(download.props.className).toContain("sm:h-7")
-    expect(download.parent?.type).toBe("footer")
+    expect(renderer!.root.findByType("footer").findByProps({
+      "data-testid": "community-attachment-preview-download",
+    })).toBe(download)
     expect(renderer!.root.findByType("p").children.join("")).toContain("text/markdown · 128 B")
+    await act(async () => {
+      download.props.onClick()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/attachments/a1", { credentials: "same-origin" })
+    expect(anchor).toEqual(expect.objectContaining({ href: "blob:preview", download: "notes.md" }))
+    expect(anchor.click).toHaveBeenCalledOnce()
+    expect(renderer!.root.findByProps({ "data-testid": "community-attachment-preview-download" }).children.join(""))
+      .toContain("Download started")
   })
 
   it("aborts the old request on switch and never paints its stale result", async () => {

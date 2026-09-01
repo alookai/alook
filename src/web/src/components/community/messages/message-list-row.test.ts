@@ -32,7 +32,6 @@ const callbacks = {
   onDismiss: vi.fn(),
   onPreviewImage: vi.fn(),
   onPreviewAttachment: vi.fn(),
-  onDownloadFile: vi.fn(),
   resolveUserName: vi.fn(),
 }
 
@@ -121,7 +120,6 @@ describe("renderMessageListRow", () => {
       onJumpToId: controller.jumpTo,
       onPreviewImage: callbacks.onPreviewImage,
       onPreviewAttachment: callbacks.onPreviewAttachment,
-      onDownloadFile: callbacks.onDownloadFile,
       resolveUserName: callbacks.resolveUserName,
       onImageLoad: controller.onImageLoad,
       selectMode: true,

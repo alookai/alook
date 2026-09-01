@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import dynamic from "next/dynamic"
-import { Download, Loader2 } from "lucide-react"
+import { CircleCheck, Download, Loader2, RefreshCw } from "lucide-react"
 import { buttonVariants } from "@/components/ui/button"
 import { CommunitySheet } from "@/components/community/shell/community-sheet"
 import { cn } from "@/lib/utils"
@@ -14,6 +14,10 @@ import {
   MAX_TEXT_ATTACHMENT_PREVIEW_BYTES,
   resolveAttachmentPresentation,
 } from "@/lib/community/attachment-presentation"
+import {
+  attachmentDownloadStatusText,
+  useAttachmentDownload,
+} from "@/lib/community/attachment-download"
 
 const CodePreview = dynamic(
   () => import("./code-preview").then((module) => module.CodePreview),
@@ -38,6 +42,36 @@ type PreviewState =
   | { status: "error"; content: null; error: string }
 
 const IDLE_STATE: PreviewState = { status: "idle", content: null, error: null }
+
+function AttachmentPreviewDownload({ attachment }: { attachment: FileAttachment }) {
+  const download = useAttachmentDownload(attachment)
+  const statusText = attachmentDownloadStatusText(download.state)
+  const Icon = download.state.status === "downloading"
+    ? Loader2
+    : download.state.status === "success"
+      ? CircleCheck
+      : download.state.status === "error"
+        ? RefreshCw
+        : Download
+
+  return (
+    <button
+      type="button"
+      data-testid={tid.attachmentPreviewDownload}
+      onClick={() => void download.start()}
+      disabled={download.state.status === "downloading"}
+      aria-busy={download.state.status === "downloading"}
+      className={buttonVariants({
+        variant: "outline",
+        size: "sm",
+        className: "h-11 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground sm:h-7",
+      })}
+    >
+      <Icon className={`size-3.5 ${download.state.status === "downloading" ? "animate-spin motion-reduce:animate-none" : ""}`} />
+      {statusText ?? "Download"}
+    </button>
+  )
+}
 
 export async function readAttachmentText(
   response: Response,
@@ -143,15 +177,7 @@ export function AttachmentPreviewSheet({
       title={selected?.name ?? "Attachment"}
       description={[selected?.contentType || presentation?.category, size].filter(Boolean).join(" · ")}
       footer={selected && (
-        <a
-          data-testid={tid.attachmentPreviewDownload}
-          href={selected.url}
-          download={selected.name}
-          className={buttonVariants({ variant: "outline", size: "sm", className: "h-11 sm:h-7" })}
-        >
-          <Download className="size-3.5" />
-          Download
-        </a>
+        <AttachmentPreviewDownload attachment={selected} />
       )}
       resizable
       closeLabel="Close attachment preview"

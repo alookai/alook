@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => {
     onToggleReaction: vi.fn(), onReact: vi.fn(), onReply: vi.fn(), onPin: vi.fn(),
     onMark: vi.fn(), onCreateThread: vi.fn(async () => {}), onCopy: vi.fn(), onEdit: vi.fn(),
     onRetry: vi.fn(), onDismiss: vi.fn(), onPreviewImage: vi.fn(),
-    onPreviewAttachment: vi.fn(), onDownloadFile: vi.fn(),
+    onPreviewAttachment: vi.fn(),
   }
   return {
     order,
@@ -518,7 +518,7 @@ describe("useMessageChannelController", () => {
     const actionKeys = [
       "onToggleReaction", "onReact", "onReply", "onPin", "onMark", "onCreateThread",
       "onCopy", "onEdit", "onRetry", "onDismiss", "onPreviewImage",
-      "onPreviewAttachment", "onDownloadFile",
+      "onPreviewAttachment",
     ]
     expect(Object.keys(latest.messageActions)).toEqual(actionKeys)
     expect(Object.keys(latest.threadActions)).toEqual(actionKeys)

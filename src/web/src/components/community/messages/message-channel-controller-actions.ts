@@ -163,11 +163,5 @@ export function createMessageActions({
     onPreviewImage: (image: ImagePreview) => actionContext.current.uiHandlers.previewImage?.(image),
     onPreviewAttachment: (attachment: FileAttachment) =>
       actionContext.current.uiHandlers.previewAttachment?.(attachment),
-    onDownloadFile: (url, name) => {
-      const link = document.createElement("a")
-      link.href = url
-      link.download = name
-      link.click()
-    },
   }
 }

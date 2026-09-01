@@ -41,7 +41,6 @@ export function renderMessageListRow(
             onJumpToId={controller.jumpTo}
             onPreviewImage={props.onPreviewImage}
             onPreviewAttachment={props.onPreviewAttachment}
-            onDownloadFile={props.onDownloadFile}
             resolveUserName={props.resolveUserName}
             onImageLoad={controller.onImageLoad}
             selectMode={controller.selectMode}

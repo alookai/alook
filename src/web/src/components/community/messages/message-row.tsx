@@ -39,7 +39,6 @@ export interface MessageRowProps {
   onJumpToId?: (id: string) => void
   onPreviewImage?: (image: ImagePreview) => void
   onPreviewAttachment?: (attachment: FileAttachment) => void
-  onDownloadFile?: (url: string, name: string) => void
   resolveUserName?: (userId: string) => string
   onImageLoad?: () => void
   // Multi-select share. `selectMode`/`selected` are plain booleans (pass-through);
@@ -58,7 +57,7 @@ function MessageRowImpl(props: MessageRowProps) {
   const {
     m, viewerUserId, hoverCapable, pinned, highlighted, onOpenThread, onOpenProfile,
     onToggleReactionId, onReactId, onReplyId, mentionText, onInsertMentionText, onPinId, onMarkId, onCreateThreadId,
-    onCopyId, onEditId, onRetryId, onDismissId, onJumpToId, onPreviewImage, onPreviewAttachment, onDownloadFile,
+    onCopyId, onEditId, onRetryId, onDismissId, onJumpToId, onPreviewImage, onPreviewAttachment,
     resolveUserName, onImageLoad,
     selectMode, selected, onToggleSelectId, onEnterSelectId, onShareSingleId,
   } = props
@@ -117,7 +116,6 @@ function MessageRowImpl(props: MessageRowProps) {
       onDismiss={onDismissId ? onDismiss : undefined}
       onPreviewImage={onPreviewImage}
       onPreviewAttachment={onPreviewAttachment}
-      onDownloadFile={onDownloadFile}
       resolveUserName={resolveUserName}
       onImageLoad={onImageLoad}
       selectMode={selectMode}
