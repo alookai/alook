@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { messageMenuItems, hasMessageMenu } from "./message-menu"
+import { messageLinkMenuItems, messageMenuItems, hasMessageMenu } from "./message-menu"
 
 // The menu is contract-driven: each item appears ONLY when its handler is
 // supplied, so a surface that can't drive an action omits it (no dead entries).
@@ -78,5 +78,28 @@ describe("messageMenuItems", () => {
       onReply: () => {}, onPin: () => {}, onMark: () => {}, onCopy: () => {},
     }).map((it) => it.label)
     expect(labels).toEqual(["Reply", "Pin Message", "Mark", "Copy Text"])
+  })
+})
+
+describe("messageLinkMenuItems", () => {
+  const linkTarget = { href: "https://example.com/second?mode=full#details" }
+
+  it("stays absent unless one exact target and both actions are available", () => {
+    expect(messageLinkMenuItems({})).toEqual([])
+    expect(messageLinkMenuItems({ linkTarget })).toEqual([])
+    expect(messageLinkMenuItems({ linkTarget, onCopyLink: () => {} })).toEqual([])
+  })
+
+  it("appends Copy Link then Open Link and passes the same structured target", () => {
+    const onCopyLink = vi.fn()
+    const onOpenLink = vi.fn()
+    const items = messageLinkMenuItems({ linkTarget, onCopyLink, onOpenLink })
+
+    expect(items.map((item) => item.label)).toEqual(["Copy Link", "Open Link"])
+    expect(items.every((item) => item.icon === undefined)).toBe(true)
+    items[0]?.onClick?.()
+    items[1]?.onClick?.()
+    expect(onCopyLink).toHaveBeenCalledWith(linkTarget)
+    expect(onOpenLink).toHaveBeenCalledWith(linkTarget)
   })
 })

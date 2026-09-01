@@ -16,7 +16,7 @@
  */
 import { describe, it, expect } from "vitest"
 import { messageCanShare } from "./message"
-import { messageMenuItems } from "./message-menu"
+import { messageLinkMenuItems, messageMenuItems } from "./message-menu"
 import type { RenderMsg } from "@/lib/community/models/message"
 
 const msg = (over: Partial<RenderMsg> = {}): RenderMsg =>
@@ -82,5 +82,17 @@ describe("the menu a content message produces on any surface", () => {
       "Reply",
       "Share as Image",
     ])
+  })
+
+  it("keeps the ordinary list intact and exposes the gesture link suffix separately", () => {
+    const linkTarget = { href: "https://example.com/second?mode=full#details" }
+    const suffix = messageLinkMenuItems({
+      linkTarget,
+      onCopyLink: () => {},
+      onOpenLink: () => {},
+    })
+
+    expect(items.map((item) => item.label).at(-1)).toBe("Share as Image")
+    expect(suffix.map((item) => item.label)).toEqual(["Copy Link", "Open Link"])
   })
 })

@@ -11,7 +11,13 @@ import { ContextMenu, ContextMenuTrigger, ContextMenuContent } from "@/component
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from "@/components/ui/dropdown-menu"
 import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
-import { MessageExternalLink } from "./message-external-link"
+import {
+  copyMessageExternalLink,
+  messageExternalLinkTargetFromEventTarget,
+  MessageExternalLink,
+  openMessageExternalLink,
+  type MessageExternalLinkTarget,
+} from "./message-external-link"
 import { BotApprovalCard } from "../social/bot-approval-card"
 import { EmojiPickerPopover } from "./emoji-picker"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
@@ -107,6 +113,33 @@ export function createMessageMenuPointAnchor(clientX: number, clientY: number) {
   return { getBoundingClientRect: () => rect }
 }
 
+export function messageLinkPointerType(
+  event: Pick<Event, "type"> & {
+    pointerType?: unknown
+    sourceCapabilities?: { firesTouchEvents?: boolean } | null
+  } | null | undefined,
+): string | null {
+  if (!event) return null
+  if (typeof event.pointerType === "string" && event.pointerType) return event.pointerType
+  if (event.sourceCapabilities?.firesTouchEvents) return "touch"
+  return null
+}
+
+export function messageLinkClickUsesMenu({
+  clickPointerType,
+  capturedPointerType,
+  hoverCapable,
+}: {
+  clickPointerType: string | null
+  capturedPointerType: string | null
+  hoverCapable: boolean
+}): boolean {
+  const pointerType = clickPointerType ?? capturedPointerType
+  if (pointerType === "touch" || pointerType === "pen") return true
+  if (pointerType === "mouse") return false
+  return !hoverCapable
+}
+
 function MessageImpl({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onMentionAuthor, onPin, onMark, onCreateThread, onCopy, onEdit, onRetry, onDismiss,
@@ -181,6 +214,12 @@ function MessageImpl({
   // the browser so message text keeps native selection/copy behavior.
   const [touchMenuOpen, setTouchMenuOpen] = useState(false)
   const [touchMenuAnchor, setTouchMenuAnchor] = useState<ReturnType<typeof createMessageMenuPointAnchor> | null>(null)
+  const [linkTarget, setLinkTarget] = useState<MessageExternalLinkTarget | null>(null)
+  const [desktopMenuInputSeen, setDesktopMenuInputSeen] = useState(false)
+  const linkPointerRef = useRef<{
+    href: string
+    pointerType: string | null
+  } | null>(null)
   const touchStartedAt = useRef<number | null>(null)
   const suppressLongPressClick = useRef(false)
   const swipeGestureRef = useRef<MobileReplyGesture | null>(null)
@@ -231,12 +270,39 @@ function MessageImpl({
     // (context-sheet). Undefined only when the surface wired NEITHER.
     onShare: canShare ? (onEnterSelect ?? onShareSingle) : undefined,
   }
+  const linkMenuHandlers = {
+    linkTarget,
+    onCopyLink: (target: MessageExternalLinkTarget) => {
+      void copyMessageExternalLink(target)
+    },
+    onOpenLink: (target: MessageExternalLinkTarget) => {
+      void openMessageExternalLink(target)
+    },
+  }
   const showMenu = hasMessageMenu(menuHandlers)
   const interactive = !compact && !m.failed && showMenu
-  const swipeReplyEnabled = interactive && !hoverCapable && !selectMode && !!onReply
-  const activate = interactive && hoverCapable && !activated
+  const touchFallbackActive = !desktopMenuInputSeen && !hoverCapable
+  const swipeReplyEnabled = interactive && touchFallbackActive && !selectMode && !!onReply
+  const activateOverlays = interactive && !activated
     ? (event: React.SyntheticEvent<HTMLElement>) => {
         if (shouldActivateMessageOverlays(event.target)) setActivated(true)
+      }
+    : undefined
+  const activate = interactive
+    ? (event: React.PointerEvent<HTMLElement>) => {
+        const pointerType = messageLinkPointerType(event.nativeEvent)
+        if (pointerType === "mouse") {
+          setDesktopMenuInputSeen(true)
+          activateOverlays?.(event)
+        } else if (hoverCapable) {
+          activateOverlays?.(event)
+        }
+      }
+    : undefined
+  const activateFromKeyboard = interactive
+    ? (event: React.KeyboardEvent<HTMLElement>) => {
+        setDesktopMenuInputSeen(true)
+        activateOverlays?.(event)
       }
     : undefined
   // In select mode (multi-share), the whole row is a big toggle target and gets
@@ -279,6 +345,19 @@ function MessageImpl({
         ? { transform: `translate3d(${swipeVisual.offset}px, 0, 0)` }
         : undefined}
       onPointerEnter={activate}
+      onPointerDownCapture={interactive
+        ? (event) => {
+            const target = messageExternalLinkTargetFromEventTarget(event.target)
+            linkPointerRef.current = target && event.button === 0
+              ? { href: target.href, pointerType: messageLinkPointerType(event.nativeEvent) }
+              : null
+          }
+        : undefined}
+      onPointerCancelCapture={interactive
+        ? () => {
+            linkPointerRef.current = null
+          }
+        : undefined}
       onPointerDown={swipeReplyEnabled
         ? (event) => {
             if (event.pointerType !== "touch") return
@@ -336,15 +415,15 @@ function MessageImpl({
             setSwipeVisual({ offset: 0, active: false, crossed: false })
           }
         : undefined}
-      onFocusCapture={activate}
-      onKeyDownCapture={activate}
-      onTouchStart={interactive && !hoverCapable
+      onFocusCapture={hoverCapable ? activateOverlays : undefined}
+      onKeyDownCapture={activateFromKeyboard}
+      onTouchStart={interactive && touchFallbackActive
           ? () => {
             touchStartedAt.current = performance.now()
             suppressLongPressClick.current = false
           }
         : undefined}
-      onTouchEnd={interactive && !hoverCapable
+      onTouchEnd={interactive && touchFallbackActive
         ? () => {
             const startedAt = touchStartedAt.current
             suppressLongPressClick.current = suppressLongPressClick.current || (
@@ -353,7 +432,7 @@ function MessageImpl({
             touchStartedAt.current = null
           }
         : undefined}
-      onTouchCancel={interactive && !hoverCapable
+      onTouchCancel={interactive && touchFallbackActive
           ? () => {
             touchStartedAt.current = null
             suppressLongPressClick.current = true
@@ -361,7 +440,7 @@ function MessageImpl({
         : undefined}
       onClick={selectable
         ? onToggleSelect
-        : interactive && !hoverCapable
+        : interactive && touchFallbackActive
           ? (event) => {
             const selection = window.getSelection()
             const selectionInsideRow = selectionBelongsToRow(selection, event.currentTarget)
@@ -386,6 +465,35 @@ function MessageImpl({
               setTouchMenuAnchor(createMessageMenuPointAnchor(event.clientX, event.clientY))
               setTouchMenuOpen(true)
             }
+          }
+        : undefined}
+      onClickCapture={interactive
+        ? (event) => {
+            const target = messageExternalLinkTargetFromEventTarget(event.target)
+            if (!target) {
+              linkPointerRef.current = null
+              return
+            }
+            const capturedPointer = linkPointerRef.current?.href === target.href
+              ? linkPointerRef.current.pointerType
+              : null
+            linkPointerRef.current = null
+            if (!messageLinkClickUsesMenu({
+              clickPointerType: messageLinkPointerType(event.nativeEvent),
+              capturedPointerType: capturedPointer,
+              hoverCapable,
+            })) return
+
+            event.preventDefault()
+            event.stopPropagation()
+            setLinkTarget(target)
+            setTouchMenuAnchor(createMessageMenuPointAnchor(event.clientX, event.clientY))
+            setTouchMenuOpen(true)
+          }
+        : undefined}
+      onContextMenuCapture={interactive
+        ? (event) => {
+            setLinkTarget(messageExternalLinkTargetFromEventTarget(event.target))
           }
         : undefined}
     >
@@ -661,9 +769,15 @@ function MessageImpl({
   // Coarse/touch input: tap opens the existing dropdown menu. Deliberately do
   // not mount ContextMenuTrigger here — its long-press gesture competes with
   // native message-text selection on iOS/Android.
-  if (!hoverCapable) {
+  if (touchFallbackActive || touchMenuOpen) {
     return (
-      <DropdownMenu open={touchMenuOpen} onOpenChange={setTouchMenuOpen}>
+      <DropdownMenu
+        open={touchMenuOpen}
+        onOpenChange={(open) => {
+          setTouchMenuOpen(open)
+          if (!open) setLinkTarget(null)
+        }}
+      >
         <div className="relative">
           {swipeReplyEnabled && (
             <div
@@ -697,7 +811,7 @@ function MessageImpl({
           collisionAvoidance={{ side: "flip", align: "shift", fallbackAxisSide: "none" }}
           className="w-48 select-none"
         >
-          <MessageDropdownItems {...menuHandlers} touch />
+          <MessageDropdownItems {...menuHandlers} {...linkMenuHandlers} touch />
         </DropdownMenuContent>
       </DropdownMenu>
     )
@@ -713,10 +827,15 @@ function MessageImpl({
   // In select mode the row is a toggle target — no context menu / toolbar.
   if (!activated) return row
   return (
-    <ContextMenu onOpenChange={setContextOpen}>
+    <ContextMenu
+      onOpenChange={(open) => {
+        setContextOpen(open)
+        if (!open) setLinkTarget(null)
+      }}
+    >
       <ContextMenuTrigger className="select-text" render={row} />
       <ContextMenuContent className="w-48">
-        <MessageContextItems {...menuHandlers} />
+        <MessageContextItems {...menuHandlers} {...linkMenuHandlers} />
       </ContextMenuContent>
     </ContextMenu>
   )
