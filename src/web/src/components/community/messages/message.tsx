@@ -129,15 +129,17 @@ export function messageLinkClickUsesMenu({
   clickPointerType,
   capturedPointerType,
   hoverCapable,
+  desktopInputSeen = false,
 }: {
   clickPointerType: string | null
   capturedPointerType: string | null
   hoverCapable: boolean
+  desktopInputSeen?: boolean
 }): boolean {
   const pointerType = clickPointerType ?? capturedPointerType
   if (pointerType === "touch" || pointerType === "pen") return true
   if (pointerType === "mouse") return false
-  return !hoverCapable
+  return !(hoverCapable || desktopInputSeen)
 }
 
 function MessageImpl({
@@ -220,6 +222,7 @@ function MessageImpl({
     href: string
     pointerType: string | null
   } | null>(null)
+  const keyboardLinkActivationRef = useRef(false)
   const touchStartedAt = useRef<number | null>(null)
   const suppressLongPressClick = useRef(false)
   const swipeGestureRef = useRef<MobileReplyGesture | null>(null)
@@ -288,12 +291,21 @@ function MessageImpl({
         if (shouldActivateMessageOverlays(event.target)) setActivated(true)
       }
     : undefined
+  const activateLinkOrOverlays = interactive && !activated
+    ? (event: React.SyntheticEvent<HTMLElement>) => {
+        if (messageExternalLinkTargetFromEventTarget(event.target)) {
+          setActivated(true)
+        } else {
+          activateOverlays?.(event)
+        }
+      }
+    : undefined
   const activate = interactive
     ? (event: React.PointerEvent<HTMLElement>) => {
         const pointerType = messageLinkPointerType(event.nativeEvent)
         if (pointerType === "mouse") {
           setDesktopMenuInputSeen(true)
-          activateOverlays?.(event)
+          activateLinkOrOverlays?.(event)
         } else if (hoverCapable) {
           activateOverlays?.(event)
         }
@@ -301,8 +313,20 @@ function MessageImpl({
     : undefined
   const activateFromKeyboard = interactive
     ? (event: React.KeyboardEvent<HTMLElement>) => {
+        if (
+          (event.key === "Enter" || event.key === " ")
+          && !shouldActivateMessageOverlays(event.target)
+        ) {
+          // Keep nested controls mounted so the browser can dispatch their
+          // synthesized click after keydown. For an ordinary external link,
+          // the capture handler consumes this modality ref and leaves the
+          // click direct; relative/in-app controls remain untouched too.
+          keyboardLinkActivationRef.current = !!messageExternalLinkTargetFromEventTarget(event.target)
+          return
+        }
+        keyboardLinkActivationRef.current = false
         setDesktopMenuInputSeen(true)
-        activateOverlays?.(event)
+        activateLinkOrOverlays?.(event)
       }
     : undefined
   // In select mode (multi-share), the whole row is a big toggle target and gets
@@ -347,6 +371,7 @@ function MessageImpl({
       onPointerEnter={activate}
       onPointerDownCapture={interactive
         ? (event) => {
+            keyboardLinkActivationRef.current = false
             const target = messageExternalLinkTargetFromEventTarget(event.target)
             linkPointerRef.current = target && event.button === 0
               ? { href: target.href, pointerType: messageLinkPointerType(event.nativeEvent) }
@@ -472,16 +497,20 @@ function MessageImpl({
             const target = messageExternalLinkTargetFromEventTarget(event.target)
             if (!target) {
               linkPointerRef.current = null
+              keyboardLinkActivationRef.current = false
               return
             }
             const capturedPointer = linkPointerRef.current?.href === target.href
               ? linkPointerRef.current.pointerType
               : null
             linkPointerRef.current = null
+            const keyboardInputSeen = keyboardLinkActivationRef.current
+            keyboardLinkActivationRef.current = false
             if (!messageLinkClickUsesMenu({
               clickPointerType: messageLinkPointerType(event.nativeEvent),
               capturedPointerType: capturedPointer,
               hoverCapable,
+              desktopInputSeen: desktopMenuInputSeen || keyboardInputSeen,
             })) return
 
             event.preventDefault()

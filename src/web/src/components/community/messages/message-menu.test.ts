@@ -96,7 +96,8 @@ describe("messageLinkMenuItems", () => {
     const items = messageLinkMenuItems({ linkTarget, onCopyLink, onOpenLink })
 
     expect(items.map((item) => item.label)).toEqual(["Copy Link", "Open Link"])
-    expect(items.every((item) => item.icon === undefined)).toBe(true)
+    expect(items[0]?.icon).toBeUndefined()
+    expect(items[1]?.icon).toBeDefined()
     items[0]?.onClick?.()
     items[1]?.onClick?.()
     expect(onCopyLink).toHaveBeenCalledWith(linkTarget)

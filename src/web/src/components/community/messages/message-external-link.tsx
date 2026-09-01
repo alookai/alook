@@ -42,9 +42,15 @@ export function messageExternalLinkTargetFromEventTarget(
   target: EventTarget | null,
 ): MessageExternalLinkTarget | null {
   const anchor = (target as { closest?: (selector: string) => unknown } | null)
-    ?.closest?.("a[data-message-external-link]") as { href?: unknown } | null | undefined
+    ?.closest?.("a[data-message-external-link]") as {
+      href?: unknown
+      getAttribute?: (name: string) => string | null
+    } | null | undefined
+  const authoredHref = anchor?.getAttribute?.("href") ?? undefined
   const href = anchor?.href
-  return typeof href === "string" && isAbsoluteHttpUrl(href) ? { href } : null
+  return isAbsoluteHttpUrl(authoredHref) && typeof href === "string" && isAbsoluteHttpUrl(href)
+    ? { href }
+    : null
 }
 
 function readTauriOpenUrl(): OpenUrl | null {

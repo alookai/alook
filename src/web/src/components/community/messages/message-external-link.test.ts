@@ -122,9 +122,13 @@ describe("handleMessageExternalLinkClick", () => {
 
 describe("messageExternalLinkTargetFromEventTarget", () => {
   it("resolves the exact second marked anchor with its complete live href", () => {
-    const first = { href: "https://example.com/first" }
+    const first = {
+      href: "https://example.com/first",
+      getAttribute: () => "https://example.com/first",
+    }
     const second = {
       href: "https://example.com/second/path?from=message&mode=full#details",
+      getAttribute: () => "https://example.com/second/path?from=message&mode=full#details",
     }
     const target = {
       closest: vi.fn((selector: string) => {
@@ -143,9 +147,21 @@ describe("messageExternalLinkTargetFromEventTarget", () => {
 
   it.each([
     ["non-link", { closest: () => null }],
-    ["relative app route", { closest: () => ({ href: "/c/channels/s1/c1" }) }],
-    ["mailto", { closest: () => ({ href: "mailto:friend@example.com" }) }],
-    ["invalid", { closest: () => ({ href: "not a url" }) }],
+    ["browser-normalized relative app route", {
+      closest: () => ({
+        href: "http://localhost:3000/c/me",
+        getAttribute: () => "/c/me",
+      }),
+    }],
+    ["mailto", {
+      closest: () => ({
+        href: "mailto:friend@example.com",
+        getAttribute: () => "mailto:friend@example.com",
+      }),
+    }],
+    ["invalid", {
+      closest: () => ({ href: "not a url", getAttribute: () => "not a url" }),
+    }],
   ])("rejects a %s target", (_case, target) => {
     expect(messageExternalLinkTargetFromEventTarget(target as unknown as EventTarget)).toBeNull()
   })

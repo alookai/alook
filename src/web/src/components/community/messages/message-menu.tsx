@@ -1,4 +1,4 @@
-import { Reply, Pin, Share } from "lucide-react"
+import { ExternalLink, Reply, Pin, Share } from "lucide-react"
 import { ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import type { MessageExternalLinkTarget } from "./message-external-link"
@@ -9,8 +9,9 @@ import type { MessageExternalLinkTarget } from "./message-external-link"
 type Item = { label: string; icon?: typeof Pin; danger?: boolean; onClick?: () => void }
 
 // Menu design (locked spec, uiux #14 — Gus/Alli, "less is more"): ONE flat list, no
-// sections/divider. Only the HIGH-FREQUENCY actions carry an icon (Reply, Share) —
-// there the icon is a navigation anchor you scan straight to. The low-frequency
+// sections/divider. In the ordinary message-action list, only the HIGH-FREQUENCY
+// actions carry an icon (Reply, Share) — there the icon is a navigation anchor
+// you scan straight to. The low-frequency
 // actions (React / Thread / Pin / Copy) are text only: their labels are
 // self-explanatory, so an icon adds no recognition value, just noise. To keep every
 // label's left edge aligned, the icon-less rows render an icon-width placeholder in
@@ -75,7 +76,7 @@ export function messageLinkMenuItems({
   if (!linkTarget || !onCopyLink || !onOpenLink) return []
   return [
     { label: "Copy Link", onClick: () => onCopyLink(linkTarget) },
-    { label: "Open Link", onClick: () => onOpenLink(linkTarget) },
+    { label: "Open Link", icon: ExternalLink, onClick: () => onOpenLink(linkTarget) },
   ]
 }
 
@@ -98,7 +99,7 @@ export function MessageContextItems(props: MessageMenuHandlers & MessageLinkMenu
       {linkItems.length > 0 && <ContextMenuSeparator />}
       {linkItems.map((it) => (
         <ContextMenuItem key={it.label} onClick={it.onClick}>
-          <IconSlot /> {it.label}
+          <IconSlot icon={it.icon} /> {it.label}
         </ContextMenuItem>
       ))}
     </>
@@ -129,7 +130,7 @@ export function MessageDropdownItems({
           onClick={it.onClick}
           className={touch ? "min-h-11" : undefined}
         >
-          <IconSlot /> {it.label}
+          <IconSlot icon={it.icon} /> {it.label}
         </DropdownMenuItem>
       ))}
     </>

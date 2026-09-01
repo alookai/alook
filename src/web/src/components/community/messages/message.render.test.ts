@@ -349,10 +349,12 @@ describe("Message embed links", () => {
 
 describe("Message ordinary-link gesture ownership", () => {
   const secondHref = "https://example.com/second/path?from=message&mode=full#details"
+  const linkAnchor = { href: secondHref, getAttribute: () => secondHref }
   const linkEventTarget = {
-    closest: (selector: string) => selector === "a[data-message-external-link]"
-      ? { href: secondHref }
-      : null,
+    closest: (selector: string) => (
+      selector === "a[data-message-external-link]"
+      || selector === "button, a, input, textarea, select, [role=button]"
+    ) ? linkAnchor : null,
   }
   const findRow = (renderer: TestRenderer.ReactTestRenderer) => renderer.root.find(
     (node) => typeof node.props.className === "string"
@@ -381,6 +383,12 @@ describe("Message ordinary-link gesture ownership", () => {
     })).toBe(true)
     expect(messageLinkClickUsesMenu({
       clickPointerType: null, capturedPointerType: null, hoverCapable: true,
+    })).toBe(false)
+    expect(messageLinkClickUsesMenu({
+      clickPointerType: null,
+      capturedPointerType: null,
+      hoverCapable: false,
+      desktopInputSeen: true,
     })).toBe(false)
   })
 
@@ -422,7 +430,9 @@ describe("Message ordinary-link gesture ownership", () => {
     expect(renderer!.root.findAllByProps({ "data-slot": "dropdown-menu-separator" })).toHaveLength(0)
   })
 
-  it("switches a touch-default fallback to the desktop menu for keyboard input", async () => {
+  it("keeps keyboard Enter direct on a touch-default fallback", async () => {
+    const openUrl = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal("window", { __TAURI__: { opener: { openUrl } } })
     let renderer: TestRenderer.ReactTestRenderer
     await act(async () => {
       renderer = TestRenderer.create(makeTree({
@@ -432,14 +442,36 @@ describe("Message ordinary-link gesture ownership", () => {
         onCopy: vi.fn(),
       }), { createNodeMock: () => genericMock })
     })
-    let row = findRow(renderer!)
+    const row = findRow(renderer!)
     act(() => row.props.onKeyDownCapture({
-      key: "ContextMenu",
-      target: { closest: () => null },
+      key: "Enter",
+      target: linkEventTarget,
     }))
-    row = findRow(renderer!)
 
-    expect(row.props["data-slot"]).toBe("context-menu-trigger")
+    const anchor = renderer!.root.findAllByType("a")
+      .find((node) => node.props.href === secondHref)
+    expect(anchor).toBeDefined()
+    const click = {
+      button: 0,
+      clientX: 0,
+      clientY: 0,
+      defaultPrevented: false,
+      target: linkEventTarget,
+      nativeEvent: { type: "click" },
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    }
+    await act(async () => {
+      row.props.onClickCapture(click)
+      anchor!.props.onClick(click)
+      await Promise.resolve()
+    })
+
+    expect(click.preventDefault).toHaveBeenCalledOnce()
+    expect(click.stopPropagation).toHaveBeenCalledOnce()
+    expect(openUrl).toHaveBeenCalledOnce()
+    expect(openUrl).toHaveBeenCalledWith(secondHref)
+    expect(renderer!.root.findAllByProps({ "data-slot": "dropdown-menu-separator" })).toHaveLength(0)
   })
 
   it("opens the existing menu first for a real touch tap on a hover-capable hybrid", async () => {
@@ -520,7 +552,7 @@ describe("Message ordinary-link gesture ownership", () => {
     })
     let row = findRow(renderer!)
     act(() => row.props.onPointerEnter({
-      target: { closest: () => null },
+      target: linkEventTarget,
       nativeEvent: { type: "pointerenter", pointerType: "mouse" },
     }))
     row = findRow(renderer!)
