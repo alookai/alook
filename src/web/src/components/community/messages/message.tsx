@@ -11,6 +11,7 @@ import { ContextMenu, ContextMenuTrigger, ContextMenuContent } from "@/component
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from "@/components/ui/dropdown-menu"
 import { Avatar } from "../avatar"
 import { MessageBody } from "./message-body"
+import { MessageExternalLink } from "./message-external-link"
 import { BotApprovalCard } from "../social/bot-approval-card"
 import { EmojiPickerPopover } from "./emoji-picker"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
@@ -556,7 +557,7 @@ function MessageImpl({
                           <span className="grid size-5 place-items-center rounded-full bg-muted text-[9px] font-semibold text-muted-foreground">{avatarInitial(embed.author.name)}</span>
                         )}
                         {embed.author.url ? (
-                          <a href={embed.author.url} target="_blank" rel="noopener noreferrer" className="text-xs font-medium hover:underline">{embed.author.name}</a>
+                          <MessageExternalLink href={embed.author.url} target="_blank" rel="noopener noreferrer" className="text-xs font-medium hover:underline">{embed.author.name}</MessageExternalLink>
                         ) : (
                           <span className="text-xs font-medium">{embed.author.name}</span>
                         )}
@@ -564,7 +565,7 @@ function MessageImpl({
                     )}
                     {embed.provider && <div className="text-xs text-muted-foreground">{embed.provider}</div>}
                     {embed.url ? (
-                      <a href={embed.url} target="_blank" rel="noopener noreferrer" className="mt-1 block font-medium text-primary hover:underline">{embed.title}</a>
+                      <MessageExternalLink href={embed.url} target="_blank" rel="noopener noreferrer" className="mt-1 block font-medium text-primary hover:underline">{embed.title}</MessageExternalLink>
                     ) : (
                       <div className="mt-1 font-medium">{embed.title}</div>
                     )}

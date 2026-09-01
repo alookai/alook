@@ -45,7 +45,8 @@
     ],
     "security": {
       "capabilities": [
-        "desktop-capability"
+        "desktop-capability",
+        "external-links"
       ]
     }
   },

@@ -290,6 +290,37 @@ describe("Message reply content projection", () => {
   })
 })
 
+describe("Message embed links", () => {
+  it("routes author and title URLs through the shared external-link anchor", () => {
+    let renderer: TestRenderer.ReactTestRenderer
+    act(() => {
+      renderer = TestRenderer.create(makeTree({
+        m: baseMsg({
+          embeds: [{
+            title: "Example story",
+            url: "https://example.com/story?from=embed",
+            author: {
+              name: "Example author",
+              url: "https://example.com/author",
+            },
+          }],
+        }),
+        onOpenThread: vi.fn(),
+      }), { createNodeMock: () => genericMock })
+    })
+
+    const links = renderer!.root.findAllByProps({ "data-message-external-link": true })
+    expect(links).toHaveLength(2)
+    expect(links.map((link) => link.props.href)).toEqual([
+      "https://example.com/author",
+      "https://example.com/story?from=embed",
+    ])
+    expect(links.every((link) => (
+      link.props.target === "_blank" && link.props.rel === "noopener noreferrer"
+    ))).toBe(true)
+  })
+})
+
 describe("Message reaction picker", () => {
   it("opens the non-hover picker and suppresses its Shadow DOM selection click at the row", async () => {
     vi.stubGlobal("window", { getSelection: () => null })
